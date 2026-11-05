@@ -9,6 +9,13 @@ import (
 // core.PlatformEvent, which only publishes it (events.jsonl + [[hooks]]). The bot's own actions
 // and servers outside allow_guilds are skipped.
 
+// SetPlatformEventHandler implements core.PlatformEventSource.
+func (p *Platform) SetPlatformEventHandler(h core.PlatformEventHandler) {
+	p.mu.Lock()
+	p.eventHandler = h
+	p.mu.Unlock()
+}
+
 func (p *Platform) addEventHandlers(s *discordgo.Session) {
 	s.AddHandler(p.handleReactionAdd)
 	s.AddHandler(p.handleReactionRemove)
@@ -25,7 +32,10 @@ func (p *Platform) emitEvent(s *discordgo.Session, ev core.PlatformEvent) {
 		return
 	}
 	p.mu.RLock()
-	h, _ := p.lifecycleHandler.(core.PlatformEventHandler)
+	h := p.eventHandler
+	if h == nil {
+		h, _ = p.lifecycleHandler.(core.PlatformEventHandler)
+	}
 	p.mu.RUnlock()
 	if h == nil {
 		return

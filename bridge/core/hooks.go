@@ -46,6 +46,36 @@ type HookConfig struct {
 	URL     string `toml:"url" json:"url,omitempty"`
 	Timeout int    `toml:"timeout" json:"timeout,omitempty"` // seconds; 0 = default (10s cmd, 5s http)
 	Async   *bool  `toml:"async" json:"async,omitempty"`     // nil = true (async by default)
+	// Filters (platform events, core/member_events.go): fire only when the event's server /
+	// channel / user is one of these (id, or name, case-insensitive). Empty = any. An event
+	// without that field (e.g. message.received has no server) does not match a filtered hook.
+	Guilds   []string `toml:"guilds" json:"guilds,omitempty"`
+	Channels []string `toml:"channels" json:"channels,omitempty"`
+	Users    []string `toml:"users" json:"users,omitempty"`
+}
+
+// matchFilter: the hook's server/channel/user filters accept this event.
+func (h *HookConfig) matchFilter(e HookEvent) bool {
+	user, _ := e.Extra["user"].(string)
+	return filterHit(h.Guilds, e.GuildID, e.GuildName) &&
+		filterHit(h.Channels, e.ChannelID, e.ChannelName) &&
+		filterHit(h.Users, e.UserID, user)
+}
+
+func filterHit(list []string, id, name string) bool {
+	if len(list) == 0 {
+		return true
+	}
+	for _, v := range list {
+		v = strings.TrimPrefix(strings.TrimSpace(v), "#")
+		if v == "" {
+			continue
+		}
+		if (id != "" && v == id) || (name != "" && strings.EqualFold(v, name)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *HookConfig) isAsync() bool {
@@ -64,16 +94,21 @@ func (h *HookConfig) timeoutDuration() time.Duration {
 
 // HookEvent is the payload delivered to hook handlers.
 type HookEvent struct {
-	Event      HookEventType  `json:"event"`
-	Timestamp  time.Time      `json:"timestamp"`
-	Project    string         `json:"project"`
-	SessionKey string         `json:"session_key,omitempty"`
-	Platform   string         `json:"platform,omitempty"`
-	UserID     string         `json:"user_id,omitempty"`
-	UserName   string         `json:"user_name,omitempty"`
-	Content    string         `json:"content,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	Extra      map[string]any `json:"extra,omitempty"`
+	Event      HookEventType `json:"event"`
+	Timestamp  time.Time     `json:"timestamp"`
+	Project    string        `json:"project"`
+	SessionKey string        `json:"session_key,omitempty"`
+	Platform   string        `json:"platform,omitempty"`
+	UserID     string        `json:"user_id,omitempty"`
+	UserName   string        `json:"user_name,omitempty"`
+	Content    string        `json:"content,omitempty"`
+	Error      string        `json:"error,omitempty"`
+	// Platform events: where it happened.
+	GuildID     string         `json:"guild_id,omitempty"`
+	GuildName   string         `json:"guild,omitempty"`
+	ChannelID   string         `json:"channel_id,omitempty"`
+	ChannelName string         `json:"channel,omitempty"`
+	Extra       map[string]any `json:"extra,omitempty"`
 }
 
 // HookManager dispatches lifecycle events to configured hook handlers.
@@ -145,7 +180,7 @@ func (hm *HookManager) Emit(event HookEvent) {
 
 	for i := range hooks {
 		h := &hooks[i]
-		if !matchEvent(h.Event, string(event.Event)) {
+		if !matchEvent(h.Event, string(event.Event)) || !h.matchFilter(event) {
 			continue
 		}
 		if h.isAsync() {
@@ -157,10 +192,13 @@ func (hm *HookManager) Emit(event HookEvent) {
 }
 
 // matchEvent checks if a hook's event pattern matches the fired event.
-// Supports exact match and wildcard "*".
+// Supports exact match, wildcard "*", and a group "member.*" (any event starting "member.").
 func matchEvent(pattern, event string) bool {
 	if pattern == "*" {
 		return true
+	}
+	if strings.HasSuffix(pattern, ".*") {
+		return len(event) > len(pattern)-1 && strings.EqualFold(event[:len(pattern)-1], pattern[:len(pattern)-1])
 	}
 	return strings.EqualFold(pattern, event)
 }
@@ -270,8 +308,14 @@ func eventToEnv(e HookEvent) []string {
 	if id, ok := e.Extra["agent_session_id"].(string); ok && id != "" {
 		env = append(env, "CC_HOOK_AGENT_SESSION_ID="+id)
 	}
-	if e.Event == HookEventMemberJoined || e.Event == HookEventMemberLeft { // #1060: server, display name
-		for k, name := range map[string]string{"guild_id": "CC_HOOK_GUILD_ID", "guild": "CC_HOOK_GUILD", "display_name": "CC_HOOK_DISPLAY_NAME", "channel_id": "CC_HOOK_CHANNEL_ID"} {
+	for k, v := range map[string]string{"CC_HOOK_GUILD_ID": e.GuildID, "CC_HOOK_GUILD": e.GuildName, "CC_HOOK_CHANNEL_ID": e.ChannelID, "CC_HOOK_CHANNEL": e.ChannelName} {
+		if v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	if _, ok := e.Extra["event"]; ok && e.Extra["platform"] != nil { // platform event (core/member_events.go)
+		for k, name := range map[string]string{"display_name": "CC_HOOK_DISPLAY_NAME", "message_id": "CC_HOOK_MESSAGE_ID",
+			"emoji": "CC_HOOK_EMOJI", "from_channel_id": "CC_HOOK_FROM_CHANNEL_ID", "thread_id": "CC_HOOK_THREAD_ID"} {
 			if v, ok := e.Extra[k].(string); ok && v != "" {
 				env = append(env, name+"="+v)
 			}

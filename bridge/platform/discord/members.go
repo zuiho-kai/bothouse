@@ -88,53 +88,5 @@ func (p *Platform) PlatformNotice() string {
 	if p.membersIntent.Load() != membersOff {
 		return ""
 	}
-	return "没开 SERVER MEMBERS INTENT，新人进群收不到通知：到 Discord 开发者后台 → Bot → Privileged Gateway Intents 打开它并保存，再重启 bothouse。" + p.membersIntentFixURL()
-}
-
-func (p *Platform) handleMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
-	if m == nil || m.Member == nil {
-		return
-	}
-	p.emitMemberEvent(s, m.Member, false)
-}
-
-func (p *Platform) handleMemberRemove(s *discordgo.Session, m *discordgo.GuildMemberRemove) {
-	if m == nil || m.Member == nil {
-		return
-	}
-	p.emitMemberEvent(s, m.Member, true)
-}
-
-func (p *Platform) emitMemberEvent(s *discordgo.Session, mem *discordgo.Member, left bool) {
-	if mem.User == nil || mem.User.ID == "" || mem.User.ID == p.botID || !p.guildAllowed(mem.GuildID) {
-		return
-	}
-	p.mu.RLock()
-	h, _ := p.lifecycleHandler.(core.MemberEventHandler)
-	p.mu.RUnlock()
-	if h == nil {
-		return
-	}
-	ev := core.MemberEvent{
-		Left: left, GuildID: mem.GuildID, UserID: mem.User.ID, UserName: mem.User.Username,
-		DisplayName: mem.Nick, Bot: mem.User.Bot,
-	}
-	if ev.DisplayName == "" {
-		ev.DisplayName = mem.User.GlobalName
-	}
-	var g *discordgo.Guild
-	if s != nil && s.State != nil {
-		g, _ = s.State.Guild(mem.GuildID)
-	}
-	if g == nil && s != nil {
-		g, _ = s.Guild(mem.GuildID)
-	}
-	if g != nil {
-		ev.GuildName = g.Name
-		ev.ChannelID = g.SystemChannelID
-	}
-	if ev.ChannelID != "" {
-		ev.SessionKey = p.makeSessionKey(ev.ChannelID, p.botID)
-	}
-	h.OnMemberEvent(p.selfPlatform(), ev)
+	return "没开 SERVER MEMBERS INTENT，收不到进群、退群事件（member.joined / member.left）：到 Discord 开发者后台 → Bot → Privileged Gateway Intents 打开它并保存，再重启 bothouse。" + p.membersIntentFixURL()
 }

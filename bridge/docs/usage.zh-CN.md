@@ -13,7 +13,7 @@ bothouse 完整功能使用指南。
 - [飞书配置 CLI](#飞书配置-cli)
 - [微信个人号配置 CLI](#微信个人号配置-cli)
 - [Claude Code Router 集成](#claude-code-router-集成)
-- [新成员进群事件（Discord）](#新成员进群事件discord)
+- [平台事件触发器](#平台事件触发器)
 - [Claude Code PermissionRequest Hooks](#claude-code-permissionrequest-hooks)
 - [语音消息（语音转文字）](#语音消息语音转文字)
 - [语音回复（文字转语音）](#语音回复文字转语音)
@@ -543,25 +543,71 @@ router_api_key = "your-secret-key"
 
 ---
 
-## 新成员进群事件（Discord）
+## 平台事件触发器
 
-有人进、退 Discord 服务器时，桥只发一个事件，不叫醒任何角色、不发任何话；要欢迎、登记还是别的，由你订阅后自己决定。
+服务器上发生的事（有人进群、加表情、建频道、进语音、置顶……）桥只发事件，不叫醒任何角色、不发任何话，默认谁都不订阅。想做什么（欢迎、记录、叫醒某个角色），自己订阅后决定。
 
-前提：Discord 开发者后台 → 你的应用 → Bot → Privileged Gateway Intents，打开 **SERVER MEMBERS INTENT** 并保存，再重启 bothouse。没开时桥照常连上，只是收不到这个事件，主角色会在频道里提醒一次，面板角色页和向导也会显示。
+### 事件表
 
-事件有两处可以拿到：
+| 事件名 | 什么时候 | Discord | 飞书 |
+|---|---|---|---|
+| `member.joined` | 有人进服务器 / 群 | 需开 SERVER MEMBERS INTENT | 需在开放平台订阅「用户进群」 |
+| `member.left` | 有人退出或被移出 | 同上 | 需订阅「用户出群」 |
+| `reaction.added` | 有人给消息加表情 | 已接 | 已接 |
+| `reaction.removed` | 有人取消表情 | 已接 | 已接 |
+| `channel.created` | 新建频道 | 已接 | 无对应 |
+| `channel.deleted` | 删除频道 | 已接 | 需订阅「群解散」 |
+| `thread.created` | 新开子区（thread） | 已接 | 无对应 |
+| `voice.joined` | 有人进语音频道 | 已接 | 无对应 |
+| `voice.left` | 有人离开语音 | 已接 | 无对应 |
+| `voice.moved` | 在语音频道之间换 | 已接 | 无对应 |
+| `pins.updated` | 频道置顶或取消置顶（Discord 不区分） | 已接 | 无对应 |
 
-- `<data_dir>/events.jsonl`：一行 `"type":"member"`，`data` 里有 `action`（joined / left）、`user_id`、`user`、`display_name`、`guild`、`guild_id`、`bot`、`channel_id`，`time` 是事件时间。
-- `[[hooks]]`：事件名 `member.joined`（进群）和 `member.left`（退群），用法和 `agent.closed` 一样。
+飞书没有「服务器」，群就是频道（`channel_id` 是群 id）；飞书的表情事件不带群 id，只有消息 id，所以 `channels` 过滤对它不生效。飞书的进出群、群解散要先在开放平台「事件与回调」里订阅对应事件才会收到。
+
+机器人自己的动作不发事件；Discord 配了 `allow_guilds` 时，名单外的服务器也不发。
+
+只有成员事件要额外开权限：Discord 开发者后台 → 你的应用 → Bot → Privileged Gateway Intents，打开 **SERVER MEMBERS INTENT** 并保存，再重启 bothouse。没开时桥照常连上，只是没有 `member.*` 事件；主角色会在频道里提醒一次，面板角色页和向导也会显示。其他事件不用开任何东西。
+
+### 在哪拿到
+
+- `<data_dir>/events.jsonl`：每个事件一行 `"type":"event"`，`data.event` 是事件名，其余字段见下。
+- `[[hooks]]`：`event` 写事件名，用法和 `agent.closed` 一样；可写 `member.*`、`voice.*` 订一组，`*` 订全部。
+
+### 按服务器 / 频道 / 用户过滤
+
+`[[hooks]]` 可加 `guilds`、`channels`、`users` 三个名单，写 id 或名字（名字不分大小写，频道名前的 `#` 可写可不写）。三个都不写就是全收；写了的要都对上才触发。没有这一项的事件（如 `message.received` 没有服务器）不会触发带这个名单的钩子。
 
 ```toml
+# 有人进 conest-e2e-test 服务器
 [[hooks]]
 event = "member.joined"
+guilds = ["conest-e2e-test"]
 type = "command"
-command = "python3 ~/scripts/on_join.py"   # 自己的脚本：欢迎、登记、叫醒角色都由它决定
+command = "python3 ~/scripts/on_join.py"
+
+# #公告 频道里的表情，只看两个人
+[[hooks]]
+event = "reaction.*"
+channels = ["公告"]
+users = ["123456789012345678", "alice"]
+type = "http"
+url = "http://127.0.0.1:8080/reaction"
+
+# 语音进出全收
+[[hooks]]
+event = "voice.*"
+type = "command"
+command = "echo \"$CC_HOOK_TIMESTAMP $CC_HOOK_EVENT $CC_HOOK_USER_NAME $CC_HOOK_CHANNEL\" >> ~/voice.log"
 ```
 
-`type = "command"` 的钩子从环境变量拿到：`CC_HOOK_EVENT`、`CC_HOOK_TIMESTAMP`（时间）、`CC_HOOK_PLATFORM`、`CC_HOOK_USER_ID`、`CC_HOOK_USER_NAME`（显示名，带账号名）、`CC_HOOK_DISPLAY_NAME`、`CC_HOOK_GUILD`（服务器名）、`CC_HOOK_GUILD_ID`、`CC_HOOK_CHANNEL_ID`（服务器的系统频道，有才给）、`CC_HOOK_SESSION_KEY`、`CC_HOOK_USER_IS_BOT=1`（进来的是机器人时）。`type = "http"` 的钩子收到同样内容的 JSON（服务器等字段在 `extra` 里）。想让角色接待，在脚本里用 `bothouse timer add --delay 1m --prompt "…"` 或 `bothouse send` 自己发。
+### 钩子拿到什么
+
+`type = "command"` 的环境变量：`CC_HOOK_EVENT`（事件名）、`CC_HOOK_TIMESTAMP`、`CC_HOOK_PLATFORM`、`CC_HOOK_USER_ID`、`CC_HOOK_USER_NAME`（显示名，带账号名）、`CC_HOOK_DISPLAY_NAME`、`CC_HOOK_USER_IS_BOT=1`（是机器人时）、`CC_HOOK_GUILD_ID`、`CC_HOOK_GUILD`（服务器名）、`CC_HOOK_CHANNEL_ID`、`CC_HOOK_CHANNEL`（频道名）、`CC_HOOK_SESSION_KEY`；表情事件另有 `CC_HOOK_MESSAGE_ID`、`CC_HOOK_EMOJI`；`voice.moved` / `voice.left` 有 `CC_HOOK_FROM_CHANNEL_ID`；`thread.created` 有 `CC_HOOK_THREAD_ID`（`CC_HOOK_CHANNEL_ID` 是它的父频道）；`member.joined` 的频道是服务器的系统频道（有才给）。没有的值不设。
+
+`type = "http"` 收到 JSON：`event`、`timestamp`、`platform`、`user_id`、`user_name`、`guild_id`、`guild`、`channel_id`、`channel`、`session_key`，以及 `extra`（和 events.jsonl 的 `data` 相同）。
+
+想让某个角色接待新人，在脚本里调 `bothouse timer add --delay 1m --prompt "…"` 或 `bothouse send`。
 
 ## Claude Code PermissionRequest Hooks
 
