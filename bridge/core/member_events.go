@@ -6,31 +6,69 @@ import (
 	"time"
 )
 
-// Server member events (#1058/#1060, user 11-05 「这个只是单纯的一个事件驱动功能，别人愿意搞什么欢迎
-// 别人愿意搞什么……我们只是提供一个接口和一个平台」「他们如果没开的话，你就提醒他们去开这个权限」).
+// Platform events: a general event trigger (#1058/#1060/#1061, user 11-05 「这个只是单纯的一个事件驱动
+// 功能……我们只是提供一个接口和一个平台」「还有其他事件可以按力度触发，就是别人想搞什么都可以用我们这个
+// 事件触发器」「他们如果没开的话，你就提醒他们去开这个权限」).
 //
-// A platform that sees people join or leave a server (Discord GUILD_MEMBER_ADD/REMOVE, which
-// needs the privileged Server Members Intent) reports it through MemberEventHandler. The
-// engine only publishes it: one line in events.jsonl and the [[hooks]] events member.joined /
-// member.left (user id, name, server, time). It wakes no role and sends nothing; what to do
-// with a newcomer is up to whoever subscribes. A bot without the intent connects as before and
-// the lead tells the user, on each start, where to turn it on.
+// A platform reports what happens on a server (someone joins, reacts, opens a channel, enters
+// voice, pins…) as a PlatformEvent. The engine only publishes it: one line in events.jsonl
+// (type "event") and the [[hooks]] event of the same name, which a hook can narrow to given
+// servers / channels / users (HookConfig.Guilds/Channels/Users). Nothing is subscribed by default;
+// no role is woken and nothing is sent. Events that need an intent the bot does not have make
+// the lead tell the user, on each start, where to turn it on.
 
-// StreamEventMember: one member joined or left a server (events.jsonl).
-const StreamEventMember = "member"
+// StreamEventPlatform: one platform event (events.jsonl); data.event is the event name.
+const StreamEventPlatform = "event"
 
-// MemberEvent is one join or leave seen by a platform.
-type MemberEvent struct {
-	Left        bool   // false: joined; true: left
-	GuildID     string // server id
+// Platform event names ([[hooks]] event = "<name>"; "member.*" etc. match a group).
+const (
+	HookEventMemberJoined    HookEventType = "member.joined"    // someone joined a server / group
+	HookEventMemberLeft      HookEventType = "member.left"      // someone left (or was removed)
+	HookEventReactionAdded   HookEventType = "reaction.added"   // an emoji reaction was added to a message
+	HookEventReactionRemoved HookEventType = "reaction.removed" // a reaction was taken off
+	HookEventChannelCreated  HookEventType = "channel.created"  // a channel was created
+	HookEventChannelDeleted  HookEventType = "channel.deleted"  // a channel was deleted
+	HookEventThreadCreated   HookEventType = "thread.created"   // a thread was opened
+	HookEventVoiceJoined     HookEventType = "voice.joined"     // someone entered a voice channel
+	HookEventVoiceLeft       HookEventType = "voice.left"       // someone left voice
+	HookEventVoiceMoved      HookEventType = "voice.moved"      // someone moved between voice channels
+	HookEventPinsUpdated     HookEventType = "pins.updated"     // a message was pinned or unpinned in a channel
+)
+
+// PlatformEventNames lists every platform event, in table order (docs, tests).
+var PlatformEventNames = []HookEventType{
+	HookEventMemberJoined, HookEventMemberLeft, HookEventReactionAdded, HookEventReactionRemoved,
+	HookEventChannelCreated, HookEventChannelDeleted, HookEventThreadCreated,
+	HookEventVoiceJoined, HookEventVoiceLeft, HookEventVoiceMoved, HookEventPinsUpdated,
+}
+
+// PlatformEvent is one thing a platform saw happen. Empty fields are omitted.
+type PlatformEvent struct {
+	Name        HookEventType
+	GuildID     string // server (Discord) / tenant-less group chat id (Feishu: the chat)
 	GuildName   string
-	UserID      string
+	ChannelID   string // channel the event is about (reaction / pin / thread parent / voice channel / new channel)
+	ChannelName string
+	UserID      string // who did it (joined, reacted, entered voice…)
 	UserName    string // account name
 	DisplayName string // server nickname / global name, when set
-	Bot         bool
-	// ChannelID / SessionKey: the server's system channel, when it has one (passed to hooks as is).
-	ChannelID  string
-	SessionKey string
+	Bot         bool   // the user is a bot
+	MessageID   string // reaction.*: the message reacted to
+	Emoji       string // reaction.*: the emoji (unicode, or name:id for custom)
+	FromChannel string // voice.moved / voice.left: the voice channel before
+	ThreadID    string // thread.created: the thread; ChannelID is its parent
+	SessionKey  string // session of ChannelID, when the platform has one (passed to hooks as is)
+}
+
+// PlatformEventHandler is implemented by Engine; platforms type-assert their lifecycle handler.
+type PlatformEventHandler interface {
+	OnPlatformEvent(p Platform, ev PlatformEvent)
+}
+
+// PlatformEventSource: a platform that publishes platform events; the engine hands it the
+// handler before Start (Discord also reaches it through its lifecycle handler).
+type PlatformEventSource interface {
+	SetPlatformEventHandler(h PlatformEventHandler)
 }
 
 // MemberIntentNotice: the bot connected without the member intent (it is off in the developer
@@ -41,10 +79,8 @@ type MemberIntentNotice struct {
 	FixURL  string
 }
 
-// MemberEventHandler is implemented by Engine; platforms type-assert their lifecycle handler.
+// MemberEventHandler: after each connect, whether the privileged member intent is on.
 type MemberEventHandler interface {
-	OnMemberEvent(p Platform, ev MemberEvent)
-	// OnMemberIntent reports, after each connect, whether member events are on.
 	OnMemberIntent(p Platform, on bool, n MemberIntentNotice)
 }
 
@@ -58,42 +94,55 @@ func (e *Engine) memberNoticeTarget() bool {
 	return e.team == nil || e.isTeamLead()
 }
 
-// Hook event names for member joins/leaves.
-const (
-	HookEventMemberJoined HookEventType = "member.joined"
-	HookEventMemberLeft   HookEventType = "member.left"
-)
-
-func (e *Engine) OnMemberEvent(p Platform, ev MemberEvent) {
-	if e == nil || p == nil || ev.UserID == "" {
-		return
+func (ev PlatformEvent) data(platform string) map[string]any {
+	d := map[string]any{"event": string(ev.Name), "platform": platform}
+	for k, v := range map[string]string{
+		"guild_id": ev.GuildID, "guild": ev.GuildName, "channel_id": ev.ChannelID, "channel": ev.ChannelName,
+		"user_id": ev.UserID, "user": ev.UserName, "display_name": ev.DisplayName, "message_id": ev.MessageID,
+		"emoji": ev.Emoji, "from_channel_id": ev.FromChannel, "thread_id": ev.ThreadID,
+	} {
+		if v != "" {
+			d[k] = v
+		}
 	}
-	verb, hookEv := "joined", HookEventMemberJoined
-	if ev.Left {
-		verb, hookEv = "left", HookEventMemberLeft
+	if ev.Bot {
+		d["bot"] = true
 	}
-	now := time.Now()
-	who := memberLabel(ev)
-	data := map[string]any{
-		"platform": p.Name(), "action": verb, "guild_id": ev.GuildID, "guild": ev.GuildName,
-		"user_id": ev.UserID, "user": ev.UserName, "display_name": ev.DisplayName, "bot": ev.Bot,
-		"channel_id": ev.ChannelID,
-	}
-	e.emitStreamEvent(StreamEventMember, ev.SessionKey, who+" "+verb+" "+ev.GuildName, data)
-	e.hooks.Emit(HookEvent{
-		Event: hookEv, Timestamp: now, SessionKey: ev.SessionKey, Platform: p.Name(),
-		UserID: ev.UserID, UserName: who, Extra: data,
-	})
-	slog.Info("member event", "project", e.name, "guild", ev.GuildID, "user", ev.UserID, "action", verb)
+	return d
 }
 
-func memberLabel(ev MemberEvent) string {
+func (e *Engine) OnPlatformEvent(p Platform, ev PlatformEvent) {
+	if e == nil || p == nil || ev.Name == "" {
+		return
+	}
+	data := ev.data(p.Name())
+	who := platformEventLabel(ev)
+	text := string(ev.Name)
+	if who != "" {
+		text = who + " " + text
+	}
+	if ev.GuildName != "" {
+		text += " " + ev.GuildName
+	}
+	e.emitStreamEvent(StreamEventPlatform, ev.SessionKey, text, data)
+	e.hooks.Emit(HookEvent{
+		Event: ev.Name, Timestamp: time.Now(), SessionKey: ev.SessionKey, Platform: p.Name(),
+		UserID: ev.UserID, UserName: who, GuildID: ev.GuildID, GuildName: ev.GuildName,
+		ChannelID: ev.ChannelID, ChannelName: ev.ChannelName, Extra: data,
+	})
+	slog.Debug("platform event", "project", e.name, "event", ev.Name, "guild", ev.GuildID, "channel", ev.ChannelID, "user", ev.UserID)
+}
+
+func platformEventLabel(ev PlatformEvent) string {
 	name := ev.DisplayName
 	if name == "" {
 		name = ev.UserName
 	}
 	if ev.UserName != "" && name != ev.UserName {
 		name += "（" + ev.UserName + "）"
+	}
+	if name == "" {
+		name = ev.UserID
 	}
 	return name
 }
@@ -131,7 +180,7 @@ func (e *Engine) OnMemberIntent(p Platform, on bool, n MemberIntentNotice) {
 		Project:     e.name,
 		SessionKey:  chat,
 		ScheduledAt: time.Now(),
-		Prompt: "[系统提醒] 你的 Discord 机器人「" + n.BotName + "」没开 SERVER MEMBERS INTENT，有人进群、退群时桥收不到，member.joined / member.left 事件不会触发。这不是用户发来的消息。" +
+		Prompt: "[系统提醒] 你的 Discord 机器人「" + n.BotName + "」没开 SERVER MEMBERS INTENT，有人进群、退群时桥收不到，member.joined / member.left 事件不会触发（其他事件不受影响）。这不是用户发来的消息。" +
 			"在本频道用一两句话告诉用户：打开 " + n.FixURL + "（Discord 开发者后台 → Bot），在 Privileged Gateway Intents 里打开 SERVER MEMBERS INTENT 并保存，然后重启 bothouse；不开也不影响平时聊天，只是没有进群事件。",
 		Description:   "提醒打开成员权限",
 		Silent:        &silent,

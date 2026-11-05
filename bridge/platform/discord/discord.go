@@ -112,8 +112,9 @@ type Platform struct {
 	seenInteractions           sync.Map             // interaction ID dedup: prevents duplicate slash/button events
 	decidedPermits             decidedPermits       // maomao fork: delegated approvals already decided by their requester (permit_dedupe.go)
 	self                       core.Platform
-	membersIntent              atomic.Int32 // maomao fork: Server Members Intent on this connect (members.go)
-	membersDenied              atomic.Bool  // maomao fork: Discord closed with 4014 once; stop asking for it
+	eventHandler               core.PlatformEventHandler // maomao fork: platform events (events.go)
+	membersIntent              atomic.Int32              // maomao fork: Server Members Intent on this connect (members.go)
+	membersDenied              atomic.Bool               // maomao fork: Discord closed with 4014 once; stop asking for it
 
 	mu               sync.RWMutex
 	session          *discordgo.Session
@@ -732,8 +733,11 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 	session.Client = &http.Client{Transport: &silentTransport{base: base, isSilent: p.isSilentChannel}, Timeout: 60 * time.Second}
 
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
+	// maomao fork (#1061): platform events (events.go) — reactions and voice need two more
+	// non-privileged intents; member join/leave needs the privileged one (members.go).
+	session.Identify.Intents |= discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuildVoiceStates
+	p.addEventHandlers(session)
 	if p.wantMembersIntent(session) {
-		// maomao fork (#1058): member join/leave events wake the lead (members.go).
 		session.Identify.Intents |= discordgo.IntentsGuildMembers
 		session.AddHandler(p.handleMemberAdd)
 		session.AddHandler(p.handleMemberRemove)

@@ -124,6 +124,7 @@ type replyContext struct {
 }
 
 type Platform struct {
+	platformEvents             core.PlatformEventHandler // maomao fork: platform events (events.go)
 	mu                         sync.RWMutex
 	platformName               string
 	domain                     string
@@ -546,10 +547,24 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 			return nil
 		}).
 		OnP2MessageReactionCreatedV1(func(ctx context.Context, event *larkim.P2MessageReactionCreatedV1) error {
-			return nil // ignore reaction events (triggered by our own addReaction)
+			p.fanOutEvent(reactionCreatedEvent(event)) // own reactions (operator app) are dropped there
+			return nil
 		}).
 		OnP2MessageReactionDeletedV1(func(ctx context.Context, event *larkim.P2MessageReactionDeletedV1) error {
-			return nil // ignore reaction removal events (triggered by our own removeReaction)
+			p.fanOutEvent(reactionDeletedEvent(event))
+			return nil
+		}).
+		OnP2ChatMemberUserAddedV1(func(ctx context.Context, event *larkim.P2ChatMemberUserAddedV1) error {
+			p.fanOutEvent(memberAddedEvents(event)...)
+			return nil
+		}).
+		OnP2ChatMemberUserDeletedV1(func(ctx context.Context, event *larkim.P2ChatMemberUserDeletedV1) error {
+			p.fanOutEvent(memberDeletedEvents(event)...)
+			return nil
+		}).
+		OnP2ChatDisbandedV1(func(ctx context.Context, event *larkim.P2ChatDisbandedV1) error {
+			p.fanOutEvent(chatDisbandedEvent(event))
+			return nil
 		}).
 		OnP2CardActionTrigger(func(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
 			// Fan out card actions: try each platform, return first non-nil response.

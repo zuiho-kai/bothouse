@@ -2984,6 +2984,9 @@ func (e *Engine) Start() error {
 		if async, ok := p.(AsyncRecoverablePlatform); ok {
 			async.SetLifecycleHandler(e)
 		}
+		if src, ok := p.(PlatformEventSource); ok {
+			src.SetPlatformEventHandler(e) // platform events (core/member_events.go)
+		}
 		if sc, ok := p.(SilentChannelAware); ok {
 			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
 			sc.SetSilentChannel(e.isTeamWorkspaceChat)
