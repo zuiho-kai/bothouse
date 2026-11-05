@@ -21,6 +21,9 @@
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
+  board backlog                          # 列出待办：排在 bug 后面的小问题、非阻塞的验收发现。默认列表和置顶团队板都不显示它们
+  board backlog <编号...> [--why 原因]     # 把条目挪进待办：留在板上（不删、不进 board-done.jsonl），默认列表和置顶团队板
+                                         #   只留一行「待办 N 件」；条目在工作区里时同 pause 放回工作区。恢复用 board resume <编号>
   board pause <编号> [原因]               # 暂停：留在板上、团队板单列「暂停」块，不算做完、不进 board-done.jsonl；
                                          #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
