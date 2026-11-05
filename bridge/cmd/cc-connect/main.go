@@ -1358,9 +1358,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	}
 
 	// Wire sender injection
-	if proj.InjectSender != nil {
-		engine.SetInjectSender(*proj.InjectSender)
-	}
+	engine.SetInjectSender(proj.InjectSenderEnabled())
 
 	// Wire speech-to-text if enabled
 	if cfg.Speech.Enabled {
@@ -2101,7 +2099,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	}
 
 	// Reload sender injection
-	engine.SetInjectSender(proj.InjectSender != nil && *proj.InjectSender)
+	engine.SetInjectSender(proj.InjectSenderEnabled())
 
 	// Reload attachment send-back switch
 	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
