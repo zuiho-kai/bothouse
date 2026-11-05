@@ -3833,6 +3833,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 
 	session := sessions.GetOrCreateActive(msg.SessionKey)
 	sessions.UpdateUserMeta(msg.SessionKey, msg.UserName, msg.ChatName)
+	if msg.Direct {
+		sessions.MarkDirect(msg.SessionKey)
+	}
 	if e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}

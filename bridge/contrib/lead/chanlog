@@ -12,6 +12,8 @@
   - user 消息 = 用户的话，以及桥塞进来的「频道里你上次看到之后的消息」，里面是一行行
     「[时:分，…] 名字: 话」，按行头认出是谁说的。
 同一句话会出现在好几个 bot 的记录里（每个 bot 都看得到频道），按「说话人+正文前 80 字」去重。
+私聊只给对应角色看（#1068）：由角色调用（有 CC_PROJECT）时，别的角色和用户的私聊不搜；自己的私聊照搜；
+主角色（lead.json，与桥的 bothouse sessions 同一规则）和终端里的人看全部。
 为什么有它：11-01 工作区要找鲸鱼娘、彩虹猫骂架构图的原话，sessions.py 只搜 Claude 会话、wiki 没记，找不到。
 """
 import argparse
@@ -35,20 +37,92 @@ def speaker_alias(name: str) -> str:
     return "用户:" + name.strip()  # 不是哪个 bot，就是频道里的真人
 
 
+def _chat_key(key: str) -> str:
+    """会话 key 所在频道「平台:频道」；relay:<来源>:<平台>:<频道>… 归到它转发所在的频道。"""
+    if key.startswith("relay:"):
+        parts = key.split(":", 2)
+        if len(parts) == 3:
+            key = parts[2]
+    parts = key.split(":", 2)
+    return ":".join(parts[:2]) if len(parts) >= 2 else key
+
+
+def _lead_project() -> str:
+    """主角色项目名：lead.json 的 lead（或按 name 对上 config.toml 的 team_name）。"""
+    try:
+        sel = json.loads((DATA / "lead.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    lead, name = (sel.get("lead") or "").strip(), (sel.get("name") or "").strip()
+    projs = []
+    try:
+        import tomllib
+        with open(DATA / "config.toml", "rb") as f:
+            projs = tomllib.load(f).get("projects") or []
+    except Exception:  # noqa: BLE001
+        pass
+    if not projs:
+        return lead
+    for p in projs:
+        if lead and p.get("name") == lead:
+            return lead
+    for p in projs:
+        if name and p.get("team_name") == name:
+            return p.get("name") or ""
+    return ""
+
+
+def _hidden_private(files):
+    """调用的角色看不到的私聊频道。私聊没有频道名（平台存空或存成频道 id），任何角色记过真名的频道算公开；
+    收到过私信（user_meta.direct）的算私聊。同桥 cmd/cc-connect/sessions_privacy.go。"""
+    viewer = (os.environ.get("CC_PROJECT") or "").strip()
+    if not viewer or viewer == _lead_project():
+        return set()
+    named, direct, owned = set(), set(), {}
+    for proj, d in files:
+        meta = d.get("user_meta") or {}
+        for key in (d.get("user_sessions") or {}):
+            chat = _chat_key(key)
+            m = meta.get(key) or {}
+            if m.get("direct"):
+                direct.add(chat)
+            if proj == viewer:
+                owned[chat] = True
+            if key.startswith("relay"):
+                continue
+            name = (m.get("chat_name") or "").strip()
+            if name and name != chat.split(":", 1)[-1]:
+                named.add(chat)
+    out = set()
+    for proj, d in files:
+        if proj == viewer:
+            continue
+        for key in (d.get("user_sessions") or {}):
+            chat = _chat_key(key)
+            if chat in direct or chat not in named:
+                out.add((proj, key))
+    return out
+
+
 def records():
+    files = []
     for f in sorted(glob.glob(str(DATA / "sessions" / "*_*.json"))):
         proj = Path(f).name.split("_")[0]
         try:
             with open(f, encoding="utf-8") as source:
-                d = json.load(source)
+                files.append((proj, json.load(source)))
         except Exception:  # noqa: BLE001
             continue
+    hidden = _hidden_private(files)
+    for proj, d in files:
         chan = {}
         for key, ids in (d.get("user_sessions") or {}).items():
             for sid in ids:
                 chan[sid] = key
         for sid, s in (d.get("sessions") or {}).items():
             where = chan.get(sid, s.get("name") or sid)
+            if (proj, chan.get(sid, "")) in hidden:
+                continue
             for m in s.get("history") or []:
                 c = m.get("content") or ""
                 ts = m.get("timestamp") or ""
