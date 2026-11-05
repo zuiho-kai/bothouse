@@ -7362,6 +7362,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// The card was finalized "completed" above, which promises a reply in the next message.
 				cp.Finalize(ProgressCardStateSilent)
 			}
+			// #1109: a model refusal posts one line, and a refused verification goes to another role.
+			if !isSilent {
+				state.mu.Lock()
+				jobID := state.currentJobID
+				state.mu.Unlock()
+				if line := e.refusalReply(jobID, baseResponse); line != "" {
+					baseResponse, cleanResponse = line, line
+				}
+			}
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
 			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
