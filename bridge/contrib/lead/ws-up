@@ -170,7 +170,8 @@ def main(argv):
         say(key, f"🧪 测试活，未报回聊天频道：{rest[0][:300]}", _team.project())
         print(f"ws-up: 测试活（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
-    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path,
+    # 队友跑的工作区（ws-handoff pick_worker 记了 lead）：报回交活的主角色，不是在聊天频道叫醒自己
+    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, rec.get("lead") or _team.project(), rec.get("task") or "", rec.get("file") or path,
                                  next(iter(rec.get("board") or []), 0)),
                        capture_output=True, text=True)
     if r.returncode != 0:
