@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -357,6 +358,20 @@ func refreshCollabStaged(sub fs.FS, targetDir string, deps []byte) (err error) {
 		}
 		return fmt.Errorf("swap in new plugin: %w", err)
 	}
+	// pnpm on Windows links packages with directory junctions, which hold absolute paths: after
+	// the rename they still lead into the staging directory, which no longer exists, and the
+	// plugin cannot load its dependencies (reported 11-05: channels stay disabled after an
+	// upgrade). Unix pnpm writes relative symlinks, which the rename keeps valid.
+	if n, err := relinkMovedTree(filepath.Join(live, "node_modules"), stage, live); err != nil {
+		if rerr := os.Rename(live, stage); rerr == nil {
+			if rerr = os.Rename(prev, live); rerr != nil {
+				slog.Error("dsh refresh: could not put the old plugin back", "error", rerr)
+			}
+		}
+		return fmt.Errorf("repoint dependency links after the swap: %w", err)
+	} else if n > 0 {
+		slog.Info("dsh refresh: repointed dependency links", "count", n)
+	}
 	if err := os.RemoveAll(prev); err != nil {
 		slog.Warn("dsh refresh: old plugin copy left behind", "path", prev, "error", err)
 	}
@@ -402,4 +417,61 @@ func copyTreeExcept(src, dst, skip string) error {
 			return os.WriteFile(dest, data, info.Mode().Perm())
 		}
 	})
+}
+
+// relinkMovedTree repoints every link under root whose target lies inside from (a directory that
+// was renamed to to) at the same place under to, and returns how many it changed. Links are not
+// followed; relative links and links elsewhere are left alone.
+func relinkMovedTree(root, from, to string) (int, error) {
+	n := 0
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) && p == root {
+				return fs.SkipDir
+			}
+			return walkErr
+		}
+		// Windows junctions show up as ModeIrregular (Go ≥1.23) or ModeSymlink; neither is walked into.
+		if p == root || d.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			return nil
+		}
+		target, err := os.Readlink(p)
+		if err != nil {
+			return nil // a reparse point that is not a link
+		}
+		rest, ok := pathWithin(target, from)
+		if !ok {
+			return nil
+		}
+		if err := os.Remove(p); err != nil { // removes the link, not what it points to
+			return fmt.Errorf("remove stale link %s: %w", p, err)
+		}
+		if err := linkDir(filepath.Join(to, rest), p); err != nil {
+			return fmt.Errorf("relink %s: %w", p, err)
+		}
+		n++
+		return nil
+	})
+	return n, err
+}
+
+// pathWithin reports whether p is dir or below it (case-insensitively on Windows) and returns
+// the remainder relative to dir.
+func pathWithin(p, dir string) (string, bool) {
+	if !filepath.IsAbs(p) {
+		return "", false
+	}
+	p, dir = filepath.Clean(p), filepath.Clean(dir)
+	eq := func(a, b string) bool { return a == b }
+	if runtime.GOOS == "windows" {
+		eq = strings.EqualFold
+	}
+	if eq(p, dir) {
+		return ".", true
+	}
+	sep := string(filepath.Separator)
+	if len(p) > len(dir) && eq(p[:len(dir)], dir) && p[len(dir):len(dir)+1] == sep {
+		return p[len(dir)+1:], true
+	}
+	return "", false
 }
