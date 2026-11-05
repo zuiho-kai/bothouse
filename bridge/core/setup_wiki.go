@@ -379,6 +379,11 @@ func AddWikiCronJobs(c WizardCron, project, sessionKey, dir, sub string) (added,
 // muted shell jobs, so they run without a reply context (engine.go ExecuteCronJob).
 const cloudWebWikiSession = "cloud_web:wiki"
 
+// noChannelWikiSession: the session the wiki jobs are anchored to when the run has no default channel (a headless
+// `setup apply` with only guild_id, as on the agentm container 2026-11-04). Muted shell jobs post nothing, so they
+// need no real chat; before this the wizard skipped them and the role wikis were never ingested.
+func noChannelWikiSession(platform string) string { return platform + ":wiki" }
+
 // wizardSessionKey: the channel the wiki jobs are anchored to (cron needs one; they post nothing).
 func wizardSessionKey(platform, discordChannel, feishuChat string) string {
 	switch {
@@ -419,8 +424,7 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 		}
 	}
 	if sessionKey == "" {
-		addStep(res, "wiki cron", nil, "skipped: no default channel; add them by hand, bridge/contrib/wiki/README.md step 4")
-		return
+		sessionKey = noChannelWikiSession(req.Platform)
 	}
 	mainDir := dir
 	if !made {
