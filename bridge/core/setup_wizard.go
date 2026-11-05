@@ -392,6 +392,8 @@ type JevConfig struct {
 	// request knobs the test found to work; contrib/gate/scorer_remote.py uses the same
 	TopLogprobs int  `json:"top_logprobs,omitempty"`
 	NoThinking  bool `json:"no_thinking"`
+	ThinkingOff bool `json:"thinking_off,omitempty"`
+	TextOnly    bool `json:"text_only,omitempty"` // no probabilities: the gate reads the answered letter
 }
 
 const (
@@ -579,12 +581,36 @@ func ApplyJev(ctx context.Context, dataDir string, j WizardJev, lang string) (Je
 		return out, nil
 	}
 	cfg.Logprobs, cfg.TestedAt = true, time.Now().Format(time.RFC3339)
-	cfg.TopLogprobs, cfg.NoThinking = t.TopLogprobs, t.NoThinking
+	cfg.TopLogprobs, cfg.NoThinking, cfg.ThinkingOff, cfg.TextOnly = t.TopLogprobs, t.NoThinking, t.ThinkingOff, t.TextOnly
 	if err := writeJSONFile(path, cfg, 0o600); err != nil {
 		return out, err
 	}
 	out.Saved, out.InUse, out.Detail = true, cfg.Model+" @ "+cfg.URL, stepJevSaved(lang, path)
 	return out, nil
+}
+
+// mainModelJev is the gate model used when the wizard got none: the first role's own API model
+// (its OpenAI-compatible address). No role with an API key = none (a CLI's own login has no key).
+func mainModelJev(req WizardRequest) (WizardJev, bool) {
+	for _, r := range req.Roles {
+		p := r.Provider
+		if p == nil || strings.TrimSpace(p.APIKey) == "" {
+			continue
+		}
+		v, _ := wizardVendor(p.Vendor)
+		base, model := strings.TrimSpace(p.BaseURL), strings.TrimSpace(p.Model)
+		if base == "" {
+			base = v.OpenAIBase
+		}
+		if model == "" {
+			model = v.Model
+		}
+		if base == "" || model == "" {
+			continue
+		}
+		return WizardJev{BaseURL: base, APIKey: strings.TrimSpace(p.APIKey), Model: model}, true
+	}
+	return WizardJev{}, false
 }
 
 // withOldJev appends "still using the previous jev" to a failure reason.
@@ -1349,7 +1375,19 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		addStep(res, "team", nil, stepTeam(req.Language, len(pl.team), pl.fallbackName))
 	}
 
-	// 5. jev: absent = keep; empty base_url = remove; otherwise saved only if the gate could use it
+	// 5. jev: absent = keep; empty base_url = remove; otherwise saved only if the gate could use it.
+	// Absent and none in use: try the main role's own model (user 11-06「随便找一个普通模型当阀门」),
+	// so a new team's gate is not left without a model; saved only if it passes the same test.
+	if req.Jev == nil {
+		if _, ok := activeJev(env.DataDir); !ok {
+			if j, ok := mainModelJev(req); ok {
+				if out, err := ApplyJev(ctx, env.DataDir, j, req.Language); err == nil && out.Saved {
+					res.Jev, res.JevOK, res.JevInUse = out.Test, true, out.InUse
+					addStep(res, "jev", nil, out.Detail)
+				}
+			}
+		}
+	}
 	if req.Jev != nil {
 		out, err := ApplyJev(ctx, env.DataDir, *req.Jev, req.Language)
 		if err != nil {
@@ -1361,7 +1399,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		} else {
 			addStep(res, "jev", nil, out.Detail)
 		}
-	} else if j, ok := activeJev(env.DataDir); ok {
+	} else if j, ok := activeJev(env.DataDir); ok && res.JevInUse == "" {
 		res.JevOK, res.JevInUse = true, j.Model+" @ "+j.URL
 	}
 	_, usable := activeJev(env.DataDir)

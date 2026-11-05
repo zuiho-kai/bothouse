@@ -52,6 +52,10 @@ class RemoteScorer:
         # Qwen3 类模板否则先出 <think>，第一个 token 不是选项。
         self.top = int(jev.get("top_logprobs") or TOP_LOGPROBS)
         self.no_thinking = bool(jev.get("no_thinking", True))
+        # thinking_off：DeepSeek 类推理模型传 thinking disabled，否则先想一百多个 token（11-06 实测 2.3s → 1.6s）。
+        # text_only：服务不给概率、但只回一个选项字母（普通模型当闸门，用户 11-06 原话「随便找一个普通模型当阀门」），读答案字母。
+        self.thinking_off = bool(jev.get("thinking_off", False))
+        self.text_only = bool(jev.get("text_only", False))
 
     def adjust(self, err_body):
         """服务回 400 并说明了原因时调整参数，返回是否值得重试。"""
@@ -61,6 +65,9 @@ class RemoteScorer:
             return True
         if self.no_thinking and "chat_template_kwargs" in err_body:
             self.no_thinking = False
+            return True
+        if self.thinking_off and "thinking" in err_body:
+            self.thinking_off = False
             return True
         return False
 
@@ -74,16 +81,22 @@ class RemoteTask:
 
     def score(self, text):
         t = time.perf_counter()
-        for _ in range(3):  # 最多按服务的 400 说明调整两次（上限、chat_template_kwargs）
-            body = {"model": self.s.model, "max_tokens": 1, "temperature": 0, "logprobs": True, "top_logprobs": self.s.top,
+        for _ in range(4):  # 最多按服务的 400 说明调整三次（上限、chat_template_kwargs、thinking）
+            body = {"model": self.s.model, "max_tokens": 1, "temperature": 0,
                     "messages": [{"role": "user", "content": self.prefix + text + "\n" + self.prefill}]}
+            if not self.s.text_only:
+                body.update(logprobs=True, top_logprobs=self.s.top)
             if self.s.no_thinking:
                 body["chat_template_kwargs"] = {"enable_thinking": False}
+            if self.s.thinking_off:
+                body["thinking"] = {"type": "disabled"}
             req = urllib.request.Request(self.s.url, json.dumps(body).encode(), {"Content-Type": "application/json",
                                          **({"Authorization": "Bearer " + self.s.key} if self.s.key else {})})
             try:
                 with self.s.open(req, timeout=TIMEOUT_S) as r:
                     out = json.loads(r.read())
+                if self.s.text_only:
+                    return self._text_score(out, t)
                 top = out["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
                 break
             except urllib.error.HTTPError as e:
@@ -91,6 +104,8 @@ class RemoteTask:
                 if e.code == 400 and self.s.adjust(detail):
                     continue
                 raise ValueError(f"jev: HTTP {e.code}") from None
+            except ValueError:
+                raise
             except Exception as e:  # 网络、超时、没给概率：交给 gate 的出错路径
                 raise ValueError(f"jev: {type(e).__name__}") from None
         else:
@@ -107,3 +122,16 @@ class RemoteTask:
         probs = [round(math.exp(x) / mass, 3) for x in lps]
         return Score(choice=max(range(len(probs)), key=probs.__getitem__), probs=probs, logprobs=[round(x, 4) for x in lps],
                      option_mass=round(mass, 3), cached_tokens=0, input_tokens=0, ms=round((time.perf_counter() - t) * 1000, 1))
+
+    def _text_score(self, out, t):
+        """text_only：答案本身就是选项字母 → 这个选项概率 1，其余 0（gate 的阈值照常比）。"""
+        try:
+            ans = (out["choices"][0]["message"].get("content") or "").strip()
+        except (KeyError, IndexError, TypeError, AttributeError):
+            raise ValueError("jev: 回答格式不对") from None
+        if ans not in self.options:
+            raise ValueError("jev: 答的不是选项")
+        i = self.options.index(ans)
+        probs = [1.0 if k == i else 0.0 for k in range(len(self.options))]
+        return Score(choice=i, probs=probs, logprobs=[0.0 if k == i else -1e9 for k in range(len(self.options))],
+                     option_mass=1.0, cached_tokens=0, input_tokens=0, ms=round((time.perf_counter() - t) * 1000, 1))
