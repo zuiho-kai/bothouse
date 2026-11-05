@@ -1,6 +1,8 @@
 # Bundle patch applied when this package is listed in a profile's dsh.profile.bundles.
 # Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
 # ~ is os.homedir(), not $HOME: Windows has no HOME, and 'undefined/.conest-collab' stops the plugin loading.
+# #1044: each bothouse page is its own row, so the DSH Plugins page switches it on and off.
+# Channels is on by default; team desk, bothouse panel and other computers start off.
 - insert:
     - id: conest-collab
       name: conest-collab
@@ -12,3 +14,12 @@
 - insert:
     - id: conest-channels-ui
       name: '@deepseek-ai/dsh-experimental-client-ui-discord'
+    - id: bothouse-desk
+      name: bothouse-dsh-desk
+      disabled: true
+    - id: bothouse-panel
+      name: bothouse-dsh-panel
+      disabled: true
+    - id: bothouse-devices
+      name: bothouse-dsh-devices
+      disabled: true

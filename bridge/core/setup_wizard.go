@@ -952,6 +952,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			case !info.MessageContent:
 				res.Warnings = append(res.Warnings, warnIntentOff(req.Language, info.Username, info.ApplicationID))
 			}
+			if info.IntentKnown && !info.ServerMembers {
+				res.Warnings = append(res.Warnings, warnMembersIntentOff(req.Language, info.Username, info.ApplicationID))
+			}
 			addStep(res, step+" discord", nil, stepBotDetail(req.Language, info.Username, info.IntentKnown, info.MessageContent))
 			res.Roles = append(res.Roles, rr)
 		} else if isQQ {

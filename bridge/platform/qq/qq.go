@@ -51,6 +51,7 @@ type Platform struct {
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
 	mu                    sync.Mutex
+	platformEvents        core.PlatformEventHandler // maomao fork: platform events (events.go)
 	echoSeq               atomic.Int64
 	echoCh                sync.Map // echo -> chan json.RawMessage
 	cancel                context.CancelFunc
@@ -291,6 +292,8 @@ func (p *Platform) readLoop(ctx context.Context) {
 			// this loop, so running the handler here would make every send from
 			// a turn wait for that turn to finish (same as platform/wecom).
 			go p.handleMessage(payload)
+		} else if postType == "notice" {
+			p.handleNotice(payload) // platform events (events.go)
 		}
 	}
 }

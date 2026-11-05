@@ -16,7 +16,7 @@
 
 Wiki 星河（`/collab/wiki-galaxy`）把一本 markdown wiki 画成可旋转的星系：每页一颗星，`[[链接]]` 和相对 `.md` 链接是星之间的连线，顶层目录是不同颜色的星团，点星看标题、描述和前几行。wiki 目录用 `wikiDir`（或 `CONEST_WIKI_DIR`）指定，不设时是 `~/wiki`。插件只读这个目录，不跟符号链接，不写任何文件；页面自带全部代码，离线可用。团队工作台右上角有入口。
 
-DSH 左边栏在「频道」下面还有「团队工作台」「bothouse」两个入口，桌面版没有地址栏也能打开。前者在主区域里直接显示团队工作台；「bothouse」在主区域里显示整个 bothouse 管理面板（概览、角色、用量等页都在里面；Wiki 星河也收在这块面板里，作为它自己的「Wiki 星河」子页，不再单独占左边栏一项），经 `/collab/panel/*`（只给主人）在服务端转发到主桥管理接口：插件每次请求时读 `bridgeConfig` 指的主桥配置文件里 `[management]` 段的地址和令牌，自己给请求签名，令牌不到浏览器；面板首页的 `<base href>` 改成 `/collab/panel/`，并加一个标记让面板不再要求登录。`bridgeConfig` 不设时依次用 `BOTHOUSE_CONFIG`、`$BOTHOUSE_DATA_DIR/config.toml`、`~/.bothouse/config.toml`；管理接口关着或连不上时框里显示原因。面板页面要用支持子路径的版本（`bridge/web` 里资源和接口都按 `<base href>` 走），旧版主桥带的面板挂在这里会打不开资源。
+频道、团队工作台、bothouse 面板、其他电脑在 DSH「插件 → bothouse」里各是一行，用 DSH 自带的开关分别开关（#1044）：新装只开频道，另外三项默认关；打开哪项，左边栏马上出现哪项，关掉马上消失，不用重启。老版本升级上来时，原来左边栏有的照旧开着（只做一次，之后按你在插件页的选择）。关掉的项只是左边栏不显示，`/collab/desk` 等地址照样能打开。这三项的网页端各是一个小包（`dsh/packages/bothouse-dsh-*`，由 `dsh/packages/bothouse-embeds/build.mjs` 生成）。打开后，「团队工作台」在主区域里直接显示团队工作台；「bothouse」在主区域里显示整个 bothouse 管理面板（概览、角色、用量等页都在里面；Wiki 星河也收在这块面板里，作为它自己的「Wiki 星河」子页，不再单独占左边栏一项），经 `/collab/panel/*`（只给主人）在服务端转发到主桥管理接口：插件每次请求时读 `bridgeConfig` 指的主桥配置文件里 `[management]` 段的地址和令牌，自己给请求签名，令牌不到浏览器；面板首页的 `<base href>` 改成 `/collab/panel/`，并加一个标记让面板不再要求登录。`bridgeConfig` 不设时依次用 `BOTHOUSE_CONFIG`、`$BOTHOUSE_DATA_DIR/config.toml`、`~/.bothouse/config.toml`；管理接口关着或连不上时框里显示原因。面板页面要用支持子路径的版本（`bridge/web` 里资源和接口都按 `<base href>` 走），旧版主桥带的面板挂在这里会打不开资源。
 
 ## 只用一个模型或一种 CLI 组队
 

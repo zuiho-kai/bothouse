@@ -12,7 +12,8 @@ export function nextRoleName(backend: string, used: readonly string[]) {
 }
 export function roleLabel(name: string, backend: string) {
   const label = backendLabel(backend);
-  return !label || name === label ? name : `${name}·${label}`;
+  // 名字本身已以后端名开头（如 DSH-1、Codex-2）就不再接「·DSH」，免得读成「DSH-1·DSH」。
+  return !label || name.toLowerCase().startsWith(label.toLowerCase()) ? name : `${name}·${label}`;
 }
 export function personaWithName(text: string, presetName: string, name: string) {
   if (!presetName || presetName === name) return text;

@@ -91,7 +91,9 @@
     "bridgeConnected": "connected",
     "bridgeConnecting": "connecting...",
     "bridgeDisconnected": "disconnected",
-    "bridgeNotAvailable": "Bridge not available. Enable [bridge] in config.toml to chat from web."
+    "bridgeNotAvailable": "Bridge not available. Enable [bridge] in config.toml to chat from web.",
+    "countAll": "{{n}} total",
+    "countShown": "{{shown}} / {{total}}"
   },
   "providers": {
     "title": "Providers",

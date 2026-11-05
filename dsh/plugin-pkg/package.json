@@ -6,7 +6,7 @@
   "main": "./collab/plugin.mjs",
   "exports": {
     ".": "./collab/plugin.mjs",
-    "./client": "./client/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "keywords": ["dsh", "deepseek", "harness", "plugin", "bothouse"],
@@ -18,8 +18,10 @@
     "collab/*.json",
     "collab/team-mode-rules.md",
     "collab/desk/index.html",
+    "collab/devices.html",
+    "collab/wiki-galaxy/index.html",
     "collab/avatars/*.png",
-    "client/client.js",
+    "locale/*.json",
     "cordis.patch.yml",
     "README.md",
     "README.en.md"
@@ -27,19 +29,6 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [
-        "@deepseek-ai/dsh-api-session-controller",
-        "@deepseek-ai/dsh-api-workspace-controller",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-workspace"
-      ],
-      "platform": "web"
     }
   },
   "engines": {
@@ -53,8 +42,18 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
     "@zed-industries/claude-code-acp": "^0.16.2",
+    "bothouse-dsh-channels": "0.1.0",
+    "bothouse-dsh-desk": "0.1.0",
+    "bothouse-dsh-devices": "0.1.0",
+    "bothouse-dsh-panel": "0.1.0",
     "ws": "8.22.1"
   },
+  "bundleDependencies": [
+    "bothouse-dsh-channels",
+    "bothouse-dsh-desk",
+    "bothouse-dsh-panel",
+    "bothouse-dsh-devices"
+  ],
   "optionalDependencies": {
     "@agentclientprotocol/codex-acp": "^2.2.2"
   }

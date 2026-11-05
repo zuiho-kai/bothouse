@@ -1,0 +1,8 @@
+{
+  "name": "bothouse-embeds",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Generator for the bothouse page packages (desk, panel, other computers) shown as switchable rows on the DSH Plugins page",
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
+}

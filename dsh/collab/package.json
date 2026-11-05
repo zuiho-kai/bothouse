@@ -6,6 +6,7 @@
   "main": "plugin.mjs",
   "exports": {
     ".": "./plugin.mjs",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -16,6 +17,9 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
     "@zed-industries/claude-code-acp": "^0.16.2",
+    "bothouse-dsh-desk": "link:../packages/bothouse-dsh-desk",
+    "bothouse-dsh-devices": "link:../packages/bothouse-dsh-devices",
+    "bothouse-dsh-panel": "link:../packages/bothouse-dsh-panel",
     "ws": "8.22.1",
     "yaml": "2.9.1"
   },

@@ -61,6 +61,7 @@ func (e *Engine) endResetTurn(key string) {
 	e.pendingResetMu.Lock()
 	if e.resetTurns[key] <= 1 {
 		delete(e.resetTurns, key)
+		e.endCallerTurn(key) // no turn left in this session: no caller token outside a turn
 	} else {
 		e.resetTurns[key]--
 	}

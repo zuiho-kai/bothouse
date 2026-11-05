@@ -1,3 +1,5 @@
 collab/
 client/
+locale/
+node_modules/
 *.tgz

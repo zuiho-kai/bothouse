@@ -108,6 +108,8 @@ describe('SessionList', () => {
     expect(container.textContent).toContain('写周报');
     expect(container.textContent).toContain('鲸鱼娘');
     expect(container.textContent).toContain('写字机');
+    // The count says what it counts: not a bare number at the left of the filter row.
+    expect(container.textContent).toContain('sessions.countAll'); // zh: 共 2 条
   });
 
   it('previews the last message from the other side of the conversation', async () => {

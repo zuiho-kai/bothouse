@@ -112,6 +112,9 @@ type Platform struct {
 	seenInteractions           sync.Map             // interaction ID dedup: prevents duplicate slash/button events
 	decidedPermits             decidedPermits       // maomao fork: delegated approvals already decided by their requester (permit_dedupe.go)
 	self                       core.Platform
+	eventHandler               core.PlatformEventHandler // maomao fork: platform events (events.go)
+	membersIntent              atomic.Int32              // maomao fork: Server Members Intent on this connect (members.go)
+	membersDenied              atomic.Bool               // maomao fork: Discord closed with 4014 once; stop asking for it
 
 	mu               sync.RWMutex
 	session          *discordgo.Session
@@ -734,6 +737,15 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 	session.Client = &http.Client{Transport: &silentTransport{base: base, isSilent: p.isSilentChannel}, Timeout: 60 * time.Second}
 
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
+	// maomao fork (#1061): platform events (events.go) — reactions and voice need two more
+	// non-privileged intents; member join/leave needs the privileged one (members.go).
+	session.Identify.Intents |= discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuildVoiceStates
+	p.addEventHandlers(session)
+	if p.wantMembersIntent(session) {
+		session.Identify.Intents |= discordgo.IntentsGuildMembers
+		session.AddHandler(p.handleMemberAdd)
+		session.AddHandler(p.handleMemberRemove)
+	}
 
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		p.botID = r.User.ID
@@ -1001,6 +1013,7 @@ func (p *Platform) connectLoop(ctx context.Context) {
 			if handler != nil {
 				handler.OnPlatformReady(p.selfPlatform())
 			}
+			p.reportMembersIntent()
 
 			// Block until shutdown; discordgo manages reconnects internally.
 			<-ctx.Done()
@@ -1011,6 +1024,13 @@ func (p *Platform) connectLoop(ctx context.Context) {
 		// Best-effort cleanup of a half-opened session.
 		if session != nil {
 			_ = session.Close()
+		}
+		if isDisallowedIntents(err) && !p.membersDenied.Load() {
+			// maomao fork (#1058): the members intent was asked for but is not allowed; connect
+			// without it right away instead of staying offline.
+			p.membersDenied.Store(true)
+			slog.Warn("discord: Server Members Intent refused (4014); reconnecting without member events", "fix", p.membersIntentFixURL())
+			continue
 		}
 
 		slog.Warn("discord: connect attempt failed",

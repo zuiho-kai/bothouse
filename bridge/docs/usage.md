@@ -12,6 +12,7 @@ Complete guide to using bothouse features.
 - [Feishu Setup CLI](#feishu-setup-cli)
 - [Weixin (personal) Setup CLI](#weixin-personal-setup-cli)
 - [Claude Code Router Integration](#claude-code-router-integration)
+- [Platform event trigger](#platform-event-trigger)
 - [Claude Code PermissionRequest Hooks](#claude-code-permissionrequest-hooks)
 - [Voice Messages (STT)](#voice-messages-speech-to-text)
 - [Voice Reply (TTS)](#voice-reply-text-to-speech)
@@ -626,6 +627,66 @@ router_api_key = "your-secret-key"  # optional
 ```
 
 ---
+
+## Platform event trigger
+
+Things that happen on a server (someone joins, reacts, creates a channel, enters voice, pins…) are only published as events. The bridge wakes no role and sends nothing, and nothing is subscribed by default. Whatever should happen (greet, log, wake a role) is up to whoever subscribes.
+
+### Events
+
+| Event | When | Discord | Feishu | QQ (OneBot) |
+|---|---|---|---|---|
+| `member.joined` | someone joins the server / group | needs SERVER MEMBERS INTENT | subscribe "user added to chat" in the console | yes (group_increase) |
+| `member.left` | someone leaves or is removed | same | subscribe "user removed from chat" | yes (group_decrease) |
+| `reaction.added` | an emoji reaction is added | yes | yes | NapCat (group_msg_emoji_like) |
+| `reaction.removed` | a reaction is removed | yes | yes | n/a |
+| `channel.created` | a channel is created | yes | n/a | n/a |
+| `channel.deleted` | a channel is deleted | yes | subscribe "chat disbanded" | n/a |
+| `thread.created` | a thread is opened | yes | n/a | n/a |
+| `voice.joined` | someone enters a voice channel | yes | n/a | n/a |
+| `voice.left` | someone leaves voice | yes | n/a | n/a |
+| `voice.moved` | someone switches voice channels | yes | n/a | n/a |
+| `pins.updated` | a message is pinned or unpinned (Discord does not say which) | yes | n/a | n/a |
+
+Feishu has no servers: a group chat is the channel (`channel_id` is the chat id). Feishu reaction events carry only the message id, not the chat, so a `channels` filter never matches them. Feishu member and disband events arrive only after you subscribe to them under Events & Callbacks in the Feishu console.
+
+QQ also treats a group as the channel (`channel_id` is the group number) and gives ids only, no names.
+
+The bot's own actions publish nothing; with Discord `allow_guilds`, servers outside the list publish nothing.
+
+Only member events need an extra switch: Discord Developer Portal → your application → Bot → Privileged Gateway Intents → **SERVER MEMBERS INTENT**, save, restart bothouse. Without it the bridge still connects but there are no `member.*` events; the lead says so once in its channel, and the panel's roles page and the wizard show it too. Other events need nothing.
+
+### Where to get them
+
+- `<data_dir>/events.jsonl`: one `"type":"event"` line per event; `data.event` is the name.
+- `[[hooks]]`: `event` is the event name, used like `agent.closed`; `member.*`, `voice.*` match a group, `*` everything.
+
+### Filter by server / channel / user
+
+A `[[hooks]]` entry may add `guilds`, `channels`, `users`: ids or names (names case-insensitive, a leading `#` on channel names is fine). None set = everything; each one set must match. An event without that field (e.g. `message.received` has no server) never fires a hook filtered on it.
+
+```toml
+[[hooks]]
+event = "member.joined"
+guilds = ["conest-e2e-test"]
+type = "command"
+command = "python3 ~/scripts/on_join.py"
+
+[[hooks]]
+event = "reaction.*"
+channels = ["announcements"]
+users = ["123456789012345678", "alice"]
+type = "http"
+url = "http://127.0.0.1:8080/reaction"
+```
+
+### What a hook gets
+
+`type = "command"` env vars: `CC_HOOK_EVENT`, `CC_HOOK_TIMESTAMP`, `CC_HOOK_PLATFORM`, `CC_HOOK_USER_ID`, `CC_HOOK_USER_NAME` (display name with account name), `CC_HOOK_DISPLAY_NAME`, `CC_HOOK_USER_IS_BOT=1` for bots, `CC_HOOK_GUILD_ID`, `CC_HOOK_GUILD`, `CC_HOOK_CHANNEL_ID`, `CC_HOOK_CHANNEL`, `CC_HOOK_SESSION_KEY`; reactions add `CC_HOOK_MESSAGE_ID`, `CC_HOOK_EMOJI`; `voice.moved` / `voice.left` add `CC_HOOK_FROM_CHANNEL_ID`; `thread.created` adds `CC_HOOK_THREAD_ID` (the channel is its parent); for `member.joined` the channel is the server's system channel, when set. Missing values are not set.
+
+`type = "http"` gets JSON: `event`, `timestamp`, `platform`, `user_id`, `user_name`, `guild_id`, `guild`, `channel_id`, `channel`, `session_key`, and `extra` (same as `data` in events.jsonl).
+
+To have a role greet newcomers, call `bothouse timer add --delay 1m --prompt "…"` or `bothouse send` from your script.
 
 ## Claude Code PermissionRequest Hooks
 

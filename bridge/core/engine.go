@@ -455,6 +455,8 @@ type Engine struct {
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
+	callerMu                     sync.Mutex            // guards callerTurns (caller_identity.go)
+	callerTurns                  map[string]callerTurn // session → sender of the turn running now
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)
 	resetTurns                   map[string]int                  // running turns per reset key (CC_SESSION_KEY), guarded by pendingResetMu
@@ -2984,6 +2986,9 @@ func (e *Engine) Start() error {
 		if async, ok := p.(AsyncRecoverablePlatform); ok {
 			async.SetLifecycleHandler(e)
 		}
+		if src, ok := p.(PlatformEventSource); ok {
+			src.SetPlatformEventHandler(e) // platform events (core/member_events.go)
+		}
 		if sc, ok := p.(SilentChannelAware); ok {
 			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
 			sc.SetSilentChannel(e.isTeamWorkspaceChat)
@@ -4928,6 +4933,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				state.externalTaskInput = msg.externalInput
 				state.authorization = msg.authorization
 				state.mu.Unlock()
+				e.noteCallerTurn(msg.SessionKey, msg.Platform, msg.UserID, msg.UserName, msg.ChannelKey, msg.FromBot, msg.timerJobID != "" || msg.cronJobID != "", msg.inputTurn != nil)
 				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
 			},
 			func(as AgentSession) error {
@@ -7752,6 +7758,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
+				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
 				queuedPrompt = e.withPublicProgress(queuedPrompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 
 				state.mu.Lock()
@@ -8350,6 +8357,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				state.mu.Lock()
 				state.currentJobID = queued.timerJobID // re-armed for a capacity retry
 				state.mu.Unlock()
+				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
 				attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
 			},
 			func(as AgentSession) error {

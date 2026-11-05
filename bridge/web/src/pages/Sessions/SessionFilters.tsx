@@ -127,9 +127,15 @@ export function SessionFiltersBar({
       </div>
 
       <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
-        <span className="shrink-0 text-[13px] tabular-nums text-ink-mute">
-          {shown === total ? total : `${shown} / ${total}`}
-        </span>
+        {/* 数字要带单位：只有一个「0」的时候看不出是什么。只数下面可筛的会话；一条都没有就不显示，
+            免得和标题里算上 DSH 频道的总数对不上（DSH 频道另列在下面）。 */}
+        {total > 0 && (
+          <span className="shrink-0 text-[13px] tabular-nums text-ink-mute">
+            {shown === total
+              ? t('sessions.countAll', { defaultValue: '共 {{n}} 条', n: total })
+              : t('sessions.countShown', { defaultValue: '{{shown}} / {{total}} 条', shown, total })}
+          </span>
+        )}
         <Chip active={filters.onlyLive} onClick={() => onChange({ ...filters, onlyLive: !filters.onlyLive })}>
           <span
             aria-hidden

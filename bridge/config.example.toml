@@ -435,6 +435,10 @@ level = "info" # debug, info, warn, error
 #   cron.triggered     — cron job fires / 定时任务触发
 #   permission.requested — agent asks for permission / Agent 请求权限
 #   error              — an error occurs / 发生错误
+#   agent.closed       — a session's agent process closed / 会话的 agent 进程关闭
+#   member.joined      — someone joined a Discord server (needs SERVER MEMBERS INTENT) / 有人进 Discord 服务器（需开成员权限）
+#   member.left        — someone left a Discord server / 有人退出 Discord 服务器
+#                        CC_HOOK_USER_ID / CC_HOOK_USER_NAME / CC_HOOK_GUILD / CC_HOOK_GUILD_ID / CC_HOOK_TIMESTAMP; see docs/usage.md
 #   *                  — match all events / 匹配所有事件
 #
 # Handler types / 处理器类型:
@@ -1363,6 +1367,8 @@ app_secret = "your-feishu-app-secret"
 # 2. Under "Bot", create a bot and copy the token / 创建 Bot 并复制 token
 # 3. Enable "Message Content Intent" under Privileged Gateway Intents
 #    在 Privileged Gateway Intents 中开启 Message Content Intent
+#    Optional: also enable "Server Members Intent" so a new member joining wakes the lead to greet them
+#    可选：同页再开 Server Members Intent，新人进群时主角色会被叫醒去接待（不开照常聊天，日志和面板会提醒）
 # 4. Invite bot with OAuth2 URL Generator:
 #    通过 OAuth2 URL 邀请 Bot 到服务器：
 #    Scopes: bot + applications.commands (BOTH required for slash command menu)

@@ -139,7 +139,7 @@ jobs:
       - run: npx -y pnpm@10 install --frozen-lockfile
         if: ${{ !cancelled() }}
         working-directory: dsh/collab
-      - run: node --test ../dsh/collab/*.test.mjs
+      - run: node --test ../dsh/collab/*.test.mjs ../dsh/packages/bothouse-embeds/*.test.mjs
         if: ${{ !cancelled() }}
       - run: python3 -I contrib/hooks/test_hooks.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}

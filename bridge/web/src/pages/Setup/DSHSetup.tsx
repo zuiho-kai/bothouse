@@ -45,7 +45,7 @@ const TEXT = {
     key: 'DeepSeek API Key', keyHas: '已经保存过 Key，不换可以留空', keyHelp: '在 platform.deepseek.com 的 API Keys 页创建。',
     save: '保存，下一步', noRole: '至少留一个角色。',
     openTitle: '一切就绪', openNote: '点下面的按钮，DSH 会在新标签页打开 #general，角色已经在成员列表里。第一次打开会有一页预览版说明，点「继续」就好。',
-    open: '打开 DSH', opening: '正在启动 DSH…', openAgain: '如果没有自动打开，点这里：', back: '返回选择平台', prev: '上一步',
+    open: '打开 DSH', opening: '正在启动 DSH…', firstStart: 'DSH 启动中，已等 {n} 秒。第一次启动可能要几分钟，只要它还在运行就会一直等。', openAgain: '如果没有自动打开，点这里：', back: '返回选择平台', prev: '上一步',
     working: '处理中…',
   },
   ja: {
@@ -64,7 +64,7 @@ const TEXT = {
     key: 'DeepSeek API Key', keyHas: 'Key は保存済み。変えないなら空欄で OK', keyHelp: 'platform.deepseek.com の API Keys ページで作成します。',
     save: '保存して次へ', noRole: 'キャラを 1 人以上残してください。',
     openTitle: '準備完了', openNote: 'ボタンを押すと DSH が新しいタブで #general を開きます。初回はプレビュー版の説明が出るので「続行」を押してください。',
-    open: 'DSH を開く', opening: 'DSH を起動中…', openAgain: '自動で開かない場合はこちら：', back: 'プラットフォーム選択に戻る', prev: '戻る',
+    open: 'DSH を開く', opening: 'DSH を起動中…', firstStart: 'DSH を起動中（{n} 秒経過）。初回は数分かかることがあります。動いている間は待ち続けます。', openAgain: '自動で開かない場合はこちら：', back: 'プラットフォーム選択に戻る', prev: '戻る',
     working: '処理中…',
   },
   en: {
@@ -83,7 +83,7 @@ const TEXT = {
     key: 'DeepSeek API key', keyHas: 'A key is already saved; leave empty to keep it', keyHelp: 'Create one on the API Keys page of platform.deepseek.com.',
     save: 'Save and continue', noRole: 'Keep at least one role.',
     openTitle: 'All set', openNote: 'The button opens #general in DSH in a new tab, with your roles in the member list. The first time DSH shows a preview notice; press Continue.',
-    open: 'Open DSH', opening: 'Starting DSH…', openAgain: 'If nothing opened, click here:', back: 'Back to platforms', prev: 'Back',
+    open: 'Open DSH', opening: 'Starting DSH…', firstStart: 'DSH is starting ({n} s so far). The first start can take a few minutes; it keeps waiting while DSH is running.', openAgain: 'If nothing opened, click here:', back: 'Back to platforms', prev: 'Back',
     working: 'Working…',
   },
 };
@@ -104,6 +104,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   const [roles, setRoles] = useState<Role[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [openURL, setOpenURL] = useState('');
+  const [starting, setStarting] = useState<{ sec: number; line: string } | null>(null);
   const nextKey = useRef(1);
 
   const run = async (fn: () => Promise<void>) => {
@@ -190,11 +191,15 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     const tab = window.open('about:blank', '_blank');
     void run(async () => {
       try {
-        await openDSHWeb(); // starts dsh web when it is not running yet
+        // starts dsh web when it is not running yet; no deadline: ask again while it is still starting
+        for (let w = await openDSHWeb(); w.starting; w = await openDSHWeb()) {
+          setStarting({ sec: w.elapsed_sec ?? 0, line: w.log_tail ?? '' });
+          await new Promise((r) => setTimeout(r, 1000));
+        }
         const url = channelsURL();
         setOpenURL(url);
         if (tab) tab.location.href = url;
-      } catch (e) { tab?.close(); throw e; }
+      } catch (e) { tab?.close(); throw e; } finally { setStarting(null); }
     });
   };
 
@@ -306,6 +311,8 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
           <Button variant="secondary" onClick={() => setStep(2)} disabled={busy}>{t.prev}</Button>
           <Button onClick={open} disabled={busy} data-testid="dsh-open">{busy ? t.opening : t.open}</Button>
         </div>
+        {starting && <div data-testid="dsh-starting"><p className="text-sm">{t.firstStart.replace('{n}', String(starting.sec))}</p>
+          {starting.line && <p className="text-xs font-mono text-gray-500 truncate" data-testid="dsh-starting-line">{starting.line}</p>}</div>}
         {openURL && <p className="text-sm">{t.openAgain} <a className="text-accent underline break-all" href={openURL} target="_blank" rel="noreferrer" data-testid="dsh-open-link">{openURL}</a></p>}
       </>}
 
