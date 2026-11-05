@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // #208: a renewal must leave 「最后活动 + 最近一步」 on the workspace's board row, or the table
@@ -95,7 +97,7 @@ func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 	}
 	now := time.Now()
 	for _, id := range []int{1, 2, 3} {
-		wrote, err := writeBoardProgress(dir, id, "Bash x", now)
+		wrote, err := writeBoardProgress(dir, id, "Bash x", true, "discord:ws1", now)
 		if err != nil || wrote {
 			t.Fatalf("item %d: wrote %v, err %v (want untouched)", id, wrote, err)
 		}
@@ -107,7 +109,7 @@ func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 	if string(data) != rows {
 		t.Fatalf("dead rows rewritten:\n%s", data)
 	}
-	if _, err := writeBoardProgress(t.TempDir(), 1, "Bash x", now); err == nil {
+	if _, err := writeBoardProgress(t.TempDir(), 1, "Bash x", true, "discord:ws1", now); err == nil {
 		t.Fatal("missing board.jsonl must fail (and be logged), not silently pass")
 	}
 }
@@ -161,7 +163,7 @@ func TestBoardProgressRowIsNoLongerStuck(t *testing.T) {
 	if state, note := teamTaskBoardStateOf(items[0], now); state != teamTaskStuck || !strings.Contains(note, "小时没人接") {
 		t.Fatalf("before: state %v %q, want 卡住", state, note)
 	}
-	if wrote, err := writeBoardProgress(dir, 5, "Bash go test ./core", now); err != nil || !wrote {
+	if wrote, err := writeBoardProgress(dir, 5, "Bash go test ./core", true, "discord:ws1", now); err != nil || !wrote {
 		t.Fatalf("wrote %v, err %v", wrote, err)
 	}
 	items = readTeamTaskBoard(dir)
@@ -203,7 +205,7 @@ func TestBoardProgressInterleavesWithBoardPy(t *testing.T) {
 		}
 	}()
 	for i := 0; i < 15; i++ {
-		if _, err := writeBoardProgress(dir, 1, "Bash go test ./core", time.Now()); err != nil {
+		if _, err := writeBoardProgress(dir, 1, "Bash go test ./core", true, "discord:ws1", time.Now()); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}
 	}
@@ -279,4 +281,108 @@ func TestBoardProgressIsolatedInstance(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("看门没有写回条目：%s", readBoardLine(t, boardDir, 11))
+}
+
+// 复核 2026-11-06 必修①：续期窗口里一次工具调用都没有（回合结束时 turn journal 把条目删了），
+// 这一轮只能证明工作区还活着，不能把上一轮那句精确步骤换成「已开工」。
+func TestBoardProgressKeepsPreciseStepWhenNoToolRan(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 6, 4, 0, 0, 0, time.Local)
+	row := `{"id":7,"what":"看门写回进度","status":"在做：Bash go test ./core","who":"工作区1橘",` +
+		`"ws":"discord:ws1","chat":"discord:main","progress_step":"Bash go test ./core",` +
+		`"progress_at":` + strconv.FormatFloat(float64(now.Add(-20*time.Minute).UnixNano())/1e9, 'f', -1, 64) + `}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := boardItemOf(t, dir, 7)
+	// hasStep=false: the watch saw the workspace speak but no tool call in this window.
+	if wrote, err := writeBoardProgress(dir, 7, boardNoStep, false, "discord:ws1", now); err != nil || !wrote {
+		t.Fatalf("wrote %v, err %v (progress_at must still rise)", wrote, err)
+	}
+	got := boardItemOf(t, dir, 7)
+	if got.Status != before.Status {
+		t.Fatalf("status = %q, want the precise step kept (%q)", got.Status, before.Status)
+	}
+	if got.ProgressAt <= before.ProgressAt {
+		t.Fatalf("progress_at = %v, want > %v", got.ProgressAt, before.ProgressAt)
+	}
+	if state, note := teamTaskBoardStateOf(got, now); state != teamTaskRunning {
+		t.Fatalf("table state %v %q, want running", state, note)
+	}
+}
+
+// 复核 2026-11-06 必修②：步骤文本里带「已验收」这类收口词（本项目的日常命令就有），
+// 不能被当成这一行已经关闭——那样 progress_at 再也不会抬，一小时后板上又变回「1 小时无进展」。
+func TestBoardProgressSurvivesStepThatReadsLikeClosing(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 6, 5, 0, 0, 0, time.Local)
+	row := `{"id":9,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1",` +
+		`"chat":"discord:main","progress_at":` +
+		strconv.FormatFloat(float64(now.Add(-30*time.Minute).UnixNano())/1e9, 'f', -1, 64) + `}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := writeBoardProgress(dir, 9, "Bash rg 已验收 core/", true, "discord:ws1", now); err != nil || !wrote {
+		t.Fatalf("first write: wrote %v, err %v", wrote, err)
+	}
+	if got := boardItemOf(t, dir, 9); got.Status != "在做：Bash rg 已验收 core/" {
+		t.Fatalf("status = %q, want the step written as-is", got.Status)
+	}
+	// A later round with an ordinary command must still land, and keep raising the stamp.
+	prev := boardItemOf(t, dir, 9).ProgressAt
+	if wrote, err := writeBoardProgress(dir, 9, "Bash go test ./core", true, "discord:ws1", now.Add(10*time.Minute)); err != nil || !wrote {
+		t.Fatalf("second write: wrote %v, err %v (a step that reads like a close froze the row)", wrote, err)
+	}
+	got := boardItemOf(t, dir, 9)
+	if got.Status != "在做：Bash go test ./core" {
+		t.Fatalf("status = %q, want the newer step", got.Status)
+	}
+	if got.ProgressAt <= prev {
+		t.Fatalf("progress_at = %v, want > %v", got.ProgressAt, prev)
+	}
+	// Still live an hour later: the table must not fall back to 卡住.
+	if state, note := teamTaskBoardStateOf(got, now.Add(time.Hour)); state == teamTaskStuck {
+		t.Fatalf("an hour later the row reads %q again", note)
+	}
+}
+
+// 复核 2026-11-06 建议②：h.Board 记下的编号不经过 handoffBoardID 的工作区校验，
+// 所以写之前要自己核这行的 ws 是不是这个工作区——否则会改到别人正在做的那一行。
+func TestBoardProgressWillNotWriteAnotherWorkspacesRow(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	rows := `{"id":3,"what":"别人的活","status":"在做：工作区2 在写","who":"工作区2橘",` +
+		`"ws":"discord:ws2","chat":"discord:main"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := writeBoardProgress(dir, 3, "Bash go test ./core", true, "discord:ws1", now); err != nil || wrote {
+		t.Fatalf("wrote %v, err %v (a wrong id must not touch ws2's row)", wrote, err)
+	}
+	got := boardItemOf(t, dir, 3)
+	if got.Status != "在做：工作区2 在写" || got.ProgressAt != 0 {
+		t.Fatalf("ws2's row changed: status %q progress_at %v", got.Status, got.ProgressAt)
+	}
+}
+
+// 复核 2026-11-06 建议③：步骤文本直接来自工具调用，可能带颜色转义、控制字符，或含全角竖线
+// （board.py fmt 的列分隔符）——这些不能原样进任务板表格。
+func TestBoardProgressStepIsSafeForTheTable(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"\x1b[31mgo test\x1b[0m ./core", "go test ./core"},
+		{"a\x07b\x08c", "abc"},
+		{"board update 5 已完成｜备注", "board update 5 已完成|备注"},
+		{"Bash # 说明\ngo test ./core", "Bash # 说明"},
+	}
+	for _, c := range cases {
+		if got := boardProgressStep(c.in); got != c.want {
+			t.Fatalf("boardProgressStep(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	if !utf8.ValidString(boardProgressStep(strings.Repeat("中", 60))) {
+		t.Fatal("truncation cut a multi-byte character in half")
+	}
+	if got := boardProgressStep("   "); got != boardNoStep {
+		t.Fatalf("empty step = %q, want %q", got, boardNoStep)
+	}
 }
