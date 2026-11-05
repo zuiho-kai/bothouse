@@ -44,6 +44,9 @@ type APIServer struct {
 	// followStop ends runLeadFollow (team_workspace_api.go) at Stop.
 	followStop chan struct{}
 	followOnce sync.Once
+	// identity.sock (identity_api.go): caller tokens for roles under another system account
+	identityLn  net.Listener
+	identitySrv *http.Server
 }
 
 // SendRequest is the JSON body for POST /send.
@@ -224,6 +227,7 @@ func (s *APIServer) Start() {
 	s.startHandoffWatch()
 	s.followStop = make(chan struct{})
 	go s.runLeadFollow(s.followStop)
+	s.startIdentitySocket()
 	s.server = &http.Server{Handler: s.mux, ConnContext: withPeerConn}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
@@ -242,6 +246,7 @@ func (s *APIServer) Stop() {
 			slog.Debug("api server close failed", "error", err)
 		}
 	}
+	s.stopIdentitySocket()
 	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
 		slog.Debug("api server remove socket failed", "error", err)
 	}
