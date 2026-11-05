@@ -13,6 +13,7 @@
 | `patches/` | 对上游文件的最小改动（目前只登记 TypeScript 工程引用） |
 | `scripts/sync.sh` | 检出固定提交、放入自有包、打补丁 |
 | `scripts/reload-web.py` | 重启 `dsh web` 并把新 pid/token 写回 `~/.bothouse/dsh-web.json`（见下节） |
+| `scripts/reload-dsh.py` | 发布切换入口：`web` 交给 `reload-web.py`，`desktop` 重开桌面版（见下节） |
 | `collab/` | 阶段 1 频道服务插件，直接按绝对路径加载，不参与同步 |
 
 首次准备使用一个尚不存在的新目录：
@@ -57,6 +58,24 @@ pid，任一不符就失败退出、不写。写出的 url 一律归一成 `http
 
 旧状态文件在替换前备份为 `dsh-web.json.bak-<时间戳>`；新文件用临时文件 + 原子 rename 落盘，权限
 0600，日志同样 0600 创建（里面有 token）。自动部署脚本调用它即可，不需要再自己解析日志、拼 url。
+
+### 发布切换用的入口 `scripts/reload-dsh.py`
+
+发布流程重启宿主时调这个入口，不要在各发布目录另写一份：
+
+~~~sh
+python3 -I dsh/scripts/reload-dsh.py web       # 参数原样转给 reload-web.py，如 --port 49176 / --dry-run
+python3 -I dsh/scripts/reload-dsh.py desktop   # 退出并重开桌面版，打印 new_pid
+~~~
+
+`web` 只做转交：用当前解释器跑同目录的 `reload-web.py`，参数一个不改，退出码原样返回，所以
+`reload-web.py` 的三重交叉校验与原子回写就是发布时的行为。同一份源码里的两个文件必须一起进发布目录；
+只带入口、不带 `reload-web.py` 的发布包会直接失败并提示「built without PR #1020」，不会出现「重启成功
+但状态文件没写、面板 503」那种半成功。`snapshot`/`web`/`desktop` 里，旧发布目录各自的 `reload-dsh.py`
+还有 `snapshot` 步骤（记录旧宿主环境），它依赖各发布目录的历史脚本，不进仓库。
+
+测试：`python3 -I dsh/scripts/test_reload_web.py`（宿主重启与回写的全部路径）、
+`python3 -I dsh/scripts/test_reload_dsh.py`（入口只转交、缺脚本要失败、失败要冒泡）。
 
 ## 目标
 
