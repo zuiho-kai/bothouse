@@ -1562,7 +1562,7 @@ test('roster: re-running the wizard reuses the default-named role\'s member inst
   assert.deepEqual(await roster.importWizard(file), ['Codex-2']);
 });
 
-test('roster: an install that already has Codex-2/Codex-3 reuses the primary role and records its real name', async () => {
+test('roster: an install that already has Codex-2/Codex-3 stops growing; after cleanup the kept member gets its real name', async () => {
   const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
@@ -1574,8 +1574,12 @@ test('roster: an install that already has Codex-2/Codex-3 reuses the primary rol
   assert.deepEqual(hub.memberList().filter(m => m.id !== 'owner').map(m => m.id), ['codex', 'codex-2', 'codex-3']);
   const file = join(dir, 'wizard-members.json');
   writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }] }));
-  assert.deepEqual(await roster.importWizard(file, undefined, 'codex-2'), []);
+  assert.deepEqual(await roster.importWizard(file), []);
   assert.equal(hub.memberList().filter(m => m.id !== 'owner').length, 3);
+  // the owner removes the copies, keeps codex-2, runs the wizard again
+  roster.remove('codex'); roster.remove('codex-3');
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'Codex', cli: 'codex', name_customized: false }] }));
+  assert.deepEqual(await roster.importWizard(file), []);
   const done = JSON.parse(readFileSync(join(dir, 'wizard-members.imported.json'), 'utf8')).members;
   assert.deepEqual(done.map(m => [m.name, m.id]), [['Codex-2', 'codex-2']]);
 });

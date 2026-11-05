@@ -168,7 +168,7 @@ export async function apply(ctx, rawConfig) {
   hub.store.onSessionsReset(roomId => dsh.resetRoom(roomId));
   // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
   roster.load(config.dshMembers);
-  const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger, leadState.selected());
+  const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
   // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh).
   const seeded = await roster.seedDefaults(join(config.dataDir, 'default-members.json'), 'zh', ctx.logger);

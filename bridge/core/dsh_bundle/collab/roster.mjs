@@ -66,11 +66,11 @@ export class Roster {
    * after the id the member really has (bridge core/setup_dsh_wiki.go). Returns the names added.
    * A default-named role (name_customized false) reuses a DSH member a former run made for it — same CLI,
    * still automatic, named the role's name or name-N — so re-running the wizard does not add Codex-2, Codex-3…
-   * (11-05 Windows report); the selected primary role (leadId) is preferred, then the plain name. Each member
+   * (11-05 Windows report); the one named exactly the role's name goes first, then the oldest. Each member
    * serves one role per run, so two default Codex roles still get two members. The imported entry carries the
    * member's real name, which the bridge writes into gate-team.json and lead.json.
    */
-  async importWizard(path, logger, leadId) {
+  async importWizard(path, logger) {
     if (!existsSync(path)) return [];
     let members = [];
     try {
@@ -85,7 +85,7 @@ export class Roster {
     for (const m of Array.isArray(members) ? members : []) {
       const name = String(m?.name ?? '').trim();
       // Custom and legacy names stay idempotent by name (a re-import must not duplicate them).
-      const same = m?.name_customized === false ? this.reusableWizardMember(name, m?.cli, claimed, leadId)
+      const same = m?.name_customized === false ? this.reusableWizardMember(name, m?.cli, claimed)
         : this.hub.memberList().find(x => x.name.toLowerCase() === name.toLowerCase());
       if (same !== undefined) {
         claimed.add(same.id);
@@ -109,11 +109,11 @@ export class Roster {
   }
 
   /** A UI member an earlier wizard run made for the default-named role `name` (see importWizard), or undefined. */
-  reusableWizardMember(name, cli, claimed, leadId) {
+  reusableWizardMember(name, cli, claimed) {
     const stem = name.toLowerCase();
     const fits = this.store.members().filter(r => r.source === 'ui' && !claimed.has(r.id) && r.name_customized != null && !Boolean(r.name_customized)
       && (r.cli ?? '') === (cli ?? '') && (r.name.toLowerCase() === stem || r.name.toLowerCase().replace(/-\d+$/, '') === stem));
-    const pick = fits.find(r => r.id === leadId) ?? fits.find(r => r.name.toLowerCase() === stem) ?? fits[0];
+    const pick = fits.find(r => r.name.toLowerCase() === stem) ?? fits[0];
     return pick === undefined ? undefined : rowToMember(pick);
   }
 
