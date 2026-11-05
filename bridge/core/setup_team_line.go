@@ -7,10 +7,21 @@ import "strings"
 // lead that only knows its teammates' names does the work itself instead of handing it out, and a
 // member that does not know who the lead is takes every big job a person gives it directly.
 func wizardTeamLine(lang, platform string, team []SetupTeamEntry, fallback, self string) string {
+	line := cloudWebTeamLine(lang, team, fallback, self)
 	if platform == "discord" {
-		return discordTeamLine(lang, team, fallback, self)
+		line = discordTeamLine(lang, team, fallback, self)
 	}
-	return cloudWebTeamLine(lang, team, fallback, self)
+	return line + stuckTeamRule(lang)
+}
+
+// stuckTeamRule: a member that knows it cannot finish a job (it is waiting on someone else, or it is
+// beyond what it can do) pauses it on the board and asks a person once, instead of re-explaining
+// "I can't" every time the watch wakes it. Kept on the team line because WithTeam replaces one line.
+func stuckTeamRule(lang string) string {
+	return tr3(lang,
+		" 一件活卡在别人那里、或你判断自己做不了：当轮在任务板上暂停它（board pause <编号> \"原因\"），在群里用一句话叫真人来定，然后停手。不要每次被催醒都再解释一遍做不了。",
+		" 仕事が他の人待ちで止まっている、または自分には無理だと判断したら：そのターンでタスクボード上で一時停止し（board pause <番号> \"理由\"）、グループで一言だけ人に判断を頼んで手を止めます。起こされるたびに「できない」と説明し直さないでください。",
+		" If a job is stuck waiting on someone else, or you judge you cannot do it: pause it on the task board in that same turn (board pause <id> \"reason\"), ask a person to decide in one line in the group, then stop. Do not re-explain that you can't every time you are woken.")
 }
 
 // discordTeamLine: names with their <@id> (a name alone does not notify a bot on Discord), the
