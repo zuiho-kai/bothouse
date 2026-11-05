@@ -35,14 +35,12 @@ def wake_prompt(path: str, summary: str, interrupt: bool = False):
     return f"主频道转来一条话（已记进 {path}「转交结果」节），按这条做：{text}"
 
 
-def timer_cmd(ws: str, path: str, summary: str, interrupt: bool = False, worker: str = ""):
+def timer_cmd(ws: str, path: str, summary: str, interrupt: bool = False):
     # --forward：主频道转来的一次性通知，不是状态轮询；桥的防循环按 Forward 放行
     # （core/anti_spin.go CheckAntiSpinTimer）。不能改用 --handoff：那条路这一轮以 handoff
     # 身份跑、跳过注入（core/engine.go inject_if_busy 判定），紧急转交的 --interrupt 会失效。
     cmd = [_team.cc_bin() or "cc-connect", "timer", "add", "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
            "--forward", "--desc", "工作区转交", "--prompt", wake_prompt(path, summary, interrupt)]
-    if worker:  # 这件由队友跑（ws-handoff pick_worker）：叫醒她在工作区的会话，不是主角色的
-        cmd[3:3] = ["-p", worker]
     if interrupt:  # 工作区正在跑就插进当前这一轮，不排到它跑完之后
         cmd[cmd.index("--delay") + 1] = "1s"
         cmd.insert(cmd.index("--timeout-mins"), "--inject-if-busy")
@@ -70,7 +68,7 @@ def main(argv):
             sys.exit(f"ws-forward: {path} 交给了几个工作区，用 --notes 写明：{'；'.join([path, *alts])}")
         if rec is None:
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
-        last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"], "worker": rec.get("worker") or ""}
+        last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
     done = board.done_item(last["file"])
     if done:  # 已交回：工作区会话已清空、放回池子，话发过去没人接（用户 10-30「他那边不是返回了吗？为什么没感知」）
         sys.exit(f"ws-forward: #{done['id']}（{done.get('short') or done.get('what')}）{done.get('done_at', '')} 已交回，工作区已清空。"
@@ -82,7 +80,7 @@ def main(argv):
         sys.exit(r.returncode)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     append_result(last["file"], argv[0], now)
-    r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt, last.get("worker") or ""), capture_output=True, text=True)
+    r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt), capture_output=True, text=True)
     if r.returncode != 0:
         # 没叫醒就不算送到（来源 #75 交接：失败必须留下未投递的事实，不能把写进交接当发送成功）
         why = (r.stderr.strip() or r.stdout.strip())[:200]

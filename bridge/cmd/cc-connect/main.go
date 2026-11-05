@@ -444,10 +444,6 @@ func runMain() {
 	// start it again if it is not running (after a reboot); the cloud_web bots reconnect on their own
 	core.UpdateStateDir = cfg.DataDir
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
-	// upgrades reach the installed wiki programs (~/.bothouse/wiki: ingest.py, sub-wiki.py)
-	if err := core.RefreshRoleWikiPrograms(cfg.DataDir); err != nil {
-		slog.Warn("wiki programs refresh failed", "error", err)
-	}
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
 	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
