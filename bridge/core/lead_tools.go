@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -70,6 +71,9 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 	if err := AtomicWriteFile(persona, []byte(out), 0644); err != nil {
 		return nil, nil, err
 	}
+	if runtime.GOOS == "windows" {
+		writeLeadShims(bin)
+	}
 	return map[string]string{"tools_dir": bin, "persona_file": persona, "readme": filepath.Join(bin, "README.md")}, skipped, nil
 }
 
@@ -108,6 +112,9 @@ func (e *Engine) leadRuntimeDir() (string, error) {
 	})
 	if err != nil {
 		return "", fmt.Errorf("install lifecycle tools: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		writeLeadShims(filepath.Join(root, "lead"))
 	}
 	return root, nil
 }
