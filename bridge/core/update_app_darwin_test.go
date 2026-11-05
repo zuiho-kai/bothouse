@@ -10,7 +10,7 @@ import (
 
 // RENAME_SWAP is what makes the swap windowless; a silent failure here would send every macOS
 // update down the two-rename fallback, so the syscall wrapper is checked directly.
-func TestSwapDirsExchanges(t *testing.T) {
+func TestUpdateApp_SwapDirsExchanges(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	for p, content := range map[string]string{filepath.Join(a, "marker"): "A", filepath.Join(b, "marker"): "B"} {
 		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {

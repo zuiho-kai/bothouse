@@ -103,7 +103,7 @@ func useInstalledProgram(t *testing.T, exe string) {
 // The defect: replacing only the program inside a signed bundle leaves a broken seal, the browser
 // calls the app damaged and UpdateRefusal stops every later update. Replacing the bundle keeps
 // the seal, the version and the update path intact.
-func TestReplaceAppBundle_KeepsSealVersionAndUpdatability(t *testing.T) {
+func TestUpdateApp_ReplacesBundleKeepingSealVersionAndUpdatability(t *testing.T) {
 	needCodesign(t)
 	dir := t.TempDir()
 	oldApp, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", map[string]string{"Contents/Resources/app.icns": "old icon"})
@@ -196,7 +196,7 @@ func TestUpdateRefusal_BinaryOnlySwapBreaksTheSeal(t *testing.T) {
 
 // A staged bundle whose seal is broken must not be installed: the app would open as damaged and
 // the update path would be dead until the user reinstalls.
-func TestReplaceAppBundle_RefusesBrokenStagedSeal(t *testing.T) {
+func TestUpdateApp_RefusesBrokenStagedSeal(t *testing.T) {
 	needCodesign(t)
 	dir := t.TempDir()
 	oldApp, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
@@ -224,7 +224,7 @@ func TestReplaceAppBundle_RefusesBrokenStagedSeal(t *testing.T) {
 }
 
 // Without RENAME_SWAP (or when it fails) the two renames still install correctly.
-func TestInstallUnitFrom_FallbackAndRestore(t *testing.T) {
+func TestUpdateApp_InstallUnitFallbackAndRestore(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "Bothouse.app")
 	staged := filepath.Join(dir, ".Bothouse.app.new-1")
@@ -267,7 +267,7 @@ func TestInstallUnitFrom_FallbackAndRestore(t *testing.T) {
 
 // The update marker must not sit inside the bundle: any extra file under Contents/ breaks the
 // seal, and a marker that breaks the seal would fail the check it protects.
-func TestMarkerPathStaysOutsideTheBundle(t *testing.T) {
+func TestUpdateApp_MarkerStaysOutsideBundle(t *testing.T) {
 	needCodesign(t)
 	dir := t.TempDir()
 	app, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
@@ -283,6 +283,17 @@ func TestMarkerPathStaysOutsideTheBundle(t *testing.T) {
 		t.Fatal("marker not found where the new version looks")
 	}
 	sealOK(t, app)
+	// The marker survives a swap: it sits beside the bundle, so the new version still finds it
+	// and the seal is still intact with it in place.
+	staged, _ := bundleFixture(t, filepath.Join(dir, "release"), "Bothouse.app", "0.1.51", nil)
+	useInstalledProgram(t, exe)
+	if err := ReplaceAppBundle(staged); err != nil {
+		t.Fatalf("ReplaceAppBundle: %v", err)
+	}
+	if !updateMarkerExists(exe) {
+		t.Fatal("marker lost in the swap")
+	}
+	sealOK(t, app)
 	removeUpdateMarker(exe)
 	if updateMarkerExists(exe) {
 		t.Fatal("marker not removed")
@@ -291,7 +302,7 @@ func TestMarkerPathStaysOutsideTheBundle(t *testing.T) {
 
 // The guard runs the old version from the bundle that was swapped out and puts the whole bundle
 // back, so a rollback leaves a signed app again.
-func TestSwapBackOld_RestoresWholeBundle(t *testing.T) {
+func TestUpdateApp_SwapBackOldRestoresWholeBundle(t *testing.T) {
 	needCodesign(t)
 	dir := t.TempDir()
 	oldApp, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
@@ -325,7 +336,7 @@ func TestSwapBackOld_RestoresWholeBundle(t *testing.T) {
 }
 
 // The undo path used when the self-check cannot start touches the same unit.
-func TestUndoReplace_Bundle(t *testing.T) {
+func TestUpdateApp_UndoReplaceKeepsSeal(t *testing.T) {
 	needCodesign(t)
 	dir := t.TempDir()
 	oldApp, exe := bundleFixture(t, dir, "Bothouse.app", "0.1.50", nil)
@@ -347,7 +358,7 @@ func TestUndoReplace_Bundle(t *testing.T) {
 }
 
 // removeInstallBackups clears siblings of earlier updates and leaves the running bundle.
-func TestRemoveInstallBackups(t *testing.T) {
+func TestUpdateApp_RemovesInstallBackups(t *testing.T) {
 	dir := t.TempDir()
 	app := filepath.Join(dir, "Bothouse.app")
 	for _, name := range []string{"Bothouse.app", ".Bothouse.app.old-1", ".Bothouse.app.failed-2", ".Bothouse.app.new-3", "notes.txt", "Other.app.old-4"} {
@@ -367,7 +378,7 @@ func TestRemoveInstallBackups(t *testing.T) {
 }
 
 // A bare program (install.sh) has no bundle: the family of helpers must keep the file behaviour.
-func TestBundleHelpersOnPlainProgram(t *testing.T) {
+func TestUpdateApp_PlainProgramKeepsFileBehaviour(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "bothouse")
 	if _, ok := appBundleOf(exe); ok {
@@ -392,7 +403,7 @@ func TestBundleHelpersOnPlainProgram(t *testing.T) {
 
 // A path inside a bundle backup names the installed bundle, which is what the guard, the marker
 // and the update entry resolve after a swap.
-func TestInstalledPathOfBackup(t *testing.T) {
+func TestUpdateApp_InstalledPathOfBackup(t *testing.T) {
 	dir := t.TempDir()
 	installed := filepath.Join(dir, "Bothouse.app", "Contents", "MacOS", "bothouse")
 	for _, p := range []string{
@@ -414,7 +425,7 @@ func TestInstalledPathOfBackup(t *testing.T) {
 // A dmg release carries the whole bundle: extraction stages it and the install puts it in place.
 // hdiutil attach is stubbed with a directory standing in for the mounted volume (building a dmg
 // needs `hdiutil create`, which fails in the sandbox and in CI).
-func TestExtractReleasePayload_FromDmgInstallsBundle(t *testing.T) {
+func TestUpdateApp_ExtractDmgInstallsBundle(t *testing.T) {
 	needCodesign(t)
 	volume := t.TempDir()
 	released, _ := bundleFixture(t, filepath.Join(volume, "mount"), "Bothouse.app", "0.1.51", map[string]string{"Contents/Resources/app.icns": "new icon"})
@@ -470,7 +481,7 @@ func TestExtractReleasePayload_FromDmgInstallsBundle(t *testing.T) {
 }
 
 // Non-dmg releases keep their single-program shape, byte for byte.
-func TestExtractReleasePayload_OtherFormatsStayBinary(t *testing.T) {
+func TestUpdateApp_ExtractOtherFormatsStayBinary(t *testing.T) {
 	payload, err := ExtractReleasePayload([]byte("executable bytes"), "bothouse-linux-x64")
 	if err != nil || payload.AppDir != "" || string(payload.Binary) != "executable bytes" || payload.Cleanup != nil {
 		t.Fatalf("%+v %v", payload, err)
@@ -481,5 +492,13 @@ func TestExtractReleasePayload_OtherFormatsStayBinary(t *testing.T) {
 		if err == nil {
 			t.Fatal("a non-dmg payload was accepted as a dmg")
 		}
+	}
+}
+
+// A dmg must never go through the single-program path: taking only Contents/MacOS/bothouse out
+// of it is exactly the defect.
+func TestUpdateApp_ExtractBinaryRefusesDmg(t *testing.T) {
+	if _, err := ExtractReleaseBinary([]byte("dmg bytes"), "bothouse-mac.dmg"); err == nil {
+		t.Fatal("dmg accepted as a single program")
 	}
 }

@@ -280,9 +280,9 @@ func removeInstallBackups(app string) {
 }
 
 // checkWritableDir reports whether the updater may create files in dir — the bundle's parent.
-// Tested by writing, not by reading permission bits: /Applications is readable yet carries the
-// sunlnk flag, so creating a file there fails for an admin user (measured). The OS error is
-// returned as is, so the page can answer "permission".
+// Tested by writing rather than by reading permission bits: the swap needs one rename beside the
+// bundle, and the error the OS gives (not the mode bits) is what decides. The OS error is returned
+// as is, so the page can answer "permission".
 func checkWritableDir(dir string) error {
 	f, err := os.CreateTemp(dir, ".bothouse-writable-*")
 	if err != nil {

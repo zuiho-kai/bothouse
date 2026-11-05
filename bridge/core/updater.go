@@ -15,7 +15,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -205,7 +204,9 @@ func DownloadReleaseAsset(bases []string, tag, goos, goarch string) ([]byte, str
 	return nil, "", fmt.Errorf("%w from all sources: %w", ErrUpdateDownload, errors.Join(errs...))
 }
 
-// ExtractReleaseBinary accepts the release's native format and legacy archives.
+// ExtractReleaseBinary accepts the release's single-program formats and legacy archives. The
+// macOS dmg is not one of them: it carries a signed bundle, which ExtractReleasePayload stages
+// whole (taking only the program out of it would break the seal).
 func ExtractReleaseBinary(data []byte, filename string) ([]byte, error) {
 	switch {
 	case strings.HasSuffix(filename, ".zip"):
@@ -213,27 +214,7 @@ func ExtractReleaseBinary(data []byte, filename string) ([]byte, error) {
 	case strings.HasSuffix(filename, ".tar.gz"):
 		return extractBinaryFromTarGz(data)
 	case strings.HasSuffix(filename, ".dmg"):
-		if runtime.GOOS != "darwin" {
-			return nil, fmt.Errorf("dmg extraction requires macOS")
-		}
-		dir, err := os.MkdirTemp("", "bothouse-update-*")
-		if err != nil {
-			return nil, err
-		}
-		defer os.RemoveAll(dir)
-		disk := filepath.Join(dir, "bothouse.dmg")
-		mount := filepath.Join(dir, "volume")
-		if err := os.WriteFile(disk, data, 0600); err != nil {
-			return nil, err
-		}
-		if out, err := exec.Command("hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", mount, disk).CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("mount dmg: %w: %s", err, out)
-		}
-		binary, readErr := os.ReadFile(filepath.Join(mount, "Bothouse.app", "Contents", "MacOS", "bothouse"))
-		if out, err := exec.Command("hdiutil", "detach", mount).CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("unmount dmg: %w: %s", err, out)
-		}
-		return binary, readErr
+		return nil, fmt.Errorf("dmg is a signed bundle: use ExtractReleasePayload")
 	default:
 		return data, nil
 	}
