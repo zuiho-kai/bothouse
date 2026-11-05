@@ -1336,11 +1336,184 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 
 ---
 
+### 5.10 Plugins（DSH profile）
+
+列出 DSH 那份 profile 里已有的插件，并提供两个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
+
+两个写操作都要求管理 API 设了 token。没设时路由直接回 `403`：没认证的管理端口分不清谁是这台机器的主人。
+
+#### GET /api/v1/plugins
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "profile": "web",
+    "profile_dir": "/Users/me/.dsh/profiles/web",
+    "can_install": true,
+    "writes_allowed": true,
+    "allow_non_registry": false,
+    "registry": "https://registry.npmjs.org/",
+    "plugins": [
+      {
+        "name": "@deepseek-ai/dsh-base",
+        "version": "0.2.1-rc.5",
+        "description": "DSH base surface",
+        "layer": true,
+        "enabled": true,
+        "shipped": true,
+        "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
+      }
+    ]
+  }
+}
+```
+
+`shipped` 表示这个 bundle 来自 DSH 安装本身而不是这份 profile：它们是面板自己的层，照样列出来，但页面不给开关。没有声明 `dsh.bundle` 的依赖 `layer: false`：装上了，但 DSH 不会把它当插件加载。
+
+#### GET /api/v1/plugins/inspect?spec=<包规格>
+
+装之前先说明要装的是什么。不写任何文件，也不跑任何进程。
+
+```json
+{
+  "ok": true,
+  "data": {
+    "spec": "demo-bundle@next",
+    "name": "demo-bundle",
+    "kind": "registry",
+    "version": "0.4.2",
+    "registry": "https://registry.npmjs.org/",
+    "publisher": "publisher-x",
+    "description": "Demo bundle",
+    "bundle": true,
+    "runtime": "0.2.1-rc.5",
+    "requires": "engines.dsh ^0.2.0",
+    "compatible": true,
+    "required": "插件和面板、agent 在同一个进程里跑，没有单独的沙箱：…",
+    "allowed": true
+  }
+}
+```
+
+- `kind` 是 `registry` / `git` / `tarball` / `path` 之一。只有 `registry` 默认能装；其余来源要 `[plugins] allow_non_registry = true`，否则 `allowed: false` 并给出 `reason`，`POST /plugins/install` 也会回 `403`。
+- `compatible` 只在声明的 `engines.dsh`（或 `@deepseek-ai/dsh` peer）范围是本实现认识的写法时出现。没有这个字段表示「交给 DSH 在装的时候核」——装前瞎猜一个答案是更糟的。
+- `required` 是装上后能做什么。DSH 插件和面板、agent 在同一个进程里跑，没有按插件划分的沙箱。
+- `error` 表示这次读 registry 失败。仍然可以尝试安装，最终以这次运行自己的输出为准。
+
+#### POST /api/v1/plugins/install
+
+```json
+{"spec": "demo-bundle@1.2.3"}
+```
+
+默认只收 npm registry 的包名：小写、可带 `@scope/`、可带 `@版本` 或标签、最多 214 字符、不能以 `-` 开头。`git:`/`github:` 简写、git URL、`http(s)://…tgz`、`file:`/`link:`/绝对路径是另一种风险（内容不是 registry 发布的那一份），要同时打开配置开关并在页面上再确认一次。
+
+响应是 NDJSON 流（冷缓存时安装要几分钟）：
+
+```
+{"line": "Progress: resolved 1, reused 0, downloaded 0, added 0"}
+{"done": true, "state": { …同 GET /plugins… }}
+```
+
+失败时最后一行带 `error`（pnpm 原话）和 `kind`，页面翻成中文：`pnpm-missing`、`build-blocked`、`not-found`、`no-matching-version`、`disk-full`、`permission`、`integrity`、`network`、`timeout`、`unknown`。
+
+#### POST /api/v1/plugins/switch
+
+```json
+{"name": "some-bundle", "enabled": false}
+```
+
+只改 profile `package.json` 里 `dsh.profile.bundles` 这一段，其余字节原样保留；用的是 DSH 和 `dsh plugin` 同一个 `package.json.lock`，改之前先写一份带时间戳的备份。不卸载任何东西，所以再开回来就恢复原状。profile 本来就是那个状态时 `changed: false`。
+
+`@deepseek-ai/dsh-base` 会被拒：它是面板本体，关掉就没有界面了。两个写操作都要重启 DSH 才生效，响应里 `restart_required: true`。
+
+---
+
+## 6. 错误处理约定
+
+### 6.1 标准错误响应
+
+所有错误使用相同封装格式：
+
+```json
+{
+  "ok": false,
+  "error": "human-readable message"
+}
+```
+
+### 6.2 常见错误
+
+| HTTP | 错误消息示例                                  | 原因                          |
+|------|-----------------------------------------------|-------------------------------|
+| 400  | `"project is required (multiple projects)"`   | 缺少必填参数                  |
+| 400  | `"either prompt or exec is required"`         | 定时任务请求体无效            |
+| 401  | `"unauthorized: missing or invalid token"`    | 认证失败                      |
+| 404  | `"project not found: xyz"`                    | 未知项目/会话/定时任务       |
+| 404  | `"session not found"`                         | 未知会话 ID                   |
+| 405  | `"method not allowed"`                       | HTTP 方法错误                 |
+| 500  | `"internal error"`                           | 服务器意外错误                |
+
+### 6.3 校验错误
+
+当请求体验证失败时：
+
+```json
+{
+  "ok": false,
+  "error": "invalid request: session_key is required"
+}
+```
+
+---
+
+## 7. Session Key 格式
+
+`session_key` 是用于将消息路由到正确平台和会话的复合标识符：
+
+```
+<platform>:<chat_id>:<user_id>
+```
+
+示例：
+
+- `telegram:123456789:123456789` — Telegram 用户 123456789，会话 123456789
+- `feishu:ou_xxx:chat_yyy` — 飞书用户与会话
+- `slack:C01234:U05678` — Slack 频道与用户
+- `discord:123456789:987654321` — Discord 服务器与用户
+
+多工作区模式下，格式可能包含工作区前缀：
+
+```
+<workspace>:<platform>:<chat_id>:<user_id>
+```
+
+---
+
+## 8. CORS
+
+当管理 API 被 Web 控制台调用时，CORS 头应可配置。建议的配置扩展：
+
+```toml
+[management]
+enabled = true
+port = 9820
+token = "mgmt-secret"
+cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
+```
+
+若未配置，CORS 可能被禁用或使用默认值（例如仅同源时为 `*`）。
+
+---
+
 ## 9. 更新日志
 
 | 版本       | 日期       | 变更                    |
 |------------|------------|-------------------------|
-| 1.1-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`）与 QQ 说说 / 头像接口（`/projects/{name}/social…`），各自的开关未打开时不生效 |
+| 1.1-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`）、QQ 说说 / 头像接口（`/projects/{name}/social…`）与 DSH 插件接口（`/plugins…`），各自需要开关或管理 token |
 | 1.0-draft  | 2026-03-10 | 初始规范                |
 
 ---

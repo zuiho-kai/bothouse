@@ -14,7 +14,8 @@
     "bridge": "브리지",
     "skills": "스킬",
     "system": "시스템",
-    "wikiGalaxy": "Wiki 갤럭시"
+    "wikiGalaxy": "Wiki 갤럭시",
+    "plugins": "플러그인"
   },
   "dashboard": {
     "title": "대시보드",

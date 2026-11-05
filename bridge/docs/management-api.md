@@ -1300,6 +1300,128 @@ Errors: `400` not an image or empty, `403` the action is off (message names `all
 
 ## 6. Error Handling Conventions
 
+### 5.10 Plugins (DSH profile)
+
+The DSH profile's own plugin list, and the two writes a person actually needs: install a package
+(`dsh plugin --profile <profile> add`, the same command a user would type) and switch a bundle on or
+off. The page is a window on the profile files (`package.json` dependencies +
+`dsh.profile.bundles`), not a second registry: DSH's own Plugins page reads and writes exactly the
+same files, so the two agree.
+
+Both writes require a management token. With none configured the routes answer `403`, because an
+unauthenticated management port cannot tell the owner from anyone else on the machine.
+
+#### GET /api/v1/plugins
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "profile": "web",
+    "profile_dir": "/Users/me/.dsh/profiles/web",
+    "can_install": true,
+    "writes_allowed": true,
+    "allow_non_registry": false,
+    "registry": "https://registry.npmjs.org/",
+    "plugins": [
+      {
+        "name": "@deepseek-ai/dsh-base",
+        "version": "0.2.1-rc.5",
+        "description": "DSH base surface",
+        "layer": true,
+        "enabled": true,
+        "shipped": true,
+        "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
+      }
+    ]
+  }
+}
+```
+
+`shipped` marks a bundle that resolves from the DSH installation rather than this profile; those are
+the panel's own surface, so the response lists them but the page offers no switch. A dependency that
+does not declare `dsh.bundle` has `layer: false`: it is installed, but DSH never loads it as a plugin.
+
+#### GET /api/v1/plugins/inspect?spec=<package spec>
+
+Describes a spec **before** anything is installed. Nothing is written and no process runs.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "spec": "demo-bundle@next",
+    "name": "demo-bundle",
+    "kind": "registry",
+    "version": "0.4.2",
+    "registry": "https://registry.npmjs.org/",
+    "publisher": "publisher-x",
+    "description": "Demo bundle",
+    "bundle": true,
+    "runtime": "0.2.1-rc.5",
+    "requires": "engines.dsh ^0.2.0",
+    "compatible": true,
+    "required": "插件和面板、agent 在同一个进程里跑，没有单独的沙箱：…",
+    "allowed": true
+  }
+}
+```
+
+- `kind` is one of `registry`, `git`, `tarball`, `path`. Only `registry` is accepted unless
+  `[plugins] allow_non_registry = true`; the other kinds then report `allowed: false` with a
+  `reason`, and `POST /plugins/install` refuses them with `403`.
+- `compatible` is present only when the declared `engines.dsh` (or `@deepseek-ai/dsh`
+  peer) range is one this build evaluates. Absent means "left to DSH at install", which is honest:
+  a wrong pre-flight answer is worse than none.
+- `required` is what the plugin may do once loaded. DSH plugins run in the same process as the panel
+  and the agent, in-process, with no per-plugin sandbox.
+- `error` reports a registry read that failed. The install can still be attempted; the run's own
+  output is the authority.
+
+#### POST /api/v1/plugins/install
+
+```json
+{"spec": "demo-bundle@1.2.3"}
+```
+
+Only an npm registry package name is accepted by default: lowercase, optional `@scope/`, optional
+`@version` or tag, at most 214 characters, and never a leading `-`. A `git:`/`github:` shorthand, a
+git URL, an `http(s)://…tgz`, or a `file:`/`link:`/absolute path is a different risk (the bytes are
+not the ones the registry published) and needs both the config switch and a second confirmation in
+the page.
+
+The response is an NDJSON stream, because the run takes minutes on a cold npm cache:
+
+```
+{"line": "Progress: resolved 1, reused 0, downloaded 0, added 0"}
+{"done": true, "state": { …the same shape as GET /plugins …}}
+```
+
+On failure the last line carries `error` (pnpm's own line) and `kind`, which the page turns into its
+own language: `pnpm-missing`, `build-blocked`, `not-found`, `no-matching-version`, `disk-full`,
+`permission`, `integrity`, `network`, `timeout`, `unknown`.
+
+#### POST /api/v1/plugins/switch
+
+```json
+{"name": "some-bundle", "enabled": false}
+```
+
+Rewrites only the `dsh.profile.bundles` array of the profile's `package.json`, byte-for-byte
+elsewhere, under the same `package.json.lock` that DSH and `dsh plugin` take; a timestamped backup is
+written first. Nothing is uninstalled, so switching back on restores the old state. `changed: false`
+when the profile already had that state.
+
+`@deepseek-ai/dsh-base` is refused: it is the panel itself, and switching it off removes the UI.
+A DSH restart is needed for either write to take effect; the response reports
+`restart_required: true`.
+
+---
+
+## 6. Error Handling Conventions
+
 ### 6.1 Standard Error Response
 
 All errors use the same envelope:
@@ -1380,7 +1502,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | Version   | Date       | Changes                    |
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
-| 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) and QQ 说说 / avatar routes (`/projects/{name}/social…`), each off unless configured |
+| 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`), QQ 说说 / avatar routes (`/projects/{name}/social…`) and DSH plugin routes (`/plugins…`), each off or read-only unless configured |
 | 1.0-draft | 2026-03-10 | Initial specification      |
 
 ---
