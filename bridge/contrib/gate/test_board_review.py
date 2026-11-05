@@ -300,13 +300,9 @@ class ReviewTier(unittest.TestCase):
             self.assertNotEqual(cli("tier", "7", "hard").returncode, 0)  # unknown tier: usage
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AutoCloseSimple(unittest.TestCase):
     """用户 2026-11-04 23:2x「小活交回时，只要检查都过了就自动收口，大活才需要人看」。"""
-    def _run(self, tier, rollup):
+    def _run(self, tier, rollup, no_deploy=True):
         import board
         from unittest.mock import patch
         from subprocess import CompletedProcess
@@ -319,7 +315,7 @@ class AutoCloseSimple(unittest.TestCase):
             if tier:
                 it["review_tier"] = tier
             board._write([it])
-            board.bind_pr(90, "https://github.com/example/project/pull/900", True)
+            board.bind_pr(90, "https://github.com/example/project/pull/900", no_deploy)
             board.reconcile_merged_prs()
             done = (tmp / "board-done.jsonl")
             return board.items(), (done.read_text() if done.exists() else "")
@@ -341,3 +337,15 @@ class AutoCloseSimple(unittest.TestCase):
         items, done = self._run("complex", [{"conclusion": "SUCCESS"}])
         self.assertEqual(len(items), 1)
         self.assertEqual(done, "")
+
+    def test_deploy_binding_waits_for_the_release_even_when_simple_and_green(self):
+        """要部署的活合并后先等发布，不因小活检查全绿就收口（部署后转待上线验收再自动收口）。"""
+        items, done = self._run(None, [{"conclusion": "SUCCESS"}], no_deploy=False)
+        self.assertEqual(done, "")
+        self.assertEqual(len(items), 1)
+        self.assertIn("等发布", items[0]["status"])
+        self.assertEqual(items[0]["await_deploy"]["commit"], "abc")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -858,7 +858,10 @@ def reconcile_merged_prs():
             simple = REVIEW_TIERS.get(hit.get("review_tier") or "simple") != "complex"
         # 小活合并且检查都过就自动收口，大活（board tier complex）仍等人看
         # （用户 2026-11-04 23:2x「小活交回时，只要检查都过了就自动收口，大活才需要人看」）。
-        if simple and checks_green(pr.get("statusCheckRollup")):
+        # 只对不部署（no_deploy）的绑定生效：要部署的活合并后还要上线，先等发布、部署后转
+        # 「待上线验收」再走这一遍自动收口，合并就关会把它整个跳过、await_deploy 永远挂着
+        # （用户 2026-11-04 17:07「已合待部署的活单列等发布，部署后转待上线验收并自动派非作者验」）。
+        if binding.get("no_deploy") and simple and checks_green(pr.get("statusCheckRollup")):
             ended = done(item["id"], 0)
             if ended:
                 _park_done(ended)
@@ -883,7 +886,7 @@ def _deploy_contains(repo, merge, deployed):
     """部署的提交是否已含合并提交：GitHub compare base...head，head 领先或相同即含。None = 查不到。"""
     try:
         result = subprocess.run(["gh", "api", f"repos/{repo}/compare/{merge}...{deployed}", "--jq", ".status"],
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=GH_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
