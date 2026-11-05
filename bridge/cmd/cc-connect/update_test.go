@@ -430,10 +430,13 @@ func TestUpdateSocketPathFollowsHomeNotInheritedDataDir(t *testing.T) {
 // `bothouse update` with no running bothouse: a self-built binary (or, on macOS, one without the
 // release signature) refuses before downloading anything (#299).
 func TestInstallDirectRefusesSelfBuilt(t *testing.T) {
-	oldID, oldHash, oldDl := core.ReleaseSignerID, core.ReleaseSignerHash, downloadUpdateAssetFn
-	t.Cleanup(func() { core.ReleaseSignerID, core.ReleaseSignerHash, downloadUpdateAssetFn = oldID, oldHash, oldDl })
+	oldID, oldHash, oldDl := core.ReleaseSignerID, core.ReleaseSignerHash, downloadUpdatePayloadFn
+	t.Cleanup(func() { core.ReleaseSignerID, core.ReleaseSignerHash, downloadUpdatePayloadFn = oldID, oldHash, oldDl })
 	downloaded := 0
-	downloadUpdateAssetFn = func(string, string) (string, error) { downloaded++; return "", errors.New("stub") }
+	downloadUpdatePayloadFn = func(string, string) (*core.ReleasePayload, error) {
+		downloaded++
+		return nil, errors.New("stub")
+	}
 
 	cases := map[string][2]string{"self-built": {"", ""}}
 	if runtime.GOOS == "darwin" {
