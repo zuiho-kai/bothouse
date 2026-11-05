@@ -61,6 +61,8 @@ When you assign test work, give it its own HOME, data directory and port in the 
 If anything changed, report it as an incident. (2026-10-23: a test deleted a live socket and wrote into a live data directory.)
 
 - Before testing, run `iso-check before` and note the `ISO_DIR` it prints. Put the test's HOME, data directory and ports under it.
+- Self-tests too: use an isolated data directory or a copy; never write the live event files, queues or data directories. (2026-11-05: a role's self-test wrote into the live event file, and a fallback timer pushed the fake event into the user's channel as if it were real.)
+- Real-entry acceptance never sends probes or "self-check" messages to the user's chat channel: walk it in a dedicated test channel, or only check logs and the task board. (2026-10-28, user: "what are these stupid probe questions? three of them")
 - After testing, run `iso-check after <ISO_DIR>`. The directory is required. It only deletes directories registered by this session and refuses other sessions' directories.
 - Rehearse on a copy of the real config, not on an allow-all empty config: `rehearse-copy <real config>`. It runs `cp -a` into an isolated directory, replaces secrets with REDACTED by default, and keeps permission fields unchanged. When done, run `iso-check after <REHEARSE_DIR>`.
 - Change the live config only after the rehearsal passes. Use the setup wizard or `setup apply`: before writing, it keeps the old file as `config.toml.bak-<time>`.
