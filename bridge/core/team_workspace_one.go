@@ -74,7 +74,7 @@ func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error
 			} else if cand := filepath.Join(AgentToolsDir(e.dataDir), "bin", "python3"); fileExists(cand) {
 				py = cand
 			}
-			cmdArgs = append([]string{py, "-I", gateBoard}, args...)
+			cmdArgs = append([]string{py, "-X", "utf8", "-I", gateBoard}, args...)
 		} else {
 			return nil, err
 		}
@@ -122,13 +122,13 @@ func windowsLeadArgv(bin, py string) ([]string, error) {
 	first = strings.TrimSpace(first)
 	if strings.HasPrefix(first, "#!") && strings.Contains(first, "python") {
 		if strings.Contains(first, " -I") {
-			return []string{py, "-I", bin}, nil
+			return []string{py, "-X", "utf8", "-I", bin}, nil
 		}
-		return []string{py, bin}, nil
+		return []string{py, "-X", "utf8", bin}, nil
 	}
 	if filepath.Base(bin) == "board" {
 		// The ../gate runLeadScript also passes as GATE_DIR.
-		return []string{py, "-I", filepath.Join(filepath.Dir(bin), "..", "gate", "board.py")}, nil
+		return []string{py, "-X", "utf8", "-I", filepath.Join(filepath.Dir(bin), "..", "gate", "board.py")}, nil
 	}
 	return nil, fmt.Errorf("lead script %s needs a POSIX shell (%s), which Windows does not have", filepath.Base(bin), first)
 }
