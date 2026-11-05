@@ -92,8 +92,13 @@ func FindDSHInstallScript() string {
 // PATH; on a desktop-only Mac it names the app's own CLI, which is the only dsh on the machine
 // (#192) — the bare name would print "command not found".
 func dshOpenCommand() string {
+	return dshOpenCommandFor(runtime.GOOS)
+}
+
+// Keep the platform boundary testable without requiring another operating system.
+func dshOpenCommandFor(goos string) string {
 	bin := "dsh"
-	if _, err := exec.LookPath("dsh"); err != nil {
+	if _, err := exec.LookPath("dsh"); goos == "darwin" && err != nil {
 		if p, err := LookDSH(); err == nil {
 			bin = strconv.Quote(p)
 		}
