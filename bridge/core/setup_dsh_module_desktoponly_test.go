@@ -63,3 +63,36 @@ func TestDSHModuleStateDesktopOnlyHostBundles(t *testing.T) {
 		}
 	})
 }
+
+// #1127: a stale insertion is configuration, not proof that its bundle is installed.
+func TestDSHModuleMissingBundleWithResidualInsertion(t *testing.T) {
+	for _, location := range []string{"profile", "HOME"} {
+		t.Run(location, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("DSH_HOME", home)
+			dir := filepath.Join(home, "profiles", DSHProfile)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			manifest := `{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","conest-collab"]}}}`
+			if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0600); err != nil {
+				t.Fatal(err)
+			}
+			patchDir := dir
+			if location == "HOME" {
+				patchDir = home
+			}
+			patch := "- insert:\n    - id: personal-collab\n      name: conest-collab\n"
+			if err := os.WriteFile(filepath.Join(patchDir, "cordis.patch.yml"), []byte(patch), 0600); err != nil {
+				t.Fatal(err)
+			}
+			st, err := GetDSHModuleState()
+			if err != nil || st.Installed {
+				t.Fatalf("missing conest-collab accepted as installed from %s insertion: %+v %v", location, st, err)
+			}
+			if GetDSHStatus(context.Background()).PluginInstalled {
+				t.Fatal("wizard accepted a missing bundle")
+			}
+		})
+	}
+}
