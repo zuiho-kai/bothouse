@@ -522,5 +522,15 @@
     "projectScope": "Un proyecto de puente conecta un agente y espacio de trabajo con plataformas. Los miembros DSH se administran aparte.",
     "savedConfigNextTurn": "Configuración guardada · se aplica antes del siguiente turno",
     "savedRoute": "Ruta DSH guardada"
+  },
+  "usage": {
+    "quickFilters": "Filtros rápidos",
+    "presetToday": "Hoy",
+    "presetThisWeek": "Esta semana",
+    "presetThisMonth": "Este mes",
+    "presetLast7Days": "Últimos 7 días",
+    "presetPastYear": "Último año",
+    "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
+    "tokenBreakdown": "Desglose"
   }
 }

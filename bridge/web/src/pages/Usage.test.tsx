@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Usage from './Usage';
+import Usage, { getPresetRange } from './Usage';
 import { getUsage, type UsageResult } from '@/api/usage';
 import { listProjects } from '@/api/projects';
 import { useUsageSettingsStore, DEFAULT_TOKEN_UNIT } from '@/store/usageSettings';
@@ -172,6 +172,24 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+function useServerToday(day: string) {
+  vi.mocked(getUsage).mockImplementation(async (group, filter) => {
+    if (group === 'roles' && !filter) return { ...mockRoles, to: day };
+    return group === 'daily' ? mockDaily : group === 'hourly' ? mockHourly : group === 'models' ? mockModels : mockRoles;
+  });
+}
+
+const presetButton = (c: HTMLElement, p: string) => c.querySelector<HTMLButtonElement>(`[data-testid="usage-preset-${p}"]`)!;
+const activePresets = (c: HTMLElement) =>
+  Array.from(c.querySelectorAll<HTMLButtonElement>('[data-testid^="usage-preset-"]'))
+    .filter(b => b.getAttribute('aria-pressed') === 'true')
+    .map(b => b.dataset.testid!.replace('usage-preset-', ''));
+const dateInputElements = (c: HTMLElement) => [
+  c.querySelector<HTMLInputElement>('[data-testid="usage-start-date"]')!,
+  c.querySelector<HTMLInputElement>('[data-testid="usage-end-date"]')!,
+] as const;
+const dateInputs = (c: HTMLElement) => dateInputElements(c).map(i => i.value);
+
 describe('Usage page - token unit switching and custom date range', () => {
   it('renders unit toggle selector with raw, M, and B options', async () => {
     const container = await renderUsage();
@@ -257,108 +275,107 @@ describe('Usage page - token unit switching and custom date range', () => {
     expect(container.querySelector('[data-testid="usage-reset-dates"]')).toBeNull();
   });
 
-  it('renders quick date preset buttons with all options and defaults to all', async () => {
+  it('renders quick date preset buttons and defaults to past year', async () => {
     const container = await renderUsage();
-    const presetsGroup = container.querySelector('[data-testid="usage-date-presets"]');
-    expect(presetsGroup).not.toBeNull();
-
-    const todayBtn = container.querySelector('[data-testid="usage-preset-today"]');
-    const weekBtn = container.querySelector('[data-testid="usage-preset-thisWeek"]');
-    const monthBtn = container.querySelector('[data-testid="usage-preset-thisMonth"]');
-    const last7Btn = container.querySelector('[data-testid="usage-preset-last7Days"]');
-    const allBtn = container.querySelector('[data-testid="usage-preset-all"]');
-
-    expect(todayBtn).not.toBeNull();
-    expect(weekBtn).not.toBeNull();
-    expect(monthBtn).not.toBeNull();
-    expect(last7Btn).not.toBeNull();
-    expect(allBtn).not.toBeNull();
-
-    // Default when no range is set: 'all' is active
-    expect(allBtn?.className).toContain('bg-accent');
-    expect(todayBtn?.className).not.toContain('bg-accent');
+    expect(container.querySelector('[data-testid="usage-date-presets"]')).not.toBeNull();
+    for (const p of ['today', 'thisWeek', 'thisMonth', 'last7Days', 'pastYear']) {
+      expect(container.querySelector(`[data-testid="usage-preset-${p}"]`)).not.toBeNull();
+    }
+    expect(container.querySelector('[data-testid="usage-preset-all"]')).toBeNull();
+    const pastYear = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-pastYear"]')!;
+    // 文案是「近一年」而不是「全部」：清空起止时后端只返回今天往前一年
+    expect(pastYear.textContent).toBe('近一年');
+    expect(pastYear.className).toContain('bg-accent');
+    expect(activePresets(container)).toEqual(['pastYear']);
   });
 
-  it('clicking today preset sets start and end date to today and triggers fetch', async () => {
-    const container = await renderUsage();
-    const todayBtn = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-today"]')!;
-    const startInput = container.querySelector<HTMLInputElement>('[data-testid="usage-start-date"]')!;
-    const endInput = container.querySelector<HTMLInputElement>('[data-testid="usage-end-date"]')!;
-
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-    await act(async () => {
-      todayBtn.click();
-    });
-
-    expect(startInput.value).toBe(todayStr);
-    expect(endInput.value).toBe(todayStr);
-    expect(todayBtn.className).toContain('bg-accent');
-
-    expect(getUsage).toHaveBeenCalledWith('daily', expect.objectContaining({
-      from: todayStr,
-      to: todayStr,
-    }));
+  it('today preset follows the server calendar when the browser is already on the next day', async () => {
+    // 浏览器（如台北）已是 11-04 00:30，服务器日历仍是 11-03：今日应请求 11-03
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 4, 0, 30));
+    try {
+      useServerToday('2026-11-03');
+      const container = await renderUsage();
+      await act(async () => { presetButton(container, 'today').click(); });
+      expect(dateInputs(container)).toEqual(['2026-11-03', '2026-11-03']);
+      expect(getUsage).toHaveBeenCalledWith('daily', expect.objectContaining({ from: '2026-11-03', to: '2026-11-03' }));
+      // 「今日角色」表也按服务器日历查
+      expect(getUsage).toHaveBeenCalledWith('roles', expect.objectContaining({ from: '2026-11-03', to: '2026-11-03' }));
+      expect(getUsage).not.toHaveBeenCalledWith('daily', expect.objectContaining({ from: '2026-11-04' }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('clicking thisWeek, thisMonth, and last7Days presets set correct date ranges', async () => {
-    const container = await renderUsage();
-    const weekBtn = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-thisWeek"]')!;
-    const monthBtn = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-thisMonth"]')!;
-    const last7Btn = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-last7Days"]')!;
-    const startInput = container.querySelector<HTMLInputElement>('[data-testid="usage-start-date"]')!;
-    const endInput = container.querySelector<HTMLInputElement>('[data-testid="usage-end-date"]')!;
-
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-    // Click thisWeek
-    await act(async () => {
-      weekBtn.click();
+  it('a preset clicked before the server day is known is recomputed once it arrives', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 4, 0, 30));
+    let release: () => void = () => {};
+    const gate = new Promise<void>(r => { release = r; });
+    vi.mocked(getUsage).mockImplementation(async (group, filter) => {
+      if (group === 'roles' && !filter) { await gate; return { ...mockRoles, to: '2026-11-03' }; }
+      return group === 'daily' ? mockDaily : group === 'hourly' ? mockHourly : group === 'models' ? mockModels : mockRoles;
     });
-    expect(weekBtn.className).toContain('bg-accent');
-    expect(endInput.value).toBe(todayStr);
-
-    // Click thisMonth
-    await act(async () => {
-      monthBtn.click();
-    });
-    expect(monthBtn.className).toContain('bg-accent');
-    const firstDayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    expect(startInput.value).toBe(firstDayStr);
-    expect(endInput.value).toBe(todayStr);
-
-    // Click last7Days
-    await act(async () => {
-      last7Btn.click();
-    });
-    expect(last7Btn.className).toContain('bg-accent');
-    const sevenDaysAgo = new Date(now);
-    sevenDaysAgo.setDate(now.getDate() - 6);
-    const sevenStr = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
-    expect(startInput.value).toBe(sevenStr);
-    expect(endInput.value).toBe(todayStr);
+    try {
+      const container = await renderUsage();
+      await act(async () => { presetButton(container, 'today').click(); });
+      expect(dateInputs(container)).toEqual(['2026-11-04', '2026-11-04']);
+      await act(async () => { release(); await new Promise(r => setTimeout(r, 0)); });
+      await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+      expect(dateInputs(container)).toEqual(['2026-11-03', '2026-11-03']);
+      expect(activePresets(container)).toEqual(['today']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('clicking all preset clears date range and activates all', async () => {
+  it('computes preset ranges from the server day', () => {
+    expect(getPresetRange('today', '2026-11-03')).toEqual({ from: '2026-11-03', to: '2026-11-03' });
+    expect(getPresetRange('thisWeek', '2026-11-04')).toEqual({ from: '2026-11-02', to: '2026-11-04' });
+    expect(getPresetRange('thisWeek', '2026-11-08')).toEqual({ from: '2026-11-02', to: '2026-11-08' });
+    expect(getPresetRange('thisMonth', '2026-11-04')).toEqual({ from: '2026-11-01', to: '2026-11-04' });
+    expect(getPresetRange('last7Days', '2026-03-02')).toEqual({ from: '2026-02-24', to: '2026-03-02' });
+    expect(getPresetRange('last7Days', '2027-01-03')).toEqual({ from: '2026-12-28', to: '2027-01-03' });
+    expect(getPresetRange('pastYear', '2026-11-04')).toEqual({ from: '', to: '' });
+  });
+
+  it.each([
+    // 周一：本周 = 今日
+    ['2026-11-02', 'thisWeek', ['2026-11-02', '2026-11-02']],
+    // 月初：本月 = 今日
+    ['2026-12-01', 'thisMonth', ['2026-12-01', '2026-12-01']],
+    // 周日：近7天 = 本周
+    ['2026-11-08', 'last7Days', ['2026-11-02', '2026-11-08']],
+    // 11-01 既是周日又是月初：近7天 = 本周
+    ['2026-11-01', 'last7Days', ['2026-10-26', '2026-11-01']],
+  ] as const)('on %s clicking %s keeps that preset highlighted even when another range is identical', async (day, preset, range) => {
+    useServerToday(day);
     const container = await renderUsage();
-    const todayBtn = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-today"]')!;
-    const allBtn = container.querySelector<HTMLButtonElement>('[data-testid="usage-preset-all"]')!;
-    const startInput = container.querySelector<HTMLInputElement>('[data-testid="usage-start-date"]')!;
-    const endInput = container.querySelector<HTMLInputElement>('[data-testid="usage-end-date"]')!;
+    await act(async () => { presetButton(container, preset).click(); });
+    expect(dateInputs(container)).toEqual(range);
+    expect(activePresets(container)).toEqual([preset]);
+  });
 
-    await act(async () => {
-      todayBtn.click();
-    });
-    expect(startInput.value).not.toBe('');
+  it('manual date edits sync the highlight by the fixed today→week→month→7-day order', async () => {
+    useServerToday('2026-11-02');
+    const container = await renderUsage();
+    const [start, end] = dateInputElements(container);
+    await act(async () => { setInputValue(start, '2026-11-02'); });
+    await act(async () => { setInputValue(end, '2026-11-02'); });
+    expect(activePresets(container)).toEqual(['today']);
+    await act(async () => { setInputValue(start, '2026-10-27'); });
+    expect(activePresets(container)).toEqual(['last7Days']);
+    await act(async () => { setInputValue(start, '2026-10-20'); });
+    expect(activePresets(container)).toEqual([]);
+  });
 
-    await act(async () => {
-      allBtn.click();
-    });
-    expect(startInput.value).toBe('');
-    expect(endInput.value).toBe('');
-    expect(allBtn.className).toContain('bg-accent');
+  it('past year preset clears the range', async () => {
+    const container = await renderUsage();
+    await act(async () => { presetButton(container, 'today').click(); });
+    expect(dateInputs(container)[0]).not.toBe('');
+    await act(async () => { presetButton(container, 'pastYear').click(); });
+    expect(dateInputs(container)).toEqual(['', '']);
+    expect(activePresets(container)).toEqual(['pastYear']);
   });
 
   it('renders token consumption structure breakdown bars and color indicators', async () => {

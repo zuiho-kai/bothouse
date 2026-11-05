@@ -537,5 +537,15 @@
     "projectScope": "桥接项目将 Agent 和工作区连接到平台；DSH 成员单独管理。",
     "savedConfigNextTurn": "已儲存設定 · 下一輪前套用",
     "savedRoute": "已儲存的 DSH 路由"
+  },
+  "usage": {
+    "quickFilters": "快捷篩選",
+    "presetToday": "今日",
+    "presetThisWeek": "本週",
+    "presetThisMonth": "本月",
+    "presetLast7Days": "近7天",
+    "presetPastYear": "近一年",
+    "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
+    "tokenBreakdown": "消耗結構"
   }
 }
