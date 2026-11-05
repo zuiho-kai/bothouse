@@ -18,7 +18,7 @@
 
 **bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
 
-[宣传片](#video) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [版本亮点](#releases) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+[宣传片](#video) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -183,19 +183,6 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 网络提示：先启动 Tailscale，再启动 bothouse。不写 `host` 时会监听所有网卡，远程访问请写明。桥开启后还会在所有网卡监听 9810。只想给 tailnet 用，就在本机防火墙挡掉局域网和公网的 9810。
 
 </details>
-
-<a id="releases"></a>
-
-## 版本亮点
-
-完整记录见 [Releases](https://github.com/zuiho-kai/bothouse/releases)。
-
-| 版本 | 新内容 |
-| --- | --- |
-| **[0.1.43](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.43)**（2026-10-31） | 忙时连发的几条消息**合成一轮**回答；交回太长被截断时**全文先存好**并给出续读位置；QQ 群里 @ 人；DSH 里图片可看、可复制、可下载；Windows 上多了一个桌面窗口。 |
-| **[0.1.42](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.42)**（2026-10-30） | 每个聊天频道钉一张**任务板**（等你看 / 在做 / 搁置）；**每件活一个子话题**；队友交回结果时，固定写成四段大白话；回复正在跑的活，直接转进它的工作区。 |
-| **[0.1.41](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.41)**（2026-10-30） | `/model` 显示频道**实际在用**的模型；工作区提问只暂停它点名的那件活；`bothouse-dsh` 随版本发到 npm。 |
-| **[0.1.40](https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.40)**（2026-10-29） | 回复被钩子拦下后不再只剩最后一句；Grok 角色也有「只问不改」护栏。 |
 
 <a id="compare"></a>
 
