@@ -14,7 +14,7 @@ resolve_edge（github.com/getzep/graphiti 提交 7e0342a4）的 contradiction �
 
   invalidate.py [--root DIR] [--dry]     对 DIR（默认本 wiki）工作区相对 HEAD 的改动跑一遍；--dry 只打印
 """
-import shutil, json, os, re, subprocess, sys, tempfile
+import json, os, re, subprocess, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -70,11 +70,17 @@ SCHEMA = {"type": "object", "additionalProperties": False, "required": ["results
                                               "contradicted_facts": {"type": "array", "items": {"type": "integer"}}}}}}}
 
 
-def night_ask(prompt):
-    """独立调用（score_night、命令行）：用户给这个 wiki 配的每晚模型（config.json night_engine，ingest.answer），
-    不在这里挑 CLI。WIKI_DIR = 哪个 wiki 的配置（score_night 设成 GATE_WIKI，--root 设成那个目录）。"""
-    import ingest  # 同目录；ingest 也 import 本文件，所以在用到时才导入
-    return ingest.answer(prompt, label="invalidate")
+def codex_ask(prompt):
+    """独立调用（score_night、命令行）：codex 只读沙箱 + --output-schema，同 score_night.judge。"""
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as sf, tempfile.NamedTemporaryFile("r", suffix=".txt") as out:
+        json.dump(SCHEMA, sf)
+        sf.flush()
+        r = subprocess.run(["codex", "exec", "-m", os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna"), "-c", "notify=[]", "--skip-git-repo-check",
+                            "-s", "read-only", "--output-schema", sf.name, "-o", out.name, "-"],
+                           input=prompt, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"codex 失败：rc={r.returncode} {r.stderr[-400:]}")
+        return Path(out.name).read_text(encoding="utf-8")
 
 
 def _json(text):
@@ -97,7 +103,7 @@ def render(g, old, new):
 
 def judge(groups, ask=None):
     """groups = [(旧行列表, 新事实列表)] → (每组被推翻的旧行编号集合, 调模型几次)。按 MAX_CHARS 分批，一批一次调用。"""
-    ask = ask or night_ask
+    ask = ask or codex_ask
     hit = [set() for _ in groups]
     calls = 0
     idx = [i for i, (o, n) in enumerate(groups) if o and n]
@@ -242,7 +248,5 @@ def run_lines(fixes, root=None, ask=None, dry=False):
 if __name__ == "__main__":
     a = sys.argv[1:]
     root = a[a.index("--root") + 1] if "--root" in a else None
-    if root:
-        os.environ["WIKI_DIR"] = str(Path(root).resolve())  # night_ask 读这个 wiki 的每晚模型
     m, c, _ = run(root, dry="--dry" in a)
     print(f"调模型 {c} 次，挪进历史 {m} 行")

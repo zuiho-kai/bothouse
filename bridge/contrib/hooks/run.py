@@ -663,18 +663,7 @@ def pass_exit():
     sys.exit(0)
 
 
-def utf8_stdio():
-    """钩子命令是 `python -I run.py`（没带 -X utf8）：Windows 中文系统上 stdin/stdout 默认 GBK，读写中文的载荷会乱码或报错。
-    这里统一改成 UTF-8，子钩子也带 -X utf8 跑；不用改已装好的钩子命令串（dsh-windows 2026-11 记的未修项，#1110 清点）。"""
-    for f in (sys.stdin, sys.stdout, sys.stderr):
-        try:
-            f.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):
-            pass
-
-
 def main():
-    utf8_stdio()
     args = parse_args(sys.argv[1:])
     if not args:
         sys.exit("usage: run.py <hook name> | run.py [--role <dir>] off|on [hook ...] | run.py [--role <dir>] status")
@@ -823,7 +812,7 @@ def main():
             spec.loader.exec_module(compat)
             # same gate and retry as the standalone adapter: the log is read only for bash / job_output
             # (dsh_turn) and dsh_busy only for a sleep / wait=true; unreadable log = no fields, hook still runs
-            compat.add_fields(payload, tool, sub, lambda: read_lines(path), want_turn=name == "ws-cap-guard")
+            compat.add_fields(payload, tool, sub, lambda: read_lines(path))
 
     if name in PROMPT_HOOKS and payload.get("hook_event_name") == "PreToolUse" and not payload.get("user_prompt"):
         if path:  # DSH: the bridge's transcript_path is empty; the words are in the session log
@@ -852,8 +841,8 @@ def main():
         if name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse" and "deliver-check" not in off:
             proc = deliver_check(payload, path)
         if proc is None:
-            proc = subprocess.run([sys.executable, "-X", "utf8", "-I", target], input=json.dumps(payload, ensure_ascii=False),
-                                  capture_output=True, text=True, encoding="utf-8")
+            proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
+                                  capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)
@@ -939,8 +928,8 @@ def deliver_check(payload, dsh_log):
                 for r in transcript(records(read_lines(dsh_log)), payload.get("cwd") or ""):
                     f.write(json.dumps(r, ensure_ascii=False) + "\n")
             p["transcript_path"] = tmp
-        proc = subprocess.run([sys.executable, "-X", "utf8", "-I", target], input=json.dumps(p, ensure_ascii=False),
-                              capture_output=True, text=True, encoding="utf-8")
+        proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(p, ensure_ascii=False),
+                              capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)
@@ -1066,8 +1055,7 @@ def run_agy(target, raw, event):
     tmp, step, sid = None, None, payload["session_id"]
     if event == "PreToolUse" and os.path.basename(target)[:-3] in PROMPT_HOOKS:
         payload["user_prompt"] = transcript_user_words(payload["transcript_path"])
-    # ws-cap-guard counts this turn's steps from the transcript too (#1112), so it gets the converted one
-    if event == "Stop" or (event == "PreToolUse" and os.path.basename(target) == "ws-cap-guard.py"):
+    if event == "Stop":
         lines = []
         try:
             with open(payload["transcript_path"], encoding="utf-8") as f:
@@ -1080,7 +1068,6 @@ def run_agy(target, raw, event):
             for r in entries:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         payload["transcript_path"] = tmp
-    if event == "Stop":
         try:
             with open(AGY_STATE) as f:
                 st = json.load(f)
@@ -1092,8 +1079,8 @@ def run_agy(target, raw, event):
         if event == "PreToolUse" and os.path.basename(target) == "bash-guard.py" and "deliver-check" not in load_off(role_dir(payload["cwd"])):
             proc = deliver_check(payload, None)
         if proc is None:
-            proc = subprocess.run([sys.executable, "-X", "utf8", "-I", target], input=json.dumps(payload, ensure_ascii=False),
-                                  capture_output=True, text=True, encoding="utf-8")
+            proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
+                                  capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)

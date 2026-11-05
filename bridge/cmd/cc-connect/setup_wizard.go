@@ -518,40 +518,6 @@ func runSetup(args []string) {
 		if !res.OK {
 			os.Exit(1)
 		}
-	case "jev":
-		// Only the gate model (jev.json), without rerunning the whole wizard: tested first, saved
-		// only if the gate could use it — the same ApplyJev as the web wizard's jev box (#1113).
-		var raw []byte
-		var err error
-		switch *jsonPath {
-		case "":
-			fail(fmt.Errorf("--json <file|-> required"))
-		case "-":
-			raw, err = io.ReadAll(os.Stdin)
-		default:
-			raw, err = os.ReadFile(*jsonPath)
-		}
-		if err != nil {
-			fail(err)
-		}
-		var j core.WizardJev
-		if err := json.Unmarshal(raw, &j); err != nil {
-			fail(fmt.Errorf("invalid JSON: %w", err))
-		}
-		initConfigPath(*configFile)
-		cfg, err := config.LoadForSetup(config.ConfigPath)
-		if err != nil {
-			fail(err)
-		}
-		out, err := core.ApplyJev(context.Background(), cfg.DataDir, j, *lang)
-		if err != nil {
-			fail(err)
-		}
-		_ = enc.Encode(map[string]any{"saved": out.Saved, "cleared": out.Cleared, "reason": out.Reason,
-			"in_use": out.InUse, "test": out.Test, "next": "restart bothouse: the gate reads jev.json at start"})
-		if out.Reason != "" {
-			os.Exit(1)
-		}
 	default:
 		fail(fmt.Errorf("unknown setup subcommand %q", sub))
 	}

@@ -400,11 +400,8 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
 			h.Idle.Ended = time.Now()
-			if !returned && !asking && !failed && (watchIsCantDo(text) || isModelRefusal(text)) {
+			if !returned && !asking && !failed && watchIsCantDo(text) {
 				h.Idle.CantDo++
-				if isModelRefusal(text) {
-					h.Idle.CantDo = 2 // a model refusal repeats itself: hand over at once
-				}
 				if h.Idle.CantDo >= 2 && !h.Idle.Reported {
 					h.Idle.Reported = true
 					cantDo = true
@@ -436,9 +433,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			continue
 		}
 		if ok && cantDo {
-			if e.reassignCantDo(a, h) {
-				continue
-			}
 			e.pauseCantDo(a.key, h, boardID)
 			continue
 		}

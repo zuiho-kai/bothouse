@@ -39,9 +39,8 @@ def adapt(payload):
                     if item.get("type") == "message" and item.get("role") in ("user", "assistant"):
                         text = "\n".join(c.get("text", "") for c in item.get("content", [])
                                          if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text"))
-                        if text:  # timestamp：ws-cap-guard 算本轮时长用
-                            entries.append({"type": item["role"], "timestamp": event.get("timestamp"),
-                                            "message": {"content": [{"type": "text", "text": text}]}})
+                        if text:
+                            entries.append({"type": item["role"], "message": {"content": [{"type": "text", "text": text}]}})
                     elif item.get("type") == "function_call":
                         try:
                             args = json.loads(item.get("arguments") or "{}")

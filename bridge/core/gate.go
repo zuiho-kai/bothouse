@@ -218,9 +218,6 @@ func (g *gateState) fallbackFor(req gateRequest) string {
 	return g.fallback
 }
 
-// gateDownSizeNote opens a turn the gate could not judge (handoff #1113, user 11-06).
-const gateDownSizeNote = "（闸门这次没判断。先判断大小：几步能做完就直接做；大活先回一句，再交工作区。）"
-
 // noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
 // contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
 // answer every message; only an @-mentioned bot replies.
@@ -408,13 +405,6 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	e.teamNoteTurn(msg, session)
-	if dec.Fallback && dec.Action == "reply" && !busy && !msg.FromBot && e.team != nil {
-		// The gate could not judge (no model / down / timeout), so nothing routed this message:
-		// the role answers it as before, told first to size the job (user 11-06: the gate should
-		// tell small from big; without it a cheap lead spent half an hour on a big job in chat).
-		keepUserText(msg)
-		msg.Content = gateDownSizeNote + "\n" + msg.Content
-	}
 
 	if dec.Action == "abort" {
 		// maomao fork: "stop / pause / do X instead" while busy must not wait for the turn to end.
