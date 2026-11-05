@@ -2989,6 +2989,12 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 func (e *Engine) Start() error {
 	e.restoreProactiveAdmissions()
 	go e.queueReportLoop() // #1020 queue_report.go
+	// sync collaboration/runtime now so an upgrade also refreshes unedited PATH tools (#1104)
+	go func() {
+		if _, err := e.leadRuntimeDir(); err != nil {
+			slog.Warn("lead tools: runtime sync failed", "project", e.name, "error", err)
+		}
+	}()
 	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
