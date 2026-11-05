@@ -499,7 +499,7 @@
     opacity: 1;
     pointer-events: auto;
   }
-  .message[data-tools-open] .msgTool { padding: 6px 12px; }
+  .message[data-tools-open] .msgTool { width: 40px; height: 36px; }
 }
 
 .replyBar {

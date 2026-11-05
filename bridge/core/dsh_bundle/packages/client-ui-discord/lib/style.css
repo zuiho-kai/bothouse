@@ -503,7 +503,8 @@
   }
 
   .dshc_message[data-tools-open] .dshc_msgTool {
-    padding: 6px 12px;
+    width: 40px;
+    height: 36px;
   }
 }
 
