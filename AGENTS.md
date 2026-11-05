@@ -28,7 +28,7 @@
    Windows（PowerShell）用
    `irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex`，装到 `%USERPROFILE%\.local\bin` 并加进用户 PATH；下面的命令在 PowerShell 里照样用。
 2. **一次问齐**（只问这几项，其余都有默认值）：
-   - 每个机器人的 **token**（一个 token = 一个角色）。还没有就让用户去 <https://discord.com/developers/applications> → New Application → Bot → Reset Token，并在同一页打开 **Message Content Intent**。
+   - 每个机器人的 **token**（一个 token = 一个角色）。还没有就让用户去 <https://discord.com/developers/applications> → New Application → Bot → Reset Token，并在同一页打开 **Message Content Intent**（再开 **Server Members Intent**，新人进群主角色才会被叫醒去接待）。
    - **服务器 ID**，可选再给**默认频道 ID**。拿法：Discord 设置 → 高级 → 打开「开发者模式」，右键服务器图标「复制服务器 ID」、右键频道「复制频道 ID」。
    - 每个角色用本机哪个 CLI：先跑 `bothouse setup clis` 把已装、已登录的列给用户选；用户不在乎就不填（默认第一个已登录的）。
      `login` 都不是 `logged_in`（或列表是空的，stderr 会说怎么办）时，先让用户在这台机器上登录（`claude auth login` / `codex login` / `gemini` / `opencode auth login`）或给角色配第三方 API（`provider`，见 `bothouse setup matrix`）；

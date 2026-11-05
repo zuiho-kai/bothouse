@@ -252,6 +252,12 @@ export default function RoleList() {
                   </div>
                 </dl>
 
+                {role.platforms?.filter((p) => p.notice).map((p) => (
+                  <p key={'notice-' + p.name} className="mt-2 text-xs leading-relaxed text-amber-600">
+                    {p.notice}
+                  </p>
+                ))}
+
                 {role.source === 'dsh' ? (
                   <p className="mt-4 border-t border-hairline pt-3 text-xs text-ink-mute">
                     DSH 成员，在频道页里管理

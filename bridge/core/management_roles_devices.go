@@ -11,6 +11,9 @@ import (
 type PlatformStatus struct {
 	Name  string `json:"name"`
 	Ready bool   `json:"ready"`
+	// Notice: something the user must fix on this platform (PlatformNoticer), e.g. a missing
+	// Discord intent; empty when all is well.
+	Notice string `json:"notice,omitempty"`
 }
 
 // RoleInfo represents the status of a role/engine in bothouse.
@@ -59,10 +62,11 @@ func (m *ManagementServer) bridgeRoles() []RoleInfo {
 			if ready {
 				online = true
 			}
-			platforms = append(platforms, PlatformStatus{
-				Name:  p.Name(),
-				Ready: ready,
-			})
+			st := PlatformStatus{Name: p.Name(), Ready: ready}
+			if n, ok := p.(PlatformNoticer); ok {
+				st.Notice = n.PlatformNotice()
+			}
+			platforms = append(platforms, st)
 		}
 		e.platformLifecycleMu.Unlock()
 		if platforms == nil {

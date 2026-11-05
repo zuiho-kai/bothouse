@@ -53,3 +53,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - dsh: 已接
 - discord: 不支持：Discord 没有给机器人在输入框或消息上挂「排队中」标记的地方，只能另发消息，会刷屏；排队消息照旧可删原消息撤回
 - feishu: 不支持：同 discord，飞书也没有输入状态旁的提示位，只能另发消息
+
+## PlatformNoticer
+
+平台有要用户去修的事时，面板角色页在该平台下显示一行提醒（core/member_events.go，#1058）；Discord 用它提醒没开 Server Members Intent。
+
+- discord: 已接
+- feishu: 不支持：飞书没有成员进群事件这条线，暂无要提醒的平台权限；成员事件按交接「飞书暂不做」
+- cloud-web: 不支持：本机网页频道没有平台侧权限开关，没有要提醒的事
+- dsh: 不支持：同 cloud-web
