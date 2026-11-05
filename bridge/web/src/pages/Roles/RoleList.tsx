@@ -199,7 +199,7 @@ export default function RoleList() {
                     <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-mute">
                       <Bot size={11} className="shrink-0" />
                       <span className="truncate">{role.agent_type}</span>
-                      {shown !== role.name && (
+                      {shown !== role.name && role.source !== 'dsh' && (
                         // 标识符（不是正文），mono 是它的正确排法
                         <span className="hidden truncate font-mono sm:inline">{role.name}</span>
                       )}
@@ -252,6 +252,11 @@ export default function RoleList() {
                   </div>
                 </dl>
 
+                {role.source === 'dsh' ? (
+                  <p className="mt-4 border-t border-hairline pt-3 text-xs text-ink-mute">
+                    DSH 成员，在频道页里管理
+                  </p>
+                ) : (
                 <div className="mt-4 flex items-center gap-2 border-t border-hairline pt-3">
                   <Button
                     variant="secondary"
@@ -274,6 +279,7 @@ export default function RoleList() {
                     重启
                   </Button>
                 </div>
+                )}
               </article>
             );
           })}
