@@ -707,6 +707,7 @@ const (
 	MsgTaskReviewCleanAgent     MsgKey = "task_review_clean_agent"
 	MsgWatchCantDoLead          MsgKey = "watch_cantdo_lead"
 	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
+	MsgTaskReviewPausedStopped  MsgKey = "task_review_paused_stopped"
 	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
 	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
 	MsgTaskPausedResumeQuestion MsgKey = "task_paused_resume_question"
@@ -1118,6 +1119,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "#%d 交回了，請驗收",
 		LangJapanese:           "#%d が返却されました。検収してください",
 		LangSpanish:            "#%d entregada; verifica el resultado",
+	},
+	MsgTaskReviewPausedStopped: {
+		LangEnglish:            "#%d is paused; its running verification was stopped",
+		LangChinese:            "#%d 已暂停，正在跑的验收已停下",
+		LangTraditionalChinese: "#%d 已暫停，正在跑的驗收已停下",
+		LangJapanese:           "#%d は一時停止中のため、実行中の検収を止めました",
+		LangSpanish:            "#%d está en pausa; se detuvo la verificación en curso",
 	},
 	MsgTaskReviewOverdue: {
 		LangEnglish:            "#%d is overdue for verification",
