@@ -359,6 +359,10 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
 	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
+	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/members/", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/model-routes", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/cli-options", m.wrap(m.handleDSHMembersAPI))
 
 	// Devices (adapters from bridge server)
 	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))

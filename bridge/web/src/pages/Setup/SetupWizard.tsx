@@ -18,6 +18,7 @@ import {
 import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup from './DSHSetup';
+import DSHAdd from './DSHAdd';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
@@ -488,7 +489,7 @@ export default function SetupWizard() {
     c.login === 'logged_in' ? <Badge variant="success">{T.loggedIn}</Badge>
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
-  if (picked === 'dsh' && step > 0) return <DSHSetup lang={lang} onBack={() => setStep(0)} />;
+  if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => setStep(0)} /> : <DSHSetup lang={lang} onBack={() => setStep(0)} />;
 
   return (
     <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">

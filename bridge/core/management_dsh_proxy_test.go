@@ -92,6 +92,12 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 				return
 			}
 			_, _ = io.WriteString(w, body)
+		case "/collab/desk", "/collab/panel/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><script src="/dsh/collab/app.js"></script></head><body>embedded page</body></html>`)
+		case "/collab/app.js":
+			w.Header().Set("Content-Type", "application/javascript")
+			_, _ = io.WriteString(w, `window.embeddedPageLoaded = true;`)
 		case "/m.webmanifest":
 			w.Header().Set("Content-Type", "application/manifest+json")
 			_, _ = io.WriteString(w, `{"start_url": "/", "icons": [{"src": "/favicon.svg"}]}`)
@@ -653,5 +659,65 @@ func TestDSHProxyOriginPortDropped(t *testing.T) {
 		if s := post(h); s != http.StatusForbidden {
 			t.Errorf("%s: %d, want 403", name, s)
 		}
+	}
+}
+
+// The frame navigation uses only the /dsh/ session cookie, never a Bearer token.
+func TestDSHProxyEmbeddedPageCookieAndAssets(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, fake, "secret")
+	c := dshSignIn(t, panel, "secret")
+	bare := "http://" + strings.Split(strings.TrimPrefix(panel.URL, "http://"), ":")[0]
+	request := func(method, path, origin, site, ref, mode string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(method, panel.URL+path, strings.NewReader("test"))
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		if site != "" {
+			req.Header.Set("Sec-Fetch-Site", site)
+		}
+		if ref != "" {
+			req.Header.Set("Referer", ref)
+		}
+		if mode != "" {
+			req.Header.Set("Sec-Fetch-Mode", mode)
+		}
+		if mode == "navigate" {
+			req.Header.Set("Sec-Fetch-Dest", "iframe")
+			req.Header.Set("Accept", "text/html")
+		}
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(body)
+	}
+	for _, path := range []string{"/dsh/collab/desk", "/dsh/collab/panel/"} {
+		if status, _ := request("GET", path, bare, "same-origin", "", "navigate"); status != http.StatusForbidden {
+			t.Errorf("%s missing Referer: %d", path, status)
+		}
+		if status, body := request("GET", path, bare, "same-origin", panel.URL+"/dsh/", "navigate"); status != http.StatusOK || !strings.Contains(body, "embedded page") || !strings.Contains(body, "/dsh/collab/app.js") {
+			t.Errorf("%s embedded HTML: status %d, body %q", path, status, body)
+		}
+	}
+	if status, body := request("GET", "/dsh/collab/app.js", bare, "same-origin", panel.URL+"/dsh/collab/desk", "no-cors"); status != http.StatusOK || !strings.Contains(body, "embeddedPageLoaded") {
+		t.Errorf("asset: status %d, body %q", status, body)
+	}
+	if status, _ := request("POST", "/dsh/collab/api/test", bare, "same-origin", panel.URL+"/dsh/collab/desk", "cors"); status != http.StatusOK {
+		t.Errorf("API write: %d", status)
+	}
+	for _, origin := range []string{"null", bare + ":1", "http://evil.example"} {
+		if status, _ := request("POST", "/dsh/collab/api/test", origin, "same-origin", panel.URL+"/dsh/", "cors"); status != http.StatusForbidden {
+			t.Errorf("origin %q: %d", origin, status)
+		}
+	}
+	if status, _ := request("GET", "/dsh/collab/app.js", bare, "cross-site", panel.URL+"/dsh/", "no-cors"); status != http.StatusForbidden {
+		t.Errorf("cross-site asset: %d", status)
 	}
 }

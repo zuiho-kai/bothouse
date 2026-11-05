@@ -5,6 +5,8 @@ import { Badge, EmptyState, PageHeader, LoadingState, Section } from '@/componen
 import { listBridgeAdapters, type BridgeAdapter } from '@/api/bridge';
 import { getStatus, type SystemStatus } from '@/api/status';
 import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
+import { connectedSources, dshStatus, getDSHSummary, type DSHSummary } from '@/api/dsh';
+import { DSHNotice, errorMessage } from '@/components/DSHNotice';
 import { formatTime } from '@/lib/utils';
 
 // Two different things, two different lists. The page used to count only the bridge adapters —
@@ -15,23 +17,29 @@ export default function BridgeAdapters() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [adapters, setAdapters] = useState<BridgeAdapter[]>([]);
+  const [adapterReadFailed, setAdapterReadFailed] = useState(false);
   const [adaptersEnabled, setAdaptersEnabled] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [dsh, setDsh] = useState<DSHSummary | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [dshError, setDshError] = useState('');
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, data, p] = await Promise.all([
-        getStatus().catch(() => null),
-        listBridgeAdapters().catch(() => null),
-        listProjects().catch(() => null),
+      const [statusResult, adapterResult, projectResult, dshResult] = await Promise.allSettled([
+        getStatus(), listBridgeAdapters(), listProjects(), getDSHSummary(),
       ]);
+      const s = statusResult.status === 'fulfilled' ? statusResult.value : null;
       setStatus(s);
-      setAdapters(data?.adapters || []);
-      // No `bridge` block in /status means the bridge server never started, so nothing can register.
+      setAdapterReadFailed(statusResult.status === 'rejected' || adapterResult.status === 'rejected');
+      setAdapters(adapterResult.status === 'fulfilled' ? adapterResult.value.adapters || [] : []);
       setAdaptersEnabled(s?.bridge?.enabled === true);
-      if (p) setProjects(p.projects || []);
+      if (projectResult.status === 'fulfilled') setProjects(projectResult.value.projects || []);
+      setErrors([statusResult, adapterResult, projectResult].filter((r) => r.status === 'rejected').map((r) => errorMessage(r.reason)));
+      setDsh(dshResult.status === 'fulfilled' ? dshResult.value : null);
+      setDshError(dshResult.status === 'rejected' ? errorMessage(dshResult.reason) : '');
     } finally {
       setLoading(false);
     }
@@ -45,7 +53,7 @@ export default function BridgeAdapters() {
   }, [fetchData]);
 
   const showName = shownNames(projects);
-  const platforms = status?.connected_platforms || [];
+  const platforms = connectedSources(status?.connected_platforms || [], dsh);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -64,6 +72,8 @@ export default function BridgeAdapters() {
         <LoadingState label={t('common.loading')} />
       ) : (
         <>
+          {errors.map((error, i) => <p role="alert" key={i}>{error}</p>)}
+          <DSHNotice status={dshError ? 'error' : dsh ? dshStatus(dsh) : undefined} error={dshError || dsh?.error} />
           <Section title={t('bridge.connectedPlatforms')} description={t('bridge.platform')}>
             {platforms.length === 0 ? (
               <EmptyState
@@ -91,7 +101,7 @@ export default function BridgeAdapters() {
             description={t('bridge.capabilities')}
             actions={adapters.length > 0 ? <Badge variant="outline">{adapters.length}</Badge> : undefined}
           >
-            {!adaptersEnabled ? (
+            {adapterReadFailed ? null : !adaptersEnabled ? (
               // Bridge websocket is off, so no external client can register. Say that instead of
               // implying the platforms themselves are missing.
               <EmptyState

@@ -5,6 +5,11 @@ import { FolderKanban, Plus, Settings2, Trash2, X } from 'lucide-react';
 import { Badge, Button, EmptyState, Modal } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useEntrance } from '@/lib/useEntrance';
+import { getDSHSummary, dshStatus, type DSHSummary } from '@/api/dsh';
+import { getDSHStatus } from '@/api/wizard';
+import { DSHNotice, errorMessage } from '@/components/DSHNotice';
+import { dshChannelsUrl } from '@/lib/collabPages';
+import api from '@/api/client';
 import { deleteProject, listProjects, type ProjectSummary } from '@/api/projects';
 import { ProjectCard, ProjectRow } from './ProjectCard';
 import { ProjectDrawer } from './ProjectDrawer';
@@ -44,6 +49,10 @@ export default function ProjectList() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [preview, setPreview] = useState<ProjectSummary | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [pluginInstalled, setPluginInstalled] = useState(false);
+  const [dsh, setDsh] = useState<DSHSummary | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [fresh, setFresh] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteNote, setDeleteNote] = useState('');
@@ -51,8 +60,18 @@ export default function ProjectList() {
   const fetchProjects = useCallback(async () => {
     try {
       setLoading(true);
+      setFresh(false); setLoadError('');
       const data = await listProjects();
       setProjects(data.projects || []);
+      if ((data.projects || []).length === 0) {
+        const [summary, install] = await Promise.all([getDSHSummary(), getDSHStatus()]);
+        setDsh(summary);
+        setPluginInstalled(install.plugin_installed);
+        setFresh(dshStatus(summary) === 'stopped' && !install.plugin_installed);
+      }
+    } catch (e) {
+      setDsh(null); setPluginInstalled(false);
+      setLoadError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -70,12 +89,12 @@ export default function ProjectList() {
     if (params.get('manual') === '1') setWizardOpen(true);
   }, [params]);
 
-  // 一个项目都没有时不摆空页面，直接去 setup：这里是配置入口不是展示页。
+  // 只有确认未安装且未运行 DSH，且没有 bridge 项目时才进入首次向导。
   useEffect(() => {
-    if (!loading && projects.length === 0 && params.get('manual') !== '1') {
+    if (!loading && fresh && projects.length === 0 && params.get('manual') !== '1') {
       navigate('/setup', { replace: true });
     }
-  }, [loading, projects.length, params, navigate]);
+  }, [loading, fresh, projects.length, params, navigate]);
 
   const shown = useMemo(() => filterProjects(projects, filters), [projects, filters]);
   const facets = useMemo(() => agentFacets(projects), [projects]);
@@ -149,7 +168,8 @@ export default function ProjectList() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">{t('projects.title')}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-ink">{t('dshManage.bridgeProjects')}</h1>
+          <p className="mt-1 text-sm text-ink-soft">{t('dshManage.projectScope')}</p>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-mute">
             <span className="tabular-nums">
               {totals.projects} {t('projects.title')}
@@ -179,6 +199,14 @@ export default function ProjectList() {
         </div>
       </header>
 
+      {loadError && <p role="alert">{loadError}</p>}
+      <DSHNotice status={dsh ? dshStatus(dsh) : undefined} error={dsh?.error} />
+      {dsh && (dshStatus(dsh) === 'running' || pluginInstalled) && (
+        <div className="flex flex-wrap items-center gap-3 text-sm text-ink-soft">
+          <span>{dshStatus(dsh) === 'running' ? t('dsh.connected', 'DSH 已接入') : t('dsh.installed', 'DSH 已安装')}</span>
+          <a className="text-accent-text hover:underline" href={dshChannelsUrl(undefined, api.getToken())}>{t('dsh.manageChannels', '管理 DSH 频道和成员')}</a>
+        </div>
+      )}
       <ProjectFilterBar
         filters={filters}
         facets={facets}
@@ -237,9 +265,9 @@ export default function ProjectList() {
       {shown.length === 0 ? (
         projects.length === 0 ? (
           <EmptyState
-            message={t('projects.noProjects')}
+            message={t('dsh.noBridgeProjects', '暂无桥接项目')}
             icon={FolderKanban}
-            hint={t('projects.emptyHint', '点右上角「新建项目」接入第一个 agent。')}
+            hint={t('dsh.addBridgeProjectHint', '可使用右上角按钮添加桥接项目。')}
           />
         ) : (
           <EmptyState

@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -21,17 +23,46 @@ const dshRolesTimeout = 3 * time.Second
 
 // dshStateMember is the part of /collab/api/state members (hub.memberView + presence) the page shows.
 type dshStateMember struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Kind     string  `json:"kind"`
-	Online   bool    `json:"online"`
-	Model    *string `json:"model"`
-	CLI      string  `json:"cli"`
-	Busy     bool    `json:"busy"`
-	BusyTask string  `json:"busy_task"`
-	BusyChat *string `json:"busy_chat"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Kind     string   `json:"kind"`
+	Online   bool     `json:"online"`
+	Model    dshModel `json:"model"`
+	CLI      string   `json:"cli"`
+	Busy     bool     `json:"busy"`
+	BusyTask string   `json:"busy_task"`
+	BusyChat *string  `json:"busy_chat"`
 }
 
+type dshModel string
+
+func (m *dshModel) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*m = ""
+		return nil
+	}
+	if len(b) > 0 && b[0] == '"' {
+		var v string
+		if err := json.Unmarshal(b, &v); err != nil {
+			return err
+		}
+		*m = dshModel(v)
+		return nil
+	}
+	var v struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*m = dshModel(v.Model)
+	return nil
+}
+
+type dshStatus struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
 type dshStateRoom struct {
 	ID   json.Number `json:"id"`
 	Name string      `json:"name"`
@@ -44,20 +75,19 @@ type dshState struct {
 	Thinking map[string][]string `json:"thinking"`
 }
 
-// dshRoles lists DSH's own members as roles; nil when DSH is not running or does not answer
-// (the page then shows the bridge roles alone, as before).
-func (m *ManagementServer) dshRoles(ctx context.Context) []RoleInfo {
+// dshRoles lists DSH members and reports whether their state was available.
+func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus) {
 	ctx, cancel := context.WithTimeout(ctx, dshRolesTimeout)
 	defer cancel()
-	c, ok := m.dshClient()
-	if !ok {
-		return nil
+	c, status := m.dshClient()
+	if status.Status != "running" {
+		return nil, status
 	}
 	var st dshState
-	if c.get(ctx, "/collab/api/state", &st) != nil {
-		return nil
+	if err := c.get(ctx, "/collab/api/state", &st); err != nil {
+		return nil, dshStatus{Status: "error", Error: "DSH state could not be read"}
 	}
-	return dshStateRoles(&st)
+	return dshStateRoles(&st), status
 }
 
 // dshAPI calls the running `dsh web` signed in as its owner (the /dsh/ proxy's cookie).
@@ -66,12 +96,22 @@ type dshAPI struct {
 	target string
 }
 
-func (m *ManagementServer) dshClient() (dshAPI, bool) {
+func (m *ManagementServer) dshClient() (dshAPI, dshStatus) {
 	target, launchToken, err := runningDSHWeb()
-	if err != nil {
-		return dshAPI{}, false
+	if errors.Is(err, errDSHWebNotRunning) {
+		// Discovery may heal a missing or malformed file from its log first. If it
+		// could not, an existing unreadable file is an error, not a stopped host.
+		if _, _, valid := readDSHWebState(); !valid {
+			if _, statErr := os.Stat(dshWebStatePath()); statErr == nil || !os.IsNotExist(statErr) {
+				return dshAPI{}, dshStatus{Status: "error", Error: "DSH host state could not be read"}
+			}
+		}
+		return dshAPI{}, dshStatus{Status: "stopped"}
 	}
-	return dshAPI{rt: &dshProxyTransport{p: m.dshProxyHandler(), target: target, launchToken: launchToken}, target: target}, true
+	if err != nil {
+		return dshAPI{}, dshStatus{Status: "error", Error: "DSH host state could not be read"}
+	}
+	return dshAPI{rt: &dshProxyTransport{p: m.dshProxyHandler(), target: target, launchToken: launchToken}, target: target}, dshStatus{Status: "running"}
 }
 
 func (c dshAPI) get(ctx context.Context, path string, out any) error {
@@ -119,13 +159,7 @@ func dshStateRoles(st *dshState) []RoleInfo {
 		if mb.Kind == "dsh" && mb.CLI != "" {
 			agentType = mb.CLI
 		}
-		model := ""
-		if mb.Model != nil && *mb.Model != "" {
-			model = *mb.Model
-		} else if mb.Kind == "dsh" {
-			// only kind "dsh" reports a model; a "bot" member's model is the bridge's to say
-			model = "DSH 默认"
-		}
+		model := string(mb.Model)
 		task := "空闲"
 		busy := false
 		if mb.Online {
@@ -185,11 +219,14 @@ type DSHChannel struct {
 	Kind        string          `json:"kind"`
 	UpdatedAt   string          `json:"updated_at"`
 	LastMessage *DSHLastMessage `json:"last_message"`
+	Error       string          `json:"error,omitempty"`
 }
 
-// DSHSummary is GET /api/v1/dsh/summary: running=false when DSH is not up (everything else empty).
+// DSHSummary reports availability separately from successfully read members and channels.
 type DSHSummary struct {
 	Running  bool         `json:"running"`
+	Status   string       `json:"status"`
+	Error    string       `json:"error,omitempty"`
 	Members  []RoleInfo   `json:"members"`
 	Channels []DSHChannel `json:"channels"`
 }
@@ -209,12 +246,14 @@ func (m *ManagementServer) dshSummary(ctx context.Context) DSHSummary {
 	out := DSHSummary{Members: []RoleInfo{}, Channels: []DSHChannel{}}
 	ctx, cancel := context.WithTimeout(ctx, dshRolesTimeout)
 	defer cancel()
-	c, ok := m.dshClient()
-	if !ok {
+	c, status := m.dshClient()
+	out.Status, out.Error = status.Status, status.Error
+	if status.Status != "running" {
 		return out
 	}
 	var st dshState
 	if c.get(ctx, "/collab/api/state", &st) != nil {
+		out.Status, out.Error = "error", "DSH state could not be read"
 		return out
 	}
 	out.Running = true
@@ -238,7 +277,11 @@ func (m *ManagementServer) dshSummary(ctx context.Context) DSHSummary {
 					CreatedAt  float64 `json:"created_at"`
 				} `json:"messages"`
 			}
-			if c.get(ctx, "/api/rooms/"+ch.ID+"/messages?limit=1", &page) != nil || len(page.Messages) == 0 {
+			if c.get(ctx, "/api/rooms/"+ch.ID+"/messages?limit=1", &page) != nil {
+				ch.Error = "DSH channel messages could not be read"
+				return
+			}
+			if len(page.Messages) == 0 {
 				return
 			}
 			last := page.Messages[len(page.Messages)-1]
