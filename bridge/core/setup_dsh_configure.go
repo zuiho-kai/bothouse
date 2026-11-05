@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -290,9 +292,10 @@ type DSHWeb struct {
 // dshChannelsHash opens the channels panel on load (dsh/packages/client-ui-discord deep link).
 const dshChannelsHash = "#channels"
 
-// dshWebStartTimeout: how long to wait for `dsh web` to print its address. No measurement; the
-// walkthrough (2026-10-23, /tmp/dshux) saw it print within seconds, this leaves wide margin.
-const dshWebStartTimeout = 60 * time.Second
+// dshWebStartTimeout: how long to wait for `dsh web` to print its address. 来源：Windows 正式包
+// v0.1.50 新装首启实测 2 分 31 秒才打印地址（sanxin-hk，2026-11-05，10:57:15 → 10:59:46），原来的
+// 60 秒让「打开 DSH」先报失败；macOS 上几秒。取 5 分钟，给冷启动留一倍余量。
+const dshWebStartTimeout = 5 * time.Minute
 
 // dshWikiImportWait: how long after the open step the member wikis wait for the plugin to import the roles.
 const dshWikiImportWait = 2 * time.Minute
@@ -327,11 +330,16 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 			return DSHWeb{}, err
 		}
 	}
+	logPath := filepath.Join(filepath.Dir(statePath), "dsh-web.log")
+	if web, ok, err := takeOverOrphanDSHWeb(logPath, prev.PID); err != nil {
+		return DSHWeb{}, err
+	} else if ok {
+		return web, nil
+	}
 	bin, err := LookDSH()
 	if err != nil {
 		return DSHWeb{}, errDSHMissing
 	}
-	logPath := filepath.Join(filepath.Dir(statePath), "dsh-web.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return DSHWeb{}, err
 	}
@@ -492,4 +500,39 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 	// the member ids exist once the plugin in `dsh web` has imported the roles: the wikis are named after them
 	go makeDSHMemberWikisOnImport(m.wizardDataDir, dshWikiImportWait)
 	mgmtJSON(w, http.StatusOK, web)
+}
+
+// takeOverOrphanDSHWeb handles a `dsh web` this bridge started earlier but no longer tracks: its
+// address is the last announcement in our own log, and something still listens on that port. An
+// update restart is the usual way to get here (v0.1.48 → v0.1.50 on Windows, 2026-11-05: the old
+// version's `dsh web` kept running, the state file had no pid, and every new start hung until the
+// old one was killed by hand). When its launch token still signs in and no roles wait for import,
+// adopt it (a cold start can take minutes on Windows); otherwise stop it so a fresh one can start.
+func takeOverOrphanDSHWeb(logPath string, trackedPID int) (DSHWeb, bool, error) {
+	announced := lastDSHWebURL(logPath)
+	if announced == "" {
+		return DSHWeb{}, false, nil
+	}
+	au, err := url.Parse(announced)
+	if err != nil || au.Port() == "" || !loopbackTarget(au.Host) {
+		return DSHWeb{}, false, nil
+	}
+	pid := pidListeningOnPort(au.Port())
+	if pid <= 0 || pid == trackedPID {
+		return DSHWeb{}, false, nil
+	}
+	token := au.Query().Get("token")
+	_, membersErr := os.Stat(dshMembersFile())
+	if token != "" && membersErr != nil && probeDSHWebToken(au.Port(), token) {
+		web := DSHWeb{URL: "http://127.0.0.1:" + au.Port() + "/?" + url.Values{"token": {token}}.Encode() + dshChannelsHash, PID: pid, Log: logPath}
+		b, _ := json.Marshal(web)
+		_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+		slog.Info("dsh web: adopted a running dsh web from the log", "pid", pid, "port", au.Port())
+		return web, true, nil
+	}
+	slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", au.Port())
+	if err := stopDSHWebForImport(pid); err != nil {
+		return DSHWeb{}, false, err
+	}
+	return DSHWeb{}, false, nil
 }
