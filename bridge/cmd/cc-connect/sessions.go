@@ -29,6 +29,7 @@ type sessionFileData struct {
 type userMetaData struct {
 	UserName string `json:"user_name,omitempty"`
 	ChatName string `json:"chat_name,omitempty"`
+	Direct   bool   `json:"direct,omitempty"`
 }
 
 type sessionData struct {
@@ -50,6 +51,7 @@ type sessionRecord struct {
 	GroupUser  string
 	UserName   string // human-readable user name (from UserMeta)
 	ChatName   string // human-readable chat/group name (from UserMeta)
+	Direct     bool   // a private chat with the bot (from UserMeta)
 	Messages   int
 	LastActive time.Time
 	History    []core.HistoryEntry
@@ -196,12 +198,14 @@ func loadAllSessions(dataDir string) ([]sessionRecord, error) {
 			}
 			platform, groupUser := "", ""
 			var userName, chatName string
+			var direct bool
 			if userKey, ok := sessionToUserKey[s.ID]; ok {
 				platform, groupUser = parseSessionKey(userKey)
 				if fileData.UserMeta != nil {
 					if meta := fileData.UserMeta[userKey]; meta != nil {
 						userName = meta.UserName
 						chatName = meta.ChatName
+						direct = meta.Direct
 					}
 				}
 			}
@@ -215,6 +219,7 @@ func loadAllSessions(dataDir string) ([]sessionRecord, error) {
 				GroupUser:  groupUser,
 				UserName:   userName,
 				ChatName:   chatName,
+				Direct:     direct,
 				Messages:   len(s.History),
 				LastActive: s.UpdatedAt,
 				History:    s.History,
@@ -243,6 +248,7 @@ func runSessionsList(dataDir string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	records = visibleSessions(dataDir, records)
 	if len(records) == 0 {
 		fmt.Println("No sessions found.")
 		return
@@ -270,6 +276,7 @@ func runSessionsShow(dataDir, id string, limit int) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	records = visibleSessions(dataDir, records)
 	if len(records) == 0 {
 		fmt.Fprintln(os.Stderr, "No sessions found.")
 		os.Exit(1)

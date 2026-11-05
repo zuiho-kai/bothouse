@@ -392,6 +392,8 @@ func (s *Session) GetHistory(n int) []HistoryEntry {
 type UserMeta struct {
 	UserName string `json:"user_name,omitempty"`
 	ChatName string `json:"chat_name,omitempty"`
+	// Direct: a private chat with the bot. `bothouse sessions` hides it from other roles.
+	Direct bool `json:"direct,omitempty"`
 }
 
 // snapshotVersion tracks the schema version so we can detect data saved by
@@ -617,6 +619,18 @@ func (sm *SessionManager) UpdateUserMeta(sessionKey, userName, chatName string) 
 	if chatName != "" {
 		meta.ChatName = chatName
 	}
+}
+
+// MarkDirect records that sessionKey is a private chat with the bot.
+func (sm *SessionManager) MarkDirect(sessionKey string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	meta, ok := sm.userMeta[sessionKey]
+	if !ok {
+		meta = &UserMeta{}
+		sm.userMeta[sessionKey] = meta
+	}
+	meta.Direct = true
 }
 
 // GetUserMeta returns a copy of the stored metadata for a session key, or nil.
