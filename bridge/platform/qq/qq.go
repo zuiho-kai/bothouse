@@ -1519,10 +1519,6 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 	}
 }
 
-// callHTTPAPI calls a OneBot v11 HTTP endpoint (e.g. /upload_group_file).
-// Used for file operations — avoids WebSocket message size limits and
-// file-path issues across Windows/WSL/Docker boundaries.
-// Requires http_url to be configured.
 // callFileAPI fetches file metadata through the HTTP API when http_url is
 // configured and over the event WebSocket otherwise; deployments that only
 // set ws_url could never download a file segment before (they skipped steps
@@ -1534,6 +1530,10 @@ func (p *Platform) callFileAPI(action string, params map[string]any) (map[string
 	return p.callAPI(action, params)
 }
 
+// callHTTPAPI calls a OneBot v11 HTTP endpoint (e.g. /upload_group_file).
+// Used for file operations — avoids WebSocket message size limits and
+// file-path issues across Windows/WSL/Docker boundaries.
+// Requires http_url to be configured.
 func (p *Platform) callHTTPAPI(action string, params map[string]any) (map[string]any, error) {
 	return p.callHTTPAPIContext(context.Background(), action, params)
 }
