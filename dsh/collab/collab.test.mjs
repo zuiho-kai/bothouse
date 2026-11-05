@@ -6281,3 +6281,37 @@ test('#149 memory sources: without BOTHOUSE_DATA_DIR the path still finds the ga
   assert.match(log[0].join(' '), /does not exist yet/, 'a missing file is one line, not silence');
   assert.deepEqual(empty.take('p', 3), []);
 });
+
+test('roster: a re-run wizard reuses the preset role the plugin seeded on its first start (no 鲸鱼娘-2)', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  assert.deepEqual(await roster.seedDefaults(join(dir, 'default-members.json'), 'zh'), ['鲸鱼娘']);
+  const file = join(dir, 'wizard-members.json');
+  for (let i = 0; i < 3; i++) {
+    writeFileSync(file, JSON.stringify({ members: [{ name: '鲸鱼娘', name_customized: false }] }));
+    assert.deepEqual(await roster.importWizard(file), [], `wizard run ${i + 1}`);
+  }
+  assert.deepEqual(hub.store.members().map(r => r.name), ['鲸鱼娘']);
+});
+
+test('roster: a default-named member from before name_customized was stored is reused, not doubled', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  await roster.create({ name: 'DSH' }); // an older wizard import: no name_customized stored
+  const file = join(dir, 'wizard-members.json');
+  for (let i = 0; i < 3; i++) {
+    writeFileSync(file, JSON.stringify({ members: [{ name: 'DSH', name_customized: false }] }));
+    assert.deepEqual(await roster.importWizard(file), [], `wizard run ${i + 1}`);
+  }
+  assert.deepEqual(hub.store.members().map(r => r.name), ['DSH']);
+});
