@@ -46,10 +46,11 @@ QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat,
 
 def check_notes(text: str):
     """交接文件不合格时返回报错文字（一次列出所有缺的项，含要补什么和示例），合格返回 None。
-    规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）。"""
+    规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）；按档位选查哪些（check_tiered）。"""
     rules = _handoff_rules.load()
-    errs = _handoff_rules.check_all(text, rules)
-    if rules["flags"].get("cli_gate"):
+    fmt = _handoff_rules.ds_lead()  # 分档：核事实全开；核格式（含下面的 CLI 关卡）只在主角色后端是 DS 类时开（用户 11-06）
+    errs = _handoff_rules.check_tiered(text, rules, fmt)
+    if fmt and rules["flags"].get("cli_gate"):
         errs += [e for e in [generic_gate(text)] if e]
     if not errs:
         return None
