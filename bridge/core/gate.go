@@ -439,7 +439,10 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			// maomao fork: don't pretend to deliver into a turn that has stopped moving.
 			// The message stays in the channel; backfill hands it to the next turn
 			// (so it must not be marked seen).
-			e.reply(p, msg.ReplyCtx, fmt.Sprintf("⚠️ 当前这一轮已经 %d 分钟没有动静，可能卡住了，这条没插进去；发 /new 可重置", int(idle.Minutes())))
+			// A bridge notice like ⏹ above, not a reply the turn produced: quiet chats (QQ groups)
+			// log it instead of showing it. 2026-11-05 18:00 qq:g:1109769308 got this line although
+			// the same engine already kept ⏰ and ↪ out of that group.
+			e.replyNotice(p, msg.ReplyCtx, fmt.Sprintf("⚠️ 当前这一轮已经 %d 分钟没有动静，可能卡住了，这条没插进去；发 /new 可重置", int(idle.Minutes())))
 			return true
 		}
 	}
