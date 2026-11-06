@@ -2,7 +2,9 @@ package dsh
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/chenhg5/cc-connect/tests/testutil"
@@ -72,5 +74,30 @@ func TestDSHAgent_DefaultYoloMode(t *testing.T) {
 	}
 	if got := ma.GetMode(); got != "yolo" {
 		t.Fatalf("GetMode() = %q, want yolo", got)
+	}
+}
+
+func TestInsertPatchArgAfterProfile(t *testing.T) {
+	got := insertPatchArg([]string{"bin.js", "--profile", "acp", "--patch", "/u.yml"}, "/b.yml")
+	want := []string{"bin.js", "--profile", "acp", "--patch", "/b.yml", "--patch", "/u.yml"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if again := insertPatchArg(got, "/b.yml"); len(again) != len(got) {
+		t.Fatalf("patch added twice: %v", again)
+	}
+}
+
+func TestNewAddsNoAutoCompactPatch(t *testing.T) {
+	dir := t.TempDir()
+	opts := withNoAutoCompact(map[string]any{"cc_data_dir": dir, "args": []any{"--profile", "acp"}})
+	args := argStrings(opts["args"])
+	path := filepath.Join(dir, "dsh", "no-auto-compact.patch.yml")
+	if strings.Join(args, " ") != "--profile acp --patch "+path {
+		t.Fatalf("args = %v", args)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(b), "id: compaction-basic") || !strings.Contains(string(b), "auto: false") {
+		t.Fatalf("patch = %q, %v", b, err)
 	}
 }
