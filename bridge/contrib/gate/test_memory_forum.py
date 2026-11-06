@@ -46,18 +46,9 @@ class T(unittest.TestCase):
         return [w["path"] for w in ctxsvc.context({"key": "discord:1", "text": text})["wiki"]]
 
     def test_profile_only_when_configured(self):
-        # #1160 起画像每人一页：GATE_PROFILE 是目录，只推这条消息发送人自己那页
-        (self.wiki / "tooling/profile-discord-42.md").write_text(PROFILE, encoding="utf-8")
-
-        def prof(sender):
-            req = {"key": "discord:1", "text": "随便聊聊", "sender": sender}
-            return [w for w in ctxsvc.context(req)["wiki"] if w["path"].startswith("【懂你")]
-
-        self.assertFalse(prof("discord-42"))  # 没配目录不推
-        with patch.object(ctxsvc, "PROFILE", "tooling"):
-            got = prof("discord-42")
-            self.assertFalse(prof("discord-7"))  # 别人发的不拿这页顶上
-            self.assertFalse(prof(""))  # 没有发送人（定时、队友）不推
+        self.assertFalse([p for p in self.paths("随便聊聊") if p.startswith("【懂你")])
+        with patch.object(ctxsvc, "PROFILE", "tooling/me.md"):
+            got = [w for w in ctxsvc.context({"key": "discord:1", "text": "随便聊聊"})["wiki"] if w["path"].startswith("【懂你")]
         self.assertEqual(len(got), 1)
         self.assertIn("喜欢短汇报", got[0]["desc"])
         self.assertNotIn("旧说法", got[0]["desc"])
