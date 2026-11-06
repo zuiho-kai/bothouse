@@ -422,7 +422,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	if dec.Action == "silent" {
 		if text := bufferedText(msg); text != "" {
-			g.bufferVoice(interactiveKey, text, userTextOf(msg), msg.FromVoice)
+			g.bufferVoice(interactiveKey, text, userTextOf(msg), msg.FromVoice && !msg.voiceMarked)
 		}
 		return true
 	}
@@ -636,7 +636,7 @@ func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
 			}{Author: author, Content: text})
 			text = "[Quoted teammate message]\n" + string(quoted)
 		}
-		g.bufferVoice(interactiveKey, text, gateText, msg.FromVoice)
+		g.bufferVoice(interactiveKey, text, gateText, msg.FromVoice && !msg.voiceMarked)
 	}
 }
 

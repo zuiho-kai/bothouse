@@ -223,3 +223,43 @@ func TestVoiceNote215BurstFoldMarksTheVoicePart(t *testing.T) {
 		})
 	}
 }
+
+// A burst that the gate then keeps as context lands in the silent buffer as one entry.
+// Marking it in the fold and again on buffering printed the note before both parts, so
+// the typed half of the burst sat under a speech mark it did not earn.
+func TestVoiceNote215BurstFoldThenBufferedMarksOnce(t *testing.T) {
+	for _, voiceFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "typed then voice", true: "voice then typed"}[voiceFirst], func(t *testing.T) {
+			srv := ambientGate(t, func(req gateRequest) string {
+				if req.Mentioned {
+					return "reply"
+				}
+				return "context"
+			})
+			e, sess, p := ambientEngine(t, srv)
+			typed, spoken := "FOLD_TYPED", "FOLD_VOICE"
+			first, next := typed, spoken
+			if voiceFirst {
+				first, next = spoken, typed
+			}
+			e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "1",
+				UserID: "u", UserName: "u", Content: first, FromVoice: voiceFirst, ReplyCtx: "ctx"})
+			e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "2",
+				UserID: "u", UserName: "u", Content: next, FromVoice: !voiceFirst, ReplyCtx: "ctx"})
+			e.handleMessage(p, releaseHeld(t, e, "test:c1")) // gate: context → buffered as one entry
+			latest := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "3",
+				UserID: "u", UserName: "u", Content: "FOLD_LATEST", Mentioned: true, ReplyCtx: "ctx"}
+			e.gate.released[latest] = true // the test hands it over directly, no burst window
+			e.handleMessage(p, latest)
+
+			waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
+			got := sess.sent()[0]
+			if n := markAbove(got, spoken); n != 1 {
+				t.Fatalf("the spoken part of the folded burst: %d marks, want 1:\n%s", n, got)
+			}
+			if n := markAbove(got, typed); n != 0 {
+				t.Fatalf("the typed part of the folded burst was called speech:\n%s", got)
+			}
+		})
+	}
+}
