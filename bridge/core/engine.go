@@ -18996,9 +18996,13 @@ const voiceNoteMark = "（这条是语音消息，下面是语音转成的文字
 
 // withVoiceNote marks message text that came from speech recognition. It is
 // applied to the text before buildSenderPrompt so the sender header stays the
-// first line of the prompt. Every re-dispatch of a FromVoice message calls it
-// again: the first turn, a queued turn, a mid-turn injection and a capacity
-// retry each build their own prompt.
+// first line of the prompt. It wraps one part, never a mixed batch: a merged
+// queue batch marks each voice part where it sits, and the gate marks a
+// transcript before the buffered/backfilled history is put above it. Callers
+// pass fromVoice && !voiceMarked, so a part that already carries the mark is
+// not marked again on a re-dispatch (queued turn, mid-turn injection, capacity
+// retry); a plain FromVoice message without that flag is marked by whichever
+// prompt build runs first.
 func withVoiceNote(content string, fromVoice bool) string {
 	if !fromVoice {
 		return content
