@@ -10,8 +10,8 @@ import (
 
 // Workspace auto-return (user 2026-10-28 「工作区队列做完了为什么没返回，工作区为什么不忙也占位置」).
 //
-// A workspace turn that ends while a handoff is open sends its final reply back to the chat
-// channel (forwardWorkspaceExit), and the chat channel's lead gets it as a turn (wakeChatLead).
+// A workspace's explicitly marked delivery goes back to the chat channel
+// (forwardWorkspaceExit); an unmarked progress turn keeps its handoff open.
 // A handback (watchTurnEnded's `returned`, not an [ask]) closes the handoffs it answered; when
 // no handoff is left open the workspace goes back to the pool and its sessions start clean,
 // the same release as /new (releaseTeamWorkspace) and park (ResetTeamWorkspaceSessions).
