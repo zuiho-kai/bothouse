@@ -344,7 +344,13 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// which would otherwise appear once per message of the burst. bufferedText drops it
 		// wherever a quote or note put it, the same rule the silent buffer uses.
 		body := bufferedText(msg)
-		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + body)
+		// #215: a burst also mixes typed and spoken parts. Mark each voice part where it
+		// sits, and the held message's own words the first time a part joins it, so the
+		// voice note below never wraps typed text; voiceMarked stops that second mark.
+		if h.msg.FromVoice && !h.msg.voiceMarked {
+			h.msg.Content, h.msg.voiceMarked = withVoiceNote(h.msg.Content, true), true
+		}
+		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + withVoiceNote(body, msg.FromVoice))
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned

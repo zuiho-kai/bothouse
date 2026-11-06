@@ -23,12 +23,21 @@ func markAbove(prompt, marker string) int {
 			continue
 		}
 		n := strings.Count(line, voiceNoteMark)
-		for j := i - 1; j >= 0 && i-j <= 4; j-- {
-			up := lines[j]
-			if strings.TrimSpace(up) == "" || strings.Contains(up, "GATE_") {
-				break
+		// Walk up over this part's own mark and any note lines (a parenthesized note such as
+		// mentionedNote sits between the mark and the words); another part's text ends it.
+		for j := i - 1; j >= 0; j-- {
+			up := strings.TrimSpace(lines[j])
+			if up == "" {
+				continue
 			}
-			n += strings.Count(up, voiceNoteMark)
+			if strings.Contains(up, voiceNoteMark) {
+				n++
+				continue
+			}
+			if strings.HasPrefix(up, "（") || strings.HasPrefix(up, "(") {
+				continue // a note, not another part's text
+			}
+			break
 		}
 		return n
 	}
@@ -171,5 +180,46 @@ func TestVoiceNote215GateInjectionMarksOnlyTheTranscript(t *testing.T) {
 	}
 	if n := markAbove(got, "GATE_VOICE_LATEST"); n != 1 {
 		t.Fatalf("the injected transcript lost its mark:\n%s", got)
+	}
+}
+
+// The burst window folds a few lines sent in a row into one message before the gate
+// decides. That fold mixed typed and spoken parts too, and only kept the first part's
+// origin: a voice line sent right after a typed one reached the model unmarked.
+func TestVoiceNote215BurstFoldMarksTheVoicePart(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		first *Message
+		next  *Message
+	}{{
+		name: "typed then voice",
+		first: &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "1",
+			UserID: "u", UserName: "u", Content: "BURST_TYPED", Mentioned: true, ReplyCtx: "ctx"},
+		next: &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "2",
+			UserID: "u", UserName: "u", Content: "BURST_VOICE", FromVoice: true, Mentioned: true, ReplyCtx: "ctx"},
+	}, {
+		name: "voice then typed",
+		first: &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "1",
+			UserID: "u", UserName: "u", Content: "BURST_VOICE", FromVoice: true, Mentioned: true, ReplyCtx: "ctx"},
+		next: &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "2",
+			UserID: "u", UserName: "u", Content: "BURST_TYPED", Mentioned: true, ReplyCtx: "ctx"},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := ambientGate(t, func(gateRequest) string { return "reply" })
+			e, sess, p := ambientEngine(t, srv)
+			e.handleMessage(p, tc.first)
+			e.handleMessage(p, tc.next)
+			h := releaseHeld(t, e, "test:c1")
+			e.handleMessage(p, h)
+
+			waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
+			got := sess.sent()[0]
+			if n := markAbove(got, "BURST_VOICE"); n != 1 {
+				t.Fatalf("the voice part of the burst lost its mark:\n%s", got)
+			}
+			if n := markAbove(got, "BURST_TYPED"); n != 0 {
+				t.Fatalf("the typed part of the burst was called speech:\n%s", got)
+			}
+		})
 	}
 }
