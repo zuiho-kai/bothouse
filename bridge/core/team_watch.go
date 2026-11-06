@@ -574,7 +574,20 @@ var watchStancePrefixes = []string{"【接】", "【问】", "【退】", "【�
 // good (user 2026-11-06 10:53 「这种情况是为什么。好几个工作区都这样」: #207 nudged 09:13, 09:33,
 // 09:53, 10:13 … while the card sat 「已取消」). Not progress, whoever posts them.
 // Texts: watchNudgeText, MsgWatchParkedNotice, and the park-failure notice below.
-var watchSelfPrefixes = []string{"到了检查时间还没交回", "看门：", "看门暂停失败："}
+var watchSelfPrefixes = append([]string{"到了检查时间还没交回", "看门暂停失败："}, watchParkedPrefixes()...)
+
+// watchParkedPrefixes: MsgWatchParkedNotice up to its first verb, in every language the bridge
+// can post it in — a non-Chinese bridge posts "Watch: …" / "見守り：…", and a Chinese-only
+// prefix let those renew the claim just as 「看门：」 did before.
+func watchParkedPrefixes() []string {
+	var out []string
+	for _, txt := range messages[MsgWatchParkedNotice] {
+		if i := strings.Index(txt, "%s"); i > 0 {
+			out = append(out, txt[:i])
+		}
+	}
+	return out
+}
 
 // watchNoProgressPrefixes: posts that are not progress (status, stance, and the watch's own
 // notices).

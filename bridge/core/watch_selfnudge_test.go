@@ -31,6 +31,8 @@ func TestWatchParkedNoticesAreNotProgress(t *testing.T) {
 	for _, txt := range []string{
 		"看门：<#1563964848755314753>「叠板」续过一次仍没有进展，已暂停并放回工作区；要继续请重新交活。",
 		"看门暂停失败：<#1563964848755314753>：workspace not owned",
+		"Watch: <#1563964848755314753> still showed no progress on 叠板 after a resume; the task is paused and the workspace freed. Hand it over again to continue.",
+		"見守り：<#1563964848755314753> の 叠板 は再開後も進展がないため一時停止し、ワークスペースを解放しました。続けるには再度引き渡してください。",
 	} {
 		if watchIsProgressText(txt) {
 			t.Fatalf("watch notice counts as progress: %q", txt)
