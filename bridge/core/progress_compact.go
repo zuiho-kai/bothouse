@@ -683,6 +683,31 @@ func (w *compactProgressWriter) Finalize(state ProgressCardState) bool {
 	return true
 }
 
+// Retract takes the card down because the turn ended with NO_REPLY: the user should see
+// nothing for a turn that says nothing (#1159, user 11-07「为什么现在时不时来一个思考」 —
+// #1147 only rewrote the footer, the card stayed). The thread copy goes too. A platform
+// that cannot delete keeps the card and gets the silent footer instead.
+func (w *compactProgressWriter) Retract() {
+	if w.mirror != nil {
+		w.mirror.Retract()
+	}
+	if w.moved || w.handle == nil {
+		return
+	}
+	if cleaner, ok := w.platform.(PreviewCleaner); ok {
+		callCtx, cancel := w.withAPITimeout()
+		err := authorizedOutput(callCtx, func() error { return cleaner.DeletePreviewMessage(callCtx, w.handle) })
+		cancel()
+		if err == nil {
+			w.handle = nil
+			w.moved = true
+			return
+		}
+		slog.Debug("progress writer: retract on silent turn failed, keeping the card", "platform", w.platform.Name(), "error", err)
+	}
+	w.Finalize(ProgressCardStateSilent)
+}
+
 func (w *compactProgressWriter) withAPITimeout() (context.Context, context.CancelFunc) {
 	if _, hasDeadline := w.ctx.Deadline(); hasDeadline {
 		return w.ctx, func() {}
