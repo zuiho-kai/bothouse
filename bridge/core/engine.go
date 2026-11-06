@@ -7372,8 +7372,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 			if isSilent {
-				// The card was finalized "completed" above, which promises a reply in the next message.
-				cp.Finalize(ProgressCardStateSilent)
+				// A turn that says nothing leaves nothing: take its progress card (and the thread copy) down.
+				cp.Retract()
 			}
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
