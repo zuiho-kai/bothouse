@@ -139,7 +139,7 @@ func TestTakeOverOrphanDSHWebFromAPublicURLAnnouncement(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("dsh web: https://mac-mini.example.ts.net/?token=launch\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	web, ok, err := takeOverOrphanDSHWeb(logPath, 0)
+	web, ok, err := takeOverOrphanDSHWeb([]string{logPath}, 0)
 	if err != nil || !ok {
 		t.Fatalf("takeover = %+v %v, want the running host adopted", web, err)
 	}
