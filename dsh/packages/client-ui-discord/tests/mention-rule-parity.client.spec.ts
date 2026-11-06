@@ -54,6 +54,15 @@ const CASES: Array<[string, string[]]> = [
   ['`@肥鱼\n\t\n@G哥`', ['dsh', 'gge']],
   // a single line break is still one code span: nobody is called or coloured
   ['`@肥鱼\n@G哥`', []],
+  // #246: CRLF is a single line ending; only an actual blank line ends the span.
+  ['`@肥鱼\r\n@G哥`', []],
+  ['`@肥鱼\r@G哥`', []],
+  ['`@肥鱼\r\n\r\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\r\n \r\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\r\n\t\r\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\r\r@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n\r\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\r\n\n@G哥`', ['dsh', 'gge']],
   // the span closed before the blank line still counts, the name after it is text
   ['`@肥鱼`\n\n@G哥 看下', ['gge']],
 ]

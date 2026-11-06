@@ -28,7 +28,9 @@ function escapeRegex(s: string): string {
  * on the page, and must be plain text on the backend too).
  */
 function hasBlankLine(text: string): boolean {
-  return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text)
+  // CRLF is one line ending: normalize this copy so regex backtracking cannot split it (#246).
+  // The original text and span offsets stay untouched.
+  return /\n[ \t]*\n/.test(text.replace(/\r\n?/g, '\n'))
 }
 
 /**

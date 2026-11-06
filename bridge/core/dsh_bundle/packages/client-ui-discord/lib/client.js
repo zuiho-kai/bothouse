@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: caa1ef37442fc489b68e5dc04769f5442f9915299750638886260893d093edc2
+// dsh-client-source-sha256: 847606a5dfec73f0366637a05f39438d616a0eb25575a28abc0df1cefff2b704
 // dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18821,7 +18821,7 @@ function escapeRegex(s) {
 * on the page, and must be plain text on the backend too).
 */
 function hasBlankLine(text) {
-	return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text);
+	return /\n[ \t]*\n/.test(text.replace(/\r\n?/g, "\n"));
 }
 /**
 * Offsets of Markdown inline code spans, [start, end) each, matching what the markdown renderer

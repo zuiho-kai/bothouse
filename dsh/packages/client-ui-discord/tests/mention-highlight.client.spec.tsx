@@ -13,6 +13,7 @@ import {
   splitMentions,
 } from '../src/client/mention-highlight.tsx'
 import { fromMarkdown } from 'mdast-util-from-markdown'
+import { mentions as backendMentions } from '../../../collab/mentions.mjs'
 import css from '../src/client/ChannelsPage.module.css'
 
 afterEach(cleanup)
@@ -151,6 +152,10 @@ describe('mention-highlight logic', () => {
     for (const text of [
       '`a` b',
       '`a\nb`',
+      '`a\r\nb`',
+      '`a\rb`',
+      '`a\r\n\r\nb`',
+      '`a\r\rb`',
       '`a\n\nb`',
       '`a\n \nb`',
       '`a`\n\n`b`',
@@ -251,6 +256,32 @@ describe('renderQuoteMentions', () => {
 
 describe('HighlightedMarkdown component', () => {
   const labels = { code: { copyLabel: 'Copy', copiedLabel: 'Copied' }, footnotes: 'Footnotes' }
+
+  // #246: compare the real MarkdownText DOM with both matchers. Comparing only the two
+  // matchers let them agree on the same CRLF bug while the page rendered inline code.
+  it.each([
+    ['LF single', '\n', []],
+    ['CRLF single', '\r\n', []],
+    ['CR single', '\r', []],
+    ['LF blank', '\n\n', ['fish', 'gge']],
+    ['CRLF blank', '\r\n\r\n', ['fish', 'gge']],
+    ['CR blank', '\r\r', ['fish', 'gge']],
+    ['CRLF space blank', '\r\n \r\n', ['fish', 'gge']],
+    ['CRLF tab blank', '\r\n\t\r\n', ['fish', 'gge']],
+    ['LF then CRLF blank', '\n\r\n', ['fish', 'gge']],
+    ['CRLF then LF blank', '\r\n\n', ['fish', 'gge']],
+  ] as Array<[string, string, string[]]>)('keeps actual badges and backend calls aligned: %s', (_label, ending, expected) => {
+    const text = '`@肥鱼' + ending + '@G哥`'
+    const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+    const badges = [...container.querySelectorAll<HTMLElement>('[data-mention]')]
+      .map(node => node.dataset.mention).sort()
+    expect(badges).toEqual(expected)
+    expect([...backendMentions(text, testMembers)].sort()).toEqual(badges)
+    const segments = splitMentions(text, testMembers)
+    expect(segments.filter(s => s.member).map(s => s.member!.id).sort()).toEqual(badges)
+    expect(segments.map(s => s.text).join('')).toBe(text)
+    expect(container.querySelectorAll('code').length).toBe(expected.length ? 0 : 1)
+  })
 
   it('renders markdown text with mention pill badge and handles click', () => {
     const onMention = vi.fn()

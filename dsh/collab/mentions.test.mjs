@@ -89,6 +89,21 @@ test('mentions: an inline code span cannot cross a blank line (#245)', () => {
   assert.deepEqual(found('`@肥鱼\n\n@G哥` 和 ``@阿柚子``'), ['dsh', 'gge']);
 });
 
+test('mentions: CRLF is one line ending, not a blank line (#246)', () => {
+  for (const ending of ['\n', '\r\n', '\r']) {
+    const single = '`@肥鱼' + ending + '@G哥`';
+    assert.deepEqual(found(single), []);
+    assert.equal(split(single, members).map(([s]) => s).join(''), single);
+    assert.equal(forDisplay(single, members), single);
+    for (const padding of ['', ' ', '\t']) {
+      const blank = '`@肥鱼' + ending + padding + ending + '@G哥`';
+      assert.deepEqual(found(blank), ['dsh', 'gge']);
+      assert.equal(split(blank, members).map(([s]) => s).join(''), blank);
+      assert.equal(forDisplay(blank, members), blank);
+    }
+  }
+});
+
 test('mentions: forMember/forDisplay/withoutLeadingMentions use the same rule', () => {
   const dsh = members[0];
   // an email is plain text now, so it is not stripped as an opening mention

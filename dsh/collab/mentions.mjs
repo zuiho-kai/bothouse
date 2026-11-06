@@ -65,7 +65,9 @@ function fenceRanges(text) {
  * on the page, and must be plain text here too, or the page colours two and nobody is woken).
  */
 function hasBlankLine(text) {
-  return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text);
+  // CRLF is one line ending: normalize this copy so regex backtracking cannot split it (#246).
+  // The original text and span offsets stay untouched.
+  return /\n[ \t]*\n/.test(text.replace(/\r\n?/g, '\n'));
 }
 
 /**
