@@ -414,3 +414,26 @@ func TestQueuedTurnKeepsItsOwnSender(t *testing.T) {
 	inputDone(a, "second result")
 	inputWait(t, func() bool { return !s.Busy() })
 }
+
+// With no gate model a person's DM is still answered without an @; a group message without an @
+// and a bot's DM are not (user 2026-11-06「允许私聊不用艾特」).
+func TestNoModelFallbackAnswersPrivateChat(t *testing.T) {
+	g := &gateState{fallback: "reply"}
+	cases := []struct {
+		req  gateRequest
+		want string
+	}{
+		{gateRequest{Private: true}, "reply"},
+		{gateRequest{Private: true, FromBot: true}, "context"},
+		{gateRequest{}, "context"},
+		{gateRequest{Mentioned: true}, "reply"},
+	}
+	for _, c := range cases {
+		if got := g.noModelFallback(c.req); got != c.want {
+			t.Errorf("noModelFallback(%+v) = %q, want %q", c.req, got, c.want)
+		}
+	}
+	if got := (&gateState{fallback: "context"}).fallbackFor(gateRequest{Private: true}); got != "reply" {
+		t.Errorf("fallbackFor(private) = %q, want reply", got)
+	}
+}
