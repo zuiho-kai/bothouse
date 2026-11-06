@@ -636,25 +636,85 @@ func takeOverOrphanDSHWeb(logPath string, trackedPID int) (DSHWeb, bool, error) 
 		return DSHWeb{}, false, nil
 	}
 	au, err := url.Parse(announced)
-	if err != nil || au.Port() == "" || !loopbackTarget(au.Host) {
-		return DSHWeb{}, false, nil
-	}
-	pid := pidListeningOnPort(au.Port())
-	if pid <= 0 || pid == trackedPID {
+	if err != nil || au.Host == "" {
 		return DSHWeb{}, false, nil
 	}
 	token := au.Query().Get("token")
+	// `--public-url` announcements (the launchd unit passes the tailnet name) carry no port and a
+	// non-loopback host, so the line alone cannot say where the host is: the port comes from the
+	// recorded address, then from the loopback listeners. The token gate still decides — only a
+	// port that answers GET /?token= with 303 can be adopted, so a wrong candidate is harmless.
+	// Without this, a second `dsh web` was started, the plugin's instance lock refused it, and the
+	// panel said 打不开 (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 1 条).
+	ports := make([]string, 0, 4)
+	addPort := func(p string) {
+		if p == "" || token == "" {
+			return
+		}
+		for _, c := range ports {
+			if c == p {
+				return
+			}
+		}
+		ports = append(ports, p)
+	}
+	if au.Port() != "" && loopbackTarget(au.Host) {
+		addPort(au.Port())
+	}
+	if web, _, ok := readDSHWebState(); ok {
+		addPort(statePort(web.URL))
+	}
+	port := ""
+	for _, p := range ports {
+		if probeDSHWebToken(p, token) {
+			port = p
+			break
+		}
+	}
+	if port == "" && au.Port() == "" {
+		// 来源：沿用 dshWebProbeTimeout——整轮扫描共用一次探活时限，卡住的本地监听不会把打开拖过
+		// 单次探活的上限（实测单次探活 0.5–3ms）。
+		deadline := time.Now().Add(dshWebProbeTimeout)
+		for _, p := range dshWebListeners() {
+			addPort(p)
+			if probeDSHWebToken(p, token) {
+				port = p
+				break
+			}
+			if time.Now().After(deadline) {
+				break
+			}
+		}
+	}
+	if port == "" {
+		// The announcement named a loopback port, so that is the host to stop even though its token
+		// was refused (a second instance on the same port, a reused pid).
+		if au.Port() != "" && loopbackTarget(au.Host) {
+			if pid := pidListeningOnPort(au.Port()); pid > 0 && pid != trackedPID {
+				slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", au.Port())
+				if err := stopDSHWebForImport(pid); err != nil {
+					return DSHWeb{}, false, err
+				}
+			}
+		}
+		return DSHWeb{}, false, nil
+	}
+	pid := pidListeningOnPort(port)
+	if pid <= 0 || pid == trackedPID {
+		return DSHWeb{}, false, nil
+	}
 	_, membersErr := os.Stat(dshMembersFile())
-	if token != "" && membersErr != nil && probeDSHWebToken(au.Port(), token) {
-		web := DSHWeb{URL: "http://127.0.0.1:" + au.Port() + "/?" + url.Values{"token": {token}}.Encode() + dshChannelsHash, PID: pid, Log: logPath}
-		b, _ := json.Marshal(web)
-		_ = os.WriteFile(dshWebStatePath(), b, 0o600)
-		slog.Info("dsh web: adopted a running dsh web from the log", "pid", pid, "port", au.Port())
-		return web, true, nil
+	if membersErr == nil {
+		// Roles still wait for import: the plugin reads them only at boot, so start over.
+		slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", port)
+		if err := stopDSHWebForImport(pid); err != nil {
+			return DSHWeb{}, false, err
+		}
+		return DSHWeb{}, false, nil
 	}
-	slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", au.Port())
-	if err := stopDSHWebForImport(pid); err != nil {
-		return DSHWeb{}, false, err
-	}
-	return DSHWeb{}, false, nil
+	web := DSHWeb{URL: "http://127.0.0.1:" + port + "/?" + url.Values{"token": {token}}.Encode() + dshChannelsHash, PID: pid, Log: logPath}
+	b, _ := json.Marshal(web)
+	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+	slog.Info("dsh web: adopted a running dsh web from the log", "pid", pid, "port", port)
+	return web, true, nil
 }
