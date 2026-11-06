@@ -12,6 +12,7 @@ import {
   renderQuoteMentions,
   splitMentions,
 } from '../src/client/mention-highlight.tsx'
+import { fromMarkdown } from 'mdast-util-from-markdown'
 import css from '../src/client/ChannelsPage.module.css'
 
 afterEach(cleanup)
@@ -128,6 +129,62 @@ describe('mention-highlight logic', () => {
     expect(codeSpanRanges('`a` 和 `b`')).toEqual([[1, 2], [7, 8]])
     expect(codeSpanRanges('```x```')).toEqual([])
     expect(codeSpanRanges('`@肥鱼``x')).toEqual([])
+  })
+
+  // #245: a blank line ends the paragraph, so a run of backticks cannot close a span across it.
+  // The page showed both names in plain text while the backend woke nobody; now both agree.
+  // The renderer is the ground truth for "what the page shows as <code>": compare our span
+  // offsets with the inlineCode nodes mdast-util-from-markdown produces (#245).
+  it('reads inline code spans the way the markdown renderer does (#245)', () => {
+    const rendererSpans = (text: string): Array<[number, number]> => {
+      const out: Array<[number, number]> = []
+      const walk = (node: any): void => {
+        if (node.type === 'inlineCode') out.push([node.position.start.offset, node.position.end.offset])
+        for (const child of node.children ?? []) walk(child)
+      }
+      walk(fromMarkdown(text))
+      return out
+    }
+    const raw = (text: string, spans: Array<[number, number]>): string[] =>
+      spans.map(([start, end]) => text.slice(start, end))
+
+    for (const text of [
+      '`a` b',
+      '`a\nb`',
+      '`a\n\nb`',
+      '`a\n \nb`',
+      '`a`\n\n`b`',
+      '`@肥鱼\n\n@G哥`',
+      '看 `@肥鱼` 这个',
+    ]) {
+      // our ranges are the span without its backtick fence; add the fence back for comparison
+      const ours = codeSpanRanges(text).map(([start, end]) => {
+        const open = text.lastIndexOf('`', start - 1)
+        let close = end
+        while (text[close] === '`') close++
+        return text.slice(open, close)
+      })
+      expect(ours).toEqual(raw(text, rendererSpans(text)))
+    }
+  })
+
+  it('does not treat backticks across a blank line as an inline code span (#245)', () => {
+    expect(codeSpanRanges('`a\n\nb`')).toEqual([])
+    expect(codeSpanRanges('`a\n \nb`')).toEqual([])
+    expect(codeSpanRanges('`a\n\t\nb`')).toEqual([])
+    // a single line break is not a blank line, so the span still holds
+    expect(codeSpanRanges('`a\nb`')).toEqual([[1, 4]])
+    // runs after the rejected opener still pair with each other
+    expect(codeSpanRanges('`a\n\nb` 和 `c`')).toEqual([[6, 9]])
+
+    const blank = '`@肥鱼\n\n@G哥`'
+    expect(splitMentions(blank, testMembers).filter(s => s.member).map(s => s.text)).toEqual([
+      '@肥鱼',
+      '@G哥',
+    ])
+    expect(splitMentions(blank, testMembers).map(s => s.text).join('')).toBe(blank)
+    // one line break keeps the span, so neither name is coloured
+    expect(splitMentions('`@肥鱼\n@G哥`', testMembers).filter(s => s.member)).toEqual([])
   })
 })
 

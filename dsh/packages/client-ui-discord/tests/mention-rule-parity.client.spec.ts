@@ -47,6 +47,15 @@ const CASES: Array<[string, string[]]> = [
   ['`a` 和 @肥鱼', ['dsh']],
   ['@肥鱼 后跟 `未闭合的反引号', ['dsh']],
   ['`@肥鱼``x 不是行内代码', ['dsh']],
+  // #245: a blank line ends the paragraph, so backticks around it are not a code span; the page
+  // shows both names as plain text, so the backend must wake both.
+  ['`@肥鱼\n\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n \n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n\t\n@G哥`', ['dsh', 'gge']],
+  // a single line break is still one code span: nobody is called or coloured
+  ['`@肥鱼\n@G哥`', []],
+  // the span closed before the blank line still counts, the name after it is text
+  ['`@肥鱼`\n\n@G哥 看下', ['gge']],
 ]
 
 describe('mention rule parity: page highlight == backend call (#237)', () => {

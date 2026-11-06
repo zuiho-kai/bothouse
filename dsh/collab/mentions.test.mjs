@@ -68,6 +68,27 @@ test('mentions: inline code spans call nobody, unlike a bare @ in text (#237 rew
   assert.equal(forDisplay('看 `@肥鱼` 这个', members), '看 `@肥鱼` 这个');
 });
 
+test('mentions: an inline code span cannot cross a blank line (#245)', () => {
+  // the reported case: one pair of backticks around a name, a blank line, another name. The blank
+  // line ends the paragraph, so the renderer never makes this a code span — the page shows both
+  // names in plain text, so both are calls, and the backend must agree (it used to call nobody).
+  assert.deepEqual(found('`@肥鱼\n\n@G哥`'), ['dsh', 'gge']);
+  // a blank line padded with spaces or a tab is still a blank line
+  assert.deepEqual(found('`@肥鱼\n \n@G哥`'), ['dsh', 'gge']);
+  assert.deepEqual(found('`@肥鱼\n\t\n@G哥`'), ['dsh', 'gge']);
+  // a single line break is not a blank line: still one span, so still nobody
+  assert.deepEqual(found('`@肥鱼\n@G哥`'), []);
+  // the text is not rewritten either way
+  assert.equal(split('`@肥鱼\n\n@G哥`', members).map(([s]) => s).join(''), '`@肥鱼\n\n@G哥`');
+  assert.equal(forDisplay('`@肥鱼\n\n@G哥`', members), '`@肥鱼\n\n@G哥`');
+  // a span closed before the blank line still counts, names after it are text
+  assert.deepEqual(found('`a`\n\n@肥鱼 看下'), ['dsh']);
+  // the opener left literal, an empty second run right after the blank line pairs nothing
+  assert.deepEqual(found('`@肥鱼\n\n` 之后 @G哥'), ['dsh', 'gge']);
+  // later backtick runs still pair with each other after the rejected opener
+  assert.deepEqual(found('`@肥鱼\n\n@G哥` 和 ``@阿柚子``'), ['dsh', 'gge']);
+});
+
 test('mentions: forMember/forDisplay/withoutLeadingMentions use the same rule', () => {
   const dsh = members[0];
   // an email is plain text now, so it is not stripped as an opening mention

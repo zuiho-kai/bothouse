@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 51a3e9152e82109c58010829d1022c6107e6f7d5ed13f3667f47be7ca215d62f
+// dsh-client-source-sha256: caa1ef37442fc489b68e5dc04769f5442f9915299750638886260893d093edc2
 // dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18815,10 +18815,20 @@ function escapeRegex(s) {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 /**
+* True when the text holds a blank line: two line endings with only spaces or tabs between.
+* A `code span` cannot cross one — the blank line ends the paragraph, so the renderer closes the
+* span before it (#245: `@肥鱼` + blank line + `@G哥` inside one pair of backticks is plain text
+* on the page, and must be plain text on the backend too).
+*/
+function hasBlankLine(text) {
+	return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text);
+}
+/**
 * Offsets of Markdown inline code spans, [start, end) each, matching what the markdown renderer
 * turns into <code> and the backend skips (dsh/collab/mentions.mjs codeSpanRanges — keep them in
-* step). A span is a run of backticks closed by a run of the same length; a lone backtick stays
-* literal text, and runs of three or more are fences, left to fencedRanges().
+* step). A span is a run of backticks closed by a run of the same length inside the same
+* paragraph; it may hold single line breaks but no blank line. A lone backtick stays literal
+* text, and runs of three or more are fences, left to fencedRanges().
 */
 function codeSpanRanges(text) {
 	const runs = [];
@@ -18841,6 +18851,7 @@ function codeSpanRanges(text) {
 		if (len >= 3) continue;
 		for (let c = k + 1; c < runs.length; c++) {
 			if (runs[c].len !== len) continue;
+			if (hasBlankLine(text.slice(start + len, runs[c].start))) break;
 			ranges.push([start + len, runs[c].start]);
 			k = c;
 			break;

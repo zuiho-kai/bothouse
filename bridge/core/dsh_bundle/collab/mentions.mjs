@@ -59,11 +59,22 @@ function fenceRanges(text) {
 }
 
 /**
+ * True when the text holds a blank line: two line endings with only spaces or tabs between.
+ * A `code span` cannot cross one — the blank line ends the paragraph, so the renderer closes the
+ * span before it (#245: `@肥鱼` + blank line + `@G哥` inside one pair of backticks is plain text
+ * on the page, and must be plain text here too, or the page colours two and nobody is woken).
+ */
+function hasBlankLine(text) {
+  return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text);
+}
+
+/**
  * [start, end) of every Markdown inline code span (`@name`, ``a `b` c``), the spans the channel
  * page renders as <code> and never colours. A span is a run of backticks closed by a run of the
- * same length (#237, dsh/packages/client-ui-discord/src/client/mention-highlight.tsx
- * codeSpanRanges — keep the two in step); a lone backtick stays literal text, and runs of three
- * or more are fences, read by fenceRanges().
+ * same length inside the same paragraph (#237, dsh/packages/client-ui-discord/src/client/
+ * mention-highlight.tsx codeSpanRanges — keep the two in step); the content may hold single line
+ * breaks but no blank line, a lone backtick stays literal text, and runs of three or more are
+ * fences, read by fenceRanges().
  */
 function codeSpanRanges(text) {
   const runs = [];
@@ -80,6 +91,9 @@ function codeSpanRanges(text) {
     if (len >= 3) continue; // a fence, not an inline span
     for (let c = k + 1; c < runs.length; c++) {
       if (runs[c].len !== len) continue;
+      // a blank line ends the paragraph, so this run cannot close the span (#245); the opener
+      // stays literal text and the run is tried as the next opener
+      if (hasBlankLine(text.slice(start + len, runs[c].start))) break;
       ranges.push([start + len, runs[c].start]);
       k = c; // the closing run cannot open another span
       break;
