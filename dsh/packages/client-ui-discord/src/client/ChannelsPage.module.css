@@ -2286,8 +2286,9 @@ button.headMeta:hover { color: var(--dsw-alias-label-primary); background: var(-
 .bubbleLine {
   /* 来源：沿用原气泡正文上限 640px（对方）/560px（自己）加左右 padding 14px×2。 */
   --bubble-cap: 668px;
-  /* 来源：实测工具条三枚按钮宽 60px，加 6px 间距再留余量。 */
-  --msg-tools-room: 72px;
+  /* 来源：#235 非作者验收实测（/Users/zhaixinyang/.claude/reviews/235-reply-tools.md）三键工具条宽 88px
+     （按钮 26px×3 + 间隙 2px×2 + 内边距 2px×2 + 边框 1px×2），加 6px 间距 = 94px；原 72px 少算 22px。 */
+  --msg-tools-room: 94px;
   width: fit-content;
   max-width: min(var(--bubble-cap), 100%);
 }
@@ -2296,4 +2297,26 @@ button.headMeta:hover { color: var(--dsw-alias-label-primary); background: var(-
   .bubbleLine { position: relative; max-width: min(var(--bubble-cap), 100% - var(--msg-tools-room)); }
   .bubbleLine > .msgTools { top: 4px; right: auto; left: calc(100% + 6px); }
   .own .bubbleLine > .msgTools { left: auto; right: calc(100% + 6px); }
+  /* The 2 s note (已复制 / 已放上任务板 / 转任务失败：…) floats above the buttons instead of sitting
+     in their row: in the row it widened the toolbar and pushed the buttons out of a narrow window
+     right after a click (#235 退回). Above, not below: the button's own tip (data-tip) shows below.
+     It reaches over the bubble side, where the row has room, and wraps a long failure. */
+  .bubbleLine > .msgTools > .msgToolNote {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    right: 0;
+    width: max-content;
+    box-sizing: border-box;
+    /* 来源：#235 返工实测（/tmp/c235rw/geometry.txt）两字短消息「好的」时工具条右缘离日志左缘 210px，
+       提示上限取 180px 留余量，更长的失败提示折行。 */
+    max-width: 180px;
+    padding: 2px 6px;
+    border: 1px solid var(--dsw-alias-separator, rgba(127, 127, 127, 0.25));
+    border-radius: var(--dsw-radius-sm, 6px);
+    background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .own .bubbleLine > .msgTools > .msgToolNote { right: auto; left: 0; }
 }
