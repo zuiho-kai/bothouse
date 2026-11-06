@@ -111,6 +111,9 @@ type gateRequest struct {
 	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
 	// member queued behind its 24-minute turn).
 	NoInsert bool `json:"no_insert,omitempty"`
+	// Private: a person's private chat (DM) with this bot. Every message there is addressed to
+	// this bot, so the fallbacks answer it without an @ (user 2026-11-06「允许私聊不用艾特」).
+	Private bool `json:"private,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -209,7 +212,7 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 // that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
 // "reply", other roles "context").
 func (g *gateState) fallbackFor(req gateRequest) string {
-	if req.Mentioned {
+	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
 	}
 	if req.AddressedOther {
@@ -220,9 +223,9 @@ func (g *gateState) fallbackFor(req gateRequest) string {
 
 // noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
 // contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
-// answer every message; only an @-mentioned bot replies.
+// answer every message; only an @-mentioned bot replies, or a person in a private chat (DM).
 func (g *gateState) noModelFallback(req gateRequest) string {
-	if req.Mentioned {
+	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
 	}
 	return "context"
@@ -373,6 +376,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
+		Private:  !msg.FromBot && msg.Direct,
 		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
