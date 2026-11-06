@@ -76,8 +76,8 @@ func TestRefreshDSH_DepsChangedReinstalls(t *testing.T) {
 			t.Errorf("%s = %q", rel, got)
 		}
 	}
-	if got, _ := os.ReadFile(filepath.Join(dir, ".version")); string(got) != "v0.1.5" {
-		t.Errorf(".version = %q", got)
+	if got, read := readDSHStamp(filepath.Join(dir, ".version")); read != stampFound || got.Version != "v0.1.5" {
+		t.Errorf(".version = %+v", got)
 	}
 	for _, leftover := range []string{".collab-staging", ".collab-prev"} {
 		if _, err := os.Stat(filepath.Join(dir, leftover)); !os.IsNotExist(err) {

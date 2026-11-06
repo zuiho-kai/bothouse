@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -65,7 +66,9 @@ func ExtractEmbeddedDSH(targetDir string) (string, error) {
 
 	scriptPath := filepath.Join(targetDir, "install.sh")
 	_ = os.Chmod(scriptPath, 0755)
-	_ = os.WriteFile(filepath.Join(targetDir, dshVersionFile), []byte(CurrentVersion), 0644)
+	if CurrentVersion != "" { // a build without a version writes no stamp, so the next one refreshes
+		_ = writeDSHStamp(filepath.Join(targetDir, dshVersionFile), dshStampNow(CurrentVersion))
+	}
 	return scriptPath, nil
 }
 
@@ -94,8 +97,132 @@ func writeHandoffRules(collabDir string) error {
 	return nil
 }
 
-// dshVersionFile records which program version last unpacked ~/.bothouse/dsh.
+// dshVersionFile records which program last unpacked ~/.bothouse/dsh. Since #249 it holds a
+// one-line JSON dshStamp (version, commit, build time); installs made before that hold a bare
+// version string, which parses as a stamp with an empty commit and build time.
 const dshVersionFile = ".version"
+
+// dshStamp identifies the program build that unpacked the plugin, so a refresh can tell whether
+// it is newer than what is on disk. The old bare version string could not: any different string
+// looked "newer", so an older binary starting once overwrote a newer plugin with its own copy
+// (11-05 22:54, #166 B 6). commit is the short git commit and built the RFC3339 build time, both
+// already set for the capabilities snapshot (bridge_capabilities.go).
+type dshStamp struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit,omitempty"`
+	Built   string `json:"built,omitempty"`
+}
+
+// dshStampNow is the stamp of the running program.
+func dshStampNow(version string) dshStamp {
+	return dshStamp{Version: version, Commit: CurrentCommit, Built: CurrentBuildTime}
+}
+
+// stampRead is what .version told us.
+type stampRead int
+
+const (
+	stampMissing stampRead = iota // no .version, or empty: nothing to compare against
+	stampFound                    // a stamp to order against
+	stampBroken                   // there but unreadable: cannot tell, keep what is installed
+)
+
+// readDSHStamp parses .version. A file from before #249 is a bare version string, kept as a
+// version-only stamp so the first upgrade after it still works.
+func readDSHStamp(path string) (dshStamp, stampRead) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return dshStamp{}, stampMissing
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return dshStamp{}, stampMissing
+	}
+	if !strings.HasPrefix(s, "{") {
+		return dshStamp{Version: s}, stampFound
+	}
+	var st dshStamp
+	if err := json.Unmarshal([]byte(s), &st); err != nil {
+		return dshStamp{}, stampBroken
+	}
+	if st.Version == "" {
+		return dshStamp{}, stampMissing // written by a build that knew no version
+	}
+	return st, stampFound
+}
+
+// writeDSHStamp records st as one JSON object; readDSHStamp also still reads the bare version
+// string written before #249.
+func writeDSHStamp(path string, st dshStamp) error {
+	data, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
+}
+
+// stampVerdict orders the running program's stamp against the one on disk.
+type stampVerdict int
+
+const (
+	stampSame    stampVerdict = iota // this same build already unpacked the plugin
+	stampNewer                       // provably newer: refresh
+	stampOlder                       // provably older: keep what is installed
+	stampUnknown                     // cannot be ordered: keep what is installed
+)
+
+// stampOrder orders now against have, and answers stampNewer only when something can prove it
+// (#249). semverCompare alone cannot: parseSemver turns `dev` and `local211-final-8ac35a3b` into
+// zeros, and `dev` is the normal version on this machine, not an edge case. In order:
+//   - both are release versions with different numbers: the numbers decide. Never the pre-release
+//     suffix, whose `-3-gabc1234` / `-local211-final-…` tails are git-describe leftovers that say
+//     nothing about which came later;
+//   - otherwise the build time decides, which is the only thing that orders a `dev` build against a
+//     tagged one — the 11-05 incident was an ancestor binary built at 18:00 overwriting a plugin
+//     stamped by the 20:12 build;
+//   - with no build time on both sides (an install stamped before #249, `go build` without ldflags)
+//     nothing is known, and the installed plugin stays: overwriting on a guess is the bug.
+func stampOrder(have, now dshStamp) (stampVerdict, string) {
+	if have == now {
+		return stampSame, ""
+	}
+	haveVer, nowVer := strings.TrimSpace(have.Version), strings.TrimSpace(now.Version)
+	if haveVer == nowVer && have.Built == "" {
+		return stampSame, "" // stamped before #249 by this very version: nothing to do
+	}
+	if semverRe.MatchString(haveVer) && semverRe.MatchString(nowVer) {
+		hv, nv := parseSemver(haveVer), parseSemver(nowVer)
+		hn := []int{hv.major, hv.minor, hv.patch}
+		nn := []int{nv.major, nv.minor, nv.patch}
+		switch d := slices.Compare(nn, hn); {
+		case d > 0:
+			return stampNewer, "release " + nowVer + " is newer than the installed " + haveVer
+		case d < 0:
+			return stampOlder, "release " + nowVer + " is older than the installed " + haveVer
+		}
+	}
+	haveBuilt, haveOK := parseBuildStamp(have.Built)
+	nowBuilt, nowOK := parseBuildStamp(now.Built)
+	switch {
+	case !haveOK || !nowOK:
+		return stampUnknown, "no build time to order " + nowVer + " against the installed " + haveVer
+	case nowBuilt.Equal(haveBuilt):
+		return stampUnknown, nowVer + " and the installed " + haveVer + " were built at the same time"
+	case nowBuilt.After(haveBuilt):
+		return stampNewer, nowVer + " built at " + now.Built + ", later than the installed " + have.Built
+	default:
+		return stampOlder, nowVer + " built at " + now.Built + ", earlier than the installed " + have.Built
+	}
+}
+
+// parseBuildStamp reads the RFC3339 build time main sets; "unknown" and blank do not parse.
+func parseBuildStamp(s string) (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(s))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
 
 // keepIfExists lists bundle files the user (or the wizard) may edit after install; a refresh
 // never overwrites them once present.
@@ -121,9 +248,28 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	if _, err := os.Stat(filepath.Join(targetDir, "install.sh")); err != nil {
 		return false, nil // not installed yet; first install extracts everything
 	}
+	// Only unpack over an install that is provably older (#249): before, any different version
+	// string counted as an upgrade, so an older binary starting once replaced a newer plugin.
 	stamp := filepath.Join(targetDir, dshVersionFile)
-	if old, err := os.ReadFile(stamp); err == nil && string(old) == version {
+	now := dshStampNow(version)
+	have, read := readDSHStamp(stamp)
+	if read == stampBroken {
+		slog.Warn("dsh refresh: version stamp is unreadable, keeping the installed plugin (delete the stamp to force a refresh)", "dir", targetDir, "running", now)
 		return false, nil
+	}
+	if read == stampFound {
+		verdict, why := stampOrder(have, now)
+		switch verdict {
+		case stampSame:
+			return false, nil
+		case stampOlder:
+			slog.Info("dsh refresh: keeping the newer installed plugin", "dir", targetDir, "installed", have, "running", now, "why", why)
+			return false, nil
+		case stampUnknown:
+			slog.Warn("dsh refresh: cannot tell which version is newer, keeping the installed plugin (delete "+dshVersionFile+" to force a refresh)",
+				"dir", targetDir, "installed", have, "running", now, "why", why)
+			return false, nil
+		}
 	}
 	// One refresh at a time per plugin dir (two starts, or a leftover from before a restart).
 	unlock, ok := lockDSHRefresh(targetDir)
@@ -199,7 +345,7 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	}
 	migrateCollabPatchHome(filepath.Join(targetDir, "collab", "cordis.patch.yml"))
 	_ = os.Chmod(filepath.Join(targetDir, "install.sh"), 0755)
-	if err := os.WriteFile(stamp, []byte(version), 0644); err != nil {
+	if err := writeDSHStamp(stamp, now); err != nil {
 		return true, err
 	}
 	return true, nil
