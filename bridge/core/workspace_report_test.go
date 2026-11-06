@@ -30,6 +30,11 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				if tc.handoff {
+					if err := e.ClaimTeamWorkspaceFor(parent, "ws1", "工作区1", "", "deliver draft"); err != nil {
+						t.Fatal(err)
+					}
+				}
 				row := func(status, done string) string {
 					if tc.handoff {
 						return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"ch\":\"chat1\",\"status\":%q,\"done_at\":%q}\n", status, done)
@@ -53,7 +58,13 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 					writeTaskBoard(t, dir, teamTaskBoardFile, "")
 					writeTaskBoard(t, dir, teamTaskBoardDoneFile, row("在做", "10-27 19:52"))
 				}
-				inputDone(a, "NO_REPLY")
+				// An open handoff must not turn arbitrary text into evidence
+				// that the result was delivered before a requested reset.
+				reply := "NO_REPLY"
+				if tc.handoff {
+					reply = "仍缺验收样本，继续回查。"
+				}
+				inputDone(a, reply)
 				prompt := inputPrompt(t, a)
 				if !strings.Contains(prompt, "但没交 [report]") {
 					t.Fatalf("missing recovery instruction: %s", prompt)

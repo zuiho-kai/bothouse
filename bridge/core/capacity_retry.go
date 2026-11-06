@@ -587,6 +587,7 @@ func queuedToMessage(q queuedMessage) Message {
 		UserName:      q.userName,
 		TurnCtx:       q.turnCtx,
 		TurnCtxQuery:  q.turnCtxQuery,
+		TurnCtxSender: q.turnCtxSender,
 		Platform:      q.msgPlatform,
 		SessionKey:    q.msgSessionKey,
 		ChannelKey:    q.channelKey,

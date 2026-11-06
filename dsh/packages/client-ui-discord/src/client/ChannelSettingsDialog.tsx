@@ -8,7 +8,8 @@ import css from './ChannelsPage.module.css'
 const RELAY_CAP_MIN = 6
 const RELAY_CAP_MAX = 20
 
-type Tab = 'basic' | 'dispatch' | 'workspace'
+export type SettingsTab = 'basic' | 'dispatch' | 'workspace'
+type Tab = SettingsTab
 const tabs = ['basic', 'dispatch', 'workspace'] as const
 const tabLabels = { basic: 'settingsBasic', dispatch: 'settingsDispatch', workspace: 'settingsWorkspace' } as const
 
@@ -16,13 +17,15 @@ type Props = Pick<ChannelActions, 'renameRoom' | 'setDispatchMode' | 'setMaxRela
   room: ChannelRoom
   members: readonly ChannelMember[]
   effectiveLead: string
+  /** Tab to open on; the pinned lead card opens 'dispatch', where the lead is picked. */
+  initialTab?: SettingsTab
   t: TranslateNS<typeof NS>
   onClose: () => void
 }
 
 /** Drafts and save outcomes live for the whole dialog, independently of the selected tab. */
-export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, t, onClose }: Props) {
-  const [tab, setTab] = useState<Tab>('basic')
+export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, initialTab = 'basic', t, onClose }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [name, setName] = useState(room.name)
   const [mode, setMode] = useState<DispatchMode>(room.dispatch_mode ?? 'mixed')
   const [relay, setRelay] = useState(String(room.max_relay ?? RELAY_CAP_MIN))
