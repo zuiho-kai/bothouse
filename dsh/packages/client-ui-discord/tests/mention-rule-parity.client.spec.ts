@@ -37,6 +37,8 @@ const CASES: Array<[string, string[]]> = [
   ['@阿柚子 和 @阿柚', ['yuzi', 'yuzi_long']],
   ['「@肥鱼」看下', ['dsh']],
   ['[@肥鱼] 在吗', ['dsh']],
+  ['看@肥鱼', ['dsh']],
+  ['x<@1001>y', []],
   ['@unknown_user 和 @test_bot', []],
 ]
 
