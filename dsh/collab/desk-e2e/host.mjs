@@ -36,6 +36,8 @@ export async function startHost(options) {
   const disposers = [];
   const logger = options.logger ?? quietLogger;
   const handlers = new Map(); // 事件名 -> 回调数组，插件只 on 不用 emit，保留成对语义
+  // 端口在 listen 之后才知道；#227 的 localConnection 只关心是不是本机 http，端口值不影响判定。
+  let listenPort = 0;
   const ctx = {
     logger,
     effect(fn) {
@@ -56,6 +58,9 @@ export async function startHost(options) {
       for (const handler of [...(handlers.get(event) ?? [])]) handler(...args);
     },
     webServer: {
+      // 真实 webServer（dsh-host-webserver/lib/types/index.d.ts:167）有 getOrigin()；#227 起
+      // localConnection 会读它来决定「本机自动接管」是否成立，桩缺这条就会在启动时抛。
+      getOrigin() { return `http://127.0.0.1:${listenPort}`; },
       register(route) {
         if (route?.kind !== 'prefix' || typeof route.path !== 'string' || typeof route.handler !== 'function') {
           throw Error(`desk-e2e: 不支持的 webServer.register ${JSON.stringify(route)}`);
@@ -121,6 +126,7 @@ export async function startHost(options) {
     server.listen(options.port ?? 0, '127.0.0.1', resolve);
   });
   const { port } = server.address();
+  listenPort = port;
 
   return {
     url: `http://127.0.0.1:${port}`,
