@@ -4,7 +4,7 @@
  (a) 看过成品：本轮（最后一条用户消息之后）用 Read 打开过要发的这个文件本身（同一路径），且打开之后文件没再改过。
      Read 打不开的格式（docx/pptx/xlsx/视频/压缩包…）认本轮 Read 过的、文件名含成品主名、比成品新的渲染图/PDF。
      只在认得出会话记录格式时查：Claude Code / Qoder JSONL、DSH（run.py 转成 Claude Code 格式）、Codex rollout
-     （view_image）。Gemini、Grok、Cursor、Kimi 的 PreToolUse 拿不到工具调用记录，这项跳过（stderr 说明）。
+     （顶层 view_image；代码模式下嵌套的 cat/sed 等读文件命令和看图）。Gemini、Grok、Cursor、Kimi 的 PreToolUse 拿不到工具调用记录，这项跳过（stderr 说明）。
  (b) 对过验收单：本角色有开着的验收单（accept.py）时，每个要发的文件（按内容指纹）都要
      `accept check <活名> <文件> "<逐条对照>"…` 对照过某张单子的全部当前条目，或 `accept skip <文件> "<原因>"`。
      单子后来加了条目，旧的对照作废。
@@ -140,7 +140,35 @@ def reads_this_turn(path):
                 fp = (args or {}).get("path") if isinstance(args, dict) else None
                 if isinstance(fp, str) and fp:
                     uses[p.get("call_id") or id(p)] = (fp, when)
+        elif t == "event_msg":
+            # Codex 代码模式（functions.exec 里嵌套 tools.exec_command / tools.view_image）不出顶层
+            # view_image 调用，只在 item_completed 里留 CommandExecution（parsed_cmd 标 read）和 ImageView。
+            p = e.get("payload") or {}
+            it = p.get("item") or {} if p.get("type") == "item_completed" else {}
+            if it.get("type") == "ImageView":
+                fp = codex_path(it.get("path"), "")
+                if fp:
+                    uses[it.get("id") or id(it)] = (fp, when)
+            elif it.get("type") == "CommandExecution" and it.get("status") == "completed" \
+                    and it.get("exit_code") in (0, None):
+                cwd = codex_path(it.get("cwd"), "")
+                for k, pc in enumerate(it.get("parsed_cmd") or []):
+                    if isinstance(pc, dict) and pc.get("type") == "read":
+                        fp = codex_path(pc.get("path"), cwd)
+                        if fp:
+                            uses[(it.get("id") or id(it), k)] = (fp, when)
     return known, [(fp, when) for k, (fp, when) in uses.items() if k not in failed]
+
+
+def codex_path(v, cwd):
+    """Codex 事件里的路径：去掉 file:// 前缀，相对路径按命令的 cwd 补全。"""
+    if not isinstance(v, str) or not v:
+        return None
+    if v.startswith("file://"):
+        v = v[len("file://"):]
+    if cwd and not os.path.isabs(v):
+        v = os.path.join(cwd, v)
+    return v
 
 
 def transcript_for(payload):
@@ -168,7 +196,7 @@ def seen_problem(f, reads, cwd):
     hits = [w for p, w in norm if p == real]
     if ext in READABLE or not ext:
         if not hits:
-            return "先用 Read 打开 %s 本身看一遍（看的是要发出去的这份，不是中间文件或局部裁图），再发。" % f
+            return "先打开 %s 本身看一遍（Read；Codex 用 cat/sed 读全文、看图工具看图）（看的是要发出去的这份，不是中间文件或局部裁图），再发。" % f
         if all(w is not None and w < mtime for w in hits):
             return "%s 在你本轮打开看过之后又改过：重新 Read 打开看最新这份，再发。" % f
         return None
