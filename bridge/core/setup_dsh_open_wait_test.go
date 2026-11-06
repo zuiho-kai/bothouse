@@ -105,3 +105,29 @@ func TestOpenDSHWebFailsWhenItExits(t *testing.T) {
 		t.Fatalf("starting file left behind: %v", err)
 	}
 }
+
+// A failed open must not wipe the log: its previous announcement is what takeOverOrphanDSHWeb reads
+// when a `dsh web` from an earlier start is still running, and what the panel shows as the last line
+// when the new one dies (O_TRUNC used to erase both — 2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 3 条).
+func TestOpenDSHWebKeepsThePreviousAnnouncementInTheLog(t *testing.T) {
+	fakeSlowDSH(t, "sleep 2\necho 'dsh web: http://127.0.0.1:9/?token=t'\nexec sleep 60\n")
+	logPath := filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-web.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prev := "dsh web: http://127.0.0.1:45999/?token=previous\n"
+	if err := os.WriteFile(logPath, []byte(prev), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := openDSHWeb(context.Background(), t.TempDir())
+	if err != nil || !w.Starting {
+		t.Fatalf("want starting, got %+v %v", w, err)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "token=previous") {
+		t.Fatalf("the previous announcement was truncated: %q", b)
+	}
+}
