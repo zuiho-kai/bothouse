@@ -382,6 +382,46 @@ func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) 
 	return sel.At, nil
 }
 
+// quotaUnwindLeadLocked gives the primary role back when the cooldown deadline
+// that justified taking it has passed. The caller holds quotaMu. Only the shared
+// selection this takeover wrote is restored (same target, same timestamp), so a
+// later human or role choice always survives. restored reports whether this call
+// actually switched the shared lead back; ok reports whether the caller should
+// carry on — a failed switch aborts the tick, because a probe result must not be
+// recorded while the stand-in is left behind.
+//
+// Nothing is announced here. The deadline passing is not evidence the quota is
+// back — a probe still has to agree — so there is no MsgQuotaLeadRestored and no
+// quota_restored event. The success path announces it after its own probe; the
+// expiry paths stay silent, matching the no-reporter branch.
+func (e *Engine) quotaUnwindLeadLocked(now time.Time) (restored, ok bool) {
+	st := &e.quotaState
+	if st.Lead == nil {
+		return false, true
+	}
+	sel, found := readLeadSelectionFull(e.dataDir)
+	if !found {
+		// A fresh or unreadable lead.json holds no shared choice to compare
+		// against; drop the local handoff without claiming a restore.
+		st.Lead = nil
+		e.saveQuotaLocked()
+		return false, true
+	}
+	if sel.Lead != st.Lead.To || sel.At != st.Lead.At {
+		// Someone else owns the lead now; forget only our stale handoff.
+		st.Lead = nil
+		e.saveQuotaLocked()
+		return false, true
+	}
+	if _, err := e.quotaSwitchLead(e, now); err != nil {
+		slog.Warn("quota expiry: lead restore failed", "project", e.name, "error", err)
+		return false, false
+	}
+	st.Lead = nil
+	e.saveQuotaLocked()
+	return true, true
+}
+
 // notifyGateLead tells the gate (POST /lead set) who leads now, for a gate that keeps its own
 // copy. The bundled gate reads lead.json itself; telling it again is harmless.
 func (e *Engine) notifyGateLead(who string) error {
@@ -515,16 +555,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			// selection this engine wrote is restored, and nothing is announced
 			// (no MsgQuotaLeadRestored, no quota_restored event) because the quota
 			// itself stays unproven.
-			if st.Lead != nil {
-				if sel, ok := readLeadSelectionFull(e.dataDir); ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
-					if _, err := e.quotaSwitchLead(e, now); err != nil {
-						slog.Warn("quota expiry: lead restore failed", "project", e.name, "error", err)
-						return
-					}
-				}
-				st.Lead = nil
-				e.saveQuotaLocked()
-			}
+			e.quotaUnwindLeadLocked(now)
 			return
 		}
 		// The retry gate below is local pacing, not part of the takeover's own
@@ -543,6 +574,11 @@ func (e *Engine) quotaTick(now time.Time) {
 			e.saveQuotaLocked()
 		}
 		if st.NextProbeAt.After(now) {
+			// A backoff this code did schedule still defers the probe, but it
+			// does not defer the unwind: the deadline that justified the
+			// takeover has passed, so the stand-in goes back now instead of
+			// holding the role through up to quotaProbeBackoffMax.
+			e.quotaUnwindLeadLocked(now)
 			return
 		}
 		quotaDomainsMu.Lock()
@@ -586,6 +622,12 @@ func (e *Engine) quotaTick(now time.Time) {
 				e.saveQuotaLocked()
 				slog.Warn("quota auto-probe: usage unknown, probe backed off",
 					"project", e.name, "probe_status", st.ProbeStatus, "next_probe_at", st.NextProbeAt, "err", err)
+				// Nothing was measured, so the deadline stays expired and the
+				// takeover has no premise left. Give the role back now instead
+				// of after the backoff; if the provider is still exhausted, the
+				// next real turn records a fresh deadline and takes over from
+				// that evidence.
+				e.quotaUnwindLeadLocked(now)
 				return
 			}
 			st.ProbeStatus = "exhausted"
@@ -606,7 +648,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			quotaDomainsMu.Unlock()
 			e.saveQuotaLocked()
 			slog.Warn("quota auto-probe: quota still exhausted, cooling extended",
-				"project", e.name, "until", st.Until, "round", st.ProbeRound, "err", err)
+				"project", e.name, "until", st.Until, "round", st.ProbeRound, "probe_status", st.ProbeStatus, "err", err)
 			return
 		}
 
@@ -618,15 +660,10 @@ func (e *Engine) quotaTick(now time.Time) {
 		st.ProbeRound = 0
 		st.NextProbeAt = time.Time{}
 		st.ProbeStatus = "available"
-		if st.Lead != nil {
-			sel, ok := readLeadSelectionFull(e.dataDir)
-			if ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
-				if _, err := e.quotaSwitchLead(e, now); err != nil {
-					slog.Warn("quota recovery: lead restore failed", "project", e.name, "error", err)
-					return
-				}
-				e.quotaNotice(st.Session, e.i18n.Tf(MsgQuotaLeadRestored, e.DisplayName()))
-			}
+		if restored, ok := e.quotaUnwindLeadLocked(now); !ok {
+			return
+		} else if restored {
+			e.quotaNotice(st.Session, e.i18n.Tf(MsgQuotaLeadRestored, e.DisplayName()))
 		}
 		st.Until, st.Lead = time.Time{}, nil
 		e.capMu.Lock()

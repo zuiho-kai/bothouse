@@ -280,11 +280,21 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		e.quotaState.Until = latest
 		e.quotaState.ProbeRound = 0
 		e.quotaState.NextProbeAt = time.Time{}
+		previous := e.quotaState.ProbeStatus
 		e.quotaState.ProbeStatus = "exhausted"
 		if session != "" {
 			e.quotaState.Session = session
 		}
 		e.saveQuotaLocked()
+		// The recorded status is the log's own subject, not a hidden field: an
+		// operator diagnosing a cooldown can tell a provider-reported exhaustion
+		// (this path) from a probe that could not measure anything ("unknown")
+		// or one that measured a reset ("available"). Only the transition is
+		// logged, so repeated exhaustion reports do not repeat the line.
+		if previous != e.quotaState.ProbeStatus {
+			slog.Info("quota cooldown: provider reported exhaustion",
+				"project", e.name, "probe_status", e.quotaState.ProbeStatus, "cooling_until", e.quotaState.Until)
+		}
 	})
 }
 
