@@ -146,7 +146,7 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	current := e.boardItemByID(hid)
 	for _, it := range readTeamTaskBoard(e.teamStatusDir()) {
 		if it.ID != hid && it.WS != "" && teamChatKey(it.WS) == teamChatKey(sessionKey) &&
-			it.Paused == "" && !watchBoardClosed(it) {
+			it.Paused == "" && it.Backlog == "" && !watchBoardClosed(it) {
 			// A failed board write can leave an older task bound after its
 			// session was released. It must not block a newer binding's exit.
 			if current != nil && teamChatKey(current.WS) == teamChatKey(sessionKey) {
@@ -241,7 +241,7 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 	}
 	live := map[string]bool{}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
-		if it.WS != "" && it.Paused == "" && !watchBoardClosed(it) {
+		if it.WS != "" && it.Paused == "" && it.Backlog == "" && !watchBoardClosed(it) {
 			live[teamChatKey(it.WS)] = true
 		}
 	}
