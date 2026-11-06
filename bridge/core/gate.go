@@ -111,8 +111,9 @@ type gateRequest struct {
 	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
 	// member queued behind its 24-minute turn).
 	NoInsert bool `json:"no_insert,omitempty"`
-	// Private: a person's private chat (DM) with this bot. Every message there is addressed to
-	// this bot, so the fallbacks answer it without an @ (user 2026-11-06「允许私聊不用艾特」).
+	// Private: a person's private chat (DM) with this bot, or a server channel only that person
+	// and bots can see (Message.PrivateRoom). Every message there is addressed to this bot, so the
+	// fallbacks answer it without an @ (user 2026-11-06「允许私聊不用艾特」「这个都是基本常识能力」).
 	Private bool `json:"private,omitempty"`
 }
 
@@ -223,7 +224,8 @@ func (g *gateState) fallbackFor(req gateRequest) string {
 
 // noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
 // contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
-// answer every message; only an @-mentioned bot replies, or a person in a private chat (DM).
+// answer every message; only an @-mentioned bot replies (a reply to its message counts, see
+// discord humanReplyRoute), or a person in a private chat (DM or one-to-one channel).
 func (g *gateState) noModelFallback(req gateRequest) string {
 	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
@@ -376,7 +378,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
-		Private:  !msg.FromBot && msg.Direct,
+		Private:  !msg.FromBot && (msg.Direct || msg.PrivateRoom),
 		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
