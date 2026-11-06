@@ -6451,3 +6451,74 @@ test('CLI configured member: collab dispatch applies fake ACP options before pro
   assert.equal(hub.store.binding('cc',1).session_id,'fake-acp');
   await members.close();hub.store.close();
 });
+
+// #221 (11-06 09:25): the bridge watch posts its wake and escalation as the lead; DSH opened 「#6 接着做 -」
+// and 「#7 接着做 什么东西属于你…」 from them. A watch post dispatches nothing; a real dispatch still does.
+test('tasks: the bridge watch wake and escalation posted as the lead open no task', async () => {
+  const { tasks, say } = g34Setup();
+  for (const text of [
+    '@副 接着做 -，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完再结束本轮，交回时第一行写 [report]',
+    '看门：@副「-」连续叫醒两次仍未继续，请主角色接手。',
+    '看门：副「#219 修头像」连续两次报错，已停止自动接着做，请主角色换人或接手。',
+    '@副 Continue the login page and finish it; when done, start the reply with [report]',
+  ]) say(1, text, 'zhu');
+  await settle();
+  assert.deepEqual(tasks.list(1).filter(r => r.owner === 'fu'), [], 'watch posts open no task');
+  say(1, '@副 接着做登录页', 'zhu');
+  await settle();
+  assert.deepEqual(tasks.list(1).filter(r => r.owner === 'fu').map(r => r.title), ['接着做登录页'], 'a lead dispatch still opens one');
+});
+
+test('tasks: normal lead dispatch with report instructions still opens a task', async (t) => {
+  for (const text of [
+    '@副 实现登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 實作登入頁，做完再結束本輪，交回時第一行寫 [report]',
+    '@副 Implement login and finish it; when done, start the reply with [report]',
+    '@副 ログイン画面を実装。完了したら返信の1行目を [report] にしてください',
+    '@副 Implementa acceso; al terminar, empieza la respuesta con [report]',
+    '@副 实现登录页，参考叫醒文案：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 实现登录页\n叫醒示例：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]，并附截图',
+  ]) {
+    await t.test(text, async (t) => {
+      const { hub, tasks, say } = g34Setup();
+      t.after(() => { tasks.close(); hub.store.close(); });
+      say(1, text, 'zhu');
+      await settle();
+      assert.equal(tasks.list(1).length, 1, 'report instructions alone are not a watch wake');
+      assert.equal(tasks.list(1)[0].owner, 'fu');
+    });
+  }
+});
+
+test('tasks: lead watch notices leave a returned chat task unchanged', async (t) => {
+  for (const text of [
+    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '看门：@副「登录页」连续叫醒两次仍未继续，请主角色接手。',
+    '@副 Continue the login page and finish it; when done, start the reply with [report]',
+    '@副 接著做 登入頁，做完再結束本輪，交回時第一行寫 [report]',
+    '@副 ログイン画面 を続けて完了させてください。完了したら返信の1行目を [report] にしてください',
+    '@副 Continúa acceso hasta terminarlo; al terminar, empieza la respuesta con [report]',
+    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]\n交接文件：isolated-handoff.md（先读最后的检查点）',
+    '看門：@副「登入頁」連續叫醒兩次仍未繼續，請主角色接手。',
+    'Watch: @副 has not resumed login after two wakeups. Primary role, please take over.',
+    '見守り：@副 はログインを2回呼びかけても再開していません。主担当に引き継いでください。',
+  ]) {
+    await t.test(text, async (t) => {
+      const { hub, tasks, clock, say } = g34Setup();
+      t.after(() => { tasks.close(); hub.store.close(); });
+      say(1, '@副 实现登录页', 'zhu');
+      say(1, '@主 登录页已交回');
+      await settle();
+      const before = tasks.list(1);
+      assert.equal(before[0].status, 'returned', 'the delivery is waiting for review');
+      const records = hub.store.page(1).filter(m => m.author_kind === 'system');
+      clock.t += 1;
+      say(1, text, 'zhu');
+      await settle();
+      assert.deepEqual(tasks.list(1), before, 'a watch notice must not accept or change existing work');
+      assert.deepEqual(hub.store.page(1).filter(m => m.author_kind === 'system'), records, 'no task side effects');
+    });
+  }
+});

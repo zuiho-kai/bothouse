@@ -150,6 +150,20 @@ class Board(unittest.TestCase):
         self.assertIn("别处还有 1 件在做", ctxsvc.board_items("discord:2")[0]["desc"])  # 别的频道只计数（#611）
         self.assertIn(one[0], ctxsvc.context({"key": "discord:1", "text": "hi", "bot": "jingyu"})["wiki"])
 
+    def test_context_counts_backlog_without_listing_it(self):
+        """进每轮上下文：待办只报个数，不占行（主板只留在做和等人的事）。"""
+        os.environ["CC_SESSION_KEY"] = "discord:1"
+        try:
+            board.add("在做的活", "y", "进行中", "橘")
+            board.add("顺手的小事", "-", "待修", "橘")
+            board.backlog(2)
+        finally:
+            os.environ.pop("CC_SESSION_KEY")
+        desc = ctxsvc.board_items("discord:1")[0]["desc"]
+        self.assertIn("#1 在做的活", desc)
+        self.assertNotIn("顺手的小事", desc)
+        self.assertIn("另有 1 件待办", desc)
+
     def test_not_a_team_status_file(self):  # cc-connect 把 team/*.json 当队友状态读，任务板不能叫 .json
         board.add("x", "y", "z", "橘")
         self.assertEqual(list(Path(TMP).glob("*.json")), [])
@@ -242,6 +256,86 @@ class Increments(unittest.TestCase):
         self.assertNotIn("暂停", cli()[1])
         self.assertNotEqual(cli("pause", "9")[0], 0)
         self.assertNotEqual(cli("resume", "9")[0], 0)
+
+    def test_backlog_hides_from_list_and_resume_brings_it_back(self):
+        """待办：默认列表和置顶团队板不列，board backlog 单独列（用户 2026-11-05「任务板怎么还有一堆任务」）。"""
+        cli("add", "进程不回收", "-", "待修", "肥鱼", "--short", "进程")
+        cli("add", "在做的活", "-", "进行中", "橘", "--short", "在做")
+        self.assertEqual(cli("backlog", "1", "--why", "排在 bug 后"), (0, "已挪进待办：#1（board backlog 看，board resume <编号> 恢复）"))
+        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#2"])  # 默认列表只剩在做
+        self.assertEqual(board.items()[0]["backlog_why"], "排在 bug 后")
+        self.assertEqual(board.backlog_count(), 1)
+        back = cli("backlog")[1].splitlines()
+        self.assertEqual(len(back), 1)
+        self.assertIn("｜待办（", back[0])  # 待办自己那行带标记
+        self.assertIn("排在 bug 后", back[0])
+        self.assertFalse((Path(TMP) / "board-done.jsonl").exists())  # 待办不算做完，也不删条目
+        self.assertEqual(cli("resume", "1"), (0, "已恢复"))  # 恢复同暂停
+        self.assertNotIn("待办", cli()[1])
+        self.assertEqual(cli("backlog")[1], "（没有待办）")
+        self.assertNotEqual(cli("backlog", "9")[0], 0)  # 没有这条
+
+    def test_backlog_parks_workspace_and_resume_takes_it_back(self):
+        """待办同样把工作区放回池子；board resume 像暂停一样先向桥收回再绑回（不然两个聊天频道抢一个工作区）。"""
+        log = Path(TMP) / "park2.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakepark3"
+        fake.write_text(f"""#!/bin/sh
+echo "$@" >> {log}
+case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
+""")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        try:
+            board.add("交来的活", "a.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100:u1")
+            bound = board.items()[0].get("bound")
+            board.main(["backlog", "1"])
+            self.assertEqual(log.read_text().strip(),
+                             f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --stop --json")
+            row = board.items()[0]
+            self.assertNotIn("ws", row)
+            self.assertEqual(row["ws_was"], "discord:201")  # 恢复时向桥收回它
+            with contextlib.redirect_stdout(io.StringIO()):
+                board.main(["resume", "1"])
+            self.assertEqual([c.split()[1] for c in log.read_text().splitlines()], ["park", "claim"])
+            self.assertEqual(board.items()[0]["ws"], "discord:201")
+        finally:
+            os.environ["CC_BIN"] = "false"
+
+    def test_backlog_takes_over_pause_and_update_takes_it_back(self):
+        """从暂停挪进待办要算待办不算暂停；改了状态（有人接手）就撤掉待办标记，回主板。"""
+        cli("add", "QQ插话点表情", "-", "待修", "待接手")
+        self.assertEqual(cli("pause", "1", "等排期"), (0, "已暂停"))
+        cli("backlog", "1")
+        row = board.items()[0]
+        self.assertIn("backlog", row)
+        self.assertNotIn("paused", row)  # 团队板的「暂停 N 件」不能再算它
+        self.assertEqual(cli("update", "1", "已接手", "-", "肥鱼")[0], 0)
+        row = board.items()[0]
+        self.assertNotIn("backlog", row)
+        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#1"])
+
+    def test_backlog_is_not_stale(self):
+        """待办是主动排下的小事：一小时没进展也不该被自动暂停挪走（那会把它弄丢出列表）。"""
+        cli("add", "额度探针两处余量", "-", "待修", "橘")
+        rows = board._read()
+        rows[0].update(ws="discord:ws1", progress_at=1.0, backlog="11-05 22:00", backlog_why="非阻塞")
+        board._write(rows)
+        self.assertEqual(board.pause_stale(now=10 * 3600), [])
+        self.assertFalse(board._read()[0].get("paused"))
+        self.assertIn("backlog", board._read()[0])
+
+    def test_backlog_item_not_in_ws_task_or_exp_task(self):
+        """工作区上下文按 ws 认「这件活在做什么」：挪进待办的不能再被认成在做的活。"""
+        board.add("顺手的事", "-", "待修", "工作区1主角色", ws="discord:ws1", chat="discord:ch1")
+        os.environ["CC_SESSION_KEY"] = "discord:ws1:u1"
+        try:
+            self.assertEqual(ctxsvc.ws_task("discord:ws1"), 1)
+            board.backlog(1)
+            self.assertIsNone(ctxsvc.ws_task("discord:ws1"))
+            self.assertIsNone(ctxsvc.exp_task("discord:ch1"))
+        finally:
+            os.environ.pop("CC_SESSION_KEY")
 
     def test_pause_parks_only_bound_item(self):
         """ws-handoff 建的条目绑了工作区（ws）：pause 时 <桥> workspace park 一次、解绑；没绑的不动桥。"""

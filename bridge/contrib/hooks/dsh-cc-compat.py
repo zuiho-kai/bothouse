@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DSH payload adapter; standalone CLI: [--sessions <root>] <hook.py>. Not a registered hook."""
 import glob
-import json
+import json, re
 import os
 import subprocess
 import sys
@@ -123,6 +123,14 @@ def is_outing(text):
     return tail.strip().startswith(OUTING_MARK)
 
 
+# 定时、看门、交接这类桥自己发的轮（bothouse 消息头 sender_id=timer|heartbeat|handoff|cron），不是真人派活
+AUTO_SENDER = re.compile(r"\[bothouse sender_id=(?:timer|heartbeat|handoff|cron)\b")
+
+
+def is_auto(text):
+    return bool(AUTO_SENDER.search(text))
+
+
 def slim(name, arguments):
     """工具调用只留 bash-guard 判断用得到的字段（write 的正文之类不往下传）。"""
     try:
@@ -175,7 +183,7 @@ def turn_calls(lines):
             last = d.get("callId")
         elif t == "hook/result" and d.get("point") == "PreToolUse" and d.get("decision") == "deny" and last in ids:
             ids[last]["denied"] = True
-    return {"turn": turn, "outing": is_outing(user or ""), "steps": steps}
+    return {"turn": turn, "outing": is_outing(user or ""), "auto": is_auto(user or ""), "steps": steps}
 
 
 def has_call(info, cid):

@@ -1101,6 +1101,18 @@ func (s *appServerSession) GetContextUsage() *core.ContextUsage {
 	return s.cachedContextUsage()
 }
 
+// ReportedContextWindow is the context window Codex reported with its last token
+// usage (core.ContextWindowReporter); 0 before it has reported one. Codex cannot
+// turn its own auto compaction off (it fires at 90% of the window whatever
+// model_auto_compact_token_limit says), so the bridge must know the window to
+// start a fresh context first, at 70%.
+func (s *appServerSession) ReportedContextWindow() int {
+	if u := s.cachedContextUsage(); u != nil {
+		return u.ContextWindow
+	}
+	return 0
+}
+
 func (s *appServerSession) Alive() bool {
 	return s.alive.Load()
 }

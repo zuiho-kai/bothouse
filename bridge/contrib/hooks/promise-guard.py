@@ -194,6 +194,8 @@ def tick_hours(project, channel):
     jobs = jobs if isinstance(jobs, list) else jobs.get("jobs", [])
     for j in jobs if isinstance(jobs, list) else []:
         args = (j.get("exec") or "").split()
+        # exec 前面可能带解释器（/usr/bin/python3 …/outing-tick …），从 outing-tick 那一项算起
+        args = next((args[i:] for i, a in enumerate(args) if a.endswith("outing-tick")), args)
         if not j.get("enabled") or len(args) < 5 or not args[0].endswith("outing-tick"):
             continue
         own = "--own-state" in args[5:]

@@ -22,7 +22,7 @@ class Text(unittest.TestCase):
         # 前三句是 2026-11-01 用户点名的那类：#875 工作区报「约 30–40 分钟」、橘转「大约半小时」
         for s in ["工作区预计还要约 30–40 分钟", "大约半小时后交回", "我设了一个提醒，1 小时后回来看",
                   "渲染大概要一个半小时", "三张小样我四十分钟后回来看", "about 40 minutes left",
-                  "明早我再看", "下午 6 点前交", "没有实测依据，大约半小时后交回"]:
+                  "下午 6 点前交", "没有实测依据，大约半小时后交回"]:
             with self.subTest(s=s):
                 self.assertIsNotNone(eta.check(s, NOW))
 
@@ -30,7 +30,10 @@ class Text(unittest.TestCase):
         # 11-05 谈心原句：明天说的是对方会回来，不是活的工期
         self.assertIsNone(eta.check("翻完就安心了，知道你明天还会回来。", NOW))
         self.assertIsNone(eta.check("那你半小时后回来，我还在这儿陪你。", NOW))
-        self.assertIsNotNone(eta.check("明天给你结果。", NOW))
+        # 11-05 用户「感觉有点笨，不行给他干掉」：回复正文里的「明天/下周」不再算工期；命令参数照拦
+        self.assertIsNone(eta.check("明天给你结果。", NOW))
+        self.assertIsNone(eta.check("明早我再看", NOW))
+        self.assertIsNotNone(eta.check("明天给你结果。", NOW, work_only=False))
         self.assertIsNotNone(eta.check("这个修完大概要两小时。", NOW))
 
     def test_passes_measured_external_past_short(self):
@@ -110,7 +113,7 @@ class AllCLIs(unittest.TestCase):
         e = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(e)
         self.assertIsNone(e.check("一个叫每日日程，每晚十点把她明天的安排排好：几点去哪、穿什么。"))
-        self.assertIsNotNone(e.check("工作区明天交结果给你。"))
+        self.assertIsNone(e.check("工作区明天交结果给你。"))  # 回复正文的跨天说法不再拦（11-05）
 
 
 if __name__ == "__main__":

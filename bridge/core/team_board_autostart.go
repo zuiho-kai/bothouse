@@ -65,7 +65,7 @@ func (w *handoffWatch) markStartedHandoffs(now time.Time, tried map[int]time.Tim
 		status := strings.TrimSpace(it.Status)
 		// 「在做：已开工」 is what this wrote when the turn had started but had no tool step yet; it
 		// is filled in once with the first step (at most two writes per handoff).
-		if it.WS == "" || it.Paused != "" || (status != boardHandedOff && status != boardStartedNoStep) {
+		if it.WS == "" || it.Paused != "" || it.Backlog != "" || (status != boardHandedOff && status != boardStartedNoStep) {
 			continue
 		}
 		if at, ok := tried[it.ID]; ok && now.Sub(at) < boardAutostartRetry {

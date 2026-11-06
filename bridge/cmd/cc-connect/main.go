@@ -216,6 +216,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"check-update": checkUpdate,
 	"provider":     runProviderCommand,
 	"send":         runSend,
+	"wake":         runWake,
 	"progress":     runProgress,
 	"identity":     runIdentity,
 	"guard":        runGuard,
@@ -332,7 +333,6 @@ func runMain() {
 		logCloser = w
 		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
-
 
 	configPath := resolveConfigPath(rootOpts.configPath)
 

@@ -21,6 +21,9 @@
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
+  board backlog                          # 列出待办：排在 bug 后面的小问题、非阻塞的验收发现。默认列表和置顶团队板都不显示它们
+  board backlog <编号...> [--why 原因]     # 把条目挪进待办：留在板上（不删、不进 board-done.jsonl），默认列表和置顶团队板
+                                         #   只留一行「待办 N 件」；条目在工作区里时同 pause 放回工作区。恢复用 board resume <编号>
   board pause <编号> [原因]               # 暂停：留在板上、团队板单列「暂停」块，不算做完、不进 board-done.jsonl；
                                          #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
                                          #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
@@ -129,13 +132,24 @@ def items():
 def fmt(i):
     nxt = f"｜下次看 {i['next']}" if i.get("next") else ""
     pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}）" if i.get("paused") else ""
+    bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{hd}{card}"
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
 
 
 def lines():
-    return [fmt(i) for i in items()]
+    """进行中的事。待办（backlog）不在这里列，见 backlog_lines（用户 2026-11-05「任务板怎么还有一堆任务」）。"""
+    return [fmt(i) for i in items() if not i.get("backlog")]
+
+
+def backlog_lines():
+    return [fmt(i) for i in items() if i.get("backlog")]
+
+
+def backlog_count():
+    """待办各有几条（置顶团队板末尾只写一行「待办 N 件」，core/team_task_board.go teamTaskBoardBacklogCount，改要一起改）。"""
+    return sum(1 for i in _read() if i.get("backlog"))
 
 
 def _now():
@@ -366,6 +380,8 @@ def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
             return False
         before = dict(hit)
         hit["status"], hit["at"] = status, _now()
+        for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
+            hit.pop(k, None)  # 改了状态就是又动起来了：待办标记撤掉、回到主板（不然改了也看不见）
         tid = None
         if who and hit.get("ws") and not same_ws and _moves_ws(before.get("who"), who):
             hit["ws_was"] = hit.pop("ws")  # 改派到另一个工作区：这件不再算在原工作区（main 里 park 掉它的交接）
@@ -390,7 +406,7 @@ def progress(nid):
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
-        if hit is None or not hit.get("ws") or hit.get("paused"):
+        if hit is None or not hit.get("ws") or hit.get("paused") or hit.get("backlog"):
             return False
         hit["progress_at"] = time.time()
         _write(cur)
@@ -484,8 +500,9 @@ def append_forward(path, line):
 
 
 def paused_item(path):
-    """交接文件 path 对应、正在暂停的条目（ws-handoff 建条目时 where 记的就是交接文件）；没有返回 None。"""
-    return next((i for i in _read() if i.get("paused") and i.get("where") == path), None)
+    """交接文件 path 对应、正在暂停的条目（ws-handoff 建条目时 where 记的就是交接文件）；没有返回 None。
+    待办（backlog）的交接也在停手：ws-forward 转话时同样按「已停下」提醒（见 ws-forward wake_prompt）。"""
+    return next((i for i in _read() if (i.get("paused") or i.get("backlog")) and i.get("where") == path), None)
 
 
 def done_item(path):
@@ -506,6 +523,8 @@ def pause(nid, why=None):
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
+        for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
+            hit.pop(k, None)  # 暂停比待办更急：从待办挪出来，进团队板的「暂停」块
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
         ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）；ws_was 留着，resume 时向桥收回（reoccupy）
         if ws:
@@ -624,7 +643,7 @@ def _touch_progress(nid, stamp):
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
-        if hit is None or hit.get("paused"):
+        if hit is None or hit.get("paused") or hit.get("backlog"):
             return None
         if stamp > hit.get("progress_at", 0):
             hit["progress_at"] = stamp
@@ -636,8 +655,8 @@ def pause_stale(now=None):
     now = time.time() if now is None else now
     changed = []
     for it in _read():
-        if it.get("paused") or it.get("release_hold") or not it.get("ws") or it.get("next_ts", 0) > now:
-            continue  # 为发布暂停的条目在等发布切换，不是停滞
+        if it.get("paused") or it.get("backlog") or it.get("release_hold") or not it.get("ws") or it.get("next_ts", 0) > now:
+            continue  # 为发布暂停的条目在等发布切换，不是停滞；待办是主动排下的小事，不算停滞
         stamp = it.get("progress_at")
         if stamp is None:
             continue
@@ -654,7 +673,8 @@ def pause_stale(now=None):
             if hit:
                 schedule_stale_check(hit, delay=f"{max(5, int((STALE_AFTER - (now - act)) // 60) + 1)}m")
             continue
-        hit = pause(it["id"], "一小时无进展，转待办")
+        # 2026-11-05 起「待办」是另一个状态（board backlog）：这里只是暂停，别写成「转待办」误导人
+        hit = pause(it["id"], "一小时无进展")
         if hit:
             park_workspace(hit)
             schedule_prune_check(hit)
@@ -1004,6 +1024,8 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
             hit["ws_was"] = hit.pop("ws")
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
+            hit.pop(k, None)  # 真交回了：从待办回到待验收
         _back_to_chat(hit)
         tid = hit.pop("guard", None)
         _write(cur)
@@ -1023,6 +1045,8 @@ def reject(nid, reason):
             return False
         hit.pop("returned_at", None)
         hit.pop("reviewer", None)
+        for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
+            hit.pop(k, None)  # 打回要返工：从待办回到暂停（团队板「暂停」块，等你处理）
         # Rework is not the build already deployed for review (#985 review 2.2): the next handback
         # binds its own PR and deployment again.
         hit.pop("await_deploy", None)
@@ -1031,11 +1055,68 @@ def reject(nid, reason):
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
         hit["review_rejected"] = reason
-        hit["pause_why"] = "验收退回：" + reason
+        rounds = hit.get("reject_reasons") or []
+        rounds.append(reason)
+        hit["reject_reasons"] = rounds
+        # 返工上限（11-06 用户：评审死循环）：第二次退回不再续做，停下等用户定；ws-handoff --resume 会拒。
+        capped = len(rounds) >= REWORK_CAP
+        if capped:
+            hit["rework_cap"] = True
+            hit["pause_why"] = f"{REWORK_CAP_WHY}：" + reason
+        else:
+            hit["pause_why"] = "验收退回：" + reason
         hit["status"] = hit["pause_why"]
         _write(cur)
         event(nid, "rejected", hit, reason)
-    return True
+        snap = dict(hit)
+    if capped:
+        _ask_rework_cap(snap)
+    return "capped" if capped else True
+
+
+REWORK_CAP = 2
+REWORK_CAP_WHY = "两轮未过，等用户"
+
+
+def _clip(s, n=80):
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+def _worker_side(it):
+    """干活这边的说法：交接同目录 report-<编号>.md（交回草稿）里「做了什么」那行；没有就指回工作区交回。"""
+    where = it.get("where") or ""
+    f = os.path.join(os.path.dirname(where), f"report-{it['id']}.md") if where else ""
+    try:
+        lines = [l.strip() for l in open(f, encoding="utf-8") if l.strip()]
+    except OSError:
+        lines = []
+    if len(lines) >= 2 and lines[0].startswith("[report]"):
+        return _clip(lines[1])
+    return "见工作区最后一次交回"
+
+
+def _ask_rework_cap(it):
+    """第二次退回：交接里记一笔，并在聊天频道发 [ask] 让用户定（失败只写 stderr，不拦退回）。"""
+    nid, rounds = it["id"], it.get("reject_reasons") or []
+    text = (f"[ask] #{nid} 背景：「{it.get('what', '')}」验收退回两次，按返工上限先停下，等你定。\n"
+            f"验收这边：第一次「{_clip(rounds[0])}」，第二次「{_clip(rounds[-1])}」。\n"
+            f"干活这边：{_worker_side(it)}\n"
+            "要你做的：定接着改（说清按谁的标准）、换人做，还是按现在的收。")
+    if it.get("where") and os.path.isfile(it["where"]):
+        append_forward(it["where"], f"{_now()} {REWORK_CAP_WHY}（#{nid}）：第二次退回「{rounds[-1]}」；ws-handoff --resume 已停用，等用户定。")
+    chat, proj = it.get("chat") or it.get("sk") or "", it.get("project") or os.environ.get("CC_PROJECT", "")
+    if not chat or not proj:
+        print(f"board: #{nid} 没有聊天频道或项目，[ask] 没发：\n{text}", file=sys.stderr)
+        return
+    binp = os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
+    try:
+        r = subprocess.run([binp, "send", "-p", proj, "-s", chat, "--message", text.replace("<@", "<\u200b@")],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}")
+    except Exception as e:
+        print(f"board: #{nid} [ask] 没发出去（{e}），请转给用户：\n{text}", file=sys.stderr)
 
 
 def rebind(nid, ws):
@@ -1079,7 +1160,7 @@ def hold(nids, why=None):
                 continue
             if not nids and (not i.get("ws") or i.get("returned_at")):
                 continue
-            if i.get("paused") or i.get("release_hold"):
+            if i.get("paused") or i.get("backlog") or i.get("release_hold"):
                 continue
             mark = {"at": _bound_now(), "by": os.environ.get("CC_PROJECT", "")}
             if why:
@@ -1109,20 +1190,54 @@ def unhold(nids, at=None):
 
 
 def resume(nid):
-    """None：没有这条；False：它没在暂停；True：已恢复。"""
+    """None：没有这条；False：它没在暂停也没在待办；True：已恢复。"""
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
-        if hit is None or not hit.get("paused"):
+        if hit is None or not (hit.get("paused") or hit.get("backlog")):
             return None if hit is None else False
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        hit.pop("backlog", None)
+        hit.pop("backlog_why", None)
         # Resuming continues work, not the deployment that was already verified (#985 review 2.2).
         hit.pop("await_deploy", None)
         hit.pop("deployed", None)
         hit["at"] = _now()
         _write(cur)
     return True
+
+
+def backlog(nid, why=None):
+    """条目挪进待办（用户 2026-11-05「任务板怎么还有一堆任务」：排在 bug 后面的小问题、非阻塞的验收发现）。
+    和 pause 一样留在 board.jsonl、不进 board-done.jsonl、工作区里的活放回池子；区别是默认列表（lines）和置顶团队板
+    都不列它们，只在末尾留一行「待办 N 件」，board backlog 才看得到。恢复同暂停：board resume <编号>。
+    待办不参加自动收起（prune_candidates 只看 paused）：排下的事不能因为没人动就消失，只有 resume / update / done 才动它。
+    返回 {**条目, "ws": 原工作区} / 条目 / None（没有这条）。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return None
+        hit["backlog"] = hit["at"] = _now()
+        hit.pop("paused", None)  # 从暂停挪进待办：团队板的「暂停 N 件」不能再算它
+        hit.pop("pause_why", None)
+        hit["backlog_at"] = _bound_now()
+        hit["backlog_by"] = os.environ.get("CC_PROJECT", "")
+        hit.pop("unpruned", None)
+        ws = hit.pop("ws", None)  # 同 pause：工作区随后放回池子，ws_was 留着，resume 时向桥收回（reoccupy）
+        if ws:
+            hit["ws_was"] = ws
+            _back_to_chat(hit)
+        if why:
+            hit["backlog_why"] = why
+        else:
+            hit.pop("backlog_why", None)
+        tid = hit.pop("guard", None)  # 不在工作区做了：不再等工作区交回
+        _write(cur)
+        event(nid, "paused", hit, why or "挪进待办")  # 事件种类沿用 paused（工作台地图按它把这条从座位上收走）
+    _del_timer(tid)
+    return {**hit, "ws": ws} if ws else hit
 
 
 # 收尾词：update 写成这些开头的状态就直接 done（用户 2026-10-28「任务榜完成的为什么不下掉」：
@@ -1513,8 +1628,9 @@ def main(argv):
     argv, short_name = _split_short(argv)
     cmd = argv[0] if argv else "list"
     if cmd not in ("refresh", "prune"):  # 每个命令顺带收一次（不查 gh，不拖慢命令）；这次要操作的编号先不收
-        nid = argv[1].lstrip("#") if len(argv) > 1 else ""
-        _say_pruned(auto_prune(check_pr=False, skip={int(nid)} if nid.isdigit() else set()))
+        # 这次点到的编号全都不收：board backlog 1 2 3 一次挪几条时，别把后面那几条先收进完成记录
+        ids = {int(x.lstrip("#")) for x in argv[1:] if x.lstrip("#").isdigit()}
+        _say_pruned(auto_prune(check_pr=False, skip=ids))
     try:
         if cmd in ("list", "ls"):
             print("\n".join(lines()) or "（任务板是空的）")
@@ -1590,9 +1706,13 @@ def main(argv):
                 sys.exit("条目不存在，未登记交回")
             print("已交回待验收")
         elif cmd == "reject" and len(argv) == 3 and argv[2].strip():
-            if not reject(int(argv[1].lstrip("#")), argv[2].strip()):
+            got = reject(int(argv[1].lstrip("#")), argv[2].strip())
+            if not got:
                 sys.exit("条目不在待验收状态，未退回")
-            print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
+            if got == "capped":
+                print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，已在聊天频道发 [ask] 请用户定；ws-handoff --resume 不再续做")
+            else:
+                print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))
@@ -1612,6 +1732,38 @@ def main(argv):
             hint = open_pr_hint()
             if hint:
                 print(hint)
+        elif cmd == "backlog" and len(argv) == 1:
+            print("\n".join(backlog_lines()) or "（没有待办）")
+        elif cmd == "backlog" and len(argv) >= 2:
+            rest, why = argv[1:], None
+            if "--why" in rest:
+                k = rest.index("--why")
+                if k + 1 >= len(rest):
+                    sys.exit("用法：board backlog <编号...> [--why 原因]")
+                why, rest = rest[k + 1], rest[:k] + rest[k + 2:]
+            if not rest:
+                sys.exit("用法：board backlog <编号...> [--why 原因]")
+            moved, missing = [], []
+            for nid in [int(x.lstrip("#")) for x in rest]:
+                hit = backlog(nid, why)
+                if not hit:
+                    missing.append(nid)
+                    continue
+                moved.append(nid)
+                if os.path.isfile(hit.get("where") or ""):  # ws-handoff 建的条目：停手话写进交接，工作区读得到
+                    append_forward(hit["where"], f"{_now()} 挪进待办（#{nid}）{'：' + hit['backlog_why'] if hit.get('backlog_why') else ''}。"
+                                                 "停手，不要再起后台命令，正在跑的停掉；上面更早的「接着做」作废，等主频道恢复再做。")
+                # 同 pause：在别处下的命令连那一轮一起停；在那个工作区里自己下的不打断（会把正在跑的这一轮掐掉）
+                here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+                freed = park_workspace(hit, stop=(here != (hit.get("ws") or "").split(":")[1:2]))
+                if freed is not None:
+                    print(f"#{nid} 工作区已放回池子，会话已清" if freed else f"#{nid} 工作区里还有别的活，先不放回")
+            if missing:
+                print(f"没有 #{'、#'.join(str(n) for n in missing)}，先跑 board 看编号", file=sys.stderr)
+            if moved:
+                print("已挪进待办：" + "、".join(f"#{n}" for n in moved) + "（board backlog 看，board resume <编号> 恢复）")
+            if missing:
+                sys.exit(1)
         elif cmd == "pause" and 2 <= len(argv) <= 3:
             nid = int(argv[1].lstrip("#"))
             hit = pause(nid, argv[2] if len(argv) > 2 else None)
@@ -1646,7 +1798,7 @@ def main(argv):
                 print(f"#{nid} 已从自动收起里找回")
             cur = next((i for i in items() if i["id"] == nid), None)
             in_queue = queued(nid)
-            back = cur.get("ws_was") if not in_queue and cur and cur.get("paused") and WS_NAME_RE.match(cur.get("who") or "") else None
+            back = cur.get("ws_was") if not in_queue and cur and (cur.get("paused") or cur.get("backlog")) and WS_NAME_RE.match(cur.get("who") or "") else None
             why = reoccupy(cur, back) if back else None
             if why:
                 _refuse(nid, why)

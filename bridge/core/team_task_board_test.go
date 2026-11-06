@@ -363,3 +363,63 @@ func TestTeamTaskBoardWaitHours(t *testing.T) {
 		t.Fatalf("got\n%s", got)
 	}
 }
+
+// User, 2026-11-05: 「任务板怎么还有一堆任务」 — 排在 bug 后面的小问题、非阻塞的验收发现挪进待办
+// (board.py backlog): they are not rows on any board, only a trailing 「待办 N 件」, and the board
+// command lists them with `board backlog`.
+func TestTeamTaskBoardBacklogOnlyCounted(t *testing.T) {
+	now := time.Date(2026, 11, 5, 23, 10, 0, 0, time.Local)
+	items := placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{
+		{ID: 1, What: "在做的活", Short: "在做", Status: "进行中", WS: "feishu:oc_ws", Chat: "feishu:oc_a",
+			Bound: now.Add(-10 * time.Minute).Format(time.RFC3339), At: "11-05 23:00",
+			ProgressAt: float64(now.Add(-2 * time.Minute).Unix())},
+		{ID: 2, What: "进程不回收", Short: "进程", Status: "待修", SK: "feishu:oc_a", At: "11-05 22:00",
+			Backlog: "11-05 22:40", BacklogWhy: "排在 bug 后"},
+		{ID: 3, What: "QQ插话点表情", Short: "表情", Status: "待修", SK: "feishu:oc_a", At: "11-05 22:01",
+			Backlog: "11-05 22:41"},
+		{ID: 4, What: "别的频道的待办", Short: "别处", Status: "待修", SK: "discord:9", At: "11-05 22:02",
+			Backlog: "11-05 22:42"},
+	})
+	for _, it := range items {
+		if it.Backlog != "" {
+			if st, _ := teamTaskBoardStateOf(it, now); st != teamTaskHidden {
+				t.Fatalf("#%d backlog state = %v, want hidden", it.ID, st)
+			}
+		}
+	}
+	got := renderTeamTaskBoard(items, "feishu:oc_a", now)
+	want := "**任务板**\n**在做 1**  ▶ 在做（工作区1）\n待办 2 件（board backlog 看）"
+	if got != want {
+		t.Fatalf("board:\n%s\nwant:\n%s", got, want)
+	}
+	table := renderTeamTaskTable(items, nil, "feishu:oc_a", now)
+	if strings.Contains(table, "进程") || strings.Contains(table, "表情") {
+		t.Fatalf("backlog items must not be rows on the pinned table: %s", table)
+	}
+	if !strings.HasSuffix(table, "待办 2 件（board backlog 看）") {
+		t.Fatalf("pinned table must end with the backlog count: %s", table)
+	}
+	if ws := renderWorkspaceTaskBoardFit(items, "feishu:oc_a", now, backfillMaxMsgRunes); !strings.HasSuffix(ws, "待办 2 件（board backlog 看）") {
+		t.Fatalf("chat-wide workspace board must end with the count: %q", ws)
+	}
+	// 待办 alone never keeps (or starts) a pinned board: the count line only trails a board that
+	// has real work, and teamTaskBoardHasEntries ignores 待办.
+	only := placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{{ID: 5, What: "额度探针两处余量",
+		Short: "探针", Status: "待修", SK: "feishu:oc_b", At: "11-05 22:03", Backlog: "11-05 22:43"}})
+	if got := renderTeamTaskBoard(only, "feishu:oc_b", now); got != "" {
+		t.Fatalf("backlog-only board = %q, want none", got)
+	}
+	if got := renderTeamTaskTable(only, nil, "feishu:oc_b", now); got != "" {
+		t.Fatalf("backlog-only table = %q, want none", got)
+	}
+	if teamTaskBoardHasEntries(only, "feishu:oc_b") {
+		t.Fatal("待办 alone must not give a chat a pinned board")
+	}
+	if !teamTaskBoardHasEntries(items, "feishu:oc_a") {
+		t.Fatal("a chat with a real item keeps its board")
+	}
+	// No 待办: nothing appended (every other board stays byte-identical).
+	if got := renderTeamTaskBoard(items[:1], "feishu:oc_a", now); strings.Contains(got, "待办") {
+		t.Fatalf("no backlog must not add a line: %q", got)
+	}
+}

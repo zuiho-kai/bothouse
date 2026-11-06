@@ -156,6 +156,7 @@
   corner-shape: round;
   color: #fff;
   border-radius: 50%;
+  flex: none;
   place-items: center;
   width: 36px;
   height: 36px;
@@ -681,6 +682,25 @@
   color: var(--dsw-alias-label-tertiary);
   padding: 6px 8px 2px;
   font-size: 11px;
+}
+
+.dshc_mentionBadge {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);
+  color: var(--dsw-alias-state-business-primary, #5865f2);
+  font-weight: 500;
+  line-height: inherit;
+  vertical-align: baseline;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 4px;
+  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);
+  display: inline-block;
+}
+
+.dshc_mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);
 }
 
 .dshc_sendError {
@@ -2863,7 +2883,7 @@
     animation: none;
   }
 
-  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {
+  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_mentionBadge, .dshc_cardViewButton {
     transition: none;
   }
 }
@@ -2932,6 +2952,15 @@
 .dshc_own > .dshc_messageBody > .dshc_text code {
   color: inherit;
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);
+}
+
+.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge {
+  color: var(--dsw-alias-bg-base);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);
+}
+
+.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);
 }
 
 .dshc_boardDrawerBackdrop {

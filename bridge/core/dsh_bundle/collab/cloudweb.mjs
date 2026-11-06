@@ -54,7 +54,7 @@ const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息�
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 // cancelled (#913): a card whose turn was cut without an outcome — a restarted bridge, a
 // cancelled DSH job. page.html styles it like any other card state.
-const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', aborted: '已打断' };
 const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 
@@ -99,9 +99,9 @@ export function progressCardOf(p) {
   const items = Array.isArray(p.items) ? p.items : (p.entries ?? []).filter(e => typeof e === 'string').map(text => ({ text }));
   for (const it of items) {
     const text = String(it?.text ?? '').replace(/\s+/g, ' ').trim();
-    if (!text) continue;
+    if (!text && it?.kind !== 'tool_use' && it?.kind !== 'tool_result') continue;
     const tool = String(it.tool ?? '').trim();
-    lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + ' — ' : ''}${text.slice(0, 120)}`);
+    lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + (text ? ' — ' : '') : ''}${text.slice(0, 120)}`);
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
   const run = toolSteps(items);
@@ -137,7 +137,9 @@ function toolSteps(items) {
     if (it.kind === 'tool_use') steps.push({ tool, state: 0, input: clip(it.text), output: '' });
     else if (it.kind === 'tool_result') {
       const st = failed(it) ? 2 : 1;
-      const i = open(tool);
+      // A repeated result updates its closed step, not another execution.
+      let i = open(tool);
+      if (i < 0) i = steps.findLastIndex(s => tool === '' || s.tool === tool);
       if (i >= 0) Object.assign(steps[i], { state: st, output: clip(it.text) });
       else steps.push({ tool, state: st, input: '', output: clip(it.text) });
     } else if (it.kind === 'error') {

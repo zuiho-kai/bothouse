@@ -115,7 +115,7 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
     : phase === 'restarting'
       ? t('update.restarting')
       : t('update.button', { version: v(info.latest) });
-  const title = info.dev ? t('update.dev') : info.error ? `${t('update.checkFailed')}: ${info.error}` : undefined;
+  const title = info.dev ? t('update.dev') : info.self_built ? `${t('update.selfBuilt')}：${info.error}` : info.error ? `${t('update.checkFailed')}: ${info.error}` : undefined;
 
   const noticeText = phase === 'failed'
     ? t(`update.reason.${reason}`)
@@ -162,6 +162,12 @@ export default function VersionBadge({ collapsed }: { collapsed: boolean }) {
         bothouse {current}
         {info.dev && <span className="ml-1">· {t('update.devShort')}</span>}
       </div>
+      {/* Self-built: say why there is no update button instead of leaving a button that refuses (#212). */}
+      {info.self_built && (
+        <div className="text-[11px] leading-snug text-ink-mute" data-testid="update-self-built" title={info.error}>
+          {t('update.selfBuilt')}
+        </div>
+      )}
       {showUpdate && (
         <button
           type="button"

@@ -22,6 +22,7 @@ import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
 import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, needsTarget, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
+import { HighlightedMarkdown, renderQuoteMentions } from './mention-highlight.tsx'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
 import { Avatar } from './Avatar.tsx'
@@ -72,12 +73,12 @@ function compactComposer(): boolean {
 }
 
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
-function Quote({ quote, t }: { quote: ChannelQuote; t: T }) {
+function Quote({ quote, t, members, onMention }: { quote: ChannelQuote; t: T; members?: readonly ChannelMember[]; onMention?: (member: ChannelMember) => void }) {
   if (quote.deleted === true) return <div className={`${css.quote} ${css.quoteDeleted}`}>{t('replyDeleted')}</div>
   return (
     <div className={css.quote}>
       <span className={css.quoteAuthor}>{quote.name}</span>
-      <span>{quote.text}</span>
+      <span>{members ? renderQuoteMentions(quote.text, members, onMention) : quote.text}</span>
     </div>
   )
 }
@@ -226,7 +227,7 @@ interface OwnActions {
 // 体检 #9: a touch press this long opens the message tools (common long-press length on phones).
 const LONG_PRESS_MS = 450
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }: {
+function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }: {
   message: ChannelMessage
   /** 体检 #8: a task record shows its card only when no earlier row of this task already does. */
   taskCardShown?: boolean
@@ -242,6 +243,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   tasks: readonly ChannelTask[]
   focused: boolean
   member: ChannelMember | undefined
+  members?: readonly ChannelMember[]
   t: T
   onConfigure: () => void
   menuOpen: boolean
@@ -334,7 +336,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
     return (
       <div className={[css.systemRecord, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} role="note">
         <div className={css.systemLine}>
-          <span className={css.systemText} title={fullTime}><MarkdownText text={markdown} labels={labels} /></span>
+          <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
         </div>
         {/* A task record keeps its live card, centered under the line. */}
         {card?.kind === 'task' && typeof card.task_id === 'number' && taskCardShown && <div className={`${css.card} ${css.taskRecord}`}><TaskCard taskId={card.task_id} tasks={tasks} t={t} /></div>}
@@ -345,7 +347,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
     return (
       <div className={[css.errorBar, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} data-state={card?.state} role="alert">
         <span className={css.errorIcon} aria-hidden>!</span>
-        <div className={css.errorText}><MarkdownText text={markdown} labels={labels} /></div>
+        <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.errorText} onMention={onMention} />
         {retryButtons}
       </div>
     )
@@ -402,7 +404,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             </span>
           )}
       <div className={css.messageBody}>
-        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
+        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} members={members} onMention={onMention} />}
         <div className={grouped ? `${css.messageHead} ${css.messageHeadGrouped}` : css.messageHead}>
           {!grouped && <span className={css.author}>{message.name}</span>}
           {!grouped && <KindTag name={message.name} kind={member?.kind} cli={member?.cli} t={t} />}
@@ -438,7 +440,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )
           : card === undefined
-          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>}<AttachmentList attachments={message.attachments} t={t} />
+          ? <>{message.text !== '' && <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />}<AttachmentList attachments={message.attachments} t={t} />
               {delivered !== undefined && <DeliveryPreview page={delivered.page} task={delivered.task} t={t} onReview={onReview} onRevise={() => { onReply(message) }} />}</>
           : role === 'progress'
           ? (
@@ -463,7 +465,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 {cardView === 'brief' && chips !== undefined
                   ? <StepChips chips={chips} runState={card.state} t={t} />
                   : !progressFolded && progressLines.length > 1 && (
-                      <div className={`${css.text} ${css.runSteps}`} data-card-text><MarkdownText text={stepsMarkdown} labels={labels} /></div>
+                      <HighlightedMarkdown text={stepsMarkdown} labels={labels} members={members} className={`${css.text} ${css.runSteps}`} dataCardText onMention={onMention} />
                     )}
                 {retryButtons}
               </div>
@@ -473,7 +475,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               // #113: the buttons are pinned above the composer so scrolling never loses them.
               <div className={css.permInline}>
                 <span className={css.permLock} aria-hidden>●</span>
-                <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+                <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
                 <span className={css.permWaiting}>{t('permPending')}</span>
               </div>
             )
@@ -484,7 +486,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     <div className={css.cardTitle}>{card.title}</div>
                   </div>
                 )}
-                <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+                <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
                 {retryButtons}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
@@ -515,7 +517,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 }
 
 /** One pending permission request in the tray above the composer (#113). */
-function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessage; author: ChannelMember | undefined; t: T; onDecide: ChannelActions['decidePermission'] }) {
+function PermTrayItem({ message, author, members, onMention, t, onDecide }: { message: ChannelMessage; author: ChannelMember | undefined; members?: readonly ChannelMember[]; onMention?: (member: ChannelMember) => void; t: T; onDecide: ChannelActions['decidePermission'] }) {
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   const markdown = useMemo(() => softBreaksToHard(message.text), [message.text])
   const card = useMemo(() => parseCard(message), [message])
@@ -524,7 +526,7 @@ function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessag
       <Avatar id={message.author} name={message.name} avatar={author?.avatar} avatarVersion={author?.avatarVersion} small />
       <div className={css.permTrayText}>
         <span className={css.permTrayWho}>{t('permAsks', { name: message.name })}</span>
-        <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+        <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
       </div>
       <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />
     </div>
@@ -1534,6 +1536,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   // #1017: a command line or its folded answer above is no bubble to group under.
                   grouped={continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === 'user' && commandLine(visibleMessages[index - 1]?.text ?? '') !== undefined)}
                   member={byId.get(m.author)}
+                  members={visibleMembers}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
                   menuOpen={avatarMenu === m.id}
@@ -1584,7 +1587,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           permissionCount={pendingPerms.length}
           permissions={pendingPerms.length > 0 && (
             <div className={css.permTray} role="region" aria-label={t('permTray', { count: pendingPerms.length })}>
-              {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} t={t} onDecide={decidePermission} />)}
+              {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} members={visibleMembers} onMention={mentionFromAvatar} t={t} onDecide={decidePermission} />)}
             </div>
           )}
           t={t}

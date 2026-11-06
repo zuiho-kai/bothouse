@@ -297,7 +297,7 @@ func (e *Engine) forwardReplyToWorkspace(p Platform, msg *Message) {
 	// answered the lead's relay of the question, the answer stayed in the chat channel and the
 	// workspace asked again.
 	asked := it.Paused != "" && teamTaskBoardWaitUser.MatchString(it.PauseWhy)
-	if !asked && (it.WS == "" || it.Paused != "" || !e.workspaceHasOpenHandoff(it.WS)) {
+	if it.Backlog != "" || !asked && (it.WS == "" || it.Paused != "" || !e.workspaceHasOpenHandoff(it.WS)) {
 		return
 	}
 	words := strings.TrimSpace(msg.Content)

@@ -488,7 +488,7 @@ def ws_task(key=""):
     if board is None or ":" not in chat or not board._path("board.jsonl").exists():
         return None
     try:
-        ids = [i["id"] for i in board.items() if i.get("ws") == chat and not i.get("paused")]
+        ids = [i["id"] for i in board.items() if i.get("ws") == chat and not i.get("paused") and not i.get("backlog")]
     except Exception:  # 板子读坏了不挡推页
         return None
     return min(ids) if ids else None
@@ -504,12 +504,15 @@ def board_items(key=""):
         its = board.items()
     except Exception:  # 板子读坏了不挡推页
         return []
-    shown = [i for i in its if board.in_chat(i, key) or board.waits_user(i)]
-    rest = [i for i in its if i not in shown]
+    shown = [i for i in its if (board.in_chat(i, key) or board.waits_user(i)) and not i.get("backlog")]
+    rest = [i for i in its if i not in shown and not i.get("backlog")]
     ls = [board.fmt(i) for i in shown]
     run = sum(1 for i in rest if not i.get("paused"))
     if rest:
         ls.append(f"别处还有 {run} 件在做、{len(rest) - run} 件暂停（全表跑 board）")
+    back = sum(1 for i in its if i.get("backlog"))
+    if back:  # 待办不占每轮上下文，只报个数（用户 2026-11-05「任务板怎么还有一堆任务」）
+        ls.append(f"另有 {back} 件待办（board backlog 看，不着急）")
     body = "\n".join(ls) or "现在没有进行中的事"
     tag = hashlib.sha1(body.encode()).hexdigest()[:6]
     return [{"path": f"【任务板 {tag}】", "desc": "本频道的事和等用户的事（接手前先看这里；增改结束用 board 命令）\n" + body}]
@@ -816,7 +819,7 @@ def exp_task(key):
     """这个频道当前在做的那件活：本频道的、没暂停、不是测试活，取最近交出/绑定的一件。"""
     if board is None or not key:
         return None
-    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not board.is_test(i.get("what"))]
+    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not i.get("backlog") and not board.is_test(i.get("what"))]
     return max(its, key=lambda i: (i.get("bound") or "", i.get("id") or 0), default=None)
 
 

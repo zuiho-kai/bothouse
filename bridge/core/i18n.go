@@ -690,6 +690,7 @@ const (
 	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
+	MsgWatchUntitledAccept      MsgKey = "watch_untitled_accept"
 	MsgWatchFailEscalate        MsgKey = "watch_fail_escalate"
 	MsgWatchCantDoEscalate      MsgKey = "watch_cantdo_escalate"
 	MsgReleaseHoldUnresumed     MsgKey = "release_hold_unresumed"
@@ -808,11 +809,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "%s espera su cuota. Asumes: %s. Lee el traspaso original y el registro guardado. Conserva la petición y la rama, y entrega en el canal original.\nBase:\n%s",
 	},
 	MsgQuotaCooling: {
-		LangEnglish:            "This role is cooling down until %s.",
-		LangChinese:            "本角色额度冷却至 %s。",
-		LangTraditionalChinese: "本角色額度冷卻至 %s。",
-		LangJapanese:           "この担当は %s まで利用枠待機中です。",
-		LangSpanish:            "Este rol espera su cuota hasta %s.",
+		LangEnglish:            "This role is cooling down until %s, about %s from now.",
+		LangChinese:            "本角色额度冷却至 %s，大约还要 %s。",
+		LangTraditionalChinese: "本角色額度冷卻至 %s，大約還要 %s。",
+		LangJapanese:           "この担当は %s まで利用枠待機中です（残り約 %s）。",
+		LangSpanish:            "Este rol espera su cuota hasta %s, faltan unos %s.",
 	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
@@ -1069,6 +1070,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "看門：%s「%s」續過一次仍沒有進展，已暫停並放回工作區；要繼續請重新交活。",
 		LangJapanese:           "見守り：%s の %s は再開後も進展がないため一時停止し、ワークスペースを解放しました。続けるには再度引き渡してください。",
 		LangSpanish:            "Aviso: %s siguió sin avanzar en %s tras reanudarlo; la tarea se pausó y el espacio quedó libre. Vuelve a asignarla para continuar.",
+	},
+	MsgWatchUntitledAccept: {
+		LangEnglish:            "the work accepted last turn",
+		LangChinese:            "上一轮接下的活",
+		LangTraditionalChinese: "上一輪接下的活",
+		LangJapanese:           "前のターンで引き受けた作業",
+		LangSpanish:            "el trabajo aceptado en el turno anterior",
 	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
