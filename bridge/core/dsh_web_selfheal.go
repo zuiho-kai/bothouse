@@ -15,6 +15,12 @@ package core
 // the proxy needs the loopback the host is really on: the port therefore comes from the recorded
 // address (a restart keeps it), and only when that one refuses the token are the loopback listeners
 // asked. Neither is ever guessed into the file — the token check comes first.
+//
+// The log is not necessarily the one the state file names: a release update moves the launchd log to
+// a new directory and leaves the state file on the old one (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md
+// 第 2 条). So the heal tries several: the recorded path, the same file name in the directories
+// beside it (newest first), then the default next to the state file — and keeps the one whose
+// announcement the token check accepts.
 
 import (
 	"encoding/json"
@@ -25,6 +31,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,28 +97,112 @@ func readDSHWebState() (web DSHWeb, u *url.URL, ok bool) {
 	return web, u, true
 }
 
-// dshWebLogPath is where the announcement for this state file lives: the path it recorded, else the
-// default next to it (openDSHWeb writes `dsh-web.log` there).
-func dshWebLogPath(web DSHWeb) string {
-	if p := strings.TrimSpace(web.Log); p != "" {
-		return p
+// dshWebLogPaths lists where the announcement for this state file can be, in the order to try: the
+// path it recorded, the dsh-web.log of the directories beside the recorded one (newest first), then
+// the default next to the state file (openDSHWeb writes `dsh-web.log` there). The sibling scan is
+// what covers a release update: it moves the launchd log into a new directory and leaves the state
+// file on the old one (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 2 条). Nothing here is
+// trusted — the token check still decides.
+func dshWebLogPaths(web DSHWeb) []string {
+	paths := make([]string, 0, 4)
+	seen := make(map[string]bool)
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		paths = append(paths, p)
+	}
+	stateDir := filepath.Dir(dshWebStatePath())
+	recorded := strings.TrimSpace(web.Log)
+	if recorded != "" {
+		add(recorded)
+		dir, parent := filepath.Dir(recorded), filepath.Dir(filepath.Dir(recorded))
+		// Only when the log lives outside the state file's own directory: the state directory is not
+		// a release directory, and walking its parent would scan unrelated places.
+		if dir != stateDir && parent != filepath.VolumeName(parent)+string(filepath.Separator) {
+			type sibling struct {
+				path string
+				mod  time.Time
+			}
+			var found []sibling
+			if entries, err := os.ReadDir(parent); err == nil {
+				for _, e := range entries {
+					if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || filepath.Join(parent, e.Name()) == dir {
+						continue
+					}
+					info, err := os.Stat(filepath.Join(parent, e.Name(), filepath.Base(recorded)))
+					if err != nil || info.IsDir() {
+						continue
+					}
+					found = append(found, sibling{filepath.Join(parent, e.Name(), filepath.Base(recorded)), info.ModTime()})
+				}
+			}
+			sort.Slice(found, func(i, j int) bool { return found[i].mod.After(found[j].mod) })
+			for _, s := range found {
+				add(s.path)
+			}
+		}
 	}
 	// The newer of our own dsh web's log and the desktop app's (setup_dsh_desktop.go): a machine on
 	// the desktop route has no dsh web, and its panel should still reach the app's host.
-	webLog := filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-web.log")
+	webLog := filepath.Join(stateDir, "dsh-web.log")
 	wi, werr := os.Stat(webLog)
 	if di, err := os.Stat(dshDesktopLogPath()); err == nil && (werr != nil || di.ModTime().After(wi.ModTime())) {
-		return dshDesktopLogPath()
+		add(dshDesktopLogPath())
 	}
-	return webLog
+	add(webLog)
+	return paths
+}
+
+// probeAnnouncementPort is the loopback port whose host accepts token, or "". The announcement's own
+// port is tried first, then the port the state file recorded (a restart keeps it), and only when the
+// announcement carries no port at all are the loopback listeners asked — it costs an lsof. The whole
+// scan shares one deadline so a listener that accepts and never answers cannot hold the request
+// longer than a single probe would (来源：实测单次探活 0.5–3ms，见 dshWebProbeTimeout).
+func probeAnnouncementPort(au *url.URL, token string, web DSHWeb, deadline time.Time) string {
+	candidates := make([]string, 0, 3)
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		for _, c := range candidates {
+			if c == p {
+				return
+			}
+		}
+		candidates = append(candidates, p)
+	}
+	add(au.Port())
+	add(statePort(web.URL))
+	for _, p := range candidates {
+		if probeDSHWebToken(p, token) {
+			return p
+		}
+	}
+	if au.Port() != "" {
+		return ""
+	}
+	for _, p := range dshWebListeners() {
+		add(p)
+		if probeDSHWebToken(p, token) {
+			return p
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	return ""
 }
 
 // lastDSHWebURL returns the last `dsh web: <url>` line in the tail of path, or "".
 func lastDSHWebURL(path string) string { return lastDSHWebURLFrom(path, 0) }
 
 // lastDSHWebURLFrom is lastDSHWebURL over the bytes written at or after offset: a launch that
-// appends to the log must not read the previous start's announcement as its own, or it would take a
-// token the earlier host has already rotated for its own (openDSHWeb appends, see 2026-11-05 现场).
+// appends to the log must not read the previous start's announcement as its own, or it would adopt a
+// token that host has already rotated (openDSHWeb appends since the truncation lost that line,
+// 2026-11-05 现场).
 func lastDSHWebURLFrom(path string, offset int64) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -201,7 +292,7 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 	if !dshWebHealFailedAt.IsZero() && time.Since(dshWebHealFailedAt) < dshWebHealCooldown {
 		return "", "", false
 	}
-	logPath := dshWebLogPath(web)
+	logPath := dshWebLogPaths(web)[0]
 	// The panel's own "Open DSH" writes this file too (openDSHWeb, under dshWebMu); its write is the
 	// newer truth. If the bytes moved while we were probing, leave the file to it.
 	orig, _ := os.ReadFile(dshWebStatePath())
@@ -217,66 +308,36 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 			append([]any{"recorded_pid", web.PID, "log", logPath}, attrs...)...)
 		return "", "", false
 	}
-	announced := lastDSHWebURL(logPath)
-	if announced == "" {
-		return fail("no \"dsh web: <url>\" line in the log")
-	}
-	au, err := url.Parse(announced)
-	if err != nil || au.Host == "" {
-		return fail("the newest announcement is unreadable")
-	}
-	token := au.Query().Get("token")
-	if token == "" {
-		return fail("the newest announcement carries no token")
-	}
-	// `--public-url` announcements carry no port (a launchd restart keeps the one the state file
-	// already has); an announcement with a port is for that port alone. Probing with the token is
-	// what decides — the pid is not consulted because a reused pid cannot be told apart.
-	candidates := make([]string, 0, 3)
-	addCandidate := func(p string) {
-		if p == "" {
-			return
+	// A release update can leave the announcement in another directory's dsh-web.log; each candidate
+	// is tried in full (announcement → token gate) and the first one whose token signs in wins,
+	// because that token is the only thing that proves this host's address.
+	var token, port string
+	triedLogs := 0
+	// 来源：沿用 dshWebProbeTimeout——一轮候选共用一次探活时限，卡住的本地监听不会把请求拖过
+	// 单次探活的上限（实测单次探活 0.5–3ms）。
+	deadline := time.Now().Add(dshWebProbeTimeout)
+	for _, p := range dshWebLogPaths(web) {
+		triedLogs++
+		line := lastDSHWebURL(p)
+		if line == "" {
+			continue
 		}
-		for _, c := range candidates {
-			if c == p {
-				return
-			}
+		u, err := url.Parse(line)
+		if err != nil || u.Host == "" {
+			continue
 		}
-		candidates = append(candidates, p)
-	}
-	addCandidate(au.Port())
-	if p := statePort(web.URL); p != "" {
-		addCandidate(p)
-	}
-	port := ""
-	for _, p := range candidates {
-		if probeDSHWebToken(p, token) {
-			port = p
+		t := u.Query().Get("token")
+		if t == "" {
+			continue
+		}
+		if got := probeAnnouncementPort(u, t, web, deadline); got != "" {
+			token, port, logPath = t, got, p
 			break
 		}
 	}
-	tried := len(candidates)
-	if port == "" && au.Port() == "" {
-		// No port anywhere: the host may have been restarted on another one. It costs an lsof, so
-		// this runs only after the recorded ports have been refused — and the whole scan gets one
-		// probe timeout, so a local listener that accepts and never answers cannot hold the request
-		// for longer than a single probe would (来源：实测单次探活 0.5–3ms，见 dshWebProbeTimeout).
-		deadline := time.Now().Add(dshWebProbeTimeout)
-		for _, p := range dshWebListeners() {
-			addCandidate(p)
-			if probeDSHWebToken(p, token) {
-				port = p
-				break
-			}
-			if time.Now().After(deadline) {
-				break
-			}
-		}
-	}
 	if port == "" {
-		return fail("the announcement's token signs in on none of the loopback ports tried",
-			"ports", strings.Join(candidates[tried:], ","), "also_tried", strings.Join(candidates[:tried], ","),
-			"announcement_host", au.Host)
+		return fail("no announcement in the logs tried has a token that signs in",
+			"logs_tried", triedLogs)
 	}
 	healed := DSHWeb{
 		URL: "http://127.0.0.1:" + port + "/?" + url.Values{"token": {token}}.Encode() + dshChannelsHash,
