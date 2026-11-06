@@ -1,0 +1,70 @@
+{
+  "name": "bothouse-dsh",
+  "version": "0.1.57",
+  "description": "BotHouse channels for DeepSeek Harness: Discord-style rooms where DSH models and local CLIs (Claude Code, Codex, Gemini) are members",
+  "type": "module",
+  "main": "./collab/plugin.mjs",
+  "exports": {
+    ".": "./collab/plugin.mjs",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek",
+    "harness",
+    "plugin",
+    "bothouse"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zuiho-kai/bothouse",
+    "directory": "dsh/plugin-pkg"
+  },
+  "license": "Apache-2.0",
+  "files": [
+    "collab/*.mjs",
+    "collab/page.html",
+    "collab/*.json",
+    "collab/team-mode-rules.md",
+    "collab/desk/index.html",
+    "collab/devices.html",
+    "collab/wiki-galaxy/index.html",
+    "collab/avatars/*.png",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0",
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "pack": "node scripts/build.mjs && npm pack"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@zed-industries/claude-code-acp": "^0.16.2",
+    "bothouse-dsh-channels": "0.1.0",
+    "bothouse-dsh-desk": "0.1.0",
+    "bothouse-dsh-devices": "0.1.0",
+    "bothouse-dsh-panel": "0.1.0",
+    "ws": "8.22.1"
+  },
+  "bundleDependencies": [
+    "bothouse-dsh-channels",
+    "bothouse-dsh-desk",
+    "bothouse-dsh-panel",
+    "bothouse-dsh-devices"
+  ],
+  "optionalDependencies": {
+    "@agentclientprotocol/codex-acp": "^2.2.2"
+  }
+}
