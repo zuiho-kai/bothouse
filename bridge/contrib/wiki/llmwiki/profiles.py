@@ -214,7 +214,7 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
     readme = page.parent / "README.md"
     if readme.exists() and f"({page.name})" not in readme.read_text(encoding="utf-8"):
         readme.write_text(readme.read_text(encoding="utf-8").rstrip("\n") +
-                          f"\n- [{stem}]({page.name}) — 懂你：{name} 的画像，每行带原话出处，他发消息时注入\n", encoding="utf-8")
+                          f"\n- [{stem}]({page.name}) — 懂你：{name[:20]}\n", encoding="utf-8")  # wiki lint: 一行 ≤120 字
         files.append(str(readme.relative_to(repo)))
     return f"{len(good)} lines, {len(gone)} replaced", files
 
