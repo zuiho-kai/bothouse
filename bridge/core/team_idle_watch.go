@@ -267,8 +267,11 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
 		returned = askEvidenceProblems(body) == nil
 		asking = true
-	} else if ok && returned && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit {
+	} else if id, _, _ := exitHeadline(body); ok && returned && id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit {
 		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
+		// Only a report that names a board item has a headline to repair: one without a #id cannot
+		// satisfy the check however often it is resent, so there the reply stays a handback and its
+		// watch ends instead of waking the workspace again for the same text (11-05 #96).
 		returned = false
 	}
 	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
@@ -420,9 +423,12 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 				return
 			}
 			h.Idle.Fails = 0
-			if worked {
+			if worked && !h.Idle.Reported {
+				// Work in progress clears the wake count. A watch that already reported (two
+				// unanswered wakes, or the failure limit above) is not restarted by a later turn
+				// that happened to run tools: it stays reported, and only its handback closes it
+				// (11-05 #96: clearing it let the same assignment wake and escalate forever).
 				h.Idle.Wakes = 0
-				h.Idle.Reported = false
 			}
 		})
 		if ok && giveUp {
