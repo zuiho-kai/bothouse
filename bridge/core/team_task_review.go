@@ -193,50 +193,9 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	groups := map[string]*group{}
 	load := map[string]int{} // reviews handed to each role in this scan: spread a batch of handbacks
 	for _, it := range readTeamTaskBoard(e.team.dir) {
+		// A paused item waits for its owner's resume: no hourly reminder, no wake-up
+		// (user 11-07 「隔壁这在跑啥」: paused #15/#20 left a card every hour).
 		if it.Paused != "" {
-			if it.Chat == "" {
-				continue
-			}
-			var owner, lead *Engine
-			for _, x := range w.engines() {
-				if x.timerScheduler == nil {
-					continue
-				}
-				if x.name == it.PausedBy {
-					owner = x
-				}
-				if x.isTeamLead() {
-					lead = x
-				}
-			}
-			if owner == nil {
-				owner = lead
-			}
-			if owner == nil {
-				continue
-			}
-			ref := taskReviewRef{Board: it.ID, Paused: taskPauseKey(it), Stage: "paused"}
-			at := taskPausedSince(it, now)
-			asked := false
-			if !at.IsZero() && now.Sub(at) >= teamWorkspaceReconcileEvery {
-				ref.Stage = "paused-question"
-				sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%s/pause", e.team.dir, it.ID, ref.Paused)))
-				id := fmt.Sprintf("review-%x", sum)
-				asked = owner.timerScheduler.store.Get(id) == nil
-				owner.queueTaskReview(id, it.Chat, &ref, now)
-			}
-			// The fresh paused-question already covers this item; listing it in the
-			// same-scan roundup fired a second identical reminder (11-02 #589/#705 x2).
-			if roundup && !asked {
-				key := owner.name + "/" + it.Chat
-				g := groups[key]
-				if g == nil {
-					g = &group{reviewer: owner, chat: it.Chat}
-					groups[key] = g
-				}
-				ref.Stage = "paused"
-				g.refs = append(g.refs, ref)
-			}
 			continue
 		}
 		if it.ReturnedAt.IsZero() || it.Chat == "" {
@@ -565,13 +524,7 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 			continue
 		}
 		if r.Paused != "" {
-			at := taskPausedSince(*it, now)
-			span := teamTaskTableSpan(at, now)
-			prompts = append(prompts, e.i18n.Tf(MsgTaskPausedSummary, it.ID, it.What, span, it.PauseWhy))
-			if r.Stage == "paused-question" {
-				prompts = append(prompts, e.i18n.Tf(MsgTaskPausedResumeQuestion, it.ID))
-			}
-			title = e.i18n.T(MsgTaskReviewRoundup)
+			// Reminders queued before 11-07 for paused items fire as no-ops.
 			continue
 		}
 		it.reviewAfter = e.taskReviewAfter()
