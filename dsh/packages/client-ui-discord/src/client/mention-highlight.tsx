@@ -21,7 +21,7 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** True when a channel member sits in fenced code — the backend will not call them there (#237). */
+/** True when an offset sits inside fenced code, where the backend calls nobody (#237). */
 function withinFence(ranges: ReadonlyArray<[number, number]>, index: number): boolean {
   return ranges.some(([start, end]) => index >= start && index < end)
 }
