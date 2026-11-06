@@ -111,7 +111,7 @@ func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent s
 	cleaned := make([]ProgressCardEntry, 0, len(items))
 	for _, item := range items {
 		text := strings.TrimSpace(item.Text)
-		if text == "" {
+		if text == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 			continue
 		}
 		kind := item.Kind
@@ -173,7 +173,7 @@ func ParseProgressCardPayload(content string) (*ProgressCardPayload, bool) {
 		item.Text = strings.TrimSpace(item.Text)
 		item.Tool = strings.TrimSpace(item.Tool)
 		item.Status = strings.TrimSpace(item.Status)
-		if item.Text == "" {
+		if item.Text == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 			continue
 		}
 		if item.Kind == "" {
@@ -456,7 +456,7 @@ func (w *compactProgressWriter) appendStructured(item ProgressCardEntry, fallbac
 	}
 	text := strings.TrimSpace(item.Text)
 	fallback = strings.TrimSpace(fallback)
-	if text == "" && fallback == "" {
+	if text == "" && fallback == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 		return true
 	}
 	if text == "" {
