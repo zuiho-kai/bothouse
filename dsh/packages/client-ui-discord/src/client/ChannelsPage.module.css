@@ -681,6 +681,26 @@
   font-size: 11px;
 }
 
+/* #220 Discord-style mention pill badge in message text */
+.mentionBadge {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);
+  color: var(--dsw-alias-state-business-primary, #5865f2);
+  font-weight: 500;
+  line-height: inherit;
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  transition: background-color 160ms cubic-bezier(.2, 0, 0, 1), color 160ms cubic-bezier(.2, 0, 0, 1);
+}
+
+.mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);
+}
+
 .sendError {
   margin-bottom: 6px;
   color: var(--dsw-alias-state-error-primary);
@@ -1953,6 +1973,7 @@
   .primaryButton,
   .secondaryButton,
   .mentionButton,
+  .mentionBadge,
   .cardViewButton { transition: none; }
 }
 
@@ -1969,6 +1990,13 @@
 .own > .messageBody > .text * { color: inherit; }
 .own > .messageBody > .text a { color: inherit; text-decoration: underline; }
 .own > .messageBody > .text code { color: inherit; background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent); }
+.own > .messageBody > .text .mentionBadge {
+  color: var(--dsw-alias-bg-base);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);
+}
+.own > .messageBody > .text .mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);
+}
 /* 白色方案：任务板从右侧抽屉滑出（样张 layout-plan-113 的置顶任务板），聊天留在左边可见；宽 440 量自样张 desktop-board.png（1440 宽视口里抽屉占 1000–1440）。 */
 .boardDrawerBackdrop { place-items: stretch end; padding: 0; background: rgb(0 0 0 / 0.25); }
 .boardDrawerBackdrop > .taskBoardDialog { box-sizing: border-box; width: min(440px, 100%); height: 100dvh; max-height: none; border-radius: 0; animation: boardDrawerIn .2s ease-out; }
