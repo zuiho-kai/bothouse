@@ -6,6 +6,10 @@ const FENCE = '```';
 // Punctuation after a bare name that counts as calling that member
 // (bridge/platform/discord/mentions.go nameCalled).
 const CALL_PUNCT = '，,：:！!？?、～~';
+// Word characters for the mention boundaries below (#237). Same set the channel page colours
+// with (client-ui-discord buildMentionMatcher): an @ inside an email or followed by a longer
+// ascii word is not a call, while a Chinese name still calls when a character follows it.
+const WORD = 'a-zA-Z0-9_';
 
 function escape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -14,9 +18,26 @@ function aliases(members) {
   const out = [];
   for (const m of members) {
     out.push(['@' + m.name, m.id], ['@' + m.id, m.id]);
+    if (m.id) out.push([`<@${m.id}>`, m.id], [`<@!${m.id}>`, m.id]);
     if (m.mentionId) out.push([`<@${m.mentionId}>`, m.id], [`<@!${m.mentionId}>`, m.id]);
   }
   return out.sort((a, b) => b[0].length - a[0].length);
+}
+
+/**
+ * The alias pattern for one member list, with the same boundaries the channel page colours with
+ * (#237, client-ui-discord buildMentionMatcher): no WORD character before an alias, and none
+ * right after it when the alias itself ends in one. So `xx@dsh.ai` and `@dsh2` are not calls
+ * while a Chinese name still calls with a character tacked on, and `<@1001>` is matched the way
+ * the page matches it too.
+ */
+function mentionPattern(list) {
+  const parts = list.map(([a]) => {
+    const escaped = escape(a);
+    const tail = new RegExp(`[${WORD}]$`).test(a) ? `(?![${WORD}])` : '';
+    return `(?<![${WORD}])${escaped}${tail}`;
+  });
+  return new RegExp(parts.join('|'), 'g');
 }
 
 /** Split text into [segment, memberId|null]; mentions inside ``` fences do not count. */
@@ -24,7 +45,7 @@ export function split(text, members) {
   const list = aliases(members);
   if (list.length === 0) return [[text, null]];
   const lookup = new Map(list);
-  const pat = new RegExp(list.map(([a]) => escape(a)).join('|'), 'g');
+  const pat = mentionPattern(list);
   const parts = [];
   text.split(FENCE).forEach((seg, i) => {
     if (i) parts.push([FENCE, null]);

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChannelMember } from '../src/client/channel-source.ts'
 import {
   buildMentionMatcher,
+  fencedRanges,
   formatMentionBadgeText,
   highlightMentionsInElement,
   HighlightedMarkdown,
@@ -76,6 +77,32 @@ describe('mention-highlight logic', () => {
     expect(formatMentionBadgeText('@肥鱼', testMembers[0]!)).toBe('@肥鱼')
     expect(formatMentionBadgeText('<@1001>', testMembers[0]!)).toBe('@肥鱼')
     expect(formatMentionBadgeText('<@!1001>', testMembers[0]!)).toBe('@肥鱼')
+  })
+
+  // #237: these cases come in pairs with dsh/collab/mentions.test.mjs — the page and the backend
+  // must agree on who a message calls, so a coloured name is exactly a member that gets woken.
+  it('does not colour an @ inside a ``` fence, and colours the rest of the text (#237)', () => {
+    const fenced = '```\n@肥鱼 看下\n```'
+    expect(splitMentions(fenced, testMembers)).toEqual([{ text: fenced }])
+
+    const mixed = '```\n@肥鱼 在代码里\n```\n@大豆包 你看下'
+    const segments = splitMentions(mixed, testMembers)
+    expect(segments.filter(s => s.member).map(s => s.text)).toEqual(['@大豆包'])
+    expect(segments.map(s => s.text).join('')).toBe(mixed)
+
+    // fencedRanges: an opening fence without its closing one covers the rest, as in mentions.mjs
+    expect(fencedRanges('a ```\n@肥鱼')).toEqual([[5, 9]])
+    expect(fencedRanges('```x``` tail ```y```')).toEqual([[3, 4], [16, 17]])
+    expect(fencedRanges('no fence @肥鱼')).toEqual([])
+  })
+
+  it('leaves an email address uncoloured and still colours a name after punctuation', () => {
+    expect(splitMentions('联系 xx@肥鱼.ai', testMembers)).toEqual([{ text: '联系 xx@肥鱼.ai' }])
+    expect(splitMentions('[@肥鱼] 在吗', testMembers)).toEqual([
+      { text: '[' },
+      { text: '@肥鱼', member: testMembers[0] },
+      { text: '] 在吗' },
+    ])
   })
 })
 

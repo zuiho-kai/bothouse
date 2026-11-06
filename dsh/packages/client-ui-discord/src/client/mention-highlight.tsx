@@ -13,8 +13,17 @@ export interface MentionSegment {
   member?: ChannelMember
 }
 
+// A ``` fence, read the way dsh/collab/mentions.mjs does: alternating outside/inside parts of
+// text.split(FENCE), so an odd part is code. The backend calls nobody inside a fence.
+const FENCE = '```'
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** True when a channel member sits in fenced code — the backend will not call them there (#237). */
+function withinFence(ranges: ReadonlyArray<[number, number]>, index: number): boolean {
+  return ranges.some(([start, end]) => index >= start && index < end)
 }
 
 /**
@@ -60,7 +69,31 @@ export function buildMentionMatcher(members: readonly ChannelMember[]): {
 }
 
 /**
- * Splits plain text into non-mention and mention segments.
+ * Offsets of ``` fenced blocks, [start, end) each, the way the backend reads them
+ * (dsh/collab/mentions.mjs split(): text.split('```') and odd parts are inside a fence).
+ * An unterminated fence runs to the end of the text, as it does there.
+ */
+export function fencedRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = []
+  let open = -1
+  let at = text.indexOf(FENCE)
+  while (at >= 0) {
+    if (open < 0) {
+      open = at + FENCE.length
+    } else {
+      ranges.push([open, at])
+      open = -1
+    }
+    at = text.indexOf(FENCE, at + FENCE.length)
+  }
+  if (open >= 0) ranges.push([open, text.length])
+  return ranges
+}
+
+/**
+ * Splits plain text into non-mention and mention segments. An @ inside a ``` fence is left
+ * as text: the backend does not call anyone there (dsh/collab/mentions.mjs), so colouring it
+ * would promise a call that never happens (#237).
  */
 export function splitMentions(text: string, members: readonly ChannelMember[]): MentionSegment[] {
   if (!text) return []
@@ -69,11 +102,13 @@ export function splitMentions(text: string, members: readonly ChannelMember[]): 
 
   const { regex, aliasMap } = matcher
   const segments: MentionSegment[] = []
+  const fenced = fencedRanges(text)
   let lastIndex = 0
 
   for (const match of text.matchAll(regex)) {
     const matchText = match[0]
     const startIndex = match.index ?? 0
+    if (withinFence(fenced, startIndex)) continue
     if (startIndex > lastIndex) {
       segments.push({ text: text.slice(lastIndex, startIndex) })
     }
