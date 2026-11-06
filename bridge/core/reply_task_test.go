@@ -140,7 +140,7 @@ func TestReplyTaskBlockOncePerContext(t *testing.T) {
 	}
 	s := &Session{}
 	ref := &MessageReference{ID: "m1", task: &replyTask{board: 7}}
-	got := e.withTurnBlocksRef(s, "discord:chat1", "", "继续", false, ref)
+	got := e.withTurnBlocksRef(s, "discord:chat1", "", "", "继续", false, ref)
 	for _, want := range []string{"任务板 #7「修登录」：修登录掉线", "总目标：\n- 登录不再掉线", "相关改动：\n- bridge/core/login.go", "用户原话：\n- 「登录老掉，修一下」", "最近汇报：改完待验", "工作区 <#ws1> 进行中，追加要求用 ws-forward"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("block missing %q in %q", want, got)
@@ -149,11 +149,11 @@ func TestReplyTaskBlockOncePerContext(t *testing.T) {
 	if strings.Contains(got, "不该出现的进度") || !strings.HasSuffix(got, "继续") {
 		t.Fatalf("block = %q", got)
 	}
-	if again := e.withTurnBlocksRef(s, "discord:chat1", "", "再说", false, ref); again != "再说" {
+	if again := e.withTurnBlocksRef(s, "discord:chat1", "", "", "再说", false, ref); again != "再说" {
 		t.Fatalf("same work injected twice: %q", again)
 	}
 	s.ResetTurnCtx()
-	if again := e.withTurnBlocksRef(s, "discord:chat1", "", "新上下文", false, ref); !strings.Contains(again, "任务板 #7") {
+	if again := e.withTurnBlocksRef(s, "discord:chat1", "", "", "新上下文", false, ref); !strings.Contains(again, "任务板 #7") {
 		t.Fatalf("fresh context lost the background: %q", again)
 	}
 }
