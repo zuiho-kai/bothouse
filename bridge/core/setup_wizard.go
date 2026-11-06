@@ -221,6 +221,8 @@ type WizardProjectWrite struct {
 	// AdminFrom: project-level admin_from (the owner `send --dm` writes to), written only
 	// when the project has none. "" = leave
 	AdminFrom string
+	// AllPlatformsOfType: Options go into every platform of PlatformType, none is created (gate page).
+	AllPlatformsOfType bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.

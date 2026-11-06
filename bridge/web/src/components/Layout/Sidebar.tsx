@@ -21,6 +21,7 @@ import {
   Network,
   Boxes,
   Sparkles,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,8 @@ const navItems = [
   { key: 'wikiGalaxy', path: '/wiki-galaxy', icon: Sparkles },
   // 接入应用 (#150): which outside apps (QQ / Discord / 飞书) are wired, one row each
   { key: 'apps', path: '/apps', icon: Smartphone },
+  // 闸门设置 (#217): 装好以后改谁在什么时候接话、判断用的模型，不用重装
+  { key: 'gate', path: '/gate', icon: ShieldCheck },
   { key: 'projects', path: '/projects', icon: FolderKanban },
   { key: 'sessions', path: '/sessions', icon: MessagesSquare },
   { key: 'providers', path: '/providers', icon: Plug },

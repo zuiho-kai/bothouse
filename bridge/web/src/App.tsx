@@ -24,6 +24,7 @@ import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
 import PluginList from '@/pages/Plugins/PluginList';
 import NotFound from '@/pages/NotFound';
 import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
+import GateSettingsPage from '@/pages/Gate/GateSettings';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -62,6 +63,8 @@ export default function App() {
         <Route path="devices" element={<DeviceList />} />
         <Route path="wiki-galaxy" element={<WikiGalaxyPage />} />
         <Route path="apps" element={<AppList />} />
+        {/* 闸门设置 (#217): 装好以后改谁在什么时候接话，不用重装 */}
+        <Route path="gate" element={<GateSettingsPage />} />
         <Route path="plugins" element={<PluginList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
