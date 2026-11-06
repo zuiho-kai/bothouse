@@ -100,13 +100,7 @@ func BuildProgressCardPayload(entries []string, truncated bool) string {
 
 // BuildProgressCardPayloadV2 encodes ordered typed progress events.
 func BuildProgressCardPayloadV2(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState) string {
-	steps := 0
-	for _, item := range items {
-		if item.Kind == ProgressEntryToolUse {
-			steps++
-		}
-	}
-	return buildProgressCardPayload(items, truncated, agent, lang, state, steps, 0, 0)
+	return buildProgressCardPayload(items, truncated, agent, lang, state, 0, 0, 0)
 }
 
 func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen int) string {

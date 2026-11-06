@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -9,11 +10,18 @@ import (
 
 func TestProgressSteps_EmptyToolInputAcrossCardViews(t *testing.T) {
 	for _, state := range []core.ProgressCardState{core.ProgressCardStateRunning, core.ProgressCardStateCompleted} {
-		raw := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
+		items := []core.ProgressCardEntry{
 			{Kind: core.ProgressEntryToolUse, Tool: "bash"},
 			{Kind: core.ProgressEntryToolResult, Tool: "bash", Status: "completed"},
+			{Kind: core.ProgressEntryToolResult, Tool: "bash", Status: "completed"},
 			{Kind: core.ProgressEntryToolUse, Tool: "read"},
-		}, false, "ACP", core.LangChinese, state)
+		}
+		// The live writer supplies cumulative steps independently of retained items.
+		encoded, err := json.Marshal(core.ProgressCardPayload{Items: items, Agent: "ACP", Lang: "zh", State: state, Steps: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := core.ProgressCardPayloadPrefix + string(encoded)
 		payload, ok := core.ParseProgressCardPayload(raw)
 		if !ok {
 			t.Fatal("tool metadata lost during transport")
@@ -25,6 +33,9 @@ func TestProgressSteps_EmptyToolInputAcrossCardViews(t *testing.T) {
 			}
 			if view == cardViewBrief && !strings.Contains(card.Description, "bash · 成功") {
 				t.Fatalf("tool status lost: %s", card.Description)
+			}
+			if view == cardViewBrief && strings.Count(card.Description, "bash") != 1 {
+				t.Fatalf("duplicate result became another step: %s", card.Description)
 			}
 			t.Logf("state=%s view=%v: %s", state, view, card.Description)
 		}

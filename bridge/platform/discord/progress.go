@@ -125,7 +125,19 @@ func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
 			if i := open(tool); i >= 0 {
 				steps[i].state = st
 			} else {
-				steps = append(steps, step{tool: tool, state: st})
+				// A repeated result updates its closed step, not another execution.
+				last := -1
+				for i := len(steps) - 1; i >= 0; i-- {
+					if tool == "" || steps[i].tool == tool {
+						last = i
+						break
+					}
+				}
+				if last >= 0 {
+					steps[last].state = st
+				} else {
+					steps = append(steps, step{tool: tool, state: st})
+				}
 			}
 		case core.ProgressEntryError:
 			if i := open(""); i >= 0 {

@@ -8,6 +8,7 @@ test('progress steps: empty tool arguments survive gateway detail, brief and chi
     const body = progressCard(PROGRESS_PREFIX + JSON.stringify({ agent: 'ACP', state, steps: 2, items: [
       { kind: 'tool_use', tool: 'bash', text: '' },
       { kind: 'tool_result', tool: 'bash', text: '', status: 'completed' },
+      { kind: 'tool_result', tool: 'bash', text: '', status: 'completed' },
       { kind: 'tool_use', tool: 'read', text: '' },
     ] }));
     const card = JSON.parse(body.card);

@@ -137,7 +137,9 @@ function toolSteps(items) {
     if (it.kind === 'tool_use') steps.push({ tool, state: 0, input: clip(it.text), output: '' });
     else if (it.kind === 'tool_result') {
       const st = failed(it) ? 2 : 1;
-      const i = open(tool);
+      // A repeated result updates its closed step, not another execution.
+      let i = open(tool);
+      if (i < 0) i = steps.findLastIndex(s => tool === '' || s.tool === tool);
       if (i >= 0) Object.assign(steps[i], { state: st, output: clip(it.text) });
       else steps.push({ tool, state: st, input: '', output: clip(it.text) });
     } else if (it.kind === 'error') {
