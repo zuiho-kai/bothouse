@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/chenhg5/cc-connect/tests/testutil"
 )
@@ -21,5 +22,8 @@ func TestMain(m *testing.M) {
 		gateAddr = l.Addr().String()
 		l.Close()
 	}
+	// #134: every temporary-error re-send (at capacity included) waits a backoff step first; tests
+	// would sit out the live 15s, so they use 1ms unless they set their own.
+	rateLimitBackoffBase = time.Millisecond
 	os.Exit(testutil.RunSandboxed(m))
 }

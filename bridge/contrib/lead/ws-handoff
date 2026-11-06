@@ -46,10 +46,11 @@ QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat,
 
 def check_notes(text: str):
     """交接文件不合格时返回报错文字（一次列出所有缺的项，含要补什么和示例），合格返回 None。
-    规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）。"""
+    规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）；按档位选查哪些（check_tiered）。"""
     rules = _handoff_rules.load()
-    errs = _handoff_rules.check_all(text, rules)
-    if rules["flags"].get("cli_gate"):
+    fmt = _handoff_rules.ds_lead()  # 分档：核事实全开；核格式（含下面的 CLI 关卡）只在主角色后端是 DS 类时开（用户 11-06）
+    errs = _handoff_rules.check_tiered(text, rules, fmt)
+    if fmt and rules["flags"].get("cli_gate"):
         errs += [e for e in [generic_gate(text)] if e]
     if not errs:
         return None
@@ -559,6 +560,10 @@ def resume_answered(nid, answer):
     it = next((i for i in board.items() if i["id"] == nid), None)
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
+    if it.get("rework_cap") and it.get("paused"):
+        # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
+        sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
+                 "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
     source = "验收退回" if it.get("review_rejected") else "用户答复"
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）

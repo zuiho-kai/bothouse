@@ -1,0 +1,30 @@
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, expect, it, vi } from 'vitest';
+import Dashboard from './Dashboard';
+
+const mocks = vi.hoisted(() => ({ status: vi.fn(), projects: vi.fn(), summary: vi.fn() }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key }) }));
+vi.mock('@/api/status', () => ({ getStatus: mocks.status }));
+vi.mock('@/api/projects', () => ({ listProjects: mocks.projects, shownName: (p: { name: string }) => p.name, shownNames: () => (n: string) => n }));
+vi.mock('@/api/sessions', () => ({ listSessions: vi.fn() }));
+vi.mock('@/api/dsh', () => ({ getDSHSummary: mocks.summary, connectedSources: () => [], dshStatus: () => 'running' }));
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let root: ReturnType<typeof createRoot>; let container: HTMLDivElement;
+afterEach(() => { act(() => root?.unmount()); container?.remove(); });
+it('keeps dashboard data during refresh and rejects older results', async () => {
+  const status = (version: string) => ({ version, uptime_seconds: 0, projects_count: 0, connected_platforms: [] });
+  mocks.status.mockReset().mockResolvedValueOnce(status('initial'));
+  mocks.projects.mockResolvedValue({ projects: [] }); mocks.summary.mockResolvedValue({ running: true, members: [], channels: [] });
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => root.render(<MemoryRouter><Dashboard /></MemoryRouter>));
+  expect(container.textContent).toContain('initial');
+  let resolve!: (value: unknown) => void;
+  mocks.status.mockImplementationOnce(() => new Promise(r => { resolve = r; })).mockResolvedValueOnce(status('latest'));
+  await act(async () => window.dispatchEvent(new Event('cc:refresh')));
+  expect(container.textContent).toContain('initial');
+  await act(async () => window.dispatchEvent(new Event('cc:refresh')));
+  await act(async () => resolve(status('stale')));
+  expect(container.textContent).toContain('latest'); expect(container.textContent).not.toContain('stale');
+});

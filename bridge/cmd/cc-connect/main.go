@@ -216,6 +216,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"check-update": checkUpdate,
 	"provider":     runProviderCommand,
 	"send":         runSend,
+	"wake":         runWake,
 	"progress":     runProgress,
 	"identity":     runIdentity,
 	"guard":        runGuard,
@@ -332,7 +333,6 @@ func runMain() {
 		logCloser = w
 		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
-
 
 	configPath := resolveConfigPath(rootOpts.configPath)
 
@@ -1349,6 +1349,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
+	engine.SetFallbackModels(proj.FallbackModels)
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
@@ -2076,6 +2077,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
+	engine.SetFallbackModels(proj.FallbackModels)
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, *proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)

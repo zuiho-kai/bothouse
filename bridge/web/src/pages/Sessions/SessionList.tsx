@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
 import { useEntrance } from '@/lib/useEntrance';
 import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { deleteSession, listSessions, type Session } from '@/api/sessions';
-import { getDSHSummary, type DSHChannel } from '@/api/dsh';
+import { dshStatus, getDSHSummary, type DSHChannel, type DSHSummary } from '@/api/dsh';
+import { DSHNotice, errorMessage } from '@/components/DSHNotice';
 import { dshChannelsUrl } from '@/lib/collabPages';
-import { dshOnlyRows } from '@/lib/dshMerge';
 import api from '@/api/client';
 import { SessionCard, SessionRow, sessionKey } from './SessionCard';
 import { SessionDrawer } from './SessionDrawer';
@@ -50,10 +50,13 @@ export default function SessionList() {
   const [note, setNote] = useState('');
   // DSH's own channels: listed under the bridge sessions, opened on DSH's channels page.
   const [dshChannels, setDshChannels] = useState<DSHChannel[]>([]);
-  const [dshMemberCount, setDshMemberCount] = useState(0);
+  const [dsh, setDsh] = useState<DSHSummary | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [dshError, setDshError] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const { projects: projs } = await listProjects();
       setProjects(projs || []);
@@ -62,20 +65,22 @@ export default function SessionList() {
           try {
             const { sessions } = await listSessions(p.name);
             return { project: p.name, sessions: sessions || [] };
-          } catch {
+          } catch (e) {
+            setLoadError(errorMessage(e));
             return { project: p.name, sessions: [] };
           }
         })
       );
       setData(results);
-      const d = await getDSHSummary().catch(() => null);
-      setDshChannels(d && d.running ? d.channels : []);
-      // DSH's bot members are often the same agents as the bridge projects above; count only the rest.
-      setDshMemberCount(
-        d && d.running
-          ? dshOnlyRows(d.members, (projs || []).map((p) => p.name)).length
-          : 0,
-      );
+      try {
+        const d = await getDSHSummary();
+        setDsh(d); setDshError('');
+        setDshChannels(dshStatus(d) === 'running' ? d.channels || [] : []);
+      } catch (e) {
+        setDsh(null); setDshChannels([]); setDshError(errorMessage(e));
+      }
+    } catch (e) {
+      setLoadError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -163,7 +168,7 @@ export default function SessionList() {
           <h1 className="text-xl font-semibold tracking-tight text-ink">{t('sessions.title')}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-mute">
             <span className="tabular-nums">
-              {totals.sessions + dshChannels.length} {t('sessions.title')}
+              {totals.sessions} {t('sessions.title')}
             </span>
             {totals.live > 0 && (
               <span className="inline-flex items-center gap-1.5 tabular-nums text-emerald-600 dark:text-emerald-400">
@@ -174,7 +179,7 @@ export default function SessionList() {
               </span>
             )}
             <span className="tabular-nums">
-              {totals.projects + dshMemberCount} {t('projects.title')}
+              {totals.projects} {t('projects.title')}
             </span>
           </p>
         </div>
@@ -277,6 +282,8 @@ export default function SessionList() {
         </div>
       )}
 
+      {loadError && <p role="alert">{loadError}</p>}
+      <DSHNotice status={dshError ? 'error' : dsh ? dshStatus(dsh) : undefined} error={dshError || dsh?.error} />
       {dshChannels.length > 0 && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-ink">DSH 频道</h3>
@@ -289,7 +296,7 @@ export default function SessionList() {
               >
                 <span className="shrink-0 text-[13px] font-medium text-ink">#{ch.name}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-ink-mute">
-                  {ch.last_message ? `${ch.last_message.name}：${ch.last_message.content}` : '还没有消息'}
+                  {ch.error ? `${t('dsh.messagesError', '消息读取失败')}: ${ch.error}` : ch.last_message ? `${ch.last_message.name}：${ch.last_message.content}` : t('dsh.noMessages', '还没有消息')}
                 </span>
                 {ch.updated_at && (
                   <span className="shrink-0 text-xs text-ink-mute tabular-nums">

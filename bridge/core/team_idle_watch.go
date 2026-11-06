@@ -426,6 +426,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			}
 		})
 		if ok && giveUp {
+			if e.reassignFailedWork(a, h) {
+				continue
+			}
 			e.escalateIdle(a.key, h, MsgWatchFailEscalate)
 			continue
 		}

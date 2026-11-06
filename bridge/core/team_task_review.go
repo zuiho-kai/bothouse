@@ -38,6 +38,9 @@ func taskReviewNote(it teamTaskBoardItem, now time.Time) string {
 	if who == "" {
 		who = "派活人"
 	}
+	if it.Deployed != nil {
+		return "待上线验收 · 等" + boardLabel(who)
+	}
 	if it.PRMerge != nil {
 		return "PR已合并 · 待收口 · 等" + boardLabel(who)
 	}
@@ -167,16 +170,20 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 	for _, source := range w.engines() {
 		source.reconcileRelayBoardReturns(now)
 	}
-	// Source: #72 checks merged, explicitly no-deploy work on the existing hourly roundup.
+	// Source: #72 checks merged, explicitly no-deploy work on the existing hourly roundup; #134 ③
+	// adds deploy bindings (merged → 等发布) and items waiting on a release (deployed → 待上线验收).
 	if roundup && e.isTeamLead() {
 		for _, it := range readTeamTaskBoard(e.team.dir) {
-			if it.PRBinding != nil && it.PRBinding.NoDeploy && it.PRBinding.Bound == it.Bound && it.PRMerge == nil && it.Paused == "" && it.Backlog == "" {
+			if it.PRBinding != nil && it.PRBinding.Bound == it.Bound && it.PRMerge == nil && it.Paused == "" && it.Backlog == "" {
 				if out, err := e.runLeadScript(it.Chat, "board", "merged"); err != nil {
 					slog.Warn("task review: merged PR reconciliation failed", "error", err, "output", string(out))
 				}
 				break
 			}
 		}
+	}
+	if roundup && e.isTeamLead() {
+		e.markDeployed()
 	}
 	type group struct {
 		reviewer *Engine

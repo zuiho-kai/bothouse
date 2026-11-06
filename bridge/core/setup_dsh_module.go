@@ -144,20 +144,26 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 		return state, nil, nil, err
 	}
 	var layers []*yaml.Node
+	missingModuleBundle := false
 	installAnchor := dshInstallAnchor()
 	for _, bundle := range manifest.DSH.Profile.Bundles {
 		packageDir := resolveDSHBundle(bundle, installAnchor, dir)
 		var pkg struct {
-			DSH struct{ Bundle struct{ Patch dshBundlePatch } }
+			DSH struct {
+				Bundle struct{ Patch dshBundlePatch }
+			}
 		}
 		raw, err := os.ReadFile(filepath.Join(packageDir, "package.json"))
 		if os.IsNotExist(err) {
-			// A desktop-only DeepSeek Harness runs its own bundles (@deepseek-ai/dsh-base,
-			// dsh-web-app) out of the app itself, so a profile lists them but they are never on
-			// disk. Their layers cannot be read from here either way, so skip them and judge the
-			// profile by the layers that exist; failing the whole read made `module add dsh` and
-			// `module list` report a machine install.sh had just finished as not installed (#191).
-			continue
+			// These host bundles may live inside the desktop app rather than node_modules (#1127).
+			if bundle == "@deepseek-ai/dsh-base" || bundle == "@deepseek-ai/dsh-web-app" {
+				continue
+			}
+			if dshPluginName(bundle) {
+				// Keep validating other layers before offering to repair this missing bundle.
+				missingModuleBundle = true
+				continue
+			}
 		}
 		if err != nil {
 			return state, nil, nil, fmt.Errorf("DSH bundle %s is not installed: %w", bundle, err)
@@ -241,6 +247,11 @@ func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 				}
 			}
 		}
+	}
+	if missingModuleBundle {
+		// Residual insertions cannot prove installation. With all layers validated,
+		// return an empty state without an error so module add can repair it.
+		return state, nil, doc, nil
 	}
 	state.Installed = len(plugins) > 0
 	state.Disabled = state.Installed

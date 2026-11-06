@@ -11,6 +11,8 @@ import {
   type GlobalProvider, type ProviderPreset, type ProviderModel, type CCSwitchProvider,
 } from '@/api/providers';
 import { cn } from '@/lib/utils';
+import { dshHomeUrl } from '@/lib/collabPages';
+import api from '@/api/client';
 
 type Tab = 'providers' | 'presets';
 
@@ -112,6 +114,12 @@ export default function ProviderList() {
           </>
         }
       />
+
+      <div className="rounded-card border border-hairline bg-surface p-4 text-sm text-ink-soft space-y-2">
+        <p>{t('dshManage.providerScope')}</p>
+        <p>{t('dshManage.dshProviderScope')} <a className="text-accent-text underline" href={dshHomeUrl(undefined, api.getToken())}>{t('dshManage.openDsh')}</a> · {t('dshManage.settingsModels')}</p>
+        <p>{t('dshManage.cliScope')}</p>
+      </div>
 
       {/* Tabs ride the sunken track with a raised pill: the same ladder the sidebar uses. */}
       <div className="flex w-fit gap-1 rounded-control bg-surface-sunken p-1 ring-1 ring-hairline">

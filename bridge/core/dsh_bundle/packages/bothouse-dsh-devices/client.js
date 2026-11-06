@@ -10,11 +10,12 @@ const NS = "bothouse-dsh-devices";
 const DICT = {"zh":{"label":"其他电脑"},"en":{"label":"Other computers"}};
 const BG = "var(--dsw-alias-bg-base)";
 // Same frame as client-ui-discord EmbedPage: same-origin page, relative to document.baseURI so
-// the panel proxy's /dsh/ prefix is kept.
+// the panel proxy's /dsh/ prefix is kept. Same-origin Referer lets the proxy verify
+// a port-less Origin; cross-origin destinations still receive no Referer.
 function EmbedPage({ path, title }) {
   const src = new URL(path, document.baseURI).toString();
   return jsx("div", { style: { boxSizing: "border-box", display: "flex", width: "100%", height: "100%", minHeight: 0, paddingTop: "var(--dsh-frame-top-clearance, 0px)", background: BG },
-    children: jsx("iframe", { src, title, loading: "lazy", referrerPolicy: "no-referrer", style: { flex: 1, width: "100%", height: "100%", border: 0, background: BG } }) });
+    children: jsx("iframe", { src, title, loading: "lazy", referrerPolicy: "same-origin", style: { flex: 1, width: "100%", height: "100%", border: 0, background: BG } }) });
 }
 function Icon({ size }) { return jsx(primitives.IconLinkOutlineRegular, { size }); }
 exports.inject = ["slots", "locale", "layout"];

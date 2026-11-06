@@ -33,6 +33,13 @@ const (
 	ProgressCardStateRunning   ProgressCardState = "running"
 	ProgressCardStateCompleted ProgressCardState = "completed"
 	ProgressCardStateFailed    ProgressCardState = "failed"
+	// ProgressCardStateSilent: the turn ended without a reply (NO_REPLY), so the card must not
+	// promise one in the next message (agentm jingyu 2026-11-05: timer turn, "完整答复见下一条消息", none came).
+	ProgressCardStateSilent ProgressCardState = "silent"
+	// ProgressCardStateAborted: the turn was interrupted (/stop, or a new message the gate judged
+	// as "stop"), so the card reads "已打断" and does not point to an error message that never
+	// comes (#1129, user 2026-11-06: card said 失败 + 见下一条错误详情, only「已打断」followed).
+	ProgressCardStateAborted ProgressCardState = "aborted"
 )
 
 type ProgressCardEntryKind string
@@ -104,7 +111,7 @@ func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent s
 	cleaned := make([]ProgressCardEntry, 0, len(items))
 	for _, item := range items {
 		text := strings.TrimSpace(item.Text)
-		if text == "" {
+		if text == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 			continue
 		}
 		kind := item.Kind
@@ -166,7 +173,7 @@ func ParseProgressCardPayload(content string) (*ProgressCardPayload, bool) {
 		item.Text = strings.TrimSpace(item.Text)
 		item.Tool = strings.TrimSpace(item.Tool)
 		item.Status = strings.TrimSpace(item.Status)
-		if item.Text == "" {
+		if item.Text == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 			continue
 		}
 		if item.Kind == "" {
@@ -449,7 +456,7 @@ func (w *compactProgressWriter) appendStructured(item ProgressCardEntry, fallbac
 	}
 	text := strings.TrimSpace(item.Text)
 	fallback = strings.TrimSpace(fallback)
-	if text == "" && fallback == "" {
+	if text == "" && fallback == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 		return true
 	}
 	if text == "" {
@@ -833,4 +840,13 @@ func StripModelOnlyToolText(s string) string {
 		out = append(out, line)
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// errorTurnCardState is the card end state for a turn that ended with an agent
+// error: an interrupted turn (/stop or gate abort) is "aborted", not "failed".
+func errorTurnCardState(cancelled bool) ProgressCardState {
+	if cancelled {
+		return ProgressCardStateAborted
+	}
+	return ProgressCardStateFailed
 }

@@ -193,6 +193,7 @@ jobs:
           python3 -I contrib/gate/test_board_workspace_lookup.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_board_prune.py
+      - run: python3 -I contrib/gate/test_board_review.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_sync_gate_modules.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}

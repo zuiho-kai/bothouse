@@ -37,9 +37,14 @@ export function collabPageUrl(
  * DSH app shell itself (opened on its channels panel) rather than a /collab page.
  */
 export function dshChannelsUrl(mountPath: string = BASE_PATH, token: string = ''): string {
+  return `${dshHomeUrl(mountPath, token)}#channels`;
+}
+
+/** DSH shell home, without assuming a stable settings deep link. */
+export function dshHomeUrl(mountPath: string = BASE_PATH, token: string = ''): string {
   const base = mountPath.replace(/\/+$/, '');
   const embedded = base === PANEL_MOUNT || base.endsWith(PANEL_MOUNT);
   const dshBase = embedded ? base.slice(0, -PANEL_MOUNT.length) : `${base}/dsh`;
   const query = !embedded && token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${dshBase}/${query}#channels`;
+  return `${dshBase}/${query}`;
 }

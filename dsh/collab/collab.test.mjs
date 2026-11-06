@@ -1403,7 +1403,18 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   const renamed = await roster.update('coder', { name: '码农', model: { provider: 'relay', model: 'm1' }, persona: '' });
   assert.equal(renamed.name, '码农');
   assert.equal(hub.members.get('coder').name, '码农');
+  // #176: a removed member must not stay the channel's primary role — the settings dialog can
+  // neither show nor clear a dead id, and repointing to it is refused.
+  hub.store.ensureRoom(7, 'lead-room');
+  hub.store.setLead(7, 'coder');
+  assert.equal((hub.primaryIn(7) ?? {}).id, 'coder');
+  const roomEvents = [];
+  const emit = hub.emit.bind(hub);
+  hub.emit = event => { roomEvents.push(event); return emit(event); };
   roster.remove('coder');
+  assert.equal(hub.store.leadId(7), null);
+  assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
   assert.equal(hub.store.members().some(m => m.id === 'coder'), false);
@@ -6397,4 +6408,26 @@ test('#155: a removed member\'s private chat is left out; a member without a sto
   const ids = store.roomsView().map(r => r.id);
   assert.equal(ids.includes(gone.id), false);
   assert.ok(ids.includes(bridge.id));
+});
+
+test('CLI configured member: collab dispatch applies fake ACP options before prompt', async () => {
+  const { CliMember } = await import('./cli-member.mjs');
+  const hub = makeHub(); const calls = [];
+  const options = (value) => [{ id:'model', type:'select', currentValue:value, options:[{value:'base',name:'Base'},{value:'chosen',name:'Chosen'}] }];
+  const agent = new CliMember({ cli:'codex', cwd:'/w' });
+  agent._start = async () => {
+    agent.ready=Promise.resolve({}); agent.exited=new Promise(()=>{}); agent.canLoad=true;
+    agent.conn={
+      newSession:async()=>({sessionId:'fake-acp',configOptions:options('base')}),
+      setSessionConfigOption:async({value})=>{calls.push('set:'+value);return {configOptions:options(value)};},
+      prompt:async({sessionId})=>{calls.push('prompt');agent.buffers.set(sessionId,'ok');return {};},
+    }; return agent.ready;
+  };
+  agent._defaultOptions = async () => options('base');
+  const members=cliMembers(hub,(...args)=>agent.ask(...args));
+  members.putMember({id:'cc',name:'CC',cli:'codex',cliConfig:{model:'chosen'},cliConfigManaged:true});
+  hub.post(1,{authorKind:'user',author:'owner',name:'我',text:'@CC test'}); await settle();
+  assert.deepEqual(calls,['set:chosen','prompt']);
+  assert.equal(hub.store.binding('cc',1).session_id,'fake-acp');
+  await members.close();hub.store.close();
 });

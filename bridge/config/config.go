@@ -616,6 +616,13 @@ type ProjectConfig struct {
 	ChatEffort          string `toml:"chat_effort,omitempty"`
 	TaskEffort          string `toml:"task_effort,omitempty"`
 	ModelTierStickyMins int    `toml:"model_tier_sticky_mins,omitempty"`
+	// FallbackModels (#134): models this bot switches between when a turn keeps failing with a
+	// temporary error (429, at capacity, 5xx, cut-off stream …) capacityAttempts times in a row.
+	// The next entry after the current model is tried (the list wraps, so two entries back each
+	// other up); the conversation is kept and the channel is told. Empty (default) = never switch.
+	// Source: 用户 2026-11-04 17:07「可以」（同角色连续429自动切备用中转/模型）; only ids the agent
+	// already lists are used, no new credentials.
+	FallbackModels []string `toml:"fallback_models,omitempty"`
 	// TeamStatusDir (maomao fork): write this project's busy/idle sessions to <dir>/<project>.json
 	// so teammates can see them. Empty disables the status board.
 	TeamStatusDir string `toml:"team_status_dir,omitempty"`
