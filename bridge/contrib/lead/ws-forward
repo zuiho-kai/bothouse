@@ -81,6 +81,16 @@ def main(argv):
         # 提问后工作区已让出（board ask / ws-up --ask）：答复交 ws-handoff --resume 找空工作区接着做，不发去旧工作区
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
         sys.exit(r.returncode)
+    live = next((i for i in board.items() if i.get("where") == last["file"] and i.get("chat") and not i.get("paused")), None)
+    if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
+        if live.get("ws"):
+            last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个
+        else:
+            # 这件活已交回、让出了原工作区（交回待验收、排队等），原工作区可能已归别的聊天频道：不发去旧工作区，
+            # 交 ws-handoff --resume 找空着的接着做（都占着就新建或排队）。来源 #1154：11-06 23:02 记忆论坛的转话
+            # 发进了已在做小剧场的工作区2，截图落到小剧场频道，用户「为什么会推到这边来」。
+            r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
+            sys.exit(r.returncode)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     append_result(last["file"], argv[0], now)
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt), capture_output=True, text=True)

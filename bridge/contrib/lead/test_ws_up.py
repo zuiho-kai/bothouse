@@ -59,6 +59,18 @@ class WsUpTest(unittest.TestCase):
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
 
+    def test_image_goes_to_source_chat(self):  # #1154：截图按交接记的来源聊天频道发，不手写 send -s
+        img = self.tmp / "shot.png"; img.write_bytes(b"png")
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        r = self.run_tool("ws-up", "首屏截图", "--image", str(img), key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sent = [t for t in self.timers() if t[:1] == ["send"] and "--image" in t]
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][sent[0].index("-s") + 1], "test:100")
+        self.assertEqual(sent[0][sent[0].index("--image") + 1], str(img))
+        r = self.run_tool("ws-up", "缺图", "--image", str(self.tmp / "nope.png"), key="test:900")
+        self.assertNotEqual(r.returncode, 0)
+
     def test_ask_mode(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
         r = self.run_tool("ws-up", "选哪个？", "--ask", key="test:900")
@@ -347,6 +359,25 @@ class WsPoolTest(unittest.TestCase):
         self.assertIn("--inject-if-busy", argv)
         self.assertEqual(argv[argv.index("--delay") + 1], "1s")
         self.assertEqual(argv[argv.index("-s") + 1], "test:1")
+
+    def test_forward_after_return_goes_to_free_workspace(self):
+        """#1154：交回后原工作区被别的聊天频道领走，再转话不发去旧工作区，改派空着的。"""
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        notes = self.note("x")
+        self.assertEqual(self.handoff(notes, "X"), "test:1")
+        f = self.tmp / "board" / "board.jsonl"
+        rows = self.items()
+        rows[0].pop("ws", None); rows[0]["returned_at"] = "2026-11-06T09:00:00+00:00"  # 交回待验收：工作区已让出
+        f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+        self.pool([{"id": "1", "name": "工作区1", "owner": "test:200", "open": 1, "parked": 0},
+                   {"id": "2", "name": "工作区2", "owner": "", "open": 0, "parked": 0}])
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--notes", notes, "截图发上来"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        timers = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines()) if c[:2] == ["timer", "add"]]
+        self.assertFalse([c for c in timers if c[c.index("-s") + 1] == "test:1" and "工作区转交" in c])
+        self.assertEqual(self.items()[0].get("ws"), "test:2")
+        self.assertIn("截图发上来", Path(notes).read_text(encoding="utf-8"))
 
     def test_forward_failure_records_undelivered(self):
         """#75：叫不醒就不算送到 —— timer 失败时交接里要留下「没送到」的事实，退出码非 0。"""
