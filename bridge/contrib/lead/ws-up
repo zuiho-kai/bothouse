@@ -4,6 +4,7 @@
 # 用法：ws-up [--notes <交接文件>] "<内容>" [--ask]
 #   报给谁：按 <GATE_SETUP_DIR>/ws-handoff-last.json 的 tasks（ws-handoff 按交接文件记的来源聊天频道）找。
 #   --notes 指定是哪件活（交接文件），报给交它进来的聊天频道。
+#   --image/--file（可重复）：截图、视频、文件一并发到这件活的来源聊天频道（不手写 bothouse send -s，#1154）。
 #   不给时：交给本工作区（CC_SESSION_KEY）的活只来自一个聊天频道就报给它；来自多个就报错列出可选项，不猜。
 #   老格式（没有 tasks）只认顶层 channel/chat。
 #   叫醒的身份是调用者自己的 CC_PROJECT（即正在当主的那位，见 _team.py），平台/频道 ID 都不写死。
@@ -17,7 +18,7 @@ import _team  # noqa: E402
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
-USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask]'
+USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...'
 
 
 def bare(key: str) -> str:
@@ -143,10 +144,15 @@ def main(argv):
     if any(a in ("-h", "--help") for a in argv):  # 只打印用法，不发送
         print(f"用法：{USAGE}")
         return
-    ask, notes, rest, it = False, None, [], iter(argv)
+    ask, notes, rest, files, it = False, None, [], [], iter(argv)
     for a in it:
         if a == "--ask":
             ask = True
+        elif a in ("--image", "--file"):
+            p = next(it, "")
+            if not p or not os.path.isfile(os.path.expanduser(p)):
+                sys.exit(f"用法：{USAGE}（{a} 后面要跟存在的文件：{p or '空'}）")
+            files += [a, os.path.abspath(os.path.expanduser(p))]
         elif a == "--notes":
             notes = next(it, "")
             if not notes:
@@ -172,6 +178,12 @@ def main(argv):
         say(key, f"🧪 测试活，未报回聊天频道：{rest[0][:300]}", _team.project())
         print(f"ws-up: 测试活（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
+    if files:
+        # 附件直接发到这件活的来源聊天频道（pick_chat 按交接记录定，不按工作区眼下挂着的频道），发不出就不上报
+        a = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", chat, *files, "--message", rest[0][:300]],
+                           capture_output=True, text=True, timeout=300)
+        if a.returncode != 0:
+            sys.exit(f"ws-up: 附件发到 {chat} 失败：{a.stderr.strip() or a.stdout.strip()}")
     r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path,
                                  next(iter(rec.get("board") or []), 0)),
                        capture_output=True, text=True)
