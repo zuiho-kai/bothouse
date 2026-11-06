@@ -710,11 +710,16 @@
   font-size: 12px;
 }
 
-.input {
+.inputSurface {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.input,
+.inputHighlights {
   box-sizing: border-box;
   width: 100%;
-  max-height: 40vh;
-  min-height: 52px;
   padding: 14px 16px 8px;
   border: 0;
   border-radius: 0;
@@ -722,14 +727,50 @@
   background: transparent;
   font: inherit;
   line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.input {
+  max-height: 40vh;
+  min-height: 52px;
+  min-width: 0;
   resize: none;
   field-sizing: content;
   flex: 1;
-  min-width: 0;
+  color: transparent;
+  caret-color: var(--dsw-alias-label-primary);
+}
+
+.inputHighlights {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Badge colors are shared with messages; decoration must not move the native caret. */
+.inputHighlights .inputMention {
+  display: inline;
+  padding: 0;
+  font-weight: inherit;
+  cursor: inherit;
+}
+
+/* Leave IME preedit text and underlines to the native control. */
+.inputComposing .input { color: var(--dsw-alias-label-primary); }
+.inputComposing .inputHighlights { visibility: hidden; }
+
+@media (forced-colors: active) {
+  .input { color: CanvasText; caret-color: CanvasText; }
+  .inputHighlights { display: none; }
 }
 
 /* field-sizing sizes an empty box to its placeholder: keep that to one line and cut it with an ellipsis. */
 .input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -738,7 +779,7 @@
 @media (max-width: 600px) {
   .composer { padding: 0 8px 8px; }
   .composerToolbar { padding: 4px 8px 8px; }
-  .input { padding: 12px 14px 8px; }
+  .input, .inputHighlights { padding: 12px 14px 8px; }
 }
 
 .input:focus-visible {
