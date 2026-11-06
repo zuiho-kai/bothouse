@@ -373,6 +373,27 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   // A finished run in the brief view folds to its summary line; running or detailed shows the steps.
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
   const chips = role === 'progress' ? chipsOf(card) : undefined
+  // System notices and progress cards are not conversation turns, so they take no reply.
+  // #1016: hover toolbar — copy the Markdown, reply with a quote, put the message on the task board.
+  const tools = message.author_kind !== 'system' && card === undefined
+    ? (
+        <span className={css.msgTools} data-message-tools>
+          {toolNote !== undefined && <span className={css.msgToolNote} role="status">{toolNote.text}</span>}
+          {/* #1017: icons with a label 80 ms after hover (data-tip); aria-label keeps the name for readers. */}
+          {message.text !== '' && <button type="button" className={css.msgTool} data-tip={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></svg>
+          </button>}
+          <button type="button" className={`${css.msgTool} ${css.replyButton}`} data-tip={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v5" /></svg>
+          </button>
+          {onTask !== undefined && message.text.trim() !== '' && <button type="button" className={css.msgTool} data-tip={t('toolTaskHint')} aria-label={t('toolTask')} disabled={toolNote?.tool === 'task' && toolNote.text === t('toolTasking')} onClick={toTask}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
+          </button>}
+        </span>
+      )
+    : undefined
+  // #235: the toolbar sits beside the message's own bubble (text, or attachments when there is no text), not at the row's edge.
+  const toolsBesideBubble = tools !== undefined && own?.editing === undefined && (message.text !== '' || (message.attachments?.length ?? 0) > 0)
   return (
     <div className={classes} data-message-id={message.id} data-queued={queuedFor !== undefined || undefined} data-tools-open={toolsOpen || undefined} style={enterStyle}
       onTouchStart={startPress} onTouchEnd={endPress} onTouchMove={endPress} onTouchCancel={endPress}
@@ -440,7 +461,10 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
               </div>
             )
           : card === undefined
-          ? <>{message.text !== '' && <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />}<AttachmentList attachments={message.attachments} t={t} />
+          ? <>{message.text !== ''
+                ? <div className={css.bubbleLine}><HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />{toolsBesideBubble && tools}</div>
+                : toolsBesideBubble && <div className={css.bubbleLine}><AttachmentList attachments={message.attachments} t={t} />{tools}</div>}
+              {(message.text !== '' || !toolsBesideBubble) && <AttachmentList attachments={message.attachments} t={t} />}
               {delivered !== undefined && <DeliveryPreview page={delivered.page} task={delivered.task} t={t} onReview={onReview} onRevise={() => { onReply(message) }} />}</>
           : role === 'progress'
           ? (
@@ -495,23 +519,8 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
         {taskCards.map(task => <div key={task.id} className={`${css.card} ${css.taskAnchor}`} data-anchored-task={task.id}><TaskCard taskId={task.id} tasks={tasks} t={t} /></div>)}
         {message.memories !== undefined && message.memories.length > 0 && <MemoryBadge items={message.memories} t={t} />}
       </div>
-      {/* System notices and progress cards are not conversation turns, so they take no reply. */}
-      {message.author_kind !== 'system' && card === undefined && (
-        // #1016: hover toolbar — copy the Markdown, reply with a quote, put the message on the task board.
-        <span className={css.msgTools} data-message-tools>
-          {toolNote !== undefined && <span className={css.msgToolNote} role="status">{toolNote.text}</span>}
-          {/* #1017: icons with a label 80 ms after hover (data-tip); aria-label keeps the name for readers. */}
-          {message.text !== '' && <button type="button" className={css.msgTool} data-tip={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></svg>
-          </button>}
-          <button type="button" className={`${css.msgTool} ${css.replyButton}`} data-tip={t('reply')} aria-label={t('reply')} onClick={() => { onReply(message) }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v5" /></svg>
-          </button>
-          {onTask !== undefined && message.text.trim() !== '' && <button type="button" className={css.msgTool} data-tip={t('toolTaskHint')} aria-label={t('toolTask')} disabled={toolNote?.tool === 'task' && toolNote.text === t('toolTasking')} onClick={toTask}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
-          </button>}
-        </span>
-      )}
+      {/* #235: no bubble to sit beside (editing, or nothing to show) — keep the row-edge toolbar. */}
+      {tools !== undefined && !toolsBesideBubble && tools}
     </div>
   )
 }
