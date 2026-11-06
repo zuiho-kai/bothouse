@@ -1031,11 +1031,68 @@ def reject(nid, reason):
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
         hit["review_rejected"] = reason
-        hit["pause_why"] = "验收退回：" + reason
+        rounds = hit.get("reject_reasons") or []
+        rounds.append(reason)
+        hit["reject_reasons"] = rounds
+        # 返工上限（11-06 用户：评审死循环）：第二次退回不再续做，停下等用户定；ws-handoff --resume 会拒。
+        capped = len(rounds) >= REWORK_CAP
+        if capped:
+            hit["rework_cap"] = True
+            hit["pause_why"] = f"{REWORK_CAP_WHY}：" + reason
+        else:
+            hit["pause_why"] = "验收退回：" + reason
         hit["status"] = hit["pause_why"]
         _write(cur)
         event(nid, "rejected", hit, reason)
-    return True
+        snap = dict(hit)
+    if capped:
+        _ask_rework_cap(snap)
+    return "capped" if capped else True
+
+
+REWORK_CAP = 2
+REWORK_CAP_WHY = "两轮未过，等用户"
+
+
+def _clip(s, n=80):
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+def _worker_side(it):
+    """干活这边的说法：交接同目录 report-<编号>.md（交回草稿）里「做了什么」那行；没有就指回工作区交回。"""
+    where = it.get("where") or ""
+    f = os.path.join(os.path.dirname(where), f"report-{it['id']}.md") if where else ""
+    try:
+        lines = [l.strip() for l in open(f, encoding="utf-8") if l.strip()]
+    except OSError:
+        lines = []
+    if len(lines) >= 2 and lines[0].startswith("[report]"):
+        return _clip(lines[1])
+    return "见工作区最后一次交回"
+
+
+def _ask_rework_cap(it):
+    """第二次退回：交接里记一笔，并在聊天频道发 [ask] 让用户定（失败只写 stderr，不拦退回）。"""
+    nid, rounds = it["id"], it.get("reject_reasons") or []
+    text = (f"[ask] #{nid} 背景：「{it.get('what', '')}」验收退回两次，按返工上限先停下，等你定。\n"
+            f"验收这边：第一次「{_clip(rounds[0])}」，第二次「{_clip(rounds[-1])}」。\n"
+            f"干活这边：{_worker_side(it)}\n"
+            "要你做的：定接着改（说清按谁的标准）、换人做，还是按现在的收。")
+    if it.get("where") and os.path.isfile(it["where"]):
+        append_forward(it["where"], f"{_now()} {REWORK_CAP_WHY}（#{nid}）：第二次退回「{rounds[-1]}」；ws-handoff --resume 已停用，等用户定。")
+    chat, proj = it.get("chat") or it.get("sk") or "", it.get("project") or os.environ.get("CC_PROJECT", "")
+    if not chat or not proj:
+        print(f"board: #{nid} 没有聊天频道或项目，[ask] 没发：\n{text}", file=sys.stderr)
+        return
+    binp = os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
+    try:
+        r = subprocess.run([binp, "send", "-p", proj, "-s", chat, "--message", text.replace("<@", "<\u200b@")],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}")
+    except Exception as e:
+        print(f"board: #{nid} [ask] 没发出去（{e}），请转给用户：\n{text}", file=sys.stderr)
 
 
 def rebind(nid, ws):
@@ -1590,9 +1647,13 @@ def main(argv):
                 sys.exit("条目不存在，未登记交回")
             print("已交回待验收")
         elif cmd == "reject" and len(argv) == 3 and argv[2].strip():
-            if not reject(int(argv[1].lstrip("#")), argv[2].strip()):
+            got = reject(int(argv[1].lstrip("#")), argv[2].strip())
+            if not got:
                 sys.exit("条目不在待验收状态，未退回")
-            print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
+            if got == "capped":
+                print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，已在聊天频道发 [ask] 请用户定；ws-handoff --resume 不再续做")
+            else:
+                print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))
