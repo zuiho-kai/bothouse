@@ -132,4 +132,7 @@ func TestNew_ProjectEnvOverridesProviderEnv(t *testing.T) {
 	if got := envMap["ANTHROPIC_MODEL"]; got != "deepseek-chat" {
 		t.Errorf("ANTHROPIC_MODEL = %q, want %q", got, "deepseek-chat")
 	}
+	if got := envMap["DISABLE_AUTO_COMPACT"]; got != "1" {
+		t.Errorf("DISABLE_AUTO_COMPACT = %q, want 1 (the bridge starts fresh sessions instead)", got)
+	}
 }

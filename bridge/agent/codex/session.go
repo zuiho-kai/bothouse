@@ -909,6 +909,14 @@ func (cs *codexSession) GetContextUsage() *core.ContextUsage {
 	return cloneContextUsage(cs.contextUsage)
 }
 
+// ReportedContextWindow: see appServerSession.ReportedContextWindow.
+func (cs *codexSession) ReportedContextWindow() int {
+	if u := cs.GetContextUsage(); u != nil {
+		return u.ContextWindow
+	}
+	return 0
+}
+
 func (cs *codexSession) runtimeConfig() (string, string) {
 	cs.runtimeCfgMu.Lock()
 	defer cs.runtimeCfgMu.Unlock()
