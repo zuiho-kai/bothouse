@@ -31,9 +31,6 @@ export const PAGES = [
     pkg: 'bothouse-dsh-devices', id: 'collab-devices', path: 'collab/devices', order: 9, icon: 'IconLinkOutlineRegular',
     zh: { label: '其他电脑', desc: '用一次性号码配对另一台电脑，操作它的频道、工作台和面板。' },
     en: { label: 'Other computers', desc: 'Pair another computer by a one-time number and drive its channels, desk and panel.' },
-    // #131: while this window is open, keep its 「直到我断开」 remote links alive. Same beat as
-    // dsh/collab/pairing.mjs ALIVE_EVERY_MS. Lives here so turning the page off stops the beat.
-    heartbeat: 3000,
   },
 ]
 
@@ -73,14 +70,6 @@ ${page.galaxy ? `  ctx.slots.inject("main", () => ctx.slots.register({
   }, EmbedPage));
   // After the registrations: selecting a panel whose main entry is not registered yet fails.
   if (location.hash === "#${page.galaxy.id}") ctx.layout.selectPanel(${JSON.stringify(page.galaxy.id)});
-` : ''}${page.heartbeat ? `  ctx.effect(() => {
-    const beat = () => {
-      globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), { method: "POST", credentials: "same-origin" }).catch(() => {});
-    };
-    beat();
-    const timer = setInterval(beat, ${page.heartbeat});
-    return () => clearInterval(timer);
-  }, NS + ": remote link heartbeat");
 ` : ''}  if (location.hash === "#${page.id}") ctx.layout.selectPanel(${JSON.stringify(page.id)});
 };
 `

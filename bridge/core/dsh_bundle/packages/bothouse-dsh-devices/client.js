@@ -29,14 +29,6 @@ exports.apply = function apply(ctx) {
   ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
     name: "sidebar.panellist", id: "collab-devices", order: 9, locale: NS, label: () => t("label"),
   }, Icon));
-  ctx.effect(() => {
-    const beat = () => {
-      globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), { method: "POST", credentials: "same-origin" }).catch(() => {});
-    };
-    beat();
-    const timer = setInterval(beat, 3000);
-    return () => clearInterval(timer);
-  }, NS + ": remote link heartbeat");
   if (location.hash === "#collab-devices") ctx.layout.selectPanel("collab-devices");
 };
 

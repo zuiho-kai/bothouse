@@ -1,5 +1,7 @@
 // #1044: the committed page packages are what build.mjs generates, and each one registers exactly
-// its own sidebar entry and page (the panel also the wiki-galaxy page; only other-computers beats).
+// its own sidebar entry and page (the panel also the wiki-galaxy page). #238: no package may beat
+// on its own — the other-computers page beats from its own page script, and only while an
+// 「直到我断开」 link is connected, so a DSH window with nothing paired must stay silent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -29,10 +31,10 @@ function load(name) {
   return mod;
 }
 
-for (const [name, sidebar, mains, beats] of [
-  ['bothouse-dsh-desk', ['collab-desk'], ['collab-desk'], false],
-  ['bothouse-dsh-panel', ['bothouse-panel'], ['bothouse-panel', 'wiki-galaxy'], false],
-  ['bothouse-dsh-devices', ['collab-devices'], ['collab-devices'], true],
+for (const [name, sidebar, mains] of [
+  ['bothouse-dsh-desk', ['collab-desk'], ['collab-desk']],
+  ['bothouse-dsh-panel', ['bothouse-panel'], ['bothouse-panel', 'wiki-galaxy']],
+  ['bothouse-dsh-devices', ['collab-devices'], ['collab-devices']],
 ]) {
   test(`${name} registers its own page`, () => {
     const mod = load(name);
@@ -59,12 +61,21 @@ for (const [name, sidebar, mains, beats] of [
       assert.equal(frame.type, 'iframe');
       assert.equal(frame.props.referrerPolicy, 'same-origin', `${def.key} must send the same-origin Referer`);
     }
-    assert.deepEqual(intervals, beats ? [3000] : []);
+    assert.deepEqual(intervals, [], `${name} must not start a timer (panel closed must not keep a link alive)`);
     const pkg = JSON.parse(readFileSync(join(here, '..', name, 'package.json'), 'utf8'));
     assert.equal(pkg.exports['./locale/*.json'], './locale/*.json', 'the Plugins page reads row titles from locale/');
     assert.ok(JSON.parse(readFileSync(join(here, '..', name, 'locale/zh.json'), 'utf8')).meta.title);
   });
 }
+
+// #238: the beat belongs to the devices page, which knows whether a link needs it. A package-level
+// beat fires in every DSH window whether or not anything is paired, which is what the user reported.
+test('no page package sends the remote-link heartbeat itself', () => {
+  for (const name of NAMES) {
+    const client = readFileSync(join(here, '..', name, 'client.js'), 'utf8');
+    assert.ok(!client.includes('api/remote/alive'), `${name}/client.js must not POST the alive beat`);
+  }
+});
 
 // Exercise the shipped legacy client function, including the untrusted delivery path.
 test('legacy bundle only sends a Referer for trusted embeds', () => {
