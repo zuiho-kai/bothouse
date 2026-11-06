@@ -644,20 +644,23 @@ type queuedMessage struct {
 	authorization *AuthorizationTurn
 	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
-	resumedFrom       string
-	timerJobID        string
-	cronJobID         string
-	resumeNoProgress  int
-	resumeFallback    string
-	messageID         string
-	platform          Platform
-	replyCtx          any
-	content           string
-	ambientChat       string // background to include once when queued messages are batched
-	reference         *MessageReference
-	images            []ImageAttachment
-	files             []FileAttachment
-	fromVoice         bool
+	resumedFrom      string
+	timerJobID       string
+	cronJobID        string
+	resumeNoProgress int
+	resumeFallback   string
+	messageID        string
+	platform         Platform
+	replyCtx         any
+	content          string
+	ambientChat      string // background to include once when queued messages are batched
+	reference        *MessageReference
+	images           []ImageAttachment
+	files            []FileAttachment
+	fromVoice        bool
+	// #215: content already carries the per-part speech marks (mergeQueuedChat marks each
+	// voice part where it sits), so the prompt must not mark the whole text again.
+	voiceMarked       bool
 	userID            string
 	userName          string // sender's display name for sender injection
 	msgPlatform       string // platform name for sender injection
@@ -4067,6 +4070,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		images:              msg.Images,
 		files:               msg.Files,
 		fromVoice:           msg.FromVoice,
+		voiceMarked:         msg.voiceMarked, // #215: a re-queued batch keeps its per-part marks
 		userID:              msg.UserID,
 		userName:            msg.UserName,
 		turnCtx:             msg.TurnCtx,
@@ -4935,7 +4939,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			images = append(imgs, images...)
 		}
 		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
-		content = withVoiceNote(content, msg.FromVoice)
+		// voiceMarked: a merged queue batch already carries its per-part marks, so this
+		// turn must not mark the whole text again (#215).
+		content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
 		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
@@ -7857,7 +7863,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				*chainedQueued = queued
 				queued.content = session.renderReference(queued.content, queued.reference)
 				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-				queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+				queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
@@ -8444,7 +8450,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
 		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()

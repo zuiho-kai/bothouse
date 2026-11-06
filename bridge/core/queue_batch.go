@@ -170,15 +170,21 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 			b.WriteString("（@你）")
 		}
 		b.WriteString("：\n")
+		// A part that is itself a re-queued batch already carries its own per-part marks
+		// (voiceMarked); wrapping it again would call its typed parts speech.
+		mark := p.fromVoice && !p.voiceMarked
 		if i == 0 {
-			b.WriteString(p.content)
+			b.WriteString(withVoiceNote(p.content, mark))
 		} else {
-			b.WriteString(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}))
+			b.WriteString(withVoiceNote(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}), mark))
 		}
 		b.WriteString("\n")
 	}
 	out.content = strings.TrimRight(b.String(), "\n")
+	// #215: each voice part was marked where it sits, so the caller must not mark the whole
+	// batch again — that would call typed parts speech and put the mark above every part.
 	for _, p := range parts {
+		out.voiceMarked = out.voiceMarked || p.fromVoice || p.voiceMarked
 		out.mentioned = out.mentioned || p.mentioned
 	}
 	return out
