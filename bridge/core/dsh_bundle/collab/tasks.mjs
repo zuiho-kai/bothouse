@@ -48,12 +48,17 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  * The text follows bridge/core/i18n.go; keep both in step.
  */
 const WATCH_NOTICE_PREFIXES = ['看门：', '看門：', 'Watch: ', '見守り：'];
-const WATCH_RESUME_TAILS = ['做完再结束本轮，交回时第一行写 [report]', '做完再結束本輪，交回時第一行寫 [report]',
-  'and finish it; when done, start the reply with [report]', '完了したら返信の1行目を [report] にしてください',
-  'al terminar, empieza la respuesta con [report]'];
+const WATCH_RESUME_LINES = [
+  /^接着做 .+，做完再结束本轮，交回时第一行写 \[report\]$/,
+  /^接著做 .+，做完再結束本輪，交回時第一行寫 \[report\]$/,
+  /^Continue .+ and finish it; when done, start the reply with \[report\]$/,
+  /^.+ を続けて完了させてください。完了したら返信の1行目を \[report\] にしてください$/,
+  /^Continúa .+ hasta terminarlo; al terminar, empieza la respuesta con \[report\]$/,
+];
 export function isWatchNotice(text, team = []) {
-  const body = withoutLeadingMentions(String(text), team).trimStart();
-  return WATCH_NOTICE_PREFIXES.some(p => body.startsWith(p)) || WATCH_RESUME_TAILS.some(t => body.includes(t));
+  // A wake may have a handoff-file line after it. A report instruction elsewhere in a dispatch is not a wake.
+  const first = withoutLeadingMentions(String(text), team).split('\n', 1)[0].trim();
+  return WATCH_NOTICE_PREFIXES.some(p => first.startsWith(p)) || WATCH_RESUME_LINES.some(p => p.test(first));
 }
 
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
@@ -661,6 +666,9 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
+    const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
+    // Watch posts arrive as the lead. Ignore them before verdicts, stances, hand-backs or implicit reviews.
+    if (msg.author === lead?.id && isWatchNotice(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
     if (this.verdictsOf(msg)) return undefined;
     this.settleCall(msg);
     const stance = this.stanceOf(msg);
@@ -804,8 +812,6 @@ export class Tasks {
       const names = team.map(m => m.name);
       for (const m of team) if (nameCalled(text, m.name, names)) called.add(m.id);
       called.delete(lead.id);
-      // The bridge watch's wake and escalation (posted as the lead) chase open work; they dispatch nothing.
-      if (isWatchNotice(text, team)) return undefined;
       const title = taskTitle(text, team);
       if (!title) return undefined;
       for (const owner of called) {
