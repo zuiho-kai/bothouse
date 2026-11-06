@@ -560,6 +560,10 @@ def resume_answered(nid, answer):
     it = next((i for i in board.items() if i["id"] == nid), None)
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
+    if it.get("rework_cap") and it.get("paused"):
+        # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
+        sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
+                 "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
     source = "验收退回" if it.get("review_rejected") else "用户答复"
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）
