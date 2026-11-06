@@ -2,11 +2,13 @@
 // message JSON. These tests drive the real HTTP server + Attachments pair, and
 // measure the three sizes the PR reports (100 MB / 500 MB / 1 GB).
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { Attachments, DEFAULT_MAX_UPLOAD_BYTES, MAX_BOT_ATTACHMENT_BYTES, formatBytes, oversizedNote } from './attachments.mjs';
 import { streamUploadRoute } from './plugin.mjs';
 
@@ -40,6 +42,91 @@ function bodyOf(total, chunk = 256 * 1024) {
       controller.enqueue(new Uint8Array(size).fill(7));
     },
   });
+}
+
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+// 20 ms: the in-process sampler below sampled every 5 ms; a streaming pipeline holds at
+// most a chunk or two between samples, so 20 ms still catches a whole-file read while
+// adding far less overhead on a slow Windows runner.
+const SAMPLE_MS = 20;
+
+// #252: the RSS check must measure the *server*, not this test process.
+// createServer and the fetch that sends the body used to share one process, so its RSS
+// also counted undici's send buffers and not-yet-collected chunks: CI saw +77 MB for a
+// 100 MB upload on Linux and +404 MB for 500 MB on Windows — the sender's cost read as
+// the server's. Here the same real route runs in a child process that reports its own
+// RSS every SAMPLE_MS; the parent only streams the body.
+const UPLOAD_SERVER_CHILD = `
+import { createServer } from 'node:http';
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+
+const { Attachments } = await import(pathToFileURL(join(process.env.COLLAB_DIR, 'attachments.mjs')).href);
+const { streamUploadRoute } = await import(pathToFileURL(join(process.env.COLLAB_DIR, 'plugin.mjs')).href);
+const files = new Attachments(process.env.UPLOAD_DIR);
+// Collect first: without it the sample counts chunks that are garbage but not yet
+// collected, which is what made the old in-process numbers depend on block size and GC
+// timing. With it the sample is what the server actually keeps, i.e. whether the file
+// was loaded whole rather than streamed.
+const sample = () => { globalThis.gc?.(); process.stdout.write(JSON.stringify({ rss: process.memoryUsage().rss }) + '\\n'); };
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://collab.invalid');
+  const out = streamUploadRoute(req, res, url, { files, maxBytes: Number(process.env.MAX_BYTES) });
+  if (out === undefined) {
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end('{"error":"not found"}');
+  }
+});
+await new Promise(done => server.listen(0, '127.0.0.1', done));
+setInterval(sample, Number(process.env.SAMPLE_MS));
+process.stdout.write(JSON.stringify({ ready: true, port: server.address().port, rss: process.memoryUsage().rss }) + '\\n');
+`;
+
+/** The real upload route, with the server in its own process reporting that process's RSS. */
+async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir } = {}) {
+  const attachmentsDir = dir ?? join(mkdtempSync(join(tmpdir(), 'collab-stream-')), 'attachments');
+  // --expose-gc: the child's sampler collects before each reading (see `sample` below).
+  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e', UPLOAD_SERVER_CHILD], {
+    env: { ...process.env, UPLOAD_DIR: attachmentsDir, COLLAB_DIR: moduleDir, MAX_BYTES: String(maxBytes), SAMPLE_MS: String(SAMPLE_MS) },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  child.stdout.setEncoding('utf8');
+  let pending = '';
+  let last = 0;
+  let peak = 0;
+  let baseline = 0;
+  let resolveReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  child.stdout.on('data', (chunk) => {
+    pending += chunk;
+    for (let cut = pending.indexOf('\n'); cut >= 0; cut = pending.indexOf('\n')) {
+      const line = pending.slice(0, cut);
+      pending = pending.slice(cut + 1);
+      if (!line) continue;
+      const sample = JSON.parse(line);
+      last = sample.rss;
+      if (sample.ready) { resolveReady(sample.port); continue; }
+      peak = Math.max(peak, sample.rss);
+    }
+  });
+  child.on('error', error => rejectReady(error));
+  const exited = new Promise(done => child.on('exit', done));
+  const port = await ready;
+  return {
+    dir: attachmentsDir,
+    base: `http://127.0.0.1:${port}/collab/api/attachments`,
+    /** Baseline is the server's last reported RSS, so startup and earlier uploads do not count. */
+    reset() { baseline = last; peak = last; },
+    grownMB() { return Math.round((peak - baseline) / 1024 / 1024); },
+    async close() {
+      if (child.exitCode !== null || child.signalCode !== null) { await exited; return; }
+      const kill = setTimeout(() => child.kill('SIGKILL'), 5000);
+      child.kill('SIGTERM');
+      await exited;
+      clearTimeout(kill);
+    },
+  };
 }
 
 test('#197: a streamed upload lands on disk with its name and size; the bytes never enter the message JSON', async () => {
@@ -147,34 +234,41 @@ test('#197: a file over the bot connection cap is not inlined: the bot gets its 
 });
 
 // 来源: the owner's 「需要大一些 尽可能大」 (2026-11-05 21:01) plus the measurement the
-// PR reports. Each size streams over the real HTTP route into a temp dir and the
-// server's RSS is sampled while it runs; the default cap keeps the largest one that
-// works here with room to spare.
+// PR reports. Each size streams over the real HTTP route into a temp dir; the server's
+// own process reports its RSS (#252), so the sender and its buffers are not counted.
 test('#197: 100 MB, 500 MB and 1 GB stream through without loading the file into memory', { timeout: 300_000 }, async () => {
-  const server = await uploadServer();
+  const server = await streamingUploadServer();
   try {
+    // Warm-up: the first large upload on a fresh server allocates its parser, stream and
+    // allocator arenas once — measured here as +25..45 MB for the first 100 MB and +24 MB
+    // for the next 500 MB, then +0..12 MB for every later upload of any size. Streaming one
+    // 100 MB body first makes the readings below answer the actual question: does each
+    // upload add memory proportional to the file, or does the server stay at steady state?
+    // It is the same real upload path, and nothing the assertions check is skipped.
+    const warm = await fetch(`${server.base}/?name=warm.bin`, { method: 'POST', body: bodyOf(100 * 1024 * 1024, 4 * 1024 * 1024), duplex: 'half' });
+    assert.equal(warm.status, 201);
+    unlinkSync(join(server.dir, (await warm.json()).attachment.id));
     for (const mb of [100, 500, 1024]) {
       const total = mb * 1024 * 1024;
-      const before = process.memoryUsage().rss;
-      let peak = before;
-      const sampler = setInterval(() => { peak = Math.max(peak, process.memoryUsage().rss); }, 5);
+      server.reset();
       const started = performance.now();
       const res = await fetch(`${server.base}/?name=${mb}mb.bin&mime=application/octet-stream`,
         { method: 'POST', body: bodyOf(total, 4 * 1024 * 1024), duplex: 'half' });
       const { attachment } = await res.json();
       const ms = Math.round(performance.now() - started);
-      clearInterval(sampler);
+      // Three sample intervals, so a reading taken just before the last write still arrives.
+      await new Promise(done => setTimeout(done, SAMPLE_MS * 3));
       assert.equal(res.status, 201, `${mb} MB`);
       assert.equal(attachment.size, total);
-      const stored = join(server.files.dir, attachment.id);
+      const stored = join(server.dir, attachment.id);
       assert.equal(statSync(stored).size, total);
       // One size on disk at a time: the measurement must not need 1.6 GB of temp space.
       unlinkSync(stored);
-      const grown = Math.round((peak - before) / 1024 / 1024);
+      const grown = server.grownMB();
       // A base64 body of this size would have cost ~1.33x the file in the process.
-      assert.ok(grown < mb / 2, `${mb} MB grew RSS by ${grown} MB`);
+      assert.ok(grown < mb / 2, `${mb} MB grew server RSS by ${grown} MB`);
       assert.ok(ms < 120_000, `${mb} MB took ${ms} ms`);
-      quiet.info(`${mb} MB: ${ms} ms, RSS +${grown} MB`);
+      quiet.info(`${mb} MB: ${ms} ms, server RSS +${grown} MB`);
       console.log(`#197 measured: ${mb} MB in ${ms} ms, server RSS +${grown} MB, default cap ${formatBytes(DEFAULT_MAX_UPLOAD_BYTES)}`);
     }
   } finally { await server.close(); }
