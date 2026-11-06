@@ -145,3 +145,19 @@ test('missing config, disabled API or unreachable bridge never leak the token', 
     }
   }
 });
+
+test('a DSH-only machine gets a page that says what to do, with a retry button', async () => {
+  const page = fakeRes();
+  await panelRoute(fakeReq('GET'), page, new URL('http://h/collab/panel/'), { bridgeConfig: '/definitely/missing.toml' });
+  assert.equal(page.status, 503);
+  assert.match(page.body, /没找到 bothouse/);
+  assert.match(page.body, /\/definitely\/missing\.toml/);
+  assert.match(page.body, /插件 → bothouse/);
+  assert.match(page.body, /location\.reload\(\)/);
+  const down = fakeRes();
+  await panelRoute(fakeReq('GET'), down, new URL('http://h/collab/panel/'), { bridgeConfig: config(CONFIG), fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
+  assert.match(down.body, /bothouse 没在运行/);
+  const api = fakeRes();
+  await panelRoute(fakeReq('GET'), api, new URL('http://h/collab/panel/api/v1/status'), { bridgeConfig: '/definitely/missing.toml' });
+  assert.equal(JSON.parse(api.body).ok, false);
+});
