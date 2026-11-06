@@ -11,7 +11,6 @@ import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 /** 找到 DSH 安装里能解析 ws / dsh-llm 的入口文件（createRequire 的基准）。 */
 export function resolveDshRequireBase(env = process.env) {
@@ -92,6 +91,7 @@ export async function startHost(options) {
 
   const previousArgv1 = process.argv[1];
   process.argv[1] = resolveDshRequireBase();
+  // #227 审稿第四轮 (i): 检出目录含空格时 pathname 会带 %20，交给 pathToFileURL 变成 %2520。
   const plugin = await import(new URL('../plugin.mjs', import.meta.url).href);
 
   const config = {

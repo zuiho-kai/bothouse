@@ -97,8 +97,8 @@ test('older holders without discovery keep the busy diagnostic and do not start 
   // 指纹用内容而非写计数：PRAGMA data_version 会被 checkpoint(TRUNCATE)/VACUUM/真写迁移抬高，
   // 持库方空闲与否也会影响它（审稿 2026-11-07 第五节），假红会掩盖真红。
   // 用持库方自己的连接读，不另开一个（另开会碰到 open 时的迁移）。
-  // 内容指纹要盖住「只改内容、不动行数」的写法和别的表，否则第二次写入能藏在同名 UPDATE 或
-  // room_settings 里（审稿 2026-11-07 第三轮第四节）。
+  // 内容指纹要盖住「只改内容、不动行数」的写法，否则第二次写入能藏在同名 UPDATE 里
+  // （审稿 2026-11-07 第三轮第四节）。
   // 显式假设：窗口内持库方自己空闲（本用例不写库）。持库方若在窗口内正常发消息，指纹同样会变，
   // 那时这条断言分不清「它在服务」和「有第二个写者」——真正的守卫是上面那条抢锁断言。
   const fingerprint = () => ({
@@ -106,6 +106,11 @@ test('older holders without discovery keep the busy diagnostic and do not start 
     messages: owner.db.prepare('SELECT id, room_id, author, text, changed_at FROM messages ORDER BY id').all(),
     settings: owner.db.prepare('SELECT * FROM room_settings ORDER BY room_id').all(),
     resets: owner.db.prepare('SELECT * FROM room_resets ORDER BY room_id').all(),
+    // apply() 启动时真会写 members（seedMember）和 bindings；只盖住房间与消息会让这些写入漏网
+    // （审稿 2026-11-07 第四轮 (ii)）。
+    tasks: owner.db.prepare('SELECT * FROM tasks ORDER BY id').all(),
+    members: owner.db.prepare('SELECT * FROM members ORDER BY id').all(),
+    bindings: owner.db.prepare('SELECT * FROM bindings ORDER BY member_id').all(),
   });
   const before = fingerprint();
 
@@ -140,6 +145,13 @@ test('a refused instance serves holder status and forwards to the holder, never 
   };
   mountSharedHost(ctx, path);
   assert.deepEqual(routes.map(r => [r.kind, r.path]), [['exact', BUSY_PATH], ['prefix', '/collab']]);
+  // 交出去的必须是这一个数据目录的锁文件。看行为：另起一个目录、放一个「别人在用」的锁和
+  // 记录，正确实现只会报本目录的持有者；把 lockPath 换成那个目录的就会报 THE-OTHER-DIR。
+  const otherDir = mkdtempSync(join(tmpdir(), 'other-holder-'));
+  t.after(() => rmSync(otherDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const otherLock = InstanceLock.acquire(join(otherDir, 'collab.lock'));
+  t.after(() => otherLock.release());
+  writeLockOwner(join(otherDir, 'collab.lock'), { pid: process.pid, startedAt: Date.now(), dataDir: 'THE-OTHER-DIR' });
   // 页面问的是这个字面量（client-ui-discord/lib/client.js 硬编码），漂移了页面就永远读不到状态。
   assert.equal(BUSY_PATH, '/collab/api/lock');
 
@@ -148,7 +160,9 @@ test('a refused instance serves holder status and forwards to the holder, never 
   assert.equal((await fetch(status + BUSY_PATH, { headers: { 'x-later-ticket': 't' } })).status, 403);
   const allowed = await fetch(status + BUSY_PATH, { headers: { 'x-owner': 'yes' } });
   assert.equal(allowed.status, 200);
-  assert.equal((await allowed.json()).busy, true);
+  const holderStatus = await allowed.json();
+  assert.equal(holderStatus.busy, true);
+  assert.notEqual(holderStatus.owner?.dataDir, 'THE-OTHER-DIR', 'answered from a different lock file');
 
   const shared = await listen(t, routes[1].handler);
   // 未登录：401，且一个字节都不许到宿主那里去。
@@ -175,7 +189,6 @@ test('a real apply() under a held lock mounts the shared host and writes nothing
   try { createRequire(import.meta.url).resolve('ws'); } catch { haveWs = false; }
   if (!haveWs) return t.skip('dsh/collab/node_modules is not installed (pnpm install)');
   const root = mkdtempSync(join(tmpdir(), 'collab-apply-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
   const stub = join(root, 'node_modules', '@deepseek-ai', 'dsh-llm');
   mkdirSync(stub, { recursive: true });
   writeFileSync(join(stub, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-llm', type: 'module', main: 'index.mjs' }));
@@ -184,7 +197,10 @@ test('a real apply() under a held lock mounts the shared host and writes nothing
   writeFileSync(base, '// createRequire 的基准\n');
   const argv1 = process.argv[1];
   process.argv[1] = base;
+  // t.after 是 FIFO 且前一个抛错会中止后续钩子，所以还原 argv 与放锁要在删目录之前注册；
+  // 删目录放最后并加重试（Windows 上已打开的 SQLite 目录会是 EBUSY）。
   t.after(() => { process.argv[1] = argv1; });
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const dataDir = join(root, 'data');
   mkdirSync(dataDir, { recursive: true });
@@ -206,7 +222,7 @@ test('a real apply() under a held lock mounts the shared host and writes nothing
     connection: { requestRejection: () => undefined },
     llm: { listProviders: () => [], listModels: async () => [] },
   };
-  const plugin = await import(pathToFileURL(new URL('./plugin.mjs', import.meta.url).pathname).href);
+  const plugin = await import(new URL('./plugin.mjs', import.meta.url).href);
   await plugin.apply(ctx, { dataDir, workspacePath: dataDir, rooms: [{ id: 1, name: 'general' }] });
 
   assert.deepEqual(routes.map(route => [route.kind, route.path]), [['exact', BUSY_PATH], ['prefix', '/collab']]);
