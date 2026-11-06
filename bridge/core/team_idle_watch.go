@@ -232,6 +232,22 @@ func watchIsHandback(text string) bool {
 	return false
 }
 
+// watchAnsweredInChat: a 【接】 turn in a chat channel that ran no tool, names no board item and
+// has no board item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」
+// and G哥「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an
+// escalation). A chat channel hands real work to a workspace, which is a tool call; a turn that
+// ran nothing has nothing in flight for a wake to continue.
+func watchAnsweredInChat(worked, inWorkspace, boardActive bool, boardID int) bool {
+	return !worked && !inWorkspace && !boardActive && boardID == 0
+}
+
+// watchBlankTitle: what is left of the first line after 【接】 cannot name the work: empty, or the
+// 「-」 boardLabel gives an empty label (#221: 「接着做 -」). The body below may be the answer, so it
+// is not used as a title either; a watched turn gets MsgWatchUntitledAccept instead.
+func watchBlankTitle(title string) bool {
+	return boardLabel(title) == "-"
+}
+
 func watchBoardClosed(it teamTaskBoardItem) bool {
 	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
 		if strings.Contains(it.Status, status) {
@@ -277,7 +293,8 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	boardClosed := false
 	handedOff := false // the accepted work is in a workspace: its watch is the workspace's
 	chat := key
-	if parent, ok := e.WorkspaceParent(key); ok {
+	parent, inWorkspace := e.WorkspaceParent(key)
+	if inWorkspace {
 		chat = parent
 	}
 	if e.team != nil {
@@ -294,7 +311,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
 				handedOff = true
 			}
-			if it.own != key || it.wsEnded || watchBoardClosed(*it) ||
+			if it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
@@ -354,7 +371,11 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	// Direct acceptance and board-owned active work have no handoff/d10
 	// registration. Register unfinished work from this terminal event only.
 	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
-	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil {
+	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil &&
+		!watchAnsweredInChat(worked, inWorkspace, boardActive, boardID) {
+		if !boardActive && watchBlankTitle(title) {
+			title = e.i18n.T(MsgWatchUntitledAccept) // real work with a bare 【接】 is still watched (PR #1194 review)
+		}
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
@@ -492,7 +513,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 						return // waits on someone else: no "carry on"; its next turn re-arms the watch
 					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
-					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
+					closed = watchBoardClosed(it) || it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
 					break
 				}

@@ -543,7 +543,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard", "reply-length-guard"}
+	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard"}
 	if !slices.Equal(res.Enabled, want) || res.SettingsFile != AgyHookFile(wd) {
 		t.Fatalf("res = %+v", res)
 	}
@@ -566,7 +566,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 		t.Fatalf("command = %s", cmd)
 	}
 	stop := m["bothouse"]["Stop"]
-	if len(stop) != 3 || stop[0]["type"] != "command" || !regexp.MustCompile(`--agy ['"]?Stop`).MatchString(stop[0]["command"].(string)) {
+	if len(stop) != 2 || stop[0]["type"] != "command" || !regexp.MustCompile(`--agy ['"]?Stop`).MatchString(stop[0]["command"].(string)) {
 		t.Fatalf("Stop (handlers directly under the event) = %v", stop)
 	}
 	if _, err := os.Stat(AgentHookSettingsPath("claudecode", wd)); err == nil {

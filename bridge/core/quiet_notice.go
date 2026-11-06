@@ -22,6 +22,17 @@ type InsertReceiptQuieter interface {
 	QuietInsertReceipt(replyCtx any) bool
 }
 
+// InsertReceiptReactor is implemented by platforms that confirm a mid-turn insert
+// by reacting to the person's own message instead of posting a receipt line (user
+// 2026-11-05 15:2x「点表情可以考虑加上 回头可以加」). It is optional and narrower
+// than InsertReceiptQuieter: a platform that can only react in some chats returns
+// an error for the others, and insertNotice then falls back to exactly the old
+// wording rule (quiet where QuietInsertReceipt says so, the text elsewhere), so a
+// reaction that cannot be placed never swallows or duplicates the receipt.
+type InsertReceiptReactor interface {
+	ReactInsertReceipt(replyCtx any) error
+}
+
 // noticeKeptOut reports whether p keeps bridge notices out of replyCtx's chat,
 // logging the notice when it does.
 func (e *Engine) noticeKeptOut(p Platform, replyCtx any, notice string) bool {
@@ -57,11 +68,25 @@ func (e *Engine) sendSystemNotice(p Platform, replyCtx any, notice string) {
 	}
 }
 
-// replyNotice posts a bridge receipt that the user's own message triggered (currently
-// the insert acknowledgement) unless the platform keeps bridge notices out of that
-// chat. Unlike sendSystemNotice it keeps Reply's reply-to semantics where a platform
-// has them; only the chat that asked for quiet loses the line.
+// insertNotice acknowledges a mid-turn insert. A platform that can put a reaction on
+// the person's message does that and no text goes out; otherwise the old rule applies,
+// where a quiet chat gets nothing and every other chat gets the line. Unlike
+// sendSystemNotice it keeps Reply's reply-to semantics where a platform has them.
 func (e *Engine) insertNotice(p Platform, replyCtx any, notice string) {
+	// The reactor runs first: in QQ the group is exactly where the old wording was
+	// already suppressed (noticeKeptOut below), and a face on the person's message is
+	// the replacement, not an extra line. When it fails, the rest of this function is
+	// byte-for-byte the old rule, so failure degrades to today's behaviour.
+	if r, ok := p.(InsertReceiptReactor); ok {
+		if err := r.ReactInsertReceipt(replyCtx); err == nil {
+			slog.Info("insert receipt sent as a reaction", "project", e.name, "platform", p.Name())
+			return
+		} else {
+			// Exactly today's rule follows: QQ stays silent in both chats (the insert
+			// itself already reached the running turn), other platforms keep the line.
+			slog.Warn("insert receipt reaction failed, falling back to the old receipt", "project", e.name, "platform", p.Name(), "error", err)
+		}
+	}
 	if e.noticeKeptOut(p, replyCtx, notice) {
 		return
 	}

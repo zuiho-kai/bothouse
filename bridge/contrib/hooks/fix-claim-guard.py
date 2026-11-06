@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """Stop：本轮回复说"修完/已修复"，但本轮没列受影响入口表 → 拦下一次，要求先列全再报。
 出处：作者记录的同类错误「修 bug 先列全所有路径」（2026-10-14 第 2 次，用户要求做成 hook）。
-入口表 = 本轮助手文字里有一行同时提到「入口」和修/核（表头「入口 | 是否经过修复 | 核对结果」，或一行一条「入口 A：修了，怎么核的」都认）；只有一处入口也列一行。
-2026-11-05 改成也认一行一条：聊天频道规定默认不用表格，只认表头会逼出表格（隔壁 agentm 回真人仍带表格）。
+入口表 = 本轮助手文字里一行表头，含「入口」和「修复/核对」两列（如 入口 | 是否经过修复 | 核对结果）；只有一处入口也列一行。
 只拦一次（stop_hook_active 时放行），避免死循环。
 只在修 bug 的轮次检查：用户这轮原话里没有修/报错/失败这类词就放行（2026-10-15 用户问"为什么慢、谁负责"，回复里讲经过的"修完再跑"被误拦两次，补的表还顶掉了答案）。"""
 import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eta_guard  # noqa: E402  预计时间长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
+import importlib.util  # noqa: E402
+
+
+def _check_first():
+    """check-first-guard.py（先查再说，2026-11-06）：文件名带连字符，按路径载入；缺文件或载入出错就跳过。"""
+    try:
+        spec = importlib.util.spec_from_file_location("check_first_guard", os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-first-guard.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception:
+        return None
 
 CLAIM = re.compile(r"修完|修好|修复了|已修复|修复完成|全部修复")
 NEG = re.compile(r"[没未不等待才]")
@@ -16,7 +27,7 @@ QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』|
 FIX_ASK = re.compile(r"修|bug|报错|错误|出错|坏了|挂了|失败|不对|不行|异常|崩|卡死|卡住|没反应|有问题|fix", re.I)
 # bothouse 在用户原话前拼的系统块（队友状态、wiki 提示、频道补漏），不是用户写的
 SYS_BLOCK = ("（队友状态", "（可能相关的 wiki 页", "（频道里你上次看到之后的消息")
-HEADER = re.compile(r"^(?=.*入口)(?=.*(修|核)).*$", re.M)  # 表头或一行一条都认，不要求「|」
+HEADER = re.compile(r"^(?=.*\|)(?=.*入口)(?=.*(修复|核对)).*$", re.M)
 
 # 2026-10-23 误拦 3 次（用户要求「改成不拦」）：只有"我已修完"才算宣称，下面三种不算。
 # 1) 后面接将来/条件：「修好以后发新版时……」「修完再跑」「修完后」
@@ -134,6 +145,11 @@ def main():
         print(json.dumps({"decision": "block", "reason": "先查 wiki/代码再说我们没有：回复里否定了自家功能，"
               "本轮却没跑过 search.py/grep/rg/chanlog/codegraph。查完再答，查不了就说没核。"}, ensure_ascii=False))
         return
+    cf = _check_first()
+    why = cf.check(d) if cf else None
+    if why:
+        print(json.dumps({"decision": "block", "reason": why}, ensure_ascii=False))
+        return
     eta = eta_guard.check(d.get("last_assistant_message") or turn_text(d.get("transcript_path", "")))
     if eta:
         print(json.dumps({"decision": "block", "reason": eta}, ensure_ascii=False))
@@ -151,7 +167,7 @@ def main():
         return
     print(json.dumps({"decision": "block", "reason":
         "你说修完了，但本轮没列受影响入口表（规则：修 bug 先列全所有路径）。"
-        "先枚举所有受影响入口（如所有发送/调用路径），一行一条写「入口 X：修没修，怎么核的」，逐条核完；不用画表格。"
+        "先枚举所有受影响入口（如所有发送/调用路径），列成「入口 | 是否经过修复 | 核对结果」表，逐条核完；"
         "缺口放第一句。只有一处入口也列一行，写明为什么没有别的入口。"}, ensure_ascii=False))
 
 if __name__ == "__main__":

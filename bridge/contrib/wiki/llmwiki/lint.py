@@ -152,8 +152,7 @@ def check(root=None):
     for src, n in sorted(links):
         if n not in names:
             warns.append(f"{src}: [[{n}]] has no page yet")
-    # STANDING.md：bothouse gate 每个会话附上的常驻做法短块（contrib/gate/ctxsvc.py standing_items），和 MEMORY.md 一样放根目录
-    stray = [p.name for p in W.glob("*.md") if p.name not in {"MEMORY.md", "CLAUDE.md", "log.md", "STANDING.md"}]
+    stray = [p.name for p in W.glob("*.md") if p.name not in {"MEMORY.md", "CLAUDE.md", "log.md"}]
     for p in stray:
         errs.append(f"{p}: top-level page; move it into a domain")
     return errs, stats, warns

@@ -38,7 +38,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 				owner, it.wsName = key, wsName
 			}
 		}
-		if teamChatKey(owner) != teamChatKey(key) || it.AutoPruned != "" {
+		if teamChatKey(owner) != teamChatKey(key) || it.AutoPruned != "" || it.Backlog != "" {
 			continue
 		}
 		who := whoInWorkspace(it)

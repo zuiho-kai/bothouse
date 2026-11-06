@@ -33,8 +33,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
 USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 短名\n'
-         "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
-         "空模板：ws-handoff --template（按本机生效的规则出，照填就过）。")
+         "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。")
 # 交出成功后打给主角色的话（stdout 第二行起；第一行仍是 timer id）。来源：团队模式规矩「聊天频道要保持畅通…交出就结束本轮」
 DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep 或查任务板看进度。"
         "工作区做完会用 [report] 把结果转回本频道，到时再看、再验收。")
@@ -45,62 +44,19 @@ MAX_WS = 6  # 池子最多几个工作区（含现有），满了排队；用户
 QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat, project, answer}]，先排先接
 
 
-def check_notes(text: str, extra=()):
+def check_notes(text: str):
     """交接文件不合格时返回报错文字（一次列出所有缺的项，含要补什么和示例），合格返回 None。
-    规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）。
-    extra：调用方另查出的缺项（--short、三类活缺「派活人自己定的」节），并进同一张单子，免得改一处被拒一次（#1104）。"""
+    规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）；按档位选查哪些（check_tiered）。"""
     rules = _handoff_rules.load()
-    errs = list(extra) + _handoff_rules.check_all(text, rules)
-    if rules["flags"].get("cli_gate"):
+    fmt = _handoff_rules.ds_lead()  # 分档：核事实全开；核格式（含下面的 CLI 关卡）只在主角色后端是 DS 类时开（用户 11-06）
+    errs = _handoff_rules.check_tiered(text, rules, fmt)
+    if fmt and rules["flags"].get("cli_gate"):
         errs += [e for e in [generic_gate(text)] if e]
     if not errs:
         return None
-    tail = "\n空模板：跑 `ws-handoff --template`，照填就过（不用读 ws-handoff 源码）。"
     if len(errs) == 1:
-        return errs[0] + tail
-    return (f"交接有 {len(errs)} 处要补，一次改完再交：\n" + "\n".join(f"{i}. {e}" for i, e in enumerate(errs, 1))
-            + tail)
-
-
-TODO = "【填】"
-
-
-def template() -> str:
-    """按当前生效的规则（产品默认 + 本机叠加）出一份空交接：必填小节、范围的改/不改行、参照实现等，
-    每处「（填）」换成实话就能过检查。来源：隔壁 11-05 便宜模型为弄清交接要什么，读了 30 分钟 ws-handoff 源码（#1104）。"""
-    rules = _handoff_rules.load()
-    order, body = [], {}
-
-    def sec(name):
-        if name not in body:
-            order.append(name)
-            body[name] = []
-        return body[name]
-
-    for c in rules["checks"]:
-        t = c["type"]
-        if t == "headings":
-            for n in c["names"]:
-                sec(n)
-        elif t == "kinds":
-            for k in c["need"]:
-                sec(c["section"]).append(f"- {k}：{TODO}")
-        elif t == "values":
-            m = re.match(r"\^([^\\()\[\]|?*+.]+)", c["line_re"])
-            sec(c["section"]).append(f"- {(m.group(1) if m else '')}：【填：没有就写 无】")
-        elif t == "ref":
-            sec(c["section"]).append("- 【填：文件:行；非代码活写 无(新建)】")
-    for n in order:
-        if not body[n]:
-            body[n].append(f"- {TODO}")
-    if rules["flags"].get("cli_gate"):
-        sec(PRODUCT_SECS[-1]).append("- CLI：【填：所有 CLI，或点名哪些；跟 CLI 无关写 不涉及】")
-    out = ["# 【填：一句话任务】", ""]
-    for n in order:
-        out += [f"## {n}"] + body[n] + [""]
-    out.append(f"<!-- 每处【填…】整个换成实话；交：ws-handoff <这个文件> \"<一句话任务>\" --short <≤{board.SHORT_RUNES}字短名>。"
-               "交接文件放角色目录的 notes/，不放 /tmp。 -->")
-    return "\n".join(out)
+        return errs[0]
+    return f"交接有 {len(errs)} 处要补，一次改完再交：\n" + "\n".join(f"{i}. {e}" for i, e in enumerate(errs, 1))
 
 
 def intent_gate(text: str):
@@ -203,7 +159,7 @@ def _real(where: str) -> str:
 def live_dup(path: str):
     """同一份交接文件进行中的任务板条目（没有返回 None）。"""
     me = _real(path)
-    return next((i for i in board.items() if not i.get("paused") and i.get("where") and _real(i["where"]) == me), None)
+    return next((i for i in board.items() if not i.get("paused") and not i.get("backlog") and i.get("where") and _real(i["where"]) == me), None)
 
 
 def dup_error(it) -> str:
@@ -271,7 +227,7 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
         done = set()
     if parent in done:
         return False
-    working = [i for i in board.items() if not i.get("paused")]
+    working = [i for i in board.items() if not i.get("paused") and not i.get("backlog")]
     live = {board._ws_key(i) for i in working} | {i.get("ws") for i in working}
     names = {m.group(1) for i in working for m in [board.WS_NAME_RE.match(str(i.get("who") or ""))] if m}
     freed = False
@@ -591,8 +547,8 @@ def drain():
             if it is None:
                 q.pop(index)
                 continue
-            if it.get("paused"):
-                index += 1  # 用户 2026-11-02：暂停保留原队列位置，恢复后继续接。
+            if it.get("paused") or it.get("backlog"):
+                index += 1  # 用户 2026-11-02：暂停保留原队列位置，恢复后继续接；待办同样等到 resume。
                 continue
             if not start(x["path"], x["task"], x["chat"], x["nid"], x.get("project"), x.get("answer")):
                 break
@@ -604,6 +560,10 @@ def resume_answered(nid, answer):
     it = next((i for i in board.items() if i["id"] == nid), None)
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
+    if it.get("rework_cap") and it.get("paused"):
+        # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
+        sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
+                 "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
     source = "验收退回" if it.get("review_rejected") else "用户答复"
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）
@@ -626,12 +586,6 @@ def resume_answered(nid, answer):
 
 
 def main(argv):
-    if argv[:1] == ["--template"]:
-        print(template())
-        return 0
-    if argv[:1] in (["--help"], ["-h"]):
-        print(USAGE + "\n\n空模板（ws-handoff --template）：\n" + template())
-        return 0
     if argv[:1] == ["--drain"]:
         return drain()
     if argv[:1] == ["--resume"] and len(argv) == 3:
@@ -657,18 +611,15 @@ def main(argv):
     short_name = (short_name or "").strip()
     if not short_name and not _handoff_rules.load()["flags"].get("require_short"):
         short_name = board.short_of(argv[1])[:board.SHORT_RUNES]
-    extra = []  # 跟交接检查一起报，一次列全（#1104）
     if not short_name or len(short_name) > board.SHORT_RUNES:
-        extra.append(f"要写 --short 短名（≤{board.SHORT_RUNES} 字，置顶任务表上显示的名字，比如 --short 任务表改版）")
+        sys.exit(f"ws-handoff: 要写 --short 短名（≤{board.SHORT_RUNES} 字，置顶任务表上显示的名字，比如 --short 任务表改版）")
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
     if not os.path.isfile(path):
-        sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}\n空模板：ws-handoff --template > {path}")
+        sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
         notes = fh.read()
-    if gated_kind(notes) and not own_decisions(notes):
-        extra.append(own_gate(notes, True))
     try:
-        err = check_notes(notes, extra)
+        err = check_notes(notes)
     except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
         sys.exit(f"ws-handoff: {e}")
     if err:

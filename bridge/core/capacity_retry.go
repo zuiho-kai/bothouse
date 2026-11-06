@@ -71,7 +71,11 @@ func isRateLimitError(msg string) bool {
 // comes from what the live bridge logged (main.log 11-03 19:23 – 11-04 17:45 and run.log to 11-02,
 // msg="agent error" / codex "transient error"), not from guesses:
 //   - stream cut off: "stream disconnected before completion" (adapter_eof, SOCKS5 upstream closed,
-//     idle timeout waiting for SSE), connection EOF / reset;
+//     idle timeout waiting for SSE), connection EOF / reset. The codex app-server reports the same
+//     cut bare as "Incomplete response returned, reason: adapter_eof": \bEOF\b does not match inside
+//     adapter_eof, so it used to fall through as permanent and the turn stopped with a red error
+//     (main.log 11-06 09:24-10:51, 15 such failures across five workspaces, user 10:53 「好几个
+//     工作区都这样」). The reason string is matched explicitly instead;
 //   - relay overloaded: "unexpected status 502 Bad Gateway", "503 Service Unavailable"
 //     (当前模型服务暂不可用，请稍后重试), "temporarily unavailable", plus 504/529/overloaded;
 //   - DSH upstream: 「上游请求超时」「上游连接中断」「上游服务异常」, and request / first-token timeouts.
@@ -79,7 +83,7 @@ func isRateLimitError(msg string) bool {
 // Never retried, whatever else the text says (a retry gets the same answer): auth (401, 403,
 // 上游认证失败), spent balance or quota, a 400 bad request (e.g. the relay's own pricing-expression
 // error seen 11-04), and content-safety blocks.
-var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|stream (?:closed|ended|terminated|interrupted)|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
+var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|stream (?:closed|ended|terminated|interrupted)|adapter_eof|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
 
 var permanentErrorRE = regexp.MustCompile(`(?i)\b40[0-3]\b|unauthori[sz]ed|forbidden|invalid api key|authentication|认证失败|鉴权|insufficient balance|余额不足|quota|resource_exhausted|content[ _-]?(?:filter|policy)|safety|内容安全|违规`)
 
@@ -481,6 +485,9 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 	if e.dataDir == "" {
 		return capHandoffRef{}
 	}
+	// The handoff table is keyed by the bare chat key; a session key may carry a user suffix
+	// ("discord:<chan>:<user>"), as every other handoff lookup normalizes it.
+	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))

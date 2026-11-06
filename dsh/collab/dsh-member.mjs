@@ -312,6 +312,8 @@ export class TurnProgress {
 
   call(callId, name, args) {
     if (this.ended) return;
+    // ACP updates for an existing call do not start another execution.
+    if (callId !== undefined && this.names.has(callId)) return;
     this.steps++;
     if (callId !== undefined) this.names.set(callId, name);
     this.items.push({ kind: 'tool_use', tool: name, text: toolArgText(args) });

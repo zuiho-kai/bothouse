@@ -47,6 +47,47 @@ func TestHandleUpdate_HasUpdate(t *testing.T) {
 	if d["current"] != "v0.1.4" || d["latest"] != "v0.1.5" || d["has_update"] != true || d["download_url"] != "https://example/r/v0.1.5" {
 		t.Fatalf("got %v", d)
 	}
+	// An official release build still offers updates, and must not claim to be self-built.
+	if d["self_built"] != false {
+		t.Fatalf("release build marked self_built: %v", d)
+	}
+}
+
+// A self-built binary (no release identity, or a release whose signature no longer matches)
+// must not advertise an update: the page would show the button and the apply would refuse
+// (#212). The check phase answers with the same reason UpdateRefusal gives the action entries,
+// and never asks GitHub — the latest tag is meaningless for a build that cannot install it.
+func TestHandleUpdate_SelfBuilt(t *testing.T) {
+	for name, set := range refusals() {
+		t.Run(name, func(t *testing.T) {
+			withUpdateStubs(t, "v0.1.54-local211-25899d75", &ReleaseInfo{TagName: "v0.1.5", HTMLURL: "https://example/r/v0.1.5"}, nil, nil)
+			calls := 0
+			updateCheckFn = func(string, bool) (*ReleaseInfo, error) {
+				calls++
+				return &ReleaseInfo{TagName: "v0.1.5", HTMLURL: "https://example/r/v0.1.5"}, nil
+			}
+			set(t)
+			_, d := callMgmt(t, (&ManagementServer{}).handleUpdate, http.MethodGet)
+			if d["has_update"] != false || d["self_built"] != true {
+				t.Fatalf("self-built advertised an update: %v", d)
+			}
+			if got, _ := d["error"].(string); !strings.Contains(got, selfBuiltMsg) {
+				t.Fatalf("no readable reason: %v", d)
+			}
+			if d["latest"] != "v0.1.54-local211-25899d75" {
+				t.Fatalf("latest should stay at the running version: %v", d)
+			}
+			if calls != 0 {
+				t.Fatalf("self-built check called GitHub %d times", calls)
+			}
+			// ?local=1 (restart poll) keeps its own meaning: no check, no reason forced.
+			rec := httptest.NewRecorder()
+			(&ManagementServer{}).handleUpdate(rec, httptest.NewRequest(http.MethodGet, "/api/v1/update?local=1", nil))
+			if calls != 0 {
+				t.Fatalf("local poll called GitHub %d times", calls)
+			}
+		})
+	}
 }
 
 func TestHandleUpdate_UpToDateAndDev(t *testing.T) {

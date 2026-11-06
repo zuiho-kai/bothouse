@@ -126,7 +126,9 @@ def hits(text, now=None, limit=None, work_only=False):
         if not s or ALLOW.search(s) or PAST.search(s) or RECUR.search(s) or (work_only and not WORK.search(s)):
             continue
         if DAY.search(s):
-            out.append(("跨天的时间", s))
+            # 用户 11-05「感觉有点笨，不行给他干掉」：回复正文里的「明天/下周」多是讲定时何时生效或谈心，不再拦；命令参数照拦
+            if not work_only:
+                out.append(("跨天的时间", s))
             continue
         hit = None
         for m in CLOCK.finditer(s):

@@ -36,6 +36,7 @@ Write the handoff as a file in `notes/<name>.md` under the current directory (yo
 - `ws-handoff <file> "<one-line task>"` tells the primary role in the workspace to start. Once it is handed off, end this turn: do not sleep or poll the board waiting for it; the workspace sends the result back here with [report], and you check it then.
 - `ws-forward [--notes <file>] "<summary>"` forwards later results there. This channel stops managing that task. `--notes` picks the handoff (and so the workspace); without it the latest handoff is used.
 - ws-handoff reuses a free workspace, or one of this channel's with fewer than 3 tasks in work, and creates a new one only when all are busy. It also adds a board entry (owner: the workspace's lead) bound to this handoff.
+- Small fixes queued behind bugs and non-blocking findings from a review go to 待办 at the wrap-up: `board backlog <id> --why <reason>`. They stay on the board but show on neither the default list nor the pinned team board, which only ends with 「待办 N 件」; `board backlog` lists them, and they come back with `board resume <id>`.
 - A stalled task (waiting for the user or someone else, untouched this hour) is paused at the hourly wrap-up: `board pause <id>`. Its handoff is released; with nothing else in work there, the workspace goes back to the pool and its sessions are reset. Reassigning it (`board update <id> <status> - <who>`) does the same. To resume, hand it off again with `ws-handoff`.
 
 The primary role in a workspace does not ask the user directly. The chat channel that handed the task over is the single outlet:
@@ -92,8 +93,3 @@ To get a specific teammate to answer, @ her or start a line with her name follow
 
 Always-on rules (the team-mode rules, the rule section in a persona) have a total cap: before adding a rule, remove or merge one; a byte-size test in `core` guards the cap on the team-mode rules.
 When the same kind of mistake happens a second time, turn it into a check (a script, hook or test) instead of adding more text; `contrib/hooks/lessons.py` reads the "N 次" (N times) count of each entry in the wiki lessons table (`rule-candidates-recurrence*.md`) and reminds the agent on the first turn and when the user corrects it — an entry that reaches 2 should become a check.
-
-## 13. Before editing a document, find the earlier version
-
-When asked to revise a document (promo copy, CV, write-up, proposal), first search the memory wiki for that topic's earlier tasks and decisions (`python3 <wiki>/bin/search.py <topic>`); the first line of the answer says which version you built on and what changed. If nothing turns up, say no earlier version was found and write it fresh.
-(2026-11-04, the user: "Don't you have any memory?")
