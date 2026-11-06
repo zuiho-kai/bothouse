@@ -139,4 +139,28 @@ func TestWatchTurnEnded_WorkDoesNotReviveReportedWatch(t *testing.T) {
 	if got := idleWatchRows(t, e2, key, true)[0].Idle.Wakes; got != 0 {
 		t.Fatalf("wakes = %d after real work, want 0", got)
 	}
+
+}
+
+// The rows actually stuck on 11-05: a board-less handoff whose owner had already reported, with
+// the failure count at the limit. A later turn that runs tools must leave them reported.
+func TestWatchTurnEnded_LiveStuckRowNotRevived(t *testing.T) {
+	e, p := idleWatchFixture(t)
+	key := "discord:1564106353012777004"
+	at := time.Now().Add(-2 * time.Minute)
+	idleWatchSeed(t, e, key, false, TeamHandoff{
+		Chat: "discord:1560508467733860372", At: at, Due: at.Add(time.Minute), Owner: e.name,
+		Sender: "deep", Name: "工作区4", Renewed: 15,
+		Title: "任务板根治A：交回自动绑PR收口、无绑定条目报警、交回自动派非作者验收",
+		Idle:  watchIdleState{Ended: at, Wakes: 1, Fails: 3, Reported: true},
+	})
+
+	e.watchTurnEnded(p, key+":u1", "还在做，先说一声进展", true, false, false, time.Time{})
+
+	// Fails clearing is the old, intended reset (progress); the reported mark and the wake count
+	// it escalated on must stay, or the same row wakes and escalates again.
+	live := idleWatchRows(t, e, key, false)[0].Idle
+	if !live.Reported || live.Wakes != 1 {
+		t.Fatalf("the stuck live row was revived by a turn that ran tools: %+v", live)
+	}
 }
