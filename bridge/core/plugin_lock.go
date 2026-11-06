@@ -10,6 +10,8 @@ package core
 // only when the recorded process is gone.
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -48,10 +50,12 @@ func withPluginProfileLock(manifestPath string, fn func() error) error {
 			return fmt.Errorf("取 profile 写锁失败: %w", err)
 		}
 		// A lock whose holder is gone can be taken over; one whose holder is alive is waited for.
-		if holderGone(lockPath) {
-			if rmErr := os.Remove(lockPath); rmErr == nil {
-				continue
-			}
+		removed, err := takeOverExitedPluginLock(lockPath)
+		if err != nil {
+			return fmt.Errorf("接管 profile 写锁失败: %w", err)
+		}
+		if removed {
+			continue
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("%w（%s）；等它做完再试", errPluginLockBusy, lockPath)
@@ -68,14 +72,52 @@ func withPluginProfileLock(manifestPath string, fn func() error) error {
 	return fn()
 }
 
-// holderGone reports whether the pid recorded in the lock no longer exists. An unreadable or
-// malformed record is treated as alive: guessing "gone" would let two writers in.
-func holderGone(lockPath string) bool {
+// takeOverExitedPluginLock shares DSH atomic-write's record-specific claim. Re-read under the
+// claim before removing: a contender may already have replaced the dead holder's record.
+func takeOverExitedPluginLock(lockPath string) (bool, error) {
 	raw, err := os.ReadFile(lockPath)
+	if err != nil || !pluginLockHolderGone(raw) {
+		return false, nil
+	}
+	digest := sha256.Sum256(raw)
+	// 来源：dsh-atomic-write takeOverExitedLock uses 16 SHA256 hex characters (8 bytes).
+	claim := fmt.Sprintf("%s.takeover-%x", lockPath, digest[:8])
+	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, os.ErrExist) || errors.Is(err, syscall.EPERM) {
+		return false, nil
+	}
 	if err != nil {
+		return false, err
+	}
+	defer func() { _ = os.Remove(claim) }()
+	_, writeErr := fmt.Fprintf(f, "%d\n", os.Getpid())
+	closeErr := f.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		return false, err
+	}
+	current, err := os.ReadFile(lockPath)
+	if err != nil || !bytes.Equal(current, raw) || !pluginLockHolderGone(current) {
+		return false, nil
+	}
+	return os.Remove(lockPath) == nil, nil
+}
+
+// pluginLockHolderGone accepts only DSH's complete PID record. Unreadable, partial and
+// malformed records never prove that the holder exited.
+func pluginLockHolderGone(raw []byte) bool {
+	record := string(raw)
+	if !strings.HasSuffix(record, "\n") {
 		return false
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	digits := strings.TrimSuffix(record, "\n")
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	// 来源：DSH holderExited accepts only positive signed 32-bit PIDs.
+	parsed, err := strconv.ParseInt(digits, 10, 32)
+	pid := int(parsed)
 	if err != nil || pid <= 0 || pid == os.Getpid() {
 		return false
 	}
@@ -86,7 +128,7 @@ func holderGone(lockPath string) bool {
 	// Signal 0 probes the process without touching it; ESRCH means it is gone. Windows refuses
 	// every signal but Kill, and that refusal is read as "alive": waiting is the safe side.
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		return errors.Is(err, os.ErrProcessDone)
+		return errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH)
 	}
 	return false
 }
