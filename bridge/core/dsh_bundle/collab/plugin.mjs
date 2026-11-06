@@ -11,7 +11,7 @@ import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
 import { LOCK_FILE, acquireLockWithOwner, clearLockOwner, lockStatus } from './instance-lock.mjs';
-import { localConnection, isLocalOwner, forwardLocal } from './local-host.mjs';
+import { localConnection, isLocalOwner, forwardLocal, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -53,8 +53,7 @@ const MAX_BODY = 256 * 1024;
 const MAX_MESSAGE_BODY = 8 * 1024 * 1024;
 const OWNER = 'owner';
 // #216: where a refused instance publishes who holds the lock. The page reads it from the
-// same origin it talks to everything else on.
-const BUSY_PATH = '/collab/api/lock';
+// same origin it talks to everything else on. #227: it lives with the routes that answer it.
 /** Validate the overlay config; misconfiguration fails at load. */
 export function resolveConfig(config, env = process.env) {
   const c = config ?? {};
@@ -153,15 +152,9 @@ export async function apply(ctx, rawConfig) {
   if (lock === undefined) {
     // #216: this instance is a client of the holder, not a second data writer. Keep scoped
     // routes alive rather than throwing out of apply; unloading the plugin removes them.
-    ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: BUSY_PATH,
-      handler: (req, res) => {
-        if (ctx.connection.requestRejection(req) !== undefined) return refuse(req, res);
-        return json(res, 200, lockStatus(lockPath));
-      },
-    }), 'conest-collab: holder status');
-    ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab',
-      handler: (req, res) => forwardLocal(req, res, lockPath, req => ctx.connection.requestRejection(req)),
-    }), 'conest-collab: shared local host');
+    // #227: the two routes live in local-host.mjs so this branch can be tested without the
+    // DSH runtime (审稿 F2: nothing ever called it in a test).
+    mountSharedHost(ctx, lockPath);
     ctx.logger.info('conest-collab: using the existing channel host for %s', config.dataDir);
     return;
   }
@@ -666,12 +659,10 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
 /**
  * #597 G26: a later ticket only opens workspaces (and later). Sent anywhere else, say where to go
  * instead of a bare 401, so a member does not give up; the route's own auth is unchanged.
+ * #227: the split lives in local-host.mjs beside the routes that also use it; re-exported here
+ * because the task API has always published the sentence.
  */
-export const TICKET_WRONG_ROUTE = '这个接口不认 X-Later-Ticket 票据。建工作区请用 POST /collab/api/rooms/{id}/workspaces（同一个票据头，JSON: title, owner, reason），任务和十分钟看门会自动开，不用再调 /tasks。';
-function refuse(req, res) {
-  if (req.headers?.['x-later-ticket'] !== undefined) return json(res, 403, { error: TICKET_WRONG_ROUTE });
-  return json(res, 401, { error: 'unauthorized' });
-}
+export { TICKET_WRONG_ROUTE } from './local-host.mjs';
 
 /**
  * #139 B task API, for the owner's browser and for cloud-web bots. The browser

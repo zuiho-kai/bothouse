@@ -66,3 +66,41 @@ function reply(res, status, value) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(value));
 }
+
+/** #227: where a later DSH reports which process holds the channel data. */
+export const BUSY_PATH = '/collab/api/lock';
+
+/**
+ * #597 G26: a later ticket only opens workspaces (and later). Sent anywhere else, say where to go
+ * instead of a bare 401, so a member does not give up; the route's own auth is unchanged.
+ */
+export const TICKET_WRONG_ROUTE = '这个接口不认 X-Later-Ticket 票据。建工作区请用 POST /collab/api/rooms/{id}/workspaces（同一个票据头，JSON: title, owner, reason），任务和十分钟看门会自动开，不用再调 /tasks。';
+
+/** The 401/403 split every scoped route uses when the caller is not the owner. */
+export function refuse(req, res) {
+  if (req.headers?.['x-later-ticket'] !== undefined) return reply(res, 403, { error: TICKET_WRONG_ROUTE });
+  return reply(res, 401, { error: 'unauthorized' });
+}
+
+/**
+ * #227: the two routes a second DSH serves when another process holds the channel data.
+ * It is a client of that host, never a second writer, so it publishes the holder's status and
+ * forwards the channel API instead of opening the store.
+ *
+ * Extracted from `apply` so this branch can be tested without loading the plugin (审稿 F2:
+ * `plugin.mjs` needs the DSH runtime to import, and this branch had no unit test at all).
+ *
+ * @param ctx - the plugin context: `webServer.register`, `effect`, `connection.requestRejection`.
+ * @param lockPath - the lock file the holder took; both routes answer from it.
+ */
+export function mountSharedHost(ctx, lockPath) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: BUSY_PATH,
+    handler: (req, res) => {
+      if (ctx.connection.requestRejection(req) !== undefined) return refuse(req, res);
+      return reply(res, 200, lockStatus(lockPath));
+    },
+  }), 'conest-collab: holder status');
+  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/collab',
+    handler: (req, res) => forwardLocal(req, res, lockPath, req => ctx.connection.requestRejection(req)),
+  }), 'conest-collab: shared local host');
+}
