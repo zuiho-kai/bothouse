@@ -83,6 +83,33 @@ test('CLI reap: roster scope edit closes removed channel and child workspaces, r
   assert.deepEqual(created.map(x => x.closes), [1, 1, 1, 1], 'member removal closes every surviving process');
 });
 
+test('CLI reap: cleanup while context is pending prevents a later process from starting', async t => {
+  for (const action of ['reset', 'release', 'scope', 'remove']) {
+    const { store, members, created } = setup(t);
+    let proceed, entered;
+    const wait = new Promise(resolve => { proceed = resolve; });
+    const reached = new Promise(resolve => { entered = resolve; });
+    members.gateContext = {
+      async turn() { entered(); await wait; return { block: '', commit() {} }; },
+      resetRoom() {},
+    };
+    const workspace = store.createWorkspace(1);
+    const trigger = store.append(workspace.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'work' }).message;
+    const job = store.addJob('cc', workspace.id, trigger.id);
+    const running = members.runCli(job, members.config.get('cc'), store.room(workspace.id));
+    await reached;
+    if (action === 'reset') store.resetSessions(workspace.id);
+    if (action === 'release') store.releaseWorkspace(workspace.id);
+    if (action === 'scope') members.putMember({ id: 'cc', name: 'CC', cli: 'gemini', rooms: [2] });
+    if (action === 'remove') members.dropMember('cc');
+    proceed();
+    await running;
+    assert.equal(created.length, 0, `${action}: no process may start after cleanup`);
+    assert.equal(members.cliAgents.size, 0);
+    assert.equal(store.job(job.id).state, 'interrupted');
+  }
+});
+
 test('CLI reap: workspace release terminates a real child PID through CliMember.close', { timeout: 5000 }, async t => {
   const { store, members, run } = setup(t);
   let agent;
