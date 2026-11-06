@@ -75,11 +75,21 @@ function sendJSON(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-/** Text shown inside the frame when the panel cannot be reached. */
-function sendNotice(res, status, reason) {
+const escapeHTML = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+/**
+ * Page shown inside the frame when the panel cannot be reached: what is wrong, what to do,
+ * and a retry button, so a DSH-only user who switched the panel on is not left at a dead end.
+ */
+function sendNotice(res, status, reason, help) {
   res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-  res.end(`<!doctype html><meta charset="utf-8"><title>bothouse</title><body style="font:14px system-ui;padding:24px;color:#888">打不开 bothouse 管理面板：${reason
-    .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])}</body>`);
+  res.end(`<!doctype html><meta charset="utf-8"><title>bothouse</title><meta name="color-scheme" content="light dark">`
+    + `<body style="font:14px/1.6 system-ui;padding:24px;max-width:560px;color:#666">`
+    + `<h3 style="margin:0 0 8px;font-size:16px;color:inherit">打不开 bothouse 面板</h3>`
+    + `<p style="margin:0 0 8px">${escapeHTML(reason)}</p>`
+    + (help ? `<p style="margin:0 0 16px">${escapeHTML(help)}</p>` : '')
+    + `<button type="button" onclick="location.reload()" style="font:inherit;padding:4px 14px;border-radius:6px;border:1px solid #bbb;background:transparent;color:inherit;cursor:pointer">重试</button>`
+    + `</body>`);
 }
 
 /**
@@ -117,14 +127,16 @@ export function panelRoute(req, res, url, { bridgeConfig, fetchImpl = fetch }) {
   return (async () => {
     const rest = url.pathname.slice(PANEL_PREFIX.length) || '/';
     const isAPI = rest.startsWith('/api/');
-    const fail = (status, reason) => (isAPI ? sendJSON(res, status, { ok: false, error: reason }) : sendNotice(res, status, reason), true);
+    const fail = (status, reason, help) => (isAPI ? sendJSON(res, status, { ok: false, error: reason }) : sendNotice(res, status, reason, help), true);
     let settings;
     try {
       settings = managementSettings(readFileSync(bridgeConfig, 'utf8'));
     } catch {
-      return fail(503, '读不到主桥配置');
+      return fail(503, `这台电脑没找到 bothouse：读不到 ${bridgeConfig}`,
+        '这个面板管理完整版 bothouse 的角色、用量和设置。装好 bothouse 并启动一次后点「重试」；只用频道的话，可以在「插件 → bothouse」里关掉「bothouse 面板」这一项。');
     }
-    if (!settings.enabled) return fail(503, '主桥配置里管理接口没打开');
+    if (!settings.enabled) return fail(503, `bothouse 的管理接口没打开：${bridgeConfig} 里 [management] 没有 enabled = true`,
+      '在那一节写上 enabled = true，重启 bothouse 后点「重试」。');
     const upstream = `http://${dialHost(settings.host)}:${settings.port}${rest}${url.search}`;
     const headers = {};
     for (const name of PASS_REQUEST) {
@@ -143,7 +155,7 @@ export function panelRoute(req, res, url, { bridgeConfig, fetchImpl = fetch }) {
         redirect: 'manual',
       });
     } catch {
-      return fail(502, '连不上主桥管理接口');
+      return fail(502, `bothouse 没在运行：连不上 ${dialHost(settings.host)}:${settings.port}`, '启动 bothouse 后点「重试」。');
     }
     const out = {};
     for (const name of PASS_RESPONSE) {

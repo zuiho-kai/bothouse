@@ -666,6 +666,7 @@ type queuedMessage struct {
 	userMessageTimeMs int64  // Feishu create_time ms (optional); see Message.UserMessageTimeMs
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
+	turnCtxSender     string // #1160
 	fromBot           bool
 	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
 	direct            bool   // Message.Direct
@@ -3615,6 +3616,10 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			Extra:      e.agentHookExtra(e.activeAgentSessionID(msg.SessionKey), nil),
 		})
 	}
+	if !msg.peopleDone {
+		msg.peopleDone = true
+		e.recordPersonSaid(msg) // #1160: each person's own words, for their 懂你 page (people_said.go)
+	}
 
 	// Voice message: transcribe to text first
 	if msg.Audio != nil {
@@ -4066,6 +4071,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		userName:            msg.UserName,
 		turnCtx:             msg.TurnCtx,
 		turnCtxQuery:        msg.TurnCtxQuery,
+		turnCtxSender:       msg.TurnCtxSender,
 		modeOverride:        msg.ModeOverride,
 		scheduledFrom:       scheduledFrom,
 		turnTrigger:         msg.turnTrigger,
@@ -4928,7 +4934,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			content = note + "\n\n" + content
 			images = append(imgs, images...)
 		}
-		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx, msg.Reference)
+		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
 		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
@@ -7372,8 +7378,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 			if isSilent {
-				// The card was finalized "completed" above, which promises a reply in the next message.
-				cp.Finalize(ProgressCardStateSilent)
+				// A turn that says nothing leaves nothing: take its progress card (and the thread copy) down.
+				cp.Retract()
 			}
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
@@ -7849,7 +7855,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// (the backfill already marked those posts seen).
 				*chainedQueued = queued
 				queued.content = session.renderReference(queued.content, queued.reference)
-				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx, queued.reference)
+				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
 				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
@@ -8436,7 +8442,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx, queued.reference)
+		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
 		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
@@ -18428,7 +18434,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	if c := e.memoryBlock(session); c != "" {
 		content = c + "\n\n" + content
 	}
-	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message)); c != "" {
+	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message), ""); c != "" {
 		content = c + "\n\n" + content
 	}
 	prompt := e.withAgentInstructions(content, "", true, session, agent)

@@ -74,7 +74,7 @@ func TestGateContextSendsBot(t *testing.T) {
 	for url, want := range map[string]string{srv.URL + "/decide?bot=longniang": "longniang", srv.URL + "/decide": ""} {
 		e := &Engine{ctx: t.Context()}
 		e.gate = &gateState{url: url, timeout: time.Second}
-		e.turnContext(&Session{}, "discord:1", "代理端口")
+		e.turnContext(&Session{}, "discord:1", "代理端口", "")
 		if body["bot"] != want || body["text"] != "代理端口" {
 			t.Fatalf("%s: body %v", url, body)
 		}

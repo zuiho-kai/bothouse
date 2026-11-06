@@ -50,6 +50,18 @@ def timer_cmd(ws: str, path: str, summary: str, interrupt: bool = False):
     return cmd
 
 
+def other_chat_work(last: dict):
+    """last 的工作区眼下挂着的、别的聊天频道交来的在做条目（没暂停、不在待办）；没有返回 None。
+    这份交接的来源频道查不到时，工作区上任何别的交接的在做条目都算（宁可不转，不串频道）。"""
+    ws = str(last.get("channel") or "").split(":")[-1]
+    chat = str(last.get("chat") or "").split(":")[-1]
+    for it in board.items():
+        if (str(it.get("ws") or "").split(":")[-1] == ws and not it.get("paused") and not it.get("backlog")
+                and it.get("where") != last.get("file") and (not chat or str(it.get("chat") or "").split(":")[-1] != chat)):
+            return it
+    return None
+
+
 def main(argv):
     notes, interrupt = None, False
     if argv[:1] == ["--interrupt"]:
@@ -71,7 +83,7 @@ def main(argv):
             sys.exit(f"ws-forward: {path} 交给了几个工作区，用 --notes 写明：{'；'.join([path, *alts])}")
         if rec is None:
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
-        last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"]}
+        last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"], "chat": rec.get("chat") or ""}
     done = board.done_item(last["file"])
     if done:  # 已交回：工作区会话已清空、放回池子，话发过去没人接（用户 10-30「他那边不是返回了吗？为什么没感知」）
         sys.exit(f"ws-forward: #{done['id']}（{done.get('short') or done.get('what')}）{done.get('done_at', '')} 已交回，工作区已清空。"
@@ -81,6 +93,23 @@ def main(argv):
         # 提问后工作区已让出（board ask / ws-up --ask）：答复交 ws-handoff --resume 找空工作区接着做，不发去旧工作区
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
         sys.exit(r.returncode)
+    live = next((i for i in board.items() if i.get("where") == last["file"] and i.get("chat") and not i.get("paused")), None)
+    if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
+        if live.get("ws"):
+            last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个
+        else:
+            # 这件活已交回、让出了原工作区（交回待验收、排队等），原工作区可能已归别的聊天频道：不发去旧工作区，
+            # 交 ws-handoff --resume 找空着的接着做（都占着就新建或排队）。来源 #1154：11-06 23:02 记忆论坛的转话
+            # 发进了已在做小剧场的工作区2，截图落到小剧场频道，用户「为什么会推到这边来」。
+            r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
+            sys.exit(r.returncode)
+    if live is None:
+        other = other_chat_work(last)
+        if other is not None:
+            # 任务板上查不到这件活，原工作区眼下在做别的聊天频道的活：不发过去（#1155，补 #1154 的这条路）
+            sys.exit(f"ws-forward: 工作区 {str(last['channel']).split(':')[-1]} 正在做别的聊天频道的 #{other['id']}"
+                     f"（{other.get('short') or other.get('what')}），这份交接在任务板上查不到，没转。"
+                     f"要接着做就重新 ws-handoff 这份交接：{last['file']}")
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     append_result(last["file"], argv[0], now)
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt), capture_output=True, text=True)

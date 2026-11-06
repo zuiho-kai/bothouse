@@ -263,9 +263,10 @@ func gateWikiEnv(dataDir, roleWikiDir string) []string {
 	return append(env, "GATE_WIKI_BOTS="+filepath.Join(roleWikiDir, "bots.json"))
 }
 
-// gateProfilePage: the user-profile page (「懂你」) relative to the main wiki, the path the author's wiki ingest writes;
-// ctxsvc.py pushes its 「## 现状」 once a session when the page is there, nothing when it is not.
-const gateProfilePage = "tooling/workflow/workflow/preferences/user-profile.md"
+// gateProfilePage: the directory of the 「懂你」 pages relative to the main wiki, one page per person
+// (profile-<platform>-<sender id>.md, written nightly by the wiki's dream; #1160). ctxsvc.py pushes the 「## 现状」 of
+// the page of whoever sent the turn's message, once a session; nothing when that person has no page.
+const gateProfilePage = "tooling/workflow/workflow/preferences"
 
 // forumCronOn: the nightly memory-forum settlement job (AddForumCronJob) is in the cron store and enabled; the gate
 // then tells the roles the forum settles every night (ctxsvc.py memory_caps).
