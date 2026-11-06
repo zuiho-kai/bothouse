@@ -40,23 +40,77 @@ function mentionPattern(list) {
   return new RegExp(parts.join('|'), 'g');
 }
 
-/** Split text into [segment, memberId|null]; mentions inside ``` fences do not count. */
+/** [start, end) of every ``` fence body; an unterminated fence runs to the end of the text. */
+function fenceRanges(text) {
+  const ranges = [];
+  let open = -1;
+  let at = text.indexOf(FENCE);
+  while (at >= 0) {
+    if (open < 0) {
+      open = at + FENCE.length;
+    } else {
+      ranges.push([open, at]);
+      open = -1;
+    }
+    at = text.indexOf(FENCE, at + FENCE.length);
+  }
+  if (open >= 0) ranges.push([open, text.length]);
+  return ranges;
+}
+
+/**
+ * [start, end) of every Markdown inline code span (`@name`, ``a `b` c``), the spans the channel
+ * page renders as <code> and never colours. A span is a run of backticks closed by a run of the
+ * same length (#237, dsh/packages/client-ui-discord/src/client/mention-highlight.tsx
+ * codeSpanRanges — keep the two in step); a lone backtick stays literal text, and runs of three
+ * or more are fences, read by fenceRanges().
+ */
+function codeSpanRanges(text) {
+  const runs = [];
+  for (let i = 0; i < text.length;) {
+    if (text[i] !== '`') { i++; continue; }
+    let j = i;
+    while (j < text.length && text[j] === '`') j++;
+    runs.push({ start: i, len: j - i });
+    i = j;
+  }
+  const ranges = [];
+  for (let k = 0; k < runs.length; k++) {
+    const { start, len } = runs[k];
+    if (len >= 3) continue; // a fence, not an inline span
+    for (let c = k + 1; c < runs.length; c++) {
+      if (runs[c].len !== len) continue;
+      ranges.push([start + len, runs[c].start]);
+      k = c; // the closing run cannot open another span
+      break;
+    }
+  }
+  return ranges;
+}
+
+/** True when [index, index+len) sits inside one of the excluded ranges. */
+function excluded(ranges, index, len) {
+  return ranges.some(([start, end]) => index < end && index + len > start);
+}
+
+/**
+ * Split text into [segment, memberId|null]; mentions inside ``` fences and inline code spans do
+ * not count. The text itself is kept verbatim, so the parts always join back to the input.
+ */
 export function split(text, members) {
   const list = aliases(members);
   if (list.length === 0) return [[text, null]];
   const lookup = new Map(list);
   const pat = mentionPattern(list);
+  const skip = [...fenceRanges(text), ...codeSpanRanges(text)];
   const parts = [];
-  text.split(FENCE).forEach((seg, i) => {
-    if (i) parts.push([FENCE, null]);
-    if (i % 2) { parts.push([seg, null]); return; }
-    let pos = 0;
-    for (const m of seg.matchAll(pat)) {
-      parts.push([seg.slice(pos, m.index), null], [m[0], lookup.get(m[0])]);
-      pos = m.index + m[0].length;
-    }
-    parts.push([seg.slice(pos), null]);
-  });
+  let pos = 0;
+  for (const m of text.matchAll(pat)) {
+    if (excluded(skip, m.index, m[0].length)) continue;
+    parts.push([text.slice(pos, m.index), null], [m[0], lookup.get(m[0])]);
+    pos = m.index + m[0].length;
+  }
+  parts.push([text.slice(pos), null]);
   return parts;
 }
 

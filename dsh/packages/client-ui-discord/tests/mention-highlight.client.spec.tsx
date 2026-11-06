@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChannelMember } from '../src/client/channel-source.ts'
 import {
   buildMentionMatcher,
+  codeSpanRanges,
   fencedRanges,
   formatMentionBadgeText,
   highlightMentionsInElement,
@@ -103,6 +104,30 @@ describe('mention-highlight logic', () => {
       { text: '@肥鱼', member: testMembers[0] },
       { text: '] 在吗' },
     ])
+  })
+
+  // #237 rework: the renderer turns `…` into <code> and never colours it, so an @ inside an
+  // inline code span must not count on the backend either. Ranges follow mentions.mjs.
+  it('does not colour an @ inside an inline code span, and colours the rest (#237 rework)', () => {
+    expect(splitMentions('看 `@肥鱼` 这个', testMembers)).toEqual([{ text: '看 `@肥鱼` 这个' }])
+
+    const mixed = '`@肥鱼` 和 @大豆包 看下'
+    const segments = splitMentions(mixed, testMembers)
+    expect(segments.filter(s => s.member).map(s => s.text)).toEqual(['@大豆包'])
+    expect(segments.map(s => s.text).join('')).toBe(mixed)
+
+    // a run of two backticks opens and closes its own span
+    expect(splitMentions('``@肥鱼`` 和 @大豆包', testMembers).filter(s => s.member)).toEqual([
+      { text: '@大豆包', member: testMembers[1] },
+    ])
+    // a lone backtick is literal text; adjacent runs of different lengths do not pair
+    expect(splitMentions('@肥鱼 后跟 `未闭合', testMembers).filter(s => s.member)).toEqual([
+      { text: '@肥鱼', member: testMembers[0] },
+    ])
+    expect(codeSpanRanges("看 `@肥鱼` 这个")).toEqual([[3, 6]])
+    expect(codeSpanRanges('`a` 和 `b`')).toEqual([[1, 2], [7, 8]])
+    expect(codeSpanRanges('```x```')).toEqual([])
+    expect(codeSpanRanges('`@肥鱼``x')).toEqual([])
   })
 })
 

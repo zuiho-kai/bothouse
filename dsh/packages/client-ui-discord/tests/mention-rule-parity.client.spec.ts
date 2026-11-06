@@ -40,6 +40,13 @@ const CASES: Array<[string, string[]]> = [
   ['看@肥鱼', ['dsh']],
   ['x<@1001>y', []],
   ['@unknown_user 和 @test_bot', []],
+  // #237 rework: an inline code span calls nobody and colours nothing, like a fence
+  ['看 `@肥鱼` 这个', []],
+  ['`@肥鱼` 和 @G哥 看下', ['gge']],
+  ['``@肥鱼`` 和 ``@G哥``', []],
+  ['`a` 和 @肥鱼', ['dsh']],
+  ['@肥鱼 后跟 `未闭合的反引号', ['dsh']],
+  ['`@肥鱼``x 不是行内代码', ['dsh']],
 ]
 
 describe('mention rule parity: page highlight == backend call (#237)', () => {

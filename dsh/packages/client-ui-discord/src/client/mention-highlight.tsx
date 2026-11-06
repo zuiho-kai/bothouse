@@ -21,9 +21,41 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** True when an offset sits inside fenced code, where the backend calls nobody (#237). */
-function withinFence(ranges: ReadonlyArray<[number, number]>, index: number): boolean {
-  return ranges.some(([start, end]) => index >= start && index < end)
+/**
+ * Offsets of Markdown inline code spans, [start, end) each, matching what the markdown renderer
+ * turns into <code> and the backend skips (dsh/collab/mentions.mjs codeSpanRanges — keep them in
+ * step). A span is a run of backticks closed by a run of the same length; a lone backtick stays
+ * literal text, and runs of three or more are fences, left to fencedRanges().
+ */
+export function codeSpanRanges(text: string): Array<[number, number]> {
+  const runs: Array<{ start: number; len: number }> = []
+  for (let i = 0; i < text.length;) {
+    if (text[i] !== '`') {
+      i++
+      continue
+    }
+    let j = i
+    while (j < text.length && text[j] === '`') j++
+    runs.push({ start: i, len: j - i })
+    i = j
+  }
+  const ranges: Array<[number, number]> = []
+  for (let k = 0; k < runs.length; k++) {
+    const { start, len } = runs[k]!
+    if (len >= 3) continue // a fence, not an inline span
+    for (let c = k + 1; c < runs.length; c++) {
+      if (runs[c]!.len !== len) continue
+      ranges.push([start + len, runs[c]!.start])
+      k = c // the closing run cannot open another span
+      break
+    }
+  }
+  return ranges
+}
+
+/** True when [index, index + len) overlaps any excluded range. */
+function overlaps(ranges: ReadonlyArray<[number, number]>, index: number, len: number): boolean {
+  return ranges.some(([start, end]) => index < end && index + len > start)
 }
 
 /**
@@ -91,9 +123,9 @@ export function fencedRanges(text: string): Array<[number, number]> {
 }
 
 /**
- * Splits plain text into non-mention and mention segments. An @ inside a ``` fence is left
- * as text: the backend does not call anyone there (dsh/collab/mentions.mjs), so colouring it
- * would promise a call that never happens (#237).
+ * Splits plain text into non-mention and mention segments. An @ inside a ``` fence or an inline
+ * code span is left as text: the backend does not call anyone there (dsh/collab/mentions.mjs),
+ * so colouring it would promise a call that never happens (#237).
  */
 export function splitMentions(text: string, members: readonly ChannelMember[]): MentionSegment[] {
   if (!text) return []
@@ -102,13 +134,13 @@ export function splitMentions(text: string, members: readonly ChannelMember[]): 
 
   const { regex, aliasMap } = matcher
   const segments: MentionSegment[] = []
-  const fenced = fencedRanges(text)
+  const skip = [...fencedRanges(text), ...codeSpanRanges(text)]
   let lastIndex = 0
 
   for (const match of text.matchAll(regex)) {
     const matchText = match[0]
     const startIndex = match.index ?? 0
-    if (withinFence(fenced, startIndex)) continue
+    if (overlaps(skip, startIndex, matchText.length)) continue
     if (startIndex > lastIndex) {
       segments.push({ text: text.slice(lastIndex, startIndex) })
     }

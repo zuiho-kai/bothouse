@@ -54,6 +54,20 @@ test('mentions: <@id> and <@!id> are calls, and the longest alias wins', () => {
   assert.deepEqual(split('@阿柚子', members).filter(([, id]) => id), [['@阿柚子', 'yuzi_long']]);
 });
 
+test('mentions: inline code spans call nobody, unlike a bare @ in text (#237 rework)', () => {
+  assert.deepEqual(found('看 `@肥鱼` 这个'), []);
+  assert.deepEqual(found('`@肥鱼` 和 @G哥 看下'), ['gge']);
+  assert.deepEqual(found('``@肥鱼`` 和 ``@G哥``'), []);
+  assert.deepEqual(found('`a` 和 @肥鱼'), ['dsh']);
+  // an unclosed backtick is literal text, not code
+  assert.deepEqual(found('@肥鱼 后跟 `未闭合的反引号'), ['dsh']);
+  // adjacent runs of different lengths do not pair up
+  assert.deepEqual(found('`@肥鱼``x 不是行内代码'), ['dsh']);
+  // the text is kept verbatim, so rewriting and display still see every character
+  assert.equal(split('看 `@肥鱼` 这个', members).map(([s]) => s).join(''), '看 `@肥鱼` 这个');
+  assert.equal(forDisplay('看 `@肥鱼` 这个', members), '看 `@肥鱼` 这个');
+});
+
 test('mentions: forMember/forDisplay/withoutLeadingMentions use the same rule', () => {
   const dsh = members[0];
   // an email is plain text now, so it is not stripped as an opening mention
