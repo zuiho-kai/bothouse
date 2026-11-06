@@ -484,6 +484,7 @@
     "openDownload": "Open download page",
     "dev": "Development build: update check disabled",
     "devShort": "dev build",
+    "selfBuilt": "Self-built build: in-app update is off",
     "checkFailed": "Update check failed",
     "details": "Details",
     "dismiss": "Got it",
