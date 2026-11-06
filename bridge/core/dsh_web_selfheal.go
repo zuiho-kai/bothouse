@@ -107,7 +107,12 @@ func dshWebLogPath(web DSHWeb) string {
 }
 
 // lastDSHWebURL returns the last `dsh web: <url>` line in the tail of path, or "".
-func lastDSHWebURL(path string) string {
+func lastDSHWebURL(path string) string { return lastDSHWebURLFrom(path, 0) }
+
+// lastDSHWebURLFrom is lastDSHWebURL over the bytes written at or after offset: a launch that
+// appends to the log must not read the previous start's announcement as its own, or it would take a
+// token the earlier host has already rotated for its own (openDSHWeb appends, see 2026-11-05 现场).
+func lastDSHWebURLFrom(path string, offset int64) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
@@ -117,8 +122,11 @@ func lastDSHWebURL(path string) string {
 	if err != nil {
 		return ""
 	}
-	start := int64(0)
-	if size > dshWebLogTailBytes {
+	start := offset
+	if start < 0 || start > size {
+		start = size
+	}
+	if size-start > dshWebLogTailBytes {
 		start = size - dshWebLogTailBytes
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
@@ -129,7 +137,7 @@ func lastDSHWebURL(path string) string {
 		return ""
 	}
 	text := string(b)
-	if start > 0 {
+	if start > offset {
 		// The tail starts mid-line; drop it so half a line is never taken for an announcement.
 		i := strings.IndexByte(text, '\n')
 		if i < 0 {

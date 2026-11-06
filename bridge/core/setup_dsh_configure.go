@@ -331,6 +331,7 @@ var dshWebOpenWait = 3 * time.Second
 type dshWebLaunch struct {
 	PID     int       `json:"pid"`
 	Log     string    `json:"log"`
+	Offset  int64     `json:"offset,omitempty"` // the log's size when this launch started appending
 	Started time.Time `json:"started"`
 	exited  chan struct{}
 }
@@ -398,7 +399,7 @@ func stopDSHWebLaunch() {
 func waitDSHWebLaunch(ctx context.Context, l *dshWebLaunch) (DSHWeb, error) {
 	deadline := time.Now().Add(dshWebOpenWait)
 	for {
-		if u := scanDSHWebURL(l.Log); u != "" {
+		if u := lastDSHWebURLFrom(l.Log, l.Offset); u != "" {
 			web := DSHWeb{URL: u + dshChannelsHash, PID: l.PID, Log: l.Log}
 			b, _ := json.Marshal(web)
 			_ = os.WriteFile(dshWebStatePath(), b, 0o600)
@@ -489,7 +490,15 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return DSHWeb{}, err
 	}
-	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	// Append, never truncate: this log carries the announcement takeOverOrphanDSHWeb reads, and the
+	// previous start's line is the only clue left when this one fails (a missing dsh, the plugin's
+	// instance lock, an immediate crash). Wiping it is how a failed open lost the running host
+	// (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 3 条).
+	offset := int64(0)
+	if info, err := os.Stat(logPath); err == nil {
+		offset = info.Size()
+	}
+	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return DSHWeb{}, err
 	}
@@ -530,7 +539,7 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if err := cmd.Start(); err != nil {
 		return DSHWeb{}, err
 	}
-	l := &dshWebLaunch{PID: cmd.Process.Pid, Log: logPath, Started: time.Now(), exited: make(chan struct{})}
+	l := &dshWebLaunch{PID: cmd.Process.Pid, Log: logPath, Offset: offset, Started: time.Now(), exited: make(chan struct{})}
 	go func() { _ = cmd.Wait(); close(l.exited) }()
 	dshWebStarting = l
 	if b, err := json.Marshal(l); err == nil {
