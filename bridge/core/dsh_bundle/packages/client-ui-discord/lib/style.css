@@ -2895,8 +2895,37 @@
   align-items: center;
   gap: 10px;
   margin: 8px 8px 4px;
+  display: flex;
+}
+
+.dshc_leadCardButton {
+  border-radius: inherit;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  flex: auto;
+  align-items: center;
+  gap: 10px;
   padding: 10px 12px;
   display: flex;
+}
+
+.dshc_leadCardButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshc_leadCardButton:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: -2px;
+}
+
+.dshc_leadCardButton:disabled {
+  cursor: default;
+  background: none;
 }
 
 .dshc_leadCardText {
