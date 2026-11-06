@@ -539,6 +539,10 @@ func (m *ManagementServer) handleStatus(w http.ResponseWriter, r *http.Request) 
 	platformSet := make(map[string]bool)
 	for _, e := range m.engines {
 		for _, p := range e.platforms {
+			// The bridge transport is not a chat platform; it is reported under "bridge".
+			if _, ok := p.(*BridgePlatform); ok {
+				continue
+			}
 			platformSet[p.Name()] = true
 		}
 	}
