@@ -4935,6 +4935,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			images = append(imgs, images...)
 		}
 		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
+		content = withVoiceNote(content, msg.FromVoice)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
 		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
@@ -7856,7 +7857,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				*chainedQueued = queued
 				queued.content = session.renderReference(queued.content, queued.reference)
 				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+				queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
@@ -8443,7 +8444,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
 		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
@@ -18974,6 +18975,29 @@ func senderText(msg *Message, text string) string {
 		return text
 	}
 	return strings.NewReplacer("\n", " ", "\r", "").Replace(msg.UserName) + "：" + text
+}
+
+// voiceNoteMark tells the model the words under it came from speech
+// recognition, not from the person typing.
+//
+// Why it exists: handleVoiceMessage posts the transcript back to the channel as
+// "🎙 [语音] …" and then re-dispatches the message with only Content replaced,
+// so the prompt the model sees is bare text. #215 (2026-11-06 09:08-09:09) is
+// what that costs: the model read 「1235」 as typing, answered 「听不到，收到的一直是文字」,
+// and the person had to send the voice message twice. The mark goes after the
+// sender header (buildSenderPrompt) so that header stays the first line.
+const voiceNoteMark = "（这条是语音消息，下面是语音转成的文字，是说话人说的，不是打字发的）"
+
+// withVoiceNote marks message text that came from speech recognition. It is
+// applied to the text before buildSenderPrompt so the sender header stays the
+// first line of the prompt. Every re-dispatch of a FromVoice message calls it
+// again: the first turn, a queued turn, a mid-turn injection and a capacity
+// retry each build their own prompt.
+func withVoiceNote(content string, fromVoice bool) string {
+	if !fromVoice {
+		return content
+	}
+	return voiceNoteMark + "\n" + content
 }
 
 // buildSenderPrompt prepends a sender identity header to content when

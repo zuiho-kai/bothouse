@@ -166,7 +166,7 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 	if strings.TrimSpace(content) == "" {
 		content = "（补充附件，和刚才的消息是一起发的）"
 	}
-	if !e.injectIntoRunningTurn(interactiveKey, e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, msg.Images, msg.Files) {
+	if !e.injectIntoRunningTurn(interactiveKey, e.buildSenderPrompt(withVoiceNote(content, msg.FromVoice), msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey), msg.ReplyCtx, msg.Images, msg.Files) {
 		return false
 	}
 	e.teamNoteTurn(msg, session)
