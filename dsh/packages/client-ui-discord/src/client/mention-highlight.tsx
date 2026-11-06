@@ -1,0 +1,272 @@
+/**
+ * Mention badge highlighting for channel message text and quotes.
+ * Highlights valid channel members/roles as pill badges (Discord-style),
+ * cleanly separated from regular text, without false positives in code or emails.
+ */
+import React, { useLayoutEffect, useEffect, useRef } from 'react'
+import type { ChannelMember } from './channel-source.ts'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from './ChannelsPage.module.css'
+
+export interface MentionSegment {
+  text: string
+  member?: ChannelMember
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Builds a regex matcher and lookup map for channel member mention aliases.
+ * Longest aliases are prioritized so e.g. "@阿柚子" matches before "@阿柚".
+ */
+export function buildMentionMatcher(members: readonly ChannelMember[]): {
+  regex: RegExp
+  aliasMap: Map<string, ChannelMember>
+} | undefined {
+  if (!members || members.length === 0) return undefined
+
+  const aliasMap = new Map<string, ChannelMember>()
+  for (const m of members) {
+    const name = m.name?.trim()
+    const id = m.id?.trim()
+    if (name) {
+      aliasMap.set('@' + name, m)
+    }
+    if (id) {
+      aliasMap.set('@' + id, m)
+      aliasMap.set('<@' + id + '>', m)
+      aliasMap.set('<@!' + id + '>', m)
+    }
+    if (m.mentionId) {
+      aliasMap.set('<@' + m.mentionId + '>', m)
+      aliasMap.set('<@!' + m.mentionId + '>', m)
+    }
+  }
+
+  const sortedAliases = Array.from(aliasMap.keys()).sort((a, b) => b.length - a.length)
+  if (sortedAliases.length === 0) return undefined
+
+  const parts = sortedAliases.map(alias => {
+    const escaped = escapeRegex(alias)
+    const endsWithWord = /[a-zA-Z0-9_]$/.test(alias)
+    return endsWithWord ? `${escaped}(?![a-zA-Z0-9_])` : escaped
+  })
+
+  // Lookbehind (?<=^|[^a-zA-Z0-9_]) ensures we do not match inside emails (e.g. user@domain.com)
+  const regex = new RegExp(`(?<=^|[^a-zA-Z0-9_])(${parts.join('|')})`, 'g')
+  return { regex, aliasMap }
+}
+
+/**
+ * Splits plain text into non-mention and mention segments.
+ */
+export function splitMentions(text: string, members: readonly ChannelMember[]): MentionSegment[] {
+  if (!text) return []
+  const matcher = buildMentionMatcher(members)
+  if (!matcher) return [{ text }]
+
+  const { regex, aliasMap } = matcher
+  const segments: MentionSegment[] = []
+  let lastIndex = 0
+
+  for (const match of text.matchAll(regex)) {
+    const matchText = match[0]
+    const startIndex = match.index ?? 0
+    if (startIndex > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, startIndex) })
+    }
+    const member = aliasMap.get(matchText)
+    segments.push({ text: matchText, member })
+    lastIndex = startIndex + matchText.length
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex) })
+  }
+  return segments
+}
+
+/**
+ * Formats mention text for display in the pill badge:
+ * converts raw Discord tags like <@12345> into readable @Name.
+ */
+export function formatMentionBadgeText(rawText: string, member: ChannelMember): string {
+  if (rawText.startsWith('<@')) {
+    return `@${member.name}`
+  }
+  return rawText
+}
+
+/**
+ * Highlights mentions in the text nodes of a container element without
+ * touching code blocks (<pre>, <code>), input controls, or scripts.
+ */
+export function highlightMentionsInElement(
+  container: HTMLElement,
+  members: readonly ChannelMember[],
+  badgeClassName: string = css.mentionBadge,
+): void {
+  if (!container || !members || members.length === 0) return
+  const matcher = buildMentionMatcher(members)
+  if (!matcher) return
+
+  const doc = container.ownerDocument || document
+
+  // 1. Unwrap any pre-existing mention badges to remain idempotent
+  const existing = container.querySelectorAll<HTMLElement>(`.${badgeClassName}, [data-mention]`)
+  for (const el of existing) {
+    el.replaceWith(doc.createTextNode(el.textContent || ''))
+  }
+  container.normalize()
+
+  // 2. Collect candidate text nodes outside code / input elements
+  const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node: Node) {
+      const parent = node.parentElement
+      if (!parent) return NodeFilter.FILTER_REJECT
+      if (parent.closest('pre, code, textarea, input, script, style')) {
+        return NodeFilter.FILTER_REJECT
+      }
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+
+  const textNodes: Text[] = []
+  let curr: Node | null
+  while ((curr = walker.nextNode())) {
+    textNodes.push(curr as Text)
+  }
+
+  // 3. Replace matching text nodes with styled badges and plain text nodes
+  for (const node of textNodes) {
+    const text = node.nodeValue || ''
+    if (!text) continue
+    matcher.regex.lastIndex = 0
+    if (!matcher.regex.test(text)) continue
+
+    const segments = splitMentions(text, members)
+    if (segments.length === 1 && !segments[0]?.member) continue
+
+    const fragment = doc.createDocumentFragment()
+    for (const seg of segments) {
+      if (!seg.member) {
+        fragment.appendChild(doc.createTextNode(seg.text))
+      } else {
+        const badge = doc.createElement('span')
+        badge.className = badgeClassName
+        badge.dataset.mention = seg.member.id
+        badge.title = `@${seg.member.name}`
+        badge.textContent = formatMentionBadgeText(seg.text, seg.member)
+        fragment.appendChild(badge)
+      }
+    }
+    node.replaceWith(fragment)
+  }
+}
+
+/**
+ * Renders quote text with mention pill badges as React elements.
+ */
+export function renderQuoteMentions(
+  text: string,
+  members: readonly ChannelMember[],
+  onMention?: (member: ChannelMember) => void,
+  badgeClassName: string = css.mentionBadge,
+): React.ReactNode[] {
+  const segments = splitMentions(text, members)
+  return segments.map((seg, idx) => {
+    if (!seg.member) {
+      return seg.text
+    }
+    const member = seg.member
+    return (
+      <span
+        key={idx}
+        className={badgeClassName}
+        data-mention={member.id}
+        title={`@${member.name}`}
+        onClick={
+          onMention
+            ? (e) => {
+                e.stopPropagation()
+                onMention(member)
+              }
+            : undefined
+        }
+      >
+        {formatMentionBadgeText(seg.text, member)}
+      </span>
+    )
+  })
+}
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
+
+export interface HighlightedMarkdownProps {
+  text: string
+  labels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
+  members?: readonly ChannelMember[]
+  className?: string
+  inline?: boolean
+  dataCardText?: boolean
+  onMention?: (member: ChannelMember) => void
+}
+
+/**
+ * Wraps MarkdownText and applies Discord-style pill badge highlighting
+ * to recognized channel member mentions.
+ */
+export function HighlightedMarkdown({
+  text,
+  labels,
+  members,
+  className,
+  inline,
+  dataCardText,
+  onMention,
+}: HighlightedMarkdownProps) {
+  const containerRef = useRef<HTMLElement | null>(null)
+
+  useIsomorphicLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el || !members || members.length === 0) return
+    highlightMentionsInElement(el, members, css.mentionBadge)
+  }, [text, members])
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (!onMention || !members) return
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-mention]')
+    if (!target) return
+    const mentionId = target.dataset.mention
+    const member = members.find(m => m.id === mentionId)
+    if (member) {
+      e.stopPropagation()
+      onMention(member)
+    }
+  }
+
+  if (inline) {
+    return (
+      <span
+        ref={(el) => { containerRef.current = el }}
+        className={className}
+        onClick={handleClick}
+      >
+        <MarkdownText key={text} text={text} labels={labels} />
+      </span>
+    )
+  }
+
+  return (
+    <div
+      ref={(el) => { containerRef.current = el }}
+      className={className}
+      data-card-text={dataCardText ? true : undefined}
+      onClick={handleClick}
+    >
+      <MarkdownText key={text} text={text} labels={labels} />
+    </div>
+  )
+}
