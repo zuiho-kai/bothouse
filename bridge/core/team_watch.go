@@ -568,8 +568,17 @@ var watchStatusPrefixes = []string{"↪", "⏹", "📬", "✅", "⏳", "🔄", "
 // not work done). Same list as d10-fire STANCE_PREFIXES (#315 review).
 var watchStancePrefixes = []string{"【接】", "【问】", "【退】", "【升】"}
 
-// watchNoProgressPrefixes: posts that are not progress (status and stance lines).
-var watchNoProgressPrefixes = append(append([]string(nil), watchStatusPrefixes...), watchStancePrefixes...)
+// watchSelfPrefixes: the watch's own posts (nudge, parked, park-failed). They land in the same
+// channel by the same account, so ownerSpoke reads them as the owner speaking and renews the
+// claim on the strength of its own reminder — the task then gets nudged every check window for
+// good (user 2026-11-06 10:53 「这种情况是为什么。好几个工作区都这样」: #207 nudged 09:13, 09:33,
+// 09:53, 10:13 … while the card sat 「已取消」). Not progress, whoever posts them.
+// Texts: watchNudgeText, MsgWatchParkedNotice, and the park-failure notice below.
+var watchSelfPrefixes = []string{"到了检查时间还没交回", "看门：", "看门暂停失败："}
+
+// watchNoProgressPrefixes: posts that are not progress (status, stance, and the watch's own
+// notices).
+var watchNoProgressPrefixes = append(append(append([]string(nil), watchStatusPrefixes...), watchStancePrefixes...), watchSelfPrefixes...)
 
 // watchLeadingMentions: what a post opens with before its own text: mentions ("<@id>" live,
 // "@name" as channel history renders them; d10-fire LEADING_MENTION_RE) and the reply quote
