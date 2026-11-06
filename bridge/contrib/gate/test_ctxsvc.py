@@ -185,10 +185,24 @@ class T(unittest.TestCase):
             main, wa, _ = self._team(d)
             for i in range(5):  # 角色库命中更多更密，主 wiki 的页也照样在、在前
                 (wa / "notes" / f"p{i}.md").write_text("- 代理端口 代理端口 代理端口 7890\n" * 3, encoding="utf-8")
-            got = [w["path"] for w in ctxsvc.context({"text": "代理端口多少", "bot": "proj-a"})["wiki"]]
+            out = ctxsvc.context({"text": "代理端口多少", "bot": "proj-a"})["wiki"]
+            got = [w["path"] for w in out]
             self.assertEqual(got[0], (main / "notes/port.md").as_posix())
-            self.assertEqual(len(got), 1 + ctxsvc.TOP_PAGES)
+            self.assertTrue(1 < len(got) <= 1 + ctxsvc.TOP_PAGES)
             self.assertTrue(all(p.startswith(wa.as_posix()) for p in got[1:]))
+            self.assertEqual(sum(len(w["rows"]) for w in out), ctxsvc.TURN_ROWS, "一轮最多推 TURN_ROWS 条")
+
+    def test_turn_cap_and_no_heading(self):
+        with tempfile.TemporaryDirectory() as d:
+            main, wa, _ = self._team(d)
+            (wa / "notes" / "h.md").write_text("# 代理端口\n## 代理端口 现状\n" + "".join(f"- 代理端口 7890 第{i}条说明\n" for i in range(9)), encoding="utf-8")
+            req = {"text": "代理端口多少", "bot": "proj-a", "key": "k:cap", "epoch": "e1"}
+            out = ctxsvc.context(req)["wiki"]
+            texts = [r["text"] for w in out for r in w.get("rows", [])]
+            self.assertEqual(len(texts), ctxsvc.TURN_ROWS)
+            self.assertFalse(any("#" in t.split(":", 1)[1].split("[")[0] for t in texts), texts)
+            again = ctxsvc.context(req)["wiki"]  # 第一轮超额没推的，下一轮接着推
+            self.assertTrue(again and all(r["text"] not in texts for w in again for r in w.get("rows", [])))
 
     def test_no_role_wiki_main_only(self):
         with tempfile.TemporaryDirectory() as d:
