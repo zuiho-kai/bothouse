@@ -8095,6 +8095,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).
 					// A local input turn reports the error to its caller instead.
+					//
+					// The idle watch follows the same rule as for a scheduled or interrupted
+					// turn: this failure belongs to the model, not to the watched item.
+					// board.hold() above already declares "re-sent, one board row, no failure";
+					// an exhausted retry only cools down and re-delivers the same message, so
+					// counting this attempt would stop a board item that never failed. Live
+					// 2026-11-06 19:15 and 20:54 a relay 429 failed a workspace turn three
+					// times, the watch took all three (fails=3, reported=true) and asked the
+					// primary role to reassign work nobody had failed at.
+					turnFailed = false
 					state.mu.Lock()
 					if chainedQueued != nil {
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)

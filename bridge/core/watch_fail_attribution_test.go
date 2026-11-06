@@ -265,3 +265,95 @@ func TestWatchOrdinaryTurnFailuresStillStopTheWork(t *testing.T) {
 		t.Fatal("the stopped watch must tell the chat")
 	}
 }
+
+// capacityTakeoverSession answers each prompt with the next scripted outcome, so a turn can fail
+// the way a rate limit / at-capacity relay does before the retry logic takes it over.
+func capacityTakeoverSession(script ...string) *capacityScriptSession {
+	return &capacityScriptSession{events: make(chan Event, 16), script: script}
+}
+
+// watchCapacityFixture: the same watched board item, with a session the capacity retry drives.
+func watchCapacityFixture(t *testing.T, sess *capacityScriptSession) (*Engine, *exitTestPlatform, string) {
+	t.Helper()
+	return watchTurnFixture(t, &resultAgent{session: sess})
+}
+
+// 2026-11-06 19:15 and 20:54 a workspace turn hit a relay 429 three times, runTurnWithCapacityRetry
+// took it over (board.hold: "one board row, no failure"), started a cool-down and queued the same
+// message for re-delivery. The event loop still reported the error to the watch, which counted all
+// three attempts against the board item (fails=3, reported=true) and asked the primary role to
+// reassign work that had never failed. A turn the retry mechanism owns is the model's failure, not
+// the work's: it counts toward nothing, like a scheduled or interrupted turn.
+func TestWatchCapacityRetryTurnIsNotTheWorkFailure(t *testing.T) {
+	old := capacityCooldownBase
+	capacityCooldownBase = 30 * time.Second
+	t.Cleanup(func() { capacityCooldownBase = old })
+
+	// Three 429s: capacityAttempts sends, then the cool-down and a re-delivery still pending.
+	sess := capacityTakeoverSession("rl", "rl", "rl")
+	e, p, ws := watchCapacityFixture(t, sess)
+	session := e.sessions.GetOrCreateActive(ws)
+	e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+	waitFor(t, "cool-down after three 429s", func() bool { return e.capacityWait() > 0 })
+	inputWait(t, func() bool { return !session.Busy() })
+	t.Logf("after the cool-down: idle = %+v", handoffsOf(e, ws)[0].Idle)
+
+	if n := sess.sends(); n != capacityAttempts {
+		t.Fatalf("sends = %d, want %d (one attempt per retry)", n, capacityAttempts)
+	}
+	got := handoffsOf(e, ws)[0]
+	if got.Idle.Fails != 0 || got.Idle.Reported {
+		t.Fatalf("a turn taken over by the capacity retry must count nothing: %+v", got.Idle)
+	}
+	for _, line := range p.sentTo("discord:chatA") {
+		if strings.Contains(line, "连续两次报错") || strings.Contains(line, "twice in a row") {
+			t.Fatalf("the board item must not be stopped for the model's failures: %q", line)
+		}
+	}
+	if items := readTeamTaskBoard(e.team.dir); len(items) != 1 || items[0].Who != "橘" {
+		t.Fatalf("the board item must stay with its owner: %+v", items)
+	}
+}
+
+// The re-delivered turn after the cool-down is the same message: its failure is the model's too,
+// so a second cool-down still counts nothing. Only a turn that really fails stops the work.
+func TestWatchCoolDownRedeliveryCountsNothing(t *testing.T) {
+	old := capacityCooldownBase
+	capacityCooldownBase = 150 * time.Millisecond
+	t.Cleanup(func() { capacityCooldownBase = old })
+
+	// 3 fails → cool-down; re-delivery 3 fails → doubled cool-down; the third re-delivery answers.
+	sess := capacityTakeoverSession("rl", "rl", "rl", "rl", "rl", "rl", "finally")
+	e, p, ws := watchCapacityFixture(t, sess)
+	e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+	waitFor(t, "the re-delivered turn to answer", func() bool { return strings.Contains(strings.Join(p.sentTo("rc"), "\n"), "reply:finally") })
+	inputWait(t, func() bool { return !e.sessions.GetOrCreateActive(ws).Busy() })
+
+	got := handoffsOf(e, ws)[0]
+	if got.Idle.Fails != 0 || got.Idle.Reported {
+		t.Fatalf("cool-down re-deliveries must count nothing: %+v", got.Idle)
+	}
+	if n := sess.sends(); n != 7 {
+		t.Fatalf("sends = %d, want 7 (3 + 3 after the first cool-down + the one that got through)", n)
+	}
+}
+
+// Control: the same turn failing with an error no retry list covers is the work's failure — two of
+// them still stop the watch. The guard must not silence every error.
+func TestWatchUnretriableTurnStillStopsTheWork(t *testing.T) {
+	as := &attributedFailSession{events: make(chan Event, 8)}
+	e, p, ws := watchTurnFixture(t, &attributedFailAgent{s: as})
+	session := e.sessions.GetOrCreateActive(ws)
+	for i := range watchFailLimit {
+		e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+		inputWait(t, func() bool { as.mu.Lock(); defer as.mu.Unlock(); return as.sends == i+1 })
+		inputWait(t, func() bool { return !session.Busy() })
+	}
+	got := handoffsOf(e, ws)[0]
+	if got.Idle.Fails != watchFailLimit || !got.Idle.Reported {
+		t.Fatalf("an unretriable failure is still the work's: %+v", got.Idle)
+	}
+	if len(p.sentTo("discord:chatA")) == 0 {
+		t.Fatal("the stopped watch must tell the chat")
+	}
+}
