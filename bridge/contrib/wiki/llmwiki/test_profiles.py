@@ -59,6 +59,12 @@ class Profiles(unittest.TestCase):
             self.assertIn("我要根因", a[0]["desc"])
             self.assertIn("声音不是很自然", b[0]["desc"])
             self.assertNotIn("根因", b[0]["desc"])
+            # 别的平台同一套：QQ 的发送人只拿到他那页
+            (self.wiki / profiles.page_rel("qq-1234567890")).write_text("# 懂你：qq用户\n\n## 现状\n### 判断标准\n- 他要快，所以先给结论（11-07「快点」）\n")
+            q = ctxsvc.profile_items([self.wiki], "qq-1234567890")
+            self.assertIn("qq用户", q[0]["path"])
+            self.assertNotIn("根因", q[0]["desc"])
+            self.assertEqual(ctxsvc.profile_items([self.wiki], "qq-999"), [])
             self.assertEqual(ctxsvc.profile_items([self.wiki], "discord-3"), [])  # 没他的页：不推，不拿别人的顶上
             self.assertEqual(ctxsvc.profile_items([self.wiki], ""), [])  # cron、定时：没有发送人
             self.assertEqual(ctxsvc.profile_items([self.wiki], "../x"), [])
