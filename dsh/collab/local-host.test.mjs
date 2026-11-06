@@ -2,34 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdtempSync, statSync, readFileSync } from 'node:fs';
+import { mkdtempSync, statSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { InstanceLock, writeLockOwner, lockStatus } from './instance-lock.mjs';
 import { localConnection, isLocalOwner, forwardLocal, mountSharedHost, BUSY_PATH, refuse } from './local-host.mjs';
 import { Store } from './store.mjs';
-
-/** Strip line and block comments, so a commented-out call cannot satisfy a source check. */
-function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-}
-
-/** The body of `if (lock === undefined) { … }` from plugin.mjs, comments removed. */
-function lockBusyBranch(source) {
-  const code = stripComments(source);
-  const start = code.indexOf('if (lock === undefined)');
-  assert.notEqual(start, -1, 'the lock-busy branch is gone');
-  const open = code.indexOf('{', start);
-  let depth = 0;
-  for (let i = open; i < code.length; i += 1) {
-    if (code[i] === '{') depth += 1;
-    else if (code[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return code.slice(open + 1, i).replace(/\s+/g, '');
-    }
-  }
-  throw Error('unbalanced lock-busy branch');
-}
 
 async function listen(t, handler) {
   const server = createServer(handler);
@@ -116,11 +96,16 @@ test('older holders without discovery keep the busy diagnostic and do not start 
   owner.createRoom('holder-room');
   // 指纹用内容而非写计数：PRAGMA data_version 会被 checkpoint(TRUNCATE)/VACUUM/真写迁移抬高，
   // 持库方空闲与否也会影响它（审稿 2026-11-07 第五节），假红会掩盖真红。
-  const roomsBefore = owner.rooms().map(room => room.name);
   // 用持库方自己的连接读，不另开一个（另开会碰到 open 时的迁移）。
+  // 内容指纹要盖住「只改内容、不动行数」的写法和别的表，否则第二次写入能藏在同名 UPDATE 或
+  // room_settings 里（审稿 2026-11-07 第三轮第四节）。
+  // 显式假设：窗口内持库方自己空闲（本用例不写库）。持库方若在窗口内正常发消息，指纹同样会变，
+  // 那时这条断言分不清「它在服务」和「有第二个写者」——真正的守卫是上面那条抢锁断言。
   const fingerprint = () => ({
     rooms: owner.db.prepare('SELECT name FROM rooms ORDER BY id').all().map(row => row.name),
-    rows: owner.db.prepare('SELECT count(*) AS n FROM messages').get().n,
+    messages: owner.db.prepare('SELECT id, room_id, author, text, changed_at FROM messages ORDER BY id').all(),
+    settings: owner.db.prepare('SELECT * FROM room_settings ORDER BY room_id').all(),
+    resets: owner.db.prepare('SELECT * FROM room_resets ORDER BY room_id').all(),
   });
   const before = fingerprint();
 
@@ -176,29 +161,57 @@ test('a refused instance serves holder status and forwards to the holder, never 
   assert.equal(upstreamHits, 1);
 });
 
-test('apply hands the lock-busy branch to mountSharedHost and registers nothing itself', () => {
-  // #227 review F2: deleting the call left the suite green, so the extraction could stay correct
-  // while the plugin stopped using it. plugin.mjs needs the DSH runtime to import, so this reads
-  // the branch: comments stripped first (a commented-out call used to pass), the call must be there,
-  // and the branch must not register the same two routes again — the double route was the whole bug.
-  const branch = lockBusyBranch(readFileSync(new URL('./plugin.mjs', import.meta.url), 'utf8'));
-  // 分支的第一条语句就必须是交接。这样注释掉、if (false) 包起来、return 之后再调、
-  // 以及自己再注册一遍路由，全都会红；纯排版变化（换行、多空格）不受影响。
-  assert.match(branch, /^mountSharedHost\(ctx,lockPath\)/, 'apply no longer hands the branch straight to mountSharedHost');
-  assert.equal(/register\(/.test(branch), false, 'the lock-busy branch registers routes itself again');
-});
+test('a real apply() under a held lock mounts the shared host and writes nothing', async t => {
+  // #227 review F2, third round: the lock-busy branch was checked by reading plugin.mjs, and a
+  // whole-branch `if (false)` passed it while the real apply() registered two routes and created
+  // collab.sqlite3 — the second writer this PR exists to prevent. So import the plugin for real.
+  //
+  // It needs the DSH runtime: `@deepseek-ai/dsh-llm` (resolved from process.argv[1]) and `ws`
+  // (from collab/node_modules, installed by CI). Only the first is missing here, so a two-line
+  // stub stands in — the same trick desk-e2e/host.mjs uses.
+  // ws comes from collab/node_modules (pnpm install). Without it the plugin cannot load, so skip
+  // loudly instead of faking a red — the repo already skips on missing optional deps.
+  let haveWs = true;
+  try { createRequire(import.meta.url).resolve('ws'); } catch { haveWs = false; }
+  if (!haveWs) return t.skip('dsh/collab/node_modules is not installed (pnpm install)');
+  const root = mkdtempSync(join(tmpdir(), 'collab-apply-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const stub = join(root, 'node_modules', '@deepseek-ai', 'dsh-llm');
+  mkdirSync(stub, { recursive: true });
+  writeFileSync(join(stub, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-llm', type: 'module', main: 'index.mjs' }));
+  writeFileSync(join(stub, 'index.mjs'), 'export function createUserMessage() { return {}; }\n');
+  const base = join(root, 'stub-base.mjs');
+  writeFileSync(base, '// createRequire 的基准\n');
+  const argv1 = process.argv[1];
+  process.argv[1] = base;
+  t.after(() => { process.argv[1] = argv1; });
 
-test('the lock-busy branch reader tolerates formatting and ignores comments', () => {
-  // Guards the guard: these are the shapes the source check must accept or reject.
-  const ok = 'export async function apply(ctx) {\n  if (lock === undefined) {\n    // 说明\n    mountSharedHost(ctx, lockPath);\n    return;\n  }\n}';
-  assert.match(lockBusyBranch(ok), /^mountSharedHost\(ctx,lockPath\)/);
-  const spaced = 'if (lock === undefined)\n{ mountSharedHost( ctx , lockPath ) ; return; }';
-  assert.match(lockBusyBranch(spaced), /^mountSharedHost\(ctx,lockPath\)/);
-  for (const broken of [
-    'if (lock === undefined) {\n  // mountSharedHost(ctx, lockPath);\n  return;\n}',
-    'if (lock === undefined) {\n  if (false) mountSharedHost(ctx, lockPath);\n}',
-    'if (lock === undefined) {\n  return;\n  mountSharedHost(ctx, lockPath);\n}',
-  ]) assert.doesNotMatch(lockBusyBranch(broken), /^mountSharedHost\(ctx,lockPath\)/);
+  const dataDir = join(root, 'data');
+  mkdirSync(dataDir, { recursive: true });
+  // 另一台 DSH 正拿着这个数据目录。
+  const lockPath = join(dataDir, 'collab.lock');
+  const holderLock = InstanceLock.acquire(lockPath);
+  t.after(() => holderLock.release());
+
+  const routes = [];
+  const ctx = {
+    logger: { debug() {}, info() {}, warn() {}, error() {} },
+    webServer: {
+      register(route) { routes.push(route); return () => {}; },
+      registerUpgrade() { return () => {}; },
+      getOrigin() { return 'http://127.0.0.1:0'; },
+    },
+    on() { return () => {}; },
+    effect(fn) { fn(); return () => {}; },
+    connection: { requestRejection: () => undefined },
+    llm: { listProviders: () => [], listModels: async () => [] },
+  };
+  const plugin = await import(pathToFileURL(new URL('./plugin.mjs', import.meta.url).pathname).href);
+  await plugin.apply(ctx, { dataDir, workspacePath: dataDir, rooms: [{ id: 1, name: 'general' }] });
+
+  assert.deepEqual(routes.map(route => [route.kind, route.path]), [['exact', BUSY_PATH], ['prefix', '/collab']]);
+  assert.equal(existsSync(join(dataDir, 'collab.sqlite3')), false, 'a refused instance opened the holder database');
+  assert.equal(InstanceLock.acquire(lockPath), undefined, 'a refused instance took the lock');
 });
 
 test('an unauthenticated ticket request gets the 403 hint, everyone else 401', () => {
