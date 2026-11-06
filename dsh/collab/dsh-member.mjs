@@ -389,8 +389,6 @@ export class DshMembers {
     this.hooked = new WeakSet();
     /** JSON([memberId, cwd, roomId]) -> { memberId, roomId, cli, agent } live local CLI agents. */
     this.cliAgents = new Map();
-    /** CLI turns awaiting context; room/member cleanup also cancels these future starts. */
-    this.cliStarts = new Set();
     // Releasing a workspace retains its bindings for rework, but needs no resident CLI.
     this.store.onWorkspaceRelease(roomId => this.dropRoomCli(roomId));
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
@@ -415,10 +413,10 @@ export class DshMembers {
     this.config.set(m.id, m);
     this.publish(m);
     // Hub owns scope rules, including workspace inheritance and the member's private chat.
-    const removed = entry => entry.memberId === m.id && !this.hub.membersInRoom(entry.roomId).some(member => member.id === m.id);
-    for (const start of this.cliStarts) if (removed(start)) start.cancelled = true;
+    const removed = (id, roomId) => id === m.id && !this.hub.membersInRoom(roomId).some(member => member.id === m.id);
+    this.cancelCliStarts(removed);
     for (const [key, entry] of this.cliAgents) {
-      if (!removed(entry)) continue;
+      if (!removed(entry.memberId, entry.roomId)) continue;
       entry.agent.close();
       this.cliAgents.delete(key);
     }
@@ -678,13 +676,8 @@ export class DshMembers {
     const unseen = this.store.page(room.id, job.trigger_id + 1, CONTEXT_LIMIT * 4)
       .filter(m => turnSees(m, job, binding, member))
       .slice(-CONTEXT_LIMIT);
-    const start = { memberId: member.id, roomId: room.id, cancelled: false };
-    this.cliStarts.add(start);
-    let wiki;
-    try { wiki = await this.turnContext(member, room, undefined, unseen); }
-    finally { this.cliStarts.delete(start); }
+    const wiki = await this.turnContext(member, room, undefined, unseen);
     if (this.closed) return;
-    if (start.cancelled) { this.store.finishJob(job.id, 'interrupted'); return; }
     if (!this.store.markSent(job.id, sessionId, 0, undefined)) return;
     const cwd = this.store.bindingWorkspacePath(member.id, room.id, this.store.workspacePath(room.id, this.rt.workspacePath));
     this.store.setBindingWorkspacePath(member.id, room.id, cwd);
@@ -824,7 +817,7 @@ export class DshMembers {
   }
 
   dropRoomCli(roomId) {
-    for (const start of this.cliStarts) if (start.roomId === roomId) start.cancelled = true;
+    this.cancelCliStarts((_memberId, id) => id === roomId);
     for (const [key, entry] of this.cliAgents) {
       if (entry.roomId !== roomId) continue;
       entry.agent.close();
@@ -833,11 +826,19 @@ export class DshMembers {
   }
 
   dropCli(id) {
-    for (const start of this.cliStarts) if (start.memberId === id) start.cancelled = true;
+    this.cancelCliStarts(memberId => memberId === id);
     for (const [key, entry] of this.cliAgents) {
       if (entry.memberId !== id) continue;
       entry.agent.close();
       this.cliAgents.delete(key);
+    }
+  }
+
+  /** Close queued CLI jobs too: run/markSent must not revive a process after cleanup. */
+  cancelCliStarts(matches) {
+    for (const job of this.store.openJobs()) {
+      if (job.state !== 'pending' || this.config.get(job.member_id)?.cli === undefined || !matches(job.member_id, job.room_id)) continue;
+      this.store.finishJob(job.id, 'interrupted');
     }
   }
 

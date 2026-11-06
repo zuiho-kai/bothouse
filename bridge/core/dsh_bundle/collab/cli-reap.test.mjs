@@ -110,6 +110,22 @@ test('CLI reap: cleanup while context is pending prevents a later process from s
   }
 });
 
+test('CLI reap: queued turns cannot recreate a process after room or member cleanup', async t => {
+  for (const action of ['reset', 'release', 'scope', 'remove']) {
+    const { store, members, created } = setup(t);
+    const workspace = store.createWorkspace(1);
+    const trigger = store.append(workspace.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'queued work' }).message;
+    const job = store.addJob('cc', workspace.id, trigger.id);
+    if (action === 'reset') store.resetSessions(workspace.id);
+    if (action === 'release') store.releaseWorkspace(workspace.id);
+    if (action === 'scope') members.putMember({ id: 'cc', name: 'CC', cli: 'gemini', rooms: [2] });
+    if (action === 'remove') members.dropMember('cc');
+    await members.run(job.id);
+    assert.equal(created.length, 0, `${action}: a queued turn cannot revive a removed process`);
+    assert.equal(store.job(job.id).state, 'interrupted');
+  }
+});
+
 test('CLI reap: workspace release terminates a real child PID through CliMember.close', { timeout: 5000 }, async t => {
   const { store, members, run } = setup(t);
   let agent;
