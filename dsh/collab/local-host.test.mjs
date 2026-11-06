@@ -5,10 +5,31 @@ import { once } from 'node:events';
 import { mkdtempSync, statSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { InstanceLock, writeLockOwner, lockStatus } from './instance-lock.mjs';
 import { localConnection, isLocalOwner, forwardLocal, mountSharedHost, BUSY_PATH, refuse } from './local-host.mjs';
 import { Store } from './store.mjs';
+
+/** Strip line and block comments, so a commented-out call cannot satisfy a source check. */
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+/** The body of `if (lock === undefined) { … }` from plugin.mjs, comments removed. */
+function lockBusyBranch(source) {
+  const code = stripComments(source);
+  const start = code.indexOf('if (lock === undefined)');
+  assert.notEqual(start, -1, 'the lock-busy branch is gone');
+  const open = code.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < code.length; i += 1) {
+    if (code[i] === '{') depth += 1;
+    else if (code[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return code.slice(open + 1, i).replace(/\s+/g, '');
+    }
+  }
+  throw Error('unbalanced lock-busy branch');
+}
 
 async function listen(t, handler) {
   const server = createServer(handler);
@@ -93,25 +114,24 @@ test('older holders without discovery keep the busy diagnostic and do not start 
   const owner = new Store(db);
   t.after(() => owner.close());
   owner.createRoom('holder-room');
+  // 指纹用内容而非写计数：PRAGMA data_version 会被 checkpoint(TRUNCATE)/VACUUM/真写迁移抬高，
+  // 持库方空闲与否也会影响它（审稿 2026-11-07 第五节），假红会掩盖真红。
   const roomsBefore = owner.rooms().map(room => room.name);
-  const counter = new DatabaseSync(db, { readOnly: true });
-  t.after(() => counter.close());
-  const writes = () => counter.prepare('PRAGMA data_version').get().data_version;
-  const writesBefore = writes();
+  // 用持库方自己的连接读，不另开一个（另开会碰到 open 时的迁移）。
+  const fingerprint = () => ({
+    rooms: owner.db.prepare('SELECT name FROM rooms ORDER BY id').all().map(row => row.name),
+    rows: owner.db.prepare('SELECT count(*) AS n FROM messages').get().n,
+  });
+  const before = fingerprint();
 
   const second = await listen(t, (req, res) => forwardLocal(req, res, path, () => undefined));
   assert.equal((await fetch(second + '/collab/api/state')).status, 404);
   assert.equal(lockStatus(path).busy, true);
   assert.equal(InstanceLock.acquire(path), undefined);
 
-  // A second writer would have added a room here, or left its own rows behind.
-  const after = new Store(db);
-  t.after(() => after.close());
-  assert.deepEqual(after.rooms().map(room => room.name), roomsBefore);
-  // 审稿 2026-11-07: the room list alone still misses a writer that only appends a message, so
-  // also compare the write counter. Another connection's commit bumps it; opening and closing a
-  // Store does not. Measured here: clean 2/2, one rogue append 2/3.
-  assert.equal(writes(), writesBefore, 'the forwarder wrote to the holder database');
+  // A second writer would have added a room here, or left its own rows behind. Comparing content
+  // catches both; the room list alone missed a writer that only appends a message (审稿 2026-11-07).
+  assert.deepEqual(fingerprint(), before, 'the forwarder wrote to the holder database');
 });
 
 test('a refused instance serves holder status and forwards to the holder, never past auth', async t => {
@@ -156,14 +176,29 @@ test('a refused instance serves holder status and forwards to the holder, never 
   assert.equal(upstreamHits, 1);
 });
 
-test('apply keeps calling mountSharedHost in the lock-busy branch', async t => {
-  // #227 review F2: deleting the call left the whole suite green, so the extraction could stay
-  // correct while the plugin stopped using it. Importing plugin.mjs needs the DSH runtime, so this
-  // reads the source: the branch must still call the shared helper and must not register its own.
-  const source = readFileSync(new URL('./plugin.mjs', import.meta.url), 'utf8');
-  assert.match(source, /if \(lock === undefined\) \{[\s\S]{0,600}mountSharedHost\(ctx, lockPath\)/);
-  assert.equal(source.includes("path: BUSY_PATH"), false);
-  assert.equal(source.includes("path: '/collab',\n      handler"), false);
+test('apply hands the lock-busy branch to mountSharedHost and registers nothing itself', () => {
+  // #227 review F2: deleting the call left the suite green, so the extraction could stay correct
+  // while the plugin stopped using it. plugin.mjs needs the DSH runtime to import, so this reads
+  // the branch: comments stripped first (a commented-out call used to pass), the call must be there,
+  // and the branch must not register the same two routes again — the double route was the whole bug.
+  const branch = lockBusyBranch(readFileSync(new URL('./plugin.mjs', import.meta.url), 'utf8'));
+  // 分支的第一条语句就必须是交接。这样注释掉、if (false) 包起来、return 之后再调、
+  // 以及自己再注册一遍路由，全都会红；纯排版变化（换行、多空格）不受影响。
+  assert.match(branch, /^mountSharedHost\(ctx,lockPath\)/, 'apply no longer hands the branch straight to mountSharedHost');
+  assert.equal(/register\(/.test(branch), false, 'the lock-busy branch registers routes itself again');
+});
+
+test('the lock-busy branch reader tolerates formatting and ignores comments', () => {
+  // Guards the guard: these are the shapes the source check must accept or reject.
+  const ok = 'export async function apply(ctx) {\n  if (lock === undefined) {\n    // 说明\n    mountSharedHost(ctx, lockPath);\n    return;\n  }\n}';
+  assert.match(lockBusyBranch(ok), /^mountSharedHost\(ctx,lockPath\)/);
+  const spaced = 'if (lock === undefined)\n{ mountSharedHost( ctx , lockPath ) ; return; }';
+  assert.match(lockBusyBranch(spaced), /^mountSharedHost\(ctx,lockPath\)/);
+  for (const broken of [
+    'if (lock === undefined) {\n  // mountSharedHost(ctx, lockPath);\n  return;\n}',
+    'if (lock === undefined) {\n  if (false) mountSharedHost(ctx, lockPath);\n}',
+    'if (lock === undefined) {\n  return;\n  mountSharedHost(ctx, lockPath);\n}',
+  ]) assert.doesNotMatch(lockBusyBranch(broken), /^mountSharedHost\(ctx,lockPath\)/);
 });
 
 test('an unauthenticated ticket request gets the 403 hint, everyone else 401', () => {
