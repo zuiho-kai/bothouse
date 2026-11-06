@@ -54,7 +54,7 @@ const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息�
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 // cancelled (#913): a card whose turn was cut without an outcome — a restarted bridge, a
 // cancelled DSH job. page.html styles it like any other card state.
-const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', aborted: '已打断' };
 const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 

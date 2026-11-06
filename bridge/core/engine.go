@@ -7990,8 +7990,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
+			abortedTurn := state.turnCancelled
 			state.mu.Unlock()
-			cp.Finalize(ProgressCardStateFailed)
+			cp.Finalize(errorTurnCardState(abortedTurn))
 			if event.Error != nil {
 				if until, ok := e.quotaCoolingUntilFor(state.quotaScope, event.Error.Error()); ok {
 					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
