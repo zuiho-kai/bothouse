@@ -194,11 +194,19 @@ func lastDSHWebURLFrom(path string, offset int64) string {
 		return ""
 	}
 	start := offset
-	if start < 0 || start > size {
+	if start < 0 {
 		start = size
 	}
+	if start > size {
+		// The log is shorter than when this launch began: it was truncated or replaced, so every
+		// byte in it was written since — read from the start, or the new announcement is never seen
+		// and waitDSHWebLaunch answers Starting forever (#243 复核).
+		start = 0
+	}
+	midLine := false
 	if size-start > dshWebLogTailBytes {
 		start = size - dshWebLogTailBytes
+		midLine = true
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return ""
@@ -208,7 +216,7 @@ func lastDSHWebURLFrom(path string, offset int64) string {
 		return ""
 	}
 	text := string(b)
-	if start > offset {
+	if midLine {
 		// The tail starts mid-line; drop it so half a line is never taken for an announcement.
 		i := strings.IndexByte(text, '\n')
 		if i < 0 {
