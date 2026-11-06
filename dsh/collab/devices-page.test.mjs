@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs';
 
 const HTML = readFileSync(new URL('./devices.html', import.meta.url), 'utf8');
 const SCRIPT = (() => {
-  const m = /<script>\n([\s\S]*?)\n<\/script>/.exec(HTML);
+  // 同 panel.test.mjs:76：不写死换行，Windows 的 core.autocrlf=true 检出（CI 的 dsh-collab-windows）
+  // 会把这段切成 CRLF，硬编码 \n 会取不到脚本。
+  const m = /<script>\r?\n([\s\S]*?)\r?\n<\/script>/.exec(HTML);
   assert.ok(m, 'devices.html still carries its page script');
   return m[1];
 })();
