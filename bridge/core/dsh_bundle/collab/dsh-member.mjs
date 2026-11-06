@@ -759,7 +759,9 @@ export class DshMembers {
         }
       };
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
-      wiki.commit();
+      // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
+      // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
+      // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
       // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
       const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
       const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
