@@ -17,6 +17,7 @@ import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
 import { Roster, rowToMember } from './roster.mjs';
+import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
 import { createCliMember } from './cli-member.mjs';
 import { MemorySources } from './memory-sources.mjs';
@@ -482,6 +483,12 @@ export async function apply(ctx, rawConfig) {
       }, false);
     }
     if (path === '/collab/api/clis') return clisHandler(req, res);
+    if (path === '/collab/api/panel/members' && req.method === 'GET') return json(res, 200, { members: managementMembers(roster, hub) });
+    if (path === '/collab/api/panel/members' && req.method === 'POST') return withBody(req, res, async body => ({ member: await managementCreate(roster, body, b => managementOptions(roster, b, config.workspacePath)) }));
+    const panelMember = /^\/collab\/api\/panel\/members\/([^/]+)$/.exec(path);
+    if (panelMember && req.method === 'PATCH') return withBody(req, res, async body => ({ member: await managementUpdate(roster, decodeURIComponent(panelMember[1]), body, b => managementOptions(roster, b, config.workspacePath)) }));
+    if (panelMember && req.method === 'DELETE') return withBody(req, res, () => { const id = decodeURIComponent(panelMember[1]); managementDelete(roster, id); hub.emit({ type: 'rooms', rooms: store.roomsView() }); return { id }; }, false);
+    if (path === '/collab/api/panel/cli-options' && req.method === 'POST') return withBody(req, res, body => managementOptions(roster, body, config.workspacePath));
     if (path === '/collab/api/models' && req.method === 'GET') return json(res, 200, { routes: await roster.models() });
     if (path === '/collab/api/rooms' && req.method === 'POST') {
       return withBody(req, res, (body) => {

@@ -18,7 +18,7 @@ export const zh = {
   mateReplying: '在回复',
   headLeadIdle: '空闲',
   headLeadBusyUnreported: '在忙',
-  headLeadUnset: '未设总管',
+  headLeadUnset: '未设主角色',
   progressTitle: '本频道进展',
   progressDone: '做完',
   progressDoing: '在做',
@@ -50,6 +50,8 @@ export const zh = {
   leadPinned: '主角色',
   leadCard: '主角色',
   leadCardHint: '接你的话，派活给队友，收结果',
+  leadCardSet: '点这里选一个',
+  leadCardChange: '点开频道设置，换主角色',
   activityPanel: '活动',
   activityNow: '正在进行',
   activityThinking: '思考中',
@@ -407,6 +409,8 @@ export const en: Record<keyof typeof zh, string> = {
   leadPinned: 'Primary role',
   leadCard: 'Primary role',
   leadCardHint: 'Takes your messages, hands work to teammates, collects results',
+  leadCardSet: 'Click to pick one',
+  leadCardChange: 'Open channel settings to change the primary role',
   activityPanel: 'Activity',
   activityNow: 'Now',
   activityThinking: 'Thinking',
@@ -462,7 +466,9 @@ export const en: Record<keyof typeof zh, string> = {
   taskReviewReason: 'Reason for rework (required)',
   taskReviewSubmit: 'Submit rework',
   lead: 'Primary role',
-  leadNone: 'No role is available',
+  // #176: zh says 未选择（按原配置）—「没有角色可用」是另一回事。这条是 select 的占位项，
+  // 频道里明明有五个人时说 no role is available 会让人以为添加成员失败了。
+  leadNone: 'Not selected (use the default)',
   durSeconds: '{n}s',
   durMinutes: '{n} min',
   durHours: '{h} h {m} min',
@@ -541,7 +547,10 @@ export const en: Record<keyof typeof zh, string> = {
   capabilityReminderHelp: 'Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.',
   capabilityWorkspaceHelp: 'Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.',
   capabilityLeadHelp: 'Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.',
-  capabilityDmHelp: 'Use 私聊 in the left column or 发私信 in a bot\'s avatar menu to talk with that role one to one, away from the channel. Roles can also message the configured owner.',
+  // #1140: name the two entry points the way the English UI already labels them (dmGroup/dmNew
+  // 「Direct messages」/「New message」, dmOpen 「Message privately」), or the help sends an English
+  // reader looking for a 私聊 button that is not on their screen.
+  capabilityDmHelp: 'Use New message under Direct messages in the left column, or Message privately in a bot\'s avatar menu, to talk with that role one to one, away from the channel. Roles can also message the configured owner.',
   configureModel: 'Add a model key',
   configureModelHint: 'Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).',
   retry: 'Retry',

@@ -1152,6 +1152,19 @@ describe('multi-line messages and the narrow composer', () => {
     expect(input).toContain('min-width: 0')
     expect(cssText()).toMatch(/@media \(max-width: 600px\) \{\n {2}\.composer \{ padding: 0 8px 8px; \}/)
   })
+
+  // 用户 2026-11-06 09:15「dsh肥鱼这个头像被压扁了 修一下」：左栏主角色卡是 flex 行，
+  // 头像固定 36px 但没挡收缩，名称+状态+提示一长就被压窄（无头 Chrome 实测 22.9×36）。
+  it('keeps the pinned lead avatar square when the card text is long', () => {
+    const avatar = rule('.avatar')
+    expect(avatar).toContain('width: 36px')
+    expect(avatar).toContain('height: 36px')
+    expect(avatar).toContain('flex: 0 0 auto')
+    const card = rule('.leadCard')
+    expect(card).toContain('display: flex')
+    // 文字列仍要能压缩，否则长名字会把卡片撑破。
+    expect(rule('.leadCardText')).toContain('min-width: 0')
+  })
   it('#1020 shows 排队 N 条 in the typing line and tags each waiting message, keeping its 撤回 in reach', () => {
     const own = (id: number, text: string) => ({ id, room_id: 1, author_kind: 'user' as const, author: 'owner', name: '我', text, created_at: id, card: null, from_turn: null })
     const state: ChannelSnapshot = { ...ready, messages: [...ready.messages, own(2, '一'), own(3, '二'), own(4, '三')], queued: { 1: { ju: [3, 4] } } }

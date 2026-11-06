@@ -36,7 +36,7 @@ for (const [name, sidebar, mains, beats] of [
 ]) {
   test(`${name} registers its own page`, () => {
     const mod = load(name);
-    const side = [], main = [], effects = [];
+    const side = [], main = [], effects = [], frames = [];
     const intervals = [];
     const realSet = globalThis.setInterval, realClear = globalThis.clearInterval;
     globalThis.setInterval = (fn, ms) => { intervals.push(ms); return 1; };
@@ -48,15 +48,36 @@ for (const [name, sidebar, mains, beats] of [
       mod.apply({
         effect: (fn) => effects.push(fn()),
         locale: { register: () => () => {}, bind: () => k => k },
-        slots: { inject: (_s, reg) => reg(), register: (def) => { (def.name === 'main' ? main : side).push(def.name === 'main' ? def.key : def.id); return () => {}; } },
+        slots: { inject: (_s, reg) => reg(), register: (def, component) => { if (def.name === 'main') frames.push([def, component]); (def.name === 'main' ? main : side).push(def.name === 'main' ? def.key : def.id); return () => {}; } },
         layout: { selectPanel: () => {} },
       });
     } finally { globalThis.setInterval = realSet; globalThis.clearInterval = realClear; }
     assert.deepEqual(side, sidebar);
     assert.deepEqual(main, mains);
+    for (const [def, component] of frames) {
+      const frame = component(def.inject()).props.children;
+      assert.equal(frame.type, 'iframe');
+      assert.equal(frame.props.referrerPolicy, 'same-origin', `${def.key} must send the same-origin Referer`);
+    }
     assert.deepEqual(intervals, beats ? [3000] : []);
     const pkg = JSON.parse(readFileSync(join(here, '..', name, 'package.json'), 'utf8'));
     assert.equal(pkg.exports['./locale/*.json'], './locale/*.json', 'the Plugins page reads row titles from locale/');
     assert.ok(JSON.parse(readFileSync(join(here, '..', name, 'locale/zh.json'), 'utf8')).meta.title);
   });
 }
+
+// Exercise the shipped legacy client function, including the untrusted delivery path.
+test('legacy bundle only sends a Referer for trusted embeds', () => {
+  const bundle = readFileSync(join(here, '../../../bridge/core/dsh_bundle/packages/client-ui-discord/lib/client.js'), 'utf8');
+  const match = bundle.match(/function EmbedFrame\(\{ src, title, sandboxed = false, sameOrigin = false \}\) \{[\s\S]*?\n\}/);
+  assert.ok(match, 'EmbedFrame exists in shipped bundle');
+  const jsx = (_type, props) => props;
+  const frame = new Function('react_jsx_runtime', 'PanelPages_module_default', `${match[0]}; return EmbedFrame` )({ jsx }, { frame: 'frame' });
+  assert.equal(frame({ src: '/collab/desk', title: 'desk' }).referrerPolicy, 'same-origin');
+  for (const sameOrigin of [false, true]) {
+    const delivery = frame({ src: '/delivery', title: 'delivery', sandboxed: true, sameOrigin });
+    assert.equal(delivery.referrerPolicy, 'no-referrer');
+    assert.ok(delivery.sandbox.includes('allow-scripts'));
+    assert.equal(delivery.sandbox.includes('allow-same-origin'), !sameOrigin);
+  }
+});

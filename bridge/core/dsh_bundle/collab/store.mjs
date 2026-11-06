@@ -24,6 +24,8 @@ const SCHEMA_VERSION = 11;
 /** Columns added after v1, as [table, column, definition]; ensureSchema() adds any missing one. */
 const COLUMNS = [
   ['members', 'name_customized', 'INTEGER'],
+  ['members', 'cli_config', 'TEXT'],
+  ['members', 'cli_config_managed', 'INTEGER NOT NULL DEFAULT 0'],
   ['bindings', 'workspace_path', 'TEXT'], // Keep a CLI conversation in its original directory until /new. // NULL keeps existing names unchanged; only new UI members opt in.
 
   ['jobs', 'input_id', 'TEXT'], // v2: jobs remember the id of the input they admitted, to bind its consuming turn.
@@ -155,9 +157,9 @@ export class Store {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, provider = excluded.provider, model = excluded.model,
           cli = excluded.cli, persona = excluded.persona, avatar = excluded.avatar, permission_preset = excluded.permission_preset, rooms = excluded.rooms, source = 'config', removed = 0`),
-      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, name_customized, rooms, source, created_at, removed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
-      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?, name_customized = ?, rooms = ?
+      addMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, name_customized, rooms, cli_config, cli_config_managed, source, created_at, removed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ui', ?, 0) RETURNING *`),
+      updateMember: this.db.prepare(`UPDATE members SET name = ?, provider = ?, model = ?, cli = ?, persona = ?, avatar = ?, permission_preset = ?, name_customized = ?, rooms = ?, cli_config = ?, cli_config_managed = ?
         WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *`),
       removeMember: this.db.prepare("UPDATE members SET removed = 1 WHERE id = ? AND source = 'ui' AND removed = 0 RETURNING *"),
     };
@@ -646,11 +648,11 @@ export class Store {
     this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
   leadId(roomId) {
@@ -660,6 +662,14 @@ export class Store {
     roomId = this.settingsRoom(roomId);
     this.ensureRoomSettings(roomId);
     this.db.prepare('UPDATE room_settings SET lead_id = ? WHERE room_id = ?').run(id, roomId);
+  }
+  /**
+   * #176: forget a member as a channel's chosen primary. A removed member keeps its row (old
+   * messages stay attributable) but can never be picked again — hub.primaryIn() stops matching it,
+   * so a leftover id is a choice the UI can neither show nor clear.
+   */
+  clearLeadOf(id) {
+    return this.db.prepare('UPDATE room_settings SET lead_id = NULL WHERE lead_id = ? RETURNING room_id').all(id).map(row => row.room_id);
   }
   bindingWorkspacePath(memberId, roomId, fallback) {
     return this.db.prepare('SELECT workspace_path FROM bindings WHERE member_id = ? AND room_id = ?').get(memberId, roomId)?.workspace_path || fallback;

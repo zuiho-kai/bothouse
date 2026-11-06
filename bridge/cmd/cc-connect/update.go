@@ -291,7 +291,7 @@ func runUpdate(args []string) {
 }
 
 // Swappable in tests.
-var downloadUpdateAssetFn = downloadUpdateAsset
+var downloadUpdatePayloadFn = downloadUpdatePayload
 
 // installDirect replaces this program with release tag when no running bothouse does it.
 // A self-built binary refuses before downloading anything (#299, same rule as core's entries).
@@ -299,15 +299,39 @@ func installDirect(base, tag string) (string, error) {
 	if err := core.UpdateRefusal(); err != nil {
 		return "", err
 	}
-	tmpFile, err := downloadUpdateAssetFn(base, tag)
+	payload, err := downloadUpdatePayloadFn(base, tag)
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmpFile)
+	if payload.Cleanup != nil {
+		defer payload.Cleanup()
+	}
 	execPath, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("cannot locate current binary: %w", err)
 	}
+	if payload.AppDir != "" {
+		// macOS: the whole signed bundle, or the app would stop matching its signature.
+		if err := core.ReplaceAppBundle(payload.AppDir); err != nil {
+			return "", err
+		}
+		return execPath, nil
+	}
+	f, err := os.CreateTemp("", "bothouse-update-*")
+	if err != nil {
+		return "", err
+	}
+	tmpFile := f.Name()
+	if _, err = f.Write(payload.Binary); err != nil {
+		f.Close()
+		os.Remove(tmpFile)
+		return "", err
+	}
+	if err = f.Close(); err != nil {
+		os.Remove(tmpFile)
+		return "", err
+	}
+	defer os.Remove(tmpFile)
 	if err := replaceExecutable(execPath, tmpFile); err != nil {
 		return "", err
 	}
@@ -404,30 +428,12 @@ func binaryAssetName(tag string) string {
 }
 
 // Both update entry points use the same names, checksum policy and fallback order.
-func downloadUpdateAsset(base, tag string) (string, error) {
+func downloadUpdatePayload(base, tag string) (*core.ReleasePayload, error) {
 	data, name, err := core.DownloadReleaseAsset([]string{base}, tag, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	data, err = core.ExtractReleaseBinary(data, name)
-	if err != nil {
-		return "", err
-	}
-	f, err := os.CreateTemp("", "bothouse-update-*")
-	if err != nil {
-		return "", err
-	}
-	path := f.Name()
-	if _, err = f.Write(data); err != nil {
-		f.Close()
-		os.Remove(path)
-		return "", err
-	}
-	if err = f.Close(); err != nil {
-		os.Remove(path)
-		return "", err
-	}
-	return path, nil
+	return core.ExtractReleasePayload(data, name)
 }
 
 // extractBinaryFromArchive extracts the cc-connect binary from a .tar.gz or .zip archive.

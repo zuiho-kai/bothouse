@@ -38,7 +38,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 				owner, it.wsName = key, wsName
 			}
 		}
-		if teamChatKey(owner) != teamChatKey(key) || it.AutoPruned != "" {
+		if teamChatKey(owner) != teamChatKey(key) || it.AutoPruned != "" || it.Backlog != "" {
 			continue
 		}
 		who := whoInWorkspace(it)
@@ -79,9 +79,6 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	kind, body, valid := parseExitKind(text)
 	if valid && kind == exitKindAsk {
 		valid = askEvidenceProblems(body) == nil
-	}
-	if kind == "" && strings.TrimSpace(text) != "" && e.workspaceHasOpenHandoff(key) {
-		valid = true // forwardWorkspaceExit sent this unmarked reply back as a [report]
 	}
 	e.pendingResetMu.Lock()
 	r := e.workspaceReports[key]

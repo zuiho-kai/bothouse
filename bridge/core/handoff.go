@@ -24,6 +24,9 @@ type SessionHandoff struct {
 	CompactedAt    time.Time      // when that summary was written
 	Tail           []HistoryEntry // user/assistant text after that summary, oldest first
 	ImageBytes     int            // base64 bytes of the images still in the context (re-sent every request)
+	// AutoCompactTokens is the prompt size at which the CLI last compacted this session on its
+	// own (0 when it never did): where its window really ends when the bridge does not know it.
+	AutoCompactTokens int
 }
 
 // SessionHandoffReader is implemented by agents whose transcripts can be read.
@@ -113,7 +116,7 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) 
 		return ""
 	}
 	h, err := r.ReadSessionHandoff(id)
-	if err != nil || h.ContextTokens < e.coldFreshMaxTokens {
+	if err != nil || h.ContextTokens < e.contextFreshLimit(id, h) {
 		return ""
 	}
 	reason := fmt.Sprintf("上下文约 %s token", formatWan(h.ContextTokens))
@@ -121,6 +124,55 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) 
 	session.SetAgentSessionID("", agent.Name())
 	session.SetHandoffFrom(id, reason)
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
+}
+
+// ContextWindowReporter is implemented by live agent sessions that know the context window
+// their CLI really uses (claudecode: modelUsage.contextWindow of the last result event).
+// 0 means not reported yet; a guess from the model name does not count.
+type ContextWindowReporter interface {
+	ReportedContextWindow() int
+}
+
+// noteContextWindow remembers the window a live session reported, keyed by its agent session
+// ID, for checks made after that process has exited.
+func (e *Engine) noteContextWindow(id string, live AgentSession) {
+	r, ok := live.(ContextWindowReporter)
+	if id == "" || !ok {
+		return
+	}
+	if w := r.ReportedContextWindow(); w > 0 {
+		e.ctxWindows.Store(id, w)
+	}
+}
+
+// defaultFreshWindow is the window assumed when the CLI has reported none and has never
+// compacted on its own: 200k, the smallest window the bridge's CLIs run with.
+const defaultFreshWindow = 200000
+
+// contextFreshLimit is the prompt size at which freshOnContextSize starts a new context:
+// max_context_tokens (default 300000), capped at 70% of the window the CLI reported. The
+// bridge turns the CLIs' own auto compaction off where it can (Claude Code
+// DISABLE_AUTO_COMPACT, DSH compaction-basic auto: false); Codex cannot turn it off and
+// compacts at 90% of its window. Either way the fresh context must come before the
+// window is full. No window reported: 85% of the prompt size at which the CLI last
+// compacted this session on its own (older CLI / bridge versions still did), else 70%
+// of a 200k window. Large windows (1M) keep the configured limit.
+func (e *Engine) contextFreshLimit(id string, h *SessionHandoff) int {
+	limit := e.coldFreshMaxTokens
+	if v, ok := e.ctxWindows.Load(id); ok {
+		if c := v.(int) * 7 / 10; c < limit {
+			limit = c
+		}
+		return limit
+	}
+	c := defaultFreshWindow * 7 / 10
+	if h != nil && h.AutoCompactTokens > 0 {
+		c = h.AutoCompactTokens * 85 / 100
+	}
+	if c < limit {
+		limit = c
+	}
+	return limit
 }
 
 // SetImageFresh configures starting a fresh session (with a handoff) once the
@@ -185,9 +237,11 @@ func (e *Engine) imageBloat(agent Agent, session *Session) (string, int) {
 
 // isPromptTooLongError matches the provider's context-overflow turn failure, e.g.
 // new-api/DeepSeek's 400 {"code":11115,"msg":"prompt is too long: 1227574 tokens > 1048576 maximum"}
-// (jingyu, 2026-10-19). Resuming that session can only fail the same way.
+// (jingyu, 2026-10-19), or Claude Code's "Prompt is too long", which it now reports
+// instead of compacting (DISABLE_AUTO_COMPACT). Resuming that session can only fail
+// the same way.
 func isPromptTooLongError(msg string) bool {
-	return strings.Contains(msg, "prompt is too long")
+	return strings.Contains(strings.ToLower(msg), "prompt is too long")
 }
 
 // freshOnPromptTooLong clears the session's agent ID after the provider refused

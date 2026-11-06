@@ -53,6 +53,8 @@ export function cleanEnv(env = process.env) {
   return Object.fromEntries(Object.entries(env).filter(([k]) => KEEP_ENV.has(k) || (!k.startsWith('CLAUDECODE') && !k.startsWith('CLAUDE_CODE_'))))
 }
 
+function flattenOptions(options = []) { return options.flatMap(x => Array.isArray(x.options) ? flattenOptions(x.options) : [x]) }
+
 export class CliMember {
   constructor({ cli, cwd, persona = '', env } = {}) {
     if (!ADAPTERS[cli]) throw new Error(`unknown cli: ${cli}`)
@@ -81,6 +83,10 @@ export class CliMember {
       },
       sessionUpdate: async (n) => {
         const u = n.update
+        if (u?.sessionUpdate === 'config_option_update' && Array.isArray(u.configOptions)) {
+          const session = [...this.sessions.values()].find(x => x.sessionId === n.sessionId)
+          if (session) session.configOptions = u.configOptions
+        }
         if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && this.buffers.has(n.sessionId)) {
           // 工具调用隔开的两段话是两条消息：另起一段，[report]/[ask] 这类首行标记才落在行首（team-exit.mjs exitMark）。
           const prev = this.buffers.get(n.sessionId)
@@ -161,8 +167,8 @@ export class CliMember {
     this.saved.delete(room)
     if (prevId && this.canLoad) {
       try {
-        await Promise.race([this.conn.loadSession({ sessionId: prevId, cwd: this.cwd, mcpServers: [] }), this.exited])
-        s = { sessionId: prevId }
+        const loaded = await Promise.race([this.conn.loadSession({ sessionId: prevId, cwd: this.cwd, mcpServers: [] }), this.exited])
+        s = { sessionId: prevId, configOptions: loaded?.configOptions }
         this.sessions.set(room, s)
         return { ...s, resumed: true, lost: false }
       } catch (err) {
@@ -170,9 +176,71 @@ export class CliMember {
       }
     }
     const r = await Promise.race([this.conn.newSession({ cwd: this.cwd, mcpServers: [] }), this.exited])
-    s = { sessionId: r.sessionId }
+    s = { sessionId: r.sessionId, configOptions: r.configOptions }
     this.sessions.set(room, s)
     return { ...s, resumed: false, lost: Boolean(prevId) }
+  }
+
+  // A fresh probe supplies current adapter defaults, including the selected model's effort default.
+  // It never prompts and does not touch the existing conversation.
+  async _options(model) {
+    await this._start()
+    const fresh = await Promise.race([this.conn.newSession({ cwd: this.cwd, mcpServers: [] }), this.exited])
+    let options = fresh.configOptions || []
+    const selector = (id) => options.find(o => o.id === id && o.type === 'select')
+    if (model !== undefined) {
+      const option = selector('model')
+      if (!option) return []
+      if (!flattenOptions(option.options).some(o => o.value === model)) { const error = new Error('Codex model is unavailable'); error.code = 'COLLAB_CONFIG_INVALID'; throw error }
+      options = (await Promise.race([this.conn.setSessionConfigOption({ sessionId: fresh.sessionId, configId: 'model', value: model }), this.exited])).configOptions || []
+      if (selector('model')?.currentValue !== model) throw new Error('Codex did not apply the model')
+    }
+    return options
+  }
+
+  async probeOptions(model) {
+    const options = await this._options(model)
+    const select = id => {
+      const o = options.find(x => x.id === id && x.type === 'select')
+      return o ? { current: o.currentValue ?? null, options: flattenOptions(o.options).map(x => ({ value: x.value, name: x.name })) } : null
+    }
+    const modelOption = select('model')
+    return modelOption ? { supported: true, model: modelOption, reasoningEffort: select('reasoning_effort') } : { supported: false, model: null, reasoningEffort: null }
+  }
+
+  // Keep probe sessions in a short-lived process, not in the conversation adapter.
+  async _defaultOptions(model) {
+    const probe = new CliMember({ cli: this.cli, cwd: this.cwd, env: this.extraEnv })
+    try { return await probe._options(model) } finally { probe.close() }
+  }
+
+  async _configure(s, desired) {
+    const get = (opts, id) => opts?.find(o => o.id === id && o.type === 'select')
+    const signature = JSON.stringify([desired?.model ?? null, desired?.reasoningEffort ?? null])
+    const snapshot = s.appliedConfig
+    if (snapshot?.signature === signature && snapshot.values.every(([id, value]) => get(s.configOptions, id)?.currentValue === value)) return
+    const stored = [...this.sessions.values()].find(x => x.sessionId === s.sessionId)
+    if (stored) stored.appliedConfig = undefined
+    const defaults = await this._defaultOptions(desired?.model)
+    const model = desired?.model ?? get(defaults, 'model')?.currentValue
+    const effort = desired?.reasoningEffort ?? get(defaults, 'reasoning_effort')?.currentValue
+    if (!model) throw new Error('Codex model selection is unsupported')
+    let options = s.configOptions || []
+    for (const [id, value] of [['model', model], ['reasoning_effort', effort]]) {
+      if (value === undefined || value === null) continue
+      const option = get(options, id)
+      if (!option || !flattenOptions(option.options).some(o => o.value === value)) throw new Error(`Codex ${id} selection is unavailable`)
+      if (option.currentValue !== value) {
+        options = (await Promise.race([this.conn.setSessionConfigOption({ sessionId: s.sessionId, configId: id, value }), this.exited])).configOptions || []
+        if (stored) stored.configOptions = options
+      }
+      if (get(options, id)?.currentValue !== value) throw new Error(`Codex ${id} did not apply`)
+    }
+    s.configOptions = options
+    if (stored) {
+      stored.configOptions = options
+      stored.appliedConfig = { signature, values: [['model', model], ['reasoning_effort', effort]].filter(([, value]) => value != null) }
+    }
   }
 
   /**
@@ -188,9 +256,10 @@ export class CliMember {
     return run
   }
 
-  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [], onPermission } = {}) {
+  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [], onPermission, cliConfig, cliConfigManaged } = {}) {
     const s = await this._session(room, resumeId)
-    await onSession?.(s)
+    if (this.cli === 'codex' && cliConfigManaged) await this._configure(s, cliConfig)
+    await onSession?.({ sessionId: s.sessionId, resumed: s.resumed, lost: s.lost })
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
     const body = this.persona ? `${this.persona}\n\n${text}` : text
     this.buffers.set(s.sessionId, '')

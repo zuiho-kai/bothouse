@@ -77,6 +77,9 @@ func TestFreshOnContextSize(t *testing.T) {
 		t.Fatalf("cold_cache_fresh off but got %q", n)
 	}
 	e.SetColdCacheFresh(true, time.Hour, 80000, 300000)
+	// 1M windows: the configured 300k limit applies (no window would cap it at 140k)
+	e.ctxWindows.Store("big", 1000000)
+	e.ctxWindows.Store("under", 1000000)
 	if n := e.freshOnColdCache(a, s); n != "" {
 		t.Fatalf("cold cache should keep a warm session, got %q", n)
 	}

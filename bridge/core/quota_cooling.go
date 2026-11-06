@@ -527,6 +527,21 @@ func (e *Engine) quotaTick(now time.Time) {
 			}
 			return
 		}
+		// The retry gate below is local pacing, not part of the takeover's own
+		// premise. A retry time this code cannot have written (a corrupt or
+		// legacy record, or a wall clock that stepped back after it was saved)
+		// returned here forever: the provider deadline had passed but the
+		// recovery/rollback path never ran, so the lead stayed with the
+		// stand-in (#190). Every retry this code schedules is at most
+		// quotaProbeBackoffMax past a deadline that may already have passed, so
+		// anything later than that is treated as no retry scheduled and the
+		// probe runs now.
+		if st.NextProbeAt.After(now.Add(quotaProbeBackoffMax)) {
+			slog.Warn("quota auto-probe: retry time unreachable, probing now",
+				"project", e.name, "next_probe_at", st.NextProbeAt)
+			st.NextProbeAt = time.Time{}
+			e.saveQuotaLocked()
+		}
 		if st.NextProbeAt.After(now) {
 			return
 		}
@@ -570,7 +585,7 @@ func (e *Engine) quotaTick(now time.Time) {
 				st.ProbeStatus = "unknown"
 				e.saveQuotaLocked()
 				slog.Warn("quota auto-probe: usage unknown, probe backed off",
-					"project", e.name, "next_probe_at", st.NextProbeAt, "err", err)
+					"project", e.name, "probe_status", st.ProbeStatus, "next_probe_at", st.NextProbeAt, "err", err)
 				return
 			}
 			st.ProbeStatus = "exhausted"
@@ -620,7 +635,7 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 		e.capMu.Unlock()
 		e.saveQuotaLocked()
-		slog.Info("quota auto-probe: quota restored silently", "project", e.name)
+		slog.Info("quota auto-probe: quota restored silently", "project", e.name, "probe_status", st.ProbeStatus)
 		e.emitStreamEvent(StreamEventQuota, st.Session, "quota auto-probe: restored", map[string]any{"project": e.name, "action": "quota_restored"})
 		return
 	}

@@ -14,6 +14,8 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   // Escape closes and the panel takes focus on open, so a keyboard user is never left behind the
   // overlay. Focus returns to the previously focused element on close.
@@ -22,14 +24,21 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
     const previous = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') closeRef.current();
+      if (event.key === 'Tab' && panelRef.current) {
+        const items = [...panelRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])')];
+        if (!items.length) { event.preventDefault(); panelRef.current.focus(); return; }
+        const index = items.indexOf(document.activeElement as HTMLElement);
+        if (event.shiftKey && index <= 0) { event.preventDefault(); items[items.length - 1].focus(); }
+        else if (!event.shiftKey && (index === -1 || index === items.length - 1)) { event.preventDefault(); items[0].focus(); }
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return createPortal(

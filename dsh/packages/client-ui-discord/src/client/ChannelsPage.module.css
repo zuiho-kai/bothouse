@@ -164,6 +164,9 @@
 .avatar {
   display: grid;
   place-items: center;
+  /* 固定尺寸的头像不参与 flex 收缩：左栏主角色卡是 flex 容器，名称+状态+提示一长就把
+     36px 的头像压窄，截图里看着「压扁」。无头 Chrome 实测 22.9×36 → 36×36。 */
+  flex: 0 0 auto;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -679,6 +682,26 @@
   border-top: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
+}
+
+/* #220 Discord-style mention pill badge in message text */
+.mentionBadge {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);
+  color: var(--dsw-alias-state-business-primary, #5865f2);
+  font-weight: 500;
+  line-height: inherit;
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  transition: background-color 160ms cubic-bezier(.2, 0, 0, 1), color 160ms cubic-bezier(.2, 0, 0, 1);
+}
+
+.mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);
 }
 
 .sendError {
@@ -1959,12 +1982,17 @@
   .primaryButton,
   .secondaryButton,
   .mentionButton,
+  .mentionBadge,
   .cardViewButton { transition: none; }
 }
 
 /* 白色方案（来源：用户 11-03 23:1x「白色 右上角显示当前的总管bot的头像 以及在干啥」，样张 notes/ui/layout-plan-113/index.html）。
    尺寸沿用上方头像、圆角与标题栏规范。 */
-.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCardButton { display: flex; flex: 1 1 auto; gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 0; border-radius: inherit; color: inherit; font: inherit; text-align: left; background: none; cursor: pointer; }
+.leadCardButton:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.leadCardButton:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor); outline-offset: -2px; }
+.leadCardButton:disabled { cursor: default; background: none; }
 .leadCardText { display: flex; flex-direction: column; min-width: 0; }
 .leadCardName { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .leadCardStatus { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1975,6 +2003,13 @@
 .own > .messageBody > .text * { color: inherit; }
 .own > .messageBody > .text a { color: inherit; text-decoration: underline; }
 .own > .messageBody > .text code { color: inherit; background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent); }
+.own > .messageBody > .text .mentionBadge {
+  color: var(--dsw-alias-bg-base);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);
+}
+.own > .messageBody > .text .mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);
+}
 /* 白色方案：任务板从右侧抽屉滑出（样张 layout-plan-113 的置顶任务板），聊天留在左边可见；宽 440 量自样张 desktop-board.png（1440 宽视口里抽屉占 1000–1440）。 */
 .boardDrawerBackdrop { place-items: stretch end; padding: 0; background: rgb(0 0 0 / 0.25); }
 .boardDrawerBackdrop > .taskBoardDialog { box-sizing: border-box; width: min(440px, 100%); height: 100dvh; max-height: none; border-radius: 0; animation: boardDrawerIn .2s ease-out; }

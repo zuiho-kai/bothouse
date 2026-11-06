@@ -193,31 +193,31 @@ func TestGateContextWiki(t *testing.T) {
 		t.Fatalf("endpoint = %q", ep)
 	}
 	sess := &Session{AgentSessionID: "a1"}
-	if c := e.turnContext(sess, "discord:c1", "龙娘怎么了"); !strings.Contains(c, "~/wiki/bots/im-bridge.md") || strings.Contains(c, "进展总结") {
+	if c := e.turnContext(sess, "discord:c1", "龙娘怎么了", ""); !strings.Contains(c, "~/wiki/bots/im-bridge.md") || strings.Contains(c, "进展总结") {
 		t.Fatalf("context block:\n%s", c)
 	}
 	// Same agent context: nothing is sent twice.
-	if c := e.turnContext(sess, "discord:c1", "龙娘怎么了"); c != "" {
+	if c := e.turnContext(sess, "discord:c1", "龙娘怎么了", ""); c != "" {
 		t.Fatalf("second turn resent:\n%s", c)
 	}
 	// --resume forked a new id: same conversation, nothing resent.
 	sess.SetAgentSessionID("a2", "claudecode")
-	if c := e.turnContext(sess, "discord:c1", "x"); c != "" {
+	if c := e.turnContext(sess, "discord:c1", "x", ""); c != "" {
 		t.Fatalf("resume fork resent:\n%s", c)
 	}
 	// Compaction drops it from the agent's context: send again.
 	sess.ResetTurnCtx()
-	if c := e.turnContext(sess, "discord:c1", "x"); !strings.Contains(c, "im-bridge.md") {
+	if c := e.turnContext(sess, "discord:c1", "x", ""); !strings.Contains(c, "im-bridge.md") {
 		t.Fatalf("after compaction:\n%s", c)
 	}
 	// Id cleared (failed resume, /reasoning, /provider…): the next process is empty.
 	sess.SetAgentSessionID("", "claudecode")
-	if c := e.turnContext(sess, "discord:c1", "x"); !strings.Contains(c, "im-bridge.md") {
+	if c := e.turnContext(sess, "discord:c1", "x", ""); !strings.Contains(c, "im-bridge.md") {
 		t.Fatalf("after id cleared:\n%s", c)
 	}
 	// /switch to another conversation.
 	sess.SetAgentInfo("other", "claudecode", "n")
-	if c := e.turnContext(sess, "discord:c1", "x"); !strings.Contains(c, "im-bridge.md") {
+	if c := e.turnContext(sess, "discord:c1", "x", ""); !strings.Contains(c, "im-bridge.md") {
 		t.Fatalf("after switch:\n%s", c)
 	}
 }

@@ -839,6 +839,9 @@ class H(BaseHTTPRequestHandler):
         # 身份：bothouse 复用一个 gate 前先核对它服务的是不是自己的数据目录（core/gate_proc.go gateIsOurs）
         if urllib.parse.urlsplit(self.path).path == "/whoami":
             return self._json({"ok": True, "data_dir": str(datadir.data_dir().resolve()), "port": PORT})
+        if urllib.parse.urlsplit(self.path).path == "/forum":  # 管理页「记忆论坛」（core/forum_page.go 转过来）
+            import forum_page
+            return self._json(forum_page.data())
         self.send_error(404)
 
     def do_POST(self):

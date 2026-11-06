@@ -111,6 +111,10 @@ type gateRequest struct {
 	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
 	// member queued behind its 24-minute turn).
 	NoInsert bool `json:"no_insert,omitempty"`
+	// Private: a person's private chat (DM) with this bot, or a server channel only that person
+	// and bots can see (Message.PrivateRoom). Every message there is addressed to this bot, so the
+	// fallbacks answer it without an @ (user 2026-11-06「允许私聊不用艾特」「这个都是基本常识能力」).
+	Private bool `json:"private,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -145,6 +149,9 @@ type gateResponse struct {
 	// Tier (maomao fork) tags the message "chat" or "task" so idle turns can pick a model;
 	// empty = no suggestion.
 	Tier string `json:"tier,omitempty"`
+	// Fallback marks an answer the bridge made up because the gate could not judge (error,
+	// timeout, no model): the built-in stop words still apply then (applyLocalStop).
+	Fallback bool `json:"-"`
 }
 
 // SetGate enables the gate; an empty url disables it. fallback is the action used when the gate
@@ -206,7 +213,7 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 // that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
 // "reply", other roles "context").
 func (g *gateState) fallbackFor(req gateRequest) string {
-	if req.Mentioned {
+	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
 	}
 	if req.AddressedOther {
@@ -217,9 +224,10 @@ func (g *gateState) fallbackFor(req gateRequest) string {
 
 // noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
 // contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
-// answer every message; only an @-mentioned bot replies.
+// answer every message; only an @-mentioned bot replies (a reply to its message counts, see
+// discord humanReplyRoute), or a person in a private chat (DM or one-to-one channel).
 func (g *gateState) noModelFallback(req gateRequest) string {
-	if req.Mentioned {
+	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
 	}
 	return "context"
@@ -231,26 +239,26 @@ func (g *gateState) decide(ctx context.Context, req gateRequest) gateResponse {
 	defer cancel()
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, g.liveURL(), bytes.NewReader(body))
 	if err != nil {
-		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate request: " + err.Error(), Fallback: true}
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(hreq)
 	if err != nil {
-		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error()}
+		return gateResponse{Action: g.fallbackFor(req), Reason: "gate unreachable: " + err.Error(), Fallback: true}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		return gateResponse{Action: g.noModelFallback(req), Reason: "gate has no model: 503"}
+		return gateResponse{Action: g.noModelFallback(req), Reason: "gate has no model: 503", Fallback: true}
 	}
 	var out gateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
-		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err)}
+		return gateResponse{Action: g.fallbackFor(req), Reason: fmt.Sprintf("gate bad response: %d %v", resp.StatusCode, err), Fallback: true}
 	}
 	switch out.Action {
 	case "reply", "insert", "silent", "context", "abort":
 		return out
 	}
-	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action}
+	return gateResponse{Action: g.fallbackFor(req), Reason: "gate unknown action " + out.Action, Fallback: true}
 }
 
 // applyGate runs the gate for msg. It returns true when the message has been fully handled
@@ -370,10 +378,19 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
+		Private:  !msg.FromBot && (msg.Direct || msg.PrivateRoom),
 		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
 		"mentioned", msg.Mentioned, "buffered", len(buffered), "tier", dec.Tier, "reason", dec.Reason)
+	if dec.Fallback && e.applyLocalStop(p, msg, session, interactiveKey) {
+		// The gate could not judge (down, or no model): a person's "暂停" to this bot still stops
+		// it, the same as with no gate configured, instead of being inserted as a plain remark.
+		g.mu.Lock()
+		g.dropBuffered(interactiveKey, len(buffered))
+		g.mu.Unlock()
+		return true
+	}
 
 	if ownerDM && (dec.Action == "silent" || dec.Action == "context") {
 		// The owner's private chat is always addressed to this bot (see above): never drop it.
@@ -422,7 +439,10 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			// maomao fork: don't pretend to deliver into a turn that has stopped moving.
 			// The message stays in the channel; backfill hands it to the next turn
 			// (so it must not be marked seen).
-			e.reply(p, msg.ReplyCtx, fmt.Sprintf("⚠️ 当前这一轮已经 %d 分钟没有动静，可能卡住了，这条没插进去；发 /new 可重置", int(idle.Minutes())))
+			// A bridge notice like ⏹ above, not a reply the turn produced: quiet chats (QQ groups)
+			// log it instead of showing it. 2026-11-05 18:00 qq:g:1109769308 got this line although
+			// the same engine already kept ⏰ and ↪ out of that group.
+			e.replyNotice(p, msg.ReplyCtx, fmt.Sprintf("⚠️ 当前这一轮已经 %d 分钟没有动静，可能卡住了，这条没插进去；发 /new 可重置", int(idle.Minutes())))
 			return true
 		}
 	}
@@ -469,7 +489,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		e.applyPendingSwitch(interactiveKey, msg.SessionKey) // the agent asked to switch during its last turn
 		e.applyModelTier(p, msg, dec.Tier)
 	}
-	msg.TurnCtx, msg.TurnCtxQuery = true, userTextOf(msg)
+	msg.TurnCtx, msg.TurnCtxQuery, msg.TurnCtxSender = true, userTextOf(msg), personKey(msg)
 	keepUserText(msg) // board, progress card and team status show the user's words, not these notes
 	msg.Content = content
 	return false
@@ -753,7 +773,9 @@ func (g *gateState) post(ctx context.Context, path string, req any, out any) err
 // before it ("" when the gate has nothing or is down). The gate drops what it
 // already pushed into this agent context (by entry id, per epoch); the bridge
 // only names the context (turnEpoch) and does not parse the entries.
-func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
+// sender: personKey of this turn's message ("" = no person: cron, timer, relay); ctxsvc pushes that person's
+// 懂你 page and no one else's (#1160).
+func (e *Engine) turnContext(session *Session, sessionKey, text, sender string) string {
 	g := e.gate
 	if g == nil {
 		return ""
@@ -762,7 +784,7 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 	defer cancel()
 	var out gateContextResponse
 	// bot: the gate_url's ?bot= (a sub); ctxsvc then searches her own wiki first (maomao fork, 2026-10-20)
-	req := map[string]string{"key": sessionKey, "text": text, "bot": g.bot(), "epoch": turnEpoch(session)}
+	req := map[string]string{"key": sessionKey, "text": text, "bot": g.bot(), "epoch": turnEpoch(session), "sender": sender}
 	if err := g.post(ctx, "/context", req, &out); err != nil {
 		slog.Warn("gate: context fetch failed", "session", sessionKey, "error", err)
 		return ""
@@ -799,12 +821,12 @@ func turnEpoch(session *Session) string {
 // (user, cron, timer or queued); teammate status and wiki pages only with
 // turnCtx messages.
 func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
-	return e.withTurnBlocksRef(session, sessionKey, query, content, turnCtx, nil)
+	return e.withTurnBlocksRef(session, sessionKey, query, "", content, turnCtx, nil)
 }
 
 // withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)
 // right before the message, once per agent context.
-func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content string, turnCtx bool, ref *MessageReference) string {
+func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, content string, turnCtx bool, ref *MessageReference) string {
 	// Record how many characters each block adds every turn (11-02 reflection: a turn read 7k more and nobody
 	// could say what was injected). One log line per turn that injected anything: "turn blocks injected".
 	var sizes []any
@@ -830,7 +852,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content 
 	if !turnCtx {
 		return content
 	}
-	add("turn_ctx", e.turnContext(session, sessionKey, query))
+	add("turn_ctx", e.turnContext(session, sessionKey, query, sender))
 	add("team", e.teamBlock(session, sessionKey))
 	return content
 }

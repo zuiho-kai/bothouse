@@ -1272,7 +1272,11 @@ func (a *Agent) runtimeEnvLocked() []string {
 	// configEnv (from config.toml [env]) is lower priority than provider keys or
 	// session-injected vars, but must survive SetSessionEnv calls (which only
 	// overwrite sessionEnv). Prepend it so later entries win on conflict.
-	env := append([]string(nil), a.configEnv...)
+	// DISABLE_AUTO_COMPACT=1: the CLI never compacts in place (auto or idle
+	// compaction); a session that grows large gets a fresh context with a handoff
+	// from the bridge instead (core.freshOnContextSize). Manual /compact stays.
+	env := []string{"DISABLE_AUTO_COMPACT=1"}
+	env = append(env, a.configEnv...)
 	env = append(env, a.providerEnvLocked()...)
 	env = append(env, a.sessionEnv...)
 

@@ -180,7 +180,9 @@ func taskCardState(s core.TaskState) core.ProgressCardState {
 	switch s {
 	case core.TaskStateCompleted, core.TaskStateResultReady:
 		return core.ProgressCardStateCompleted
-	case core.TaskStateFailed, core.TaskStateCancelled:
+	case core.TaskStateCancelled:
+		return core.ProgressCardStateAborted
+	case core.TaskStateFailed:
 		return core.ProgressCardStateFailed
 	}
 	return core.ProgressCardStateRunning

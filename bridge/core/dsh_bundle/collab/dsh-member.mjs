@@ -312,6 +312,8 @@ export class TurnProgress {
 
   call(callId, name, args) {
     if (this.ended) return;
+    // ACP updates for an existing call do not start another execution.
+    if (callId !== undefined && this.names.has(callId)) return;
     this.steps++;
     if (callId !== undefined) this.names.set(callId, name);
     this.items.push({ kind: 'tool_use', tool: name, text: toolArgText(args) });
@@ -742,8 +744,9 @@ export class DshMembers {
     };
     let done = false;
     try {
-      this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
       const onSession = ({ sessionId: acpId, lost }) => {
+        this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
+        wiki.commit();
         if (this.store.binding(member.id, room.id)?.session_id !== acpId) this.store.rebind(member.id, room.id, acpId);
         if (lost) {
           // the CLI's new session has none of what this conversation was given: the next turn gives it again
@@ -759,7 +762,7 @@ export class DshMembers {
       wiki.commit();
       // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
       const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
-      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }

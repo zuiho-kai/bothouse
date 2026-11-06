@@ -5,6 +5,9 @@ export interface UpdateInfo {
   latest: string;
   has_update: boolean;
   dev: boolean;
+  // Self-built binary: in-app update is refused (core.UpdateRefusal, #299), so the panel must not
+  // offer the button; `error` carries the readable reason (#212).
+  self_built?: boolean;
   download_url: string;
   error: string;
   // Set after a guarded update that did not stick (core/update_guard.go).

@@ -57,7 +57,9 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 | **Discord** | 多个角色在一个频道里协作 | 每个角色一个机器人 token | [Discord](platforms/discord.md) |
 | **飞书 / Lark** | 在飞书里用，一个机器人 | 飞书扫码 | [飞书](platforms/feishu.md) |
 | **DSH**（实验） | 在 DeepSeek 的 DSH 网页里用 | DSH、Node ≥ 22.12、pnpm | [DSH](platforms/dsh.md) |
+<!-- 自建平台入口停用（用户 11-05 定不再维护），原行：
 | **自建平台** | 自己的聊天网页，打开就聊 | uv（本机一键起） | [自建平台](connect-discord-feishu.md#7-自建平台) |
+-->
 
 QQ、Discord、飞书和自建平台还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
 DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接本机 CLI。

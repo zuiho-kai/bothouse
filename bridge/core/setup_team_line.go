@@ -7,10 +7,21 @@ import "strings"
 // lead that only knows its teammates' names does the work itself instead of handing it out, and a
 // member that does not know who the lead is takes every big job a person gives it directly.
 func wizardTeamLine(lang, platform string, team []SetupTeamEntry, fallback, self string) string {
+	line := cloudWebTeamLine(lang, team, fallback, self)
 	if platform == "discord" {
-		return discordTeamLine(lang, team, fallback, self)
+		line = discordTeamLine(lang, team, fallback, self)
 	}
-	return cloudWebTeamLine(lang, team, fallback, self)
+	return line + stuckTeamRule(lang)
+}
+
+// stuckTeamRule: a bot that cannot finish a job pauses it and calls a person once, instead of
+// explaining "can't do it" again each time the watchdog wakes it (#1092: a member re-explained
+// every 10 minutes for an hour). Same wording as the agentm persona block.
+func stuckTeamRule(lang string) string {
+	return tr3(lang,
+		" 做不了就放下：一件活卡在别人那里、或你判断自己做不了：当轮在任务板上暂停它（board pause <编号> \"原因\"），在群里用一句话叫真人来定，然后停手。不要每次被催醒都再解释一遍做不了。",
+		" できないなら手放す：仕事が他人待ちで止まっている、または自分ではできないと判断したら、そのターンでタスクボード上で一時停止し（board pause <番号> \"理由\"）、グループで一言だけ人に判断を頼んで手を止めます。起こされるたびに「できない」と説明し直さないでください。",
+		" If you can't do it, let it go: when a job is stuck on someone else, or you judge you can't do it, pause it on the task board that same turn (board pause <id> \"reason\"), call a person in the group in one sentence to decide, then stop. Don't re-explain that you can't each time you are woken up.")
 }
 
 // discordTeamLine: names with their <@id> (a name alone does not notify a bot on Discord), the

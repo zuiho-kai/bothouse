@@ -44,5 +44,7 @@ export function EmbedFrame({ src, title, sandboxed = false, sameOrigin = false }
   const sandbox = !sandboxed ? undefined
     : sameOrigin ? 'allow-scripts allow-forms allow-popups allow-modals'
       : 'allow-scripts allow-forms allow-popups allow-modals allow-same-origin'
-  return <iframe className={styles.frame} src={src} title={title} sandbox={sandbox} loading="lazy" referrerPolicy="no-referrer" />
+  // Trusted pages need a same-origin Referer for the proxy's port-less Origin check.
+  // Delivery pages remain private and sandboxed.
+  return <iframe className={styles.frame} src={src} title={title} sandbox={sandbox} loading="lazy" referrerPolicy={sandboxed ? 'no-referrer' : 'same-origin'} />
 }
