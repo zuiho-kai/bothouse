@@ -25,6 +25,7 @@ import PluginList from '@/pages/Plugins/PluginList';
 import NotFound from '@/pages/NotFound';
 import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 import GateSettingsPage from '@/pages/Gate/GateSettings';
+import ForumPage from '@/pages/Forum/ForumPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="apps" element={<AppList />} />
         {/* 闸门设置 (#217): 装好以后改谁在什么时候接话，不用重装 */}
         <Route path="gate" element={<GateSettingsPage />} />
+        <Route path="forum" element={<ForumPage />} />
         <Route path="plugins" element={<PluginList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />

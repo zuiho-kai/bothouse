@@ -22,6 +22,7 @@ import {
   Boxes,
   Sparkles,
   ShieldCheck,
+  Award,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,8 @@ const navItems = [
   { key: 'plugins', path: '/plugins', icon: Boxes },
   // #145：Wiki 星河从 DSH 一级入口收进 bothouse，作为这里的子页面
   { key: 'wikiGalaxy', path: '/wiki-galaxy', icon: Sparkles },
+  // 记忆论坛 (#1143): the memories roles get each turn, as ranked posts (gate GET /forum)
+  { key: 'forum', path: '/forum', icon: Award },
   // 接入应用 (#150): which outside apps (QQ / Discord / 飞书) are wired, one row each
   { key: 'apps', path: '/apps', icon: Smartphone },
   // 闸门设置 (#217): 装好以后改谁在什么时候接话、判断用的模型，不用重装
