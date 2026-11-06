@@ -382,6 +382,34 @@ func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) 
 	return sel.At, nil
 }
 
+// quotaDomainHoldLocked reports whether the shared allowance pool behind this
+// role is still cooling, and refreshes the local deadline from it when so.
+//
+// The deadline that justifies a takeover is a property of the pool, not of this
+// role: another role can report exhaustion and push the same domain past this
+// role's own deadline just as that one expires. Handing the lead back then would
+// return it to a role that is still exhausted (#267), so every expiry path asks
+// here first, and follows the shared deadline instead of its stale local copy.
+// A role with no scope has no shared pool to consult; the caller keeps its local
+// behaviour. The caller holds quotaMu.
+func (e *Engine) quotaDomainHoldLocked(now time.Time) bool {
+	st := &e.quotaState
+	if st.Scope == "" {
+		return false
+	}
+	quotaDomainsMu.Lock()
+	until := e.domainUntilLocked(st.Scope)
+	quotaDomainsMu.Unlock()
+	if !until.After(now) {
+		return false
+	}
+	if !st.Until.Equal(until) {
+		st.Until = until
+		e.saveQuotaLocked()
+	}
+	return true
+}
+
 // quotaUnwindLeadLocked gives the primary role back when the cooldown deadline
 // that justified taking it has passed. The caller holds quotaMu. Only the shared
 // selection this takeover wrote is restored (same target, same timestamp), so a
@@ -555,6 +583,13 @@ func (e *Engine) quotaTick(now time.Time) {
 			// selection this engine wrote is restored, and nothing is announced
 			// (no MsgQuotaLeadRestored, no quota_restored event) because the quota
 			// itself stays unproven.
+			//
+			// Only this role's deadline has passed though. If another role
+			// pushed the shared pool's deadline past now, the premise is not
+			// gone after all: keep the takeover and follow that deadline.
+			if e.quotaDomainHoldLocked(now) {
+				return
+			}
 			e.quotaUnwindLeadLocked(now)
 			return
 		}
@@ -578,6 +613,13 @@ func (e *Engine) quotaTick(now time.Time) {
 			// does not defer the unwind: the deadline that justified the
 			// takeover has passed, so the stand-in goes back now instead of
 			// holding the role through up to quotaProbeBackoffMax.
+			//
+			// Unless the shared pool is still cooling: another role can have
+			// extended the same domain after this role's deadline, and unwinding
+			// then hands the lead to a role that is still exhausted (#267).
+			if e.quotaDomainHoldLocked(now) {
+				return
+			}
 			e.quotaUnwindLeadLocked(now)
 			return
 		}
@@ -627,6 +669,11 @@ func (e *Engine) quotaTick(now time.Time) {
 				// of after the backoff; if the provider is still exhausted, the
 				// next real turn records a fresh deadline and takes over from
 				// that evidence.
+				//
+				// The shared domain needs no second look here: it was read just
+				// before the probe and returned above when it still cooled, and
+				// any change during the probe returned above too, so the pool is
+				// expired at this point (#267).
 				e.quotaUnwindLeadLocked(now)
 				return
 			}
