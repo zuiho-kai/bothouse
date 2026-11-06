@@ -83,13 +83,28 @@ process.stdout.write(JSON.stringify({ ready: true, port: server.address().port, 
 `;
 
 /** The real upload route, with the server in its own process reporting that process's RSS. */
-async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir } = {}) {
+async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir, t } = {}) {
   const attachmentsDir = dir ?? join(mkdtempSync(join(tmpdir(), 'collab-stream-')), 'attachments');
   // --expose-gc: the child's sampler collects before each reading (see `sample` below).
   const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e', UPLOAD_SERVER_CHILD], {
     env: { ...process.env, UPLOAD_DIR: attachmentsDir, COLLAB_DIR: moduleDir, MAX_BYTES: String(maxBytes), SAMPLE_MS: String(SAMPLE_MS) },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
+  const exited = new Promise(done => child.on('exit', done));
+  // #263: reap the child however this test ends. A node:test timeout cancels the test
+  // from outside and `finally` is not guaranteed to run then; the child holds stdout
+  // open, so one failure would keep the test file (and the job) alive. `after` hooks do
+  // run on cancel, and this is registered before `await ready`: a child that stays
+  // alive but never announces `ready` must be reaped too, not just one that dies.
+  // Idempotent: the normal path closes it again, and an exited child is just awaited.
+  const close = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) { await exited; return; }
+    const kill = setTimeout(() => child.kill('SIGKILL'), 5000);
+    try { child.kill('SIGTERM'); } catch { /* already gone: await the exit below */ }
+    await exited;
+    clearTimeout(kill);
+  };
+  if (t) t.after(close);
   child.stdout.setEncoding('utf8');
   let pending = '';
   let last = 0;
@@ -98,20 +113,33 @@ async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir 
   let resolveReady;
   let rejectReady;
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  // #263: settle `ready` exactly once. `error` and `exit` can both arrive (a spawn
+  // failure is followed by an exit), and a sample arriving after a rejection must not
+  // try to settle the promise again.
+  let settled = false;
+  const settle = (fn, value) => { if (settled) return; settled = true; fn(value); };
   child.stdout.on('data', (chunk) => {
     pending += chunk;
     for (let cut = pending.indexOf('\n'); cut >= 0; cut = pending.indexOf('\n')) {
       const line = pending.slice(0, cut);
       pending = pending.slice(cut + 1);
       if (!line) continue;
-      const sample = JSON.parse(line);
+      // A stray log line from the child must not break the sampler (#263, non-blocking).
+      let sample;
+      try { sample = JSON.parse(line); } catch { continue; }
       last = sample.rss;
-      if (sample.ready) { resolveReady(sample.port); continue; }
+      if (sample.ready) { settle(resolveReady, sample.port); continue; }
       peak = Math.max(peak, sample.rss);
     }
   });
-  child.on('error', error => rejectReady(error));
-  const exited = new Promise(done => child.on('exit', done));
+  child.on('error', error => settle(rejectReady, error));
+  // #263: `error` only fires when the spawn itself fails. A child that starts and then
+  // dies before printing `ready` (missing dependency, wrong COLLAB_DIR, a top-level
+  // throw) used to leave `await ready` hanging until the test timeout, with `finally`
+  // never running. Exit before ready rejects now, so the failure lands in seconds.
+  child.on('exit', (code, signal) => {
+    settle(rejectReady, new Error(`upload server exited before ready: ${code ?? signal}`));
+  });
   const port = await ready;
   return {
     dir: attachmentsDir,
@@ -119,13 +147,7 @@ async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir 
     /** Baseline is the server's last reported RSS, so startup and earlier uploads do not count. */
     reset() { baseline = last; peak = last; },
     grownMB() { return Math.round((peak - baseline) / 1024 / 1024); },
-    async close() {
-      if (child.exitCode !== null || child.signalCode !== null) { await exited; return; }
-      const kill = setTimeout(() => child.kill('SIGKILL'), 5000);
-      child.kill('SIGTERM');
-      await exited;
-      clearTimeout(kill);
-    },
+    close,
   };
 }
 
@@ -236,8 +258,10 @@ test('#197: a file over the bot connection cap is not inlined: the bot gets its 
 // 来源: the owner's 「需要大一些 尽可能大」 (2026-11-05 21:01) plus the measurement the
 // PR reports. Each size streams over the real HTTP route into a temp dir; the server's
 // own process reports its RSS (#252), so the sender and its buffers are not counted.
-test('#197: 100 MB, 500 MB and 1 GB stream through without loading the file into memory', { timeout: 300_000 }, async () => {
-  const server = await streamingUploadServer();
+// 120 s: the owner's 1 GB upload measured 1.3 s here, so this is still a 50x margin while
+// failing far earlier than the previous 300 s (#263; the sizes themselves are unchanged).
+test('#197: 100 MB, 500 MB and 1 GB stream through without loading the file into memory', { timeout: 120_000 }, async (t) => {
+  const server = await streamingUploadServer({ t });
   try {
     // Warm-up: the first large upload on a fresh server allocates its parser, stream and
     // allocator arenas once — measured here as +25..45 MB for the first 100 MB and +24 MB
