@@ -44,8 +44,8 @@ export function avatarPng(image: HTMLImageElement, rect: CropRect): string {
   return data
 }
 
-export async function uploadAvatar(id: string, png?: string): Promise<ChannelMember> {
-  const response = await fetch(`collab/api/members/${encodeURIComponent(id)}/avatar`, {
+export async function uploadAvatar(id: string, png?: string, url: (path: string) => string = path => path): Promise<ChannelMember> {
+  const response = await fetch(url(`collab/api/members/${encodeURIComponent(id)}/avatar`), {
     method: png === undefined ? 'DELETE' : 'POST',
     headers: { 'content-type': 'application/json' },
     ...(png === undefined ? {} : { body: JSON.stringify({ png }) }),

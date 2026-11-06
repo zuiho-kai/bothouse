@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { NS } from './locales.ts'
 import type { ChannelAttachment, OutgoingAttachment } from './channel-source.ts'
-import { attachmentUrl, readAttachment } from './channel-source.ts'
+import { attachmentUrl as localAttachmentUrl, readAttachment } from './channel-source.ts'
+import { useCollabUrl } from './collab-url.ts'
 import css from './ChannelsPage.module.css'
 import { getScheme } from './scheme.ts'
 
@@ -18,6 +19,8 @@ const size = (bytes: number): string =>
 type T = TranslateNS<typeof NS>
 
 function ImageAttachment({ attachment: a, t }: { readonly attachment: ChannelAttachment; readonly t: T }) {
+  const url = useCollabUrl()
+  const attachmentUrl = (id: string): string => url(localAttachmentUrl(id))
   const [opened, setOpened] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const dialog = useRef<HTMLElement>(null)
@@ -100,6 +103,8 @@ function ImageAttachment({ attachment: a, t }: { readonly attachment: ChannelAtt
 
 /** Thumbnails for images, a download card for other files. */
 export function AttachmentList({ attachments, t }: { readonly attachments?: readonly ChannelAttachment[]; readonly t: T }) {
+  const url = useCollabUrl()
+  const attachmentUrl = (id: string): string => url(localAttachmentUrl(id))
   if (attachments === undefined || attachments.length === 0) return null
   return (
     <div className={css.attachments}>

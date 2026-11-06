@@ -14,6 +14,7 @@ import { Avatar } from './Avatar.tsx'
 import { renamePersonaIdentity } from './persona.ts'
 import { AVATARS } from './avatars.ts'
 import { loadAvatar, uploadAvatar } from './avatar-upload.ts'
+import { useCollabUrl } from './collab-url.ts'
 import { AvatarCropDialog } from './AvatarCropDialog.tsx'
 import css from './ChannelsPage.module.css'
 
@@ -56,6 +57,7 @@ const DEFAULT_PRESET: PermissionPreset = 'workspace-write'
  * @returns a modal form.
  */
 export function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }: MemberDialogProps) {
+  const collabUrl = useCollabUrl()
   const [name, setName] = useState(member?.name ?? 'DSH')
   const [nameCustomized, setNameCustomized] = useState<boolean | undefined>(member === undefined ? false : member.nameCustomized)
   const [keepName, setKeepName] = useState(true)
@@ -90,7 +92,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     setError(undefined)
     try {
       if (member) {
-        const updated = await uploadAvatar(member.id, png)
+        const updated = await uploadAvatar(member.id, png, collabUrl)
         setAvatar(updated.avatar ?? '')
       } else { setPendingPng(png); setAvatar('') }
       setPreview(png ? `data:image/png;base64,${png}` : undefined)

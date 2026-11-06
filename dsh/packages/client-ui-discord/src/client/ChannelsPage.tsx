@@ -14,6 +14,7 @@ import { MAX_MESSAGE_BODY, MAX_ROWS, messageTooLarge } from './channel-source.ts
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
+import { useCollabUrl } from './collab-url.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded } from './ProgressCard.tsx'
@@ -263,6 +264,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   /** #1020: names of the members this own message waits for (queued behind their turn); undefined when it does not wait. */
   queuedFor?: readonly string[]
 }) {
+  const collabUrl = useCollabUrl()
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   const card = parseCard(message)
   const role = cardRole(card)
@@ -366,7 +368,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const progressLines = role === 'progress' ? shown.split('\n') : []
   // #1023: a hand-back that delivers a web page shows the page itself.
   const deliveredFor = deliveredTasks(message, tasks)
-  const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message) : undefined
+  const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message, collabUrl) : undefined
   const delivered = deliveredPage === undefined ? undefined
     : { page: deliveredPage, task: deliveredFor.find(task => task.status === 'returned') ?? deliveredFor[0] }
 
