@@ -1,0 +1,93 @@
+#!/usr/bin/env -S python3 -I
+# 交回对题：工作区 [report] 进聊天频道前，拿交接的「用户原话」「总目标」「旧定案（程序搜出）」对照 report 正文，
+# 问小模型三件事：①原话点名的工具/方向/对象真测了没有（不是换成相近的别的）；②结论若和用户定案反着走，是测过用户
+# 那个版本后数据说不行，还是根本没测；③结论的解法是不是用户否过的。任一条明确不过就由桥退回工作区（最多两次，
+# 第三次照发并在 report 前加一行「对题检查没过：…」）；拿不准不拦，疑点随 report 附一行。
+# 用法：report-intent-check --notes <交接文件> --body <report 正文文件>（桥 core/team_exit_intent.go 调）
+#       report-intent-check --notes <交接> --body <正文> --id <编号>   （手动回放，同上）
+# 输出一行 JSON：{"problems": [...], "doubt": "...", "cost": 美元}；出错、超时、交接没原话都输出空 problems（不拦）。
+# 来源：用户 11-07 02:3x「这种说明你任务下划有问题，如果我没没有我兜底的话，你就一坨屎，你看怎么规避这种问题？
+#   不可能每个事情我都精通」；交接 ~/.bothouse/roles/maomao/notes/intent-gate-1107.md（#1164）。
+import argparse, json, os, re, subprocess, sys, tempfile, time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import _recall  # noqa: E402
+
+MODEL = os.environ.get("REPORT_INTENT_MODEL", "haiku")  # 实测 11-07：#1158 回放 4/4 拦对、#1160 4/4 放行；sonnet 同样对但贵十倍
+TIMEOUT = 90  # 秒；桥那边 leadScriptTimeout 是 2 分钟
+LOG = Path.home() / ".bothouse" / "logs" / "report-intent.tsv"
+NAMES = {"q1": "①没测用户点名的东西", "q2": "②结论和用户定案反着走、却没测用户那个版本", "q3": "③结论的解法是用户否过的"}
+
+SYSTEM = """你是交回前对题的人。执行者做完一件活，交回一份汇报，马上要直接发给用户；用户不一定懂行，看不出测错了东西。你拿用户原话、总目标和用户以前定过的事，对照这份汇报，回答三件事：
+q1：用户原话里点名要的工具、方向、对象（如「买做空期权」「做空半导体」「某个页面」「某个平台」），汇报里是不是真测了、真做了那个本身？换成相近但不同的东西（单边期权换成跨式、做空换成多空都押、期权换成基金、A 页换成 B 页）不算测了。原话点名了多样，漏掉其中主要的一样也算没测。
+q2：汇报结论是不是朝用户定案的反方向走（用户要做、结论说不值得做；用户要敢搏、结论说别搏）？如果是，看汇报里有没有测过用户要的那个版本、是数据说不行；没测用户那个版本就下了反向结论，算不过。结论和用户方向一致，算过。
+q3：汇报给出的解法、建议，是不是用户明确否过的（如用户说要敢搏、不要保守，结论却是缩仓、小仓、加限制；用户否过的规则，结论又加回来）？
+每一条：证据清楚才判不过（ok=false），why 写明哪句原话或定案、对上汇报哪句，一两句，要具体（例：原话是买做空期权（单边），汇报测的是跨式）。
+拿不准、汇报没写清、只是细节不同，不判不过，写进 doubt（一句，说疑点在哪）；没有疑点 doubt 留空。
+只输出一个 JSON 对象，不要别的字：{"q1": {"ok": true或false, "why": ""}, "q2": {"ok": ..., "why": ""}, "q3": {"ok": ..., "why": ""}, "doubt": ""}"""
+
+
+def call(system, prompt):
+    """claude -p 小模型，无工具、不读设置；返回（结果文字, 花费美元）；出错返回（"", 0）。同 _recall.claude，时限放长。"""
+    try:
+        p = subprocess.run(
+            ["claude", "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
+             "--no-session-persistence", "--system-prompt", system, "--output-format", "json"],
+            input=prompt, capture_output=True, text=True, timeout=TIMEOUT, cwd=tempfile.gettempdir())
+        d = json.loads(p.stdout)
+        return (d.get("result") or "").strip(), round(d.get("total_cost_usd") or 0, 5)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return "", 0
+
+
+def judge(notes, body):
+    words = _recall.section(notes, "用户原话")
+    if not words:
+        return [], "", 0
+    task = (f"## 用户原话\n{words}\n\n## 总目标\n{_recall.section(notes, '总目标') or '（没有）'}\n\n"
+            f"## 用户以前定过的事\n{_recall.section(notes, _recall.SECTION) or '（没有）'}\n\n"
+            f"## 执行者交回的汇报\n{body.strip()}")
+    txt, cost = call(SYSTEM, task)
+    d = _recall.parse_json(txt)
+    if not isinstance(d, dict):
+        return [], "", cost
+    problems = []
+    for k, name in NAMES.items():
+        v = d.get(k)
+        if isinstance(v, dict) and v.get("ok") is False:  # 只有明说不过才拦
+            why = str(v.get("why") or "").strip()
+            problems.append(f"{name}：{why}" if why else name)
+    return problems, str(d.get("doubt") or "").strip(), cost
+
+
+def log(nid, verdict, cost, why):
+    try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\t#{nid}\t{verdict}\t{MODEL}\t{cost}\t{why[:200]}\n")
+    except OSError:
+        pass
+
+
+def main():
+    ap = argparse.ArgumentParser(description="交回对题检查")
+    ap.add_argument("--notes", required=True)
+    ap.add_argument("--body", required=True, help="report 正文文件")
+    ap.add_argument("--id", default="?")
+    a = ap.parse_args()
+    try:
+        notes = Path(os.path.expanduser(re.sub(r"@ws.*$", "", a.notes.strip()))).read_text(encoding="utf-8")
+        body = Path(a.body).read_text(encoding="utf-8")
+    except OSError:
+        notes, body = "", ""
+    problems, doubt, cost = judge(notes, body) if notes and body.strip() else ([], "", 0)
+    verdict = "block" if problems else ("doubt" if doubt else "pass")
+    log(a.id, verdict, cost, " / ".join(problems) or doubt)
+    print(json.dumps({"problems": problems, "doubt": doubt, "cost": cost}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
