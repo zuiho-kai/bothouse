@@ -7,6 +7,18 @@
 import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eta_guard  # noqa: E402  预计时间长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
+import importlib.util  # noqa: E402
+
+
+def _check_first():
+    """check-first-guard.py（先查再说，2026-11-06）：文件名带连字符，按路径载入；缺文件或载入出错就跳过。"""
+    try:
+        spec = importlib.util.spec_from_file_location("check_first_guard", os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-first-guard.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception:
+        return None
 
 CLAIM = re.compile(r"修完|修好|修复了|已修复|修复完成|全部修复")
 NEG = re.compile(r"[没未不等待才]")
@@ -132,6 +144,11 @@ def main():
     if DENY_OWN.search(QUOTED.sub("", reply)) and not looked_up(d.get("transcript_path", "")):
         print(json.dumps({"decision": "block", "reason": "先查 wiki/代码再说我们没有：回复里否定了自家功能，"
               "本轮却没跑过 search.py/grep/rg/chanlog/codegraph。查完再答，查不了就说没核。"}, ensure_ascii=False))
+        return
+    cf = _check_first()
+    why = cf.check(d) if cf else None
+    if why:
+        print(json.dumps({"decision": "block", "reason": why}, ensure_ascii=False))
         return
     eta = eta_guard.check(d.get("last_assistant_message") or turn_text(d.get("transcript_path", "")))
     if eta:

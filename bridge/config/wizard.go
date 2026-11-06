@@ -33,6 +33,9 @@ type WizardProjectOptions struct {
 	DisplayName    string // team_name: the name shown for the project ("" = leave)
 	// AdminFrom: project-level admin_from, written only when the project has none ("" = leave)
 	AdminFrom string
+	// AllPlatformsOfType: Options go into every platform of PlatformType the project has, and none
+	// is created (the panel's gate page: a bot may sit in several cloud_web channels).
+	AllPlatformsOfType bool
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -293,33 +296,38 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 		if err != nil {
 			return err
 		}
-		var pl map[string]any
+		var targets []map[string]any
 		for _, q := range plats {
 			if q["type"] == o.PlatformType {
-				pl = q
-				break
+				targets = append(targets, q)
+				if !o.AllPlatformsOfType {
+					break
+				}
 			}
 		}
-		if pl == nil {
-			pl = map[string]any{"type": o.PlatformType, "options": map[string]any{}}
+		if len(targets) == 0 && !o.AllPlatformsOfType {
+			pl := map[string]any{"type": o.PlatformType, "options": map[string]any{}}
 			plats = append(plats, pl)
+			targets = append(targets, pl)
 		}
 		p["platforms"] = plats
-		opts, err := subMap(pl, "options")
-		if err != nil {
-			return err
-		}
-		for k, v := range o.Options {
-			if s, ok := v.(string); ok && s == "" {
-				delete(opts, k)
-				continue
+		for _, pl := range targets {
+			opts, err := subMap(pl, "options")
+			if err != nil {
+				return err
 			}
-			opts[k] = v
-		}
-		if o.OwnerOpenID != "" {
-			cur, _ := opts["allow_from"].(string)
-			if merged := mergeAllowFromValue(cur, o.OwnerOpenID); merged != "" {
-				opts["allow_from"] = merged
+			for k, v := range o.Options {
+				if s, ok := v.(string); ok && s == "" {
+					delete(opts, k)
+					continue
+				}
+				opts[k] = v
+			}
+			if o.OwnerOpenID != "" {
+				cur, _ := opts["allow_from"].(string)
+				if merged := mergeAllowFromValue(cur, o.OwnerOpenID); merged != "" {
+					opts["allow_from"] = merged
+				}
 			}
 		}
 	}

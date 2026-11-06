@@ -32,6 +32,16 @@ TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wik
 TOP_PAGES = 3  # 来源：作者本机 ctxsvc.py，每轮推前 3 页（回放评测按前 3 页口径）
 DESC_CHARS = 40  # 页描述只当标题用（作者 11-02：推送只给标题和编号，细节 agent 自己按行号读），原 120
 TITLE_CHARS = 0  # 已停用：每条给整行 + [#编号]（11-03 起不截断）
+# 每轮推的 wiki 命中条数上限（主 wiki + 角色 wiki + 经验合计，去重之后算）。来源：用户 11-06 看论坛页
+# 「说推几条而已嘛」：隔壁工作区每次新会话第一轮推 15~26 条（主 wiki 前 10 行 + 角色 wiki 前 10 行 + 定案 8 行）。
+TURN_ROWS = 5
+ITEM_MIN = 6  # 去掉前缀后短于这么多字的行不当一条推（「## 现状」「- 见上」这类）
+
+
+def is_item(line):
+    """这行能不能当一条记忆推：标题行（# 开头）和去掉前缀后太短的不算（用户 11-06：推送里混着「# 多用户隔离…」标题行）。"""
+    s = line.strip()
+    return bool(s) and not s.startswith("#") and len(_title(s)) >= ITEM_MIN
 
 
 def _title(line):
@@ -137,7 +147,7 @@ def match_wiki(text, k=TOP_PAGES, root=None):
         return []
     idx = _index(root)
     pages = {}
-    hits = idx.search(query(text))  # 前 10 行
+    hits = [h for h in idx.search(query(text)) if is_item(h[2])]  # 前 10 行，去掉标题行
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
     for rel, ln, line in hits:  # 按首次出现排页
@@ -226,7 +236,7 @@ DEC_HEADS = ("决策", "关键事实", "decision", "key fact")  # 页模板的�
 DEC_PER_PAGE = 8  # 来源：上面的离线对比，各页 8 行
 DEC_TOP = 10  # 来源：同上，全库决策段前 10 行（= wiki_search.TOP）
 DEC_LINE = 100  # 每行截断字数：整块压在 3000 字内（作者定的每轮增量上限）
-DEC_ROWS = 8  # 只给标题+编号，最多这么多条（原来几十行原文，每轮占几千字）
+DEC_ROWS = 3  # 只给标题+编号，最多这么多条；原 8，11-06 用户嫌一轮推太多（同 TURN_ROWS）
 _dec, _dec_of = {}, {}
 _MD = re.compile(r"(?:~|/)[^\s`'\"（）()「」]*?\.md")  # 交接文件（ws-handoff 叫醒语里写着它的路径）
 
@@ -294,6 +304,7 @@ def decisions(text, root=None):
     for hit in d.search(q):
         if hit not in out:
             out.append(hit)
+    out = [h for h in out if is_item(h[2])]  # 段内的 ### 小标题不当定案
     out = FORUM.rerank(out) if FORUM else out  # 低分折叠沉底，不移除（forum_scores.py）
     return pages, out
 
@@ -488,7 +499,7 @@ def ws_task(key=""):
     if board is None or ":" not in chat or not board._path("board.jsonl").exists():
         return None
     try:
-        ids = [i["id"] for i in board.items() if i.get("ws") == chat and not i.get("paused")]
+        ids = [i["id"] for i in board.items() if i.get("ws") == chat and not i.get("paused") and not i.get("backlog")]
     except Exception:  # 板子读坏了不挡推页
         return None
     return min(ids) if ids else None
@@ -504,12 +515,15 @@ def board_items(key=""):
         its = board.items()
     except Exception:  # 板子读坏了不挡推页
         return []
-    shown = [i for i in its if board.in_chat(i, key) or board.waits_user(i)]
-    rest = [i for i in its if i not in shown]
+    shown = [i for i in its if (board.in_chat(i, key) or board.waits_user(i)) and not i.get("backlog")]
+    rest = [i for i in its if i not in shown and not i.get("backlog")]
     ls = [board.fmt(i) for i in shown]
     run = sum(1 for i in rest if not i.get("paused"))
     if rest:
         ls.append(f"别处还有 {run} 件在做、{len(rest) - run} 件暂停（全表跑 board）")
+    back = sum(1 for i in its if i.get("backlog"))
+    if back:  # 待办不占每轮上下文，只报个数（用户 2026-11-05「任务板怎么还有一堆任务」）
+        ls.append(f"另有 {back} 件待办（board backlog 看，不着急）")
     body = "\n".join(ls) or "现在没有进行中的事"
     tag = hashlib.sha1(body.encode()).hexdigest()[:6]
     return [{"path": f"【任务板 {tag}】", "desc": "本频道的事和等用户的事（接手前先看这里；增改结束用 board 命令）\n" + body}]
@@ -703,13 +717,32 @@ def _doc_diff(w, before):
     return {"path": w["name"][:-1] + " 有变动】", "desc": "\n".join([head] + add)}
 
 
+def _hit_page(w):
+    """wiki 命中页（主 wiki、角色 wiki、经验）：path 是页路径，不是「【…】」块；TURN_ROWS 只数这些。"""
+    return "rows" in w and not str(w.get("path", "")).startswith("【")
+
+
+def _cap(w, rows, left):
+    """命中页的新条按 TURN_ROWS 剩余额度截断（hits 按相关度排，丢后面的）。"""
+    return rows[:max(left, 0)] if _hit_page(w) else rows
+
+
 def only_new(out, req):
     items = [as_doc(w) for w in out.get("wiki", [])]
     if any("cid" in w for w in items):  # 有折成目录的块才说怎么取（wiki 命中行带页路径和行号，照旧能按行号读）
         items.insert(0, HOWTO)
     epoch = str(req.get("epoch") or "")
     if not epoch:
-        return dict(out, wiki=[_plain(w) for w in items])
+        plain, left = [], TURN_ROWS
+        for w in items:
+            if _hit_page(w):
+                rows = _cap(w, w["rows"], left)
+                left -= len(rows)
+                if not rows:
+                    continue
+                w = _render(dict(w, rows=rows)) if rows != w["rows"] else w
+            plain.append(_plain(w))
+        return dict(out, wiki=plain)
     k = (req.get("key") or "", req.get("bot") or "", epoch)
     keep = []
     with _pushed_lock:
@@ -720,6 +753,7 @@ def only_new(out, req):
                 _pushed.popitem(last=False)
         _pushed.move_to_end(k)
         n = seen["#"] = seen.get("#", 0) + 1
+        left = TURN_ROWS
         for w in items:
             if "doc" in w:
                 dk, ck = "doc:" + w["name"], "cat:" + w["name"]
@@ -733,13 +767,13 @@ def only_new(out, req):
                     seen[ck] = n
                     keep.append(d)
                 continue
-            w = _rows_of(w)
-            rows = []
-            for r in w["rows"]:
-                last = seen.get(r["id"])
-                if last is None or n - last >= PUSH_GAP:
-                    seen[r["id"]] = n
-                    rows.append(r)
+            hit, w = _hit_page(w), _rows_of(w)
+            rows = [r for r in w["rows"] if seen.get(r["id"]) is None or n - seen[r["id"]] >= PUSH_GAP]
+            if hit:
+                rows = rows[:max(left, 0)]  # 超额的不记推过，下一轮还能推
+                left -= len(rows)
+            for r in rows:
+                seen[r["id"]] = n
             if rows:
                 keep.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
     if [w.get("path") for w in keep] == [HOWTO["path"]]:  # 只剩怎么取：这轮没有要推的
@@ -816,7 +850,7 @@ def exp_task(key):
     """这个频道当前在做的那件活：本频道的、没暂停、不是测试活，取最近交出/绑定的一件。"""
     if board is None or not key:
         return None
-    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not board.is_test(i.get("what"))]
+    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not i.get("backlog") and not board.is_test(i.get("what"))]
     return max(its, key=lambda i: (i.get("bound") or "", i.get("id") or 0), default=None)
 
 

@@ -95,6 +95,29 @@ class DeliveryCheckTest(unittest.TestCase):
         self.log.write_text(json.dumps(events[0]) + "\n")
         self.assertEqual(self.call("codex"), "deny")
 
+    def test_codex_code_mode_nested_read_and_image_view_count(self):
+        # 11-06 隔壁龙娘：functions.exec 里嵌套 cat 报告、看压缩包预览图，旧钩子认不出被拦
+        self.sheet("check", "cover", self.file, "color checked")
+        user = {"type": "response_item", "payload": {"type": "message", "role": "user",
+                                                    "content": [{"type": "input_text", "text": "send it"}]}}
+        cat = {"type": "event_msg", "timestamp": "2099-01-01T00:00:00Z",
+               "payload": {"type": "item_completed", "item": {
+                   "type": "CommandExecution", "id": "exec-1", "cwd": "file://" + str(self.file.parent),
+                   "status": "completed", "exit_code": 0,
+                   "parsed_cmd": [{"type": "read", "cmd": "cat " + self.file.name, "path": self.file.name}]}}}
+        view = {"type": "event_msg", "timestamp": "2099-01-01T00:00:00Z",
+                "payload": {"type": "item_completed", "item": {
+                    "type": "ImageView", "id": "exec-2", "path": "file://" + str(self.file)}}}
+        failed = json.loads(json.dumps(cat))
+        failed["payload"]["item"]["exit_code"] = 1
+        for ev in (cat, view):
+            self.log.write_text("\n".join(map(json.dumps, [user, ev])) + "\n")
+            self.assertNotEqual(self.call("codex"), "deny")
+        self.log.write_text("\n".join(map(json.dumps, [user, failed])) + "\n")
+        self.assertEqual(self.call("codex"), "deny")
+        self.log.write_text("\n".join(map(json.dumps, [cat, user])) + "\n")
+        self.assertEqual(self.call("codex"), "deny")
+
     def test_claude_requires_read_after_latest_file_change(self):
         self.sheet("check", "cover", self.file, "color checked")
         events = [

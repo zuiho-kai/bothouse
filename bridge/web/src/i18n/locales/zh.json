@@ -18,7 +18,8 @@
     "skills": "技能",
     "system": "系统",
     "usage": "用量",
-    "wikiGalaxy": "Wiki 星河"
+    "wikiGalaxy": "Wiki 星河",
+    "gate": "闸门"
   },
   "dashboard": {
     "title": "概览",
@@ -484,6 +485,7 @@
     "openDownload": "打开下载页",
     "dev": "开发版不检查更新",
     "devShort": "开发版",
+    "selfBuilt": "本机自编译版不支持自我升级",
     "checkFailed": "检查更新失败",
     "details": "详情",
     "dismiss": "知道了",

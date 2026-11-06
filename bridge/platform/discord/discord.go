@@ -952,6 +952,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
 		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
+	msg.PrivateRoom = !fromBot && p.privateRoom(s, m.GuildID, m.ChannelID, m.Author.ID)
 	msg.AddressedOther = !fromBot && !msg.Mentioned && addressedOther(m.Content, p.botID)
 	msg.StopAll = bareStop && !msg.Mentioned && !msg.AddressedOther
 	// Consume explicit approvals before bot labels, batching or the gate.

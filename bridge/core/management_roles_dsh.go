@@ -85,6 +85,11 @@ func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus)
 	}
 	var st dshState
 	if err := c.get(ctx, "/collab/api/state", &st); err != nil {
+		if errors.Is(err, errDSHWebNotRunning) {
+			// A zero (unknown) pid is not judged stale up front; a host that is really gone
+			// behind it shows here, as a refused dial — stopped, the same as a dead pid.
+			return nil, dshStatus{Status: "stopped"}
+		}
 		return nil, dshStatus{Status: "error", Error: "DSH state could not be read"}
 	}
 	return dshStateRoles(&st), status
@@ -252,8 +257,11 @@ func (m *ManagementServer) dshSummary(ctx context.Context) DSHSummary {
 		return out
 	}
 	var st dshState
-	if c.get(ctx, "/collab/api/state", &st) != nil {
+	if err := c.get(ctx, "/collab/api/state", &st); err != nil {
 		out.Status, out.Error = "error", "DSH state could not be read"
+		if errors.Is(err, errDSHWebNotRunning) {
+			out.Status, out.Error = "stopped", "" // see dshRoles: gone behind a zero pid
+		}
 		return out
 	}
 	out.Running = true

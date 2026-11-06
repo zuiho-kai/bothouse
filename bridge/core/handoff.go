@@ -145,13 +145,18 @@ func (e *Engine) noteContextWindow(id string, live AgentSession) {
 	}
 }
 
+// defaultFreshWindow is the window assumed when the CLI has reported none and has never
+// compacted on its own: 200k, the smallest window the bridge's CLIs run with.
+const defaultFreshWindow = 200000
+
 // contextFreshLimit is the prompt size at which freshOnContextSize starts a new context:
-// max_context_tokens (default 300000), capped below the point where the CLI compacts the
-// session itself. Claude Code compacts a 200k-window session in place at about 167k (agentm
-// jingyu, 2026-11-05: 4 auto compactions at 167.1k–167.6k) and keeps going in the same
-// session, so a 300k limit is never reached there. Cap: 70% of the window the CLI reported;
-// when it has not reported one, 85% of the prompt size at which the CLI last compacted this
-// session on its own. Large windows (1M) keep the configured limit.
+// max_context_tokens (default 300000), capped at 70% of the window the CLI reported. The
+// bridge turns the CLIs' own auto compaction off where it can (Claude Code
+// DISABLE_AUTO_COMPACT, DSH compaction-basic auto: false); Codex cannot turn it off and
+// compacts at 90% of its window. Either way the fresh context must come before the
+// window is full. No window reported: 85% of the prompt size at which the CLI last
+// compacted this session on its own (older CLI / bridge versions still did), else 70%
+// of a 200k window. Large windows (1M) keep the configured limit.
 func (e *Engine) contextFreshLimit(id string, h *SessionHandoff) int {
 	limit := e.coldFreshMaxTokens
 	if v, ok := e.ctxWindows.Load(id); ok {
@@ -160,10 +165,12 @@ func (e *Engine) contextFreshLimit(id string, h *SessionHandoff) int {
 		}
 		return limit
 	}
+	c := defaultFreshWindow * 7 / 10
 	if h != nil && h.AutoCompactTokens > 0 {
-		if c := h.AutoCompactTokens * 85 / 100; c < limit {
-			limit = c
-		}
+		c = h.AutoCompactTokens * 85 / 100
+	}
+	if c < limit {
+		limit = c
 	}
 	return limit
 }
@@ -230,9 +237,11 @@ func (e *Engine) imageBloat(agent Agent, session *Session) (string, int) {
 
 // isPromptTooLongError matches the provider's context-overflow turn failure, e.g.
 // new-api/DeepSeek's 400 {"code":11115,"msg":"prompt is too long: 1227574 tokens > 1048576 maximum"}
-// (jingyu, 2026-10-19). Resuming that session can only fail the same way.
+// (jingyu, 2026-10-19), or Claude Code's "Prompt is too long", which it now reports
+// instead of compacting (DISABLE_AUTO_COMPACT). Resuming that session can only fail
+// the same way.
 func isPromptTooLongError(msg string) bool {
-	return strings.Contains(msg, "prompt is too long")
+	return strings.Contains(strings.ToLower(msg), "prompt is too long")
 }
 
 // freshOnPromptTooLong clears the session's agent ID after the provider refused

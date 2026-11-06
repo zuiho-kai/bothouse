@@ -45,10 +45,23 @@ const (
 var (
 	dshWebHealMu       sync.Mutex
 	dshWebHealFailedAt time.Time
+	// dshWebHealLast is the last successful heal. Requests that were already queued on the mutex
+	// (a page load is dozens of them) find the file it wrote and reuse the result instead of
+	// rescanning, probing and writing another backup each.
+	dshWebHealLast struct {
+		at            time.Time
+		state         []byte
+		target, token string
+	}
 	// dshWebSuspect is set when the proxy's sign-in with the state file's token was refused: the pid
 	// in the file can still be alive (pid reuse, a second instance), so a live pid alone cannot
 	// decide that the state is good.
 	dshWebSuspect atomic.Bool
+	// dshWebAliveFn is processAlive, swappable by tests: on unix processAlive(0) is true (signal 0
+	// goes to the process group) while Windows says false, so only a test that says "pid <= 0 is
+	// dead" sees what a Windows host sees. 来源：验收 2026-11-06 03:2x 的注入实验 —— 不改这一处，
+	// 删掉 web.PID > 0 守卫在 mac/linux 上没有任何用例会失败。
+	dshWebAliveFn = processAlive
 )
 
 // loopbackTarget reports whether host:port points at this machine, which is the only thing the
@@ -131,9 +144,14 @@ func lastDSHWebURL(path string) string {
 	return found
 }
 
-// probeDSHWebToken is true only when the host on port answers GET /?token=… with the 303 it sends
-// for its own launch token. 401 means the token belongs to another instance, 200 means it was not
-// taken at all; neither may replace the state file.
+// dshAuthCookiePrefix names the session cookie `dsh web` sets when it accepts its launch token
+// (来源：49176 实录 `set-cookie: dsh-auth-…=v1.…`，review-1030-dsh-selfheal.md 第 3 条).
+const dshAuthCookiePrefix = "dsh-auth-"
+
+// probeDSHWebToken is true only when the host on port answers GET /?token=… with the 303 and the
+// dsh-auth-* session cookie it sends for its own launch token. 401 means the token belongs to another
+// instance, 200 means it was not taken at all, and a bare 303 is any local service that redirects
+// (a login page) — none of them may replace the state file, the proxy could not sign in with it.
 func probeDSHWebToken(port, token string) bool {
 	client := &http.Client{
 		Timeout: dshWebProbeTimeout,
@@ -147,7 +165,15 @@ func probeDSHWebToken(port, token string) bool {
 	}
 	defer res.Body.Close()
 	_, _ = io.Copy(io.Discard, res.Body)
-	return res.StatusCode == http.StatusSeeOther
+	if res.StatusCode != http.StatusSeeOther {
+		return false
+	}
+	for _, c := range res.Cookies() {
+		if strings.HasPrefix(c.Name, dshAuthCookiePrefix) && c.Value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // healDSHWebState replaces a state file that points at a host that is gone with the one the log
@@ -164,6 +190,12 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 	// The panel's own "Open DSH" writes this file too (openDSHWeb, under dshWebMu); its write is the
 	// newer truth. If the bytes moved while we were probing, leave the file to it.
 	orig, _ := os.ReadFile(dshWebStatePath())
+	if last := dshWebHealLast; !dshWebSuspect.Load() && !last.at.IsZero() && time.Since(last.at) < dshWebHealCooldown &&
+		len(orig) != 0 && string(orig) == string(last.state) {
+		// A heal that just finished wrote what is there now: same answer, no second write. Not when
+		// the proxy was just refused that very token (the host restarted again) — then look afresh.
+		return last.target, last.token, true
+	}
 	fail := func(reason string, attrs ...any) (string, string, bool) {
 		dshWebHealFailedAt = time.Now()
 		slog.Warn("dsh web self-heal: keeping the state file as it is: "+reason,
@@ -243,13 +275,21 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 			return fail("the state file changed while the announcement was being checked")
 		}
 	}
-	// 来源：沿用仓库里配置变更的时间戳备份（setup_dsh_module.go:298），旧文件不丢。
-	_ = AtomicWriteFile(dshWebStatePath()+".bak-"+time.Now().Format("20060102-150405.000000000"), orig, 0o600)
+	if len(orig) != 0 {
+		// 来源：沿用仓库里配置变更的时间戳备份（setup_dsh_module.go:298），旧文件不丢。No file, no
+		// backup: an empty .bak says nothing.
+		bak := dshWebStatePath() + ".bak-" + time.Now().Format("20060102-150405.000000000")
+		if err := AtomicWriteFile(bak, orig, 0o600); err != nil {
+			return fail("the old state file could not be backed up", "error", err)
+		}
+	}
 	b, _ := json.Marshal(healed)
 	if err := AtomicWriteFile(dshWebStatePath(), b, 0o600); err != nil {
 		return fail("the state file could not be replaced", "error", err)
 	}
 	dshWebHealFailedAt = time.Time{}
+	dshWebHealLast.at, dshWebHealLast.state = time.Now(), b
+	dshWebHealLast.target, dshWebHealLast.token = "127.0.0.1:"+port, token
 	dshWebSuspect.Store(false)
 	slog.Info("dsh web self-heal: wrote the running host back to the state file",
 		"pid", healed.PID, "port", port, "recorded_pid", web.PID, "log", logPath)

@@ -4906,8 +4906,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	capWait := e.capacityWait(state.quotaScope)
 	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot &&
 		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
-	if until := e.quotaCoolingFor(state.quotaScope); !until.IsZero() {
-		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, until.Format(time.RFC3339)))
+	// One clock read for both the decision and the text: two reads let a deadline that
+	// is microseconds away at the check pass before the format, printing 「大约还要 0s」
+	// (复核 2026-11-06 观察①).
+	now := quotaCoolingNow()
+	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() {
+		// 用户 2026-11-04 报「没有正确显示什么时候恢复」：不再直接打印 RFC3339，
+		// 换成本地时间带偏移量，再按当前时刻算一次大约还要等多久（quota_cooling_display.go）。
+		// quotaCoolingForAt 只在截止值还在 now 之后时才返回非零值，
+		// 所以这里不需要「未知/已过期」的分支。
+		when, wait := quotaCoolingWhen(until), quotaCoolingWait(until, now)
+		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
@@ -6696,6 +6705,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			e.journalProgress(sessionKey, strings.TrimSpace(event.ToolName+" "+event.ToolInput), "", true) // #618 K4
 			e.emitStreamEvent(StreamEventTool, sessionKey, event.ToolInput, map[string]any{"tool": event.ToolName})
 			e.notePublicProgressTool(state, event.ToolInput)
+			// Tool detail visibility must not suppress the progress event itself.
+			if !e.display.ToolMessages && cp.style == progressStyleCard {
+				cp.AppendEvent(ProgressEntryToolUse, "", event.ToolName, "")
+			}
 			if hasRichCard {
 				// When tool messages are suppressed, skip card updates on tool events.
 				if !e.display.ToolMessages {
@@ -6838,6 +6851,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolResult:
 			e.emitToolDone(sessionKey, event, toolStartAt)
+			if !e.display.ToolMessages && cp.style == progressStyleCard {
+				cp.AppendStructured(ProgressCardEntry{
+					Kind: ProgressEntryToolResult, Tool: event.ToolName,
+					Status: event.ToolStatus, ExitCode: event.ToolExitCode, Success: event.ToolSuccess,
+				}, "")
+			}
 			// maomao fork: images piled up inside this turn; interrupt it the way an
 			// idle timeout does (close the agent session) and leave a fresh session
 			// with a handoff for the next message. The turn is not re-run.
@@ -7990,8 +8009,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			state.mu.Lock()
 			state.turnErrored = true // a turn that ends in error never means "the model is back"
+			abortedTurn := state.turnCancelled
 			state.mu.Unlock()
-			cp.Finalize(ProgressCardStateFailed)
+			cp.Finalize(errorTurnCardState(abortedTurn))
 			if event.Error != nil {
 				if until, ok := e.quotaCoolingUntilFor(state.quotaScope, event.Error.Error()); ok {
 					slog.Warn("provider quota exhausted, cooling down until reset", "session_key", sessionKey, "cooling_until", until.Format(time.RFC3339))
@@ -18312,7 +18332,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		return "", err
 	}
 	if until := e.quotaCoolingFor(e.admissionQuotaScope(agent, relaySessionKey, ccSessionKey, sourceSessionKey)); !until.IsZero() {
-		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, quotaCoolingWhen(until))
 	}
 	if e.IsPaused() {
 		return "", fmt.Errorf("engine %q is paused", e.name)
@@ -18366,7 +18386,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	turnScope := e.quotaScopeOfSession(agent, agentSession)
 	if until := e.quotaCoolingFor(turnScope); !until.IsZero() {
 		agentSession.Close()
-		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, until.Format(time.RFC3339))
+		return "", fmt.Errorf("engine %q quota cooling until %s", e.name, quotaCoolingWhen(until))
 	}
 	e.trackRelaySession(agentSession) // #624 K4: Stop closes relay sessions too
 	if startedFresh {

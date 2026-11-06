@@ -330,7 +330,7 @@ class Timers(unittest.TestCase):
         self.assertEqual([i["id"] for i in changed], [2])
         by_id = {i["id"]: i for i in board._read()}
         self.assertNotIn("paused", by_id[1])
-        self.assertEqual(by_id[2].get("pause_why"), "一小时无进展，转待办")
+        self.assertEqual(by_id[2].get("pause_why"), "一小时无进展")
 
 
 if __name__ == "__main__":

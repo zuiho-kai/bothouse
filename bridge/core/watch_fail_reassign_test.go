@@ -111,6 +111,11 @@ func TestCapacityRedeliveryDroppedAfterReassign(t *testing.T) {
 	if e.capHandoffAt(ws).key != ws {
 		t.Fatalf("the held message must remember its handoff: %+v", e.capHandoffAt(ws))
 	}
+	// A session key with a user suffix ("discord:<chan>:<user>") names the same workspace: the
+	// handoff table is keyed by the bare chat key (#187 final review of #986).
+	if got := e.capHandoffAt(ws + ":u1"); got.key != ws {
+		t.Fatalf("a session key with a user suffix must find the workspace handoff: %+v", got)
+	}
 
 	// The work is handed over while the message waits.
 	teamWorkspaceStore.mu.Lock()

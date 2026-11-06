@@ -542,7 +542,7 @@ func parseClaudeUsageResetTime(raw string, now time.Time) (time.Time, error) {
 		return resetAt, nil
 	}
 
-	for _, layout := range []string{"Jan 2, 3:04pm", "Jan 2, 3pm"} {
+	for _, layout := range []string{"Jan 2, 3:04pm", "Jan 2, 3pm", "Jan 2 at 3:04pm", "Jan 2 at 3pm"} {
 		parsed, err := time.ParseInLocation(layout, label, loc)
 		if err != nil {
 			continue

@@ -41,6 +41,12 @@ def adapt(payload):
                                          if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text"))
                         if text:
                             entries.append({"type": item["role"], "message": {"content": [{"type": "text", "text": text}]}})
+                    elif item.get("type") in ("custom_tool_call", "local_shell_call"):
+                        # 实看 11-06 rollout：codex 的 exec 是 custom_tool_call，input 是一段调 tools.exec_command 的脚本
+                        cmd = item.get("input") or (item.get("action") or {}).get("command") or ""
+                        entries.append({"type": "assistant", "message": {"content": [{
+                            "type": "tool_use", "id": item.get("call_id"), "name": "Bash",
+                            "input": {"command": cmd if isinstance(cmd, str) else " ".join(map(str, cmd))}}]}})
                     elif item.get("type") == "function_call":
                         try:
                             args = json.loads(item.get("arguments") or "{}")

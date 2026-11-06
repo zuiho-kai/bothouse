@@ -4103,6 +4103,11 @@ func progressStateMeta(state core.ProgressCardState, lang string, agent string) 
 			return fmt.Sprintf("%s · 已完成", agent), "green", "本轮不需要回复，没有下一条消息。"
 		}
 		return fmt.Sprintf("%s · Completed", agent), "green", "No reply was needed this turn; there is no next message."
+	case core.ProgressCardStateAborted:
+		if zh {
+			return fmt.Sprintf("%s · 已打断", agent), "grey", "这一轮被打断，过程卡片已停止更新。"
+		}
+		return fmt.Sprintf("%s · Interrupted", agent), "grey", "This turn was interrupted; the progress card is no longer updating."
 	case core.ProgressCardStateFailed:
 		if zh {
 			return fmt.Sprintf("%s · 失败", agent), "red", "本过程卡片已停止更新（失败），完整错误说明见下一条消息。"

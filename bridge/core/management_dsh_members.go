@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -57,6 +58,11 @@ func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Re
 	req.Host = c.target
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.rt.RoundTrip(req)
+	if errors.Is(err, errDSHWebNotRunning) {
+		// Gone behind a zero (unknown) pid: the same 503 as a host known to be stopped.
+		mgmtError(w, http.StatusServiceUnavailable, "DSH source unavailable")
+		return
+	}
 	if err != nil {
 		mgmtError(w, http.StatusBadGateway, "DSH request failed")
 		return

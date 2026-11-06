@@ -125,7 +125,19 @@ func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
 			if i := open(tool); i >= 0 {
 				steps[i].state = st
 			} else {
-				steps = append(steps, step{tool: tool, state: st})
+				// A repeated result updates its closed step, not another execution.
+				last := -1
+				for i := len(steps) - 1; i >= 0; i-- {
+					if tool == "" || steps[i].tool == tool {
+						last = i
+						break
+					}
+				}
+				if last >= 0 {
+					steps[last].state = st
+				} else {
+					steps = append(steps, step{tool: tool, state: st})
+				}
 			}
 		case core.ProgressEntryError:
 			if i := open(""); i >= 0 {
@@ -334,6 +346,8 @@ func discordProgressStateMeta(state core.ProgressCardState, lang string, agent s
 		return fmt.Sprintf("%s · %s", agent, discordProgressFailedText(lang)), 0xED4245, discordProgressFailedFooter(lang)
 	case core.ProgressCardStateSilent:
 		return fmt.Sprintf("%s · %s", agent, discordProgressCompletedText(lang)), 0x57F287, discordProgressSilentFooter(lang)
+	case core.ProgressCardStateAborted:
+		return fmt.Sprintf("%s · %s", agent, discordProgressAbortedText(lang)), 0x95A5A6, discordProgressAbortedFooter(lang)
 	default:
 		return fmt.Sprintf("%s · %s", agent, discordProgressRunningText(lang)), 0x5865F2, ""
 	}
@@ -591,4 +605,34 @@ func subTaskTableRender(content string) (cardRender, bool) {
 	return cardRender{lang: table.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
 		return []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, v)}
 	}}, true
+}
+
+func discordProgressAbortedText(lang string) string {
+	switch normalizeDiscordProgressLang(lang) {
+	case "zh":
+		return "已打断"
+	case "zh-tw":
+		return "已打斷"
+	case "ja":
+		return "中断"
+	case "es":
+		return "Interrumpido"
+	default:
+		return "Interrupted"
+	}
+}
+
+func discordProgressAbortedFooter(lang string) string {
+	switch normalizeDiscordProgressLang(lang) {
+	case "zh":
+		return "这一轮被打断，进度卡已停止更新。"
+	case "zh-tw":
+		return "這一輪被打斷，進度卡已停止更新。"
+	case "ja":
+		return "このターンは中断され、進捗カードの更新は終了しました。"
+	case "es":
+		return "Este turno fue interrumpido; la tarjeta de progreso ya no se actualiza."
+	default:
+		return "This turn was interrupted; the progress card is no longer updating."
+	}
 }

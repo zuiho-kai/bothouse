@@ -15,7 +15,8 @@
     "skills": "スキル",
     "system": "システム",
     "wikiGalaxy": "Wiki ギャラクシー",
-    "plugins": "プラグイン"
+    "plugins": "プラグイン",
+    "gate": "ゲート"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -466,6 +467,7 @@
     "openDownload": "ダウンロードページを開く",
     "dev": "開発版は更新を確認しません",
     "devShort": "開発版",
+    "selfBuilt": "このビルドは自分でビルドしたもので、アプリ内更新には対応していません",
     "checkFailed": "更新の確認に失敗しました",
     "details": "詳細",
     "dismiss": "閉じる",
