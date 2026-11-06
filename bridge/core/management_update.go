@@ -63,6 +63,7 @@ func resetUpdateCheckCache() {
 }
 
 // GET /api/v1/update → current version, latest version, whether an update exists.
+// A self-built binary reports self_built + a reason and never has_update (#212).
 func (m *ManagementServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
@@ -74,6 +75,7 @@ func (m *ManagementServer) handleUpdate(w http.ResponseWriter, r *http.Request) 
 		"latest":       "",
 		"has_update":   false,
 		"dev":          false,
+		"self_built":   false,
 		"download_url": releasesPage,
 		"error":        "",
 	}
@@ -91,6 +93,16 @@ func (m *ManagementServer) handleUpdate(w http.ResponseWriter, r *http.Request) 
 	if isDevVersion(cur) {
 		resp["dev"] = true
 		resp["error"] = "开发版不检查更新 / development build: update check disabled"
+		mgmtJSON(w, http.StatusOK, resp)
+		return
+	}
+	// A self-built binary cannot replace itself with a signed release (#212/#299), so the check
+	// phase must say that instead of advertising an update the Apply button would only refuse.
+	// Same capability test as every update entry (UpdateRefusal), not a version-string guess.
+	if err := UpdateRefusal(); err != nil {
+		resp["self_built"] = true
+		resp["latest"] = cur
+		resp["error"] = err.Error()
 		mgmtJSON(w, http.StatusOK, resp)
 		return
 	}

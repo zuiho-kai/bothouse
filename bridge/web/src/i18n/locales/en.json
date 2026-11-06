@@ -18,7 +18,8 @@
     "skills": "Skills",
     "system": "System",
     "usage": "Usage",
-    "wikiGalaxy": "Wiki galaxy"
+    "wikiGalaxy": "Wiki galaxy",
+    "gate": "Gate"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -484,6 +485,7 @@
     "openDownload": "Open download page",
     "dev": "Development build: update check disabled",
     "devShort": "dev build",
+    "selfBuilt": "Self-built build: in-app update is off",
     "checkFailed": "Update check failed",
     "details": "Details",
     "dismiss": "Got it",

@@ -29,8 +29,11 @@ func TestReloadOptionsAppliesTeamLeadLive(t *testing.T) {
 		t.Fatalf("team_lead_bot = %q, want 2", p.lead())
 	}
 	reloaded["ws_url"] = "ws://other/ws?bot=a"
-	delete(reloaded, "group_reply_all")
-	if r := p.ReloadOptions(reloaded); !reflect.DeepEqual(r, []string{"group_reply_all", "ws_url"}) {
-		t.Fatalf("restart keys = %v, want [group_reply_all ws_url]", r)
+	reloaded["group_reply_all"] = false
+	if r := p.ReloadOptions(reloaded); !reflect.DeepEqual(r, []string{"ws_url"}) {
+		t.Fatalf("restart keys = %v, want [ws_url] (group_reply_all applies live)", r)
+	}
+	if p.replyAll() {
+		t.Fatal("group_reply_all = true after reload, want false")
 	}
 }

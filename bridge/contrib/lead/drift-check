@@ -34,7 +34,7 @@ def item(nid):
 
 
 def live(it):
-    return bool(it) and not it.get("paused") and not board.CLOSED_RE.match(str(it.get("status") or "")) and it.get("ws")
+    return bool(it) and not it.get("paused") and not it.get("backlog") and not board.CLOSED_RE.match(str(it.get("status") or "")) and it.get("ws")
 
 
 def cc():

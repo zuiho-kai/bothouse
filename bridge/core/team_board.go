@@ -439,10 +439,12 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 	return changed
 }
 
-// teamTaskBoardHasEntries: chat's task board has an open item.
+// teamTaskBoardHasEntries: chat's task board has an open item. 待办 does not count: a chat that only
+// queued small fixes behind bugs gets no new pinned board (the chat runs `board backlog` to see them);
+// a board it already had stays and ends with the 「待办 N 件」 count.
 func teamTaskBoardHasEntries(items []teamTaskBoardItem, chat string) bool {
 	for _, it := range items {
-		if it.shownIn(chat) {
+		if it.shownIn(chat) && it.Backlog == "" {
 			return true
 		}
 	}

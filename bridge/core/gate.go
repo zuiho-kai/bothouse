@@ -111,6 +111,10 @@ type gateRequest struct {
 	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
 	// member queued behind its 24-minute turn).
 	NoInsert bool `json:"no_insert,omitempty"`
+	// Private: a person's private chat (DM) with this bot, or a server channel only that person
+	// and bots can see (Message.PrivateRoom). Every message there is addressed to this bot, so the
+	// fallbacks answer it without an @ (user 2026-11-06「允许私聊不用艾特」「这个都是基本常识能力」).
+	Private bool `json:"private,omitempty"`
 }
 
 // gatePart is one message of a merged burst: what the user wrote, whether it @-ed this bot, and
@@ -209,7 +213,7 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 // that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
 // "reply", other roles "context").
 func (g *gateState) fallbackFor(req gateRequest) string {
-	if req.Mentioned {
+	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
 	}
 	if req.AddressedOther {
@@ -220,9 +224,10 @@ func (g *gateState) fallbackFor(req gateRequest) string {
 
 // noModelFallback is the action when the gate runs but has no model to judge with (/decide 503,
 // contrib/gate/gate.py NO_JEV): that is not a passing outage, so even the fallback role does not
-// answer every message; only an @-mentioned bot replies.
+// answer every message; only an @-mentioned bot replies (a reply to its message counts, see
+// discord humanReplyRoute), or a person in a private chat (DM or one-to-one channel).
 func (g *gateState) noModelFallback(req gateRequest) string {
-	if req.Mentioned {
+	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
 	}
 	return "context"
@@ -373,6 +378,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
 		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
+		Private:  !msg.FromBot && (msg.Direct || msg.PrivateRoom),
 		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})
 	slog.Info("gate decision", "session", msg.SessionKey, "action", dec.Action, "busy", busy,
@@ -433,7 +439,10 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			// maomao fork: don't pretend to deliver into a turn that has stopped moving.
 			// The message stays in the channel; backfill hands it to the next turn
 			// (so it must not be marked seen).
-			e.reply(p, msg.ReplyCtx, fmt.Sprintf("⚠️ 当前这一轮已经 %d 分钟没有动静，可能卡住了，这条没插进去；发 /new 可重置", int(idle.Minutes())))
+			// A bridge notice like ⏹ above, not a reply the turn produced: quiet chats (QQ groups)
+			// log it instead of showing it. 2026-11-05 18:00 qq:g:1109769308 got this line although
+			// the same engine already kept ⏰ and ↪ out of that group.
+			e.replyNotice(p, msg.ReplyCtx, fmt.Sprintf("⚠️ 当前这一轮已经 %d 分钟没有动静，可能卡住了，这条没插进去；发 /new 可重置", int(idle.Minutes())))
 			return true
 		}
 	}
