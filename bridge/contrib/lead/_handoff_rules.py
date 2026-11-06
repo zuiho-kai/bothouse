@@ -1,7 +1,7 @@
 # 交接校验：按 handoff-rules.json（同目录，唯一一份规则）查交接正文。ws-handoff 用它；DSH collab 用同一份规则的
 # Node 实现（dsh/collab/handoff-rules.mjs），两边由 test_handoff_rules.py 用同一组 fixture 比对。
 # 这里不写任何小节名、正则或报错文案，全在规则文件里；规则文件读不到就报错，不放行。
-import json, os, re
+import json, os, re, shutil, subprocess
 from pathlib import Path
 
 RULES = Path(__file__).resolve().parent / "handoff-rules.json"
@@ -164,3 +164,213 @@ def check_all(text, rules=None):
     rules = rules or load()
     lines, lead = text.splitlines(), rules["lead"]
     return [e for c in rules["checks"] for e in [_check(c, lines, lead)] if e]
+
+
+# ---- 分档（11-06 用户认可「核事实所有模型都过、核格式只给 DS 类开」）----
+# 每条检查的 tier：fact = 程序能拿外面的东西核对（路径存在、原话搜得到、PR 查得到、不引用 /tmp），所有主角色都过；
+# format = 只看有没有写、写多长，只在主角色后端是 DS 类时开。带 verify 的 fact 检查再真去核对写的内容。
+FACT_MAX = 5  # 一次交活最多核几条事实（用户 11-06「担心需要核查的太多他那边太慢了」，答一次最多五条、问题一次报完）
+_DATE = re.compile(r"(?<![0-9])[0-9]{1,2}-[0-9]{2}(?![0-9])")
+_QUOTE = re.compile(r"「([^」]{6,})」")
+_SAID = re.compile(r"(原话|说|骂|问|嫌|回|讲|道)[^「」]{0,3}$|[0-9]{1,2}-[0-9]{2}(\s*[0-9]{1,2}:[0-9xX]{2})?\s*$")
+_PR = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)|(?<![A-Za-z])(?:PR|pr|Pr)\s*#?\s*([0-9]+)")
+
+
+def ds_lead(env=None):
+    """主角色后端是不是 DS 类：config.toml 里本项目（CC_PROJECT）的 agent 是 dsh，或模型/参数/模型环境变量里有 deepseek。
+    读不到配置时看 CC_AGENT；都没有算不是（只开核事实）。"""
+    env = os.environ if env is None else env
+    data = Path(env.get("CC_DATA_DIR") or env.get("BOTHOUSE_DATA_DIR") or Path.home() / ".bothouse")
+    proj, agent = env.get("CC_PROJECT", ""), {}
+    try:
+        import tomllib
+        with open(data / "config.toml", "rb") as fh:
+            agent = next((p.get("agent") or {} for p in tomllib.load(fh).get("projects") or [] if p.get("name") == proj), {})
+    except Exception:  # noqa: BLE001  配置读不到就退到 CC_AGENT
+        agent = {}
+    kind = (agent.get("type") or env.get("CC_AGENT") or "").lower()
+    if kind == "dsh" or "deepseek" in kind:
+        return True
+    o = agent.get("options") or {}
+    said = [str(o.get("model") or ""), " ".join(map(str, o.get("args") or []))]
+    said += [str(v) for k, v in (o.get("env") or {}).items() if "MODEL" in k.upper() or "BASE_URL" in k.upper()]
+    return any("deepseek" in x.lower() for x in said)
+
+
+def _sec_lines(c, lines, lead):
+    return [x for seg in _sections(lines, c["section"], lead, c.get("inline", False)) for x in seg]
+
+
+def _git_top(d):  # 只写 PR 号时用当前目录所在仓库查
+    try:
+        r = subprocess.run(["git", "-C", str(d), "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _claims(c, lines, lead):
+    """一条 fact 检查要核的东西：[(展示文字, 核对函数)]，核对函数返回 True 对上 / False 对不上 / None 核不了（跳过）。"""
+    v, sec, out = c["verify"], _sec_lines(c, lines, lead), []
+    kind, far = v["kind"], re.compile(v.get("remote_re") or "(?!)")
+    if any(far.search(x) for n in v.get("remote_sections", []) for seg in _sections(lines, n, lead) for x in seg):
+        return out  # 活是在别的机器上做的：~/ 路径指那台机器、原话在那边的群里，本机核不了
+    if kind == "paths":
+        rx = re.compile(c["ref_re"])
+        for x in sec:
+            if far.search(x):
+                continue
+            for m in rx.finditer(x):
+                raw = m.group(0)
+                if "://" in x[max(0, m.start() - 8):m.end()]:
+                    continue
+                head, _, tail = raw.rpartition(":")
+                path = head if head and tail.isdigit() else raw
+                if "/" not in path:
+                    continue  # 只写了文件名（ws-up:120），核不了
+                p = Path(path).expanduser()
+                # 只核本机家目录下的路径：相对路径不知道相对哪个仓库、哪个分支；/root、/home/agent 这类常是别的机器；a..b 是省略写法
+                top = Path.home() / p.relative_to(Path.home()).parts[0] if Path.home() in p.parents else None
+                if top and top.exists() and ".." not in path:  # 家目录下第一层都没有的（~/roles/…）多半是别的机器
+                    out.append((raw, lambda p=p: p.exists()))
+    elif kind == "quotes":
+        for x in sec:
+            for m in _QUOTE.finditer(x):
+                before = x[:m.start()]
+                if not _SAID.search(before[-12:]):
+                    continue  # 只核写成某人原话的引号（前面紧挨着日期，或原话、说、骂、问…），术语、标题不核
+                dates = _DATE.findall(before) or _DATE.findall(x[m.end():])
+                if dates:
+                    q = m.group(1)
+                    out.append((f"「{q}」", lambda q=q, d=(dates[-1] if _DATE.findall(before) else dates[0]): _said(q, d)))
+    elif kind == "prs":
+        for x in sec:
+            for m in _PR.finditer(x):
+                repo, num = (m.group(1), m.group(2)) if m.group(2) else ("", m.group(3))
+                out.append((m.group(0), lambda repo=repo, num=num: _gh_pr(repo, num, lines)))
+    return out
+
+
+def _data_dir():
+    return Path(os.environ.get("CC_DATA_DIR") or os.environ.get("BOTHOUSE_DATA_DIR") or Path.home() / ".bothouse")
+
+
+def _norm(t):
+    return re.sub(r"[\W_]+", "", t).lower()
+
+
+_LOG = {}
+
+
+def _channel_log():
+    """频道里收到的原话：桥的事件流 events.jsonl*（type=message，用户和队友的话），加会话记录 sessions/*.json 里的 user 条。
+    不收 bot 的工具调用（交接本身就是这么写出来的）。返回 (最早时间 YYYY-MM-DD, [归一化正文])；读不到返回 ("", [])。"""
+    if "v" in _LOG:
+        return _LOG["v"]
+    data, first, texts = _data_dir(), "", []
+    for f in sorted(data.glob("events.jsonl*")):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                for ln in fh:
+                    if '"message"' not in ln[:200]:
+                        continue  # 先粗筛，工具调用那几万行不解析
+                    try:
+                        e = json.loads(ln)
+                    except ValueError:
+                        continue
+                    if e.get("type") != "message":
+                        continue
+                    ts = (e.get("time") or "")[:10]
+                    first = min(first, ts) if first and ts else (first or ts)
+                    texts.append(_norm(e.get("text") or ""))
+        except OSError:
+            continue
+    for f in data.glob("sessions/*_*.json"):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for sess in (d.get("sessions") or {}).values():
+            for m in sess.get("history") or []:
+                if m.get("role") == "user":
+                    ts = (m.get("timestamp") or "")[:10]
+                    first = min(first, ts) if first and ts else (first or ts)
+                    texts.append(_norm(m.get("content") or ""))
+    _LOG["v"] = (first, texts)
+    return _LOG["v"]
+
+
+def _said(quote, date):
+    """带日期的原话在频道记录里找不找得到：引号里的字按 4 字一组，八成以上落在同一条消息里算找到（容个别错字）。
+    原话的日期早于记录最早一天（记录轮转掉了）就核不了，跳过。"""
+    import datetime as dt
+    first, texts = _channel_log()
+    if not texts:
+        return None
+    now = dt.date.today()
+    mo, d = (int(x) for x in date.split("-"))
+    try:
+        day = dt.date(now.year, mo, d)
+    except ValueError:
+        return None
+    if day > now:
+        day = day.replace(year=now.year - 1)
+    if day.isoformat() < first:
+        return None
+    q = _norm(quote)
+    grams = {q[i:i + 4] for i in range(max(1, len(q) - 3))}
+    need = max(1, int(len(grams) * 0.8 + 0.999))
+    return any(sum(g in t for g in grams) >= need for t in texts)
+
+
+def _gh_pr(repo, num, lines):
+    """PR 号用 gh 查：链接带仓库直接查；只写号时在当前目录的仓库查。没 gh、没网络、不在仓库里都跳过不拒。"""
+    if not shutil.which("gh"):
+        return None
+    args = ["gh", "pr", "view", num, "--json", "number"]
+    if repo:
+        args += ["--repo", repo]
+    elif not _git_top(Path.cwd()):
+        return None
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode == 0:
+        return True
+    err = r.stderr.lower()
+    return False if ("could not resolve to a pullrequest" in err or "no pull requests found" in err) else None
+
+
+def verify_facts(text, rules, limit=FACT_MAX):
+    """带 verify 的 fact 检查逐条核对写的内容，最多核 limit 条（核不了的不算数），返回每条检查一段报错。"""
+    lines, lead, left, errs = text.splitlines(), rules["lead"], limit, []
+    for c in rules["checks"]:
+        if left <= 0:
+            break
+        if c.get("tier") != "fact" or "verify" not in c:
+            continue
+        bad = []
+        for shown, ok in _claims(c, lines, lead):
+            if left <= 0:
+                break
+            got = ok()
+            if got is None:
+                continue
+            left -= 1
+            if not got:
+                bad.append(shown)
+        if bad:
+            errs.append(c["verify"]["msg"].replace("{items}", "、".join(dict.fromkeys(bad))))
+    return errs
+
+
+def check_tiered(text, rules=None, fmt=None):
+    """按档查：fact 检查全开并真核内容；format 检查只在 fmt（默认按主角色后端 ds_lead()）时开。返回所有问题，一次报完。"""
+    rules = rules or load()
+    fmt = ds_lead() if fmt is None else fmt
+    lines, lead = text.splitlines(), rules["lead"]
+    # 带 verify 的 fact 检查，「有没有写这一节」本身是格式，也只给 DS 类；强模型只核写了的内容对不对
+    picked = [c for c in rules["checks"] if fmt or (c.get("tier", "format") == "fact" and "verify" not in c)]
+    errs = [e for c in picked for e in [_check(c, lines, lead)] if e]
+    return errs + verify_facts(text, rules)

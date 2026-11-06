@@ -169,7 +169,8 @@ class SameResultsTest(unittest.TestCase):
             shutil.copy(p, lead / "handoff-rules.json")
             drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
                    "print(L('ws_handoff', sys.argv[1]).load_module().check_notes(sys.stdin.read()) or 'OK')")
-            env = {**os.environ, "GATE_DIR": str(HERE.parent / "gate"), "GATE_SETUP_DIR": d}
+            env = {**os.environ, "GATE_DIR": str(HERE.parent / "gate"), "GATE_SETUP_DIR": d,
+                   "CC_DATA_DIR": d, "CC_PROJECT": "", "CC_AGENT": "dsh"}  # 格式检查只给 DS 类主角色开
             r = subprocess.run([sys.executable, "-I", "-c", drv, str(lead / "ws-handoff")], input=GOOD,
                                capture_output=True, text=True, env=env)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -232,6 +233,75 @@ class NoHardcodedRulesTest(unittest.TestCase):
                                   f"{f}: 写死了「{n}」，改从 handoff-rules.json 读")
             self.assertIsNone(re.search(r"REF_RE|:\\d\+|:\[0-9\]\+", text), f"{f}: 写死了引用正则")
 
+
+class TierTest(unittest.TestCase):
+    """分档（用户 11-06）：核事实所有主角色都过，核格式只给 DS 类；fact 检查真核路径/原话/PR，最多五条，一次报完。"""
+
+    def test_ds_lead_reads_project_backend(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "config.toml").write_text(
+                '[[projects]]\nname = "a"\n[projects.agent]\ntype = "claudecode"\n'
+                '[[projects]]\nname = "b"\n[projects.agent]\ntype = "dsh"\n'
+                '[[projects]]\nname = "c"\n[projects.agent]\ntype = "codex"\n[projects.agent.options]\nmodel = "deepseek-v4"\n',
+                encoding="utf-8")
+            env = {"CC_DATA_DIR": d}
+            self.assertFalse(R.ds_lead({**env, "CC_PROJECT": "a"}))
+            self.assertTrue(R.ds_lead({**env, "CC_PROJECT": "b"}))
+            self.assertTrue(R.ds_lead({**env, "CC_PROJECT": "c"}))
+            self.assertTrue(R.ds_lead({**env, "CC_PROJECT": "x", "CC_AGENT": "dsh"}))
+            self.assertFalse(R.ds_lead({**env, "CC_PROJECT": "x"}))
+
+    def test_strong_lead_skips_format_checks(self):
+        bare = "# 交接\n## 参照实现\n- " + str(HERE / "ws-up") + ":120\n"
+        self.assertEqual(R.check_tiered(bare, S, fmt=False), [])
+        self.assertTrue(R.check_tiered(bare, S, fmt=True))  # DS 类照旧要齐各节
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix=".handoff-test-", dir=Path.home())  # 家目录下第一层要真有才核
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.rel = "~/" + Path(self.home).name
+
+    def test_fact_checks_catch_made_up_paths_all_at_once(self):
+        fake = (f"# 交接\n## 参照实现\n- {self.rel}/a.py:3\n## 已查过什么\n- {self.rel}/b.md\n"
+                "## 相关改动\n冲突：无\n## 总部判断\n- 教训和定案：（11-06）出处 wiki/a.md:3\n"
+                "交接里写 /tmp/x.py\n")
+        errs = R.check_tiered(fake, S, fmt=False)
+        self.assertEqual(len(errs), 3, errs)  # no_tmp + 参照实现路径 + 已查过路径，一次报完
+        self.assertTrue(any(f"{self.rel}/a.py:3" in e for e in errs))
+        self.assertTrue(any(f"{self.rel}/b.md" in e for e in errs))
+
+    def test_at_most_five_facts(self):
+        many = "# 交接\n## 参照实现\n" + "".join(f"- {self.rel}/{i}.py:1\n" for i in range(9))
+        errs = R.check_tiered(many, S, fmt=False)
+        self.assertEqual(len(errs), 1)
+        # 别的机器的路径（/root、/home/agent）和相对路径核不了，跳过不拒
+        self.assertEqual(R.check_tiered("# 交接\n## 参照实现\n- /root/x.log:1\n- core/none_1123.go:3\n"
+                                         f"- 容器里 {self.rel}/x.py:1\n- ~/no-such-top-1123/x.py:1\n", S, fmt=False), [])
+        far = f"# 交接\n## 总目标\n- 隔壁服务器上加脚本\n## 参照实现\n- {self.rel}/x.py:1\n"
+        self.assertEqual(R.check_tiered(far, S, fmt=False), [])  # 活在别的机器上：~/ 指那台机器
+        self.assertEqual(errs[0].count(self.rel + "/"), 5)
+
+    def test_quote_with_date_must_be_in_channel_log(self):
+        import datetime as dt
+        day = dt.date.today()
+        with tempfile.TemporaryDirectory() as d:
+            ev = {"time": day.isoformat() + "T09:00:00+09:00", "type": "message", "text": "[09:00] 用户: 这功能都都已经加过，这为啥还是没有？"}
+            (Path(d) / "events.jsonl").write_text(json.dumps(ev, ensure_ascii=False) + "\n", encoding="utf-8")
+            md = f"{day.month:02d}-{day.day:02d}"
+            def run(line):
+                text = "# 交接\n## 参照实现\n- 无（新建）\n## 总部判断\n- 教训和定案：" + line + "\n"
+                old, R._LOG = os.environ.get("CC_DATA_DIR"), {}
+                os.environ["CC_DATA_DIR"] = d
+                try:
+                    return R.check_tiered(text, S, fmt=False)
+                finally:
+                    R._LOG = {}
+                    os.environ.pop("CC_DATA_DIR") if old is None else os.environ.__setitem__("CC_DATA_DIR", old)
+            self.assertEqual(run(f"用户 {md} 原话「这功能都已经加过，这为啥还是没有」"), [])  # 少个错字照样认
+            errs = run(f"用户 {md} 原话「这句话频道里根本没有出现过」")
+            self.assertTrue(any("这句话频道里根本没有出现过" in e for e in errs), errs)
+            self.assertEqual(run("用户 01-02 原话「这句话频道里根本没有出现过」"), [])  # 早于记录最早一天，核不了不拒
+            self.assertEqual(run(f"{md} 定的检查叫「这句话频道里根本没有出现过」"), [])  # 术语引号不核
 
 if __name__ == "__main__":
     unittest.main()
