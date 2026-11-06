@@ -164,6 +164,9 @@
 .avatar {
   display: grid;
   place-items: center;
+  /* 固定尺寸的头像不参与 flex 收缩：左栏主角色卡是 flex 容器，名称+状态+提示一长就把
+     36px 的头像压窄，截图里看着「压扁」。无头 Chrome 实测 22.9×36 → 36×36。 */
+  flex: 0 0 auto;
   width: 36px;
   height: 36px;
   border-radius: 50%;
