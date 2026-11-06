@@ -379,6 +379,30 @@ class WsPoolTest(unittest.TestCase):
         self.assertEqual(self.items()[0].get("ws"), "test:2")
         self.assertIn("截图发上来", Path(notes).read_text(encoding="utf-8"))
 
+    def test_forward_without_board_item_refuses_other_chat_workspace(self):
+        """#1155：任务板上查不到这件活、原工作区眼下在做别的聊天频道的活时，不转过去。"""
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        a, b = self.note("a"), self.note("b")
+        self.assertEqual(self.handoff(a, "A"), "test:1")
+        (self.tmp / "board" / "board.jsonl").write_text("")  # A 从任务板上没了
+        self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
+        self.assertEqual(self.handoff(b, "B", chat="test:200"), "test:1")  # 工作区1 改归 test:200
+        before = Path(a).read_text(encoding="utf-8")
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--notes", a, "截图发上来"],
+                           capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:100"})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("别的聊天频道", r.stderr)
+        timers = [c for c in map(json.loads, Path(str(self.fake) + ".calls").read_text().splitlines()) if c[:2] == ["timer", "add"]]
+        self.assertFalse([c for c in timers if "工作区转交" in c])
+        self.assertEqual(Path(a).read_text(encoding="utf-8"), before)
+
+    def test_new_handoff_skips_workspace_of_other_chat(self):
+        """#1155：派新活跳过别的聊天频道占着的工作区，有空的用空的，全占着才新建。"""
+        self.pool([{"id": "1", "name": "工作区1", "owner": "test:200", "open": 1, "parked": 0},
+                   {"id": "2", "name": "工作区2", "owner": "", "open": 0, "parked": 0}])
+        self.assertEqual(self.handoff(self.note("a"), "A"), "test:2")
+        self.assertEqual(self.handoff(self.note("b"), "B"), "test:3")  # 1 归别的频道、2 在忙：新建 3
+
     def test_forward_failure_records_undelivered(self):
         """#75：叫不醒就不算送到 —— timer 失败时交接里要留下「没送到」的事实，退出码非 0。"""
         notes = self.note("x")
