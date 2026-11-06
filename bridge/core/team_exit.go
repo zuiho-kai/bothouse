@@ -163,13 +163,10 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	}
 	reply = stripFillerLines(reply)
 	kind, body, ok := parseExitKind(reply)
-	auto := false
-	if !ok && p != nil && strings.TrimSpace(reply) != "" && e.workspaceHasOpenHandoff(sessionKey) && !e.workspaceStillWorking(sessionKey) {
-		// A workspace turn that ends without a marker while a handoff is open is still the
-		// answer to that handoff: it goes back as a [report] (user 2026-10-28 「工作区队列做完了
-		// 为什么没返回」).
-		kind, body, ok, auto = exitKindReport, strings.TrimSpace(reply), true, true
-	}
+	// An open handoff can be waiting for external evidence with no background
+	// process running. A turn ending is not a delivery: only explicit markers
+	// enter report validation. Board/reset transitions recover missing reports
+	// separately in finishWorkspaceReportTurn.
 	// The first line's #id and sentence are posted as written (team_exit_headline.go); once the
 	// bounces stop waking the bot, a reply still without them takes the old path (legacy).
 	var problems []string
@@ -178,7 +175,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	var item *teamTaskBoardItem
 	legacy := false
 	if ok {
-		v := judgeExit(kind, body, auto, func(id int) bool {
+		v := judgeExit(kind, body, false, func(id int) bool {
 			item = e.boardItemByID(id)
 			return item != nil
 		}, e.exitBounceCount(sessionKey))
@@ -227,7 +224,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	}
 	if !ok {
 		slog.Error("team exit: no chat channel for this workspace; the answer stays in the workspace",
-			"workspace", ws, "session", sessionKey, "auto", auto)
+			"workspace", ws, "session", sessionKey)
 		return ""
 	}
 	if _, id, full := strings.Cut(parent, ":"); full {
@@ -268,12 +265,6 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		return ""
 	}
 	bot := e.exitBotName()
-	if auto && legacy {
-		// An unmarked turn end is process talk; it never goes to the chat channel (user 2026-10-29
-		// 「一件活只出一条，过程话不贴频道」). The idle watch escalates a workspace that stops here.
-		slog.Info("team exit: unmarked reply after bounces; kept in the workspace", "workspace", ws, "parent", parent)
-		return ""
-	}
 	if kind == exitKindReport && item != nil && e.exitReportedSinceBound(hid, item.Bound) {
 		// Same rule as postExitHeadline, for the lead-rewrite and original-post paths below.
 		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound, "legacy", legacy)
@@ -291,7 +282,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
 	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, false, "") {
-		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "auto", auto, "workspace", ws, "parent", parent)
+		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "workspace", ws, "parent", parent)
 		// the lead rewrites the text only; the images go to the chat channel now
 		e.postExitImages(ctx, p, rc, sessionKey, body, item)
 		return ""
@@ -700,13 +691,6 @@ func stripFillerLines(reply string) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(kept, "\n"))
-}
-
-// workspaceStillWorking: a background sub-agent or task of this workspace is still running, so
-// the turn that just ended is not the answer to the handoff; its completion brings the next turn.
-func (e *Engine) workspaceStillWorking(sessionKey string) bool {
-	running, _ := newHandoffWatch(e).workspaceBackgroundProgress(chatOf(sessionKey), time.Now())
-	return running
 }
 
 // exitPartLabels turns a part's leading 「名：」 into 【名】 (user 10-30 「【背景】，加那种符号」).
