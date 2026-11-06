@@ -481,6 +481,9 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 	if e.dataDir == "" {
 		return capHandoffRef{}
 	}
+	// The handoff table is keyed by the bare chat key; a session key may carry a user suffix
+	// ("discord:<chan>:<user>"), as every other handoff lookup normalizes it.
+	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
