@@ -41,6 +41,21 @@ export const CHECK_AFTER_S = 10 * 60;
 export const MAX_RENEWALS = 0;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
+/**
+ * The bridge watch posts its wake (「接着做 X，做完再结束本轮…」, i18n MsgWatchResume) and its notices
+ * (「看门：…」, MsgWatchIdleEscalate / MsgWatchFailEscalate …) in the lead's name. They chase work that
+ * already exists; read as a lead dispatch they opened a new task per wake (#221, 11-06: 「#6 接着做 -」).
+ * The text follows bridge/core/i18n.go; keep both in step.
+ */
+const WATCH_NOTICE_PREFIXES = ['看门：', '看門：', 'Watch: ', '見守り：'];
+const WATCH_RESUME_TAILS = ['做完再结束本轮，交回时第一行写 [report]', '做完再結束本輪，交回時第一行寫 [report]',
+  'and finish it; when done, start the reply with [report]', '完了したら返信の1行目を [report] にしてください',
+  'al terminar, empieza la respuesta con [report]'];
+export function isWatchNotice(text, team = []) {
+  const body = withoutLeadingMentions(String(text), team).trimStart();
+  return WATCH_NOTICE_PREFIXES.some(p => body.startsWith(p)) || WATCH_RESUME_TAILS.some(t => body.includes(t));
+}
+
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
 // The dispatcher's explicit review of a workspace task, a line of its chat-channel reply:
 // 【验收】#id closes it, 【返工】#id 原因 sends it back (Tasks.verdictsOf).
@@ -789,6 +804,8 @@ export class Tasks {
       const names = team.map(m => m.name);
       for (const m of team) if (nameCalled(text, m.name, names)) called.add(m.id);
       called.delete(lead.id);
+      // The bridge watch's wake and escalation (posted as the lead) chase open work; they dispatch nothing.
+      if (isWatchNotice(text, team)) return undefined;
       const title = taskTitle(text, team);
       if (!title) return undefined;
       for (const owner of called) {

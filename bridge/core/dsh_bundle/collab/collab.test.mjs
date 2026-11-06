@@ -6431,3 +6431,21 @@ test('CLI configured member: collab dispatch applies fake ACP options before pro
   assert.equal(hub.store.binding('cc',1).session_id,'fake-acp');
   await members.close();hub.store.close();
 });
+
+// #221 (11-06 09:25): the bridge watch posts its wake and escalation as the lead; DSH opened 「#6 接着做 -」
+// and 「#7 接着做 什么东西属于你…」 from them. A watch post dispatches nothing; a real dispatch still does.
+test('tasks: the bridge watch wake and escalation posted as the lead open no task', async () => {
+  const { tasks, say } = g34Setup();
+  for (const text of [
+    '@副 接着做 -，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完再结束本轮，交回时第一行写 [report]',
+    '看门：@副「-」连续叫醒两次仍未继续，请主角色接手。',
+    '看门：副「#219 修头像」连续两次报错，已停止自动接着做，请主角色换人或接手。',
+    '@副 Continue the login page and finish it; when done, start the reply with [report]',
+  ]) say(1, text, 'zhu');
+  await settle();
+  assert.deepEqual(tasks.list(1).filter(r => r.owner === 'fu'), [], 'watch posts open no task');
+  say(1, '@副 接着做登录页', 'zhu');
+  await settle();
+  assert.deepEqual(tasks.list(1).filter(r => r.owner === 'fu').map(r => r.title), ['接着做登录页'], 'a lead dispatch still opens one');
+});

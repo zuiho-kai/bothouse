@@ -242,7 +242,8 @@ func watchAnsweredInChat(worked, inWorkspace, boardActive bool, boardID int) boo
 }
 
 // watchBlankTitle: what is left of the first line after 【接】 cannot name the work: empty, or the
-// 「-」 boardLabel gives an empty label (#221: 「接着做 -」). The body below is the answer, not a title.
+// 「-」 boardLabel gives an empty label (#221: 「接着做 -」). The body below may be the answer, so it
+// is not used as a title either; a watched turn gets MsgWatchUntitledAccept instead.
 func watchBlankTitle(title string) bool {
 	return boardLabel(title) == "-"
 }
@@ -371,7 +372,10 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	// registration. Register unfinished work from this terminal event only.
 	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
 	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil &&
-		!watchAnsweredInChat(worked, inWorkspace, boardActive, boardID) && (boardActive || !watchBlankTitle(title)) {
+		!watchAnsweredInChat(worked, inWorkspace, boardActive, boardID) {
+		if !boardActive && watchBlankTitle(title) {
+			title = e.i18n.T(MsgWatchUntitledAccept) // real work with a bare 【接】 is still watched (PR #1194 review)
+		}
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
