@@ -308,7 +308,7 @@ export interface ChannelActions {
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
-  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[]): Promise<void>
+  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[], roomId?: number): Promise<void>
   /**
    * #197: stream one file up before the message is posted; `onProgress` gets bytes sent and
    * total so the composer can draw a bar. Resolves with the metadata the message names.
@@ -458,8 +458,8 @@ const CATCH_UP_LIMIT = 200
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 /** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
 export class UploadTooLarge extends Error {
-  constructor(readonly name: string, readonly size: number, readonly limit: number) {
-    super(`${name}: ${formatBytes(size)} > ${formatBytes(limit)}`)
+  constructor(readonly fileName: string, readonly size: number, readonly limit: number) {
+    super(`${fileName}: ${formatBytes(size)} > ${formatBytes(limit)}`)
     this.name = 'UploadTooLarge'
   }
 }
@@ -982,8 +982,8 @@ export function createChannelSource(transport: ChannelTransport): {
       set({ tasks: [...(snapshot.tasks ?? []).filter(row => row.id !== task.id), task] })
     },
     selectRoom,
-    async send(text, replyTo, attachments) {
-      const roomId = snapshot.roomId
+    async send(text, replyTo, attachments, targetRoomId) {
+      const roomId = targetRoomId ?? snapshot.roomId
       if (roomId === undefined) throw new Error('No channel is open')
       await post(roomId, randomUUID(), text, replyTo, attachments)
     },

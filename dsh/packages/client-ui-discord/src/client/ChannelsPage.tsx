@@ -72,9 +72,8 @@ export function isImeEnter(event: { nativeEvent: KeyboardEvent | Event }): boole
  * shows the 📎 instead of a preview.
  */
 function previewOf(file: File): string | undefined {
-  // 20 MiB keeps the thumbnail's decode cost small; a bigger image shows an icon (this is
-  // only the composer's preview — the file itself may be up to the service's cap).
-  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 20 * 1024 * 1024) return undefined
+  // 来源：沿用流式上传前 MAX_MESSAGE_BODY 的内联预览边界；大文件继续以附件发送。
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > MAX_MESSAGE_BODY) return undefined
   if (typeof URL.createObjectURL !== 'function') return undefined
   try { return URL.createObjectURL(file) } catch { return undefined }
 }
@@ -648,11 +647,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
   // progress bar; the message names the ids the service returned (no base64 in the JSON).
   const [pendingFiles, setPendingFiles] = useState<Record<number, readonly PendingFile[]>>({})
   const pendingRef = useRef(pendingFiles)
-  pendingRef.current = pendingFiles
+  // Upload promises may settle before React renders their state update. Keep the current
+  // queue synchronous so submit observes the completed file or error in that same turn.
+  const updateFiles = (update: (current: typeof pendingFiles) => typeof pendingFiles): void => {
+    pendingRef.current = update(pendingRef.current)
+    setPendingFiles(pendingRef.current)
+  }
   // One promise per file still on its way up, so a send waits for them instead of racing.
-  const uploading = useRef(new Map<string, Promise<void>>())
+  const uploading = useRef(new Map<string, { done: Promise<void>; controller: AbortController }>())
   const patchFile = (roomId: number, key: string, change: (file: PendingFile) => PendingFile): void => {
-    setPendingFiles(previous => ({
+    updateFiles(previous => ({
       ...previous,
       [roomId]: (previous[roomId] ?? []).map(file => (file.key === key ? change(file) : file)),
     }))
@@ -678,31 +682,39 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             : {}),
       }
     })
-    setPendingFiles(previous => ({ ...previous, [roomId]: [...(previous[roomId] ?? []), ...added] }))
+    updateFiles(previous => ({ ...previous, [roomId]: [...(previous[roomId] ?? []), ...added] }))
     picked.forEach((file, index) => {
       const entry = added[index] as PendingFile
       if (entry.error !== undefined || uploadAttachment === undefined) return
+      const controller = new AbortController()
       const done = uploadAttachment(file, (sent, total) => {
         patchFile(roomId, entry.key, current => ({ ...current, progress: total === 0 ? 1 : Math.min(1, sent / total) }))
-      }).then((attachment) => {
+      }, controller.signal).then((attachment) => {
         patchFile(roomId, entry.key, current => ({ ...current, progress: 1, attachment }))
       }).catch((error: unknown) => {
         patchFile(roomId, entry.key, current => ({
           ...current,
           error: error instanceof UploadTooLarge
-            ? t('attachmentTooLarge', { name: error.name, size: formatBytes(error.size), limit: formatBytes(error.limit) })
+            ? t('attachmentTooLarge', { name: error.fileName, size: formatBytes(error.size), limit: formatBytes(error.limit) })
             : t('uploadFailed', { name: current.name, message: error instanceof Error ? error.message : String(error) }),
         }))
       }).finally(() => { uploading.current.delete(entry.key) })
-      uploading.current.set(entry.key, done)
+      uploading.current.set(entry.key, { done, controller })
     })
   })
   const removeFile = (roomId: number, key: string): void => {
     const gone = (pendingRef.current[roomId] ?? []).find(file => file.key === key)
     if (gone?.preview !== undefined) URL.revokeObjectURL(gone.preview)
+    uploading.current.get(key)?.controller.abort()
     uploading.current.delete(key)
-    setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => file.key !== key) }))
+    updateFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => file.key !== key) }))
   }
+  useEffect(() => () => {
+    for (const job of uploading.current.values()) job.controller.abort()
+    for (const room of Object.values(pendingRef.current)) {
+      for (const file of room) if (file.preview !== undefined) URL.revokeObjectURL(file.preview)
+    }
+  }, [])
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -1332,7 +1344,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
   const submit = (): void => {
     const roomId = state.roomId
     const text = addressCommand(draft.trim(), commandTarget?.name)
-    const held = roomId === undefined ? [] : pendingFiles[roomId] ?? []
+    const held = roomId === undefined ? [] : pendingRef.current[roomId] ?? []
     if ((!text && held.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
     const refused = held.filter(file => file.error !== undefined)
     if (refused.length > 0) {
@@ -1353,17 +1365,19 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
     const replyTo = replies[roomId]?.id
     /** Post the message; a file that failed while it streamed is reported instead of sent. */
     const go = (): Promise<void> => {
-      const ready = pendingRef.current[roomId] ?? []
+      const keys = new Set(held.map(file => file.key))
+      const ready = (pendingRef.current[roomId] ?? []).filter(file => keys.has(file.key))
       const broken = ready.find(file => file.error !== undefined)
       if (broken?.error !== undefined) {
         setErrors(previous => ({ ...previous, [roomId]: broken.error }))
         return Promise.resolve()
       }
       const files = ready.map(file => file.attachment).filter((a): a is OutgoingAttachment => a !== undefined)
-      return (files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
+      if (!text && ready.length === 0) return Promise.resolve()
+      return send(text, replyTo, files.length > 0 ? files : undefined, roomId).then(() => {
         for (const file of ready) if (file.preview !== undefined) URL.revokeObjectURL(file.preview)
         setDrafts(previous => ({ ...previous, [roomId]: '' }))
-        setPendingFiles(previous => ({ ...previous, [roomId]: [] }))
+        updateFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => !keys.has(file.key)) }))
         setReplies(previous => ({ ...previous, [roomId]: undefined }))
       }).catch((error: unknown) => {
         setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
@@ -1376,7 +1390,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
     // #197: a big file may still be streaming when Enter is pressed; the message goes out
     // once every file of this room landed (or one of them failed, which is shown instead).
     // Nothing in flight (the usual case) sends right away, as it always did.
-    const waits = held.map(file => uploading.current.get(file.key)).filter((job): job is Promise<void> => job !== undefined)
+    const waits = held.map(file => uploading.current.get(file.key)?.done).filter((job): job is Promise<void> => job !== undefined)
     if (waits.length === 0) {
       void go().finally(settle)
       return

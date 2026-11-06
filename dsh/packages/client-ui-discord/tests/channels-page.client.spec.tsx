@@ -201,7 +201,7 @@ describe('channels page', () => {
     fireEvent.change(input, { target: { value: '/model gpt-6' } })
     expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /model gpt-6')
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /model gpt-6', undefined, undefined, 1)
   })
   it('refuses an addressed command when the primary role is not a bothouse bot', async () => {
     const send = vi.fn(async () => {})
@@ -229,7 +229,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('/')
+    expect(send).toHaveBeenCalledExactlyOnceWith('/', undefined, undefined, 1)
   })
   it('turns the send key into a stop key for the answering bot while the draft is empty (#1017)', async () => {
     const send = vi.fn(async () => {})
@@ -475,7 +475,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
     expect(send).not.toHaveBeenCalled()
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 你好')
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 你好', undefined, undefined, 1)
     expect(input.value).toBe('@橘 你好')
     expect(input.disabled).toBe(true)
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -495,7 +495,7 @@ describe('channels page', () => {
     fireEvent.change(input, { target: { value: '第一行\n第二行' } })
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
-    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行')
+    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行', undefined, undefined, 1)
     await act(async () => {})
     expect(input.value).toBe('')
   })
@@ -508,7 +508,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
     expect(send).not.toHaveBeenCalled()
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao')
+    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao', undefined, undefined, 1)
   })
 
   it('does not save a message edit on the IME-confirming Enter (keyCode 229)', async () => {
@@ -620,7 +620,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByRole('listbox')).toBeNull()
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek 叫 @橘 和 @')
+    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek 叫 @橘 和 @', undefined, undefined, 1)
   })
 
   it('opens the picker from the @ button and inserts a member clicked in the member list', () => {
@@ -914,7 +914,7 @@ describe('channels page', () => {
     const input = screen.getByRole('combobox')
     fireEvent.change(input, { target: { value: '收到' } })
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('收到', 1)
+    expect(send).toHaveBeenCalledExactlyOnceWith('收到', 1, undefined, 1)
     expect(screen.queryByText('回复 橘')).toBeNull()
 
     // The original vanishes while a reply is being written: the bar says so.
@@ -991,7 +991,7 @@ describe('progress card detail/brief view', () => {
     await vi.waitFor(() => expect(screen.getByAltText('paste.png')).toBeTruthy())
     expect(uploadAttachment).toHaveBeenCalledOnce()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ id: '33333333-3333-3333-3333-333333333333', name: 'paste.png', mime: 'image/png', size: 3 }])
+    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ id: '33333333-3333-3333-3333-333333333333', name: 'paste.png', mime: 'image/png', size: 3 }], 1)
     vi.unstubAllGlobals()
   })
 

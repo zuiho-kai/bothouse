@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 00b1678d6c5d9ec1319370ea39249e4ee1fb4eca206452fab83a3da396a87d7c
+// dsh-client-source-sha256: d83a2c60ec37c64ba3da69a70a57285c82890c4be42a06a3ddaac37888b1c144
 // dsh-style-sha256: f5b9a596df03c703eac3a50380e35a5091a81c01ccb8b8054c38bad177299fda
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -143,12 +143,12 @@ const CATCH_UP_LIMIT = 200;
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 /** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
 var UploadTooLarge = class extends Error {
-	name;
+	fileName;
 	size;
 	limit;
-	constructor(name, size, limit) {
-		super(`${name}: ${formatBytes(size)} > ${formatBytes(limit)}`);
-		this.name = name;
+	constructor(fileName, size, limit) {
+		super(`${fileName}: ${formatBytes(size)} > ${formatBytes(limit)}`);
+		this.fileName = fileName;
 		this.size = size;
 		this.limit = limit;
 		this.name = "UploadTooLarge";
@@ -758,8 +758,8 @@ function createChannelSource(transport) {
 				set({ tasks: [...(snapshot.tasks ?? []).filter((row) => row.id !== task.id), task] });
 			},
 			selectRoom,
-			async send(text, replyTo, attachments) {
-				const roomId = snapshot.roomId;
+			async send(text, replyTo, attachments, targetRoomId) {
+				const roomId = targetRoomId ?? snapshot.roomId;
 				if (roomId === void 0) throw new Error("No channel is open");
 				await post(roomId, randomUUID(), text, replyTo, attachments);
 			},
@@ -20504,7 +20504,7 @@ function isImeEnter(event) {
 * shows the 📎 instead of a preview.
 */
 function previewOf(file) {
-	if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 20971520) return void 0;
+	if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 8388608) return void 0;
 	if (typeof URL.createObjectURL !== "function") return void 0;
 	try {
 		return URL.createObjectURL(file);
@@ -21382,10 +21382,13 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 	const [replies, setReplies] = (0, react.useState)({});
 	const [pendingFiles, setPendingFiles] = (0, react.useState)({});
 	const pendingRef = (0, react.useRef)(pendingFiles);
-	pendingRef.current = pendingFiles;
+	const updateFiles = (update) => {
+		pendingRef.current = update(pendingRef.current);
+		setPendingFiles(pendingRef.current);
+	};
 	const uploading = (0, react.useRef)(/* @__PURE__ */ new Map());
 	const patchFile = (roomId, key, change) => {
-		setPendingFiles((previous) => ({
+		updateFiles((previous) => ({
 			...previous,
 			[roomId]: (previous[roomId] ?? []).map((file) => file.key === key ? change(file) : file)
 		}));
@@ -21410,19 +21413,20 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 				}) } : {}
 			};
 		});
-		setPendingFiles((previous) => ({
+		updateFiles((previous) => ({
 			...previous,
 			[roomId]: [...previous[roomId] ?? [], ...added]
 		}));
 		picked.forEach((file, index) => {
 			const entry = added[index];
 			if (entry.error !== void 0 || uploadAttachment === void 0) return;
+			const controller = new AbortController();
 			const done = uploadAttachment(file, (sent, total) => {
 				patchFile(roomId, entry.key, (current) => ({
 					...current,
 					progress: total === 0 ? 1 : Math.min(1, sent / total)
 				}));
-			}).then((attachment) => {
+			}, controller.signal).then((attachment) => {
 				patchFile(roomId, entry.key, (current) => ({
 					...current,
 					progress: 1,
@@ -21432,7 +21436,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 				patchFile(roomId, entry.key, (current) => ({
 					...current,
 					error: error instanceof UploadTooLarge ? t("attachmentTooLarge", {
-						name: error.name,
+						name: error.fileName,
 						size: formatBytes(error.size),
 						limit: formatBytes(error.limit)
 					}) : t("uploadFailed", {
@@ -21443,18 +21447,26 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 			}).finally(() => {
 				uploading.current.delete(entry.key);
 			});
-			uploading.current.set(entry.key, done);
+			uploading.current.set(entry.key, {
+				done,
+				controller
+			});
 		});
 	});
 	const removeFile = (roomId, key) => {
 		const gone = (pendingRef.current[roomId] ?? []).find((file) => file.key === key);
 		if (gone?.preview !== void 0) URL.revokeObjectURL(gone.preview);
+		uploading.current.get(key)?.controller.abort();
 		uploading.current.delete(key);
-		setPendingFiles((previous) => ({
+		updateFiles((previous) => ({
 			...previous,
 			[roomId]: (previous[roomId] ?? []).filter((file) => file.key !== key)
 		}));
 	};
+	(0, react.useEffect)(() => () => {
+		for (const job of uploading.current.values()) job.controller.abort();
+		for (const room of Object.values(pendingRef.current)) for (const file of room) if (file.preview !== void 0) URL.revokeObjectURL(file.preview);
+	}, []);
 	const pendingRooms = (0, react.useRef)(/* @__PURE__ */ new Set());
 	const draft = state.roomId === void 0 ? "" : drafts[state.roomId] ?? "";
 	const sendError = state.roomId === void 0 ? void 0 : errors[state.roomId];
@@ -22147,7 +22159,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 	const submit = () => {
 		const roomId = state.roomId;
 		const text = addressCommand(draft.trim(), commandTarget?.name);
-		const held = roomId === void 0 ? [] : pendingFiles[roomId] ?? [];
+		const held = roomId === void 0 ? [] : pendingRef.current[roomId] ?? [];
 		if (!text && held.length === 0 || roomId === void 0 || pendingRooms.current.has(roomId)) return;
 		const refused = held.filter((file) => file.error !== void 0);
 		if (refused.length > 0) {
@@ -22179,7 +22191,8 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 		const replyTo = replies[roomId]?.id;
 		/** Post the message; a file that failed while it streamed is reported instead of sent. */
 		const go = () => {
-			const ready = pendingRef.current[roomId] ?? [];
+			const keys = new Set(held.map((file) => file.key));
+			const ready = (pendingRef.current[roomId] ?? []).filter((file) => keys.has(file.key));
 			const broken = ready.find((file) => file.error !== void 0);
 			if (broken?.error !== void 0) {
 				setErrors((previous) => ({
@@ -22189,15 +22202,16 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 				return Promise.resolve();
 			}
 			const files = ready.map((file) => file.attachment).filter((a) => a !== void 0);
-			return (files.length > 0 ? send(text, replyTo, files) : replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
+			if (!text && ready.length === 0) return Promise.resolve();
+			return send(text, replyTo, files.length > 0 ? files : void 0, roomId).then(() => {
 				for (const file of ready) if (file.preview !== void 0) URL.revokeObjectURL(file.preview);
 				setDrafts((previous) => ({
 					...previous,
 					[roomId]: ""
 				}));
-				setPendingFiles((previous) => ({
+				updateFiles((previous) => ({
 					...previous,
-					[roomId]: []
+					[roomId]: (previous[roomId] ?? []).filter((file) => !keys.has(file.key))
 				}));
 				setReplies((previous) => ({
 					...previous,
@@ -22217,7 +22231,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 				[roomId]: false
 			}));
 		};
-		const waits = held.map((file) => uploading.current.get(file.key)).filter((job) => job !== void 0);
+		const waits = held.map((file) => uploading.current.get(file.key)?.done).filter((job) => job !== void 0);
 		if (waits.length === 0) {
 			go().finally(settle);
 			return;

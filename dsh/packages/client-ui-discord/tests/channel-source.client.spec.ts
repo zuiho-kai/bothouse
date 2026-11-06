@@ -521,6 +521,7 @@ describe('#197 streamed uploads', () => {
     const failure = await actions.uploadAttachment?.(allowed).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(UploadTooLarge)
     expect((failure as InstanceType<typeof UploadTooLarge>).limit).toBe(1024)
+    expect((failure as InstanceType<typeof UploadTooLarge>).fileName).toBe('edge.bin')
     await expect(actions.uploadAttachment?.(new File([new Uint8Array(2000)], 'later.bin'))).rejects.toBeInstanceOf(UploadTooLarge)
     unsubscribe()
   })
