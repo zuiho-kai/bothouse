@@ -10,8 +10,8 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
-import { LOCK_FILE, acquireLockWithOwner, clearLockOwner, lockStatus } from './instance-lock.mjs';
-import { localConnection, isLocalOwner, forwardLocal, mountSharedHost, refuse } from './local-host.mjs';
+import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock.mjs';
+import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -52,8 +52,6 @@ const MAX_BODY = 256 * 1024;
 // that forwards it to a bot.
 const MAX_MESSAGE_BODY = 8 * 1024 * 1024;
 const OWNER = 'owner';
-// #216: where a refused instance publishes who holds the lock. The page reads it from the
-// same origin it talks to everything else on. #227: it lives with the routes that answer it.
 /** Validate the overlay config; misconfiguration fails at load. */
 export function resolveConfig(config, env = process.env) {
   const c = config ?? {};

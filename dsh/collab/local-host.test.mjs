@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdtempSync, statSync } from 'node:fs';
+import { mkdtempSync, statSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { InstanceLock, writeLockOwner, lockStatus } from './instance-lock.mjs';
 import { localConnection, isLocalOwner, forwardLocal, mountSharedHost, BUSY_PATH, refuse } from './local-host.mjs';
 import { Store } from './store.mjs';
@@ -93,6 +94,10 @@ test('older holders without discovery keep the busy diagnostic and do not start 
   t.after(() => owner.close());
   owner.createRoom('holder-room');
   const roomsBefore = owner.rooms().map(room => room.name);
+  const counter = new DatabaseSync(db, { readOnly: true });
+  t.after(() => counter.close());
+  const writes = () => counter.prepare('PRAGMA data_version').get().data_version;
+  const writesBefore = writes();
 
   const second = await listen(t, (req, res) => forwardLocal(req, res, path, () => undefined));
   assert.equal((await fetch(second + '/collab/api/state')).status, 404);
@@ -103,30 +108,62 @@ test('older holders without discovery keep the busy diagnostic and do not start 
   const after = new Store(db);
   t.after(() => after.close());
   assert.deepEqual(after.rooms().map(room => room.name), roomsBefore);
+  // 审稿 2026-11-07: the room list alone still misses a writer that only appends a message, so
+  // also compare the write counter. Another connection's commit bumps it; opening and closing a
+  // Store does not. Measured here: clean 2/2, one rogue append 2/3.
+  assert.equal(writes(), writesBefore, 'the forwarder wrote to the holder database');
 });
 
-test('a refused instance serves holder status and forwards, refusing non-owners first', async t => {
-  // #227 review F2: `apply` needs the DSH runtime to import, so this branch was never called by a
-  // test. It is now `mountSharedHost`, and a minimal ctx stub is enough to exercise both routes.
-  const path = holder(t, undefined);
+test('a refused instance serves holder status and forwards to the holder, never past auth', async t => {
+  // #227 review F2: nothing ever called the refused-instance branch. It is `mountSharedHost` now, so
+  // a stub context can drive both routes — and drive them far enough to catch the holes the first
+  // round of tests left: a handler that never really forwards, a forward that skips the sign-in
+  // check, and a status path that drifted from the one the page asks for.
+  let upstreamHits = 0;
+  const upstream = await listen(t, (req, res) => {
+    upstreamHits += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ forwarded: req.url }));
+  });
+  const path = holder(t, localConnection({ getOrigin: () => upstream }));
   const routes = [];
   const ctx = {
     webServer: { register(route) { routes.push(route); return route; } },
     effect(fn) { fn(); },
-    // A request without the owner's sign-in is rejected before the route does anything.
-    connection: { requestRejection: req => (req.headers['x-owner'] === 'yes' ? undefined : 'unauthorized') },
+    // 真实契约：不是 undefined 就是拒绝；desk-e2e 的桩同样返回 undefined 或状态码。
+    connection: { requestRejection: req => (req.headers['x-owner'] === 'yes' ? undefined : 401) },
   };
   mountSharedHost(ctx, path);
   assert.deepEqual(routes.map(r => [r.kind, r.path]), [['exact', BUSY_PATH], ['prefix', '/collab']]);
+  // 页面问的是这个字面量（client-ui-discord/lib/client.js 硬编码），漂移了页面就永远读不到状态。
+  assert.equal(BUSY_PATH, '/collab/api/lock');
 
   const status = await listen(t, routes[0].handler);
   assert.equal((await fetch(status + BUSY_PATH)).status, 401);
+  assert.equal((await fetch(status + BUSY_PATH, { headers: { 'x-later-ticket': 't' } })).status, 403);
   const allowed = await fetch(status + BUSY_PATH, { headers: { 'x-owner': 'yes' } });
   assert.equal(allowed.status, 200);
   assert.equal((await allowed.json()).busy, true);
 
   const shared = await listen(t, routes[1].handler);
-  assert.equal((await fetch(shared + '/collab/api/state', { headers: { 'x-owner': 'yes' } })).status, 404);
+  // 未登录：401，且一个字节都不许到宿主那里去。
+  assert.equal((await fetch(shared + '/collab/api/state')).status, 401);
+  assert.equal(upstreamHits, 0, 'an unauthenticated request reached the holder');
+  // 已登录：必须真的转过去，返回宿主自己的内容。
+  const forwarded = await fetch(shared + '/collab/api/state', { headers: { 'x-owner': 'yes' } });
+  assert.equal(forwarded.status, 200);
+  assert.deepEqual(await forwarded.json(), { forwarded: '/collab/api/state' });
+  assert.equal(upstreamHits, 1);
+});
+
+test('apply keeps calling mountSharedHost in the lock-busy branch', async t => {
+  // #227 review F2: deleting the call left the whole suite green, so the extraction could stay
+  // correct while the plugin stopped using it. Importing plugin.mjs needs the DSH runtime, so this
+  // reads the source: the branch must still call the shared helper and must not register its own.
+  const source = readFileSync(new URL('./plugin.mjs', import.meta.url), 'utf8');
+  assert.match(source, /if \(lock === undefined\) \{[\s\S]{0,600}mountSharedHost\(ctx, lockPath\)/);
+  assert.equal(source.includes("path: BUSY_PATH"), false);
+  assert.equal(source.includes("path: '/collab',\n      handler"), false);
 });
 
 test('an unauthenticated ticket request gets the 403 hint, everyone else 401', () => {
