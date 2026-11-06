@@ -100,14 +100,20 @@ func BuildProgressCardPayload(entries []string, truncated bool) string {
 
 // BuildProgressCardPayloadV2 encodes ordered typed progress events.
 func BuildProgressCardPayloadV2(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState) string {
-	return buildProgressCardPayload(items, truncated, agent, lang, state, 0, 0, 0)
+	steps := 0
+	for _, item := range items {
+		if item.Kind == ProgressEntryToolUse {
+			steps++
+		}
+	}
+	return buildProgressCardPayload(items, truncated, agent, lang, state, steps, 0, 0)
 }
 
 func buildProgressCardPayload(items []ProgressCardEntry, truncated bool, agent string, lang Language, state ProgressCardState, steps, elapsedSec, lineLen int) string {
 	cleaned := make([]ProgressCardEntry, 0, len(items))
 	for _, item := range items {
 		text := strings.TrimSpace(item.Text)
-		if text == "" {
+		if text == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 			continue
 		}
 		kind := item.Kind
@@ -169,7 +175,7 @@ func ParseProgressCardPayload(content string) (*ProgressCardPayload, bool) {
 		item.Text = strings.TrimSpace(item.Text)
 		item.Tool = strings.TrimSpace(item.Tool)
 		item.Status = strings.TrimSpace(item.Status)
-		if item.Text == "" {
+		if item.Text == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 			continue
 		}
 		if item.Kind == "" {
@@ -452,7 +458,7 @@ func (w *compactProgressWriter) appendStructured(item ProgressCardEntry, fallbac
 	}
 	text := strings.TrimSpace(item.Text)
 	fallback = strings.TrimSpace(fallback)
-	if text == "" && fallback == "" {
+	if text == "" && fallback == "" && item.Kind != ProgressEntryToolUse && item.Kind != ProgressEntryToolResult {
 		return true
 	}
 	if text == "" {

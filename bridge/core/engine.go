@@ -6696,6 +6696,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			e.journalProgress(sessionKey, strings.TrimSpace(event.ToolName+" "+event.ToolInput), "", true) // #618 K4
 			e.emitStreamEvent(StreamEventTool, sessionKey, event.ToolInput, map[string]any{"tool": event.ToolName})
 			e.notePublicProgressTool(state, event.ToolInput)
+			// Tool detail visibility must not suppress the progress event itself.
+			if !e.display.ToolMessages && cp.style == progressStyleCard {
+				cp.AppendEvent(ProgressEntryToolUse, "", event.ToolName, "")
+			}
 			if hasRichCard {
 				// When tool messages are suppressed, skip card updates on tool events.
 				if !e.display.ToolMessages {
@@ -6838,6 +6842,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolResult:
 			e.emitToolDone(sessionKey, event, toolStartAt)
+			if !e.display.ToolMessages && cp.style == progressStyleCard {
+				cp.AppendStructured(ProgressCardEntry{
+					Kind: ProgressEntryToolResult, Tool: event.ToolName,
+					Status: event.ToolStatus, ExitCode: event.ToolExitCode, Success: event.ToolSuccess,
+				}, "")
+			}
 			// maomao fork: images piled up inside this turn; interrupt it the way an
 			// idle timeout does (close the agent session) and leave a fresh session
 			// with a handoff for the next message. The turn is not re-run.

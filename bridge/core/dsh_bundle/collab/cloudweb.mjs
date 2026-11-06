@@ -99,9 +99,9 @@ export function progressCardOf(p) {
   const items = Array.isArray(p.items) ? p.items : (p.entries ?? []).filter(e => typeof e === 'string').map(text => ({ text }));
   for (const it of items) {
     const text = String(it?.text ?? '').replace(/\s+/g, ' ').trim();
-    if (!text) continue;
+    if (!text && it?.kind !== 'tool_use' && it?.kind !== 'tool_result') continue;
     const tool = String(it.tool ?? '').trim();
-    lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + ' — ' : ''}${text.slice(0, 120)}`);
+    lines.push(`${it.kind === 'tool_use' ? '🔧' : it.kind === 'error' ? '❌' : '•'} ${tool ? tool + (text ? ' — ' : '') : ''}${text.slice(0, 120)}`);
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
   const run = toolSteps(items);
