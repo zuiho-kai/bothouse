@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: a2cd345d5bad4893573fe2f435a81a4aca58302cf816157268c32072a59ff130
+// dsh-client-source-sha256: f0e5f86d69b85ed500e3372671559c6e9d05da2231734e0ca282aeb487671e4e
 // dsh-style-sha256: 7a72d498146b2ac8457da860abcafeb84edcb70080b2759cb8fe7a31e3440bee
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -23795,7 +23795,7 @@ const en = {
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
-	capabilityDmHelp: "Use 私聊 in the left column or 发私信 in a bot's avatar menu to talk with that role one to one, away from the channel. Roles can also message the configured owner.",
+	capabilityDmHelp: "Use New message under Direct messages in the left column, or Message privately in a bot's avatar menu, to talk with that role one to one, away from the channel. Roles can also message the configured owner.",
 	configureModel: "Add a model key",
 	configureModelHint: "Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).",
 	retry: "Retry",

@@ -537,7 +537,10 @@ export const en: Record<keyof typeof zh, string> = {
   capabilityReminderHelp: 'Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.',
   capabilityWorkspaceHelp: 'Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.',
   capabilityLeadHelp: 'Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.',
-  capabilityDmHelp: 'Use 私聊 in the left column or 发私信 in a bot\'s avatar menu to talk with that role one to one, away from the channel. Roles can also message the configured owner.',
+  // #1140: name the two entry points the way the English UI already labels them (dmGroup/dmNew
+  // 「Direct messages」/「New message」, dmOpen 「Message privately」), or the help sends an English
+  // reader looking for a 私聊 button that is not on their screen.
+  capabilityDmHelp: 'Use New message under Direct messages in the left column, or Message privately in a bot\'s avatar menu, to talk with that role one to one, away from the channel. Roles can also message the configured owner.',
   configureModel: 'Add a model key',
   configureModelHint: 'Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).',
   retry: 'Retry',
