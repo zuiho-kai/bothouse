@@ -250,9 +250,20 @@ export async function whoisName(ip, run = tailscale) {
   } catch { return undefined; }
 }
 
+/**
+ * Parse tailscale's --json output. The macOS app's CLI prints a plain sentence instead
+ * ("The Tailscale GUI failed to start: …") and still exits 0 when the app is not running,
+ * so a bare JSON.parse would put "Unexpected token 'T'…" on the devices page.
+ */
+export function tailscaleJSON(out) {
+  try { return JSON.parse(out); } catch {
+    throw new PairError('tailnet', 'Tailscale 没在运行或没登录，请先打开 Tailscale');
+  }
+}
+
 /** Other machines in the tailnet: [{ name, ip, online, os }]. */
 export async function tailnetPeers(run = tailscale) {
-  const status = JSON.parse(await run(['status', '--json']));
+  const status = tailscaleJSON(await run(['status', '--json']));
   return Object.values(status?.Peer ?? {}).map(p => ({
     name: String(p.HostName || p.DNSName || '').trim() || '未命名电脑',
     ip: (p.TailscaleIPs ?? []).find(isTailnetAddress) ?? p.TailscaleIPs?.[0],
