@@ -104,6 +104,40 @@ test('mentions: CRLF is one line ending, not a blank line (#246)', () => {
   }
 });
 
+test('mentions: an inline code span cannot cross a block that ends the paragraph (#259)', () => {
+  // the reported case: one pair of backticks around a name, a line that opens a block, another
+  // name. The block ends the paragraph, so the renderer never makes this a code span — the page
+  // shows both names in plain text, so both are calls, and the backend must agree (it used to
+  // call nobody while the page coloured two).
+  const blocks = [
+    '# 标题', '## 二级', '###### 六级', // headings
+    '- 列表', '* 列表', '+ 列表', '1. 一', '1) 一', // list items
+    '> 引用', '>引用', // quotes
+    '---', '***', '___', '- - -', // thematic breaks
+    '===', // setext underline
+    '<div>x</div>', '<pre>', '<!-- c -->', '<?php', '<!DOCTYPE html>', // HTML blocks
+  ];
+  for (const block of blocks) {
+    const text = '`@肥鱼\n' + block + '\n@G哥`';
+    assert.deepEqual(found(text), ['dsh', 'gge'], block);
+    // the text is not rewritten: both names stay where the user typed them
+    assert.equal(split(text, members).map(([s]) => s).join(''), text, block);
+    assert.equal(forDisplay(text, members), text, block);
+  }
+  // lines that do not open a block keep the span, so nobody is called
+  for (const line of ['普通一行', 'a # b', 'a > b', '1.x', '<span>x</span>', '    # 四空格', '-项目']) {
+    assert.deepEqual(found('`@肥鱼\n' + line + '\n@G哥`'), [], line);
+  }
+  // a fence is not in this family: the text before ` ``` ` is plain, the fenced body is skipped
+  assert.deepEqual(found('`@肥鱼\n```\n@G哥`'), ['dsh']);
+  // a block inside a quote or a list item ends the paragraph there too
+  assert.deepEqual(found('> `@肥鱼\n> # 标题\n> @G哥`'), ['dsh', 'gge']);
+  assert.deepEqual(found('- `@肥鱼\n  - 列表\n  @G哥`'), ['dsh', 'gge']);
+  // and the span still holds across a plain line in the same container
+  assert.deepEqual(found('> `@肥鱼\n> 普通一行\n> @G哥`'), []);
+  assert.deepEqual(found('- `@肥鱼\n  普通一行\n  @G哥`'), []);
+});
+
 test('mentions: forMember/forDisplay/withoutLeadingMentions use the same rule', () => {
   const dsh = members[0];
   // an email is plain text now, so it is not stripped as an opening mention

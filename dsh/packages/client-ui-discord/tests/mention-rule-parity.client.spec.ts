@@ -65,6 +65,32 @@ const CASES: Array<[string, string[]]> = [
   ['`@肥鱼\r\n\n@G哥`', ['dsh', 'gge']],
   // the span closed before the blank line still counts, the name after it is text
   ['`@肥鱼`\n\n@G哥 看下', ['gge']],
+  // #259: a block-level line ends the paragraph too, so the backticks are plain text and both
+  // names are calls. Before this rule the page coloured two while the backend called nobody.
+  ['`@肥鱼\n# 标题\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n- 列表\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n* 列表\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n> 引用\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n---\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n<div>x</div>\n@G哥`', ['dsh', 'gge']],
+  // the rest of the block family ends it the same way
+  ['`@肥鱼\n1. 一\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\n===\n@G哥`', ['dsh', 'gge']],
+  // a line that does not open a block keeps one span: nobody is called or coloured
+  ['`@肥鱼\n普通一行\n@G哥`', []],
+  ['`@肥鱼\na # b\n@G哥`', []],
+  ['`@肥鱼\na > b\n@G哥`', []],
+  ['`@肥鱼\n1.x\n@G哥`', []],
+  ['`@肥鱼\n<span>x</span>\n@G哥`', []],
+  ['`@肥鱼\n    # 四空格\n@G哥`', []],
+  // inside a quote or a list item the block ends the paragraph, the plain line does not
+  ['> `@肥鱼\n> # 标题\n> @G哥`', ['dsh', 'gge']],
+  ['> `@肥鱼\n> 普通一行\n> @G哥`', []],
+  ['- `@肥鱼\n  - 列表\n  @G哥`', ['dsh', 'gge']],
+  ['- `@肥鱼\n  普通一行\n  @G哥`', []],
+  // a block reached with CRLF endings behaves the same
+  ['`@肥鱼\r\n# 标题\r\n@G哥`', ['dsh', 'gge']],
+  ['`@肥鱼\r# 标题\r@G哥`', ['dsh', 'gge']],
 ]
 
 describe('mention rule parity: page highlight == backend call (#237)', () => {

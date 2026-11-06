@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 847606a5dfec73f0366637a05f39438d616a0eb25575a28abc0df1cefff2b704
+// dsh-client-source-sha256: 7023085579a4bd1e528ee1c9be13e053c2f3d1b4e58145d43eaf370ff8f8bfef
 // dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18823,12 +18823,152 @@ function escapeRegex(s) {
 function hasBlankLine(text) {
 	return /\n[ \t]*\n/.test(text.replace(/\r\n?/g, "\n"));
 }
+const HTML_BLOCK_TAG = new RegExp(`^ {0,3}</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \\t]|/?>|$)`, "i");
+const HTML_ANY_TAG = /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?[ \t]*\/?>[ \t]*$/;
+const LIST_MARKER = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)/;
+const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
+/** Columns the leading indent of `text` covers, starting from column `base`. */
+function indentWidth(text, base = 0) {
+	let col = base;
+	for (const ch of text) if (ch === " ") col += 1;
+	else if (ch === "	") col += 4 - col % 4;
+	else break;
+	return col - base;
+}
+/**
+* The blockquote prefix at `line[i]` (three spaces at most, then `>` and one optional blank), read
+* from column `col`; `{ next, col }` after it, or undefined when the line has none there.
+*/
+function quotePrefixAt(line, from, col) {
+	let i = from;
+	let at = col;
+	let spaces = 0;
+	while (spaces < 4 && line[i] === " ") {
+		i++;
+		at++;
+		spaces++;
+	}
+	if (spaces > 3 || line[i] !== ">") return void 0;
+	i++;
+	at++;
+	if (line[i] === " " || line[i] === "	") {
+		at += line[i] === "	" ? 4 - at % 4 : 1;
+		i++;
+	}
+	return {
+		next: i,
+		col: at
+	};
+}
+/** Strips every blockquote marker of a line, so its content can be measured from column 0. */
+function stripQuotes(line) {
+	let i = 0;
+	let col = 0;
+	let depth = 0;
+	for (;;) {
+		const prefix = quotePrefixAt(line, i, col);
+		if (!prefix) return {
+			rest: line.slice(i),
+			depth,
+			col
+		};
+		i = prefix.next;
+		col = prefix.col;
+		depth++;
+	}
+}
+/**
+* Column where a list item's content begins, or undefined when the line is not a list item. An
+* empty marker (`1.` alone on its line) cannot open a list inside a paragraph, so it counts as
+* neither.
+*/
+function itemContentIndent(line) {
+	const { rest, col } = stripQuotes(line);
+	const lead = indentWidth(rest, col);
+	if (lead >= 4) return void 0;
+	const body = rest.slice(/^[ \t]*/.exec(rest)[0].length);
+	const marker = LIST_MARKER.exec(body);
+	if (!marker) return void 0;
+	if (body.slice(marker[0].length).trim() === "") return void 0;
+	const gap = /^[ \t]*/.exec(body.slice(marker[0].length))[0];
+	const padding = gap === "" ? 1 : Math.min(indentWidth(gap, col + lead + marker[0].length), 4);
+	return lead + marker[0].length + padding;
+}
+/**
+* True when a line whose content starts with `content` opens one of the block-level structures
+* this rule knows, ending the paragraph before it: ATX headings, setext underlines, thematic
+* breaks, backtick fences, list items, HTML blocks and a further quote marker. Tilde fences, math
+* blocks and footnote definitions also end a paragraph in CommonMark, but the backend has no
+* tilde-fence or footnote reader, so treating them as spans keeps a different bug out of this
+* change (#259 stays on the six families the report names).
+* `container` is set for a line that lazily continues an outer container: there a bare list
+* marker or a lone HTML tag already opens a block the paragraph cannot hold.
+*/
+function startsBlock(content, setext = true, container = false) {
+	if (indentWidth(content) >= 4) return false;
+	if (container && /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/.test(content)) return true;
+	if (container && HTML_ANY_TAG.test(content)) return true;
+	return /^ {0,3}#{1,6}(?:[ \t]|$)/.test(content) || setext && /^ {0,3}(?:=+|-+)[ \t]*$/.test(content) || /^ {0,3}(?:[*\-_][ \t]*){3,}$/.test(content) || /^ {0,3}`{3,}[^`]*$/.test(content) || /^ {0,3}>/.test(content) || /^ {0,3}[-*+][ \t]+\S/.test(content) || /^ {0,3}1[.)][ \t]+\S/.test(content) || /^ {0,3}<(?:script|pre|style|textarea)(?:[ \t>]|$)/i.test(content) || /^ {0,3}<!--/.test(content) || /^ {0,3}<\?/.test(content) || /^ {0,3}<![A-Za-z]/.test(content) || /^ {0,3}<!\[CDATA\[/.test(content) || HTML_BLOCK_TAG.test(content);
+}
+/** [start, end) offsets of every physical line; CRLF, CR and LF all end one. */
+function splitLines(text) {
+	const lines = [];
+	for (let start = 0; start <= text.length;) {
+		let end = start;
+		while (end < text.length && text[end] !== "\n" && text[end] !== "\r") end++;
+		lines.push([start, end]);
+		if (end >= text.length) break;
+		start = text[end] === "\r" && text[end + 1] === "\n" ? end + 2 : end + 1;
+	}
+	return lines;
+}
+/**
+* True when the text between an opening and a closing backtick run holds something that ends the
+* paragraph, so the run cannot close the span (#259): a blank line, or a line that opens a
+* block-level structure. The renderer decides this inside the containers the span sits in, so the
+* list item's content indent and the blockquote depth of the opening line are carried along, and
+* a line that lazily continues an outer container is judged by what it would start there.
+*/
+function endsParagraph(text, from, to) {
+	if (hasBlankLine(text.slice(from, to))) return true;
+	const lines = splitLines(text);
+	let openLine = 0;
+	for (let i = 0; i < lines.length; i++) if (lines[i][0] <= from && from <= lines[i][1]) {
+		openLine = i;
+		break;
+	}
+	let baseIndent = 0;
+	let openDepth = 0;
+	for (let i = openLine; i >= 0; i--) {
+		const line = text.slice(lines[i][0], lines[i][1]);
+		if (line.trim() === "" || FENCE_LINE.test(line)) break;
+		const { depth } = stripQuotes(line);
+		if (depth > openDepth) openDepth = depth;
+		if (baseIndent === 0) {
+			const indent = itemContentIndent(line);
+			if (indent !== void 0) baseIndent = indent;
+		}
+	}
+	for (let i = openLine + 1; i < lines.length && lines[i][0] < to; i++) {
+		const { rest, depth, col } = stripQuotes(text.slice(lines[i][0], lines[i][1]));
+		if (rest.trim() === "") return true;
+		if (depth > openDepth) return true;
+		if (depth < openDepth) {
+			if (startsBlock(rest, false, true)) return true;
+			continue;
+		}
+		const indent = indentWidth(rest, col) - baseIndent;
+		if (startsBlock(" ".repeat(Math.max(0, indent)) + rest.trimStart(), indent >= 0, indent < 0)) return true;
+	}
+	return false;
+}
 /**
 * Offsets of Markdown inline code spans, [start, end) each, matching what the markdown renderer
 * turns into <code> and the backend skips (dsh/collab/mentions.mjs codeSpanRanges — keep them in
 * step). A span is a run of backticks closed by a run of the same length inside the same
-* paragraph; it may hold single line breaks but no blank line. A lone backtick stays literal
-* text, and runs of three or more are fences, left to fencedRanges().
+* paragraph; it may hold single line breaks but nothing that ends the paragraph (a blank line
+* #245, or a block-level structure #259). A lone backtick stays literal text, and runs of three
+* or more are fences, left to fencedRanges().
 */
 function codeSpanRanges(text) {
 	const runs = [];
@@ -18851,7 +18991,7 @@ function codeSpanRanges(text) {
 		if (len >= 3) continue;
 		for (let c = k + 1; c < runs.length; c++) {
 			if (runs[c].len !== len) continue;
-			if (hasBlankLine(text.slice(start + len, runs[c].start))) break;
+			if (endsParagraph(text, start + len, runs[c].start)) break;
 			ranges.push([start + len, runs[c].start]);
 			k = c;
 			break;

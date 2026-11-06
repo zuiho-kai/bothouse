@@ -283,6 +283,54 @@ describe('HighlightedMarkdown component', () => {
     expect(container.querySelectorAll('code').length).toBe(expected.length ? 0 : 1)
   })
 
+  // #259: a line that opens a block ends the paragraph, so the backticks are plain text on the
+  // rendered page and both names are badges. This goes through the real renderer, not just the
+  // matchers, because the reported bug was the page colouring two while the backend called none.
+  it.each([
+    ['heading', '# 标题'],
+    ['heading deeper', '## 二级'],
+    ['bullet list', '- 列表'],
+    ['star list', '* 列表'],
+    ['plus list', '+ 列表'],
+    ['ordered list', '1. 一'],
+    ['quote', '> 引用'],
+    ['quote no space', '>引用'],
+    ['thematic break dash', '---'],
+    ['thematic break star', '***'],
+    ['thematic break underscore', '___'],
+    ['setext underline', '==='],
+    ['HTML block', '<div>x</div>'],
+    ['HTML pre', '<pre>'],
+    ['HTML comment', '<!-- c -->'],
+    ['HTML declaration', '<!DOCTYPE html>'],
+  ] as Array<[string, string]>)('a %s inside the backticks ends the span on the page', (_label, block) => {
+    const text = '`@肥鱼\n' + block + '\n@G哥`'
+    const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+    const badges = [...container.querySelectorAll<HTMLElement>('[data-mention]')]
+      .map(node => node.dataset.mention).sort()
+    expect(badges).toEqual(['fish', 'gge'])
+    expect([...backendMentions(text, testMembers)].sort()).toEqual(badges)
+    expect(splitMentions(text, testMembers).map(s => s.text).join('')).toBe(text)
+    expect(container.querySelectorAll('code').length).toBe(0)
+  })
+
+  // The guard: lines that do not open a block leave one code span, so the page renders a single
+  // <code> and colours nobody — and the backend calls nobody either.
+  it.each([
+    ['plain line', '普通一行'],
+    ['hash mid-line', 'a # b'],
+    ['gt mid-line', 'a > b'],
+    ['ordered no space', '1.x'],
+    ['inline HTML', '<span>x</span>'],
+    ['indented four', '    # 四空格'],
+  ] as Array<[string, string]>)('a plain %s keeps the span on the page', (_label, line) => {
+    const text = '`@肥鱼\n' + line + '\n@G哥`'
+    const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+    expect(container.querySelectorAll<HTMLElement>('[data-mention]')).toHaveLength(0)
+    expect([...backendMentions(text, testMembers)]).toEqual([])
+    expect(container.querySelectorAll('code').length).toBe(1)
+  })
+
   it('renders markdown text with mention pill badge and handles click', () => {
     const onMention = vi.fn()
     const { container } = render(
