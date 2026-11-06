@@ -489,7 +489,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		e.applyPendingSwitch(interactiveKey, msg.SessionKey) // the agent asked to switch during its last turn
 		e.applyModelTier(p, msg, dec.Tier)
 	}
-	msg.TurnCtx, msg.TurnCtxQuery = true, userTextOf(msg)
+	msg.TurnCtx, msg.TurnCtxQuery, msg.TurnCtxSender = true, userTextOf(msg), personKey(msg)
 	keepUserText(msg) // board, progress card and team status show the user's words, not these notes
 	msg.Content = content
 	return false
@@ -773,7 +773,9 @@ func (g *gateState) post(ctx context.Context, path string, req any, out any) err
 // before it ("" when the gate has nothing or is down). The gate drops what it
 // already pushed into this agent context (by entry id, per epoch); the bridge
 // only names the context (turnEpoch) and does not parse the entries.
-func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
+// sender: personKey of this turn's message ("" = no person: cron, timer, relay); ctxsvc pushes that person's
+// 懂你 page and no one else's (#1160).
+func (e *Engine) turnContext(session *Session, sessionKey, text, sender string) string {
 	g := e.gate
 	if g == nil {
 		return ""
@@ -782,7 +784,7 @@ func (e *Engine) turnContext(session *Session, sessionKey, text string) string {
 	defer cancel()
 	var out gateContextResponse
 	// bot: the gate_url's ?bot= (a sub); ctxsvc then searches her own wiki first (maomao fork, 2026-10-20)
-	req := map[string]string{"key": sessionKey, "text": text, "bot": g.bot(), "epoch": turnEpoch(session)}
+	req := map[string]string{"key": sessionKey, "text": text, "bot": g.bot(), "epoch": turnEpoch(session), "sender": sender}
 	if err := g.post(ctx, "/context", req, &out); err != nil {
 		slog.Warn("gate: context fetch failed", "session", sessionKey, "error", err)
 		return ""
@@ -819,12 +821,12 @@ func turnEpoch(session *Session) string {
 // (user, cron, timer or queued); teammate status and wiki pages only with
 // turnCtx messages.
 func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
-	return e.withTurnBlocksRef(session, sessionKey, query, content, turnCtx, nil)
+	return e.withTurnBlocksRef(session, sessionKey, query, "", content, turnCtx, nil)
 }
 
 // withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)
 // right before the message, once per agent context.
-func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content string, turnCtx bool, ref *MessageReference) string {
+func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, content string, turnCtx bool, ref *MessageReference) string {
 	// Record how many characters each block adds every turn (11-02 reflection: a turn read 7k more and nobody
 	// could say what was injected). One log line per turn that injected anything: "turn blocks injected".
 	var sizes []any
@@ -850,7 +852,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, content 
 	if !turnCtx {
 		return content
 	}
-	add("turn_ctx", e.turnContext(session, sessionKey, query))
+	add("turn_ctx", e.turnContext(session, sessionKey, query, sender))
 	add("team", e.teamBlock(session, sessionKey))
 	return content
 }

@@ -408,6 +408,7 @@ type Message struct {
 	AmbientChat   string // Background merged once, excluded from the silent buffer.
 	contentMerged bool
 	BackfillRan   bool
+	peopleDone    bool // #1160: recordPersonSaid already ran (a held gate burst re-enters handleMessage)
 	mediaDone     bool // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
 	// maomao fork: handleCommand already ran for this message. The gate's burst
 	// timer releases a held message by re-entering handleMessage with the same
@@ -421,9 +422,10 @@ type Message struct {
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.
-	TurnCtx      bool
-	TurnCtxQuery string // the user's own words, for wiki matching
-	ModeOverride string // if set, temporarily override agent permission mode for this message
+	TurnCtx       bool
+	TurnCtxQuery  string // the user's own words, for wiki matching
+	TurnCtxSender string // #1160: "<platform>-<sender id>" of whose words these are (personKey), for their 懂你 page
+	ModeOverride  string // if set, temporarily override agent permission mode for this message
 	// IsPermissionResponse is set by inline-button / card-action paths in
 	// platforms when a synthesized message is forwarded as a permission
 	// decision (e.g. Telegram handleCallbackQuery for perm:allow/deny,

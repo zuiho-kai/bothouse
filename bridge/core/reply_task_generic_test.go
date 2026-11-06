@@ -83,7 +83,7 @@ func TestReplyToFeishuTaskCardBringsTask(t *testing.T) {
 	}
 	s := &Session{}
 	content := s.renderReference(msg.Content, msg.Reference)
-	got := e.withTurnBlocksRef(s, msg.SessionKey, "", content, false, msg.Reference)
+	got := e.withTurnBlocksRef(s, msg.SessionKey, "", "", content, false, msg.Reference)
 	for _, want := range []string{"任务卡 t-9「迁移报表」", "最近汇报：迁了两张表", "第三张也迁了吗"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("card reply missing %q in %q", want, got)

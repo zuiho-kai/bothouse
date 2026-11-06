@@ -2729,8 +2729,50 @@ def dream(db, deadline):
         changed |= reflect(db, deadline) == "changed"
     except Exception as e:  # e.g. daypack's FileNotFoundError/ValueError: a failed reflection, the night goes on
         log(f"reflect failed: {type(e).__name__}: {e}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
+    try:
+        profiles_pass(db, deadline)
+    except Exception as e:  # noqa: BLE001 — 画像失败不拦今晚别的步
+        log(f"profile failed: {type(e).__name__}: {e}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
     if changed and DREAM_NOTIFY:
         notify_dream()
+
+
+def profile_ask(prompt):
+    """One answer-only call on the dream engine → its JSON (profiles.rewrite). Same engines as rule_correction-style
+    single calls: codex, else the engine's runner."""
+    name = DREAM_ENGINE.split("|")[-1].split(":")[0]
+    if name == "codex":
+        ok, out, *_ = codex(prompt, label="dream profile", model=MODELS["codex"])
+    else:
+        ok, out, *_ = runner(name)(prompt, label="dream profile")
+    res = str(out or "")
+    i = res.find("{")
+    if not ok or i < 0:
+        raise RuntimeError(f"no JSON answer: {res[-200:]}")
+    return json.JSONDecoder().raw_decode(res[i:])[0]
+
+
+def profiles_pass(db, deadline):
+    """懂你画像，每人一页（profiles.py，#1160）：每个说过话的人，按他自己 [上次到现在) 的原话重写他那页，只提交这些页。
+    The window starts where the last pass ended (0 the first time: all the person's recorded words) and moves only
+    when the pass ran; a person whose rewrite was kept back is read again with the next window's words only."""
+    import profiles
+    db.execute("create table if not exists profile_window(at real)")
+    lo = db.execute("select max(at) from profile_window").fetchone()[0] or 0
+    hi = time.time()
+    done, files = profiles.run(REPO, lo, hi, profile_ask, log, deadline=deadline)
+    db.execute("insert into profile_window values (?)", (hi,))
+    db.commit()
+    if not files:
+        log("profile: nothing rewritten")
+        return
+    with open(REPO / "log.md", "a") as f:
+        f.write(f"\n## [{time.strftime('%Y-%m-%d')}] dream | 画像\n" + "".join(f"- {k}: {v}\n" for k, v in done.items()))
+    files.append("log.md")
+    if (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):
+        git("add", "--", *files, cwd=REPO)
+        git("commit", "-qm", "dream: 画像", "--", *files, cwd=REPO)
+    log(f"profile: {len(done)} people rewritten")
 
 
 def notify_dream():
