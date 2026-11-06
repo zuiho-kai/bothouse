@@ -156,6 +156,7 @@
   corner-shape: round;
   color: #fff;
   border-radius: 50%;
+  flex: none;
   place-items: center;
   width: 36px;
   height: 36px;
