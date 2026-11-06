@@ -214,6 +214,7 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 		}
 	} else if req.SessionKey == "" {
 		req.SessionKey = strings.TrimSpace(envSessionKey())
+		req.SessionFromEnv = req.SessionKey != ""
 	}
 	if req.Message == "" {
 		req.Message = strings.Join(positional, " ")
