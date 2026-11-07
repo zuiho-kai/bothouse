@@ -261,6 +261,16 @@ export const zh = {
   placeholder: '发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）',
   loading: '正在连接频道服务…',
   unavailable: '频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。',
+  // #216: the data lock is held by another DSH — name it, and say how to switch. A reload
+  // alone does not bring this page's plugin back: it refused at start and stays out until DSH
+  // restarts, so the advice says restart, not refresh.
+  locked: '频道服务没有启动：这台电脑上已经有另一个 DSH 在用同一份频道数据（进程 {pid}，{started} 打开，数据目录 {dataDir}）。直接用已经打开的那个就行；要换成本页这个 DSH，先把那个关掉，再把本页这个 DSH 关掉重开——只刷新页面不会把频道接上。',
+  // #216: the lock is held but the holder wrote no record (an install from before this fix,
+  // or a holder that had not written it yet). Still not a configuration problem, so say that
+  // and give the two things that do find the holder: the shared directory and the lock file.
+  lockedUnnamed: '频道服务没有启动：这台电脑上已经有另一个 DSH 在用同一份频道数据（数据目录 {dataDir}，进程 {pid}）——它没留下是哪个进程的记录，通常是因为那个 DSH 是旧版本，或者刚打开还没写记录。别去改配置：先看谁占着这个文件：macOS 或 Linux 上用 lsof {lock}，Windows 上在资源监视器的磁盘活动里搜这个文件名；找到那个 DSH 后关掉它，再关掉并重开本页这个 DSH，频道就能接上（只刷新页面不行）。',
+  lockedFree: '频道服务还是没有启动：刚才占着频道数据的那个 DSH 已经关掉了，锁是空的；但本页的频道插件是在它占着的时候启动失败的，不会自己回来。把本页这个 DSH 关掉重开，频道就能接上。',
+  lockedUnknown: '未知',
   unauthorized: '还没有登录 DSH，请刷新页面。',
   error: '频道服务出错：{message}',
   empty: '这里还没有消息。@一个成员开始吧。',
@@ -624,6 +634,15 @@ export const en: Record<keyof typeof zh, string> = {
   placeholder: 'Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)',
   loading: 'Connecting to the channel service…',
   unavailable: 'The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.',
+  // #216: the data lock is held by another DSH — name it, and say how to switch. A reload
+  // alone does not bring this page's plugin back: it refused at start and stays out until DSH
+  // restarts, so the advice says restart, not refresh.
+  locked: 'The channel service did not start: another DSH on this machine is already using the same channel data (process {pid}, opened {started}, data directory {dataDir}). Keep using the DSH you already have open; to switch to this one, quit that one, then quit and reopen this DSH — reloading the page will not reconnect the channel.',
+  // #216: held, but the holder left no record (an older install, or one that has not written
+  // it yet). Still not a configuration problem; name the directory and the lock file instead.
+  lockedUnnamed: 'The channel service did not start: another DSH on this machine is already using the same channel data (data directory {dataDir}, process {pid}) and left no record of which process it is — usually because that DSH is an older build, or has only just started. Do not touch the configuration: first see what holds the lock file — lsof {lock} on macOS or Linux, or search that file name in Resource Monitor on Windows; then quit that DSH, quit and reopen this one, and the channel reconnects (reloading the page will not).',
+  lockedFree: 'The channel service still did not start: the DSH that held the channel data has quit and the lock is free, but this page\'s channel plugin refused at startup and does not come back by itself. Quit and reopen this DSH to reconnect the channel.',
+  lockedUnknown: 'unknown',
   unauthorized: 'Not signed in to DSH; reload the page.',
   error: 'Channel service error: {message}',
   empty: 'No messages yet. @ a member to start.',
