@@ -11,7 +11,7 @@ forum-decisions 定案），只按条汇总。
 - 页：主 wiki = GATE_WIKI（同 forum_scores.WIKI），「~/」开头的是 HOME 下别的库（角色 wiki）
 - 推送时存的原文：<数据目录>/ctx/<哈希>.md（同 ctxsvc.store_dir），页改过也找得回当时那行
 """
-import collections, json, os, re, sys, time
+import collections, hashlib, json, os, re, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -83,7 +83,8 @@ class _Pages:
 
 
 def _hid(s):
-    return fs.entry_id("x", s).rsplit("#", 1)[1]  # 同 forum_scores.entry_id 的行哈希
+    # 同 forum_scores.entry_id 的行哈希；不走 entry_id，那条每次都解析一遍页路径，几千条推送下逐行调用要几十秒
+    return hashlib.sha1(s.strip().encode()).hexdigest()[:10]
 
 
 def clean(line):
