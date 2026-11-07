@@ -157,8 +157,8 @@ func TestTakeOverOrphanDSHWebStopsOnlyAfterEveryCandidateFailed(t *testing.T) {
 	w.writeState(t, DSHWeb{URL: "http://127.0.0.1:" + w.port + "/?token=gone#channels", Log: recorded})
 
 	paths := dshWebLogPaths(stateForTest(t))
-	if web, ok, err := takeOverOrphanDSHWeb(paths, 0); ok || err != nil {
-		t.Fatalf("takeover = %+v %v %v, want nothing adopted", web, ok, err)
+	if web, ok, stopped, err := takeOverOrphanDSHWeb(paths, 0); ok || err != nil || stopped == 0 {
+		t.Fatalf("takeover = %+v %v %v %v, want nothing adopted and the one host stopped", web, ok, stopped, err)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()

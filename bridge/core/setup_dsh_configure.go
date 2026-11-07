@@ -444,6 +444,7 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		return waitDSHWebLaunch(ctx, l)
 	}
 	statePath := dshWebStatePath()
+	stopped := 0 // a pid this call stopped, i.e. the cases where nothing is serving while it starts
 	var prev DSHWeb
 	if b, err := os.ReadFile(statePath); err == nil && json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && prev.URL != "" {
 		// The collab plugin imports the wizard's roles only at boot: with roles still waiting, start it over.
@@ -453,6 +454,7 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		if err := stopDSHWebForImport(prev.PID); err != nil {
 			return DSHWeb{}, err
 		}
+		stopped = prev.PID
 	}
 	logPath := filepath.Join(filepath.Dir(statePath), "dsh-web.log")
 	// The same candidates the self-heal reads (dshWebLogPaths): a release update leaves the running
@@ -463,11 +465,32 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if b, err := os.ReadFile(statePath); err == nil {
 		_ = json.Unmarshal(b, &recorded)
 	}
-	if web, ok, err := takeOverOrphanDSHWeb(dshWebLogPaths(recorded), prev.PID); err != nil {
+	web, ok, stoppedNow, err := takeOverOrphanDSHWeb(dshWebLogPaths(recorded), prev.PID)
+	if err != nil {
 		return DSHWeb{}, err
-	} else if ok {
+	}
+	if stoppedNow != 0 {
+		stopped = stoppedNow
+	}
+	if ok {
 		return web, nil
 	}
+	start := func() (DSHWeb, error) { return startDSHWeb(ctx, logPath, configuredDataDir) }
+	if web, err = start(); err == nil || stopped == 0 {
+		return web, err
+	}
+	// #262 B: the live host has already been stopped and the new one did not come up, so the panel
+	// would be left with nothing to open. One more start is the only way back — the stopped process
+	// cannot be revived, so 回退 here means the same `dsh web` on the same data dir starts again and
+	// imports the roles as a first start would. A second failure is returned as it is, with this
+	// warning left in the log as the line to read.
+	slog.Warn("dsh web: 新实例没有起来，已回退到原 host：正在重启同一个 dsh web", "log", logPath, "error", err)
+	return start()
+}
+
+// startDSHWeb runs one `dsh web` and waits for its announcement. openDSHWeb is its only caller and
+// owns the takeover, so a start here is always "the old host is already gone".
+func startDSHWeb(ctx context.Context, logPath, configuredDataDir string) (DSHWeb, error) {
 	bin, err := LookDSH()
 	if err != nil {
 		return DSHWeb{}, errDSHMissing
@@ -646,7 +669,9 @@ func (m *ManagementServer) handleSetupDSHOpen(w http.ResponseWriter, r *http.Req
 // last used). Only after every candidate has failed may an untracked host on an announced loopback
 // port be stopped: stopping on the first refusal killed the live launchd host whose announcement sat
 // in a later log (#243 复核 G3/G4).
-func takeOverOrphanDSHWeb(logPaths []string, trackedPID int) (DSHWeb, bool, error) {
+// The third result is the pid it stopped (0 when it stopped nothing): openDSHWeb retries a failed
+// start only after its own stop, because that is the one case where nothing else can serve (#262 B).
+func takeOverOrphanDSHWeb(logPaths []string, trackedPID int) (DSHWeb, bool, int, error) {
 	state, _, _ := readDSHWebState()
 	// 来源：沿用 dshWebProbeTimeout——整轮（所有候选日志）共用一次探活时限，卡住的本地监听不会把
 	// 打开拖过单次探活的上限（实测单次探活 0.5–3ms）。
@@ -664,26 +689,36 @@ func takeOverOrphanDSHWeb(logPaths []string, trackedPID int) (DSHWeb, bool, erro
 			refused = au
 		}
 	}
-	if su, err := url.Parse(state.URL); err == nil && state.URL != "" && loopbackTarget(su.Host) && su.Port() != "" {
-		if token := su.Query().Get("token"); token != "" && probeDSHWebToken(su.Port(), token) {
-			logPath := state.Log
-			if logPath == "" && len(logPaths) > 0 {
-				logPath = logPaths[len(logPaths)-1]
-			}
-			return adoptOrphanDSHWeb(logPath, token, su.Port(), trackedPID)
+	if port := stateTokenPort(state, deadline); port != "" {
+		logPath := state.Log
+		if logPath == "" && len(logPaths) > 0 {
+			logPath = logPaths[len(logPaths)-1]
 		}
+		su, _ := url.Parse(state.URL)
+		return adoptOrphanDSHWeb(logPath, su.Query().Get("token"), port, trackedPID)
 	}
-	if refused != nil {
+	if refused != nil && canStartDSHWeb() {
 		// The announcement named a loopback port, so that is the host to stop even though its token
-		// was refused (a second instance on the same port, a reused pid).
+		// was refused (a second instance on the same port, a reused pid). Nothing is stopped without a
+		// `dsh` to start afterwards: with none on PATH the panel would lose the only host it has, and
+		// the open already fails with errDSHMissing (#262 B).
 		if pid := pidListeningOnPort(refused.Port()); pid > 0 && pid != trackedPID {
 			slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", refused.Port())
 			if err := stopUntrackedDSHWeb(pid); err != nil {
-				return DSHWeb{}, false, err
+				return DSHWeb{}, false, 0, err
 			}
+			return DSHWeb{}, false, pid, nil
 		}
 	}
-	return DSHWeb{}, false, nil
+	return DSHWeb{}, false, 0, nil
+}
+
+// canStartDSHWeb reports whether a `dsh` exists to start after a stop. It is a plain PATH/dir check
+// (LookDSH), so it says the binary is there, not that the start will succeed — the retry in
+// openDSHWeb covers that half.
+func canStartDSHWeb() bool {
+	_, err := LookDSH()
+	return err == nil
 }
 
 // stopUntrackedDSHWeb is stopDSHWebForImport for a host takeOverOrphanDSHWeb found; tests swap it to
@@ -746,24 +781,66 @@ func orphanDSHWebPort(logPath string, state DSHWeb, deadline time.Time) (au *url
 	return au, token, ""
 }
 
+// stateTokenPort is the loopback port whose host signs in with the token the state file recorded, or
+// "". The state file is the panel's own last word on which host it is, so its token is the second
+// gate when no log's announcement can name one (#262 A): a `--public-url` announcement is stored in
+// the file verbatim by waitDSHWebLaunch, so the recorded address has no port, and only the loopback
+// listeners can say where that host is. The recorded port is tried first when it has one. Only a 303
+// answer to GET /?token= counts, so a refused token never decides anything.
+func stateTokenPort(state DSHWeb, deadline time.Time) string {
+	su, err := url.Parse(state.URL)
+	if err != nil || state.URL == "" || su.Host == "" {
+		return ""
+	}
+	token := su.Query().Get("token")
+	if token == "" {
+		return ""
+	}
+	if su.Port() != "" && loopbackTarget(su.Host) && probeDSHWebToken(su.Port(), token) {
+		return su.Port()
+	}
+	// The recorded port did not answer (the host moved) or there was none: ask the loopback
+	// listeners. Only a 303 still decides, and the deadline above bounds the whole scan.
+	for _, p := range dshWebListeners() {
+		if probeDSHWebToken(p, token) {
+			return p
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	return ""
+}
+
 // adoptOrphanDSHWeb records the host on port, whose token signed in, as the running `dsh web` and
 // logPath as the log that proved it, so the next open and self-heal read that one first.
-func adoptOrphanDSHWeb(logPath, token, port string, trackedPID int) (DSHWeb, bool, error) {
+// Its third result is the pid it stopped for the roles-import restart (0 when it adopted): that stop
+// leaves nothing serving either, so openDSHWeb counts it the same way (#262 B).
+func adoptOrphanDSHWeb(logPath, token, port string, trackedPID int) (DSHWeb, bool, int, error) {
 	pid := pidListeningOnPort(port)
 	if pid <= 0 || pid == trackedPID {
-		return DSHWeb{}, false, nil
+		return DSHWeb{}, false, 0, nil
 	}
 	if _, membersErr := os.Stat(dshMembersFile()); membersErr == nil {
 		// Roles still wait for import: the plugin reads them only at boot, so start over.
+		if !canStartDSHWeb() {
+			return DSHWeb{}, false, 0, errDSHMissing
+		}
 		slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", port)
 		if err := stopUntrackedDSHWeb(pid); err != nil {
-			return DSHWeb{}, false, err
+			return DSHWeb{}, false, 0, err
 		}
-		return DSHWeb{}, false, nil
+		return DSHWeb{}, false, pid, nil
 	}
 	web := DSHWeb{URL: "http://127.0.0.1:" + port + "/?" + url.Values{"token": {token}}.Encode() + dshChannelsHash, PID: pid, Log: logPath}
 	b, _ := json.Marshal(web)
-	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+	// Same write as healDSHWebState: a temp file renamed over the old one, so a read-only state file
+	// is replaced instead of silently left stale (#262 C1). A failure is reported, not swallowed —
+	// the host is still adopted, because what the caller needs is a working `dsh web`.
+	if err := AtomicWriteFile(dshWebStatePath(), b, 0o600); err != nil {
+		slog.Warn("dsh web: adopted a running dsh web but could not record it: the state file keeps the old address",
+			"pid", pid, "port", port, "log", logPath, "error", err)
+	}
 	slog.Info("dsh web: adopted a running dsh web from the log", "pid", pid, "port", port, "log", logPath)
-	return web, true, nil
+	return web, true, 0, nil
 }
