@@ -232,6 +232,42 @@ func watchIsHandback(text string) bool {
 	return false
 }
 
+// watchHandbackLater: a reply whose first line is not the handback (「【接】…」, a mention) but a
+// later line opens with [report] or 【交回】 still handed the work back, as far as the watch is
+// concerned (#1183, 11-07: 龙娘 wrote 「【接】…」 then 「[report] #1162 …」 on the next line; the
+// watch stayed open and woke her ten hours later). The exit forwarding still wants the marker on
+// the first line; this only ends the watch.
+func watchHandbackLater(text string) bool {
+	_, rest, ok := strings.Cut(text, "\n")
+	if !ok {
+		return false
+	}
+	for _, line := range strings.Split(rest, "\n") {
+		line = strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(StripMarkdown(line)), ""))
+		if strings.HasPrefix(line, "[report]") || strings.HasPrefix(line, "【交回】") {
+			return true
+		}
+	}
+	return false
+}
+
+// watchStaleAfter: a watch with no board item behind it whose owner ended no turn for this long is
+// left over from finished work (#1183: the 09:13 watch woke 龙娘 at 19:03 after her first turn of
+// the evening). Such a watch closes on the owner's next turn instead of arming a wake. A watch with
+// a board item is judged by the board instead (fireIdleWake).
+const watchStaleAfter = 2 * time.Hour
+
+func watchStale(h TeamHandoff, key string, items []teamTaskBoardItem, now time.Time) bool {
+	if h.Board != 0 || handoffBoardID(key, h, items) != 0 {
+		return false
+	}
+	last := h.At
+	if h.Idle.Ended.After(last) {
+		last = h.Idle.Ended
+	}
+	return now.Sub(last) > watchStaleAfter
+}
+
 // watchAnsweredInChat: a 【接】 turn in a chat channel that ran no tool, names no board item and
 // has no board item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」
 // and G哥「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an
@@ -285,7 +321,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	first, _, _ := strings.Cut(text, "\n")
 	accepted := strings.HasPrefix(strings.TrimSpace(first), "【接】")
 	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
-	returned := cardResult && !accepted || watchIsHandback(text)
+	returned := cardResult && !accepted || watchIsHandback(text) || watchHandbackLater(text)
 	// A validated user question waits for the user's answer, not an idle wake.
 	asking := false
 	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
@@ -305,8 +341,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	if inWorkspace {
 		chat = parent
 	}
+	var items []teamTaskBoardItem
 	if e.team != nil {
-		items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
+		items = placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
 		var picked *teamTaskBoardItem
 		for i := range items {
 			it := &items[i]
@@ -370,15 +407,27 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 		}
 	}
 	var assignments []idleAssignment
+	staleClosed := false
 	for _, script := range []bool{false, true} {
 		rows := st.Handoffs[key]
 		if script {
 			rows = st.ScriptWatches[key]
 		}
-		for _, h := range rows {
+		for i, h := range rows {
 			if teamHandoffOpen(h) && !h.Idle.Returned && !h.Due.IsZero() && e.watchOwns(p, h.Owner) {
+				if script && watchStale(h, key, items, time.Now()) {
+					rows[i].Closed = time.Now()
+					staleClosed = true
+					slog.Info("idle watch: closed a stale watch with no board item", "workspace", key, "owner", h.Owner, "title", h.Title, "at", h.At)
+					continue
+				}
 				assignments = append(assignments, idleAssignment{key, h, script})
 			}
+		}
+	}
+	if staleClosed {
+		if err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), st); err != nil {
+			slog.Error("idle watch: close stale watch failed", "workspace", key, "error", err)
 		}
 	}
 	// Direct acceptance and board-owned active work have no handoff/d10
