@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,13 +21,9 @@ import (
 // such a card then changed the buttons and the remembered choice but left the
 // text as it was.
 //
-// One small file per card message under <dataDir>/discord_cards/; the oldest
-// are removed past cardSourceKeep.
+// One small file per card message under <dataDir>/discord_cards/.
 
-const (
-	cardSourceDir  = "discord_cards"
-	cardSourceKeep = 600
-)
+const cardSourceDir = "discord_cards"
 
 const (
 	cardKindProgress = "progress"
@@ -115,7 +110,6 @@ func (s *cardSourceStore) save(messageID string, src cardSource) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path := filepath.Join(s.dir, name)
-	_, statErr := os.Stat(path)
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		slog.Warn("discord: card source dir", "dir", s.dir, "error", err)
 		return
@@ -123,9 +117,6 @@ func (s *cardSourceStore) save(messageID string, src cardSource) {
 	if err := core.AtomicWriteFile(path, raw, 0o600); err != nil {
 		slog.Warn("discord: save card source", "path", path, "error", err)
 		return
-	}
-	if os.IsNotExist(statErr) {
-		s.prune()
 	}
 }
 
@@ -179,30 +170,6 @@ func (s *cardSourceStore) turn(leader string) map[string]cardSource {
 		}
 	}
 	return out
-}
-
-// prune keeps the newest cardSourceKeep files. Caller holds mu.
-func (s *cardSourceStore) prune() {
-	entries, err := os.ReadDir(s.dir)
-	if err != nil || len(entries) <= cardSourceKeep {
-		return
-	}
-	type f struct {
-		name string
-		mod  int64
-	}
-	files := make([]f, 0, len(entries))
-	for _, e := range entries {
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		files = append(files, f{e.Name(), info.ModTime().UnixNano()})
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].mod < files[j].mod })
-	for _, x := range files[:len(files)-cardSourceKeep] {
-		_ = os.Remove(filepath.Join(s.dir, x.name))
-	}
 }
 
 // taskCardRender renders a task card snapshot in either view.
