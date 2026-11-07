@@ -212,6 +212,29 @@ func (e *Engine) quotaCoolingFor(scope quotaScope) time.Time {
 // quotaCoolingForAt is quotaCoolingFor with the clock supplied by the caller, so the
 // "is it still cooling" decision and the text derived from it come from one instant.
 func (e *Engine) quotaCoolingForAt(scope quotaScope, now time.Time) time.Time {
+	if until := e.quotaCoolingDeadlineFor(scope); until.After(now) {
+		return until
+	}
+	return time.Time{}
+}
+
+// quotaCoolingDeadlineFor is the single read of "how long is this scope still
+// cooling for". It takes the latest of the three records admission has always
+// consulted: the exact domain, the provider guard an unresolved identity falls
+// back to, and the legacy role-level deadline (exempt for a scope a positive
+// probe verified).
+//
+// Both admission (quotaCoolingForAt) and the takeover hold in quotaTick call it.
+// The hold used to read only the first of the three, so it could hand the lead
+// back while admission still reported a cooldown: an identity lookup that failed
+// leaves this scope's own domain empty, and a peer with a known identity then
+// pushes the same pool past this role's deadline, which raises only the guard
+// (#269).
+//
+// It only reads. Refreshing and persisting a caller's own deadline stays with
+// that caller, so this stays a query. The caller must not hold quotaDomainsMu,
+// quotaVerifiedMu or capMu.
+func (e *Engine) quotaCoolingDeadlineFor(scope quotaScope) time.Time {
 	quotaDomainsMu.Lock()
 	until := e.domainUntilLocked(scope.key())
 	if scope.Account == "unknown" {
@@ -231,10 +254,7 @@ func (e *Engine) quotaCoolingForAt(scope quotaScope, now time.Time) time.Time {
 		until = e.quotaUntil
 	}
 	e.capMu.Unlock()
-	if until.After(now) {
-		return until
-	}
-	return time.Time{}
+	return until
 }
 
 // extendDomainLocked keeps both admission views in sync for every extension.

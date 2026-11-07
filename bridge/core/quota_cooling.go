@@ -382,24 +382,27 @@ func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) 
 	return sel.At, nil
 }
 
-// quotaDomainHoldLocked reports whether the shared allowance pool behind this
-// role is still cooling, and refreshes the local deadline from it when so.
+// quotaDomainHoldLocked reports whether the role should keep the lead because it
+// is still cooling, and refreshes the local deadline when so.
 //
 // The deadline that justifies a takeover is a property of the pool, not of this
-// role: another role can report exhaustion and push the same domain past this
+// role: another role can report exhaustion and push the same pool past this
 // role's own deadline just as that one expires. Handing the lead back then would
 // return it to a role that is still exhausted (#267), so every expiry path asks
 // here first, and follows the shared deadline instead of its stale local copy.
-// A role with no scope has no shared pool to consult; the caller keeps its local
-// behaviour. The caller holds quotaMu.
-func (e *Engine) quotaDomainHoldLocked(now time.Time) bool {
+//
+// scope is the one quotaTick already resolved for this role, and "still cooling"
+// is read through quotaCoolingDeadlineFor, the same function admission uses, so
+// the hold cannot answer differently from admission. Reading only the exact
+// domain here was wrong in the one case where that domain is empty while
+// admission still cools: an unresolved identity falls back to the provider
+// guard, and the legacy deadline can also outlive the state's own record (#269).
+// A state with no scope still has those two records to consult, so there is no
+// early return; when all of them have expired it unwinds exactly as before. The
+// caller holds quotaMu.
+func (e *Engine) quotaDomainHoldLocked(now time.Time, scope quotaScope) bool {
 	st := &e.quotaState
-	if st.Scope == "" {
-		return false
-	}
-	quotaDomainsMu.Lock()
-	until := e.domainUntilLocked(st.Scope)
-	quotaDomainsMu.Unlock()
+	until := e.quotaCoolingDeadlineFor(scope)
 	if !until.After(now) {
 		return false
 	}
@@ -587,7 +590,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			// Only this role's deadline has passed though. If another role
 			// pushed the shared pool's deadline past now, the premise is not
 			// gone after all: keep the takeover and follow that deadline.
-			if e.quotaDomainHoldLocked(now) {
+			if e.quotaDomainHoldLocked(now, scope) {
 				return
 			}
 			e.quotaUnwindLeadLocked(now)
@@ -617,7 +620,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			// Unless the shared pool is still cooling: another role can have
 			// extended the same domain after this role's deadline, and unwinding
 			// then hands the lead to a role that is still exhausted (#267).
-			if e.quotaDomainHoldLocked(now) {
+			if e.quotaDomainHoldLocked(now, scope) {
 				return
 			}
 			e.quotaUnwindLeadLocked(now)
