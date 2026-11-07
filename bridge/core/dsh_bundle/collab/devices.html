@@ -252,29 +252,61 @@ for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListene
 $('durNum').addEventListener('focus', () => { document.querySelector('input[name=dur][value=custom]').checked = true; });
 // 「直到我断开」: only these links lapse when no DSH window beats (pairing.mjs sweep), so only
 // these need a beat. Nothing paired, or only 「记住」 links (those never lapse), stays silent.
-// Switch to another panel and this page is gone, so the answer is published for the DSH window,
-// which keeps beating from it (#238). This page and every window ask for the same lease and the
-// loser stands down, so the tick is sent once — not once per window, not twice with the page open.
+// Switch to another panel and this page is gone, so the answer is published for the DSH window.
+// Every beat rechecks the server list, so a revoked link clears the published answer promptly.
 // 来源：与 pairing.mjs ALIVE_EVERY_MS 同一节拍。
 const ALIVE_EVERY_MS = 3000;
 const UNTIL_KEY = 'bothouse-dsh-devices: until-disconnect';
 const UNTIL_LEASE = 'bothouse-dsh-devices: heartbeat';
-// Settles never: the lease is held until this page or window goes away, and the next one takes over.
-const HOLD = () => new Promise(() => {});
+const UNTIL_HOLDER = UNTIL_LEASE + ': holder';
+const UNTIL_OWNER = String(Date.now()) + '-' + Math.random();
+let holding = false;
 const untilDisconnect = () => links.some(l => l.mode === 'temp' && l.expires_at === null);
 const publish = () => {
   try { localStorage.setItem(UNTIL_KEY, untilDisconnect() ? '1' : '0'); } catch (error) { /* no storage: this page still beats while it is open */ }
 };
-// Only the holder of the lease beats: while a DSH window holds it, this page publishes and stays quiet.
-let holding = false;
-const beat = () => {
-  if (!holding || !untilDisconnect()) return;
-  fetch('api/remote/alive', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+const pulse = async () => {
+    const result = await api('api/remote/links');
+    links = result.links;
+    publish();
+    if (!untilDisconnect()) return;
+    await fetch('api/remote/alive', { method: 'POST', credentials: 'same-origin' });
 };
-const startBeat = () => setInterval(beat, ALIVE_EVERY_MS);
-const begin = () => { holding = true; beat(); startBeat(); };
-if (navigator.locks?.request) navigator.locks.request(UNTIL_LEASE, { mode: 'exclusive' }, () => { begin(); return HOLD(); }).catch(() => {});
-else begin();
+let tickNow = () => {};
+let holderTimer;
+if (navigator.locks?.request) {
+  const control = new AbortController();
+  globalThis.addEventListener?.('pagehide', () => { control.abort(); clearInterval(holderTimer); }, { once: true });
+  const acquire = () => { if (localStorage.getItem(UNTIL_KEY) !== '1') return Promise.resolve(); return navigator.locks.request(UNTIL_LEASE, { mode: 'exclusive', ifAvailable: true }, lock => {
+    if (!lock) return;
+    holderTimer = setInterval(pulse, ALIVE_EVERY_MS);
+    pulse();
+    return new Promise(resolve => control.signal.addEventListener('abort', resolve, { once: true }));
+  }).catch(() => {}); };
+  setInterval(acquire, ALIVE_EVERY_MS);
+  tickNow = acquire;
+} else {
+  const run = async () => {
+    if (localStorage.getItem(UNTIL_KEY) !== '1') return;
+  const now = Date.now();
+  let held;
+  try { held = JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null'); } catch (error) {}
+  if (held && held.owner !== UNTIL_OWNER && held.expires > now) return;
+  // 来源: two ALIVE_EVERY_MS ticks, so a closed tab's fallback lease is reclaimed promptly.
+  localStorage.setItem(UNTIL_HOLDER, JSON.stringify({ owner: UNTIL_OWNER, expires: now + ALIVE_EVERY_MS * 2 }));
+  holding = JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null')?.owner === UNTIL_OWNER;
+  if (!holding) return;
+  if (holderTimer === undefined) holderTimer = setInterval(pulse, ALIVE_EVERY_MS);
+  await pulse();
+  if (JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null')?.owner === UNTIL_OWNER) localStorage.setItem(UNTIL_HOLDER, JSON.stringify({ owner: UNTIL_OWNER, expires: Date.now() + ALIVE_EVERY_MS * 2 }));
+  };
+  setInterval(() => tickNow(), ALIVE_EVERY_MS);
+  tickNow = run;
+  globalThis.addEventListener?.('pagehide', () => {
+    clearInterval(holderTimer);
+    if (JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null')?.owner === UNTIL_OWNER) localStorage.removeItem(UNTIL_HOLDER);
+  }, { once: true });
+}
 $('digits').addEventListener('keydown', e => { if (e.key === 'Enter') $('doConnect').click(); });
 $('doConnect').onclick = async () => {
   if (!selected) return;
@@ -300,9 +332,8 @@ async function loadLinks() {
   try {
     ({ links } = await api('api/remote/links'));
     // Read the list before beating: an 「直到我断开」 link already in it must be kept alive at once.
-    // The same answer tells the DSH window whether to keep beating after this page is unloaded.
     publish();
-    beat();
+    tickNow();
     const ul = $('links');
     ul.replaceChildren();
     if (!links.length) { ul.append(el('li', { class: 'empty' }, '还没有连着的电脑')); return; }
