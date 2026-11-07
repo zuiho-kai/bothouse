@@ -31,8 +31,10 @@ export const PAGES = [
     pkg: 'bothouse-dsh-devices', id: 'collab-devices', path: 'collab/devices', order: 9, icon: 'IconLinkOutlineRegular',
     zh: { label: '其他电脑', desc: '用一次性号码配对另一台电脑，操作它的频道、工作台和面板。' },
     en: { label: 'Other computers', desc: 'Pair another computer by a one-time number and drive its channels, desk and panel.' },
-    // #131: while this window is open, keep its 「直到我断开」 remote links alive. Same beat as
-    // dsh/collab/pairing.mjs ALIVE_EVERY_MS. Lives here so turning the page off stops the beat.
+    // #238: keep 「直到我断开」 links alive from the window, not just from the open page. Switching to
+    // another panel unloads devices.html, and pairing.mjs sweeps a link whose window stopped beating
+    // after UNTIL_GRACE_MS — 「直到我断开」 must not become 「直到我离开这个面板」.
+    // 来源：dsh/collab/pairing.mjs ALIVE_EVERY_MS，与 devices.html 的页面心跳同一个节拍。
     heartbeat: 3000,
   },
 ]
@@ -73,13 +75,78 @@ ${page.galaxy ? `  ctx.slots.inject("main", () => ctx.slots.register({
   }, EmbedPage));
   // After the registrations: selecting a panel whose main entry is not registered yet fails.
   if (location.hash === "#${page.galaxy.id}") ctx.layout.selectPanel(${JSON.stringify(page.galaxy.id)});
-` : ''}${page.heartbeat ? `  ctx.effect(() => {
-    const beat = () => {
-      globalThis.fetch?.(new URL("collab/api/remote/alive", document.baseURI), { method: "POST", credentials: "same-origin" }).catch(() => {});
+` : ''}${page.heartbeat ? `  // #238: 「直到我断开」 must not become 「直到我离开这个面板」. The devices page publishes "1" on
+  // this key while its list holds such a link — the only kind pairing.mjs sweeps once no window
+  // beats (UNTIL_GRACE_MS) — and this window keeps it alive even after that page is unloaded. The
+  // The list is read from the server before every beat, so a revoked or disconnected link makes
+  // the window silent even when the devices page is closed. One window owns each beat: Web Locks
+  // uses ifAvailable; browsers without Web Locks use the same local-storage lease as the page.
+  ctx.effect(() => {
+    const FLAG = NS + ": until-disconnect";
+    const LEASE = NS + ": heartbeat";
+    // 来源: dsh/collab/pairing.mjs ALIVE_EVERY_MS, the tick devices.html beats on as well.
+    const EVERY_MS = ${page.heartbeat};
+    const fetchImpl = globalThis.fetch;
+    const everyTick = globalThis.setInterval;
+    const stopTick = globalThis.clearInterval;
+    const base = document.baseURI;
+    const storage = globalThis.localStorage;
+    const read = () => { try { return storage?.getItem(FLAG) ?? null; } catch (error) { return null; } };
+    const write = (value) => { try { storage?.setItem(FLAG, value); } catch (error) {} };
+    const LEASE_KEY = LEASE + ": holder";
+    const owner = globalThis.crypto?.randomUUID?.() ?? String(Date.now()) + "-" + Math.random();
+    let holding = false;
+    const readLease = () => { try { return JSON.parse(storage?.getItem(LEASE_KEY) ?? "null"); } catch (error) { return null; } };
+    const writeLease = value => { try { storage?.setItem(LEASE_KEY, JSON.stringify(value)); } catch (error) {} };
+    const claim = () => {
+      const now = Date.now();
+      const current = readLease();
+      if (current && current.owner !== owner && current.expires > now) return false;
+      // 来源: two ALIVE_EVERY_MS ticks, so a closed tab's fallback lease is reclaimed promptly.
+      writeLease({ owner, expires: now + EVERY_MS * 2 });
+      holding = readLease()?.owner === owner;
+      return holding;
     };
-    beat();
-    const timer = setInterval(beat, ${page.heartbeat});
-    return () => clearInterval(timer);
+    const release = () => { if (holding && readLease()?.owner === owner) { try { storage?.removeItem(LEASE_KEY); } catch (error) {} } };
+    const getLinks = async () => {
+      if (read() !== "1") return false;
+      try {
+        const res = await fetchImpl?.(new URL("collab/api/remote/links", base), { credentials: "same-origin" });
+        const body = await res?.json();
+        const active = Array.isArray(body?.links) && body.links.some(l => l.mode === "temp" && l.expires_at === null);
+        write(active ? "1" : "0");
+        return active;
+      } catch (error) { return true; }
+    };
+    const pulse = async () => {
+      if (!(await getLinks())) return;
+      await fetchImpl?.(new URL("collab/api/remote/alive", base), { method: "POST", credentials: "same-origin" }).catch(() => {});
+    };
+    let holderTimer;
+    const locks = globalThis.navigator?.locks;
+    if (locks?.request) {
+      const control = new AbortController();
+      const acquire = () => { if (read() !== "1") return Promise.resolve(); return locks.request(LEASE, { mode: "exclusive", ifAvailable: true }, lock => {
+        if (!lock) return;
+        holderTimer = everyTick(pulse, EVERY_MS);
+        void pulse();
+        return new Promise(resolve => control.signal.addEventListener("abort", resolve, { once: true }));
+      }).catch(() => {}); };
+      const retryTimer = everyTick(acquire, EVERY_MS);
+      void acquire();
+      return () => { control.abort(); stopTick(retryTimer); stopTick(holderTimer); };
+    }
+    const acquire = async () => {
+      if (read() !== "1" || (!holding && !claim())) return;
+      if (holderTimer === undefined) {
+        holderTimer = everyTick(pulse, EVERY_MS);
+        void pulse();
+      }
+      writeLease({ owner, expires: Date.now() + EVERY_MS * 2 });
+    };
+    const retryTimer = everyTick(acquire, EVERY_MS);
+    void acquire();
+    return () => { stopTick(retryTimer); stopTick(holderTimer); release(); };
   }, NS + ": remote link heartbeat");
 ` : ''}  if (location.hash === "#${page.id}") ctx.layout.selectPanel(${JSON.stringify(page.id)});
 };
