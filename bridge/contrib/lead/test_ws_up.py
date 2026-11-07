@@ -141,7 +141,7 @@ class WsUpTest(unittest.TestCase):
         last = json.loads(self.last.read_text(encoding="utf-8"))
         self.assertEqual(last["file"], notes[1])
         self.assertEqual(last["tasks"][notes[0]], {"channel": "900", "chat": "test:100", "task": "A", "board": [1],
-                                                  "ws_key": "test:900"})  # 配的工作区沿用聊天频道的平台
+                                                  "ws_key": "test:900", "project": "lead-proj"})  # 配的工作区沿用聊天频道的平台
         # 工作区 900 报回交 a 进来的聊天频道
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
         rows = [json.loads(line) for line in (self.setup / "team" / "board.jsonl").read_text().splitlines()]

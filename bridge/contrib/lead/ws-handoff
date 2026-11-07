@@ -450,7 +450,7 @@ def append_skeleton(path, nid):
         return False
 
 
-def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None):
+def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None, project=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
@@ -475,18 +475,19 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"把草稿写进文件跑 {cc_bin()} report check --notes {path} <草稿文件>，不通过改到通过再发；"
               f"交回后桥自动把这件标完成、清空会话、放回工作区")
     key = ws if ":" in ws else f"discord:{ws}"
-    return [cc_bin(), "timer", "add", "-s", key, "--delay", "1m", "--timeout-mins", "0",
+    return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
 
 
-def record_last(path: str, ws: str, task: str, chat: str, nid=None):
+def record_last(path: str, ws: str, task: str, chat: str, nid=None, project=None):
     """记最近一次交接（ws-forward 默认转给它），并按交接文件记来源聊天频道（ws-up 按它报回、ws-forward --notes 按它转）。"""
     try:
         last = json.loads(_team.LAST.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         last = {}
     tasks = last.get("tasks") if isinstance(last, dict) and isinstance(last.get("tasks"), dict) else {}
-    rec = {"channel": ws.split(":", 1)[-1], "chat": chat, "task": task, "board": [nid] if nid else []}
+    project = project or _team.project()
+    rec = {"channel": ws.split(":", 1)[-1], "chat": chat, "task": task, "board": [nid] if nid else [], "project": project}
     if ":" in ws:
         rec["ws_key"] = ws
     old = tasks.get(path)
@@ -503,7 +504,7 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None):
             serial += 1
         rec["file"] = path
     tasks[key] = rec
-    _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "tasks": tasks},
+    _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "project": project, "tasks": tasks},
                                      ensure_ascii=False), encoding="utf-8")
 
 
@@ -551,11 +552,11 @@ def start(path, task, chat, nid, project, answer=None):
     board.update(nid, "已交接", who=f"{name}{_lead_name(project)}")
     board.rebind(nid, ws)
     append_skeleton(path, nid)
-    r = subprocess.run(timer_cmd(ws, path, task, nid, answer), capture_output=True, text=True)
+    r = subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True)
     if r.returncode != 0:
         board._park_once(cc_bin(), ws, parent)
         sys.exit(f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}")
-    record_last(path, ws, task, chat, nid)
+    record_last(path, ws, task, chat, nid, project)
     board.arm_guard(nid, GUARD)
     arm_drift(nid)
     print(f"ws-handoff: #{nid} 交给 {name}", file=sys.stderr)
