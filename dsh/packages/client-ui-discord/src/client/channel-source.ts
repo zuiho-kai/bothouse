@@ -460,7 +460,7 @@ const CATCH_UP_LIMIT = 200
 /** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
 export class UploadTooLarge extends Error {
   constructor(readonly fileName: string, readonly size: number, readonly limit: number) {
-    super(`${fileName}: ${formatBytes(size)} > ${formatBytes(limit)}`)
+    super(`${fileName}：${formatBytes(size)} > ${formatBytes(limit)}`)
     this.name = 'UploadTooLarge'
   }
 }

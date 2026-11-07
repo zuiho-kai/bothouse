@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 3b65f069384c015bf034e135bfd3c3ed074b7c30d1ca14b1d2055ba8fb5741f5
+// dsh-client-source-sha256: fe0dde06814f9526e37528d1bf3081a41e3e8ae5bb95f8048e9d16c86d88e39b
 // dsh-style-sha256: 428f364695a1edfe0849075505515897bd44de2f323e253415d7fde4120b67d7
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -166,7 +166,7 @@ var UploadTooLarge = class extends Error {
 	size;
 	limit;
 	constructor(fileName, size, limit) {
-		super(`${fileName}: ${formatBytes(size)} > ${formatBytes(limit)}`);
+		super(`${fileName}：${formatBytes(size)} > ${formatBytes(limit)}`);
 		this.fileName = fileName;
 		this.size = size;
 		this.limit = limit;
