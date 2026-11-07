@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MessagesSquare, RotateCw } from 'lucide-react';
 import { Button, LoadingState, PageHeader } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { getForum, type ForumPost, type ForumResp, type ForumVoter } from '@/api/forum';
+import { getForum, type ForumPost, type ForumResp, type ForumThread, type ForumVoter } from '@/api/forum';
 import { forumTexts, type ForumTexts } from './texts';
 
 /**
@@ -12,6 +13,10 @@ import { forumTexts, type ForumTexts } from './texts';
  * `bothouse ctx` takes. Ranking is the gate's (forum_scores.py, Reddit best); this page only shows
  * it. Ported from the static page the user approved on 11-06 (vps-arm /opt/overflow-site/forum.py),
  * minus the full push/vote log the user did not ask for.
+ *
+ * 楼层帖 (#1177, user 11-07: one thread per question, every answer under it carries its own weight):
+ * the list shows threads; opening one (?t=<tid>) shows its answers ranked by votes, each with its floor
+ * number (by time), date and source page. Threads come from the gate (forum_page.threads).
  */
 
 /** Same tokens as wiki_search.toks / forum.py: CJK bigrams, latin words >= 2, numbers >= 3, #ids. */
@@ -41,7 +46,7 @@ function voterLabel(T: ForumTexts, v: ForumVoter) {
   return v.who === 'outcome' ? T.outcome : T.self(v.who.replace(/^self:/, ''));
 }
 
-function Post({ p, rank, T }: { p: ForumPost; rank: number | null; T: ForumTexts }) {
+function Post({ p, rank, T, tags }: { p: ForumPost; rank: number | null; T: ForumTexts; tags?: string[] }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard?.writeText(p.id).then(() => {
@@ -62,6 +67,9 @@ function Post({ p, rank, T }: { p: ForumPost; rank: number | null; T: ForumTexts
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2">
           {rank !== null && <span className="text-xs text-ink-mute">{rank}</span>}
+          {tags?.map((t) => (
+            <span key={t} className="rounded bg-surface-sunken px-1.5 text-[11px] text-ink-soft ring-1 ring-hairline">{t}</span>
+          ))}
           <span className="text-base font-semibold text-ink">{p.title || T.noText}</span>
           <button
             type="button"
@@ -116,16 +124,70 @@ export default function ForumPage() {
   useEffect(() => { load(); }, [load]);
 
   const forum = data?.forum;
+  const [params, setParams] = useSearchParams();
+  const open = params.get('t') || '';
   const ts = useMemo(() => toks(q), [q]);
+  const byKey = useMemo(() => {
+    const m = new Map<string, ForumPost>();
+    for (const p of forum?.posts ?? []) m.set(p.page + '#' + p.id, p);
+    return m;
+  }, [forum]);
+  // old gate without threads: every answer is its own thread
+  const threads: ForumThread[] = useMemo(
+    () =>
+      forum?.threads ??
+      (forum?.posts ?? []).map((p) => {
+        const k = p.page + '#' + p.id;
+        return { tid: 'p' + k, title: p.title, desc: '', floors: [k], top: k, latest: k, ups: p.ups, downs: p.downs, pushed: p.pushed, last: p.last, alive: p.alive };
+      }),
+    [forum],
+  );
   const { live, gone } = useMemo(() => {
-    const posts = (forum?.posts ?? []).filter((p) => {
+    const hit = threads.filter((t) => {
       if (!ts.length) return true;
-      const h = haystack(p);
-      return ts.every((t) => h.includes(t));
+      const h = [t.title, t.desc, ...t.floors.map((k) => (byKey.get(k) ? haystack(byKey.get(k)!) : ''))].join(' ').toLowerCase();
+      return ts.every((x) => h.includes(x));
     });
-    return { live: posts.filter((p) => p.alive), gone: posts.filter((p) => !p.alive) };
-  }, [forum, ts]);
-  const liveTotal = useMemo(() => (forum?.posts ?? []).filter((p) => p.alive).length, [forum]);
+    return { live: hit.filter((t) => t.alive), gone: hit.filter((t) => !t.alive) };
+  }, [threads, byKey, ts]);
+  const liveTotal = useMemo(() => threads.filter((t) => t.alive).length, [threads]);
+  const go = (tid: string) => setParams(tid ? { t: tid } : {});
+
+  const row = (t: ForumThread, rank: number | null) => {
+    const top = byKey.get(t.top);
+    return (
+      <button
+        key={t.tid}
+        type="button"
+        onClick={() => go(t.tid)}
+        data-testid="forum-thread"
+        className={cn('flex w-full gap-3 rounded-card bg-surface-raised px-3 py-2.5 text-left ring-1 ring-hairline hover:ring-accent-text', top?.folded && 'opacity-55')}
+      >
+        <div className="flex min-w-[52px] flex-col items-center text-[13px] tabular-nums">
+          <b className="text-ink">{T.floors(t.floors.length)}</b>
+          <span className="text-xs text-green-700 dark:text-green-400">▲ {t.ups}</span>
+          <span className="text-xs text-red-700 dark:text-red-400">▼ {t.downs}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            {rank !== null && <span className="text-xs text-ink-mute">{rank}</span>}
+            <span className="text-base font-semibold text-ink">{t.title || T.noText}</span>
+            {t.latest !== t.top && <span className="rounded border border-amber-500 px-1 text-[11px] text-amber-600">{T.disagree}</span>}
+          </div>
+          {t.desc && <div className="mt-0.5 text-sm text-ink-soft">{t.desc}</div>}
+          {top && (
+            <div className="mt-1 truncate text-sm text-ink-soft">
+              <span className="text-ink-mute">{T.best} · {T.floorNo(top.floor)}：</span>
+              {top.title}
+            </div>
+          )}
+          <div className="mt-0.5 text-xs text-ink-mute">{T.threadStats(t.pushed, when(t.last))}</div>
+        </div>
+      </button>
+    );
+  };
+
+  const cur = open ? threads.find((t) => t.tid === open) : undefined;
 
   let body;
   if (loading && !data) body = <LoadingState label={T.loading} />;
@@ -133,11 +195,39 @@ export default function ForumPage() {
   else if (!data?.running) body = <p className="text-sm text-ink-soft">{T.notRunning}</p>;
   else if (data.error || !forum) body = <p className="text-sm text-red-600">{T.loadFailed}：{data.error}</p>;
   else if (!forum.posts.length) body = <p className="text-sm text-ink-soft">{T.noData}</p>;
+  else if (open)
+    body = (
+      <>
+        <button type="button" onClick={() => go('')} className="text-sm text-accent-text hover:underline">
+          {T.back}
+        </button>
+        {!cur ? (
+          <p className="text-sm text-ink-soft">{T.threadMissing}</p>
+        ) : (
+          <>
+            <div data-testid="forum-thread-head">
+              <h2 className="text-lg font-semibold text-ink">{cur.title}</h2>
+              {cur.desc && <p className="mt-1 text-sm text-ink-soft">{cur.desc}</p>}
+              <p className="mt-1 text-xs text-ink-mute">{T.floors(cur.floors.length)} · ▲ {cur.ups} ▼ {cur.downs}</p>
+            </div>
+            <div className="space-y-2">
+              {cur.floors.map((k, i) => {
+                const p = byKey.get(k);
+                if (!p) return null;
+                const tags = [T.floorNo(p.floor)];
+                if (k === cur.latest && cur.floors.length > 1) tags.push(T.latest);
+                return <Post key={k} p={p} rank={i + 1} T={T} tags={tags} />;
+              })}
+            </div>
+          </>
+        )}
+      </>
+    );
   else
     body = (
       <>
         <div className="text-[13px] leading-relaxed text-ink-soft">
-          {T.summary(liveTotal, forum.rounds, forum.ups, forum.downs, forum.cited, when(forum.last_vote))}
+          {T.threadsSummary(liveTotal, forum.posts.filter((p) => p.alive).length, forum.rounds, forum.ups, forum.downs, when(forum.last_vote))}
           <br />
           {T.howRanked}
         </div>
@@ -151,15 +241,11 @@ export default function ForumPage() {
         />
         {ts.length > 0 && <div className="-mt-2 px-0.5 text-xs text-ink-mute">{T.hits(live.length + gone.length)}</div>}
         <h2 className="text-base font-semibold text-ink">{T.posts}</h2>
-        <div className="space-y-2">
-          {live.map((p, i) => <Post key={p.page + p.id} p={p} rank={i + 1} T={T} />)}
-        </div>
+        <div className="space-y-2">{live.map((t, i) => row(t, i + 1))}</div>
         {gone.length > 0 && (
           <details open={ts.length > 0}>
             <summary className="cursor-pointer text-sm text-ink-soft">{T.gone(gone.length)}</summary>
-            <div className="mt-2 space-y-2">
-              {gone.map((p) => <Post key={p.page + p.id} p={p} rank={null} T={T} />)}
-            </div>
+            <div className="mt-2 space-y-2">{gone.map((t) => row(t, null))}</div>
           </details>
         )}
       </>

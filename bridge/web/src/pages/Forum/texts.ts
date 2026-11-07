@@ -21,6 +21,15 @@ export interface ForumTexts {
   copy: string
   copied: string
   noText: string
+  threadsSummary: (threads: number, floors: number, rounds: number, ups: number, downs: number, last: string) => string
+  threadStats: (pushed: number, last: string) => string
+  floors: (n: number) => string
+  floorNo: (n: number) => string
+  back: string
+  latest: string
+  best: string
+  disagree: string
+  threadMissing: string
 }
 
 const zh: ForumTexts = {
@@ -46,6 +55,16 @@ const zh: ForumTexts = {
   copy: '点一下复制编号',
   copied: '已复制',
   noText: '（原文没找到）',
+  threadsSummary: (t, f, rounds, ups, downs, last) =>
+    `${t} 个帖子 · ${f} 楼回答 · 推送 ${rounds} 轮 · 计分票 赞 ${ups} / 踩 ${downs} · 最近一票 ${last || '—'}`,
+  threadStats: (pushed, last) => `各楼共被推 ${pushed} 次 · 最近 ${last || '—'}`,
+  floors: (n) => `${n} 楼`,
+  floorNo: (n) => `${n} 楼`,
+  back: '← 回帖子列表',
+  latest: '最新',
+  best: '最高分',
+  disagree: '最新一楼不是最高分那楼',
+  threadMissing: '这个帖子不在了，回列表看看',
 }
 
 const en: ForumTexts = {
@@ -71,6 +90,16 @@ const en: ForumTexts = {
   copy: 'Click to copy the id',
   copied: 'Copied',
   noText: '(original text not found)',
+  threadsSummary: (t, f, rounds, ups, downs, last) =>
+    `${t} threads · ${f} answers · ${rounds} pushes · votes ▲${ups} / ▼${downs} · last vote ${last || '—'}`,
+  threadStats: (pushed, last) => `answers pushed ${pushed} · last ${last || '—'}`,
+  floors: (n) => `${n} ${n === 1 ? 'answer' : 'answers'}`,
+  floorNo: (n) => `#${n}`,
+  back: '← Back to threads',
+  latest: 'latest',
+  best: 'top',
+  disagree: 'the latest answer is not the top one',
+  threadMissing: 'This thread is gone; go back to the list',
 }
 
 const ja: ForumTexts = {
