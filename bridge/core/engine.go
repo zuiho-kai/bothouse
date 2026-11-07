@@ -6038,7 +6038,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExitContext(ctx, p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -6254,8 +6254,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
 			state.mu.Lock()
 			p := state.platform
+			scheduled := state.turnScheduled
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, e.watchCardResult(state), turnStart)
+			// A scheduled turn's error is not the watched board item's failure (watchTurnEnded).
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, scheduled, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -7735,7 +7737,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				e.settleReportWake(jobID, text, nil)
 			}
 			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, e.watchCardResult(state), turnStart)
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, false, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 
@@ -8086,6 +8088,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// maomao fork: the user (/stop) or the gate (abort) cancelled this turn and was
 					// already told so; the agent's resulting error is expected — log only.
 					slog.Info("agent error after turn cancel suppressed", "session", sessionKey, "error", errMsg)
+					// The idle watch follows the same rule: someone ended this turn on purpose, so
+					// its error is not the watched board item's failure. 2026-11-06 06:05:49 board
+					// #170 counted a gate abort ("要她停") as its third failure and was stopped.
+					// A turn nobody interrupted never takes this branch and still counts.
+					turnFailed = false
 				} else if e.isStoppingForJournal() {
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
@@ -8095,6 +8102,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).
 					// A local input turn reports the error to its caller instead.
+					//
+					// The idle watch follows the same rule as for a scheduled or interrupted
+					// turn: this failure belongs to the model, not to the watched item.
+					// board.hold() above already declares "re-sent, one board row, no failure";
+					// an exhausted retry only cools down and re-delivers the same message, so
+					// counting this attempt would stop a board item that never failed. Live
+					// 2026-11-06 19:15 and 20:54 a relay 429 failed a workspace turn three
+					// times, the watch took all three (fails=3, reported=true) and asked the
+					// primary role to reassign work nobody had failed at.
+					turnFailed = false
 					state.mu.Lock()
 					if chainedQueued != nil {
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
