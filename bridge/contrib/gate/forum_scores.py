@@ -119,3 +119,39 @@ def entry_id(rel, line, root=None):
 def rerank(hits, root=None):
     """hits = 按相关度排好的 [(页, 行号, 原文, …)]：照 rank_key 稳定重排，低分折叠的沉到最后，一条不删。"""
     return sorted(hits, key=lambda h: rank_key(entry_id(h[0], h[2], root)))
+
+
+# ---- 楼层帖（#1177，用户 11-07「一个帖子…下面的回答你可能是错，也可能是对，但是每一个回答他都可以有个权重」）----
+# 归帖表 threads.json 和 votes.jsonl 同目录：{"threads": [{tid, title, desc, floors: [{floor, id: 页#哈希, date}]}]}。
+# wiki 行不加标记（加了行内容就变，编号和票全对不上），编号、搜索、lint 都不变；不在表里的条自成一帖。
+_tcache = {}
+
+
+def threads_path():
+    return path().parent / "threads.json"
+
+
+def thread_table():
+    """{楼编号: 帖子}，按修改时间重读；没有表返回空。"""
+    p = threads_path()
+    stamp = (p, _mtime(p))
+    if _tcache.get("stamp") != stamp:
+        by = {}
+        try:
+            for th in json.loads(p.read_text(encoding="utf-8")).get("threads", []):
+                for f in th.get("floors", []):
+                    by[f["id"]] = th
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        _tcache.update(stamp=stamp, data=by)
+    return _tcache["data"]
+
+
+def thread_of(cid):
+    """这条所在的帖子（只有一楼的也返回）；不在表里返回 None。"""
+    return thread_table().get(cid)
+
+
+def floors_ranked(th):
+    """帖内各楼按票排：同 rank_key（折叠的沉底，Wilson 下界高的在前）；同分时新楼在前（旧说法可能已过时）。"""
+    return sorted(th.get("floors", []), key=lambda f: (rank_key(f["id"]), -f.get("floor", 0)))

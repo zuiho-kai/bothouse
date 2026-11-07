@@ -150,14 +150,68 @@ def match_wiki(text, k=TOP_PAGES, root=None):
     hits = [h for h in idx.search(query(text)) if is_item(h[2])]  # 前 10 行，去掉标题行
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
+    shown_th = set()
     for rel, ln, line in hits:  # 按首次出现排页
+        th = _thread(rel, line, root)
+        if th and th["tid"] in shown_th:
+            continue  # 同一帖的别的楼已经推过标题和最高分楼
         if rel not in pages:
             if len(pages) == k:
                 continue
             pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
+        if th:
+            shown_th.add(th["tid"])
+            rows = _thread_rows(th, rel, root)
+            if rows:
+                pages[rel]["rows"] += rows
+                continue
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
         pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in pages.items()]
+
+
+def _thread(rel, line, root):
+    """命中行所在的楼层帖（#1177）；只有一楼、或没装归帖表（forum_scores 旧版）时 None，照旧推这一行。"""
+    if not FORUM or not hasattr(FORUM, "thread_of"):
+        return None
+    th = FORUM.thread_of(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))
+    return th if th and len(th.get("floors", [])) > 1 else None
+
+
+def _floor_line(cid):
+    """楼编号 页#哈希 → (页文件, 行号, 原文)；页里已没有这行返回 None（挪进历史、改写过的楼不推）。"""
+    page, _, h = cid.partition("#")
+    f = Path.home() / page[2:] if page.startswith("~/") else Path(page) if os.path.isabs(page) else WIKI / page
+    try:
+        lines = f.read_text(encoding="utf-8", errors="ignore").split("\n")
+    except OSError:
+        return None
+    for n, x in enumerate(lines, 1):
+        if x.strip() and hashlib.sha1(x.strip().encode()).hexdigest()[:10] == h:
+            return f, n, x
+    return None
+
+
+def _thread_rows(th, rel, root):
+    """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
+    别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
+    floors = {f["id"]: f for f in th["floors"]}
+    found = [(f, _floor_line(f["id"])) for f in FORUM.floors_ranked(th)]
+    found = [(f, x) for f, x in found if x and is_item(x[2])]
+    if not found:
+        return []
+    top = found[0]
+    latest = max(found, key=lambda t: t[0].get("floor", 0))
+    here = ((root or WIKI) / rel).resolve()
+    out = []
+    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) else []):
+        where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
+        u, d = FORUM.counts(f["id"])
+        head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
+        fold = FORUM.label(f["id"])
+        out.append(_row(file.as_posix(), line, f"{where}: {head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
+                        root=Path("/"), ln=n))
+    return out
 
 
 def context(req):
