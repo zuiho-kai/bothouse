@@ -1239,6 +1239,88 @@ test('DSH member recovery: shares the per-member queue with new mentions', async
   assert.equal(hub.store.openJobs().length, 1, 'the new job is admitted after recovery');
 });
 
+test('#299 /stop typed in the channel cancels the running DSH turn at once, not after it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 跑个长命令' });
+  await settle();
+  const ds = dsh.sessions.get(dsh.made[0]);
+  // The turn is running: it consumed its input and no turn/end has come.
+  dsh.emit(ds, 'turn/start', { turn: 1 });
+  dsh.emit(ds, 'user/message', ds.inbox.nextTurn[0]);
+  dsh.emit(ds, 'assistant/message', { message: { content: [{ type: 'text', text: '还在跑' }] } });
+  await settle();
+  const job = hub.store.openJobs().find(j => j.member_id === 'ds');
+  assert.equal(job.state, 'sent', 'the job is in its turn, not queued');
+
+  // A person stops it. The old code addJob+enqueue'd this, so it waited for the turn to end.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /stop' });
+  await settle();
+  assert.deepEqual(ds.cancels, [[{ kind: 'user' }, { keepInbox: true }]], 'agent.cancel runs right away, out of band');
+  assert.equal(hub.store.job(job.id).state, 'interrupted', 'the job ends as interrupted, not completed');
+  assert.equal(hub.store.openJobs().length, 0, '/stop added no job of its own to the queue');
+  assert.equal(hub.store.page(1, undefined, 50).at(-1).text, '⏹ 已停下 DeepSeek 这一轮。');
+  // Qwen was not @-ed and did not run: nothing of it is stopped or queued.
+  assert.equal(dsh.sessions.has(hub.store.binding('qw', 1)?.session_id), false);
+});
+
+test('#299 /stop all cancels every running DSH member in this room, and only here', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  // Two members running in room 1.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 一' });
+  await settle();
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Qwen 二' });
+  await settle();
+  const ds = dsh.sessions.get(dsh.made[0]);
+  const qw = dsh.sessions.get(dsh.made[1]);
+  for (const [agent, n] of [[ds, 1], [qw, 1]]) {
+    dsh.emit(agent, 'turn/start', { turn: n });
+    dsh.emit(agent, 'user/message', agent.inbox.nextTurn[0]);
+  }
+  await settle();
+  // And one in room 2, which this stop must not touch.
+  hub.post(2, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 三' });
+  await settle();
+  const away = dsh.sessions.get(dsh.made[2]);
+  dsh.emit(away, 'turn/start', { turn: 1 });
+  dsh.emit(away, 'user/message', away.inbox.nextTurn[0]);
+  await settle();
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '/stop all' });
+  await settle();
+  assert.deepEqual(ds.cancels, [[{ kind: 'user' }, { keepInbox: true }]]);
+  assert.deepEqual(qw.cancels, [[{ kind: 'user' }, { keepInbox: true }]]);
+  assert.deepEqual(away.cancels, [], 'another room keeps running');
+  assert.match(hub.store.page(1, undefined, 50).at(-1).text, /已停下 DeepSeek、Qwen 这一轮。/);
+  assert.equal(hub.store.openJobs().filter(j => j.room_id === 2).length, 1, 'the other room still has its job');
+});
+
+test('#299 /stop with nothing running says so and does not queue a turn', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /stop' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.equal(dsh.made.length, 0, 'no Session is started to read a stop word');
+  assert.equal(hub.store.page(1, undefined, 10).at(-1).text, '⏹ 没有在跑的活。');
+});
+
+test('#299 /stop from a teammate is not the owner command: it stays an ordinary mention', async () => {
+  // The bridge forwards a person's command stripped of its @; a teammate writing "/stop"
+  // in prose is not the owner's order and keeps the old path (a job for that member).
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'ju', name: '橘' }]);
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek /stop' });
+  await settle();
+  assert.equal(dsh.made.length, 1, 'a teammate still asks the member to run');
+});
+
 test('DSH member: close drains waiting jobs before the store closes', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();

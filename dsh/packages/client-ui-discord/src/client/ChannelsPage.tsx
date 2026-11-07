@@ -1080,10 +1080,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     : matchCommands(slash, key => t(key)).filter(c => dmWith === undefined || (c.name !== 'stop all' && c.name !== 'board'))
   const slashOpen = slashCommands.length > 0
   const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
-  // #1017: bothouse bots answering in this room; the send key stops one of them (the primary
-  // role first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  // #1017: agents answering in this room; the send key stops one of them (the primary role
+  // first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  // #299: a DSH member counts too — its stop key sends `@name /stop`, which DSH now honours out of
+  // band (dsh-member.mjs plan). It used to be bots only, so the key never appeared for a DSH team.
   const workingBots = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
-    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && m.kind === 'bot')
+    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && (m.kind === 'bot' || m.kind === 'dsh'))
   const stopTarget = workingBots.find(m => m.id === commandTarget?.id) ?? workingBots[0]
   const roomFiles = state.roomId === undefined ? [] : pendingFiles[state.roomId] ?? []
   const stopMode = (stopTarget !== undefined || stopping?.phase === 'stopping') && draft.trim() === '' && roomFiles.length === 0
