@@ -268,6 +268,39 @@ func TestSocial_ReplacePublishesThenDeletes(t *testing.T) {
 	}
 }
 
+// TestSocial_ReplaceRefusesPrivateOldPost：「仅部分人可见」的旧条不能换。上游只给一个
+// is_private 布尔，分不出好友可见/部分好友/仅自己/部分不可见；而 send_qzone_msg 不传
+// ugc_right 时缺省是 1（所有人可见）。换一条就等于把有范围的说说变公开、再删掉旧的，
+// 不可逆。所以一个请求都不发。
+func TestSocial_ReplaceRefusesPrivateOldPost(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "get_qzone_msg_list" {
+			return 0, map[string]any{"total": 1, "msglist": []any{
+				// NapCat 在 data/qzone-snowluma.ts:159 已经把 secret≠0 翻成 is_private，
+				// 面板与这里读到的就是这个布尔，拿不到具体的 ugc_right。
+				map[string]any{"tid": "old-tid", "content": "只有几个人看得到", "is_private": true},
+			}}
+		}
+		return 0, map[string]any{"tid": "new-tid"}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	if err == nil {
+		t.Fatal("旧条只有部分人可见时该拒绝")
+	}
+	if n := len(f.calls("send_qzone_msg")); n != 0 {
+		t.Fatalf("旧条有可见范围限制还发了 %d 次新的——那会把它变成公开", n)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("旧条有可见范围限制还删了 %d 次", n)
+	}
+	if !strings.Contains(err.Error(), "所有人可见") || !strings.Contains(err.Error(), "先不动它") {
+		t.Fatalf("错误要说清为什么不能换、旧的没动：%q", err.Error())
+	}
+}
+
 // TestSocial_ReplaceRefusesWhenOldPostUnreadable：读不回原来那条就不知道它带没带
 // 图，这时候一个新请求都不该发出去——宁可不换，也不能发个没图的再把原的删了。
 func TestSocial_ReplaceRefusesWhenOldPostUnreadable(t *testing.T) {

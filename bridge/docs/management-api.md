@@ -1241,6 +1241,17 @@ published with the new post, so "replace" never drops them. When the old post ca
 fails and the original stays. Better no replace than a picture-less copy after deleting the one
 with pictures.
 
+**Visibility**: when the old post is marked "visible to some people only", the call is refused
+(`400`) and **nothing is published**. Upstream gives only a boolean (`is_private`, derived from
+whether `secret` is 0); it cannot tell friend-only, some-friends, private and hidden-from-some
+apart, and posting without `ugc_right` defaults to 1 (everyone). Replacing that way would turn a
+restricted post into a public one, and deleting the old one makes it irreversible, so the call
+does not guess — change it in QQ by hand instead.
+
+**What else does not carry over**: comments, likes, the publish time and the `tid` all change.
+Replace means "publish a new one, delete the old one", not an in-place edit; the panel's
+confirmation text says so too.
+
 The flag is `capabilities.replace_moment`; when a platform does not implement `MomentReplacer`
 the panel hides the button and the route answers `501`.
 
@@ -1554,7 +1565,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
 | 1.2-draft | 2026-11-05 | Add optional QQ 说说 / avatar routes (`/projects/{name}/social…`), off unless `allow_qzone` / `allow_avatar` |
-| 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment` |
+| 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment`; posts visible to some people only are refused |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |

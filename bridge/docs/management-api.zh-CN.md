@@ -1201,6 +1201,15 @@ allow_avatar = true   # 换这个号自己的头像
 不在最近 50 条里、或列表读失败）**一个新请求都不发**，直接失败并保留原文——宁可不换，
 也不发一条没图的再把带图的删掉。
 
+**可见范围**：原来那条标着「仅部分人可见」时**直接拒绝（400），一个新请求都不发**。
+上游只给一个布尔（`is_private`，来自 `secret` 是否为 0），分不出好友可见、部分好友、
+仅自己、部分不可见这四种，而发说说不传 `ugc_right` 时的缺省值是 1（所有人可见）。
+照这样换等于把有范围限制的说说变成公开的，删掉旧的之后不可逆，所以不猜、不换。
+要改就在 QQ 里手动改。
+
+**带不过去的还有**：评论、点赞、发布时间、`tid` 都会变——换说说本质是「发新的、删旧的」，
+不是原地编辑。这一点面板的确认文案里也写了。
+
 能力开关是 `capabilities.replace_moment`；平台没实现 `MomentReplacer` 时面板不显示按钮、
 接口回 `501`。
 
@@ -1482,7 +1491,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
 | 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
-| 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment` |
+| 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 

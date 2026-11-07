@@ -363,6 +363,9 @@ func socialStatus(err error) int {
 		return http.StatusForbidden
 	case errors.Is(err, ErrSocialUnsupported):
 		return http.StatusNotImplemented
+	case errors.Is(err, ErrSocialCannotReplace):
+		// 不是上游坏了，是这条说说本身不能这么换（例：仅部分人可见）。
+		return http.StatusBadRequest
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return http.StatusGatewayTimeout
 	}

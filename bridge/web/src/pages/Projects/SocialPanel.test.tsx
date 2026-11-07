@@ -156,4 +156,17 @@ describe('social replace', () => {
     expect(byTestId(container, 'social-editor-tid-1')).not.toBeNull();
     expect(byTestId(container, 'social-failed')?.textContent).toContain('两条');
   });
+
+  it('does not offer to replace a post that only some people can see', async () => {
+    const limited = { ...moment, private: true };
+    const container = await renderPanel({ replace_moment: true }, [limited]);
+
+    // 不给按钮：上游说不出是好友可见、部分好友还是仅自己，换一条就会变成所有人可见。
+    expect(byTestId(container, 'social-replace-tid-1')).toBeNull();
+    const note = byTestId(container, 'social-replace-private-tid-1');
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain('QQ');
+    // 删还是可以删的，这里不改删除的能力。
+    expect(byTestId(container, 'social-delete-tid-1')).not.toBeNull();
+  });
 });

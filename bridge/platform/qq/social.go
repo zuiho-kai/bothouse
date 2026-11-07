@@ -203,6 +203,14 @@ func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Mom
 		// 丢了图的「新版」再把原来的删掉。
 		return core.Moment{}, fmt.Errorf("qq: 换说说：读不回原来那条，先不动它: %w", err)
 	}
+	if old.Private {
+		// 上游只给一个 is_private 布尔（napcat-core/data/qzone-snowluma.ts:159，源自
+		// secret 是否为 0），分不出「好友可见 / 部分好友 / 仅自己 / 部分不可见」这
+		// 四种，而 send_qzone_msg 不传 ugc_right 时的默认值是 1 = 所有人可见
+		// （napcat-onebot/action/extends/SendQzoneMsg.ts:16）。照这样换，等于把一条
+		// 有范围限制的说说换成公开的，而且删掉旧的之后不可逆——所以不猜，直接不发。
+		return core.Moment{}, fmt.Errorf("qq: 换说说：原来那条是「仅部分人可见」，上游只能告诉我们是或不是、说不出具体范围，换一条会把它变成所有人可见，所以先不动它（要改的话在 QQ 里手动改）: %w", core.ErrSocialCannotReplace)
+	}
 	carry, err := imagesForCarryOver(old)
 	if err != nil {
 		// 旧说说上的图带不过去（不是 http(s) 链接），同样不能发个没图的再删原的。
@@ -232,8 +240,8 @@ func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Mom
 // 50 条），再老的说说不在这批里，此时按「读不回」处理，宁可不换也不丢图。
 const qzoneReplaceLookback = 50
 
-// momentByID 读回自己的一条说说。换说说要靠它拿到旧说说自带的图，才能把图原样
-// 带到新的一条上；读不到就是读不到，不做猜测。
+// momentByID 读回自己的一条说说。换说说要靠它拿到旧说说自带的图和可见范围，
+// 才能决定「能不能换」并把图原样带到新的一条上；读不到就是读不到，不做猜测。
 func (p *Platform) momentByID(ctx context.Context, id string) (core.Moment, error) {
 	moments, err := p.ListMoments(ctx, qzoneReplaceLookback)
 	if err != nil {

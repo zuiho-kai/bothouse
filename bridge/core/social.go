@@ -25,6 +25,12 @@ var ErrSocialDisabled = errors.New("social action not enabled in config")
 // account is on Discord, or the OneBot implementation lacks the extension).
 var ErrSocialUnsupported = errors.New("platform does not support this action")
 
+// ErrSocialCannotReplace means the platform understood the request and refused it on
+// purpose: the post cannot be replaced without changing something the person set (how
+// many people can see it). It is the caller's mistake to have asked, not an upstream
+// failure, so it maps to 400 rather than 502.
+var ErrSocialCannotReplace = errors.New("this post cannot be replaced as it is")
+
 // Moment is one post on the bot's own timeline.
 type Moment struct {
 	ID      string    `json:"id"`   // platform id, used to delete or replace it; "" when unknown
@@ -89,12 +95,14 @@ type MomentReplacer interface {
 	// ReplaceMoment replaces post id with text and returns the one that now
 	// carries the words.
 	//
-	// There is no images parameter on purpose. Everything the old post carried
-	// besides its words — pictures above all — belongs to the old post, and an
-	// implementation must carry it over itself: it is the only side that can
-	// read the post back. When it cannot read the old post, it must fail before
-	// publishing anything rather than publish a copy that silently lacks the
-	// pictures, because the old post is deleted afterwards.
+	// There is no images parameter on purpose. The parts of the old post that
+	// change how it can be seen — its pictures, and whether it was limited to
+	// some people — belong to the old post, and an implementation must read them
+	// back itself: it is the only side that can. When it cannot read the old
+	// post, or cannot reproduce those parts, it must fail before publishing
+	// anything rather than publish a copy that silently lacks them, because the
+	// old post is deleted afterwards. Comments, likes and the publish time do
+	// not carry over; that is a known limit of replace, not a failure.
 	//
 	// The returned Moment has an empty ID when the new post went out but the
 	// platform did not say which one it is; that is outcome 3 above, never a

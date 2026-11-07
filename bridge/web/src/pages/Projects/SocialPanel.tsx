@@ -250,7 +250,7 @@ export default function SocialPanel({ project }: { project: string }) {
                         </p>
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        {canReplace && m.id && editing !== m.id && (
+                        {canReplace && m.id && editing !== m.id && !m.private && (
                           <Button
                             variant="secondary"
                             onClick={() => startReplace(m)}
@@ -260,6 +260,16 @@ export default function SocialPanel({ project }: { project: string }) {
                             <Pencil size={14} />
                             {T.replace}
                           </Button>
+                        )}
+                        {canReplace && m.id && m.private && (
+                          // 上游只说「仅部分人可见」，说不出是哪一种；换一条会变成所有人可见。
+                          // 后端也已经拒了（400），这里先不让人点，并说明去哪儿改。
+                          <p
+                            className="max-w-[16rem] text-right text-[12px] text-ink-mute"
+                            data-testid={`social-replace-private-${m.id}`}
+                          >
+                            {T.replacePrivateBlocked}
+                          </p>
                         )}
                         <Button
                           variant="secondary"

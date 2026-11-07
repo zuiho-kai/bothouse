@@ -351,6 +351,27 @@ func TestMgmt_SocialReplaceOffIsForbidden(t *testing.T) {
 	}
 }
 
+// TestMgmt_SocialReplaceRefusedBecauseOfVisibilityIs400：平台拒绝（例：旧条仅部分人可见）
+// 不是上游坏了，是这条说说不能这么换，该回 400 而不是 502，并且说明是哪儿的问题。
+func TestMgmt_SocialReplaceRefusedBecauseOfVisibilityIs400(t *testing.T) {
+	plat := &fakeSocialPlatform{
+		replaceErr: fmt.Errorf("换说说：原来那条是「仅部分人可见」，先不动它: %w", ErrSocialCannotReplace),
+	}
+	ts, _ := engineWithSocial(t, plat)
+
+	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "新的"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("可见范围导致不能换时该 400，实际 %d %s", code, resp.Error)
+	}
+	if !strings.Contains(resp.Error, "仅部分人可见") {
+		t.Fatalf("错误要说清为什么：%q", resp.Error)
+	}
+	if len(plat.replaced) != 0 {
+		t.Fatalf("拒绝了还改了 %d 条", len(plat.replaced))
+	}
+}
+
 // TestMgmt_SocialReplaceWithoutInterfaceIs501：只实现 MomentPoster、没有
 // MomentReplacer 的平台不能换，接口回 501 且能力报 false，面板因此不摆那个按钮。
 func TestMgmt_SocialReplaceWithoutInterfaceIs501(t *testing.T) {
