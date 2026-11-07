@@ -109,7 +109,7 @@ func TestWatchChatBoardItemsWithoutAcceptAreNotWatched(t *testing.T) {
 		map[string]any{"id": 1167, "what": "桥 bug：主频道看门", "status": "在做", "who": "橘", "sk": "discord:chatA"},
 	)
 	for _, reply := range []string{"NO_REPLY", "看了一下，先这样", "接着做 #1162 的验收"} {
-		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, time.Time{})
+		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, false, time.Time{})
 		if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 0 {
 			t.Fatalf("%q: board items alone must not watch the chat channel, got %+v", reply, got)
 		}
@@ -127,7 +127,7 @@ func TestWatchWorkspaceBoardItemWithoutAcceptIsWatched(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:ws1", "chat": "discord:chat1"})
-	e.watchTurnEnded(e.platforms[0], "discord:ws1", "先读了交接，接下来改接口", true, false, false, time.Time{})
+	e.watchTurnEnded(e.platforms[0], "discord:ws1", "先读了交接，接下来改接口", true, false, false, false, time.Time{})
 	if got := scriptWatchesOf(e, "discord:ws1"); len(got) != 1 || got[0].Board != 9 {
 		t.Fatalf("a workspace's active board item must stay watched, got %+v", got)
 	}
