@@ -18,6 +18,12 @@ proj=${CC_PROJECT:-}
 sk=${CC_SESSION_KEY:-${CC_SESSION:-}}
 [ -n "$proj" ] && [ -n "$sk" ] || { echo "later：没有 CC_PROJECT / CC_SESSION_KEY（或 CC_SESSION），只能在 cc-connect 会话里用" >&2; exit 1; }
 export CC_SESSION_KEY=$sk   # board 按它记频道
+# 续挂上限（2026-11-07：龙娘等外部样本，一天续挂 247 次、跑掉约 2 亿 token）：同一角色同一件 24 小时内最多挂 6 次
+n=$(python3 -I -c 'import json,os,sys,datetime as d
+p=os.path.expanduser("~/.bothouse/timers/jobs.json"); L=json.load(open(p)) if os.path.exists(p) else []
+L=L if isinstance(L,list) else L.get("jobs",[]); now=d.datetime.now(d.timezone.utc)
+print(sum(1 for t in L if t.get("project")==sys.argv[1] and "任务板 #"+sys.argv[2]+"：" in t.get("prompt","") and (now-d.datetime.fromisoformat(t["created_at"])).total_seconds()<86400))' "$proj" "$id" 2>/dev/null || echo 0)
+[ "$n" -lt 6 ] || { echo "later：#$id 这 24 小时已挂 $n 次，不再挂。在等外部的就 board pause $id \"等…\"，有消息再接；真要接着盯，交给主角色定。" >&2; exit 1; }
 cc=${CC_BIN:-}
 if [ -z "$cc" ]; then
   cc=$(command -v bothouse || command -v cc-connect) || { echo "later：找不到 bothouse / cc-connect（可设 CC_BIN）" >&2; exit 1; }
