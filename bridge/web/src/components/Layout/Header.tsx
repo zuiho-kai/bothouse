@@ -95,7 +95,8 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
       {/* Language */}
       <div className="relative" ref={langRef}>
-        <button type="button" onClick={() => setLangOpen(!langOpen)} className={cn(iconBtn, 'w-auto gap-1 px-2')}>
+        {/* #205: iconBtn is a one-column grid, so icon + label stacked and 「中文」 wrapped to two lines; lay them out in a row. */}
+        <button type="button" onClick={() => setLangOpen(!langOpen)} className={cn(iconBtn, 'w-auto sm:w-auto grid-flow-col auto-cols-max gap-1 whitespace-nowrap px-2')}>
           <Languages size={16} />
           <span className="hidden text-xs sm:inline">{languages.find(l => l.code === i18n.language)?.label}</span>
         </button>

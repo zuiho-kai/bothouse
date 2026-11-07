@@ -141,21 +141,10 @@ func refreshTray(path string) {
 		}
 		rolesKnown := false
 		var roleStatus struct {
-			Roles []struct {
-				Name   string `json:"name"`
-				Online bool   `json:"online"`
-			} `json:"roles"`
+			Roles []trayRole `json:"roles"`
 		}
 		if c.get("/api/v1/roles", &roleStatus) == nil {
-			labels := make([]string, 0, len(roleStatus.Roles))
-			for _, r := range roleStatus.Roles {
-				state := "离线"
-				if r.Online {
-					state = "在线"
-				}
-				labels = append(labels, r.Name+" "+state)
-			}
-			trayRoles.SetTitle(compact("角色："+strings.Join(labels, "、"), 55))
+			trayRoles.SetTitle(trayRolesTitle(roleStatus.Roles))
 			rolesKnown = true
 		}
 		if !rolesKnown {

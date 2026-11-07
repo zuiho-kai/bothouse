@@ -92,10 +92,24 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   assert.equal((await call(1, 'new')).status, 200);
   assert.equal(events.at(-1).rooms.find(r => r.id === 1).name, 'new');
   assert.deepEqual(refreshed, [1]);
-  for (const name of ['', 'x'.repeat(33), 'two words', 'name\n']) assert.equal((await call(1, name)).status, 400);
+  for (const name of ['', '   ', 'x'.repeat(33), 'two words']) assert.equal((await call(1, name)).status, 400);
+  // #176: rename normalizes like create does (trim, drop one leading '#').
+  assert.equal((await call(1, '  new  ')).status, 200);
+  assert.equal(hub.store.room(1).name, 'new');
+  // #176: renaming onto another channel's name, or onto 工作区<n>, is a conflict, not a silent duplicate.
+  hub.store.ensureRoom(2, 'other');
+  assert.equal((await call(1, 'other')).status, 409);
+  assert.equal((await call(1, '工作区9')).status, 409);
+  // #176: create strips a leading '#' (the list shows names with one), so rename must too —
+  // otherwise '#new' was a second "new" on the same list.
+  assert.equal((await call(1, '#other')).status, 409);
+  assert.equal((await call(1, '#工作区9')).status, 409);
+  assert.equal((await call(1, '#fresh')).status, 200);
+  assert.equal(hub.store.room(1).name, 'fresh');
   assert.equal((await call(ws.id, 'new')).status, 400);
   assert.equal((await call(999, 'new')).status, 404);
-  assert.deepEqual(refreshed, [1]);
+  // Only the successful renames above ('new', 'fresh', 'new' again) reach the tab-title refresh.
+  assert.deepEqual(refreshed, [1, 1, 1]);
   hub.store.close();
 });
 
@@ -144,6 +158,25 @@ test('channel rename: the persisted name survives reopening the database', async
   assert.equal(reopened.room(1).name, '新频道');
   assert.equal(reopened.workspacePath(1, '/fallback'), '/changed');
   reopened.close();
+});
+
+test('#176: channel names are unique and a workspace-shaped name is refused', () => {
+  const s = new Store(':memory:');
+  s.ensureRoom(1, 'general');
+  const dev = s.createRoom('dev');
+  // Two #general in the sidebar are indistinguishable: a second channel takes no existing name.
+  assert.throws(() => s.createRoom('general'), e => e.code === 'conflict' && /already in use/.test(e.message));
+  assert.throws(() => s.createRoom('General'), e => e.code === 'conflict');
+  assert.throws(() => s.renameRoom(dev.id, 'general'), e => e.code === 'conflict');
+  // 工作区<n> is how a workspace is addressed; a chat channel must not shadow it.
+  assert.throws(() => s.createRoom('工作区9'), e => e.code === 'conflict' && /reserved/.test(e.message));
+  assert.throws(() => s.renameRoom(dev.id, '工作区9'), e => e.code === 'conflict');
+  // Renaming a channel onto its own name stays fine, and a private chat does not hold its name.
+  assert.equal(s.renameRoom(dev.id, 'dev').name, 'dev');
+  s.addMember({ id: 'm-a', name: 'probe', rooms: [1] });
+  s.openDm('m-a', 'probe');
+  assert.equal(s.createRoom('probe').name, 'probe');
+  s.close();
 });
 
 test('channel rename: refreshes loaded and persisted sessions, workspaces and future sessions', async () => {
@@ -1370,7 +1403,18 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   const renamed = await roster.update('coder', { name: '码农', model: { provider: 'relay', model: 'm1' }, persona: '' });
   assert.equal(renamed.name, '码农');
   assert.equal(hub.members.get('coder').name, '码农');
+  // #176: a removed member must not stay the channel's primary role — the settings dialog can
+  // neither show nor clear a dead id, and repointing to it is refused.
+  hub.store.ensureRoom(7, 'lead-room');
+  hub.store.setLead(7, 'coder');
+  assert.equal((hub.primaryIn(7) ?? {}).id, 'coder');
+  const roomEvents = [];
+  const emit = hub.emit.bind(hub);
+  hub.emit = event => { roomEvents.push(event); return emit(event); };
   roster.remove('coder');
+  assert.equal(hub.store.leadId(7), null);
+  assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
   assert.equal(hub.store.members().some(m => m.id === 'coder'), false);
@@ -6338,4 +6382,123 @@ test('roster: a default-named member from before name_customized was stored is r
     assert.deepEqual(await roster.importWizard(file), [], `wizard run ${i + 1}`);
   }
   assert.deepEqual(hub.store.members().map(r => r.name), ['DSH']);
+});
+
+test('#155: a closed private chat leaves the room list, keeps its history, and openDm brings it back', () => {
+  const store = new Store(':memory:');
+  store.addMember({ id: 'm-a', name: 'A' });
+  const dm = store.openDm('m-a', 'A');
+  store.append(dm.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hi' });
+  assert.ok(store.roomsView().some(r => r.id === dm.id));
+  store.closeDm(dm.id);
+  assert.equal(store.roomsView().some(r => r.id === dm.id), false);
+  assert.throws(() => store.closeDm(store.createRoom('general').id), /not a private chat/);
+  const again = store.openDm('m-a', 'A');
+  assert.equal(again.id, dm.id);
+  assert.ok(store.roomsView().some(r => r.id === dm.id));
+  assert.equal(store.page(dm.id).length, 1);
+});
+
+test('#155: a removed member\'s private chat is left out; a member without a stored row keeps its chat', () => {
+  const store = new Store(':memory:');
+  store.addMember({ id: 'm-gone', name: 'Gone' });
+  const gone = store.openDm('m-gone', 'Gone');
+  const bridge = store.openDm('cjiang', 'C酱'); // bridge roles join over cloud_web and have no members row
+  store.removeMember('m-gone');
+  const ids = store.roomsView().map(r => r.id);
+  assert.equal(ids.includes(gone.id), false);
+  assert.ok(ids.includes(bridge.id));
+});
+
+test('CLI configured member: collab dispatch applies fake ACP options before prompt', async () => {
+  const { CliMember } = await import('./cli-member.mjs');
+  const hub = makeHub(); const calls = [];
+  const options = (value) => [{ id:'model', type:'select', currentValue:value, options:[{value:'base',name:'Base'},{value:'chosen',name:'Chosen'}] }];
+  const agent = new CliMember({ cli:'codex', cwd:'/w' });
+  agent._start = async () => {
+    agent.ready=Promise.resolve({}); agent.exited=new Promise(()=>{}); agent.canLoad=true;
+    agent.conn={
+      newSession:async()=>({sessionId:'fake-acp',configOptions:options('base')}),
+      setSessionConfigOption:async({value})=>{calls.push('set:'+value);return {configOptions:options(value)};},
+      prompt:async({sessionId})=>{calls.push('prompt');agent.buffers.set(sessionId,'ok');return {};},
+    }; return agent.ready;
+  };
+  agent._defaultOptions = async () => options('base');
+  const members=cliMembers(hub,(...args)=>agent.ask(...args));
+  members.putMember({id:'cc',name:'CC',cli:'codex',cliConfig:{model:'chosen'},cliConfigManaged:true});
+  hub.post(1,{authorKind:'user',author:'owner',name:'我',text:'@CC test'}); await settle();
+  assert.deepEqual(calls,['set:chosen','prompt']);
+  assert.equal(hub.store.binding('cc',1).session_id,'fake-acp');
+  await members.close();hub.store.close();
+});
+
+// #221 (11-06 09:25): the bridge watch posts its wake and escalation as the lead; DSH opened 「#6 接着做 -」
+// and 「#7 接着做 什么东西属于你…」 from them. A watch post dispatches nothing; a real dispatch still does.
+test('tasks: the bridge watch wake and escalation posted as the lead open no task', async () => {
+  const { tasks, say } = g34Setup();
+  for (const text of [
+    '@副 接着做 -，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完再结束本轮，交回时第一行写 [report]',
+    '看门：@副「-」连续叫醒两次仍未继续，请主角色接手。',
+    '看门：副「#219 修头像」连续两次报错，已停止自动接着做，请主角色换人或接手。',
+    '@副 Continue the login page and finish it; when done, start the reply with [report]',
+  ]) say(1, text, 'zhu');
+  await settle();
+  assert.deepEqual(tasks.list(1).filter(r => r.owner === 'fu'), [], 'watch posts open no task');
+  say(1, '@副 接着做登录页', 'zhu');
+  await settle();
+  assert.deepEqual(tasks.list(1).filter(r => r.owner === 'fu').map(r => r.title), ['接着做登录页'], 'a lead dispatch still opens one');
+});
+
+test('tasks: normal lead dispatch with report instructions still opens a task', async (t) => {
+  for (const text of [
+    '@副 实现登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 實作登入頁，做完再結束本輪，交回時第一行寫 [report]',
+    '@副 Implement login and finish it; when done, start the reply with [report]',
+    '@副 ログイン画面を実装。完了したら返信の1行目を [report] にしてください',
+    '@副 Implementa acceso; al terminar, empieza la respuesta con [report]',
+    '@副 实现登录页，参考叫醒文案：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 实现登录页\n叫醒示例：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]，并附截图',
+  ]) {
+    await t.test(text, async (t) => {
+      const { hub, tasks, say } = g34Setup();
+      t.after(() => { tasks.close(); hub.store.close(); });
+      say(1, text, 'zhu');
+      await settle();
+      assert.equal(tasks.list(1).length, 1, 'report instructions alone are not a watch wake');
+      assert.equal(tasks.list(1)[0].owner, 'fu');
+    });
+  }
+});
+
+test('tasks: lead watch notices leave a returned chat task unchanged', async (t) => {
+  for (const text of [
+    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '看门：@副「登录页」连续叫醒两次仍未继续，请主角色接手。',
+    '@副 Continue the login page and finish it; when done, start the reply with [report]',
+    '@副 接著做 登入頁，做完再結束本輪，交回時第一行寫 [report]',
+    '@副 ログイン画面 を続けて完了させてください。完了したら返信の1行目を [report] にしてください',
+    '@副 Continúa acceso hasta terminarlo; al terminar, empieza la respuesta con [report]',
+    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]\n交接文件：isolated-handoff.md（先读最后的检查点）',
+    '看門：@副「登入頁」連續叫醒兩次仍未繼續，請主角色接手。',
+    'Watch: @副 has not resumed login after two wakeups. Primary role, please take over.',
+    '見守り：@副 はログインを2回呼びかけても再開していません。主担当に引き継いでください。',
+  ]) {
+    await t.test(text, async (t) => {
+      const { hub, tasks, clock, say } = g34Setup();
+      t.after(() => { tasks.close(); hub.store.close(); });
+      say(1, '@副 实现登录页', 'zhu');
+      say(1, '@主 登录页已交回');
+      await settle();
+      const before = tasks.list(1);
+      assert.equal(before[0].status, 'returned', 'the delivery is waiting for review');
+      const records = hub.store.page(1).filter(m => m.author_kind === 'system');
+      clock.t += 1;
+      say(1, text, 'zhu');
+      await settle();
+      assert.deepEqual(tasks.list(1), before, 'a watch notice must not accept or change existing work');
+      assert.deepEqual(hub.store.page(1).filter(m => m.author_kind === 'system'), records, 'no task side effects');
+    });
+  }
 });

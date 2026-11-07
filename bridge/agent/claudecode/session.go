@@ -70,6 +70,10 @@ type claudeSession struct {
 	// usageMu guards lastUsage. Populated from the most recent result event.
 	usageMu   sync.Mutex
 	lastUsage *core.ContextUsage
+	// reportedWindow is modelUsage[*].contextWindow from the last result event (guarded by
+	// usageMu): the window the CLI itself uses, e.g. 1000000 for claude-opus-5-5 (no "[1m]" in
+	// the id) or 200000 for a model it does not recognise. 0 until a result is seen.
+	reportedWindow int
 
 	// maomao fork: an API error (e.g. usage limit) ends the turn; if the CLI
 	// never follows it with a result event, apiErrTimer synthesizes one so the
@@ -895,6 +899,9 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 			model := cs.GetModel()
 			window := claudeContextWindow(model)
 			cs.usageMu.Lock()
+			if cs.reportedWindow > 0 {
+				window = cs.reportedWindow
+			}
 			prevOutput := 0
 			if cs.lastUsage != nil {
 				prevOutput = cs.lastUsage.OutputTokens
@@ -1154,6 +1161,14 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		if cs.lastUsage != nil {
 			cs.lastUsage.OutputTokens = outputTokens
 			cs.lastUsage.TotalTokens = cs.lastUsage.UsedTokens + outputTokens
+		}
+		cs.usageMu.Unlock()
+	}
+	if w := resultContextWindow(raw); w > 0 {
+		cs.usageMu.Lock()
+		cs.reportedWindow = w
+		if cs.lastUsage != nil {
+			cs.lastUsage.ContextWindow = w
 		}
 		cs.usageMu.Unlock()
 	}
@@ -1535,6 +1550,14 @@ func (cs *claudeSession) GetContextUsage() *core.ContextUsage {
 	return &clone
 }
 
+// ReportedContextWindow is the window the CLI reported in its last result event
+// (core.ContextWindowReporter); 0 before one is seen.
+func (cs *claudeSession) ReportedContextWindow() int {
+	cs.usageMu.Lock()
+	defer cs.usageMu.Unlock()
+	return cs.reportedWindow
+}
+
 func (cs *claudeSession) Alive() bool {
 	return cs.alive.Load()
 }
@@ -1653,6 +1676,21 @@ func claudeContextWindow(model string) int {
 		return 1_000_000
 	}
 	return 200_000
+}
+
+// resultContextWindow reads the largest modelUsage[*].contextWindow of a result event: the
+// window the CLI compacts against. The model name does not tell it (claude-opus-5-5 reports
+// 1000000 without "[1m]"; an unrecognised model reports the 200000 the CLI assumes).
+func resultContextWindow(raw map[string]any) int {
+	mu, _ := raw["modelUsage"].(map[string]any)
+	best := 0
+	for _, v := range mu {
+		m, _ := v.(map[string]any)
+		if f, ok := m["contextWindow"].(float64); ok && int(f) > best {
+			best = int(f)
+		}
+	}
+	return best
 }
 
 // filterEnv returns a copy of env with entries matching the given key removed.

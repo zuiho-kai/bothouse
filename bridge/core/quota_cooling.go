@@ -19,6 +19,8 @@ import (
 // The reset deadline feeds the existing team cooling_until contract. Takeover
 // receipts survive restart independently of the agent's conversation.
 type quotaCoolingState struct {
+	NextProbeAt time.Time                `json:"next_probe_at,omitempty"`
+	ProbeStatus string                   `json:"probe_status,omitempty"`
 	LegacyUntil time.Time                `json:"legacy_until,omitempty"`
 	Scope       string                   `json:"scope,omitempty"`
 	Verified    map[string]bool          `json:"verified,omitempty"`
@@ -525,6 +527,24 @@ func (e *Engine) quotaTick(now time.Time) {
 			}
 			return
 		}
+		// The retry gate below is local pacing, not part of the takeover's own
+		// premise. A retry time this code cannot have written (a corrupt or
+		// legacy record, or a wall clock that stepped back after it was saved)
+		// returned here forever: the provider deadline had passed but the
+		// recovery/rollback path never ran, so the lead stayed with the
+		// stand-in (#190). Every retry this code schedules is at most
+		// quotaProbeBackoffMax past a deadline that may already have passed, so
+		// anything later than that is treated as no retry scheduled and the
+		// probe runs now.
+		if st.NextProbeAt.After(now.Add(quotaProbeBackoffMax)) {
+			slog.Warn("quota auto-probe: retry time unreachable, probing now",
+				"project", e.name, "next_probe_at", st.NextProbeAt)
+			st.NextProbeAt = time.Time{}
+			e.saveQuotaLocked()
+		}
+		if st.NextProbeAt.After(now) {
+			return
+		}
 		quotaDomainsMu.Lock()
 		observedUntil := e.domainUntilLocked(st.Scope)
 		quotaDomainsMu.Unlock()
@@ -547,7 +567,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			}
 		}
 		if !usable || err != nil {
-			// 探活失败或仍受限：指数退避顺延冷却时间，零 Token 消耗，不唤醒主对话模型
+			// Retry timing is local policy, separate from the provider deadline.
 			st.ProbeRound++
 			backoff := quotaProbeBackoffBase
 			for i := 1; i < st.ProbeRound && backoff < quotaProbeBackoffMax; i++ {
@@ -559,7 +579,22 @@ func (e *Engine) quotaTick(now time.Time) {
 			if nextWait > backoff {
 				backoff = nextWait
 			}
+			st.NextProbeAt = now.Add(backoff)
+			if err != nil {
+				quotaDomainsMu.Unlock()
+				st.ProbeStatus = "unknown"
+				e.saveQuotaLocked()
+				slog.Warn("quota auto-probe: usage unknown, probe backed off",
+					"project", e.name, "probe_status", st.ProbeStatus, "next_probe_at", st.NextProbeAt, "err", err)
+				return
+			}
+			st.ProbeStatus = "exhausted"
+			// Preserve the existing bounded fallback only for confirmed exhaustion
+			// with no provider reset. An actual reset must not be rounded up.
 			st.Until = now.Add(backoff)
+			if nextWait > 0 {
+				st.Until = now.Add(nextWait)
+			}
 			e.capMu.Lock()
 			if st.Scope == "" {
 				e.quotaUntil = st.Until
@@ -581,6 +616,8 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 		quotaDomainsMu.Unlock()
 		st.ProbeRound = 0
+		st.NextProbeAt = time.Time{}
+		st.ProbeStatus = "available"
 		if st.Lead != nil {
 			sel, ok := readLeadSelectionFull(e.dataDir)
 			if ok && sel.Lead == st.Lead.To && sel.At == st.Lead.At {
@@ -598,7 +635,7 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 		e.capMu.Unlock()
 		e.saveQuotaLocked()
-		slog.Info("quota auto-probe: quota restored silently", "project", e.name)
+		slog.Info("quota auto-probe: quota restored silently", "project", e.name, "probe_status", st.ProbeStatus)
 		e.emitStreamEvent(StreamEventQuota, st.Session, "quota auto-probe: restored", map[string]any{"project": e.name, "action": "quota_restored"})
 		return
 	}

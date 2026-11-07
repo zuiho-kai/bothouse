@@ -216,6 +216,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"check-update": checkUpdate,
 	"provider":     runProviderCommand,
 	"send":         runSend,
+	"wake":         runWake,
 	"progress":     runProgress,
 	"identity":     runIdentity,
 	"guard":        runGuard,
@@ -298,6 +299,13 @@ func runMain() {
 		fmt.Fprintf(os.Stderr, "bothouse: 测试环境拒跑：%s\n", why)
 		os.Exit(3)
 	}
+	// Before the subcommands: `module add dsh` / `setup dsh --install` refresh ~/.bothouse/dsh to
+	// this version before running its install.sh (#161 ③), so they need the version too.
+	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
+	core.CurrentVersion = version
+	core.CurrentCommit = commit
+	core.CurrentBuildTime = buildTime
+
 	if runTopLevelCommand(rootOpts.args) {
 		return
 	}
@@ -325,11 +333,6 @@ func runMain() {
 		logCloser = w
 		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
-
-	core.VersionInfo = fmt.Sprintf("bothouse %s\ncommit: %s\nbuilt: %s", version, commit, buildTime)
-	core.CurrentVersion = version
-	core.CurrentCommit = commit
-	core.CurrentBuildTime = buildTime
 
 	configPath := resolveConfigPath(rootOpts.configPath)
 
@@ -630,6 +633,9 @@ func runMain() {
 			mgmtSrv.SetTimerScheduler(timerSched)
 		}
 		mgmtSrv.SetHeartbeatScheduler(heartbeatSched)
+		if imgGen := buildImageGenerator(cfg); imgGen != nil {
+			mgmtSrv.SetImageGenerator(imgGen)
+		}
 		if bridgeSrv != nil {
 			mgmtSrv.SetBridgeServer(bridgeSrv)
 		}
@@ -647,6 +653,15 @@ func runMain() {
 				rows[name] = core.PlatformModule{Enabled: st.Enabled, Disabled: st.Disabled}
 			}
 			return rows
+		})
+		// 插件 (#150 第 b 项): what config.toml allows for installs. Read from the startup config
+		// rather than per request: an install is a deliberate, infrequent act, and the switch is
+		// the kind of thing a person changes and then restarts for.
+		mgmtSrv.SetPluginInstallPolicy(func() core.PluginInstallPolicy {
+			return core.PluginInstallPolicy{
+				AllowNonRegistry: cfg.Plugins.AllowNonRegistry != nil && *cfg.Plugins.AllowNonRegistry,
+				Registry:         cfg.Plugins.Registry,
+			}
 		})
 		mgmtSrv.SetWizard(configWizardStore{}, cfg.DataDir)
 		mgmtSrv.SetWikiSubScript(subWikiScript(cfg))
@@ -1334,6 +1349,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
+	engine.SetFallbackModels(proj.FallbackModels)
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
@@ -1358,9 +1374,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	}
 
 	// Wire sender injection
-	if proj.InjectSender != nil {
-		engine.SetInjectSender(*proj.InjectSender)
-	}
+	engine.SetInjectSender(proj.InjectSenderEnabled())
 
 	// Wire speech-to-text if enabled
 	if cfg.Speech.Enabled {
@@ -2063,6 +2077,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
+	engine.SetFallbackModels(proj.FallbackModels)
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, *proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
@@ -2101,7 +2116,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	}
 
 	// Reload sender injection
-	engine.SetInjectSender(proj.InjectSender != nil && *proj.InjectSender)
+	engine.SetInjectSender(proj.InjectSenderEnabled())
 
 	// Reload attachment send-back switch
 	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
@@ -2363,6 +2378,32 @@ func buildHeartbeatConfig(hc config.HeartbeatConfig) core.HeartbeatConfig {
 		cfg.TimeoutMins = *hc.TimeoutMins
 	}
 	return cfg
+}
+
+// buildImageGenerator turns [image_gen] into the opt-in generator (#150 item c). It returns nil
+// unless the section is enabled: the panel then says "not configured" instead of offering a
+// button that would spend the owner's money. Picture files live under <data_dir>/images so they
+// sit next to sessions and the avatar library, and survive a rebuild.
+//
+// data_dir is handed over as the root out_dir must stay under: the route that serves a picture
+// has no token, so the directory it can reach is what keeps it from serving any picture on this
+// machine (review 1032, 06:33).
+func buildImageGenerator(cfg *config.Config) *core.ImageGenerator {
+	ic := cfg.ImageGen
+	if !ic.Enabled {
+		return nil
+	}
+	return core.NewImageGenerator(core.ImageGenConfig{
+		Enabled:  true,
+		Provider: ic.Provider,
+		APIKey:   ic.OpenAI.APIKey,
+		BaseURL:  ic.OpenAI.BaseURL,
+		Model:    ic.OpenAI.Model,
+		Size:     ic.OpenAI.Size,
+		Quality:  ic.OpenAI.Quality,
+		OutDir:   ic.OutDir,
+		DataDir:  cfg.DataDir,
+	})
 }
 
 func derefInt(v *int) int {

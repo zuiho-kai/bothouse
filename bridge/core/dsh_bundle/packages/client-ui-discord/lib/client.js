@@ -1,14 +1,19 @@
-// dsh-client-source-sha256: d1d29a1272baf4377c56058dcbc8ad2ec29ac28d641a9149befb63b9076f3cbf
-// dsh-style-sha256: 423404c9abb9344c308caa8fb9b5bcf35986931225209660d5d8445083283339
+// dsh-client-source-sha256: d96360e07d625a5c0ea51d1465b0b3814ea77c61bcf8e5abe9142f893ee5badf
+// dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    opacity: 1;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n}\n\n.dshc_msgTools {\n  z-index: 1;\n  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));\n  opacity: 0;\n  pointer-events: none;\n  align-items: center;\n  gap: 2px;\n  padding: 2px;\n  display: inline-flex;\n  position: absolute;\n  top: 2px;\n  right: 16px;\n  box-shadow: 0 2px 6px #00000014;\n}\n\n.dshc_msgTool {\n  border-radius: var(--dsw-radius-sm, 6px);\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 8px;\n  font-size: 12px;\n}\n\n.dshc_msgTool:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_msgTool:disabled {\n  cursor: default;\n  opacity: .6;\n}\n\n.dshc_msgToolNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none) {\n  .dshc_msgTools {\n    box-shadow: none;\n    opacity: 1;\n    pointer-events: auto;\n    background: none;\n    border: 0;\n    margin-top: 2px;\n    position: static;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 6px;\n  padding: 0 16px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_msgTools {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  margin: 0 16px 12px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: sticky;\n  top: 0;\n}\n\n.dshc_progressHead {\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressSummary {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_progressToggle {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  min-width: 22px;\n  height: 24px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  gap: 4px;\n  margin-left: auto;\n  padding: 0 10px;\n  font-size: 12px;\n  font-weight: 500;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_progressChevron {\n  font-size: 12px;\n}\n\n.dshc_progressToggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_progressToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_progressCard[data-folded=\"true\"] {\n  padding: 6px 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 0 10px 10px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] > div[data-state=\"failed\"] > div:last-child > code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n\n.dshc_slashPopup {\n  z-index: 6;\n  width: min(360px, 100% - 32px);\n  animation: none;\n  right: auto;\n}\n\n.dshc_slashGroup {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_slashItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: baseline;\n  gap: 8px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_slashActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_slashName {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-weight: 600;\n}\n\n.dshc_slashMeta {\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_sendButton.dshc_stopButton {\n  background: var(--dsw-alias-label-primary);\n}\n\n.dshc_stopNote + .dshc_sendButton {\n  margin-left: 8px;\n}\n\n.dshc_sendButton.dshc_stopButton[data-phase=\"stopping\"] {\n  opacity: .6;\n  cursor: progress;\n}\n\n.dshc_stopNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_cmdLine {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px;\n  padding: 1px 16px 1px 72px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_cmdLine code {\n  color: var(--dsw-alias-label-secondary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n\n.dshc_cmdResult {\n  min-width: 0;\n  max-width: 60ch;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_cmdResult[aria-expanded=\"true\"] {\n  white-space: pre-line;\n  max-width: none;\n}\n\n.dshc_cmdLine[data-failed=\"true\"] .dshc_cmdResult {\n  color: var(--dsw-alias-danger, #d94848);\n}\n\n@media (width <= 720px) {\n  .dshc_cmdLine {\n    padding-left: 16px;\n  }\n}\n\n.dshc_msgTool {\n  justify-content: center;\n  align-items: center;\n  width: 26px;\n  height: 24px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_msgTool[data-tip]:after {\n  content: attr(data-tip);\n  z-index: 3;\n  background: var(--dsw-alias-label-primary);\n  color: var(--dsw-alias-label-primary-inverted);\n  white-space: nowrap;\n  opacity: 0;\n  pointer-events: none;\n  border-radius: 4px;\n  padding: 2px 6px;\n  font-size: 11px;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {\n  opacity: 1;\n  transition: opacity 0s 80ms;\n}\n\n.dshc_permSessionButton {\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-underline-offset: 2px;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 4px 6px;\n  font-size: 12px;\n  text-decoration: underline;\n}\n\n.dshc_permSessionButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_permSessionButton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.dshc_queuedButton {\n  border: 1px solid var(--dsw-alias-border-default, #0000001f);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 9px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.dshc_queuedButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_queuedTag {\n  color: #a76a06;\n  background: #eaa02824;\n  border-radius: 4px;\n  padding: 0 5px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n[data-queued] .dshc_ownActions {\n  opacity: 1;\n}\n\n.dshc_memory {\n  margin-top: 4px;\n}\n\n.dshc_memoryBadge {\n  background: var(--dsw-alias-fill-secondary, #0000000d);\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  border-radius: 9px;\n  align-items: center;\n  gap: 4px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n  display: inline-flex;\n}\n\n.dshc_memoryBadge:hover, .dshc_memoryBadge[aria-expanded=\"true\"] {\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_memoryList {\n  border-left: 2px solid var(--dsw-alias-border-default, #0000001f);\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  margin: 4px 0 0;\n  padding: 6px 10px;\n  font-size: 12px;\n  list-style: none;\n  display: flex;\n}\n\n.dshc_memoryItem {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_memoryTitle {\n  color: var(--dsw-alias-label-secondary);\n  line-height: 1.5;\n}\n\n.dshc_memoryPage {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  font-family: var(--dsw-font-mono, ui-monospace, monospace);\n}\n\n.dshc_delivery {\n  flex-direction: column;\n  gap: 6px;\n  max-width: 720px;\n  margin-top: 8px;\n  display: flex;\n}\n\n.dshc_deliveryFrame {\n  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);\n  background: #fff;\n  border-radius: 6px;\n  height: 360px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_deliveryActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_deliveryActions a {\n  text-decoration: none;\n}\n\n.dshc_deliveryDone {\n  color: var(--text-muted, #888);\n  font-size: 12px;\n}\n\n.dshc_deliveryFullDialog {\n  box-sizing: border-box;\n  flex-direction: column;\n  gap: 8px;\n  width: 94vw;\n  max-width: none;\n  height: 92dvh;\n  display: flex;\n}\n\n.dshc_deliveryFullFrame {\n  background: #fff;\n  border-radius: 6px;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_dmTitle {\n  color: var(--text-muted, #888);\n  margin: 14px 8px 4px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_dmAvatar {\n  margin-right: 6px;\n  display: inline-flex;\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    display: none;\n  }\n\n  .dshc_message[data-tools-open] .dshc_ownActions {\n    opacity: 1;\n    display: inline-flex;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n}\n\n.dshc_msgTools {\n  z-index: 1;\n  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));\n  opacity: 0;\n  pointer-events: none;\n  align-items: center;\n  gap: 2px;\n  padding: 2px;\n  display: inline-flex;\n  position: absolute;\n  top: 2px;\n  right: 16px;\n  box-shadow: 0 2px 6px #00000014;\n}\n\n.dshc_msgTool {\n  border-radius: var(--dsw-radius-sm, 6px);\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 8px;\n  font-size: 12px;\n}\n\n.dshc_msgTool:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_msgTool:disabled {\n  cursor: default;\n  opacity: .6;\n}\n\n.dshc_msgToolNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none) {\n  .dshc_message {\n    -webkit-touch-callout: none;\n  }\n\n  .dshc_msgTools {\n    display: none;\n  }\n\n  .dshc_message[data-tools-open] {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n\n  .dshc_message[data-tools-open] .dshc_msgTools {\n    z-index: 3;\n    opacity: 1;\n    pointer-events: auto;\n    display: inline-flex;\n    top: -14px;\n    right: 12px;\n  }\n\n  .dshc_message[data-tools-open] .dshc_msgTool {\n    width: 40px;\n    height: 36px;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 6px;\n  padding: 0 16px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_mentionBadge {\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);\n  color: var(--dsw-alias-state-business-primary, #5865f2);\n  font-weight: 500;\n  line-height: inherit;\n  vertical-align: baseline;\n  -webkit-box-decoration-break: clone;\n  box-decoration-break: clone;\n  cursor: pointer;\n  border-radius: 3px;\n  padding: 0 4px;\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n  display: inline-block;\n}\n\n.dshc_mentionBadge:hover {\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_msgTools {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_mentionBadge, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  display: flex;\n}\n\n.dshc_leadCardButton {\n  border-radius: inherit;\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: auto;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardButton:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_leadCardButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor);\n  outline-offset: -2px;\n}\n\n.dshc_leadCardButton:disabled {\n  cursor: default;\n  background: none;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge {\n  color: var(--dsw-alias-bg-base);\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge:hover {\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  flex: none;\n  margin: 8px 16px 4px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: relative;\n}\n\n.dshc_progressHead {\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressSummary {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_progressToggle {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  min-width: 22px;\n  height: 24px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  gap: 4px;\n  margin-left: auto;\n  padding: 0 10px;\n  font-size: 12px;\n  font-weight: 500;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_progressChevron {\n  font-size: 12px;\n}\n\n.dshc_progressToggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_progressToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_progressCard[data-folded=\"true\"] {\n  padding: 6px 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 6px 10px 2px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] > div[data-state=\"failed\"] > div:last-child > code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n\n.dshc_slashPopup {\n  z-index: 6;\n  width: min(360px, 100% - 32px);\n  animation: none;\n  right: auto;\n}\n\n.dshc_slashGroup {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_slashItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: baseline;\n  gap: 8px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_slashActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_slashName {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-weight: 600;\n}\n\n.dshc_slashMeta {\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_sendButton.dshc_stopButton {\n  background: var(--dsw-alias-label-primary);\n}\n\n.dshc_stopNote + .dshc_sendButton {\n  margin-left: 8px;\n}\n\n.dshc_sendButton.dshc_stopButton[data-phase=\"stopping\"] {\n  opacity: .6;\n  cursor: progress;\n}\n\n.dshc_stopNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_cmdLine {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px;\n  padding: 1px 16px 1px 72px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_cmdLine code {\n  color: var(--dsw-alias-label-secondary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n\n.dshc_cmdResult {\n  min-width: 0;\n  max-width: 60ch;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_cmdResult[aria-expanded=\"true\"] {\n  white-space: pre-line;\n  max-width: none;\n}\n\n.dshc_cmdLine[data-failed=\"true\"] .dshc_cmdResult {\n  color: var(--dsw-alias-danger, #d94848);\n}\n\n@media (width <= 720px) {\n  .dshc_cmdLine {\n    padding-left: 16px;\n  }\n}\n\n.dshc_msgTool {\n  justify-content: center;\n  align-items: center;\n  width: 26px;\n  height: 24px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_msgTool[data-tip]:after {\n  content: attr(data-tip);\n  z-index: 3;\n  background: var(--dsw-alias-label-primary);\n  color: var(--dsw-alias-label-primary-inverted);\n  white-space: nowrap;\n  opacity: 0;\n  pointer-events: none;\n  border-radius: 4px;\n  padding: 2px 6px;\n  font-size: 11px;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {\n  opacity: 1;\n  transition: opacity 0s 80ms;\n}\n\n.dshc_permSessionButton {\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-underline-offset: 2px;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 4px 6px;\n  font-size: 12px;\n  text-decoration: underline;\n}\n\n.dshc_permSessionButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_permSessionButton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.dshc_queuedButton {\n  border: 1px solid var(--dsw-alias-border-default, #0000001f);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 9px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.dshc_queuedButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_queuedTag {\n  color: #a76a06;\n  background: #eaa02824;\n  border-radius: 4px;\n  padding: 0 5px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n[data-queued] .dshc_ownActions {\n  opacity: 1;\n}\n\n.dshc_memory {\n  margin-top: 4px;\n}\n\n.dshc_memoryBadge {\n  background: var(--dsw-alias-fill-secondary, #0000000d);\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  border-radius: 9px;\n  align-items: center;\n  gap: 4px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n  display: inline-flex;\n}\n\n.dshc_memoryBadge:hover, .dshc_memoryBadge[aria-expanded=\"true\"] {\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_memoryList {\n  border-left: 2px solid var(--dsw-alias-border-default, #0000001f);\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  margin: 4px 0 0;\n  padding: 6px 10px;\n  font-size: 12px;\n  list-style: none;\n  display: flex;\n}\n\n.dshc_memoryItem {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_memoryTitle {\n  color: var(--dsw-alias-label-secondary);\n  line-height: 1.5;\n}\n\n.dshc_memoryPage {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  font-family: var(--dsw-font-mono, ui-monospace, monospace);\n}\n\n.dshc_delivery {\n  flex-direction: column;\n  gap: 6px;\n  max-width: 720px;\n  margin-top: 8px;\n  display: flex;\n}\n\n.dshc_deliveryFrame {\n  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);\n  background: #fff;\n  border-radius: 6px;\n  height: 360px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_deliveryActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_deliveryActions a {\n  text-decoration: none;\n}\n\n.dshc_deliveryDone {\n  color: var(--text-muted, #888);\n  font-size: 12px;\n}\n\n.dshc_deliveryFullDialog {\n  box-sizing: border-box;\n  flex-direction: column;\n  gap: 8px;\n  width: 94vw;\n  max-width: none;\n  height: 92dvh;\n  display: flex;\n}\n\n.dshc_deliveryFullFrame {\n  background: #fff;\n  border-radius: 6px;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_dmTitle {\n  color: var(--text-muted, #888);\n  margin: 14px 8px 4px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_dmAvatar {\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_dmRow {\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_dmRow .dshc_room {\n  padding-right: 26px;\n}\n\n.dshc_dmClose {\n  border-radius: var(--dsw-radius-sm, 4px);\n  width: 20px;\n  height: 20px;\n  color: var(--dsw-alias-label-tertiary, #888);\n  font: inherit;\n  cursor: pointer;\n  opacity: 0;\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 15px;\n  line-height: 20px;\n  position: absolute;\n  right: 4px;\n}\n\n.dshc_dmRow:hover .dshc_dmClose, .dshc_dmClose:focus-visible {\n  opacity: 1;\n}\n\n.dshc_dmClose:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n@media (hover: none) {\n  .dshc_dmClose {\n    opacity: 1;\n  }\n}\n\n.dshc_dmHead {\n  margin-top: 14px;\n}\n\n.dshc_dmPicker {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-direction: column;\n  margin: 0 4px 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_dmPickNone {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px;\n  font-size: 12px;\n}\n\n.dshc_dmNewRow {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 13px;\n}\n\nbutton.dshc_headMeta {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 0 auto;\n  padding: 2px 6px;\n  font-size: 12px;\n}\n\nbutton.dshc_headMeta:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_headSpacer {\n  flex: auto;\n}\n\n.dshc_roomUnread {\n  color: var(--dsw-alias-label-primary);\n  font-weight: 650;\n}\n\n.dshc_unreadBadge {\n  color: #fff;\n  background: var(--dsw-alias-state-danger-primary, #e5484d);\n  text-align: center;\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  flex: none;\n  min-width: 18px;\n  padding: 0 5px;\n  font-size: 11px;\n  font-weight: 600;\n  line-height: 18px;\n}\n\n.dshc_slashDisabled {\n  opacity: .45;\n  cursor: not-allowed;\n}\n\n.dshc_leadCardHint {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_roomWorking {\n  max-width: 96px;\n  color: var(--dsw-alias-state-business-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  font-size: 11px;\n  font-weight: 500;\n  display: inline-flex;\n  overflow: hidden;\n}\n\n.dshc_roomWorkingDot {\n  background: currentColor;\n  border-radius: 50%;\n  flex: none;\n  width: 6px;\n  height: 6px;\n  animation: 1.4s ease-in-out infinite dshc_roomWorkingPulse;\n}\n\n@keyframes dshc_roomWorkingPulse {\n  50% {\n    opacity: .35;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_roomWorkingDot {\n    animation: none;\n  }\n}\n\n.dshc_drawerTools {\n  display: none;\n}\n\n@media (width <= 600px) {\n  .dshc_drawerTools {\n    flex-wrap: wrap;\n    gap: 6px;\n    margin: 0 8px 8px;\n    display: flex;\n  }\n\n  .dshc_chatHead > .dshc_taskBoardTrigger, .dshc_chatHead > .dshc_schemeToggle, .dshc_chatHead > .dshc_headMeta, .dshc_chatHead > .dshc_headTeam {\n    display: none;\n  }\n\n  .dshc_chatHead > .dshc_roomName {\n    flex: auto;\n  }\n}\n\n.dshc_panelOpen .dshc_chatHead > .dshc_headTeam, .dshc_panelOpen .dshc_chatHead > .dshc_headMeta {\n  display: none;\n}\n\n.dshc_panelOpen .dshc_chatHead > .dshc_roomName {\n  flex: 0 auto;\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
+var __create = Object.create;
 var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __exportAll = (all, no_symbols) => {
 	let target = {};
 	for (var name in all) __defProp(target, name, {
@@ -18,9 +23,24 @@ var __exportAll = (all, no_symbols) => {
 	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
 	return target;
 };
+var __copyProps = (to, from, except, desc) => {
+	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
+		key = keys[i];
+		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
+			get: ((k) => from[k]).bind(null, key),
+			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+		});
+	}
+	return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", {
+	value: mod,
+	enumerable: true
+}) : target, mod));
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+react = __toESM(react, 1);
 let react_dom = require("react-dom");
 // src/client/uuid.ts
 /**
@@ -208,6 +228,13 @@ function createChannelSource(transport) {
 	let historyEpoch = 0;
 	/** #1030: live rows newer than a trimmed window's last one, kept until `loadNewer` catches up. */
 	const ahead = /* @__PURE__ */ new Map();
+	let newestSeen = 0;
+	const unreadIds = /* @__PURE__ */ new Map();
+	const withoutUnread = (unread, roomId) => {
+		if (roomId === void 0 || unread?.[String(roomId)] === void 0) return unread;
+		const { [String(roomId)]: _gone, ...rest } = unread;
+		return rest;
+	};
 	const set = (next) => {
 		snapshot = {
 			...snapshot,
@@ -246,7 +273,25 @@ function createChannelSource(transport) {
 	const applyEvent = (current, event) => {
 		switch (event.type) {
 			case "message": {
-				if (event.message.room_id !== current.roomId) return current;
+				if (event.message.room_id !== current.roomId) {
+					const m = event.message;
+					const key = String(m.room_id);
+					const ids = unreadIds.get(key);
+					const fresh = m.id > newestSeen;
+					newestSeen = Math.max(newestSeen, m.id);
+					if (!fresh || ids?.has(m.id) === true || m.author_kind !== "role" || m.card !== null) return current;
+					const next = ids ?? /* @__PURE__ */ new Set();
+					next.add(m.id);
+					unreadIds.set(key, next);
+					return {
+						...current,
+						unread: {
+							...current.unread,
+							[key]: next.size
+						}
+					};
+				}
+				newestSeen = Math.max(newestSeen, event.message.id);
 				const list = current.messages;
 				const id = event.message.id;
 				const first = list[0];
@@ -452,6 +497,12 @@ function createChannelSource(transport) {
 				taskChat: keepBoard ? previous.taskChat : void 0,
 				outbox: outbox.filter((entry) => entry.roomId === roomId)
 			};
+			for (const row of rows) newestSeen = Math.max(newestSeen, row.id);
+			if (roomId !== void 0) unreadIds.delete(String(roomId));
+			next = {
+				...next,
+				unread: withoutUnread(snapshot.unread, roomId)
+			};
 			for (const event of read.events) next = applyEvent(next, event);
 			pending = void 0;
 			set(next);
@@ -468,18 +519,22 @@ function createChannelSource(transport) {
 		rememberRoom(roomId);
 		if (roomId !== snapshot.roomId) earlyTasks.clear();
 		const shown = outbox.filter((entry) => entry.roomId === roomId);
+		unreadIds.delete(String(roomId));
+		const unread = withoutUnread(snapshot.unread, roomId);
 		set(roomId === snapshot.roomId ? {
 			roomId,
 			messages: [],
 			hasMoreNewer: false,
-			outbox: shown
+			outbox: shown,
+			unread
 		} : {
 			roomId,
 			messages: [],
 			hasMoreNewer: false,
 			outbox: shown,
 			tasks: [],
-			taskChat: void 0
+			taskChat: void 0,
+			unread
 		});
 		await refresh(false);
 	};
@@ -676,6 +731,13 @@ function createChannelSource(transport) {
 				const { room } = await request("collab/api/dms", json("POST", { member: memberId }));
 				if (!snapshot.rooms.some((r) => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] });
 				await selectRoom(room.id);
+			},
+			async closeDm(roomId) {
+				await request(`collab/api/dms/${roomId}`, { method: "DELETE" });
+				const rooms = snapshot.rooms.filter((r) => r.id !== roomId);
+				set({ rooms });
+				const next = rooms.find((r) => r.kind !== "workspace" && r.dm_member == null);
+				if (snapshot.roomId === roomId && next !== void 0) await selectRoom(next.id);
 			},
 			async renameRoom(roomId, name) {
 				const { room } = await request(`collab/api/rooms/${roomId}`, json("PATCH", { name }));
@@ -16680,9 +16742,16 @@ var ChannelsPage_module_default = {
 	"dialogBackdrop": "dshc_dialogBackdrop",
 	"dialogTitle": "dshc_dialogTitle",
 	"dmAvatar": "dshc_dmAvatar",
+	"dmClose": "dshc_dmClose",
+	"dmHead": "dshc_dmHead",
+	"dmNewRow": "dshc_dmNewRow",
+	"dmPicker": "dshc_dmPicker",
+	"dmPickNone": "dshc_dmPickNone",
+	"dmRow": "dshc_dmRow",
 	"dmTitle": "dshc_dmTitle",
 	"drawerBackdrop": "dshc_drawerBackdrop",
 	"drawerOpen": "dshc_drawerOpen",
+	"drawerTools": "dshc_drawerTools",
 	"editBar": "dshc_editBar",
 	"editBox": "dshc_editBox",
 	"edited": "dshc_edited",
@@ -16710,6 +16779,7 @@ var ChannelsPage_module_default = {
 	"headLeadStatus": "dshc_headLeadStatus",
 	"headLeadText": "dshc_headLeadText",
 	"headMeta": "dshc_headMeta",
+	"headSpacer": "dshc_headSpacer",
 	"headTeam": "dshc_headTeam",
 	"iconButton": "dshc_iconButton",
 	"imageAttachment": "dshc_imageAttachment",
@@ -16722,6 +16792,8 @@ var ChannelsPage_module_default = {
 	"jumpCount": "dshc_jumpCount",
 	"jumpLatest": "dshc_jumpLatest",
 	"leadCard": "dshc_leadCard",
+	"leadCardButton": "dshc_leadCardButton",
+	"leadCardHint": "dshc_leadCardHint",
 	"leadCardName": "dshc_leadCardName",
 	"leadCardStatus": "dshc_leadCardStatus",
 	"leadCardText": "dshc_leadCardText",
@@ -16752,6 +16824,7 @@ var ChannelsPage_module_default = {
 	"memoryPage": "dshc_memoryPage",
 	"memoryTitle": "dshc_memoryTitle",
 	"mentionActive": "dshc_mentionActive",
+	"mentionBadge": "dshc_mentionBadge",
 	"mentionButton": "dshc_mentionButton",
 	"mentionHint": "dshc_mentionHint",
 	"mentionItem": "dshc_mentionItem",
@@ -16814,6 +16887,10 @@ var ChannelsPage_module_default = {
 	"roomName": "dshc_roomName",
 	"rooms": "dshc_rooms",
 	"roomsHidden": "dshc_roomsHidden",
+	"roomUnread": "dshc_roomUnread",
+	"roomWorking": "dshc_roomWorking",
+	"roomWorkingDot": "dshc_roomWorkingDot",
+	"roomWorkingPulse": "dshc_roomWorkingPulse",
 	"runHead": "dshc_runHead",
 	"runIcon": "dshc_runIcon",
 	"runSteps": "dshc_runSteps",
@@ -16834,6 +16911,7 @@ var ChannelsPage_module_default = {
 	"sidePanel": "dshc_sidePanel",
 	"sidePanelClose": "dshc_sidePanelClose",
 	"slashActive": "dshc_slashActive",
+	"slashDisabled": "dshc_slashDisabled",
 	"slashGroup": "dshc_slashGroup",
 	"slashItem": "dshc_slashItem",
 	"slashMeta": "dshc_slashMeta",
@@ -16882,6 +16960,7 @@ var ChannelsPage_module_default = {
 	"undoBar": "dshc_undoBar",
 	"undoButton": "dshc_undoButton",
 	"undoToast": "dshc_undoToast",
+	"unreadBadge": "dshc_unreadBadge",
 	"unreadDivider": "dshc_unreadDivider",
 	"withdrawnRow": "dshc_withdrawnRow",
 	"working": "dshc_working",
@@ -16900,11 +16979,36 @@ function readStored() {
 		return DEFAULT_SCHEME;
 	}
 }
+let host;
+function notify() {
+	for (const fn of listeners) fn();
+}
+/** Follow the host theme from now on; the returned function lets go of it. */
+function bindHostTheme(next) {
+	host = next;
+	current = next.scheme();
+	notify();
+	const off = next.subscribe(() => {
+		if (host !== next) return;
+		current = next.scheme();
+		notify();
+	});
+	return () => {
+		off();
+		if (host !== next) return;
+		host = void 0;
+		current = void 0;
+		notify();
+	};
+}
 function getScheme() {
 	return current ??= readStored();
 }
 function setScheme(next) {
 	current = next;
+	if (host !== void 0) try {
+		host.set(next);
+	} catch (error) {}
 	try {
 		globalThis.localStorage?.setItem(SCHEME_KEY, next);
 	} catch (error) {}
@@ -17223,7 +17327,7 @@ function EmbedFrame({ src, title, sandboxed = false, sameOrigin = false }) {
 		title,
 		sandbox,
 		loading: "lazy",
-		referrerPolicy: "no-referrer"
+		referrerPolicy: sandboxed ? "no-referrer" : "same-origin"
 	});
 }
 // src/client/DeliveryPreview.tsx
@@ -18072,7 +18176,7 @@ function TaskCard({ taskId, tasks, t }) {
 						className: ChannelsPage_module_default.taskSub,
 						children: m.title
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Status, {
+					m.id !== task.id && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Status, {
 						status: m.status,
 						t
 					}),
@@ -18391,7 +18495,7 @@ const GROUP_TITLE = {
 	model: "slashGroupModel",
 	view: "slashGroupView"
 };
-function SlashMenu({ commands, selected, target, grouped, t, onPick, onHover }) {
+function SlashMenu({ commands, selected, target, dmName, disabled = () => false, grouped, t, onPick, onHover }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: `${ChannelsPage_module_default.mentionPopup} ${ChannelsPage_module_default.slashPopup}`,
 		role: "region",
@@ -18399,7 +18503,7 @@ function SlashMenu({ commands, selected, target, grouped, t, onPick, onHover }) 
 		children: [
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.mentionTitle,
-				children: target === void 0 ? t("slashTitleNoLead") : t("slashTitleLead", { name: target })
+				children: target !== void 0 ? t("slashTitleLead", { name: target }) : dmName !== void 0 ? t("slashTitleDmNoCmd", { name: dmName }) : t("slashTitleNoLead")
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				role: "listbox",
@@ -18413,7 +18517,13 @@ function SlashMenu({ commands, selected, target, grouped, t, onPick, onHover }) 
 					id: `channel-slash-${index}`,
 					role: "option",
 					"aria-selected": index === selected,
-					className: index === selected ? `${ChannelsPage_module_default.slashItem} ${ChannelsPage_module_default.slashActive}` : ChannelsPage_module_default.slashItem,
+					"aria-disabled": disabled(c) || void 0,
+					title: disabled(c) ? t("slashDisabledHint") : void 0,
+					className: [
+						ChannelsPage_module_default.slashItem,
+						index === selected ? ChannelsPage_module_default.slashActive : "",
+						disabled(c) ? ChannelsPage_module_default.slashDisabled : ""
+					].filter(Boolean).join(" "),
 					onMouseDown: (event) => {
 						event.preventDefault();
 					},
@@ -18421,7 +18531,7 @@ function SlashMenu({ commands, selected, target, grouped, t, onPick, onHover }) 
 						onHover(index);
 					},
 					onClick: () => {
-						onPick(c);
+						if (!disabled(c)) onPick(c);
 					},
 					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 						className: ChannelsPage_module_default.slashName,
@@ -18551,6 +18661,10 @@ const SLASH_COMMANDS = [
 		}
 	}
 ];
+/** 体检 #5: a command that goes to one bot; without one it is shown greyed out. */
+function needsTarget(command) {
+	return command.run.kind === "fill" || command.run.kind === "send" && command.run.broadcast !== true;
+}
 /** The text after a leading `/` while the draft is still a bare command word; undefined otherwise. */
 function slashQuery(draft) {
 	const m = /^\/([^\s/]*(?: all)?)$/.exec(draft);
@@ -18690,6 +18804,186 @@ function insertMention(text, caret, member) {
 		caret: caret + insert.length
 	};
 }
+// src/client/mention-highlight.tsx
+/**
+* Mention badge highlighting for channel message text and quotes.
+* Highlights valid channel members/roles as pill badges (Discord-style),
+* cleanly separated from regular text, without false positives in code or emails.
+*/
+function escapeRegex(s) {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/**
+* Builds a regex matcher and lookup map for channel member mention aliases.
+* Longest aliases are prioritized so e.g. "@阿柚子" matches before "@阿柚".
+*/
+function buildMentionMatcher(members) {
+	if (!members || members.length === 0) return void 0;
+	const aliasMap = /* @__PURE__ */ new Map();
+	for (const m of members) {
+		const name = m.name?.trim();
+		const id = m.id?.trim();
+		if (name) aliasMap.set("@" + name, m);
+		if (id) {
+			aliasMap.set("@" + id, m);
+			aliasMap.set("<@" + id + ">", m);
+			aliasMap.set("<@!" + id + ">", m);
+		}
+		if (m.mentionId) {
+			aliasMap.set("<@" + m.mentionId + ">", m);
+			aliasMap.set("<@!" + m.mentionId + ">", m);
+		}
+	}
+	const sortedAliases = Array.from(aliasMap.keys()).sort((a, b) => b.length - a.length);
+	if (sortedAliases.length === 0) return void 0;
+	const parts = sortedAliases.map((alias) => {
+		const escaped = escapeRegex(alias);
+		return /[a-zA-Z0-9_]$/.test(alias) ? `${escaped}(?![a-zA-Z0-9_])` : escaped;
+	});
+	return {
+		regex: new RegExp(`(?<=^|[^a-zA-Z0-9_])(${parts.join("|")})`, "g"),
+		aliasMap
+	};
+}
+/**
+* Splits plain text into non-mention and mention segments.
+*/
+function splitMentions(text, members) {
+	if (!text) return [];
+	const matcher = buildMentionMatcher(members);
+	if (!matcher) return [{ text }];
+	const { regex, aliasMap } = matcher;
+	const segments = [];
+	let lastIndex = 0;
+	for (const match of text.matchAll(regex)) {
+		const matchText = match[0];
+		const startIndex = match.index ?? 0;
+		if (startIndex > lastIndex) segments.push({ text: text.slice(lastIndex, startIndex) });
+		const member = aliasMap.get(matchText);
+		segments.push({
+			text: matchText,
+			member
+		});
+		lastIndex = startIndex + matchText.length;
+	}
+	if (lastIndex < text.length) segments.push({ text: text.slice(lastIndex) });
+	return segments;
+}
+/**
+* Formats mention text for display in the pill badge:
+* converts raw Discord tags like <@12345> into readable @Name.
+*/
+function formatMentionBadgeText(rawText, member) {
+	if (rawText.startsWith("<@")) return `@${member.name}`;
+	return rawText;
+}
+/**
+* Highlights mentions in the text nodes of a container element without
+* touching code blocks (<pre>, <code>), input controls, or scripts.
+*/
+function highlightMentionsInElement(container, members, badgeClassName = ChannelsPage_module_default.mentionBadge) {
+	if (!container || !members || members.length === 0) return;
+	const matcher = buildMentionMatcher(members);
+	if (!matcher) return;
+	const doc = container.ownerDocument || document;
+	const existing = container.querySelectorAll(`.${badgeClassName}, [data-mention]`);
+	for (const el of existing) el.replaceWith(doc.createTextNode(el.textContent || ""));
+	container.normalize();
+	const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT, { acceptNode(node) {
+		const parent = node.parentElement;
+		if (!parent) return NodeFilter.FILTER_REJECT;
+		if (parent.closest("pre, code, textarea, input, script, style")) return NodeFilter.FILTER_REJECT;
+		return NodeFilter.FILTER_ACCEPT;
+	} });
+	const textNodes = [];
+	let curr;
+	while (curr = walker.nextNode()) textNodes.push(curr);
+	for (const node of textNodes) {
+		const text = node.nodeValue || "";
+		if (!text) continue;
+		matcher.regex.lastIndex = 0;
+		if (!matcher.regex.test(text)) continue;
+		const segments = splitMentions(text, members);
+		if (segments.length === 1 && !segments[0]?.member) continue;
+		const fragment = doc.createDocumentFragment();
+		for (const seg of segments) if (!seg.member) fragment.appendChild(doc.createTextNode(seg.text));
+		else {
+			const badge = doc.createElement("span");
+			badge.className = badgeClassName;
+			badge.dataset.mention = seg.member.id;
+			badge.title = `@${seg.member.name}`;
+			badge.textContent = formatMentionBadgeText(seg.text, seg.member);
+			fragment.appendChild(badge);
+		}
+		node.replaceWith(fragment);
+	}
+}
+/**
+* Renders quote text with mention pill badges as React elements.
+*/
+function renderQuoteMentions(text, members, onMention, badgeClassName = ChannelsPage_module_default.mentionBadge) {
+	return splitMentions(text, members).map((seg, idx) => {
+		if (!seg.member) return seg.text;
+		const member = seg.member;
+		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: badgeClassName,
+			"data-mention": member.id,
+			title: `@${member.name}`,
+			onClick: onMention ? (e) => {
+				e.stopPropagation();
+				onMention(member);
+			} : void 0,
+			children: formatMentionBadgeText(seg.text, member)
+		}, idx);
+	});
+}
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? react.useLayoutEffect : react.useEffect;
+/**
+* Wraps MarkdownText and applies Discord-style pill badge highlighting
+* to recognized channel member mentions.
+*/
+function HighlightedMarkdown({ text, labels, members, className, inline, dataCardText, onMention }) {
+	const containerRef = (0, react.useRef)(null);
+	useIsomorphicLayoutEffect(() => {
+		const el = containerRef.current;
+		if (!el || !members || members.length === 0) return;
+		highlightMentionsInElement(el, members, ChannelsPage_module_default.mentionBadge);
+	}, [text, members]);
+	const handleClick = (e) => {
+		if (!onMention || !members) return;
+		const target = e.target.closest("[data-mention]");
+		if (!target) return;
+		const mentionId = target.dataset.mention;
+		const member = members.find((m) => m.id === mentionId);
+		if (member) {
+			e.stopPropagation();
+			onMention(member);
+		}
+	};
+	if (inline) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+		ref: (el) => {
+			containerRef.current = el;
+		},
+		className,
+		onClick: handleClick,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+			text,
+			labels
+		}, text)
+	});
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		ref: (el) => {
+			containerRef.current = el;
+		},
+		className,
+		"data-card-text": dataCardText ? true : void 0,
+		onClick: handleClick,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+			text,
+			labels
+		}, text)
+	});
+}
 // src/client/avatars.ts
 /**
 * Built-in member avatars served by the collab plugin at `collab/avatars/<slug>.png`:
@@ -18747,31 +19041,6 @@ function Avatar({ id, name, avatar, avatarVersion, small }) {
 				setBroken(src);
 			}
 		})]
-	});
-}
-/**
-* Overlapping portraits of the members at work (#113): room rows and the title
-* bar show who is busy at a glance. Decorative only (no text), so a row's
-* accessible name and text stay the room's own; the names go in `title`.
-*/
-function AvatarStack({ members, max = 3, label }) {
-	if (members.length === 0) return null;
-	const shown = members.slice(0, max);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-		className: ChannelsPage_module_default.avatarStack,
-		title: label ?? members.map((m) => m.name).join("、"),
-		"aria-hidden": true,
-		children: shown.map((m) => {
-			const base = avatarSrc(m.avatar);
-			const src = base && m.avatar?.startsWith("upload:") && m.avatarVersion ? `${base}?v=${m.avatarVersion}` : base;
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: ChannelsPage_module_default.stackDot,
-				style: {
-					background: color(m.id),
-					...src === void 0 ? {} : { backgroundImage: `url("${src}")` }
-				}
-			}, m.id);
-		})
 	});
 }
 // src/client/persona.ts
@@ -19498,8 +19767,8 @@ const tabLabels = {
 	workspace: "settingsWorkspace"
 };
 /** Drafts and save outcomes live for the whole dialog, independently of the selected tab. */
-function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, t, onClose }) {
-	const [tab, setTab] = (0, react.useState)("basic");
+function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, initialTab = "basic", t, onClose }) {
+	const [tab, setTab] = (0, react.useState)(initialTab);
 	const [name, setName] = (0, react.useState)(room.name);
 	const [mode, setMode] = (0, react.useState)(room.dispatch_mode ?? "mixed");
 	const [relay, setRelay] = (0, react.useState)(String(room.max_relay ?? RELAY_CAP_MIN));
@@ -20338,7 +20607,7 @@ function compactComposer() {
 	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (max-width: 600px)").matches;
 }
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
-function Quote({ quote, t }) {
+function Quote({ quote, t, members, onMention }) {
 	if (quote.deleted === true) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: `${ChannelsPage_module_default.quote} ${ChannelsPage_module_default.quoteDeleted}`,
 		children: t("replyDeleted")
@@ -20348,7 +20617,7 @@ function Quote({ quote, t }) {
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 			className: ChannelsPage_module_default.quoteAuthor,
 			children: quote.name
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: quote.text })]
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: members ? renderQuoteMentions(quote.text, members, onMention) : quote.text })]
 	});
 }
 const CARD_VIEW_DEFAULT = "brief";
@@ -20469,7 +20738,8 @@ function MemoryBadge({ items, t }) {
 		})]
 	});
 }
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }) {
+const LONG_PRESS_MS = 450;
+function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }) {
 	const labels = (0, react.useMemo)(() => ({
 		code: {
 			copyLabel: t("copyCode"),
@@ -20525,6 +20795,17 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 			note("task", t("toolTaskFailed", { message: error instanceof Error ? error.message : String(error) }));
 		});
 	};
+	const press = (0, react.useRef)(void 0);
+	(0, react.useEffect)(() => () => {
+		clearTimeout(press.current);
+	}, []);
+	const startPress = () => {
+		clearTimeout(press.current);
+		if (onLongPress !== void 0) press.current = setTimeout(onLongPress, LONG_PRESS_MS);
+	};
+	const endPress = () => {
+		clearTimeout(press.current);
+	};
 	const wasEditing = (0, react.useRef)(false);
 	const isEditing = own?.editing !== void 0;
 	(0, react.useEffect)(() => {
@@ -20562,12 +20843,15 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: ChannelsPage_module_default.systemText,
 				title: fullTime,
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
 					text: markdown,
-					labels
+					labels,
+					members,
+					onMention,
+					inline: true
 				})
 			})
-		}), card?.kind === "task" && typeof card.task_id === "number" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		}), card?.kind === "task" && typeof card.task_id === "number" && taskCardShown && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 			className: `${ChannelsPage_module_default.card} ${ChannelsPage_module_default.taskRecord}`,
 			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskCard, {
 				taskId: card.task_id,
@@ -20592,12 +20876,12 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 				"aria-hidden": true,
 				children: "!"
 			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
+				text: markdown,
+				labels,
+				members,
 				className: ChannelsPage_module_default.errorText,
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-					text: markdown,
-					labels
-				})
+				onMention
 			}),
 			retryButtons
 		]
@@ -20626,7 +20910,17 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 		className: classes,
 		"data-message-id": message.id,
 		"data-queued": queuedFor !== void 0 || void 0,
+		"data-tools-open": toolsOpen || void 0,
 		style: enterStyle,
+		onTouchStart: startPress,
+		onTouchEnd: endPress,
+		onTouchMove: endPress,
+		onTouchCancel: endPress,
+		onContextMenu: (event) => {
+			if (onLongPress === void 0 || typeof window.matchMedia !== "function" || !window.matchMedia("(hover: none)").matches) return;
+			event.preventDefault();
+			onLongPress();
+		},
 		children: [
 			grouped ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
 				className: ChannelsPage_module_default.gutterTime,
@@ -20697,7 +20991,9 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 				children: [
 					message.reply_to !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Quote, {
 						quote: message.reply_to,
-						t
+						t,
+						members,
+						onMention
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: grouped ? `${ChannelsPage_module_default.messageHead} ${ChannelsPage_module_default.messageHeadGrouped}` : ChannelsPage_module_default.messageHead,
@@ -20787,12 +21083,12 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 							]
 						})]
 					}) : card === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-						message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						message.text !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
+							text: markdown,
+							labels,
+							members,
 							className: ChannelsPage_module_default.text,
-							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-								text: markdown,
-								labels
-							})
+							onMention
 						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AttachmentList, {
 							attachments: message.attachments,
@@ -20846,13 +21142,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								chips,
 								runState: card.state,
 								t
-							}) : !progressFolded && progressLines.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							}) : !progressFolded && progressLines.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
+								text: stepsMarkdown,
+								labels,
+								members,
 								className: `${ChannelsPage_module_default.text} ${ChannelsPage_module_default.runSteps}`,
-								"data-card-text": true,
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-									text: stepsMarkdown,
-									labels
-								})
+								dataCardText: true,
+								onMention
 							}),
 							retryButtons
 						]
@@ -20864,12 +21160,12 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								"aria-hidden": true,
 								children: "●"
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
+								text: markdown,
+								labels,
+								members,
 								className: ChannelsPage_module_default.text,
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-									text: markdown,
-									labels
-								})
+								onMention
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.permWaiting,
@@ -20888,12 +21184,12 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 									children: card.title
 								})
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
+								text: markdown,
+								labels,
+								members,
 								className: ChannelsPage_module_default.text,
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-									text: markdown,
-									labels
-								})
+								onMention
 							}),
 							retryButtons,
 							card.kind === "permission" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
@@ -21011,7 +21307,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 	});
 }
 /** One pending permission request in the tray above the composer (#113). */
-function PermTrayItem({ message, author, t, onDecide }) {
+function PermTrayItem({ message, author, members, onMention, t, onDecide }) {
 	const labels = (0, react.useMemo)(() => ({
 		code: {
 			copyLabel: t("copyCode"),
@@ -21037,12 +21333,12 @@ function PermTrayItem({ message, author, t, onDecide }) {
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: ChannelsPage_module_default.permTrayWho,
 					children: t("permAsks", { name: message.name })
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
+					text: markdown,
+					labels,
+					members,
 					className: ChannelsPage_module_default.text,
-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, {
-						text: markdown,
-						labels
-					})
+					onMention
 				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermissionCard, {
@@ -21169,7 +21465,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }) {
 	const scheme = useScheme();
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
@@ -21282,8 +21578,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const [memberError, setMemberError] = (0, react.useState)(void 0);
 	const [retryingId, setRetryingId] = (0, react.useState)(void 0);
 	const [settingsOpen, setSettingsOpen] = (0, react.useState)(false);
+	const [settingsTab, setSettingsTab] = (0, react.useState)("basic");
 	const settingsButtonRef = (0, react.useRef)(null);
 	const settingsReturnRef = (0, react.useRef)(null);
+	const leadCardRef = (0, react.useRef)(null);
 	(0, react.useEffect)(() => {
 		if (!settingsOpen) return;
 		const opener = settingsReturnRef.current;
@@ -21331,6 +21629,23 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		input.setSelectionRange(next, next);
 	});
 	const [avatarMenu, setAvatarMenu] = (0, react.useState)(void 0);
+	const [toolsFor, setToolsFor] = (0, react.useState)(void 0);
+	(0, react.useEffect)(() => {
+		if (toolsFor === void 0) return;
+		const onPress = (event) => {
+			if (event.target?.closest?.(`[data-message-id="${toolsFor}"]`) == null) setToolsFor(void 0);
+		};
+		document.addEventListener("touchstart", onPress);
+		document.addEventListener("mousedown", onPress);
+		return () => {
+			document.removeEventListener("touchstart", onPress);
+			document.removeEventListener("mousedown", onPress);
+		};
+	}, [toolsFor]);
+	(0, react.useEffect)(() => {
+		setToolsFor(void 0);
+	}, [state.roomId]);
+	const [dmPicker, setDmPicker] = (0, react.useState)(false);
 	const [cardViews, setCardViews] = (0, react.useState)({});
 	const [progressFolded, setProgressFolded] = (0, react.useState)({});
 	const cardView = state.roomId === void 0 ? CARD_VIEW_DEFAULT : cardViews[state.roomId] ?? loadCardView(state.roomId);
@@ -21615,17 +21930,36 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const popupOpen = mention !== void 0 && candidates.length > 0;
 	openMentionAt.current = popupOpen ? mention.start : void 0;
 	const selected = Math.min(highlight, Math.max(candidates.length - 1, 0));
-	const commandTarget = lead?.kind === "bot" ? lead : void 0;
+	const dmPeer = dmWith === void 0 ? void 0 : byId.get(dmWith);
+	const commandTarget = dmWith !== void 0 ? dmPeer?.kind === "bot" ? dmPeer : void 0 : lead?.kind === "bot" ? lead : void 0;
 	const slash = slashQuery(draft);
-	const slashCommands = slash === void 0 || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, (key) => t(key));
+	const slashCommands = slash === void 0 || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, (key) => t(key)).filter((c) => dmWith === void 0 || c.name !== "stop all" && c.name !== "board");
 	const slashOpen = slashCommands.length > 0;
 	const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0));
 	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && m.kind === "bot");
 	const stopTarget = workingBots.find((m) => m.id === commandTarget?.id) ?? workingBots[0];
 	const roomFiles = state.roomId === void 0 ? [] : pendingFiles[state.roomId] ?? [];
 	const stopMode = (stopTarget !== void 0 || stopping?.phase === "stopping") && draft.trim() === "" && roomFiles.length === 0;
+	const taskCardAt = /* @__PURE__ */ new Map();
+	for (const m of visibleMessages) for (const task of state.tasks ?? []) if (task.assign_msg_id === m.id && !taskCardAt.has(task.id) && parseCard(m)?.kind !== "task") taskCardAt.set(task.id, m.id);
+	for (const m of visibleMessages) {
+		const card = m.author_kind === "system" ? parseCard(m) : void 0;
+		if (card?.kind === "task" && typeof card.task_id === "number" && !taskCardAt.has(card.task_id)) taskCardAt.set(card.task_id, m.id);
+	}
+	const recordShowsCard = (m) => {
+		const card = parseCard(m);
+		return card?.kind !== "task" || typeof card.task_id !== "number" || taskCardAt.get(card.task_id) === m.id;
+	};
 	const answers = commandAnswers(state.messages, (id) => byId.get(id)?.name);
 	const answerIds = new Set([...answers.values()].map((m) => m.id));
+	const boardOpen = boardDocked && dmWith === void 0;
+	const placeholder = dmWith !== void 0 ? t("dmPlaceholder", { name: dmPeer?.name ?? room?.name ?? "" }) : t(compactComposer() || boardOpen ? "placeholderShort" : "placeholder", { room: room?.name ?? "" });
+	const openBoard = () => {
+		setDrawer(void 0);
+		setTimeout(() => {
+			chatRef.current?.querySelector(`button[aria-label="${t("taskBoardOpen")}"]`)?.click();
+		}, 0);
+	};
 	const setDraft = (text, nextCaret) => {
 		const roomId = state.roomId;
 		if (roomId === void 0) return;
@@ -21652,6 +21986,11 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		stickRef.current = true;
 		openDm(member.id).catch((error) => {
 			setRoomError(t("dmOpenFailed", { message: error instanceof Error ? error.message : String(error) }));
+		});
+	};
+	const endDm = closeDm === void 0 ? void 0 : (roomId) => {
+		closeDm(roomId).catch((error) => {
+			setRoomError(t("dmCloseFailed", { message: error instanceof Error ? error.message : String(error) }));
 		});
 	};
 	const mentionFromAvatar = (member) => {
@@ -21798,6 +22137,10 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	};
 	const runSlash = (command) => {
 		const run = command.run;
+		if (commandTarget === void 0 && needsTarget(command)) {
+			noTarget();
+			return;
+		}
 		setSlashHighlight(0);
 		if (run.kind === "panel") {
 			setDraft("", 0);
@@ -21979,7 +22322,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			ChannelsPage_module_default.page,
 			roomsHidden ? ChannelsPage_module_default.roomsHidden : "",
 			membersHidden ? ChannelsPage_module_default.membersHidden : "",
-			boardDocked ? ChannelsPage_module_default.panelOpen : ""
+			boardOpen ? ChannelsPage_module_default.panelOpen : ""
 		].filter(Boolean).join(" "),
 		"data-dc-scheme": scheme,
 		children: [
@@ -21996,30 +22339,49 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 				"aria-modal": drawer === "rooms" ? true : void 0,
 				tabIndex: drawer === "rooms" ? -1 : void 0,
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ChannelsPage_module_default.leadCard,
 						role: "group",
 						"aria-label": t("leadCard"),
-						title: lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`,
-						children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-							id: lead.id,
-							name: lead.name,
-							avatar: lead.avatar,
-							avatarVersion: lead.avatarVersion
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-							className: ChannelsPage_module_default.leadCardText,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: ChannelsPage_module_default.leadCardName,
-								children: lead?.name ?? t("headLead")
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							ref: leadCardRef,
+							type: "button",
+							className: ChannelsPage_module_default.leadCardButton,
+							disabled: room === void 0,
+							title: `${lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`}\n${t("leadCardChange")}`,
+							onClick: () => {
+								settingsReturnRef.current = leadCardRef.current;
+								setDrawer(void 0);
+								setSettingsTab("dispatch");
+								setSettingsOpen(true);
+							},
+							children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+								id: lead.id,
+								name: lead.name,
+								avatar: lead.avatar,
+								avatarVersion: lead.avatarVersion
 							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: ChannelsPage_module_default.leadCardStatus,
+								className: ChannelsPage_module_default.leadCardText,
 								children: [
-									t("leadPinned"),
-									" · ",
-									leadStatus
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.leadCardName,
+										children: lead?.name ?? t("headLead")
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: ChannelsPage_module_default.leadCardStatus,
+										children: [
+											t("leadPinned"),
+											" · ",
+											leadStatus
+										]
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.leadCardHint,
+										children: leadId == null ? t("leadCardSet") : t("leadCardHint")
+									})
 								]
 							})]
-						})]
+						})
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.groupHead,
@@ -22071,12 +22433,16 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 						const active = r.active ?? 0;
 						const showActive = active > 0;
 						const workers = (state.thinking[String(r.id)] ?? []).map((id) => state.members.find((m) => m.id === id)).filter((m) => m !== void 0);
+						const fresh = r.id === state.roomId ? 0 : state.unread?.[String(r.id)] ?? 0;
+						const working = workers.length === 0 ? void 0 : workers.length === 1 ? t("roomWorking", { name: workers[0].name }) : t("roomWorkingMany", { count: String(workers.length) });
 						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 							type: "button",
+							"data-unread": fresh > 0 || void 0,
 							className: [
 								ChannelsPage_module_default.room,
 								depth === 1 ? ChannelsPage_module_default.workspace : "",
-								r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""
+								r.id === state.roomId ? ChannelsPage_module_default.roomActive : "",
+								fresh > 0 ? ChannelsPage_module_default.roomUnread : ""
 							].filter(Boolean).join(" "),
 							"aria-current": r.id === state.roomId,
 							onClick: () => {
@@ -22094,7 +22460,20 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									className: ChannelsPage_module_default.roomLabel,
 									children: r.name
 								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AvatarStack, { members: workers }),
+								working !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: ChannelsPage_module_default.roomWorking,
+									"aria-hidden": true,
+									title: workers.map((m) => m.name).join("、"),
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.roomWorkingDot,
+										"aria-hidden": true
+									}), working]
+								}),
+								fresh > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ChannelsPage_module_default.unreadBadge,
+									"aria-label": t("roomUnread", { count: String(fresh) }),
+									children: fresh > 99 ? "99+" : fresh
+								}),
 								showActive && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: active > 0 ? `${ChannelsPage_module_default.activeCount} ${ChannelsPage_module_default.activeBusy}` : ChannelsPage_module_default.activeCount,
 									children: t("activeTasks", { count: active })
@@ -22102,34 +22481,113 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 							]
 						}, r.id);
 					}),
-					dmRooms(state.rooms).length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-						className: ChannelsPage_module_default.dmTitle,
-						children: t("dmGroup")
-					}),
-					dmRooms(state.rooms).map((r) => {
-						const peer = state.members.find((m) => m.id === r.dm_member);
-						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: `${ChannelsPage_module_default.groupHead} ${ChannelsPage_module_default.dmHead}`,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+							className: ChannelsPage_module_default.groupTitle,
+							children: t("dmGroup")
+						}), startDm !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
-							className: [ChannelsPage_module_default.room, r.id === state.roomId ? ChannelsPage_module_default.roomActive : ""].filter(Boolean).join(" "),
-							"aria-current": r.id === state.roomId,
-							"data-dm-room": r.dm_member,
+							className: ChannelsPage_module_default.iconButton,
+							title: t("dmNew"),
+							"aria-label": t("dmNew"),
+							"aria-expanded": dmPicker,
 							onClick: () => {
-								stickRef.current = true;
-								setDrawer(void 0);
-								selectRoom(r.id);
+								setDmPicker(!dmPicker);
+							},
+							children: "+"
+						})]
+					}),
+					dmPicker && startDm !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: ChannelsPage_module_default.dmPicker,
+						role: "menu",
+						"aria-label": t("dmPickTitle"),
+						children: state.members.filter((m) => m.kind !== "human").length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: ChannelsPage_module_default.dmPickNone,
+							children: t("dmPickNone")
+						}) : state.members.filter((m) => m.kind !== "human").map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							role: "menuitem",
+							className: ChannelsPage_module_default.room,
+							onClick: () => {
+								setDmPicker(false);
+								startDm(m);
 							},
 							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.dmAvatar,
 								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-									id: r.dm_member ?? "",
-									name: peer?.name ?? r.name,
-									avatar: peer?.avatar,
-									avatarVersion: peer?.avatarVersion,
+									id: m.id,
+									name: m.name,
+									avatar: m.avatar,
+									avatarVersion: m.avatarVersion,
 									small: true
 								})
 							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: ChannelsPage_module_default.roomLabel,
-								children: peer?.name ?? r.name
+								children: m.name
+							})]
+						}, m.id))
+					}),
+					startDm !== void 0 && dmRooms(state.rooms).length === 0 && !dmPicker && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+						type: "button",
+						className: `${ChannelsPage_module_default.room} ${ChannelsPage_module_default.dmNewRow}`,
+						onClick: () => {
+							setDmPicker(true);
+						},
+						children: ["+ ", t("dmNew")]
+					}),
+					dmRooms(state.rooms).map((r) => {
+						const peer = state.members.find((m) => m.id === r.dm_member);
+						const label = peer?.name ?? r.name;
+						const fresh = r.id === state.roomId ? 0 : state.unread?.[String(r.id)] ?? 0;
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: ChannelsPage_module_default.dmRow,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								"data-unread": fresh > 0 || void 0,
+								className: [
+									ChannelsPage_module_default.room,
+									r.id === state.roomId ? ChannelsPage_module_default.roomActive : "",
+									fresh > 0 ? ChannelsPage_module_default.roomUnread : ""
+								].filter(Boolean).join(" "),
+								"aria-current": r.id === state.roomId,
+								"data-dm-room": r.dm_member,
+								onClick: () => {
+									stickRef.current = true;
+									setDrawer(void 0);
+									selectRoom(r.id);
+								},
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.dmAvatar,
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
+											id: r.dm_member ?? "",
+											name: label,
+											avatar: peer?.avatar,
+											avatarVersion: peer?.avatarVersion,
+											small: true
+										})
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.roomLabel,
+										children: label
+									}),
+									fresh > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ChannelsPage_module_default.unreadBadge,
+										"aria-label": t("roomUnread", { count: String(fresh) }),
+										children: fresh > 99 ? "99+" : fresh
+									})
+								]
+							}), endDm !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: ChannelsPage_module_default.dmClose,
+								"data-dm-close": r.id,
+								title: t("dmClose"),
+								"aria-label": t("dmCloseNamed", { name: label }),
+								onClick: () => {
+									endDm(r.id);
+								},
+								children: "×"
 							})]
 						}, r.id);
 					})
@@ -22171,16 +22629,19 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 								className: ChannelsPage_module_default.roomName,
 								children: dmWith !== void 0 ? state.members.find((m) => m.id === dmWith)?.name ?? room?.name : room?.name
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							dmWith === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
 								className: ChannelsPage_module_default.headMeta,
+								title: t("showMembersList"),
+								onClick: openActivity,
 								children: [t("headMembers", { count: visibleMembers.length }), channelActive > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" · ", t("activeTasks", { count: channelActive })] })]
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(HeadTeam, {
+							dmWith === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HeadTeam, {
 								mates: headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms),
 								t,
 								onOpen: openActivity
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskBoard, {
+							dmWith === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TaskBoard, {
 								tasks: state.tasks ?? [],
 								rooms: state.rooms,
 								chatId: state.taskChat,
@@ -22190,29 +22651,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 								onReview: reviewTask,
 								dock: boardDock,
 								onDocked: setBoardDocked
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: ChannelsPage_module_default.headLead,
-								role: "group",
-								"aria-label": t("headLead"),
-								title: lead === void 0 ? leadStatus : `${lead.name} · ${leadStatus}`,
-								children: [lead !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Avatar, {
-									id: lead.id,
-									name: lead.name,
-									avatar: lead.avatar,
-									avatarVersion: lead.avatarVersion,
-									small: true
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-									className: ChannelsPage_module_default.headLeadText,
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: ChannelsPage_module_default.headLeadName,
-										children: lead?.name ?? t("headLead")
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: ChannelsPage_module_default.headLeadStatus,
-										children: leadStatus
-									})]
-								})]
-							}),
+							}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: ChannelsPage_module_default.headSpacer }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: ChannelsPage_module_default.schemeToggle,
@@ -22246,6 +22685,13 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 							})
 						]
 					}),
+					dmWith === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProgressCard, {
+						lines: channelProgress(state.tasks ?? [], channelRooms),
+						t,
+						onOpen: openMessage,
+						folded,
+						onToggle: toggleProgress
+					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: ChannelsPage_module_default.logWrap,
 						children: [
@@ -22268,13 +22714,6 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									if (el.scrollTop <= 40) pageBack();
 								},
 								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProgressCard, {
-										lines: channelProgress(state.tasks ?? [], channelRooms),
-										t,
-										onOpen: openMessage,
-										folded,
-										onToggle: toggleProgress
-									}),
 									!visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 										className: ChannelsPage_module_default.guide,
 										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: t("guideNoMembers") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -22293,7 +22732,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									}),
 									visibleMessages.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: ChannelsPage_module_default.empty,
-										children: t("empty")
+										children: dmWith !== void 0 ? t("dmEmpty", { name: dmPeer?.name ?? room?.name ?? "" }) : t("empty")
 									}) : visibleMessages.map((m, index) => [firstUnread === m.id ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 										className: ChannelsPage_module_default.unreadDivider,
 										role: "separator",
@@ -22313,6 +22752,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 										message: m,
 										grouped: continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === "user" && commandLine(visibleMessages[index - 1]?.text ?? "") !== void 0),
 										member: byId.get(m.author),
+										members: visibleMembers,
 										t,
 										onConfigure: () => {
 											if (!openModelSettings()) setModelsOpen(true);
@@ -22337,7 +22777,12 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 										onReply: startReply,
 										onTask: toTask,
 										own: ownActions(m),
-										queuedFor: queuedFor.get(m.id)
+										queuedFor: queuedFor.get(m.id),
+										taskCardShown: recordShowsCard(m),
+										toolsOpen: toolsFor === m.id,
+										onLongPress: () => {
+											setToolsFor(m.id);
+										}
 									}, m.id)])
 								]
 							}),
@@ -22407,6 +22852,8 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 							children: pendingPerms.map((m) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PermTrayItem, {
 								message: m,
 								author: byId.get(m.author),
+								members: visibleMembers,
+								onMention: mentionFromAvatar,
 								t,
 								onDecide: decidePermission
 							}, m.id))
@@ -22429,6 +22876,8 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 								commands: slashCommands,
 								selected: slashSelected,
 								target: commandTarget?.name,
+								dmName: dmWith === void 0 ? void 0 : dmPeer?.name ?? room?.name,
+								disabled: (c) => commandTarget === void 0 && needsTarget(c),
 								grouped: slash === "",
 								t,
 								onPick: runSlash,
@@ -22538,7 +22987,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 										enterKeyHint: "send",
 										value: draft,
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
+										placeholder,
 										role: "combobox",
 										"aria-expanded": popupOpen || slashOpen,
 										"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
@@ -22658,6 +23107,23 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 							children: t("activityPanel")
 						})
 					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: ChannelsPage_module_default.drawerTools,
+						children: [dmWith === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.secondaryButton,
+							onClick: openBoard,
+							children: t("drawerBoard")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ChannelsPage_module_default.secondaryButton,
+							"aria-pressed": scheme === "dark",
+							onClick: () => {
+								setScheme(scheme === "light" ? "dark" : "light");
+							},
+							children: t("drawerDark")
+						})]
+					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						ref: settingsButtonRef,
 						type: "button",
@@ -22666,6 +23132,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 						onClick: () => {
 							settingsReturnRef.current = drawer === "members" ? membersToggleRef.current : settingsButtonRef.current;
 							setDrawer(void 0);
+							setSettingsTab("basic");
 							setSettingsOpen(true);
 						},
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
@@ -22761,6 +23228,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 			settingsOpen && room !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ChannelSettingsDialog, {
 				room,
 				members: visibleMembers,
+				initialTab: settingsTab,
 				effectiveLead: room.effective_lead_id === void 0 ? state.effectiveLeadId ?? state.leadId ?? "" : room.effective_lead_id ?? "",
 				renameRoom,
 				setDispatchMode,
@@ -22830,7 +23298,7 @@ const zh = {
 	mateReplying: "在回复",
 	headLeadIdle: "空闲",
 	headLeadBusyUnreported: "在忙",
-	headLeadUnset: "未设总管",
+	headLeadUnset: "未设主角色",
 	progressTitle: "本频道进展",
 	progressDone: "做完",
 	progressDoing: "在做",
@@ -22859,8 +23327,11 @@ const zh = {
 	askUndo: "撤回（{n} 秒）",
 	askApiPending: "接口修复中：这里的回复还送不到，先在聊天里 @ 对方回复",
 	headLeadLoading: "读取中",
-	leadPinned: "置顶",
-	leadCard: "置顶的主角色",
+	leadPinned: "主角色",
+	leadCard: "主角色",
+	leadCardHint: "接你的话，派活给队友，收结果",
+	leadCardSet: "点这里选一个",
+	leadCardChange: "点开频道设置，换主角色",
 	activityPanel: "活动",
 	activityNow: "正在进行",
 	activityThinking: "思考中",
@@ -22900,7 +23371,9 @@ const zh = {
 	workspaceNameFixed: "工作区名称由系统分配，不能修改。",
 	slashTitle: "命令",
 	slashTitleLead: "发给 {name} 的命令",
-	slashTitleNoLead: "命令 · 没有能接命令的主角色",
+	slashTitleNoLead: "命令 · 先在频道设置里选主角色，才能用这些命令",
+	slashTitleDmNoCmd: "命令 · {name} 不接这些命令",
+	slashDisabledHint: "没人接这条命令",
 	slashHint: "↑↓ 选择 · 回车执行 · Esc 关闭",
 	slashNoLead: "主角色不是 bothouse 机器人，没人接这条命令；先在频道设置里选主角色，或直接 @ 机器人再打命令。",
 	slashStop: "停下这一轮，下条接着说",
@@ -23021,8 +23494,22 @@ const zh = {
 	online: "在线",
 	close: "关闭",
 	dmGroup: "私聊",
+	dmNew: "发私信",
+	dmPickTitle: "和谁私聊",
+	dmPickNone: "还没有能私聊的成员",
+	dmPlaceholder: "发消息给 {name}",
+	dmEmpty: "这里只有你和 {name}。",
+	roomUnread: "{count} 条新消息",
+	roomWorking: "{name} 在干活",
+	roomWorkingMany: "{count} 人在干活",
+	showMembersList: "查看成员",
+	drawerBoard: "看任务板",
+	drawerDark: "深色模式",
 	dmOpen: "发私信",
 	dmOpenFailed: "打不开私聊：{message}",
+	dmClose: "关闭私聊（记录保留，再点「发私信」可恢复）",
+	dmCloseNamed: "关闭和 {name} 的私聊",
+	dmCloseFailed: "关不掉私聊：{message}",
 	deliveryFull: "全屏",
 	deliveryRevise: "继续改",
 	deliveryAccept: "收下",
@@ -23190,8 +23677,11 @@ const en = {
 	askUndo: "Undo ({n}s)",
 	askApiPending: "Reply endpoint is being fixed: replies here cannot be delivered yet; @ them in the chat instead",
 	headLeadLoading: "Loading",
-	leadPinned: "Pinned",
-	leadCard: "Pinned primary role",
+	leadPinned: "Primary role",
+	leadCard: "Primary role",
+	leadCardHint: "Takes your messages, hands work to teammates, collects results",
+	leadCardSet: "Click to pick one",
+	leadCardChange: "Open channel settings to change the primary role",
 	activityPanel: "Activity",
 	activityNow: "Now",
 	activityThinking: "Thinking",
@@ -23247,7 +23737,7 @@ const en = {
 	taskReviewReason: "Reason for rework (required)",
 	taskReviewSubmit: "Submit rework",
 	lead: "Primary role",
-	leadNone: "No role is available",
+	leadNone: "Not selected (use the default)",
 	durSeconds: "{n}s",
 	durMinutes: "{n} min",
 	durHours: "{h} h {m} min",
@@ -23276,7 +23766,9 @@ const en = {
 	workspaceNameFixed: "Workspace names are assigned by the system and cannot be changed.",
 	slashTitle: "Commands",
 	slashTitleLead: "Commands to {name}",
-	slashTitleNoLead: "Commands · no primary role takes commands",
+	slashTitleNoLead: "Commands · pick a primary role in channel settings to use these",
+	slashTitleDmNoCmd: "Commands · {name} does not take these commands",
+	slashDisabledHint: "No one takes this command",
 	slashHint: "↑↓ select · Enter run · Esc close",
 	slashNoLead: "The primary role is not a bothouse bot, so no one takes this command. Pick a primary role in channel settings, or @ a bot before the command.",
 	slashStop: "Stop the primary role's current turn (the session stays)",
@@ -23324,7 +23816,7 @@ const en = {
 	capabilityReminderHelp: "Dispatched tasks receive one reminder when due. The owner returns a result or explains the blocker.",
 	capabilityWorkspaceHelp: "Assign work to a role in the chat channel. Roles create workspaces when needed; questions and progress return to the chat channel.",
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
-	capabilityDmHelp: "Use 私聊 in the left column or 发私信 in a bot's avatar menu to talk with that role one to one, away from the channel. Roles can also message the configured owner.",
+	capabilityDmHelp: "Use New message under Direct messages in the left column, or Message privately in a bot's avatar menu, to talk with that role one to one, away from the channel. Roles can also message the configured owner.",
 	configureModel: "Add a model key",
 	configureModelHint: "Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).",
 	retry: "Retry",
@@ -23352,8 +23844,22 @@ const en = {
 	online: "Online",
 	close: "Close",
 	dmGroup: "Direct messages",
+	dmNew: "New message",
+	dmPickTitle: "Message whom",
+	dmPickNone: "No member to message yet",
+	dmPlaceholder: "Message {name}",
+	dmEmpty: "Only you and {name} are here.",
+	roomUnread: "{count} new messages",
+	roomWorking: "{name} is working",
+	roomWorkingMany: "{count} working",
+	showMembersList: "Show members",
+	drawerBoard: "Task board",
+	drawerDark: "Dark mode",
 	dmOpen: "Message privately",
 	dmOpenFailed: "Could not open the private chat: {message}",
+	dmClose: "Close this private chat (history is kept; Message privately reopens it)",
+	dmCloseNamed: "Close the private chat with {name}",
+	dmCloseFailed: "Could not close the private chat: {message}",
 	deliveryFull: "Full screen",
 	deliveryRevise: "Keep editing",
 	deliveryAccept: "Accept",
@@ -23505,6 +24011,7 @@ function apply(ctx) {
 		reviewTask: channels.actions.reviewTask,
 		dispatchTask: channels.actions.dispatchTask,
 		openDm: channels.actions.openDm,
+		closeDm: channels.actions.closeDm,
 		retrySend: channels.actions.retrySend,
 		dismissSend: channels.actions.dismissSend,
 		loadOlder: channels.actions.loadOlder,
@@ -23560,6 +24067,18 @@ function apply(ctx) {
 			unsubscribe();
 			disposePanel?.();
 		};
+	});
+	if (typeof ctx.inject === "function") ctx.inject(["theme"], (themed) => {
+		const theme = Reflect.get(themed, "theme");
+		if (theme === void 0) return;
+		const on = Reflect.get(themed, "on");
+		themed.effect(() => bindHostTheme({
+			scheme: () => theme.getTheme().active.colorScheme,
+			set: (next) => {
+				theme.setTheme(next);
+			},
+			subscribe: (fn) => on.call(themed, "theme/change", fn)
+		}), "client-ui-discord: host theme");
 	});
 	ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
 		name: "sidebar.panellist",

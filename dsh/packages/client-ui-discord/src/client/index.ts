@@ -15,6 +15,7 @@ import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
 import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
+import { bindHostTheme, type Scheme } from './scheme.ts'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
 export type { ChannelsKey } from './locales.ts'
@@ -51,6 +52,7 @@ export function apply(ctx: ClientContext): void {
     reviewTask: channels.actions.reviewTask,
     dispatchTask: channels.actions.dispatchTask,
     openDm: channels.actions.openDm,
+    closeDm: channels.actions.closeDm,
     retrySend: channels.actions.retrySend,
     dismissSend: channels.actions.dismissSend,
     loadOlder: channels.actions.loadOlder,
@@ -99,6 +101,17 @@ export function apply(ctx: ClientContext): void {
     // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
     if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
     return () => { unsubscribe(); disposePanel?.() }
+  })
+  // 体检 #11: follow the DSH theme (ui-theme's ThemeRuntime) when it is loaded.
+  if (typeof ctx.inject === 'function') ctx.inject(['theme'], (themed) => {
+    const theme = Reflect.get(themed, 'theme') as { getTheme(): { active: { colorScheme: Scheme } }; setTheme(id: string): void } | undefined
+    if (theme === undefined) return
+    const on = Reflect.get(themed, 'on') as (name: string, fn: () => void) => () => void
+    themed.effect(() => bindHostTheme({
+      scheme: () => theme.getTheme().active.colorScheme,
+      set: next => { theme.setTheme(next) },
+      subscribe: fn => on.call(themed, 'theme/change', fn),
+    }), 'client-ui-discord: host theme')
   })
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',

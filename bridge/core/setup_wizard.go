@@ -67,6 +67,9 @@ type WizardRequest struct {
 	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
+	// botOwners: owners of the bots' Discord applications (looked up, not typed); the default
+	// admin_from even when allow_from lets everyone in, so the agent can tell its owner apart.
+	botOwners string
 }
 
 // WizardGate: enabled = a team of bots (or a single role, as the lead) gets gate_url / gate_fallback (lead "reply", the others
@@ -218,6 +221,8 @@ type WizardProjectWrite struct {
 	// AdminFrom: project-level admin_from (the owner `send --dm` writes to), written only
 	// when the project has none. "" = leave
 	AdminFrom string
+	// AllPlatformsOfType: Options go into every platform of PlatformType, none is created (gate page).
+	AllPlatformsOfType bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -1056,6 +1061,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	// or an empty value given) fails closed: an empty allow_from would let anyone in the server
 	// command this computer, so the bots get AllowFromUnset (matches no one) and a blocking warning.
 	allowFrom := strings.Join(owners, ",")
+	req.botOwners = allowFrom
 	if req.AllowFrom != nil {
 		allowFrom = strings.Join(csvSet(*req.AllowFrom), ",")
 	}
@@ -1301,9 +1307,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 	}
 
-	// 自建平台 team: every member's wizard-made persona (one with a conest marker) gets the team line;
+	// 自建平台 / Discord team: every member's wizard-made persona (one with a conest marker) gets the team line;
 	// a hand-written persona without one is left alone (H1)
-	if cloudWeb && len(pl.team) > 1 {
+	if (cloudWeb || req.Platform == "discord") && len(pl.team) > 1 {
 		after, _ := env.Store.Snapshot()
 		for _, t := range pl.team {
 			p, ok := after.project(t.Project)
@@ -1320,7 +1326,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			if c, _ := PersonaReplyLanguage(string(b)); c != "" {
 				lang = c
 			}
-			if err := AtomicWriteFile(path, []byte(WithTeam(string(b), cloudWebTeamLine(lang, pl.team, pl.fallback, t.Project))), 0o644); err != nil {
+			if err := AtomicWriteFile(path, []byte(WithTeam(string(b), wizardTeamLine(lang, req.Platform, pl.team, pl.fallback, t.Project))), 0o644); err != nil {
 				return fail("team", err)
 			}
 			addStep(res, "team", nil, stepTeamLineWritten(req.Language, t.Name, path))
@@ -1867,9 +1873,15 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			// own the DM that `send --dm` writes to and the admin commands. Without it the DM fails
 			// and /shell is blocked; they can already command the agent through allow_from.
 			// An existing admin_from is kept.
-			if ex, _ := s.project(r.project); req.AllowFrom == nil && allowFrom != "" && allowFrom != AllowFromUnset &&
-				allowFrom != "*" && strings.TrimSpace(ex.AdminFrom) == "" {
-				pw.AdminFrom = allowFrom
+			// A multi-user group (allow_from "*" or a typed list) still gets the looked-up owners
+			// (agentm 2026-11-05: allow_from "*", no admin_from, the agent grepped its wiki for who
+			// the owner was).
+			admin := req.botOwners
+			if req.AllowFrom == nil && allowFrom != "" && allowFrom != AllowFromUnset && allowFrom != "*" {
+				admin = allowFrom
+			}
+			if ex, _ := s.project(r.project); admin != "" && strings.TrimSpace(ex.AdminFrom) == "" {
+				pw.AdminFrom = admin
 			}
 			// the wizard's default chat channel: listening without an @ stays in it (platform/discord
 			// group_reply_all_channels); an existing value is kept
@@ -1890,6 +1902,10 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 			pw.Options["app_id"], pw.Options["app_secret"] = f.AppID, f.AppSecret
 			pw.FeishuOwnerOpenID = f.OwnerOpenID
+			// the scanning owner is the project's owner too (same rule as Discord's bot owners)
+			if ex, _ := s.project(r.project); f.OwnerOpenID != "" && strings.TrimSpace(ex.AdminFrom) == "" {
+				pw.AdminFrom = f.OwnerOpenID
+			}
 		}
 		pl.writes = append(pl.writes, pw)
 	}

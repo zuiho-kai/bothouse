@@ -20,11 +20,12 @@ import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded }
 import { StepChips, chipsOf, compactBrief } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
-import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, slashQuery, type SlashCommand } from './slash-commands.ts'
+import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, needsTarget, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
+import { HighlightedMarkdown, renderQuoteMentions } from './mention-highlight.tsx'
 import { MemberDialog } from './MemberDialog.tsx'
-import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
-import { Avatar, AvatarStack } from './Avatar.tsx'
+import { ChannelSettingsDialog, type SettingsTab } from './ChannelSettingsDialog.tsx'
+import { Avatar } from './Avatar.tsx'
 import { HeadTeam, headTeam } from './HeadTeam.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import { DecideTray, openQuestions } from './DecideTray.tsx'
@@ -47,6 +48,7 @@ export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInject
   /** #1016 转任务 on a message; absent hides the button. */
   readonly dispatchTask?: ChannelActions['dispatchTask']
   readonly openDm?: ChannelActions['openDm']
+  readonly closeDm?: ChannelActions['closeDm']
 }
 
 type T = TranslateNS<typeof NS>
@@ -71,12 +73,12 @@ function compactComposer(): boolean {
 }
 
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
-function Quote({ quote, t }: { quote: ChannelQuote; t: T }) {
+function Quote({ quote, t, members, onMention }: { quote: ChannelQuote; t: T; members?: readonly ChannelMember[]; onMention?: (member: ChannelMember) => void }) {
   if (quote.deleted === true) return <div className={`${css.quote} ${css.quoteDeleted}`}>{t('replyDeleted')}</div>
   return (
     <div className={css.quote}>
       <span className={css.quoteAuthor}>{quote.name}</span>
-      <span>{quote.text}</span>
+      <span>{members ? renderQuoteMentions(quote.text, members, onMention) : quote.text}</span>
     </div>
   )
 }
@@ -222,8 +224,16 @@ interface OwnActions {
 }
 
 
-function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor }: {
+// 体检 #9: a touch press this long opens the message tools (common long-press length on phones).
+const LONG_PRESS_MS = 450
+
+function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }: {
   message: ChannelMessage
+  /** 体检 #8: a task record shows its card only when no earlier row of this task already does. */
+  taskCardShown?: boolean
+  /** 体检 #9: on touch screens the tools show only after a long press on this row. */
+  toolsOpen?: boolean
+  onLongPress?: () => void
   grouped: boolean
   /** Stagger slot when this row arrived live (#115); undefined for history. */
   enter: number | undefined
@@ -233,6 +243,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   tasks: readonly ChannelTask[]
   focused: boolean
   member: ChannelMember | undefined
+  members?: readonly ChannelMember[]
   t: T
   onConfigure: () => void
   menuOpen: boolean
@@ -284,6 +295,13 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
       note('task', t('toolTaskFailed', { message: error instanceof Error ? error.message : String(error) }))
     })
   }
+  const press = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => { clearTimeout(press.current) }, [])
+  const startPress = (): void => {
+    clearTimeout(press.current)
+    if (onLongPress !== undefined) press.current = setTimeout(onLongPress, LONG_PRESS_MS)
+  }
+  const endPress = (): void => { clearTimeout(press.current) }
   const wasEditing = useRef(false)
   const isEditing = own?.editing !== undefined
   useEffect(() => {
@@ -318,10 +336,10 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
     return (
       <div className={[css.systemRecord, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} role="note">
         <div className={css.systemLine}>
-          <span className={css.systemText} title={fullTime}><MarkdownText text={markdown} labels={labels} /></span>
+          <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
         </div>
         {/* A task record keeps its live card, centered under the line. */}
-        {card?.kind === 'task' && typeof card.task_id === 'number' && <div className={`${css.card} ${css.taskRecord}`}><TaskCard taskId={card.task_id} tasks={tasks} t={t} /></div>}
+        {card?.kind === 'task' && typeof card.task_id === 'number' && taskCardShown && <div className={`${css.card} ${css.taskRecord}`}><TaskCard taskId={card.task_id} tasks={tasks} t={t} /></div>}
       </div>
     )
   }
@@ -329,7 +347,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
     return (
       <div className={[css.errorBar, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} data-state={card?.state} role="alert">
         <span className={css.errorIcon} aria-hidden>!</span>
-        <div className={css.errorText}><MarkdownText text={markdown} labels={labels} /></div>
+        <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.errorText} onMention={onMention} />
         {retryButtons}
       </div>
     )
@@ -356,7 +374,14 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
   const chips = role === 'progress' ? chipsOf(card) : undefined
   return (
-    <div className={classes} data-message-id={message.id} data-queued={queuedFor !== undefined || undefined} style={enterStyle}>
+    <div className={classes} data-message-id={message.id} data-queued={queuedFor !== undefined || undefined} data-tools-open={toolsOpen || undefined} style={enterStyle}
+      onTouchStart={startPress} onTouchEnd={endPress} onTouchMove={endPress} onTouchCancel={endPress}
+      onContextMenu={(event) => {
+        // Android turns a long press into contextmenu; on touch screens it opens the tools instead.
+        if (onLongPress === undefined || typeof window.matchMedia !== 'function' || !window.matchMedia('(hover: none)').matches) return
+        event.preventDefault()
+        onLongPress()
+      }}>
       {grouped
         ? <time className={css.gutterTime} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
         : member === undefined || message.author_kind === 'system'
@@ -379,7 +404,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
             </span>
           )}
       <div className={css.messageBody}>
-        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} />}
+        {message.reply_to !== undefined && <Quote quote={message.reply_to} t={t} members={members} onMention={onMention} />}
         <div className={grouped ? `${css.messageHead} ${css.messageHeadGrouped}` : css.messageHead}>
           {!grouped && <span className={css.author}>{message.name}</span>}
           {!grouped && <KindTag name={message.name} kind={member?.kind} cli={member?.cli} t={t} />}
@@ -415,7 +440,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               </div>
             )
           : card === undefined
-          ? <>{message.text !== '' && <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>}<AttachmentList attachments={message.attachments} t={t} />
+          ? <>{message.text !== '' && <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />}<AttachmentList attachments={message.attachments} t={t} />
               {delivered !== undefined && <DeliveryPreview page={delivered.page} task={delivered.task} t={t} onReview={onReview} onRevise={() => { onReply(message) }} />}</>
           : role === 'progress'
           ? (
@@ -440,7 +465,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                 {cardView === 'brief' && chips !== undefined
                   ? <StepChips chips={chips} runState={card.state} t={t} />
                   : !progressFolded && progressLines.length > 1 && (
-                      <div className={`${css.text} ${css.runSteps}`} data-card-text><MarkdownText text={stepsMarkdown} labels={labels} /></div>
+                      <HighlightedMarkdown text={stepsMarkdown} labels={labels} members={members} className={`${css.text} ${css.runSteps}`} dataCardText onMention={onMention} />
                     )}
                 {retryButtons}
               </div>
@@ -450,7 +475,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
               // #113: the buttons are pinned above the composer so scrolling never loses them.
               <div className={css.permInline}>
                 <span className={css.permLock} aria-hidden>●</span>
-                <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+                <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
                 <span className={css.permWaiting}>{t('permPending')}</span>
               </div>
             )
@@ -461,7 +486,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
                     <div className={css.cardTitle}>{card.title}</div>
                   </div>
                 )}
-                <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+                <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
                 {retryButtons}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
@@ -492,7 +517,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 }
 
 /** One pending permission request in the tray above the composer (#113). */
-function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessage; author: ChannelMember | undefined; t: T; onDecide: ChannelActions['decidePermission'] }) {
+function PermTrayItem({ message, author, members, onMention, t, onDecide }: { message: ChannelMessage; author: ChannelMember | undefined; members?: readonly ChannelMember[]; onMention?: (member: ChannelMember) => void; t: T; onDecide: ChannelActions['decidePermission'] }) {
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   const markdown = useMemo(() => softBreaksToHard(message.text), [message.text])
   const card = useMemo(() => parseCard(message), [message])
@@ -501,7 +526,7 @@ function PermTrayItem({ message, author, t, onDecide }: { message: ChannelMessag
       <Avatar id={message.author} name={message.name} avatar={author?.avatar} avatarVersion={author?.avatarVersion} small />
       <div className={css.permTrayText}>
         <span className={css.permTrayWho}>{t('permAsks', { name: message.name })}</span>
-        <div className={css.text}><MarkdownText text={markdown} labels={labels} /></div>
+        <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
       </div>
       <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />
     </div>
@@ -594,7 +619,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -716,8 +741,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
   const [retryingId, setRetryingId] = useState<number | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('basic')
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const settingsReturnRef = useRef<HTMLButtonElement | null>(null)
+  const leadCardRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
     if (!settingsOpen) return
     const opener = settingsReturnRef.current
@@ -766,6 +793,20 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
 
   // Message whose avatar menu is open (#123); keyed by message so only one row shows it.
   const [avatarMenu, setAvatarMenu] = useState<number | undefined>(undefined)
+  // 体检 #9: the message whose tools a long press opened on a touch screen; a press elsewhere closes them.
+  const [toolsFor, setToolsFor] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (toolsFor === undefined) return
+    const onPress = (event: Event): void => {
+      if ((event.target as Element | null)?.closest?.(`[data-message-id="${toolsFor}"]`) == null) setToolsFor(undefined)
+    }
+    document.addEventListener('touchstart', onPress)
+    document.addEventListener('mousedown', onPress)
+    return () => { document.removeEventListener('touchstart', onPress); document.removeEventListener('mousedown', onPress) }
+  }, [toolsFor])
+  useEffect(() => { setToolsFor(undefined) }, [state.roomId])
+  // 体检 #1: the 发私信 picker under the 私聊 heading.
+  const [dmPicker, setDmPicker] = useState(false)
   const [cardViews, setCardViews] = useState<Record<number, CardView>>({})
   // #156: the 本频道进展 card folds away and stays folded across reloads, per room.
   const [progressFolded, setProgressFolded] = useState<Record<number, boolean>>({})
@@ -1010,9 +1051,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   openMentionAt.current = popupOpen ? mention.start : undefined
   const selected = Math.min(highlight, Math.max(candidates.length - 1, 0))
   // #1016 / commands go to the primary role when it is a bothouse bot (only those run bridge commands).
-  const commandTarget = lead?.kind === 'bot' ? lead : undefined
+  // 体检 #5: in a private chat the commands go to the one agent there.
+  const dmPeer = dmWith === undefined ? undefined : byId.get(dmWith)
+  const commandTarget = dmWith !== undefined ? (dmPeer?.kind === 'bot' ? dmPeer : undefined) : lead?.kind === 'bot' ? lead : undefined
   const slash = slashQuery(draft)
-  const slashCommands = slash === undefined || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, key => t(key))
+  // 体检 #5: a private chat has no 停频道全部 and no task board.
+  const slashCommands = slash === undefined || capabilitiesDismissed || popupOpen ? []
+    : matchCommands(slash, key => t(key)).filter(c => dmWith === undefined || (c.name !== 'stop all' && c.name !== 'board'))
   const slashOpen = slashCommands.length > 0
   const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
   // #1017: bothouse bots answering in this room; the send key stops one of them (the primary
@@ -1022,9 +1067,33 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const stopTarget = workingBots.find(m => m.id === commandTarget?.id) ?? workingBots[0]
   const roomFiles = state.roomId === undefined ? [] : pendingFiles[state.roomId] ?? []
   const stopMode = (stopTarget !== undefined || stopping?.phase === 'stopping') && draft.trim() === '' && roomFiles.length === 0
+  // 体检 #8: one card per task — on its dispatch message when that is loaded, else on its first record.
+  const taskCardAt = new Map<number, number>()
+  for (const m of visibleMessages) {
+    for (const task of state.tasks ?? []) if (task.assign_msg_id === m.id && !taskCardAt.has(task.id) && parseCard(m)?.kind !== 'task') taskCardAt.set(task.id, m.id)
+  }
+  for (const m of visibleMessages) {
+    const card = m.author_kind === 'system' ? parseCard(m) : undefined
+    if (card?.kind === 'task' && typeof card.task_id === 'number' && !taskCardAt.has(card.task_id)) taskCardAt.set(card.task_id, m.id)
+  }
+  const recordShowsCard = (m: ChannelMessage): boolean => {
+    const card = parseCard(m)
+    return card?.kind !== 'task' || typeof card.task_id !== 'number' || taskCardAt.get(card.task_id) === m.id
+  }
   // #1017: owner command lines and the bridge's answers to them, shown as one thin line.
   const answers = commandAnswers(state.messages, id => byId.get(id)?.name)
   const answerIds = new Set([...answers.values()].map(m => m.id))
+
+  // A private chat renders no board, so a board left open in a channel takes no room there.
+  const boardOpen = boardDocked && dmWith === undefined
+  const placeholder = dmWith !== undefined
+    ? t('dmPlaceholder', { name: dmPeer?.name ?? room?.name ?? '' })
+    : t(compactComposer() || boardOpen ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })
+  // 体检 #10: on a phone the board and the colour switch live in the activity drawer.
+  const openBoard = (): void => {
+    setDrawer(undefined)
+    setTimeout(() => { chatRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="${t('taskBoardOpen')}"]`)?.click() }, 0)
+  }
 
   const setDraft = (text: string, nextCaret: number): void => {
     const roomId = state.roomId
@@ -1054,6 +1123,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     stickRef.current = true
     openDm(member.id).catch((error: unknown) => {
       setRoomError(t('dmOpenFailed', { message: error instanceof Error ? error.message : String(error) }))
+    })
+  }
+  // #155: close a private chat from the 私聊 list; its history stays and 发私信 reopens it.
+  const endDm = closeDm === undefined ? undefined : (roomId: number): void => {
+    closeDm(roomId).catch((error: unknown) => {
+      setRoomError(t('dmCloseFailed', { message: error instanceof Error ? error.message : String(error) }))
     })
   }
   const mentionFromAvatar = (member: ChannelMember): void => {
@@ -1170,6 +1245,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
 
   const runSlash = (command: SlashCommand): void => {
     const run = command.run
+    if (commandTarget === undefined && needsTarget(command)) { noTarget(); return }
     setSlashHighlight(0)
     if (run.kind === 'panel') {
       setDraft('', 0)
@@ -1290,16 +1366,27 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   }
 
   return (
-    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : '', boardDocked ? css.panelOpen : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
+    <div className={[css.page, roomsHidden ? css.roomsHidden : '', membersHidden ? css.membersHidden : '', boardOpen ? css.panelOpen : ''].filter(Boolean).join(' ')} data-dc-scheme={scheme}>
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
         {/* 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态；没有总管时显示兜底文字。 */}
-        <div className={css.leadCard} role="group" aria-label={t('leadCard')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
-          {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />}
-          <span className={css.leadCardText}>
-            <span className={css.leadCardName}>{lead?.name ?? t('headLead')}</span>
-            <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
-          </span>
+        {/* 没设主角色时，频道设置在收起的活动栏里，新用户找不到：卡片本身就是去频道设置选主角色的入口。 */}
+        <div className={css.leadCard} role="group" aria-label={t('leadCard')}>
+          <button
+            ref={leadCardRef}
+            type="button"
+            className={css.leadCardButton}
+            disabled={room === undefined}
+            title={`${lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}\n${t('leadCardChange')}`}
+            onClick={() => { settingsReturnRef.current = leadCardRef.current; setDrawer(undefined); setSettingsTab('dispatch'); setSettingsOpen(true) }}
+          >
+            {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />}
+            <span className={css.leadCardText}>
+              <span className={css.leadCardName}>{lead?.name ?? t('headLead')}</span>
+              <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
+              <span className={css.leadCardHint}>{leadId == null ? t('leadCardSet') : t('leadCardHint')}</span>
+            </span>
+          </button>
         </div>
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
@@ -1329,35 +1416,66 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           // #113: a count only when something runs; idle workspaces no longer repeat 「进行中 0 件」.
           const showActive = active > 0
           const workers = (state.thinking[String(r.id)] ?? []).map(id => state.members.find(m => m.id === id)).filter((m): m is ChannelMember => m !== undefined)
+          const fresh = r.id === state.roomId ? 0 : state.unread?.[String(r.id)] ?? 0
+          // 体检 #7: who is at work here, in words, instead of an unlabelled dot.
+          const working = workers.length === 0 ? undefined : workers.length === 1 ? t('roomWorking', { name: workers[0]!.name }) : t('roomWorkingMany', { count: String(workers.length) })
           return (
             <button
               key={r.id}
               type="button"
-              className={[css.room, depth === 1 ? css.workspace : '', r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
+              data-unread={fresh > 0 || undefined}
+              className={[css.room, depth === 1 ? css.workspace : '', r.id === state.roomId ? css.roomActive : '', fresh > 0 ? css.roomUnread : ''].filter(Boolean).join(' ')}
               aria-current={r.id === state.roomId}
               onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
             >
               <span className={css.hash} aria-hidden>#</span><span className={css.roomLabel}>{r.name}</span>
-              <AvatarStack members={workers} />
+              {working !== undefined && <span className={css.roomWorking} aria-hidden title={workers.map(m => m.name).join('、')}><span className={css.roomWorkingDot} aria-hidden />{working}</span>}
+              {fresh > 0 && <span className={css.unreadBadge} aria-label={t('roomUnread', { count: String(fresh) })}>{fresh > 99 ? '99+' : fresh}</span>}
               {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
             </button>
           )
         })}
-        {dmRooms(state.rooms).length > 0 && <h3 className={css.dmTitle}>{t('dmGroup')}</h3>}
+        <div className={`${css.groupHead} ${css.dmHead}`}>
+          <h3 className={css.groupTitle}>{t('dmGroup')}</h3>
+          {startDm !== undefined && <button type="button" className={css.iconButton} title={t('dmNew')} aria-label={t('dmNew')} aria-expanded={dmPicker} onClick={() => { setDmPicker(!dmPicker) }}>+</button>}
+        </div>
+        {dmPicker && startDm !== undefined && (
+          <div className={css.dmPicker} role="menu" aria-label={t('dmPickTitle')}>
+            {state.members.filter(m => m.kind !== 'human').length === 0
+              ? <div className={css.dmPickNone}>{t('dmPickNone')}</div>
+              : state.members.filter(m => m.kind !== 'human').map(m => (
+                  <button key={m.id} type="button" role="menuitem" className={css.room} onClick={() => { setDmPicker(false); startDm(m) }}>
+                    <span className={css.dmAvatar}><Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small /></span>
+                    <span className={css.roomLabel}>{m.name}</span>
+                  </button>
+                ))}
+          </div>
+        )}
+        {startDm !== undefined && dmRooms(state.rooms).length === 0 && !dmPicker && (
+          <button type="button" className={`${css.room} ${css.dmNewRow}`} onClick={() => { setDmPicker(true) }}>+ {t('dmNew')}</button>
+        )}
         {dmRooms(state.rooms).map(r => {
           const peer = state.members.find(m => m.id === r.dm_member)
+          const label = peer?.name ?? r.name
+          const fresh = r.id === state.roomId ? 0 : state.unread?.[String(r.id)] ?? 0
           return (
-            <button
-              key={r.id}
-              type="button"
-              className={[css.room, r.id === state.roomId ? css.roomActive : ''].filter(Boolean).join(' ')}
-              aria-current={r.id === state.roomId}
-              data-dm-room={r.dm_member}
-              onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
-            >
-              <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={peer?.name ?? r.name} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} small /></span>
-              <span className={css.roomLabel}>{peer?.name ?? r.name}</span>
-            </button>
+            <div key={r.id} className={css.dmRow}>
+              <button
+                type="button"
+                data-unread={fresh > 0 || undefined}
+                className={[css.room, r.id === state.roomId ? css.roomActive : '', fresh > 0 ? css.roomUnread : ''].filter(Boolean).join(' ')}
+                aria-current={r.id === state.roomId}
+                data-dm-room={r.dm_member}
+                onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
+              >
+                <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={label} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} small /></span>
+                <span className={css.roomLabel}>{label}</span>
+                {fresh > 0 && <span className={css.unreadBadge} aria-label={t('roomUnread', { count: String(fresh) })}>{fresh > 99 ? '99+' : fresh}</span>}
+              </button>
+              {endDm !== undefined && (
+                <button type="button" className={css.dmClose} data-dm-close={r.id} title={t('dmClose')} aria-label={t('dmCloseNamed', { name: label })} onClick={() => { endDm(r.id) }}>×</button>
+              )}
+            </div>
           )
         })}
       </nav>
@@ -1366,23 +1484,24 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           <button ref={roomsToggleRef} type="button" className={css.mobileButton} aria-label={t('showRooms')} aria-expanded={drawer === 'rooms'} onClick={() => setDrawer(drawer === 'rooms' ? undefined : 'rooms')}>☰</button>
           <button type="button" className={css.panelToggle} title={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-label={t(roomsHidden ? 'expandRooms' : 'collapseRooms')} aria-expanded={!roomsHidden} onClick={() => { setRoomsHidden(!roomsHidden) }}>{roomsHidden ? '»' : '«'}</button>
           <span className={css.hash} aria-hidden>{dmWith !== undefined ? '@' : '#'}</span><span className={css.roomName}>{dmWith !== undefined ? (state.members.find(m => m.id === dmWith)?.name ?? room?.name) : room?.name}</span>
-          <span className={css.headMeta}>
-            {t('headMembers', { count: visibleMembers.length })}
-            {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
-          </span>
-          <HeadTeam mates={headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms)} t={t} onOpen={openActivity} />
-          <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} dock={boardDock} onDocked={setBoardDocked} />
-          <div className={css.headLead} role="group" aria-label={t('headLead')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
-            {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} small />}
-            <span className={css.headLeadText}>
-              <span className={css.headLeadName}>{lead?.name ?? t('headLead')}</span>
-              <span className={css.headLeadStatus}>{leadStatus}</span>
-            </span>
-          </div>
+          {/* 体检 #1/#4: the member count opens the member list; a private chat shows neither it nor the board. */}
+          {dmWith === undefined && (
+            <button type="button" className={css.headMeta} title={t('showMembersList')} onClick={openActivity}>
+              {t('headMembers', { count: visibleMembers.length })}
+              {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
+            </button>
+          )}
+          {dmWith === undefined && <HeadTeam mates={headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms)} t={t} onOpen={openActivity} />}
+          {dmWith === undefined
+            ? <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} dock={boardDock} onDocked={setBoardDocked} />
+            : <span className={css.headSpacer} />}
+          {/* 体检 #6: the primary role shows once, on the card at the top of the channel list. */}
           <button type="button" className={css.schemeToggle} title={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-label={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{scheme === 'light' ? '☾' : '☀'}</button>
           <button type="button" className={`${css.panelToggle} ${css.panelToggleEnd}`} title={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-label={t(membersHidden ? 'expandMembers' : 'collapseMembers')} aria-expanded={!membersHidden} onClick={() => { setMembersHidden(!membersHidden) }}>{membersHidden ? '«' : '»'}</button>
           <button ref={membersToggleRef} type="button" className={css.mobileButton} aria-label={t('showMembers')} aria-expanded={drawer === 'members'} onClick={() => setDrawer(drawer === 'members' ? undefined : 'members')}>{t('membersButton')}</button>
         </header>
+        {/* 体检 #3: 本频道进展 is its own row under the title bar, so it never covers a message. */}
+        {dmWith === undefined && <ProgressCard lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} folded={folded} onToggle={toggleProgress} />}
         {/* #115: the log and its floating pill/undo toast share one box, so they sit just above the composer and any tray. */}
         <div className={css.logWrap}>
         <div
@@ -1403,8 +1522,6 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
             if (el.scrollTop <= 40) pageBack()
           }}
         >
-          {/* #125: 本频道进展 stays at the top of the log while it scrolls. */}
-          <ProgressCard lines={channelProgress(state.tasks ?? [], channelRooms)} t={t} onOpen={openMessage} folded={folded} onToggle={toggleProgress} />
           {!visibleMembers.some(m => m.kind !== 'human') && (
             <div className={css.guide}>
               <div>{t('guideNoMembers')}</div>
@@ -1413,7 +1530,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           )}
           {loadingOlder && <div className={css.olderLoading} role="status">{t('loadingOlder')}</div>}
           {visibleMessages.length === 0
-            ? <div className={css.empty}>{t('empty')}</div>
+            ? <div className={css.empty}>{dmWith !== undefined ? t('dmEmpty', { name: dmPeer?.name ?? room?.name ?? '' }) : t('empty')}</div>
             : visibleMessages.map((m, index) => [
                 firstUnread === m.id
                   ? <div key={`unread-${m.id}`} className={css.unreadDivider} role="separator">{t('newMessagesDivider')}</div>
@@ -1430,6 +1547,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   // #1017: a command line or its folded answer above is no bubble to group under.
                   grouped={continues(visibleMessages[index - 1], m) && !answerIds.has(visibleMessages[index - 1]?.id ?? -1) && !(visibleMessages[index - 1]?.author_kind === 'user' && commandLine(visibleMessages[index - 1]?.text ?? '') !== undefined)}
                   member={byId.get(m.author)}
+                  members={visibleMembers}
                   t={t}
                   onConfigure={() => { if (!openModelSettings()) setModelsOpen(true) }}
                   menuOpen={avatarMenu === m.id}
@@ -1449,6 +1567,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                   onTask={toTask}
                   own={ownActions(m)}
                   queuedFor={queuedFor.get(m.id)}
+                  taskCardShown={recordShowsCard(m)}
+                  toolsOpen={toolsFor === m.id}
+                  onLongPress={() => { setToolsFor(m.id) }}
                 />,
               ])}
         </div>
@@ -1477,7 +1598,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           permissionCount={pendingPerms.length}
           permissions={pendingPerms.length > 0 && (
             <div className={css.permTray} role="region" aria-label={t('permTray', { count: pendingPerms.length })}>
-              {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} t={t} onDecide={decidePermission} />)}
+              {pendingPerms.map(m => <PermTrayItem key={m.id} message={m} author={byId.get(m.author)} members={visibleMembers} onMention={mentionFromAvatar} t={t} onDecide={decidePermission} />)}
             </div>
           )}
           t={t}
@@ -1486,7 +1607,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         />
         <div className={css.composer} ref={composerRef}>
           {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
-          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
@@ -1549,7 +1670,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               enterKeyHint="send"
               value={draft}
               disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={t(compactComposer() ? 'placeholderShort' : 'placeholder', { room: room?.name ?? '' })}
+              placeholder={placeholder}
               role="combobox"
               aria-expanded={popupOpen || slashOpen}
               aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
@@ -1622,7 +1743,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
       <div ref={setBoardDock} className={css.sideDock} />
       <aside ref={membersRef} className={drawer === 'members' ? `${css.members} ${css.drawerOpen}` : css.members} role={drawer === 'members' ? 'dialog' : undefined} aria-modal={drawer === 'members' ? true : undefined} aria-label={t('activityPanel')} tabIndex={drawer === 'members' ? -1 : undefined}>
         <div className={css.membersHead}><span className={css.membersHeadTitle}>{t('activityPanel')}</span></div>
-        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsOpen(true) }}>
+        <div className={css.drawerTools}>
+          {dmWith === undefined && <button type="button" className={css.secondaryButton} onClick={openBoard}>{t('drawerBoard')}</button>}
+          <button type="button" className={css.secondaryButton} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{t('drawerDark')}</button>
+        </div>
+        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsTab('basic'); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
@@ -1651,6 +1776,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         key={room.id}
         room={room}
         members={visibleMembers}
+        initialTab={settingsTab}
         effectiveLead={room.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId ?? '' : room.effective_lead_id ?? ''}
         renameRoom={renameRoom}
         setDispatchMode={setDispatchMode}

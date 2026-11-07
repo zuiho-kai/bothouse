@@ -164,6 +164,9 @@
 .avatar {
   display: grid;
   place-items: center;
+  /* 固定尺寸的头像不参与 flex 收缩：左栏主角色卡是 flex 容器，名称+状态+提示一长就把
+     36px 的头像压窄，截图里看着「压扁」。无头 Chrome 实测 22.9×36 → 36×36。 */
+  flex: 0 0 auto;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -284,8 +287,10 @@
   opacity: 1;
 }
 
+/* 体检 #9: touch screens show them only after a long press on the row. */
 @media (hover: none) {
-  .ownActions { opacity: 1; }
+  .ownActions { display: none; }
+  .message[data-tools-open] .ownActions { display: inline-flex; opacity: 1; }
 }
 
 .editBox {
@@ -484,17 +489,20 @@
   pointer-events: auto;
 }
 
-/* Touch screens have no hover: keep the tools visible, inline under the text. */
+/* 体检 #9: touch screens have no hover — a long press opens the tools as a small menu on the row. */
 @media (hover: none) {
-  .msgTools {
-    position: static;
-    margin-top: 2px;
-    border: 0;
-    box-shadow: none;
-    background: transparent;
+  .message { -webkit-touch-callout: none; }
+  .msgTools { display: none; }
+  .message[data-tools-open] { background: var(--dsw-alias-interactive-bg-hover); }
+  .message[data-tools-open] .msgTools {
+    display: inline-flex;
+    top: -14px;
+    right: 12px;
+    z-index: 3;
     opacity: 1;
     pointer-events: auto;
   }
+  .message[data-tools-open] .msgTool { width: 40px; height: 36px; }
 }
 
 .replyBar {
@@ -674,6 +682,26 @@
   border-top: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
+}
+
+/* #220 Discord-style mention pill badge in message text */
+.mentionBadge {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);
+  color: var(--dsw-alias-state-business-primary, #5865f2);
+  font-weight: 500;
+  line-height: inherit;
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  transition: background-color 160ms cubic-bezier(.2, 0, 0, 1), color 160ms cubic-bezier(.2, 0, 0, 1);
+}
+
+.mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);
 }
 
 .sendError {
@@ -958,6 +986,10 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* #176: content-box made every dialog 40px (its padding) wider than width allowed, so on a
+     narrow screen the box hung 4px past each edge and lost its rounded corners; every sibling
+     dialog class above sets border-box for the same reason. */
+  box-sizing: border-box;
   width: min(460px, 100%);
   max-height: calc(100vh - 32px);
   overflow-y: auto;
@@ -1944,12 +1976,17 @@
   .primaryButton,
   .secondaryButton,
   .mentionButton,
+  .mentionBadge,
   .cardViewButton { transition: none; }
 }
 
 /* 白色方案（来源：用户 11-03 23:1x「白色 右上角显示当前的总管bot的头像 以及在干啥」，样张 notes/ui/layout-plan-113/index.html）。
    尺寸沿用上方头像、圆角与标题栏规范。 */
-.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCardButton { display: flex; flex: 1 1 auto; gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 0; border-radius: inherit; color: inherit; font: inherit; text-align: left; background: none; cursor: pointer; }
+.leadCardButton:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.leadCardButton:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor); outline-offset: -2px; }
+.leadCardButton:disabled { cursor: default; background: none; }
 .leadCardText { display: flex; flex-direction: column; min-width: 0; }
 .leadCardName { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .leadCardStatus { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1960,6 +1997,13 @@
 .own > .messageBody > .text * { color: inherit; }
 .own > .messageBody > .text a { color: inherit; text-decoration: underline; }
 .own > .messageBody > .text code { color: inherit; background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent); }
+.own > .messageBody > .text .mentionBadge {
+  color: var(--dsw-alias-bg-base);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);
+}
+.own > .messageBody > .text .mentionBadge:hover {
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);
+}
 /* 白色方案：任务板从右侧抽屉滑出（样张 layout-plan-113 的置顶任务板），聊天留在左边可见；宽 440 量自样张 desktop-board.png（1440 宽视口里抽屉占 1000–1440）。 */
 .boardDrawerBackdrop { place-items: stretch end; padding: 0; background: rgb(0 0 0 / 0.25); }
 .boardDrawerBackdrop > .taskBoardDialog { box-sizing: border-box; width: min(440px, 100%); height: 100dvh; max-height: none; border-radius: 0; animation: boardDrawerIn .2s ease-out; }
@@ -1974,7 +2018,7 @@
 .schemeToggle + .panelToggleEnd { margin-left: 4px; }
 
 /* #125 本频道进展 card (owner's 11:53 sample v1): sticky at the top of the log, four rows in one line on wide screens. */
-.progressCard { position: sticky; top: 0; z-index: 2; margin: 0 16px 12px; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); box-shadow: 0 6px 18px rgb(0 0 0 / .04), 0 -12px 0 0 var(--dsw-alias-bg-base); font-size: 12px; }
+.progressCard { position: relative; flex: none; margin: 8px 16px 4px; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); box-shadow: 0 6px 18px rgb(0 0 0 / .04), 0 -12px 0 0 var(--dsw-alias-bg-base); font-size: 12px; }
 .progressHead { display: flex; align-items: center; gap: 8px; }
 .progressTitle { font-size: 12px; color: var(--dsw-alias-label-primary); }
 /* #156: folded is one strip — the title, the counts and the expand button, nothing taller than before. */
@@ -1993,7 +2037,7 @@
 .progressLink { max-width: 100%; overflow: hidden; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .progressLink:hover { text-decoration: underline; }
 @media (max-width: 760px) {
-  .progressCard { margin: 0 10px 10px; }
+  .progressCard { margin: 6px 10px 2px; }
   .progressRows { grid-template-columns: 52px minmax(0, 1fr); }
   .progressRow { display: contents; }
 }
@@ -2196,3 +2240,43 @@
 /* #1023 私聊: the private chats under the channel list. */
 .dmTitle { margin: 14px 8px 4px; font-size: 12px; font-weight: 600; color: var(--text-muted, #888); }
 .dmAvatar { display: inline-flex; margin-right: 6px; }
+/* #155: each private chat row carries a close button, shown on hover/focus (always on touch). */
+.dmRow { position: relative; display: flex; align-items: center; }
+.dmRow .room { padding-right: 26px; }
+.dmClose { position: absolute; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--dsw-radius-sm, 4px); color: var(--dsw-alias-label-tertiary, #888); background: transparent; font: inherit; font-size: 15px; line-height: 20px; cursor: pointer; opacity: 0; }
+.dmRow:hover .dmClose, .dmClose:focus-visible { opacity: 1; }
+.dmClose:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+@media (hover: none) { .dmClose { opacity: 1; } }
+
+/* ───────────── 11-05 体检修复 ───────────── */
+/* #1 私聊 is always in the channel list, with 发私信. */
+.dmHead { margin-top: 14px; }
+.dmPicker { display: flex; flex-direction: column; margin: 0 4px 4px; padding: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-2); }
+.dmPickNone { padding: 6px 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.dmNewRow { color: var(--dsw-alias-label-tertiary); font-size: 13px; }
+/* #1 the member count opens the member list. */
+button.headMeta { flex: 0 1 auto; min-width: 0; padding: 2px 6px; border: 0; border-radius: var(--dsw-radius-sm); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+button.headMeta:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.headSpacer { flex: 1 1 auto; }
+/* #2 unread rooms: bold name and a count. */
+.roomUnread { color: var(--dsw-alias-label-primary); font-weight: 650; }
+.unreadBadge { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; color: #fff; background: var(--dsw-alias-state-danger-primary, #e5484d); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+/* #5 a command no one takes here. */
+.slashDisabled { opacity: .45; cursor: not-allowed; }
+/* #6 what the primary role does, under its status. */
+.leadCardHint { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+/* #7 who is at work, in words. */
+.roomWorking { display: inline-flex; flex: none; gap: 4px; align-items: center; max-width: 96px; overflow: hidden; color: var(--dsw-alias-state-business-primary); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.roomWorkingDot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: roomWorkingPulse 1.4s ease-in-out infinite; }
+@keyframes roomWorkingPulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .roomWorkingDot { animation: none; } }
+/* #10 the board and colour switch inside the activity drawer, phones only. */
+.drawerTools { display: none; }
+@media (max-width: 600px) {
+  .drawerTools { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 8px 8px; }
+  .chatHead > .taskBoardTrigger, .chatHead > .schemeToggle, .chatHead > .headMeta, .chatHead > .headTeam { display: none; }
+  .chatHead > .roomName { flex: 1 1 auto; }
+}
+/* #12 a docked board leaves the title bar its name: the secondary items step aside. */
+.panelOpen .chatHead > .headTeam, .panelOpen .chatHead > .headMeta { display: none; }
+.panelOpen .chatHead > .roomName { flex: 0 1 auto; }

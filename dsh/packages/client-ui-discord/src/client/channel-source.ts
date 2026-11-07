@@ -286,6 +286,8 @@ export interface ChannelSnapshot {
   readonly hasMoreNewer?: boolean
   /** The selected room's messages shown before the service confirmed them, newest last. */
   readonly outbox: readonly OutboxMessage[]
+  /** 11-05 体检 #2: room id → members' new messages that arrived while another room was shown. */
+  readonly unread?: Readonly<Record<string, number>>
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -305,6 +307,8 @@ export interface ChannelActions {
   createRoom(name: string): Promise<void>
   /** #1023: open the private chat with one agent member (created on first use) and switch to it. */
   openDm?(memberId: string): Promise<void>
+  /** #155: close one private chat: it leaves the list (history kept); openDm brings it back. */
+  closeDm?(roomId: number): Promise<void>
   /** Rename a chat channel while preserving its identity and history. */
   renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -500,6 +504,16 @@ export function createChannelSource(transport: ChannelTransport): {
   let historyEpoch = 0
   /** #1030: live rows newer than a trimmed window's last one, kept until `loadNewer` catches up. */
   const ahead = new Map<number, ChannelMessage>()
+  // 11-05 体检 #2: message ids are global (collab store AUTOINCREMENT), so an id above every id
+  // seen so far is a new message, not an edit of an old one; a streamed reply keeps its id.
+  let newestSeen = 0
+  const unreadIds = new Map<string, Set<number>>()
+  const withoutUnread = (unread: ChannelSnapshot['unread'], roomId: number | undefined): ChannelSnapshot['unread'] => {
+    if (roomId === undefined || unread?.[String(roomId)] === undefined) return unread
+    const { [String(roomId)]: _gone, ...rest } = unread
+    void _gone
+    return rest
+  }
 
   const set = (next: Partial<ChannelSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -535,7 +549,19 @@ export function createChannelSource(transport: ChannelTransport): {
   const applyEvent = (current: ChannelSnapshot, event: ServiceEvent): ChannelSnapshot => {
     switch (event.type) {
       case 'message': {
-        if (event.message.room_id !== current.roomId) return current
+        if (event.message.room_id !== current.roomId) {
+          const m = event.message
+          const key = String(m.room_id)
+          const ids = unreadIds.get(key)
+          const fresh = m.id > newestSeen
+          newestSeen = Math.max(newestSeen, m.id)
+          if (!fresh || ids?.has(m.id) === true || m.author_kind !== 'role' || m.card !== null) return current
+          const next = ids ?? new Set<number>()
+          next.add(m.id)
+          unreadIds.set(key, next)
+          return { ...current, unread: { ...current.unread, [key]: next.size } }
+        }
+        newestSeen = Math.max(newestSeen, event.message.id)
         const list = current.messages
         const id = event.message.id
         const first = list[0]
@@ -711,6 +737,9 @@ export function createChannelSource(transport: ChannelTransport): {
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
       }
+      for (const row of rows) newestSeen = Math.max(newestSeen, row.id)
+      if (roomId !== undefined) unreadIds.delete(String(roomId))
+      next = { ...next, unread: withoutUnread(snapshot.unread, roomId) }
       for (const event of read.events) next = applyEvent(next, event)
       pending = undefined
       set(next)
@@ -731,7 +760,9 @@ export function createChannelSource(transport: ChannelTransport): {
     // The old board is not this room's: task events wait in earlyTasks until loadBoard.
     if (roomId !== snapshot.roomId) earlyTasks.clear()
     const shown = outbox.filter(entry => entry.roomId === roomId)
-    set(roomId === snapshot.roomId ? { roomId, messages: [], hasMoreNewer: false, outbox: shown } : { roomId, messages: [], hasMoreNewer: false, outbox: shown, tasks: [], taskChat: undefined })
+    unreadIds.delete(String(roomId))
+    const unread = withoutUnread(snapshot.unread, roomId)
+    set(roomId === snapshot.roomId ? { roomId, messages: [], hasMoreNewer: false, outbox: shown, unread } : { roomId, messages: [], hasMoreNewer: false, outbox: shown, tasks: [], taskChat: undefined, unread })
     await refresh(false)
   }
 
@@ -912,6 +943,14 @@ export function createChannelSource(transport: ChannelTransport): {
       const { room } = await request<{ room: ChannelRoom }>('collab/api/dms', json('POST', { member: memberId }))
       if (!snapshot.rooms.some(r => r.id === room.id)) set({ rooms: [...snapshot.rooms, room] })
       await selectRoom(room.id)
+    },
+    async closeDm(roomId) {
+      await request(`collab/api/dms/${roomId}`, { method: 'DELETE' })
+      const rooms = snapshot.rooms.filter(r => r.id !== roomId)
+      set({ rooms })
+      // Closing the chat on screen moves to the first chat channel instead of an empty pane.
+      const next = rooms.find(r => r.kind !== 'workspace' && r.dm_member == null)
+      if (snapshot.roomId === roomId && next !== undefined) await selectRoom(next.id)
     },
     async renameRoom(roomId, name) {
       const { room } = await request<{ room: ChannelRoom }>(`collab/api/rooms/${roomId}`, json('PATCH', { name }))

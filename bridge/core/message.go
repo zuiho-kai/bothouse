@@ -392,6 +392,9 @@ type Message struct {
 	FromBot          bool // maomao fork: sent by a teammate bot; without Mentioned it is context only
 	AddressedOther   bool // the text @-s or names (at a line start) another team bot, not this one
 	Direct           bool // a private chat with the bot (DM); counts as calling it for the built-in busy rules
+	// PrivateRoom: a server channel only this person and bots can see (a one-to-one workspace).
+	// Like a DM, the gate's fallbacks answer it without an @; nothing else changes.
+	PrivateRoom bool
 	// GroupChat marks a message from a shared multi-party chat (e.g. a QQ group). Core uses it
 	// with the structured UserName to label each speaker's own words, both in the prompt and in
 	// the gate's silent buffer, so attribution does not depend on AmbientChat being non-empty:
@@ -405,22 +408,24 @@ type Message struct {
 	AmbientChat   string // Background merged once, excluded from the silent buffer.
 	contentMerged bool
 	BackfillRan   bool
-	mediaDone     bool       // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
+	peopleDone    bool // #1160: recordPersonSaid already ran (a held gate burst re-enters handleMessage)
+	mediaDone     bool // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
 	// maomao fork: handleCommand already ran for this message. The gate's burst
 	// timer releases a held message by re-entering handleMessage with the same
 	// *Message, so without this flag a slash command ran (and an unknown command
 	// posted its notice) once per entry — issue #651 follow-up.
-	cmdDone bool
-	userText      string     // maomao fork: Content before media notes were appended — the gate's input
-	userTextSet   bool       // maomao fork: userText is set (see userTextOf)
-	gateParts     []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
-	abortFront    bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
+	cmdDone     bool
+	userText    string     // maomao fork: Content before media notes were appended — the gate's input
+	userTextSet bool       // maomao fork: userText is set (see userTextOf)
+	gateParts   []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
+	abortFront  bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.
-	TurnCtx      bool
-	TurnCtxQuery string // the user's own words, for wiki matching
-	ModeOverride string // if set, temporarily override agent permission mode for this message
+	TurnCtx       bool
+	TurnCtxQuery  string // the user's own words, for wiki matching
+	TurnCtxSender string // #1160: "<platform>-<sender id>" of whose words these are (personKey), for their 懂你 page
+	ModeOverride  string // if set, temporarily override agent permission mode for this message
 	// IsPermissionResponse is set by inline-button / card-action paths in
 	// platforms when a synthesized message is forwarded as a permission
 	// decision (e.g. Telegram handleCallbackQuery for perm:allow/deny,

@@ -21,7 +21,11 @@ import DeviceList from '@/pages/Devices/DeviceList';
 import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
+import PluginList from '@/pages/Plugins/PluginList';
 import NotFound from '@/pages/NotFound';
+import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
+import GateSettingsPage from '@/pages/Gate/GateSettings';
+import ForumPage from '@/pages/Forum/ForumPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -60,6 +64,10 @@ export default function App() {
         <Route path="devices" element={<DeviceList />} />
         <Route path="wiki-galaxy" element={<WikiGalaxyPage />} />
         <Route path="apps" element={<AppList />} />
+        {/* 闸门设置 (#217): 装好以后改谁在什么时候接话，不用重装 */}
+        <Route path="gate" element={<GateSettingsPage />} />
+        <Route path="forum" element={<ForumPage />} />
+        <Route path="plugins" element={<PluginList />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />
@@ -71,6 +79,7 @@ export default function App() {
         <Route path="chat/:name" element={<ChatView />} />
         <Route path="cron" element={<CronList />} />
         <Route path="library" element={<LibraryPage />} />
+        <Route path="image-gen" element={<ImageGenPage />} />
         <Route path="system" element={<SystemConfig />} />
         <Route path="*" element={<NotFound />} />
       </Route>

@@ -1219,12 +1219,22 @@ function connect() {
 $('input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('form').requestSubmit(); }
 });
-$('input').addEventListener('input', (e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; });
+// #205: fit the box to its text, or to the placeholder while empty — on a narrow window (phone,
+// Windows at 125%/150%) the hint wraps to two lines and a one-row box cut the second line off.
+// scrollHeight leaves the border out; add it back so border-box doesn't leave a sliver to scroll.
+function fitInput() {
+  const t = $('input');
+  t.style.height = 'auto';
+  t.style.height = (t.scrollHeight + t.offsetHeight - t.clientHeight) + 'px';
+}
+$('input').addEventListener('input', fitInput);
+window.addEventListener('resize', fitInput, { passive: true });
+fitInput();
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = $('input').value.trim();
   if (!text || state.room == null) return;
-  $('input').value = ''; $('input').style.height = 'auto';
+  $('input').value = ''; fitInput();
   try {
     const { message } = await api(`${ROOT}/collab/api/rooms/${state.room}/messages`, {
       method: 'POST', headers: { 'content-type': 'application/json' },

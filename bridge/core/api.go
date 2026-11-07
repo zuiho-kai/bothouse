@@ -75,6 +75,9 @@ type SendRequest struct {
 	// DM (maomao fork): send to the private chat with the user in admin_from instead of
 	// SessionKey; the server opens or reuses that chat first.
 	DM bool `json:"dm,omitempty"`
+	// SessionFromEnv: the CLI filled SessionKey from its own session (no -s). A workspace's
+	// images/files then go to the chat channel that owns the workspace (sendTargetForAttachments).
+	SessionFromEnv bool `json:"session_from_env,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -126,6 +129,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
+	s.mux.HandleFunc("/wake", s.handleWake) // run one turn from a hook/script (api_wake.go)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
@@ -327,6 +331,9 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.SessionKey = key
+	}
+	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil {
+		req.SessionKey = engine.sendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {

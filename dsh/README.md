@@ -12,6 +12,8 @@
 | `packages/` | 自有 DSH 包，同步时放到 DSH 的 `packages/experimental/` 下 |
 | `patches/` | 对上游文件的最小改动（目前只登记 TypeScript 工程引用） |
 | `scripts/sync.sh` | 检出固定提交、放入自有包、打补丁 |
+| `scripts/reload-web.py` | 重启 `dsh web` 并把新 pid/token 写回 `~/.bothouse/dsh-web.json`（见下节） |
+| `scripts/reload-dsh.py` | 发布切换入口：`web` 交给 `reload-web.py`，`desktop` 重开桌面版（见下节） |
 | `collab/` | 阶段 1 频道服务插件，直接按绝对路径加载，不参与同步 |
 
 首次准备使用一个尚不存在的新目录：
@@ -33,6 +35,55 @@ corepack pnpm run build:artifacts
 原 `scripts/sync.sh` 会强制重置并清理目标目录，本轮未使用；不要用它更新已有工作目录。修改保存在 CoNest 的 `dsh/` 下，再逐文件复制到独立 DSH checkout 验证。升级上游时更新 `upstream.pin.json` 并核对 `patches/`。
 
 **当前状态（2026-10-21）**：频道服务、DSH 原生成员和 cloud_web 网关已实现，真实 cc-connect + Claude Code 已在隔离环境回复。原生 `client-ui-discord` 已提供侧栏「频道」、频道切换、消息流、成员/工作状态、中英文本和主题适配；用户已确认页面正常。本轮补齐断线恢复、快速切换与发送草稿回归。真实 DeepSeek 回复尚待验证，阶段 2 的创建频道、@ 菜单等仍未完成，未部署。安装、验证和边界见 [collab/README.md](collab/README.md)。
+
+### 重启 `dsh web` 并把地址写回状态文件
+
+面板（bothouse 9820）判断频道页是否在运行、拿什么 token 登录，只读 `~/.bothouse/dsh-web.json`
+（`bridge/core/setup_dsh_configure.go` 的 `dshWebStatePath`，`management_dsh_proxy.go` 的
+`runningDSHWeb`）。此前只有面板自己的「打开 DSH」写这个文件，任何别的重启都会留下死 pid 和旧
+token，面板随后一律 503。凡是要重启宿主，都改用这个脚本，不要 `kill` 完再自己起：
+
+~~~sh
+python3 -I dsh/scripts/reload-web.py                 # 端口 49176、状态/日志用默认路径
+python3 -I dsh/scripts/reload-web.py --dry-run       # 只报会重启谁、会写哪个文件
+~~~
+
+它做三件事：宿主由 launchd（`local.bothouse.dsh-web`，`KeepAlive`）监督时走
+`launchctl kickstart -k`，否则自己 SIGTERM 后按原 argv/环境/cwd 重拉；只接受本次启动之后
+（按日志字节偏移）打印的 `dsh web: <url>` 公告，并从公告取 token；写文件前要求
+`GET http://127.0.0.1:<port>/?token=…` 返回 303、监听端口等于公告端口、监听 pid 等于本次启动的
+pid，任一不符就失败退出、不写。写出的 url 一律归一成 `http://127.0.0.1:<port>/?token=…#channels`：
+宿主若带 `--public-url`，公告里是 tailnet 域名，而面板代理用 url 的 host 当上游目标，原样写
+回会把 503 换成 502。
+
+旧状态文件在替换前备份为 `dsh-web.json.bak-<时间戳>`；新文件用临时文件 + 原子 rename 落盘，权限
+0600，日志同样 0600 创建（里面有 token）。自动部署脚本调用它即可，不需要再自己解析日志、拼 url。
+
+### 发布切换用的入口 `scripts/reload-dsh.py`
+
+发布流程重启宿主时调这个入口，不要在各发布目录另写一份：
+
+~~~sh
+python3 -I dsh/scripts/reload-dsh.py web       # 参数原样转给 reload-web.py，如 --port 49176 / --dry-run
+python3 -I dsh/scripts/reload-dsh.py desktop   # 退出并重开桌面版，把 old/new pid 记进 dsh-desktop-reload.json
+python3 -I dsh/scripts/reload-dsh.py snapshot  # 保留的旧步骤，现在什么都不做
+~~~
+
+`web` 只做转交：用当前解释器跑 `reload-web.py`，参数一个不改，退出码原样返回，所以
+`reload-web.py` 的三重交叉校验与原子回写就是发布时的行为。查找顺序是入口同目录 → `source/dsh/scripts/`
+→ `dsh/scripts/`：在源码树里两个文件同目录，在发布目录里入口在根、脚本在 `source/dsh/scripts/`，两种布局都能用。
+同一份源码里的两个文件要一起进发布目录；只带入口、不带 `reload-web.py` 的发布包会直接失败并提示
+「built without PR #1020」，不会出现「重启成功但状态文件没写、面板 503」那种半成功。
+
+`snapshot` 现在什么都不做：旧入口用它记下旧宿主的 argv/环境/cwd 再自己重拉，现在这件事由
+`reload-web.py` 在停机前自己读；本机的发布清单仍写成 `snapshot → web → desktop`，所以保留成空步骤，
+不会让清单第一步就失败。`desktop` 仍写 `dsh-desktop-reload.json`，各发布清单读的就是它。
+
+接线之后 `web` 的非零退出码只会出现在 `cutover.log` 里：`run-cutover.py` 记录退出码后继续往下走，
+不会因此中断或回滚。要让发布因为状态文件没写而失败，得另外改那个脚本，不在本仓库。
+
+测试：`python3 -I dsh/scripts/test_reload_web.py`（宿主重启与回写的全部路径）、
+`python3 -I dsh/scripts/test_reload_dsh.py`（入口只转交、缺脚本要失败、失败要冒泡、两种布局都能找到脚本）。
 
 ## 目标
 

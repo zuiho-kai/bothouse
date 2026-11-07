@@ -12,6 +12,9 @@
 package dsh
 
 import (
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/chenhg5/cc-connect/agent/acp"
@@ -35,6 +38,7 @@ func (a *Agent) Name() string { return "dsh" }
 // New builds a DSH agent from project options.
 func New(opts map[string]any) (core.Agent, error) {
 	opts = applyDSHDefaults(opts)
+	opts = withNoAutoCompact(opts)
 	a, err := acp.New(opts)
 	if err != nil {
 		return nil, err
@@ -80,4 +84,82 @@ func dshSessionEnv(env []string) []string {
 		}
 	}
 	return copied
+}
+
+// noAutoCompactPatch turns DSH's automatic compaction off (compaction-basic README:
+// "auto: false" = manual-only, no auto condensation and no overflow recovery). A session
+// that grows large gets a fresh context with a handoff from the bridge instead
+// (core.freshOnContextSize); /compact still works.
+const noAutoCompactPatch = "# written by bothouse: no in-place auto compaction, the bridge starts a fresh session instead\n" +
+	"- id: compaction-basic\n  config:\n    auto: false\n"
+
+// withNoAutoCompact writes noAutoCompactPatch under the bridge data dir and adds it to
+// DSH's args as a --patch layer right after the profile name, so patches the user lists
+// later still apply on top of it.
+func withNoAutoCompact(opts map[string]any) map[string]any {
+	dir, _ := opts["cc_data_dir"].(string)
+	if strings.TrimSpace(dir) == "" {
+		d, err := os.UserCacheDir()
+		if err != nil {
+			return opts
+		}
+		dir = filepath.Join(d, "bothouse")
+	}
+	path := filepath.Join(dir, "dsh", "no-auto-compact.patch.yml")
+	if err := writeIfChanged(path, noAutoCompactPatch); err != nil {
+		slog.Warn("dsh: cannot write no-auto-compact patch; DSH keeps its own auto compaction", "path", path, "err", err)
+		return opts
+	}
+	opts["args"] = insertPatchArg(argStrings(opts["args"]), path)
+	return opts
+}
+
+func writeIfChanged(path, content string) error {
+	if b, err := os.ReadFile(path); err == nil && string(b) == content {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func argStrings(v any) []string {
+	switch x := v.(type) {
+	case []string:
+		return append([]string(nil), x...)
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// insertPatchArg puts "--patch path" right after "--profile <name>" (dsh --help:
+// options come before the app's own args); without --profile it goes last.
+func insertPatchArg(args []string, path string) []string {
+	for i, a := range args {
+		if a == "--patch" && i+1 < len(args) && args[i+1] == path {
+			return args
+		}
+	}
+	at := len(args)
+	for i, a := range args {
+		if a == "--profile" && i+1 < len(args) {
+			at = i + 2
+			break
+		}
+		if strings.HasPrefix(a, "--profile=") {
+			at = i + 1
+			break
+		}
+	}
+	out := append([]string(nil), args[:at]...)
+	out = append(out, "--patch", path)
+	return append(out, args[at:]...)
 }

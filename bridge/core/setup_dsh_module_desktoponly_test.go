@@ -1,0 +1,169 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// #191: a desktop-only DeepSeek Harness keeps its own bundles inside the app (app.asar on the
+// Electron side), so profiles/web/package.json lists @deepseek-ai/dsh-base and
+// @deepseek-ai/dsh-web-app that are nowhere on disk. Reading the profile used to stop at the
+// first one it could not find, so `module add dsh` and `module list` reported a machine where
+// install.sh had just linked collab and the channel UI as "not installed".
+func TestDSHModuleStateDesktopOnlyHostBundles(t *testing.T) {
+	t.Run("host bundles off disk still report installed", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("DSH_HOME", home)
+		dir := filepath.Join(home, "profiles", DSHProfile)
+		writeDSHBundleFixture(t, dir, "conest-collab")
+		// Only conest-collab is on disk, exactly like the app-bundled desktop install.
+		manifest := []byte(`{"dependencies":{"conest-collab":"link:local"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","conest-collab"]}}}`)
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0600); err != nil {
+			t.Fatal(err)
+		}
+		st, err := GetDSHModuleState()
+		if err != nil || !st.Installed || st.Disabled {
+			t.Fatalf("desktop-only state: %+v %v", st, err)
+		}
+		if !GetDSHStatus(context.Background()).PluginInstalled {
+			t.Fatal("wizard does not see the desktop-only install")
+		}
+		// Already installed: module add must not run the installer again.
+		got := ApplyDSHModule(context.Background(), false, false, "zh")
+		if !got.OK || got.Saved || !got.DSH.Installed {
+			t.Fatalf("no-op add: %+v", got)
+		}
+	})
+	// The tolerance must not invent a plugin: with no our-bundle on disk the answer stays "not
+	// installed", so `module add dsh` still goes and installs instead of reporting success.
+	t.Run("missing our bundle is not installed", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("DSH_HOME", home)
+		dir := filepath.Join(home, "profiles", DSHProfile)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		manifest := []byte(`{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","conest-collab"]}}}`)
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0600); err != nil {
+			t.Fatal(err)
+		}
+		st, err := GetDSHModuleState()
+		if err != nil || st.Installed {
+			t.Fatalf("missing bundle state: %+v %v", st, err)
+		}
+	})
+	// No profile at all on a fresh machine: empty state, no error, so the wizard offers install.
+	t.Run("no profile is not an error", func(t *testing.T) {
+		t.Setenv("DSH_HOME", t.TempDir())
+		st, err := GetDSHModuleState()
+		if err != nil || st.Installed {
+			t.Fatalf("empty home: %+v %v", st, err)
+		}
+	})
+}
+
+// #1127: a stale insertion is configuration, not proof that its bundle is installed.
+func TestDSHModuleMissingBundleWithResidualInsertion(t *testing.T) {
+	for _, bundle := range []string{"conest-collab", "bothouse-dsh", "@deepseek-ai/dsh-experimental-client-ui-discord", "bothouse-dsh-channels"} {
+		for _, location := range []string{"profile", "HOME"} {
+			t.Run(bundle+"/"+location, func(t *testing.T) {
+				home := t.TempDir()
+				t.Setenv("DSH_HOME", home)
+				dir := filepath.Join(home, "profiles", DSHProfile)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				manifest := `{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","` + bundle + `"]}}}`
+				if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0600); err != nil {
+					t.Fatal(err)
+				}
+				patchDir := dir
+				if location == "HOME" {
+					patchDir = home
+				}
+				patch := "- insert:\n    - id: personal-collab\n      name: conest-collab\n"
+				if err := os.WriteFile(filepath.Join(patchDir, "cordis.patch.yml"), []byte(patch), 0600); err != nil {
+					t.Fatal(err)
+				}
+				st, err := GetDSHModuleState()
+				if err != nil || st.Installed {
+					t.Fatalf("missing conest-collab accepted as installed from %s insertion: %+v %v", location, st, err)
+				}
+				if GetDSHStatus(context.Background()).PluginInstalled {
+					t.Fatal("wizard accepted a missing bundle")
+				}
+				got := ApplyDSHModule(context.Background(), true, false, "en")
+				if !got.OK || got.Saved || got.DSH.Installed {
+					t.Fatalf("disable absent module: %+v", got)
+				}
+				if raw, err := os.ReadFile(filepath.Join(patchDir, "cordis.patch.yml")); err != nil || string(raw) != patch {
+					t.Fatalf("residual patch changed: %s %v", raw, err)
+				}
+			})
+		}
+	}
+}
+
+func TestDSHModuleMissingNonHostBundleStillErrors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DSH_HOME", home)
+	dir := filepath.Join(home, "profiles", DSHProfile)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"dsh":{"profile":{"bundles":["custom-policy"]}}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := GetDSHModuleState(); err == nil || st.Installed {
+		t.Fatalf("missing custom bundle: %+v %v", st, err)
+	}
+}
+
+// A missing module must not suppress errors in any other bundle or user layer.
+func TestDSHModuleMissingBundlePreservesOtherErrors(t *testing.T) {
+	for _, source := range []string{"bundle", "profile", "HOME"} {
+		for _, missingFirst := range []bool{true, false} {
+			t.Run(source+"/missingFirst="+fmt.Sprint(missingFirst), func(t *testing.T) {
+				home := t.TempDir()
+				t.Setenv("DSH_HOME", home)
+				dir := filepath.Join(home, "profiles", DSHProfile)
+				bundles := []string{"conest-collab", "custom-policy"}
+				if !missingFirst {
+					bundles[0], bundles[1] = bundles[1], bundles[0]
+				}
+				writeDSHBundleFixture(t, dir, "custom-policy")
+				manifest, err := json.Marshal(map[string]any{"dsh": map[string]any{"profile": map[string]any{"bundles": bundles}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0600); err != nil {
+					t.Fatal(err)
+				}
+				var path, invalid string
+				switch source {
+				case "bundle":
+					path, invalid = filepath.Join(dir, "node_modules", "custom-policy", "package.json"), "{"
+				case "profile":
+					path, invalid = filepath.Join(dir, "cordis.patch.yml"), "["
+				case "HOME":
+					path, invalid = filepath.Join(home, "cordis.patch.yml"), "["
+				}
+				if err := os.WriteFile(path, []byte(invalid), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if st, err := GetDSHModuleState(); err == nil || st.Installed {
+					t.Fatalf("missing bundle suppressed %s error: %+v %v", source, st, err)
+				}
+				got := ApplyDSHModule(context.Background(), false, true, "en")
+				if got.OK || got.Error == "" || got.Saved {
+					t.Fatalf("invalid configuration accepted by dry-run: %+v", got)
+				}
+			})
+		}
+	}
+}

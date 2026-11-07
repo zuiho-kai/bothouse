@@ -57,8 +57,13 @@ func RemoveBinaryBackups(target string) {
 }
 
 // BinaryFromBackupPath maps a backup path back to the installed binary when that exists: after a
-// self-update os.Executable() of the still-running process reports the backup.
-func BinaryFromBackupPath(p string) string {
+// self-update os.Executable() of the still-running process reports the backup. A backup of a macOS
+// .app bundle (".Bothouse.app.old-7/Contents/MacOS/bothouse") maps to the program inside the
+// installed bundle (installedPathOfBackup).
+func BinaryFromBackupPath(p string) string { return installedPathOfBackup(p) }
+
+// binaryFromBackupPath is the plain-program mapping: "<...>.old-<n>" → "<...>", when that exists.
+func binaryFromBackupPath(p string) string {
 	dir, name := filepath.Dir(p), filepath.Base(p)
 	i := strings.LastIndex(name, ".old")
 	if i <= 0 {

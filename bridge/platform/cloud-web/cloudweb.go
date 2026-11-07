@@ -26,7 +26,7 @@ type Platform struct {
 	transportKind  string
 	allowFrom      string
 	shareInChannel bool
-	groupReplyAll  bool
+	groupReplyAll  bool // guarded by liveMu: ReloadOptions applies a gate change while running
 
 	// maomao fork: progress card, same options and meaning as the Discord platform
 	// (platform/discord/discord.go progress_style / progress_card_entries / ...).
@@ -394,7 +394,7 @@ func (p *Platform) handleMessage(raw []byte) {
 	explicit := m.Mentioned != nil && *m.Mentioned
 	calledByName := !explicit && p.calledByName(m)
 	mentioned := explicit || calledByName
-	if isGroupChat(m.ChatType) && !p.groupReplyAll && !stopAll {
+	if isGroupChat(m.ChatType) && !p.replyAll() && !stopAll {
 		// Require explicit mention in group chats unless group_reply_all is enabled.
 		if !mentioned {
 			return

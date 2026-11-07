@@ -52,6 +52,11 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'help', group: 'view', hint: 'slashHelp', run: { kind: 'panel', panel: 'help' } },
 ]
 
+/** 体检 #5: a command that goes to one bot; without one it is shown greyed out. */
+export function needsTarget(command: SlashCommand): boolean {
+  return command.run.kind === 'fill' || (command.run.kind === 'send' && command.run.broadcast !== true)
+}
+
 /** The text after a leading `/` while the draft is still a bare command word; undefined otherwise. */
 export function slashQuery(draft: string): string | undefined {
   const m = /^\/([^\s/]*(?: all)?)$/.exec(draft)

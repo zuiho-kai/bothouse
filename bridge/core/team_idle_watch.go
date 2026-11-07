@@ -25,8 +25,24 @@ type watchIdleState struct {
 	Returned bool      `json:"returned,omitempty"`
 	Ended    time.Time `json:"ended,omitzero"`
 	Wakes    int       `json:"wakes,omitempty"`
-	Fails    int       `json:"fails,omitempty"` // consecutive turns that ended in an agent error
+	Fails    int       `json:"fails,omitempty"`   // consecutive turns that ended in an agent error
+	CantDo   int       `json:"cant_do,omitempty"` // consecutive turns that answered "can't do it"
 	Reported bool      `json:"reported,omitempty"`
+}
+
+// watchCantDoRe: a turn that only says it cannot go on (blocked upstream, no access …). Two in a
+// row stop the watch: resuming it again only produces the same refusal (11-05 agentm: woken every
+// ten minutes, each time a long "做不了", and the tool calls of that reply counted as progress).
+var watchCantDoRe = regexp.MustCompile(`(?i)做不了|做不到|干不了|办不到|没法做|没办法做|无法(?:完成|继续|推进|处理|执行)|卡在上游|\bcan(?:no|')t (?:do|proceed|continue|complete)\b|\bunable to (?:do|proceed|continue|complete)\b`)
+
+func watchIsCantDo(text string) bool {
+	return watchCantDoRe.MatchString(text)
+}
+
+// watchBoardWaiting: a board status that says the item waits on someone else (等上游, 等待…, 等用户):
+// the watch does not tell its owner to carry on.
+func watchBoardWaiting(status string) bool {
+	return strings.HasPrefix(strings.TrimSpace(status), "等")
 }
 
 type idleAssignment struct {
@@ -216,6 +232,22 @@ func watchIsHandback(text string) bool {
 	return false
 }
 
+// watchAnsweredInChat: a 【接】 turn in a chat channel that ran no tool, names no board item and
+// has no board item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」
+// and G哥「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an
+// escalation). A chat channel hands real work to a workspace, which is a tool call; a turn that
+// ran nothing has nothing in flight for a wake to continue.
+func watchAnsweredInChat(worked, inWorkspace, boardActive bool, boardID int) bool {
+	return !worked && !inWorkspace && !boardActive && boardID == 0
+}
+
+// watchBlankTitle: what is left of the first line after 【接】 cannot name the work: empty, or the
+// 「-」 boardLabel gives an empty label (#221: 「接着做 -」). The body below may be the answer, so it
+// is not used as a title either; a watched turn gets MsgWatchUntitledAccept instead.
+func watchBlankTitle(title string) bool {
+	return boardLabel(title) == "-"
+}
+
 func watchBoardClosed(it teamTaskBoardItem) bool {
 	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
 		if strings.Contains(it.Status, status) {
@@ -261,7 +293,8 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	boardClosed := false
 	handedOff := false // the accepted work is in a workspace: its watch is the workspace's
 	chat := key
-	if parent, ok := e.WorkspaceParent(key); ok {
+	parent, inWorkspace := e.WorkspaceParent(key)
+	if inWorkspace {
 		chat = parent
 	}
 	if e.team != nil {
@@ -278,11 +311,16 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
 				handedOff = true
 			}
-			if it.own != key || it.wsEnded || watchBoardClosed(*it) ||
+			// A chat channel hands work to workspaces; an item only on its board (handed back and
+			// awaiting review, or the lead's own note) is not work left running there. Only an
+			// explicit 【接】 is watched in a chat channel (#1167, 11-07: #1162 returned by 工作区2
+			// fell back to the chat and got a 「接着做」 every lead turn).
+			if !inWorkspace && !accepted ||
+				it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
-			if !accepted && (strings.HasPrefix(it.Status, "等用户") || strings.HasPrefix(it.Status, "等待用户")) {
+			if !accepted && watchBoardWaiting(it.Status) {
 				continue
 			}
 			who := whoInWorkspace(*it)
@@ -338,7 +376,11 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	// Direct acceptance and board-owned active work have no handoff/d10
 	// registration. Register unfinished work from this terminal event only.
 	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
-	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil {
+	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil &&
+		!watchAnsweredInChat(worked, inWorkspace, boardActive, boardID) {
+		if !boardActive && watchBlankTitle(title) {
+			title = e.i18n.T(MsgWatchUntitledAccept) // real work with a bare 【接】 is still watched (PR #1194 review)
+		}
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
@@ -365,10 +407,35 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
 	for _, a := range assignments {
-		giveUp := false
+		if !returned && e.boardReleaseHeld(a.key, a.h) {
+			// Saved for a central release: an interrupted or failed turn is not a failure, and the
+			// next process wakes it (resumeReleaseHolds). The count starts afresh, so a release
+			// called off (board unhold) does not escalate on its first error; the recheck keeps
+			// the watch armed for that case (#984 review).
+			h, ok := e.updateIdle(a, func(h *TeamHandoff) {
+				h.Idle.Fails, h.Idle.Wakes, h.Idle.Reported = 0, 0, false
+				h.Idle.Ended = time.Now()
+			})
+			if ok {
+				a.h = h
+				e.armReleaseHoldRecheck(a)
+			}
+			continue
+		}
+		giveUp, cantDo := false, false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
 			h.Idle.Ended = time.Now()
+			if !returned && !asking && !failed && watchIsCantDo(text) {
+				h.Idle.CantDo++
+				if h.Idle.CantDo >= 2 && !h.Idle.Reported {
+					h.Idle.Reported = true
+					cantDo = true
+					return
+				}
+			} else if !failed {
+				h.Idle.CantDo = 0
+			}
 			if failed {
 				// Tools run before an error are not progress: keep the wake count.
 				h.Idle.Fails++
@@ -385,7 +452,14 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			}
 		})
 		if ok && giveUp {
+			if e.reassignFailedWork(a, h) {
+				continue
+			}
 			e.escalateIdle(a.key, h, MsgWatchFailEscalate)
+			continue
+		}
+		if ok && cantDo {
+			e.pauseCantDo(a.key, h, boardID)
 			continue
 		}
 		if ok && !returned && !delegated && !h.Idle.Reported {
@@ -412,22 +486,39 @@ func (e *Engine) armIdleWake(a idleAssignment) {
 	time.AfterFunc(watchTurnEndDelay, func() { e.fireIdleWake(a) })
 }
 
+// armReleaseHoldRecheck: while held for a release the watch looks again every ten-minute check
+// (沿用 watchCheckAfter); once the hold is gone (board unhold) fireIdleWake carries on as usual.
+func (e *Engine) armReleaseHoldRecheck(a idleAssignment) {
+	time.AfterFunc(watchCheckAfter(), func() { e.fireIdleWake(a) })
+}
+
 func (e *Engine) fireIdleWake(a idleAssignment) {
 	if e.ctx.Err() != nil || !e.quotaCoolingFor(e.admissionQuotaScope(e.agent, a.key)).IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
 	}
 	if e.team != nil {
-		id := a.h.Board
-		if id == 0 {
-			id = watchTaskNumber(a.h.Title) // watches recorded before board IDs existed
-		}
-		if id != 0 {
+		items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
+		if id := handoffBoardID(a.key, a.h, items); id != 0 {
 			found, closed := false, false
-			for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)) {
+			for _, it := range items {
 				if it.ID == id {
 					found = true
+					if activeReleaseHold(it) {
+						// Saved for a release: the next process resumes it (resumeReleaseHolds).
+						// Look again later, starting afresh, in case the release is called off.
+						if h, ok := e.updateIdle(a, func(h *TeamHandoff) {
+							h.Idle.Fails, h.Idle.Wakes, h.Idle.Reported = 0, 0, false
+						}); ok {
+							a.h = h
+							e.armReleaseHoldRecheck(a)
+						}
+						return
+					}
+					if watchBoardWaiting(it.Status) {
+						return // waits on someone else: no "carry on"; its next turn re-arms the watch
+					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
-					closed = watchBoardClosed(it) || it.Paused != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
+					closed = watchBoardClosed(it) || it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
 					break
 				}
@@ -463,14 +554,19 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 		e.escalateIdle(a.key, h, MsgWatchIdleEscalate)
 		return
 	}
+	e.sendIdleWake(a, h)
+}
+
+// sendIdleWake asks the owner of a's handoff to carry on, then arms the next idle check.
+func (e *Engine) sendIdleWake(a idleAssignment, h TeamHandoff) bool {
 	plat, _, _ := strings.Cut(a.key, ":")
 	sender := e.watchSender(h)
 	p := sender.lookupReadyPlatform(plat)
 	if p == nil {
 		slog.Warn("idle watch: sender platform unavailable", "workspace", a.key)
-		return
+		return false
 	}
-	w = newHandoffWatch(sender)
+	w := newHandoffWatch(sender)
 	owner := h.Owner
 	if m, ok := e.lookupReadyPlatform(plat).(SelfMentioner); ok && m.SelfMention() != "" {
 		owner = m.SelfMention()
@@ -488,6 +584,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	}
 	a.h = h
 	e.armIdleWake(a) // two wake attempts, then one escalation; not a polling loop
+	return true
 }
 
 func (e *Engine) watchSender(h TeamHandoff) *Engine {
@@ -523,6 +620,46 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		slog.Warn("idle watch: escalation failed", "error", err)
 	}
 	sender.wakeWatchRole(h.Chat, text, h.Title)
+}
+
+// pauseCantDo pauses the board item of an assignment that answered "can't do" twice in a row and
+// tells a person once (the first admin_from id is mentioned). No role is woken: a wake would only
+// start one more turn of the same refusal.
+func (e *Engine) pauseCantDo(key string, h TeamHandoff, boardID int) {
+	if h.Board != 0 {
+		boardID = h.Board
+	}
+	if boardID != 0 {
+		if out, err := e.runLeadScript(h.Chat, "board", "pause", strconv.Itoa(boardID), "连续两次回复做不了，看门自动暂停"); err != nil {
+			slog.Warn("idle watch: cant-do pause failed", "board", boardID, "error", err, "output", strings.TrimSpace(string(out)))
+		}
+	}
+	plat, _, _ := strings.Cut(key, ":")
+	sender := e.watchSender(h)
+	p := sender.lookupReadyPlatform(plat)
+	if p == nil {
+		slog.Warn("idle watch: sender platform unavailable", "workspace", key)
+		return
+	}
+	human := ""
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, id := range strings.Split(af, ",") {
+		if id = strings.TrimSpace(id); id != "" && id != "*" {
+			human = watchMention(plat, id) + " "
+			break
+		}
+	}
+	who := h.Owner
+	if t := e.watchTarget(key, h.Owner); t != nil {
+		who = t.DisplayName() // naming, not mentioning: a mention would start one more turn
+	}
+	text := sender.i18n.Tf(MsgWatchCantDoEscalate, human, who, h.Title)
+	if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
+		slog.Warn("idle watch: cant-do notice failed", "error", err)
+	}
+	slog.Info("idle watch: paused after two cant-do replies", "workspace", key, "board", boardID, "owner", h.Owner)
 }
 
 func (e *Engine) wakeWatchRole(key, text, title string) {

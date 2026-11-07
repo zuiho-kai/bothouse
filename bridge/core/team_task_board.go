@@ -42,6 +42,14 @@ type teamTaskBoardItem struct {
 	PausedBy string `json:"paused_by"`
 	PausedAt string `json:"paused_at"`
 	DoneAt   string `json:"done_at"` // board-done.jsonl: "MM-DD HH:MM", local time
+	// Backlog: board.py backlog moved this item to 待办 (small fixes and non-blocking findings
+	// queued behind bugs, user 2026-11-05 「任务板怎么还有一堆任务」). It stays in board.jsonl,
+	// is never live work, and shows on no board but the trailing 「待办 N 件」 count; the board
+	// command's `board backlog` lists it. Cleared by resume/update/returned/reject.
+	Backlog    string `json:"backlog"`
+	BacklogWhy string `json:"backlog_why"`
+	BacklogAt  string `json:"backlog_at"`
+	BacklogBy  string `json:"backlog_by"`
 	// AutoPruned: board.py auto_prune moved this paused item to board-done.jsonl (the reason); not
 	// work done, so it stays out of "done today" (board resume brings it back).
 	AutoPruned string `json:"auto_pruned"`
@@ -73,7 +81,14 @@ type teamTaskBoardItem struct {
 		NoDeploy bool   `json:"no_deploy"`
 		Bound    string `json:"bound"`
 	} `json:"pr_binding,omitempty"`
-	PRMerge      map[string]string `json:"pr_merge,omitempty"`
+	PRMerge map[string]string `json:"pr_merge,omitempty"`
+	// ReleaseHold: board hold — saved its stop point for a central release; the watch neither
+	// counts its errors nor wakes it, and the next bridge process resumes it (team_release_hold.go).
+	ReleaseHold *teamReleaseHold `json:"release_hold,omitempty"`
+	// AwaitDeploy: merged, waits for the central release (board merged on a deploy binding);
+	// Deployed: board deployed saw it in the running build, now 待上线验收.
+	AwaitDeploy  map[string]string `json:"await_deploy,omitempty"`
+	Deployed     map[string]string `json:"deployed,omitempty"`
 	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
@@ -121,6 +136,48 @@ func readTeamTaskBoard(dir string) []teamTaskBoardItem {
 // "等待用户答复"). Same pattern as board.py WAIT_USER_RE (those items are kept by auto_prune's idle
 // rule); change both together.
 var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
+
+// teamTaskBoardDone: statuses of finished items, hidden from the board (「完成的也没必要显示」).
+// Only the 完成 lead counts, as before; 已完成 is the form that used to fall through to the release
+// wording and be shown as 等你 (#985 review 1). Other closing words (已验收/已收口/done) are not
+// added here: board.py closes those before an item reaches a board row, and a row that still says
+// 「done」 is one the test fixtures and the watch still treat as on the board.
+var teamTaskBoardDone = regexp.MustCompile(`^\s*已?完成`)
+
+// teamTaskBoardAwaitRelease: the status says the item itself waits on the central release, and
+// the note to show after 等发布 ("" = nothing to add). board.py merged writes 「等发布：…」 and
+// records AwaitDeploy; this is the fallback for the hand-written ones leads keep writing
+// (「随 #133 集中发布上线」「待下次集中发布」). The waiting word must lead, and 发布 must not be
+// 发布会 (a meeting) or be followed by 后 (a note about what to do after the release). 「随 …
+// 集中发布 …」 counts anywhere in the sentence, and only the clause that says it is shown
+// (#985 review 2: the prefix-only rule missed these, and matched 「等发布会结束」).
+func teamTaskBoardAwaitRelease(status string) (string, bool) {
+	s := strings.TrimSpace(strings.ReplaceAll(status, "\u3000", " "))
+	for _, text := range []string{s, strings.ReplaceAll(s, " ", "")} {
+		m := teamTaskBoardReleaseLead.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		rest := strings.TrimLeft(text[len(m[0]):], "：:，,、 ")
+		if strings.HasPrefix(rest, "会") || strings.HasPrefix(rest, "后") {
+			return "", false
+		}
+		return rest, true // rest "" = the status only says it waits: nothing to add
+	}
+	for _, clause := range strings.FieldsFunc(s, func(r rune) bool { return r == '，' || r == ',' || r == '；' || r == ';' || r == '。' }) {
+		if !teamTaskBoardReleaseAny.MatchString(clause) || strings.Contains(clause, "发布会") {
+			continue
+		}
+		return strings.TrimSpace(teamTaskBoardReleaseLeadPrefix.ReplaceAllString(clause, "")), true
+	}
+	return "", false
+}
+
+var (
+	teamTaskBoardReleaseLead       = regexp.MustCompile(`^(?:等待?|待)(?:\s*(?:下次|这次|本次|下个|下轮))?\s*(?:集中|批量|统一)?\s*(?:发布|部署)`)
+	teamTaskBoardReleaseLeadPrefix = regexp.MustCompile(`^(?:等待?|待)\s*(?:下次|这次|本次|下个|下轮)?\s*`)
+	teamTaskBoardReleaseAny        = regexp.MustCompile(`(?:集中|批量|统一)(?:发布|部署)`)
+)
 
 // teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
 // when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
@@ -314,7 +371,7 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 				rebound := false
 				for i := range items {
 					it := &items[i]
-					if it.Paused == "" && !strings.HasPrefix(strings.TrimSpace(it.Status), "完成") && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
+					if it.Paused == "" && it.Backlog == "" && !strings.HasPrefix(strings.TrimSpace(it.Status), "完成") && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
 						if h.Board > 0 && it.ID != h.Board {
 							continue
 						}
@@ -405,7 +462,7 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 // source chat, binding timestamp (Bound >= h.At), and task identity (Board ID, or title for
 // legacy handoffs without Board ID) must all agree.
 func teamHandoffMatchesPausedItem(wsKey string, h TeamHandoff, it teamTaskBoardItem) bool {
-	if it.Paused == "" || teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+	if it.Paused == "" || it.Backlog != "" || teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
 		return false
 	}
 	if it.Chat != "" && h.Chat != "" && teamChatKey(it.Chat) != teamChatKey(h.Chat) {
@@ -464,7 +521,7 @@ func (it teamTaskBoardItem) shownIn(chat string) bool {
 // from the same placed items the section is rendered from.
 func teamTaskBoardLive(items []teamTaskBoardItem, chat string) bool {
 	for _, it := range items {
-		if it.shownIn(chat) && (!it.ReturnedAt.IsZero() || it.Paused == "" && !it.wsEnded) {
+		if it.shownIn(chat) && it.Backlog == "" && (!it.ReturnedAt.IsZero() || it.Paused == "" && !it.wsEnded) {
 			return true
 		}
 	}
@@ -517,7 +574,8 @@ const (
 	teamTaskWaiting                           // waits on the user (看片/拍板/答复)
 	teamTaskPaused                            // paused for another reason: counted only
 	teamTaskReview
-	teamTaskHidden // finished, or its workspace has ended the handoff
+	teamTaskRelease // waits on a central release: held for it (board hold) — not 卡住
+	teamTaskHidden  // finished, or its workspace has ended the handoff
 )
 
 const (
@@ -624,7 +682,14 @@ func teamTaskBoardReason(texts ...string) string {
 
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
+	releaseNote, awaitRelease := teamTaskBoardAwaitRelease(it.Status)
 	switch {
+	case it.Backlog != "":
+		// 待办（board backlog）：主板不列，只在末尾计件（teamTaskBoardBacklogLine）。放在最前：挪进待办就是
+		// 主动排后，既不算交回待验收，也不算暂停。
+		return teamTaskHidden, ""
+	case it.AwaitDeploy != nil && it.Paused == "":
+		return teamTaskRelease, "已合并，等上线"
 	case !it.ReturnedAt.IsZero():
 		return teamTaskReview, taskReviewNote(it, now)
 	case it.Paused != "":
@@ -632,8 +697,19 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
 		}
 		return teamTaskPaused, ""
-	case strings.HasPrefix(strings.TrimSpace(it.Status), "完成"):
+	// A closing status wins over the release wording: 「已完成，等发布」/「完成后等发布」 say the item
+	// is done and only mention the release (before this the first counted as 交出没人接, the second
+	// was already hidden — #985 review 1). Same words as board.py CLOSED_RE.
+	case teamTaskBoardDone.MatchString(it.Status):
 		return teamTaskHidden, ""
+	case it.ReleaseHold != nil:
+		return teamTaskRelease, "为发布暂停"
+	case awaitRelease:
+		// Hand-written 「等发布…」/「随集中发布上线…」 status: waits on the release, not 卡住.
+		if note := teamTaskBoardReason(releaseNote); note != "" {
+			return teamTaskRelease, note
+		}
+		return teamTaskRelease, ""
 	case teamOtherQuiet.MatchString(it.Status):
 		return teamTaskWaiting, teamTaskBoardReason(it.Status)
 	case it.wsEnded:
@@ -695,10 +771,31 @@ func teamTaskBoardDisplayItems(items []teamTaskBoardItem, chat string, now time.
 }
 
 // teamTaskBoardMarks: the row mark of each listed state.
-var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡", teamTaskPaused: "⏸"}
+var teamTaskBoardMarks = map[teamTaskBoardState]string{teamTaskStuck: "⚠", teamTaskRunning: "▶", teamTaskWaiting: "⏸", teamTaskReview: "🟡", teamTaskPaused: "⏸", teamTaskRelease: "📦"}
 
 // teamTaskBoardNames: the state's word on the board.
-var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收", teamTaskPaused: "暂停"}
+var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", teamTaskRunning: "在做", teamTaskWaiting: "等你", teamTaskReview: "待验收", teamTaskPaused: "暂停", teamTaskRelease: "等发布"}
+
+// teamTaskBoardBacklogCount: chat's items that board.py moved to 待办. They are not rows on any
+// board: a board ends with 「待办 N 件」 instead, and `board backlog` lists them (user, 2026-11-05:
+// 「任务板怎么还有一堆任务」 — 排在 bug 后面的小问题不该和在做的活挤在一起).
+func teamTaskBoardBacklogCount(items []teamTaskBoardItem, chat string) int {
+	n := 0
+	for _, it := range items {
+		if it.Backlog != "" && it.shownIn(chat) {
+			n++
+		}
+	}
+	return n
+}
+
+// teamTaskBoardBacklogLine: 「待办 N 件（board backlog 看）」, "" when the chat has none.
+func teamTaskBoardBacklogLine(items []teamTaskBoardItem, chat string) string {
+	if n := teamTaskBoardBacklogCount(items, chat); n > 0 {
+		return fmt.Sprintf("待办 %d 件（board backlog 看）", n)
+	}
+	return ""
+}
 
 // renderTeamTaskBoard renders a chat channel's task-board section, or "" when it has nothing
 // there. It answers 「整体怎样、哪些等我」 — 卡住 and 等你 one item per line with their reason,
@@ -706,6 +803,7 @@ var teamTaskBoardNames = map[teamTaskBoardState]string{teamTaskStuck: "卡住", 
 // name. Items must be placed (placeTeamTaskBoard). Done items are not shown (user, 2026-10-28:
 // 「完成的也没必要显示」).
 func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) string {
+	backlog := teamTaskBoardBacklogLine(items, chat)
 	items = teamTaskBoardDisplayItems(items, chat, now)
 	rows := map[teamTaskBoardState][]string{}
 	paused := 0
@@ -731,10 +829,10 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 		rows[state] = append(rows[state], name)
 	}
 	if len(rows) == 0 {
-		return "" // only paused items here: no board (same as before, paused items alone never kept one)
+		return "" // only paused or 待办 items here: no board (paused items alone never kept one either)
 	}
 	lines := []string{"**任务板**"}
-	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
+	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRelease, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
 		r := rows[state]
 		if len(r) == 0 {
 			continue
@@ -749,6 +847,9 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 	}
 	if paused > 0 {
 		lines = append(lines, fmt.Sprintf("暂停 %d 件（已收起）", paused))
+	}
+	if backlog != "" {
+		lines = append(lines, backlog)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -893,6 +994,7 @@ func teamTaskTableIdleSuffix(idle []string, used map[string]bool) string {
 // renderTeamTaskTable renders the table body (no header line) for chat, "" when the chat has no
 // open item. links: the task cards (readTeamFiles' Tasks), for each row's thread.
 func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time) string {
+	backlog := teamTaskBoardBacklogLine(items, chat)
 	items = teamTaskBoardDisplayItems(items, chat, now)
 	type wsRow struct {
 		where string
@@ -904,7 +1006,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		last, bound             time.Time
 		stuck                   bool
 	}
-	var waiting, idle []string
+	var waiting, idle, release []string
 	var wsRows []wsRow
 	var running []runRow
 	liveBound := map[string]time.Time{}
@@ -918,7 +1020,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if idlePool == nil && it.idleByChat != nil {
 			idlePool = it.idleByChat[chat]
 		}
-		state, _ := teamTaskBoardStateOf(it, now)
+		state, stateNote := teamTaskBoardStateOf(it, now)
 		if state == teamTaskHidden {
 			continue
 		}
@@ -928,7 +1030,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" || (state != teamTaskWaiting && state != teamTaskReview && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" || (state != teamTaskWaiting && state != teamTaskReview && state != teamTaskRelease && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -939,6 +1041,15 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		short := teamTaskBoardShort(it)
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
+		case state == teamTaskRelease:
+			parts := []string{short}
+			if where != "" {
+				parts = []string{where, short}
+			}
+			if stateNote != "" {
+				parts = append(parts, stateNote) // no dangling 「· 」 when there is nothing to say
+			}
+			release = append(release, "  📦 "+strings.Join(parts, " · "))
 		case state == teamTaskPaused:
 			note := "暂停"
 			if it.ReviewRejected != "" {
@@ -992,7 +1103,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		}
 	}
 	if open == 0 {
-		return ""
+		return "" // only 待办 here: 待办 never keeps a board of its own
 	}
 	// A workspace does one thing at a time: only its newest bound item is 🟢. The others, and any
 	// item with no progress for teamTaskBoardStuckAfter, show when they last moved instead of
@@ -1058,6 +1169,10 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			lines = append(lines, r.line)
 		}
 	}
+	if len(release) > 0 {
+		lines = append(lines, fmt.Sprintf("**等发布 %d**", len(release)))
+		lines = append(lines, release...)
+	}
 	if len(idle) > 0 {
 		lines = append(lines, fmt.Sprintf("**待安排 %d**", len(idle)))
 		lines = append(lines, idle...)
@@ -1067,6 +1182,9 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 	}
 	if shelved > 0 {
 		lines = append(lines, fmt.Sprintf("（另有 %d 件搁置，超过一天没动或已暂停）", shelved))
+	}
+	if backlog != "" {
+		lines = append(lines, backlog)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1092,6 +1210,7 @@ func renderTeamTaskBoardFit(items []teamTaskBoardItem, chat string, now time.Tim
 // per line (卡住, 在做, 等你), paused ones counted. Nothing from other channels (user, 2026-10-28:
 // 「不应该挂到其他频道，其他频道自己收敛」). "" when nothing to show.
 func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now time.Time, budget int) string {
+	backlog := teamTaskBoardBacklogLine(items, chat)
 	items = teamTaskBoardDisplayItems(items, chat, now)
 	rows := map[teamTaskBoardState][]string{}
 	paused := 0
@@ -1113,14 +1232,17 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now tim
 		}
 	}
 	if len(rows) == 0 {
-		return "" // only paused items here: no board (same as before, paused items alone never kept one)
+		return "" // only paused or 待办 items here: no board (paused items alone never kept one either)
 	}
 	lines := []string{"**这里在做**"}
-	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
+	for _, st := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRelease, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
 		lines = append(lines, rows[st]...)
 	}
 	if paused > 0 {
 		lines = append(lines, fmt.Sprintf("暂停 %d 件（已收起）", paused))
+	}
+	if backlog != "" {
+		lines = append(lines, backlog)
 	}
 	return cutTeamBoardLines(strings.Join(lines, "\n"), budget, "")
 }

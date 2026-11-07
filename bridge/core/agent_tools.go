@@ -79,6 +79,19 @@ func FindUV() string {
 	return p
 }
 
+// agentToolUV is the uv the tools' commands name: uv on PATH, else bothouse's own (ensureUV: the one in
+// <data_dir>/tools/uv, downloaded there when missing). "" only when that download fails too.
+func agentToolUV(dataDir string) string {
+	if uv := FindUV(); uv != "" || dataDir == "" {
+		return uv
+	}
+	uv, err := ensureUV(dataDir)
+	if err != nil {
+		return ""
+	}
+	return uv
+}
+
 // AgentToolOptions says which role and which tools.
 type AgentToolOptions struct {
 	DataDir   string   // cc-connect data_dir: scripts go to <data_dir>/tools
@@ -119,7 +132,7 @@ func (o AgentToolOptions) names() ([]string, error) {
 func toolWarnings(uv string, enabled []string) []string {
 	var w []string
 	if uv == "" {
-		w = append(w, "uv not found on PATH: the tools run with `uv run --script`; install it from https://docs.astral.sh/uv/getting-started/installation/")
+		w = append(w, "uv not found on PATH and downloading it failed: the tools run with `uv run --script`; install it from https://docs.astral.sh/uv/getting-started/installation/")
 	}
 	if slices.Contains(enabled, "watchvid") {
 		if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -152,7 +165,7 @@ func EnableAgentTools(o AgentToolOptions) (*AgentToolResult, error) {
 			on = append(on, n)
 		}
 	}
-	uv := FindUV()
+	uv := agentToolUV(o.DataDir)
 	if err := writeToolRules(persona, o.Lang, on, uv, dir); err != nil {
 		return nil, err
 	}
@@ -180,7 +193,7 @@ func DisableAgentTools(o AgentToolOptions) (*AgentToolResult, error) {
 		return nil, err
 	}
 	on = slices.DeleteFunc(on, func(n string) bool { return slices.Contains(names, n) })
-	if err := writeToolRules(persona, o.Lang, on, FindUV(), AgentToolsDir(o.DataDir)); err != nil {
+	if err := writeToolRules(persona, o.Lang, on, agentToolUV(o.DataDir), AgentToolsDir(o.DataDir)); err != nil {
 		return nil, err
 	}
 	res := &AgentToolResult{PersonaFile: persona}

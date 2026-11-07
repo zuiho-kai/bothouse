@@ -762,14 +762,14 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				}
 			}
 
-			// Step 2: Get fresh direct link via NapCat API (CDN URLs expire / have download limits)
+			// Step 2: Get fresh direct link via NapCat API (HTTP when http_url is set, else the WS connection) (CDN URLs expire / have download limits)
 			// NapCat docs: params are STRINGS — group (not group_id), file_id
-			if !downloaded && p.httpURL != "" && fileID != "" {
+			if !downloaded && fileID != "" {
 				var freshURL string
 				if msgType == "group" && groupID != 0 {
 					groupStr := strconv.FormatInt(groupID, 10)
 					slog.Info("qq: [step2] trying get_group_file_url", "file_id", fileID, "group", groupStr)
-					result, err := p.callHTTPAPI("get_group_file_url", map[string]any{
+					result, err := p.callFileAPI("get_group_file_url", map[string]any{
 						"file_id": fileID,
 						"group":   groupStr,
 					})
@@ -781,7 +781,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 					}
 				} else {
 					slog.Info("qq: [step2] trying get_private_file_url", "file_id", fileID)
-					result, err := p.callHTTPAPI("get_private_file_url", map[string]any{
+					result, err := p.callFileAPI("get_private_file_url", map[string]any{
 						"file_id": fileID,
 					})
 					if err == nil {
@@ -807,9 +807,9 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 			}
 
 			// Step 3: Last resort — get_file (downloads to NapCat local or returns base64)
-			if !downloaded && p.httpURL != "" && fileID != "" {
+			if !downloaded && fileID != "" {
 				slog.Info("qq: [step3] trying get_file", "file_id", fileID)
-				result, err := p.callHTTPAPI("get_file", map[string]any{"file_id": fileID})
+				result, err := p.callFileAPI("get_file", map[string]any{"file_id": fileID})
 				if err == nil {
 					if fileURL, ok := result["url"].(string); ok && fileURL != "" {
 						fileData, mime, err := downloadLargeFile(fileURL)
@@ -1517,6 +1517,17 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 	case <-time.After(15 * time.Second):
 		return nil, fmt.Errorf("qq: API %s timeout", action)
 	}
+}
+
+// callFileAPI fetches file metadata through the HTTP API when http_url is
+// configured and over the event WebSocket otherwise; deployments that only
+// set ws_url could never download a file segment before (they skipped steps
+// 2 and 3). Safe from parseMessage: handleMessage runs off the read loop.
+func (p *Platform) callFileAPI(action string, params map[string]any) (map[string]any, error) {
+	if p.httpURL != "" {
+		return p.callHTTPAPI(action, params)
+	}
+	return p.callAPI(action, params)
 }
 
 // callHTTPAPI calls a OneBot v11 HTTP endpoint (e.g. /upload_group_file).

@@ -54,6 +54,7 @@ type ManagementServer struct {
 	timerScheduler     *TimerScheduler
 	heartbeatScheduler *HeartbeatScheduler
 	bridgeServer       *BridgeServer
+	imageGen           *ImageGenerator // opt-in 生图 (#150 item c); nil when [image_gen] is off
 	dshProxyOnce       sync.Once
 	dshProxy           *dshProxy // /dsh/ channels-page proxy (management_dsh_proxy.go)
 
@@ -90,6 +91,9 @@ type ManagementServer struct {
 	// 接入应用 (#150): config.toml module states, wired by cmd/cc-connect
 	// (management_modules.go). nil = no config read, every row shows not_configured.
 	platformModules func() map[string]PlatformModule
+	// 插件 (#150 第 b 项): what config.toml allows for installs, wired by cmd/cc-connect
+	// (plugin_spec.go). nil = registry-only, npm's own registry.
+	pluginInstallPolicy func() PluginInstallPolicy
 }
 
 // NewManagementServer creates a new management API server.
@@ -298,6 +302,12 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
 
+	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
+	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
+	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
+	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
+	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
+
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))
 	mux.HandleFunc(prefix+"/cron/", m.wrap(m.handleCronByID))
@@ -329,10 +339,18 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/cloudweb/test", m.wrap(m.handleSetupCloudWebTest))
 	mux.HandleFunc(prefix+"/setup/jev/test", m.wrap(m.handleSetupJevTest))
 	mux.HandleFunc(prefix+"/setup/jev/save", m.wrap(m.handleSetupJevSave))
+	// 闸门设置页 (#217): 装好以后也能改谁在什么时候接话，以及闸门模型 API（jev）
+	mux.HandleFunc(prefix+"/forum", m.wrap(m.handleForum))
+	mux.HandleFunc(prefix+"/setup/gate", m.wrap(m.handleSetupGateSettings))
+	mux.HandleFunc(prefix+"/setup/gate/save", m.wrap(m.handleSetupGateSave))
+	mux.HandleFunc(prefix+"/setup/gate/start", m.wrap(m.handleSetupGateStart))
 	mux.HandleFunc(prefix+"/setup/apply", m.wrap(m.handleSetupApply))
 
 	// Avatar / persona library (packs)
 	m.registerLibraryRoutes(mux, prefix)
+
+	// Image generation (生图, opt-in via [image_gen])
+	m.registerImageGenRoutes(mux, prefix)
 
 	// Global Providers
 	mux.HandleFunc(prefix+"/providers", m.wrap(m.handleGlobalProviders))
@@ -346,6 +364,10 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
 	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
+	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/members/", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/model-routes", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/cli-options", m.wrap(m.handleDSHMembersAPI))
 
 	// Devices (adapters from bridge server)
 	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))

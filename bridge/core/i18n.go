@@ -690,7 +690,12 @@ const (
 	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
+	MsgWatchUntitledAccept      MsgKey = "watch_untitled_accept"
 	MsgWatchFailEscalate        MsgKey = "watch_fail_escalate"
+	MsgWatchCantDoEscalate      MsgKey = "watch_cantdo_escalate"
+	MsgReleaseHoldUnresumed     MsgKey = "release_hold_unresumed"
+	MsgWatchFailReassigned      MsgKey = "watch_fail_reassigned"
+	MsgWatchFailPrompt          MsgKey = "watch_fail_prompt"
 	MsgTaskReviewReturned       MsgKey = "task_review_returned"
 	MsgTaskReviewOverdue        MsgKey = "task_review_overdue"
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
@@ -804,11 +809,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "%s espera su cuota. Asumes: %s. Lee el traspaso original y el registro guardado. Conserva la petición y la rama, y entrega en el canal original.\nBase:\n%s",
 	},
 	MsgQuotaCooling: {
-		LangEnglish:            "This role is cooling down until %s.",
-		LangChinese:            "本角色额度冷却至 %s。",
-		LangTraditionalChinese: "本角色額度冷卻至 %s。",
-		LangJapanese:           "この担当は %s まで利用枠待機中です。",
-		LangSpanish:            "Este rol espera su cuota hasta %s.",
+		LangEnglish:            "This role is cooling down until %s, about %s from now.",
+		LangChinese:            "本角色额度冷却至 %s，大约还要 %s。",
+		LangTraditionalChinese: "本角色額度冷卻至 %s，大約還要 %s。",
+		LangJapanese:           "この担当は %s まで利用枠待機中です（残り約 %s）。",
+		LangSpanish:            "Este rol espera su cuota hasta %s, faltan unos %s.",
 	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",
@@ -1066,6 +1071,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "見守り：%s の %s は再開後も進展がないため一時停止し、ワークスペースを解放しました。続けるには再度引き渡してください。",
 		LangSpanish:            "Aviso: %s siguió sin avanzar en %s tras reanudarlo; la tarea se pausó y el espacio quedó libre. Vuelve a asignarla para continuar.",
 	},
+	MsgWatchUntitledAccept: {
+		LangEnglish:            "the work accepted last turn",
+		LangChinese:            "上一轮接下的活",
+		LangTraditionalChinese: "上一輪接下的活",
+		LangJapanese:           "前のターンで引き受けた作業",
+		LangSpanish:            "el trabajo aceptado en el turno anterior",
+	},
 	MsgWatchIdleEscalate: {
 		LangEnglish:            "Watch: %s has not resumed %s after two wakeups. Primary role, please take over.",
 		LangChinese:            "看门：%s「%s」连续叫醒两次仍未继续，请主角色接手。",
@@ -1128,12 +1140,40 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "%s: %s. Traspaso: %s. Verifica los artefactos y acepta con board done %[4]d <revisiones>, o registra problemas con board reject %[4]d <problemas> y continúa con ws-handoff --resume %[4]d <problemas>. Comprueba la ocupación; usa un espacio libre o la cola. La verificación corresponde al coordinador, no al usuario. Entrega no significa aceptación.",
 	},
 
+	MsgWatchCantDoEscalate: {
+		LangEnglish:            "%sWatch: %s said twice in a row it cannot do %s; the task is paused and no longer resumed automatically. Please decide how to go on.",
+		LangChinese:            "%s看门：%s「%s」连续两次回复做不了，已自动暂停，不再催。请你定怎么继续。",
+		LangTraditionalChinese: "%s看門：%s「%s」連續兩次回覆做不了，已自動暫停，不再催。請你決定怎麼繼續。",
+		LangJapanese:           "%s見守り：%s が %s を2回続けてできないと答えたため、一時停止し自動再開を止めました。進め方を決めてください。",
+		LangSpanish:            "%sAviso: %s dijo dos veces seguidas que no puede hacer %s; la tarea queda en pausa sin reanudación automática. Decide cómo seguir.",
+	},
 	MsgWatchFailEscalate: {
 		LangEnglish:            "Watch: %s failed %s twice in a row with errors; automatic resume stopped. Primary role, reassign or take over.",
 		LangChinese:            "看门：%s「%s」连续两次报错，已停止自动接着做，请主角色换人或接手。",
 		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已停止自動接著做，請主角色換人或接手。",
 		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、自動再開を止めました。主担当は担当替えか引き継ぎをしてください。",
 		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se detuvo la reanudación automática. El rol principal debe reasignar o hacerse cargo.",
+	},
+	MsgReleaseHoldUnresumed: {
+		LangEnglish:            "Release hold: #%d %s was saved for the release but no open handoff is left for it; the mark stays for now and is cleared on the next check if it is still missing. Start it again if it still needs doing.",
+		LangChinese:            "发布暂停：#%d %s 标了为发布暂停，但已经没有开着的交接可以续；标记先留着，下次检查仍没有交接再撤，还要做请重新交活。",
+		LangTraditionalChinese: "發布暫停：#%d %s 標了為發布暫停，但已經沒有開著的交接可以續；標記先留著，下次檢查仍沒有交接再撤，還要做請重新交活。",
+		LangJapanese:           "リリース保留：#%d %s は保留されていますが、再開できる引継ぎがありません。印はいったん残し、次の確認でも引継ぎがなければ解除します。続ける場合は再度引き渡してください。",
+		LangSpanish:            "Retención de despliegue: #%d %s se guardó para el despliegue pero no queda ningún traspaso abierto; la marca se mantiene por ahora y se quitará en la próxima comprobación si sigue faltando. Vuelve a asignarla si aún hace falta.",
+	},
+	MsgWatchFailReassigned: {
+		LangEnglish:            "Watch: %s failed %s twice in a row with errors; handed it to %s, who continues from the saved stop point.",
+		LangChinese:            "看门：%s「%s」连续两次报错，已自动改派给 %s，从停点接着做。",
+		LangTraditionalChinese: "看門：%s「%s」連續兩次報錯，已自動改派給 %s，從停點接著做。",
+		LangJapanese:           "見守り：%s の %s が2回連続でエラーになったため、%s に自動で引き継ぎ、停止点から続けます。",
+		LangSpanish:            "Aviso: %s falló dos veces seguidas en %s; se reasignó a %s, que continúa desde el punto guardado.",
+	},
+	MsgWatchFailPrompt: {
+		LangEnglish:            "%s failed twice in a row with errors (likely relay rate limits). You now own: %s. Read the record below and the original handoff files, continue from the saved stop point, keep the original request and branch, and report to the original channel.\nBasis:\n%s",
+		LangChinese:            "%s 连续两次报错（多半是中转限流），现在由你接手：%s。先读下面记录及原交接文件，从停点接着做，保留用户原话和底分支，交回原频道。\n交接依据：\n%s",
+		LangTraditionalChinese: "%s 連續兩次報錯（多半是中轉限流），現在由你接手：%s。先讀下面紀錄及原交接文件，從停點接著做，保留用戶原話和底分支，交回原頻道。\n交接依據：\n%s",
+		LangJapanese:           "%s が2回連続でエラーになりました（中継のレート制限の可能性）。今からあなたが担当します：%s。下の記録と元の引継ぎファイルを読み、停止点から続け、元の依頼とブランチを保ち、元のチャンネルに報告してください。\n根拠：\n%s",
+		LangSpanish:            "%s falló dos veces seguidas (probablemente límites del relay). Ahora te encargas de: %s. Lee el registro y los archivos de traspaso, continúa desde el punto guardado, conserva la petición y la rama originales e informa en el canal original.\nBase:\n%s",
 	},
 	MsgPublicEnded: {
 		LangEnglish:            "Turn ended; see the final reply. Acceptance is not confirmed.",

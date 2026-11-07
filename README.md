@@ -76,6 +76,7 @@ The Windows command, package downloads, the background service and the DSH chann
 | **A nightly review** | At night it checks what was written down during the day, fixes and dedupes it, and turns your repeated corrections into draft rules that apply only after you approve. |
 | **Long jobs stay on track** | Every handoff carries your original words; a second AI with a clean context checks the result; “fixed” needs evidence. |
 | **Manage it from your phone** | A built-in web dashboard shows who is busy and how much quota is used, lets you edit personas, open a project and add a note to work that is already running. |
+| **Draw a picture when you ask for one** | Optional and off by default: point `[image_gen]` at an OpenAI-compatible image service and the dashboard's 生图 page draws one picture into a local file. It never posts it for you — `bothouse send --image` is a separate, deliberate step. |
 
 <a id="team"></a>
 
@@ -151,10 +152,12 @@ Discord and Feishu already have phone and desktop apps, so there is no extra wra
 | Platform | Status | Capabilities |
 | --- | --- | --- |
 | Discord | Full support | Multiple roles, mentions, task handoffs, teammate status and log channels; slash commands in servers and DMs |
-| Self-hosted web | Team mode | A local, Discord-like web UI with multiple roles, mentions and task handoffs |
 | Feishu (Lark) | Single role | Conversation with one connected role |
 | QQ official bot | Manual setup | Group/private chat, group @user and @everyone; see [QQ Bot setup](bridge/docs/qqbot.md) |
 | DSH web | Experimental | A Channels page inside DSH web; see [DSH channels](dsh/collab/README.md) |
+<!-- Self-hosted platform entry disabled (no longer maintained, 2026-11-05). Original row:
+| Self-hosted web | Team mode | A local, Discord-like web UI with multiple roles, mentions and task handoffs |
+-->
 
 QQ / NapCat users can configure the [OneBot adapter](bridge/docs/qq.md) manually.
 
@@ -298,6 +301,12 @@ Questions, ideas and the teams you build are all welcome.
   <img src="docs/assets/readme/banner/star-en-day.svg" width="960" alt="Star bothouse and come back to see the team grow." />
 </picture>
 </a>
+
+## Managing DSH members
+
+The panel's Roles page can add, edit and delete DSH roster-managed members; config and external members are read-only. In an installed environment, adding a DSH role opens the daily member flow instead of reinstalling. Native members can select a DSH provider and model; Codex members can select advertised models and reasoning effort. The desired settings apply before the next turn, and the page shows their application status.
+
+Panel providers apply to bridge projects that reference them. Manage DSH native routes in the DSH shell under Settings → Models; CLI members use local CLI authentication. Bridge project counts are separate from DSH member counts. See [DSH panel APIs](docs/api/dsh-panel.md).
 
 ## License and thanks
 
