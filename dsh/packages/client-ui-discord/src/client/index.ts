@@ -49,6 +49,7 @@ export function apply(ctx: ClientContext): void {
     hooks: { channels: channels.source },
     selectRoom: channels.actions.selectRoom,
     send: channels.actions.send,
+    uploadAttachment: channels.actions.uploadAttachment,
     reviewTask: channels.actions.reviewTask,
     dispatchTask: channels.actions.dispatchTask,
     openDm: channels.actions.openDm,

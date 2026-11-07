@@ -5,15 +5,14 @@ import { createPortal } from 'react-dom'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { NS } from './locales.ts'
 import type { ChannelAttachment, OutgoingAttachment } from './channel-source.ts'
-import { attachmentUrl, readAttachment } from './channel-source.ts'
+import { attachmentUrl, formatBytes } from './channel-source.ts'
 import css from './ChannelsPage.module.css'
 import { getScheme } from './scheme.ts'
 
 const isImage = (mime: string): boolean => /^image\/(png|jpeg|gif|webp)$/.test(mime)
 const isAudio = (mime: string): boolean => mime.startsWith('audio/')
 
-const size = (bytes: number): string =>
-  bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+const size = formatBytes
 
 type T = TranslateNS<typeof NS>
 
@@ -128,13 +127,11 @@ const eventFiles = (list: DataTransfer | null): File[] => (list === null ? [] : 
  * Composer helpers: an attach button with its hidden file input, the pending
  * list with remove buttons, and paste/drop handlers for the textarea.
  */
-export function useComposerAttachments(add: (files: OutgoingAttachment[]) => void, onError: (message: string) => void) {
+export function useComposerAttachments(add: (files: File[]) => void) {
   const inputRef = useRef<HTMLInputElement>(null)
   const take = (files: File[]): void => {
     if (files.length === 0) return
-    Promise.all(files.map(readAttachment)).then(add).catch((error: unknown) => {
-      onError(error instanceof Error ? error.message : String(error))
-    })
+    add(files)
   }
   return {
     onPaste(event: ClipboardEvent<HTMLTextAreaElement>): void {
@@ -174,21 +171,52 @@ export function useComposerAttachments(add: (files: OutgoingAttachment[]) => voi
   }
 }
 
-/** Files waiting to be sent with the next message. */
-export function PendingAttachments({ files, onRemove, removeLabel }: {
-  readonly files: readonly OutgoingAttachment[]
-  readonly onRemove: (index: number) => void
+/**
+ * #197: one file on its way up. The bytes stream to the service straight from the
+ * picker, so the composer shows a bar instead of holding a base64 copy of the file.
+ */
+export interface PendingFile {
+  readonly key: string
+  readonly name: string
+  readonly mime: string
+  readonly size: number
+  /** 0…1 of the bytes sent so far. */
+  readonly progress: number
+  /** Object URL for an image preview; revoked when the file leaves the composer. */
+  readonly preview?: string
+  /** Set once the stream landed; the message names this. */
+  readonly attachment?: OutgoingAttachment
+  /** Why this file cannot be sent (too large, connection dropped). */
+  readonly error?: string
+}
+
+/** Files waiting to be sent with the next message, each with its upload progress. */
+export function PendingAttachments({ files, onRemove, removeLabel, labels }: {
+  readonly files: readonly PendingFile[]
+  readonly onRemove: (key: string) => void
   readonly removeLabel: string
+  readonly labels: { readonly uploading: string; readonly queued: string }
 }) {
   if (files.length === 0) return null
   return (
     <div className={css.attachments}>
-      {files.map((f, i) => (
-        <span key={`${i}-${f.name}`} className={css.attachmentFile}>
-          {isImage(f.mime) ? <img className={css.attachmentThumb} src={`data:${f.mime};base64,${f.data}`} alt={f.name} /> : '📎'} {f.name}
-          <button type="button" className={css.replyCancel} title={removeLabel} aria-label={removeLabel} onClick={() => onRemove(i)}>×</button>
-        </span>
-      ))}
+      {files.map((f) => {
+        const percent = Math.round(f.progress * 100)
+        const state = f.error !== undefined ? f.error : f.attachment !== undefined ? '' : percent > 0 ? labels.uploading : labels.queued
+        return (
+          <span key={f.key} className={css.attachmentFile} data-state={f.error !== undefined ? 'failed' : f.attachment !== undefined ? 'done' : 'uploading'}>
+            {f.preview !== undefined ? <img className={css.attachmentThumb} src={f.preview} alt={f.name} /> : '📎'} {f.name}
+            <span className={css.attachmentSize}>{size(f.size)}</span>
+            {f.attachment === undefined && f.error === undefined && (
+              <span className={css.uploadBar} role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label={`${f.name} ${percent}%`}>
+                <span className={css.uploadFill} style={{ width: `${percent}%` }} />
+              </span>
+            )}
+            {state !== '' && <span className={css.uploadState}>{state}</span>}
+            <button type="button" className={css.replyCancel} title={removeLabel} aria-label={removeLabel} onClick={() => onRemove(f.key)}>×</button>
+          </span>
+        )
+      })}
     </div>
   )
 }

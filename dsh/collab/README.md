@@ -46,6 +46,7 @@ Wiki 星河（`/collab/wiki-galaxy`）把一本 markdown wiki 画成可旋转的
              - { id: ds, name: DeepSeek, persona: '可选：它是谁、负责什么' }   # 不写 model：首次请求前固定为 DSH 默认模型，之后跟随该 Session 自己的选择
              # - { id: claude, name: Claude, model: { provider: <provider id>, model: <model id> } }   # 写了 model：每次请求都用它，改配置会带动已绑定的 Session
            # maxRelay: 6        # Agent 连续接力上限（实例默认）；频道可在「频道设置 → 派活」里单独设 6–20
+           # maxUploadBytes: 1073741824   # 单个附件上限（字节），默认 1 GB；见「附件上限」
            # ownerName: 我
    ~~~
 
@@ -151,6 +152,16 @@ group_reply_all = false       # 见下方「只在被 @ 时回答」
 - **顺序**：同一成员在同一频道的投递、重启恢复和 Session 续接走同一个队列，不会并发续接同一个 Session。插件卸载时先停队列再关数据库，未完成的 job 留给下次启动的恢复流程。
 - **防循环**：Agent 消息里点名或 @ 了 DSH 成员也会触发它，但从上一条真人消息起 Agent 连续发言超过接力上限后暂停，并在频道里说明。上限默认取实例的 `maxRelay`（未配置时 6），每个频道可在「频道设置 → 派活 → 接力上限」里单独设 6–20 的整数，即时生效、刷新和重启后保留；工作区读写所属频道的那份值（#445）。
 - **转发规则**（与 hub 一致）：系统消息、进度卡片、cc-connect 状态提示（📬 ✅ ↪ …）不转给成员；回复末尾的「模型 · 用量」尾注在转发前去掉；自己说的话不回给自己。
+
+## 附件上限
+
+一个附件走的是单独的流式上传接口（`POST /collab/api/attachments`，源码 `dsh/collab/attachments.mjs` `saveStream`）：网页把文件按块直接写盘，不经过消息 JSON，也不整块读进内存，所以上限不再由消息体（8 MiB）决定，而是由配置项 `maxUploadBytes` 决定，默认 1 GB（`DEFAULT_MAX_UPLOAD_BYTES`）。
+
+- **默认值来源**：用户 2026-11-05 21:01「需要大一些 尽可能大」。实测（本机 macOS，`node --test dsh/collab/attachments.test.mjs`，同一个真实 HTTP 路由）：100 MB 用时 70–75 ms、进程 RSS +8～12 MB；500 MB 用时 350–520 ms、RSS 基本不涨；1 GB 用时 650–1050 ms、RSS 基本不涨。写入是流式的，内存不随文件变大。
+- **调小**：`collab.yml` 里加 `maxUploadBytes: 104857600`（100 MB）之类即可；也可用环境变量覆盖，改完重启 DSH 生效。超限时网页的待发文件条会写明「超过单个文件上限 X」，发送前就拦下；把文件拖进来时也会先按「频道设置」里读到的上限检查。
+- **磁盘**：附件存在数据目录的 `attachments/`，1 GB 的文件就占 1 GB 磁盘。上限调大前先确认这台机器余量。
+- **给机器人**：一条消息的附件合计不超过 50 MiB（`MAX_BOT_ATTACHMENT_BYTES`，沿用 cc-connect 的 `DefaultMaxAttachmentSize`）时照旧转成图片/文件帧；单个更大的文件不进连接，机器人在提示里拿到它在本机的绝对路径（`oversizedNote`），自己去读。
+- **图片看图**仍是 5 MiB、png/jpeg/gif/webp 四种格式（`MAX_IMAGE_BYTES`、`INLINE_IMAGE`），这次没有改动；heic 会在看图路径上被跳过。
 
 ## 验证
 
