@@ -2263,6 +2263,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	content = timerUserContext(targetPlatform, sessionKey, job) + content
+	if !job.Handoff && job.resume == nil {
+		content += timerSourceNote // #1188
+	}
 
 	msg := &Message{
 		turnTrigger:  timerTurnTrigger(job),
@@ -7388,7 +7391,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			if !isSilent {
 				if stripped, ok := stripTrailingSilent(baseResponse); ok {
-					if strings.TrimSpace(stripped) == "" {
+					state.mu.Lock()
+					scheduled := state.turnScheduled
+					state.mu.Unlock()
+					// #1188: a cron/timer turn (兜底到点, 工作区上报, later) has no
+					// user waiting; text before its NO_REPLY is the agent's plan
+					// ("我会先核对…"), not a message. Swallow the whole turn.
+					if strings.TrimSpace(stripped) == "" || scheduled {
 						isSilent = true
 					} else {
 						baseResponse = stripped
