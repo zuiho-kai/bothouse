@@ -107,7 +107,7 @@ def _locked():
 
 def _read(name="board.jsonl"):
     try:
-        lines = _path(name).read_text().splitlines()
+        lines = _read_text_with_retry(_path(name)).splitlines()
     except FileNotFoundError:
         return []
     out = []
@@ -141,6 +141,23 @@ def _replace_with_retry(src, dst):
         try:
             os.replace(src, dst)
             return
+        except OSError as e:
+            if not _retryable_replace_error(e) or time.monotonic() + delay > deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, _REPLACE_RETRY_MAX_S)
+
+
+def _read_text_with_retry(path):
+    """#346：Windows 上另一个进程正独占打开 board.jsonl（或索引/杀毒软件正在扫）时 read_text() 会抛
+    PermissionError（WinError 5 / 32），锁外那次 _read()（auto_prune 开头）谁也保护不到。重试的预算与
+    判定直接复用 _write 那套（_REPLACE_RETRY_BUDGET_S / _retryable_replace_error / 同样的首次与上限退避），
+    不另造一套数；预算用完照旧抛，其它异常一律不重试。"""
+    deadline = time.monotonic() + _REPLACE_RETRY_BUDGET_S
+    delay = _REPLACE_RETRY_FIRST_S
+    while True:
+        try:
+            return path.read_text()
         except OSError as e:
             if not _retryable_replace_error(e) or time.monotonic() + delay > deadline:
                 raise

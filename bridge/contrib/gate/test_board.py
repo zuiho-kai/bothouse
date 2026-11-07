@@ -767,5 +767,77 @@ class WriteAtomic(unittest.TestCase):
         self.assertEqual([r["short"] for r in board._read()], ["A"])
 
 
+class ReadRetry(unittest.TestCase):
+    """#346：board.jsonl 被别的进程短暂独占时 read_text() 抛 PermissionError，_read 要有界重试；
+    锁外那次读（auto_prune 开头）没有 _locked 保护，是 Windows 并发 add 偶发红的根因。"""
+
+    def setUp(self):
+        for f in Path(TMP).glob("board*"):
+            f.unlink()
+
+    def _patch_read_text(self, fake):
+        real = Path.read_text
+        Path.read_text = fake
+        self.addCleanup(setattr, Path, "read_text", real)
+        return real
+
+    def test_read_retries_transient_permission_error(self):
+        """交接给的确定性用例：Path.read_text 前两次抛 PermissionError(WinError 5)、第三次成功，
+        _read 最终返回正确内容。改前（只有 except FileNotFoundError）这里会直接抛出来。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = str(Path(TMP) / "board.jsonl")
+        calls = []
+
+        def flaky(path, *a, **kw):
+            if str(path) == target:
+                calls.append(1)
+                if len(calls) <= 2:
+                    e = PermissionError(13, "Permission denied")
+                    e.winerror = 5  # 照 Windows 的 WinError 5（交接里的失败栈 read_text -> [Errno 13]）
+                    raise e
+            return real_read(path, *a, **kw)
+
+        real_read = self._patch_read_text(flaky)
+        rows = board._read()
+        self.assertEqual(len(calls), 3, "前两次失败后应重试到第三次成功")
+        self.assertEqual([r["short"] for r in rows], ["A"])
+
+    def test_read_does_not_retry_other_errors(self):
+        """别的异常照常抛（文件真损坏、路径错不能吞），也不拖满预算。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = str(Path(TMP) / "board.jsonl")
+        calls = []
+
+        def broken(path, *a, **kw):
+            if str(path) == target:
+                calls.append(1)
+                raise OSError(95, "Operation not supported")  # 无 winerror 的普通 OSError
+            return real_read(path, *a, **kw)
+
+        real_read = self._patch_read_text(broken)
+        with self.assertRaises(OSError):
+            board._read()
+        self.assertEqual(len(calls), 1, "非瞬时错误不重试")
+
+    def test_read_raises_after_budget(self):
+        """重试有界：一直 PermissionError 时最终照旧抛出，不无限重试。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = str(Path(TMP) / "board.jsonl")
+        calls = []
+
+        def always(path, *a, **kw):
+            if str(path) == target:
+                calls.append(1)
+                e = PermissionError(13, "Access is denied")
+                e.winerror = 32  # WinError 32：文件被占用
+                raise e
+            return real_read(path, *a, **kw)
+
+        real_read = self._patch_read_text(always)
+        with self.assertRaises(PermissionError):
+            board._read()
+        self.assertGreater(len(calls), 1, "应当重试多次才放弃")
+
+
 if __name__ == "__main__":
     unittest.main()
