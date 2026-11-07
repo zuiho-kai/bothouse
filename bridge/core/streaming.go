@@ -396,6 +396,28 @@ func (sp *streamPreview) unfreeze() {
 	sp.degraded = false
 }
 
+// retract deletes the open preview (a draft a Stop hook blocked, stop_draft.go)
+// without committing it. Like freeze, the next public text after unfreeze opens a
+// new preview; a transport failure stays degraded.
+func (sp *streamPreview) retract() {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	sp.cancelTimerLocked()
+	if sp.previewMsgID != nil {
+		if cleaner, ok := sp.platform.(PreviewCleaner); ok {
+			if err := authorizedOutput(sp.ctx, func() error { return cleaner.DeletePreviewMessage(sp.ctx, sp.previewMsgID) }); err != nil {
+				slog.Warn("stream preview: deleting the blocked draft failed; the message may be duplicated",
+					"preview_id", sp.previewMsgID, "error", err)
+			}
+		}
+	}
+	if !sp.degraded {
+		sp.frozen = true
+	}
+	sp.previewMsgID = nil
+	sp.degraded = true
+}
+
 // discard removes the preview message when possible and disables further
 // preview updates. Call this when the caller intends to send a separate
 // non-preview message (for example after tool use or on terminal errors).
