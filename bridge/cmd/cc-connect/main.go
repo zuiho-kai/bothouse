@@ -1327,6 +1327,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
 	}
 	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
+	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
 	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
 
 	// Wire auto-compress settings
