@@ -69,6 +69,8 @@ DSH 有两种用法，向导第一步让你选：
 dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'
 ```
 
+不走向导装插件时，频道里会自动放一个默认角色（鲸鱼娘），用 DSH 默认的 DeepSeek 模型回话。DSH 里还没填 DeepSeek API Key 时，第一句话会出一张「还没填模型密钥」的卡片：点卡片上的「去填密钥」填好 Key，或在成员设置里给它换一个能用的模型，再点「重试」。走向导不会遇到这张卡：向导里选 DeepSeek 模型的角色必须先填 Key 才能保存。
+
 在 DSH 里添加多个成员：[同模型多成员指南](../single-cli-team.md#在-dsh-里创建三个成员)。
 
 ## 以后

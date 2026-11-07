@@ -58,7 +58,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
    "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
   ```
 
-- 手动起 gate 而没有 jev 时，gate 启动就报错退出并提示怎么填（用向导时不会这样：向导没 jev 就不起 gate，没点名的话由主角色回）。推荐本机起我们在用的 Qwen3.5-4B：`uv tool install mlx-lm`，再 `mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941`，然后在向导或面板「闸门」页点「一键填」。
+- 没有 jev 时 gate 照样启动，打印一段提示说怎么填：每轮 wiki、任务板（/context）和 /lead 照常，只是不判谁回（/decide 回 503），这时只有被 @ 的角色回话。用向导配置时，没点名的话由主角色回。推荐本机起我们在用的 Qwen3.5-4B：`uv tool install mlx-lm`，再 `mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941`，然后在向导或面板「闸门」页点「一键填」。
   启动时打印的 `scorer=jev` 就是在用 jev。
 - 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
 - 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
