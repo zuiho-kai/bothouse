@@ -18,6 +18,8 @@
 
 **bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
 
+新方向：[团队模式](#next)——一个人调好的 AI，全队都能用；[硬件](#next)——给角色一个 ESP32 小身体（[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot)）。
+
 [宣传片](#video) · [新方向](#next) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
