@@ -10,7 +10,7 @@ import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepse
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
-import { MAX_MESSAGE_BODY, MAX_ROWS, messageTooLarge } from './channel-source.ts'
+import { MAX_MESSAGE_BODY, MAX_ROWS, errorText, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
@@ -1163,7 +1163,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (!name) { setNewRoom(undefined); return }
     setRoomError(undefined)
     createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
-      setRoomError(error instanceof Error ? error.message : String(error))
+      setRoomError(errorText(error, t, 'room', name))
     })
   }
 
@@ -1222,7 +1222,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (!window.confirm(t('removeConfirm', { name: member.name }))) return
     setMemberError(undefined)
     removeMember(member.id).catch((error: unknown) => {
-      setMemberError(error instanceof Error ? error.message : String(error))
+      setMemberError(errorText(error, t, 'member', member.name))
     })
   }
 
@@ -1629,7 +1629,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         />
         <div className={css.composer} ref={composerRef}>
           {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
-          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} leadName={dmWith === undefined && commandTarget === undefined ? lead?.name : undefined} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
