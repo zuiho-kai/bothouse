@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""记忆论坛楼层帖的归帖表 threads.json（#1177）：新内容先找同题帖跟楼，没有才开新帖；手工合帖、挪楼。
+"""记忆论坛楼层帖（#1177）：新内容先找同题帖跟楼，没有才开新帖；手工合帖、挪楼。
 
-表在 gate 目录（forum_scores.threads_path，和 votes.jsonl 同目录），读它的是 forum_scores.thread_of（推送）和 forum_page（网页）。
-wiki 行不加标记：加了行内容就变，编号（页#行哈希）和票全对不上。
+归帖就写在 wiki 行尾（forum_scores.TAG：<!-- 帖 t编号·N楼 -->，一楼那行另带 题「…」 述「…」），不另存表
+（用户 11-07 定「存储仍用 wiki 页，只给行标帖子和楼层」）。编号、票按去掉标注后的行算，所以加标注不动旧票。
+读它的是 forum_scores.thread_of（推送）和 forum_page（网页）。改了主 wiki 就提交。
 
   python3 forum_threads.py assign [--dry]     # 论坛里还不在表里的条（推过或投过票的）按页一批问模型：跟哪个帖，还是开新帖
   python3 forum_threads.py merge <帖A> <帖B…>  # 帖B… 的楼并进帖A，楼层按日期重排
   python3 forum_threads.py move <页#哈希> <帖|new>  # 一楼挪到别的帖，或单独开新帖（错归时用）
+  python3 forum_threads.py import <旧 threads.json>  # 把旧版归帖表一次写进 wiki 行尾
 
 用户原话（11-07）：「我可以不断的在上面加新回答，就可以减少我们的那个条目跟就是我们的那个帖子的数量」。
 """
@@ -31,31 +33,66 @@ PROMPT = """记忆论坛里一个帖子问一件事，下面多楼是对这件�
 
 
 def load():
-    try:
-        return json.loads(fs.threads_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"version": 1, "threads": []}
+    return {"version": 2, "threads": fs.scan()}
+
+
+def _clean(x):
+    return re.sub(r"\s+", " ", (x or "").replace("-->", "->")).strip()
+
+
+def tag_of(th, f):
+    t = f" <!-- 帖 {th['tid']}·{f['floor']}楼"
+    if f["floor"] == 1 and (th.get("title") or th.get("desc")):
+        t += f" 题「{_clean(th.get('title'))}」" + (f" 述「{_clean(th['desc'])}」" if th.get("desc") else "")
+    return t + " -->"
 
 
 def save(t):
-    p = fs.threads_path()
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".threads-", suffix=".json")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(t, fh, ensure_ascii=False, indent=1)
-    os.replace(tmp, p)  # 推送和网页随时在读：整份换，不写半份
+    """把归帖写回 wiki 行尾：表里的楼加（或换）标注，不在表里的去掉标注；只改有变化的页，主 wiki 的改动提交。"""
+    pages = []
+    for r, p in fs.md_files():
+        try:
+            pages.append((r, p, fs.page_key(p.relative_to(r).as_posix(), r), p.read_text(encoding="utf-8").split("\n")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    live = {f"{pg}#{hashlib.sha1(fs.bare(x).encode()).hexdigest()[:10]}" for _, _, pg, ls in pages for x in ls if x.strip()}
+    want = {}
+    for th in t["threads"]:  # 页里已没有的楼（改写过、挪走的行）不留；剩下的按原顺序重排楼号，标题跟着一楼走
+        fl = [dict(f) for f in sorted(th["floors"], key=lambda f: f.get("floor", 0)) if f["id"] in live]
+        for n, f in enumerate(fl, 1):
+            f["floor"] = n
+            want[f["id"]] = tag_of(th, f)
+    changed = []
+    for r, p, page, lines in pages:
+        out = []
+        for line in lines:
+            b = fs.bare(line)
+            if not b:
+                out.append(line)
+                continue
+            body = fs.TAG.sub("", line)
+            tag = want.get(f"{page}#{hashlib.sha1(b.encode()).hexdigest()[:10]}", "")
+            out.append(body + tag if (tag or fs.TAG.search(line)) else line)
+        if out != lines:
+            fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".ft-", suffix=".md")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(out))
+            os.replace(tmp, p)  # 整页换，推送和网页不读到半页
+            changed.append((r, p))
+    main = [p.relative_to(fs.WIKI).as_posix() for r, p in changed if r == fs.WIKI]
+    if main and (fs.WIKI / ".git").exists():
+        subprocess.run(["git", "-C", str(fs.WIKI), "add", "--", *main], check=False)
+        subprocess.run(["git", "-C", str(fs.WIKI), "commit", "-q", "-m", f"forum: 楼层帖标注 {len(main)} 页（#1177 forum_threads）", "--", *main],
+                       check=False)
+    fs._tcache.clear()
+    print(json.dumps({"pages_changed": len(changed), "main_wiki": len(main)}, ensure_ascii=False), file=sys.stderr)
 
 
 def key(s):
     return "t" + hashlib.sha1(s.encode()).hexdigest()[:10]  # 位数同 forum_scores.entry_id
 
 
-def date_of(text):
-    """楼的日期：行里第一个 年-月-日；只写月日的按今年（同 notes/forum-threads-1177/cluster.py date_of）。"""
-    m = re.search(r"20\d\d-\d\d-\d\d", text)
-    if m:
-        return m.group(0)
-    m = re.search(r"(?<![\d#/.-])(1[0-2]|0[1-9])-([0-3]\d)(?![\d-])", text)
-    return f"2026-{m.group(1)}-{m.group(2)}" if m else ""  # 年份：wiki 记录全在 2026 年（cluster.py 数据实测）
+date_of = fs.date_of
 
 
 def pages_of(th):
@@ -173,6 +210,9 @@ if __name__ == "__main__":
         sys.exit(__doc__)
     if a[0] == "assign":
         assign(dry="--dry" in a)
+    elif a[0] == "import":
+        old = json.loads(Path(a[1]).read_text(encoding="utf-8"))
+        save({"threads": old["threads"]})
     elif a[0] in ("merge", "move"):
         t = load()
         (merge(t, a[1], a[2:]) if a[0] == "merge" else move(t, a[1], a[2]))
