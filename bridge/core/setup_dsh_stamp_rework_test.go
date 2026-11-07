@@ -186,3 +186,62 @@ func TestRefreshDSH_UnknownStampWarnsOnce(t *testing.T) {
 		t.Fatalf("missing full-path escape instruction: %s", logs)
 	}
 }
+
+// The shape with nothing to order by at all: a stamp left by a build that recorded no metadata
+// ({"version":"dev"} alone, written before the build info was recorded) and a program built the
+// same way — `go build` outside a checkout, `-buildvcs=false`, or a source tarball, where the
+// Makefile's `COMMIT=none` is dropped (see dshStampFor). The two stamps are equal, but equality of
+// two empty-metadata stamps proves nothing: an install that can never be ordered stays that way, so
+// it must be kept, said once, with the way out — not answered "same" by the equality shortcut.
+func TestDSHStampNoCommitNoBuildTimeIsUnknown(t *testing.T) {
+	bare := dshStamp{Version: "dev"}
+	if got, why := stampOrder(bare, bare, false); got != stampUnknown {
+		t.Fatalf("stampOrder(bare dev, bare dev) = %v (%s), want Unknown: with no commit and no build time an equal stamp proves nothing", got, why)
+	}
+
+	prevVersion, prevCommit, prevBuilt := CurrentVersion, CurrentCommit, CurrentBuildTime
+	t.Cleanup(func() { CurrentVersion, CurrentCommit, CurrentBuildTime = prevVersion, prevCommit, prevBuilt })
+	withBuildVCS(t, buildVCS{}) // nothing embedded: the build has no vcs.revision either
+
+	dir := filepath.Join(t.TempDir(), "dsh")
+	if err := os.MkdirAll(filepath.Join(dir, "collab"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, data := range map[string]string{"install.sh": "#!/bin/sh\n", "collab/plugin.mjs": "// installed plugin\n", dshVersionFile: "{\"version\":\"dev\"}"} {
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := treeHash(t, dir)
+	CurrentVersion, CurrentCommit, CurrentBuildTime = "dev", "", ""
+	logs, restore := captureSlog(t)
+	defer restore()
+	for range 3 {
+		refreshed, err := RefreshEmbeddedDSH(dir, CurrentVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if refreshed {
+			t.Fatal("a build with no metadata refreshed the plugin it cannot order against")
+		}
+	}
+	if got := treeHash(t, dir); got != before {
+		t.Fatalf("plugin tree changed: %s -> %s", before, got)
+	}
+	if n := strings.Count(logs.String(), "\x22level\x22:\x22WARN\x22"); n != 1 {
+		t.Fatalf("WARN count = %d, want exactly 1 (being kept silently is the bug): %s", n, logs)
+	}
+	if !strings.Contains(logs.String(), "delete "+filepath.Join(dir, dshVersionFile)+" and restart") {
+		t.Fatalf("missing full-path escape instruction: %s", logs)
+	}
+}
+
+// The same gap one step narrower: a dev build that does carry a Makefile wall clock but no commit
+// (`COMMIT=none` dropped). Built is set, Commit is not, so "has metadata" cannot mean "has a commit".
+func TestDSHStampBuildTimeWithoutCommitIsUnknown(t *testing.T) {
+	bare := dshStamp{Version: "dev"}
+	tarball := dshStamp{Version: "dev", Built: "2026-11-07T09:00:00Z"}
+	if got, why := stampOrder(bare, tarball, false); got != stampUnknown {
+		t.Fatalf("stampOrder(bare dev, dev + wall clock only) = %v (%s), want Unknown: a build time no commit backs proves no order", got, why)
+	}
+}

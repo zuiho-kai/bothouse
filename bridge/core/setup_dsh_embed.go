@@ -256,10 +256,20 @@ const (
 // exactly the stamp on disk).
 func stampOrder(have, now dshStamp, nowDirty bool) (stampVerdict, string) {
 	if have == now {
-		if !nowDirty {
+		switch {
+		case !nowDirty && (have.Commit != "" || have.Built != ""):
 			return stampSame, ""
+		case nowDirty:
+			return stampUnknown, "this build of " + strings.TrimSpace(now.Version) + " was made with uncommitted changes, so its stamp does not prove the installed plugin is this code"
+		default:
+			// Equal stamps, but neither side carries a commit or a build time: both are bare
+			// {"version":"dev"} (a stamp written before the build info was recorded, and a build made
+			// without it — `go build` outside a checkout, -buildvcs=false, or a source tarball whose
+			// COMMIT=none is dropped). Two empty stamps compare equal and prove nothing, so equality
+			// alone must not answer Same: that install would stay on its old plugin for good with no
+			// line in the log (#339 F2).
+			return stampUnknown, "this build of " + strings.TrimSpace(now.Version) + " carries no commit or build time, so an identical stamp does not prove the installed plugin is this code"
 		}
-		return stampUnknown, "this build of " + strings.TrimSpace(now.Version) + " was made with uncommitted changes, so its stamp does not prove the installed plugin is this code"
 	}
 	haveVer, nowVer := strings.TrimSpace(have.Version), strings.TrimSpace(now.Version)
 	if haveVer == nowVer && have.Built == "" {
@@ -273,7 +283,7 @@ func stampOrder(have, now dshStamp, nowDirty bool) (stampVerdict, string) {
 		switch {
 		case nowDirty:
 			return stampUnknown, "the installed " + haveVer + " cannot be compared: this build was made with uncommitted changes"
-		case !semverRe.MatchString(haveVer) && hc == "" && now.Commit != "":
+		case !semverRe.MatchString(haveVer) && hc == "" && (now.Commit != "" || now.Built != ""):
 			return stampUnknown, "the installed " + haveVer + " has no commit or build time, so this build cannot be proven newer"
 		case hc == "" || now.Commit == "" || sameCommit(hc, now.Commit):
 			return stampSame, ""
