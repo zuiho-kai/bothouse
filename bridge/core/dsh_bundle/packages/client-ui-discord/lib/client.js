@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: ca6fbc18d1afba5b6cff190793f1b816685ba7cbec8328a8f092c86cafe8a340
+// dsh-client-source-sha256: 7d0cb637a902168719545ab9f9dbccd37462cf26e7561e6a1412536a9adec585
 // dsh-style-sha256: 66879108019a98fb491fe264176ddf807b2ed3ea0e17e03a207120c72a8510ac
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -21958,7 +21958,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const slashCommands = slash === void 0 || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, (key) => t(key)).filter((c) => dmWith === void 0 || c.name !== "stop all" && c.name !== "board");
 	const slashOpen = slashCommands.length > 0;
 	const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0));
-	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && m.kind === "bot");
+	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && (m.kind === "bot" || m.kind === "dsh"));
 	const stopTarget = workingBots.find((m) => m.id === commandTarget?.id) ?? workingBots[0];
 	const roomFiles = state.roomId === void 0 ? [] : pendingFiles[state.roomId] ?? [];
 	const stopMode = (stopTarget !== void 0 || stopping?.phase === "stopping") && draft.trim() === "" && roomFiles.length === 0;
