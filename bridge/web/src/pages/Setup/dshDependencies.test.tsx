@@ -22,6 +22,9 @@ it('shows the Node prerequisite and blocks installation until detection passes',
     node_version: 'v20.19.0', pnpm_found: false, dependency_error: 'Node >= 22.12.0 is required' });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root.render(<DSHSetup lang="zh" onBack={() => {}} />));
+  // #1263 made the desktop app the default route; pick the web route and step past the route choice.
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="dsh-target-web"]')!.click());
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="dsh-target-next"]')!.click());
   expect(container.querySelector('[data-testid="dsh-dependency-error"]')?.textContent).toContain('22.12.0');
   const install = container.querySelector<HTMLButtonElement>('[data-testid="dsh-install-plugin"]')!;
   expect(install.disabled).toBe(true);
