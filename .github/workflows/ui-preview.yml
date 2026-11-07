@@ -43,7 +43,8 @@ jobs:
           cache-dependency-path: bridge/go.sum
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: lts/*
+          # 来源：ci.yml 同用 Node 24；Node 26 在 jsdom 测试中抢占 localStorage。
+          node-version: '24'
       - name: pnpm 与 Chromium
         run: |
           # bridge/web/pnpm-workspace.yaml 只写了 onlyBuiltDependencies，要 pnpm 10

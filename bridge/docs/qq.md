@@ -196,7 +196,7 @@ Both need the roles to run in one process: each `qq` platform registers itself b
 | 文件 / File | ✅ | ✅（需配 `http_url`，群文件走 `upload_group_file`） |
 | 语音 / Voice | ✅ (需配置 STT) | ❌ |
 | @提及 / @mention | ✅ (识别为"叫到机器人") | ✅（`ReplyWithAt`，真 @ 提醒） |
-| 引用回复 / Quote reply | ✅（引用内容作为上下文） | ❌ |
+| 引用回复 / Quote reply | ✅（保留作者和原文；缓存缺失时调用 `get_msg`） | ✅（`bothouse send --reply-to`，QQ 原生引用） |
 
 `http_url` 是 NapCat 的 HTTP API 地址（如 `http://127.0.0.1:3000`），配了之后收文件会走 `get_group_file_url` / `get_file` 拿新链接，发文件走 HTTP，避免 WebSocket 大包和跨容器路径问题。
 
@@ -208,9 +208,25 @@ NapCat 的 OneBot 配置支持 `"messagePostFormat": "array"` 和 `"string"`，b
 
 Both `"messagePostFormat": "array"` and `"string"` are supported. Text, images, files, voice, mentions and quotes use the same segment-processing path. Images and voice still need a downloadable `url`; files use the URL / HTTP API flow above. Voice transcription still requires STT; audio conversion support is unchanged.
 
-引用上下文来自本次运行的消息缓存（最多 1000 条 / 7 天）；引用已缓存的机器人消息，即使没有另附文字，也算叫到机器人。重启或缓存淘汰后，只有引用 ID 不足以恢复旧消息内容。
+引用上下文先查本次运行的消息缓存（最多 1000 条 / 7 天），未命中时通过 OneBot `get_msg` 获取原文，所以桥重启前的消息也能补取（前提是 OneBot 仍可读取该消息）。保留原作者和引用关系；引用机器人的旧消息，即使没有另附文字，也算叫到机器人。原消息被撤回、不可读或获取失败时，明确标记「无法获取原文」，不编造正文。旧图片、语音等只显示类型标记，不重新下载附件。
 
-Quote context comes from the current process's message cache (up to 1,000 entries / seven days). Quoting a cached bot message calls the bot even without additional text. After restart or cache eviction, a quote ID alone cannot recover the old content.
+Quote context uses the process cache first (up to 1,000 entries / seven days), then OneBot `get_msg`. Older messages survive a bridge restart if OneBot can still retrieve them. Author and quote relation are retained; quoting an older bot message also calls the bot. An unavailable original is explicitly marked as unavailable. Old media is described without downloading it again.
+
+### 主动引用回复 / Send a native quoted reply
+
+QQ 消息送入代理时，公共桥接层提供当前消息 ID、被引用的原消息 ID 和命令用法；DSH / ACP 与其他 CLI 使用同一入口，无需模型专属设置。代理可选择同一会话里已知的消息：
+
+~~~sh
+bothouse send --reply-to MESSAGE_ID --message '针对这条消息的回复'
+# 显式指定目标时沿用现有项目和会话参数：
+bothouse send --project YOUR_PROJECT --session 'qq:g:GROUP_ID' --reply-to MESSAGE_ID --message '回复'
+~~~
+
+消息使用 OneBot `reply` 段，支持群聊与私聊，复用已有发送回执及 `--at-users` / `--at-all`。桥接层会核对目标消息属于该会话：缓存已知其他会话、获取结果不符、无法验证归属或平台不支持时均返回错误，不降级成模仿引用的文字。发送成功后不要再重复回复相同正文。`--reply-to` 必须带文字，不能与 `--cwd` / `--dm` 或任务文本投递合用；普通发送无需这个参数。
+
+English: the shared inbound context supplies message IDs and usage to every backend, including DSH / ACP. `send --reply-to` emits a native OneBot reply segment for group or private chats, using the existing receipt and mention path. Only known same-conversation targets are accepted; unverifiable targets and unsupported platforms return an error. Text is required; cwd, DM rerouting and task-text delivery cannot be combined with this flag. Do not repeat the message after a successful send.
+
+本次实现验证覆盖适配器、引擎代理输入与发送 API；真实 QQ 客户端引用框及 Mac / Windows 账号入口须在发布验收中另行记录，不能将模拟回执当作真机验收。
 
 两种格式已通过本地模拟 OneBot WebSocket 与 HTTP 附件测试；尚未作为本次改动的一部分完成真实 QQ / NapCat 验收。CQ 转义遵循 [OneBot v11 字符串格式](https://github.com/botuniverse/onebot-11/blob/master/message/string.md)：先分段再解码，转义后的 CQ 文字不会被当作真实 @ 或附件。
 

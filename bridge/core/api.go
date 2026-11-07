@@ -59,19 +59,20 @@ type APIServer struct {
 // the dispatch layer in engine.go. See cc-connect internal task
 // t-20260615-cqjbk1.
 type SendRequest struct {
-	TaskText   *TaskTextRequest  `json:"task_text,omitempty"`
-	Project    string            `json:"project"`
-	SessionKey string            `json:"session_key"`
-	Message    string            `json:"message"`
-	WorkDir    string            `json:"work_dir,omitempty"`
-	CWD        string            `json:"cwd,omitempty"`
-	TTSText    string            `json:"tts_text,omitempty"`
-	Images     []ImageAttachment `json:"images,omitempty"`
-	Files      []FileAttachment  `json:"files,omitempty"`
-	Audios     []FileAttachment  `json:"audios,omitempty"`
-	Videos     []FileAttachment  `json:"videos,omitempty"`
-	AtUsers    []string          `json:"at_users,omitempty"`
-	AtAll      bool              `json:"at_all,omitempty"`
+	TaskText         *TaskTextRequest  `json:"task_text,omitempty"`
+	Project          string            `json:"project"`
+	SessionKey       string            `json:"session_key"`
+	Message          string            `json:"message"`
+	WorkDir          string            `json:"work_dir,omitempty"`
+	CWD              string            `json:"cwd,omitempty"`
+	TTSText          string            `json:"tts_text,omitempty"`
+	Images           []ImageAttachment `json:"images,omitempty"`
+	Files            []FileAttachment  `json:"files,omitempty"`
+	Audios           []FileAttachment  `json:"audios,omitempty"`
+	Videos           []FileAttachment  `json:"videos,omitempty"`
+	AtUsers          []string          `json:"at_users,omitempty"`
+	AtAll            bool              `json:"at_all,omitempty"`
+	ReplyToMessageID string            `json:"reply_to_message_id,omitempty"`
 	// DM (maomao fork): send to the private chat with the user in admin_from instead of
 	// SessionKey; the server opens or reuses that chat first.
 	DM bool `json:"dm,omitempty"`
@@ -312,13 +313,17 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TaskText != nil && (req.Message == "" || req.WorkDir != "" || req.CWD != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "") {
+	if req.TaskText != nil && (req.Message == "" || req.WorkDir != "" || req.CWD != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "" || req.ReplyToMessageID != "") {
 		http.Error(w, "task text requires plain text and an explicit target", http.StatusBadRequest)
 		return
 	}
 	workDir := req.WorkDir
 	if workDir == "" {
 		workDir = req.CWD
+	}
+	if req.ReplyToMessageID != "" && (req.SessionKey == "" || strings.TrimSpace(req.Message) == "" || workDir != "" || req.DM) {
+		http.Error(w, "native reply requires text and an explicit conversation without cwd or dm", http.StatusBadRequest)
+		return
 	}
 	if req.DM {
 		if workDir != "" {
@@ -332,7 +337,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		req.SessionKey = key
 	}
-	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil {
+	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey = engine.sendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
@@ -346,7 +351,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			apiJSON(w, http.StatusAccepted, d)
 			return
 		}
-		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll}); err != nil {
+		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
