@@ -3,7 +3,7 @@
 
 一条记忆 = 一楼回答：一句话标题、赞踩、分数、被推 / 引用次数、来源页、[#编号]。问同一件事的几楼归成一个帖子
 （#1177，用户 11-07「一个帖子…下面的回答你可能是错，也可能是对，但是每一个回答他都可以有个权重」）：
-归帖表是 gate 目录的 threads.json（帖子标题、描述、楼层 = 各楼的 页#哈希 编号），wiki 行不加标记，编号、搜索、lint 都不变；
+归帖记在 wiki 行尾的楼层帖标注（forum_scores.TAG：所属帖子、楼层，一楼那行带标题和描述），编号按去掉标注的行算、旧票不变；
 没有归帖表、或某楼不在表里时，这一楼自成一帖。帖子里的楼按同一个 forum_scores 排序，帖子按它最好那楼排。排序、折叠直接用同目录
 forum_scores.py（Reddit best / Wilson 下界），不另写算法。推送与投票记录不全量列（用户 11-06 嫌推太多，
 forum-decisions 定案），只按条汇总。
@@ -87,12 +87,12 @@ class _Pages:
 
 def _hid(s):
     # 同 forum_scores.entry_id 的行哈希；不走 entry_id，那条每次都解析一遍页路径，几千条推送下逐行调用要几十秒
-    return hashlib.sha1(s.strip().encode()).hexdigest()[:10]
+    return hashlib.sha1(fs.bare(s).encode()).hexdigest()[:10]
 
 
 def clean(line):
     """wiki 一行 → 读得懂的一句话：去掉列表符、「经验：」等前缀、粗体/代码记号、[[链接]] 方括号（同 ctxsvc._title）。"""
-    t = re.sub(r"^[-*\s]+", "", line.strip())
+    t = re.sub(r"^[-*\s]+", "", fs.bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
     return re.sub(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]", r"\1", t)
 
@@ -199,13 +199,9 @@ def data():
 
 
 def _thread_table():
-    """threads.json → {楼编号 页#哈希: (帖子编号, 标题, 描述, 楼号)}；没有这份表返回空。"""
-    try:
-        t = json.loads((EXP / "threads.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    """wiki 行尾的楼层帖标注（forum_scores.thread_table）→ {楼编号 页#哈希: (帖子编号, 标题, 描述, 楼号)}。"""
     return {f["id"]: (th["tid"], th.get("title", ""), th.get("desc", ""), f.get("floor", 0))
-            for th in t.get("threads", []) for f in th.get("floors", [])}
+            for th in {id(t): t for t in fs.thread_table().values()}.values() for f in th.get("floors", [])}
 
 
 def threads(posts):

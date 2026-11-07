@@ -26,6 +26,14 @@ except ImportError:
     board = None
 import wiki_search as search
 
+_FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 楼层帖标注（#1177，同 forum_scores.TAG）：算编号、显示时去掉
+
+
+def _bare(s):
+    return _FLOOR_TAG.sub("", s).strip()
+
+
+
 _env = os.environ.get("GATE_WIKI", "~/wiki").strip()
 WIKI = None if _env.lower() in ("", "off") else Path(_env).expanduser()
 TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wiki 改了最迟这么久后查得到）
@@ -46,7 +54,7 @@ def is_item(line):
 
 def _title(line):
     """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
-    t = re.sub(r"^[-*\s]+", "", line.strip())
+    t = re.sub(r"^[-*\s]+", "", _bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
     return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
 
@@ -187,7 +195,7 @@ def _floor_line(cid):
     except OSError:
         return None
     for n, x in enumerate(lines, 1):
-        if x.strip() and hashlib.sha1(x.strip().encode()).hexdigest()[:10] == h:
+        if x.strip() and hashlib.sha1(_bare(x).encode()).hexdigest()[:10] == h:
             return f, n, x
     return None
 
@@ -643,7 +651,7 @@ EXP_INIT = 2  # ExpeL §4.2「initial importance count of two」
 
 def exp_id(rel, line):
     """条目的稳定编号 = 页 + 这行内容的指纹（ACE §3.1 每条有 unique identifier）；页改了行号也不串分。"""
-    return f"{rel}#{hashlib.sha1(line.strip().encode()).hexdigest()[:10]}"
+    return f"{rel}#{hashlib.sha1(_bare(line).encode()).hexdigest()[:10]}"
 
 
 def _row(rel, line, text, group="", root=None, ln=0):
@@ -764,7 +772,7 @@ def brief(desc):
 
 
 def _line_id(x):
-    return "L" + hashlib.sha1(x.strip().encode()).hexdigest()[:12]
+    return "L" + hashlib.sha1(_bare(x).encode()).hexdigest()[:12]
 
 
 def as_doc(w):

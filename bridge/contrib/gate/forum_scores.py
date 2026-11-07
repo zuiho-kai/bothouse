@@ -19,7 +19,7 @@
 votes.jsonl 和 scores.json 在同一目录：默认本文件所在目录（bothouse 装的 gate 目录），FORUM_SCORES 指向别的 scores.json 时取它旁边的。
 条目编号同 ctxsvc.exp_id：页 + 这行内容的 sha1 前 10 位；主 wiki 的页用相对路径，别的库（角色 wiki）用 ~/ 开头的全路径。
 分数所有角色、所有频道共用一份。"""
-import hashlib, json, math, os
+import hashlib, json, math, os, re
 from pathlib import Path
 
 HOME = Path.home()
@@ -112,8 +112,17 @@ def page_key(rel, root=None):
     return "~/" + full.relative_to(h).as_posix() if full.is_relative_to(h) else full.as_posix()
 
 
+# 楼层帖标注（#1177，用户 11-07 定「存储仍用 wiki 页，只给行标帖子和楼层」）：行尾 <!-- 帖 t编号·N楼 题「…」 述「…」 -->，
+# 题、述只写在一楼那行。编号、票按去掉标注后的行算，加标注不动旧编号和旧票。
+TAG = re.compile(r"\s*<!-- 帖 (t[0-9a-f]{10})·(\d+)楼(?: 题「(.*?)」(?= 述「| -->))?(?: 述「(.*?)」(?= -->))? -->\s*$")  # 题、述里可以有「」
+
+
+def bare(line):
+    return TAG.sub("", line).strip()
+
+
 def entry_id(rel, line, root=None):
-    return f"{page_key(rel, root)}#{hashlib.sha1(line.strip().encode()).hexdigest()[:10]}"
+    return f"{page_key(rel, root)}#{hashlib.sha1(bare(line).encode()).hexdigest()[:10]}"
 
 
 def rerank(hits, root=None):
@@ -122,33 +131,71 @@ def rerank(hits, root=None):
 
 
 # ---- 楼层帖（#1177，用户 11-07「一个帖子…下面的回答你可能是错，也可能是对，但是每一个回答他都可以有个权重」）----
-# 归帖表 threads.json 和 votes.jsonl 同目录：{"threads": [{tid, title, desc, floors: [{floor, id: 页#哈希, date}]}]}。
-# wiki 行不加标记（加了行内容就变，编号和票全对不上），编号、搜索、lint 都不变；不在表里的条自成一帖。
+# 归帖就记在 wiki 行尾（TAG）：主 wiki 和各角色 wiki 的 .md 里带标注的行就是楼，同一个 t编号 的是同一帖。
+# 不在帖里的条自成一帖。
 _tcache = {}
+RESCAN = 30  # 秒：推送每轮都查帖子，30 秒内不重扫文件（wiki 一天改几十次，晚 30 秒无妨）
 
 
-def threads_path():
-    return path().parent / "threads.json"
+def roots():
+    """有楼的库：主 wiki + 各角色 wiki（~/.bothouse/roles/*/wiki，同 forum_page 里出现过的 ~/ 页）。"""
+    return [WIKI] + sorted((HOME / ".bothouse" / "roles").glob("*/wiki"))
+
+
+def md_files():
+    for r in roots():
+        for f in sorted(r.rglob("*.md")):
+            if not any(x.startswith(".") for x in f.relative_to(r).parts):
+                yield r, f
+
+
+def date_of(text):
+    """楼的日期：行里第一个 年-月-日；只写月日的按今年（同 notes/forum-threads-1177/cluster.py date_of）。"""
+    m = re.search(r"20\d\d-\d\d-\d\d", text)
+    if m:
+        return m.group(0)
+    m = re.search(r"(?<![\d#/.-])(1[0-2]|0[1-9])-([0-3]\d)(?![\d-])", text)
+    return f"2026-{m.group(1)}-{m.group(2)}" if m else ""  # 年份：wiki 记录全在 2026 年（cluster.py 数据实测）
+
+
+def scan():
+    """读各库 wiki 行尾的标注 → [帖子 {tid, title, desc, floors: [{floor, id: 页#哈希, date}], pages}]，楼按楼号排。"""
+    by = {}
+    for r, f in md_files():
+        try:
+            text = f.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "<!-- 帖 " not in text:
+            continue
+        page = None
+        for line in text.split("\n"):
+            m = TAG.search(line)
+            if not m:
+                continue
+            page = page or page_key(f.relative_to(r).as_posix(), r)
+            cid = f"{page}#{hashlib.sha1(bare(line).encode()).hexdigest()[:10]}"
+            th = by.setdefault(m.group(1), {"tid": m.group(1), "title": "", "desc": "", "floors": []})
+            if m.group(3):
+                th["title"], th["desc"] = m.group(3), m.group(4) or ""
+            if all(x["id"] != cid for x in th["floors"]):
+                th["floors"].append({"floor": int(m.group(2)), "id": cid, "date": date_of(bare(line))})
+    for th in by.values():
+        th["floors"].sort(key=lambda x: x["floor"])
+        th["pages"] = sorted({x["id"].partition("#")[0] for x in th["floors"]})
+    return list(by.values())
 
 
 def thread_table():
-    """{楼编号: 帖子}，按修改时间重读；没有表返回空。"""
-    p = threads_path()
-    stamp = (p, _mtime(p))
-    if _tcache.get("stamp") != stamp:
-        by = {}
-        try:
-            for th in json.loads(p.read_text(encoding="utf-8")).get("threads", []):
-                for f in th.get("floors", []):
-                    by[f["id"]] = th
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        _tcache.update(stamp=stamp, data=by)
+    """{楼编号: 帖子}，30 秒内用缓存。"""
+    import time
+    if time.time() - _tcache.get("at", 0) > RESCAN:
+        _tcache.update(at=time.time(), data={x["id"]: th for th in scan() for x in th["floors"]})
     return _tcache["data"]
 
 
 def thread_of(cid):
-    """这条所在的帖子（只有一楼的也返回）；不在表里返回 None。"""
+    """这条所在的帖子（只有一楼的也返回）；没标注返回 None。"""
     return thread_table().get(cid)
 
 
