@@ -48,12 +48,15 @@ createInterface({ input: process.stdin }).on('line', line => {
 setInterval(() => {}, 1000);
 `;
 
+// 文件查找按 PATHEXT 拼扩展名，Windows 的大小写不敏感、其它平台敏感，扩展名按平台给。
+const PATHEXT = process.platform === 'win32' ? '.CMD;.COM;.EXE' : '.cmd';
+
 test('resolveShim 把 npm .cmd 外壳解析成 node + 脚本，认不出的返回 null', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cli-shim-'));
   writeFileSync(join(dir, 'cli.js'), 'setInterval(() => {}, 1000)\n');
   writeFileSync(join(dir, 'gemini.cmd'), NPM_SHIM('cli.js'));
   writeFileSync(join(dir, 'notes.txt'), 'x');
-  const env = { PATH: dir, PATHEXT: '.CMD;.EXE' };
+  const env = { PATH: dir, PATHEXT };
 
   assert.deepEqual(resolveShim('gemini', env), { cmd: process.execPath, args: [join(dir, 'cli.js')], shell: false });
   // 外壳指向的脚本不在：拆不动，调用方退回经外壳启动（关闭时按进程树杀）。
