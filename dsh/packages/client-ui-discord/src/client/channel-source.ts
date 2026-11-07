@@ -269,10 +269,49 @@ export interface OutboxMessage {
   readonly error?: string
 }
 
+/**
+ * #216: the DSH process holding this machine's channel data, published by the refused
+ * instance so its page can name the holder instead of blaming the configuration.
+ */
+export interface LockHolder {
+  /** Process id of the DSH that holds the data. */
+  readonly pid?: number
+  /** When that process took the lock, in Unix milliseconds. */
+  readonly startedAt?: number
+  /** The shared data directory both instances point at. */
+  readonly dataDir?: string
+  /** Machine name the holder runs on. */
+  readonly host?: string
+}
+
 /** Whole panel state; `phase` says whether the service answered. */
 export interface ChannelSnapshot {
-  readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'unauthorized' | 'error'
+  readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'locked' | 'unauthorized' | 'error'
   readonly error: string | undefined
+  /**
+   * #216: set with `phase: 'locked'` — the DSH that holds this machine's channel data, as the
+   * refused instance published it. Absent when the service is simply not configured, and also
+   * when nobody holds the lock any more (see `lockFree`).
+   */
+  readonly lockHolder?: LockHolder
+  /**
+   * #216: with `phase: 'locked'` — the data directory the two DSHs share, as published by the
+   * refused instance. Set even when the holder wrote no record, so the page can still say
+   * where to look instead of guessing.
+   */
+  readonly lockDataDir?: string
+  /**
+   * #216: with `phase: 'locked'` — the lock file the contender could not take, as published by
+   * the refused instance. The page quotes it so the unknown-holder case can say exactly which
+   * file to look at (`lsof <lock>`) without rebuilding a path itself.
+   */
+  readonly lockPath?: string
+  /**
+   * #216: with `phase: 'locked'` — the holder has quit, so the lock is free, but this page's
+   * plugin already refused to start and does not come back on a reload. Asking the user to
+   * restart DSH is the honest step; naming the dead holder is not.
+   */
+  readonly lockFree?: boolean
   readonly rooms: readonly ChannelRoom[]
   readonly roomId: number | undefined
   readonly members: readonly ChannelMember[]
@@ -465,6 +504,13 @@ export class UploadTooLarge extends Error {
   }
 }
 
+/**
+ * #216: where the instance that lost the lock publishes its holder. It is an exact route the
+ * refused plugin registers before throwing, so it answers while every other `/collab/api/*`
+ * path is a bare 404.
+ */
+const LOCK_HOLDER_PATH = 'collab/api/lock'
+
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 export class ServiceError extends Error {
   /**
@@ -638,9 +684,38 @@ export function createChannelSource(transport: ChannelTransport): {
     return await response.json() as T
   }
 
-  const fail = (error: unknown): void => {
-    if (error instanceof ServiceError && error.status === 404) set({ phase: 'unavailable', error: undefined })
-    else if (error instanceof ServiceError && error.status === 401) set({ phase: 'unauthorized', error: undefined })
+  /**
+   * #216: a 404 from the channel service means one of two things — no service is configured,
+   * or another DSH on this machine already holds the channel data and its plugin refused to
+   * start. Only the refusing instance knows which, and it publishes `busy` at
+   * `collab/api/lock` before it gives up; a host without that route answers 404 there too, so
+   * the plain "not configured" reading stands.
+   */
+  const readLockHolder = async (): Promise<{ holder?: LockHolder; dataDir?: string; lock?: string; free: boolean } | undefined> => {
+    try {
+      // The request helper turns every non-2xx into ServiceError; a host without the route
+      // answers 404 and must read as "no record", not as a failure of the page.
+      const body = await request<{ busy?: boolean; owner?: LockHolder | null; free?: boolean; dataDir?: string; lock?: string }>(LOCK_HOLDER_PATH)
+      // `busy` alone decides: a refused instance whose holder wrote no record (an older
+      // install) still means another DSH holds this data, only with the holder unknown.
+      // Requiring `owner` here read that case as "not configured" — the very bug #216 fixes.
+      if (body.busy !== true) return body.free === true ? { free: true } : undefined
+      return { holder: body.owner ?? undefined, dataDir: body.dataDir, lock: body.lock, free: false }
+    } catch (error) {
+      void error // A host that does not know the route: the service is simply not configured.
+      return undefined
+    }
+  }
+
+  const fail = async (error: unknown, current: () => boolean = () => true): Promise<void> => {
+    if (error instanceof ServiceError && error.status === 404) {
+      const lock = await readLockHolder()
+      // The read is a round trip: the panel may have been closed or pointed elsewhere since.
+      if (!current()) return
+      if (lock !== undefined) set({ phase: 'locked', lockHolder: lock.holder, lockDataDir: lock.dataDir, lockPath: lock.lock, lockFree: lock.free, error: undefined })
+      else set({ phase: 'unavailable', lockHolder: undefined, lockDataDir: undefined, lockPath: undefined, lockFree: undefined, error: undefined })
+    }
+    else if (error instanceof ServiceError && error.status === 401) set({ phase: 'unauthorized', lockHolder: undefined, error: undefined })
     else set({ phase: 'error', error: error instanceof Error ? error.message : String(error) })
   }
 
@@ -836,7 +911,7 @@ export function createChannelSource(transport: ChannelTransport): {
       const keepBoard = roomId === previous.roomId
       if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
-        phase: 'ready', error: undefined, rooms: state.rooms, roomId,
+        phase: 'ready', error: undefined, lockHolder: undefined, lockDataDir: undefined, lockPath: undefined, lockFree: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder, hasMoreNewer,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
         maxUploadBytes: uploadLimit,
@@ -852,8 +927,10 @@ export function createChannelSource(transport: ChannelTransport): {
       if (roomId !== undefined) void loadBoard(owner, roomId)
     } catch (error) {
       if (!current()) return
-      pending = undefined
-      fail(error)
+      // Keep the read current while its lock diagnostic is pending, so a new refresh
+      // or a closed panel prevents stale offline information replacing recovered data.
+      await fail(error, current)
+      if (pending === read) pending = undefined
     }
   }
 
@@ -893,7 +970,7 @@ export function createChannelSource(transport: ChannelTransport): {
     try {
       events = transport.openEvents(transport.url('collab/api/events'))
     } catch (error) {
-      fail(error)
+      void fail(error)
       return
     }
     stream = events
@@ -913,6 +990,10 @@ export function createChannelSource(transport: ChannelTransport): {
       pending?.controller.abort()
       pending = undefined
       retry(owner)
+      // EventSource hides the HTTP status. Re-read through fetch so the existing
+      // 404/lock diagnostic also covers a host disappearing after initial load.
+      // The stream retry stays active and reconnects when a host returns.
+      void refresh(true)
     }
     events.onmessage = (event: MessageEvent<string>) => {
       if (lifetime !== owner || stream !== events) return
@@ -927,7 +1008,9 @@ export function createChannelSource(transport: ChannelTransport): {
     reconnectToken = token
     const wait = backoffMs(attempt)
     attempt += 1
-    set({ phase: 'reconnecting', error: undefined })
+    if (snapshot.phase !== 'locked' && snapshot.phase !== 'unavailable' && snapshot.phase !== 'unauthorized') {
+      set({ phase: 'reconnecting', error: undefined })
+    }
     void pause(wait).then(() => {
       if (lifetime !== owner || reconnectToken !== token) return
       reconnectToken = undefined

@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: fe0dde06814f9526e37528d1bf3081a41e3e8ae5bb95f8048e9d16c86d88e39b
+// dsh-client-source-sha256: 97edf77090777bfe304e6036a36a5772895b3a3774c30a03372478296a350fa7
 // dsh-style-sha256: 428f364695a1edfe0849075505515897bd44de2f323e253415d7fde4120b67d7
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -173,6 +173,12 @@ var UploadTooLarge = class extends Error {
 		this.name = "UploadTooLarge";
 	}
 };
+/**
+* #216: where the instance that lost the lock publishes its holder. It is an exact route the
+* refused plugin registers before throwing, so it answers while every other `/collab/api/*`
+* path is a bare 404.
+*/
+const LOCK_HOLDER_PATH = "collab/api/lock";
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 var ServiceError = class extends Error {
 	status;
@@ -343,13 +349,50 @@ function createChannelSource(transport) {
 		}
 		return await response.json();
 	};
-	const fail = (error) => {
-		if (error instanceof ServiceError && error.status === 404) set({
-			phase: "unavailable",
-			error: void 0
-		});
-		else if (error instanceof ServiceError && error.status === 401) set({
+	/**
+	* #216: a 404 from the channel service means one of two things — no service is configured,
+	* or another DSH on this machine already holds the channel data and its plugin refused to
+	* start. Only the refusing instance knows which, and it publishes `busy` at
+	* `collab/api/lock` before it gives up; a host without that route answers 404 there too, so
+	* the plain "not configured" reading stands.
+	*/
+	const readLockHolder = async () => {
+		try {
+			const body = await request(LOCK_HOLDER_PATH);
+			if (body.busy !== true) return body.free === true ? { free: true } : void 0;
+			return {
+				holder: body.owner ?? void 0,
+				dataDir: body.dataDir,
+				lock: body.lock,
+				free: false
+			};
+		} catch (error) {
+			return;
+		}
+	};
+	const fail = async (error, current = () => true) => {
+		if (error instanceof ServiceError && error.status === 404) {
+			const lock = await readLockHolder();
+			if (!current()) return;
+			if (lock !== void 0) set({
+				phase: "locked",
+				lockHolder: lock.holder,
+				lockDataDir: lock.dataDir,
+				lockPath: lock.lock,
+				lockFree: lock.free,
+				error: void 0
+			});
+			else set({
+				phase: "unavailable",
+				lockHolder: void 0,
+				lockDataDir: void 0,
+				lockPath: void 0,
+				lockFree: void 0,
+				error: void 0
+			});
+		} else if (error instanceof ServiceError && error.status === 401) set({
 			phase: "unauthorized",
+			lockHolder: void 0,
 			error: void 0
 		});
 		else set({
@@ -573,6 +616,10 @@ function createChannelSource(transport) {
 			let next = {
 				phase: "ready",
 				error: void 0,
+				lockHolder: void 0,
+				lockDataDir: void 0,
+				lockPath: void 0,
+				lockFree: void 0,
 				rooms: state.rooms,
 				roomId,
 				members: state.members,
@@ -600,8 +647,8 @@ function createChannelSource(transport) {
 			if (roomId !== void 0) loadBoard(owner, roomId);
 		} catch (error) {
 			if (!current()) return;
-			pending = void 0;
-			fail(error);
+			await fail(error, current);
+			if (pending === read) pending = void 0;
 		}
 	};
 	const selectRoom = async (roomId) => {
@@ -664,6 +711,7 @@ function createChannelSource(transport) {
 			pending?.controller.abort();
 			pending = void 0;
 			retry(owner);
+			refresh(true);
 		};
 		events.onmessage = (event) => {
 			if (lifetime !== owner || stream !== events) return;
@@ -679,7 +727,7 @@ function createChannelSource(transport) {
 		reconnectToken = token;
 		const wait = backoffMs(attempt);
 		attempt += 1;
-		set({
+		if (snapshot.phase !== "locked" && snapshot.phase !== "unavailable" && snapshot.phase !== "unauthorized") set({
 			phase: "reconnecting",
 			error: void 0
 		});
@@ -21384,6 +21432,26 @@ function clockOf(seconds) {
 		minute: "2-digit"
 	});
 }
+/**
+* #216: fill the "held by another DSH" notice from the holder record. A record written by an
+* older build may miss a field, so each one falls back to its own unknown placeholder rather
+* than printing `undefined`. `dataDir` and `lock` come from the refused instance too: a holder
+* that wrote no record still leaves the page able to name the contended directory and file.
+*/
+function lockHolderText(holder, dataDir, lockPath, t) {
+	const unknown = t("lockedUnknown");
+	return {
+		pid: holder?.pid ?? unknown,
+		started: holder?.startedAt === void 0 ? unknown : new Date(holder.startedAt).toLocaleString([], {
+			month: "numeric",
+			day: "numeric",
+			hour: "2-digit",
+			minute: "2-digit"
+		}),
+		dataDir: holder?.dataDir ?? dataDir ?? unknown,
+		lock: lockPath ?? unknown
+	};
+}
 /** #1020: the memory entries a reply used — a small badge that opens to their titles. */
 function MemoryBadge({ items, t }) {
 	const [open, setOpen] = (0, react.useState)(false);
@@ -22639,7 +22707,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 		};
 	}, [stopping, stillAnswering]);
 	if (state.phase !== "ready") {
-		const notice = state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
+		const notice = state.phase === "locked" ? state.lockFree === true ? t("lockedFree") : state.lockHolder === void 0 ? t("lockedUnnamed", lockHolderText(void 0, state.lockDataDir, state.lockPath, t)) : t("locked", lockHolderText(state.lockHolder, state.lockDataDir, state.lockPath, t)) : state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 			className: ChannelsPage_module_default.page,
 			"data-dc-scheme": scheme,
@@ -24354,6 +24422,10 @@ const zh = {
 	placeholder: "发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
+	locked: "频道服务没有启动：这台电脑上已经有另一个 DSH 在用同一份频道数据（进程 {pid}，{started} 打开，数据目录 {dataDir}）。直接用已经打开的那个就行；要换成本页这个 DSH，先把那个关掉，再把本页这个 DSH 关掉重开——只刷新页面不会把频道接上。",
+	lockedUnnamed: "频道服务没有启动：这台电脑上已经有另一个 DSH 在用同一份频道数据（数据目录 {dataDir}，进程 {pid}）——它没留下是哪个进程的记录，通常是因为那个 DSH 是旧版本，或者刚打开还没写记录。别去改配置：先看谁占着这个文件：macOS 或 Linux 上用 lsof {lock}，Windows 上在资源监视器的磁盘活动里搜这个文件名；找到那个 DSH 后关掉它，再关掉并重开本页这个 DSH，频道就能接上（只刷新页面不行）。",
+	lockedFree: "频道服务还是没有启动：刚才占着频道数据的那个 DSH 已经关掉了，锁是空的；但本页的频道插件是在它占着的时候启动失败的，不会自己回来。把本页这个 DSH 关掉重开，频道就能接上。",
+	lockedUnknown: "未知",
 	unauthorized: "还没有登录 DSH，请刷新页面。",
 	error: "频道服务出错：{message}",
 	empty: "这里还没有消息。@一个成员开始吧。",
@@ -24716,6 +24788,10 @@ const en = {
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",
+	locked: "The channel service did not start: another DSH on this machine is already using the same channel data (process {pid}, opened {started}, data directory {dataDir}). Keep using the DSH you already have open; to switch to this one, quit that one, then quit and reopen this DSH — reloading the page will not reconnect the channel.",
+	lockedUnnamed: "The channel service did not start: another DSH on this machine is already using the same channel data (data directory {dataDir}, process {pid}) and left no record of which process it is — usually because that DSH is an older build, or has only just started. Do not touch the configuration: first see what holds the lock file — lsof {lock} on macOS or Linux, or search that file name in Resource Monitor on Windows; then quit that DSH, quit and reopen this one, and the channel reconnects (reloading the page will not).",
+	lockedFree: "The channel service still did not start: the DSH that held the channel data has quit and the lock is free, but this page's channel plugin refused at startup and does not come back by itself. Quit and reopen this DSH to reconnect the channel.",
+	lockedUnknown: "unknown",
 	unauthorized: "Not signed in to DSH; reload the page.",
 	error: "Channel service error: {message}",
 	empty: "No messages yet. @ a member to start.",

@@ -10,7 +10,8 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, publicMessage } from './store.mjs';
-import { InstanceLock, LOCK_FILE, lockBusyMessage } from './instance-lock.mjs';
+import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock.mjs';
+import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -51,7 +52,6 @@ const MAX_BODY = 256 * 1024;
 // that forwards it to a bot.
 const MAX_MESSAGE_BODY = 8 * 1024 * 1024;
 const OWNER = 'owner';
-
 /** Validate the overlay config; misconfiguration fails at load. */
 export function resolveConfig(config, env = process.env) {
   const c = config ?? {};
@@ -144,8 +144,23 @@ export async function apply(ctx, rawConfig) {
   // #1019: a second DSH on the same data directory refuses to start the plugin instead of
   // sharing collab.sqlite3 (the panel's 「打开 DSH」 used to start one beside a running host).
   const lockPath = join(config.dataDir, LOCK_FILE);
-  const lock = InstanceLock.acquire(lockPath);
-  if (lock === undefined) throw Error(lockBusyMessage(lockPath));
+  // #216: the holder records who it is, so a second DSH can repeat the truth instead of
+  // telling the user to go and configure a service that is in fact running.
+  // #227: taking the lock and writing that record are one step: if the record cannot be
+  // written the lock is released before the error travels on. This DSH stays alive with the
+  // plugin stopped, and a lock nobody releases would shut the data directory to every later
+  // DSH while its page says "another DSH is using it".
+  const local = localConnection(ctx.webServer);
+  const lock = acquireLockWithOwner(lockPath, { pid: process.pid, startedAt: Date.now(), dataDir: config.dataDir, host: hostname(), local });
+  if (lock === undefined) {
+    // #216: this instance is a client of the holder, not a second data writer. Keep scoped
+    // routes alive rather than throwing out of apply; unloading the plugin removes them.
+    // #227: the two routes live in local-host.mjs so this branch can be tested without the
+    // DSH runtime (审稿 F2: nothing ever called it in a test).
+    mountSharedHost(ctx, lockPath);
+    ctx.logger.info('conest-collab: using the existing channel host for %s', config.dataDir);
+    return;
+  }
   // Teardown is registered before anything is opened, so a startup that fails half-way still
   // stops whatever it started; the lock is released last, after the store and the background
   // writers are closed, so no second host gets in while this one can still write.
@@ -166,6 +181,9 @@ export async function apply(ctx, rawConfig) {
     await r.dsh?.close();
     r.store?.close();
     lock.release();
+    // #216: the record goes with the lock, so a DSH that opens later is not told about a
+    // holder that already quit.
+    clearLockOwner(lockPath);
   }, 'conest-collab: teardown');
 
   // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
@@ -229,7 +247,7 @@ export async function apply(ctx, rawConfig) {
 
   // #131: a request the tailnet pairing listener authenticated with a device credential acts as
   // the owner; everything else still needs this DSH's own sign-in.
-  const owner = req => req[REMOTE_OWNER] === true || ctx.connection.requestRejection(req) === undefined;
+  const owner = req => req[REMOTE_OWNER] === true || isLocalOwner(req, local) || ctx.connection.requestRejection(req) === undefined;
   // Test-only overrides (same-machine two-instance check): address and port of the pairing listener.
   const pairAddr = String(process.env.CONEST_COLLAB_PAIR_ADDR ?? '').trim();
   const pairPort = Number(process.env.CONEST_COLLAB_PAIR_PORT) || PAIR_PORT;
@@ -295,7 +313,7 @@ export async function apply(ctx, rawConfig) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
     // A paired device reaches us on the tailnet listener; ticket URLs stay on this machine's own origin.
-    if (!req[REMOTE_OWNER]) later.origin ??= localOrigin(req);
+    if (!req[REMOTE_OWNER] && !isLocalOwner(req, local)) later.origin ??= localOrigin(req);
     const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
     if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
@@ -678,12 +696,10 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
 /**
  * #597 G26: a later ticket only opens workspaces (and later). Sent anywhere else, say where to go
  * instead of a bare 401, so a member does not give up; the route's own auth is unchanged.
+ * #227: the split lives in local-host.mjs beside the routes that also use it; re-exported here
+ * because the task API has always published the sentence.
  */
-export const TICKET_WRONG_ROUTE = '这个接口不认 X-Later-Ticket 票据。建工作区请用 POST /collab/api/rooms/{id}/workspaces（同一个票据头，JSON: title, owner, reason），任务和十分钟看门会自动开，不用再调 /tasks。';
-function refuse(req, res) {
-  if (req.headers?.['x-later-ticket'] !== undefined) return json(res, 403, { error: TICKET_WRONG_ROUTE });
-  return json(res, 401, { error: 'unauthorized' });
-}
+export { TICKET_WRONG_ROUTE } from './local-host.mjs';
 
 /**
  * #139 B task API, for the owner's browser and for cloud-web bots. The browser

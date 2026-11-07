@@ -307,6 +307,121 @@ describe('channel source', () => {
     unsubscribe()
   })
 
+  it('names the DSH that holds the data instead of calling the service unconfigured (#216)', async () => {
+    const holder = { pid: 58278, startedAt: 1_760_000_000_000, dataDir: '/Users/u/.conest-collab', host: 'mac' }
+    const { transport, streams } = fakeTransport(url => url === '/collab/api/lock'
+      ? json(200, { busy: true, owner: holder })
+      : json(404, { error: 'not found' }))
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('locked'))
+    expect(source.getSnapshot().lockHolder).toEqual(holder)
+    expect(source.getSnapshot().error).toBeUndefined()
+    expect(streams).toHaveLength(0)
+    unsubscribe()
+  })
+
+  it('keeps the unconfigured reading when the host has no holder record (#216)', async () => {
+    // A host without the lock route answers 404 there too, exactly like a service that was
+    // never configured: neither case may be reported as "held by another DSH".
+    const { transport } = fakeTransport(() => json(404, { error: 'not found' }))
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('unavailable'))
+    expect(source.getSnapshot().lockHolder).toBeUndefined()
+    unsubscribe()
+  })
+
+  // #216 regression (G哥 2026-11-06): the route said busy with owner null and the panel still
+  // showed "configure it in collab.yml". busy alone has to mean "held", holder unknown — and
+  // the page still needs the contended data directory so it can say where to look.
+  it('reads a busy lock with no holder record as held, keeping the data directory (#216)', async () => {
+    const { transport, streams } = fakeTransport(url => url === '/collab/api/lock'
+      ? json(200, { busy: true, owner: null, dataDir: '/Users/u/.conest-collab' })
+      : json(404, { error: 'not found' }))
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('locked'))
+    expect(source.getSnapshot().lockHolder).toBeUndefined()
+    expect(source.getSnapshot().lockDataDir).toBe('/Users/u/.conest-collab')
+    expect(source.getSnapshot().lockFree).not.toBe(true)
+    expect(streams).toHaveLength(0)
+    unsubscribe()
+  })
+
+  // #216: the holder quit, so the lock is free — but this page's plugin already refused at
+  // start, so the panel asks for a DSH restart rather than naming a process that is gone.
+  it('asks for a restart, not a reload, when the lock has become free (#216)', async () => {
+    const { transport } = fakeTransport(url => url === '/collab/api/lock'
+      ? json(200, { busy: false, free: true })
+      : json(404, { error: 'not found' }))
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('locked'))
+    expect(source.getSnapshot().lockFree).toBe(true)
+    expect(source.getSnapshot().lockHolder).toBeUndefined()
+    unsubscribe()
+  })
+
+  it('shows the free lock after an SSE disconnect and automatically recovers when the host returns (#227)', async () => {
+    let online = true
+    const waits: ReturnType<typeof deferred<void>>[] = []
+    const { transport, streams, calls } = fakeTransport(url => {
+      if (url === '/collab/api/lock') return json(200, { busy: false, free: true })
+      if (!online) return json(404, { error: 'owner offline' })
+      if (url === '/collab/api/state') return json(200, state)
+      return json(200, { messages: [] })
+    })
+    transport.delay = () => { const wait = deferred<void>(); waits.push(wait); return wait.promise }
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(streams).toHaveLength(1))
+    online = false
+    streams[0].onerror?.(new Event('error'))
+    await vi.waitFor(() => expect(source.getSnapshot()).toMatchObject({ phase: 'locked', lockFree: true }))
+    expect(calls).toContain('GET /collab/api/lock')
+    waits[0].resolve()
+    await vi.waitFor(() => expect(streams).toHaveLength(2))
+    streams[1].onerror?.(new Event('error'))
+    await vi.waitFor(() => expect(calls.filter(call => call === 'GET /collab/api/lock')).toHaveLength(2))
+    expect(source.getSnapshot()).toMatchObject({ phase: 'locked', lockFree: true })
+    online = true
+    waits[1].resolve()
+    await vi.waitFor(() => expect(streams).toHaveLength(3))
+    streams[2].onopen?.(new Event('open'))
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    expect(source.getSnapshot().lockFree).toBeUndefined()
+    unsubscribe()
+  })
+
+  it('ignores a late offline diagnostic after an SSE connection recovers (#227)', async () => {
+    let online = true
+    const diagnosis = deferred<Response>()
+    const wait = deferred<void>()
+    const { transport, streams, calls } = fakeTransport(url => {
+      if (url === '/collab/api/lock') return diagnosis.promise
+      if (!online) return json(404, { error: 'owner offline' })
+      if (url === '/collab/api/state') return json(200, state)
+      return json(200, { messages: [] })
+    })
+    transport.delay = () => wait.promise
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(streams).toHaveLength(1))
+    online = false
+    streams[0].onerror?.(new Event('error'))
+    await vi.waitFor(() => expect(calls).toContain('GET /collab/api/lock'))
+    online = true
+    wait.resolve()
+    await vi.waitFor(() => expect(streams).toHaveLength(2))
+    streams[1].onopen?.(new Event('open'))
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    diagnosis.resolve(json(200, { busy: false, free: true }))
+    await setImmediate()
+    expect(source.getSnapshot().phase).toBe('ready')
+    unsubscribe()
+  })
+
   it('posts with a client key and surfaces the service refusal', async () => {
     let posted: unknown
     const { transport } = fakeTransport((url, init) => {

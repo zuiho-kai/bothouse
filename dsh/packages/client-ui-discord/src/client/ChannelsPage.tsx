@@ -9,7 +9,7 @@ import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, LockHolder, OutgoingAttachment } from './channel-source.ts'
 import { DEFAULT_MAX_UPLOAD_BYTES, MAX_MESSAGE_BODY, MAX_ROWS, UploadTooLarge, errorText, formatBytes, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments, type PendingFile } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
@@ -199,6 +199,24 @@ export function continues(previous: ChannelMessage | undefined, message: Channel
 
 function clockOf(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * #216: fill the "held by another DSH" notice from the holder record. A record written by an
+ * older build may miss a field, so each one falls back to its own unknown placeholder rather
+ * than printing `undefined`. `dataDir` and `lock` come from the refused instance too: a holder
+ * that wrote no record still leaves the page able to name the contended directory and file.
+ */
+function lockHolderText(holder: LockHolder | undefined, dataDir: string | undefined, lockPath: string | undefined, t: T): Record<string, unknown> {
+  const unknown = t('lockedUnknown')
+  return {
+    pid: holder?.pid ?? unknown,
+    started: holder?.startedAt === undefined ? unknown : new Date(holder.startedAt).toLocaleString([], {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    }),
+    dataDir: holder?.dataDir ?? dataDir ?? unknown,
+    lock: lockPath ?? unknown,
+  }
 }
 
 /** #1020: the memory entries a reply used — a small badge that opens to their titles. */
@@ -1077,10 +1095,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
     return () => { clearTimeout(timer) }
   }, [stopping, stillAnswering])
   if (state.phase !== 'ready') {
-    const notice = state.phase === 'unavailable' ? t('unavailable')
-      : state.phase === 'unauthorized' ? t('unauthorized')
-        : state.phase === 'error' ? t('error', { message: state.error ?? '' })
-          : t('loading')
+    const notice = state.phase === 'locked'
+      ? state.lockFree === true ? t('lockedFree')
+        : state.lockHolder === undefined ? t('lockedUnnamed', lockHolderText(undefined, state.lockDataDir, state.lockPath, t))
+          : t('locked', lockHolderText(state.lockHolder, state.lockDataDir, state.lockPath, t))
+      : state.phase === 'unavailable' ? t('unavailable')
+        : state.phase === 'unauthorized' ? t('unauthorized')
+          : state.phase === 'error' ? t('error', { message: state.error ?? '' })
+            : t('loading')
     return <div className={css.page} data-dc-scheme={scheme}><div className={css.notice} role="status">{notice}</div></div>
   }
 
