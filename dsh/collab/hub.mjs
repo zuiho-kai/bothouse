@@ -48,14 +48,21 @@ export class Hub {
     return member !== undefined && member.kind !== 'human' ? member : undefined;
   }
 
-  /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
+  /**
+   * Channel selection, inherited by workspaces; only unset channels use the legacy global choice.
+   * An unset channel whose global choice is not in it falls back to its only Agent when it has
+   * exactly one; with several Agents it stays without a primary until the owner picks one
+   * (owner 2026-11-03: 「只有1个bot的情况下 可以 多bot默认不回 但是可以选」).
+   */
   primaryIn(roomId) {
     // #1023: in a private chat the one agent answers every owner message, @ or not.
     const dm = this.store.dmMember?.(roomId);
     if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
     const id = this.store.leadId(roomId);
+    const agents = this.routableIn(roomId);
     const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
-    return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
+    if (member && agents.some(m => m.id === member.id)) return member;
+    return id === null && agents.length === 1 ? agents[0] : undefined;
   }
 
   /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
