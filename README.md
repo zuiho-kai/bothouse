@@ -154,7 +154,7 @@ Discord and Feishu already have phone and desktop apps, so there is no extra wra
 | Discord | Full support | Multiple roles, mentions, task handoffs, teammate status and log channels; slash commands in servers and DMs |
 | Feishu (Lark) | Single role | Conversation with one connected role |
 | QQ official bot | Manual setup | Group/private chat, group @user and @everyone; see [QQ Bot setup](bridge/docs/qqbot.md) |
-| DSH web | Experimental | A Channels page inside DSH web; see [DSH channels](dsh/collab/README.md) |
+| DSH desktop app / web | Experimental | A Channels page inside the DeepSeek Harness desktop app (default) or DSH web; see [DSH](docs/platforms/dsh.md) |
 <!-- Self-hosted platform entry disabled (no longer maintained, 2026-11-05). Original row:
 | Self-hosted web | Team mode | A local, Discord-like web UI with multiple roles, mentions and task handoffs |
 -->

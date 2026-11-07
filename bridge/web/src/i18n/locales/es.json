@@ -518,6 +518,8 @@
     "providerScope": "Estos proveedores se aplican a los proyectos de puente que los referencian.",
     "dshProviderScope": "Los miembros DSH nativos usan sus propias rutas.",
     "openDsh": "Abrir DSH",
+    "openDshDesktop": "Abrir en la app de escritorio",
+    "openDshWeb": "Web",
     "settingsModels": "En DSH, abre Ajustes → Modelos.",
     "cliScope": "Los miembros CLI usan autenticación y configuración locales; estos proveedores no las cambian.",
     "bridgeProjects": "Proyectos de puente",

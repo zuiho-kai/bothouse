@@ -120,6 +120,9 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	if err := setDSHPatchConfig(patch, "attachment-local", "maxImageDimension", DSHMaxImageDimension); err != nil {
 		return res, fmt.Errorf("profile patch: %w", err)
 	}
+	if err := setDSHDesktopPatchConfig(); err != nil {
+		return res, fmt.Errorf("desktop profile patch: %w", err)
+	}
 	dir := collabDataDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return res, err

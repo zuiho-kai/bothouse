@@ -40,6 +40,13 @@ type DSHStatus struct {
 	InstallScript   string `json:"install_script,omitempty"`
 	Log             string `json:"log,omitempty"`    // install.sh output (install only)
 	HasDeepSeekKey  bool   `json:"has_deepseek_key"` // a DeepSeek key is stored or exported (wizard can leave the field empty)
+	// DeepSeek Harness Desktop (setup_dsh_desktop.go), the wizard's default route
+	DesktopApp             string `json:"desktop_app,omitempty"`          // the installed app, "" when none
+	DesktopProfileReady    bool   `json:"desktop_profile_ready"`          // opened once: its profile exists
+	DesktopPluginInstalled bool   `json:"desktop_plugin_installed"`       // the desktop profile has the channels
+	DesktopRunning         bool   `json:"desktop_running"`                // the app is open now
+	DesktopDownloadURL     string `json:"desktop_download_url,omitempty"` // official installer for this machine
+	NodeFromDesktop        bool   `json:"node_from_desktop,omitempty"`    // no usable Node here: the app's bundled one installs the plugins
 }
 
 func dshHome() string {
@@ -261,9 +268,24 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
+	st.DesktopApp = dshDesktopApp()
+	st.DesktopDownloadURL = dshDesktopDownloadURLFor(runtime.GOOS, runtime.GOARCH)
+	if st.DesktopApp != "" {
+		st.DesktopProfileReady = dshDesktopProfileReady()
+		st.DesktopPluginInstalled = dshDesktopPluginInstalled()
+		st.DesktopRunning = len(dshDesktopPIDs(st.DesktopApp)) > 0
+	}
 	st.NodeVersion, st.DependencyError = dshNodeStatus(ctx, langs...)
+	bundled := false
+	if st.DesktopApp != "" {
+		node, _ := dshDesktopRuntimeBins(st.DesktopApp)
+		bundled = node != ""
+	}
+	if st.DependencyError != "" && bundled {
+		st.DependencyError, st.NodeFromDesktop = "", true
+	}
 	_, pnpmErr := exec.LookPath("pnpm")
-	st.PNPMFound = pnpmErr == nil
+	st.PNPMFound = pnpmErr == nil || bundled
 	dshBin, err := LookDSH()
 	if err != nil {
 		return st
@@ -283,10 +305,45 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 // (anything but zh installs en, the two languages install.sh accepts). onLine, when set, gets
 // every output line as it is printed (the wizard streams them as progress).
 func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DSHStatus, error) {
+	return InstallDSHPluginFor(ctx, lang, false, "", onLine)
+}
+
+// InstallDSHPluginFor is InstallDSHPlugin for a route: desktop=true also requires the plugins to land
+// in DeepSeek Harness Desktop (opening the app once first when it never ran, so its profile exists) and
+// lets the app's bundled Node and pnpm stand in when this machine has no Node of its own.
+func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir string, onLine func(string)) (DSHStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	if _, issue := dshNodeStatus(ctx, lang); issue != "" {
-		return GetDSHStatus(ctx, lang), errors.New(issue)
+	// No Node, or no pnpm: use the ones DeepSeek Harness Desktop ships instead of asking for a Node
+	// install or adding pnpm to the machine with npm i -g.
+	var runtimePath []string
+	_, nodeIssue := dshNodeStatus(ctx, lang)
+	_, pnpmErr := exec.LookPath("pnpm")
+	if app := dshDesktopApp(); app != "" && (nodeIssue != "" || pnpmErr != nil) {
+		dir := filepath.Join(os.TempDir(), "bothouse-dsh-runtime")
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, ".bothouse", "dsh-runtime")
+		}
+		if p, ok := dshDesktopRuntimePath(app, dir); ok {
+			if nodeIssue == "" {
+				p = p[:1] // the machine's own Node is fine: only borrow pnpm
+			}
+			runtimePath, nodeIssue = p, ""
+			if onLine != nil {
+				onLine("== using the Node/pnpm bundled with DeepSeek Harness Desktop")
+			}
+		}
+	}
+	if nodeIssue != "" {
+		return GetDSHStatus(ctx, lang), errors.New(nodeIssue)
+	}
+	if desktop {
+		// The app loads the plugins the moment they are added, before the wizard's roles exist: without
+		// this marker the plugin would seed its own default role (鲸鱼娘) and make it the primary role.
+		markDSHDefaultsHandled()
+		if err := ensureDSHDesktopProfile(ctx, dataDir, onLine); err != nil {
+			return GetDSHStatus(ctx, lang), err
+		}
 	}
 	script := FindDSHInstallScript()
 	refreshHomeDSHBeforeInstall(script, onLine)
@@ -312,7 +369,7 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 	}
 	cmd := exec.CommandContext(ctx, bashBin, bashScriptArg(runtime.GOOS, script), DSHProfile, "--lang", l)
 	env := os.Environ()
-	var extraPaths []string
+	extraPaths := append([]string{}, runtimePath...)
 	if d := filepath.Dir(dshBin); d != "" {
 		extraPaths = append(extraPaths, d)
 	}
@@ -350,6 +407,13 @@ func InstallDSHPlugin(ctx context.Context, lang string, onLine func(string)) (DS
 	if err != nil {
 		return st, errors.New("install.sh failed: " + err.Error() + "\n" + tailLines(st.Log, 20))
 	}
+	if desktop && !st.DesktopPluginInstalled {
+		// install.sh only warns when the desktop step fails (the web install already succeeded)
+		return st, dshDesktopError{
+			zh: "插件没装进 DeepSeek Harness 桌面版：完全退出桌面版（Mac 按 ⌘Q）后再点「重新安装」；下面是安装日志。",
+			en: "The plugins did not go into DeepSeek Harness desktop: quit it completely (⌘Q on a Mac) and reinstall. The install log is below.",
+		}
+	}
 	return st, nil
 }
 
@@ -378,7 +442,8 @@ func (m *ManagementServer) handleSetupDSHInstall(w http.ResponseWriter, r *http.
 		return
 	}
 	var req struct {
-		Lang string `json:"lang"`
+		Lang   string `json:"lang"`
+		Target string `json:"target"` // "desktop" (DeepSeek Harness Desktop) or "web" / empty
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -396,7 +461,7 @@ func (m *ManagementServer) handleSetupDSHInstall(w http.ResponseWriter, r *http.
 	}
 	step := "download"
 	send(map[string]any{"step": step})
-	st, err := InstallDSHPlugin(r.Context(), req.Lang, func(line string) {
+	st, err := InstallDSHPluginFor(r.Context(), req.Lang, req.Target == "desktop", m.wizardDataDir, func(line string) {
 		if s, ok := strings.CutPrefix(line, "== step: "); ok {
 			step = strings.TrimSpace(s)
 		}
@@ -412,7 +477,10 @@ func (m *ManagementServer) handleSetupDSHInstall(w http.ResponseWriter, r *http.
 // dshInstallError explains an install failure in the wizard's language; the raw log goes alongside.
 func dshInstallError(err error, lang string) string {
 	zh := strings.HasPrefix(strings.ToLower(lang), "zh")
+	var desktopErr dshDesktopError
 	switch {
+	case errors.As(err, &desktopErr):
+		return desktopErr.msg(lang)
 	case errors.Is(err, errDSHMissing):
 		if zh {
 			return "这台电脑还没装 DSH。先在终端运行 npm i -g @deepseek-ai/dsh@latest，装好后点「重新检测」。"
