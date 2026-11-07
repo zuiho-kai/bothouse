@@ -187,7 +187,12 @@ func renderTaskMembersView(members []core.TaskMember, lang string, brief bool) s
 			row += " · " + i18n.Tf("task_member_updated", fmt.Sprintf("<t:%d:R>", m.UpdatedAt.Unix()))
 		}
 		if m.Summary != "" && !brief {
-			row += "\n　└ " + trimDiscordRunes(compactDiscordProgressText(m.Summary), maxDiscordProgressLineLen)
+			// #1197: 细节 shows the whole summary, sharing the 1024-rune field.
+			budget := 960 / len(members)
+			if budget < maxDiscordProgressLineLen {
+				budget = maxDiscordProgressLineLen
+			}
+			row += "\n　└ " + trimDiscordRunes(compactDiscordProgressText(m.Summary), budget)
 		}
 		// Source: Discord embed fields allow 1024 characters. Reserve the exact
 		// localized overflow footer so rows and relative timestamps stay whole.

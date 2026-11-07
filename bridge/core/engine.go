@@ -62,7 +62,10 @@ func previewText(s string, maxRunes int) string {
 const (
 	defaultThinkingMaxLen = 300
 	defaultToolMaxLen     = 500
-	defaultHistoryMaxLen  = 1000
+	// cardToolResultMaxLen caps the tool output kept on a progress card
+	// (maomao fork #1197): one Discord detail page.
+	cardToolResultMaxLen = 3500
+	defaultHistoryMaxLen = 1000
 )
 
 // Slow-operation thresholds. Operations exceeding these durations produce a
@@ -6718,7 +6721,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
 				thinkingMsg := fmt.Sprintf(e.i18n.T(MsgThinking), preview)
-				if !cp.AppendEvent(ProgressEntryThinking, preview, "", thinkingMsg) {
+				// maomao fork: the card keeps the whole thought; only the 简略 view and
+				// the standalone message are shortened (#1197).
+				cardThinking := preview
+				if cp.style == progressStyleCard {
+					cardThinking = event.Content
+				}
+				if !cp.AppendEvent(ProgressEntryThinking, cardThinking, "", thinkingMsg) {
 					sendWorkspace(p, replyCtx, thinkingMsg)
 				}
 			}
@@ -6870,6 +6879,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// tool_max_len applies uniformly to progress_style=card, matching
 				// the rich-card path. event.ToolInput itself is left untouched.
 				cardToolInput := truncateIf(toolInput, e.display.ToolMaxLen)
+				if cp.style == progressStyleCard {
+					// maomao fork: the card keeps the whole tool input (#1197).
+					cardToolInput = toolInput
+				}
 				if !cp.AppendEvent(ProgressEntryToolUse, cardToolInput, event.ToolName, toolMsg) {
 					for _, chunk := range SplitMessageCodeFenceAware(toolMsg, maxPlatformMessageLen) {
 						sendWorkspace(p, replyCtx, chunk)
@@ -6907,9 +6920,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if result == "" {
 					result = strings.TrimSpace(event.Content)
 				}
+				cardResult := result
 				if result != "" {
 					result = truncateIf(result, e.display.ToolMaxLen)
 				}
+				// maomao fork: the card keeps up to one detail page of tool output (#1197).
+				cardResult = truncateIf(cardResult, cardToolResultMaxLen)
 				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 					if hasRichCard {
 						toolSteps = mergeRichToolResult(toolSteps, event, result, e.display.ToolMaxLen)
@@ -6937,7 +6953,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					entry := ProgressCardEntry{
 						Kind:     ProgressEntryToolResult,
 						Tool:     event.ToolName,
-						Text:     result,
+						Text:     cardResult,
 						Status:   event.ToolStatus,
 						ExitCode: event.ToolExitCode,
 						Success:  event.ToolSuccess,

@@ -61,7 +61,12 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 		if view == cardViewBrief {
 			rows = append(rows, buildDiscordSubTaskBriefRow(t, i+1, zh))
 		} else {
-			rows = append(rows, buildDiscordSubTaskRow(t, zh))
+			// #1197: 细节 shows a sub-agent's whole line, sharing the embed between rows.
+			budget := (maxDiscordProgressDescLen - 100) / len(payload.Tasks)
+			if budget < maxDiscordProgressLineLen {
+				budget = maxDiscordProgressLineLen
+			}
+			rows = append(rows, buildDiscordSubTaskRowN(t, zh, budget))
 		}
 	}
 	// Same colors as the progress card: running / completed / failed.
@@ -90,6 +95,11 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 // A running row's time is a Discord timestamp (<t:unix:R>), which the client
 // keeps counting by itself, so "跑了多久" moves without editing the message.
 func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
+	return buildDiscordSubTaskRowN(t, zh, maxDiscordProgressLineLen)
+}
+
+// buildDiscordSubTaskRowN is buildDiscordSubTaskRow with the detail line cut at detailLen runes.
+func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
 	icon := discordSubTaskIcon(t)
 	kind := "fg"
 	if zh {
@@ -137,7 +147,7 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 		detail = wait
 	}
 	if detail = compactDiscordProgressText(detail); detail != "" {
-		head += "\n　└ " + trimDiscordRunes(detail, maxDiscordProgressLineLen)
+		head += "\n　└ " + trimDiscordRunes(detail, detailLen)
 	}
 	return head
 }

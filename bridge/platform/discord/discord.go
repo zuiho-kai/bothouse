@@ -175,6 +175,11 @@ func New(opts map[string]any) (core.Platform, error) {
 	// maomao fork: progress_card_entries > 1 turns the one-line card into a list of
 	// recent steps that stays after the turn; progress_line_len caps each line.
 	cardEntries := intOpt(opts["progress_card_entries"])
+	if cardEntries <= 0 {
+		// #1197: the card keeps every line of the turn; 简略 still shows one
+		// step and 细节 pages through them all.
+		cardEntries = discordCardKeepAllEntries
+	}
 	cardLineLen := intOpt(opts["progress_line_len"])
 	if cardLineLen <= 0 {
 		cardLineLen = maxDiscordProgressLineLen
@@ -1196,6 +1201,10 @@ func (p *Platform) handleComponentInteraction(s *discordgo.Session, i *discordgo
 		p.handleCardViewInteraction(s, i, view)
 		return
 	}
+	if delta, ok := parseCardPageCustomID(data.CustomID); ok {
+		p.handleCardPageInteraction(s, i, delta)
+		return
+	}
 	command, isPermissionResponse, ok := discordComponentCommand(data.CustomID)
 	if !ok {
 		slog.Debug("discord: unknown component interaction", "custom_id", data.CustomID)
@@ -1650,7 +1659,7 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 		return fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
 	}
 	p.rememberPreview(h.origin, h.channelID, h.messageID, content)
-	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEditView(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID)))
+	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEditViewPage(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID), p.cardViews.page(h.messageID)))
 	if err != nil {
 		return fmt.Errorf("discord: edit message: %w", err)
 	}

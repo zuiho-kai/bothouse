@@ -47,7 +47,7 @@ func checkRedraw(t *testing.T, p *Platform, rest *progressREST, card string) {
 	}
 	rest.callbacks, rest.edits = nil, nil
 	pressCardView(p, card, "brief", &discordgo.MessageEmbed{Description: "OLD_CARD"})
-	if len(rest.callbacks) != 1 || strings.Contains(rest.callbacks[0], "CMD_FULL_TEXT") || !strings.Contains(rest.callbacks[0], "Bash · 成功") {
+	if len(rest.callbacks) != 1 || strings.Contains(rest.callbacks[0], "CMD_FULL_TEXT") || !strings.Contains(rest.callbacks[0], "🔧 Read") {
 		t.Fatalf("简略 press did not redraw the card: %v", rest.callbacks)
 	}
 	if len(rest.edits) < 2 {
