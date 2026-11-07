@@ -45,6 +45,7 @@ type cardViews struct {
 	chanOf   map[string]string     // progress card ID -> its channel
 	originOf map[string]string     // progress card ID -> its origin channel
 	prefs    *cardViewPrefs        // last choice per origin channel; nil = in-memory store
+	store    *cardSourceStore      // what each card was drawn from, on disk; nil = none (card_view_store.go)
 }
 
 type cardRef struct{ channelID, messageID string }
@@ -53,6 +54,7 @@ type cardRef struct{ channelID, messageID string }
 type cardRender struct {
 	lang   string
 	embeds func(cardView) []*discordgo.MessageEmbed
+	src    cardSource // saved so the card can be re-drawn after its turn is dropped
 }
 
 func (c *cardViews) init() {
@@ -166,6 +168,7 @@ func (c *cardViews) join(origin, channelID, messageID string) {
 		c.dropMember(old, messageID)
 	}
 	c.leaderOf[messageID] = leader
+	c.chanOf[messageID] = channelID
 	c.members[leader] = append(c.members[leader], cardRef{channelID: channelID, messageID: messageID})
 }
 
@@ -188,6 +191,17 @@ func (c *cardViews) remember(messageID string, render cardRender) {
 	defer c.mu.Unlock()
 	c.init()
 	c.renders[messageID] = render
+	if c.store == nil || render.src.Kind == "" {
+		return
+	}
+	src := render.src
+	src.Leader = c.leaderOf[messageID]
+	src.Channel = c.chanOf[messageID]
+	src.Origin = c.originOf[src.Leader]
+	if src.Leader == messageID {
+		src.Mode = c.modes[messageID]
+	}
+	c.store.save(messageID, src)
 }
 
 type cardMember struct {
@@ -211,15 +225,20 @@ func (c *cardViews) set(messageID, fallbackOrigin string, mode cardView) (cardRe
 		key = l
 		c.modes[key] = mode
 	}
+	r, ok := c.renders[messageID]
+	if !turnKnown || !ok {
+		// An earlier turn (dropped when the channel's next one started) or a
+		// card sent before a restart: re-draw it from its saved source.
+		return c.setFromStore(messageID, fallbackOrigin, mode)
+	}
 	origin := c.originOf[key]
 	if origin == "" {
 		origin = fallbackOrigin
 	}
 	c.prefs.set(origin, mode)
-	if !turnKnown {
-		return cardRender{}, false, nil
+	if c.store != nil {
+		c.store.setMode(key, mode)
 	}
-	r, ok := c.renders[messageID]
 	var others []cardMember
 	if key != messageID {
 		if lr, ok := c.renders[key]; ok {
@@ -234,6 +253,50 @@ func (c *cardViews) set(messageID, fallbackOrigin string, mode cardView) (cardRe
 			others = append(others, cardMember{ref: ref, render: mr})
 		}
 	}
+	return r, ok, others
+}
+
+// setFromStore is set for a card known only from its saved source. Without
+// one, only the channel's remembered choice changes. Caller holds mu.
+func (c *cardViews) setFromStore(messageID, fallbackOrigin string, mode cardView) (cardRender, bool, []cardMember) {
+	src, found := c.store.load(messageID)
+	if !found {
+		c.prefs.set(fallbackOrigin, mode)
+		return cardRender{}, false, nil
+	}
+	leader := src.Leader
+	if leader == "" {
+		leader = messageID
+	}
+	origin := src.Origin
+	var others []cardMember
+	if leader != messageID {
+		if ls, ok := c.store.load(leader); ok {
+			if origin == "" {
+				origin = ls.Origin
+			}
+			if lr, ok := ls.render(); ok {
+				others = append(others, cardMember{ref: cardRef{channelID: ls.Channel, messageID: leader}, render: lr, leader: true})
+			}
+		}
+	}
+	for id, ms := range c.store.turn(leader) {
+		if id == messageID {
+			continue
+		}
+		if mr, ok := ms.render(); ok {
+			others = append(others, cardMember{ref: cardRef{channelID: ms.Channel, messageID: id}, render: mr})
+		}
+	}
+	if origin == "" {
+		origin = fallbackOrigin
+	}
+	c.prefs.set(origin, mode)
+	c.store.setMode(leader, mode)
+	if _, live := c.leaderOf[leader]; live {
+		c.modes[leader] = mode
+	}
+	r, ok := src.render()
 	return r, ok, others
 }
 

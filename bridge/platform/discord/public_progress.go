@@ -72,13 +72,8 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 		return errors.New("discord session is not ready")
 	}
 	marker := "cc-task:" + task.ID
-	snapshot := task.Clone()
-	render := func(v cardView) []*discordgo.MessageEmbed {
-		embed := renderTaskCardEmbedView(snapshot, string(lang), v)
-		embed.Footer = &discordgo.MessageEmbedFooter{Text: marker}
-		embed.Timestamp = snapshot.UpdatedAt.Format(time.RFC3339)
-		return []*discordgo.MessageEmbed{embed}
-	}
+	taskRender := taskCardRender(task, string(lang), marker)
+	render := taskRender.embeds
 	// maomao fork: the task card follows its turn's 细节/简略 choice and carries
 	// no buttons of its own; the turn's progress card holds them (card_view.go).
 	if task.MessageID != "" {
@@ -119,7 +114,7 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 		}
 		return err
 	}
-	p.cardViews.remember(task.MessageID, cardRender{lang: string(lang), embeds: render})
+	p.cardViews.remember(task.MessageID, taskRender)
 	if task.ThreadID != "" && task.CardURL != "" {
 		p.syncTaskThreadName(ctx, task)
 		return nil

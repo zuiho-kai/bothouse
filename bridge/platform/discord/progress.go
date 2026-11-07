@@ -200,7 +200,7 @@ func progressCardRender(content string) (cardRender, bool) {
 	if !ok {
 		return cardRender{}, false
 	}
-	return cardRender{lang: payload.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
+	return cardRender{lang: payload.Lang, src: cardSource{Kind: cardKindProgress, Content: content, Lang: payload.Lang}, embeds: func(v cardView) []*discordgo.MessageEmbed {
 		return []*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, v)}
 	}}, true
 }
@@ -602,7 +602,7 @@ func subTaskTableRender(content string) (cardRender, bool) {
 	if !ok {
 		return cardRender{}, false
 	}
-	return cardRender{lang: table.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
+	return cardRender{lang: table.Lang, src: cardSource{Kind: cardKindTable, Content: content, Lang: table.Lang}, embeds: func(v cardView) []*discordgo.MessageEmbed {
 		return []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, v)}
 	}}, true
 }
