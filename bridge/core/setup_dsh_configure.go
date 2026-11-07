@@ -33,7 +33,22 @@ type DSHMember struct {
 	Persona        string `json:"persona,omitempty"`
 	Avatar         string `json:"avatar,omitempty"`
 	NameCustomized *bool  `json:"name_customized,omitempty"`
+	// Model pins a DSH-model role to the route the wizard's key belongs to (set by configure, not the page).
+	Model *DSHMemberModel `json:"model,omitempty"`
 }
+
+// DSHMemberModel is a collab member's model route (roster.mjs validate: provider + model).
+type DSHMemberModel struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// dshKeyModel is the route the wizard's DeepSeek key serves: DSH's API-key adapter
+// (@deepseek-ai/dsh-llm-deepseek-api-key, provider deepseek-official, key DEEPSEEK_API_KEY) and the model
+// dsh-base sets as its default (agent-default-model, same in DeepSeek Harness Desktop 0.2.2-rc.1). Pinning it
+// keeps the role answering with the key it was set up with even when the DSH default model is switched to a
+// route without a key (for example a DeepSeek account sign-in in the desktop app): that showed 还没填模型密钥 (#1173).
+var dshKeyModel = DSHMemberModel{Provider: "deepseek-official", Model: "deepseek-flash"}
 
 // DSHConfigureRequest is the body of POST /setup/dsh/configure.
 type DSHConfigureRequest struct {
@@ -104,6 +119,10 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 		}
 		if m.CLI == "" && strings.TrimSpace(req.DeepSeekAPIKey) == "" && !dshHasDeepSeekKey() {
 			return res, fmt.Errorf("角色「%s」没选本机 CLI，也没有 DeepSeek API Key：选一个 CLI，或填 Key", m.Name)
+		}
+		if m.CLI == "" {
+			mm := dshKeyModel
+			m.Model = &mm
 		}
 		req.Members[i] = m
 	}
