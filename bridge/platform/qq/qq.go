@@ -547,6 +547,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	var quoted []string
 	var reference *core.MessageReference
 	if id := parsed.replyTo; id != "" {
+		reference = &core.MessageReference{ID: id}
 		entry, err := p.resolveQuote(context.Background(), id, chatKey, true)
 		if err == nil {
 			// Keep the quoted speaker's name: a bare quote read as the quoting
@@ -557,7 +558,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 			}
 			quoted = append(quoted, line)
 			mentioned = mentioned || entry.self
-			reference = &core.MessageReference{ID: id, Author: entry.name, Text: entry.content}
+			reference.Author, reference.Text = entry.name, entry.content
 		} else {
 			slog.Warn("qq: quoted message unavailable", "message_id", id, "error", err)
 			quoted = append(quoted, fmt.Sprintf("（引用消息 %s 无法获取原文）", id))
@@ -1118,7 +1119,7 @@ func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) er
 		if err != nil {
 			return err
 		}
-		p.recordSent(result, content)
+		p.recordSent(result, content, rctx)
 		p.noteGroupLine(rctx.groupID, p.selfID, "你", content)
 		return nil
 	}
@@ -1129,7 +1130,7 @@ func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) er
 	if err != nil {
 		return err
 	}
-	p.recordSent(result, content)
+	p.recordSent(result, content, rctx)
 	return nil
 }
 
@@ -1137,6 +1138,10 @@ func (p *Platform) sendOne(ctx context.Context, replyCtx any, content string) er
 // people get a notification instead of a literal "@name".
 // Implements core.AtMentionSender.
 func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string, atUsers []string, atAll bool) error {
+	return p.sendSegments(ctx, replyCtx, content, "", atUsers, atAll)
+}
+
+func (p *Platform) sendSegments(ctx context.Context, replyCtx any, content, messageID string, atUsers []string, atAll bool) error {
 	content = normalizeReplyText(content)
 	rctx, ok := replyCtx.(*replyContext)
 	if !ok {
@@ -1147,6 +1152,9 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 	}
 
 	segments := make([]map[string]any, 0, len(atUsers)+2)
+	if messageID != "" {
+		segments = append(segments, map[string]any{"type": "reply", "data": map[string]any{"id": messageID}})
+	}
 	if atAll {
 		// OneBot spells @全体成员 as qq=all.
 		segments = append(segments, map[string]any{"type": "at", "data": map[string]any{"qq": "all"}})
@@ -1157,7 +1165,7 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 	// OneBot joins segments verbatim, so the separating space has to be part of
 	// the text segment or the mention would run into the message.
 	text := content
-	if len(segments) > 0 && text != "" {
+	if (atAll || len(atUsers) > 0) && text != "" {
 		text = " " + text
 	}
 	segments = append(segments, map[string]any{"type": "text", "data": map[string]any{"text": text}})
@@ -1175,12 +1183,15 @@ func (p *Platform) ReplyWithAt(ctx context.Context, replyCtx any, content string
 	if atAll || len(atUsers) > 0 {
 		summary = fmt.Sprintf("[at all=%t users=%v] %s", atAll, atUsers, content)
 	}
+	if messageID != "" {
+		summary = "[reply to " + messageID + "] " + summary
+	}
 	result, err := p.callAPIContext(ctx, action, params)
 	p.logOutbound(action, rctx, summary, result, err)
 	if err != nil {
 		return fmt.Errorf("qq: ReplyWithAt: %w", err)
 	}
-	p.recordSent(result, content)
+	p.recordSent(result, content, rctx)
 	return nil
 }
 
@@ -1189,10 +1200,10 @@ var _ core.AtMentionSender = (*Platform)(nil)
 // recordSent remembers a message this bot sent. A reply to one of them calls
 // the bot just like an @ (core/gate_local.go), and the text is what the quote
 // shows to the model.
-func (p *Platform) recordSent(result map[string]any, text string) {
+func (p *Platform) recordSent(result map[string]any, text string, rctx *replyContext) {
 	if id := jsonInt64(result, "message_id"); id != 0 {
 		// "你" matches how groupContext labels this bot's own lines.
-		p.storeQuote(strconv.FormatInt(id, 10), text, "你", true)
+		p.storeQuote(strconv.FormatInt(id, 10), text, "你", true, rctx.quoteChat())
 	}
 }
 
@@ -1351,7 +1362,7 @@ func (p *Platform) SendAudio(ctx context.Context, replyCtx any, audio []byte, fo
 		return sendErr
 	}
 	p.logOutbound(action, rctx, summary, result, nil)
-	p.recordSent(result, "[voice]")
+	p.recordSent(result, "[voice]", rctx)
 	return nil
 }
 
