@@ -90,6 +90,9 @@ func installByPlainBuild(t *testing.T, v buildVCS) string {
 func TestDSHStampPlainBuildKeepsToOlderRelease(t *testing.T) {
 	const installedPlugin = "// plugin already on disk\n"
 	dir := installByPlainBuild(t, buildVCS{Commit: "1392d2ca7fc3709965c6c4a341460e767df0f6af", Built: "2026-11-07T00:05:41Z"})
+	if got := stampFields(t, filepath.Join(dir, dshVersionFile)); got["commit"] == "" || got["built"] == "" {
+		t.Fatalf("plain-build VCS metadata was not recorded: %v", got)
+	}
 	stamp := filepath.Join(dir, dshVersionFile)
 	before, err := os.ReadFile(stamp)
 	if err != nil {
@@ -119,14 +122,14 @@ func TestDSHStampPlainBuildKeepsToOlderRelease(t *testing.T) {
 	if got, want := treeHash(t, dir), treeBefore; got != want {
 		t.Errorf("plugin tree changed: %s -> %s", want, got)
 	}
-	if !strings.Contains(logs.String(), "keeping the newer installed plugin") {
-		t.Errorf("log does not say the installed plugin was kept as newer: %s", logs)
+	if !strings.Contains(logs.String(), "cannot prove which version is newer") {
+		t.Errorf("log does not explain that mixed clock values cannot prove order: %s", logs)
 	}
 }
 
-// The other half of P2: a release that IS newer than the plain build still refreshes it, so the dev
-// install does not stay on its old code for good.
-func TestDSHStampPlainBuildRefreshedByNewerRelease(t *testing.T) {
+// A later wall clock does not prove that a release contains the code in a plain build: one field
+// mixes build wall-clock time and commit time, so the plugin stays until the user takes the escape.
+func TestDSHStampPlainBuildKeepsWhenReleaseOrderIsUnknown(t *testing.T) {
 	dir := installByPlainBuild(t, buildVCS{Commit: "1392d2ca7fc3709965c6c4a341460e767df0f6af", Built: "2026-11-07T00:05:41Z"})
 	if err := os.WriteFile(filepath.Join(dir, "collab", "plugin.mjs"), []byte("// old\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -138,11 +141,14 @@ func TestDSHStampPlainBuildRefreshedByNewerRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if !refreshed {
-		t.Fatalf("v0.1.55 (11-07 09:00) did not refresh a plugin built 11-07 00:05: %s", logs)
+	if refreshed {
+		t.Fatalf("refreshed from mixed clock values that do not prove code order: %s", logs)
 	}
-	if got := stampFields(t, filepath.Join(dir, dshVersionFile)); got["version"] != "v0.1.55" {
-		t.Errorf("stamp = %v, want it rewritten by v0.1.55", got)
+	if !strings.Contains(logs.String(), "cannot prove which version is newer") {
+		t.Errorf("missing explanation for keeping the plugin: %s", logs)
+	}
+	if !strings.Contains(logs.String(), "delete "+filepath.Join(dir, dshVersionFile)+" and restart") {
+		t.Errorf("missing full-path escape instruction: %s", logs)
 	}
 }
 

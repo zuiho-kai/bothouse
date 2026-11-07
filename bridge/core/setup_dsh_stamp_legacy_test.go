@@ -194,7 +194,7 @@ func TestExtractEmbeddedDSH_StampOmitsUninjectedBuildFields(t *testing.T) {
 //
 // The stamp this covers is the one installed binaries hold today: {"version":"dev"}, written before
 // the build info was recorded. A plain `go build` made from now on carries vcs.revision/vcs.time and
-// is ordered by time instead — TestDSHStampPlainBuildRefreshedByNewerRelease.
+// is not ordered by time: build time and commit time share one field.
 func TestRefreshDSH_VersionOnlyStampKeepsAndTheWayOutWorks(t *testing.T) {
 	prevVersion, prevCommit, prevBuilt := CurrentVersion, CurrentCommit, CurrentBuildTime
 	t.Cleanup(func() {

@@ -55,15 +55,16 @@ func TestRefreshDSH_StampOrder(t *testing.T) {
 			commit:      "none",
 			built:       "unknown",
 			wantRefresh: false,
-			wantWarn:    "cannot tell which version is newer",
+			wantWarn:    "cannot prove which version is newer",
 		},
 		{
-			name:        "later build of the same version refreshes",
+			name:        "later timestamp for same version cannot prove newer code",
 			stamp:       `{"version":"dev","commit":"8ac35a3b","built":"2026-11-06T00:00:00Z"}`,
 			version:     "dev",
 			commit:      "1729a299",
 			built:       "2026-11-07T00:00:00Z",
-			wantRefresh: true,
+			wantRefresh: false,
+			wantWarn:    "cannot prove which version is newer",
 		},
 		{
 			// Installs made before this change hold a bare version string; it still upgrades.
