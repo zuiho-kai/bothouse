@@ -34,7 +34,8 @@ test('automatic sharing stays on loopback and keeps discovery private', t => {
   assert.equal(localConnection({ getOrigin: () => 'https://127.0.0.1:1234' }), undefined);
   const path = holder(t, local);
   assert.equal(lockStatus(path).owner.local, undefined);
-  assert.equal(statSync(join(path, '../collab.owner.json')).mode & 0o777, 0o600);
+  // 来源：Windows 没有 POSIX 位，stat 报 0o666（同 collab.test.mjs:4610 的既有写法）。
+  if (process.platform !== 'win32') assert.equal(statSync(join(path, '../collab.owner.json')).mode & 0o777, 0o600);
   assert.equal(isLocalOwner({ socket: { remoteAddress: '127.0.0.1' }, headers: { 'x-collab-local': local.token } }, local), true);
   assert.equal(isLocalOwner({ socket: { remoteAddress: '192.168.1.2' }, headers: { 'x-collab-local': local.token } }, local), false);
 });
@@ -148,9 +149,11 @@ test('a refused instance serves holder status and forwards to the holder, never 
   // 交出去的必须是这一个数据目录的锁文件。看行为：另起一个目录、放一个「别人在用」的锁和
   // 记录，正确实现只会报本目录的持有者；把 lockPath 换成那个目录的就会报 THE-OTHER-DIR。
   const otherDir = mkdtempSync(join(tmpdir(), 'other-holder-'));
-  t.after(() => rmSync(otherDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const otherLock = InstanceLock.acquire(join(otherDir, 'collab.lock'));
+  // 先放锁再删目录：Windows 上打开着的 SQLite 文件删不掉，rmSync 会按 EPERM 重试到超时
+  // （实测 6.8s），抛错后 node 中止后续 after 钩子，锁永远不放、句柄吊着整个 job 挂到 CI 超时。
   t.after(() => otherLock.release());
+  t.after(() => rmSync(otherDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   writeLockOwner(join(otherDir, 'collab.lock'), { pid: process.pid, startedAt: Date.now(), dataDir: 'THE-OTHER-DIR' });
   // 页面问的是这个字面量（client-ui-discord/lib/client.js 硬编码），漂移了页面就永远读不到状态。
   assert.equal(BUSY_PATH, '/collab/api/lock');
@@ -200,14 +203,15 @@ test('a real apply() under a held lock mounts the shared host and writes nothing
   // t.after 是 FIFO 且前一个抛错会中止后续钩子，所以还原 argv 与放锁要在删目录之前注册；
   // 删目录放最后并加重试（Windows 上已打开的 SQLite 目录会是 EBUSY）。
   t.after(() => { process.argv[1] = argv1; });
-  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const dataDir = join(root, 'data');
   mkdirSync(dataDir, { recursive: true });
   // 另一台 DSH 正拿着这个数据目录。
   const lockPath = join(dataDir, 'collab.lock');
   const holderLock = InstanceLock.acquire(lockPath);
+  // 顺序同上：先放锁、再删树，否则 Windows 上 rmSync 撞 EPERM 重试后抛错，release 不再执行。
   t.after(() => holderLock.release());
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const routes = [];
   const ctx = {
