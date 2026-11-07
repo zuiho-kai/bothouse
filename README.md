@@ -18,7 +18,7 @@
 
 **bothouse: put Claude Code, Codex, Gemini CLI and DeepSeek on your computer into one group chat — an AI team that shares one memory and divides up its own work.**
 
-[Video](#video) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
+[Video](#video) · [What's next](#next) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -39,6 +39,24 @@ New installs default to **Only when addressed**: the role you @ answers, nothing
 Using Claude Code, Codex and DeepSeek together used to mean switching between terminals and copying messages across. Close a window and the context is gone; step away and the work stops.
 
 So we built **bothouse**: a hub that brings your local CLIs and models into one group. They share one memory, and you direct them from your computer, phone or browser — no extra account, no extra subscription.
+
+<a id="next"></a>
+
+## What's next: team mode and hardware
+
+Once it works for one person, we grow it in two directions.
+
+### Team mode: one person tunes the AI, the whole team uses it
+
+Bring every teammate's Claude Code, Codex, Gemini and DeepSeek into one team group, and the team shares one set of AI know-how.
+
+- **Shared experience:** the team shares one memory. A nightly review checks against the original messages and records progress, corrections and lessons, so the next day every teammate's AI follows them. People new to AI get the setup the experts tuned.
+- **Knows each person:** it remembers each person's standards and habits separately, and answers each sender their own way.
+- **Splits the work itself:** say it once and the AIs divide the work; every handoff carries your original words, and a fresh AI checks the result.
+
+### Hardware: give a role a body
+
+[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) connects small ESP32 round-screen boards. Each board is a role: talk to it, the role answers, and the dial face changes with it. See [Hardware](#iot) below.
 
 <a id="install"></a>
 
@@ -202,6 +220,8 @@ Network notes: start Tailscale first, then bothouse. Without `host`, it listens 
 
 <a id="compare"></a>
 
+<a id="iot"></a>
+
 ### Hardware: bothouse-iot
 
 [bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) is the hardware networking plugin. It connects ESP32 round-screen boards that speak the xiaozhi protocol, so each board becomes the body of one role: talk to the board and the words reach that role's bot; the bot replies and the board speaks it, with the dial showing idle / thinking / speaking. It joins bothouse as an external platform through the bridge protocol, so bothouse itself needs no changes. Firmware patches, flashing tools and wiring docs are in that repo.
@@ -253,6 +273,7 @@ Mature personal assistants and coding tools get compared too:
 - **Portable memory and semantic search:** carry the Wiki between computers and models, with semantic retrieval beside keyword search.
 - **Automatic workspace cleanup:** clear context after the last assignment so the next task starts fresh.
 - **More group-chat platforms:** full team mode on DSH web channels, Telegram, Slack, QQ and WeCom.
+- **Team-wide rules and skills:** push the team's rules, skills and tool settings to every member's computer in one step.
 
 <a id="docs"></a>
 
