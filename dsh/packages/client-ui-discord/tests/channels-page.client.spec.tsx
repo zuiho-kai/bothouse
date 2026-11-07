@@ -50,7 +50,9 @@ describe('channels page', () => {
     expect(input.value).toBe(text)
     expect(input.selectionStart).toBe(text.length)
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith(text)
+    // #197 binds every post to the room it was written in, so submit always passes replyTo, attachments and roomId;
+    // the other send assertions in this file expect the same four arguments (undefined padding is allowed by the API).
+    expect(send).toHaveBeenCalledExactlyOnceWith(text, undefined, undefined, 1)
     expect(mirror.textContent).toBe('\n')
   })
 
