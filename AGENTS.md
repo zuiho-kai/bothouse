@@ -1,6 +1,7 @@
 # 共栖 · Agent 协作入口
 
 > 用户只是要把 bothouse 装好、接上 Discord / 飞书（不是改代码）：直接看文末「用户说「配 Discord / 飞书」」一节。
+> 用户要装进 DSH、在 DSH 频道里 @ 成员：直接看「用户说「装进 DSH」」一节，两条命令就完。
 
 先读 README.md 与 CONTRIBUTING.md；目标/验收读 docs/GOALS.md，模块边界读 docs/ARCHITECTURE.md。开始前核对分支、HEAD、差异和对应 Issue/PR。
 
@@ -52,6 +53,20 @@
    不要动用户已在运行的 bothouse 进程，除非用户同意。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `bothouse`。
+
+## 用户说「装进 DSH」「在 DSH 频道里 @ 成员」
+
+DSH 桌面版或网页版用户，**两条命令就是全部**：不用 clone、不用读别的文档、不用 Discord token、不用起 bothouse 服务（频道跑在 DSH 进程里）。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add dsh --lang zh   # 用户说英文就 --lang en
+```
+
+- 输出 JSON 里 `ok: true` 就装完了，把 `next_steps` 原样告诉用户，收工。`ok: false` 时把 `error` 原样告诉用户。
+- 没有 Node、pnpm、`dsh` 命令都行：装了桌面版（`/Applications` 或 `~/Applications`）就用它自带的。桌面版开着会自动加载插件，侧栏出现「频道」。
+- 只装插件时 #general 里自带一个成员「鲸鱼娘」，用 DSH 当前的模型回话；DSH 还没配模型 Key 时第一句话会出卡片让用户去填。要多个成员、换 CLI 成员，让用户跑 `bothouse` 走网页向导。
+- **不要**重启或退出桌面版（你可能就跑在它里面），**不要**自己发消息、读 `~/.conest-collab` 数据库或连调试端口截图来验证，也不用看 web profile、端口和别的进程。
 
 ## 用户说「配 QQ」「接上 QQ」
 

@@ -87,6 +87,15 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 `module add` prints JSON: `ok: true` means saved; with `needs_user_action: true`, pass every `blocking` warning's `message` and `fix` to the user. Done when the log shows `discord: connected`; then ask the user to @ the bot in the channel. A bot ignores its own messages, so do not try to test it with its own token.
 
+**Put it into DSH (desktop app or web) and @ members in a DSH channel.** Say "install bothouse into DSH": no token, no browser, no bothouse service. Agents: these two commands are the whole job (see [AGENTS.md](AGENTS.md#用户说装进-dsh在-dsh-频道里--成员)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add dsh --lang en
+```
+
+`ok: true` means done; pass `next_steps` to the user as is. No Node needed: the desktop app's bundled one is used, the open app loads the plugin by itself, and the channel starts with one member, 鲸鱼娘. Do not restart the desktop app (you may be running inside it) and do not test the channel yourself.
+
 <a id="features"></a>
 
 <picture>
