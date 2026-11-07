@@ -32,7 +32,7 @@ const iconBtn = cn(
 
 export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t, i18n } = useTranslation();
-  const { theme, setTheme } = useThemeStore();
+  const { theme, resolved, setTheme } = useThemeStore();
   const isSetup = useLocation().pathname === '/setup';
   const T = wizardTexts(i18n.language);
   const logout = useAuthStore((s) => s.logout);
@@ -56,7 +56,13 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
   const ThemeIcon = THEME_ICONS[theme];
   const nextWizard = NEXT_WIZARD_THEME[theme];
-  const wizardStyleLabel = { yellow: T.yellowStyle, light: T.lightStyle, dark: T.darkStyle, system: T.yellowStyle };
+  // #225: the wizard button names the style the page is in now, not the one a click would switch to
+  // (the click still cycles yellow→light→dark, store/theme.ts NEXT_WIZARD_THEME). A style already
+  // picked elsewhere as 'system' is named by what it resolves to here, so the label never lies.
+  const wizardStyleLabel = {
+    yellow: T.yellowStyle, light: T.lightStyle, dark: T.darkStyle,
+    system: resolved === 'dark' ? T.darkStyle : T.lightStyle,
+  };
 
   const changeLang = (code: string) => {
     i18n.changeLanguage(code);
@@ -132,7 +138,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         className={cn(iconBtn, isSetup && 'w-auto sm:w-auto grid-flow-col auto-cols-max shrink-0 whitespace-nowrap gap-2 px-2 text-xs ring-1 ring-hairline')}
         aria-label={isSetup ? T.switchStyle : t('theme.toggle')} title={isSetup ? undefined : t(`theme.${theme}`)} data-testid="theme-toggle">
         <ThemeIcon size={16} />
-        {isSetup && <span>{wizardStyleLabel[nextWizard]}</span>}
+        {isSetup && <span>{wizardStyleLabel[theme]}</span>}
       </button>
 
       {/* Logout */}

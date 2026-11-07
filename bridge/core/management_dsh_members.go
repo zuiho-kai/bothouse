@@ -42,7 +42,7 @@ func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Re
 	}
 	c, state := m.dshClient()
 	if state.Status != "running" {
-		mgmtError(w, http.StatusServiceUnavailable, "DSH source unavailable")
+		mgmtError(w, http.StatusServiceUnavailable, dshUnavailableReason(state))
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
@@ -64,19 +64,22 @@ func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err != nil {
-		mgmtError(w, http.StatusBadGateway, "DSH request failed")
+		mgmtError(w, http.StatusBadGateway, "连不上 DSH：请求 "+target+" 失败（"+err.Error()+"）。")
 		return
 	}
 	defer resp.Body.Close()
 	var result map[string]any
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&result); err != nil {
+	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&result)
+	if decodeErr != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// A 2xx with an unreadable body is a broken answer; a non-2xx often has an empty body
+		// (404 from a plugin that never mounted), and the status is the real reason.
 		mgmtError(w, http.StatusBadGateway, "invalid DSH response")
 		return
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg, _ := result["error"].(string)
 		if msg == "" {
-			msg = "DSH request failed"
+			msg = dshStatusReason(r.Context(), target, resp.StatusCode)
 		}
 		status := resp.StatusCode
 		if status < 400 || status > 599 {

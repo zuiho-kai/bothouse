@@ -549,7 +549,15 @@
     "unavailable": "暂不可得",
     "unavailableWhy": "该 agent 的协议目前不提供每轮用量（如 ACP），不做估算。",
     "empty": "暂无记录",
-    "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。"
+    "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。",
+    "quickFilters": "快捷筛选",
+    "presetToday": "今日",
+    "presetThisWeek": "本周",
+    "presetThisMonth": "本月",
+    "presetLast7Days": "近7天",
+    "tokenBreakdown": "消耗结构",
+    "presetPastYear": "近一年",
+    "presetPastYearHint": "默认范围：今天往前一年（后端单次最多查一年）"
   },
   "wikiGalaxy": {
     "title": "Wiki 星河",

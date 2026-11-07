@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -90,7 +89,7 @@ func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus)
 			// behind it shows here, as a refused dial — stopped, the same as a dead pid.
 			return nil, dshStatus{Status: "stopped"}
 		}
-		return nil, dshStatus{Status: "error", Error: "DSH state could not be read"}
+		return nil, dshStatus{Status: "error", Error: dshStateReadError(context.WithoutCancel(ctx), c.target, err)}
 	}
 	return dshStateRoles(&st), status
 }
@@ -108,13 +107,13 @@ func (m *ManagementServer) dshClient() (dshAPI, dshStatus) {
 		// could not, an existing unreadable file is an error, not a stopped host.
 		if _, _, valid := readDSHWebState(); !valid {
 			if _, statErr := os.Stat(dshWebStatePath()); statErr == nil || !os.IsNotExist(statErr) {
-				return dshAPI{}, dshStatus{Status: "error", Error: "DSH host state could not be read"}
+				return dshAPI{}, dshStatus{Status: "error", Error: dshHostStateReadable}
 			}
 		}
 		return dshAPI{}, dshStatus{Status: "stopped"}
 	}
 	if err != nil {
-		return dshAPI{}, dshStatus{Status: "error", Error: "DSH host state could not be read"}
+		return dshAPI{}, dshStatus{Status: "error", Error: dshHostStateReadable}
 	}
 	return dshAPI{rt: &dshProxyTransport{p: m.dshProxyHandler(), target: target, launchToken: launchToken}, target: target}, dshStatus{Status: "running"}
 }
@@ -131,7 +130,7 @@ func (c dshAPI) get(ctx context.Context, path string, out any) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("dsh %s: HTTP %d", path, res.StatusCode)
+		return &dshHTTPError{Path: path, Code: res.StatusCode}
 	}
 	return json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(out)
 }
@@ -258,7 +257,7 @@ func (m *ManagementServer) dshSummary(ctx context.Context) DSHSummary {
 	}
 	var st dshState
 	if err := c.get(ctx, "/collab/api/state", &st); err != nil {
-		out.Status, out.Error = "error", "DSH state could not be read"
+		out.Status, out.Error = "error", dshStateReadError(context.WithoutCancel(ctx), c.target, err)
 		if errors.Is(err, errDSHWebNotRunning) {
 			out.Status, out.Error = "stopped", "" // see dshRoles: gone behind a zero pid
 		}
