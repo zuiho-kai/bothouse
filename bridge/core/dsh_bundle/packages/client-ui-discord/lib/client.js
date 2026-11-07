@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: da0c9c5a302ef6ee264266498e7338e9d6b28f39df71cee60d0c592d01b1026e
+// dsh-client-source-sha256: f3b804fcef29a2f8ce353106e16ae01cfdceeb2712500d96223f66490176870e
 // dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -19206,12 +19206,14 @@ function footnoteDefs(text, lines) {
 /**
 * Last line of the body of `def`, walking the lines its paragraph covers.
 *
-* Two definitions can never sit inside one body here: mdast nests a second definition only when
-* its line is indented four or more columns past the first one's content column, and such a line
-* is never collected as a definition (footnoteDefs() reads `[^x]:` at 0-3 columns only, like every
-* other list marker). A line it does collect therefore opens a block of its own, so the walk stops
-* there with the last line it really covered — no shortcut needed, and no re-walking either: both
-* bodies end before the next definition line, which keeps the whole pass linear in the text.
+* Two collected definitions can never sit inside one body: mdast nests a second definition inside
+* the first only when its line is indented four or more columns past the first one's content
+* column, and such a line is never collected as a definition (footnoteDefs() reads `[^x]:` at 0-3
+* columns only, like every other list marker). A line it does collect therefore opens a block of
+* its own, so the walk stops there with the last line it really covered — no shortcut needed, and
+* no re-walking either: both bodies end before the next definition line, which keeps the whole
+* pass linear in the text. This says nothing about a *nested* definition the page still renders:
+* that one is not collected here at all, and its page semantics stay a known deviation below.
 */
 function definitionBodyEnd(text, lines, def, next) {
 	let last = def.line;
@@ -19347,6 +19349,14 @@ function footnoteRanges(text, codeSpans) {
 *   not a definition here either, so a name on that line is a call there. Likewise a `[^2]` written
 *   only on a four-column line is not a reference on the page, while this backend reads it as one
 *   and shows the `[^2]:` definition the page keeps hidden.
+* - A nested definition — a `[^x]:` line indented four or more columns past the outer body's
+*   content column. The page nests it under the outer footnote and shows it only when its own
+*   label is called; this splitter collects definitions at 0-3 columns only, so that line is never
+*   a definition here. Both matchers then give the same answer, and it is not the page's, in both
+*   directions: `[^1]: a` / four-column `[^2]: 注 @name` / `见 [^1]` colours the name here while
+*   the page renders the outer footnote as `a` with no badge, and with `见 [^2]` nothing is
+*   coloured here while the page does show the badge. Same on bdd67b4 — not a regression of #271,
+*   and #323 corrected the notes instead of widening the implementation.
 * - A code span opened on a block line (`# ` + backtick + name): the paragraph already ended
 *   before the opener, so the page never makes it a span and colours the names; endsParagraph()
 *   only reads the lines between the runs, so the span still holds here.

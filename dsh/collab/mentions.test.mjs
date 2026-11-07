@@ -232,9 +232,14 @@ test('mentions: two definitions in a row are two bodies, not one (#271)', () => 
   assert.deepEqual(found('- [^1]: a\n  [^2]: 注 @G哥\n\n- 见 [^2]'), ['gge']); // inside a list item
   assert.deepEqual(found('- [^1]: a\n   [^2]: 注 @G哥\n\n- 见 [^2]'), ['gge']); // three columns there
   assert.deepEqual(found('[^1]: a\r\n[^2]: 注 @G哥\r\n\r\n见 [^2]'), ['gge']); // CRLF
-  // a nested definition (four columns) is inside the first body, so this label stays hidden: the
-  // page renders it inside the outer footnote, which only shows when the outer label is called
-  assert.deepEqual(found('[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]'), ['gge']);
+  // A nested definition (four columns) is a known page/backend deviation, not page truth (#323):
+  // the real HighlightedMarkdown DOM shows no badge with the outer label called ("见 1 / Footnotes
+  // / a ↩") and does show the gge badge when only the inner label is called. Both matchers answer
+  // the opposite in both directions, and they agreed before this code existed too. The two inputs
+  // stay pinned here as the record of that deviation: the assertions are this rule's current
+  // output, not the page's behaviour.
+  assert.deepEqual(found('[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]'), ['gge']); // page: no badge
+  assert.deepEqual(found('[^1]: a\n    [^2]: 注 @G哥\n\n见 [^2]'), []); // page: badge on gge
   // and the text itself is never rewritten
   const text = '[^1]: a\n[^2]: 注 @G哥\n\n见 [^2]';
   assert.equal(split(text, members).map(([s]) => s).join(''), text);

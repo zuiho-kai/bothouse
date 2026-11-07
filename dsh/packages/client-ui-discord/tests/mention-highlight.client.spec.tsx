@@ -331,6 +331,33 @@ describe('HighlightedMarkdown component', () => {
     expect(container.querySelectorAll('code').length).toBe(1)
   })
 
+  // #323: a nested (four-column) definition is a KNOWN DEVIATION, asserted here on the real
+  // renderer in both directions. The page treats the inner definition as a node of its own under
+  // the outer one and shows it only when the inner label itself is called — so calling the outer
+  // label renders "见 1 / Footnotes / a ↩" with no badge, and calling only the inner label renders
+  // the footnote with the gge badge. Both matchers answer the opposite in both directions, and
+  // answered the same way on c96a773 and bdd67b4: this was not introduced by #271 and is not fixed
+  // here (this round corrects the oracle and the notes, it does not widen the implementation).
+  it.each([
+    ['outer label called', '[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]', [], 'a ↩', ['gge']],
+    ['inner label called', '[^1]: a\n    [^2]: 注 @G哥\n\n见 [^2]', ['gge'], '注 @G哥 ↩', []],
+  ] as Array<[string, string, string[], string, string[]]>)(
+    'a nested definition is a known deviation: %s',
+    (_label, text, pageBadges, visibleText, matcherAnswer) => {
+      const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+      const badges = [...new Set([...container.querySelectorAll<HTMLElement>('[data-mention]')]
+        .map(node => node.dataset.mention!))].sort()
+      // what the page really renders, badge ids and the visible text of the footnote section
+      expect(badges).toEqual(pageBadges)
+      expect(container.textContent).toContain(visibleText)
+      // what both matchers answer — the deviation, recorded, never asserted as page truth
+      const segmentIds = [...new Set(splitMentions(text, testMembers).filter(s => s.member).map(s => s.member!.id))].sort()
+      expect(segmentIds).toEqual(matcherAnswer)
+      expect([...backendMentions(text, testMembers)].sort()).toEqual(matcherAnswer)
+      expect(splitMentions(text, testMembers).map(s => s.text).join('')).toBe(text)
+    }
+  )
+
   it('renders markdown text with mention pill badge and handles click', () => {
     const onMention = vi.fn()
     const { container } = render(

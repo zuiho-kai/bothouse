@@ -113,7 +113,12 @@ const CASES: Array<[string, string[]]> = [
   ['> [^1]: a\n> [^2]: 注 @G哥\n\n> 见 [^2]', ['gge']],
   ['- [^1]: a\n  [^2]: 注 @G哥\n\n- 见 [^2]', ['gge']],
   ['[^1]: a\r\n[^2]: 注 @G哥\r\n\r\n见 [^2]', ['gge']],
-  ['[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]', ['gge']],
+  // #323: not a page case. A four-column nested definition is a known deviation between the page
+  // and both matchers, in both directions, and was the same before #271: with the outer label
+  // called the page shows no badge ("见 1 / Footnotes / a ↩") while both matchers return gge; with
+  // only the inner label called the page shows the gge badge while both matchers return none.
+  // The two inputs are pinned in the deviating-directions table below, not in this equivalence
+  // table, so this table keeps asserting page truth only.
   // #271 rework: a reference on a definition line counts — the page prints that text — while the
   // `[^x]:` marker itself stays invisible
   ['[^1]: 见 [^2]\n\n[^2]: @G哥\n\n见 [^1]', ['gge']],
@@ -136,5 +141,30 @@ describe('mention rule parity: page highlight == backend call (#237)', () => {
     const backendIds = [...backendMentions(text, backendMembers)].sort()
     expect(backendIds).toEqual(expected)
     expect(pageIds).toEqual(backendIds)
+  })
+})
+
+// #323: known deviation — a four-column nested definition, pinned in both directions. This is NOT
+// a page-equivalence table and must not be folded back into CASES: both matchers answer the same
+// thing as each other by construction, so their agreement says nothing about the page. What the
+// real HighlightedMarkdown / MarkdownText DOM does with these exact inputs is asserted on the real
+// renderer in mention-highlight.client.spec.tsx ("a nested definition is a known deviation").
+// It is the same deviation on c96a773 and on bdd67b4: not introduced by #271, and not fixed here.
+const NESTED_DEVIATION: Array<[string, string, string, string[]]> = [
+  // the outer label is called: the page renders "见 1 / Footnotes / a ↩" and no badge at all
+  ['outer label called', '[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]', 'page shows no badge', ['gge']],
+  // only the inner label is called: the page renders the footnote with "注 @G哥" and the badge
+  ['inner label called', '[^1]: a\n    [^2]: 注 @G哥\n\n见 [^2]', 'page shows the gge badge', []],
+]
+
+describe('mention rule parity: known deviation, nested definition (#323)', () => {
+  it.each(NESTED_DEVIATION)('%s: both matchers agree, page differs (%s)', (_label, text, _page, matchers) => {
+    const page = splitMentions(text, members)
+    expect(page.map(s => s.text).join('')).toBe(text)
+    const pageIds = [...new Set(page.filter(s => s.member).map(s => s.member!.id))].sort()
+    const backendIds = [...backendMentions(text, backendMembers)].sort()
+    // the record of the deviation, not a claim about the page
+    expect(pageIds).toEqual(matchers)
+    expect(backendIds).toEqual(matchers)
   })
 })
