@@ -7808,7 +7808,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// before this point); settle the pending handback with what the user got.
 				e.settleReportWake(jobID, text, nil)
 			}
-			if !state.isStopped() {
+			// The adapters may terminate quota exhaustion with EventResult as well
+			// as EventError. It must not erase previous real work failures.
+			_, quotaResult := QuotaExhaustedReset(event)
+			if !state.isStopped() && !quotaResult {
 				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, false, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)

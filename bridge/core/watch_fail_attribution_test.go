@@ -402,6 +402,31 @@ func TestWatchQuotaMarksWithoutResetPreserveFailureCount(t *testing.T) {
 	}
 }
 
+func TestWatchQuotaResultPreservesFailuresWhileSuccessResets(t *testing.T) {
+	for _, quota := range []bool{true, false} {
+		t.Run(map[bool]string{true: "quota result", false: "ordinary success"}[quota], func(t *testing.T) {
+			event := Event{Type: EventResult, Done: true, Content: "finished"}
+			if quota {
+				event.Metadata = WithQuotaExhausted(nil, "")
+			}
+			as := &attributedFailSession{events: make(chan Event, 1), event: &event}
+			e, p, ws := watchTurnFixture(t, &attributedFailAgent{s: as})
+			e.watchTurnEnded(p, ws, "", false, true, false, false, time.Time{})
+			session := e.sessions.GetOrCreateActive(ws)
+			e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+			inputWait(t, func() bool { return !session.Busy() })
+			wantFails := 0
+			if quota {
+				wantFails = 1
+			}
+			got := handoffsOf(e, ws)[0]
+			if got.Idle.Fails != wantFails || got.Idle.Reported {
+				t.Fatalf("result quota=%v: %+v, want fails=%d", quota, got.Idle, wantFails)
+			}
+		})
+	}
+}
+
 type closedWatchAgent struct{ stubAgent }
 
 func (*closedWatchAgent) StartSession(context.Context, string) (AgentSession, error) {
