@@ -129,7 +129,7 @@ func TestSocial_TurnedOffByDefault(t *testing.T) {
 	if err := p.RemoveMoment(context.Background(), "tid-1"); !errors.Is(err, core.ErrSocialDisabled) {
 		t.Fatalf("RemoveMoment 应当回 ErrSocialDisabled，实际 %v", err)
 	}
-	if _, err := p.ReplaceMoment(context.Background(), "tid-1", "换一下", nil); !errors.Is(err, core.ErrSocialDisabled) {
+	if _, err := p.ReplaceMoment(context.Background(), "tid-1", "换一下"); !errors.Is(err, core.ErrSocialDisabled) {
 		t.Fatalf("ReplaceMoment 应当回 ErrSocialDisabled，实际 %v", err)
 	}
 	if err := p.SetAvatar(context.Background(), core.ImageAttachment{Data: []byte("x")}); !errors.Is(err, core.ErrSocialDisabled) {
@@ -218,13 +218,26 @@ func TestSocial_PostsReadsAndDeletes(t *testing.T) {
 	}
 }
 
+// socialReplaceListReply 是换说说回读旧说说时用的固定回答：old-tid 带两张图，
+// 用来验证「换一条」不会把图弄丢。
+func socialReplaceListReply() (int, map[string]any) {
+	return 0, map[string]any{"total": 2, "msglist": []any{
+		map[string]any{"tid": "old-tid", "content": "原来的说法", "time": 1762300000,
+			"images": []any{"https://example.invalid/1.png", "https://example.invalid/2.png"}},
+		map[string]any{"tid": "older-tid", "content": "更早的一条", "time": 1762200000},
+	}}
+}
+
 // TestSocial_ReplacePublishesThenDeletes：换说说不是「发一条再删一条」两个独立动作，
 // 而是一次调用里的有序两步：新的先发出去，成功了才删旧的。顺序也不能反。
 func TestSocial_ReplacePublishesThenDeletes(t *testing.T) {
 	f := newSocialOneBot(t)
 	f.respond = func(action string) (int, map[string]any) {
-		if action == "send_qzone_msg" {
+		switch action {
+		case "send_qzone_msg":
 			return 0, map[string]any{"tid": "new-tid"}
+		case "get_qzone_msg_list":
+			return socialReplaceListReply()
 		}
 		return 0, map[string]any{}
 	}
@@ -233,7 +246,7 @@ func TestSocial_ReplacePublishesThenDeletes(t *testing.T) {
 	if !p.SocialCapabilities().ReplaceMoment {
 		t.Fatalf("allow_qzone 打开后换说说该可用：%+v", p.SocialCapabilities())
 	}
-	m, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", nil)
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
 	if err != nil {
 		t.Fatalf("ReplaceMoment: %v", err)
 	}
@@ -248,20 +261,88 @@ func TestSocial_ReplacePublishesThenDeletes(t *testing.T) {
 	if len(dels) != 1 || dels[0]["tid"] != "old-tid" {
 		t.Fatalf("delete_qzone_msg 该删旧的那条：%v", dels)
 	}
+	// 旧说说自带的图要原样带到新的一条上，否则「换一条」就是悄悄删图。
+	imgs, _ := sends[0]["images"].([]any)
+	if len(imgs) != 2 || imgs[0] != "https://example.invalid/1.png" || imgs[1] != "https://example.invalid/2.png" {
+		t.Fatalf("旧说说的图没带过去：%v", sends[0]["images"])
+	}
+}
+
+// TestSocial_ReplaceRefusesWhenOldPostUnreadable：读不回原来那条就不知道它带没带
+// 图，这时候一个新请求都不该发出去——宁可不换，也不能发个没图的再把原的删了。
+func TestSocial_ReplaceRefusesWhenOldPostUnreadable(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "get_qzone_msg_list" {
+			return 0, map[string]any{"total": 1, "msglist": []any{
+				map[string]any{"tid": "someone-else", "content": "不是这条"},
+			}}
+		}
+		return 0, map[string]any{"tid": "new-tid"}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	if err == nil {
+		t.Fatal("读不回旧说说时该报错")
+	}
+	if n := len(f.calls("send_qzone_msg")); n != 0 {
+		t.Fatalf("读不回旧说说还发了 %d 次新的", n)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("读不回旧说说还删了 %d 次", n)
+	}
+	if !strings.Contains(err.Error(), "先不动它") {
+		t.Fatalf("错误要说清旧的没动：%q", err.Error())
+	}
+}
+
+// TestSocial_ReplaceRefusesLocalFileImage：上游返回的图片地址如果是个本地路径
+// （file:// 或裸路径），NapCat 也会照收——那等于让一条响应决定发哪台机器上的文件。
+// 这种情况按「图带不过去」处理：一个请求都不发。
+func TestSocial_ReplaceRefusesLocalFileImage(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "get_qzone_msg_list" {
+			return 0, map[string]any{"total": 1, "msglist": []any{
+				map[string]any{"tid": "old-tid", "content": "带本地路径的图",
+					"images": []any{"file:///etc/passwd"}},
+			}}
+		}
+		return 0, map[string]any{"tid": "new-tid"}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	if err == nil {
+		t.Fatal("图片地址不是 http(s) 时该报错")
+	}
+	if n := len(f.calls("send_qzone_msg")); n != 0 {
+		t.Fatalf("图带不过去还发了 %d 次新的", n)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("图带不过去还删了 %d 次旧的", n)
+	}
+	if !strings.Contains(err.Error(), "先不动它") {
+		t.Fatalf("错误要说清旧的没动：%q", err.Error())
+	}
 }
 
 // TestSocial_ReplaceKeepsOldPostWhenPublishFails：发新的失败时，旧的一条绝不能动。
 func TestSocial_ReplaceKeepsOldPostWhenPublishFails(t *testing.T) {
 	f := newSocialOneBot(t)
 	f.respond = func(action string) (int, map[string]any) {
-		if action == "send_qzone_msg" {
+		switch action {
+		case "send_qzone_msg":
 			return 1400, nil // 上游拒绝发布
+		case "get_qzone_msg_list":
+			return socialReplaceListReply()
 		}
 		return 0, map[string]any{}
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "新的发不出去", nil)
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "新的发不出去")
 	if err == nil {
 		t.Fatal("发新的失败时该报错")
 	}
@@ -271,16 +352,23 @@ func TestSocial_ReplaceKeepsOldPostWhenPublishFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "旧的原样保留") {
 		t.Fatalf("错误里要说清旧的没动：%q", err.Error())
 	}
+	// 发新的失败不是部分成功：不该冒充「两条都在」。
+	var partial *core.MomentReplacePartialError
+	if errors.As(err, &partial) {
+		t.Fatalf("发新的失败不该是部分成功：%+v", partial)
+	}
 }
 
 // TestSocial_ReplaceSaysBothExistWhenDeleteFails：新的发出去了、旧的删不掉时，
-// 不能假装替换成功，要把「现在有两条」带回去。
+// 不能假装替换成功，要把「现在有两条」带回去，并且带上新那条。
 func TestSocial_ReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
 	f := newSocialOneBot(t)
 	f.respond = func(action string) (int, map[string]any) {
 		switch action {
 		case "send_qzone_msg":
 			return 0, map[string]any{"tid": "new-tid"}
+		case "get_qzone_msg_list":
+			return socialReplaceListReply()
 		case "delete_qzone_msg":
 			return 1404, nil
 		}
@@ -288,15 +376,56 @@ func TestSocial_ReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的", nil)
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的")
 	if err == nil {
 		t.Fatal("旧的没删掉时该报错")
 	}
 	if m.ID != "new-tid" {
 		t.Fatalf("新的已经发出去了，要把它带回：%+v", m)
 	}
+	var partial *core.MomentReplacePartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("删旧失败应当是部分成功（带 Moment）：%v", err)
+	}
+	if partial.Moment.ID != "new-tid" {
+		t.Fatalf("部分成功里没带新说说：%+v", partial.Moment)
+	}
 	if !strings.Contains(err.Error(), "两条") {
 		t.Fatalf("错误里要说清现在有两条：%q", err.Error())
+	}
+}
+
+// TestSocial_ReplaceWithoutNewTidIsPartialNotClean：上游说发了但没给 tid 时，既
+// 确认不了新的是哪条、也确认不了删对了旧的，只能算部分成功，且不能去删旧的。
+func TestSocial_ReplaceWithoutNewTidIsPartialNotClean(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		switch action {
+		case "send_qzone_msg":
+			return 0, map[string]any{}
+		case "get_qzone_msg_list":
+			return socialReplaceListReply()
+		}
+		return 0, map[string]any{}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的")
+	if err == nil {
+		t.Fatal("没有新 tid 时不能算换完")
+	}
+	if m.ID != "" {
+		t.Fatalf("上游没给 tid，返回的 ID 该是空：%+v", m)
+	}
+	var partial *core.MomentReplacePartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("没有新 tid 应当是部分成功：%v", err)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("不知道新的是哪条还去删旧的 %d 次", n)
+	}
+	if !strings.Contains(err.Error(), "可能现在有两条") {
+		t.Fatalf("错误要说清可能两条：%q", err.Error())
 	}
 }
 

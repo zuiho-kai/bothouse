@@ -29,8 +29,11 @@ type fakeSocialPlatform struct {
 	listErr    error
 	postErr    error
 	replaceErr error
-	avatarErr  error
-	replaced   []string
+	// replacePartial 设了就是「新的发出去了、旧的没删掉」：返回这条 Moment
+	// 外加一个 MomentReplacePartialError。
+	replacePartial *Moment
+	avatarErr      error
+	replaced       []string
 }
 
 func (f *fakeSocialPlatform) Name() string                                   { return "qq" }
@@ -69,9 +72,12 @@ func (f *fakeSocialPlatform) PostMoment(_ context.Context, text string, images [
 	return Moment{ID: fmt.Sprintf("tid-%d", len(f.posted)), Text: text, Time: time.Now()}, nil
 }
 
-func (f *fakeSocialPlatform) ReplaceMoment(_ context.Context, id, text string, _ []MomentImage) (Moment, error) {
+func (f *fakeSocialPlatform) ReplaceMoment(_ context.Context, id, text string) (Moment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.replacePartial != nil {
+		return *f.replacePartial, &MomentReplacePartialError{Moment: *f.replacePartial, Err: f.replaceErr}
+	}
 	if f.replaceErr != nil {
 		return Moment{}, f.replaceErr
 	}
@@ -96,6 +102,19 @@ func (f *fakeSocialPlatform) SetAvatar(_ context.Context, img ImageAttachment) e
 	return nil
 }
 
+// fakeSocialPosterOnly 只有发说说的接口，没有 MomentReplacer：用来证明换说说的
+// 能力是按接口报的，不是按平台名猜的。嵌入的是接口而不是 fakeSocialPlatform，
+// 否则 ReplaceMoment 会被一起提升上来，这条用例就白测了。
+type fakeSocialPosterOnly struct {
+	Platform
+	MomentPoster
+}
+
+func newSocialPosterOnly() *fakeSocialPosterOnly {
+	f := &fakeSocialPlatform{}
+	return &fakeSocialPosterOnly{Platform: f, MomentPoster: f}
+}
+
 // socialPNG is a 1x1 transparent PNG: small enough to inline, real enough for
 // http.DetectContentType to call it image/png.
 func socialPNG() []byte {
@@ -105,7 +124,7 @@ func socialPNG() []byte {
 
 // engineWithSocial builds the same management server testManagementServer
 // builds, but with our fake platform on the engine.
-func engineWithSocial(t *testing.T, plat *fakeSocialPlatform) (*httptest.Server, string) {
+func engineWithSocial(t *testing.T, plat Platform) (*httptest.Server, string) {
 	t.Helper()
 	_, ts, e := testManagementServer(t, "tok")
 	if plat != nil {
@@ -127,6 +146,24 @@ func socialGet(t *testing.T, url string, out any) int {
 		_ = json.NewDecoder(resp.Body).Decode(out)
 	}
 	return resp.StatusCode
+}
+
+// socialPostRaw 与 socialPostJSON 相同，但把整个响应体按 map 交回，用来核对
+// 失败响应里除了 error 还带回来的字段（换说说的部分成功会带 moment）。
+func socialPostRaw(t *testing.T, url string, body any) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
 }
 
 func socialPostJSON(t *testing.T, url string, body any) (int, mgmtResponse) {
@@ -238,21 +275,16 @@ func TestMgmt_SocialPostsAndDeletes(t *testing.T) {
 }
 
 // TestMgmt_SocialReplacesInOneCall：换说说是一个动作，不是面板自己发一条再删一条。
-// 面板只发一次请求，平台收到的是 id + 新文字。
+// 面板只发一次请求，平台收到的是 id + 新文字；图片不经过接口层，由平台自己从旧
+// 那条上带过来。
 func TestMgmt_SocialReplacesInOneCall(t *testing.T) {
 	plat := &fakeSocialPlatform{}
 	ts, _ := engineWithSocial(t, plat)
 
-	var body struct {
-		OK   bool `json:"ok"`
-		Data struct {
-			Moment Moment `json:"moment"`
-		} `json:"data"`
-	}
-	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+	code, raw := socialPostRaw(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
 		map[string]string{"id": "tid-old", "text": "换了个说法"})
-	if code != 200 || !resp.OK {
-		t.Fatalf("换说说失败：%d %s", code, resp.Error)
+	if code != 200 || raw["ok"] != true {
+		t.Fatalf("换说说失败：%d %v", code, raw["error"])
 	}
 	if len(plat.replaced) != 1 || plat.replaced[0] != "tid-old|换了个说法" {
 		t.Fatalf("平台没收到换说说：%v", plat.replaced)
@@ -261,7 +293,11 @@ func TestMgmt_SocialReplacesInOneCall(t *testing.T) {
 	if len(plat.posted) != 0 || len(plat.deleted) != 0 {
 		t.Fatalf("接口层不该自己发/删：posted=%v deleted=%v", plat.posted, plat.deleted)
 	}
-	_ = body
+	data, _ := raw["data"].(map[string]any)
+	moment, _ := data["moment"].(map[string]any)
+	if moment["id"] != "tid-replaced-1" {
+		t.Fatalf("新说说没带回来：%v", data)
+	}
 
 	if code, _ = socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
 		map[string]string{"text": "没给 id"}); code != http.StatusBadRequest {
@@ -274,18 +310,71 @@ func TestMgmt_SocialReplacesInOneCall(t *testing.T) {
 }
 
 // TestMgmt_SocialReplaceSaysBothExistWhenDeleteFails：平台报「新的发了、旧的没删」时，
-// 那句人话要原样到面板，不能吞成一句普通失败。
+// 那句人话要原样到面板，而且要把新那条一起带回去——否则人只看到失败，不知道空间里
+// 已经多了一条，也不知道该删哪条。
 func TestMgmt_SocialReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
-	plat := &fakeSocialPlatform{replaceErr: fmt.Errorf("新的已经发出（tid=new），但旧的 tid-old 没删掉，现在空间里有两条")}
+	published := Moment{ID: "tid-new", Text: "新的", Time: time.Unix(1762300000, 0)}
+	plat := &fakeSocialPlatform{
+		replacePartial: &published,
+		replaceErr:     fmt.Errorf("新的已经发出（tid=tid-new），但旧的 tid-old 没删掉，现在空间里有两条"),
+	}
 	ts, _ := engineWithSocial(t, plat)
+
+	code, raw := socialPostRaw(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "新的"})
+	if code == 200 || raw["ok"] != false {
+		t.Fatalf("该报失败，实际 %d ok=%v", code, raw["ok"])
+	}
+	msg, _ := raw["error"].(string)
+	if !strings.Contains(msg, "两条") {
+		t.Fatalf("丢掉了「有两条」这句：%q", msg)
+	}
+	moment, _ := raw["moment"].(map[string]any)
+	if moment["id"] != "tid-new" {
+		t.Fatalf("失败响应里该带上新那条，实际 %v", raw["moment"])
+	}
+}
+
+// TestMgmt_SocialReplaceOffIsForbidden：接口在、配置没打开时，换说说和发说说一样是
+// 403（不是「平台做不到」的 501），消息里点名配置项。
+func TestMgmt_SocialReplaceOffIsForbidden(t *testing.T) {
+	off := SocialCapabilities{DisabledReason: "allow_qzone is off in this project's qq options"}
+	ts, _ := engineWithSocial(t, &fakeSocialPlatform{caps: &off})
 
 	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
 		map[string]string{"id": "tid-old", "text": "新的"})
-	if code == 200 || resp.OK {
-		t.Fatalf("该报失败，实际 %d ok=%v", code, resp.OK)
+	if code != http.StatusForbidden {
+		t.Fatalf("关着时该 403，实际 %d %s", code, resp.Error)
 	}
-	if !strings.Contains(resp.Error, "两条") {
-		t.Fatalf("丢掉了「有两条」这句：%q", resp.Error)
+	if !strings.Contains(resp.Error, "allow_qzone") {
+		t.Fatalf("消息要点名配置项：%q", resp.Error)
+	}
+}
+
+// TestMgmt_SocialReplaceWithoutInterfaceIs501：只实现 MomentPoster、没有
+// MomentReplacer 的平台不能换，接口回 501 且能力报 false，面板因此不摆那个按钮。
+func TestMgmt_SocialReplaceWithoutInterfaceIs501(t *testing.T) {
+	ts, _ := engineWithSocial(t, newSocialPosterOnly())
+
+	var body struct {
+		Data struct {
+			Capabilities SocialCapabilities `json:"capabilities"`
+		} `json:"data"`
+	}
+	if code := socialGet(t, ts.URL+"/api/v1/projects/test-project/social", &body); code != 200 {
+		t.Fatalf("GET social 状态码 %d", code)
+	}
+	if body.Data.Capabilities.ReplaceMoment {
+		t.Fatal("平台没有 MomentReplacer 却报了 replace_moment=true")
+	}
+	if !body.Data.Capabilities.PostMoment {
+		t.Fatal("发说说还在，不该被一起关掉")
+	}
+
+	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "新的"})
+	if code != http.StatusNotImplemented {
+		t.Fatalf("平台不能换时该 501，实际 %d %s", code, resp.Error)
 	}
 }
 

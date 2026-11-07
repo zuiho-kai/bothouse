@@ -34,10 +34,16 @@ type Moment struct {
 	Private bool      `json:"private"` // only some people (or nobody but the owner) can see it
 }
 
-// MomentImage is one picture to attach to a post. Bytes rather than a path so
-// the platform does not need to know the caller's filesystem.
+// MomentImage is one picture to attach to a post.
+//
+// Data is the picture itself, so the platform does not need to know the
+// caller's filesystem. URL is the alternative a replace uses: pictures read
+// back from an existing post arrive as URLs on the platform's own CDN, and
+// handing that URL back to the platform keeps the picture without this process
+// downloading and re-uploading it. Exactly one of the two is set.
 type MomentImage struct {
 	Data []byte
+	URL  string // a URL the platform can fetch itself (what ListMoments returns)
 	Name string // file name, for logs only
 }
 
@@ -65,15 +71,50 @@ type MomentPoster interface {
 // satisfy this by publishing the new text first and deleting the old post
 // afterwards. That order is the point: a failure while publishing leaves the
 // old post untouched, so the caller can never lose the words it already had.
-// When the post is published but the old one cannot be deleted, implementations
-// return the new Moment together with a non-nil error, and the caller must tell
-// the person that both posts exist.
+//
+// This is NOT an atomic swap, and callers must not describe it as one. Three
+// outcomes exist:
+//
+//  1. clean replace: the new post is out, the old one is gone, nil error.
+//  2. publish failed: the old post is untouched; non-nil error, zero Moment.
+//     Nothing was lost and nothing extra exists.
+//  3. partial: the new post is out but the old one survives — the delete failed,
+//     or the platform did not say which post the new one is (so nobody could
+//     tidy up afterwards). Implementations return the new Moment together with
+//     a non-nil error, and callers must both show the message and hand the new
+//     Moment back so the person can see there are now two posts and remove one
+//     deliberately. Retrying the same replace in this state publishes another
+//     copy; callers must not offer that retry without a fresh list.
 type MomentReplacer interface {
-	// ReplaceMoment replaces post id with text/images and returns the post that
-	// now carries the words. The returned Moment has an empty ID when the new
-	// post went out but the platform did not say which one it is.
-	ReplaceMoment(ctx context.Context, id, text string, images []MomentImage) (Moment, error)
+	// ReplaceMoment replaces post id with text and returns the one that now
+	// carries the words.
+	//
+	// There is no images parameter on purpose. Everything the old post carried
+	// besides its words — pictures above all — belongs to the old post, and an
+	// implementation must carry it over itself: it is the only side that can
+	// read the post back. When it cannot read the old post, it must fail before
+	// publishing anything rather than publish a copy that silently lacks the
+	// pictures, because the old post is deleted afterwards.
+	//
+	// The returned Moment has an empty ID when the new post went out but the
+	// platform did not say which one it is; that is outcome 3 above, never a
+	// clean replace.
+	ReplaceMoment(ctx context.Context, id, text string) (Moment, error)
 }
+
+// MomentReplacePartialError means the replace did not finish cleanly but the new
+// post is already out: the old post is still there too. It carries the new
+// Moment so the caller can show it and let the person remove one deliberately.
+// Callers must not treat it as "nothing happened" and must not retry blindly —
+// a retry publishes yet another copy.
+type MomentReplacePartialError struct {
+	Moment Moment
+	Err    error
+}
+
+func (e *MomentReplacePartialError) Error() string { return e.Err.Error() }
+
+func (e *MomentReplacePartialError) Unwrap() error { return e.Err }
 
 // AvatarSetter is an optional Platform extension for changing the account's
 // own avatar. The picture is passed as bytes for the same reason as above.

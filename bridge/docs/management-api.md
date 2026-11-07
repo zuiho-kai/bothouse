@@ -1216,20 +1216,37 @@ two posts or none.
 
 **Order and failure** (important): QQ空间 has no upstream call that edits a post's words; it
 has publish, delete, read and visibility only. So the implementation **publishes the new post
-first and only then deletes the old one**, and the order cannot be reversed:
+first and only then deletes the old one**, and the order cannot be reversed. **This is not an
+atomic swap.** There are three outcomes:
 
-1. Publishing failed → the old post is **untouched**, the error says "the old one is kept as it
-   was", and the person still has the words they had.
-2. The new post went out but deleting the old one failed → the route returns non-2xx, the
-   message names the new tid and says both posts now exist, and the new post comes back with it.
-   It never pretends the replacement was clean.
+1. **Clean replace**: new post out, old post deleted → `200`, `data.moment` is the new post.
+2. **Publish failed** → the old post is **untouched** and no extra post exists; non-2xx, and the
+   message says the old one is kept as it was.
+3. **Partial**: the new post went out but the old one survived — the delete failed, or the
+   upstream gave no tid for the new post so it cannot be known which one to remove. The route
+   answers non-2xx with `ok:false`, the message says both posts now exist (or likely do), and the
+   **same body carries `moment`** (the new post) so the panel can show it and re-read the list:
 
-So it always moves forward and never loses the original words; the price is that the edge case
-briefly leaves two posts. The flag is `capabilities.replace_moment`; when a platform has no such
-capability the panel hides the button and the route answers `501`.
+```json
+{ "ok": false, "error": "replace: the new post is out (tid=…) but the old … could not be removed; there are two posts now", "moment": { "id": "new-tid", "text": "…" } }
+```
 
-Errors: `400` missing `id` or empty text, `403` not enabled (the message names `allow_qzone`),
-`501` the platform cannot replace.
+In that state **pressing replace again publishes another copy**; the panel does not retry by
+itself — the extra post has to be deleted first.
+
+**Pictures**: replace only changes the words; it takes no image parameter. Pictures on the old
+post are read back by the platform itself (looked up by tid among the most recent 50 posts) and
+published with the new post, so "replace" never drops them. When the old post cannot be read back
+(too old, outside those 50, or the list call failed) **nothing is published at all**: the call
+fails and the original stays. Better no replace than a picture-less copy after deleting the one
+with pictures.
+
+The flag is `capabilities.replace_moment`; when a platform does not implement `MomentReplacer`
+the panel hides the button and the route answers `501`.
+
+Errors: `400` missing `id` or empty text, `403` not enabled (the message names `allow_qzone`, same
+as posting), `501` the platform cannot replace, `502` upstream refused (with `moment` on partial
+success as above).
 
 ---
 

@@ -23,6 +23,7 @@ export interface SocialTexts {
   replacing: string
   replaceLabel: string
   replaceConfirm: string
+  replaceKeepsImages: (n: number) => string
   replaced: string
   replaceCancel: string
   delete: string
@@ -63,7 +64,8 @@ const zh: SocialTexts = {
   replace: '换一条',
   replacing: '正在换…',
   replaceLabel: '改成什么',
-  replaceConfirm: '换掉这一条的说法？会先发新的，成功了再删旧的；中间失败不会把原来的弄丢。',
+  replaceConfirm: '换掉这一条的说法？会先发新的，成功了才删旧的。发新的失败时原来那条原样保留；万一旧的没删掉，会告诉你空间里有两条。不是原子替换。',
+  replaceKeepsImages: (n) => `这条带的 ${n} 张图会一起搬到新的那条上。`,
   replaced: '换好了',
   replaceCancel: '取消',
   delete: '删掉',
@@ -104,7 +106,8 @@ const en: SocialTexts = {
   replace: 'Replace',
   replacing: 'Replacing…',
   replaceLabel: 'New words',
-  replaceConfirm: 'Replace this post? The new one goes out first, then the old one is removed; a failure in between never loses the original.',
+  replaceConfirm: 'Replace this post? The new one goes out first and the old one is removed only after that succeeds. If publishing fails the old post stays as it was; if the old one cannot be removed you will be told there are two. This is not an atomic swap.',
+  replaceKeepsImages: (n) => `The ${n} picture(s) on this post move to the new one too.`,
   replaced: 'Replaced',
   replaceCancel: 'Cancel',
   delete: 'Delete',
@@ -145,7 +148,8 @@ const ja: SocialTexts = {
   replace: '差し替え',
   replacing: '差し替え中…',
   replaceLabel: '新しい本文',
-  replaceConfirm: 'この投稿を差し替えますか？新しい投稿を先に出し、成功してから元を削除します。途中で失敗しても元は失われません。',
+  replaceConfirm: 'この投稿を差し替えますか？新しい投稿を先に出し、それが成功してから元を削除します。投稿に失敗した場合は元の投稿はそのまま残ります。元を削除できなかった場合は「2 件ある」とお伝えします。アトミックな入れ替えではありません。',
+  replaceKeepsImages: (n) => `この投稿の画像 ${n} 枚も新しい投稿に引き継ぎます。`,
   replaced: '差し替えました',
   replaceCancel: 'キャンセル',
   delete: '削除',

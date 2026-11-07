@@ -108,6 +108,12 @@ export default function SocialPanel({ project }: { project: string }) {
       await fetchData();
     } catch (e: any) {
       setFailed(T.failed(e?.message || String(e)));
+      // 部分成功：新的已经发出去了、旧的还在。关掉编辑器并重新拉列表，
+      // 让人亲眼看到现在是两条，再自己决定删哪条——这里不替人重试。
+      if (e?.body?.moment) {
+        cancelReplace();
+        await fetchData();
+      }
     } finally {
       setBusy('');
     }
@@ -269,6 +275,11 @@ export default function SocialPanel({ project }: { project: string }) {
                     {editing === m.id && (
                       <div className="mt-3 rounded-lg bg-surface-sunken p-3" data-testid={`social-editor-${m.id}`}>
                         <label className="mb-1 block text-xs font-medium text-ink-soft">{T.replaceLabel}</label>
+                        {m.images.length > 0 && (
+                          <p className="mb-2 text-[12px] text-ink-mute" data-testid={`social-edit-keeps-images-${m.id}`}>
+                            {T.replaceKeepsImages(m.images.length)}
+                          </p>
+                        )}
                         <Textarea
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}

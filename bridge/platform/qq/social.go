@@ -126,6 +126,12 @@ func (p *Platform) PostMoment(ctx context.Context, text string, images []core.Mo
 	if len(images) > 0 {
 		files := make([]string, 0, len(images))
 		for _, img := range images {
+			// 换说说把旧说说自带的图原样带过来时是 URL：NapCat 的 send_qzone_msg
+			// 支持 http(s)://，让它自己去取，这里不必下载再传一遍。
+			if u := strings.TrimSpace(img.URL); u != "" {
+				files = append(files, u)
+				continue
+			}
 			if len(img.Data) == 0 {
 				continue
 			}
@@ -177,30 +183,94 @@ func (p *Platform) RemoveMoment(ctx context.Context, id string) error {
 // there, so a caller never loses what it had. If publishing worked but the delete
 // then failed, both posts exist and the error says so instead of pretending the
 // replacement was clean.
-func (p *Platform) ReplaceMoment(ctx context.Context, id, text string, images []core.MomentImage) (core.Moment, error) {
+func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Moment, error) {
 	if err := p.qzoneOff(); err != nil {
 		return core.Moment{}, err
 	}
 	if strings.TrimSpace(id) == "" {
 		return core.Moment{}, fmt.Errorf("qq: 换说说需要原来是哪一条（tid）")
 	}
-	if strings.TrimSpace(text) == "" && len(images) == 0 {
-		return core.Moment{}, fmt.Errorf("qq: 换说说需要文字或至少一张图")
+	if strings.TrimSpace(text) == "" {
+		return core.Moment{}, fmt.Errorf("qq: 换说说需要新的文字")
 	}
 	if qzoneHasTextEdit {
 		// 上游将来若有正文编辑入口，在这里直接改那一条，不再发新删旧。
 		return core.Moment{}, fmt.Errorf("qq: 换说说还没有接上正文编辑入口")
 	}
-	published, err := p.PostMoment(ctx, text, images)
+	old, err := p.momentByID(ctx, id)
+	if err != nil {
+		// 读不回原来那条就不知道它带没带图。宁可什么都不发，也不发一条
+		// 丢了图的「新版」再把原来的删掉。
+		return core.Moment{}, fmt.Errorf("qq: 换说说：读不回原来那条，先不动它: %w", err)
+	}
+	carry, err := imagesForCarryOver(old)
+	if err != nil {
+		// 旧说说上的图带不过去（不是 http(s) 链接），同样不能发个没图的再删原的。
+		return core.Moment{}, fmt.Errorf("qq: 换说说：旧说说的图带不过去，先不动它: %w", err)
+	}
+	published, err := p.PostMoment(ctx, text, carry)
 	if err != nil {
 		// 旧的那条没动：调用方可以照原样留着。
 		return core.Moment{}, fmt.Errorf("qq: 换说说：新的没发出去，旧的原样保留: %w", err)
 	}
+	if published.ID == "" {
+		// 新的发出去了，但上游没给 tid：既没法确认是哪一条，也没法保证删对了
+		// 旧的。这时不能算换完，更不能去删旧的，只能如实说可能两条。
+		return published, &core.MomentReplacePartialError{Moment: published, Err: fmt.Errorf(
+			"qq: 换说说：新的已经发出，但上游没给 tid，没法确认是哪一条；旧的 %s 原样保留，空间里可能现在有两条", id)}
+	}
 	if err := p.RemoveMoment(ctx, id); err != nil {
-		// 两条都在。如实说，别让调用方以为替换干净了。
-		return published, fmt.Errorf("qq: 换说说：新的已经发出（tid=%s），但旧的 %s 没删掉，现在空间里有两条: %w", published.ID, id, err)
+		// 部分成功：两条都在。如实说，别让调用方以为替换干净了。
+		return published, &core.MomentReplacePartialError{Moment: published, Err: fmt.Errorf(
+			"qq: 换说说：新的已经发出（tid=%q），但旧的 %s 没删掉，现在空间里有两条；不要直接再点一次换，会再多一条: %w", published.ID, id, err)}
 	}
 	return published, nil
+}
+
+// qzoneReplaceLookback 是换说说回读旧说说时翻的最近条数。
+// 来源：沿用 core/management_social.go socialMomentLimit 的上限 50（面板一次最多拉
+// 50 条），再老的说说不在这批里，此时按「读不回」处理，宁可不换也不丢图。
+const qzoneReplaceLookback = 50
+
+// momentByID 读回自己的一条说说。换说说要靠它拿到旧说说自带的图，才能把图原样
+// 带到新的一条上；读不到就是读不到，不做猜测。
+func (p *Platform) momentByID(ctx context.Context, id string) (core.Moment, error) {
+	moments, err := p.ListMoments(ctx, qzoneReplaceLookback)
+	if err != nil {
+		return core.Moment{}, err
+	}
+	for _, m := range moments {
+		if m.ID == id {
+			return m, nil
+		}
+	}
+	return core.Moment{}, fmt.Errorf("最近 %d 条说心里没有 %s（太老的那条读不回来）", qzoneReplaceLookback, id)
+}
+
+// imagesForCarryOver turns the picture URLs read back from an existing post into
+// the images of the new one. They stay URLs: NapCat accepts http(s):// and
+// fetches them itself, so the picture is not downloaded and re-uploaded here.
+//
+// Only http(s) is accepted. NapCat would also take file://, and handing it a path
+// that came out of an upstream response would let that response name a local
+// file; an old post's pictures are always http(s) in practice, so anything else
+// is treated as "cannot carry the pictures over" rather than as a special case.
+func imagesForCarryOver(m core.Moment) ([]core.MomentImage, error) {
+	if len(m.Images) == 0 {
+		return nil, nil
+	}
+	out := make([]core.MomentImage, 0, len(m.Images))
+	for _, u := range m.Images {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			return nil, fmt.Errorf("图片地址不是 http(s) 链接：%q", u)
+		}
+		out = append(out, core.MomentImage{URL: u})
+	}
+	return out, nil
 }
 
 // SetAvatar replaces the bot account's avatar with the given picture.

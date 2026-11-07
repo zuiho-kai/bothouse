@@ -199,6 +199,9 @@ func (m *ManagementServer) socialPostMoment(w http.ResponseWriter, r *http.Reque
 // socialReplaceMoment 换说说：把这一条换成新的文字，只发一次请求，不是让面板
 // 自己「先发一条再删一条」——那样中途失败就会留下两条或零条。语义与失败顺序写在
 // core.MomentReplacer 上：先发新的，成功了才删旧的。
+//
+// 这里不发图片参数：旧说说带的图由平台自己读回来并带过去（见 MomentReplacer 的
+// 注释）。接口层拿不到那些图，也就不该假装能传。
 func (m *ManagementServer) socialReplaceMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
 	if !m.requireSocialWrites(w) {
 		return
@@ -224,21 +227,37 @@ func (m *ManagementServer) socialReplaceMoment(w http.ResponseWriter, r *http.Re
 		return
 	}
 	replacer, ok := plat.(MomentReplacer)
-	if !ok || !caps.ReplaceMoment {
+	if !ok {
+		mgmtError(w, http.StatusNotImplemented, "换说说 is not available here: this platform cannot replace a moment")
+		return
+	}
+	if !caps.ReplaceMoment {
+		// 和发说说一样：接口在、但这台机器上的配置没打开，是 403 不是 501。
 		reason := caps.DisabledReason
-		if ok && reason == "" {
-			reason = "this platform cannot replace a moment"
+		if reason == "" {
+			reason = "replace is turned off"
 		}
-		mgmtError(w, http.StatusNotImplemented, "换说说 is not available here: "+reason)
+		mgmtError(w, http.StatusForbidden, "换说说 is turned off: "+reason)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), socialMomentTimeout)
 	defer cancel()
-	moment, err := replacer.ReplaceMoment(ctx, body.ID, body.Text, nil)
+	moment, err := replacer.ReplaceMoment(ctx, body.ID, body.Text)
 	if err != nil {
-		// 平台把「新的发出去了、旧的没删掉」也包在 err 里带回来，这条消息要原样
-		// 交给面板，因为人需要知道空间里有两条，不能只说一句失败。
+		// 部分成功（新的发出去了、旧的还在）必须把新那条一起带回去，否则人只看
+		// 到一句失败，不知道空间里已经多了一条，也不知道该删哪条。
+		var partial *MomentReplacePartialError
+		if errors.As(err, &partial) {
+			mgmtErrorWithMoment(w, socialStatus(partial), socialMessage(partial), partial.Moment)
+			return
+		}
 		mgmtError(w, socialStatus(err), socialMessage(err))
+		return
+	}
+	if moment.ID == "" {
+		// 走了干净路径却没有 id：不能算换完（也没法确认删对了哪条）。
+		mgmtErrorWithMoment(w, http.StatusBadGateway,
+			"换说说没有完成：新的已经发出，但平台没给新的 id，旧的没有动", moment)
 		return
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{"moment": moment})
