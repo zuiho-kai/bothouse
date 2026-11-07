@@ -138,6 +138,13 @@ type PlatformPromptInjector interface {
 	SetPlatformPrompt(prompt string)
 }
 
+const nativeQuotedReplyInstructions = `### Native quoted replies
+This conversation supports native quoted text replies. To deliberately quote a particular message, use:
+
+  bothouse send --reply-to <message-id> --message "your reply"
+
+Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text.`
+
 // AgentSystemPrompt returns the system prompt fragment that informs agents about
 // cc-connect capabilities (cron scheduling, etc.).
 // The prompt is designed to be appended to the agent's existing system prompt.
@@ -169,6 +176,9 @@ When the user explicitly asks you to synthesize speech from text, use:
   bothouse send --tts "text to speak"
 
 After bothouse send --tts (or --audio) succeeds, reply only with NO_REPLY unless the user also asked for a visible text confirmation. This prevents sending an extra text message after the voice message.
+
+When the incoming context includes [Message IDs: ...], the platform has native quoted reply support:
+` + nativeQuotedReplyInstructions + `
 
 ### Scheduled tasks: when to use /cron vs /timer
 
@@ -346,6 +356,12 @@ type TypingIndicatorDone interface {
 // include @user notifications when replying in group chats.
 type AtMentionSender interface {
 	ReplyWithAt(ctx context.Context, replyCtx any, content string, atUsers []string, atAll bool) error
+}
+
+// MessageReplySender sends a native reply to a selected message. The platform
+// verifies that messageID belongs to the conversation identified by replyCtx.
+type MessageReplySender interface {
+	ReplyToMessage(ctx context.Context, replyCtx any, content, messageID string, atUsers []string, atAll bool) error
 }
 
 // ImageSender is an optional interface for platforms that support sending images.

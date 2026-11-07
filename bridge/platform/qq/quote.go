@@ -6,7 +6,34 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core"
 )
+
+// ReplyToMessage reuses the mention sender so the native reply segment and any
+// explicit mentions travel in a single OneBot message with the existing receipt.
+func (p *Platform) ReplyToMessage(ctx context.Context, replyCtx any, content, messageID string, atUsers []string, atAll bool) error {
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok || rctx == nil {
+		return fmt.Errorf("qq: native reply: invalid reply context")
+	}
+	if strings.TrimSpace(content) == "" {
+		return fmt.Errorf("qq: native reply requires text")
+	}
+	if _, err := p.resolveQuote(ctx, messageID, rctx.quoteChat(), false); err != nil {
+		return err
+	}
+	return p.sendSegments(ctx, replyCtx, content, messageID, atUsers, atAll)
+}
+
+func (r *replyContext) quoteChat() string {
+	if r.messageType == "group" {
+		return fmt.Sprintf("g:%d", r.groupID)
+	}
+	return fmt.Sprintf("u:%d", r.userID)
+}
+
+var _ core.MessageReplySender = (*Platform)(nil)
 
 // resolveQuote uses get_msg only for a cache miss. A received reply segment
 // establishes the conversation when a standard OneBot response has no peer;
@@ -16,8 +43,13 @@ func (p *Platform) resolveQuote(ctx context.Context, id, chat string, inbound bo
 	if err != nil || mid == 0 {
 		return quoteEntry{}, fmt.Errorf("qq: invalid quoted message ID %q", id)
 	}
-	if entry, ok := p.loadQuote(id); ok && (entry.chat == chat || inbound && entry.chat == "") {
-		return entry, nil
+	if entry, ok := p.loadQuote(id); ok {
+		if entry.chat != "" && entry.chat != chat {
+			return quoteEntry{}, fmt.Errorf("qq: quoted message belongs to another conversation")
+		}
+		if entry.chat == chat || inbound && entry.chat == "" {
+			return entry, nil
+		}
 	}
 	result, err := p.callAPIContext(ctx, "get_msg", map[string]any{"message_id": mid})
 	if err != nil {
@@ -28,6 +60,9 @@ func (p *Platform) resolveQuote(ctx context.Context, id, chat string, inbound bo
 	}
 	sender, _ := result["sender"].(map[string]any)
 	authorID := jsonInt64(sender, "user_id")
+	if authorID == 0 {
+		return quoteEntry{}, fmt.Errorf("qq: get_msg returned no message author")
+	}
 	kind, _ := result["message_type"].(string)
 	actualChat := ""
 	switch kind {

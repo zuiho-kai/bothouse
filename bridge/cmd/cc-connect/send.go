@@ -132,6 +132,15 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			}
 			i++
 			req.Message = args[i]
+		case "--reply-to":
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("--reply-to requires a message ID")
+			}
+			i++
+			req.ReplyToMessageID = args[i]
+			if strings.TrimSpace(req.ReplyToMessageID) == "" {
+				return req, "", fmt.Errorf("--reply-to requires a message ID")
+			}
 		case "--cwd", "--work-dir":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("%s requires a value", args[i])
@@ -430,6 +439,7 @@ Options:
       --stdin              Read message from stdin (best for long/special-char messages)
       --at-users <ids>     @ user IDs, comma-separated (DingTalk, QQ, QQBot)
       --at-all             @ everyone (platform permissions and limits apply)
+      --reply-to <id>      Native quoted text reply to a message in this conversation (QQ)
       --dm                 Send privately to the project owner (first ID in admin_from) (Discord)
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
