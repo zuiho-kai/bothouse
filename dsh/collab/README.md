@@ -207,6 +207,17 @@ corepack pnpm run build:check
 - 原生页面首次加载最近 100 条，重连补齐当前窗口；尚无向上翻历史控件。
 - 原生窄屏页面通过抽屉打开频道和成员栏；审批可在频道卡片中处理。不同入口的能力不能仅凭内部会话是否可见来判断。
 
+### @ 叫醒规则与页面着色的已知偏差
+
+页面上的 @ 徽章是在渲染后的 DOM 上打的，后端是在原文上切的，两条路只对齐了「代码里的 @ 不算」这一族。下面这些是**本来就有的偏差**，不是这次改动引入的；列在这里是为了不把「没对齐」当成「已经对齐」（#259、#271）：
+
+- `~~~` 波浪线围栏：页面当代码渲染、不着色，后端只认 ```，所以里面的名字后端仍会叫醒。
+- `$$` 数学块：页面把它当成段落结束，后端不认，于是跨 `$$` 的反引号片段在后端仍算一段（谁都不叫醒，页面两个名字都着色）。
+- GFM 表格分隔行（`|---|`）：同上，页面段落结束、后端仍算一段，结果是谁都不叫醒而页面两个名字都着色。
+- 四空格缩进代码块（`    @肥鱼 看下`）：页面当代码渲染、不着色，后端没有缩进代码块的判断，会叫醒。脚注共用这一条：`    [^1]: 注 @肥鱼` 在页面上是代码块、整行隐藏，后端也不把它当定义，所以会叫醒；同样，只写在四空格行上的 `[^2]` 页面不当作引用，后端会当作引用，从而把 `[^2]:` 那条脚注显示出来。
+- 嵌套脚注定义（定义行比外层正文的内容列多缩进四格或更多）：页面把它嵌在外层脚注里、只在它自己的标号被引用时显示；后端只收 0-3 格的定义，那一行从来不算定义，它的标号也不算标号。于是两边给的答案一致却不是页面的答案，两个方向都反：`[^1]: a` 换行四空格 `[^2]: 注 @名字` 再空行 `见 [^1]`，后端会叫醒，页面外层脚注只显示 `a`、一个徽章都没有；同样内容末尾改成 `见 [^2]`，后端谁都不叫，页面却有这个徽章。`bdd67b4` 上也是这个结果，不是 #271 引入的；#323 只更正了说明，没有扩大实现范围。
+- 开括号落在块行上（`# ` 加反引号加名字）：段落在那行之前就结束了，页面不会把它当代码片段、两个名字都着色；`endsParagraph` 只看两个反引号**之间**的行，所以后端仍当成一段、谁都不叫醒。
+
 ### One-shot member follow-ups
 
 All three member types can register a one-shot wake with `POST /collab/api/rooms/{id}/later` (owner session or bot bearer token): `{ "member": "role-id", "delay": "10m", "title": "Check build", "todo": "Read the build log and report failures" }`. Native and local CLI prompts also contain the local `node later.mjs <database> <member> <room> <delay> <title> <todo>` command. The SQLite queue survives restart; offline members retain their pending wake. Attachment inputs share the existing `wire()` MIME/5 MB image policy; larger or unsupported images are files.
