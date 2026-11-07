@@ -311,7 +311,12 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
 				handedOff = true
 			}
-			if it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
+			// A chat channel hands work to workspaces; an item only on its board (handed back and
+			// awaiting review, or the lead's own note) is not work left running there. Only an
+			// explicit 【接】 is watched in a chat channel (#1167, 11-07: #1162 returned by 工作区2
+			// fell back to the chat and got a 「接着做」 every lead turn).
+			if !inWorkspace && !accepted ||
+				it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
