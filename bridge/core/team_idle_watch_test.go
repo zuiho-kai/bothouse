@@ -221,7 +221,6 @@ func TestWatchNumberlessWatchPastDueClosesBeforeWake(t *testing.T) {
 	}
 }
 
-
 // idleWatchFixture: an engine with a disk-backed workspace store, so a test can seed the watches
 // watchTurnEnded reads and check what it wrote back.
 func idleWatchFixture(t *testing.T) (*Engine, *exitTestPlatform) {
@@ -244,6 +243,11 @@ func idleWatchSeed(t *testing.T, e *Engine, key string, script bool, h TeamHando
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st := loadTeamWorkspacesLocked(path)
+	if h.Board == 0 {
+		// develop closes a past-due watch with no board item as stale before it reads the turn
+		// (watchStale); give the seed a board number so these cases reach the #96 logic.
+		h.Board = 96
+	}
 	if script {
 		st.ScriptWatches = map[string][]TeamHandoff{key: {h}}
 	} else {
@@ -284,7 +288,7 @@ func TestWatchTurnEnded_BoardlessReportEndsWatch(t *testing.T) {
 			idleWatchSeed(t, e, key, script, TeamHandoff{Chat: key, At: at, Due: at.Add(time.Minute), Owner: e.name, Title: "看门死循环"})
 
 			for i := 0; i < 2; i++ { // a resend or a second reply must not open it again
-				e.watchTurnEnded(p, key+":u1", report, false, false, false, time.Time{})
+				e.watchTurnEnded(p, key+":u1", report, false, false, false, false, time.Time{})
 				rows := idleWatchRows(t, e, key, script)
 				if len(rows) != 1 {
 					t.Fatalf("reply %d: rows = %d, want 1", i, len(rows))
@@ -309,7 +313,7 @@ func TestWatchTurnEnded_ReportWithBoardNumberKeepsResending(t *testing.T) {
 	at := time.Now().Add(-2 * time.Minute)
 	idleWatchSeed(t, e, key, true, TeamHandoff{Chat: key, At: at, Due: at.Add(time.Minute), Owner: e.name, Title: "带板号的交回"})
 
-	e.watchTurnEnded(p, key+":u1", "[report] #77 背景：这件活做完了\n\n要你做的：没有", false, false, false, time.Time{})
+	e.watchTurnEnded(p, key+":u1", "[report] #77 背景：这件活做完了\n\n要你做的：没有", false, false, false, false, time.Time{})
 
 	rows := idleWatchRows(t, e, key, true)
 	if len(rows) != 1 {
@@ -332,7 +336,7 @@ func TestWatchTurnEnded_WorkDoesNotReviveReportedWatch(t *testing.T) {
 		Idle: watchIdleState{Ended: at, Wakes: 2, Reported: true},
 	})
 
-	e.watchTurnEnded(p, key+":u1", "接着做，还在跑，这里先说一声进展", true, false, false, time.Time{})
+	e.watchTurnEnded(p, key+":u1", "接着做，还在跑，这里先说一声进展", true, false, false, false, time.Time{})
 
 	rows := idleWatchRows(t, e, key, true)
 	if len(rows) != 1 {
@@ -352,7 +356,7 @@ func TestWatchTurnEnded_WorkDoesNotReviveReportedWatch(t *testing.T) {
 		Chat: key, At: at, Due: at.Add(time.Minute), Owner: e2.name, Title: "还在做",
 		Idle: watchIdleState{Ended: at, Wakes: 1},
 	})
-	e2.watchTurnEnded(p2, key+":u1", "接着做，还在跑", true, false, false, time.Time{})
+	e2.watchTurnEnded(p2, key+":u1", "接着做，还在跑", true, false, false, false, time.Time{})
 	if got := idleWatchRows(t, e2, key, true)[0].Idle.Wakes; got != 0 {
 		t.Fatalf("wakes = %d after real work, want 0", got)
 	}
@@ -372,7 +376,7 @@ func TestWatchTurnEnded_LiveStuckRowNotRevived(t *testing.T) {
 		Idle:  watchIdleState{Ended: at, Wakes: 1, Fails: 3, Reported: true},
 	})
 
-	e.watchTurnEnded(p, key+":u1", "还在做，先说一声进展", true, false, false, time.Time{})
+	e.watchTurnEnded(p, key+":u1", "还在做，先说一声进展", true, false, false, false, time.Time{})
 
 	// Fails clearing is the old, intended reset (progress); the reported mark and the wake count
 	// it escalated on must stay, or the same row wakes and escalates again.
