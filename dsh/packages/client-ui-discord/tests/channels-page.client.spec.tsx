@@ -295,6 +295,36 @@ describe('channels page', () => {
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(send).toHaveBeenCalledExactlyOnceWith('/', undefined, undefined, 1)
   })
+  it('turns the send key into a stop key for the answering DSH member while the draft is empty (#299)', async () => {
+    const send = vi.fn(async () => {})
+    const dshTeam: ChannelSnapshot = {
+      ...ready, members: [{ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true }],
+      leadId: 'ds', effectiveLeadId: 'ds', thinking: { 1: ['ds'] },
+    }
+    render(<ChannelsPage {...props(dshTeam, send)} />)
+    // Before #299 workingBots kept only kind === 'bot', so a DSH team had no stop key at all.
+    const stop = screen.getByRole('button', { name: zh.stopReply.replace('{name}', 'DeepSeek') })
+    expect(screen.queryByRole('button', { name: zh.sendButton })).toBeNull()
+    await act(async () => { fireEvent.click(stop) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek /stop')
+    expect(screen.getByRole('status').textContent).toBe(zh.stopPending.replace('{name}', 'DeepSeek'))
+  })
+  it('offers /stop all in the menu for a DSH team and sends it bare (#299)', async () => {
+    const send = vi.fn(async () => {})
+    const dshTeam: ChannelSnapshot = {
+      ...ready, members: [{ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true }],
+      leadId: 'ds', effectiveLeadId: 'ds', thinking: { 1: ['ds'] },
+    }
+    render(<ChannelsPage {...props(dshTeam, send)} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '/' } })
+    const menu = screen.getByRole('region', { name: zh.slashTitle })
+    // /stop all is the channel-wide one: it needs no target member, so it stays enabled in a DSH team.
+    const item = within(menu).getByRole('option', { name: /^\/stop all/ })
+    expect(item.getAttribute('aria-disabled')).toBeNull()
+    await act(async () => { fireEvent.click(item) })
+    // Channel-wide, so it goes out without an @ and without a target bot.
+    expect(send).toHaveBeenCalledExactlyOnceWith('/stop all')
+  })
   it('turns the send key into a stop key for the answering bot while the draft is empty (#1017)', async () => {
     const send = vi.fn(async () => {})
     const view = render(<ChannelsPage {...props(ready, send)} />)

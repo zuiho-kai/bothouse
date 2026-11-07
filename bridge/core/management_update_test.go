@@ -231,8 +231,8 @@ func TestUpgradePathKeepsUserData(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dsh, "collab", "plugin.mjs")); !bytes.Equal(got, want) {
 		t.Error("plugin code not refreshed")
 	}
-	if got, _ := os.ReadFile(filepath.Join(dsh, ".version")); string(got) != "v0.1.5" {
-		t.Errorf(".version = %q", got)
+	if got, read := readDSHStamp(filepath.Join(dsh, ".version")); read != stampFound || got.Version != "v0.1.5" {
+		t.Errorf(".version = %+v", got)
 	}
 	// Same version again → no rewrite.
 	write(filepath.Join(dsh, "collab", "plugin.mjs"), "// local edit\n")

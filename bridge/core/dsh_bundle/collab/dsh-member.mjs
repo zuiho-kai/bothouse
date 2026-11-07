@@ -360,10 +360,31 @@ export class TurnProgress {
   }
 }
 
+/** Text with every @-mention taken out, trimmed: what a command word is matched against. */
+function commandOf(text, members) {
+  return split(text, members).filter(([, id]) => id === null).map(([seg]) => seg).join('').trim();
+}
+
 /** Whether text, with @-mentions removed, is the /new command (bridge core cmdNew). */
 export function isNewCommand(text, members) {
-  const rest = split(text, members).filter(([, id]) => id === null).map(([seg]) => seg).join('').trim();
-  return /^\/new(\s|$)/.test(rest);
+  return /^\/new(\s|$)/.test(commandOf(text, members));
+}
+
+/**
+ * The stop command a person typed in a channel: 'one' for `/stop`, 'all' for
+ * `/stop all`, undefined for anything else. The @ that addressed it is already
+ * gone by the time the message reaches this planner (the bridge forwards a
+ * channel command stripped, mentions.mjs forMember), so the members it reaches
+ * are the planner's own targets — the same rule /new follows.
+ *
+ * Not the bridge's /stop all (bridge/core/stop_all.go, every bot in the channel
+ * stops its own bridge session): this one only ends DSH members' turns here.
+ */
+export function stopCommand(text, members) {
+  const rest = commandOf(text, members);
+  if (/^\/stop\s+all$/i.test(rest)) return 'all';
+  if (/^\/stop$/i.test(rest)) return 'one';
+  return undefined;
 }
 
 export class DshMembers {
@@ -461,10 +482,22 @@ export class DshMembers {
    * @returns { stopped, running } member ids whose turn was cancelled / left running.
    */
   recall(triggerId) {
+    return this.cancelJobs(job => job.trigger_id === triggerId);
+  }
+
+  /**
+   * #148 / #299: end every open job `match` accepts. A queued one is closed, one
+   * still waiting in the member's inbox is taken back, and a turn already running
+   * is cancelled the way DSH's stop button does (keepInbox, so the member's later
+   * inputs still run). Jobs it cannot reach (a CLI member's ask) keep running.
+   * The one cancel path behind both "the owner withdrew the message" and "/stop".
+   * @returns { stopped, running } member ids whose turn was cancelled / left running.
+   */
+  cancelJobs(match) {
     const stopped = [];
     const running = [];
     for (const job of this.store.openJobs()) {
-      if (job.trigger_id !== triggerId) continue;
+      if (!match(job)) continue;
       if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); this.syncQueue(job.member_id, job.room_id); continue; }
       const w = this.watching.get(job.session_id);
       const agent = job.input_id ? this.rt.ctx.agents.get(job.session_id) : undefined;
@@ -479,6 +512,29 @@ export class DshMembers {
       stopped.push(job.member_id);
     }
     return { stopped, running };
+  }
+
+  /**
+   * #299: `/stop` / `/stop all` typed in the channel. Cancels member turns in this
+   * room on the sender's own thread and posts one receipt saying who stopped and
+   * who is still running; it never queues, so it cannot arrive after the turn it
+   * is meant to end.
+   * @returns { stopped, still_running } member names, as the DELETE route's shape.
+   */
+  stopHere(msg, memberIds) {
+    const { stopped, running } = this.cancelJobs(job => job.room_id === msg.room_id && memberIds.includes(job.member_id));
+    const name = id => this.config.get(id)?.name ?? id;
+    const still_running = [...new Set(running.map(name))];
+    const stoppedNames = [...new Set(stopped.map(name))];
+    const text = stoppedNames.length === 0
+      ? `⏹ 没有在跑的活。`
+      : `⏹ 已停下 ${stoppedNames.join('、')} 这一轮。` + (still_running.length ? `\n仍在跑：${still_running.join('、')}` : '');
+    this.hub.post(msg.room_id, {
+      authorKind: 'system', author: 'system', name: 'system',
+      clientKey: `dsh-stop-${msg.id}-${stoppedNames.length ? 'stopped' : 'idle'}`,
+      text,
+    });
+    return { stopped: stoppedNames, still_running };
   }
 
   /**
@@ -536,6 +592,20 @@ export class DshMembers {
     const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
     const targets = [...this.config.keys()].filter(id => !this.hub.quota?.cooling(id) && visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
+    // #299: /stop and /stop all end the member turns running here, now. Both used to fall through to
+    // addJob+enqueue below, which serializes per (member, room) — so the stop only ran once the turn it
+    // was meant to end had already finished. They take the same out-of-band cancel path as recall, with
+    // no placeholder job and no queue slot, so the receipt cannot arrive late.
+    // Not the bridge's /stop all (stop_all.go): that stops every bot's bridge session in the channel.
+    const stop = msg.author_kind === 'user' ? stopCommand(msg.text, this.hub.routableIn(msg.room_id)) : undefined;
+    // `/stop all` is typed bare, so its targets are none; it stops every DSH member visible here.
+    // A single `/stop` only stops the members the message reaches, the same targets /new uses.
+    if (stop !== undefined) {
+      const ids = stop === 'all' ? [...this.config.keys()].filter(id => visible.has(id)) : targets;
+      // Nobody is here to stop: keep quiet, like any other message that reaches no member.
+      if (ids.length === 0) return undefined;
+      return () => { this.stopHere(msg, ids); };
+    }
     if (targets.length === 0) return undefined;
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
     if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routableIn(msg.room_id))) {
