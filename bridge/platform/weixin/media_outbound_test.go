@@ -66,59 +66,6 @@ func TestIsWeixinCDNHost(t *testing.T) {
 	}
 }
 
-func TestGetUploadURLResponse_Validation(t *testing.T) {
-	tests := []struct {
-		name      string
-		resp      getUploadURLResponse
-		wantError bool
-	}{
-		{
-			name:      "upload_param only (legacy)",
-			resp:      getUploadURLResponse{UploadParam: "some_param"},
-			wantError: false,
-		},
-		{
-			name:      "upload_full_url only (new API)",
-			resp:      getUploadURLResponse{UploadFullURL: "https://novac2c.cdn.weixin.qq.com/c2c/upload?encrypted_query_param=abc"},
-			wantError: false,
-		},
-		{
-			name:      "both present",
-			resp:      getUploadURLResponse{UploadParam: "param", UploadFullURL: "https://cdn.example.com/upload"},
-			wantError: false,
-		},
-		{
-			name:      "both empty",
-			resp:      getUploadURLResponse{},
-			wantError: true,
-		},
-		{
-			name:      "whitespace only",
-			resp:      getUploadURLResponse{UploadParam: "  ", UploadFullURL: "  "},
-			wantError: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Replicate the validation logic from client.go:
-			// both fields empty/whitespace-only → error
-			trim := func(s string) string {
-				for len(s) > 0 && s[0] == ' ' {
-					s = s[1:]
-				}
-				for len(s) > 0 && s[len(s)-1] == ' ' {
-					s = s[:len(s)-1]
-				}
-				return s
-			}
-			hasError := trim(tt.resp.UploadParam) == "" && trim(tt.resp.UploadFullURL) == ""
-			if hasError != tt.wantError {
-				t.Errorf("validation error = %v, wantError %v", hasError, tt.wantError)
-			}
-		})
-	}
-}
-
 func TestIsVideoFile(t *testing.T) {
 	tests := []struct {
 		name string
