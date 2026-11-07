@@ -34,7 +34,7 @@ export interface ForumTexts {
 
 const zh: ForumTexts = {
   title: '记忆论坛',
-  subtitle: '角色每轮收到的记忆，一条一个帖子，按用户反应排序',
+  subtitle: '角色每轮收到的记忆：问同一件事的归成一个帖子，下面每楼一个回答，按用户反应排序',
   refresh: '刷新',
   loading: '正在读记忆论坛…',
   loadFailed: '读不到记忆论坛',
@@ -69,7 +69,7 @@ const zh: ForumTexts = {
 
 const en: ForumTexts = {
   title: 'Memory forum',
-  subtitle: 'Memories your roles get each turn, one post each, ranked by how the user reacted',
+  subtitle: 'Memories your roles get each turn: one thread per question, one answer per reply, ranked by how the user reacted',
   refresh: 'Refresh',
   loading: 'Reading the memory forum…',
   loadFailed: 'Could not read the memory forum',

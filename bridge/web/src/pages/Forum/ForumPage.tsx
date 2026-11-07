@@ -211,12 +211,12 @@ export default function ForumPage() {
               <p className="mt-1 text-xs text-ink-mute">{T.floors(cur.floors.length)} · ▲ {cur.ups} ▼ {cur.downs}</p>
             </div>
             <div className="space-y-2">
-              {cur.floors.map((k, i) => {
+              {cur.floors.map((k) => {
                 const p = byKey.get(k);
                 if (!p) return null;
                 const tags = [T.floorNo(p.floor)];
                 if (k === cur.latest && cur.floors.length > 1) tags.push(T.latest);
-                return <Post key={k} p={p} rank={i + 1} T={T} tags={tags} />;
+                return <Post key={k} p={p} rank={null} T={T} tags={tags} />;
               })}
             </div>
           </>
