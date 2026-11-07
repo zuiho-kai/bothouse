@@ -266,8 +266,11 @@ func (m *ManagementServer) Start() {
 		Addr:    fmt.Sprintf("%s:%d", m.host, m.port),
 		Handler: handler,
 	}
+	observeManagementConnections(m.server)
 	go func() {
-		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		err := m.server.ListenAndServe()
+		slog.Info("management api serve exited", "pid", os.Getpid(), "error", err)
+		if err != nil && err != http.ErrServerClosed {
 			slog.Error("management api server error", "error", err)
 		}
 	}()
@@ -323,8 +326,8 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Setup wizard (conest): local CLIs, API×CLI matrix, Discord/Feishu pickers, 自建平台 (cloud_web) local hub + test, jev test, one-shot apply
 	mux.HandleFunc(prefix+"/setup/dsh/status", m.wrap(m.handleSetupDSHStatus))
 	mux.HandleFunc(prefix+"/setup/dsh/install", m.wrap(m.handleSetupDSHInstall))
-	mux.HandleFunc(prefix+"/setup/dsh/configure", m.wrap(m.handleSetupDSHConfigure))
-	mux.HandleFunc(prefix+"/setup/dsh/open", m.wrap(m.handleSetupDSHOpen))
+	mux.HandleFunc(prefix+"/setup/dsh/configure", traceDSHRequest(m.wrap(m.handleSetupDSHConfigure)))
+	mux.HandleFunc(prefix+"/setup/dsh/open", traceDSHRequest(m.wrap(m.handleSetupDSHOpen)))
 	mux.HandleFunc(prefix+"/setup/dsh/open-desktop", m.wrap(m.handleSetupDSHOpenDesktop))
 	mux.HandleFunc(prefix+"/setup/state", m.wrap(m.handleSetupState))
 	mux.HandleFunc(prefix+"/setup/clis", m.wrap(m.handleSetupCLIs))
@@ -386,11 +389,14 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 // Same 5-second Shutdown as BridgeServer.Stop and WebhookServer.Stop.
 func (m *ManagementServer) Stop() {
 	if m.server != nil {
+		slog.Info("management api shutdown started", "pid", os.Getpid())
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := m.server.Shutdown(ctx); err != nil {
+			slog.Warn("management api shutdown failed", "pid", os.Getpid(), "error", err)
 			m.server.Close()
 		}
+		slog.Info("management api shutdown ended", "pid", os.Getpid())
 	}
 }
 
