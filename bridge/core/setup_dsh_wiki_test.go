@@ -114,7 +114,9 @@ func TestDSHReRunWaitsForTheNewImport(t *testing.T) {
 	}
 }
 
-// A `dsh web` still running from before has not imported the waiting roles: opening stops it.
+// A `dsh web` still running from before has not imported the waiting roles: opening stops it and
+// starts the replacement. Stopping is only safe when a `dsh` exists to start it, so the no-`dsh`
+// machine is a separate case below: there the live host must be left alone (#320 复核 B-1).
 func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses /bin/sleep")
@@ -123,7 +125,8 @@ func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 	t.Setenv("HOME", home)
 	collab := filepath.Join(home, "collab")
 	t.Setenv("CONEST_COLLAB_DATA", collab)
-	t.Setenv("PATH", t.TempDir()) // no dsh: the new start fails after the old one is stopped
+	serving := h262FakeDshServing(t, "fresh", 0)
+	t.Setenv("PATH", filepath.Dir(serving.script)+string(os.PathListSeparator)+"/usr/sbin:/usr/bin:/bin")
 	_ = os.MkdirAll(collab, 0o700)
 	_ = os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"橘"}]}`), 0o600)
 	cmd := exec.Command("/bin/sleep", "60")
@@ -142,6 +145,13 @@ func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 	if processAlive(cmd.Process.Pid) {
 		t.Fatal("the old dsh web is still running")
 	}
+	// dsh is on PATH, so the waiting roles get a real replacement rather than an empty panel.
+	if err != nil || web.PID <= 0 || web.PID == cmd.Process.Pid {
+		t.Fatalf("want the replacement host, got %+v %v", web, err)
+	}
+	if b, _ := os.ReadFile(serving.starts); strings.Count(string(b), "start") != 1 {
+		t.Fatalf("replacement starts = %q, want exactly 1", b)
+	}
 	// no roles waiting: a running dsh web is reused
 	cmd2 := exec.Command("/bin/sleep", "60")
 	_ = cmd2.Start()
@@ -152,5 +162,40 @@ func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
 	if web, err := openDSHWeb(context.Background(), t.TempDir()); err != nil || web.PID != cmd2.Process.Pid {
 		t.Fatalf("want the running one reused: %+v %v", web, err)
+	}
+}
+
+// The same restart with no `dsh` on PATH: nothing can replace the live host, so it must not be
+// stopped — the panel would be left with nothing to open and no way back.
+func TestOpenDSHWebKeepsTheHostForWaitingRolesWithoutDsh(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sleep")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	collab := filepath.Join(home, "collab")
+	t.Setenv("CONEST_COLLAB_DATA", collab)
+	t.Setenv("PATH", t.TempDir()) // no dsh anywhere
+	_ = os.MkdirAll(collab, 0o700)
+	_ = os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"橘"}]}`), 0o600)
+	cmd := exec.Command("/bin/sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Skip("no sleep:", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	b, _ := json.Marshal(DSHWeb{URL: "http://127.0.0.1:1/", PID: cmd.Process.Pid})
+	_ = os.MkdirAll(filepath.Dir(dshWebStatePath()), 0o700)
+	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
+	_, err := openDSHWeb(context.Background(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "dsh") {
+		t.Fatalf("open error = %v, want the missing-dsh error", err)
+	}
+	if !processAlive(cmd.Process.Pid) {
+		t.Fatal("the live dsh web was stopped although no dsh exists to start a replacement")
+	}
+	// the record still points at the host that is still serving
+	if st := stateForTest(t); st.PID != cmd.Process.Pid {
+		t.Fatalf("the state file lost the live host: %+v", st)
 	}
 }

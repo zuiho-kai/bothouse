@@ -451,6 +451,13 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		if _, err := os.Stat(dshMembersFile()); err != nil {
 			return prev, nil
 		}
+		// #262 B on this entry too: stopping is only safe when a `dsh` exists to start its replacement.
+		// Without one the live host used to be killed and the new start failed at once, so the panel was
+		// left with nothing to open (#320 复核 B-1, the same rule already applied in
+		// takeOverOrphanDSHWeb's refused branch and in adoptOrphanDSHWeb).
+		if !canStartDSHWeb() {
+			return DSHWeb{}, errDSHMissing
+		}
 		if err := stopDSHWebForImport(prev.PID); err != nil {
 			return DSHWeb{}, err
 		}
@@ -482,10 +489,22 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	// #262 B: the live host has already been stopped and the new one did not come up, so the panel
 	// would be left with nothing to open. One more start is the only way back — the stopped process
 	// cannot be revived, so 回退 here means the same `dsh web` on the same data dir starts again and
-	// imports the roles as a first start would. A second failure is returned as it is, with this
+	// imports the roles as a first start would. A second failure is returned as it is, with the
 	// warning left in the log as the line to read.
-	slog.Warn("dsh web: 新实例没有起来，已回退到原 host：正在重启同一个 dsh web", "log", logPath, "error", err)
-	return start()
+	// The warning is only written once the result is known: it used to be printed before the retry,
+	// so a machine without `dsh` (nothing would even be attempted) and a second failure both still
+	// claimed "已回退到原 host" and pointed the reader at a host that was not there (#320 复核 B-2).
+	if !canStartDSHWeb() {
+		slog.Warn("dsh web: 新实例没有起来，回退也没有起来：面板暂时没有可打开的 host", "log", logPath, "error", err)
+		return DSHWeb{}, err
+	}
+	var retryErr error
+	if web, retryErr = start(); retryErr != nil {
+		slog.Warn("dsh web: 新实例没有起来，回退也没有起来：面板暂时没有可打开的 host", "log", logPath, "error", retryErr)
+		return web, retryErr
+	}
+	slog.Warn("dsh web: 新实例没有起来，已回退到原 host：同一个 dsh web 已重新起好", "log", logPath)
+	return web, nil
 }
 
 // startDSHWeb runs one `dsh web` and waits for its announcement. openDSHWeb is its only caller and
