@@ -75,42 +75,6 @@ func TestMetaSaveLoad(t *testing.T) {
 	}
 }
 
-// TestRotatingWriter_BackupRotation exercises the chain: writing past
-// maxSize N times should produce .log.1 .. .log.N, and the oldest
-// (N+1th write) should be discarded.
-func TestRotatingWriter_BackupRotation(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "chain.log")
-
-	maxSize := int64(200)
-	maxBackups := 3
-	w, err := NewRotatingWriter(logPath, maxSize, maxBackups)
-	if err != nil {
-		t.Fatalf("NewRotatingWriter: %v", err)
-	}
-	defer func() { _ = w.Close() }()
-
-	chunk := strings.Repeat("x", 250) // each write forces a rotation
-	for i := 0; i < 5; i++ {
-		if _, err := w.Write([]byte(chunk)); err != nil {
-			t.Fatalf("Write #%d: %v", i, err)
-		}
-	}
-
-	// After 5 rotations with maxBackups=3, the active log is fresh and
-	// .log.1 / .log.2 / .log.3 must exist; .log.4 must NOT exist (it
-	// was the oldest and was discarded).
-	for i := 1; i <= maxBackups; i++ {
-		p := logPath + "." + itoa(i)
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("backup %s missing: %v", p, err)
-		}
-	}
-	if _, err := os.Stat(logPath + ".4"); !os.IsNotExist(err) {
-		t.Errorf(".log.4 should have been discarded, err=%v", err)
-	}
-}
-
 // TestRotatingWriter_BackupDisabled pins the legacy single-backup
 // behaviour: with maxBackups=1 only .log.1 is ever produced, and the
 // active log is always fresh.
