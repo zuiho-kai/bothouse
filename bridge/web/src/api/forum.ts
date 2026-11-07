@@ -26,6 +26,26 @@ export interface ForumPost {
   /** unix seconds; 0 = unknown */
   last: number;
   voters: ForumVoter[];
+  /** thread this answer belongs to (#1177) */
+  tid: string;
+  /** floor number in its thread, by time (1 = earliest) */
+  floor: number;
+}
+
+/** 楼层帖 (#1177): one question, its answers ranked like the posts. */
+export interface ForumThread {
+  tid: string;
+  title: string;
+  desc: string;
+  /** answers as "page#id", best first */
+  floors: string[];
+  top: string;
+  latest: string;
+  ups: number;
+  downs: number;
+  pushed: number;
+  last: number;
+  alive: boolean;
 }
 
 export interface ForumData {
@@ -36,6 +56,7 @@ export interface ForumData {
   cited: number;
   last_vote: number;
   posts: ForumPost[];
+  threads?: ForumThread[];
 }
 
 export interface ForumResp {

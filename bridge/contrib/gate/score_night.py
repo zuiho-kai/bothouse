@@ -32,6 +32,14 @@ MODEL = os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna")  # 同 wiki 的 bin/ing
 WS_START = "你是工作区频道里的主角色"  # ws-handoff 叫醒工作区的开头（同 ctxsvc._NOT_USER）
 sys.path.insert(0, str(EXP))
 import memvote  # 引用（by=self）和成功/失败（by=outcome）都记在 votes.jsonl
+
+_FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 楼层帖标注（#1177，同 forum_scores.TAG）：算编号、显示时去掉
+
+
+def _bare(s):
+    return _FLOOR_TAG.sub("", s).strip()
+
+
 if (WIKI / "bin" / "invalidate.py").is_file():
     sys.path.insert(0, str(WIKI / "bin"))
     import invalidate  # 写入时冲突检测（照 Graphiti），被推翻的旧行挪进同页「## 历史」
@@ -100,7 +108,7 @@ def turns(since):
 
 
 def _hash(line):
-    return hashlib.sha1(line.strip().encode()).hexdigest()[:10]  # 和 ctxsvc.exp_id 同算法
+    return hashlib.sha1(_bare(line).encode()).hexdigest()[:10]  # 和 ctxsvc.exp_id 同算法
 
 
 def resolve(ref):
