@@ -18,7 +18,7 @@ import {
 } from '@/api/wizard';
 import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
-import DSHSetup from './DSHSetup';
+import DSHSetup, { clearDSHDraft, readDSHDraft } from './DSHSetup';
 import DSHAdd from './DSHAdd';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
@@ -76,12 +76,13 @@ export default function SetupWizard() {
   // default reply language = the UI language picked at the top right, as is (zh-TW, ko … too)
   const sysReply = lang;
 
-  const [step, setStep] = useState(0);
+  // a DSH setup in progress in this tab comes back after a reload (#1173)
+  const [step, setStep] = useState(() => (readDSHDraft() ? 1 : 0));
   // /setup?add=1&platform=qq — `bothouse module add qq` points here; the platform comes preselected
   const [searchParams] = useSearchParams();
   const platformParam = searchParams.get('platform');
   const [picked, setPlatform] = useState<'qq' | 'discord' | 'feishu' | 'cloud_web' | 'dsh'>(
-    platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
+    readDSHDraft() ? 'dsh' : platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
   const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '' });
   const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string; note?: string }>({ running: false });
@@ -491,7 +492,7 @@ export default function SetupWizard() {
     c.login === 'logged_in' ? <Badge variant="success">{T.loggedIn}</Badge>
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
-  if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => setStep(0)} /> : <DSHSetup lang={lang} onBack={() => setStep(0)} />;
+  if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => { clearDSHDraft(); setStep(0); }} /> : <DSHSetup lang={lang} onBack={() => { clearDSHDraft(); setStep(0); }} />;
 
   return (
     <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">

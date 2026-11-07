@@ -185,8 +185,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Projects */}
-          <section>
+          {/* Projects: a DSH-only user has none, so the empty card would push the DSH members below the fold (#1173) */}
+          {(projects.length > 0 || dshMembers.length === 0) && <section>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
                 <Server size={14} strokeWidth={1.6} className="text-ink-mute" />
@@ -231,7 +231,7 @@ export default function Dashboard() {
 
               </div>
             )}
-          </section>
+          </section>}
 
           {dshMembers.length > 0 && <section><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">{t('dsh.members', 'DSH 成员')}</h3>
                 {openDshButton}</div><div className="grid grid-cols-1 gap-3 md:grid-cols-3">

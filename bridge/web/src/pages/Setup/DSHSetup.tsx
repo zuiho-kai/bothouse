@@ -28,6 +28,18 @@ function channelsURL(): string {
 
 type Role = { key: number; name: string; nameCustomized: boolean; keepName: boolean; runner: string; persona: string; personaSlug?: string; avatar?: string };
 
+// #1173 walk: reloading the page dropped back to the platform page and lost the roles typed in.
+// Keep the step, route and roles of this tab (never the API key) until the user leaves the DSH setup.
+export const DSH_DRAFT_KEY = 'bh_dsh_setup_draft';
+type Draft = { step: number; target: DSHTarget; roles: Role[] };
+export const readDSHDraft = (): Draft | null => {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DSH_DRAFT_KEY) || 'null');
+    return d && typeof d.step === 'number' && Array.isArray(d.roles) ? d : null;
+  } catch { return null; }
+};
+export const clearDSHDraft = () => { try { sessionStorage.removeItem(DSH_DRAFT_KEY); } catch { /* storage off */ } };
+
 const TEXT = {
   zh: {
     title: 'DSH 安装', steps: ['选择 DSH', '安装插件', '角色和模型', '打开 DSH'],
@@ -114,22 +126,29 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   const t = l.startsWith('zh') ? TEXT.zh : l.startsWith('ja') ? TEXT.ja : TEXT.en;
   const { lib, error: libError, reload: reloadLib } = useLibrary(lang);
   const LT = libraryTexts(lang);
+  const draft = useRef(readDSHDraft()).current;
   const [status, setStatus] = useState<DSHStatus | null>(null);
-  const [step, setStep] = useState(0);
+  // the done page (3) needs the save that happened before the reload; come back to the roles step instead
+  const [step, setStep] = useState(draft ? Math.min(draft.step, 2) : 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [installStep, setInstallStep] = useState('');
   const [installDone, setInstallDone] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [clis, setClis] = useState<LocalCLI[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<Role[]>(draft?.roles ?? []);
   const [apiKey, setApiKey] = useState('');
   const [openURL, setOpenURL] = useState('');
   const [starting, setStarting] = useState<{ sec: number; line: string } | null>(null);
   // user 11-07: new users mostly use DSH Desktop, so it is the default; the web page stays a choice
-  const [target, setTarget] = useState<DSHTarget>('desktop');
+  const [target, setTarget] = useState<DSHTarget>(draft?.target === 'web' ? 'web' : 'desktop');
   const [desktopOpened, setDesktopOpened] = useState(false);
-  const nextKey = useRef(1);
+  const nextKey = useRef(1 + Math.max(0, ...(draft?.roles ?? []).map((r) => r.key)));
+  useEffect(() => {
+    // saved (step 3): nothing left to keep
+    if (step >= 3) { clearDSHDraft(); return; }
+    try { sessionStorage.setItem(DSH_DRAFT_KEY, JSON.stringify({ step, target, roles })); } catch { /* storage off */ }
+  }, [step, target, roles]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError('');
