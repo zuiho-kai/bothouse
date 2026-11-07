@@ -218,3 +218,76 @@ test('mentions: a big text stays linear (#271)', () => {
   const named = ('`@肥鱼\n'.repeat(32767)).slice(0, 131071);
   assert.deepEqual(found(named), ['dsh']);
 });
+
+test('mentions: two definitions in a row are two bodies, not one (#271)', () => {
+  // #271 rework: the body walk reused the next definition's end, so a second definition line
+  // looked like a line *inside* the first body and the first body swallowed it — the ref to the
+  // second label then sat in a hidden range and nobody was called. A definition line only opens a
+  // block of its own, so the body ends above it. Each line family below is its own case.
+  assert.deepEqual(found('[^1]: a\n[^2]: 注 @G哥\n\n见 [^2]'), ['gge']); // adjacent, no blank line
+  assert.deepEqual(found('[^1]: a\n[^2]: b\n[^3]: 注 @G哥\n\n见 [^3]'), ['gge']); // three in a row
+  assert.deepEqual(found('[^1]: a\n [^2]: 注 @G哥\n\n见 [^2]'), ['gge']); // one column of indent
+  assert.deepEqual(found('[^1]: a\n   [^2]: 注 @G哥\n\n见 [^2]'), ['gge']); // three columns
+  assert.deepEqual(found('> [^1]: a\n> [^2]: 注 @G哥\n\n> 见 [^2]'), ['gge']); // inside a quote
+  assert.deepEqual(found('- [^1]: a\n  [^2]: 注 @G哥\n\n- 见 [^2]'), ['gge']); // inside a list item
+  assert.deepEqual(found('- [^1]: a\n   [^2]: 注 @G哥\n\n- 见 [^2]'), ['gge']); // three columns there
+  assert.deepEqual(found('[^1]: a\r\n[^2]: 注 @G哥\r\n\r\n见 [^2]'), ['gge']); // CRLF
+  // a nested definition (four columns) is inside the first body, so this label stays hidden: the
+  // page renders it inside the outer footnote, which only shows when the outer label is called
+  assert.deepEqual(found('[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]'), ['gge']);
+  // and the text itself is never rewritten
+  const text = '[^1]: a\n[^2]: 注 @G哥\n\n见 [^2]';
+  assert.equal(split(text, members).map(([s]) => s).join(''), text);
+});
+
+test('mentions: a reference on a definition line still counts (#271)', () => {
+  // #271 rework: the whole definition line was masked, body text included. The page prints that
+  // text — it is the footnote's own body, shown in the footnote section once the label is called —
+  // so a `[^x]` there is a reference a reader can see. Only the `[^x]:` marker is invisible.
+  assert.deepEqual(found('[^1]: 见 [^2]\n\n[^2]: @G哥\n\n见 [^1]'), ['gge']);
+  assert.deepEqual(found('[^1]: 见 [^2]\n\n[^2]: 见 [^3]\n\n[^3]: @G哥\n\n见 [^1]'), ['gge']); // 3 levels
+  assert.deepEqual(
+    found('[^1]: 见 [^2]\n\n[^2]: 见 [^3]\n\n[^3]: 见 [^4]\n\n[^4]: @G哥\n\n见 [^1]'),
+    ['gge'],
+  ); // 4 levels
+  // the marker itself is still invisible: `[^1]` in `[^1]:` is not a self-reference
+  assert.deepEqual(found('[^1]: 注 @肥鱼'), []);
+  assert.deepEqual(found('[^1]: 见 [^1] @肥鱼'), []);
+  // an escaped bracket on the line is plain text, so it references nothing
+  assert.deepEqual(found('[^1]: 见 \\[^2]\n\n[^2]: @G哥\n\n见 [^1]'), []);
+  // a reference on a definition line nobody calls still changes nothing
+  assert.deepEqual(found('[^1]: 见 [^2] @肥鱼\n\n[^2]: 注'), []);
+});
+
+test('mentions: a definition line with no body cannot be continued lazily (#271)', () => {
+  // #271 rework: `[^1]:` with nothing after the colon opens no paragraph, so the next plain line is
+  // a paragraph of its own and is on the page. It used to be read as the definition's body.
+  assert.deepEqual(found('[^1]:\n@肥鱼 看下'), ['dsh']);
+  assert.deepEqual(found('[^1]:\n @肥鱼'), ['dsh']);
+  assert.deepEqual(found('[^1]:   \n@G哥 看下'), ['gge']);
+  assert.deepEqual(found('- [^1]:\n  @肥鱼 看下'), ['dsh']);
+  // a definition with body text still absorbs its lazy continuation, and that stays hidden
+  assert.deepEqual(found('[^1]: 注\n@肥鱼 看下'), []);
+  // four columns after a bare definition is a paragraph inside it, so that one is hidden
+  assert.deepEqual(found('[^1]:\n    @肥鱼 代码'), []);
+});
+
+test('mentions: a long footnote chain is linear, not quadratic (#271)', () => {
+  // #271 rework: the hidden/shown fixed point masked the text and rescanned it once per round, so
+  // a chain of N definitions took N rounds over N lines: 4759 links (131049 characters, the max
+  // text length) measured 6240 ms on this machine, 6263 ms inside store.transaction(), and the
+  // page-side splitMentions() 6258 ms. The rewrite collects every reference once and closes over
+  // the graph, so it is one pass: 9 ms at the same size. The bound is ~50x the measured value and
+  // far under the old 6.2 s, so it only fails if the quadratic shape comes back.
+  const links = 4759; // the largest definition count that fits the max text length
+  const pad = '注释说明补充';
+  const parts = [`[^0]: 注${pad}\n见 [^1]`];
+  for (let i = 1; i < links; i++) parts.push(`[^${i}]: 注${pad}\n见 [^${i + 1}]`);
+  parts.push(`[^${links}]: 注 @肥鱼`, '见 [^0]');
+  const text = parts.join('\n\n');
+  assert.ok(text.length <= 131072, `text is ${text.length} characters`);
+  const started = process.hrtime.bigint();
+  assert.deepEqual(found(text), ['dsh']); // the whole chain is readable, so every body shows
+  const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(elapsed < 500, `a ${links}-link chain took ${elapsed.toFixed(0)} ms`);
+});

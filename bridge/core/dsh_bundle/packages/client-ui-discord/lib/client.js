@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: aba8eb41759112cbc4b7dcaba02a9e325d497976f6e4c87524774995ebae24cc
+// dsh-client-source-sha256: da0c9c5a302ef6ee264266498e7338e9d6b28f39df71cee60d0c592d01b1026e
 // dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -19161,6 +19161,10 @@ function htmlBlockRegions(text, lines) {
 * Every footnote definition in the text with the container it sits in: `depth` quote markers and
 * `base` the content indent of the list item that holds it (0 at the top level). Read from the
 * first line only, which is enough to walk the body.
+*
+* `marker` is where the `[^label]:` marker of the line ends. Only that prefix is invisible on the
+* page; the text after it is the definition's own body and shows up in the footnote section, so a
+* reference there is a reference a reader can see (#271).
 */
 function footnoteDefs(text, lines) {
 	const defs = [];
@@ -19175,7 +19179,8 @@ function footnoteDefs(text, lines) {
 				line: i,
 				label: m[1],
 				depth,
-				base: 0
+				base: 0,
+				marker: lines[i][1] - rest.length + m[0].length
 			});
 			continue;
 		}
@@ -19186,26 +19191,33 @@ function footnoteDefs(text, lines) {
 		if (gap === "") continue;
 		const indent = indentWidth(gap, col + marker[0].length);
 		const content = after.slice(gap.length);
-		m = FOOTNOTE_DEF.exec(content.length < 4 ? " ".repeat(Math.min(indent, 3)) + content : content);
+		const pad = content.length < 4 ? Math.min(indent, 3) : 0;
+		m = FOOTNOTE_DEF.exec(" ".repeat(pad) + content);
 		if (m && indent < 4) defs.push({
 			line: i,
 			label: m[1],
 			depth,
-			base: indent
+			base: indent,
+			marker: lines[i][1] - content.length + m[0].length - pad
 		});
 	}
 	return defs;
 }
 /**
-* Last line of the body of `def`, walking the lines its paragraph covers. `next`/`nextEnd` are the
-* definition right after it and the end already known for it: a definition line never ends a body,
-* so once the walk reaches it the two bodies end together — without that, a text of nothing but
-* definitions would re-walk the rest of the text once per definition.
+* Last line of the body of `def`, walking the lines its paragraph covers.
+*
+* Two definitions can never sit inside one body here: mdast nests a second definition only when
+* its line is indented four or more columns past the first one's content column, and such a line
+* is never collected as a definition (footnoteDefs() reads `[^x]:` at 0-3 columns only, like every
+* other list marker). A line it does collect therefore opens a block of its own, so the walk stops
+* there with the last line it really covered — no shortcut needed, and no re-walking either: both
+* bodies end before the next definition line, which keeps the whole pass linear in the text.
 */
-function definitionBodyEnd(text, lines, def, next, nextEnd) {
+function definitionBodyEnd(text, lines, def, next) {
 	let last = def.line;
+	let open = text.slice(def.marker, lines[def.line][1]).trim() !== "";
 	for (let j = def.line + 1; j < lines.length; j++) {
-		if (j === next) return nextEnd;
+		if (j === next) break;
 		const { rest, depth, col } = stripQuotes(text.slice(lines[j][0], lines[j][1]));
 		if (rest.trim() === "") {
 			let k = j;
@@ -19218,6 +19230,7 @@ function definitionBodyEnd(text, lines, def, next, nextEnd) {
 				if (r.depth >= def.depth && indentWidth(r.rest, r.col) - def.base >= 4) {
 					j = k - 1;
 					last = k - 1;
+					open = true;
 					continue;
 				}
 			}
@@ -19225,15 +19238,17 @@ function definitionBodyEnd(text, lines, def, next, nextEnd) {
 		}
 		if (depth > def.depth) break;
 		if (depth < def.depth) {
-			if (endsDefinitionBody(rest)) break;
+			if (!open || endsDefinitionBody(rest)) break;
 			last = j;
 			continue;
 		}
 		if (indentWidth(rest, col) - def.base >= 4) {
 			last = j;
+			open = true;
 			continue;
 		}
 		if (endsDefinitionBody(rest)) break;
+		if (!open) break;
 		last = j;
 	}
 	return last;
@@ -19259,9 +19274,10 @@ function maskText(text, ranges) {
 * [start, end) of every hidden footnote definition: the definition line and the lines that
 * continue it, for each label nothing readable refers to. A repeated label keeps only its first
 * definition (the renderer shows that one and drops the rest), and a reference counts only where a
-* reader can see it — not inside a fence, an inline code span, an HTML comment, another definition
-* line or another hidden body. The backend applies the same rule in mentions(), so the page and the
-* gate agree on what was called.
+* reader can see it — not inside a fence, an inline code span, an HTML comment, the `[^x]:` marker
+* of a definition line or another hidden body. The text after the marker of a definition line is
+* the body the page prints in the footnote section, so a reference there does count. The backend
+* applies the same rule in mentions(), so the page and the gate agree on what was called.
 *
 * The early return keeps the cost off ordinary text: without `[^` nothing is scanned at all.
 */
@@ -19271,44 +19287,44 @@ function footnoteRanges(text, codeSpans) {
 	const lines = splitLines(text);
 	const defs = footnoteDefs(text, lines);
 	if (defs.length === 0) return [];
-	const ends = new Array(defs.length);
-	for (let k = defs.length - 1; k >= 0; k--) {
-		const next = k + 1 < defs.length ? defs[k + 1].line : void 0;
-		ends[k] = definitionBodyEnd(text, lines, defs[k], next, next === void 0 ? 0 : ends[k + 1]);
-	}
+	const ends = defs.map((def, k) => definitionBodyEnd(text, lines, def, k + 1 < defs.length ? defs[k + 1].line : void 0));
+	const bodies = defs.map((def, k) => [lines[def.line][0], lines[ends[k]][1]]);
 	const blind = [
 		...spans,
 		...footnoteOpaqueRanges(text),
 		...htmlBlockRegions(text, lines)
 	];
-	for (const def of defs) blind.push([lines[def.line][0], lines[def.line][1]]);
+	for (const def of defs) blind.push([lines[def.line][0], def.marker]);
 	for (const m of text.matchAll(/<!--[\s\S]*?-->/g)) blind.push([m.index, m.index + m[0].length]);
+	const searchable = maskText(text, blind);
 	const first = /* @__PURE__ */ new Map();
 	defs.forEach((def, i) => {
 		const key = def.label.toLowerCase();
 		if (!first.has(key)) first.set(key, i);
 	});
-	const shown = /* @__PURE__ */ new Set();
-	for (;;) {
-		const bodies = [];
-		defs.forEach((def, i) => {
-			if (!shown.has(i)) bodies.push([lines[def.line][0], lines[ends[i]][1]]);
-		});
-		const searchable = maskText(text, [...blind, ...bodies]);
-		const called = /* @__PURE__ */ new Set();
-		for (const m of searchable.matchAll(/\[\^([^\]\s]+)\]/g)) {
-			let slashes = 0;
-			for (let i = m.index - 1; i >= 0 && searchable[i] === "\\"; i--) slashes++;
-			if (slashes % 2 === 0) called.add(m[1].toLowerCase());
-		}
-		let changed = false;
-		for (const [label, i] of first) {
-			if (shown.has(i) || !called.has(label)) continue;
-			shown.add(i);
-			changed = true;
-		}
-		if (!changed) break;
+	const calledOutside = /* @__PURE__ */ new Set();
+	const insideBody = defs.map(() => /* @__PURE__ */ new Set());
+	let body = 0;
+	for (const m of searchable.matchAll(/\[\^([^\]\s]+)\]/g)) {
+		let slashes = 0;
+		for (let i = m.index - 1; i >= 0 && searchable[i] === "\\"; i--) slashes++;
+		if (slashes % 2 !== 0) continue;
+		while (body < bodies.length && bodies[body][1] <= m.index) body++;
+		const owner = body < bodies.length && m.index >= bodies[body][0] ? body : -1;
+		(owner < 0 ? calledOutside : insideBody[owner]).add(m[1].toLowerCase());
 	}
+	const shown = /* @__PURE__ */ new Set();
+	const pending = [];
+	const open = (labels) => {
+		for (const label of labels) {
+			const i = first.get(label);
+			if (i === void 0 || shown.has(i)) continue;
+			shown.add(i);
+			pending.push(i);
+		}
+	};
+	open(calledOutside);
+	while (pending.length > 0) open(insideBody[pending.pop()]);
 	const hidden = [];
 	defs.forEach((def, i) => {
 		if (!shown.has(i)) hidden.push([lines[def.line][0], lines[ends[i]][1]]);
@@ -19328,7 +19344,9 @@ function footnoteRanges(text, codeSpans) {
 * - A four-column indented code block: the page renders it as code and colours nothing, the
 *   backend has no indented-code reader and calls the name. The footnote rule below shares it: a
 *   `[^x]:` line indented four columns is a code block on the page and hidden there, and it is
-*   not a definition here either, so a name on that line is a call there.
+*   not a definition here either, so a name on that line is a call there. Likewise a `[^2]` written
+*   only on a four-column line is not a reference on the page, while this backend reads it as one
+*   and shows the `[^2]:` definition the page keeps hidden.
 * - A code span opened on a block line (`# ` + backtick + name): the paragraph already ended
 *   before the opener, so the page never makes it a span and colours the names; endsParagraph()
 *   only reads the lines between the runs, so the span still holds here.

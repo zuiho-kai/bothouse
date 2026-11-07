@@ -418,6 +418,10 @@ function htmlBlockRegions(text, lines) {
  * Every footnote definition in the text with the container it sits in: `depth` quote markers and
  * `base` the content indent of the list item that holds it (0 at the top level). Read from the
  * first line only, which is enough to walk the body.
+ *
+ * `marker` is where the `[^label]:` marker of the line ends. Only that prefix is invisible on the
+ * page; the text after it is the definition's own body and shows up in the footnote section, so a
+ * reference there is a reference a reader can see (#271).
  */
 function footnoteDefs(text, lines) {
   const defs = [];
@@ -427,30 +431,44 @@ function footnoteDefs(text, lines) {
     if (inside(lines[i][0])) continue;
     const { rest, depth, col } = stripQuotes(text.slice(lines[i][0], lines[i][1]));
     let m = FOOTNOTE_DEF.exec(rest);
-    if (m) { defs.push({ line: i, label: m[1], depth, base: 0 }); continue; }
-    const marker = LIST_MARKER.exec(rest);
-    if (!marker) continue;
-    const after = rest.slice(marker[0].length);
-    const gap = /^[ \t]*/.exec(after)[0];
-    if (gap === '') continue;
-    const indent = indentWidth(gap, col + marker[0].length);
-    const content = after.slice(gap.length);
-    m = FOOTNOTE_DEF.exec(content.length < 4 ? ' '.repeat(Math.min(indent, 3)) + content : content);
-    if (m && indent < 4) defs.push({ line: i, label: m[1], depth, base: indent });
+    if (m) defs.push({ line: i, label: m[1], depth, base: 0, marker: lines[i][1] - rest.length + m[0].length });
+    else {
+      const marker = LIST_MARKER.exec(rest);
+      if (!marker) continue;
+      const after = rest.slice(marker[0].length);
+      const gap = /^[ \t]*/.exec(after)[0];
+      if (gap === '') continue;
+      const indent = indentWidth(gap, col + marker[0].length);
+      const content = after.slice(gap.length);
+      const pad = content.length < 4 ? Math.min(indent, 3) : 0;
+      m = FOOTNOTE_DEF.exec(' '.repeat(pad) + content);
+      if (m && indent < 4) {
+        // The pad is a probe only: it is not in the text, so it comes back off the offset.
+        defs.push({ line: i, label: m[1], depth, base: indent, marker: lines[i][1] - content.length + m[0].length - pad });
+      }
+    }
   }
   return defs;
 }
 
 /**
- * Last line of the body of `def`, walking the lines its paragraph covers. `next`/`nextEnd` are the
- * definition right after it and the end already known for it: a definition line never ends a body,
- * so once the walk reaches it the two bodies end together — without that, a text of nothing but
- * definitions would re-walk the rest of the text once per definition.
+ * Last line of the body of `def`, walking the lines its paragraph covers.
+ *
+ * Two definitions can never sit inside one body here: mdast nests a second definition only when
+ * its line is indented four or more columns past the first one's content column, and such a line
+ * is never collected as a definition (footnoteDefs() reads `[^x]:` at 0-3 columns only, like every
+ * other list marker). A line it does collect therefore opens a block of its own, so the walk stops
+ * there with the last line it really covered — no shortcut needed, and no re-walking either: both
+ * bodies end before the next definition line, which keeps the whole pass linear in the text.
  */
-function definitionBodyEnd(text, lines, def, next, nextEnd) {
+function definitionBodyEnd(text, lines, def, next) {
   let last = def.line;
+  // A definition line with nothing after the colon opens no paragraph, so no line can continue it
+  // lazily (`[^1]:` then `@肥鱼` is a definition and a paragraph, not one definition). Its body
+  // starts only at a line indented four columns, which is a paragraph of its own inside it.
+  let open = text.slice(def.marker, lines[def.line][1]).trim() !== '';
   for (let j = def.line + 1; j < lines.length; j++) {
-    if (j === next) return nextEnd; // the next definition sits in this body, so both end alike
+    if (j === next) break; // the next definition opens a block of its own, so the body ended above
     const { rest, depth, col } = stripQuotes(text.slice(lines[j][0], lines[j][1]));
     if (rest.trim() === '') {
       // A blank line continues the body only when an indented line of the same container follows
@@ -465,6 +483,7 @@ function definitionBodyEnd(text, lines, def, next, nextEnd) {
         if (r.depth >= def.depth && indentWidth(r.rest, r.col) - def.base >= 4) {
           j = k - 1;
           last = k - 1;
+          open = true;
           continue;
         }
       }
@@ -473,12 +492,13 @@ function definitionBodyEnd(text, lines, def, next, nextEnd) {
     if (depth > def.depth) break; // a deeper quote is a block of its own
     if (depth < def.depth) {
       // A lazy continuation of the definition's paragraph: judged by what it would start there.
-      if (endsDefinitionBody(rest)) break;
+      if (!open || endsDefinitionBody(rest)) break;
       last = j;
       continue;
     }
-    if (indentWidth(rest, col) - def.base >= 4) { last = j; continue; } // code, part of the body
+    if (indentWidth(rest, col) - def.base >= 4) { last = j; open = true; continue; } // code, in the body
     if (endsDefinitionBody(rest)) break;
+    if (!open) break; // nothing to continue: the line opens the block that follows the definition
     last = j;
   }
   return last;
@@ -500,8 +520,9 @@ function mergeRanges(ranges) {
  * [start, end) of every hidden footnote definition: the definition line and the lines that
  * continue it, for each label nothing readable refers to. A repeated label keeps only its first
  * definition (the renderer shows that one and drops the rest), and a reference counts only where
- * a reader can see it — not inside a fence, an inline code span, an HTML comment, another
- * definition line or another hidden body.
+ * a reader can see it — not inside a fence, an inline code span, an HTML comment, the `[^x]:`
+ * marker of a definition line or another hidden body. The text after the marker of a definition
+ * line is the body the page prints in the footnote section, so a reference there does count.
  *
  * The early return keeps the cost off ordinary text: without `[^` nothing is scanned at all.
  */
@@ -513,49 +534,56 @@ export function footnoteRanges(text, codeSpans = null) {
   const lines = splitLines(text);
   const defs = footnoteDefs(text, lines);
   if (defs.length === 0) return [];
-  // Bodies are walked back to front, so each one can reuse the end already found for the next.
-  const ends = new Array(defs.length);
-  for (let k = defs.length - 1; k >= 0; k--) {
-    const next = k + 1 < defs.length ? defs[k + 1].line : null;
-    ends[k] = definitionBodyEnd(text, lines, defs[k], next, next === null ? 0 : ends[k + 1]);
-  }
+  // Bodies are read in reading order and never overlap, so each walk stops at the next definition
+  // line without ever re-reading a line: one pass over the text, whatever the definition count.
+  const ends = defs.map((def, k) =>
+    definitionBodyEnd(text, lines, def, k + 1 < defs.length ? defs[k + 1].line : null));
+  const bodies = defs.map((def, k) => [lines[def.line][0], lines[ends[k]][1]]);
+  // Everything a reader cannot see: code, raw blocks, comments and the `[^x]:` marker itself. The
+  // rest of a definition line is its body text, which the page prints in the footnote section.
   const blind = [
     ...codeSpans,
     ...footnoteOpaqueRanges(text),
     ...htmlBlockRegions(text, lines),
   ];
-  for (const def of defs) blind.push([lines[def.line][0], lines[def.line][1]]);
+  for (const def of defs) blind.push([lines[def.line][0], def.marker]);
   for (const m of text.matchAll(/<!--[\s\S]*?-->/g)) blind.push([m.index, m.index + m[0].length]);
+  const searchable = maskText(text, blind);
   // Only the first definition of a label can be shown; the rest are hidden whatever refers to them.
   const first = new Map();
   defs.forEach((def, i) => {
     const key = def.label.toLowerCase();
     if (!first.has(key)) first.set(key, i);
   });
-  // Start with everything hidden and un-hide a definition only while something visible refers to
-  // its label, so a chain of references into hidden bodies settles instead of waking them.
-  const shown = new Set();
-  for (;;) {
-    const bodies = [];
-    defs.forEach((def, i) => {
-      if (!shown.has(i)) bodies.push([lines[def.line][0], lines[ends[i]][1]]);
-    });
-    const searchable = maskText(text, [...blind, ...bodies]);
-    const called = new Set();
-    for (const m of searchable.matchAll(/\[\^([^\]\s]+)\]/g)) {
-      // A backslash escapes the bracket; an even number of them does not (`\\[^1]` is a call).
-      let slashes = 0;
-      for (let i = m.index - 1; i >= 0 && searchable[i] === '\\'; i--) slashes++;
-      if (slashes % 2 === 0) called.add(m[1].toLowerCase());
-    }
-    let changed = false;
-    for (const [label, i] of first) {
-      if (shown.has(i) || !called.has(label)) continue;
-      shown.add(i);
-      changed = true;
-    }
-    if (!changed) break;
+  // Collect the references once, each filed under the definition body it sits in (or nowhere).
+  // Bodies are sorted and disjoint, so one forward pointer covers the whole scan.
+  const calledOutside = new Set();
+  const insideBody = defs.map(() => new Set());
+  let body = 0;
+  for (const m of searchable.matchAll(/\[\^([^\]\s]+)\]/g)) {
+    // A backslash escapes the bracket; an even number of them does not (`\\[^1]` is a call).
+    let slashes = 0;
+    for (let i = m.index - 1; i >= 0 && searchable[i] === '\\'; i--) slashes++;
+    if (slashes % 2 !== 0) continue;
+    while (body < bodies.length && bodies[body][1] <= m.index) body++;
+    const owner = body < bodies.length && m.index >= bodies[body][0] ? body : -1;
+    (owner < 0 ? calledOutside : insideBody[owner]).add(m[1].toLowerCase());
   }
+  // Then a plain closure from the readable text outward: a body opens only when a visible
+  // reference names its label, and opening one makes the references in it readable in turn. Each
+  // definition opens once and each reference is read once, so a long chain settles in one sweep.
+  const shown = new Set();
+  const pending = [];
+  const open = labels => {
+    for (const label of labels) {
+      const i = first.get(label);
+      if (i === undefined || shown.has(i)) continue;
+      shown.add(i);
+      pending.push(i);
+    }
+  };
+  open(calledOutside);
+  while (pending.length > 0) open(insideBody[pending.pop()]);
   const hidden = [];
   defs.forEach((def, i) => {
     if (!shown.has(i)) hidden.push([lines[def.line][0], lines[ends[i]][1]]);

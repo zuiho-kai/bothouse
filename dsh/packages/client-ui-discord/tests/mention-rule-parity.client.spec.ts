@@ -105,6 +105,25 @@ const CASES: Array<[string, string[]]> = [
   ['[^1]: 注 @肥鱼\n\n见 [^1]', ['dsh']],
   ['[^1]: 甲 @肥鱼\n\n[^1]: 乙 @G哥\n\n见 [^1]', ['dsh']],
   ['[^1]: 注 @肥鱼\n\n`[^1]`', []],
+  // #271 rework: two definitions in a row are two bodies, so the label the text refers to is not
+  // swallowed by the first body. Every line family a definition can sit on, one case each.
+  ['[^1]: a\n[^2]: 注 @G哥\n\n见 [^2]', ['gge']],
+  ['[^1]: a\n[^2]: b\n[^3]: 注 @G哥\n\n见 [^3]', ['gge']],
+  ['[^1]: a\n   [^2]: 注 @G哥\n\n见 [^2]', ['gge']],
+  ['> [^1]: a\n> [^2]: 注 @G哥\n\n> 见 [^2]', ['gge']],
+  ['- [^1]: a\n  [^2]: 注 @G哥\n\n- 见 [^2]', ['gge']],
+  ['[^1]: a\r\n[^2]: 注 @G哥\r\n\r\n见 [^2]', ['gge']],
+  ['[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]', ['gge']],
+  // #271 rework: a reference on a definition line counts — the page prints that text — while the
+  // `[^x]:` marker itself stays invisible
+  ['[^1]: 见 [^2]\n\n[^2]: @G哥\n\n见 [^1]', ['gge']],
+  ['[^1]: 见 [^2]\n\n[^2]: 见 [^3]\n\n[^3]: @G哥\n\n见 [^1]', ['gge']],
+  ['[^1]: 见 [^2]\n\n[^2]: 见 [^3]\n\n[^3]: 见 [^4]\n\n[^4]: @G哥\n\n见 [^1]', ['gge']],
+  ['[^1]: 见 \\[^2]\n\n[^2]: @G哥\n\n见 [^1]', []],
+  ['[^1]: 注 @肥鱼', []],
+  // #271 rework: a definition line with no body opens no paragraph, so the next plain line is text
+  ['[^1]:\n@肥鱼 看下', ['dsh']],
+  ['[^1]: 注\n@肥鱼 看下', []],
   ['[@肥鱼 看下', ['dsh']],
 ]
 
