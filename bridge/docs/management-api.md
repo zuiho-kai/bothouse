@@ -1304,6 +1304,12 @@ off. The page is a window on the profile files (`package.json` dependencies +
 `dsh.profile.bundles`), not a second registry: DSH's own Plugins page reads and writes exactly the
 same files, so the two agree.
 
+The page also offers Open DSH to configure plugins through the existing launch and authentication
+flow. In DSH, choose Plugins and open the plugin-provided form to edit and save settings; plugins
+without a form follow their own setup instructions. DSH handles persistence without a second
+configuration store here. The link follows the existing proxy or same-origin path according to
+where the panel is mounted.
+
 Both writes require a management token. With none configured the routes answer `403`, because an
 unauthenticated management port cannot tell the owner from anyone else on the machine.
 

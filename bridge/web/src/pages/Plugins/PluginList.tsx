@@ -12,6 +12,9 @@ import {
   type PluginInspection,
 } from '@/api/plugins';
 import { failureText, pluginTexts, rowErrorText } from './texts';
+import api from '@/api/client';
+import { dshHomeUrl } from '@/lib/collabPages';
+import { goToDsh } from '@/lib/openDsh';
 
 /**
  * 插件 (#150 第 b 项): the DSH profile's own plugin list, with the two writes that matter —
@@ -42,6 +45,7 @@ export default function PluginList() {
   const [installError, setInstallError] = useState<{ kind?: string; detail?: string; log?: string } | null>(null);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [openingConfig, setOpeningConfig] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -163,6 +167,27 @@ export default function PluginList() {
         <p className="rounded-card bg-surface-sunken p-4 text-sm text-ink-soft ring-1 ring-hairline" data-testid="plugins-read-only">
           {T.writesOff}
         </p>
+      )}
+
+      {state?.can_install && state.writes_allowed && (
+        <section className="rounded-card bg-surface p-5 ring-1 ring-hairline" data-testid="plugins-configure">
+          <h2 className="font-medium text-ink">{T.configureTitle}</h2>
+          <p className="mt-1 text-sm text-ink-soft">{T.configureHint}</p>
+          <Button
+            className="mt-3"
+            variant="secondary"
+            loading={openingConfig}
+            disabled={installing || busy !== ''}
+            onClick={() => {
+              setOpeningConfig(true);
+              void goToDsh(dshHomeUrl(undefined, api.getToken()))
+                .finally(() => setOpeningConfig(false));
+            }}
+            data-testid="plugins-configure-open"
+          >
+            {T.configureOpen}
+          </Button>
+        </section>
       )}
 
       {/* Install: one package spec, then a confirm step that names the source, the fit and the

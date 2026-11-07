@@ -10,6 +10,9 @@ export interface PluginTexts {
   empty: string
   emptyHint: string
   noDSH: string
+  configureTitle: string
+  configureHint: string
+  configureOpen: string
   installTitle: string
   installHint: string
   installPlaceholder: string
@@ -69,6 +72,9 @@ export interface PluginTexts {
 }
 
 const zh: PluginTexts = {
+  configureTitle: '配置已装插件',
+  configureHint: '打开 DSH 后，点左侧「插件」，选择插件，编辑并保存配置。配置表单由插件提供；未提供表单的插件需按其说明配置。',
+  configureOpen: '打开 DSH 配置插件',
   title: '插件',
   subtitle: '这页管的是 DSH 自己那份 profile：已经装了哪些插件、开没开、装个新的。跟 DSH 侧栏的「插件」读写同一份文件，两边看到的一样。',
   refresh: '刷新',
@@ -134,6 +140,9 @@ const zh: PluginTexts = {
 }
 
 const en: PluginTexts = {
+  configureTitle: 'Configure installed plugins',
+  configureHint: 'Open DSH, choose Plugins in the sidebar, then select a plugin to edit and save its settings. Forms are provided by plugins; plugins without a form follow their own setup instructions.',
+  configureOpen: 'Open DSH to configure plugins',
   title: 'Plugins',
   subtitle: 'This page manages the DSH profile itself: what is installed, what is switched on, and installing something new. It reads and writes the same files as DSH’s own Plugins page, so both show the same thing.',
   refresh: 'Refresh',
@@ -199,6 +208,9 @@ const en: PluginTexts = {
 }
 
 const ja: PluginTexts = {
+  configureTitle: 'インストール済みプラグインの設定',
+  configureHint: 'DSH を開き、左側の「プラグイン」で対象を選んで設定を編集・保存します。設定フォームは各プラグインが提供します。フォームがない場合はプラグインの説明に従ってください。',
+  configureOpen: 'DSH でプラグインを設定',
   title: 'プラグイン',
   subtitle: 'このページは DSH 自身の profile を管理します。何が入っているか、有効か、新しく入れるか。DSH 側の「プラグイン」ページと同じファイルを読み書きするので、表示は一致します。',
   refresh: '更新',
