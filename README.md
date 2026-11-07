@@ -18,6 +18,8 @@
 
 **bothouse: put Claude Code, Codex, Gemini CLI and DeepSeek on your computer into one group chat — an AI team that shares one memory and divides up its own work.**
 
+What's next: [team mode](#next) — one person tunes the AI, the whole team uses it; [hardware](#next) — give a role a small ESP32 body ([bothouse-iot](https://github.com/zuiho-kai/bothouse-iot)).
+
 [Video](#video) · [What's next](#next) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
 </div>
