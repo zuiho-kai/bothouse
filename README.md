@@ -202,6 +202,10 @@ Network notes: start Tailscale first, then bothouse. Without `host`, it listens 
 
 <a id="compare"></a>
 
+### Hardware: bothouse-iot
+
+[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) is the hardware networking plugin. It connects ESP32 round-screen boards that speak the xiaozhi protocol, so each board becomes the body of one role: talk to the board and the words reach that role's bot; the bot replies and the board speaks it, with the dial showing idle / thinking / speaking. It joins bothouse as an external platform through the bridge protocol, so bothouse itself needs no changes. Firmware patches, flashing tools and wiring docs are in that repo.
+
 ## bothouse and other projects: different focus
 
 People often ask: DeepSeek now ships its own agent, and there are Tobs, DS Bot, OpenClaw and more — how is bothouse different?

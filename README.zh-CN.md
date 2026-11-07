@@ -188,6 +188,10 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 <a id="compare"></a>
 
+### 硬件：bothouse-iot
+
+[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) 是 bothouse 的硬件联网插件。它把跑小智协议的 ESP32 圆屏板接进来，让每块板成为一个角色的身体：对板子说话，话进到这个角色的 bot；bot 回话，板子念出来，表盘跟着在待机、思考、说话之间切换。它走 bridge 协议以外部平台身份接入，bothouse 本体不用改。固件补丁、刷写工具和接线说明都在那个仓里。
+
 ## bothouse 和其他项目：重心不同
 
 常有人问：DeepSeek 自己出了 agent，还有 Tobs、DS Bot、OpenClaw 这些，bothouse 有什么不一样？
