@@ -731,10 +731,11 @@ const (
 )
 
 const (
-	MsgDSHNodeRequired  MsgKey = "dsh_node_required"
-	MsgDSHNodeRunFailed MsgKey = "dsh_node_run_failed"
-	MsgDSHModulePreview MsgKey = "dsh_module_preview"
-	MsgDSHModuleRestart MsgKey = "dsh_module_restart"
+	MsgDSHNodeRequired       MsgKey = "dsh_node_required"
+	MsgDSHNodeRunFailed      MsgKey = "dsh_node_run_failed"
+	MsgDSHModulePreview      MsgKey = "dsh_module_preview"
+	MsgDSHModuleRestart      MsgKey = "dsh_module_restart"
+	MsgDSHModuleDesktopReady MsgKey = "dsh_module_desktop_ready"
 )
 
 var messages = map[MsgKey]map[Language]string{
@@ -765,6 +766,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "重新啟動 DSH web profile 後生效；角色、歷史和其他平台設定均保留。",
 		LangJapanese:           "DSH の web プロファイルを再起動して適用してください。役割、履歴、他のプラットフォーム設定は保持されます。",
 		LangSpanish:            "Reinicia el perfil web de DSH para aplicar; se conservan roles, historial y otros ajustes.",
+	},
+	MsgDSHModuleDesktopReady: {
+		LangEnglish:            "Installed into DeepSeek Harness Desktop, which loads it while open: in the left sidebar click Channels → #general and @ a member in the list (a plugin-only install starts with 鲸鱼娘). No Channels in the sidebar: quit the app completely (⌘Q on a Mac) and open it again. Setup is done: no bothouse service is needed and there is nothing to test yourself.",
+		LangChinese:            "已装进 DSH 桌面版，桌面版开着会自动加载：左侧栏点「频道」→ #general，@ 成员列表里的角色（只装插件时默认是鲸鱼娘）说一句就会回。侧栏没有「频道」就完全退出桌面版（Mac 按 ⌘Q）再打开。到这里就装完了：不用起 bothouse 服务，也不用自己发消息测试。",
+		LangTraditionalChinese: "已裝進 DSH 桌面版，桌面版開著會自動載入：左側欄點「頻道」→ #general，@ 成員列表裡的角色（只裝外掛時預設是鯨魚娘）說一句就會回。側欄沒有「頻道」就完全退出桌面版（Mac 按 ⌘Q）再打開。到這裡就裝完了：不用啟動 bothouse 服務，也不用自己發訊息測試。",
+		LangJapanese:           "DeepSeek Harness デスクトップ版に入れました。起動中なら自動で読み込まれます。左サイドバーの「チャンネル」→ #general でメンバー一覧のロール（プラグインのみの場合は 鲸鱼娘）を @ して話しかけてください。サイドバーに出ない場合はアプリを完全に終了（Mac は ⌘Q）して再起動してください。これで完了です。bothouse サービスの起動や自分での送信テストは不要です。",
+		LangSpanish:            "Instalado en DeepSeek Harness Desktop, que lo carga mientras está abierto: en la barra lateral pulsa Canales → #general y menciona con @ a un miembro de la lista (con solo el complemento empieza 鲸鱼娘). Si no aparece Canales, cierra la app por completo (⌘Q en Mac) y ábrela otra vez. Ya está: no hace falta el servicio bothouse ni probarlo tú mismo.",
 	},
 	MsgTaskListRevision: {
 		LangEnglish:            "revision v%d · %d artifacts (%d input / %d output)",

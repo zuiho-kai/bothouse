@@ -358,9 +358,16 @@ func ApplyDSHModule(ctx context.Context, disable, dryRun bool, lang string) DSHM
 			r.Error = err.Error()
 			return r
 		}
+		// A desktop-only Mac has no Node of its own: InstallDSHPluginFor borrows the app's bundled
+		// Node and pnpm, so only fail when there is no app to borrow from either (#1226).
 		if _, issue := dshNodeStatus(ctx, lang); issue != "" {
-			r.Error = issue
-			return r
+			if app := dshDesktopApp(); app == "" {
+				r.Error = issue
+				return r
+			} else if node, _ := dshDesktopRuntimeBins(app); node == "" {
+				r.Error = issue
+				return r
+			}
 		}
 		if _, err := LookBash(); err != nil {
 			r.Error = err.Error()
@@ -398,7 +405,13 @@ func ApplyDSHModule(ctx context.Context, disable, dryRun bool, lang string) DSHM
 	r.OK = true
 	r.Saved = r.Saved || (!st.Installed && r.DSH.Installed)
 	if r.DSH.Installed {
-		r.NextSteps = []string{NewI18n(Language(lang)).T(MsgDSHModuleRestart)}
+		i18n := NewI18n(Language(lang))
+		r.NextSteps = []string{i18n.T(MsgDSHModuleRestart)}
+		// The desktop app hot-loads the plugins: say where to talk and that the job ends here, so an
+		// agent does not restart the app, start bothouse or test the channel itself (#1226).
+		if !disable && dshDesktopApp() != "" && dshDesktopPluginInstalled() {
+			r.NextSteps = []string{i18n.T(MsgDSHModuleDesktopReady)}
+		}
 	}
 	return r
 }
