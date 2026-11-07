@@ -78,9 +78,9 @@ ${page.galaxy ? `  ctx.slots.inject("main", () => ctx.slots.register({
 ` : ''}${page.heartbeat ? `  // #238: 「直到我断开」 must not become 「直到我离开这个面板」. The devices page publishes "1" on
   // this key while its list holds such a link — the only kind pairing.mjs sweeps once no window
   // beats (UNTIL_GRACE_MS) — and this window keeps it alive even after that page is unloaded. The
-  // flag is re-read on every beat, so an empty or 「记住」-only list goes silent again at once.
-  // One window holds the lease and beats; the page and every other window ask for it with
-  // ifAvailable and stand down, so N open windows (and an open panel) still send one beat.
+  // The list is read from the server before every beat, so a revoked or disconnected link makes
+  // the window silent even when the devices page is closed. One window owns each beat: Web Locks
+  // uses ifAvailable; browsers without Web Locks use the same local-storage lease as the page.
   ctx.effect(() => {
     const FLAG = NS + ": until-disconnect";
     const LEASE = NS + ": heartbeat";
@@ -90,36 +90,63 @@ ${page.galaxy ? `  ctx.slots.inject("main", () => ctx.slots.register({
     const everyTick = globalThis.setInterval;
     const stopTick = globalThis.clearInterval;
     const base = document.baseURI;
-    const read = () => { try { return globalThis.localStorage?.getItem(FLAG) ?? null; } catch (error) { return null; } };
-    const write = (value) => { try { globalThis.localStorage?.setItem(FLAG, value); } catch (error) { /* no storage: the open page keeps beating for itself */ } };
-    const beat = () => {
-      if (read() !== "1") return;
-      fetchImpl?.(new URL("collab/api/remote/alive", base), { method: "POST", credentials: "same-origin" }).catch(() => {});
+    const storage = globalThis.localStorage;
+    const read = () => { try { return storage?.getItem(FLAG) ?? null; } catch (error) { return null; } };
+    const write = (value) => { try { storage?.setItem(FLAG, value); } catch (error) {} };
+    const LEASE_KEY = LEASE + ": holder";
+    const owner = globalThis.crypto?.randomUUID?.() ?? String(Date.now()) + "-" + Math.random();
+    let holding = false;
+    const readLease = () => { try { return JSON.parse(storage?.getItem(LEASE_KEY) ?? "null"); } catch (error) { return null; } };
+    const writeLease = value => { try { storage?.setItem(LEASE_KEY, JSON.stringify(value)); } catch (error) {} };
+    const claim = () => {
+      const now = Date.now();
+      const current = readLease();
+      if (current && current.owner !== owner && current.expires > now) return false;
+      // 来源: two ALIVE_EVERY_MS ticks, so a closed tab's fallback lease is reclaimed promptly.
+      writeLease({ owner, expires: now + EVERY_MS * 2 });
+      holding = readLease()?.owner === owner;
+      return holding;
     };
-    // A window opened after the link is gone still sees the last published flag (temp links live
-    // in memory only, so a DSH restart drops them): confirm it once against the list, then trust
-    // the page, which publishes on every list read.
-    const seed = async () => {
-      if (read() !== "1") return;
+    const release = () => { if (holding && readLease()?.owner === owner) { try { storage?.removeItem(LEASE_KEY); } catch (error) {} } };
+    const getLinks = async () => {
+      if (read() !== "1") return false;
       try {
         const res = await fetchImpl?.(new URL("collab/api/remote/links", base), { credentials: "same-origin" });
         const body = await res?.json();
-        const links = Array.isArray(body?.links) ? body.links : [];
-        write(links.some(l => l.mode === "temp" && l.expires_at === null) ? "1" : "0");
-      } catch (error) { /* no answer: keep whatever the page last published */ }
+        const active = Array.isArray(body?.links) && body.links.some(l => l.mode === "temp" && l.expires_at === null);
+        write(active ? "1" : "0");
+        return active;
+      } catch (error) { return true; }
     };
-    let timer;
-    const run = () => { timer = everyTick(beat, EVERY_MS); };
+    const pulse = async () => {
+      if (!(await getLinks())) return;
+      await fetchImpl?.(new URL("collab/api/remote/alive", base), { method: "POST", credentials: "same-origin" }).catch(() => {});
+    };
+    let holderTimer;
     const locks = globalThis.navigator?.locks;
-    // No Web Locks (an old browser): beat anyway rather than let the link lapse.
-    if (locks?.request === undefined) { run(); return () => stopTick(timer); }
-    const control = new AbortController();
-    locks.request(LEASE, { mode: "exclusive", signal: control.signal }, () => {
-      run();
-      seed();
-      return new Promise(() => {}); // held until this window closes; the next window then takes over
-    }).catch(() => { /* aborted: this window is closing */ });
-    return () => { control.abort(); stopTick(timer); };
+    if (locks?.request) {
+      const control = new AbortController();
+      const acquire = () => { if (read() !== "1") return Promise.resolve(); return locks.request(LEASE, { mode: "exclusive", ifAvailable: true }, lock => {
+        if (!lock) return;
+        holderTimer = everyTick(pulse, EVERY_MS);
+        void pulse();
+        return new Promise(resolve => control.signal.addEventListener("abort", resolve, { once: true }));
+      }).catch(() => {}); };
+      const retryTimer = everyTick(acquire, EVERY_MS);
+      void acquire();
+      return () => { control.abort(); stopTick(retryTimer); stopTick(holderTimer); };
+    }
+    const acquire = async () => {
+      if (read() !== "1" || (!holding && !claim())) return;
+      if (holderTimer === undefined) {
+        holderTimer = everyTick(pulse, EVERY_MS);
+        void pulse();
+      }
+      writeLease({ owner, expires: Date.now() + EVERY_MS * 2 });
+    };
+    const retryTimer = everyTick(acquire, EVERY_MS);
+    void acquire();
+    return () => { stopTick(retryTimer); stopTick(holderTimer); release(); };
   }, NS + ": remote link heartbeat");
 ` : ''}  if (location.hash === "#${page.id}") ctx.layout.selectPanel(${JSON.stringify(page.id)});
 };

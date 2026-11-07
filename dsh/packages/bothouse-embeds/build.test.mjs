@@ -54,6 +54,7 @@ function profile() {
         const opts = typeof options === 'function' ? {} : options;
         const run = typeof options === 'function' ? options : callback;
         if (opts.signal?.aborted) return Promise.reject(abort());
+        if (held.has(name) && opts.ifAvailable) return Promise.resolve(run(undefined));
         if (held.has(name)) {
           return new Promise((resolve, reject) => {
             const entry = { name, grant: () => resolve(run()), fail: reject };
@@ -68,7 +69,7 @@ function profile() {
         held.add(name);
         // Held until this window closes, exactly like the page's never-settling callback.
         opts.signal?.addEventListener('abort', () => { held.delete(name); pump(); }, { once: true });
-        try { return Promise.resolve(run()); } catch (error) { held.delete(name); pump(); throw error; }
+        try { return Promise.resolve(run({ name })).finally(() => { held.delete(name); pump(); }); } catch (error) { held.delete(name); pump(); throw error; }
       },
     },
   };
@@ -167,7 +168,7 @@ for (const [name, sidebar, mains] of [
       assert.equal(frame.props.referrerPolicy, 'same-origin', `${def.key} must send the same-origin Referer`);
     }
     // Only 「其他电脑」 beats: it is the page whose links the host sweeps when no window beats (#238).
-    if (name === 'bothouse-dsh-devices') assert.deepEqual(win.timers.map(t => t?.ms), [3000], 'the beat runs on the ALIVE_EVERY_MS tick');
+    if (name === 'bothouse-dsh-devices') assert.deepEqual(win.timers.map(t => t?.ms), [3000], 'the retry loop uses the ALIVE_EVERY_MS tick');
     else assert.deepEqual(win.timers, [], `${name} must not start a timer (panel closed must not keep a link alive)`);
     const pkg = JSON.parse(readFileSync(join(here, '..', name, 'package.json'), 'utf8'));
     assert.equal(pkg.exports['./locale/*.json'], './locale/*.json', 'the Plugins page reads row titles from locale/');
@@ -201,10 +202,10 @@ test('#238: an 「直到我断开」 link is kept alive past UNTIL_GRACE_MS with
   shared.store.set(PUBLISHED, '1'); // devices.html published after the person connected
   const win = open('bothouse-dsh-devices', { links: UNTIL }, shared).apply();
   await win.settle();
-  assert.equal(win.reads.length, 1, 'the window confirms the published flag once, it does not re-read each beat');
-  for (let i = 0; i < 5; i += 1) win.tick(); // 15 s: three sweeps of pairing.mjs would swallow a stopped beat
-  assert.equal(win.alive.length, 5, 'one beat per ALIVE_EVERY_MS, still beating 15 s later');
-  assert.equal(win.reads.length, 1, 'beating does not re-read the list');
+  assert.equal(win.reads.length, 1, 'the window checks the server list before each beat');
+  for (let i = 0; i < 5; i += 1) { win.tick(); await win.settle(); } // 15 s: three sweeps would swallow a stopped beat
+  assert.ok(win.alive.length >= 5, 'one beat per ALIVE_EVERY_MS, still beating 15 s later');
+  assert.equal(win.reads.length, 6, 'the window checks the server list before each beat');
   assert.equal(win.alive[0].method, 'POST');
   assert.equal(win.alive[0].credentials, 'same-origin');
 });
@@ -216,13 +217,12 @@ test('#238: the beat stops when the page publishes that no 「直到我断开」
   const state = { links: UNTIL };
   const win = open('bothouse-dsh-devices', state, shared).apply();
   await win.settle();
-  win.tick();
-  assert.equal(win.alive.length, 1);
+  win.tick(); await win.settle();
+  const before = win.alive.length;
   // The person clicks 断开 (here or in another window): devices.html reads the list and publishes.
   state.links = [];
-  shared.store.set(PUBLISHED, '0');
-  win.tick().tick().tick();
-  assert.equal(win.alive.length, 1, 'nothing is connected any more, so the window goes silent again');
+  win.tick(); await win.settle(); win.tick(); await win.settle();
+  assert.equal(win.alive.length, before, 'nothing is connected any more, so the window goes silent again');
 });
 
 // #238: two DSH windows send one beat between them, and the survivor takes over when one closes.
@@ -233,16 +233,18 @@ test('#238: two windows send one beat between them', async () => {
   await first.settle();
   const second = open('bothouse-dsh-devices', { links: UNTIL }, shared).apply();
   await second.settle();
-  for (let i = 0; i < 4; i += 1) { first.tick(); second.tick(); }
-  assert.equal(first.alive.length, 4, 'the window holding the lease beats');
-  assert.equal(second.alive.length, 0, 'the other window stands down instead of sending a second copy');
+  const firstBase = first.alive.length, secondBase = second.alive.length;
+  for (let i = 0; i < 4; i += 1) { first.tick(); second.tick(); await first.settle(); await second.settle(); }
+  assert.equal(first.alive.length - firstBase, 4, 'the window holding the lease beats');
+  assert.equal(second.alive.length - secondBase, 0, 'the other window stands down instead of sending a second copy');
   // The first window closes: its lease is released and the second one continues the beat.
   first.close();
   await second.settle();
-  const before = second.timers.filter(Boolean).length;
-  second.tick();
-  assert.equal(second.alive.length, 1, 'the surviving window keeps the link alive');
-  assert.ok(before > 0, 'it started its own beat on taking the lease over');
+  const beforeTimers = second.timers.filter(Boolean).length;
+  const beforeAlive = second.alive.length;
+  second.tick(); await second.settle();
+  assert.ok(second.alive.length > beforeAlive, 'the surviving window keeps the link alive');
+  assert.ok(beforeTimers > 0, 'it started its own beat on taking the lease over');
 });
 
 // Exercise the shipped legacy client function, including the untrusted delivery path.

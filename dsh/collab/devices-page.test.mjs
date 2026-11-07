@@ -35,9 +35,10 @@ function locks(taken) {
     held,
     request(name, options, callback) {
       const run = typeof options === 'function' ? options : callback;
+      if (held.has(name) && options?.ifAvailable) return Promise.resolve(callback(undefined));
       if (held.has(name)) return new Promise(() => {});
       held.add(name);
-      return Promise.resolve().then(run);
+      return Promise.resolve().then(() => run({ name })).finally(() => held.delete(name));
     },
   };
 }
@@ -84,7 +85,7 @@ function page(state, options = {}) {
     /** Let the page's startup requests (api/remote/links and friends) settle. */
     settle: async () => { for (let i = 0; i < 3; i += 1) await new Promise(r => setImmediate(r)); },
     /** Fire every interval the page registered, as 3 s of wall clock would. */
-    tick: () => { for (const t of timers) t.fn(); },
+    tick: async () => { for (const t of timers) t.fn(); await new Promise(r => setImmediate(r)); },
   };
 }
 
@@ -92,7 +93,7 @@ test('#238: no paired computer means zero alive requests', async () => {
   const p = page({ links: [] });
   await p.settle();
   assert.deepEqual(p.alive, [], 'page load with no links must not beat');
-  p.tick(); p.tick(); p.tick();
+  await p.tick(); await p.tick(); await p.tick();
   assert.deepEqual(p.alive, [], 'the 3 s beat must stay silent while nothing is connected');
   assert.equal(p.published(), '0', 'the window is told there is nothing to keep alive');
 });
@@ -100,7 +101,7 @@ test('#238: no paired computer means zero alive requests', async () => {
 test('#238: a 「记住」 link needs no beat either', async () => {
   const p = page({ links: [{ id: 'a', name: 'mini', mode: 'remember', created_at: 0, expires_at: null }] });
   await p.settle();
-  p.tick();
+  await p.tick();
   assert.deepEqual(p.alive, [], 'remember links never lapse, so a beat would only add requests');
   assert.equal(p.published(), '0', 'remember links never lapse, so the window must not beat for them');
 });
@@ -113,14 +114,14 @@ test('#238: an 「直到我断开」 link beats while the page is open, and stop
   assert.equal(p.alive[0].method, 'POST');
   assert.equal(p.published(), '1', 'the window is told to keep beating once this page is gone');
   const before = p.alive.length;
-  p.tick();
+  await p.tick();
   assert.equal(p.alive.length, before + 1, 'one beat per interval');
   // The person clicks 断开: the page reloads the list, which is now empty.
   state.links = [];
   p.els.get('back').onclick();
   await p.settle();
   const after = p.alive.length;
-  p.tick(); p.tick();
+  await p.tick(); await p.tick();
   assert.equal(p.alive.length, after, 'after disconnect nothing is left to keep alive');
   assert.equal(p.published(), '0', 'and the window is told to stop as well');
 });
@@ -130,8 +131,8 @@ test('#238: the page stands down while a DSH window holds the beat lease', async
   const shared = locks(true);
   const p = page({ links: [{ id: 'a', name: 'mini', mode: 'temp', created_at: 0, expires_at: null }] }, { locks: shared });
   await p.settle();
-  p.tick(); p.tick();
-  assert.deepEqual(p.timers, [], 'the window already beats, so the page must not start a second timer');
+  await p.tick(); await p.tick();
+  assert.deepEqual(p.timers.map(t => t.ms), [3000], 'the page keeps polling for the lease without starting a second beat');
   assert.deepEqual(p.alive, [], 'and must not send a beat of its own');
   assert.equal(p.published(), '1', 'it still publishes, so a closing window hands the beat back');
 });
