@@ -982,8 +982,11 @@ def stop_blocked(proc):
 
 def note_stop_blocked(draft):
     """The draft was already streamed to the channel: tell the bridge (POST /stop-blocked) to take it back, so
-    the user gets the rewrite only, not both (11-08 鲸鱼娘 DM). Best effort: no bridge, no change."""
-    key, data = os.environ.get("CC_SESSION_KEY"), os.environ.get("CC_DATA_DIR") or os.environ.get("BOTHOUSE_DATA_DIR")
+    the user gets the rewrite only, not both (11-08 鲸鱼娘 DM). Best effort: no bridge, no change.
+    DSH scrubs every variable whose name holds KEY/TOKEN/SECRET/PASSWORD from a hook's environment, so a DSH
+    hook has only the CC_SESSION alias the bridge adds (agent/dsh dshSessionEnv); without it the DSH draft
+    was never withdrawn (11-08 isolated DSH run)."""
+    key, data = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION"), os.environ.get("CC_DATA_DIR") or os.environ.get("BOTHOUSE_DATA_DIR")
     if not key or not data:
         return
     import socket
