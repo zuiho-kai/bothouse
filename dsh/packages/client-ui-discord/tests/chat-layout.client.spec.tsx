@@ -146,6 +146,10 @@ describe('live header integration (#113)', () => {
     const head = screen.getByRole('group', { name: zh.leadCard })
     expect(within(head).queryByText('橘')).toBeNull()
     expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadUnset}`)).toBeTruthy()
+    // 没设主角色时卡片告诉人怎么设，点它直接进频道设置里的主角色选择（2026-11-07 走查：设置藏在收起的活动栏里）。
+    expect(within(head).getByText(zh.leadCardSet)).toBeTruthy()
+    fireEvent.click(within(head).getByRole('button'))
+    expect(screen.getByRole('combobox', { name: zh.channelLead })).toBeTruthy()
   })
 
   it('says the lead is still loading when it is not among the members yet', () => {

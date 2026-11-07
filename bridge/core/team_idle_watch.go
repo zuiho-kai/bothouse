@@ -261,7 +261,15 @@ func watchBoardClosed(it teamTaskBoardItem) bool {
 // not a deliberate result. A report, handback or explicit result ends the watch.
 // since: when the turn began (zero when unknown); a workspace handoff recorded from this chat
 // after it means the accepted work now belongs to that workspace.
-func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, cardResult bool, since time.Time) {
+// scheduled: the turn is a cron/timer/heartbeat routine (state.turnScheduled, set by
+// scheduledTurnUser in public_progress_auto.go). Such a turn's failure is the routine's own
+// timeout or error, not the watched work's: 2026-11-06 05:22:09 and 05:55:34 the main bridge
+// stopped two scheduled turns after 30m (heartbeat:discord:1560508467733860372 and a review
+// timer) and the watch counted both as #170's 「连续两次报错」 — it stopped resuming that board
+// item and asked the primary role to reassign it, though #170 itself never failed. So the
+// failure count stays untouched for those turns; handback, registration and wake-ups are not
+// affected.
+func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, scheduled, cardResult bool, since time.Time) {
 	if e.finishWorkspaceReportTurn(key, text) {
 		return // missing delivery owns this wake; do not also arm the idle watch
 	}
@@ -311,7 +319,12 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
 				handedOff = true
 			}
-			if it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
+			// A chat channel hands work to workspaces; an item only on its board (handed back and
+			// awaiting review, or the lead's own note) is not work left running there. Only an
+			// explicit 【接】 is watched in a chat channel (#1167, 11-07: #1162 returned by 工作区2
+			// fell back to the chat and got a 「接着做」 every lead turn).
+			if !inWorkspace && !accepted ||
+				it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
@@ -430,6 +443,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, ca
 				}
 			} else if !failed {
 				h.Idle.CantDo = 0
+			}
+			if failed && scheduled {
+				return // the routine's own failure counts toward nothing here (see watchTurnEnded)
 			}
 			if failed {
 				// Tools run before an error are not progress: keep the wake count.

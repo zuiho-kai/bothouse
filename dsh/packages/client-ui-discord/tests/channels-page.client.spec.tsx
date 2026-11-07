@@ -34,6 +34,68 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('colors valid mentions while composing, preserves raw tags and sends the original text', async () => {
+    const send = vi.fn(async () => {})
+    const members = [{ id: 'ju', name: '橘', mentionId: '12345', kind: 'bot' as const, online: true }]
+    const { container } = render(<ChannelsPage {...props({ ...ready, members, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const text = '你好 @橘 <@12345> @unknown user@ju.com <script>alert(1)</script>\n下一行'
+    fireEvent.change(input, { target: { value: text, selectionStart: text.length } })
+    const mirror = container.querySelector('[data-composer-highlights]')!
+    expect(mirror).not.toBeNull()
+    expect(mirror.getAttribute('aria-hidden')).toBe('true')
+    expect(Array.from(mirror.querySelectorAll('[data-mention]'), el => el.textContent)).toEqual(['@橘', '<@12345>'])
+    expect(mirror.textContent).toBe(text + '\n')
+    expect(mirror.querySelector('script')).toBeNull()
+    expect(input.value).toBe(text)
+    expect(input.selectionStart).toBe(text.length)
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).toHaveBeenCalledExactlyOnceWith(text)
+    expect(mirror.textContent).toBe('\n')
+  })
+
+  it('updates composer colors for candidate selection, edits, room changes and member changes', () => {
+    const p = props({ ...ready, thinking: {} })
+    const { container, rerender } = render(<ChannelsPage {...p} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const mentions = () => Array.from(container.querySelectorAll('[data-composer-highlights] [data-mention]'), el => el.textContent)
+    fireEvent.change(input, { target: { value: '@', selectionStart: 1 } })
+    fireEvent.click(screen.getByRole('option'))
+    expect(mentions()).toEqual(['@橘'])
+    expect(input.value).toBe('@橘 ')
+    expect(input.selectionStart).toBe(input.value.length)
+    fireEvent.change(input, { target: { value: '@不存在' } })
+    expect(mentions()).toEqual([])
+    fireEvent.change(input, { target: { value: '@橘' } })
+    rerender(<ChannelsPage {...props({ ...ready, roomId: 2, thinking: {} })} />)
+    expect(mentions()).toEqual([])
+    rerender(<ChannelsPage {...p} />)
+    expect(mentions()).toEqual(['@橘'])
+    rerender(<ChannelsPage {...props({ ...ready, members: [], thinking: {} })} />)
+    expect(mentions()).toEqual([])
+  })
+
+  it('keeps the native textarea during IME composition and synchronizes highlight scrolling', () => {
+    const send = vi.fn(async () => {})
+    const { container } = render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const text = '@橘\n你好\n'
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: text } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 })
+    expect(send).not.toHaveBeenCalled()
+    expect(input.parentElement?.classList.contains(css.inputComposing)).toBe(true)
+    fireEvent.compositionEnd(input, { data: '你好' })
+    expect(input.parentElement?.classList.contains(css.inputComposing)).toBe(false)
+    const mirror = container.querySelector('[data-composer-highlights]') as HTMLElement
+    expect(mirror.textContent).toBe(text + '\n')
+    input.scrollTop = 80
+    input.scrollLeft = 12
+    fireEvent.scroll(input)
+    expect(mirror.scrollTop).toBe(80)
+    expect(mirror.scrollLeft).toBe(12)
+  })
+
   it('saves the channel directory before asking to renew and supports later or immediate recreation', async () => {
     const p = props({ ...ready, rooms: [{ id: 1, name: 'general', workspace_path: '/old', effective_lead_id: 'ju' }] })
     const save = vi.fn(async () => {})
@@ -1052,7 +1114,8 @@ describe('multi-line messages and the narrow composer', () => {
     expect(Array.from(document.querySelectorAll('li')).map(li => li.textContent)).toEqual(['一', '二'])
     expect(document.querySelectorAll('li br')).toHaveLength(0)
     // Line breaks come from <br>, not from whitespace styling, so markdown's own "\n" text stays invisible.
-    expect(cssText()).not.toContain('pre-wrap')
+    // The composer mirror preserves raw whitespace; Markdown message text still must not.
+    expect(rule('.text')).not.toContain('pre-wrap')
   })
 
   // Before this fix (develop) messages went to MarkdownText unchanged; these shapes must render the same.

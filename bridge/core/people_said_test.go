@@ -17,6 +17,8 @@ func TestPersonKey(t *testing.T) {
 	}{
 		{&Message{Platform: "discord", UserID: "1498889779377602672"}, "discord-1498889779377602672"},
 		{&Message{Platform: "feishu", UserID: "ou_ab/c"}, "feishu-ou_ab-c"},
+		{&Message{Platform: "qq", UserID: "1234567890"}, "qq-1234567890"},
+		{&Message{Platform: "telegram", UserID: "-1001"}, "telegram--1001"},
 		{&Message{Platform: "discord", UserID: "1", FromBot: true}, ""},
 		{&Message{Platform: "discord", UserID: "cron"}, ""},
 		{&Message{Platform: "discord"}, ""},

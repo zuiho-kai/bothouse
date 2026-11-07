@@ -103,6 +103,12 @@ test('peers come from tailscale status', async () => {
   assert.deepEqual(peers, [{ name: 'MacBook', ip: '100.95.83.14', online: true, os: 'macOS' }, { name: 'phone', ip: '100.91.6.91', online: false, os: '' }]);
 });
 
+test('tailscale printing a sentence instead of JSON becomes a readable tailnet error', async () => {
+  // macOS app CLI with the app not running: exit 0, stdout is prose (seen 2026-11-07 on the devices page).
+  const out = 'The Tailscale GUI failed to start: The operation couldn’t be completed. (Tailscale.CLIError error 3.)\n';
+  await assert.rejects(tailnetPeers(async () => out), err => err instanceof PairError && err.code === 'tailnet' && /Tailscale/.test(err.message) && !/JSON|token/.test(err.message));
+});
+
 test('HTML rewrite sends absolute /collab/ URLs back through the proxy', () => {
   const mount = '/collab/remote/x';
   assert.equal(rewriteRemoteHTML(`<base href="/collab/panel/"><script>fetch('/collab/api/state');new EventSource(\`/collab/api/events\`)</script>`, mount),

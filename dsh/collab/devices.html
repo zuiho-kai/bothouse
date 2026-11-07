@@ -240,7 +240,11 @@ async function loadPeers() {
       ul.append(li);
     }
     $('peersNote').textContent = '';
-  } catch (e) { $('peersNote').textContent = ''; $('ctlErr').textContent = e.message; }
+  } catch (e) {
+    $('peersNote').textContent = '';
+    $('peers').replaceChildren(el('li', { class: 'empty' }, '没列出电脑，看下面的原因'));
+    $('ctlErr').textContent = e.message;
+  }
 }
 function select(p, li) {
   selected = p;

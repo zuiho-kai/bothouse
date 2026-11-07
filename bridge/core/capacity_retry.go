@@ -580,6 +580,7 @@ func queuedToMessage(q queuedMessage) Message {
 		Images:        q.images,
 		Files:         q.files,
 		FromVoice:     q.fromVoice,
+		voiceMarked:   q.voiceMarked,
 		FromBot:       q.fromBot,
 		Mentioned:     q.mentioned,
 		Direct:        q.direct,
