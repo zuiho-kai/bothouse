@@ -162,7 +162,8 @@ export class CliMember {
     // 拆成 node + 脚本，拆不动才退回经外壳启动。
     const direct = cmd === process.execPath
     const shim = !direct && process.platform === 'win32' ? resolveShim(cmd, { ...cleanEnv(), ...this.extraEnv }) : null
-    const launch = direct ? { cmd, args, shell: false } : (shim || { cmd, args, shell: process.platform === 'win32' })
+    // shim 只替换命令入口；保留原命令参数（npx 的 -y + 包名），再由 spawn 追加适配器参数。
+    const launch = shim ? { ...shim, args: [...shim.args, ...args] } : { cmd, args, shell: !direct && process.platform === 'win32' }
     const proc = spawn(launch.cmd, [...launch.args, ...a.args], {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
