@@ -82,11 +82,15 @@ setInterval(sample, Number(process.env.SAMPLE_MS));
 process.stdout.write(JSON.stringify({ ready: true, port: server.address().port, rss: process.memoryUsage().rss }) + '\\n');
 `;
 
-/** The real upload route, with the server in its own process reporting that process's RSS. */
-async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir, t } = {}) {
+/**
+ * Starts the server child and returns the handle before `ready` settles, so a caller can
+ * also inspect the failure path (a spawn that never starts) and its cleanup.
+ */
+function startStreamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir, t, execPath = process.execPath } = {}) {
   const attachmentsDir = dir ?? join(mkdtempSync(join(tmpdir(), 'collab-stream-')), 'attachments');
   // --expose-gc: the child's sampler collects before each reading (see `sample` below).
-  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e', UPLOAD_SERVER_CHILD], {
+  // execPath: tests point this at a missing binary to reproduce a spawn that never starts (#289).
+  const child = spawn(execPath, ['--expose-gc', '--input-type=module', '-e', UPLOAD_SERVER_CHILD], {
     env: { ...process.env, UPLOAD_DIR: attachmentsDir, COLLAB_DIR: moduleDir, MAX_BYTES: String(maxBytes), SAMPLE_MS: String(SAMPLE_MS) },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
@@ -98,6 +102,12 @@ async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir,
   // alive but never announces `ready` must be reaped too, not just one that dies.
   // Idempotent: the normal path closes it again, and an exited child is just awaited.
   const close = async () => {
+    // #289: a spawn that never started (ENOENT/EACCES) emits `error` + `close` and never
+    // `exit`, yet Node pre-sets exitCode to -2/-13 and leaves pid undefined. The guard
+    // below would then treat it as exited and await a promise that never settles, so a
+    // 3 ms clean failure became a full job timeout. Nothing was started, so nothing is
+    // left to reap: return here.
+    if (child.pid === undefined) return;
     if (child.exitCode !== null || child.signalCode !== null) { await exited; return; }
     const kill = setTimeout(() => child.kill('SIGKILL'), 5000);
     try { child.kill('SIGTERM'); } catch { /* already gone: await the exit below */ }
@@ -140,16 +150,51 @@ async function streamingUploadServer({ maxBytes = DEFAULT_MAX_UPLOAD_BYTES, dir,
   child.on('exit', (code, signal) => {
     settle(rejectReady, new Error(`upload server exited before ready: ${code ?? signal}`));
   });
-  const port = await ready;
   return {
     dir: attachmentsDir,
-    base: `http://127.0.0.1:${port}/collab/api/attachments`,
+    ready,
     /** Baseline is the server's last reported RSS, so startup and earlier uploads do not count. */
     reset() { baseline = last; peak = last; },
     grownMB() { return Math.round((peak - baseline) / 1024 / 1024); },
     close,
   };
 }
+
+/** The real upload route, with the server in its own process reporting that process's RSS. */
+async function streamingUploadServer(opts = {}) {
+  const started = startStreamingUploadServer(opts);
+  const port = await started.ready;
+  return { ...started, base: `http://127.0.0.1:${port}/collab/api/attachments` };
+}
+
+// 来源: #289 复验退回的 P2 —— spawn 失败（ENOENT/EACCES）时 Node 只发 error+close、
+// 永不发 exit，却把 exitCode 预置成 -2/-13、pid 留空；close() 的早退分支会当成「已退出」
+// 去 await 一个永不兑现的 Promise。父版 3.2 ms 干净失败，返工版守到 420 s 被外部
+// timeout 杀掉，把 3 ms 的明白失败变成吃满 job 超时。
+test('#289: a spawn that never starts fails fast and its cleanup does not hang', async () => {
+  // A binary that cannot exist: spawn itself fails, so no child ever runs.
+  const started = startStreamingUploadServer({ execPath: join(tmpdir(), 'no-such-node-for-289', 'node') });
+  const begin = performance.now();
+  // 2_000 ms: locally the ENOENT rejection lands in 148 ms (Node 26) / 225 ms (Node 24);
+  // the reworked version never settled at all (420 s until the external timeout), so this
+  // bound separates "fails fast" from "hangs" with ~10x margin on a slow runner.
+  const failed = await Promise.race([
+    started.ready.then(() => null, error => error),
+    new Promise(done => { setTimeout(() => done('timeout'), 2_000); }),
+  ]);
+  const readyMs = Math.round(performance.now() - begin);
+  assert.ok(failed instanceof Error, `ready must reject with the spawn failure, got ${failed} after ${readyMs} ms`);
+  assert.match(failed.message, /ENOENT/, 'the spawn failure itself is what the caller sees');
+  assert.ok(readyMs < 2_000, `the failure must land in a fraction of a second, took ${readyMs} ms`);
+
+  // And cleanup must settle: nothing was started, so there is no exit to wait for. On the
+  // reworked version this is the await that hung; the bound turns a hang into a red test.
+  const closed = await Promise.race([
+    started.close().then(() => 'closed'),
+    new Promise(done => { setTimeout(() => done('timeout'), 2_000); }),
+  ]);
+  assert.equal(closed, 'closed', 'close() must not wait for an exit that never arrives');
+});
 
 test('#197: a streamed upload lands on disk with its name and size; the bytes never enter the message JSON', async () => {
   const server = await uploadServer();
