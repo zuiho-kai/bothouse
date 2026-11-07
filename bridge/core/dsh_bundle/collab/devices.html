@@ -86,7 +86,7 @@
         <input class="digits" id="digits" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="输入那台电脑上的数字">
         <label class="mode"><input type="radio" name="mode" value="temp" checked><span><b>临时</b><br><span class="muted">断开后下次要重新输数字。</span></span></label>
         <div class="dur" id="dur">
-          <label><input type="radio" name="dur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉这个页面、切到别的面板；刷新页面不会断）</span></label>
+          <label><input type="radio" name="dur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉 DSH 窗口；刷新页面、切到别的面板不会断）</span></label>
           <label><input type="radio" name="dur" value="custom">自定义时长：<input type="number" id="durNum" min="1" step="1" value="1" inputmode="numeric"><select id="durUnit"><option value="60000">分钟</option><option value="3600000" selected>小时</option></select><span class="muted">到时自动断</span></label>
         </div>
         <label class="mode"><input type="radio" name="mode" value="remember"><span><b>记住这台电脑</b><br><span class="muted">以后打开就能直接连，不用再输。那台电脑随时可以在「已连接的设备」里踢掉。</span></span></label>
@@ -252,14 +252,29 @@ for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListene
 $('durNum').addEventListener('focus', () => { document.querySelector('input[name=dur][value=custom]').checked = true; });
 // 「直到我断开」: only these links lapse when no DSH window beats (pairing.mjs sweep), so only
 // these need a beat. Nothing paired, or only 「记住」 links (those never lapse), stays silent.
-// This page is the only window-level beat: the DSH shell no longer beats when the panel is closed.
+// Switch to another panel and this page is gone, so the answer is published for the DSH window,
+// which keeps beating from it (#238). This page and every window ask for the same lease and the
+// loser stands down, so the tick is sent once — not once per window, not twice with the page open.
 // 来源：与 pairing.mjs ALIVE_EVERY_MS 同一节拍。
 const ALIVE_EVERY_MS = 3000;
+const UNTIL_KEY = 'bothouse-dsh-devices: until-disconnect';
+const UNTIL_LEASE = 'bothouse-dsh-devices: heartbeat';
+// Settles never: the lease is held until this page or window goes away, and the next one takes over.
+const HOLD = () => new Promise(() => {});
+const untilDisconnect = () => links.some(l => l.mode === 'temp' && l.expires_at === null);
+const publish = () => {
+  try { localStorage.setItem(UNTIL_KEY, untilDisconnect() ? '1' : '0'); } catch (error) { /* no storage: this page still beats while it is open */ }
+};
+// Only the holder of the lease beats: while a DSH window holds it, this page publishes and stays quiet.
+let holding = false;
 const beat = () => {
-  if (!links.some(l => l.mode === 'temp' && l.expires_at === null)) return;
+  if (!holding || !untilDisconnect()) return;
   fetch('api/remote/alive', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
 };
-setInterval(beat, ALIVE_EVERY_MS);
+const startBeat = () => setInterval(beat, ALIVE_EVERY_MS);
+const begin = () => { holding = true; beat(); startBeat(); };
+if (navigator.locks?.request) navigator.locks.request(UNTIL_LEASE, { mode: 'exclusive' }, () => { begin(); return HOLD(); }).catch(() => {});
+else begin();
 $('digits').addEventListener('keydown', e => { if (e.key === 'Enter') $('doConnect').click(); });
 $('doConnect').onclick = async () => {
   if (!selected) return;
@@ -285,6 +300,8 @@ async function loadLinks() {
   try {
     ({ links } = await api('api/remote/links'));
     // Read the list before beating: an 「直到我断开」 link already in it must be kept alive at once.
+    // The same answer tells the DSH window whether to keep beating after this page is unloaded.
+    publish();
     beat();
     const ul = $('links');
     ul.replaceChildren();

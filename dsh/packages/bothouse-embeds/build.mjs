@@ -31,6 +31,11 @@ export const PAGES = [
     pkg: 'bothouse-dsh-devices', id: 'collab-devices', path: 'collab/devices', order: 9, icon: 'IconLinkOutlineRegular',
     zh: { label: '其他电脑', desc: '用一次性号码配对另一台电脑，操作它的频道、工作台和面板。' },
     en: { label: 'Other computers', desc: 'Pair another computer by a one-time number and drive its channels, desk and panel.' },
+    // #238: keep 「直到我断开」 links alive from the window, not just from the open page. Switching to
+    // another panel unloads devices.html, and pairing.mjs sweeps a link whose window stopped beating
+    // after UNTIL_GRACE_MS — 「直到我断开」 must not become 「直到我离开这个面板」.
+    // 来源：dsh/collab/pairing.mjs ALIVE_EVERY_MS，与 devices.html 的页面心跳同一个节拍。
+    heartbeat: 3000,
   },
 ]
 
@@ -70,6 +75,52 @@ ${page.galaxy ? `  ctx.slots.inject("main", () => ctx.slots.register({
   }, EmbedPage));
   // After the registrations: selecting a panel whose main entry is not registered yet fails.
   if (location.hash === "#${page.galaxy.id}") ctx.layout.selectPanel(${JSON.stringify(page.galaxy.id)});
+` : ''}${page.heartbeat ? `  // #238: 「直到我断开」 must not become 「直到我离开这个面板」. The devices page publishes "1" on
+  // this key while its list holds such a link — the only kind pairing.mjs sweeps once no window
+  // beats (UNTIL_GRACE_MS) — and this window keeps it alive even after that page is unloaded. The
+  // flag is re-read on every beat, so an empty or 「记住」-only list goes silent again at once.
+  // One window holds the lease and beats; the page and every other window ask for it with
+  // ifAvailable and stand down, so N open windows (and an open panel) still send one beat.
+  ctx.effect(() => {
+    const FLAG = NS + ": until-disconnect";
+    const LEASE = NS + ": heartbeat";
+    // 来源: dsh/collab/pairing.mjs ALIVE_EVERY_MS, the tick devices.html beats on as well.
+    const EVERY_MS = ${page.heartbeat};
+    const fetchImpl = globalThis.fetch;
+    const everyTick = globalThis.setInterval;
+    const stopTick = globalThis.clearInterval;
+    const base = document.baseURI;
+    const read = () => { try { return globalThis.localStorage?.getItem(FLAG) ?? null; } catch (error) { return null; } };
+    const write = (value) => { try { globalThis.localStorage?.setItem(FLAG, value); } catch (error) { /* no storage: the open page keeps beating for itself */ } };
+    const beat = () => {
+      if (read() !== "1") return;
+      fetchImpl?.(new URL("collab/api/remote/alive", base), { method: "POST", credentials: "same-origin" }).catch(() => {});
+    };
+    // A window opened after the link is gone still sees the last published flag (temp links live
+    // in memory only, so a DSH restart drops them): confirm it once against the list, then trust
+    // the page, which publishes on every list read.
+    const seed = async () => {
+      if (read() !== "1") return;
+      try {
+        const res = await fetchImpl?.(new URL("collab/api/remote/links", base), { credentials: "same-origin" });
+        const body = await res?.json();
+        const links = Array.isArray(body?.links) ? body.links : [];
+        write(links.some(l => l.mode === "temp" && l.expires_at === null) ? "1" : "0");
+      } catch (error) { /* no answer: keep whatever the page last published */ }
+    };
+    let timer;
+    const run = () => { timer = everyTick(beat, EVERY_MS); };
+    const locks = globalThis.navigator?.locks;
+    // No Web Locks (an old browser): beat anyway rather than let the link lapse.
+    if (locks?.request === undefined) { run(); return () => stopTick(timer); }
+    const control = new AbortController();
+    locks.request(LEASE, { mode: "exclusive", signal: control.signal }, () => {
+      run();
+      seed();
+      return new Promise(() => {}); // held until this window closes; the next window then takes over
+    }).catch(() => { /* aborted: this window is closing */ });
+    return () => { control.abort(); stopTick(timer); };
+  }, NS + ": remote link heartbeat");
 ` : ''}  if (location.hash === "#${page.id}") ctx.layout.selectPanel(${JSON.stringify(page.id)});
 };
 `
