@@ -415,9 +415,9 @@ func dshInstallError(err error, lang string) string {
 	switch {
 	case errors.Is(err, errDSHMissing):
 		if zh {
-			return "这台电脑还没装 DSH。先在终端运行 npm i -g @deepseek-ai/dsh，装好后点「重新检测」。"
+			return "这台电脑还没装 DSH。先在终端运行 npm i -g @deepseek-ai/dsh@latest，装好后点「重新检测」。"
 		}
-		return "DSH is not installed. Run npm i -g @deepseek-ai/dsh, then click Detect again."
+		return "DSH is not installed. Run npm i -g @deepseek-ai/dsh@latest, then click Detect again."
 	case strings.Contains(err.Error(), "install.sh not found"):
 		if zh {
 			return "找不到 DSH 插件安装包。请重新下载 bothouse 后再试。"

@@ -1,23 +1,52 @@
 # 在 DSH 里用 bothouse（实验）
 
-把 bothouse 的插件装进 DeepSeek 的 DSH，角色住在 DSH 网页的频道里。可以在 DSH 网页里添加多个 DeepSeek 或 Codex 成员。
+把 bothouse 的插件装进 DeepSeek 的 DSH，角色住在 DSH 网页的频道里，@ 谁谁回。可以添加多个 DeepSeek 或 CLI 成员。
 
-要准备（只有选 DSH 才需要）：
+## 要准备
 
-- DSH `>= 0.2.1-rc.2`。
-- Node `>= 22.12.0`，安装器可用 npm 补齐缺失的 `pnpm`。
+只有选 DSH 才需要这些：
+
+- **Node.js 22.12 或更新**：终端里运行 `node -v` 看版本；没有或太旧就到 [nodejs.org](https://nodejs.org/) 下载 LTS 版安装（自带 npm）。
+- **DSH 本体**（`0.2.1-rc.2` 或更新）：终端里运行
+
+  ```sh
+  npm i -g @deepseek-ai/dsh@latest
+  ```
+
+  装好后 `dsh --version` 能打出版本号就行（国内网络慢可加 `--registry=https://registry.npmmirror.com`）。要写 `@latest`：DSH 目前只发预发布版，有的 npm 版本不写会报「No matching version found」。
+  装过 DeepSeek Harness 桌面版的 Mac 可以跳过这步，向导会用桌面版里自带的那份。
+  npm 装的时候打出一串 `allow-scripts` 的提示，不用管，不影响使用。
+- **一个回话用的模型**，二选一：一把 DeepSeek API Key（[platform.deepseek.com](https://platform.deepseek.com/) 的 API Keys 页创建），或者本机一个已经登录过的 CLI（Codex、Claude Code……，先在终端里登录好）。
+- 不用另装 pnpm，向导缺了会自己用 npm 补上。
 
 ## 1. 装 bothouse
 
 见[首页第 1 步](../GETTING_STARTED.md#1-装)。
 
-## 2. 向导
+## 2. 走向导
 
-运行 `bothouse`，第一页「你想在哪儿用」选 **DSH**：检测 dsh → 装插件 → 运行返回的命令打开 DSH web。角色、CLI 和人设之后在 DSH 网页里配置。装过 DeepSeek Harness 桌面版（打开过一次）的机器，安装器同时把频道插件装进桌面版自己的 `desktop` profile，装完重启桌面版窗口就有频道。
+运行 `bothouse`，浏览器会打开安装向导。第一页「你想在哪儿用」选 **DSH**，然后四步：
 
-不使用浏览器时，先运行 `bothouse module add dsh --dry-run` 检查，再运行 `bothouse module add dsh --lang zh` 安装。两条命令输出 JSON；预演不会安装或写配置，已装过时正式添加会恢复启用。
+1. **检测 DSH**：显示 Node 和 DSH 的版本。提示没找到 dsh，就照上面「要准备」装好，再点「重新检测」。
+2. **安装插件**：点「安装插件」，向导把 bothouse 的频道插件装进 DSH，第一次要等一两分钟。
+3. **角色和模型**：给每个角色选「用什么回话」：本机已登录的 CLI，或 DeepSeek 模型（要填 API Key）。刚在终端登录的 CLI，回到这一步（点「上一步」再进来）就会重新检测。
+4. **打开 DSH**：点「打开 DSH」，新标签页打开 DSH 的 #general 频道，角色已经在成员列表里。第一次打开有一页「预览版说明」，点「继续」。
 
-选中 DSH 才检查 Node；版本低于 22.12.0 时提示升级，缺 pnpm 时安装器用 npm 补齐。原有命令 `bothouse setup dsh install` 仍可用，也可以直接从 GitHub 装插件：
+在输入框里 `@角色名` 说一句话，角色就会回。
+
+## 以后怎么再打开 DSH 网页
+
+- 终端运行 `bothouse web` 打开管理面板，在「概览」页点「打开 DSH」（或点 DSH 成员、#general 卡片）。
+- DSH 网页没在运行时（比如重启过电脑），这个按钮会先把它启动起来再打开，第一次启动可能要等一两分钟。
+- 直接打开频道页地址时如果看到「频道页（DSH）没有在运行」，也照上面在面板里点「打开 DSH」。
+
+## 装了 DeepSeek Harness 桌面版
+
+装过桌面版（打开过一次）的机器，向导同时把频道插件装进桌面版。**装完要把桌面版完全退出再重新打开**（Mac 上按 ⌘Q，只关窗口不算退出），侧栏才会出现频道。桌面版窗口里的频道在桌面版的 Plugins 页开关。
+
+## 不用浏览器
+
+先运行 `bothouse module add dsh --dry-run` 检查，再运行 `bothouse module add dsh --lang zh` 安装。两条命令输出 JSON；预演不会安装或写配置，已装过时正式添加会恢复启用。也可以直接从 GitHub 装插件：
 
 ```sh
 dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'

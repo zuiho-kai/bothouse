@@ -300,7 +300,7 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	dshBin, err := LookDSH()
 	if err != nil {
-		mgmtError(w, http.StatusConflict, "这台电脑还没装 DSH：先 npm i -g @deepseek-ai/dsh")
+		mgmtError(w, http.StatusConflict, "这台电脑还没装 DSH：先 npm i -g @deepseek-ai/dsh@latest")
 		return
 	}
 
