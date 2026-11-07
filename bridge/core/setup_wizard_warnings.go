@@ -410,11 +410,11 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		}
 		if req.Gate != nil && req.Gate.Mode == "addressed" {
 			if isJA(req.Language) {
-				res.GateHint = "呼ばれた時だけ返信：グループでは @ で呼んでください。ルーティング用の Python・jev・小型モデルは不要です。独自 gate と他プラットフォームの設定は維持します。"
+				res.GateHint = "呼ばれた時だけ返信：グループでは @ したロールが答えます。追加インストールは不要です。あとから管理パネルの「ゲート」で「スマート判定」に切り替えられます。"
 			} else if isZH(req.Language) {
-				res.GateHint = "仅被点名时回复：群聊请 @ 角色，无需为分流运行 Python、jev 或小模型。自定义 gate 和其他平台设置保留。"
+				res.GateHint = "仅被点名时回复：群聊里 @ 谁谁回，什么都不用另装。以后想让角色自己判断该谁回，到管理面板「闸门」页选「智能判断」。"
 			} else {
-				res.GateHint = "Only when addressed: mention a role in groups. No Python, jev or small model required for routing. Custom gates and other platforms are preserved."
+				res.GateHint = "Only when addressed: in groups the role you @ answers; nothing extra to install. To let a judge model pick who answers later, choose smart on the panel's Gate page."
 			}
 		}
 		switch res.GateStatus {

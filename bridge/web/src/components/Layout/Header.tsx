@@ -129,7 +129,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
       {/* Theme */}
       <button type="button" onClick={() => setTheme(isSetup ? nextWizard : NEXT_THEME[theme])}
-        className={cn(iconBtn, isSetup && 'w-auto gap-2 px-2 text-xs ring-1 ring-hairline')}
+        className={cn(iconBtn, isSetup && 'w-auto sm:w-auto grid-flow-col auto-cols-max shrink-0 whitespace-nowrap gap-2 px-2 text-xs ring-1 ring-hairline')}
         aria-label={isSetup ? T.switchStyle : t('theme.toggle')} title={isSetup ? undefined : t(`theme.${theme}`)} data-testid="theme-toggle">
         <ThemeIcon size={16} />
         {isSetup && <span>{wizardStyleLabel[nextWizard]}</span>}
