@@ -5,6 +5,7 @@ import { Badge, Button, Input, LoadingState, PageHeader, Section } from '@/compo
 import { cn } from '@/lib/utils';
 import { getGateSettings, saveGate, startGate, type GateBot, type GateMode, type GateStatus } from '@/api/gate';
 import { saveJev, testJev } from '@/api/wizard';
+import { JevPreset, JEV_PRESET } from '@/pages/Setup/JevPreset';
 import { gateTexts, type GateTexts } from './texts';
 
 /**
@@ -330,12 +331,18 @@ function JevCard({ T, lang, lead, jev, hint, onSaved }: {
           {' · '}{jev.has_key ? 'key ✓' : T.jevNoKey}
         </p>
       )}
+      {!jev && (
+        <div className="mb-3">
+          <JevPreset lang={lang} active={url === JEV_PRESET.base_url && model === JEV_PRESET.model}
+            onFill={() => { setURL(JEV_PRESET.base_url); setModel(JEV_PRESET.model); setKey(''); edited(); }} />
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Input label={T.jevURL} value={url} placeholder="https://api.siliconflow.cn/v1" data-testid="gate-jev-url"
+        <Input label={T.jevURL} value={url} placeholder={JEV_PRESET.base_url} data-testid="gate-jev-url"
           onChange={(e) => { setURL(e.target.value); edited(); }} />
         <Input label={T.jevKey} type="password" value={key} placeholder="sk-…" data-testid="gate-jev-key"
           onChange={(e) => { setKey(e.target.value); edited(); }} />
-        <Input label={T.jevModel} value={model} placeholder="Qwen/Qwen3-8B" data-testid="gate-jev-model"
+        <Input label={T.jevModel} value={model} placeholder={JEV_PRESET.model} data-testid="gate-jev-model"
           onChange={(e) => { setModel(e.target.value); edited(); }} />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
