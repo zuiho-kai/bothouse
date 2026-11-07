@@ -35,7 +35,7 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 	if err != nil {
 		return "", err
 	}
-	p.recordSent(result, text)
+	p.recordSent(result, text, rc)
 	id := jsonInt64(result, "message_id")
 	if id == 0 {
 		return "", nil

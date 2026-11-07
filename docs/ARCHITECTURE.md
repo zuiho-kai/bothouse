@@ -1,5 +1,9 @@
 # bothouse 软件架构
 
+## 原生引用回复
+
+平台可选实现 `MessageReplySender`，由平台验证目标消息属于当前会话。`send --reply-to` 经既有 `/send` API 和 `Engine.SendToSessionWithOptions` 调用该能力；不支持时返回错误，普通发送不变。公共入站边界只向具有该能力的平台提供消息 ID 和使用说明，因此 DSH / ACP 等不加载系统提示的后端同样能发现命令。QQ 的 `get_msg` 补取位于适配层，保留原作者、正文和 `Message.Reference`；原文不可读时保留引用 ID 并明确标记缺失。核心不判断平台或模型名称。
+
 ## 频道模型与推理强度
 
 运行时选择按执行会话键写入 ProjectStateStore 的 `session_model_overrides`，模型与推理强度分别合并，未设置字段沿用配置。模型优先级为频道运行时选择、`session_models` 配置、现有目录工作区/项目默认值。原目录工作区覆盖继续兼容；切换频道不再调用共享 Agent 的模型/强度 setter，也不改 provider 或项目配置。

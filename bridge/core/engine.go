@@ -3827,6 +3827,16 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		// text so command parsing and DM routing do not change.
 		body = senderText(msg, body)
 		var head []string
+		if _, ok := p.(MessageReplySender); ok && msg.MessageID != "" {
+			ids := "[Message IDs: current=" + msg.MessageID
+			if msg.Reference != nil && msg.Reference.ID != "" {
+				ids += " reply_to=" + msg.Reference.ID
+			}
+			head = append(head, ids+"]")
+			// ACP backends need the usage inline: they need not implement
+			// SystemPromptSupporter or load an instruction file.
+			head = append(head, nativeQuotedReplyInstructions)
+		}
 		if msg.AmbientChat != "" {
 			head = append(head, msg.AmbientChat)
 		}
@@ -13500,9 +13510,10 @@ func (e *Engine) SendToSession(sessionKey, message string) error {
 
 // SendOptions controls optional behavior for external send callers.
 type SendOptions struct {
-	WorkDir string
-	AtUsers []string
-	AtAll   bool
+	WorkDir          string
+	AtUsers          []string
+	AtAll            bool
+	ReplyToMessageID string
 }
 
 func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images []ImageAttachment, files []FileAttachment, atUsers []string, atAll bool) error {
@@ -13510,6 +13521,9 @@ func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images
 }
 
 func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []ImageAttachment, files []FileAttachment, opts SendOptions) error {
+	if opts.ReplyToMessageID != "" && (sessionKey == "" || strings.TrimSpace(message) == "" || strings.TrimSpace(opts.WorkDir) != "") {
+		return fmt.Errorf("native reply requires text and an explicit conversation without a work directory override")
+	}
 	if strings.TrimSpace(opts.WorkDir) != "" {
 		workDir, useWorkDirSession, err := e.resolveSendWorkDir(opts.WorkDir)
 		if err != nil {
@@ -13541,6 +13555,15 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 	}
 
+	var replySender MessageReplySender
+	if opts.ReplyToMessageID != "" {
+		var ok bool
+		replySender, ok = p.(MessageReplySender)
+		if !ok {
+			return fmt.Errorf("platform %s: native message replies: %w", p.Name(), ErrNotSupported)
+		}
+	}
+
 	var fileSender FileSender
 	if len(files) > 0 {
 		var ok bool
@@ -13555,7 +13578,11 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			return err
 		}
 		// Use AtMentionSender when @users specified and platform supports it
-		if len(opts.AtUsers) > 0 || opts.AtAll {
+		if replySender != nil {
+			if err := replySender.ReplyToMessage(e.ctx, replyCtx, message, opts.ReplyToMessageID, opts.AtUsers, opts.AtAll); err != nil {
+				return err
+			}
+		} else if len(opts.AtUsers) > 0 || opts.AtAll {
 			if atSender, ok := p.(AtMentionSender); ok {
 				if err := atSender.ReplyWithAt(e.ctx, replyCtx, message, opts.AtUsers, opts.AtAll); err != nil {
 					return err
