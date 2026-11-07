@@ -95,12 +95,23 @@ func takeOverExitedPluginLock(lockPath string) (bool, error) {
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return false, err
 	}
+	if pluginLockAfterClaim != nil {
+		pluginLockAfterClaim()
+	}
 	current, err := os.ReadFile(lockPath)
 	if err != nil || !bytes.Equal(current, raw) || !pluginLockHolderGone(current) {
+		// 记录已经换了（别人抢先用同一份哈希拿了 claim 并写上了自己的活记录），
+		// 或者写进来的人不是 DSH 的格式：都不是我们该删的那一条。
 		return false, nil
 	}
 	return os.Remove(lockPath) == nil, nil
 }
+
+// pluginLockAfterClaim is nil in production; a test sets it to act as the contender that
+// replaces the dead holder's record in the window between taking the claim and re-reading it.
+// Without this seam that window only opens under a real race, and the branch that decides
+// whether a live record survives would stay untested.
+var pluginLockAfterClaim func()
 
 // pluginLockHolderGone accepts only DSH's complete PID record. Unreadable, partial and
 // malformed records never prove that the holder exited.
