@@ -77,7 +77,7 @@ def load_rules():
     stub.Scorer = _Scorer
     saved = sys.modules.get("scorer")
     sys.modules["scorer"] = stub
-    # gate.py 没有 jev 也没设 GATE_MODEL 时会报错退出；这里只要规则，让它走本机打分器那条路（拿到的是上面的假 scorer）
+    # gate.py 没有 jev 也没设 GATE_MODEL 时只起不判谁回；这里只要规则，让它走本机打分器那条路（拿到的是上面的假 scorer）
     saved_model = os.environ.get("GATE_MODEL")
     os.environ["GATE_MODEL"] = saved_model or "rules-only"
     try:
