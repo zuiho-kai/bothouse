@@ -45,7 +45,8 @@
     "bothouse-dsh-desk": "0.1.0",
     "bothouse-dsh-devices": "0.1.0",
     "bothouse-dsh-panel": "0.1.0",
-    "ws": "8.22.1"
+    "ws": "8.22.1",
+    "zod": "^4.0.0"
   },
   "bundleDependencies": [
     "bothouse-dsh-channels",
