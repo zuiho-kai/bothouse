@@ -9,8 +9,8 @@ import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
-import { MAX_MESSAGE_BODY, MAX_ROWS, messageTooLarge } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, LockHolder, OutgoingAttachment } from './channel-source.ts'
+import { MAX_MESSAGE_BODY, MAX_ROWS, errorText, messageTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
@@ -188,6 +188,24 @@ export function continues(previous: ChannelMessage | undefined, message: Channel
 
 function clockOf(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * #216: fill the "held by another DSH" notice from the holder record. A record written by an
+ * older build may miss a field, so each one falls back to its own unknown placeholder rather
+ * than printing `undefined`. `dataDir` and `lock` come from the refused instance too: a holder
+ * that wrote no record still leaves the page able to name the contended directory and file.
+ */
+function lockHolderText(holder: LockHolder | undefined, dataDir: string | undefined, lockPath: string | undefined, t: T): Record<string, unknown> {
+  const unknown = t('lockedUnknown')
+  return {
+    pid: holder?.pid ?? unknown,
+    started: holder?.startedAt === undefined ? unknown : new Date(holder.startedAt).toLocaleString([], {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    }),
+    dataDir: holder?.dataDir ?? dataDir ?? unknown,
+    lock: lockPath ?? unknown,
+  }
 }
 
 /** #1020: the memory entries a reply used — a small badge that opens to their titles. */
@@ -1010,10 +1028,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     return () => { clearTimeout(timer) }
   }, [stopping, stillAnswering])
   if (state.phase !== 'ready') {
-    const notice = state.phase === 'unavailable' ? t('unavailable')
-      : state.phase === 'unauthorized' ? t('unauthorized')
-        : state.phase === 'error' ? t('error', { message: state.error ?? '' })
-          : t('loading')
+    const notice = state.phase === 'locked'
+      ? state.lockFree === true ? t('lockedFree')
+        : state.lockHolder === undefined ? t('lockedUnnamed', lockHolderText(undefined, state.lockDataDir, state.lockPath, t))
+          : t('locked', lockHolderText(state.lockHolder, state.lockDataDir, state.lockPath, t))
+      : state.phase === 'unavailable' ? t('unavailable')
+        : state.phase === 'unauthorized' ? t('unauthorized')
+          : state.phase === 'error' ? t('error', { message: state.error ?? '' })
+            : t('loading')
     return <div className={css.page} data-dc-scheme={scheme}><div className={css.notice} role="status">{notice}</div></div>
   }
 
@@ -1082,10 +1104,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     : matchCommands(slash, key => t(key)).filter(c => dmWith === undefined || (c.name !== 'stop all' && c.name !== 'board'))
   const slashOpen = slashCommands.length > 0
   const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
-  // #1017: bothouse bots answering in this room; the send key stops one of them (the primary
-  // role first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  // #1017: agents answering in this room; the send key stops one of them (the primary role
+  // first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  // #299: a DSH member counts too — its stop key sends `@name /stop`, which DSH now honours out of
+  // band (dsh-member.mjs plan). It used to be bots only, so the key never appeared for a DSH team.
   const workingBots = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
-    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && m.kind === 'bot')
+    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && (m.kind === 'bot' || m.kind === 'dsh'))
   const stopTarget = workingBots.find(m => m.id === commandTarget?.id) ?? workingBots[0]
   const roomFiles = state.roomId === undefined ? [] : pendingFiles[state.roomId] ?? []
   const stopMode = (stopTarget !== undefined || stopping?.phase === 'stopping') && draft.trim() === '' && roomFiles.length === 0
@@ -1163,7 +1187,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (!name) { setNewRoom(undefined); return }
     setRoomError(undefined)
     createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
-      setRoomError(error instanceof Error ? error.message : String(error))
+      setRoomError(errorText(error, t, 'room', name))
     })
   }
 
@@ -1222,7 +1246,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (!window.confirm(t('removeConfirm', { name: member.name }))) return
     setMemberError(undefined)
     removeMember(member.id).catch((error: unknown) => {
-      setMemberError(error instanceof Error ? error.message : String(error))
+      setMemberError(errorText(error, t, 'member', member.name))
     })
   }
 
@@ -1629,7 +1653,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         />
         <div className={css.composer} ref={composerRef}>
           {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
-          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} leadName={dmWith === undefined && commandTarget === undefined ? lead?.name : undefined} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (

@@ -761,15 +761,3 @@ func TestWorkflowHooksInstalledAcrossTeamCLIs(t *testing.T) {
 		})
 	}
 }
-
-// surface-guard runs inside fix-claim-guard; its rule shows up with the host hook.
-func TestHookRulesCompanion(t *testing.T) {
-	useRepoHooks(t)
-	got := HookRules("zh", []string{"fix-claim-guard"}, "python3", "/h", "/w")
-	if !strings.Contains(got, "surface-guard") || !strings.Contains(got, "fix-claim-guard") {
-		t.Fatalf("fix-claim-guard rules missing companion:\n%s", got)
-	}
-	if strings.Contains(HookRules("en", []string{"promise-guard"}, "python3", "/h", "/w"), "surface-guard") {
-		t.Fatal("surface-guard rule shown without fix-claim-guard")
-	}
-}

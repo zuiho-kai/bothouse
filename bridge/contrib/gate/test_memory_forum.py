@@ -10,7 +10,9 @@ import ctxsvc, forum_scores, memvote
 LESSONS = ("---\nname: rule-candidates-recurrence\ndescription: 教训表\n---\n# 教训表\n## 关键事实\n"
            "- 经验：嘉立创下单前先核对板厚和层数参数\n  - 11-01 下单板厚选错\n  - 11-02 又选错\n"
            "- 经验：发版前先看流水线有没有旧 run 在跑\n  - 11-01 旧 run 挡住\n")
-PROFILE = "---\nname: me\ndescription: 画像\n---\n# 懂你\n## 现状\n- 喜欢短汇报\n## 历史\n- 旧说法\n"
+# 画像每人一页（#1160）：页名 profile-<平台>-<账号>.md，落在 GATE_PROFILE 指的那个目录里，格式同 profiles.py 的页头
+PROFILE_PAGE = ("---\nname: profile-discord-1\ndescription: 懂你：鲸鱼娘 的画像\n---\n# 懂你：鲸鱼娘\n\n"
+                "## 现状\n- 喜欢短汇报\n\n## 历史\n- 旧说法\n")
 
 
 class T(unittest.TestCase):
@@ -23,7 +25,9 @@ class T(unittest.TestCase):
         exp.mkdir()
         (wiki / "tooling/README.md").write_text("x", encoding="utf-8")
         (wiki / "tooling/rule-candidates-recurrence.md").write_text(LESSONS, encoding="utf-8")
-        (wiki / "tooling/me.md").write_text(PROFILE, encoding="utf-8")
+        (wiki / "tooling/me.md").write_text(PROFILE_PAGE, encoding="utf-8")  # 旧的一页位置：配了目录也不该用它
+        (wiki / "profile").mkdir()
+        (wiki / "profile/profile-discord-1.md").write_text(PROFILE_PAGE, encoding="utf-8")
         self.wiki, self.exp = wiki, exp
         for obj, k, v in ((ctxsvc, "WIKI", wiki), (ctxsvc, "_idx", {}), (ctxsvc, "_lesson_rel", {}), (ctxsvc, "board", None),
                           (ctxsvc, "EXP", exp), (ctxsvc, "SCORES", exp / "scores.json"), (ctxsvc, "PROFILE", ""),
@@ -45,13 +49,38 @@ class T(unittest.TestCase):
     def paths(self, text):
         return [w["path"] for w in ctxsvc.context({"key": "discord:1", "text": text})["wiki"]]
 
+    def profile(self, text="随便聊聊", sender="discord-1"):
+        req = {"key": "discord:1", "text": text}
+        if sender is not None:
+            req["sender"] = sender
+        return [w for w in ctxsvc.context(req)["wiki"] if w["path"].startswith("【懂你")]
+
     def test_profile_only_when_configured(self):
         self.assertFalse([p for p in self.paths("随便聊聊") if p.startswith("【懂你")])
-        with patch.object(ctxsvc, "PROFILE", "tooling/me.md"):
-            got = [w for w in ctxsvc.context({"key": "discord:1", "text": "随便聊聊"})["wiki"] if w["path"].startswith("【懂你")]
+        with patch.object(ctxsvc, "PROFILE", "profile"):
+            got = self.profile()
         self.assertEqual(len(got), 1)
         self.assertIn("喜欢短汇报", got[0]["desc"])
-        self.assertNotIn("旧说法", got[0]["desc"])
+        self.assertNotIn("旧说法", got[0]["desc"])  # 只推「## 现状」，历史不推
+        self.assertIn("鲸鱼娘", got[0]["path"])  # 页头「# 懂你：<名字>」
+
+    def test_profile_not_pushed_without_sender(self):
+        """没有发送人（定时任务、队友 bot 的轮次）就不推，不拿别人的顶上。"""
+        with patch.object(ctxsvc, "PROFILE", "profile"):
+            self.assertEqual(self.profile(sender=None), [])
+            self.assertEqual(self.profile(sender=""), [])
+
+    def test_profile_off_when_not_configured(self):
+        """GATE_PROFILE 为空 = 不推画像：#1160 前那一页（tooling/me.md）也不许退回旧语义推上来。"""
+        with patch.object(ctxsvc, "PROFILE", ""):
+            self.assertEqual(self.profile(), [])
+            self.assertTrue((self.wiki / "tooling/me.md").exists())  # 旧那一页还在盘上，只是不推
+
+    def test_profile_not_pushed_without_page(self):
+        """目录配了、这个人还没页：不推；别人有页也不顶上来。"""
+        with patch.object(ctxsvc, "PROFILE", "profile"):
+            self.assertEqual(self.profile(sender="discord-2"), [])
+            self.assertEqual(len(self.profile(sender="discord-1")), 1)
 
     def test_lesson_only_on_topic(self):
         hit = ctxsvc.lesson_hits("嘉立创下单板厚参数怎么选")

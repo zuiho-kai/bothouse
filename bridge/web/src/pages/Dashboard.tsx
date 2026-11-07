@@ -11,6 +11,9 @@ import { listSessions, type Session } from '@/api/sessions';
 import { connectedSources, dshStatus, getDSHSummary, type DSHSummary } from '@/api/dsh';
 import { DSHNotice, errorMessage } from '@/components/DSHNotice';
 import { dshChannelsUrl } from '@/lib/collabPages';
+import { goToDsh } from '@/lib/openDsh';
+import { getDSHStatus, openDSHDesktop } from '@/api/wizard';
+import { listModules } from '@/api/modules';
 import { dshOnlyRows } from '@/lib/dshMerge';
 import api from '@/api/client';
 import { formatUptime, formatTime } from '@/lib/utils';
@@ -19,7 +22,7 @@ import { usePageRefresh } from '@/lib/usePageRefresh';
 const MAX_ITEMS = 4;
 
 export default function Dashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [recentSessions, setRecentSessions] = useState<(Session & { project: string })[]>([]);
@@ -83,6 +86,27 @@ export default function Dashboard() {
   const dshMembers = dshOnlyRows(dsh?.members ?? [], projects.map((p) => p.name));
   const dshChannels = dsh?.channels ?? [];
   const dshUrl = dshChannelsUrl(undefined, api.getToken());
+  const [dshWait, setDshWait] = useState<number | null>(null);
+  // 打开 DSH only where DSH is set up: elsewhere 「DSH 未运行」 needs no button
+  const [dshSetUp, setDshSetUp] = useState(false);
+  useEffect(() => { listModules().then((r) => setDshSetUp(r.modules.some((x) => x.name === 'dsh' && x.state === 'enabled'))).catch(() => {}); }, []);
+  // the channels are in DeepSeek Harness Desktop too (setup wizard's default route): open it there first
+  const [dshDesktop, setDshDesktop] = useState(false);
+  useEffect(() => { if (dshSetUp) getDSHStatus().then((s) => setDshDesktop(!!s.desktop_app && !!s.desktop_plugin_installed)).catch(() => {}); }, [dshSetUp]);
+  const openDsh = (e?: { preventDefault: () => void }) => { e?.preventDefault(); setDshWait(0); void goToDsh(dshUrl, setDshWait).finally(() => setDshWait(null)); };
+  const openDesktop = () => { setDshWait(0); void openDSHDesktop(i18n.language).catch(() => openDsh()).finally(() => setDshWait(null)); };
+  const btn = 'shrink-0 rounded-control px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-hairline hover:bg-surface disabled:opacity-60';
+  const openDshButton = dshDesktop ? (
+    <span className="inline-flex shrink-0 gap-1.5">
+      <button type="button" onClick={openDesktop} disabled={dshWait !== null} data-testid="dashboard-open-dsh-desktop" className={btn}>
+        {t('dshManage.openDshDesktop', '在桌面版打开')}</button>
+      <button type="button" onClick={() => openDsh()} disabled={dshWait !== null} data-testid="dashboard-open-dsh" className={btn}>
+        {dshWait === null ? t('dshManage.openDshWeb', '网页版') : `${t('dshManage.openDshWeb', '网页版')}… ${dshWait}s`}</button>
+    </span>
+  ) : (
+    <button type="button" onClick={() => openDsh()} disabled={dshWait !== null} data-testid="dashboard-open-dsh" className={btn}>
+      {dshWait === null ? t('dshManage.openDsh', '打开 DSH') : `${t('dshManage.openDsh', '打开 DSH')}… ${dshWait}s`}</button>
+  );
   // Recent sessions: bridge sessions and DSH channels together, newest first.
   const recentItems = [
     ...recentSessions.map((sess) => ({ kind: 'bridge' as const, at: sess.updated_at, sess })),
@@ -112,7 +136,7 @@ export default function Dashboard() {
         <>
           {error && <p role="alert">{error}</p>}
           {sessionError && <p role="alert">{sessionError}</p>}
-          <DSHNotice status={dshError ? 'error' : dsh ? dshStatus(dsh) : undefined} error={dshError || dsh?.error} />
+          <DSHNotice status={dshError ? 'error' : dsh ? dshStatus(dsh) : undefined} error={dshError || dsh?.error} action={dshSetUp ? openDshButton : undefined} />
           <p className="text-xs text-ink-mute">{t('dshManage.projectScope')}</p>
           {/* Stats */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -161,8 +185,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Projects */}
-          <section>
+          {/* Projects: a DSH-only user has none, so the empty card would push the DSH members below the fold (#1173) */}
+          {(projects.length > 0 || dshMembers.length === 0) && <section>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
                 <Server size={14} strokeWidth={1.6} className="text-ink-mute" />
@@ -207,13 +231,14 @@ export default function Dashboard() {
 
               </div>
             )}
-          </section>
+          </section>}
 
-          {dshMembers.length > 0 && <section><h3 className="mb-3 text-sm font-semibold">{t('dsh.members', 'DSH 成员')}</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {dshMembers.length > 0 && <section><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">{t('dsh.members', 'DSH 成员')}</h3>
+                {openDshButton}</div><div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 {dshMembers.slice(0, MAX_ITEMS).map((m) => (
                   <a
                     key={m.name}
-                    href={dshUrl}
+                    href={dshUrl} onClick={openDsh}
                     className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
                   >
                     <div className="mb-3 flex items-center gap-2.5">
@@ -252,7 +277,7 @@ export default function Dashboard() {
                 {recentItems.map((item) => item.kind === 'dsh' ? (
                   <a
                     key={`dsh-${item.ch.id}`}
-                    href={dshUrl}
+                    href={dshUrl} onClick={openDsh}
                     className="block min-w-0 overflow-hidden rounded-card bg-surface p-4 ring-1 ring-hairline transition-[box-shadow,background-color] duration-state ease-ui-standard hover:ring-hairline-strong"
                   >
                     <div className="mb-3 flex items-center gap-2.5">

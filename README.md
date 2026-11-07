@@ -32,7 +32,7 @@ Watch bothouse in 3 minutes: one message goes in; the crew splits the work, take
   <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: an AI team at work — click to play"></a>
 </p>
 
-The setup wizard offers **Only when addressed** for quiet group participation without a routing model. Smart routing can use a local 0.6B model; it must provide logprobs and is not downloaded automatically. See [routing choices](docs/connect-discord-feishu.md#5-jev-和主角色).
+New installs default to **Only when addressed**: the role you @ answers, nothing extra to install. Smart routing can be turned on in the wizard or later on the panel's Gate page; it needs a judge model that returns logprobs, and the wizard offers a one-click preset for the Qwen3.5-4B we run ourselves (local, mlx-lm on Apple silicon; not downloaded automatically). See [routing choices](docs/connect-discord-feishu.md#5-jev-和主角色).
 
 ## What it looks like
 
@@ -139,7 +139,7 @@ You say one thing from your phone, computer or browser → the **lead** in the c
 
 Chat keeps going the whole time; members take the work on and hand it back, and only decisions that need you come back to chat.
 
-- **Speak when called:** the lead answers by default; other roles follow along and reply when mentioned or named. Unaddressed messages go to jev, a lightweight dispatcher (a small model that only answers multiple-choice questions), which decides who picks them up. It can run on a free small model from SiliconFlow or a local Qwen 0.6B.
+- **Speak when called:** the lead answers by default; other roles follow along and reply when mentioned or named. Unaddressed messages go to jev, a lightweight dispatcher (a small model that only answers multiple-choice questions), which decides who picks them up. It can run on a free small model from SiliconFlow or the local Qwen3.5-4B we run ourselves (one-click preset in the wizard).
 - **Shared memory:** we extended our open-source llm-wiki into a memory shared by every role. It lives in local Markdown you can read and edit, and Git history records what the team learned.
 - **Nightly review:** when a session ends, idles for 30 minutes or errors, a fast model records progress in the Wiki. At night a slower, more thorough free model checks it against the original conversations to fix errors and fill gaps; on Sundays it reviews everything. Code checks every quoted instruction against your actual words and rejects invented quotes.
 - **Guardrails and tools:** dangerous commands are blocked; “fixed” needs verification evidence and “I'll check later” needs a timer; turn any check off with one message in chat. Built-in tools: check teammate progress, extract video frames and transcripts, search the web, and see how long each child agent has run and what state it is in.
@@ -154,12 +154,13 @@ Discord and Feishu already have phone and desktop apps, so there is no extra wra
 | Discord | Full support | Multiple roles, mentions, task handoffs, teammate status and log channels; slash commands in servers and DMs |
 | Feishu (Lark) | Single role | Conversation with one connected role |
 | QQ official bot | Manual setup | Group/private chat, group @user and @everyone; see [QQ Bot setup](bridge/docs/qqbot.md) |
-| DSH web | Experimental | A Channels page inside DSH web; see [DSH channels](dsh/collab/README.md) |
+| DSH desktop app / web | Experimental | A Channels page inside the DeepSeek Harness desktop app (default) or DSH web; see [DSH](docs/platforms/dsh.md) |
 <!-- Self-hosted platform entry disabled (no longer maintained, 2026-11-05). Original row:
 | Self-hosted web | Team mode | A local, Discord-like web UI with multiple roles, mentions and task handoffs |
 -->
 
 QQ / NapCat users can configure the [OneBot adapter](bridge/docs/qq.md) manually.
+Quoted QQ messages retain their author and text, fetching missing originals through OneBot. Agents can send native quoted text replies with `bothouse send --reply-to MESSAGE_ID --message 'reply'`; see the adapter guide for same-conversation checks and verification limits.
 
 The OneBot guide also covers optional paragraph splitting, original-image storage, labelled forwarded chats and a [judging model](bridge/contrib/qq-gate/README.md) using a self-hosted service or remote API. Personal prompts and model credentials are supplied by the operator.
 

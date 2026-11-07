@@ -7,44 +7,18 @@
 import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eta_guard  # noqa: E402  预计时间长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
-import importlib.util, threading, time  # noqa: E402
+import importlib.util  # noqa: E402
 
 
-def _load(fname, modname):
-    """按路径载入同目录的守卫（文件名带连字符）；缺文件或载入出错就跳过。"""
+def _check_first():
+    """check-first-guard.py（先查再说，2026-11-06）：文件名带连字符，按路径载入；缺文件或载入出错就跳过。"""
     try:
-        spec = importlib.util.spec_from_file_location(modname, os.path.join(os.path.dirname(os.path.abspath(__file__)), fname))
+        spec = importlib.util.spec_from_file_location("check_first_guard", os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-first-guard.py"))
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
         return m
     except Exception:
         return None
-
-
-# 要调小模型的守卫：check-first（先查再说，2026-11-06）、surface（现象层下结论，2026-11-07）。
-# 并行跑，总耗时取最长那个（各自模型超时 20 秒），串行相加会超过 Stop 总超时 30 秒、连带废掉后面的检查。
-MODEL_GUARDS = (("check-first-guard.py", "check_first_guard"), ("surface-guard.py", "surface_guard"))
-JOIN_WAIT = 25  # 秒；线程是 daemon，没跑完就当放行
-
-
-def _model_guards(d):
-    """并行调各守卫的 check(d)，返回拦下理由列表（按 MODEL_GUARDS 顺序）；出错、超时的当放行。"""
-    out = [None] * len(MODEL_GUARDS)
-
-    def run(i, fname, modname):
-        try:
-            m = _load(fname, modname)
-            out[i] = m.check(d) if m else None
-        except Exception:
-            out[i] = None
-
-    ts = [threading.Thread(target=run, args=(i, f, n), daemon=True) for i, (f, n) in enumerate(MODEL_GUARDS)]
-    for t in ts:
-        t.start()
-    end = time.time() + JOIN_WAIT
-    for t in ts:
-        t.join(max(0, end - time.time()))
-    return [w for w in out if w]
 
 CLAIM = re.compile(r"修完|修好|修复了|已修复|修复完成|全部修复")
 NEG = re.compile(r"[没未不等待才]")
@@ -171,9 +145,10 @@ def main():
         print(json.dumps({"decision": "block", "reason": "先查 wiki/代码再说我们没有：回复里否定了自家功能，"
               "本轮却没跑过 search.py/grep/rg/chanlog/codegraph。查完再答，查不了就说没核。"}, ensure_ascii=False))
         return
-    why = _model_guards(d)
-    if why:  # 只拦一次（下一轮 stop_hook_active 放行），所以几条理由一起给
-        print(json.dumps({"decision": "block", "reason": "\n\n".join(why)}, ensure_ascii=False))
+    cf = _check_first()
+    why = cf.check(d) if cf else None
+    if why:
+        print(json.dumps({"decision": "block", "reason": why}, ensure_ascii=False))
         return
     eta = eta_guard.check(d.get("last_assistant_message") or turn_text(d.get("transcript_path", "")))
     if eta:

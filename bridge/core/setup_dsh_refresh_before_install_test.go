@@ -43,8 +43,8 @@ func TestRefreshHomeDSHBeforeInstall(t *testing.T) {
 	if string(got) != string(want) {
 		t.Fatalf("install.sh not refreshed before install")
 	}
-	if v, _ := os.ReadFile(filepath.Join(dir, dshVersionFile)); string(v) != "v9.9.9-new" {
-		t.Fatalf(".version = %q, want v9.9.9-new", v)
+	if v, read := readDSHStamp(filepath.Join(dir, dshVersionFile)); read != stampFound || v.Version != "v9.9.9-new" {
+		t.Fatalf(".version = %+v, want v9.9.9-new", v)
 	}
 
 	// A repo checkout / BOTHOUSE_DSH_DIR script: ~/.bothouse/dsh is left alone.

@@ -293,6 +293,36 @@ describe('channels page', () => {
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(send).toHaveBeenCalledExactlyOnceWith('/')
   })
+  it('turns the send key into a stop key for the answering DSH member while the draft is empty (#299)', async () => {
+    const send = vi.fn(async () => {})
+    const dshTeam: ChannelSnapshot = {
+      ...ready, members: [{ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true }],
+      leadId: 'ds', effectiveLeadId: 'ds', thinking: { 1: ['ds'] },
+    }
+    render(<ChannelsPage {...props(dshTeam, send)} />)
+    // Before #299 workingBots kept only kind === 'bot', so a DSH team had no stop key at all.
+    const stop = screen.getByRole('button', { name: zh.stopReply.replace('{name}', 'DeepSeek') })
+    expect(screen.queryByRole('button', { name: zh.sendButton })).toBeNull()
+    await act(async () => { fireEvent.click(stop) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek /stop')
+    expect(screen.getByRole('status').textContent).toBe(zh.stopPending.replace('{name}', 'DeepSeek'))
+  })
+  it('offers /stop all in the menu for a DSH team and sends it bare (#299)', async () => {
+    const send = vi.fn(async () => {})
+    const dshTeam: ChannelSnapshot = {
+      ...ready, members: [{ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true }],
+      leadId: 'ds', effectiveLeadId: 'ds', thinking: { 1: ['ds'] },
+    }
+    render(<ChannelsPage {...props(dshTeam, send)} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '/' } })
+    const menu = screen.getByRole('region', { name: zh.slashTitle })
+    // /stop all is the channel-wide one: it needs no target member, so it stays enabled in a DSH team.
+    const item = within(menu).getByRole('option', { name: /^\/stop all/ })
+    expect(item.getAttribute('aria-disabled')).toBeNull()
+    await act(async () => { fireEvent.click(item) })
+    // Channel-wide, so it goes out without an @ and without a target bot.
+    expect(send).toHaveBeenCalledExactlyOnceWith('/stop all')
+  })
   it('turns the send key into a stop key for the answering bot while the draft is empty (#1017)', async () => {
     const send = vi.fn(async () => {})
     const view = render(<ChannelsPage {...props(ready, send)} />)
@@ -471,6 +501,50 @@ describe('channels page', () => {
     expect(view.container.querySelector('script')).toBeNull()
     view.rerender(<ChannelsPage {...props({ ...ready, phase: 'unavailable' })} />)
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
+  })
+
+  // #216: a busy lock is not a missing configuration; the page names the holder and its pid.
+  it('says which DSH holds the channel data and how to switch, instead of asking to configure collab.yml', () => {
+    const holder = { pid: 58278, startedAt: 1_760_000_000_000, dataDir: '/Users/u/.conest-collab', host: 'mac' }
+    render(<ChannelsPage {...props({ ...ready, phase: 'locked', lockHolder: holder })} />)
+    const notice = screen.getByRole('status').textContent ?? ''
+    expect(notice).toContain('58278')
+    expect(notice).toContain('/Users/u/.conest-collab')
+    expect(notice).toContain('关掉')
+    // A reload alone does not bring the refused plugin back, so the advice says restart DSH.
+    expect(notice).toContain('重开')
+    expect(notice).not.toContain('collab.yml')
+    expect(notice).not.toBe(zh.unavailable)
+  })
+
+  // #216: busy with no holder record is still "held", never "configure it in collab.yml" —
+  // and it must point at the shared directory and the lock file instead of inventing a pid.
+  it('says another DSH holds the data even when its record is missing, without inventing a pid', () => {
+    render(<ChannelsPage {...props({
+      ...ready, phase: 'locked', lockHolder: undefined,
+      lockDataDir: '/Users/u/.conest-collab', lockPath: '/Users/u/.conest-collab/collab.lock',
+    })} />)
+    const notice = screen.getByRole('status').textContent ?? ''
+    expect(notice).toContain('另一个 DSH')
+    expect(notice).toContain('/Users/u/.conest-collab')
+    expect(notice).toContain('lsof /Users/u/.conest-collab/collab.lock')
+    // Windows users need a path that works there too; the notice must not be macOS-only.
+    expect(notice).toContain('Windows')
+    // The pid is unknown, so it must not be invented and the named-holder wording must not run.
+    expect(notice).toContain('进程 ' + zh.lockedUnknown)
+    // The named-holder wording says when the holder took the lock; this one must not claim it.
+    expect(notice).not.toContain('打开，数据目录')
+    expect(notice).not.toContain('collab.yml')
+    expect(notice).not.toBe(zh.unavailable)
+  })
+
+  // #216: the holder quit; a reload is not enough, so the notice asks for a DSH restart.
+  it('asks for a DSH restart once the lock is free, not to reload the page', () => {
+    render(<ChannelsPage {...props({ ...ready, phase: 'locked', lockFree: true })} />)
+    const notice = screen.getByRole('status').textContent ?? ''
+    expect(notice).toBe(zh.lockedFree)
+    expect(notice).toContain('重开')
+    expect(notice).not.toContain('collab.yml')
   })
 
   it('opens a member menu from a message avatar and inserts @ at the caret, keeping the draft (#123)', () => {

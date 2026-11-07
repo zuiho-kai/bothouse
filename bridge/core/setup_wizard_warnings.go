@@ -410,11 +410,11 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		}
 		if req.Gate != nil && req.Gate.Mode == "addressed" {
 			if isJA(req.Language) {
-				res.GateHint = "呼ばれた時だけ返信：グループでは @ で呼んでください。ルーティング用の Python・jev・小型モデルは不要です。独自 gate と他プラットフォームの設定は維持します。"
+				res.GateHint = "呼ばれた時だけ返信：グループでは @ したロールが答えます。追加インストールは不要です。あとから管理パネルの「ゲート」で「スマート判定」に切り替えられます。"
 			} else if isZH(req.Language) {
-				res.GateHint = "仅被点名时回复：群聊请 @ 角色，无需为分流运行 Python、jev 或小模型。自定义 gate 和其他平台设置保留。"
+				res.GateHint = "仅被点名时回复：群聊里 @ 谁谁回，什么都不用另装。以后想让角色自己判断该谁回，到管理面板「闸门」页选「智能判断」。"
 			} else {
-				res.GateHint = "Only when addressed: mention a role in groups. No Python, jev or small model required for routing. Custom gates and other platforms are preserved."
+				res.GateHint = "Only when addressed: in groups the role you @ answers; nothing extra to install. To let a judge model pick who answers later, choose smart on the panel's Gate page."
 			}
 		}
 		switch res.GateStatus {
@@ -442,13 +442,13 @@ func warnJevRecommended(lang, fallbackName string) WizardWarning {
 	w := WizardWarning{Code: "jev_recommended"}
 	if isJA(lang) {
 		w.Message = "ロールが複数ありますが jev が未設定です：@ されたロールだけが答え、誰も @ していないメッセージにはどのロールも返事しません（メインロール「" + fallbackName + "」も聞くだけ）。jev を設定するのがおすすめです。無料の小型モデルで十分で、設定すると gate がメッセージごとに答えるべきか・誰が答えるかを判断します。"
-		w.Fix = "ウィザードの jev ステップで Base URL・Key・モデル名を入力してください（AI：リクエストに \"jev\": {\"base_url\", \"api_key\", \"model\"} を追加）：SiliconFlow の無料 Qwen 小型モデル、またはローカルで Qwen3 0.6B を起動（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。jev を設定すれば bothouse が自動で gate の判断を有効にします（gate を手で入れる必要はありません）。"
+		w.Fix = "ウィザードの jev ステップで Base URL・Key・モデル名を入力してください（AI：リクエストに \"jev\": {\"base_url\", \"api_key\", \"model\"} を追加）：おすすめは私たちが使っているローカルの Qwen3.5-4B（mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941 を起動し、ウィザードで「ワンクリック入力」）。jev を設定すれば bothouse が自動で gate の判断を有効にします（gate を手で入れる必要はありません）。"
 	} else if isZH(lang) {
 		w.Message = "配了多个角色，但没填 jev：只有被 @ 的角色回话，没 @ 任何人的消息谁都不回（主角色「" + fallbackName + "」也只听）。推荐填一个 jev，免费小模型就够；填了以后 gate 会判断每句话该不该回、该谁回。"
-		w.Fix = "在向导的 jev 一步填 Base URL、Key、模型名（AI：请求里加 \"jev\": {\"base_url\", \"api_key\", \"model\"}）：用硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B（mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit）。装好 jev 后 bothouse 自动启用 gate 的智能判断，不用自己装 gate。"
+		w.Fix = "在向导的 jev 一步填 Base URL、Key、模型名（AI：请求里加 \"jev\": {\"base_url\", \"api_key\", \"model\"}）：推荐我们在用的本机 Qwen3.5-4B（先运行 mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941，再在向导里点「一键填」）。装好 jev 后 bothouse 自动启用 gate 的智能判断，不用自己装 gate。"
 	} else {
 		w.Message = "Several roles but no jev: only an @-mentioned role answers, and a message that @-mentions no one gets no answer (the primary role \"" + fallbackName + "\" only listens too). A jev is recommended, and a free small model is enough: with it the gate decides whether and which role should answer each message."
-		w.Fix = "Fill in Base URL, Key and model on the wizard's jev step (AI: add \"jev\": {\"base_url\", \"api_key\", \"model\"} to the request): a free small Qwen model on SiliconFlow, or run Qwen3 0.6B locally (mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit). Once the jev is set, bothouse turns on the gate's smart routing by itself; no need to install the gate."
+		w.Fix = "Fill in Base URL, Key and model on the wizard's jev step (AI: add \"jev\": {\"base_url\", \"api_key\", \"model\"} to the request): the recommended local Qwen3.5-4B we run ourselves (start mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941, then \"Fill in\" in the wizard). Once the jev is set, bothouse turns on the gate's smart routing by itself; no need to install the gate."
 	}
 	return w
 }

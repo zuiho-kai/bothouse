@@ -325,6 +325,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/dsh/install", m.wrap(m.handleSetupDSHInstall))
 	mux.HandleFunc(prefix+"/setup/dsh/configure", m.wrap(m.handleSetupDSHConfigure))
 	mux.HandleFunc(prefix+"/setup/dsh/open", m.wrap(m.handleSetupDSHOpen))
+	mux.HandleFunc(prefix+"/setup/dsh/open-desktop", m.wrap(m.handleSetupDSHOpenDesktop))
 	mux.HandleFunc(prefix+"/setup/state", m.wrap(m.handleSetupState))
 	mux.HandleFunc(prefix+"/setup/clis", m.wrap(m.handleSetupCLIs))
 	mux.HandleFunc(prefix+"/setup/matrix", m.wrap(m.handleSetupMatrix))

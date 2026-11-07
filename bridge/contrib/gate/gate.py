@@ -93,11 +93,10 @@ STOP_WORDS = re.compile(r"[\s　。.!！~～、,，…]*(?:停|暂停|停一下|
 # 「别做了，改做X」：照 core/gate_local.go:46 localRedirectRe，从开头匹配；abort 后 cc-connect 先取消这一轮再按 reply 开新的一轮
 REDIRECT = re.compile(r"(?:先)?别做(?:这个|了)[，,、；;]?\s*改(?:做|成)\s*\S")
 # 措辞同向导 jev 一步（web/src/pages/Setup/texts.ts jevQ）和 docs/connect-discord-feishu.md 第 5 节的推荐
-NO_JEV = """gate 没填 jev 模型（{path} 不存在，或向导测试时没拿到概率）：只供每轮 wiki/任务板（/context）和 /lead，
-不判谁回（/decide 回 503，cc-connect 只让被 @ 的角色回，其余只听）。gate 靠 jev 判断一句话该哪个角色回，不会自己下载模型。二选一，填好再启动：
-  1. 用免费小模型：硅基流动的免费 Qwen 小模型。在安装向导（运行 cc-connect，浏览器里的 /setup）的 jev 一步填 Base URL、Key、模型名。
-  2. 本地下载一个 0.6B 小模型：如 Qwen3 0.6B，用 mlx_lm.server 起 OpenAI 兼容接口
-     （mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit），再把地址填进向导的 jev。LM Studio 不给概率，当不了 jev。"""
+NO_JEV = """gate 已启动，没填判断模型（jev，{path} 不存在，或向导测试时没拿到概率）：每轮 wiki/任务板（/context）和 /lead 照常，
+只是不判谁回（/decide 回 503，只有被 @ 的角色回，其余只听）。这样也能用；想让没点名的话也有人接，再填判断模型（gate 不会自己下载模型）：
+  本机起我们在用的 Qwen3.5-4B（Apple 芯片，先 uv tool install mlx-lm）：mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941，
+  再在管理面板「闸门」页或向导的判断模型页点「一键填」，填好后重启 gate。LM Studio 不给概率，当不了 jev。"""
 
 
 def make_scorer():

@@ -92,6 +92,8 @@ export class Store {
     this.closed = false;
     /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
     this.sessionResets = [];
+    /** fn(roomId) when a workspace returns to the pool; bindings remain resumable. */
+    this.workspaceReleases = [];
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
@@ -550,7 +552,7 @@ export class Store {
    * workspace was claimed again, so a late release never frees the new claim. null = any claim.
    */
   releaseWorkspace(roomId, claim = null) {
-    return this.transaction(() => {
+    const released = this.transaction(() => {
       const ws = this.q.room.get(roomId);
       if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
       if (ws.kind !== 'workspace' || this.workspaceOwner(ws.id) == null) return false;
@@ -562,7 +564,13 @@ export class Store {
       this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
       return true;
     });
+    if (released) {
+      for (const fn of this.workspaceReleases) fn(roomId);
+    }
+    return released;
   }
+
+  onWorkspaceRelease(fn) { this.workspaceReleases.push(fn); }
 
   /** Register fn(roomId), called when a workspace's sessions are dropped (resetSessions). */
   onSessionsReset(fn) { this.sessionResets.push(fn); }
