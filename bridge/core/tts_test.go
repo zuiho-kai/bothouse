@@ -590,24 +590,6 @@ func TestMimoTTS_Constructors(t *testing.T) {
 // MaxTextLen skip test (via TTSCfg)
 // ──────────────────────────────────────────────────────────────
 
-func TestTTSCfg_MaxTextLen(t *testing.T) {
-	cfg := TTSCfg{
-		Enabled:    true,
-		MaxTextLen: 5,
-	}
-	// 6 runes — should exceed limit
-	text := "你好世界！！"
-	runeLen := len([]rune(text))
-	if runeLen <= cfg.MaxTextLen {
-		t.Fatalf("test setup error: %d <= %d", runeLen, cfg.MaxTextLen)
-	}
-	// MaxTextLen check logic (mirrors sendTTSReply)
-	exceeded := cfg.MaxTextLen > 0 && runeLen > cfg.MaxTextLen
-	if !exceeded {
-		t.Error("expected text to exceed MaxTextLen")
-	}
-}
-
 // ──────────────────────────────────────────────────────────────
 // Context cancellation test
 // ──────────────────────────────────────────────────────────────

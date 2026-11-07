@@ -722,6 +722,7 @@ type interactiveState struct {
 	lastRecallProbeMessageID string
 	lastRecallProbeAt        time.Time
 	recallProbeInFlight      bool
+	stopDraft                string // a Stop hook blocked this reply draft; it is withdrawn when the segment matches (stop_draft.go); guarded by mu
 	workspaceDir             string
 	agent                    Agent
 	mu                       sync.Mutex
@@ -6261,6 +6262,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 	var textParts []string
 	var segmentStart int // index into textParts: text before this has been sent/displayed
+	var blockedDraft string // reply a Stop hook blocked this turn, withdrawn from the channel (stop_draft.go)
 	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
 	var toolStartAt time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
@@ -6619,6 +6621,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			segment := strings.Join(textParts[segmentStart:], "")
 			if clean := stripSilentReply(segment); clean != segment {
 				textParts = append(textParts[:segmentStart], clean)
+			}
+		}
+
+		// A Stop hook blocked the reply now in the open segment and asked for a
+		// rewrite: take the draft back so the user does not get both (11-08 DM).
+		if len(textParts) > segmentStart {
+			if draft, ok := state.takeStopDraft(strings.Join(textParts[segmentStart:], "")); ok {
+				sp.retract()
+				textParts = textParts[:segmentStart]
+				silentHold = false
+				if len(draft) > len(blockedDraft) {
+					blockedDraft = draft
+				}
 			}
 		}
 
@@ -7305,6 +7320,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Unlock()
 			replyCtx = mergeInjectedReplies(p, replyCtx, injected)
 
+			if blockedDraft != "" {
+				// The rewrite replaces the withdrawn draft; a short addendum (or nothing)
+				// goes after it, so the reply is not lost.
+				post := strings.Join(textParts[segmentStart:], "")
+				if merged := MergeStopBlockedReply(blockedDraft, post); merged != post {
+					textParts = append(textParts[:segmentStart], merged)
+				}
+				blockedDraft = ""
+			}
+			state.clearStopDraft()
+
 			fullResponse := event.Content
 			if e.display.HideAgentFooter {
 				fullResponse = stripAgentFooterLines(fullResponse)
@@ -7945,7 +7971,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				msgID = queued.messageID
 				textParts = nil
 				sentReplySegments = nil
+				blockedDraft = ""
 				state.mu.Lock()
+				state.stopDraft = ""
 				state.turnSentTexts = nil
 				state.sideText = ""
 				state.mu.Unlock()

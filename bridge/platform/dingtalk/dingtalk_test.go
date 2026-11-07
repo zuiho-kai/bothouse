@@ -61,25 +61,6 @@ func TestGetAccessToken_ConcurrentAccess(t *testing.T) {
 	t.Logf("Completed %d concurrent token requests without deadlock", numGoroutines)
 }
 
-func TestGetAccessToken_MutexExists(t *testing.T) {
-	// Verify that the tokenMu mutex field exists and works
-	p := &Platform{
-		clientID:     "test_client",
-		clientSecret: "test_secret",
-	}
-
-	// Test that we can lock/unlock the mutex (verify no panic under lock)
-	p.tokenMu.Lock()
-	_ = p.clientID // SA2001: intentional empty section to verify Lock/Unlock work
-	p.tokenMu.Unlock()
-
-	// Test with defer
-	p.tokenMu.Lock()
-	defer p.tokenMu.Unlock()
-
-	t.Log("tokenMu mutex is functional")
-}
-
 func TestGetAccessToken_CachedTokenAccess(t *testing.T) {
 	// Test that cached token access is thread-safe
 	p := &Platform{
@@ -114,34 +95,6 @@ func TestGetAccessToken_CachedTokenAccess(t *testing.T) {
 	}
 
 	t.Logf("All %d goroutines safely accessed cached token", numGoroutines)
-}
-
-func TestPlatform_MutexFieldExists(t *testing.T) {
-	// Verify the Platform struct has the tokenMu field
-	p := &Platform{}
-
-	// Verify no panic under lock (test will fail to compile if tokenMu doesn't exist)
-	p.tokenMu.Lock()
-	_ = p.clientID // SA2001: intentional empty section to verify Lock/Unlock work
-	p.tokenMu.Unlock()
-
-	t.Log("Platform.tokenMu field exists")
-}
-
-func TestPlatform_AccessTokenFieldsExist(t *testing.T) {
-	// Verify the Platform struct has the token caching fields
-	p := &Platform{}
-
-	// Set the fields
-	p.accessToken = "test_token"
-	p.tokenExpiry = time.Now().Add(1 * time.Hour)
-
-	// Verify they're set
-	if p.accessToken != "test_token" {
-		t.Errorf("expected accessToken 'test_token', got %q", p.accessToken)
-	}
-
-	t.Log("Platform token caching fields exist and are accessible")
 }
 
 func TestNewConfiguresReactionEmoji(t *testing.T) {

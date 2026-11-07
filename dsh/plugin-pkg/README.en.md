@@ -7,14 +7,14 @@ BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page w
 ## Install (pick one)
 
 1. **Easiest**: tell DSH "install the plugin bothouse-dsh".
-2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh`.
+2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh`, click "Install"; then switch bothouse on under "Installed plugins" — "Channels" appears in the sidebar right away, no restart.
 3. **From a terminal**:
 
 ~~~sh
 dsh plugin --profile web add bothouse-dsh
 ~~~
 
-Restart DSH once and click "Channels" in the sidebar. Team desk, bothouse panel and other computers start off; switch the one you want on under "Plugins → bothouse" and it appears in the sidebar right away. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
+Asked through DSH, "Channels" appears right after the install; installed from the command line while DSH is running, restart DSH once. Then click "Channels" in the sidebar. Team desk, bothouse panel and other computers start off; switch the one you want on under "Plugins → bothouse" and it appears in the sidebar right away. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
 
 If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
@@ -23,6 +23,7 @@ If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 - DSH 0.2.x (from `0.2.1-rc.2`, see `dsh --version`) and Node.js 22.12 or later. Tested on 0.2.1-rc.2 only; no compatibility promise for the DSH plugin API was found and the page is prebuilt against the DSH 0.2 client packages, so the range stops before 0.3.
 - Model members: configure the model and its key in DSH settings first.
 - CLI members: install and sign in to Claude Code, Codex or the Gemini CLI, with the command on PATH.
+  The Claude Code and Codex adapters are not installed with the plugin; they download the first time you add such a member (Claude Code about 125 MB).
 - Channel messages are stored in `~/.conest-collab/collab.sqlite3`; set `CONEST_COLLAB_DATA` before starting DSH to use another directory.
 
 ## Compared with full BotHouse

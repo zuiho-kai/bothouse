@@ -41,20 +41,17 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@zed-industries/claude-code-acp": "^0.16.2",
     "bothouse-dsh-channels": "0.1.0",
     "bothouse-dsh-desk": "0.1.0",
     "bothouse-dsh-devices": "0.1.0",
     "bothouse-dsh-panel": "0.1.0",
-    "ws": "8.22.1"
+    "ws": "8.22.1",
+    "zod": "^4.0.0"
   },
   "bundleDependencies": [
     "bothouse-dsh-channels",
     "bothouse-dsh-desk",
     "bothouse-dsh-panel",
     "bothouse-dsh-devices"
-  ],
-  "optionalDependencies": {
-    "@agentclientprotocol/codex-acp": "^2.2.2"
-  }
+  ]
 }

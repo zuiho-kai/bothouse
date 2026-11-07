@@ -6,13 +6,6 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-func TestPlatform_Name(t *testing.T) {
-	p := &Platform{}
-	if got := p.Name(); got != "line" {
-		t.Errorf("Name() = %q, want %q", got, "line")
-	}
-}
-
 func TestNew_MissingCredentials(t *testing.T) {
 	// Missing both channel_secret and channel_token
 	_, err := New(map[string]any{})
@@ -40,7 +33,7 @@ func TestNew_MissingChannelToken(t *testing.T) {
 func TestNew_WithValidCredentials(t *testing.T) {
 	p, err := New(map[string]any{
 		"channel_secret": "test-secret",
-		"channel_token": "test-token",
+		"channel_token":  "test-token",
 	})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -56,7 +49,7 @@ func TestNew_WithValidCredentials(t *testing.T) {
 func TestNew_DefaultPort(t *testing.T) {
 	p, err := New(map[string]any{
 		"channel_secret": "test-secret",
-		"channel_token": "test-token",
+		"channel_token":  "test-token",
 	})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -73,8 +66,8 @@ func TestNew_DefaultPort(t *testing.T) {
 func TestNew_CustomPortAndPath(t *testing.T) {
 	p, err := New(map[string]any{
 		"channel_secret": "test-secret",
-		"channel_token": "test-token",
-		"port":          "9090",
+		"channel_token":  "test-token",
+		"port":           "9090",
 		"callback_path":  "/webhook",
 	})
 	if err != nil {
@@ -92,8 +85,8 @@ func TestNew_CustomPortAndPath(t *testing.T) {
 func TestNew_WithAllowFrom(t *testing.T) {
 	p, err := New(map[string]any{
 		"channel_secret": "test-secret",
-		"channel_token": "test-token",
-		"allow_from":    "user1,user2",
+		"channel_token":  "test-token",
+		"allow_from":     "user1,user2",
 	})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)

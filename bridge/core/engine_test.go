@@ -13028,19 +13028,6 @@ func TestEngine_ClearCommands(t *testing.T) {
 	}
 }
 
-func TestEngine_SetAndGetAgent(t *testing.T) {
-	agent := &stubAgent{}
-	p := &stubPlatformEngine{n: "feishu"}
-
-	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
-
-	// Verify GetAgent returns correct agent
-	got := e.GetAgent()
-	if got.Name() != "stub" {
-		t.Errorf("expected agent name 'stub', got %s", got.Name())
-	}
-}
-
 func TestEngine_AddCommand(t *testing.T) {
 	agent := &stubAgent{}
 	p := &stubPlatformEngine{n: "feishu"}

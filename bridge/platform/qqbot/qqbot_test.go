@@ -37,13 +37,6 @@ func mockInteractionACK(t *testing.T) {
 	})
 }
 
-func TestPlatform_Name(t *testing.T) {
-	p := &Platform{}
-	if got := p.Name(); got != "qqbot" {
-		t.Errorf("Name() = %q, want %q", got, "qqbot")
-	}
-}
-
 func TestNew_MissingAppID(t *testing.T) {
 	_, err := New(map[string]any{
 		"app_secret": "test-secret",

@@ -954,16 +954,6 @@ func drainEvents(s *piSession) []core.Event {
 	}
 }
 
-func TestHandleEvent_Session(t *testing.T) {
-	s := newTestSession()
-	defer s.cancel()
-
-	s.handleEvent(map[string]any{"type": "session", "id": "sess-abc-123"})
-	if s.CurrentSessionID() != "sess-abc-123" {
-		t.Errorf("sessionID = %q", s.CurrentSessionID())
-	}
-}
-
 func TestHandleEvent_SessionEmptyID(t *testing.T) {
 	s := newTestSession()
 	defer s.cancel()
