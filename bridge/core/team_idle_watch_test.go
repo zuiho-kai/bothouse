@@ -132,3 +132,62 @@ func TestWatchWorkspaceBoardItemWithoutAcceptIsWatched(t *testing.T) {
 		t.Fatalf("a workspace's active board item must stay watched, got %+v", got)
 	}
 }
+
+// #1183 (11-07): 龙娘 accepted in the main chat with a first line naming no #id, then handed back
+// with 「【接】…」 on the first line and 「[report] #1162 …」 on the next. The watch only read the
+// first line, stayed open, and woke her with 「接着做」 after an unrelated turn ten hours later.
+func TestWatchReportOnLaterLineEndsNumberlessWatch(t *testing.T) {
+	e, _ := acceptFixture(t)
+	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物", true, false, false, false, time.Time{})
+	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 0 {
+		t.Fatalf("setup: the accepted work must be watched without a board number, got %+v", got)
+	}
+	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物\n[report] #1162 背景：核对搏仓第二版\n已核对报告和输出\n要你做的：没有\n我加的：无", true, false, false, false, time.Time{})
+	got := scriptWatchesOf(e, "discord:chatA")
+	if len(got) != 1 || !got[0].Idle.Returned {
+		t.Fatalf("a [report] line after the 【接】 line hands the work back, got %+v", got)
+	}
+}
+
+// #1183: a watch with no board number whose owner has not ended a turn on it for hours is left over
+// from finished work; the owner's next unrelated turn closes it instead of re-arming 「接着做」.
+func TestWatchStaleNumberlessWatchClosesOnNextTurn(t *testing.T) {
+	e, _ := acceptFixture(t)
+	old := time.Now().Add(-10 * time.Hour)
+	owner := e.name
+	if m, ok := e.platforms[0].(SelfMentioner); ok && m.SelfMention() != "" {
+		owner = m.SelfMention()
+	}
+	teamWorkspaceStore.mu.Lock()
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
+		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {{Chat: "discord:chatA", At: old, Due: old.Add(10 * time.Minute),
+			Owner: owner, Title: "先核对任务状态和实际产物", Sender: e.name, Idle: watchIdleState{Ended: old.Add(time.Minute), Wakes: 1}}}}})
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.watchTurnEnded(e.platforms[0], "discord:chatA", "今天主要核对了搏仓第二版。", true, false, false, false, time.Time{})
+	got := scriptWatchesOf(e, "discord:chatA")
+	if len(got) != 1 || got[0].Closed.IsZero() {
+		t.Fatalf("a numberless watch idle for hours must close on the owner's next turn, got %+v", got)
+	}
+}
+
+// #1183: a numberless watch whose title names a board item that has since been closed is not woken.
+func TestWatchNumberlessWatchOfClosedBoardItemDoesNotWake(t *testing.T) {
+	e, _ := acceptFixture(t)
+	writeReleaseBoard(t, e, map[string]any{"id": 1162, "what": "搏仓第二版", "status": "已完成", "who": "橘", "chat": "discord:chatA"})
+	now := time.Now()
+	h := TeamHandoff{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute), Owner: e.name, Title: "#1162 先核对任务状态", Sender: e.name, Idle: watchIdleState{Ended: now}}
+	teamWorkspaceStore.mu.Lock()
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
+		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {h}}})
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fireIdleWake(idleAssignment{"discord:chatA", h, true})
+	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || !got[0].Idle.Returned || got[0].Idle.Wakes != 0 {
+		t.Fatalf("a closed board item must end its numberless watch without a wake, got %+v", got)
+	}
+}
