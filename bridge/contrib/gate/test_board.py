@@ -661,5 +661,111 @@ class BoardEvents(unittest.TestCase):
         self.assertTrue((Path(TMP) / board.EVENTS).read_text().startswith(before))  # 只追加，旧行不动
 
 
+class WriteAtomic(unittest.TestCase):
+    """#257：落盘临时名唯一 + os.replace 对 Windows 瞬时错误有界重试。"""
+
+    def setUp(self):
+        for f in Path(TMP).glob("board*"):
+            f.unlink()
+
+    def test_write_retries_transient_replace_error(self):
+        """#257：Windows 上目标文件被短暂占用时 os.replace 抛 WinError 5，落盘要重试而不是偶发失败。
+        交接给的确定性用例：monkeypatch os.replace 让前两次对 board.jsonl 抛 PermissionError(5)、第三次成功。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = Path(TMP) / "board.jsonl"
+        real = os.replace
+        calls = []
+
+        def flaky(src, dst):
+            if str(dst) == str(target):
+                calls.append(1)
+                if len(calls) <= 2:
+                    e = PermissionError(13, "Access is denied")
+                    e.winerror = 5  # 照 Windows 的 WinError 5（交接里的失败栈 os.replace -> [WinError 5]）
+                    raise e
+            return real(src, dst)
+
+        board.os.replace = flaky
+        try:
+            board.add("B", "-", "进行中", "G哥", short_name="B")
+        finally:
+            board.os.replace = real
+        self.assertEqual(len(calls), 3, "前两次失败后应重试到第三次成功")
+        self.assertEqual([r["short"] for r in board._read()], ["A", "B"])  # 内容正确
+        self.assertEqual([p.name for p in Path(TMP).glob("board.jsonl.*.tmp")], [])  # 临时文件清掉
+
+    def test_write_uses_unique_temp_names(self):
+        """#257 第 1 条：每次落盘用自己的临时名，不再所有进程共抢 board.jsonl.tmp（互相覆盖/删掉
+        对方正要 rename 的文件）。这里抓 os.replace 的源文件名，两次写必须不同且都不是老名字。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = Path(TMP) / "board.jsonl"
+        real = os.replace
+        srcs = []
+
+        def capture(src, dst):
+            if str(dst) == str(target):
+                srcs.append(Path(src).name)
+            return real(src, dst)
+
+        board.os.replace = capture
+        try:
+            board.add("B", "-", "进行中", "G哥", short_name="B")
+            board.update(1, "已交接", who="工作区1")
+        finally:
+            board.os.replace = real
+        self.assertEqual(len(srcs), 2)
+        self.assertNotEqual(srcs[0], srcs[1], "两次写的临时文件名不能相同")
+        self.assertNotIn("board.jsonl.tmp", srcs, "不再用固定的 .tmp 名")
+        self.assertTrue(all(x.startswith("board.jsonl.") and x.endswith(".tmp") for x in srcs), srcs)
+
+    def test_write_does_not_retry_other_errors(self):
+        """只有 Windows 上那两类可重试错误才重试；别的异常照常抛，不能拖 2 秒。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = Path(TMP) / "board.jsonl"
+        real = os.replace
+        calls = []
+
+        def broken(src, dst):
+            if str(dst) == str(target):
+                calls.append(1)
+                raise OSError(95, "Operation not supported")  # 无 winerror 的普通 OSError
+            return real(src, dst)
+
+        board.os.replace = broken
+        try:
+            with self.assertRaises(OSError):
+                board.add("B", "-", "进行中", "G哥", short_name="B")
+        finally:
+            board.os.replace = real
+        self.assertEqual(len(calls), 1, "非瞬时错误不重试")
+        self.assertEqual([p.name for p in Path(TMP).glob("board.jsonl.*.tmp")], [])  # 失败也要清临时文件
+        self.assertEqual([r["short"] for r in board._read()], ["A"])  # 原文件一个字节没变
+
+    def test_write_raises_after_budget_and_cleans_temp(self):
+        """重试有界：一直 PermissionError 时最终抛出，且不留临时文件、原文件不变。"""
+        board.add("A", "-", "进行中", "肥鱼", short_name="A")
+        target = Path(TMP) / "board.jsonl"
+        real = os.replace
+        calls = []
+
+        def always(src, dst):
+            if str(dst) == str(target):
+                calls.append(1)
+                e = PermissionError(13, "Access is denied")
+                e.winerror = 32  # WinError 32：文件被占用
+                raise e
+            return real(src, dst)
+
+        board.os.replace = always
+        try:
+            with self.assertRaises(PermissionError):
+                board.add("B", "-", "进行中", "G哥", short_name="B")
+        finally:
+            board.os.replace = real
+        self.assertGreater(len(calls), 1, "应当重试多次才放弃")
+        self.assertEqual([p.name for p in Path(TMP).glob("board.jsonl.*.tmp")], [])
+        self.assertEqual([r["short"] for r in board._read()], ["A"])
+
+
 if __name__ == "__main__":
     unittest.main()
