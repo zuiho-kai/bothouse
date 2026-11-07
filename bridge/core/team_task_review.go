@@ -250,7 +250,7 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		ref := taskReviewRef{Board: it.ID, ReturnedAt: it.ReturnedAt, Stage: stage, Tier: taskReviewTier(it)}
 		prior := reviewer.timerScheduler.store.Get(id)
 		if prior == nil {
-			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh, taskReviewTierModel(it, reviewer.name))
+			reviewer.queueTaskReviewIn(id, it.Chat, &ref, now, fresh, taskReviewModelFor(it, reviewer))
 		} else if roundup && prior.Fired && prior.ScheduledAt.Before(now.Truncate(teamWorkspaceReconcileEvery)) {
 			key := reviewer.name + "/" + it.Chat
 			g := groups[key]
@@ -439,11 +439,18 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	if designated != nil {
 		pool = append([]*Engine{designated}, pool...)
 	}
+	if tier == nil && tierRole != "" && rankTaskReviewStandIns(it, pool, chat) {
+		// The tier's role is cooling or wrote the work: the stand-in ranked first (offers the tier
+		// model, or is the cheapest for a simple review) reviews, in a side session when busy or on
+		// the tier model, like the tier role would.
+		x := pool[0]
+		return x, taskReviewModelFor(it, x) != "" || x.quotaBusy(chat) || x.taskReviewQueuedIn(chat)
+	}
 	if tier != nil {
 		// The tier's role reviews even when busy (in a new side session): it is the model chosen
 		// for this kind of review. Only author or cooling sends the review elsewhere. A chosen
 		// tier model always takes a new session: the channel session keeps its own model.
-		if taskReviewTierModel(it, tier.name) == "" && !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
+		if taskReviewTierModelID(it) == "" && !tier.quotaBusy(chat) && !tier.taskReviewQueuedIn(chat) {
 			return tier, false
 		}
 		return tier, true
@@ -476,7 +483,9 @@ func (e *Engine) taskReviewQueuedIn(chat string) bool {
 
 // taskReviewSessionAtRun: the channel session got busy after the review was queued, so the
 // review runs in a side session instead of queueing behind that work (user 2026-11-04
-// 「新对话来审核」). The hourly roundup keeps the channel session.
+// 「新对话来审核」). The hourly roundup keeps the channel session, and so runs on that session's
+// model, not a tier model: keeping a conversation and switching its model exclude each other, so
+// the roundup's empty model is by design and not an ignored tier model (no notice; #980 review).
 func (e *Engine) taskReviewSessionAtRun(job *TimerJob) *TimerJob {
 	if job.TaskReview == nil || job.TaskReview.Stage == "roundup" || job.UsesNewSessionPerRun() || !e.quotaBusy(job.SessionKey) {
 		return job
