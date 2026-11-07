@@ -227,6 +227,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
 		base.cardViews.prefs = cardViewPrefsFor(dir) // shared by the bots of this data dir
+		base.cardViews.store = cardSourceStoreFor(dir)
 	}
 	if progressStyle == "compact" || progressStyle == "card" {
 		wrapped := &progressPlatform{Platform: base}
