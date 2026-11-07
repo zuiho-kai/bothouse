@@ -15,7 +15,8 @@
     radial-gradient(ellipse at 95% 65%, #fff6e8 0, transparent 45%), #fdfdff;
 }
 /* Yellow-white wizard: brand orange (inherited from .theme-yellow) on cream.
-   Colors: promo-collab/film-promo/page.html:3 (#FFFCF5/#FFF4D9/#FFE9B8/#2A2420), :9 #E9E1D2, :22 #6b5f52. */
+   Colors: promo-collab/film-promo/page.html:3 (#FFFCF5/#FFF4D9/#FFE9B8/#2A2420), :9 #E9E1D2, :22 #6b5f52.
+   The two text rules keep the promo page's warmer ink; other styles get theirs from --ui-ink above. */
 .theme-yellow .setup-layout {
   background: radial-gradient(ellipse at 15% 0%, #fff4d9 0, transparent 45%),
     radial-gradient(ellipse at 95% 65%, #ffe9b8 0, transparent 45%), #fffcf5;
@@ -33,30 +34,35 @@
   margin: 16px 0 8px; font-size: 11px; letter-spacing: .16em;
   font-weight: 700; color: rgb(var(--color-accent-text));
 }
-.setup-welcome h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 750; letter-spacing: -.035em; color: #272938; }
-.setup-intro { margin: 12px auto 0; max-width: 540px; color: #676c80; font-size: 14px; line-height: 1.8; }
+/* Wizard text reads the panel token layer (index.css:59-71): light / dark / yellow each carry their
+   own --ui-ink step, so the wizard needs no per-style hex here. #272938 and #676c80 were hard-coded
+   and only the h1/intro had a .dark patch — #225. */
+.setup-welcome h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 750; letter-spacing: -.035em; color: rgb(var(--ui-ink)); }
+.setup-intro { margin: 12px auto 0; max-width: 540px; color: rgb(var(--ui-ink-soft)); font-size: 14px; line-height: 1.8; }
 .setup-team { display: flex; justify-content: center; gap: 12px; margin-top: 20px; }
 .setup-team span { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.setup-team small { font-size: 10px; color: #676c80; }
+.setup-team small { font-size: 10px; color: rgb(var(--ui-ink-soft)); }
 .setup-team img {
   width: 42px;
   height: 42px;
   object-fit: cover;
-  border: 3px solid white;
+  /* Ring = the surface it sits on, so it separates the avatar from the page in every style. */
+  border: 3px solid rgb(var(--ui-surface));
   border-radius: 50%;
   box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
   transition: transform 160ms ease;
 }
 .setup-team img:hover { z-index: 1; transform: translateY(-3px) scale(1.08); }
-.dark .setup-team img { border-color: #111116; }
-.dark .setup-team small { color: #a1a5b2; }
 .setup-steps { justify-content: center; }
 .setup-steps span { padding: 7px 12px; }
-.setup-card { padding: 28px; border-radius: 24px; }
-:root:not(.dark) .setup-card {
-  background: #fff; border-color: #e5e7f2;
-  box-shadow: 0 12px 40px -16px rgb(54 60 105 / .16);
+/* Card surface + hairline come from the token layer in every style, so dark gets its own #16171A /
+   #2C2E34 instead of inheriting a light #fff rule. The lifted shadow stays light-only: the house rule
+   is border-or-shadow, and in dark the border does the dividing. */
+.setup-card {
+  padding: 28px; border-radius: 24px;
+  background: rgb(var(--ui-surface)); border-color: rgb(var(--ui-hairline));
 }
+:root:not(.dark) .setup-card { box-shadow: 0 12px 40px -16px rgb(54 60 105 / .16); }
 .setup-platform { min-height: 142px; border-radius: 16px; }
 .setup-platform p { line-height: 1.8; margin-top: 12px; }
 .setup-platform:hover { transform: translateY(-2px); }
@@ -64,8 +70,12 @@
   outline: 2px solid rgb(var(--color-accent-text)); outline-offset: 3px; /* >= 3:1 in every style */
 }
 .setup-card > :last-child { padding-top: 20px; }
-.dark .setup-welcome h1 { color: #fff; }
-.dark .setup-intro { color: #9ca3af; }
+/* #225 深色：向导页的说明文字大多写在 Tailwind 的 gray-500 / gray-400 上，这两档在深色下仍是浅色底上
+   的灰——gray-500 (#6B7280) 在深色卡片 #16171A 上 3.7:1、在未到的步骤条 #19191B 上 3.6:1，12px 的字
+   看不清。这里把向导范围内的这两档接到 index.css:59-71 的墨色阶梯（深色下 --ui-ink-soft / --ui-ink-mute
+   都在 6:1 以上）；浅色和黄白两套本来就有 4.5:1 以上，不受这条影响。 */
+.dark .setup-layout .text-gray-500 { color: rgb(var(--ui-ink-soft)); }
+.dark .setup-layout .text-gray-400 { color: rgb(var(--ui-ink-mute)); }
 @media (max-width: 640px) {
   .setup-layout main { padding: 20px 16px 12px; }
   .setup-card { padding: 20px; }

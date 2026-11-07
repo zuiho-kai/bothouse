@@ -86,6 +86,25 @@ describe('DSH API to pages', () => {
     setup({ ...running, channels: [{ ...channel, last_message: null, error: 'message read failed' }, { ...channel, id: 'c2', name: 'empty', last_message: null, error: undefined }] });
     const el = await render('/sessions'); expect(el.textContent).toContain('message read failed'); expect(el.textContent).toContain('还没有消息');
   });
+  // #226 11:38 用户截图：两行红字说的是同一个原因，角色管理页读不到成员时先说清插件没启动。
+  it('explains an unreadable DSH once instead of repeating it as a roster error', async () => {
+    const why = '频道插件没有启动——dsh web 在跑，但 conest-collab 没挂上 /collab 路由（HTTP 404）。';
+    setup({ running: false, status: 'error', error: why, members: [], channels: [] });
+    responses['/roles'] = { roles: [], dsh: { status: 'error', error: why } };
+    responses['/dsh/members'] = new Error(why);
+    const el = await render('/roles');
+    expect(el.textContent).toContain('DSH 读取失败');
+    expect(el.textContent).toContain(why);
+    expect(el.textContent).not.toContain('dshManage.rosterError');
+  });
+  it('keeps the roster error when DSH runs but only the member list fails', async () => {
+    setup();
+    responses['/roles'] = { roles: [], dsh: { status: 'running' } };
+    responses['/dsh/members'] = new Error('invalid DSH response');
+    const el = await render('/roles');
+    expect(el.textContent).toContain('dshManage.rosterError');
+    expect(el.textContent).toContain('invalid DSH response');
+  });
   it('shows request rejection and preserves bridge source', async () => {
     setup(new Error('network failed')); (responses['/status'] as { connected_platforms: string[] }).connected_platforms = ['discord'];
     const el = await render('/bridge'); expect(el.textContent).toContain('network failed'); expect(el.textContent).toContain('discord');
