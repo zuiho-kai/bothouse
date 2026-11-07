@@ -371,7 +371,7 @@ func TestTaskReviewTableUsesDispatcherThreshold(t *testing.T) {
 	}
 }
 
-func TestTaskReviewPausedRoundupAndResume(t *testing.T) {
+func TestTaskReviewPausedNoHourlyReminder(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -387,19 +387,16 @@ func TestTaskReviewPausedRoundupAndResume(t *testing.T) {
 	writeReviewBoard(t, e, it)
 	w := newHandoffWatch(e)
 	w.reconcileTaskReviews(now, true)
-	w.reconcileTaskReviews(now, true)
-	jobs := store.List()
-	if len(jobs) != 2 {
-		t.Fatalf("want one pause reminder and one hourly roundup: %d", len(jobs))
+	if jobs := store.List(); len(jobs) != 0 {
+		t.Fatalf("paused work must not queue hourly reminders: %d", len(jobs))
 	}
-	if !strings.Contains(jobs[0].Prompt, it.PauseWhy) || !strings.Contains(jobs[0].Prompt, "恢复") {
-		t.Fatal(jobs[0].Prompt)
-	}
-	it.Paused = ""
-	writeReviewBoard(t, e, it)
-	prepared, err := e.prepareTaskReview(jobs[0], now)
+	// A reminder queued by an older bridge for a still-paused item runs as a no-op.
+	silent := true
+	ref := &taskReviewRef{Board: it.ID, Paused: taskPauseKey(it), Stage: "paused-question"}
+	old := &TimerJob{ID: "review-old", Project: e.name, SessionKey: teamChatKey(it.Chat), Silent: &silent, TaskReview: ref}
+	prepared, err := e.prepareTaskReview(old, now)
 	if err != nil || prepared != nil {
-		t.Fatalf("resumed work still prompted: %+v %v", prepared, err)
+		t.Fatalf("stale paused reminder still prompted: %+v %v", prepared, err)
 	}
 }
 

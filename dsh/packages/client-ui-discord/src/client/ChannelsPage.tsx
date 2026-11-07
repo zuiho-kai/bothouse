@@ -24,7 +24,7 @@ import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommand
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
 import { HighlightedMarkdown, renderQuoteMentions } from './mention-highlight.tsx'
 import { MemberDialog } from './MemberDialog.tsx'
-import { ChannelSettingsDialog } from './ChannelSettingsDialog.tsx'
+import { ChannelSettingsDialog, type SettingsTab } from './ChannelSettingsDialog.tsx'
 import { Avatar } from './Avatar.tsx'
 import { HeadTeam, headTeam } from './HeadTeam.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
@@ -741,8 +741,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const [memberError, setMemberError] = useState<string | undefined>(undefined)
   const [retryingId, setRetryingId] = useState<number | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('basic')
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const settingsReturnRef = useRef<HTMLButtonElement | null>(null)
+  const leadCardRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
     if (!settingsOpen) return
     const opener = settingsReturnRef.current
@@ -1368,13 +1370,23 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
       {drawer !== undefined && <button className={css.drawerBackdrop} aria-label={t('closeDrawer')} onClick={() => setDrawer(undefined)} />}
       <nav ref={roomsRef} className={drawer === 'rooms' ? `${css.rooms} ${css.drawerOpen}` : css.rooms} aria-label={t('rooms')} role={drawer === 'rooms' ? 'dialog' : undefined} aria-modal={drawer === 'rooms' ? true : undefined} tabIndex={drawer === 'rooms' ? -1 : undefined}>
         {/* 白色方案：左栏顶部置顶当前主角色（总管）卡，和右上胶囊同一份状态；没有总管时显示兜底文字。 */}
-        <div className={css.leadCard} role="group" aria-label={t('leadCard')} title={lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}>
-          {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />}
-          <span className={css.leadCardText}>
-            <span className={css.leadCardName}>{lead?.name ?? t('headLead')}</span>
-            <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
-            <span className={css.leadCardHint}>{t('leadCardHint')}</span>
-          </span>
+        {/* 没设主角色时，频道设置在收起的活动栏里，新用户找不到：卡片本身就是去频道设置选主角色的入口。 */}
+        <div className={css.leadCard} role="group" aria-label={t('leadCard')}>
+          <button
+            ref={leadCardRef}
+            type="button"
+            className={css.leadCardButton}
+            disabled={room === undefined}
+            title={`${lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}\n${t('leadCardChange')}`}
+            onClick={() => { settingsReturnRef.current = leadCardRef.current; setDrawer(undefined); setSettingsTab('dispatch'); setSettingsOpen(true) }}
+          >
+            {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />}
+            <span className={css.leadCardText}>
+              <span className={css.leadCardName}>{lead?.name ?? t('headLead')}</span>
+              <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
+              <span className={css.leadCardHint}>{leadId == null ? t('leadCardSet') : t('leadCardHint')}</span>
+            </span>
+          </button>
         </div>
         <div className={css.groupHead}>
           <h3 className={css.groupTitle}>{t('rooms')}</h3>
@@ -1735,7 +1747,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
           {dmWith === undefined && <button type="button" className={css.secondaryButton} onClick={openBoard}>{t('drawerBoard')}</button>}
           <button type="button" className={css.secondaryButton} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{t('drawerDark')}</button>
         </div>
-        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsOpen(true) }}>
+        <button ref={settingsButtonRef} type="button" className={`${css.addMemberButton} ${css.settingsButton}`} disabled={room === undefined} onClick={() => { settingsReturnRef.current = drawer === 'members' ? membersToggleRef.current : settingsButtonRef.current; setDrawer(undefined); setSettingsTab('basic'); setSettingsOpen(true) }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.3-2 .9-2.2-.6-2.5 4.3 1.6 1.7v2.3l-1.6 1.7 2.5 4.3 2.2-.6 2 .9.7 2.3h5l.7-2.3 2-.9 2.2.6 2.5-4.3-1.6-1.7v-2.3l1.6-1.7-2.5-4.3-2.2.6-2-.9L14.5 3Z" /><circle cx="12" cy="12.75" r="3" /></svg>
           {t('channelSettings')}
         </button>
@@ -1764,6 +1776,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         key={room.id}
         room={room}
         members={visibleMembers}
+        initialTab={settingsTab}
         effectiveLead={room.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId ?? '' : room.effective_lead_id ?? ''}
         renameRoom={renameRoom}
         setDispatchMode={setDispatchMode}

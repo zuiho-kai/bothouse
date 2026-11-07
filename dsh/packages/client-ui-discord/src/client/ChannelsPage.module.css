@@ -1982,7 +1982,11 @@
 
 /* 白色方案（来源：用户 11-03 23:1x「白色 右上角显示当前的总管bot的头像 以及在干啥」，样张 notes/ui/layout-plan-113/index.html）。
    尺寸沿用上方头像、圆角与标题栏规范。 */
-.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCard { display: flex; gap: 10px; align-items: center; margin: 8px 8px 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); }
+.leadCardButton { display: flex; flex: 1 1 auto; gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; border: 0; border-radius: inherit; color: inherit; font: inherit; text-align: left; background: none; cursor: pointer; }
+.leadCardButton:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.leadCardButton:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor); outline-offset: -2px; }
+.leadCardButton:disabled { cursor: default; background: none; }
 .leadCardText { display: flex; flex-direction: column; min-width: 0; }
 .leadCardName { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .leadCardStatus { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

@@ -173,6 +173,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	var hid int
 	var hline string
 	var item *teamTaskBoardItem
+	var doubt string
 	legacy := false
 	if ok {
 		v := judgeExit(kind, body, false, func(id int) bool {
@@ -195,6 +196,15 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 			// a capability made for Claude Code only goes back unless it names why the others cannot have it
 			if g := genericReportProblems(body); g != nil {
 				problems, legacy = append(problems, g...), false
+			}
+		}
+		if kind == exitKindReport && item != nil && problems == nil {
+			// tested what the user named, not a look-alike (team_exit_intent.go); only once the form
+			// passes, so a format bounce costs no model call
+			var in []string
+			in, doubt = e.reportIntentCheck(sessionKey, item.Where, body, hid)
+			if in != nil {
+				problems, legacy = in, false
 			}
 		}
 	}
@@ -241,14 +251,27 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		}
 		// No repair turn will come: forward it as is, with what the check found, so the user
 		// still gets the answer and sees the gap.
-		note := exitBounceNote(problems)
+		// the intent check's fail goes first, on its own line (user 11-07 交接: 「在 report 前加一行」)
+		lead := intentFailLine(problems)
+		note := ""
+		if rest := withoutIntent(problems); rest != nil {
+			note = exitBounceNote(rest)
+		}
 		if item != nil && strings.TrimSpace(hline) != "" {
-			hline, legacy = hline+"\n"+note, false
+			hline, legacy = joinIntentLines(lead, hline, note), false
 		} else {
-			body, legacy = body+"\n\n"+note, true
+			body, legacy = joinIntentLines(lead, body, note), true
 		}
 		problems = nil
 		e.clearAskBounces(sessionKey)
+	}
+	if doubt != "" {
+		// a doubt never blocks: it goes with the report as one line
+		if item != nil && strings.TrimSpace(hline) != "" {
+			hline = hline + "\n" + intentDoubtPrefix + doubt
+		} else {
+			body = body + "\n\n" + intentDoubtPrefix + doubt
+		}
 	}
 	if item != nil && item.isTest() {
 		// test work: the answer stays in the workspace and the log, the task still closes or yields
