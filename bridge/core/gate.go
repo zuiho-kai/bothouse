@@ -52,6 +52,7 @@ type gateState struct {
 	textBurstWindow time.Duration // per-project idle text debounce; attachments keep the default
 	mu              sync.Mutex
 	buf             map[string][]string // interactiveKey → silent messages not yet delivered
+	bufVoice        map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
 	held            map[string]*heldMsg // interactiveKey → burst being collected (busy or idle)
 	released        map[*Message]bool   // bursts handed back to handleMessage by their timer
 	gbuf            map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
@@ -343,7 +344,13 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// which would otherwise appear once per message of the burst. bufferedText drops it
 		// wherever a quote or note put it, the same rule the silent buffer uses.
 		body := bufferedText(msg)
-		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + body)
+		// #215: a burst also mixes typed and spoken parts. Mark each voice part where it
+		// sits, and the held message's own words the first time a part joins it, so the
+		// voice note below never wraps typed text; voiceMarked stops that second mark.
+		if h.msg.FromVoice && !h.msg.voiceMarked {
+			h.msg.Content, h.msg.voiceMarked = withVoiceNote(h.msg.Content, true), true
+		}
+		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + withVoiceNote(body, msg.FromVoice))
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
@@ -369,9 +376,18 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		g.mu.Unlock()
 		return true
 	}
+	bufferedVoice := append([]bool(nil), g.bufVoice[interactiveKey]...)
 	buffered := append([]string(nil), g.buf[interactiveKey]...)
 	gateBuffered := append([]string(nil), g.gbuf[interactiveKey]...)
 	g.mu.Unlock()
+	// #215: the buffer mixes what people typed with transcripts of what they said. Mark the
+	// transcripts where they sit, so the newest message's own mark (below) does not claim the
+	// typed buffer as speech and a transcript in the buffer is not handed over as typing.
+	for i := range buffered {
+		if i < len(bufferedVoice) && bufferedVoice[i] {
+			buffered[i] = withVoiceNote(buffered[i], true)
+		}
+	}
 
 	last, lastAge := lastReply(session)
 	dec := g.decide(e.ctx, gateRequest{
@@ -406,7 +422,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	if dec.Action == "silent" {
 		if text := bufferedText(msg); text != "" {
-			g.buffer(interactiveKey, text, userTextOf(msg))
+			g.bufferVoice(interactiveKey, text, userTextOf(msg), msg.FromVoice && !msg.voiceMarked)
 		}
 		return true
 	}
@@ -449,6 +465,13 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	content := msg.Content
 	if dec.Action == "reply" && msg.Mentioned && !msg.FromBot {
 		content = mentionedNote + "\n" + content
+	}
+	// #215: mark this message's own words here, before any buffered or backfilled history is
+	// put above them: the mark is about this message only, and withVoiceNote on the assembled
+	// prompt would call the typed history speech. voiceMarked tells the turn build and the
+	// mid-turn injection below not to mark it a second time.
+	if msg.FromVoice && !msg.voiceMarked {
+		content, msg.voiceMarked = withVoiceNote(content, true), true
 	}
 	session.backfillMu.Lock() // maomao fork: read and mark seen as one step (Session.backfillMu)
 	if back, images, ok := e.channelBackfill(p, msg, session); ok {
@@ -537,19 +560,28 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 // buffer keeps text for the next turn of interactiveKey (capped at maxBuffered); gateText is the
 // same message as the user wrote it, which is what the gate sees in Buffered.
 func (g *gateState) buffer(interactiveKey, text, gateText string) {
+	g.bufferVoice(interactiveKey, text, gateText, false)
+}
+
+// bufferVoice is buffer with the entry's origin: a transcript that arrives while the bot is
+// silent must still be marked as speech when it is finally handed to the next turn (#215).
+// The mark goes on this entry, not on the whole assembled prompt: the buffer mixes typed and
+// spoken messages, so one mark for the turn would call the typed ones speech.
+func (g *gateState) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
 	g.mu.Lock()
 	if g.gbuf == nil {
 		g.gbuf = map[string][]string{}
 	}
+	if g.bufVoice == nil {
+		g.bufVoice = map[string][]bool{}
+	}
 	b := append(g.buf[interactiveKey], text)
 	gb := append(g.gbuf[interactiveKey], gateText)
+	gv := append(g.bufVoice[interactiveKey], fromVoice)
 	if len(b) > maxBuffered {
-		b = b[len(b)-maxBuffered:]
+		b, gb, gv = b[len(b)-maxBuffered:], gb[len(gb)-maxBuffered:], gv[len(gv)-maxBuffered:]
 	}
-	if len(gb) > maxBuffered {
-		gb = gb[len(gb)-maxBuffered:]
-	}
-	g.buf[interactiveKey], g.gbuf[interactiveKey] = b, gb
+	g.buf[interactiveKey], g.gbuf[interactiveKey], g.bufVoice[interactiveKey] = b, gb, gv
 	g.mu.Unlock()
 }
 
@@ -558,6 +590,9 @@ func (g *gateState) dropBuffered(interactiveKey string, n int) {
 	g.buf[interactiveKey] = g.buf[interactiveKey][min(n, len(g.buf[interactiveKey])):]
 	if g.gbuf != nil {
 		g.gbuf[interactiveKey] = g.gbuf[interactiveKey][min(n, len(g.gbuf[interactiveKey])):]
+	}
+	if vs := g.bufVoice[interactiveKey]; len(vs) > 0 {
+		g.bufVoice[interactiveKey] = vs[min(n, len(vs)):]
 	}
 }
 
@@ -601,7 +636,7 @@ func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
 			}{Author: author, Content: text})
 			text = "[Quoted teammate message]\n" + string(quoted)
 		}
-		g.buffer(interactiveKey, text, gateText)
+		g.bufferVoice(interactiveKey, text, gateText, msg.FromVoice && !msg.voiceMarked)
 	}
 }
 

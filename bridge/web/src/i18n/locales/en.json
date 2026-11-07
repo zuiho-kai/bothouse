@@ -609,6 +609,8 @@
     "providerScope": "These providers apply to bridge projects that reference them.",
     "dshProviderScope": "DSH native members use their own model routes.",
     "openDsh": "Open DSH",
+    "openDshDesktop": "Open in desktop app",
+    "openDshWeb": "Web",
     "settingsModels": "In DSH, open Settings → Models.",
     "cliScope": "CLI members use local CLI authentication and configuration; these providers do not change it.",
     "bridgeProjects": "Bridge projects",

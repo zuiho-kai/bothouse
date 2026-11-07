@@ -644,20 +644,23 @@ type queuedMessage struct {
 	authorization *AuthorizationTurn
 	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
-	resumedFrom       string
-	timerJobID        string
-	cronJobID         string
-	resumeNoProgress  int
-	resumeFallback    string
-	messageID         string
-	platform          Platform
-	replyCtx          any
-	content           string
-	ambientChat       string // background to include once when queued messages are batched
-	reference         *MessageReference
-	images            []ImageAttachment
-	files             []FileAttachment
-	fromVoice         bool
+	resumedFrom      string
+	timerJobID       string
+	cronJobID        string
+	resumeNoProgress int
+	resumeFallback   string
+	messageID        string
+	platform         Platform
+	replyCtx         any
+	content          string
+	ambientChat      string // background to include once when queued messages are batched
+	reference        *MessageReference
+	images           []ImageAttachment
+	files            []FileAttachment
+	fromVoice        bool
+	// #215: content already carries the per-part speech marks (mergeQueuedChat marks each
+	// voice part where it sits), so the prompt must not mark the whole text again.
+	voiceMarked       bool
 	userID            string
 	userName          string // sender's display name for sender injection
 	msgPlatform       string // platform name for sender injection
@@ -4067,6 +4070,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		images:              msg.Images,
 		files:               msg.Files,
 		fromVoice:           msg.FromVoice,
+		voiceMarked:         msg.voiceMarked, // #215: a re-queued batch keeps its per-part marks
 		userID:              msg.UserID,
 		userName:            msg.UserName,
 		turnCtx:             msg.TurnCtx,
@@ -4935,6 +4939,9 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			images = append(imgs, images...)
 		}
 		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
+		// voiceMarked: a merged queue batch already carries its per-part marks, so this
+		// turn must not mark the whole text again (#215).
+		content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
 		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
@@ -6031,7 +6038,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExitContext(ctx, p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -6247,8 +6254,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
 			state.mu.Lock()
 			p := state.platform
+			scheduled := state.turnScheduled
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, e.watchCardResult(state), turnStart)
+			// A scheduled turn's error is not the watched board item's failure (watchTurnEnded).
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, scheduled, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -7728,7 +7737,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				e.settleReportWake(jobID, text, nil)
 			}
 			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, e.watchCardResult(state), turnStart)
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, false, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 
@@ -7856,7 +7865,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				*chainedQueued = queued
 				queued.content = session.renderReference(queued.content, queued.reference)
 				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+				queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
@@ -8079,6 +8088,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// maomao fork: the user (/stop) or the gate (abort) cancelled this turn and was
 					// already told so; the agent's resulting error is expected — log only.
 					slog.Info("agent error after turn cancel suppressed", "session", sessionKey, "error", errMsg)
+					// The idle watch follows the same rule: someone ended this turn on purpose, so
+					// its error is not the watched board item's failure. 2026-11-06 06:05:49 board
+					// #170 counted a gate abort ("要她停") as its third failure and was stopped.
+					// A turn nobody interrupted never takes this branch and still counts.
+					turnFailed = false
 				} else if e.isStoppingForJournal() {
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
@@ -8088,6 +8102,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).
 					// A local input turn reports the error to its caller instead.
+					//
+					// The idle watch follows the same rule as for a scheduled or interrupted
+					// turn: this failure belongs to the model, not to the watched item.
+					// board.hold() above already declares "re-sent, one board row, no failure";
+					// an exhausted retry only cools down and re-delivers the same message, so
+					// counting this attempt would stop a board item that never failed. Live
+					// 2026-11-06 19:15 and 20:54 a relay 429 failed a workspace turn three
+					// times, the watch took all three (fails=3, reported=true) and asked the
+					// primary role to reassign work nobody had failed at.
+					turnFailed = false
 					state.mu.Lock()
 					if chainedQueued != nil {
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
@@ -8443,7 +8467,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
 		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
@@ -18974,6 +18998,33 @@ func senderText(msg *Message, text string) string {
 		return text
 	}
 	return strings.NewReplacer("\n", " ", "\r", "").Replace(msg.UserName) + "：" + text
+}
+
+// voiceNoteMark tells the model the words under it came from speech
+// recognition, not from the person typing.
+//
+// Why it exists: handleVoiceMessage posts the transcript back to the channel as
+// "🎙 [语音] …" and then re-dispatches the message with only Content replaced,
+// so the prompt the model sees is bare text. #215 (2026-11-06 09:08-09:09) is
+// what that costs: the model read 「1235」 as typing, answered 「听不到，收到的一直是文字」,
+// and the person had to send the voice message twice. The mark goes after the
+// sender header (buildSenderPrompt) so that header stays the first line.
+const voiceNoteMark = "（这条是语音消息，下面是语音转成的文字，是说话人说的，不是打字发的）"
+
+// withVoiceNote marks message text that came from speech recognition. It is
+// applied to the text before buildSenderPrompt so the sender header stays the
+// first line of the prompt. It wraps one part, never a mixed batch: a merged
+// queue batch marks each voice part where it sits, and the gate marks a
+// transcript before the buffered/backfilled history is put above it. Callers
+// pass fromVoice && !voiceMarked, so a part that already carries the mark is
+// not marked again on a re-dispatch (queued turn, mid-turn injection, capacity
+// retry); a plain FromVoice message without that flag is marked by whichever
+// prompt build runs first.
+func withVoiceNote(content string, fromVoice bool) string {
+	if !fromVoice {
+		return content
+	}
+	return voiceNoteMark + "\n" + content
 }
 
 // buildSenderPrompt prepends a sender identity header to content when

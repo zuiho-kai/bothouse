@@ -115,7 +115,7 @@ func runningDSHWeb() (target, launchToken string, err error) {
 
 var errDSHWebNotRunning = errors.New("the channels page (dsh web) is not running")
 
-const dshWebNotRunningMsg = "频道页（DSH）没有在运行：请在电脑上的 bothouse 面板里点「打开 DSH」启动后再试。 / The channels page (DSH) is not running: start it from the bothouse panel (Open DSH) and retry."
+const dshWebNotRunningMsg = "频道页（DSH）没有在运行：在电脑上打开 bothouse 面板（终端运行 bothouse web），到「概览」页点「打开 DSH」。 / The channels page (DSH) is not running: open the bothouse panel (run bothouse web), then Open DSH on the Overview page."
 
 func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

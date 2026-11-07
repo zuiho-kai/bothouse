@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """记忆论坛页的数据（bothouse 管理页「记忆论坛」读 gate 的 GET /forum，就是这里的 data()）。
 
-一条记忆 = 一个帖子：一句话标题、赞踩、分数、被推 / 引用次数、来源页、[#编号]。排序、折叠直接用同目录
+一条记忆 = 一楼回答：一句话标题、赞踩、分数、被推 / 引用次数、来源页、[#编号]。问同一件事的几楼归成一个帖子
+（#1177，用户 11-07「一个帖子…下面的回答你可能是错，也可能是对，但是每一个回答他都可以有个权重」）：
+归帖记在 wiki 行尾的楼层帖标注（forum_scores.TAG：所属帖子、楼层，一楼那行带标题和描述），编号按去掉标注的行算、旧票不变；
+没有归帖表、或某楼不在表里时，这一楼自成一帖。帖子里的楼按同一个 forum_scores 排序，帖子按它最好那楼排。排序、折叠直接用同目录
 forum_scores.py（Reddit best / Wilson 下界），不另写算法。推送与投票记录不全量列（用户 11-06 嫌推太多，
 forum-decisions 定案），只按条汇总。
 
@@ -11,7 +14,7 @@ forum-decisions 定案），只按条汇总。
 - 页：主 wiki = GATE_WIKI（同 forum_scores.WIKI），「~/」开头的是 HOME 下别的库（角色 wiki）
 - 推送时存的原文：<数据目录>/ctx/<哈希>.md（同 ctxsvc.store_dir），页改过也找得回当时那行
 """
-import collections, json, os, re, sys, time
+import collections, hashlib, json, os, re, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -83,12 +86,13 @@ class _Pages:
 
 
 def _hid(s):
-    return fs.entry_id("x", s).rsplit("#", 1)[1]  # 同 forum_scores.entry_id 的行哈希
+    # 同 forum_scores.entry_id 的行哈希；不走 entry_id，那条每次都解析一遍页路径，几千条推送下逐行调用要几十秒
+    return hashlib.sha1(fs.bare(s).encode()).hexdigest()[:10]
 
 
 def clean(line):
     """wiki 一行 → 读得懂的一句话：去掉列表符、「经验：」等前缀、粗体/代码记号、[[链接]] 方括号（同 ctxsvc._title）。"""
-    t = re.sub(r"^[-*\s]+", "", line.strip())
+    t = re.sub(r"^[-*\s]+", "", fs.bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
     return re.sub(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]", r"\1", t)
 
@@ -188,10 +192,41 @@ def data():
                       "alive": alive, "pushed": pushed[cid], "cited": cited[cid], "last": epoch(last.get(cid, "")),
                       "voters": [{"who": k, "n": n} for k, n in voters[cid].most_common()]})
     tally = fs.tally()
-    return {"on": (EXP / "push.jsonl").exists() or (EXP / "votes.jsonl").exists(),
+    return {"threads": threads(posts), "on": (EXP / "push.jsonl").exists() or (EXP / "votes.jsonl").exists(),
             "rounds": len(pushes), "ups": sum(x[0] for x in tally.values()), "downs": sum(x[1] for x in tally.values()),
             "cited": sum(cited.values()), "last_vote": epoch(votes[-1].get("t", "")) if votes else 0,
             "posts": posts}
+
+
+def _thread_table():
+    """wiki 行尾的楼层帖标注（forum_scores.thread_table）→ {楼编号 页#哈希: (帖子编号, 标题, 描述, 楼号)}。"""
+    return {f["id"]: (th["tid"], th.get("title", ""), th.get("desc", ""), f.get("floor", 0))
+            for th in {id(t): t for t in fs.thread_table().values()}.values() for f in th.get("floors", [])}
+
+
+def threads(posts):
+    """帖子列表：每帖 {tid, title, desc, floors: [楼的 页#哈希…按票排], top, latest, …汇总}；posts 已按 forum_scores 排好，
+    帖内保持这个顺序，帖子之间按最好那楼排（posts 里先出现的帖子在前）。每楼（posts 里那条）补上 tid 和楼号 floor
+    （按时间的第几楼，一楼最早）。"""
+    table = _thread_table()
+    out, by = [], {}
+    for p in posts:
+        cid = f"{p['page']}#{p['id']}"
+        tid, title, desc, floor = table.get(cid) or ("p" + _hid(cid), p["title"], "", 1)
+        p["tid"], p["floor"] = tid, floor
+        if tid not in by:
+            by[tid] = {"tid": tid, "title": title or p["title"], "desc": desc, "floors": [], "_p": []}
+            out.append(by[tid])
+        by[tid]["floors"].append(cid)
+        by[tid]["_p"].append(p)
+    for th in out:
+        fl = th.pop("_p")
+        th["top"] = th["floors"][0]  # 最高分那楼
+        th["latest"] = f"{(lt := max(fl, key=lambda f: f['floor']))['page']}#{lt['id']}"  # 楼号最大 = 最新一楼
+        th["ups"], th["downs"] = sum(f["ups"] for f in fl), sum(f["downs"] for f in fl)
+        th["pushed"], th["last"] = sum(f["pushed"] for f in fl), max(f["last"] for f in fl)
+        th["alive"] = any(f["alive"] for f in fl)
+    return out
 
 
 if __name__ == "__main__":

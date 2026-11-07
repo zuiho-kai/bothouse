@@ -505,9 +505,9 @@ func JevHint(lang string, usable bool, hardware bool, fallbackName string) strin
 	if isZH(lang) {
 		if usable {
 			if hardware {
-				return "gate 用它判断一句话该哪个角色回，板子也用它选频道。"
+				return "用它判断一句话该哪个角色回，板子也用它选频道。"
 			}
-			return "gate 用它判断一句话该哪个角色回。"
+			return "用它判断一句话该哪个角色回。"
 		}
 		s := "不填时：被 @ 的角色照常回，判断不了该谁回的消息由主角色" + zhName + "回"
 		if hardware {
@@ -600,8 +600,45 @@ func withOldJev(lang, reason, inUse string) string {
 	return strings.TrimSuffix(reason, ".") + "; still using the previous one: " + inUse + "."
 }
 
-// JevFailReason explains why a jev was not saved.
+// Recommended judge model: the one bothouse runs itself (Apple silicon, mlx-lm), checked with
+// TestJevEndpoint on 2026-11-07 (logprobs, ~0.16 s). The wizard and the gate page offer it as a
+// one-click preset (web/src/pages/Setup/JevPreset.tsx); failure reasons point to it.
+const (
+	JevPresetURL   = "http://127.0.0.1:9941/v1"
+	JevPresetModel = "mlx-community/Qwen3.5-4B-MLX-4bit"
+	jevPresetStart = "mlx_lm.server --model " + JevPresetModel + " --host 127.0.0.1 --port 9941"
+)
+
+// JevFailReason explains why a jev was not saved and what to use instead.
 func JevFailReason(lang string, t JevTestResult) string {
+	return jevFailCause(lang, t) + jevSwitchTip(lang, t)
+}
+
+// jevSwitchTip tells a new user what to change after a failed test: start the local model when
+// nothing answers on this machine, a key problem stays a key problem, everything else → the preset.
+func jevSwitchTip(lang string, t JevTestResult) string {
+	code := 0
+	if strings.HasPrefix(t.Error, "HTTP ") {
+		fmt.Sscanf(t.Error, "HTTP %d", &code)
+	}
+	local := strings.Contains(t.Error, "127.0.0.1") || strings.Contains(t.Error, "localhost")
+	switch {
+	case code == 0 && !t.Reachable && !t.Slow && local:
+		return tr3(lang,
+			" 本机这个地址上没有模型在跑。用推荐的 Qwen3.5-4B：终端运行 `uv tool install mlx-lm`，再运行 `"+jevPresetStart+"`，开着它再测。",
+			" このアドレスでモデルが動いていません。おすすめの Qwen3.5-4B なら、ターミナルで `uv tool install mlx-lm`、続けて `"+jevPresetStart+"` を実行し、開いたまま再テストしてください。",
+			" Nothing is running at this local address. For the recommended Qwen3.5-4B, run `uv tool install mlx-lm`, then `"+jevPresetStart+"`, keep it open and test again.")
+	case code == 401 || code == 403:
+		return tr3(lang, " 换一把 Key；或改用推荐的本机 Qwen3.5-4B（不要 Key，点上面「一键填」）。",
+			" Key を替えるか、おすすめのローカル Qwen3.5-4B（Key 不要、上の「ワンクリック入力」）にしてください。",
+			" Use another key, or the recommended local Qwen3.5-4B (no key; \"Fill in\" above).")
+	}
+	return tr3(lang, " 换成推荐的本机 Qwen3.5-4B（点上面「一键填」，免费、不要 Key）。",
+		" おすすめのローカル Qwen3.5-4B に替えてください（上の「ワンクリック入力」、無料・Key 不要）。",
+		" Switch to the recommended local Qwen3.5-4B (\"Fill in\" above; free, no key).")
+}
+
+func jevFailCause(lang string, t JevTestResult) string {
 	zh, ja := isZH(lang), isJA(lang)
 	if t.Slow {
 		if ja {

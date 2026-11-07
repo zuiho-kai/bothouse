@@ -609,6 +609,8 @@
     "providerScope": "此处服务商作用于引用它们的桥接项目。",
     "dshProviderScope": "DSH 原生成员使用自己的模型路由。",
     "openDsh": "打开 DSH",
+    "openDshDesktop": "在桌面版打开",
+    "openDshWeb": "网页版",
     "settingsModels": "在 DSH 中进入「设置 → 模型」。",
     "cliScope": "CLI 成员使用本机 CLI 的认证和配置，此处服务商不会更改它们。",
     "bridgeProjects": "桥接项目",

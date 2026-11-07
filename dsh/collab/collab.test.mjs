@@ -1606,6 +1606,24 @@ test('roster: re-running the wizard reuses the default-named role\'s member inst
   assert.deepEqual(await roster.importWizard(file), ['Codex-2']);
 });
 
+test('roster: a wizard DSH-model role keeps the model the wizard pinned, and falls back when the host lacks it', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  const file = join(dir, 'wizard-members.json');
+  writeFileSync(file, JSON.stringify({ members: [{ name: 'DeepSeek', model: { provider: 'relay', model: 'm1' } }, { name: 'Other', model: { provider: 'gone', model: 'x' } }, { name: 'Codex', cli: 'codex', model: { provider: 'relay', model: 'm1' } }] }));
+  assert.deepEqual(await roster.importWizard(file), ['DeepSeek', 'Other', 'Codex']);
+  const byName = Object.fromEntries(hub.memberList().map(m => [m.name, m]));
+  assert.deepEqual(byName.DeepSeek.model, { provider: 'relay', model: 'm1' });
+  assert.equal(byName.Other.model, undefined);
+  assert.equal(byName.Codex.model, undefined);
+  assert.equal(byName.Codex.cli, 'codex');
+});
+
 test('roster: an install that already has Codex-2/Codex-3 stops growing; after cleanup the kept member gets its real name', async () => {
   const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');

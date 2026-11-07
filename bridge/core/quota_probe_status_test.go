@@ -79,4 +79,55 @@ func TestQuotaProbeLogCarriesRecordedStatus(t *testing.T) {
 			t.Fatalf("probe log does not show the recorded status: %s", line)
 		}
 	})
+
+	t.Run("Exhausted", func(t *testing.T) {
+		buf, restore := captureProbeLog(t)
+		defer restore()
+		e := setupQuotaTestEngine(t)
+		now := time.Now()
+		e.quotaState.Until = now.Add(-time.Minute)
+		e.quotaProbeFn = func(context.Context) (bool, time.Duration, error) {
+			return false, 5 * time.Minute, nil
+		}
+
+		e.quotaTick(now)
+
+		line := probeLogLine(buf, "cooling extended")
+		if line == "" {
+			t.Fatalf("no probe log line: %s", buf.String())
+		}
+		if !strings.Contains(line, `"probe_status":"exhausted"`) {
+			t.Fatalf("cooling-extended log does not show the recorded status: %s", line)
+		}
+	})
+}
+
+// The fourth write, in quota_scope.go, comes from a provider-reported exhaustion
+// rather than from the probe. It is the one that can differ from the probe's own
+// verdict ("exhausted" here, "unknown" when the panel cannot be read), so it logs
+// the status it records too.
+func TestQuotaReportedExhaustionLogsStatus(t *testing.T) {
+	buf, restore := captureProbeLog(t)
+	defer restore()
+	e, a := scopedQuotaFixture(t)
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+
+	e.recordQuotaFor(e.quotaScopeFor(a, "A"), until, "discord:one")
+	e.waitQuotaUpdates()
+
+	if e.quotaState.ProbeStatus != "exhausted" {
+		t.Fatalf("probe status = %q, want exhausted", e.quotaState.ProbeStatus)
+	}
+	line := ""
+	for _, got := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(got, "quota cooldown: provider reported exhaustion") {
+			line = got
+		}
+	}
+	if line == "" {
+		t.Fatalf("no exhaustion report line: %s", buf.String())
+	}
+	if !strings.Contains(line, `"probe_status":"exhausted"`) {
+		t.Fatalf("report log does not show the recorded status: %s", line)
+	}
 }

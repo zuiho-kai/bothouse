@@ -34,7 +34,7 @@ import (
 const DSHKeyEnv = "DSH_WIZARD_API_KEY"
 
 // DSHInstallHint is the one line shown when DSH is not installed (the bridge is its own package, see above).
-const DSHInstallHint = "npm i -g @deepseek-ai/dsh @deepseek-ai/dsh-hooks-claude-code"
+const DSHInstallHint = "npm i -g @deepseek-ai/dsh@latest @deepseek-ai/dsh-hooks-claude-code"
 
 // dshLogin: the official key variable (dsh-llm-deepseek-api-key), an account login ($DSH_HOME/.credentials.yaml,
 // dsh-credentials-local), or the user's own model setup (llm-deepseek in the home layer or the acp profile).

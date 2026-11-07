@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Card, Input, Textarea } from '@/components/ui';
 import {
-  configureDSH, getCLIs, getDSHStatus, installDSHPlugin, openDSHWeb,
-  type DSHMember, type DSHStatus, type LocalCLI,
+  configureDSH, getCLIs, getDSHStatus, installDSHPlugin, openDSHDesktop, openDSHWeb,
+  type DSHMember, type DSHStatus, type DSHTarget, type LocalCLI,
 } from '@/api/wizard';
 import { api } from '@/api/client';
 import { PersonaLibrary, useLibrary } from '@/components/library';
@@ -28,11 +28,30 @@ function channelsURL(): string {
 
 type Role = { key: number; name: string; nameCustomized: boolean; keepName: boolean; runner: string; persona: string; personaSlug?: string; avatar?: string };
 
+// #1173 walk: reloading the page dropped back to the platform page and lost the roles typed in.
+// Keep the step, route and roles of this tab (never the API key) until the user leaves the DSH setup.
+export const DSH_DRAFT_KEY = 'bh_dsh_setup_draft';
+type Draft = { step: number; target: DSHTarget; roles: Role[] };
+export const readDSHDraft = (): Draft | null => {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DSH_DRAFT_KEY) || 'null');
+    return d && typeof d.step === 'number' && Array.isArray(d.roles) ? d : null;
+  } catch { return null; }
+};
+export const clearDSHDraft = () => { try { sessionStorage.removeItem(DSH_DRAFT_KEY); } catch { /* storage off */ } };
+
 const TEXT = {
   zh: {
-    title: 'DSH 安装', steps: ['检测 DSH', '安装插件', '角色和模型', '打开 DSH'],
-    note: '装好以后，角色住在 DSH 网页的 #general 频道里，@ 谁谁回。',
-    detect: '重新检测', missing: '没找到 dsh。若已安装 DSH 桌面版，请确认将其 bin 目录加入环境变量 PATH；或在终端运行 npm i -g @deepseek-ai/dsh（国内推荐使用 npmmirror 镜像源），再点「重新检测」。',
+    title: 'DSH 安装', steps: ['选择 DSH', '安装插件', '角色和模型', '打开 DSH'],
+    note: '装好以后，角色住在 DSH 的 #general 频道里，@ 谁谁回。',
+    detect: '重新检测', missing: '没找到 dsh 命令。在终端运行 npm i -g @deepseek-ai/dsh@latest（国内推荐使用 npmmirror 镜像源），再点「重新检测」；也可以改用桌面版。',
+    pickTitle: '角色住在哪', desktopLabel: 'DSH 桌面版（推荐）', desktopDesc: '在 DeepSeek Harness 桌面应用里聊天，不用开浏览器。',
+    webLabel: 'DSH 网页版', webDesc: '在浏览器标签页里聊天，要装 dsh 命令和 Node。',
+    desktopFound: '已找到桌面版。', desktopMissing: '这台电脑还没装 DeepSeek Harness 桌面版。下载安装后打开一次，再点「重新检测」。',
+    download: '下载桌面版', useWeb: '改用网页版', useDesktop: '改用桌面版', webFound: '已找到 dsh {v}。',
+    desktopFirstOpen: '安装时会先自动打开一次桌面版，让它建好配置。', nodeFromDesktop: '这台电脑没有 Node，会用桌面版自带的 Node 安装插件。',
+    openDesktopTitle: '一切就绪', openDesktopNote: '点下面的按钮打开桌面版（已经开着的会先自动退出再打开，这样才能加载频道和角色）。在左侧栏点「频道」，进 #general，角色已经在成员列表里。',
+    openDesktop: '在桌面版里打开', openingDesktop: '正在打开桌面版…', desktopOpened: '桌面版已打开。没看到窗口的话，在程序坞或任务栏里点 DeepSeek Harness。', orWeb: '或者在浏览器里打开网页版：', openWebInstead: '打开网页版',
     install: '安装插件', reinstall: '重新安装', installed: '插件已经装好了。', next: '下一步',
     stepNames: { download: '准备插件文件', deps: '安装依赖', plugin: '装进 DSH' } as Record<string, string>,
     showLog: '查看安装日志',
@@ -49,9 +68,16 @@ const TEXT = {
     working: '处理中…',
   },
   ja: {
-    title: 'DSH セットアップ', steps: ['DSH を検出', 'プラグインをインストール', 'キャラとモデル', 'DSH を開く'],
-    note: 'インストール後、キャラは DSH ウェブの #general チャンネルにいて、@ した相手が返事します。',
-    detect: '再検出', missing: 'dsh が見つかりません。公式デスクトップ版をご利用の場合は bin を PATH に追加するか、npm i -g @deepseek-ai/dsh を実行して「再検出」を押してください。',
+    title: 'DSH セットアップ', steps: ['DSH を選ぶ', 'プラグインをインストール', 'キャラとモデル', 'DSH を開く'],
+    note: 'インストール後、キャラは DSH の #general チャンネルにいて、@ した相手が返事します。',
+    detect: '再検出', missing: 'dsh コマンドが見つかりません。ターミナルで npm i -g @deepseek-ai/dsh@latest を実行して「再検出」を押すか、デスクトップ版を使ってください。',
+    pickTitle: 'キャラの居場所', desktopLabel: 'DSH デスクトップ版（おすすめ）', desktopDesc: 'DeepSeek Harness のデスクトップアプリで話します。ブラウザは不要です。',
+    webLabel: 'DSH ウェブ版', webDesc: 'ブラウザのタブで話します。dsh コマンドと Node が必要です。',
+    desktopFound: 'デスクトップ版が見つかりました。', desktopMissing: 'DeepSeek Harness デスクトップ版がまだありません。ダウンロードして一度開いてから「再検出」を押してください。',
+    download: 'デスクトップ版をダウンロード', useWeb: 'ウェブ版にする', useDesktop: 'デスクトップ版にする', webFound: 'dsh {v} が見つかりました。',
+    desktopFirstOpen: 'インストール時にデスクトップ版を一度自動で開き、設定を作らせます。', nodeFromDesktop: 'Node がないので、デスクトップ版に同梱の Node でインストールします。',
+    openDesktopTitle: '準備完了', openDesktopNote: 'ボタンでデスクトップ版を開きます（開いている場合はチャンネルとキャラを読み込むため一度終了して開き直します）。左のサイドバーで「チャンネル」を押し、#general に入るとキャラがメンバー一覧にいます。',
+    openDesktop: 'デスクトップ版で開く', openingDesktop: 'デスクトップ版を開いています…', desktopOpened: 'デスクトップ版を開きました。ウィンドウが見えない場合は Dock かタスクバーの DeepSeek Harness を押してください。', orWeb: 'ブラウザでウェブ版を開く：', openWebInstead: 'ウェブ版を開く',
     install: 'プラグインをインストール', reinstall: '再インストール', installed: 'プラグインはインストール済みです。', next: '次へ',
     stepNames: { download: 'ファイルを準備', deps: '依存関係をインストール', plugin: 'DSH に組み込む' } as Record<string, string>,
     showLog: 'インストールログを見る',
@@ -68,9 +94,16 @@ const TEXT = {
     working: '処理中…',
   },
   en: {
-    title: 'DSH setup', steps: ['Detect DSH', 'Install plugins', 'Roles and model', 'Open DSH'],
-    note: 'Afterwards your roles live in the #general channel of DSH web; whoever you @ replies.',
-    detect: 'Detect again', missing: 'dsh not found. If using the official desktop app, ensure its bin directory is on PATH; or run npm i -g @deepseek-ai/dsh in a terminal, then press "Detect again".',
+    title: 'DSH setup', steps: ['Choose DSH', 'Install plugins', 'Roles and model', 'Open DSH'],
+    note: 'Afterwards your roles live in the #general channel of DSH; whoever you @ replies.',
+    detect: 'Detect again', missing: 'The dsh command was not found. Run npm i -g @deepseek-ai/dsh@latest in a terminal, then press "Detect again"; or use the desktop app instead.',
+    pickTitle: 'Where your roles live', desktopLabel: 'DSH desktop app (recommended)', desktopDesc: 'Chat in the DeepSeek Harness desktop app; no browser needed.',
+    webLabel: 'DSH web', webDesc: 'Chat in a browser tab; needs the dsh command and Node.',
+    desktopFound: 'Found the desktop app.', desktopMissing: 'DeepSeek Harness desktop is not installed on this computer. Download it, open it once, then press "Detect again".',
+    download: 'Download the desktop app', useWeb: 'Use web instead', useDesktop: 'Use the desktop app instead', webFound: 'Found dsh {v}.',
+    desktopFirstOpen: 'The install opens the desktop app once first so it creates its settings.', nodeFromDesktop: 'No Node on this computer: the plugins install with the Node bundled in the desktop app.',
+    openDesktopTitle: 'All set', openDesktopNote: 'The button opens the desktop app (if it is already open it quits and reopens, so it loads the channels and roles). Click Channels in the left sidebar and enter #general; your roles are in the member list.',
+    openDesktop: 'Open in the desktop app', openingDesktop: 'Opening the desktop app…', desktopOpened: 'The desktop app is open. If you do not see its window, click DeepSeek Harness in the Dock or taskbar.', orWeb: 'Or open the web version in a browser:', openWebInstead: 'Open web version',
     install: 'Install plugins', reinstall: 'Reinstall', installed: 'The plugins are already installed.', next: 'Next',
     stepNames: { download: 'Prepare plugin files', deps: 'Install dependencies', plugin: 'Add to DSH' } as Record<string, string>,
     showLog: 'Show install log',
@@ -93,28 +126,42 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   const t = l.startsWith('zh') ? TEXT.zh : l.startsWith('ja') ? TEXT.ja : TEXT.en;
   const { lib, error: libError, reload: reloadLib } = useLibrary(lang);
   const LT = libraryTexts(lang);
+  const draft = useRef(readDSHDraft()).current;
   const [status, setStatus] = useState<DSHStatus | null>(null);
-  const [step, setStep] = useState(0);
+  // the done page (3) needs the save that happened before the reload; come back to the roles step instead
+  const [step, setStep] = useState(draft ? Math.min(draft.step, 2) : 0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [installStep, setInstallStep] = useState('');
   const [installDone, setInstallDone] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [clis, setClis] = useState<LocalCLI[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<Role[]>(draft?.roles ?? []);
   const [apiKey, setApiKey] = useState('');
   const [openURL, setOpenURL] = useState('');
   const [starting, setStarting] = useState<{ sec: number; line: string } | null>(null);
-  const nextKey = useRef(1);
+  // user 11-07: new users mostly use DSH Desktop, so it is the default; the web page stays a choice
+  const [target, setTarget] = useState<DSHTarget>(draft?.target === 'web' ? 'web' : 'desktop');
+  const [desktopOpened, setDesktopOpened] = useState(false);
+  const nextKey = useRef(1 + Math.max(0, ...(draft?.roles ?? []).map((r) => r.key)));
+  useEffect(() => {
+    // saved (step 3): nothing left to keep
+    if (step >= 3) { clearDSHDraft(); return; }
+    try { sessionStorage.setItem(DSH_DRAFT_KEY, JSON.stringify({ step, target, roles })); } catch { /* storage off */ }
+  }, [step, target, roles]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError('');
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
-  const detect = () => run(async () => { const s = await getDSHStatus(lang); setStatus(s); setStep(s.found ? 1 : 0); });
+  const detect = () => run(async () => { const s = await getDSHStatus(lang); setStatus(s); });
+  const desktopFound = !!status?.desktop_app;
+  const targetReady = target === 'desktop' ? desktopFound : !!status?.found;
+  const pluginInstalled = target === 'desktop' ? !!status?.desktop_plugin_installed : !!status?.plugin_installed;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- detect once on mount
   useEffect(() => { void detect(); }, []);
-  useEffect(() => { getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, []);
+  // asked again on reaching 角色和模型: a CLI the user just logged into (or installed) shows up without a reload
+  useEffect(() => { if (step === 0 || step === 2) getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, [step]);
 
   const runners = clis.filter((c) => c.supported && CLI_OF[c.agent_type]);
   const defaultRunner = () => (runners.find((c) => c.login === 'logged_in') || runners[0])?.agent_type || DEEPSEEK;
@@ -164,7 +211,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
       const s = await installDSHPlugin(lang, (ev) => {
         if (ev.step) setInstallStep(ev.step);
         if (ev.line) setLog((xs) => [...xs, ev.line!]);
-      });
+      }, target);
       setStatus(s); setInstallDone(true); goRoles();
     } catch (e) {
       const extra = (e as { log?: string }).log;
@@ -185,6 +232,11 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     }));
     await configureDSH({ deepseek_api_key: needsKey ? apiKey.trim() : undefined, members });
     setStep(3);
+  });
+  const openDesktop = () => run(async () => {
+    setDesktopOpened(false);
+    await openDSHDesktop(lang);
+    setDesktopOpened(true);
   });
   const open = () => {
     // Open the tab inside the click so the browser does not block it, then point it at DSH once it is up.
@@ -214,16 +266,38 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
       {error && <p role="alert" className="text-red-500 whitespace-pre-wrap" data-testid="dsh-error">{error}</p>}
 
       {step === 0 && <>
-        <p>{status && !status.found ? t.missing : busy ? t.working : t.steps[0]}</p>
-        <Button onClick={detect} disabled={busy}>{t.detect}</Button>
+        <h3 className="font-semibold">{t.pickTitle}</h3>
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
+          {([['desktop', t.desktopLabel, t.desktopDesc], ['web', t.webLabel, t.webDesc]] as const).map(([k, label, desc]) => (
+            <button key={k} type="button" role="radio" aria-checked={target === k} data-testid={`dsh-target-${k}`} onClick={() => setTarget(k)}
+              className={`text-left rounded-lg border p-3 ${target === k ? 'border-accent ring-2 ring-accent/30' : 'border-gray-200 dark:border-gray-700'}`}>
+              <span className="block font-medium">{label}</span><span className="block text-sm text-gray-500">{desc}</span>
+            </button>))}
+        </div>
+        {!status ? <p className="text-sm">{t.working}</p> : target === 'desktop' ? (desktopFound
+          ? <p className="text-sm" data-testid="dsh-desktop-found">{t.desktopFound}</p>
+          : <div className="space-y-2" data-testid="dsh-desktop-missing"><p className="text-sm">{t.desktopMissing}</p>
+            <div className="flex flex-wrap gap-2 items-center">
+              {status.desktop_download_url && <a className="text-accent-text underline" href={status.desktop_download_url} target="_blank" rel="noreferrer" data-testid="dsh-desktop-download">{t.download}</a>}
+              <Button variant="secondary" size="sm" onClick={() => setTarget('web')}>{t.useWeb}</Button>
+            </div></div>)
+          : (status.found ? <p className="text-sm">{t.webFound.replace('{v}', status.version || '')}</p>
+            : <div className="space-y-2"><p className="text-sm">{t.missing}</p>
+              {desktopFound && <Button variant="secondary" size="sm" onClick={() => setTarget('desktop')}>{t.useDesktop}</Button>}</div>)}
+        <div className="flex gap-2">
+          {!targetReady && <Button variant="secondary" onClick={detect} disabled={busy}>{t.detect}</Button>}
+          <Button onClick={() => setStep(1)} disabled={busy || !targetReady} data-testid="dsh-target-next">{t.next}</Button>
+        </div>
       </>}
 
       {step === 1 && <>
         {status?.node_version && <p className="text-sm">Node {status.node_version}</p>}
         {status?.dependency_error && <p role="alert" className="text-red-500" data-testid="dsh-dependency-error">{status.dependency_error}</p>}
+        {target === 'desktop' && !status?.desktop_profile_ready && !pluginInstalled && <p className="text-sm" data-testid="dsh-desktop-first-open">{t.desktopFirstOpen}</p>}
+        {status?.node_from_desktop && <p className="text-sm">{t.nodeFromDesktop}</p>}
         {status?.pnpm_found === false && <p className="text-sm">{lang.startsWith('zh') ? '未检测到 pnpm，安装插件时会通过 npm 自动补齐。' : 'pnpm was not detected; the plugin installer will install it using npm.'}</p>}
         {status?.dependency_error && <Button onClick={detect} disabled={busy}>{t.detect}</Button>}
-        <p>DSH {status?.version}{status?.plugin_installed && !busy && !log.length ? ` · ${t.installed}` : ''}</p>
+        <p>{target === 'desktop' ? 'DeepSeek Harness Desktop' : `DSH ${status?.version ?? ''}`}{pluginInstalled && !busy && !log.length ? ` · ${t.installed}` : ''}</p>
         {(busy || log.length > 0) && <ol className="space-y-1 text-sm" data-testid="dsh-install-progress">
           {INSTALL_STEPS.map((s) => {
             const cur = stepIndex(installStep), me = stepIndex(s);
@@ -237,9 +311,10 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         {log.length > 0 && <details><summary className="text-sm cursor-pointer">{t.showLog}</summary>
           <pre className="text-xs max-h-64 overflow-auto p-2 rounded bg-gray-50 dark:bg-black/40">{log.slice(-200).join('\n')}</pre></details>}
         <div className="flex gap-2">
-          <Button onClick={install} disabled={busy || !!status?.dependency_error} variant={status?.plugin_installed ? 'secondary' : undefined} data-testid="dsh-install-plugin">
-            {status?.plugin_installed ? t.reinstall : t.install}</Button>
-          {status?.plugin_installed && <Button onClick={goRoles} disabled={busy} data-testid="dsh-skip-install">{t.next}</Button>}
+          <Button variant="secondary" onClick={() => setStep(0)} disabled={busy}>{t.prev}</Button>
+          <Button onClick={install} disabled={busy || !!status?.dependency_error} variant={pluginInstalled ? 'secondary' : undefined} data-testid="dsh-install-plugin">
+            {pluginInstalled ? t.reinstall : t.install}</Button>
+          {pluginInstalled && <Button onClick={goRoles} disabled={busy} data-testid="dsh-skip-install">{t.next}</Button>}
         </div>
       </>}
 
@@ -305,7 +380,17 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         </div>
       </>}
 
-      {step === 3 && <>
+      {step === 3 && target === 'desktop' && <>
+        <div><h3 className="font-semibold">{t.openDesktopTitle}</h3><p className="text-sm text-gray-500">{t.openDesktopNote}</p></div>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setStep(2)} disabled={busy}>{t.prev}</Button>
+          <Button onClick={openDesktop} disabled={busy} data-testid="dsh-open-desktop">{busy ? t.openingDesktop : t.openDesktop}</Button>
+        </div>
+        {desktopOpened && <p className="text-sm" data-testid="dsh-desktop-opened">{t.desktopOpened}</p>}
+        <p className="text-sm text-gray-500">{t.orWeb} <button type="button" className="text-accent-text underline" onClick={() => setTarget('web')} disabled={busy} data-testid="dsh-open-web-instead">{t.openWebInstead}</button></p>
+      </>}
+
+      {step === 3 && target === 'web' && <>
         <div><h3 className="font-semibold">{t.openTitle}</h3><p className="text-sm text-gray-500">{t.openNote}</p></div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setStep(2)} disabled={busy}>{t.prev}</Button>

@@ -22,7 +22,7 @@ import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
 import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, needsTarget, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
-import { HighlightedMarkdown, renderQuoteMentions } from './mention-highlight.tsx'
+import { HighlightedMarkdown, renderQuoteMentions, splitMentions } from './mention-highlight.tsx'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog, type SettingsTab } from './ChannelSettingsDialog.tsx'
 import { Avatar } from './Avatar.tsx'
@@ -674,6 +674,26 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     pendingWithdrawRef.current?.commit()
   }, [])
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputHighlightsRef = useRef<HTMLDivElement>(null)
+  const [composing, setComposing] = useState(false)
+  // The native textarea owns editing, selection and IME. Only its ink is mirrored.
+  const syncInputHighlights = (): void => {
+    const input = inputRef.current
+    const highlights = inputHighlightsRef.current
+    if (!input || !highlights) return
+    // Exclude the native scrollbar without rounding fractional layout widths (clientWidth rounds).
+    highlights.style.width = `${input.getBoundingClientRect().width - (input.offsetWidth - input.clientWidth)}px`
+    highlights.scrollTop = input.scrollTop
+    highlights.scrollLeft = input.scrollLeft
+  }
+  useLayoutEffect(() => {
+    syncInputHighlights()
+    const input = inputRef.current
+    if (!input || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(syncInputHighlights)
+    observer.observe(input)
+    return () => observer.disconnect()
+  }, [draft, state.roomId])
   // Caret offset in the draft; drives which `@query` (if any) is being typed.
   const [caret, setCaret] = useState(0)
   // `@` start index whose popup the user closed with Esc; a new `@` reopens.
@@ -1663,35 +1683,47 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
                 }}
               />
             )}
-            <textarea
-              ref={inputRef}
-              className={css.input}
-              rows={1}
-              enterKeyHint="send"
-              value={draft}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={placeholder}
-              role="combobox"
-              aria-expanded={popupOpen || slashOpen}
-              aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
-              aria-autocomplete="list"
-              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : slashOpen ? `channel-slash-${slashSelected}` : undefined}
-              onChange={(event) => {
-                const roomId = state.roomId
-                const value = event.target.value
-                if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
-                setCapabilitiesDismissed(false)
-                setHelpOpen(false)
-                setCaret(event.target.selectionStart)
-                setHighlight(0)
-                setSlashHighlight(0)
-              }}
-              onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
-              onKeyDown={onKeyDown}
-              onPaste={attach.onPaste}
-              onDragOver={attach.onDragOver}
-              onDrop={attach.onDrop}
-            />
+            <div className={composing ? `${css.inputSurface} ${css.inputComposing}` : css.inputSurface}>
+              <textarea
+                ref={inputRef}
+                className={css.input}
+                rows={1}
+                enterKeyHint="send"
+                value={draft}
+                disabled={state.roomId === undefined || sending[state.roomId] === true}
+                placeholder={placeholder}
+                role="combobox"
+                aria-expanded={popupOpen || slashOpen}
+                aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
+                aria-autocomplete="list"
+                aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : slashOpen ? `channel-slash-${slashSelected}` : undefined}
+                onChange={(event) => {
+                  const roomId = state.roomId
+                  const value = event.target.value
+                  if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
+                  setCapabilitiesDismissed(false)
+                  setHelpOpen(false)
+                  setCaret(event.target.selectionStart)
+                  setHighlight(0)
+                  setSlashHighlight(0)
+                }}
+                onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
+                onScroll={syncInputHighlights}
+                onCompositionStart={() => setComposing(true)}
+                onCompositionEnd={() => setComposing(false)}
+                onKeyDown={onKeyDown}
+                onPaste={attach.onPaste}
+                onDragOver={attach.onDragOver}
+                onDrop={attach.onDrop}
+              />
+              <div ref={inputHighlightsRef} className={css.inputHighlights} data-composer-highlights aria-hidden="true">
+                {splitMentions(draft, visibleMembers).map((segment, index) => segment.member
+                  ? <span key={index} className={`${css.mentionBadge} ${css.inputMention}`} data-mention={segment.member.id}>{segment.text}</span>
+                  : segment.text)}
+                {/* A final empty line must occupy the same line box as in a textarea. */}
+                {'\n'}
+              </div>
+            </div>
             <div className={css.composerToolbar}>
               {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
               <button

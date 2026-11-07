@@ -122,6 +122,15 @@ func botListens(p WizardExistingProject) bool {
 // plus an explicit choice in conest-setup.json wins; else what the platform boundary allows says it.
 func gateModeOf(p WizardExistingProject, st SetupState) string {
 	if strings.TrimSpace(p.GateURL) == "" {
+		// a single role set up as 仅被点名 gets no gate_url (nothing to route), only the platform
+		// boundary: that is addressed, not off.
+		if !botListens(p) {
+			for _, t := range platformTypesOf(p) {
+				if st.GateModes[t] == gateModeAddressed {
+					return gateModeAddressed
+				}
+			}
+		}
 		return gateModeOff
 	}
 	for _, t := range platformTypesOf(p) {
@@ -150,7 +159,8 @@ func gateBots(s WizardSnapshot, st SetupState) []GateBot {
 			name = p.Name
 		}
 		url := strings.TrimSpace(p.GateURL)
-		b := GateBot{Project: p.Name, Name: name, Mode: gateModeOf(p, st), Enabled: url != "",
+		mode := gateModeOf(p, st)
+		b := GateBot{Project: p.Name, Name: name, Mode: mode, Enabled: url != "" || mode == gateModeAddressed,
 			GateURL: url, GateFallback: p.GateFallback, Platforms: platformTypesOf(p), Listens: botListens(p),
 			CustomGate: url != "" && !isWizardGateURL(url)}
 		if b.CustomGate {

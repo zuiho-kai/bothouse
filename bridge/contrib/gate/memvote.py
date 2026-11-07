@@ -24,6 +24,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import filelock  # noqa: E402  跨进程锁：Mac/Linux 用 fcntl.flock，Windows 用 msvcrt.locking
 
+_FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 楼层帖标注（#1177，同 forum_scores.TAG）：算编号、显示时去掉
+
+
+def _bare(s):
+    return _FLOOR_TAG.sub("", s).strip()
+
+
+
 EXP = Path(os.environ.get("MEMVOTE_DIR") or Path(__file__).resolve().parent)  # 隔离测试时指到副本目录
 SCORES = EXP / "scores.json"
 VOTES = EXP / "votes.jsonl"
@@ -54,7 +62,7 @@ def _recs(path):
 
 
 def _sha(x):
-    return hashlib.sha1(x.strip().encode()).hexdigest()[:10]
+    return hashlib.sha1(_bare(x).encode()).hexdigest()[:10]
 
 
 def full_id(h, scores):

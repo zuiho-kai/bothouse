@@ -518,6 +518,8 @@
     "providerScope": "이 제공업체는 참조하는 브리지 프로젝트에 적용됩니다.",
     "dshProviderScope": "DSH 기본 멤버는 자체 모델 경로를 사용합니다.",
     "openDsh": "DSH 열기",
+    "openDshDesktop": "데스크톱 앱에서 열기",
+    "openDshWeb": "웹",
     "settingsModels": "DSH에서 설정 → 모델을 여세요.",
     "cliScope": "CLI 멤버는 로컬 CLI 인증과 설정을 사용하며 여기서 변경되지 않습니다.",
     "bridgeProjects": "브리지 프로젝트",

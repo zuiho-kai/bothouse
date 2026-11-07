@@ -55,7 +55,7 @@ func TestReleaseHoldFailedTurnsDoNotEscalate(t *testing.T) {
 		"release_hold": map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano)}}
 	writeReleaseBoard(t, e, held)
 	for range watchFailLimit + 1 {
-		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, time.Time{})
+		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, false, time.Time{})
 	}
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Idle.Fails != 0 || got.Idle.Reported {
@@ -70,7 +70,7 @@ func TestReleaseHoldFailedTurnsDoNotEscalate(t *testing.T) {
 	delete(held, "release_hold")
 	writeReleaseBoard(t, e, held)
 	for range watchFailLimit {
-		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, time.Time{})
+		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, false, time.Time{})
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Idle.Fails != watchFailLimit || !got.Idle.Reported {
 		t.Fatalf("control: unheld failures must count and report: %+v (handoff %v)", got.Idle, h.At)
@@ -87,7 +87,7 @@ func TestReleaseHoldTitleNumberSkipsOtherWorkspaceItem(t *testing.T) {
 	writeReleaseBoard(t, e, map[string]any{"id": 984, "what": "别的活", "status": "进行中", "ws": "discord:ws9", "chat": "discord:chatB",
 		"release_hold": map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano)}})
 	for range watchFailLimit {
-		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, time.Time{})
+		e.watchTurnEnded(p, "discord:ws1", "", false, true, false, false, time.Time{})
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Idle.Fails != watchFailLimit || !got.Idle.Reported {
 		t.Fatalf("another workspace's held item must not swallow these failures: %+v", got.Idle)

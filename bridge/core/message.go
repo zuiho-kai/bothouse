@@ -388,10 +388,13 @@ type Message struct {
 	LegacyChannelKey string
 	ReplyCtx         any  // platform-specific context needed for replying
 	FromVoice        bool // true if message originated from voice transcription
-	Mentioned        bool // maomao fork: user explicitly @-mentioned the bot (input to the gate)
-	FromBot          bool // maomao fork: sent by a teammate bot; without Mentioned it is context only
-	AddressedOther   bool // the text @-s or names (at a line start) another team bot, not this one
-	Direct           bool // a private chat with the bot (DM); counts as calling it for the built-in busy rules
+	// voiceMarked: Content already carries the per-part speech mark (a merged batch marks each
+	// voice part where it sits), so prompt assembly must not mark the whole text again (#215).
+	voiceMarked    bool
+	Mentioned      bool // maomao fork: user explicitly @-mentioned the bot (input to the gate)
+	FromBot        bool // maomao fork: sent by a teammate bot; without Mentioned it is context only
+	AddressedOther bool // the text @-s or names (at a line start) another team bot, not this one
+	Direct         bool // a private chat with the bot (DM); counts as calling it for the built-in busy rules
 	// PrivateRoom: a server channel only this person and bots can see (a one-to-one workspace).
 	// Like a DM, the gate's fallbacks answer it without an @; nothing else changes.
 	PrivateRoom bool
