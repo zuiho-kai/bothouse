@@ -22,6 +22,7 @@
 ## 用户说「配 Discord / 飞书」「把这个配好接上 Discord」
 
 这是给用户本机装好、配好 bothouse，不是改代码，不用走 Issue→PR。只有一条路：装 → `setup apply` → 确认上线。
+**不用 clone 仓库、不用读别的文档**：本节就是全部步骤；用户已给 token 和服务器 ID 时最快路径是 `install.sh` → `bothouse module add discord --token … --guild … --channel …` → `bothouse daemon install`，看到 `discord: connected` 就收工。
 
 1. **装**：`command -v bothouse && bothouse setup --help` 能出 `setup apply` 就跳过。否则
    `curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh`，装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
@@ -43,9 +44,11 @@
    `{"discord": {"guild_id": "<服务器 ID>", "channel_id": "<频道 ID>"}, "roles": [{"token": "<token>"}]}`。
 4. **确认上线**：看输出 JSON，不只看退出码。`ok: true` 才算好。`needs_user_action: true` 时把 `warnings` 里 `blocking: true` 每条的 `message`、`fix`、`url`
    原样告诉用户（Intent 没开 / 机器人没进服务器 / 没查到所有者要用户给自己的 Discord 用户 ID / CLI 没登录 / token 无效要重置，要用户点链接或回话），用户做完不用重跑，重启即可（token 无效时什么都没写，换新 token 重跑）。
-   同一个 token 只能有一个 bothouse 在线：这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的（向导查不出别的机器上有没有在跑）。
+   同一个 token 只能有一个 bothouse 在线：用户说这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的。用户没说就不用自己去翻本机别的进程和配置。
    然后**在后台**启动：`bothouse daemon install`（装成系统服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改；看日志 `bothouse daemon logs -f`）。**不要在你的 shell 里前台跑 `bothouse`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
-   只想临时试一下用 `nohup bothouse > ~/.bothouse/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.bothouse\run.log"; Start-Process bothouse -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.bothouse\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
+   `daemon install` 报 `launchctl bootstrap` / `Bootstrap failed`、`systemctl` 失败或 operation not permitted：多半是你所在的 AI 沙箱不让装系统服务，不是配置错。先用下面的 nohup 起起来，再告诉用户在自己的终端里跑一次 `bothouse daemon install` 让它常驻（nohup 起的进程会随你的会话结束）。
+   只想临时试一下用 `nohup bothouse > ~/.bothouse/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.bothouse\run.log"; Start-Process bothouse -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.bothouse\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句，到这里就完成了。
+   **别自测回话**：机器人不理自己发的消息，用它的 token 往频道发消息、建 webhook 都测不出来，只会白等；日志里 `engine started with partial readiness … pending=1` 是 CLI 收到第一条消息才启动，正常。
    不要动用户已在运行的 bothouse 进程，除非用户同意。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `bothouse`。

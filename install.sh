@@ -35,7 +35,8 @@ main() {
   have() { command -v "$1" >/dev/null 2>&1; }
   use_gh() { have gh && gh auth status >/dev/null 2>&1; }
 
-  tmp=$(mktemp -d)
+  # Agent sandboxes (DSH, some CLIs) often deny writes to the system temp dir; fall back to one under $HOME.
+  tmp=$(mktemp -d 2>/dev/null) || { mkdir -p "$HOME/.cache" && tmp=$(mktemp -d "$HOME/.cache/bothouse-install.XXXXXX"); } || die "cannot create a temp dir (set TMPDIR to a writable dir and run this again)"
   asset=""
   trap 'rm -f "$tmp/bothouse" "$tmp/SHA256SUMS" "$tmp/curl.err" 2>/dev/null; [ -n "$asset" ] && rm -f "$tmp/$asset"; rmdir "$tmp" 2>/dev/null || true' EXIT
 

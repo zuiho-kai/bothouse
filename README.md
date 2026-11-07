@@ -77,6 +77,16 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 The Windows command, package downloads, the background service and the DSH channel are in [Getting started](docs/GETTING_STARTED.md).
 
+**Let an AI agent set it up.** Give Claude Code, Codex, DSH or any agent CLI this repo link and say "install bothouse and connect it to Discord"; it needs a bot token, the server ID and (optional) a channel ID from you. Agents: no browser needed, these three steps are the whole job (details and every error code in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add discord --token "$(cat <token file>)" --guild <server ID> --channel <channel ID>
+~/.local/bin/bothouse daemon install   # if it fails inside an agent sandbox: nohup ~/.local/bin/bothouse > ~/.bothouse/run.log 2>&1 &
+```
+
+`module add` prints JSON: `ok: true` means saved; with `needs_user_action: true`, pass every `blocking` warning's `message` and `fix` to the user. Done when the log shows `discord: connected`; then ask the user to @ the bot in the channel. A bot ignores its own messages, so do not try to test it with its own token.
+
 <a id="features"></a>
 
 <picture>
