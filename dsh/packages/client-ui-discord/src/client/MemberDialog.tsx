@@ -9,11 +9,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelMember, LocalCli, MemberInput, MemberPersona, ModelRoute, PermissionPreset } from './channel-source.ts'
+import { errorText } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import { Avatar } from './Avatar.tsx'
 import { renamePersonaIdentity } from './persona.ts'
 import { AVATARS } from './avatars.ts'
 import { loadAvatar, uploadAvatar } from './avatar-upload.ts'
+import { useCollabUrl } from './collab-url.ts'
 import { AvatarCropDialog } from './AvatarCropDialog.tsx'
 import css from './ChannelsPage.module.css'
 
@@ -56,6 +58,7 @@ const DEFAULT_PRESET: PermissionPreset = 'workspace-write'
  * @returns a modal form.
  */
 export function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }: MemberDialogProps) {
+  const collabUrl = useCollabUrl()
   const [name, setName] = useState(member?.name ?? 'DSH')
   const [nameCustomized, setNameCustomized] = useState<boolean | undefined>(member === undefined ? false : member.nameCustomized)
   const [keepName, setKeepName] = useState(true)
@@ -90,13 +93,13 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     setError(undefined)
     try {
       if (member) {
-        const updated = await uploadAvatar(member.id, png)
+        const updated = await uploadAvatar(member.id, png, collabUrl)
         setAvatar(updated.avatar ?? '')
       } else { setPendingPng(png); setAvatar('') }
       setPreview(png ? `data:image/png;base64,${png}` : undefined)
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
-      setError(message === 'avatar-png' ? t('memberAvatarPngError') : message === 'avatar-size' ? t('memberAvatarSizeError') : message === 'avatar-convert' ? t('memberAvatarConvertError') : message)
+      setError(message === 'avatar-png' ? t('memberAvatarPngError') : message === 'avatar-size' ? t('memberAvatarSizeError') : message === 'avatar-convert' ? t('memberAvatarConvertError') : errorText(reason, t))
     } finally { setBusy(false) }
   }
 
@@ -118,7 +121,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
   useEffect(() => {
     let live = true
     listModels().then((list) => { if (live) setRoutes(list) }).catch((reason: unknown) => {
-      if (live) { setRoutes([]); setError(reason instanceof Error ? reason.message : String(reason)) }
+      if (live) { setRoutes([]); setError(errorText(reason, t)) }
     })
     return () => { live = false }
   }, [listModels])
@@ -133,7 +136,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
       setClis(list)
       setCli(prev => prev !== '' ? prev : CLI_CHOICES.find(c => list.some(l => l.cli === c.cli))?.cli ?? '')
     }).catch((reason: unknown) => {
-      if (live) { setClis([]); setError(reason instanceof Error ? reason.message : String(reason)) }
+      if (live) { setClis([]); setError(errorText(reason, t)) }
     })
     return () => { live = false }
   }, [wantClis, listClis])
@@ -149,7 +152,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
       ? { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), cli, permissionPreset: preset }
       : { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(errorText(reason, t, 'member', input.name))
     }).finally(() => { setBusy(false) })
   }
 

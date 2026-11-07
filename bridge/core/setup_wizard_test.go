@@ -635,11 +635,15 @@ func TestJevHintByHardware(t *testing.T) {
 	if ok := JevHint("en", true, false, "Ju"); strings.Contains(ok, "fallback") {
 		t.Errorf("usable jev should not talk about fallback: %s", ok)
 	}
-	if r := JevFailReason("zh", JevTestResult{Reachable: true}); r != "这个模型不给概率，存了也不会被用上。" {
+	if r := JevFailReason("zh", JevTestResult{Reachable: true}); !strings.HasPrefix(r, "这个模型不给概率，存了也不会被用上。") || !strings.Contains(r, "Qwen3.5-4B") {
 		t.Errorf("reason = %s", r)
 	}
 	if r := JevFailReason("en", JevTestResult{Error: "dial tcp: refused"}); !strings.HasPrefix(r, "Could not connect") {
 		t.Errorf("reason = %s", r)
+	}
+	// nothing on this machine's port: say how to start the recommended local model
+	if r := JevFailReason("zh", JevTestResult{Error: `Post "http://127.0.0.1:9941/v1/chat/completions": connect: connection refused`}); !strings.Contains(r, "mlx_lm.server --model "+JevPresetModel) {
+		t.Errorf("local reason = %s", r)
 	}
 	// mlx_lm.server answers 400 for top_logprobs > 11: reachable but refused, not "could not connect"
 	if r := JevFailReason("zh", JevTestResult{Error: `HTTP 400: {"error": "top_logprobs must be at most 11"}`}); !strings.HasPrefix(r, "接口拒绝了请求参数") {

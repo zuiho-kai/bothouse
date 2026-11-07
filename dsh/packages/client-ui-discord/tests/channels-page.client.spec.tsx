@@ -34,6 +34,70 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
 }
 
 describe('channels page', () => {
+  it('colors valid mentions while composing, preserves raw tags and sends the original text', async () => {
+    const send = vi.fn(async () => {})
+    const members = [{ id: 'ju', name: '橘', mentionId: '12345', kind: 'bot' as const, online: true }]
+    const { container } = render(<ChannelsPage {...props({ ...ready, members, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const text = '你好 @橘 <@12345> @unknown user@ju.com <script>alert(1)</script>\n下一行'
+    fireEvent.change(input, { target: { value: text, selectionStart: text.length } })
+    const mirror = container.querySelector('[data-composer-highlights]')!
+    expect(mirror).not.toBeNull()
+    expect(mirror.getAttribute('aria-hidden')).toBe('true')
+    expect(Array.from(mirror.querySelectorAll('[data-mention]'), el => el.textContent)).toEqual(['@橘', '<@12345>'])
+    expect(mirror.textContent).toBe(text + '\n')
+    expect(mirror.querySelector('script')).toBeNull()
+    expect(input.value).toBe(text)
+    expect(input.selectionStart).toBe(text.length)
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    // #197 binds every post to the room it was written in, so submit always passes replyTo, attachments and roomId;
+    // the other send assertions in this file expect the same four arguments (undefined padding is allowed by the API).
+    expect(send).toHaveBeenCalledExactlyOnceWith(text, undefined, undefined, 1)
+    expect(mirror.textContent).toBe('\n')
+  })
+
+  it('updates composer colors for candidate selection, edits, room changes and member changes', () => {
+    const p = props({ ...ready, thinking: {} })
+    const { container, rerender } = render(<ChannelsPage {...p} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const mentions = () => Array.from(container.querySelectorAll('[data-composer-highlights] [data-mention]'), el => el.textContent)
+    fireEvent.change(input, { target: { value: '@', selectionStart: 1 } })
+    fireEvent.click(screen.getByRole('option'))
+    expect(mentions()).toEqual(['@橘'])
+    expect(input.value).toBe('@橘 ')
+    expect(input.selectionStart).toBe(input.value.length)
+    fireEvent.change(input, { target: { value: '@不存在' } })
+    expect(mentions()).toEqual([])
+    fireEvent.change(input, { target: { value: '@橘' } })
+    rerender(<ChannelsPage {...props({ ...ready, roomId: 2, thinking: {} })} />)
+    expect(mentions()).toEqual([])
+    rerender(<ChannelsPage {...p} />)
+    expect(mentions()).toEqual(['@橘'])
+    rerender(<ChannelsPage {...props({ ...ready, members: [], thinking: {} })} />)
+    expect(mentions()).toEqual([])
+  })
+
+  it('keeps the native textarea during IME composition and synchronizes highlight scrolling', () => {
+    const send = vi.fn(async () => {})
+    const { container } = render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const text = '@橘\n你好\n'
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: text } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 })
+    expect(send).not.toHaveBeenCalled()
+    expect(input.parentElement?.classList.contains(css.inputComposing)).toBe(true)
+    fireEvent.compositionEnd(input, { data: '你好' })
+    expect(input.parentElement?.classList.contains(css.inputComposing)).toBe(false)
+    const mirror = container.querySelector('[data-composer-highlights]') as HTMLElement
+    expect(mirror.textContent).toBe(text + '\n')
+    input.scrollTop = 80
+    input.scrollLeft = 12
+    fireEvent.scroll(input)
+    expect(mirror.scrollTop).toBe(80)
+    expect(mirror.scrollLeft).toBe(12)
+  })
+
   it('saves the channel directory before asking to renew and supports later or immediate recreation', async () => {
     const p = props({ ...ready, rooms: [{ id: 1, name: 'general', workspace_path: '/old', effective_lead_id: 'ju' }] })
     const save = vi.fn(async () => {})
@@ -201,7 +265,7 @@ describe('channels page', () => {
     fireEvent.change(input, { target: { value: '/model gpt-6' } })
     expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /model gpt-6')
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /model gpt-6', undefined, undefined, 1)
   })
   it('refuses an addressed command when the primary role is not a bothouse bot', async () => {
     const send = vi.fn(async () => {})
@@ -229,7 +293,37 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByRole('region', { name: zh.slashTitle })).toBeNull()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('/')
+    expect(send).toHaveBeenCalledExactlyOnceWith('/', undefined, undefined, 1)
+  })
+  it('turns the send key into a stop key for the answering DSH member while the draft is empty (#299)', async () => {
+    const send = vi.fn(async () => {})
+    const dshTeam: ChannelSnapshot = {
+      ...ready, members: [{ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true }],
+      leadId: 'ds', effectiveLeadId: 'ds', thinking: { 1: ['ds'] },
+    }
+    render(<ChannelsPage {...props(dshTeam, send)} />)
+    // Before #299 workingBots kept only kind === 'bot', so a DSH team had no stop key at all.
+    const stop = screen.getByRole('button', { name: zh.stopReply.replace('{name}', 'DeepSeek') })
+    expect(screen.queryByRole('button', { name: zh.sendButton })).toBeNull()
+    await act(async () => { fireEvent.click(stop) })
+    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek /stop')
+    expect(screen.getByRole('status').textContent).toBe(zh.stopPending.replace('{name}', 'DeepSeek'))
+  })
+  it('offers /stop all in the menu for a DSH team and sends it bare (#299)', async () => {
+    const send = vi.fn(async () => {})
+    const dshTeam: ChannelSnapshot = {
+      ...ready, members: [{ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true }],
+      leadId: 'ds', effectiveLeadId: 'ds', thinking: { 1: ['ds'] },
+    }
+    render(<ChannelsPage {...props(dshTeam, send)} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '/' } })
+    const menu = screen.getByRole('region', { name: zh.slashTitle })
+    // /stop all is the channel-wide one: it needs no target member, so it stays enabled in a DSH team.
+    const item = within(menu).getByRole('option', { name: /^\/stop all/ })
+    expect(item.getAttribute('aria-disabled')).toBeNull()
+    await act(async () => { fireEvent.click(item) })
+    // Channel-wide, so it goes out without an @ and without a target bot.
+    expect(send).toHaveBeenCalledExactlyOnceWith('/stop all')
   })
   it('turns the send key into a stop key for the answering bot while the draft is empty (#1017)', async () => {
     const send = vi.fn(async () => {})
@@ -411,6 +505,50 @@ describe('channels page', () => {
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
   })
 
+  // #216: a busy lock is not a missing configuration; the page names the holder and its pid.
+  it('says which DSH holds the channel data and how to switch, instead of asking to configure collab.yml', () => {
+    const holder = { pid: 58278, startedAt: 1_760_000_000_000, dataDir: '/Users/u/.conest-collab', host: 'mac' }
+    render(<ChannelsPage {...props({ ...ready, phase: 'locked', lockHolder: holder })} />)
+    const notice = screen.getByRole('status').textContent ?? ''
+    expect(notice).toContain('58278')
+    expect(notice).toContain('/Users/u/.conest-collab')
+    expect(notice).toContain('关掉')
+    // A reload alone does not bring the refused plugin back, so the advice says restart DSH.
+    expect(notice).toContain('重开')
+    expect(notice).not.toContain('collab.yml')
+    expect(notice).not.toBe(zh.unavailable)
+  })
+
+  // #216: busy with no holder record is still "held", never "configure it in collab.yml" —
+  // and it must point at the shared directory and the lock file instead of inventing a pid.
+  it('says another DSH holds the data even when its record is missing, without inventing a pid', () => {
+    render(<ChannelsPage {...props({
+      ...ready, phase: 'locked', lockHolder: undefined,
+      lockDataDir: '/Users/u/.conest-collab', lockPath: '/Users/u/.conest-collab/collab.lock',
+    })} />)
+    const notice = screen.getByRole('status').textContent ?? ''
+    expect(notice).toContain('另一个 DSH')
+    expect(notice).toContain('/Users/u/.conest-collab')
+    expect(notice).toContain('lsof /Users/u/.conest-collab/collab.lock')
+    // Windows users need a path that works there too; the notice must not be macOS-only.
+    expect(notice).toContain('Windows')
+    // The pid is unknown, so it must not be invented and the named-holder wording must not run.
+    expect(notice).toContain('进程 ' + zh.lockedUnknown)
+    // The named-holder wording says when the holder took the lock; this one must not claim it.
+    expect(notice).not.toContain('打开，数据目录')
+    expect(notice).not.toContain('collab.yml')
+    expect(notice).not.toBe(zh.unavailable)
+  })
+
+  // #216: the holder quit; a reload is not enough, so the notice asks for a DSH restart.
+  it('asks for a DSH restart once the lock is free, not to reload the page', () => {
+    render(<ChannelsPage {...props({ ...ready, phase: 'locked', lockFree: true })} />)
+    const notice = screen.getByRole('status').textContent ?? ''
+    expect(notice).toBe(zh.lockedFree)
+    expect(notice).toContain('重开')
+    expect(notice).not.toContain('collab.yml')
+  })
+
   it('opens a member menu from a message avatar and inserts @ at the caret, keeping the draft (#123)', () => {
     const send = vi.fn(async () => {})
     render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
@@ -475,7 +613,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
     expect(send).not.toHaveBeenCalled()
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 你好')
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 你好', undefined, undefined, 1)
     expect(input.value).toBe('@橘 你好')
     expect(input.disabled).toBe(true)
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -495,7 +633,7 @@ describe('channels page', () => {
     fireEvent.change(input, { target: { value: '第一行\n第二行' } })
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
-    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行')
+    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行', undefined, undefined, 1)
     await act(async () => {})
     expect(input.value).toBe('')
   })
@@ -508,7 +646,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
     expect(send).not.toHaveBeenCalled()
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao')
+    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao', undefined, undefined, 1)
   })
 
   it('does not save a message edit on the IME-confirming Enter (keyCode 229)', async () => {
@@ -620,7 +758,7 @@ describe('channels page', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByRole('listbox')).toBeNull()
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek 叫 @橘 和 @')
+    expect(send).toHaveBeenCalledExactlyOnceWith('@DeepSeek 叫 @橘 和 @', undefined, undefined, 1)
   })
 
   it('opens the picker from the @ button and inserts a member clicked in the member list', () => {
@@ -914,7 +1052,7 @@ describe('channels page', () => {
     const input = screen.getByRole('combobox')
     fireEvent.change(input, { target: { value: '收到' } })
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('收到', 1)
+    expect(send).toHaveBeenCalledExactlyOnceWith('收到', 1, undefined, 1)
     expect(screen.queryByText('回复 橘')).toBeNull()
 
     // The original vanishes while a reply is being written: the bar says so.
@@ -975,7 +1113,13 @@ describe('progress card detail/brief view', () => {
       { id: '22222222-2222-2222-2222-222222222222', name: 'run.log', mime: 'text/plain', size: 2048 },
     ] }] }
     const send = vi.fn(async () => {})
-    render(<ChannelsPage {...props(withFiles, send)} />)
+    // #197: the image preview comes from an object URL of the picked File, not a base64 copy.
+    vi.stubGlobal('URL', Object.assign(Object.create(URL), {
+      createObjectURL: vi.fn(() => 'blob:paste'), revokeObjectURL: vi.fn(),
+    }))
+    // The file streams up first; the message names what the service stored.
+    const uploadAttachment = vi.fn(async (file: File) => ({ id: '33333333-3333-3333-3333-333333333333', name: file.name, mime: file.type, size: file.size }))
+    render(<ChannelsPage {...props(withFiles, send)} uploadAttachment={uploadAttachment} />)
     expect((screen.getByAltText('shot.png') as HTMLImageElement).getAttribute('src')).toBe('collab/api/attachments/11111111-1111-1111-1111-111111111111')
     expect(screen.getByText(/run\.log/).closest('a')?.getAttribute('download')).toBe('run.log')
 
@@ -983,8 +1127,29 @@ describe('progress card detail/brief view', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'paste.png', { type: 'image/png' })
     await act(async () => { fireEvent.paste(input, { clipboardData: { files: [file], types: ['Files'] } }) })
     await vi.waitFor(() => expect(screen.getByAltText('paste.png')).toBeTruthy())
+    expect(uploadAttachment).toHaveBeenCalledOnce()
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
-    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ name: 'paste.png', mime: 'image/png', data: 'AQID' }])
+    expect(send).toHaveBeenCalledExactlyOnceWith('', undefined, [{ id: '33333333-3333-3333-3333-333333333333', name: 'paste.png', mime: 'image/png', size: 3 }], 1)
+    vi.unstubAllGlobals()
+  })
+
+  it('#197 refuses a file over the channel limit while picking it, and sends nothing', async () => {
+    const send = vi.fn(async () => {})
+    const uploadAttachment = vi.fn(async (file: File) => ({ id: 'x', name: file.name, mime: file.type, size: file.size }))
+    render(<ChannelsPage {...props({ ...ready, maxUploadBytes: 1024 }, send)} uploadAttachment={uploadAttachment} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const file = new File([new Uint8Array(4096)], 'movie.mp4', { type: 'video/mp4' })
+    await act(async () => { fireEvent.paste(input, { clipboardData: { files: [file], types: ['Files'] } }) })
+    expect(uploadAttachment).not.toHaveBeenCalled()
+    // The pending chip names the file, its size and why it cannot go, in human units.
+    expect(screen.getAllByText(/movie\.mp4/).length).toBeGreaterThan(0)
+    expect(screen.getByText('4 KB')).toBeTruthy()
+    // The chip itself says which limit it broke, so the reason is visible before Enter.
+    expect(screen.getAllByText(/超过单个文件上限 1 KB/).length).toBe(1)
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(send).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('movie.mp4')
+    expect(screen.getByRole('alert').textContent).toContain('1 KB')
   })
 })
 
@@ -1052,7 +1217,8 @@ describe('multi-line messages and the narrow composer', () => {
     expect(Array.from(document.querySelectorAll('li')).map(li => li.textContent)).toEqual(['一', '二'])
     expect(document.querySelectorAll('li br')).toHaveLength(0)
     // Line breaks come from <br>, not from whitespace styling, so markdown's own "\n" text stays invisible.
-    expect(cssText()).not.toContain('pre-wrap')
+    // The composer mirror preserves raw whitespace; Markdown message text still must not.
+    expect(rule('.text')).not.toContain('pre-wrap')
   })
 
   // Before this fix (develop) messages went to MarkdownText unchanged; these shapes must render the same.

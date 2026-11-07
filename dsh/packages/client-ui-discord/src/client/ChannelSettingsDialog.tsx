@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelActions, ChannelMember, ChannelRoom, DispatchMode } from './channel-source.ts'
+import { errorText } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -87,7 +88,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
       }
       setSuccess(previous => ({ ...previous, [target]: true }))
     } catch (error) {
-      setErrors(previous => ({ ...previous, [target]: error instanceof Error ? error.message : String(error) }))
+      setErrors(previous => ({ ...previous, [target]: errorText(error, t, target === 'basic' ? 'room' : 'other', name) }))
     } finally {
       setSaving(previous => ({ ...previous, [target]: false }))
     }
@@ -158,7 +159,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
             <button type="button" className={css.primaryButton} disabled={renewing} onClick={() => {
               setRenewing(true); setErrors(previous => ({ ...previous, workspace: undefined }))
               renewRoom(room.id).then(() => { setRenewPending(false) }).catch((error: unknown) => {
-                setErrors(previous => ({ ...previous, workspace: error instanceof Error ? error.message : String(error) }))
+                setErrors(previous => ({ ...previous, workspace: errorText(error, t) }))
               }).finally(() => { setRenewing(false) })
             }}>{t('renewNow')}</button>
           </div>

@@ -32,8 +32,10 @@ const next = async () => { const button=[...container.querySelectorAll('button')
 describe('member naming in both setup entry points', () => {
  for(const path of ['/setup','/setup?add=1']) it(path+' keeps backend names and makes persona optional',async()=>{
   container=document.createElement('div');document.body.append(container);root=createRoot(container);
-  await act(async()=>root!.render(<MemoryRouter initialEntries={[path]}><SetupWizard/></MemoryRouter>));
-  await click('[data-testid="platform-cloud_web"]'); await next(); await next();
+  // 来源：#1143 已隐藏自建平台卡片；命名回归通过保留的显式深链接进入。
+  await act(async()=>root!.render(<MemoryRouter initialEntries={[path + (path.includes('?') ? '&' : '?') + 'platform=cloud_web']}><SetupWizard/></MemoryRouter>));
+  expect(container.querySelector('[data-testid="platform-cloud_web"]')).toBeNull();
+  await next(); await next();
   expect(container.querySelector<HTMLInputElement>('[data-testid="role-name-0"]')?.value).toBe('Codex-2');
   await input('[data-testid="role-name-0"]','小码');
   await click('[data-testid="cli-0-claudecode"]');
@@ -52,14 +54,16 @@ describe('member naming in both setup entry points', () => {
  it('does not reserve a project id whose display name is different',async()=>{
   setupFixture.displayNames = ['小码'];
   container=document.createElement('div');document.body.append(container);root=createRoot(container);
-  await act(async()=>root!.render(<MemoryRouter initialEntries={['/setup']}><SetupWizard/></MemoryRouter>));
-  await click('[data-testid="platform-cloud_web"]'); await next(); await next();
+  await act(async()=>root!.render(<MemoryRouter initialEntries={['/setup?platform=cloud_web']}><SetupWizard/></MemoryRouter>));
+  expect(container.querySelector('[data-testid="platform-cloud_web"]')).toBeNull();
+  await next(); await next();
   expect(container.querySelector<HTMLInputElement>('[data-testid="role-name-0"]')?.value).toBe('Codex');
  });
  it('numbers an added role after configured project ids as well as display names',async()=>{
   container=document.createElement('div');document.body.append(container);root=createRoot(container);
-  await act(async()=>root!.render(<MemoryRouter initialEntries={['/setup?add=1']}><SetupWizard/></MemoryRouter>));
-  await click('[data-testid="platform-cloud_web"]'); await next();
+  await act(async()=>root!.render(<MemoryRouter initialEntries={['/setup?add=1&platform=cloud_web']}><SetupWizard/></MemoryRouter>));
+  expect(container.querySelector('[data-testid="platform-cloud_web"]')).toBeNull();
+  await next();
   await click('[data-testid="cw-add-role"]'); await next();
   expect(container.querySelector<HTMLInputElement>('[data-testid="role-name-0"]')?.value).toBe('Codex-2');
   expect(container.querySelector<HTMLInputElement>('[data-testid="role-name-1"]')?.value).toBe('Codex-3');

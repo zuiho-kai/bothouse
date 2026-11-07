@@ -1,11 +1,11 @@
-// dsh-client-source-sha256: d96360e07d625a5c0ea51d1465b0b3814ea77c61bcf8e5abe9142f893ee5badf
-// dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
+// dsh-client-source-sha256: bf3c01b19e0ed8f9d15a02ad7d7e9e9684db4fcbf32f43ba251b220ff57aca56
+// dsh-style-sha256: f6a6de6373a2ead4c3a965e58c158c16626e49a16b91d2d568b35b19fcfdb95a
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    display: none;\n  }\n\n  .dshc_message[data-tools-open] .dshc_ownActions {\n    opacity: 1;\n    display: inline-flex;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n}\n\n.dshc_msgTools {\n  z-index: 1;\n  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));\n  opacity: 0;\n  pointer-events: none;\n  align-items: center;\n  gap: 2px;\n  padding: 2px;\n  display: inline-flex;\n  position: absolute;\n  top: 2px;\n  right: 16px;\n  box-shadow: 0 2px 6px #00000014;\n}\n\n.dshc_msgTool {\n  border-radius: var(--dsw-radius-sm, 6px);\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 8px;\n  font-size: 12px;\n}\n\n.dshc_msgTool:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_msgTool:disabled {\n  cursor: default;\n  opacity: .6;\n}\n\n.dshc_msgToolNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none) {\n  .dshc_message {\n    -webkit-touch-callout: none;\n  }\n\n  .dshc_msgTools {\n    display: none;\n  }\n\n  .dshc_message[data-tools-open] {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n\n  .dshc_message[data-tools-open] .dshc_msgTools {\n    z-index: 3;\n    opacity: 1;\n    pointer-events: auto;\n    display: inline-flex;\n    top: -14px;\n    right: 12px;\n  }\n\n  .dshc_message[data-tools-open] .dshc_msgTool {\n    width: 40px;\n    height: 36px;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 6px;\n  padding: 0 16px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_mentionBadge {\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);\n  color: var(--dsw-alias-state-business-primary, #5865f2);\n  font-weight: 500;\n  line-height: inherit;\n  vertical-align: baseline;\n  -webkit-box-decoration-break: clone;\n  box-decoration-break: clone;\n  cursor: pointer;\n  border-radius: 3px;\n  padding: 0 4px;\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n  display: inline-block;\n}\n\n.dshc_mentionBadge:hover {\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_input {\n  box-sizing: border-box;\n  width: 100%;\n  min-height: 52px;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  flex: 1;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input::placeholder {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_msgTools {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_mentionBadge, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  display: flex;\n}\n\n.dshc_leadCardButton {\n  border-radius: inherit;\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: auto;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardButton:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_leadCardButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor);\n  outline-offset: -2px;\n}\n\n.dshc_leadCardButton:disabled {\n  cursor: default;\n  background: none;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge {\n  color: var(--dsw-alias-bg-base);\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge:hover {\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  flex: none;\n  margin: 8px 16px 4px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: relative;\n}\n\n.dshc_progressHead {\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressSummary {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_progressToggle {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  min-width: 22px;\n  height: 24px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  gap: 4px;\n  margin-left: auto;\n  padding: 0 10px;\n  font-size: 12px;\n  font-weight: 500;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_progressChevron {\n  font-size: 12px;\n}\n\n.dshc_progressToggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_progressToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_progressCard[data-folded=\"true\"] {\n  padding: 6px 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 6px 10px 2px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] > div[data-state=\"failed\"] > div:last-child > code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n\n.dshc_slashPopup {\n  z-index: 6;\n  width: min(360px, 100% - 32px);\n  animation: none;\n  right: auto;\n}\n\n.dshc_slashGroup {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_slashItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: baseline;\n  gap: 8px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_slashActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_slashName {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-weight: 600;\n}\n\n.dshc_slashMeta {\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_sendButton.dshc_stopButton {\n  background: var(--dsw-alias-label-primary);\n}\n\n.dshc_stopNote + .dshc_sendButton {\n  margin-left: 8px;\n}\n\n.dshc_sendButton.dshc_stopButton[data-phase=\"stopping\"] {\n  opacity: .6;\n  cursor: progress;\n}\n\n.dshc_stopNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_cmdLine {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px;\n  padding: 1px 16px 1px 72px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_cmdLine code {\n  color: var(--dsw-alias-label-secondary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n\n.dshc_cmdResult {\n  min-width: 0;\n  max-width: 60ch;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_cmdResult[aria-expanded=\"true\"] {\n  white-space: pre-line;\n  max-width: none;\n}\n\n.dshc_cmdLine[data-failed=\"true\"] .dshc_cmdResult {\n  color: var(--dsw-alias-danger, #d94848);\n}\n\n@media (width <= 720px) {\n  .dshc_cmdLine {\n    padding-left: 16px;\n  }\n}\n\n.dshc_msgTool {\n  justify-content: center;\n  align-items: center;\n  width: 26px;\n  height: 24px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_msgTool[data-tip]:after {\n  content: attr(data-tip);\n  z-index: 3;\n  background: var(--dsw-alias-label-primary);\n  color: var(--dsw-alias-label-primary-inverted);\n  white-space: nowrap;\n  opacity: 0;\n  pointer-events: none;\n  border-radius: 4px;\n  padding: 2px 6px;\n  font-size: 11px;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {\n  opacity: 1;\n  transition: opacity 0s 80ms;\n}\n\n.dshc_permSessionButton {\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-underline-offset: 2px;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 4px 6px;\n  font-size: 12px;\n  text-decoration: underline;\n}\n\n.dshc_permSessionButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_permSessionButton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.dshc_queuedButton {\n  border: 1px solid var(--dsw-alias-border-default, #0000001f);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 9px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.dshc_queuedButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_queuedTag {\n  color: #a76a06;\n  background: #eaa02824;\n  border-radius: 4px;\n  padding: 0 5px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n[data-queued] .dshc_ownActions {\n  opacity: 1;\n}\n\n.dshc_memory {\n  margin-top: 4px;\n}\n\n.dshc_memoryBadge {\n  background: var(--dsw-alias-fill-secondary, #0000000d);\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  border-radius: 9px;\n  align-items: center;\n  gap: 4px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n  display: inline-flex;\n}\n\n.dshc_memoryBadge:hover, .dshc_memoryBadge[aria-expanded=\"true\"] {\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_memoryList {\n  border-left: 2px solid var(--dsw-alias-border-default, #0000001f);\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  margin: 4px 0 0;\n  padding: 6px 10px;\n  font-size: 12px;\n  list-style: none;\n  display: flex;\n}\n\n.dshc_memoryItem {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_memoryTitle {\n  color: var(--dsw-alias-label-secondary);\n  line-height: 1.5;\n}\n\n.dshc_memoryPage {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  font-family: var(--dsw-font-mono, ui-monospace, monospace);\n}\n\n.dshc_delivery {\n  flex-direction: column;\n  gap: 6px;\n  max-width: 720px;\n  margin-top: 8px;\n  display: flex;\n}\n\n.dshc_deliveryFrame {\n  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);\n  background: #fff;\n  border-radius: 6px;\n  height: 360px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_deliveryActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_deliveryActions a {\n  text-decoration: none;\n}\n\n.dshc_deliveryDone {\n  color: var(--text-muted, #888);\n  font-size: 12px;\n}\n\n.dshc_deliveryFullDialog {\n  box-sizing: border-box;\n  flex-direction: column;\n  gap: 8px;\n  width: 94vw;\n  max-width: none;\n  height: 92dvh;\n  display: flex;\n}\n\n.dshc_deliveryFullFrame {\n  background: #fff;\n  border-radius: 6px;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_dmTitle {\n  color: var(--text-muted, #888);\n  margin: 14px 8px 4px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_dmAvatar {\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_dmRow {\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_dmRow .dshc_room {\n  padding-right: 26px;\n}\n\n.dshc_dmClose {\n  border-radius: var(--dsw-radius-sm, 4px);\n  width: 20px;\n  height: 20px;\n  color: var(--dsw-alias-label-tertiary, #888);\n  font: inherit;\n  cursor: pointer;\n  opacity: 0;\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 15px;\n  line-height: 20px;\n  position: absolute;\n  right: 4px;\n}\n\n.dshc_dmRow:hover .dshc_dmClose, .dshc_dmClose:focus-visible {\n  opacity: 1;\n}\n\n.dshc_dmClose:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n@media (hover: none) {\n  .dshc_dmClose {\n    opacity: 1;\n  }\n}\n\n.dshc_dmHead {\n  margin-top: 14px;\n}\n\n.dshc_dmPicker {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-direction: column;\n  margin: 0 4px 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_dmPickNone {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px;\n  font-size: 12px;\n}\n\n.dshc_dmNewRow {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 13px;\n}\n\nbutton.dshc_headMeta {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 0 auto;\n  padding: 2px 6px;\n  font-size: 12px;\n}\n\nbutton.dshc_headMeta:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_headSpacer {\n  flex: auto;\n}\n\n.dshc_roomUnread {\n  color: var(--dsw-alias-label-primary);\n  font-weight: 650;\n}\n\n.dshc_unreadBadge {\n  color: #fff;\n  background: var(--dsw-alias-state-danger-primary, #e5484d);\n  text-align: center;\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  flex: none;\n  min-width: 18px;\n  padding: 0 5px;\n  font-size: 11px;\n  font-weight: 600;\n  line-height: 18px;\n}\n\n.dshc_slashDisabled {\n  opacity: .45;\n  cursor: not-allowed;\n}\n\n.dshc_leadCardHint {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_roomWorking {\n  max-width: 96px;\n  color: var(--dsw-alias-state-business-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  font-size: 11px;\n  font-weight: 500;\n  display: inline-flex;\n  overflow: hidden;\n}\n\n.dshc_roomWorkingDot {\n  background: currentColor;\n  border-radius: 50%;\n  flex: none;\n  width: 6px;\n  height: 6px;\n  animation: 1.4s ease-in-out infinite dshc_roomWorkingPulse;\n}\n\n@keyframes dshc_roomWorkingPulse {\n  50% {\n    opacity: .35;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_roomWorkingDot {\n    animation: none;\n  }\n}\n\n.dshc_drawerTools {\n  display: none;\n}\n\n@media (width <= 600px) {\n  .dshc_drawerTools {\n    flex-wrap: wrap;\n    gap: 6px;\n    margin: 0 8px 8px;\n    display: flex;\n  }\n\n  .dshc_chatHead > .dshc_taskBoardTrigger, .dshc_chatHead > .dshc_schemeToggle, .dshc_chatHead > .dshc_headMeta, .dshc_chatHead > .dshc_headTeam {\n    display: none;\n  }\n\n  .dshc_chatHead > .dshc_roomName {\n    flex: auto;\n  }\n}\n\n.dshc_panelOpen .dshc_chatHead > .dshc_headTeam, .dshc_panelOpen .dshc_chatHead > .dshc_headMeta {\n  display: none;\n}\n\n.dshc_panelOpen .dshc_chatHead > .dshc_roomName {\n  flex: 0 auto;\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".dshc_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.dshc_rooms, .dshc_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 0 8px 16px;\n  overflow-y: auto;\n}\n\n.dshc_membersHead {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  flex: none;\n  height: 44px;\n  margin: 0 0 8px;\n}\n\n.dshc_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.dshc_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.dshc_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.dshc_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.dshc_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.dshc_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.dshc_system .dshc_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.dshc_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.dshc_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.dshc_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.dshc_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.dshc_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.dshc_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.dshc_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.dshc_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_messageBody {\n  min-width: 0;\n}\n\n.dshc_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_author {\n  font-weight: 600;\n}\n\n.dshc_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.dshc_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.dshc_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.dshc_message:hover .dshc_ownActions, .dshc_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .dshc_ownActions {\n    display: none;\n  }\n\n  .dshc_message[data-tools-open] .dshc_ownActions {\n    opacity: 1;\n    display: inline-flex;\n  }\n}\n\n.dshc_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.dshc_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.dshc_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_editBar .dshc_time {\n  margin-right: auto;\n}\n\n.dshc_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.dshc_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.dshc_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.dshc_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.dshc_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.dshc_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.dshc_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_quoteDeleted {\n  font-style: italic;\n}\n\n.dshc_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_replyButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n}\n\n.dshc_msgTools {\n  z-index: 1;\n  border: 1px solid var(--dsw-alias-separator, #7f7f7f40);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));\n  opacity: 0;\n  pointer-events: none;\n  align-items: center;\n  gap: 2px;\n  padding: 2px;\n  display: inline-flex;\n  position: absolute;\n  top: 2px;\n  right: 16px;\n  box-shadow: 0 2px 6px #00000014;\n}\n\n.dshc_msgTool {\n  border-radius: var(--dsw-radius-sm, 6px);\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 8px;\n  font-size: 12px;\n}\n\n.dshc_msgTool:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_msgTool:disabled {\n  cursor: default;\n  opacity: .6;\n}\n\n.dshc_msgToolNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.dshc_message:hover .dshc_msgTools, .dshc_message:focus-within .dshc_msgTools, .dshc_msgTools:has(.dshc_msgToolNote) {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none) {\n  .dshc_message {\n    -webkit-touch-callout: none;\n  }\n\n  .dshc_msgTools {\n    display: none;\n  }\n\n  .dshc_message[data-tools-open] {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n\n  .dshc_message[data-tools-open] .dshc_msgTools {\n    z-index: 3;\n    opacity: 1;\n    pointer-events: auto;\n    display: inline-flex;\n    top: -14px;\n    right: 12px;\n  }\n\n  .dshc_message[data-tools-open] .dshc_msgTool {\n    width: 40px;\n    height: 36px;\n  }\n}\n\n.dshc_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.dshc_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 6px;\n  padding: 0 16px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.dshc_composerBox {\n  border: 1px solid var(--dsw-alias-border-l1);\n  border-radius: var(--dsw-radius-xl);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  box-shadow: var(--dsw-shadow-lv1-blur);\n  flex-direction: column;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_composerBox:focus-within {\n  border-color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_composerToolbar {\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 10px 10px;\n  display: flex;\n}\n\n.dshc_composerBox > .dshc_replyBar, .dshc_composerBox > .dshc_attachments {\n  margin: 10px 14px 0;\n}\n\n.dshc_mentionButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  font-size: 18px;\n  display: inline-flex;\n}\n\n.dshc_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_sendButton {\n  border-radius: var(--dsw-radius-full, 50%);\n  width: 32px;\n  height: 32px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: auto;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.dshc_sendButton:focus-visible, .dshc_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.dshc_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.dshc_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_mentionName {\n  font-weight: 600;\n}\n\n.dshc_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_mentionBadge {\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 15%, transparent);\n  color: var(--dsw-alias-state-business-primary, #5865f2);\n  font-weight: 500;\n  line-height: inherit;\n  vertical-align: baseline;\n  -webkit-box-decoration-break: clone;\n  box-decoration-break: clone;\n  cursor: pointer;\n  border-radius: 3px;\n  padding: 0 4px;\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n  display: inline-block;\n}\n\n.dshc_mentionBadge:hover {\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5865f2) 28%, transparent);\n}\n\n.dshc_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.dshc_inputSurface {\n  min-width: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_input, .dshc_inputHighlights {\n  box-sizing: border-box;\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  white-space: pre-wrap;\n  overflow-wrap: break-word;\n  background: none;\n  border: 0;\n  border-radius: 0;\n  min-width: 0;\n  padding: 14px 16px 8px;\n  line-height: 1.5;\n}\n\n.dshc_input {\n  resize: none;\n  field-sizing: content;\n  color: #0000;\n  min-width: 0;\n  min-height: 52px;\n  max-height: 40vh;\n  caret-color: var(--dsw-alias-label-primary);\n  flex: 1;\n}\n\n.dshc_inputHighlights {\n  pointer-events: none;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n  overflow: hidden;\n}\n\n.dshc_inputHighlights .dshc_inputMention {\n  font-weight: inherit;\n  cursor: inherit;\n  padding: 0;\n  display: inline;\n}\n\n.dshc_inputComposing .dshc_input {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_inputComposing .dshc_inputHighlights {\n  visibility: hidden;\n}\n\n@media (forced-colors: active) {\n  .dshc_input {\n    color: canvastext;\n    caret-color: canvastext;\n  }\n\n  .dshc_inputHighlights {\n    display: none;\n  }\n}\n\n.dshc_input::placeholder {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  overflow: hidden;\n}\n\n@media (width <= 600px) {\n  .dshc_composer {\n    padding: 0 8px 8px;\n  }\n\n  .dshc_composerToolbar {\n    padding: 4px 8px 8px;\n  }\n\n  .dshc_input, .dshc_inputHighlights {\n    padding: 12px 14px 8px;\n  }\n}\n\n.dshc_input:focus-visible {\n  outline: none;\n}\n\n.dshc_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_offline {\n  opacity: .5;\n}\n\n.dshc_memberAvatar {\n  position: relative;\n}\n\n.dshc_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_offline .dshc_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_rooms, .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.dshc_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.dshc_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_roomInput, .dshc_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.dshc_roomInput {\n  margin: 2px 0 6px;\n}\n\n.dshc_roomInput:focus-visible, .dshc_fieldInput:focus-visible, .dshc_iconButton:focus-visible, .dshc_linkButton:focus-visible, .dshc_addMemberButton:focus-visible, .dshc_primaryButton:focus-visible, .dshc_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_addMemberButton {\n  box-sizing: border-box;\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.dshc_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_settingsDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: 100%;\n  margin: 8px 0 4px;\n}\n\n.dshc_memberListDivider {\n  border: 0;\n  border-top: 1px solid var(--dsw-alias-border-l1);\n  width: calc(100% - 16px);\n  margin: 12px 8px 2px;\n}\n\n.dshc_settingsButton {\n  text-align: left;\n  border-style: solid;\n  border-color: #0000;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_settingsButton svg {\n  flex: none;\n}\n\n.dshc_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_memberRow .dshc_member:hover {\n  background: none;\n}\n\n.dshc_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_memberRow:hover .dshc_memberActions, .dshc_memberRow:focus-within .dshc_memberActions {\n  opacity: 1;\n}\n\n.dshc_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.dshc_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.dshc_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.dshc_dialog {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog {\n  box-sizing: border-box;\n  height: min(70vh, 100dvh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_settingsBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  padding: 2px;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog > :not(.dshc_settingsBody) {\n  flex-shrink: 0;\n}\n\n.dshc_settingsFields {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_settingsFeedback {\n  overflow-wrap: anywhere;\n  max-height: 20%;\n  overflow-y: auto;\n}\n\n.dshc_settingsDialog .dshc_dialogActions {\n  justify-content: space-between;\n}\n\n@media (width <= 599px) {\n  .dshc_settingsDialog {\n    height: calc(100dvh - 32px);\n    padding: 16px;\n  }\n}\n\n.dshc_avatarCropStage {\n  background: #000000a6;\n  padding: 20px;\n}\n\n.dshc_avatarCropFrame {\n  aspect-ratio: 1;\n  touch-action: none;\n  cursor: grab;\n  outline: 2px solid #fff;\n  width: min(256px, 100%);\n  margin: auto;\n  position: relative;\n  overflow: hidden;\n}\n\n.dshc_avatarCropFrame:active {\n  cursor: grabbing;\n}\n\n.dshc_avatarCropFrame img {\n  pointer-events: none;\n  user-select: none;\n  max-width: none;\n  position: absolute;\n}\n\n.dshc_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.dshc_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_field textarea {\n  resize: vertical;\n}\n\n.dshc_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn {\n  flex-direction: column;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_choiceColumn .dshc_choice {\n  grid-template-columns: max-content minmax(0, 1fr);\n  align-items: start;\n  display: grid;\n}\n\n.dshc_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.dshc_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_primaryButton, .dshc_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.dshc_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.dshc_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.dshc_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.dshc_memberFailed .dshc_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.dshc_memberFailed .dshc_presence {\n  background: #ed4245;\n}\n\n.dshc_mobileButton, .dshc_drawerBackdrop {\n  display: none;\n}\n\n.dshc_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_panelToggleEnd {\n  margin-left: auto;\n}\n\n.dshc_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.dshc_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.dshc_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .dshc_roomsHidden > .dshc_rooms, .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .dshc_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .dshc_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .dshc_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .dshc_panelToggle {\n    display: none;\n  }\n\n  .dshc_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .dshc_rooms.dshc_drawerOpen, .dshc_members.dshc_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .dshc_rooms.dshc_drawerOpen {\n    left: 0;\n  }\n\n  .dshc_members.dshc_drawerOpen {\n    right: 0;\n  }\n\n  .dshc_memberActions {\n    opacity: 1;\n  }\n\n  .dshc_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.dshc_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.dshc_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.dshc_taskBoardTrigger {\n  box-sizing: border-box;\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  height: 34px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: center;\n  gap: 8px;\n  margin: 4px 0;\n  padding: 7px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskBoardTrigger:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskBoardTrigger:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_taskBoardSummary {\n  color: var(--dsw-alias-label-secondary);\n  text-align: right;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_taskBoardDialog {\n  width: min(920px, 100%);\n  height: min(70vh, 100dvh - 32px);\n  overflow: hidden;\n}\n\n.dshc_taskBoardBody {\n  overscroll-behavior: contain;\n  flex: auto;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.dshc_taskBoardDialog > :not(.dshc_taskBoardBody) {\n  flex-shrink: 0;\n}\n\n.dshc_boardTabs {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  gap: 4px;\n  padding-bottom: 8px;\n  display: flex;\n  overflow-x: auto;\n}\n\n.dshc_boardTabs button {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  padding: 7px 10px;\n  font-size: 13px;\n}\n\n.dshc_boardTabs button:hover, .dshc_boardTabs button[aria-selected=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_boardTabs button:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_boardTabCount {\n  font-variant-numeric: tabular-nums;\n  margin-left: 4px;\n}\n\n.dshc_boardCardGrid {\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 12px;\n  margin: 6px 0 16px;\n  padding: 2px;\n  list-style: none;\n  display: grid;\n}\n\n.dshc_boardTaskCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  border-radius: 12px;\n  flex-direction: column;\n  gap: 10px;\n  min-width: 0;\n  padding: 14px;\n  transition: transform .14s, box-shadow .14s;\n  display: flex;\n}\n\n.dshc_boardTaskCard[data-working=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n\n.dshc_boardTaskCard[data-status=\"done\"] {\n  filter: saturate(.25);\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_boardTaskCard:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 12px #00000014;\n}\n\n.dshc_boardTaskHeader {\n  align-items: flex-start;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_boardTaskTitle {\n  overflow-wrap: anywhere;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  flex: 1;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.5;\n  display: -webkit-box;\n  overflow: hidden;\n}\n\n.dshc_boardTaskHeader .dshc_taskStatus {\n  border-radius: 999px;\n  padding: 3px 7px;\n  font-size: 11px;\n}\n\n.dshc_boardTaskCard .dshc_taskLinks {\n  justify-content: flex-end;\n  margin-top: auto;\n}\n\n.dshc_boardTabEmpty {\n  min-height: 240px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  justify-content: center;\n  align-items: center;\n  padding: 40px 16px;\n  display: flex;\n}\n\n@media (width <= 640px) {\n  .dshc_boardCardGrid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardTaskCard {\n    transition: none;\n  }\n\n  .dshc_boardTaskCard:hover {\n    transform: none;\n  }\n}\n\n.dshc_taskBoardScope {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n}\n\n.dshc_taskSection + .dshc_taskSection {\n  margin-top: 8px;\n}\n\n.dshc_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_taskOwnerGroup + .dshc_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.dshc_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.dshc_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.dshc_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.dshc_taskDone summary {\n  cursor: pointer;\n}\n\n.dshc_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.dshc_taskStatus[data-status=\"asked\"], .dshc_taskStatus[data-status=\"escalated\"], .dshc_taskStatus[data-status=\"declined\"], .dshc_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.dshc_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.dshc_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.dshc_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_taskMemberName {\n  font-weight: 600;\n}\n\n.dshc_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.dshc_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.dshc_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.dshc_imageAttachment {\n  align-content: start;\n  max-width: 100%;\n  display: grid;\n}\n\n.dshc_imagePreviewTrigger {\n  cursor: zoom-in;\n  background: none;\n  border: 0;\n  border-radius: 4px;\n  grid-area: 1 / 1;\n  padding: 0;\n}\n\n.dshc_imagePreviewTrigger:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n  outline-offset: 2px;\n}\n\n.dshc_imagePreviewDialog {\n  box-sizing: border-box;\n  width: fit-content;\n  max-width: 90vw;\n  max-height: 90dvh;\n  overflow: auto;\n}\n\n.dshc_imagePreviewHeader {\n  flex-shrink: 0;\n  justify-content: space-between;\n  align-items: center;\n  gap: 12px;\n  display: flex;\n}\n\n.dshc_imagePreviewHeader span {\n  overflow-wrap: anywhere;\n  min-width: 0;\n}\n\n.dshc_imagePreviewHeader button {\n  flex-shrink: 0;\n}\n\n.dshc_imagePreviewImage {\n  object-fit: contain;\n  align-self: center;\n  max-width: 100%;\n  min-height: 0;\n  max-height: 65dvh;\n  display: block;\n}\n\n.dshc_imagePreviewActions {\n  flex-wrap: wrap;\n  flex-shrink: 0;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_imagePreviewActions a {\n  text-decoration: none;\n}\n\n.dshc_imagePreviewActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_attachmentActions {\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  opacity: 0;\n  pointer-events: none;\n  flex-wrap: wrap;\n  grid-area: 1 / 1;\n  place-self: start end;\n  gap: 4px;\n  margin: 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_attachmentActions a {\n  text-decoration: none;\n}\n\n.dshc_attachmentActions button:disabled {\n  cursor: wait;\n  opacity: .5;\n}\n\n.dshc_imageAttachment:hover .dshc_attachmentActions, .dshc_imageAttachment:focus-within .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"error\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copying\"] .dshc_attachmentActions, .dshc_imageAttachment[data-copy-state=\"copied\"] .dshc_attachmentActions {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n@media (hover: none), (pointer: coarse), (width <= 768px) {\n  .dshc_attachmentActions {\n    opacity: 1;\n    pointer-events: auto;\n  }\n}\n\n.dshc_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.dshc_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.dshc_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.dshc_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.dshc_attachmentAudio audio {\n  width: 100%;\n}\n\n.dshc_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.dshc_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.dshc_uploadBar {\n  background: var(--dsw-alias-border-l2);\n  border-radius: 2px;\n  flex: 80px;\n  min-width: 60px;\n  height: 4px;\n  overflow: hidden;\n}\n\n.dshc_uploadFill {\n  background: var(--dsw-alias-state-business-primary);\n  height: 100%;\n  transition: width .12s linear;\n  display: block;\n}\n\n.dshc_uploadState {\n  opacity: .7;\n  white-space: nowrap;\n  font-size: .85em;\n}\n\n.dshc_attachmentFile[data-state=\"failed\"] {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_attachmentFile[data-state=\"failed\"] .dshc_uploadState {\n  opacity: 1;\n}\n\n.dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.dshc_text pre, .dshc_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n\n@media (width >= 901px) {\n  .dshc_page {\n    grid-template-columns: 232px minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 272px;\n  }\n\n  .dshc_page.dshc_membersHidden {\n    grid-template-columns: 232px minmax(0, 1fr);\n  }\n\n  .dshc_page.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}\n\n.dshc_rooms {\n  padding-top: 4px;\n}\n\n.dshc_room {\n  border-radius: var(--dsw-radius-md);\n  min-height: 34px;\n  padding: 6px 10px;\n  transition: background-color .15s, color .15s;\n}\n\n.dshc_workspace {\n  min-height: 30px;\n  padding-left: 28px;\n  font-size: 13px;\n  position: relative;\n}\n\n.dshc_workspace:before {\n  content: \"\";\n  border-left: 1px solid var(--dsw-alias-border-l2);\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  border-bottom-left-radius: 4px;\n  width: 7px;\n  position: absolute;\n  top: 0;\n  bottom: 50%;\n  left: 15px;\n}\n\n.dshc_workspace .dshc_hash {\n  display: none;\n}\n\n.dshc_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n  box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_activeCount {\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  margin-left: 0;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n}\n\n.dshc_activeBusy {\n  color: var(--dsw-alias-state-business-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);\n}\n\n.dshc_roomLabel {\n  flex: auto;\n  min-width: 0;\n}\n\n.dshc_avatarStack {\n  flex: none;\n  align-items: center;\n  padding-left: 4px;\n  display: inline-flex;\n}\n\n.dshc_stackDot {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  background-position: center;\n  background-size: cover;\n  border-radius: 50%;\n  width: 18px;\n  height: 18px;\n  margin-left: -6px;\n}\n\n.dshc_room .dshc_stackDot {\n  width: 16px;\n  height: 16px;\n}\n\n.dshc_roomActive .dshc_stackDot {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, var(--dsw-alias-bg-layer-2));\n}\n\n.dshc_chatHead {\n  gap: 8px;\n  height: 52px;\n}\n\n.dshc_roomName {\n  letter-spacing: -.01em;\n  white-space: nowrap;\n  font-size: 15px;\n}\n\n.dshc_headMeta {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  font-weight: 400;\n  overflow: hidden;\n}\n\n.dshc_headActivity {\n  color: var(--dsw-alias-label-secondary);\n  flex: none;\n  align-items: center;\n  gap: 6px;\n  margin-left: auto;\n  font-size: 12px;\n  font-weight: 500;\n  display: inline-flex;\n}\n\n.dshc_headActivity .dshc_stackDot {\n  border-color: var(--dsw-alias-bg-base);\n  width: 22px;\n  height: 22px;\n}\n\n.dshc_headActivity + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_chatHead > .dshc_roomName {\n  text-overflow: ellipsis;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_chatHead > .dshc_taskBoardTrigger {\n  width: auto;\n  margin: 0 0 0 auto;\n}\n\n.dshc_chatHead .dshc_taskBoardSummary {\n  display: none;\n}\n\n.dshc_headLead {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 999px;\n  flex: 0 auto;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_headLeadText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_headLeadName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_headLeadStatus {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  font-size: 11px;\n  font-weight: 400;\n}\n\n.dshc_headLead + .dshc_panelToggleEnd {\n  margin-left: 0;\n}\n\n.dshc_membersHead {\n  align-items: center;\n  height: 52px;\n  padding: 0 4px;\n  display: flex;\n}\n\n.dshc_membersHeadTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .08em;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.dshc_log {\n  padding: 12px 0 16px;\n}\n\n.dshc_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 8px 20px 2px;\n  transition: background-color .15s;\n}\n\n.dshc_message.dshc_grouped {\n  padding-top: 1px;\n}\n\n.dshc_message:hover {\n  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 70%, transparent);\n}\n\n.dshc_messageHead {\n  gap: 8px;\n  margin-bottom: 2px;\n}\n\n.dshc_messageHeadGrouped {\n  margin-bottom: 0;\n}\n\n.dshc_messageHeadGrouped:not(:has(*)) {\n  display: none;\n}\n\n.dshc_author {\n  font-size: 13px;\n}\n\n.dshc_time, .dshc_edited {\n  font-variant-numeric: tabular-nums;\n  font-size: 11px;\n}\n\n.dshc_gutterTime {\n  color: var(--dsw-alias-label-tertiary);\n  font-variant-numeric: tabular-nums;\n  text-align: right;\n  opacity: 0;\n  align-self: start;\n  padding-top: 3px;\n  font-size: 10px;\n  transition: opacity .15s;\n}\n\n.dshc_message:hover .dshc_gutterTime {\n  opacity: 1;\n}\n\n.dshc_text {\n  line-height: 1.6;\n}\n\n.dshc_own {\n  grid-template-columns: minmax(0, 1fr) 36px;\n}\n\n.dshc_own > :first-child {\n  grid-area: 1 / 2;\n}\n\n.dshc_own > .dshc_messageBody {\n  flex-direction: column;\n  grid-area: 1 / 1;\n  align-items: flex-end;\n  display: flex;\n}\n\n.dshc_own .dshc_messageHead {\n  flex-direction: row-reverse;\n}\n\n.dshc_own .dshc_ownActions {\n  margin-left: 0;\n  margin-right: auto;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  max-width: min(560px, 100%);\n  color: var(--dsw-alias-label-primary);\n  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2));\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent);\n  border-radius: 16px 6px 16px 16px;\n  padding: 8px 14px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_quote {\n  align-self: flex-end;\n}\n\n.dshc_own .dshc_msgTools {\n  left: 16px;\n  right: auto;\n}\n\n.dshc_own.dshc_grouped > .dshc_messageBody > .dshc_text {\n  border-radius: 16px 6px 6px 16px;\n}\n\n.dshc_systemRecord {\n  flex-direction: column;\n  align-items: center;\n  padding-bottom: 4px;\n  display: flex;\n}\n\n.dshc_systemRecord > .dshc_systemLine {\n  align-self: stretch;\n}\n\n.dshc_taskRecord {\n  box-sizing: border-box;\n  width: min(480px, 100% - 40px);\n  margin-top: 0;\n}\n\n.dshc_systemLine {\n  color: var(--dsw-alias-label-tertiary);\n  align-items: center;\n  gap: 12px;\n  padding: 10px 32px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_systemLine:before, .dshc_systemLine:after {\n  content: \"\";\n  background: var(--dsw-alias-border-l2);\n  flex: 24px;\n  min-width: 24px;\n  height: 1px;\n}\n\n.dshc_systemText {\n  text-align: center;\n  max-width: min(640px, 80%);\n}\n\n.dshc_systemText p {\n  margin: 0;\n}\n\n.dshc_errorBar {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);\n  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);\n  border-radius: 12px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 10px;\n  margin: 6px 20px 6px 68px;\n  padding: 8px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_errorBar .dshc_cardButtons {\n  margin: 0 0 0 auto;\n}\n\n.dshc_errorBar .dshc_secondaryButton {\n  padding: 3px 10px;\n  font-size: 12px;\n}\n\n.dshc_errorBar[data-state=\"retried\"] {\n  opacity: .65;\n}\n\n.dshc_errorIcon {\n  color: #fff;\n  background: var(--dsw-alias-state-error-primary);\n  border-radius: 50%;\n  flex: none;\n  place-items: center;\n  width: 18px;\n  height: 18px;\n  font-size: 12px;\n  font-weight: 700;\n  display: grid;\n}\n\n.dshc_errorText {\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  flex: 200px;\n}\n\n.dshc_errorText p {\n  margin: 0;\n}\n\n.dshc_runStrip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));\n  border-radius: 12px;\n  flex-direction: column;\n  max-width: 100%;\n  margin-top: 4px;\n  padding: 5px 10px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_runStrip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runStrip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_runHead {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_runTitle {\n  color: var(--dsw-alias-label-primary);\n  flex: none;\n  font-weight: 600;\n}\n\n.dshc_runSummary {\n  font-variant-numeric: tabular-nums;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_runHead .dshc_cardViews {\n  margin-left: 8px;\n}\n\n.dshc_runHead .dshc_cardViewButton {\n  color: var(--dsw-alias-label-tertiary);\n  border-radius: 999px;\n  font-size: 11px;\n}\n\n.dshc_runHead .dshc_cardViewButton[aria-pressed=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_runIcon {\n  border-radius: 50%;\n  flex: none;\n  width: 12px;\n  height: 12px;\n  position: relative;\n}\n\n.dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n  border: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 25%, transparent);\n  border-top-color: var(--dsw-alias-state-business-primary);\n  animation: .8s linear infinite dshc_channels-spin;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon {\n  background: #23a55a;\n}\n\n.dshc_runStrip[data-state=\"completed\"] .dshc_runIcon:after {\n  content: \"\";\n  border: 1.5px solid #fff;\n  border-width: 0 1.5px 1.5px 0;\n  width: 3px;\n  height: 6px;\n  position: absolute;\n  top: 2px;\n  left: 4px;\n  transform: rotate(45deg);\n}\n\n.dshc_runStrip[data-state=\"failed\"] .dshc_runIcon {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_runSteps {\n  color: var(--dsw-alias-label-secondary);\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n}\n\n.dshc_runSteps p {\n  margin: 0;\n}\n\n.dshc_runStrip .dshc_cardButtons {\n  margin-top: 6px;\n}\n\n@keyframes dshc_channels-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_runStrip[data-state=\"running\"] .dshc_runIcon {\n    animation-duration: 2.4s;\n  }\n}\n\n.dshc_card {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-left-width: 1px;\n  border-radius: 14px;\n  margin-top: 6px;\n  padding: 10px 12px;\n}\n\n.dshc_card[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_taskAnchor {\n  max-width: 560px;\n  box-shadow: inset 3px 0 0 var(--channels-accent-warm, #d08a2e);\n}\n\n.dshc_permInline {\n  color: var(--dsw-alias-label-secondary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 4px 8px;\n  display: flex;\n}\n\n.dshc_permInline .dshc_text {\n  flex: 0 auto;\n  min-width: 0;\n}\n\n.dshc_permInline .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permLock {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 9px;\n}\n\n.dshc_permWaiting {\n  color: var(--dsw-alias-state-warning-primary, #e9a23b);\n  flex: none;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_permTray {\n  flex-direction: column;\n  gap: 6px;\n  max-height: 40%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_permTrayItem {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;\n  padding: 10px 12px;\n  display: flex;\n  box-shadow: 0 6px 20px -12px #00000059;\n}\n\n.dshc_permTrayText {\n  flex: 240px;\n  min-width: 0;\n  font-size: 13px;\n}\n\n.dshc_permTrayText .dshc_text p {\n  margin: 0;\n}\n\n.dshc_permTrayWho {\n  color: var(--dsw-alias-label-secondary);\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_permTrayItem .dshc_permActions {\n  flex-wrap: nowrap;\n  margin: 0;\n}\n\n.dshc_permTrayItem .dshc_permScope {\n  display: none;\n}\n\n.dshc_members {\n  flex-direction: column;\n  padding: 0 10px 16px;\n}\n\n@media (width >= 901px) {\n  .dshc_members {\n    display: flex;\n  }\n\n  .dshc_membersHidden > .dshc_members {\n    display: none;\n  }\n}\n\n.dshc_members.dshc_drawerOpen {\n  display: flex;\n}\n\n.dshc_activityNow {\n  flex-direction: column;\n  gap: 2px;\n  margin-bottom: 6px;\n  display: flex;\n}\n\n.dshc_activityItem {\n  border: 1px solid var(--dsw-alias-border-l2);\n  width: 100%;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  border-radius: 12px;\n  align-items: center;\n  gap: 10px;\n  padding: 8px 10px;\n  display: flex;\n}\n\n.dshc_activityItem + .dshc_activityItem {\n  margin-top: 4px;\n}\n\n.dshc_activityItem:hover {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--dsw-alias-border-l2));\n}\n\n.dshc_activityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_activityText {\n  flex-direction: column;\n  flex: 1;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_activityName {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.dshc_activityWhat {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_activityPulse {\n  background: var(--dsw-alias-state-business-primary);\n  border-radius: 50%;\n  flex: none;\n  width: 8px;\n  height: 8px;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n@keyframes dshc_channels-pulse {\n  50% {\n    box-shadow: 0 0 0 3px #23a55a40;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_activityPulse {\n    animation: none;\n  }\n}\n\n.dshc_member {\n  padding: 6px 8px;\n}\n\n.dshc_memberText {\n  flex: 1;\n}\n\n.dshc_memberStatus {\n  flex: none;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.dshc_memberStatus[data-status=\"busy\"] {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_memberStatus[data-status=\"error\"] {\n  color: var(--dsw-alias-state-error-primary);\n  font-weight: 600;\n}\n\n.dshc_memberActions {\n  background: var(--dsw-alias-bg-layer-2);\n  padding-left: 8px;\n  position: absolute;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n}\n\n.dshc_addMemberButton {\n  border-radius: 10px;\n}\n\n@media (width <= 900px) {\n  .dshc_headMeta, .dshc_headActivityText {\n    display: none;\n  }\n\n  .dshc_chatHead {\n    padding: 0 8px;\n  }\n\n  .dshc_mobileButton {\n    white-space: nowrap;\n  }\n\n  .dshc_headActivity ~ .dshc_mobileButton:last-child {\n    margin-left: 4px;\n  }\n\n  .dshc_message {\n    padding-left: 12px;\n    padding-right: 12px;\n  }\n\n  .dshc_errorBar {\n    margin-left: 12px;\n    margin-right: 12px;\n  }\n\n  .dshc_permTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_permTrayItem .dshc_permActions {\n    flex-wrap: wrap;\n  }\n\n  .dshc_systemLine {\n    padding: 8px 12px;\n  }\n\n  .dshc_systemText {\n    max-width: 90%;\n  }\n\n  .dshc_memberActions {\n    background: none;\n    padding-left: 0;\n    position: static;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnter {\n  from {\n    opacity: 0;\n    transform: translateY(6px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsEnterOwn {\n  from {\n    opacity: 0;\n    transform: translateY(12px) scale(.985);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsGlow {\n  from {\n    opacity: 1;\n  }\n\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes dshc_channelsPop {\n  from {\n    opacity: 0;\n    transform: translateY(4px) scale(.98);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@keyframes dshc_channelsDot {\n  0%, 60%, 100% {\n    opacity: .35;\n    transform: none;\n  }\n\n  30% {\n    opacity: 1;\n    transform: translateY(-2px);\n  }\n}\n\n@keyframes dshc_channelsDrain {\n  from {\n    transform: scaleX(1);\n  }\n\n  to {\n    transform: scaleX(0);\n  }\n}\n\n.dshc_enter {\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_enterOwn {\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsEnterOwn;\n}\n\n.dshc_enterGlow:before {\n  content: \"\";\n  pointer-events: none;\n  background: linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent), transparent 70%);\n  animation: .7s cubic-bezier(.4, 0, .2, 1) both dshc_channelsGlow;\n  animation-delay: inherit;\n  position: absolute;\n  inset: 0;\n}\n\n.dshc_message {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_room {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), color .16s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_card {\n  transition: border-color .32s cubic-bezier(.2, 0, 0, 1), background-color .32s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_cardViewButton {\n  transition: background-color .16s cubic-bezier(.2, 0, 0, 1), opacity .16s cubic-bezier(.2, 0, 0, 1), transform .12s cubic-bezier(.2, 0, 0, 1);\n}\n\n.dshc_sendButton:not(:disabled):active, .dshc_primaryButton:not(:disabled):active, .dshc_secondaryButton:not(:disabled):active, .dshc_mentionButton:not(:disabled):active, .dshc_cardViewButton:active {\n  transform: translateY(1px);\n}\n\n.dshc_mentionPopup {\n  transform-origin: bottom;\n  animation: .16s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n}\n\n.dshc_typingDots {\n  vertical-align: middle;\n  gap: 3px;\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_typingDots i {\n  background: currentColor;\n  border-radius: 50%;\n  width: 4px;\n  height: 4px;\n  animation: 1.2s ease-in-out infinite dshc_channelsDot;\n}\n\n.dshc_typingDots i:nth-child(2) {\n  animation-delay: .15s;\n}\n\n.dshc_typingDots i:nth-child(3) {\n  animation-delay: .3s;\n}\n\n.dshc_logWrap {\n  flex-direction: column;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  position: relative;\n}\n\n.dshc_olderLoading {\n  color: var(--dsw-alias-label-tertiary);\n  text-align: center;\n  padding: 8px 16px;\n  font-size: 12px;\n}\n\n.dshc_unreadDivider {\n  color: var(--dsw-alias-state-error-primary);\n  align-items: center;\n  gap: 8px;\n  margin: 8px 16px;\n  font-size: 12px;\n  font-weight: 600;\n  display: flex;\n}\n\n.dshc_unreadDivider:before, .dshc_unreadDivider:after {\n  content: \"\";\n  opacity: .35;\n  background: currentColor;\n  flex: 1;\n  height: 1px;\n}\n\n.dshc_withdrawnRow {\n  text-align: right;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 16px;\n  font-size: 13px;\n  font-style: italic;\n  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;\n}\n\n.dshc_jumpLatest {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 14px;\n  font-size: 12px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: inline-flex;\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_jumpLatest:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_jumpLatest:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_jumpCount {\n  color: var(--dsw-alias-state-business-primary);\n  font-weight: 600;\n}\n\n.dshc_undoToast {\n  z-index: 4;\n  border-radius: var(--dsw-radius-md);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  align-items: center;\n  gap: 12px;\n  margin: 0 auto;\n  padding: 8px 8px 8px 14px;\n  font-size: 13px;\n  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;\n  display: flex;\n  position: absolute;\n  bottom: 12px;\n  left: 0;\n  right: 0;\n  overflow: hidden;\n}\n\n.dshc_undoButton {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  padding: 2px 10px;\n  font-weight: 600;\n}\n\n.dshc_undoButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_undoBar {\n  background: var(--dsw-alias-state-business-primary);\n  transform-origin: 0;\n  height: 2px;\n  animation: linear forwards dshc_channelsDrain;\n  position: absolute;\n  bottom: 0;\n  left: 0;\n  right: 0;\n}\n\n.dshc_undoToast ~ .dshc_jumpLatest {\n  display: none;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_enter, .dshc_enterOwn, .dshc_enterGlow:before, .dshc_mentionPopup, .dshc_jumpLatest, .dshc_undoToast, .dshc_withdrawnRow {\n    animation: none;\n  }\n\n  .dshc_typingDots i {\n    opacity: .6;\n    animation: none;\n  }\n\n  .dshc_undoBar {\n    animation: none;\n  }\n\n  .dshc_message, .dshc_room, .dshc_card, .dshc_sendButton, .dshc_primaryButton, .dshc_secondaryButton, .dshc_mentionButton, .dshc_mentionBadge, .dshc_cardViewButton {\n    transition: none;\n  }\n}\n\n.dshc_leadCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 14px;\n  align-items: center;\n  gap: 10px;\n  margin: 8px 8px 4px;\n  display: flex;\n}\n\n.dshc_leadCardButton {\n  border-radius: inherit;\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: auto;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  display: flex;\n}\n\n.dshc_leadCardButton:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_leadCardButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-border-focus, currentColor);\n  outline-offset: -2px;\n}\n\n.dshc_leadCardButton:disabled {\n  cursor: default;\n  background: none;\n}\n\n.dshc_leadCardText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_leadCardName {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 14px;\n  font-weight: 650;\n  overflow: hidden;\n}\n\n.dshc_leadCardStatus {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  background: var(--dsw-alias-bg-layer-2);\n  border-radius: 6px 16px 16px;\n  width: fit-content;\n  max-width: min(640px, 100%);\n  padding: 8px 14px;\n}\n\n.dshc_message.dshc_grouped:not(.dshc_own) > .dshc_messageBody > .dshc_text {\n  border-radius: 6px 16px 16px 6px;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text {\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  box-shadow: none;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text * {\n  color: inherit;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text a {\n  color: inherit;\n  text-decoration: underline;\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text code {\n  color: inherit;\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent);\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge {\n  color: var(--dsw-alias-bg-base);\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);\n}\n\n.dshc_own > .dshc_messageBody > .dshc_text .dshc_mentionBadge:hover {\n  background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);\n}\n\n.dshc_boardDrawerBackdrop {\n  background: #00000040;\n  place-items: stretch end;\n  padding: 0;\n}\n\n.dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n  box-sizing: border-box;\n  border-radius: 0;\n  width: min(440px, 100%);\n  height: 100dvh;\n  max-height: none;\n  animation: .2s ease-out dshc_boardDrawerIn;\n}\n\n@keyframes dshc_boardDrawerIn {\n  from {\n    opacity: 0;\n    transform: translateX(24px);\n  }\n\n  to {\n    opacity: 1;\n    transform: none;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_boardDrawerBackdrop > .dshc_taskBoardDialog {\n    animation: none;\n  }\n}\n\n.dshc_schemeToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  margin-left: 4px;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_schemeToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_schemeToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_schemeToggle + .dshc_panelToggleEnd {\n  margin-left: 4px;\n}\n\n.dshc_progressCard {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);\n  border-radius: 14px;\n  flex: none;\n  margin: 8px 16px 4px;\n  padding: 8px 14px;\n  font-size: 12px;\n  position: relative;\n}\n\n.dshc_progressHead {\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.dshc_progressTitle {\n  color: var(--dsw-alias-label-primary);\n  font-size: 12px;\n}\n\n.dshc_progressSummary {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  flex: 1;\n  overflow: hidden;\n}\n\n.dshc_progressToggle {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  min-width: 22px;\n  height: 24px;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  gap: 4px;\n  margin-left: auto;\n  padding: 0 10px;\n  font-size: 12px;\n  font-weight: 500;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.dshc_progressChevron {\n  font-size: 12px;\n}\n\n.dshc_progressToggle:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_progressToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_progressCard[data-folded=\"true\"] {\n  padding: 6px 12px;\n}\n\n.dshc_progressRows {\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 0 14px;\n  margin: 4px 0 0;\n  display: grid;\n}\n\n.dshc_progressRow {\n  min-width: 0;\n}\n\n.dshc_progressRow dt {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 10px;\n}\n\n.dshc_progressRow dd {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  min-width: 0;\n  color: var(--dsw-alias-label-primary);\n  margin: 0;\n  overflow: hidden;\n}\n\n.dshc_progressRow[data-empty=\"true\"] dd {\n  color: var(--dsw-alias-label-tertiary);\n}\n\n.dshc_progressRow[data-row=\"open\"][data-empty=\"false\"] dd, .dshc_progressRow[data-row=\"open\"] .dshc_progressLink {\n  color: var(--dsw-alias-state-warning-primary, #b7791f);\n}\n\n.dshc_progressLink {\n  max-width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_progressLink:hover {\n  text-decoration: underline;\n}\n\n@media (width <= 760px) {\n  .dshc_progressCard {\n    margin: 6px 10px 2px;\n  }\n\n  .dshc_progressRows {\n    grid-template-columns: 52px minmax(0, 1fr);\n  }\n\n  .dshc_progressRow {\n    display: contents;\n  }\n}\n\n.dshc_stepChips {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.dshc_stepChip {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-base);\n  max-width: 220px;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  border-radius: 999px;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 9px 2px 7px;\n  font-size: 11px;\n  display: inline-flex;\n}\n\n.dshc_stepChip b {\n  color: var(--dsw-alias-label-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n  overflow: hidden;\n}\n\n.dshc_stepChip:disabled {\n  cursor: default;\n}\n\n.dshc_stepChip[aria-expanded=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_stepChip[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepChip[data-state=\"failed\"] b {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepMark {\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  flex: none;\n  width: 7px;\n  height: 7px;\n}\n\n.dshc_stepChip[data-state=\"ok\"] .dshc_stepMark {\n  background: #23a55a;\n}\n\n.dshc_stepChip[data-state=\"failed\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n  background: var(--dsw-alias-state-business-primary);\n  animation: 1s ease-in-out infinite dshc_channels-blink;\n}\n\n@keyframes dshc_channels-blink {\n  50% {\n    opacity: .3;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_stepChip[data-state=\"running\"] .dshc_stepMark {\n    animation: none;\n  }\n}\n\n.dshc_stepOut {\n  border: 1px solid var(--dsw-alias-border-l2);\n  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));\n  color: var(--dsw-alias-label-secondary);\n  border-radius: 8px;\n  flex-basis: 100%;\n  gap: 4px;\n  padding: 8px 10px;\n  font-size: 11px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.dshc_stepOut[data-state=\"failed\"] {\n  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));\n}\n\n.dshc_stepOut div {\n  gap: 8px;\n  min-width: 0;\n  display: flex;\n}\n\n.dshc_stepOut span {\n  color: var(--dsw-alias-label-tertiary);\n  flex: none;\n}\n\n.dshc_stepOut code {\n  overflow-wrap: anywhere;\n  min-width: 0;\n  font-family: ui-monospace, Menlo, monospace;\n}\n\n.dshc_stepOut[data-state=\"failed\"] > div[data-state=\"failed\"] > div:last-child > code {\n  color: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_decideTray {\n  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2));\n  border-radius: 14px;\n  flex-direction: column;\n  max-height: 45%;\n  margin: 0 16px 8px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.dshc_decideTrayHead {\n  width: 100%;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n  align-items: baseline;\n  gap: 8px;\n  padding: 7px 12px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_decideTrayHead strong {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 70%, var(--dsw-alias-label-primary));\n}\n\n.dshc_decideTrayHead small {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.dshc_decideTrayHead:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: -2px;\n}\n\n.dshc_decideTrayToggle {\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  margin-left: auto;\n}\n\n.dshc_decideTray .dshc_permTray {\n  max-height: none;\n  margin: 0;\n  padding: 0 8px 8px;\n}\n\n.dshc_askList {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_askItem {\n  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 30%, transparent);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px 10px;\n  padding: 8px 12px;\n  display: flex;\n}\n\n.dshc_askKind {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 15%, transparent);\n  border-radius: 5px;\n  flex: none;\n  padding: 0 6px;\n  font-size: 11px;\n}\n\n.dshc_askText {\n  flex-direction: column;\n  flex: 200px;\n  min-width: 0;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_askQuestion {\n  overflow-wrap: anywhere;\n}\n\n.dshc_askFrom {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_askForm {\n  flex: 0 260px;\n  align-items: center;\n  gap: 6px;\n  min-width: 160px;\n  display: flex;\n}\n\n.dshc_askInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  min-width: 0;\n  color: inherit;\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  border-radius: 8px;\n  flex: 1;\n  padding: 4px 8px;\n  font-size: 12px;\n}\n\n.dshc_askInput:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.dshc_askSend {\n  width: 26px;\n  height: 26px;\n  color: var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-primary);\n  cursor: pointer;\n  border: 0;\n  border-radius: 50%;\n  flex: none;\n  justify-content: center;\n  align-items: center;\n  padding: 0;\n  display: inline-flex;\n}\n\n.dshc_askSend:disabled {\n  opacity: .3;\n  cursor: default;\n}\n\n.dshc_askSend:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n  outline-offset: 2px;\n}\n\n.dshc_askDone {\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 8px;\n  font-size: 12px;\n  display: inline-flex;\n}\n\n.dshc_askNotice {\n  color: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 75%, var(--dsw-alias-label-primary));\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .dshc_decideTray {\n    margin: 0 8px 8px;\n  }\n\n  .dshc_askForm {\n    flex-basis: 100%;\n  }\n}\n\n.dshc_headTeam {\n  flex: none;\n  align-items: center;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.dshc_mate, .dshc_mateMore {\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-bg-base);\n  cursor: pointer;\n  border-radius: 50%;\n  justify-content: center;\n  align-items: center;\n  margin-left: -6px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_mate:first-child {\n  margin-left: 0;\n}\n\n.dshc_mate .dshc_avatar {\n  margin: 0;\n}\n\n.dshc_mateMore {\n  background: var(--dsw-alias-interactive-bg-hover);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.dshc_mateDot {\n  box-sizing: border-box;\n  border: 2px solid var(--dsw-alias-bg-base);\n  background: var(--dsw-alias-label-tertiary);\n  border-radius: 50%;\n  width: 9px;\n  height: 9px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n  background: #23a55a;\n  animation: 1.6s ease-in-out infinite dshc_channels-pulse;\n}\n\n.dshc_mate[data-state=\"idle\"] .dshc_mateDot {\n  background: var(--dsw-alias-bg-base);\n  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary);\n}\n\n.dshc_mate[data-state=\"error\"] .dshc_mateDot {\n  background: var(--dsw-alias-state-error-primary);\n}\n\n.dshc_mate[data-state=\"offline\"] {\n  opacity: .55;\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_mate[data-state=\"busy\"] .dshc_mateDot {\n    animation: none;\n  }\n}\n\n@media (width <= 760px) {\n  .dshc_headTeam {\n    display: none;\n  }\n}\n\n.dshc_chatHead > .dshc_headTeam + .dshc_taskBoardTrigger {\n  margin-left: 12px;\n}\n\n.dshc_sideDock {\n  display: none;\n}\n\n@media (width >= 1101px) {\n  .dshc_page.dshc_panelOpen {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%) 240px;\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen.dshc_roomsHidden.dshc_membersHidden {\n    grid-template-columns: minmax(0, 1fr) min(420px, 36%);\n  }\n\n  .dshc_page.dshc_panelOpen > .dshc_sideDock {\n    border-left: 1px solid var(--dsw-alias-border-l2);\n    background: var(--dsw-alias-bg-base);\n    min-width: 0;\n    min-height: 0;\n    display: flex;\n  }\n}\n\n.dshc_sidePanel {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  max-height: none;\n  box-shadow: none;\n  border: 0;\n  border-radius: 0;\n  margin: 0;\n  animation: .2s ease-out dshc_boardDrawerIn;\n  position: relative;\n}\n\n.dshc_sidePanel:focus {\n  outline: none;\n}\n\n.dshc_sidePanelClose {\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-secondary);\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 6px;\n  font-size: 18px;\n  line-height: 1;\n  position: absolute;\n  top: 10px;\n  right: 10px;\n}\n\n.dshc_sidePanelClose:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_sidePanel {\n    animation: none;\n  }\n}\n\n.dshc_sidePanel .dshc_boardCardGrid {\n  grid-template-columns: minmax(0, 1fr);\n}\n\n.dshc_slashPopup {\n  z-index: 6;\n  width: min(360px, 100% - 32px);\n  animation: none;\n  right: auto;\n}\n\n.dshc_slashGroup {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.dshc_slashItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: baseline;\n  gap: 8px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.dshc_slashActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_slashName {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  font-weight: 600;\n}\n\n.dshc_slashMeta {\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  overflow: hidden;\n}\n\n.dshc_sendButton.dshc_stopButton {\n  background: var(--dsw-alias-label-primary);\n}\n\n.dshc_stopNote + .dshc_sendButton {\n  margin-left: 8px;\n}\n\n.dshc_sendButton.dshc_stopButton[data-phase=\"stopping\"] {\n  opacity: .6;\n  cursor: progress;\n}\n\n.dshc_stopNote {\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.dshc_cmdLine {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px;\n  padding: 1px 16px 1px 72px;\n  font-size: 12px;\n  display: flex;\n}\n\n.dshc_cmdLine code {\n  color: var(--dsw-alias-label-secondary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n\n.dshc_cmdResult {\n  min-width: 0;\n  max-width: 60ch;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 0;\n  overflow: hidden;\n}\n\n.dshc_cmdResult[aria-expanded=\"true\"] {\n  white-space: pre-line;\n  max-width: none;\n}\n\n.dshc_cmdLine[data-failed=\"true\"] .dshc_cmdResult {\n  color: var(--dsw-alias-danger, #d94848);\n}\n\n@media (width <= 720px) {\n  .dshc_cmdLine {\n    padding-left: 16px;\n  }\n}\n\n.dshc_msgTool {\n  justify-content: center;\n  align-items: center;\n  width: 26px;\n  height: 24px;\n  padding: 0;\n  display: inline-flex;\n  position: relative;\n}\n\n.dshc_msgTool[data-tip]:after {\n  content: attr(data-tip);\n  z-index: 3;\n  background: var(--dsw-alias-label-primary);\n  color: var(--dsw-alias-label-primary-inverted);\n  white-space: nowrap;\n  opacity: 0;\n  pointer-events: none;\n  border-radius: 4px;\n  padding: 2px 6px;\n  font-size: 11px;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 50%;\n  transform: translateX(-50%);\n}\n\n.dshc_msgTool[data-tip]:hover:after, .dshc_msgTool[data-tip]:focus-visible:after {\n  opacity: 1;\n  transition: opacity 0s 80ms;\n}\n\n.dshc_permSessionButton {\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-underline-offset: 2px;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 4px 6px;\n  font-size: 12px;\n  text-decoration: underline;\n}\n\n.dshc_permSessionButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_permSessionButton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.dshc_queuedButton {\n  border: 1px solid var(--dsw-alias-border-default, #0000001f);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 9px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.dshc_queuedButton:hover {\n  color: var(--dsw-alias-label-primary);\n}\n\n.dshc_queuedTag {\n  color: #a76a06;\n  background: #eaa02824;\n  border-radius: 4px;\n  padding: 0 5px;\n  font-size: 11px;\n  line-height: 16px;\n}\n\n[data-queued] .dshc_ownActions {\n  opacity: 1;\n}\n\n.dshc_memory {\n  margin-top: 4px;\n}\n\n.dshc_memoryBadge {\n  background: var(--dsw-alias-fill-secondary, #0000000d);\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  border-radius: 9px;\n  align-items: center;\n  gap: 4px;\n  padding: 0 6px;\n  font-size: 11px;\n  line-height: 18px;\n  display: inline-flex;\n}\n\n.dshc_memoryBadge:hover, .dshc_memoryBadge[aria-expanded=\"true\"] {\n  color: var(--dsw-alias-label-secondary);\n}\n\n.dshc_memoryList {\n  border-left: 2px solid var(--dsw-alias-border-default, #0000001f);\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  margin: 4px 0 0;\n  padding: 6px 10px;\n  font-size: 12px;\n  list-style: none;\n  display: flex;\n}\n\n.dshc_memoryItem {\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_memoryTitle {\n  color: var(--dsw-alias-label-secondary);\n  line-height: 1.5;\n}\n\n.dshc_memoryPage {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  font-family: var(--dsw-font-mono, ui-monospace, monospace);\n}\n\n.dshc_delivery {\n  flex-direction: column;\n  gap: 6px;\n  max-width: 720px;\n  margin-top: 8px;\n  display: flex;\n}\n\n.dshc_deliveryFrame {\n  border: 1px solid var(--background-modifier-accent, #7f7f7f4d);\n  background: #fff;\n  border-radius: 6px;\n  height: 360px;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_deliveryActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.dshc_deliveryActions a {\n  text-decoration: none;\n}\n\n.dshc_deliveryDone {\n  color: var(--text-muted, #888);\n  font-size: 12px;\n}\n\n.dshc_deliveryFullDialog {\n  box-sizing: border-box;\n  flex-direction: column;\n  gap: 8px;\n  width: 94vw;\n  max-width: none;\n  height: 92dvh;\n  display: flex;\n}\n\n.dshc_deliveryFullFrame {\n  background: #fff;\n  border-radius: 6px;\n  flex: 1;\n  min-height: 0;\n  display: flex;\n  overflow: hidden;\n}\n\n.dshc_dmTitle {\n  color: var(--text-muted, #888);\n  margin: 14px 8px 4px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.dshc_dmAvatar {\n  margin-right: 6px;\n  display: inline-flex;\n}\n\n.dshc_dmRow {\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.dshc_dmRow .dshc_room {\n  padding-right: 26px;\n}\n\n.dshc_dmClose {\n  border-radius: var(--dsw-radius-sm, 4px);\n  width: 20px;\n  height: 20px;\n  color: var(--dsw-alias-label-tertiary, #888);\n  font: inherit;\n  cursor: pointer;\n  opacity: 0;\n  background: none;\n  border: 0;\n  padding: 0;\n  font-size: 15px;\n  line-height: 20px;\n  position: absolute;\n  right: 4px;\n}\n\n.dshc_dmRow:hover .dshc_dmClose, .dshc_dmClose:focus-visible {\n  opacity: 1;\n}\n\n.dshc_dmClose:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n@media (hover: none) {\n  .dshc_dmClose {\n    opacity: 1;\n  }\n}\n\n.dshc_dmHead {\n  margin-top: 14px;\n}\n\n.dshc_dmPicker {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-layer-2);\n  flex-direction: column;\n  margin: 0 4px 4px;\n  padding: 4px;\n  display: flex;\n}\n\n.dshc_dmPickNone {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px;\n  font-size: 12px;\n}\n\n.dshc_dmNewRow {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 13px;\n}\n\nbutton.dshc_headMeta {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 0 auto;\n  padding: 2px 6px;\n  font-size: 12px;\n}\n\nbutton.dshc_headMeta:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.dshc_headSpacer {\n  flex: auto;\n}\n\n.dshc_roomUnread {\n  color: var(--dsw-alias-label-primary);\n  font-weight: 650;\n}\n\n.dshc_unreadBadge {\n  color: #fff;\n  background: var(--dsw-alias-state-danger-primary, #e5484d);\n  text-align: center;\n  font-variant-numeric: tabular-nums;\n  border-radius: 999px;\n  flex: none;\n  min-width: 18px;\n  padding: 0 5px;\n  font-size: 11px;\n  font-weight: 600;\n  line-height: 18px;\n}\n\n.dshc_slashDisabled {\n  opacity: .45;\n  cursor: not-allowed;\n}\n\n.dshc_leadCardHint {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.dshc_roomWorking {\n  max-width: 96px;\n  color: var(--dsw-alias-state-business-primary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: none;\n  align-items: center;\n  gap: 4px;\n  font-size: 11px;\n  font-weight: 500;\n  display: inline-flex;\n  overflow: hidden;\n}\n\n.dshc_roomWorkingDot {\n  background: currentColor;\n  border-radius: 50%;\n  flex: none;\n  width: 6px;\n  height: 6px;\n  animation: 1.4s ease-in-out infinite dshc_roomWorkingPulse;\n}\n\n@keyframes dshc_roomWorkingPulse {\n  50% {\n    opacity: .35;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .dshc_roomWorkingDot {\n    animation: none;\n  }\n}\n\n.dshc_drawerTools {\n  display: none;\n}\n\n@media (width <= 600px) {\n  .dshc_drawerTools {\n    flex-wrap: wrap;\n    gap: 6px;\n    margin: 0 8px 8px;\n    display: flex;\n  }\n\n  .dshc_chatHead > .dshc_taskBoardTrigger, .dshc_chatHead > .dshc_schemeToggle, .dshc_chatHead > .dshc_headMeta, .dshc_chatHead > .dshc_headTeam {\n    display: none;\n  }\n\n  .dshc_chatHead > .dshc_roomName {\n    flex: auto;\n  }\n}\n\n.dshc_panelOpen .dshc_chatHead > .dshc_headTeam, .dshc_panelOpen .dshc_chatHead > .dshc_headMeta {\n  display: none;\n}\n\n.dshc_panelOpen .dshc_chatHead > .dshc_roomName {\n  flex: 0 auto;\n}\n[data-dc-scheme=\"light\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f5f6f7;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-static-amber-100: #fef5e7;\n  --dsw-static-amber-400: #f7ad31;\n  --dsw-static-amber-500: #f59e0b;\n  --dsw-static-amber-600: #dd8629;\n  --dsw-static-amber-900: #27241f;\n  --dsw-static-blue-100: #dbeafe;\n  --dsw-static-blue-300: #93c5fd;\n  --dsw-static-blue-400: #60a5fa;\n  --dsw-static-blue-450: #4d93f8;\n  --dsw-static-blue-500: #3b82f6;\n  --dsw-static-blue-50: #eff6ff;\n  --dsw-static-blue-50p: #eaf3ff;\n  --dsw-static-blue-600: #2563eb;\n  --dsw-static-blue-75: #e5f0ff;\n  --dsw-static-blue-800: #1e40af;\n  --dsw-static-blue-900: #0e3074;\n  --dsw-static-blue-950: #172554;\n  --dsw-static-deepseek-100: #e4edfd;\n  --dsw-static-deepseek-200: #d3e2ff;\n  --dsw-static-deepseek-300: #b7c8fe;\n  --dsw-static-deepseek-400: #7aaaff;\n  --dsw-static-deepseek-450: #5686fe;\n  --dsw-static-deepseek-500: #4176e6;\n  --dsw-static-deepseek-50: #edf3fe;\n  --dsw-static-deepseek-600: #4868b2;\n  --dsw-static-deepseek-700-delete: #2f4c8f;\n  --dsw-static-deepseek-800: #34415b;\n  --dsw-static-deepseek-900: #283142;\n  --dsw-static-green-100: #e6faed;\n  --dsw-static-green-400: #4ed17e;\n  --dsw-static-green-500: #22c55e;\n  --dsw-static-green-500-a08: #22c55e14;\n  --dsw-static-green-500-a12: #22c55e1f;\n  --dsw-static-green-900: #233c2c;\n  --dsw-static-neutral-00: #fff;\n  --dsw-static-neutral-1000: #000;\n  --dsw-static-neutral-100: #f5f5f5;\n  --dsw-static-neutral-150: #ededed;\n  --dsw-static-neutral-200: #e5e5e5;\n  --dsw-static-neutral-250: #dcdcdc;\n  --dsw-static-neutral-300: #d4d4d4;\n  --dsw-static-neutral-400: #a2a4a6;\n  --dsw-static-neutral-500: #7f8287;\n  --dsw-static-neutral-50: #fafafa;\n  --dsw-static-neutral-550: #65676b;\n  --dsw-static-neutral-600: #545557;\n  --dsw-static-neutral-700: #3c3c3d;\n  --dsw-static-neutral-800: #292929;\n  --dsw-static-neutral-850: #212123;\n  --dsw-static-neutral-900: #0f0f0f;\n  --dsw-static-neutral-bluish-00: #fff;\n  --dsw-static-neutral-bluish-1000: #0f1115;\n  --dsw-static-neutral-bluish-100: #ebeef2;\n  --dsw-static-neutral-bluish-150: #e9ecf2;\n  --dsw-static-neutral-bluish-200: #e1e5ee;\n  --dsw-static-neutral-bluish-300: #cfd3d6;\n  --dsw-static-neutral-bluish-400: #adb2b8;\n  --dsw-static-neutral-bluish-500: #979da6;\n  --dsw-static-neutral-bluish-50: #f9fafb;\n  --dsw-static-neutral-bluish-600: #81858c;\n  --dsw-static-neutral-bluish-60: #f9fafb;\n  --dsw-static-neutral-bluish-700: #61666b;\n  --dsw-static-neutral-bluish-750: #43454a;\n  --dsw-static-neutral-bluish-75: #f1f3f5;\n  --dsw-static-neutral-bluish-800: #353638;\n  --dsw-static-neutral-bluish-850: #2c2c2e;\n  --dsw-static-neutral-bluish-875: #232324;\n  --dsw-static-neutral-bluish-900: #1b1b1c;\n  --dsw-static-neutral-bluish-950: #151517;\n  --dsw-static-red-100: #fee2e2;\n  --dsw-static-red-400: #f25a5a;\n  --dsw-static-red-400-a12: #f25a5a1f;\n  --dsw-static-red-500: #ef4444;\n  --dsw-static-red-50: #fef2f2;\n  --dsw-static-red-600: #ec1313;\n  --dsw-static-red-600-a08: #ec131314;\n  --dsw-static-red-900: #570c0c;\n}\n\n[data-dc-scheme=\"light\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-bg-mask-1: #0000003d;\n  --dsw-alias-bg-mask-2: #0000001f;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #ffffffb3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-bg-skeleton: #0000000a;\n  --dsw-alias-border-inverted2: #0000;\n  --dsw-alias-border-inverted: #0000;\n  --dsw-alias-border-l1: #0000000a;\n  --dsw-alias-border-l2-darkmode-thin: #0000001a;\n  --dsw-alias-border-l2: #0000001a;\n  --dsw-alias-border-l3: #0000001f;\n  --dsw-alias-border-l4: #00000029;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: #4176e6;\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-500);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-150);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #2631481a;\n  --dsw-alias-interactive-bg-hover-accent: #26314824;\n  --dsw-alias-interactive-bg-hover-danger: #ec13130d;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-interactive-bg-hover: #2631480f;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-blue-900);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-menu-icon: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-link: var(--dsw-static-deepseek-500);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);\n  --dsw-alias-file-diff-added-bg: #e6f4e7;\n  --dsw-alias-file-diff-added-gutter: #edf7ed;\n  --dsw-alias-file-diff-added-marker: #01a241;\n  --dsw-alias-file-diff-deleted-bg: #fce6e2;\n  --dsw-alias-file-diff-deleted-gutter: #fdece9;\n  --dsw-alias-file-diff-deleted-marker: #ba2723;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-600);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-100);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-100);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-markdown-code-block);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-hover);\n  --dsw-specific-bubble-highlight: var(--dsw-static-deepseek-200);\n  --dsw-specific-bubble: var(--dsw-static-deepseek-50);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-50);\n  --dsw-menu-surface-fill: #f8f9fa94;\n  --dsw-alias-menu-group-header-fill: #f8f9faf0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-100);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);\n}\n\n[data-dc-scheme=\"dark\"] {\n  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);\n  --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);\n  --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);\n  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-mask-1: #00000080;\n  --dsw-alias-bg-mask-2: #0003;\n  --dsw-alias-bg-mask-3: #0000007a;\n  --dsw-alias-bg-mask-photo: #000000e0;\n  --dsw-alias-bg-mask-drop: #272730b3;\n  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-bg-multi-select: var(--dsw-static-neutral-850);\n  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-bg-skeleton: #ffffff14;\n  --dsw-alias-border-inverted2: #ffffff14;\n  --dsw-alias-border-inverted: #ffffff0f;\n  --dsw-alias-border-l1: #ffffff0f;\n  --dsw-alias-border-l2-darkmode-thin: #ffffff0f;\n  --dsw-alias-border-l2: #ffffff1f;\n  --dsw-alias-border-l3: #ffffff29;\n  --dsw-alias-border-l4: #fff3;\n  --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-static-deepseek-450);\n  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-contrast-fill: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-button-ghost-active-border: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-button-ghost-active-fill: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-ghost-active-hover: var(--dsw-static-neutral-bluish-700);\n  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);\n  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);\n  --dsw-alias-button-primary-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-button-primary-fill: var(--dsw-alias-brand-primary);\n  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-button-tool-bar-fill-invisible: #1f1f1f5c;\n  --dsw-alias-button-tool-bar-fill: #54555780;\n  --dsw-alias-button-tool-bar-hover: #54555799;\n  --dsw-alias-interactive-bg-active: #ffffff24;\n  --dsw-alias-interactive-bg-hover-accent: #ffffff3d;\n  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;\n  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-interactive-bg-hover: #ffffff14;\n  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);\n  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));\n  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));\n  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-label-primary-bluish: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-primary-dimmed: var(--dsw-static-neutral-bluish-100);\n  --dsw-alias-label-primary-foreground: var(--dsw-static-neutral-bluish-1000);\n  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);\n  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);\n  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);\n  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-menu-icon: var(--dsw-alias-label-primary-dimmed);\n  --dsw-alias-link: var(--dsw-static-deepseek-400);\n  --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800);\n  --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900);\n  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);\n  --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850);\n  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);\n  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);\n  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);\n  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);\n  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);\n  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);\n  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);\n  --dsw-alias-file-diff-added-bg: #1f3124;\n  --dsw-alias-file-diff-added-gutter: #132016;\n  --dsw-alias-file-diff-added-marker: #41c977;\n  --dsw-alias-file-diff-deleted-bg: #3c1f1b;\n  --dsw-alias-file-diff-deleted-gutter: #28130e;\n  --dsw-alias-file-diff-deleted-marker: #fa423e;\n  --dsw-alias-state-error-primary: var(--dsw-static-red-400);\n  --dsw-alias-state-error-secondary: var(--dsw-static-red-400);\n  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);\n  --dsw-alias-state-success-primary: var(--dsw-static-green-500);\n  --dsw-alias-state-success-secondary: var(--dsw-static-green-400);\n  --dsw-alias-state-success-tertiary: var(--dsw-static-green-900);\n  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);\n  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);\n  --dsw-alias-state-warn-secondary: var(--dsw-static-amber-400);\n  --dsw-alias-state-warn-tertiary: var(--dsw-static-amber-900);\n  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);\n  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);\n  --dsw-alias-turn-trigger-bg: var(--dsw-alias-interactive-bg-hover);\n  --dsw-alias-turn-trigger-bg-hover: var(--dsw-alias-interactive-bg-active);\n  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);\n  --dsw-alias-tooltip-key-bg: color-mix(in srgb, var(--dsw-alias-tooltip-bg), white 18%);\n  --dsw-specific-bubble-highlight: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-login-input: var(--dsw-static-neutral-bluish-900);\n  --dsw-menu-surface-fill: #43454a73;\n  --dsw-alias-menu-group-header-fill: #303136f0;\n  --dsw-specific-menu: var(--dsw-menu-surface-fill);\n  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);\n  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);\n  --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);\n  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);\n  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"light\"] {\n  --dsw-specific-menu: #f8f9faf0;\n}\n\nhtml[data-platform=\"darwin\"] [data-dc-scheme=\"dark\"] {\n  --dsw-specific-menu: #303136f0;\n}\n\n[data-dc-scheme=\"light\"] {\n  color-scheme: light;\n}\n\n[data-dc-scheme=\"dark\"] {\n  color-scheme: dark;\n}\n.dshc_embed {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  display: flex;\n}\n\n.dshc_frame {\n  background: var(--dsw-alias-bg-base);\n  border: 0;\n  flex: 1;\n  width: 100%;\n  height: 100%;\n}\n\n.dshc_remote {\n  box-sizing: border-box;\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  background: var(--dsw-alias-bg-base);\n  flex-direction: column;\n  display: flex;\n}\n\n.dshc_remoteBar {\n  border-bottom: 1px solid var(--dsw-alias-border-subtle, #7f7f7f40);\n  color: var(--dsw-alias-label-secondary);\n  align-items: center;\n  gap: 12px;\n  padding: 6px 12px;\n  font-size: 13px;\n  display: flex;\n}\n\n.dshc_remoteName {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.dshc_remoteBack {\n  border: 1px solid var(--dsw-alias-border-subtle, #7f7f7f59);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border-radius: 6px;\n  flex: none;\n  padding: 2px 10px;\n}\n\n.dshc_remoteBody {\n  flex: 1;\n  min-height: 0;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 // \0rolldown/runtime.js
 var __create = Object.create;
@@ -63,8 +63,9 @@ function randomUUID() {
 // src/client/channel-source.ts
 /** Relative URL of a stored attachment (same base as the other collab requests). */
 const attachmentUrl = (id) => `collab/api/attachments/${encodeURIComponent(id)}`;
-/** Read a browser File into the POST form. */
 const MAX_MESSAGE_BODY = 8388608;
+/** #197: fallback when the service does not report its cap (`max_upload_bytes`); matches collab's DEFAULT_MAX_UPLOAD_BYTES. */
+const DEFAULT_MAX_UPLOAD_BYTES = 1073741824;
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.stringify({
 	text,
@@ -72,16 +73,14 @@ const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.str
 	reply_to: Number.MAX_SAFE_INTEGER,
 	attachments
 })).length > MAX_MESSAGE_BODY;
-const readAttachment = async (file) => {
-	const bytes = new Uint8Array(await file.arrayBuffer());
-	let binary = "";
-	for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
-	return {
-		name: file.name || "pasted",
-		mime: file.type || "application/octet-stream",
-		data: btoa(binary)
-	};
+/** Bytes as a limit reads in the UI: 1 GB, 500 MB, 12.5 MB. */
+const formatBytes = (bytes) => {
+	if (bytes >= 1024 ** 3) return `${Number((bytes / 1024 ** 3).toFixed(2))} GB`;
+	if (bytes >= 1024 ** 2) return `${Number((bytes / 1024 ** 2).toFixed(1))} MB`;
+	return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 };
+/** The upload route's path for one file: a header cannot carry 中文, so name and type ride the query. */
+const uploadUrl = (file) => `collab/api/attachments?name=${encodeURIComponent(file.name || "pasted")}&mime=${encodeURIComponent(file.type || "application/octet-stream")}`;
 /** #1023: the private chats, one per agent member, in id order. */
 const dmRooms = (rooms) => rooms.filter((r) => r.dm_member != null);
 /**
@@ -121,7 +120,8 @@ const INITIAL = {
 	tasks: [],
 	taskChat: void 0,
 	hasMoreOlder: false,
-	outbox: []
+	outbox: [],
+	maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES
 };
 /** Position of message `id` in rows ascending by id, or -1. */
 function indexOfId(rows, id) {
@@ -160,15 +160,77 @@ const rememberedRoom = () => {
 };
 /** Messages requested per catch-up read after a reconnect. */
 const CATCH_UP_LIMIT = 200;
+/** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
+var UploadTooLarge = class extends Error {
+	fileName;
+	size;
+	limit;
+	constructor(fileName, size, limit) {
+		super(`${fileName}：${formatBytes(size)} > ${formatBytes(limit)}`);
+		this.fileName = fileName;
+		this.size = size;
+		this.limit = limit;
+		this.name = "UploadTooLarge";
+	}
+};
+/**
+* #216: where the instance that lost the lock publishes its holder. It is an exact route the
+* refused plugin registers before throwing, so it answers while every other `/collab/api/*`
+* path is a bare 404.
+*/
+const LOCK_HOLDER_PATH = "collab/api/lock";
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 var ServiceError = class extends Error {
 	status;
-	constructor(status, message) {
+	code;
+	/**
+	* @param status - HTTP status the service answered with.
+	* @param message - the service's own sentence, kept for logs and the fallback line.
+	* @param code - the machine code the service sends beside it (`conflict`, `invalid`, …), if any.
+	*/
+	constructor(status, message, code) {
 		super(message);
 		this.status = status;
+		this.code = code;
 		this.name = "ServiceError";
 	}
 };
+/** 工作区<n> is how a workspace is addressed, so the store refuses that shape for a chat channel (collab/store.mjs WORKSPACE_PREFIX). */
+const WORKSPACE_NAME = /^工作区\d+$/;
+/** The cap the service puts on a member name; source: collab/roster.mjs `MAX_NAME = 32`. */
+const MEMBER_NAME_MAX = 32;
+/** The one member name the service accepts with a space; source: collab/roster.mjs `validate` (`/^Claude Code(?:-\d+)?$/`). */
+const MEMBER_NAME_SPACED = /^Claude Code(?:-\d+)?$/;
+/**
+* The member-name shape the service refuses, copied from collab/roster.mjs `validate` so a name it
+* accepted (say `Claude Code`) is never blamed for an unrelated `invalid` such as a missing model.
+* @param name - the name after the service's own trim.
+* @returns whether the service would word this as a bad name.
+*/
+function memberNameRefused(name) {
+	return name.length > MEMBER_NAME_MAX || /[@<>\r\n\t]/.test(name) || /\s/.test(name) && !MEMBER_NAME_SPACED.test(name);
+}
+/**
+* #268: the collab service answers a refusal with `code` plus an English sentence, and the panel
+* used to show that sentence as-is. Word the failures a person can act on from the `code` alone —
+* never by matching the English text — and keep the service sentence only inside the last resort.
+* @param error - whatever the action rejected with.
+* @param t - the panel's dictionary, so an English UI stays English.
+* @param place - the field being edited when the action failed.
+* @param typed - the name the person typed, for the copy that names it.
+* @returns one line to show under the form.
+*/
+function errorText(error, t, place = "other", typed = "") {
+	const message = error instanceof Error ? error.message : String(error);
+	if (!(error instanceof ServiceError)) return message;
+	const code = error.code;
+	const name = place === "room" ? typed.trim().replace(/^#/, "") : typed.trim();
+	if (code === "conflict" && place === "room") return WORKSPACE_NAME.test(name) ? t("channelNameReserved", { name }) : t("channelNameTaken", { name });
+	if (code === "invalid" && place === "room") return t("channelNameInvalid");
+	if (code === "conflict" && place === "member") return t("memberNameTaken", { name });
+	if (code === "invalid" && place === "member" && memberNameRefused(name)) return t("memberNameInvalid");
+	return t("actionFailed", { message });
+}
 function json(method, body) {
 	return {
 		method,
@@ -185,6 +247,37 @@ function browserTransport() {
 		fetch: (input, init) => fetch(input, {
 			credentials: "same-origin",
 			...init
+		}),
+		upload: (url, body, onProgress, signal) => new Promise((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			xhr.open("POST", url);
+			xhr.withCredentials = true;
+			xhr.setRequestHeader("content-type", body.type || "application/octet-stream");
+			xhr.upload.addEventListener("progress", (event) => {
+				if (event.lengthComputable) onProgress(event.loaded, event.total);
+			});
+			xhr.addEventListener("load", () => {
+				let parsed;
+				try {
+					parsed = JSON.parse(xhr.responseText);
+				} catch {
+					parsed = void 0;
+				}
+				resolve({
+					status: xhr.status,
+					body: parsed
+				});
+			});
+			xhr.addEventListener("error", () => {
+				reject(/* @__PURE__ */ new Error("Upload failed: the connection dropped"));
+			});
+			xhr.addEventListener("abort", () => {
+				reject(/* @__PURE__ */ new Error("Upload cancelled"));
+			});
+			signal?.addEventListener("abort", () => {
+				xhr.abort();
+			}, { once: true });
+			xhr.send(body);
 		}),
 		openEvents: (url) => new EventSource(url, { withCredentials: true }),
 		url: (path) => new URL(path, document.baseURI).toString(),
@@ -208,6 +301,8 @@ function createChannelSource(transport) {
 	/** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
 	let reconnectToken;
 	/** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
+	/** #197: how big one attachment may be, as the service reported it (state) or the collab default. */
+	let uploadLimit = DEFAULT_MAX_UPLOAD_BYTES;
 	let outbox = [];
 	/**
 	* Page-back request in flight per room, tagged with the ticket and the epoch
@@ -250,17 +345,54 @@ function createChannelSource(transport) {
 		const response = await transport.fetch(transport.url(path), init);
 		if (!response.ok) {
 			const body = await response.json().catch(() => ({}));
-			throw new ServiceError(response.status, body.error ?? response.statusText);
+			throw new ServiceError(response.status, body.error ?? response.statusText, body.code);
 		}
 		return await response.json();
 	};
-	const fail = (error) => {
-		if (error instanceof ServiceError && error.status === 404) set({
-			phase: "unavailable",
-			error: void 0
-		});
-		else if (error instanceof ServiceError && error.status === 401) set({
+	/**
+	* #216: a 404 from the channel service means one of two things — no service is configured,
+	* or another DSH on this machine already holds the channel data and its plugin refused to
+	* start. Only the refusing instance knows which, and it publishes `busy` at
+	* `collab/api/lock` before it gives up; a host without that route answers 404 there too, so
+	* the plain "not configured" reading stands.
+	*/
+	const readLockHolder = async () => {
+		try {
+			const body = await request(LOCK_HOLDER_PATH);
+			if (body.busy !== true) return body.free === true ? { free: true } : void 0;
+			return {
+				holder: body.owner ?? void 0,
+				dataDir: body.dataDir,
+				lock: body.lock,
+				free: false
+			};
+		} catch (error) {
+			return;
+		}
+	};
+	const fail = async (error, current = () => true) => {
+		if (error instanceof ServiceError && error.status === 404) {
+			const lock = await readLockHolder();
+			if (!current()) return;
+			if (lock !== void 0) set({
+				phase: "locked",
+				lockHolder: lock.holder,
+				lockDataDir: lock.dataDir,
+				lockPath: lock.lock,
+				lockFree: lock.free,
+				error: void 0
+			});
+			else set({
+				phase: "unavailable",
+				lockHolder: void 0,
+				lockDataDir: void 0,
+				lockPath: void 0,
+				lockFree: void 0,
+				error: void 0
+			});
+		} else if (error instanceof ServiceError && error.status === 401) set({
 			phase: "unauthorized",
+			lockHolder: void 0,
 			error: void 0
 		});
 		else set({
@@ -429,6 +561,7 @@ function createChannelSource(transport) {
 		try {
 			const state = await request("collab/api/state", { signal: read.controller.signal });
 			if (!current()) return;
+			if (Number.isSafeInteger(state.max_upload_bytes) && (state.max_upload_bytes ?? 0) > 0) uploadLimit = state.max_upload_bytes;
 			const remembered = previous.roomId === void 0 ? rememberedRoom() : void 0;
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms.some((r) => r.id === remembered) ? remembered : state.rooms[0]?.id;
 			const rows = [];
@@ -483,6 +616,10 @@ function createChannelSource(transport) {
 			let next = {
 				phase: "ready",
 				error: void 0,
+				lockHolder: void 0,
+				lockDataDir: void 0,
+				lockPath: void 0,
+				lockFree: void 0,
 				rooms: state.rooms,
 				roomId,
 				members: state.members,
@@ -493,6 +630,7 @@ function createChannelSource(transport) {
 				hasMoreNewer,
 				leadId: state.lead_id ?? null,
 				effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
+				maxUploadBytes: uploadLimit,
 				tasks: keepBoard ? previous.tasks : [],
 				taskChat: keepBoard ? previous.taskChat : void 0,
 				outbox: outbox.filter((entry) => entry.roomId === roomId)
@@ -509,8 +647,8 @@ function createChannelSource(transport) {
 			if (roomId !== void 0) loadBoard(owner, roomId);
 		} catch (error) {
 			if (!current()) return;
-			pending = void 0;
-			fail(error);
+			await fail(error, current);
+			if (pending === read) pending = void 0;
 		}
 	};
 	const selectRoom = async (roomId) => {
@@ -573,6 +711,7 @@ function createChannelSource(transport) {
 			pending?.controller.abort();
 			pending = void 0;
 			retry(owner);
+			refresh(true);
 		};
 		events.onmessage = (event) => {
 			if (lifetime !== owner || stream !== events) return;
@@ -588,7 +727,7 @@ function createChannelSource(transport) {
 		reconnectToken = token;
 		const wait = backoffMs(attempt);
 		attempt += 1;
-		set({
+		if (snapshot.phase !== "locked" && snapshot.phase !== "unavailable" && snapshot.phase !== "unauthorized") set({
 			phase: "reconnecting",
 			error: void 0
 		});
@@ -685,9 +824,33 @@ function createChannelSource(transport) {
 			throw error;
 		}
 	};
+	/**
+	* #197: stream one file to the service and return the metadata the message names.
+	* The bytes never pass through the message JSON, so the size cap is the service's
+	* `maxUploadBytes` instead of MAX_MESSAGE_BODY.
+	*/
+	const upload = async (file, onProgress, signal) => {
+		if (file.size > uploadLimit) throw new UploadTooLarge(file.name, file.size, uploadLimit);
+		if (transport.upload === void 0) throw new Error("This browser cannot stream uploads");
+		const { status, body } = await transport.upload(transport.url(uploadUrl(file)), file, onProgress ?? (() => {}), signal);
+		const value = body;
+		if (status === 413) {
+			uploadLimit = Number(value?.max_upload_bytes ?? uploadLimit);
+			throw new UploadTooLarge(file.name, file.size, uploadLimit);
+		}
+		const stored = value?.attachment;
+		if (status >= 400 || stored?.id === void 0) throw new ServiceError(status, value?.error ?? "Upload failed");
+		return {
+			id: stored.id,
+			name: stored.name ?? file.name,
+			mime: stored.mime ?? file.type,
+			size: stored.size ?? file.size
+		};
+	};
 	return {
 		source,
 		actions: {
+			uploadAttachment: upload,
 			async reviewTask(id, verdict, note) {
 				const { task } = await request(`collab/api/tasks/${id}/review`, json("POST", {
 					verdict,
@@ -706,8 +869,8 @@ function createChannelSource(transport) {
 				set({ tasks: [...(snapshot.tasks ?? []).filter((row) => row.id !== task.id), task] });
 			},
 			selectRoom,
-			async send(text, replyTo, attachments) {
-				const roomId = snapshot.roomId;
+			async send(text, replyTo, attachments, targetRoomId) {
+				const roomId = targetRoomId ?? snapshot.roomId;
 				if (roomId === void 0) throw new Error("No channel is open");
 				await post(roomId, randomUUID(), text, replyTo, attachments);
 			},
@@ -16648,6 +16811,44 @@ function softBreaksToHard(text) {
 	for (let k = breaks.length - 1; k >= 0; k--) out = out.slice(0, breaks[k]) + "  " + out.slice(breaks[k]);
 	return out;
 }
+// src/client/collab-url.ts
+/**
+* #236: which DSH a channels panel talks to. The local panel uses the collab paths as they are
+* (`collab/api/…`, relative to document.baseURI); a panel opened from 其他电脑 on a paired
+* computer sends the same paths through this DSH's forwarder `collab/remote/<link>/…`
+* (dsh/collab/pairing.mjs remoteProxyRoute), so mentions, avatars, replies, attachments and the
+* task board all read and write the other computer and never this one.
+*/
+/** Local panel: paths stay as they are. */
+const localCollabUrl = (path) => path;
+/** A paired link id, as dsh/collab/pairing.mjs PairClient issues them (randomUUID). */
+const LINK_ID = /^[0-9a-f-]{36}$/;
+/**
+* Paths of a paired computer, through this DSH's remote forwarder.
+* @param linkId - link id from `GET collab/api/remote/links`.
+* @returns the path mapper; non-collab paths (http links) are left alone.
+*/
+function remoteCollabUrl(linkId) {
+	if (!LINK_ID.test(linkId)) throw new Error(`bad remote link id: ${linkId}`);
+	const mount = `collab/remote/${linkId}/`;
+	return (path) => path.startsWith("collab/") ? mount + path.slice(7) : path;
+}
+/**
+* Same transport with its paths sent to a paired computer.
+* @param base - transport bound to this page (browserTransport).
+* @param map - path mapper from remoteCollabUrl.
+* @returns the remote transport.
+*/
+function mappedTransport(base, map) {
+	return {
+		...base,
+		url: (path) => base.url(map(path))
+	};
+}
+/** The mapper of the panel a component renders in; the local panel when none is provided. */
+const CollabUrlContext = (0, react.createContext)(localCollabUrl);
+/** Read the mapper of the surrounding channels panel. */
+const useCollabUrl = () => (0, react.useContext)(CollabUrlContext);
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
 	"activeBusy": "dshc_activeBusy",
@@ -16789,6 +16990,10 @@ var ChannelsPage_module_default = {
 	"imagePreviewImage": "dshc_imagePreviewImage",
 	"imagePreviewTrigger": "dshc_imagePreviewTrigger",
 	"input": "dshc_input",
+	"inputComposing": "dshc_inputComposing",
+	"inputHighlights": "dshc_inputHighlights",
+	"inputMention": "dshc_inputMention",
+	"inputSurface": "dshc_inputSurface",
 	"jumpCount": "dshc_jumpCount",
 	"jumpLatest": "dshc_jumpLatest",
 	"leadCard": "dshc_leadCard",
@@ -16962,6 +17167,9 @@ var ChannelsPage_module_default = {
 	"undoToast": "dshc_undoToast",
 	"unreadBadge": "dshc_unreadBadge",
 	"unreadDivider": "dshc_unreadDivider",
+	"uploadBar": "dshc_uploadBar",
+	"uploadFill": "dshc_uploadFill",
+	"uploadState": "dshc_uploadState",
 	"withdrawnRow": "dshc_withdrawnRow",
 	"working": "dshc_working",
 	"workspace": "dshc_workspace"
@@ -17027,8 +17235,10 @@ function useScheme() {
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
 const isAudio = (mime) => mime.startsWith("audio/");
-const size = (bytes) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+const size = formatBytes;
 function ImageAttachment({ attachment: a, t }) {
+	const url = useCollabUrl();
+	const attachmentUrl$1 = (id) => url(attachmentUrl(id));
 	const [opened, setOpened] = (0, react.useState)(false);
 	const trigger = (0, react.useRef)(null);
 	const dialog = (0, react.useRef)(null);
@@ -17060,7 +17270,7 @@ function ImageAttachment({ attachment: a, t }) {
 				setCopyState("error");
 				return;
 			}
-			const response = await fetch(attachmentUrl(a.id));
+			const response = await fetch(attachmentUrl$1(a.id));
 			if (!response.ok) throw new Error("Image download failed");
 			const blob = await response.blob();
 			await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
@@ -17072,7 +17282,7 @@ function ImageAttachment({ attachment: a, t }) {
 	const copyLabel = t(copyState === "copied" ? "attachmentCopied" : copyState === "copying" ? "attachmentCopying" : "attachmentCopy");
 	const actions = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
 		className: copyState === "error" ? ChannelsPage_module_default.primaryButton : ChannelsPage_module_default.secondaryButton,
-		href: attachmentUrl(a.id),
+		href: attachmentUrl$1(a.id),
 		download: a.name,
 		target: "_blank",
 		rel: "noreferrer",
@@ -17108,7 +17318,7 @@ function ImageAttachment({ attachment: a, t }) {
 				onClick: () => setOpened(true),
 				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
 					className: ChannelsPage_module_default.attachmentImage,
-					src: attachmentUrl(a.id),
+					src: attachmentUrl$1(a.id),
 					alt: a.name,
 					loading: "lazy"
 				})
@@ -17164,7 +17374,7 @@ function ImageAttachment({ attachment: a, t }) {
 						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
 							className: ChannelsPage_module_default.imagePreviewImage,
-							src: attachmentUrl(a.id),
+							src: attachmentUrl$1(a.id),
 							alt: a.name
 						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -17180,6 +17390,8 @@ function ImageAttachment({ attachment: a, t }) {
 }
 /** Thumbnails for images, a download card for other files. */
 function AttachmentList({ attachments, t }) {
+	const url = useCollabUrl();
+	const attachmentUrl$2 = (id) => url(attachmentUrl(id));
 	if (attachments === void 0 || attachments.length === 0) return null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: ChannelsPage_module_default.attachments,
@@ -17191,11 +17403,11 @@ function AttachmentList({ attachments, t }) {
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("audio", {
 				controls: true,
 				preload: "metadata",
-				src: attachmentUrl(a.id),
+				src: attachmentUrl$2(a.id),
 				title: a.name
 			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
 				className: ChannelsPage_module_default.attachmentSize,
-				href: attachmentUrl(a.id),
+				href: attachmentUrl$2(a.id),
 				download: a.name,
 				children: [
 					a.name,
@@ -17205,7 +17417,7 @@ function AttachmentList({ attachments, t }) {
 			})]
 		}, a.id) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
 			className: ChannelsPage_module_default.attachmentFile,
-			href: attachmentUrl(a.id),
+			href: attachmentUrl$2(a.id),
 			download: a.name,
 			children: [
 				"📎 ",
@@ -17225,13 +17437,11 @@ const eventFiles = (list) => list === null ? [] : Array.from(list.files);
 * Composer helpers: an attach button with its hidden file input, the pending
 * list with remove buttons, and paste/drop handlers for the textarea.
 */
-function useComposerAttachments(add, onError) {
+function useComposerAttachments(add) {
 	const inputRef = (0, react.useRef)(null);
 	const take = (files) => {
 		if (files.length === 0) return;
-		Promise.all(files.map(readAttachment)).then(add).catch((error) => {
-			onError(error instanceof Error ? error.message : String(error));
-		});
+		add(files);
 	};
 	return {
 		onPaste(event) {
@@ -17281,37 +17491,67 @@ function useComposerAttachments(add, onError) {
 		}
 	};
 }
-/** Files waiting to be sent with the next message. */
-function PendingAttachments({ files, onRemove, removeLabel }) {
+/** Files waiting to be sent with the next message, each with its upload progress. */
+function PendingAttachments({ files, onRemove, removeLabel, labels }) {
 	if (files.length === 0) return null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: ChannelsPage_module_default.attachments,
-		children: files.map((f, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-			className: ChannelsPage_module_default.attachmentFile,
-			children: [
-				isImage(f.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
-					className: ChannelsPage_module_default.attachmentThumb,
-					src: `data:${f.mime};base64,${f.data}`,
-					alt: f.name
-				}) : "📎",
-				" ",
-				f.name,
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ChannelsPage_module_default.replyCancel,
-					title: removeLabel,
-					"aria-label": removeLabel,
-					onClick: () => onRemove(i),
-					children: "×"
-				})
-			]
-		}, `${i}-${f.name}`))
+		children: files.map((f) => {
+			const percent = Math.round(f.progress * 100);
+			const state = f.error !== void 0 ? f.error : f.attachment !== void 0 ? "" : percent > 0 ? labels.uploading : labels.queued;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				className: ChannelsPage_module_default.attachmentFile,
+				"data-state": f.error !== void 0 ? "failed" : f.attachment !== void 0 ? "done" : "uploading",
+				children: [
+					f.preview !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+						className: ChannelsPage_module_default.attachmentThumb,
+						src: f.preview,
+						alt: f.name
+					}) : "📎",
+					" ",
+					f.name,
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.attachmentSize,
+						children: size(f.size)
+					}),
+					f.attachment === void 0 && f.error === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.uploadBar,
+						role: "progressbar",
+						"aria-valuenow": percent,
+						"aria-valuemin": 0,
+						"aria-valuemax": 100,
+						"aria-label": `${f.name} ${percent}%`,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ChannelsPage_module_default.uploadFill,
+							style: { width: `${percent}%` }
+						})
+					}),
+					state !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.uploadState,
+						children: state
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ChannelsPage_module_default.replyCancel,
+						title: removeLabel,
+						"aria-label": removeLabel,
+						onClick: () => onRemove(f.key),
+						children: "×"
+					})
+				]
+			}, f.key);
+		})
 	});
 }
 // src/client/PanelPages.module.css
 var PanelPages_module_default = {
 	"embed": "dshc_embed",
-	"frame": "dshc_frame"
+	"frame": "dshc_frame",
+	"remote": "dshc_remote",
+	"remoteBack": "dshc_remoteBack",
+	"remoteBar": "dshc_remoteBar",
+	"remoteBody": "dshc_remoteBody",
+	"remoteName": "dshc_remoteName"
 };
 // src/client/EmbedPage.tsx
 /**
@@ -17344,10 +17584,10 @@ function firstWebLink(text) {
 	return /https?:\/\/[^\s<>()\]"'`]+/i.exec(text)?.[0].replace(/[.,;:!?。，；：！？]+$/, "");
 }
 /** The web page this message delivers: an .html upload first, else the first link. */
-function deliverableOf(message) {
+function deliverableOf(message, url = (path) => path) {
 	const page = message.attachments?.find(isHtmlAttachment);
 	if (page !== void 0) return {
-		src: `${attachmentUrl(page.id)}?view=page`,
+		src: `${url(attachmentUrl(page.id))}?view=page`,
 		title: page.name,
 		sameOrigin: true
 	};
@@ -18495,7 +18735,8 @@ const GROUP_TITLE = {
 	model: "slashGroupModel",
 	view: "slashGroupView"
 };
-function SlashMenu({ commands, selected, target, dmName, disabled = () => false, grouped, t, onPick, onHover }) {
+function SlashMenu({ commands, selected, target, leadName, dmName, disabled = () => false, grouped, t, onPick, onHover }) {
+	const noCmd = dmName ?? leadName;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: `${ChannelsPage_module_default.mentionPopup} ${ChannelsPage_module_default.slashPopup}`,
 		role: "region",
@@ -18503,7 +18744,7 @@ function SlashMenu({ commands, selected, target, dmName, disabled = () => false,
 		children: [
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.mentionTitle,
-				children: target !== void 0 ? t("slashTitleLead", { name: target }) : dmName !== void 0 ? t("slashTitleDmNoCmd", { name: dmName }) : t("slashTitleNoLead")
+				children: target !== void 0 ? t("slashTitleLead", { name: target }) : noCmd !== void 0 ? t("slashTitleDmNoCmd", { name: noCmd }) : t("slashTitleNoLead")
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				role: "listbox",
@@ -18810,8 +19051,246 @@ function insertMention(text, caret, member) {
 * Highlights valid channel members/roles as pill badges (Discord-style),
 * cleanly separated from regular text, without false positives in code or emails.
 */
+const FENCE = "```";
 function escapeRegex(s) {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/**
+* True when the text holds a blank line: two line endings with only spaces or tabs between.
+* A `code span` cannot cross one — the blank line ends the paragraph, so the renderer closes the
+* span before it (#245: `@肥鱼` + blank line + `@G哥` inside one pair of backticks is plain text
+* on the page, and must be plain text on the backend too).
+*/
+function hasBlankLine(text) {
+	return /\n[ \t]*\n/.test(text.replace(/\r\n?/g, "\n"));
+}
+const HTML_BLOCK_TAGS = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+const HTML_BLOCK_TAG = new RegExp(`^ {0,3}</?(?:${HTML_BLOCK_TAGS})(?:[ \\t]|/?>|$)`, "i");
+const HTML_ANY_TAG = /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?[ \t]*\/?>[ \t]*$/;
+const LIST_MARKER = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)/;
+const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
+/** Columns the leading indent of `text` covers, starting from column `base`. */
+function indentWidth(text, base = 0) {
+	let col = base;
+	for (const ch of text) if (ch === " ") col += 1;
+	else if (ch === "	") col += 4 - col % 4;
+	else break;
+	return col - base;
+}
+/**
+* The blockquote prefix at `line[i]` (three spaces at most, then `>` and one optional blank), read
+* from column `col`; `{ next, col }` after it, or undefined when the line has none there.
+*/
+function quotePrefixAt(line, from, col) {
+	let i = from;
+	let at = col;
+	let spaces = 0;
+	while (spaces < 4 && line[i] === " ") {
+		i++;
+		at++;
+		spaces++;
+	}
+	if (spaces > 3 || line[i] !== ">") return void 0;
+	i++;
+	at++;
+	if (line[i] === " " || line[i] === "	") {
+		at += line[i] === "	" ? 4 - at % 4 : 1;
+		i++;
+	}
+	return {
+		next: i,
+		col: at
+	};
+}
+/** Strips every blockquote marker of a line, so its content can be measured from column 0. */
+function stripQuotes(line) {
+	let i = 0;
+	let col = 0;
+	let depth = 0;
+	for (;;) {
+		const prefix = quotePrefixAt(line, i, col);
+		if (!prefix) return {
+			rest: line.slice(i),
+			depth,
+			col
+		};
+		i = prefix.next;
+		col = prefix.col;
+		depth++;
+	}
+}
+/**
+* Column where a list item's content begins, or undefined when the line is not a list item. An
+* empty marker (`1.` alone on its line) cannot open a list inside a paragraph, so it counts as
+* neither.
+*/
+function itemContentIndent(line) {
+	const { rest, col } = stripQuotes(line);
+	const lead = indentWidth(rest, col);
+	if (lead >= 4) return void 0;
+	const body = rest.slice(/^[ \t]*/.exec(rest)[0].length);
+	const marker = LIST_MARKER.exec(body);
+	if (!marker) return void 0;
+	if (body.slice(marker[0].length).trim() === "") return void 0;
+	const gap = /^[ \t]*/.exec(body.slice(marker[0].length))[0];
+	const padding = gap === "" ? 1 : Math.min(indentWidth(gap, col + lead + marker[0].length), 4);
+	return lead + marker[0].length + padding;
+}
+/**
+* True when a line whose content starts with `content` opens one of the block-level structures
+* this rule knows, ending the paragraph before it: ATX headings, setext underlines, thematic
+* breaks, backtick fences, list items, HTML blocks and a further quote marker. Tilde fences and
+* math blocks also end a paragraph in CommonMark, but the backend reads neither, so treating them
+* as spans keeps a different bug out of this change (#259 stays on the six families the report
+* names; the deviation list above splitMentions() records both). A footnote definition is handled
+* by footnoteRanges(), not here: it ends a body, not the paragraph a code span sits in (#271).
+* `container` is set for a line that lazily continues an outer container: there a bare list
+* marker or a lone HTML tag already opens a block the paragraph cannot hold.
+*/
+function startsBlock(content, setext = true, container = false) {
+	if (indentWidth(content) >= 4) return false;
+	if (container && /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/.test(content)) return true;
+	if (container && HTML_ANY_TAG.test(content)) return true;
+	return /^ {0,3}#{1,6}(?:[ \t]|$)/.test(content) || setext && /^ {0,3}(?:=+|-+)[ \t]*$/.test(content) || /^ {0,3}(?:[*\-_][ \t]*){3,}$/.test(content) || /^ {0,3}`{3,}[^`]*$/.test(content) || /^ {0,3}>/.test(content) || /^ {0,3}[-*+][ \t]+\S/.test(content) || /^ {0,3}1[.)][ \t]+\S/.test(content) || /^ {0,3}<(?:script|pre|style|textarea)(?:[ \t>]|$)/i.test(content) || /^ {0,3}<!--/.test(content) || /^ {0,3}<\?/.test(content) || /^ {0,3}<![A-Za-z]/.test(content) || /^ {0,3}<!\[CDATA\[/.test(content) || HTML_BLOCK_TAG.test(content);
+}
+/**
+* [start, end) offsets of every physical line; CRLF, CR and LF all end one. Read once per
+* codeSpanRanges() call and handed to lineIndex(), not rescanned per backtick run (#271: doing
+* that cost O(runs × lines) — 128 KiB of one-backtick lines took 54 s inside hub.post's
+* transaction).
+*/
+function splitLines(text) {
+	const lines = [];
+	for (let start = 0; start <= text.length;) {
+		let end = start;
+		while (end < text.length && text[end] !== "\n" && text[end] !== "\r") end++;
+		lines.push([start, end]);
+		if (end >= text.length) break;
+		start = text[end] === "\r" && text[end + 1] === "\n" ? end + 2 : end + 1;
+	}
+	return lines;
+}
+/**
+* The line holding `offset`: the last line that starts at or before it. `splitLines` covers the
+* whole text contiguously, so that is the line `offset` sits on, or the one that ends there.
+*/
+function lineAt(lines, offset) {
+	let lo = 0;
+	let hi = lines.length - 1;
+	while (lo < hi) {
+		const mid = lo + hi + 1 >> 1;
+		if (lines[mid][0] <= offset) lo = mid;
+		else hi = mid - 1;
+	}
+	return lo;
+}
+function lineFacts(text, lines, i) {
+	const line = text.slice(lines[i][0], lines[i][1]);
+	const { rest, depth, col } = stripQuotes(line);
+	return {
+		blank: line.trim() === "",
+		fence: FENCE_LINE.test(line),
+		itemIndent: itemContentIndent(line),
+		rest,
+		depth,
+		col,
+		atDepth: startsBlock(rest, false, true)
+	};
+}
+function lineIndex(text) {
+	const lines = splitLines(text);
+	const facts = lines.map((_, i) => lineFacts(text, lines, i));
+	const contained = new Array(lines.length);
+	for (let i = 0; i < lines.length; i++) {
+		const f = facts[i];
+		if (f.blank || f.fence) {
+			contained[i] = {
+				baseIndent: 0,
+				depth: 0
+			};
+			continue;
+		}
+		const run = i > 0 && !facts[i - 1].blank && !facts[i - 1].fence ? contained[i - 1] : void 0;
+		contained[i] = {
+			baseIndent: f.itemIndent !== void 0 ? f.itemIndent : run ? run.baseIndent : 0,
+			depth: Math.max(f.depth, run ? run.depth : 0)
+		};
+	}
+	return {
+		lines,
+		facts,
+		contained
+	};
+}
+/**
+* True when the text between an opening and a closing backtick run holds something that ends the
+* paragraph, so the run cannot close the span (#259): a blank line, or a line that opens a
+* block-level structure. The renderer decides this inside the containers the span sits in, so the
+* list item's content indent and the blockquote depth of the opening line are carried along, and
+* a line that lazily continues an outer container is judged by what it would start there.
+*
+* `index` is the lineIndex(text) of the whole text, shared by every pair (#271): rebuilt per pair
+* it cost O(runs × lines), 128 KiB of one-backtick lines taking 54 s.
+*/
+function endsParagraph(text, from, to, index) {
+	if (hasBlankLine(text.slice(from, to))) return true;
+	const { lines, facts, contained } = index;
+	const openLine = lineAt(lines, from);
+	const { baseIndent, depth: openDepth } = contained[openLine];
+	for (let i = openLine + 1; i < lines.length && lines[i][0] < to; i++) {
+		const f = facts[i];
+		if (f.rest.trim() === "") return true;
+		if (f.depth > openDepth) return true;
+		if (f.depth < openDepth) {
+			if (f.atDepth) return true;
+			continue;
+		}
+		const indent = indentWidth(f.rest, f.col) - baseIndent;
+		if (startsBlock(" ".repeat(Math.max(0, indent)) + f.rest.trimStart(), indent >= 0, indent < 0)) return true;
+	}
+	return false;
+}
+/**
+* Offsets of Markdown inline code spans, [start, end) each, matching what the markdown renderer
+* turns into <code> and the backend skips (dsh/collab/mentions.mjs codeSpanRanges — keep them in
+* step). A span is a run of backticks closed by a run of the same length inside the same
+* paragraph; it may hold single line breaks but nothing that ends the paragraph (a blank line
+* #245, or a block-level structure #259). A lone backtick stays literal text, and runs of three
+* or more are fences, left to fencedRanges().
+*/
+function codeSpanRanges(text) {
+	const runs = [];
+	for (let i = 0; i < text.length;) {
+		if (text[i] !== "`") {
+			i++;
+			continue;
+		}
+		let j = i;
+		while (j < text.length && text[j] === "`") j++;
+		runs.push({
+			start: i,
+			len: j - i
+		});
+		i = j;
+	}
+	const ranges = [];
+	let index;
+	for (let k = 0; k < runs.length; k++) {
+		const { start, len } = runs[k];
+		if (len >= 3) continue;
+		for (let c = k + 1; c < runs.length; c++) {
+			if (runs[c].len !== len) continue;
+			if (endsParagraph(text, start + len, runs[c].start, index ??= lineIndex(text))) break;
+			ranges.push([start + len, runs[c].start]);
+			k = c;
+			break;
+		}
+	}
+	return ranges;
+}
+/** True when [index, index + len) overlaps any excluded range. */
+function overlaps(ranges, index, len) {
+	return ranges.some(([start, end]) => index < end && index + len > start);
 }
 /**
 * Builds a regex matcher and lookup map for channel member mention aliases.
@@ -18846,7 +19325,287 @@ function buildMentionMatcher(members) {
 	};
 }
 /**
-* Splits plain text into non-mention and mention segments.
+* Offsets of ``` fenced blocks, [start, end) each, the way the backend reads them
+* (dsh/collab/mentions.mjs split(): text.split('```') and odd parts are inside a fence).
+* An unterminated fence runs to the end of the text, as it does there.
+*/
+function fencedRanges(text) {
+	const ranges = [];
+	let open = -1;
+	let at = text.indexOf(FENCE);
+	while (at >= 0) {
+		if (open < 0) open = at + 3;
+		else {
+			ranges.push([open, at]);
+			open = -1;
+		}
+		at = text.indexOf(FENCE, at + 3);
+	}
+	if (open >= 0) ranges.push([open, text.length]);
+	return ranges;
+}
+/** A definition line: `[^label]:` at 0-3 columns, the label holding no space or bracket. */
+const FOOTNOTE_DEF = /^ {0,3}\[\^([^\]\s]+)\]:/;
+/** A line that opens an HTML block (CommonMark types 1-6): its lines are raw until a blank one. */
+const HTML_OPEN = new RegExp(`^ {0,3}(?:<(?:script|pre|style|textarea)(?:[ \\t>]|$)|<!--|<\\?|<![A-Za-z]|<!\\[CDATA\\[|</?(?:${HTML_BLOCK_TAGS})(?:[ \\t>]|/?>|$))`, "i");
+/**
+* True when a line at 0-3 columns opens a block, so it ends a footnote body before it. A setext
+* underline (`===`, `--`) is absorbed by the definition's own paragraph and does not end it, while
+* a bare `-` or `1.` does, because it opens a list. A tilde fence is left out on purpose: it ends a
+* body in CommonMark, but the backend reads only ``` fences (#259), and the footnote rule stays on
+* the same side of that gap.
+*/
+function endsDefinitionBody(rest) {
+	if (indentWidth(rest) >= 4) return false;
+	const c = rest.replace(/^[ \t]*/, "");
+	if (/^(?:[*\-_][ \t]*){3,}$/.test(c)) return true;
+	if (/^(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/.test(c)) return true;
+	if (/^(?:=+|-+)[ \t]*$/.test(c)) return false;
+	return /^#{1,6}(?:[ \t]|$)/.test(c) || /^\$\$/.test(c) || /^ {0,3}`{3,}[^`]*$/.test(c) || /^>/.test(c) || /^ {0,3}<(?:script|pre|style|textarea)(?:[ \t>]|$)/i.test(c) || /^ {0,3}<!--/.test(c) || /^ {0,3}<\?/.test(c) || /^ {0,3}<![A-Za-z]/.test(c) || /^ {0,3}<!\[CDATA\[/.test(c) || HTML_BLOCK_TAG.test(c) || HTML_ANY_TAG.test(c);
+}
+/**
+* Ranges whose lines the renderer does not read as Markdown at all, so a `[^x]:` inside one is
+* plain text and not a definition: backtick fences, `~~~` fences and `$$` math blocks.
+*/
+function footnoteOpaqueRanges(text) {
+	const ranges = [...fencedRanges(text)];
+	for (const open of [/^ {0,3}~{3,}/, /^ {0,3}\$\$/]) {
+		let start = -1;
+		let at = 0;
+		for (const line of text.split("\n")) {
+			if (open.test(line)) {
+				if (start < 0) start = at;
+				else {
+					ranges.push([start, at + line.length]);
+					start = -1;
+				}
+			}
+			at += line.length + 1;
+		}
+		if (start >= 0) ranges.push([start, text.length]);
+	}
+	return ranges;
+}
+/** Lines of an HTML block: from its opening line to the line before the next blank one. */
+function htmlBlockRegions(text, lines) {
+	const regions = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (!HTML_OPEN.test(text.slice(lines[i][0], lines[i][1]))) continue;
+		let end = i;
+		while (end + 1 < lines.length && text.slice(lines[end + 1][0], lines[end + 1][1]).trim() !== "") end++;
+		regions.push([lines[i][0], lines[end][1]]);
+		i = end;
+	}
+	return regions;
+}
+/**
+* Every footnote definition in the text with the container it sits in: `depth` quote markers and
+* `base` the content indent of the list item that holds it (0 at the top level). Read from the
+* first line only, which is enough to walk the body.
+*
+* `marker` is where the `[^label]:` marker of the line ends. Only that prefix is invisible on the
+* page; the text after it is the definition's own body and shows up in the footnote section, so a
+* reference there is a reference a reader can see (#271).
+*/
+function footnoteDefs(text, lines) {
+	const defs = [];
+	const opaque = [...footnoteOpaqueRanges(text), ...htmlBlockRegions(text, lines)];
+	const inside = (offset) => opaque.some(([start, end]) => offset >= start && offset < end);
+	for (let i = 0; i < lines.length; i++) {
+		if (inside(lines[i][0])) continue;
+		const { rest, depth, col } = stripQuotes(text.slice(lines[i][0], lines[i][1]));
+		let m = FOOTNOTE_DEF.exec(rest);
+		if (m) {
+			defs.push({
+				line: i,
+				label: m[1],
+				depth,
+				base: 0,
+				marker: lines[i][1] - rest.length + m[0].length
+			});
+			continue;
+		}
+		const marker = LIST_MARKER.exec(rest);
+		if (!marker) continue;
+		const after = rest.slice(marker[0].length);
+		const gap = /^[ \t]*/.exec(after)[0];
+		if (gap === "") continue;
+		const indent = indentWidth(gap, col + marker[0].length);
+		const content = after.slice(gap.length);
+		const pad = content.length < 4 ? Math.min(indent, 3) : 0;
+		m = FOOTNOTE_DEF.exec(" ".repeat(pad) + content);
+		if (m && indent < 4) defs.push({
+			line: i,
+			label: m[1],
+			depth,
+			base: indent,
+			marker: lines[i][1] - content.length + m[0].length - pad
+		});
+	}
+	return defs;
+}
+/**
+* Last line of the body of `def`, walking the lines its paragraph covers.
+*
+* Two collected definitions can never sit inside one body: mdast nests a second definition inside
+* the first only when its line is indented four or more columns past the first one's content
+* column, and such a line is never collected as a definition (footnoteDefs() reads `[^x]:` at 0-3
+* columns only, like every other list marker). A line it does collect therefore opens a block of
+* its own, so the walk stops there with the last line it really covered — no shortcut needed, and
+* no re-walking either: both bodies end before the next definition line, which keeps the whole
+* pass linear in the text. This says nothing about a *nested* definition the page still renders:
+* that one is not collected here at all, and its page semantics stay a known deviation below.
+*/
+function definitionBodyEnd(text, lines, def, next) {
+	let last = def.line;
+	let open = text.slice(def.marker, lines[def.line][1]).trim() !== "";
+	for (let j = def.line + 1; j < lines.length; j++) {
+		if (j === next) break;
+		const { rest, depth, col } = stripQuotes(text.slice(lines[j][0], lines[j][1]));
+		if (rest.trim() === "") {
+			let k = j;
+			while (k < lines.length) {
+				if (stripQuotes(text.slice(lines[k][0], lines[k][1])).rest.trim() !== "") break;
+				k++;
+			}
+			if (k < lines.length) {
+				const r = stripQuotes(text.slice(lines[k][0], lines[k][1]));
+				if (r.depth >= def.depth && indentWidth(r.rest, r.col) - def.base >= 4) {
+					j = k - 1;
+					last = k - 1;
+					open = true;
+					continue;
+				}
+			}
+			break;
+		}
+		if (depth > def.depth) break;
+		if (depth < def.depth) {
+			if (!open || endsDefinitionBody(rest)) break;
+			last = j;
+			continue;
+		}
+		if (indentWidth(rest, col) - def.base >= 4) {
+			last = j;
+			open = true;
+			continue;
+		}
+		if (endsDefinitionBody(rest)) break;
+		if (!open) break;
+		last = j;
+	}
+	return last;
+}
+/** Ranges sorted and merged, so overlapping and stacked ranges cost one pass. */
+function mergeRanges(ranges) {
+	const sorted = [...ranges].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	const out = [];
+	for (const [start, end] of sorted) {
+		const last = out[out.length - 1];
+		if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+		else out.push([start, end]);
+	}
+	return out;
+}
+/** `text` with every `[start, end)` blanked out, line endings kept so offsets stay put. */
+function maskText(text, ranges) {
+	const chars = text.split("");
+	for (const [start, end] of mergeRanges(ranges)) for (let i = start; i < end && i < chars.length; i++) if (chars[i] !== "\n" && chars[i] !== "\r") chars[i] = " ";
+	return chars.join("");
+}
+/**
+* [start, end) of every hidden footnote definition: the definition line and the lines that
+* continue it, for each label nothing readable refers to. A repeated label keeps only its first
+* definition (the renderer shows that one and drops the rest), and a reference counts only where a
+* reader can see it — not inside a fence, an inline code span, an HTML comment, the `[^x]:` marker
+* of a definition line or another hidden body. The text after the marker of a definition line is
+* the body the page prints in the footnote section, so a reference there does count. The backend
+* applies the same rule in mentions(), so the page and the gate agree on what was called.
+*
+* The early return keeps the cost off ordinary text: without `[^` nothing is scanned at all.
+*/
+function footnoteRanges(text, codeSpans) {
+	if (!text.includes("[^")) return [];
+	const spans = codeSpans ?? codeSpanRanges(text);
+	const lines = splitLines(text);
+	const defs = footnoteDefs(text, lines);
+	if (defs.length === 0) return [];
+	const ends = defs.map((def, k) => definitionBodyEnd(text, lines, def, k + 1 < defs.length ? defs[k + 1].line : void 0));
+	const bodies = defs.map((def, k) => [lines[def.line][0], lines[ends[k]][1]]);
+	const blind = [
+		...spans,
+		...footnoteOpaqueRanges(text),
+		...htmlBlockRegions(text, lines)
+	];
+	for (const def of defs) blind.push([lines[def.line][0], def.marker]);
+	for (const m of text.matchAll(/<!--[\s\S]*?-->/g)) blind.push([m.index, m.index + m[0].length]);
+	const searchable = maskText(text, blind);
+	const first = /* @__PURE__ */ new Map();
+	defs.forEach((def, i) => {
+		const key = def.label.toLowerCase();
+		if (!first.has(key)) first.set(key, i);
+	});
+	const calledOutside = /* @__PURE__ */ new Set();
+	const insideBody = defs.map(() => /* @__PURE__ */ new Set());
+	let body = 0;
+	for (const m of searchable.matchAll(/\[\^([^\]\s]+)\]/g)) {
+		let slashes = 0;
+		for (let i = m.index - 1; i >= 0 && searchable[i] === "\\"; i--) slashes++;
+		if (slashes % 2 !== 0) continue;
+		while (body < bodies.length && bodies[body][1] <= m.index) body++;
+		const owner = body < bodies.length && m.index >= bodies[body][0] ? body : -1;
+		(owner < 0 ? calledOutside : insideBody[owner]).add(m[1].toLowerCase());
+	}
+	const shown = /* @__PURE__ */ new Set();
+	const pending = [];
+	const open = (labels) => {
+		for (const label of labels) {
+			const i = first.get(label);
+			if (i === void 0 || shown.has(i)) continue;
+			shown.add(i);
+			pending.push(i);
+		}
+	};
+	open(calledOutside);
+	while (pending.length > 0) open(insideBody[pending.pop()]);
+	const hidden = [];
+	defs.forEach((def, i) => {
+		if (!shown.has(i)) hidden.push([lines[def.line][0], lines[ends[i]][1]]);
+	});
+	return mergeRanges(hidden);
+}
+/**
+* Known deviations from the page, kept on purpose (#259, #271). Each one showed the same answer
+* before this code was written, so the list is the honest edge of this rule, not a regression:
+*
+* - `~~~` fences: the page renders them as code, the backend reads only ```, so a name inside one
+*   is coloured nowhere and called there.
+* - `$$` math blocks: the page ends a paragraph at one, the backend does not, so a code span that
+*   crosses `$$` holds there and breaks here (nobody called, page colours both names).
+* - A GFM table delimiter row (`|---|`): same shape — the page ends the paragraph, the backend
+*   keeps the span, so nobody is called while the page colours both names.
+* - A four-column indented code block: the page renders it as code and colours nothing, the
+*   backend has no indented-code reader and calls the name. The footnote rule below shares it: a
+*   `[^x]:` line indented four columns is a code block on the page and hidden there, and it is
+*   not a definition here either, so a name on that line is a call there. Likewise a `[^2]` written
+*   only on a four-column line is not a reference on the page, while this backend reads it as one
+*   and shows the `[^2]:` definition the page keeps hidden.
+* - A nested definition — a `[^x]:` line indented four or more columns past the outer body's
+*   content column. The page nests it under the outer footnote and shows it only when its own
+*   label is called; this splitter collects definitions at 0-3 columns only, so that line is never
+*   a definition here. Both matchers then give the same answer, and it is not the page's, in both
+*   directions: `[^1]: a` / four-column `[^2]: 注 @name` / `见 [^1]` colours the name here while
+*   the page renders the outer footnote as `a` with no badge, and with `见 [^2]` nothing is
+*   coloured here while the page does show the badge. Same on bdd67b4 — not a regression of #271,
+*   and #323 corrected the notes instead of widening the implementation.
+* - A code span opened on a block line (`# ` + backtick + name): the paragraph already ended
+*   before the opener, so the page never makes it a span and colours the names; endsParagraph()
+*   only reads the lines between the runs, so the span still holds here.
+*
+* Splits plain text into non-mention and mention segments. An @ inside a ``` fence, an inline
+* code span or a hidden footnote definition is left as text: the backend does not call anyone
+* there (dsh/collab/mentions.mjs), so colouring it would promise a call that never happens (#237,
+* #271).
 */
 function splitMentions(text, members) {
 	if (!text) return [];
@@ -18854,10 +19613,17 @@ function splitMentions(text, members) {
 	if (!matcher) return [{ text }];
 	const { regex, aliasMap } = matcher;
 	const segments = [];
+	const codeSpans = codeSpanRanges(text);
+	const skip = [
+		...fencedRanges(text),
+		...codeSpans,
+		...footnoteRanges(text, codeSpans)
+	];
 	let lastIndex = 0;
 	for (const match of text.matchAll(regex)) {
 		const matchText = match[0];
 		const startIndex = match.index ?? 0;
+		if (overlaps(skip, startIndex, matchText.length)) continue;
 		if (startIndex > lastIndex) segments.push({ text: text.slice(lastIndex, startIndex) });
 		const member = aliasMap.get(matchText);
 		segments.push({
@@ -18999,13 +19765,14 @@ const AVATARS = [
 /**
 * Image source for a member avatar.
 * @param avatar - built-in slug, http(s) URL announced by a bot, or empty.
+* @param url - #236 path mapper of the panel (a paired computer's panel reads its avatars).
 * @returns a URL relative to the document base, the absolute URL, or undefined for the initial badge.
 */
-function avatarSrc(avatar) {
+function avatarSrc(avatar, url = (path) => path) {
 	if (avatar === void 0 || avatar === "") return void 0;
-	if (/^upload:[a-z0-9-]+\.png$/.test(avatar)) return `collab/avatars/uploads/${avatar.slice(7)}`;
+	if (/^upload:[a-z0-9-]+\.png$/.test(avatar)) return url(`collab/avatars/uploads/${avatar.slice(7)}`);
 	if (/^https?:\/\//.test(avatar)) return avatar;
-	return AVATARS.includes(avatar) ? `collab/avatars/${avatar}.png` : void 0;
+	return AVATARS.includes(avatar) ? url(`collab/avatars/${avatar}.png`) : void 0;
 }
 // src/client/Avatar.tsx
 /** Member portrait: a built-in or bot-announced image over a colored initial badge. */
@@ -19026,7 +19793,7 @@ function color(id) {
 }
 /** Member portrait, or a colored initial badge when there is none or the image fails to load. */
 function Avatar({ id, name, avatar, avatarVersion, small }) {
-	const base = avatarSrc(avatar);
+	const base = avatarSrc(avatar, useCollabUrl());
 	const src = base && avatar?.startsWith("upload:") && avatarVersion ? `${base}?v=${avatarVersion}` : base;
 	const [broken, setBroken] = (0, react.useState)(void 0);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
@@ -19116,8 +19883,8 @@ function avatarPng(image, rect) {
 	if (bytes > 262144) throw new AvatarOutputSizeError(bytes);
 	return data;
 }
-async function uploadAvatar(id, png) {
-	const response = await fetch(`collab/api/members/${encodeURIComponent(id)}/avatar`, {
+async function uploadAvatar(id, png, url = (path) => path) {
+	const response = await fetch(url(`collab/api/members/${encodeURIComponent(id)}/avatar`), {
 		method: png === void 0 ? "DELETE" : "POST",
 		headers: { "content-type": "application/json" },
 		...png === void 0 ? {} : { body: JSON.stringify({ png }) }
@@ -19336,6 +20103,7 @@ const DEFAULT_PRESET = "workspace-write";
 * @returns a modal form.
 */
 function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, listPersonas, onSubmit, onClose, t }) {
+	const collabUrl = useCollabUrl();
 	const [name, setName] = (0, react.useState)(member?.name ?? "DSH");
 	const [nameCustomized, setNameCustomized] = (0, react.useState)(member === void 0 ? false : member.nameCustomized);
 	const [keepName, setKeepName] = (0, react.useState)(true);
@@ -19375,7 +20143,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		setError(void 0);
 		try {
 			if (member) {
-				const updated = await uploadAvatar(member.id, png);
+				const updated = await uploadAvatar(member.id, png, collabUrl);
 				setAvatar(updated.avatar ?? "");
 			} else {
 				setPendingPng(png);
@@ -19384,7 +20152,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 			setPreview(png ? `data:image/png;base64,${png}` : void 0);
 		} catch (reason) {
 			const message = reason instanceof Error ? reason.message : String(reason);
-			setError(message === "avatar-png" ? t("memberAvatarPngError") : message === "avatar-size" ? t("memberAvatarSizeError") : message === "avatar-convert" ? t("memberAvatarConvertError") : message);
+			setError(message === "avatar-png" ? t("memberAvatarPngError") : message === "avatar-size" ? t("memberAvatarSizeError") : message === "avatar-convert" ? t("memberAvatarConvertError") : errorText(reason, t));
 		} finally {
 			setBusy(false);
 		}
@@ -19417,7 +20185,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		}).catch((reason) => {
 			if (live) {
 				setRoutes([]);
-				setError(reason instanceof Error ? reason.message : String(reason));
+				setError(errorText(reason, t));
 			}
 		});
 		return () => {
@@ -19435,7 +20203,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		}).catch((reason) => {
 			if (live) {
 				setClis([]);
-				setError(reason instanceof Error ? reason.message : String(reason));
+				setError(errorText(reason, t));
 			}
 		});
 		return () => {
@@ -19449,7 +20217,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		setBusy(true);
 		setError(void 0);
 		const identity = nameCustomized === void 0 ? {} : { nameCustomized };
-		onSubmit(type === "cli" ? {
+		const input = type === "cli" ? {
 			name: name.trim(),
 			...identity,
 			persona,
@@ -19467,8 +20235,9 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 				provider,
 				model
 			} : null
-		}).then(onClose).catch((reason) => {
-			setError(reason instanceof Error ? reason.message : String(reason));
+		};
+		onSubmit(input).then(onClose).catch((reason) => {
+			setError(errorText(reason, t, "member", input.name));
 		}).finally(() => {
 			setBusy(false);
 		});
@@ -19865,7 +20634,7 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 		} catch (error) {
 			setErrors((previous) => ({
 				...previous,
-				[target]: error instanceof Error ? error.message : String(error)
+				[target]: errorText(error, t, target === "basic" ? "room" : "other", name)
 			}));
 		} finally {
 			setSaving((previous) => ({
@@ -20087,7 +20856,7 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 									}).catch((error) => {
 										setErrors((previous) => ({
 											...previous,
-											workspace: error instanceof Error ? error.message : String(error)
+											workspace: errorText(error, t)
 										}));
 									}).finally(() => {
 										setRenewing(false);
@@ -20602,6 +21371,20 @@ function KindTag({ kind, cli, name, t }) {
 function isImeEnter(event) {
 	return Reflect.get(event.nativeEvent, "isComposing") === true || Reflect.get(event.nativeEvent, "keyCode") === 229;
 }
+/**
+* #197: an object URL for an image the composer is about to send, so no base64 copy is
+* held for the thumbnail. A browser or test environment without createObjectURL simply
+* shows the 📎 instead of a preview.
+*/
+function previewOf(file) {
+	if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 8388608) return void 0;
+	if (typeof URL.createObjectURL !== "function") return void 0;
+	try {
+		return URL.createObjectURL(file);
+	} catch {
+		return;
+	}
+}
 /** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
 function compactComposer() {
 	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (max-width: 600px)").matches;
@@ -20698,6 +21481,26 @@ function clockOf(seconds) {
 		minute: "2-digit"
 	});
 }
+/**
+* #216: fill the "held by another DSH" notice from the holder record. A record written by an
+* older build may miss a field, so each one falls back to its own unknown placeholder rather
+* than printing `undefined`. `dataDir` and `lock` come from the refused instance too: a holder
+* that wrote no record still leaves the page able to name the contended directory and file.
+*/
+function lockHolderText(holder, dataDir, lockPath, t) {
+	const unknown = t("lockedUnknown");
+	return {
+		pid: holder?.pid ?? unknown,
+		started: holder?.startedAt === void 0 ? unknown : new Date(holder.startedAt).toLocaleString([], {
+			month: "numeric",
+			day: "numeric",
+			hour: "2-digit",
+			minute: "2-digit"
+		}),
+		dataDir: holder?.dataDir ?? dataDir ?? unknown,
+		lock: lockPath ?? unknown
+	};
+}
 /** #1020: the memory entries a reply used — a small badge that opens to their titles. */
 function MemoryBadge({ items, t }) {
 	const [open, setOpen] = (0, react.useState)(false);
@@ -20740,6 +21543,7 @@ function MemoryBadge({ items, t }) {
 }
 const LONG_PRESS_MS = 450;
 function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }) {
+	const collabUrl = useCollabUrl();
 	const labels = (0, react.useMemo)(() => ({
 		code: {
 			copyLabel: t("copyCode"),
@@ -20899,7 +21703,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 	const taskCards = anchored.filter((task) => task.parent_task === null || !anchoredIds.has(task.parent_task));
 	const progressLines = role === "progress" ? shown.split("\n") : [];
 	const deliveredFor = deliveredTasks(message, tasks);
-	const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message) : void 0;
+	const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message, collabUrl) : void 0;
 	const delivered = deliveredPage === void 0 ? void 0 : {
 		page: deliveredPage,
 		task: deliveredFor.find((task) => task.status === "returned") ?? deliveredFor[0]
@@ -21465,7 +22269,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }) {
 	const scheme = useScheme();
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
@@ -21476,28 +22280,92 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const [sending, setSending] = (0, react.useState)({});
 	const [replies, setReplies] = (0, react.useState)({});
 	const [pendingFiles, setPendingFiles] = (0, react.useState)({});
-	const attach = useComposerAttachments((files) => {
+	const pendingRef = (0, react.useRef)(pendingFiles);
+	const updateFiles = (update) => {
+		pendingRef.current = update(pendingRef.current);
+		setPendingFiles(pendingRef.current);
+	};
+	const uploading = (0, react.useRef)(/* @__PURE__ */ new Map());
+	const patchFile = (roomId, key, change) => {
+		updateFiles((previous) => ({
+			...previous,
+			[roomId]: (previous[roomId] ?? []).map((file) => file.key === key ? change(file) : file)
+		}));
+	};
+	const limit = state.maxUploadBytes ?? 1073741824;
+	const attach = useComposerAttachments((picked) => {
 		const roomId = state.roomId;
 		if (roomId === void 0) return;
-		const next = [...pendingFiles[roomId] ?? [], ...files];
-		if (messageTooLarge(drafts[roomId] ?? "", next)) {
-			setErrors((previous) => ({
-				...previous,
-				[roomId]: t("attachmentsTooLarge", { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` })
-			}));
-			return;
-		}
-		setPendingFiles((previous) => ({
+		const added = picked.map((file) => {
+			const preview = previewOf(file);
+			return {
+				key: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+				name: file.name || "pasted",
+				mime: file.type || "application/octet-stream",
+				size: file.size,
+				progress: 0,
+				...preview === void 0 ? {} : { preview },
+				...uploadAttachment === void 0 ? { error: t("uploadUnsupported") } : file.size > limit ? { error: t("attachmentTooLarge", {
+					name: file.name || "pasted",
+					size: formatBytes(file.size),
+					limit: formatBytes(limit)
+				}) } : {}
+			};
+		});
+		updateFiles((previous) => ({
 			...previous,
-			[roomId]: next
+			[roomId]: [...previous[roomId] ?? [], ...added]
 		}));
-	}, (message) => {
-		const roomId = state.roomId;
-		if (roomId !== void 0) setErrors((previous) => ({
-			...previous,
-			[roomId]: t("sendFailed", { message })
-		}));
+		picked.forEach((file, index) => {
+			const entry = added[index];
+			if (entry.error !== void 0 || uploadAttachment === void 0) return;
+			const controller = new AbortController();
+			const done = uploadAttachment(file, (sent, total) => {
+				patchFile(roomId, entry.key, (current) => ({
+					...current,
+					progress: total === 0 ? 1 : Math.min(1, sent / total)
+				}));
+			}, controller.signal).then((attachment) => {
+				patchFile(roomId, entry.key, (current) => ({
+					...current,
+					progress: 1,
+					attachment
+				}));
+			}).catch((error) => {
+				patchFile(roomId, entry.key, (current) => ({
+					...current,
+					error: error instanceof UploadTooLarge ? t("attachmentTooLarge", {
+						name: error.fileName,
+						size: formatBytes(error.size),
+						limit: formatBytes(error.limit)
+					}) : t("uploadFailed", {
+						name: current.name,
+						message: error instanceof Error ? error.message : String(error)
+					})
+				}));
+			}).finally(() => {
+				uploading.current.delete(entry.key);
+			});
+			uploading.current.set(entry.key, {
+				done,
+				controller
+			});
+		});
 	});
+	const removeFile = (roomId, key) => {
+		const gone = (pendingRef.current[roomId] ?? []).find((file) => file.key === key);
+		if (gone?.preview !== void 0) URL.revokeObjectURL(gone.preview);
+		uploading.current.get(key)?.controller.abort();
+		uploading.current.delete(key);
+		updateFiles((previous) => ({
+			...previous,
+			[roomId]: (previous[roomId] ?? []).filter((file) => file.key !== key)
+		}));
+	};
+	(0, react.useEffect)(() => () => {
+		for (const job of uploading.current.values()) job.controller.abort();
+		for (const room of Object.values(pendingRef.current)) for (const file of room) if (file.preview !== void 0) URL.revokeObjectURL(file.preview);
+	}, []);
 	const pendingRooms = (0, react.useRef)(/* @__PURE__ */ new Set());
 	const draft = state.roomId === void 0 ? "" : drafts[state.roomId] ?? "";
 	const sendError = state.roomId === void 0 ? void 0 : errors[state.roomId];
@@ -21519,6 +22387,24 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		pendingWithdrawRef.current?.commit();
 	}, []);
 	const inputRef = (0, react.useRef)(null);
+	const inputHighlightsRef = (0, react.useRef)(null);
+	const [composing, setComposing] = (0, react.useState)(false);
+	const syncInputHighlights = () => {
+		const input = inputRef.current;
+		const highlights = inputHighlightsRef.current;
+		if (!input || !highlights) return;
+		highlights.style.width = `${input.getBoundingClientRect().width - (input.offsetWidth - input.clientWidth)}px`;
+		highlights.scrollTop = input.scrollTop;
+		highlights.scrollLeft = input.scrollLeft;
+	};
+	(0, react.useLayoutEffect)(() => {
+		syncInputHighlights();
+		const input = inputRef.current;
+		if (!input || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(syncInputHighlights);
+		observer.observe(input);
+		return () => observer.disconnect();
+	}, [draft, state.roomId]);
 	const [caret, setCaret] = (0, react.useState)(0);
 	const [dismissedAt, setDismissedAt] = (0, react.useState)(void 0);
 	const [highlight, setHighlight] = (0, react.useState)(0);
@@ -21871,7 +22757,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		};
 	}, [stopping, stillAnswering]);
 	if (state.phase !== "ready") {
-		const notice = state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
+		const notice = state.phase === "locked" ? state.lockFree === true ? t("lockedFree") : state.lockHolder === void 0 ? t("lockedUnnamed", lockHolderText(void 0, state.lockDataDir, state.lockPath, t)) : t("locked", lockHolderText(state.lockHolder, state.lockDataDir, state.lockPath, t)) : state.phase === "unavailable" ? t("unavailable") : state.phase === "unauthorized" ? t("unauthorized") : state.phase === "error" ? t("error", { message: state.error ?? "" }) : t("loading");
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 			className: ChannelsPage_module_default.page,
 			"data-dc-scheme": scheme,
@@ -21936,7 +22822,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const slashCommands = slash === void 0 || capabilitiesDismissed || popupOpen ? [] : matchCommands(slash, (key) => t(key)).filter((c) => dmWith === void 0 || c.name !== "stop all" && c.name !== "board");
 	const slashOpen = slashCommands.length > 0;
 	const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0));
-	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && m.kind === "bot");
+	const workingBots = (state.roomId === void 0 ? [] : state.thinking[String(state.roomId)] ?? []).map((id) => byId.get(id)).filter((m) => m !== void 0 && (m.kind === "bot" || m.kind === "dsh"));
 	const stopTarget = workingBots.find((m) => m.id === commandTarget?.id) ?? workingBots[0];
 	const roomFiles = state.roomId === void 0 ? [] : pendingFiles[state.roomId] ?? [];
 	const stopMode = (stopTarget !== void 0 || stopping?.phase === "stopping") && draft.trim() === "" && roomFiles.length === 0;
@@ -22007,7 +22893,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		createRoom(name).then(() => {
 			setNewRoom(void 0);
 		}).catch((error) => {
-			setRoomError(error instanceof Error ? error.message : String(error));
+			setRoomError(errorText(error, t, "room", name));
 		});
 	};
 	const ownActions = (m) => {
@@ -22082,7 +22968,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		if (!window.confirm(t("removeConfirm", { name: member.name }))) return;
 		setMemberError(void 0);
 		removeMember(member.id).catch((error) => {
-			setMemberError(error instanceof Error ? error.message : String(error));
+			setMemberError(errorText(error, t, "member", member.name));
 		});
 	};
 	const openPicker = () => {
@@ -22192,12 +23078,20 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 	const submit = () => {
 		const roomId = state.roomId;
 		const text = addressCommand(draft.trim(), commandTarget?.name);
-		const files = roomId === void 0 ? [] : pendingFiles[roomId] ?? [];
-		if (!text && files.length === 0 || roomId === void 0 || pendingRooms.current.has(roomId)) return;
-		if (files.length > 0 && messageTooLarge(text, files)) {
+		const held = roomId === void 0 ? [] : pendingRef.current[roomId] ?? [];
+		if (!text && held.length === 0 || roomId === void 0 || pendingRooms.current.has(roomId)) return;
+		const refused = held.filter((file) => file.error !== void 0);
+		if (refused.length > 0) {
 			setErrors((previous) => ({
 				...previous,
-				[roomId]: t("attachmentsTooLarge", { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` })
+				[roomId]: refused[0]?.error
+			}));
+			return;
+		}
+		if (messageTooLarge(text, [])) {
+			setErrors((previous) => ({
+				...previous,
+				[roomId]: t("messageTooLarge", { limit: formatBytes(MAX_MESSAGE_BODY) })
 			}));
 			return;
 		}
@@ -22214,31 +23108,54 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		if (state.hasMoreNewer === true) showLatest?.();
 		setUnread(void 0);
 		const replyTo = replies[roomId]?.id;
-		(files.length > 0 ? send(text, replyTo, files) : replyTo === void 0 ? send(text) : send(text, replyTo)).then(() => {
-			setDrafts((previous) => ({
-				...previous,
-				[roomId]: ""
-			}));
-			setPendingFiles((previous) => ({
-				...previous,
-				[roomId]: []
-			}));
-			setReplies((previous) => ({
-				...previous,
-				[roomId]: void 0
-			}));
-		}).catch((error) => {
-			setErrors((previous) => ({
-				...previous,
-				[roomId]: t("sendFailed", { message: error instanceof Error ? error.message : String(error) })
-			}));
-		}).finally(() => {
+		/** Post the message; a file that failed while it streamed is reported instead of sent. */
+		const go = () => {
+			const keys = new Set(held.map((file) => file.key));
+			const ready = (pendingRef.current[roomId] ?? []).filter((file) => keys.has(file.key));
+			const broken = ready.find((file) => file.error !== void 0);
+			if (broken?.error !== void 0) {
+				setErrors((previous) => ({
+					...previous,
+					[roomId]: broken.error
+				}));
+				return Promise.resolve();
+			}
+			const files = ready.map((file) => file.attachment).filter((a) => a !== void 0);
+			if (!text && ready.length === 0) return Promise.resolve();
+			return send(text, replyTo, files.length > 0 ? files : void 0, roomId).then(() => {
+				for (const file of ready) if (file.preview !== void 0) URL.revokeObjectURL(file.preview);
+				setDrafts((previous) => ({
+					...previous,
+					[roomId]: ""
+				}));
+				updateFiles((previous) => ({
+					...previous,
+					[roomId]: (previous[roomId] ?? []).filter((file) => !keys.has(file.key))
+				}));
+				setReplies((previous) => ({
+					...previous,
+					[roomId]: void 0
+				}));
+			}).catch((error) => {
+				setErrors((previous) => ({
+					...previous,
+					[roomId]: t("sendFailed", { message: error instanceof Error ? error.message : String(error) })
+				}));
+			});
+		};
+		const settle = () => {
 			pendingRooms.current.delete(roomId);
 			setSending((previous) => ({
 				...previous,
 				[roomId]: false
 			}));
-		});
+		};
+		const waits = held.map((file) => uploading.current.get(file.key)?.done).filter((job) => job !== void 0);
+		if (waits.length === 0) {
+			go().finally(settle);
+			return;
+		}
+		Promise.all(waits).then(go).finally(settle);
 	};
 	const startReply = (message) => {
 		const roomId = state.roomId;
@@ -22876,6 +23793,7 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 								commands: slashCommands,
 								selected: slashSelected,
 								target: commandTarget?.name,
+								leadName: dmWith === void 0 && commandTarget === void 0 ? lead?.name : void 0,
 								dmName: dmWith === void 0 ? void 0 : dmPeer?.name ?? room?.name,
 								disabled: (c) => commandTarget === void 0 && needsTarget(c),
 								grouped: slash === "",
@@ -22972,47 +23890,61 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 									state.roomId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PendingAttachments, {
 										files: pendingFiles[state.roomId] ?? [],
 										removeLabel: t("removeAttachment"),
-										onRemove: (index) => {
-											const roomId = state.roomId;
-											setPendingFiles((previous) => ({
-												...previous,
-												[roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index)
-											}));
-										}
+										labels: {
+											uploading: t("attachmentUploading"),
+											queued: t("attachmentQueued")
+										},
+										onRemove: (key) => removeFile(state.roomId, key)
 									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
-										ref: inputRef,
-										className: ChannelsPage_module_default.input,
-										rows: 1,
-										enterKeyHint: "send",
-										value: draft,
-										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder,
-										role: "combobox",
-										"aria-expanded": popupOpen || slashOpen,
-										"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
-										"aria-autocomplete": "list",
-										"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : slashOpen ? `channel-slash-${slashSelected}` : void 0,
-										onChange: (event) => {
-											const roomId = state.roomId;
-											const value = event.target.value;
-											if (roomId !== void 0) setDrafts((previous) => ({
-												...previous,
-												[roomId]: value
-											}));
-											setCapabilitiesDismissed(false);
-											setHelpOpen(false);
-											setCaret(event.target.selectionStart);
-											setHighlight(0);
-											setSlashHighlight(0);
-										},
-										onSelect: (event) => {
-											setCaret(event.currentTarget.selectionStart);
-										},
-										onKeyDown,
-										onPaste: attach.onPaste,
-										onDragOver: attach.onDragOver,
-										onDrop: attach.onDrop
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+										className: composing ? `${ChannelsPage_module_default.inputSurface} ${ChannelsPage_module_default.inputComposing}` : ChannelsPage_module_default.inputSurface,
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+											ref: inputRef,
+											className: ChannelsPage_module_default.input,
+											rows: 1,
+											enterKeyHint: "send",
+											value: draft,
+											disabled: state.roomId === void 0 || sending[state.roomId] === true,
+											placeholder,
+											role: "combobox",
+											"aria-expanded": popupOpen || slashOpen,
+											"aria-controls": slashOpen ? "channel-slash-list" : "channel-mention-list",
+											"aria-autocomplete": "list",
+											"aria-activedescendant": popupOpen ? `channel-mention-${candidates[selected].id}` : slashOpen ? `channel-slash-${slashSelected}` : void 0,
+											onChange: (event) => {
+												const roomId = state.roomId;
+												const value = event.target.value;
+												if (roomId !== void 0) setDrafts((previous) => ({
+													...previous,
+													[roomId]: value
+												}));
+												setCapabilitiesDismissed(false);
+												setHelpOpen(false);
+												setCaret(event.target.selectionStart);
+												setHighlight(0);
+												setSlashHighlight(0);
+											},
+											onSelect: (event) => {
+												setCaret(event.currentTarget.selectionStart);
+											},
+											onScroll: syncInputHighlights,
+											onCompositionStart: () => setComposing(true),
+											onCompositionEnd: () => setComposing(false),
+											onKeyDown,
+											onPaste: attach.onPaste,
+											onDragOver: attach.onDragOver,
+											onDrop: attach.onDrop
+										}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+											ref: inputHighlightsRef,
+											className: ChannelsPage_module_default.inputHighlights,
+											"data-composer-highlights": true,
+											"aria-hidden": "true",
+											children: [splitMentions(draft, visibleMembers).map((segment, index) => segment.member ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: `${ChannelsPage_module_default.mentionBadge} ${ChannelsPage_module_default.inputMention}`,
+												"data-mention": segment.member.id,
+												children: segment.text
+											}, index) : segment.text), "\n"]
+										})]
 									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 										className: ChannelsPage_module_default.composerToolbar,
@@ -23279,6 +24211,34 @@ function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask,
 		]
 	});
 }
+// src/client/RemoteChannelsPage.tsx
+const BELOW_BAR = { "--dsh-frame-top-clearance": "0px" };
+function RemoteChannelsPage(props) {
+	const { remoteName, collabUrl, back, t } = props;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CollabUrlContext.Provider, {
+		value: collabUrl,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: PanelPages_module_default.remote,
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: PanelPages_module_default.remoteBar,
+				role: "status",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: PanelPages_module_default.remoteName,
+					children: t("remoteViewing", { name: remoteName })
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: PanelPages_module_default.remoteBack,
+					onClick: back,
+					children: t("remoteBack")
+				})]
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: PanelPages_module_default.remoteBody,
+				style: BELOW_BAR,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ChannelsPage, { ...props })
+			})]
+		})
+	});
+}
 // src/client/locales.ts
 /** Channel panel dictionaries. */
 /** Locale namespace owned by the channel panel. */
@@ -23351,6 +24311,8 @@ const zh = {
 	panelGalaxy: "Wiki 星河",
 	panelBothouse: "bothouse",
 	panelDevices: "其他电脑",
+	remoteViewing: "正在用「{name}」的频道（那台电脑上的成员和消息）",
+	remoteBack: "返回其他电脑",
 	channelSettings: "频道设置",
 	settingsBasic: "基本",
 	settingsDispatch: "派活",
@@ -23369,6 +24331,12 @@ const zh = {
 	channelName: "频道名称",
 	channelNameHint: "1–32 个字符，不能含空白。",
 	workspaceNameFixed: "工作区名称由系统分配，不能修改。",
+	channelNameReserved: "「{name}」是工作区占用的名字，换个频道名吧。",
+	channelNameTaken: "已经有频道叫「{name}」了，换个名字吧。",
+	channelNameInvalid: "频道名要 1–32 个字符，不能含空白。",
+	memberNameTaken: "已经有成员叫「{name}」了，换个名字吧。",
+	memberNameInvalid: "成员名要 1–32 个字符，不能含空白、@ 或 <>（Claude Code 除外）。",
+	actionFailed: "没成功：{message}",
 	slashTitle: "命令",
 	slashTitleLead: "发给 {name} 的命令",
 	slashTitleNoLead: "命令 · 先在频道设置里选主角色，才能用这些命令",
@@ -23534,6 +24502,10 @@ const zh = {
 	placeholder: "发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
+	locked: "频道服务没有启动：这台电脑上已经有另一个 DSH 在用同一份频道数据（进程 {pid}，{started} 打开，数据目录 {dataDir}）。直接用已经打开的那个就行；要换成本页这个 DSH，先把那个关掉，再把本页这个 DSH 关掉重开——只刷新页面不会把频道接上。",
+	lockedUnnamed: "频道服务没有启动：这台电脑上已经有另一个 DSH 在用同一份频道数据（数据目录 {dataDir}，进程 {pid}）——它没留下是哪个进程的记录，通常是因为那个 DSH 是旧版本，或者刚打开还没写记录。别去改配置：先看谁占着这个文件：macOS 或 Linux 上用 lsof {lock}，Windows 上在资源监视器的磁盘活动里搜这个文件名；找到那个 DSH 后关掉它，再关掉并重开本页这个 DSH，频道就能接上（只刷新页面不行）。",
+	lockedFree: "频道服务还是没有启动：刚才占着频道数据的那个 DSH 已经关掉了，锁是空的；但本页的频道插件是在它占着的时候启动失败的，不会自己回来。把本页这个 DSH 关掉重开，频道就能接上。",
+	lockedUnknown: "未知",
 	unauthorized: "还没有登录 DSH，请刷新页面。",
 	error: "频道服务出错：{message}",
 	empty: "这里还没有消息。@一个成员开始吧。",
@@ -23547,6 +24519,12 @@ const zh = {
 	attachButton: "添加图片或文件",
 	removeAttachment: "移除附件",
 	attachmentsTooLarge: "附件太大：一条消息合计不能超过 {limit}",
+	messageTooLarge: "消息太长：一条消息不能超过 {limit}",
+	attachmentTooLarge: "「{name}」{size}，超过单个文件上限 {limit}",
+	attachmentUploading: "上传中",
+	attachmentQueued: "等待上传",
+	uploadFailed: "「{name}」上传失败：{message}",
+	uploadUnsupported: "这个页面不能上传文件，请刷新后再试",
 	mentionPick: "在输入框里 @{name}",
 	memberMenu: "{name} 的成员操作",
 	avatarMention: "@ TA",
@@ -23746,6 +24724,8 @@ const en = {
 	panelGalaxy: "Wiki galaxy",
 	panelBothouse: "bothouse",
 	panelDevices: "Other computers",
+	remoteViewing: "Channels on “{name}” (members and messages of that computer)",
+	remoteBack: "Back to other computers",
 	channelSettings: "Channel settings",
 	settingsBasic: "Basic",
 	settingsDispatch: "Dispatch",
@@ -23764,6 +24744,12 @@ const en = {
 	channelName: "Channel name",
 	channelNameHint: "1–32 characters, without whitespace.",
 	workspaceNameFixed: "Workspace names are assigned by the system and cannot be changed.",
+	channelNameReserved: "\"{name}\" is a workspace name; pick another channel name.",
+	channelNameTaken: "A channel named \"{name}\" already exists; pick another name.",
+	channelNameInvalid: "A channel name is 1–32 characters and contains no whitespace.",
+	memberNameTaken: "A member named \"{name}\" already exists; pick another name.",
+	memberNameInvalid: "A member name is 1–32 characters, without whitespace, @ or <> (Claude Code excepted).",
+	actionFailed: "That did not work: {message}",
 	slashTitle: "Commands",
 	slashTitleLead: "Commands to {name}",
 	slashTitleNoLead: "Commands · pick a primary role in channel settings to use these",
@@ -23884,6 +24870,10 @@ const en = {
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",
+	locked: "The channel service did not start: another DSH on this machine is already using the same channel data (process {pid}, opened {started}, data directory {dataDir}). Keep using the DSH you already have open; to switch to this one, quit that one, then quit and reopen this DSH — reloading the page will not reconnect the channel.",
+	lockedUnnamed: "The channel service did not start: another DSH on this machine is already using the same channel data (data directory {dataDir}, process {pid}) and left no record of which process it is — usually because that DSH is an older build, or has only just started. Do not touch the configuration: first see what holds the lock file — lsof {lock} on macOS or Linux, or search that file name in Resource Monitor on Windows; then quit that DSH, quit and reopen this one, and the channel reconnects (reloading the page will not).",
+	lockedFree: "The channel service still did not start: the DSH that held the channel data has quit and the lock is free, but this page's channel plugin refused at startup and does not come back by itself. Quit and reopen this DSH to reconnect the channel.",
+	lockedUnknown: "unknown",
 	unauthorized: "Not signed in to DSH; reload the page.",
 	error: "Channel service error: {message}",
 	empty: "No messages yet. @ a member to start.",
@@ -23897,6 +24887,12 @@ const en = {
 	attachButton: "Attach images or files",
 	removeAttachment: "Remove attachment",
 	attachmentsTooLarge: "Attachments too large: one message can carry at most {limit} in total",
+	messageTooLarge: "Message too long: one message can hold at most {limit}",
+	attachmentTooLarge: "\"{name}\" is {size}, over the per-file limit of {limit}",
+	attachmentUploading: "Uploading",
+	attachmentQueued: "Waiting to upload",
+	uploadFailed: "\"{name}\" failed to upload: {message}",
+	uploadUnsupported: "This page cannot upload files; reload and try again",
 	mentionPick: "Mention {name} in the message box",
 	memberMenu: "Member actions for {name}",
 	avatarMention: "Mention",
@@ -23985,6 +24981,10 @@ const en = {
 };
 // src/client/index.ts
 const PANEL_ID = "channels";
+const REMOTE_PANEL_ID = "remote-channels";
+const DEVICES_PANEL_ID = "collab-devices";
+/** Global the 其他电脑 page (same origin, in an iframe) calls to open a link's channels here. */
+const OPEN_REMOTE = "__bothouseOpenRemoteChannels";
 /** Required browser services. */
 const inject = [
 	"slots",
@@ -24003,11 +25003,13 @@ function apply(ctx) {
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
-	const injected = (openModelSettings) => ({
+	const injected = (openModelSettings) => injectedFor(channels, openModelSettings);
+	const injectedFor = (channels, openModelSettings) => ({
 		openModelSettings,
 		hooks: { channels: channels.source },
 		selectRoom: channels.actions.selectRoom,
 		send: channels.actions.send,
+		uploadAttachment: channels.actions.uploadAttachment,
 		reviewTask: channels.actions.reviewTask,
 		dispatchTask: channels.actions.dispatchTask,
 		openDm: channels.actions.openDm,
@@ -24068,6 +25070,47 @@ function apply(ctx) {
 			disposePanel?.();
 		};
 	});
+	ctx.slots.inject("main", () => {
+		let remote;
+		const close = () => {
+			remote?.dispose();
+			remote = void 0;
+		};
+		const open = (link, name) => {
+			const url = remoteCollabUrl(link);
+			if (remote?.link !== link) {
+				close();
+				const source = createChannelSource(mappedTransport(browserTransport(), url));
+				const unregister = ctx.slots.register({
+					name: "main",
+					key: REMOTE_PANEL_ID,
+					locale: NS,
+					inject: () => ({
+						...injectedFor(source, () => false),
+						remoteName: name,
+						collabUrl: url,
+						back: () => {
+							ctx.layout.selectPanel(DEVICES_PANEL_ID);
+						}
+					})
+				}, RemoteChannelsPage);
+				remote = {
+					link,
+					dispose: () => {
+						unregister();
+						source.dispose();
+					}
+				};
+			}
+			ctx.layout.selectPanel(REMOTE_PANEL_ID);
+			return true;
+		};
+		Reflect.set(globalThis, OPEN_REMOTE, open);
+		return () => {
+			if (Reflect.get(globalThis, "__bothouseOpenRemoteChannels") === open) Reflect.deleteProperty(globalThis, OPEN_REMOTE);
+			close();
+		};
+	});
 	if (typeof ctx.inject === "function") ctx.inject(["theme"], (themed) => {
 		const theme = Reflect.get(themed, "theme");
 		if (theme === void 0) return;
@@ -24088,6 +25131,7 @@ function apply(ctx) {
 		label: () => t("panel")
 	}, ChannelsIcon));
 }
+exports.OPEN_REMOTE = OPEN_REMOTE;
 exports.apply = apply;
 exports.inject = inject;
 

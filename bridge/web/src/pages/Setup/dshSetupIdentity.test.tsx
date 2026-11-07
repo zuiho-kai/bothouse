@@ -30,6 +30,9 @@ const render = async () => {
   document.body.append(container);
   root = createRoot(container);
   await act(async () => root!.render(<DSHSetup lang="zh" onBack={() => {}} />));
+  // #1263 made the desktop app the default route; these cases pick the web route and step past the route choice.
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="dsh-target-web"]')!.click());
+  await act(async () => container.querySelector<HTMLElement>('[data-testid="dsh-target-next"]')!.click());
 };
 const click = async (selector: string) => {
   const el = container.querySelector<HTMLElement>(selector);

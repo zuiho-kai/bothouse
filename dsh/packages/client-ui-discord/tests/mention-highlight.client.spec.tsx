@@ -4,12 +4,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChannelMember } from '../src/client/channel-source.ts'
 import {
   buildMentionMatcher,
+  codeSpanRanges,
+  fencedRanges,
   formatMentionBadgeText,
   highlightMentionsInElement,
   HighlightedMarkdown,
   renderQuoteMentions,
   splitMentions,
 } from '../src/client/mention-highlight.tsx'
+import { fromMarkdown } from 'mdast-util-from-markdown'
+import { mentions as backendMentions } from '../../../collab/mentions.mjs'
 import css from '../src/client/ChannelsPage.module.css'
 
 afterEach(cleanup)
@@ -77,6 +81,116 @@ describe('mention-highlight logic', () => {
     expect(formatMentionBadgeText('<@1001>', testMembers[0]!)).toBe('@肥鱼')
     expect(formatMentionBadgeText('<@!1001>', testMembers[0]!)).toBe('@肥鱼')
   })
+
+  // #237: these cases come in pairs with dsh/collab/mentions.test.mjs — the page and the backend
+  // must agree on who a message calls, so a coloured name is exactly a member that gets woken.
+  it('does not colour an @ inside a ``` fence, and colours the rest of the text (#237)', () => {
+    const fenced = '```\n@肥鱼 看下\n```'
+    expect(splitMentions(fenced, testMembers)).toEqual([{ text: fenced }])
+
+    const mixed = '```\n@肥鱼 在代码里\n```\n@大豆包 你看下'
+    const segments = splitMentions(mixed, testMembers)
+    expect(segments.filter(s => s.member).map(s => s.text)).toEqual(['@大豆包'])
+    expect(segments.map(s => s.text).join('')).toBe(mixed)
+
+    // fencedRanges: an opening fence without its closing one covers the rest, as in mentions.mjs
+    expect(fencedRanges('a ```\n@肥鱼')).toEqual([[5, 9]])
+    expect(fencedRanges('```x``` tail ```y```')).toEqual([[3, 4], [16, 17]])
+    expect(fencedRanges('no fence @肥鱼')).toEqual([])
+  })
+
+  it('leaves an email address uncoloured and still colours a name after punctuation', () => {
+    expect(splitMentions('联系 xx@肥鱼.ai', testMembers)).toEqual([{ text: '联系 xx@肥鱼.ai' }])
+    expect(splitMentions('[@肥鱼] 在吗', testMembers)).toEqual([
+      { text: '[' },
+      { text: '@肥鱼', member: testMembers[0] },
+      { text: '] 在吗' },
+    ])
+  })
+
+  // #237 rework: the renderer turns `…` into <code> and never colours it, so an @ inside an
+  // inline code span must not count on the backend either. Ranges follow mentions.mjs.
+  it('does not colour an @ inside an inline code span, and colours the rest (#237 rework)', () => {
+    expect(splitMentions('看 `@肥鱼` 这个', testMembers)).toEqual([{ text: '看 `@肥鱼` 这个' }])
+
+    const mixed = '`@肥鱼` 和 @大豆包 看下'
+    const segments = splitMentions(mixed, testMembers)
+    expect(segments.filter(s => s.member).map(s => s.text)).toEqual(['@大豆包'])
+    expect(segments.map(s => s.text).join('')).toBe(mixed)
+
+    // a run of two backticks opens and closes its own span
+    expect(splitMentions('``@肥鱼`` 和 @大豆包', testMembers).filter(s => s.member)).toEqual([
+      { text: '@大豆包', member: testMembers[1] },
+    ])
+    // a lone backtick is literal text; adjacent runs of different lengths do not pair
+    expect(splitMentions('@肥鱼 后跟 `未闭合', testMembers).filter(s => s.member)).toEqual([
+      { text: '@肥鱼', member: testMembers[0] },
+    ])
+    expect(codeSpanRanges("看 `@肥鱼` 这个")).toEqual([[3, 6]])
+    expect(codeSpanRanges('`a` 和 `b`')).toEqual([[1, 2], [7, 8]])
+    expect(codeSpanRanges('```x```')).toEqual([])
+    expect(codeSpanRanges('`@肥鱼``x')).toEqual([])
+  })
+
+  // #245: a blank line ends the paragraph, so a run of backticks cannot close a span across it.
+  // The page showed both names in plain text while the backend woke nobody; now both agree.
+  // The renderer is the ground truth for "what the page shows as <code>": compare our span
+  // offsets with the inlineCode nodes mdast-util-from-markdown produces (#245).
+  it('reads inline code spans the way the markdown renderer does (#245)', () => {
+    const rendererSpans = (text: string): Array<[number, number]> => {
+      const out: Array<[number, number]> = []
+      const walk = (node: any): void => {
+        if (node.type === 'inlineCode') out.push([node.position.start.offset, node.position.end.offset])
+        for (const child of node.children ?? []) walk(child)
+      }
+      walk(fromMarkdown(text))
+      return out
+    }
+    const raw = (text: string, spans: Array<[number, number]>): string[] =>
+      spans.map(([start, end]) => text.slice(start, end))
+
+    for (const text of [
+      '`a` b',
+      '`a\nb`',
+      '`a\r\nb`',
+      '`a\rb`',
+      '`a\r\n\r\nb`',
+      '`a\r\rb`',
+      '`a\n\nb`',
+      '`a\n \nb`',
+      '`a`\n\n`b`',
+      '`@肥鱼\n\n@G哥`',
+      '看 `@肥鱼` 这个',
+    ]) {
+      // our ranges are the span without its backtick fence; add the fence back for comparison
+      const ours = codeSpanRanges(text).map(([start, end]) => {
+        const open = text.lastIndexOf('`', start - 1)
+        let close = end
+        while (text[close] === '`') close++
+        return text.slice(open, close)
+      })
+      expect(ours).toEqual(raw(text, rendererSpans(text)))
+    }
+  })
+
+  it('does not treat backticks across a blank line as an inline code span (#245)', () => {
+    expect(codeSpanRanges('`a\n\nb`')).toEqual([])
+    expect(codeSpanRanges('`a\n \nb`')).toEqual([])
+    expect(codeSpanRanges('`a\n\t\nb`')).toEqual([])
+    // a single line break is not a blank line, so the span still holds
+    expect(codeSpanRanges('`a\nb`')).toEqual([[1, 4]])
+    // runs after the rejected opener still pair with each other
+    expect(codeSpanRanges('`a\n\nb` 和 `c`')).toEqual([[6, 9]])
+
+    const blank = '`@肥鱼\n\n@G哥`'
+    expect(splitMentions(blank, testMembers).filter(s => s.member).map(s => s.text)).toEqual([
+      '@肥鱼',
+      '@G哥',
+    ])
+    expect(splitMentions(blank, testMembers).map(s => s.text).join('')).toBe(blank)
+    // one line break keeps the span, so neither name is coloured
+    expect(splitMentions('`@肥鱼\n@G哥`', testMembers).filter(s => s.member)).toEqual([])
+  })
 })
 
 describe('highlightMentionsInElement DOM processing', () => {
@@ -142,6 +256,107 @@ describe('renderQuoteMentions', () => {
 
 describe('HighlightedMarkdown component', () => {
   const labels = { code: { copyLabel: 'Copy', copiedLabel: 'Copied' }, footnotes: 'Footnotes' }
+
+  // #246: compare the real MarkdownText DOM with both matchers. Comparing only the two
+  // matchers let them agree on the same CRLF bug while the page rendered inline code.
+  it.each([
+    ['LF single', '\n', []],
+    ['CRLF single', '\r\n', []],
+    ['CR single', '\r', []],
+    ['LF blank', '\n\n', ['fish', 'gge']],
+    ['CRLF blank', '\r\n\r\n', ['fish', 'gge']],
+    ['CR blank', '\r\r', ['fish', 'gge']],
+    ['CRLF space blank', '\r\n \r\n', ['fish', 'gge']],
+    ['CRLF tab blank', '\r\n\t\r\n', ['fish', 'gge']],
+    ['LF then CRLF blank', '\n\r\n', ['fish', 'gge']],
+    ['CRLF then LF blank', '\r\n\n', ['fish', 'gge']],
+  ] as Array<[string, string, string[]]>)('keeps actual badges and backend calls aligned: %s', (_label, ending, expected) => {
+    const text = '`@肥鱼' + ending + '@G哥`'
+    const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+    const badges = [...container.querySelectorAll<HTMLElement>('[data-mention]')]
+      .map(node => node.dataset.mention).sort()
+    expect(badges).toEqual(expected)
+    expect([...backendMentions(text, testMembers)].sort()).toEqual(badges)
+    const segments = splitMentions(text, testMembers)
+    expect(segments.filter(s => s.member).map(s => s.member!.id).sort()).toEqual(badges)
+    expect(segments.map(s => s.text).join('')).toBe(text)
+    expect(container.querySelectorAll('code').length).toBe(expected.length ? 0 : 1)
+  })
+
+  // #259: a line that opens a block ends the paragraph, so the backticks are plain text on the
+  // rendered page and both names are badges. This goes through the real renderer, not just the
+  // matchers, because the reported bug was the page colouring two while the backend called none.
+  it.each([
+    ['heading', '# 标题'],
+    ['heading deeper', '## 二级'],
+    ['bullet list', '- 列表'],
+    ['star list', '* 列表'],
+    ['plus list', '+ 列表'],
+    ['ordered list', '1. 一'],
+    ['quote', '> 引用'],
+    ['quote no space', '>引用'],
+    ['thematic break dash', '---'],
+    ['thematic break star', '***'],
+    ['thematic break underscore', '___'],
+    ['setext underline', '==='],
+    ['HTML block', '<div>x</div>'],
+    ['HTML pre', '<pre>'],
+    ['HTML comment', '<!-- c -->'],
+    ['HTML declaration', '<!DOCTYPE html>'],
+  ] as Array<[string, string]>)('a %s inside the backticks ends the span on the page', (_label, block) => {
+    const text = '`@肥鱼\n' + block + '\n@G哥`'
+    const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+    const badges = [...container.querySelectorAll<HTMLElement>('[data-mention]')]
+      .map(node => node.dataset.mention).sort()
+    expect(badges).toEqual(['fish', 'gge'])
+    expect([...backendMentions(text, testMembers)].sort()).toEqual(badges)
+    expect(splitMentions(text, testMembers).map(s => s.text).join('')).toBe(text)
+    expect(container.querySelectorAll('code').length).toBe(0)
+  })
+
+  // The guard: lines that do not open a block leave one code span, so the page renders a single
+  // <code> and colours nobody — and the backend calls nobody either.
+  it.each([
+    ['plain line', '普通一行'],
+    ['hash mid-line', 'a # b'],
+    ['gt mid-line', 'a > b'],
+    ['ordered no space', '1.x'],
+    ['inline HTML', '<span>x</span>'],
+    ['indented four', '    # 四空格'],
+  ] as Array<[string, string]>)('a plain %s keeps the span on the page', (_label, line) => {
+    const text = '`@肥鱼\n' + line + '\n@G哥`'
+    const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+    expect(container.querySelectorAll<HTMLElement>('[data-mention]')).toHaveLength(0)
+    expect([...backendMentions(text, testMembers)]).toEqual([])
+    expect(container.querySelectorAll('code').length).toBe(1)
+  })
+
+  // #323: a nested (four-column) definition is a KNOWN DEVIATION, asserted here on the real
+  // renderer in both directions. The page treats the inner definition as a node of its own under
+  // the outer one and shows it only when the inner label itself is called — so calling the outer
+  // label renders "见 1 / Footnotes / a ↩" with no badge, and calling only the inner label renders
+  // the footnote with the gge badge. Both matchers answer the opposite in both directions, and
+  // answered the same way on c96a773 and bdd67b4: this was not introduced by #271 and is not fixed
+  // here (this round corrects the oracle and the notes, it does not widen the implementation).
+  it.each([
+    ['outer label called', '[^1]: a\n    [^2]: 注 @G哥\n\n见 [^1]', [], 'a ↩', ['gge']],
+    ['inner label called', '[^1]: a\n    [^2]: 注 @G哥\n\n见 [^2]', ['gge'], '注 @G哥 ↩', []],
+  ] as Array<[string, string, string[], string, string[]]>)(
+    'a nested definition is a known deviation: %s',
+    (_label, text, pageBadges, visibleText, matcherAnswer) => {
+      const { container } = render(<HighlightedMarkdown text={text} labels={labels} members={testMembers} />)
+      const badges = [...new Set([...container.querySelectorAll<HTMLElement>('[data-mention]')]
+        .map(node => node.dataset.mention!))].sort()
+      // what the page really renders, badge ids and the visible text of the footnote section
+      expect(badges).toEqual(pageBadges)
+      expect(container.textContent).toContain(visibleText)
+      // what both matchers answer — the deviation, recorded, never asserted as page truth
+      const segmentIds = [...new Set(splitMentions(text, testMembers).filter(s => s.member).map(s => s.member!.id))].sort()
+      expect(segmentIds).toEqual(matcherAnswer)
+      expect([...backendMentions(text, testMembers)].sort()).toEqual(matcherAnswer)
+      expect(splitMentions(text, testMembers).map(s => s.text).join('')).toBe(text)
+    }
+  )
 
   it('renders markdown text with mention pill badge and handles click', () => {
     const onMention = vi.fn()

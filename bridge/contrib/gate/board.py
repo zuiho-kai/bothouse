@@ -119,10 +119,70 @@ def _read(name="board.jsonl"):
     return out
 
 
+# Windows 上 os.replace 不是总能立刻拿到目标文件的 DELETE 权限：它正被杀毒软件、索引服务或另一个
+# 进程短暂打开时会直接抛 PermissionError（WinError 5 / 32），等几十毫秒再试就能过去（#257：CI 的
+# bridge-windows 里 test_board_concurrent_add 偶发红，失败栈就是这里的 os.replace，不是数据写坏）。
+_REPLACE_RETRY_BUDGET_S = 2.0   # 来源：#257 交接给的总预算「总预算 2 秒」
+_REPLACE_RETRY_FIRST_S = 0.02   # 来源：同上「每次 20–50 ms」，从下限起、逐次翻倍封顶
+_REPLACE_RETRY_MAX_S = 0.05     # 来源：同上「每次 20–50 ms」的上限
+_DEFAULT_FILE_MODE = None       # 建新板子文件时的权限，按 umask 算，见 _default_file_mode
+
+
+def _retryable_replace_error(e):
+    """只有瞬时占用类错误才重试：PermissionError（Windows 的 WinError 5/32 都以它的形式抛），
+    以及带 winerror 5/32 的 OSError；其它异常（磁盘满、路径错等）立刻抛。"""
+    return isinstance(e, PermissionError) or getattr(e, "winerror", None) in (5, 32)
+
+
+def _replace_with_retry(src, dst):
+    deadline = time.monotonic() + _REPLACE_RETRY_BUDGET_S
+    delay = _REPLACE_RETRY_FIRST_S
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as e:
+            if not _retryable_replace_error(e) or time.monotonic() + delay > deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, _REPLACE_RETRY_MAX_S)
+
+
+def _default_file_mode():
+    """新文件该有的权限：和原来 Path.write_text 一样按 umask 走（mkstemp 建的是 0600，
+    板子第一次落盘就悄悄变成只有自己能读，别的角色/用户读不到）。算一次就记下来：
+    os.umask 是进程级状态，每写一次就临时改成 0 会波及同进程里别人建的文件。"""
+    global _DEFAULT_FILE_MODE
+    if _DEFAULT_FILE_MODE is None:
+        umask = os.umask(0)
+        os.umask(umask)
+        _DEFAULT_FILE_MODE = 0o666 & ~umask
+    return _DEFAULT_FILE_MODE
+
+
 def _write(items, name="board.jsonl"):
-    tmp = _path(name + ".tmp")
-    tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items))
-    os.replace(tmp, _path(name))
+    """整份原子替换：临时文件每条用一个唯一名（原来所有进程共抢 board.jsonl.tmp，会互相覆盖/删掉对方
+    正在 rename 的文件），os.replace 对 Windows 的瞬时占用错误有界重试；失败时删掉临时文件再抛，原文件不变。"""
+    target = _path(name)
+    text = "".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items)
+    try:
+        mode = target.stat().st_mode & 0o777
+    except OSError:  # 不存在，或 Windows 上正好被占用查不到：按默认权限建，别在这里失败
+        mode = _default_file_mode()
+    fd, tmp = tempfile.mkstemp(prefix=name + ".", suffix=".tmp", dir=str(DIR))
+    try:
+        # 不写死 encoding：和原来 Path.write_text 一样按解释器默认编码（board.cmd 带 -X utf8），
+        # 别让「写 utf-8、读默认编码」在非 UTF-8 模式的 Windows 上变成乱码
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        if os.name == "posix" and mode is not None:
+            with suppress(OSError):
+                os.chmod(tmp, mode)  # mkstemp 建的是 0600，别悄悄改掉原文件的权限（Windows 上 chmod 只改只读位，跳过）
+        _replace_with_retry(tmp, target)
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def items():
@@ -713,8 +773,10 @@ def _guard_prompt(it, delay):
     where = it.get("who") or "工作区"
     return (f"兜底到点：#{it['id']}「{it.get('what', '')}」交给{where} {delay} 了，还没交回。"
             f"先看任务板 #{it['id']}：已经完成或暂停就什么都不说，只回 NO_REPLY。"
-            f"还在做就查卡在哪（工作区最后的发言、看门催促、命令是不是挂住），跟用户说一句卡在哪、你怎么办；"
-            f"要接着等就用 ws-forward --notes {it.get('where', '')} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add。")
+            f"还在做就查卡在哪（工作区最后的发言、看门催促、命令是不是挂住），"
+            f"要接着等就用 ws-forward --notes {it.get('where', '')} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add，然后只回 NO_REPLY。"
+            # #1188：兜底是系统内部检查，不对用户汇报进度；只有卡住要用户拍板或动手时才说
+            f"只有卡住、非用户拍板或动手不可时，才跟用户说一句要用户做什么，并写明这是兜底检查发现的、不是用户要求的。")
 
 
 def _del_timer(tid):
@@ -1545,9 +1607,7 @@ def unprune(nid):
         # 找回算一次更新（PR #457 审查第 4 条）：resume 接着被 reoccupy 拒绝时条目留在板上暂停着，不能下一条命令又按③收走
         rec["at"] = _now()
         rec["unpruned"] = True
-        tmp = _path("board-done.jsonl.tmp")
-        tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in recs))
-        os.replace(tmp, _path("board-done.jsonl"))
+        _write(recs, "board-done.jsonl")  # 同样的唯一临时名 + 重试（#257；原来所有进程共抢 .tmp）
         _write(_read() + [rec])
     return rec
 

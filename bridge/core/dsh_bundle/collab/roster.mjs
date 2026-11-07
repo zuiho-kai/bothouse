@@ -96,7 +96,12 @@ export class Roster {
       }
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
+        const base = { name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) };
+        // The wizard pins a DSH-model role to the route its key belongs to (#1173); a host without that model
+        // still gets the role, on its default model.
+        const model = !m?.cli && m?.model?.provider && m?.model?.model ? { provider: String(m.model.provider), model: String(m.model.model) } : undefined;
+        const member = model === undefined ? await this.create(base)
+          : await this.create({ ...base, model }).catch(() => this.create(base));
         claimed.add(member.id);
         imported.push({ ...m, name: member.name, id: member.id });
         added.push(member.name);

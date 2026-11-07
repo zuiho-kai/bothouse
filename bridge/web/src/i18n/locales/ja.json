@@ -541,11 +541,23 @@
     "providerScope": "このプロバイダーは参照しているブリッジプロジェクトに適用されます。",
     "dshProviderScope": "DSH ネイティブメンバーは独自のモデル経路を使用します。",
     "openDsh": "DSH を開く",
+    "openDshDesktop": "デスクトップ版で開く",
+    "openDshWeb": "ウェブ版",
     "settingsModels": "DSH の「設定 → モデル」を開いてください。",
     "cliScope": "CLI メンバーはローカル CLI の認証と設定を使用します。ここで変更されません。",
     "bridgeProjects": "ブリッジプロジェクト",
     "projectScope": "ブリッジプロジェクトはエージェントとワークスペースをプラットフォームに接続します。DSH メンバーは別に管理します。",
     "savedConfigNextTurn": "保存済み設定 · 次のターンの前に適用",
     "savedRoute": "保存済み DSH 経路"
+  },
+  "usage": {
+    "quickFilters": "クイックフィルター",
+    "presetToday": "今日",
+    "presetThisWeek": "今週",
+    "presetThisMonth": "今月",
+    "presetLast7Days": "過去7日間",
+    "presetPastYear": "過去1年",
+    "presetPastYearHint": "既定の範囲：今日までの1年間（1回の照会は最大1年）",
+    "tokenBreakdown": "内訳"
   }
 }

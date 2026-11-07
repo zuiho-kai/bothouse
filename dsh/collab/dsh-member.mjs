@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
-import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
+import { DEFAULT_DISPATCH_MODE, MAX_TEXT, messageAttachments } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
@@ -61,7 +61,7 @@ export function memberStatus(hub, tasks = hub?.tasks, roomId) {
 import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
-import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeliveredReasonZh } from './attachments.mjs';
+import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, oversizedNote, undeliveredReasonZh } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -360,10 +360,31 @@ export class TurnProgress {
   }
 }
 
+/** Text with every @-mention taken out, trimmed: what a command word is matched against. */
+function commandOf(text, members) {
+  return split(text, members).filter(([, id]) => id === null).map(([seg]) => seg).join('').trim();
+}
+
 /** Whether text, with @-mentions removed, is the /new command (bridge core cmdNew). */
 export function isNewCommand(text, members) {
-  const rest = split(text, members).filter(([, id]) => id === null).map(([seg]) => seg).join('').trim();
-  return /^\/new(\s|$)/.test(rest);
+  return /^\/new(\s|$)/.test(commandOf(text, members));
+}
+
+/**
+ * The stop command a person typed in a channel: 'one' for `/stop`, 'all' for
+ * `/stop all`, undefined for anything else. The @ that addressed it is already
+ * gone by the time the message reaches this planner (the bridge forwards a
+ * channel command stripped, mentions.mjs forMember), so the members it reaches
+ * are the planner's own targets — the same rule /new follows.
+ *
+ * Not the bridge's /stop all (bridge/core/stop_all.go, every bot in the channel
+ * stops its own bridge session): this one only ends DSH members' turns here.
+ */
+export function stopCommand(text, members) {
+  const rest = commandOf(text, members);
+  if (/^\/stop\s+all$/i.test(rest)) return 'all';
+  if (/^\/stop$/i.test(rest)) return 'one';
+  return undefined;
 }
 
 export class DshMembers {
@@ -387,8 +408,10 @@ export class DshMembers {
     this.openTurns = new Map();
     /** Agents whose request hook was installed after they were loaded by someone else. */
     this.hooked = new WeakSet();
-    /** JSON([memberId, cwd, roomId]) -> { memberId, cli, agent } live local CLI agents (members with a `cli` field). */
+    /** JSON([memberId, cwd, roomId]) -> { memberId, roomId, cli, agent } live local CLI agents. */
     this.cliAgents = new Map();
+    // Releasing a workspace retains its bindings for rework, but needs no resident CLI.
+    this.store.onWorkspaceRelease(roomId => this.dropRoomCli(roomId));
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
     this.approvals = ChannelApprovals.of(hub);
     /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card (CLI members: `cli:<ACP session id>`). */
@@ -410,6 +433,14 @@ export class DshMembers {
     if (this.config.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
     this.config.set(m.id, m);
     this.publish(m);
+    // Hub owns scope rules, including workspace inheritance and the member's private chat.
+    const removed = (id, roomId) => id === m.id && !this.hub.membersInRoom(roomId).some(member => member.id === m.id);
+    this.cancelCliStarts(removed);
+    for (const [key, entry] of this.cliAgents) {
+      if (!removed(entry.memberId, entry.roomId)) continue;
+      entry.agent.close();
+      this.cliAgents.delete(key);
+    }
   }
 
   /** Stop routing to a member. Pending jobs for it fail when they run; history keeps its name. */
@@ -461,10 +492,22 @@ export class DshMembers {
    * @returns { stopped, running } member ids whose turn was cancelled / left running.
    */
   recall(triggerId) {
+    return this.cancelJobs(job => job.trigger_id === triggerId);
+  }
+
+  /**
+   * #148 / #299: end every open job `match` accepts. A queued one is closed, one
+   * still waiting in the member's inbox is taken back, and a turn already running
+   * is cancelled the way DSH's stop button does (keepInbox, so the member's later
+   * inputs still run). Jobs it cannot reach (a CLI member's ask) keep running.
+   * The one cancel path behind both "the owner withdrew the message" and "/stop".
+   * @returns { stopped, running } member ids whose turn was cancelled / left running.
+   */
+  cancelJobs(match) {
     const stopped = [];
     const running = [];
     for (const job of this.store.openJobs()) {
-      if (job.trigger_id !== triggerId) continue;
+      if (!match(job)) continue;
       if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); this.syncQueue(job.member_id, job.room_id); continue; }
       const w = this.watching.get(job.session_id);
       const agent = job.input_id ? this.rt.ctx.agents.get(job.session_id) : undefined;
@@ -479,6 +522,29 @@ export class DshMembers {
       stopped.push(job.member_id);
     }
     return { stopped, running };
+  }
+
+  /**
+   * #299: `/stop` / `/stop all` typed in the channel. Cancels member turns in this
+   * room on the sender's own thread and posts one receipt saying who stopped and
+   * who is still running; it never queues, so it cannot arrive after the turn it
+   * is meant to end.
+   * @returns { stopped, still_running } member names, as the DELETE route's shape.
+   */
+  stopHere(msg, memberIds) {
+    const { stopped, running } = this.cancelJobs(job => job.room_id === msg.room_id && memberIds.includes(job.member_id));
+    const name = id => this.config.get(id)?.name ?? id;
+    const still_running = [...new Set(running.map(name))];
+    const stoppedNames = [...new Set(stopped.map(name))];
+    const text = stoppedNames.length === 0
+      ? `⏹ 没有在跑的活。`
+      : `⏹ 已停下 ${stoppedNames.join('、')} 这一轮。` + (still_running.length ? `\n仍在跑：${still_running.join('、')}` : '');
+    this.hub.post(msg.room_id, {
+      authorKind: 'system', author: 'system', name: 'system',
+      clientKey: `dsh-stop-${msg.id}-${stoppedNames.length ? 'stopped' : 'idle'}`,
+      text,
+    });
+    return { stopped: stoppedNames, still_running };
   }
 
   /**
@@ -536,6 +602,20 @@ export class DshMembers {
     const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
     const targets = [...this.config.keys()].filter(id => !this.hub.quota?.cooling(id) && visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
+    // #299: /stop and /stop all end the member turns running here, now. Both used to fall through to
+    // addJob+enqueue below, which serializes per (member, room) — so the stop only ran once the turn it
+    // was meant to end had already finished. They take the same out-of-band cancel path as recall, with
+    // no placeholder job and no queue slot, so the receipt cannot arrive late.
+    // Not the bridge's /stop all (stop_all.go): that stops every bot's bridge session in the channel.
+    const stop = msg.author_kind === 'user' ? stopCommand(msg.text, this.hub.routableIn(msg.room_id)) : undefined;
+    // `/stop all` is typed bare, so its targets are none; it stops every DSH member visible here.
+    // A single `/stop` only stops the members the message reaches, the same targets /new uses.
+    if (stop !== undefined) {
+      const ids = stop === 'all' ? [...this.config.keys()].filter(id => visible.has(id)) : targets;
+      // Nobody is here to stop: keep quiet, like any other message that reaches no member.
+      if (ids.length === 0) return undefined;
+      return () => { this.stopHere(msg, ids); };
+    }
     if (targets.length === 0) return undefined;
     // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
     if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routableIn(msg.room_id))) {
@@ -635,9 +715,11 @@ export class DshMembers {
     // never advances the cursor, so the same image would block the room.
     const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
     const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
+    // #197: a file over the bot connection cap is not inlined; the member reads it from disk.
+    const oversized = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
     const wiki = await this.turnContext(member, room, agent.session.id, unseen);
     if (this.closed) return;
-    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
+    const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + dropped + (oversized ? `\n${oversized}` : '') + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id) }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     wiki.commit();
@@ -678,7 +760,7 @@ export class DshMembers {
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
-      entry = { memberId: member.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '',
+      entry = { memberId: member.id, roomId: room.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '',
         // #1020: memvote.py records citations under these (memory-sources.mjs), named as the gate key (gate-context.mjs).
         env: { CC_PROJECT: `dsh:${member.id}`, CC_SESSION_KEY: `dsh:${member.id}:${room.id}` } }) };
       this.cliAgents.set(cliKey, entry);
@@ -757,7 +839,12 @@ export class DshMembers {
         }
       };
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
-      const text = (await entry.agent.ask(prompt, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
+      // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
+      // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
+      // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
+      const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
+      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
@@ -803,17 +890,32 @@ export class DshMembers {
   resetRoom(roomId) {
     this.gateContext.resetRoom(roomId);
     this.memoryIndex.resetRoom(roomId);
-    for (const { agent } of this.cliAgents.values()) {
-      agent.sessions?.delete(String(roomId));
-      agent.saved?.delete(String(roomId));
+    this.dropRoomCli(roomId);
+  }
+
+  dropRoomCli(roomId) {
+    this.cancelCliStarts((_memberId, id) => id === roomId);
+    for (const [key, entry] of this.cliAgents) {
+      if (entry.roomId !== roomId) continue;
+      entry.agent.close();
+      this.cliAgents.delete(key);
     }
   }
 
   dropCli(id) {
+    this.cancelCliStarts(memberId => memberId === id);
     for (const [key, entry] of this.cliAgents) {
       if (entry.memberId !== id) continue;
       entry.agent.close();
       this.cliAgents.delete(key);
+    }
+  }
+
+  /** Close queued CLI jobs too: run/markSent must not revive a process after cleanup. */
+  cancelCliStarts(matches) {
+    for (const job of this.store.openJobs()) {
+      if (job.state !== 'pending' || this.config.get(job.member_id)?.cli === undefined || !matches(job.member_id, job.room_id)) continue;
+      this.store.finishJob(job.id, 'interrupted');
     }
   }
 

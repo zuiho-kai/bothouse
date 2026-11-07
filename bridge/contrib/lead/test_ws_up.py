@@ -41,20 +41,31 @@ class WsUpTest(unittest.TestCase):
 
     def test_reports_to_source_chat_with_lead_identity(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "进度一半", key="test:900")
+        r = self.run_tool("ws-up", "选哪个", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "timer-1")
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
         self.assertEqual(argv[argv.index("-p") + 1], "lead-proj")
         prompt = argv[argv.index("--prompt") + 1]
-        self.assertIn("【工作区上报】进度一半", prompt)
+        self.assertIn("【工作区要问用户】选哪个", prompt)
         self.assertIn("ws-forward --notes /n/a.md", prompt)
+        self.assertIn("别写成「你要求」", prompt)
+
+    def test_progress_does_not_wake_chat_1188(self):
+        """#1188：不带 --ask 的进度只记任务板、在工作区说一句，不建 timer 叫醒聊天频道的主角色。"""
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        r = self.run_tool("ws-up", "部署阶段完成", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([t for t in self.timers() if t[:2] == ["timer", "add"]], [])
+        said = [t for t in self.timers() if t[:1] == ["send"]]
+        self.assertEqual([t[t.index("-s") + 1] for t in said], ["test:900"])  # 只发在工作区
+        self.assertIn("没叫醒聊天频道", r.stderr)
 
     def test_falls_back_to_cc_session_under_dsh(self):
         """DSH 删掉 CC_SESSION_KEY，只剩 CC_SESSION 时也要认出当前工作区。"""
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "进度", key="test:900", var="CC_SESSION")
+        r = self.run_tool("ws-up", "进度？", "--ask", key="test:900", var="CC_SESSION")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
@@ -86,7 +97,7 @@ class WsUpTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--notes /n/a.md", r.stderr)
         self.assertEqual(self.timers(), [])
-        r = self.run_tool("ws-up", "--notes", "/n/b.md", "x", key="test:900")
+        r = self.run_tool("ws-up", "--notes", "/n/b.md", "x", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:200")
@@ -135,10 +146,9 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(self.run_tool("ws-up", "done", key="test:900").returncode, 0)
         rows = [json.loads(line) for line in (self.setup / "team" / "board.jsonl").read_text().splitlines()]
         self.assertIsNotNone(rows[0].get("progress_at"))
-        argv = [t for t in self.timers() if "工作区上报" in t][-1]  # 取 ws-up 自己的上报定时（另有停滞检查和工作区短消息）
+        self.assertEqual([t for t in self.timers() if "工作区上报" in t], [])  # #1188：进度不叫醒聊天频道
         sent = [t for t in self.timers() if t[:1] == ["send"]][-1]  # 工作区短消息走桥 send，不读平台 token
         self.assertEqual(sent[sent.index("-s") + 1], "test:900")
-        self.assertEqual(argv[argv.index("-s") + 1], "test:100")
         # 答复按 --notes 转回 a 所在工作区，而不是最近一次交接
         r = self.run_tool("ws-forward", "--notes", notes[0], "用户说选 A", key="test:100")
         self.assertEqual(r.returncode, 0, r.stderr)

@@ -44,6 +44,10 @@ func TestConfigureDSHWritesKeyPatchAndMembers(t *testing.T) {
 	if json.Unmarshal(b, &seed) != nil || len(seed.Members) != 3 || seed.Members[0].CLI != "claude" || seed.Members[2].Name != "Claude Code" || seed.Members[2].NameCustomized == nil || *seed.Members[2].NameCustomized {
 		t.Fatalf("members file: %s", b)
 	}
+	// #1173: the DSH-model role is pinned to the route of the wizard's key; CLI roles carry no model
+	if m := seed.Members[1].Model; m == nil || m.Provider != "deepseek-official" || m.Model != "deepseek-flash" || seed.Members[0].Model != nil || seed.Members[2].Model != nil {
+		t.Fatalf("member models: %s", b)
+	}
 	// second run is idempotent on the patch entry
 	if _, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "橘", CLI: "gemini"}}}); err != nil {
 		t.Fatal(err)

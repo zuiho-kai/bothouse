@@ -196,7 +196,8 @@ export default function RoleList() {
       </header>
 
       <DSHNotice status={dsh?.status} error={dsh?.error} />
-      {memberError && <p role="alert" className="text-sm text-red-600">{t('dshManage.rosterError')}: {memberError}</p>}
+      {/* DSH 没在跑或读不到时，上面那条已经把原因说清了，成员管理这里不再重复同一句话（#226）。 */}
+      {memberError && dsh?.status === 'running' && <p role="alert" className="text-sm text-red-600">{t('dshManage.rosterError')}: {memberError}</p>}
       {msg && (
         <div className="flex items-center gap-2 rounded-control border border-hairline bg-surface-sunken px-3 py-2 text-sm text-ink">
           <CheckCircle2 size={15} className="shrink-0 text-accent" />

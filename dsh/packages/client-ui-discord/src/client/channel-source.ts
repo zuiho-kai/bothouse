@@ -5,6 +5,8 @@
  * with the last, so an unopened panel holds no connection.
  */
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { NS } from './locales.ts'
 import { randomUUID } from './uuid.ts'
 
 /** One stored channel message, as the collab service serializes it. */
@@ -46,30 +48,38 @@ export interface ChannelAttachment {
   readonly size: number
 }
 
-/** A file picked, pasted or dropped in the composer, base64-encoded for the POST body. */
+/** A file already streamed to the service, named on the message by id (#197). */
 export interface OutgoingAttachment {
+  readonly id: string
   readonly name: string
   readonly mime: string
-  readonly data: string
+  readonly size: number
 }
 
 /** Relative URL of a stored attachment (same base as the other collab requests). */
 export const attachmentUrl = (id: string): string => `collab/api/attachments/${encodeURIComponent(id)}`
 
-/** Read a browser File into the POST form. */
-// Same cap as collab's MAX_MESSAGE_BODY (dsh/collab/plugin.mjs): a bigger POST gets a 413.
+// Same cap as collab's MAX_MESSAGE_BODY (dsh/collab/plugin.mjs): the message POST carries
+// only text and attachment metadata now, the bytes go up the stream route (#197).
 export const MAX_MESSAGE_BODY = 8 * 1024 * 1024
+
+/** #197: fallback when the service does not report its cap (`max_upload_bytes`); matches collab's DEFAULT_MAX_UPLOAD_BYTES. */
+export const DEFAULT_MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 export const messageTooLarge = (text: string, attachments: readonly OutgoingAttachment[]): boolean =>
   new TextEncoder().encode(JSON.stringify({ text, client_key: randomUUID(), reply_to: Number.MAX_SAFE_INTEGER, attachments })).length > MAX_MESSAGE_BODY
 
-export const readAttachment = async (file: File): Promise<OutgoingAttachment> => {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return { name: file.name || 'pasted', mime: file.type || 'application/octet-stream', data: btoa(binary) }
+/** Bytes as a limit reads in the UI: 1 GB, 500 MB, 12.5 MB. */
+export const formatBytes = (bytes: number): string => {
+  if (bytes >= 1024 ** 3) return `${Number((bytes / 1024 ** 3).toFixed(2))} GB`
+  if (bytes >= 1024 ** 2) return `${Number((bytes / 1024 ** 2).toFixed(1))} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
+
+/** The upload route's path for one file: a header cannot carry 中文, so name and type ride the query. */
+export const uploadUrl = (file: File): string =>
+  `collab/api/attachments?name=${encodeURIComponent(file.name || 'pasted')}&mime=${encodeURIComponent(file.type || 'application/octet-stream')}`
 
 /** The quoted original of a reply: an excerpt, or only its id once it was deleted. */
 export type ChannelQuote =
@@ -259,10 +269,49 @@ export interface OutboxMessage {
   readonly error?: string
 }
 
+/**
+ * #216: the DSH process holding this machine's channel data, published by the refused
+ * instance so its page can name the holder instead of blaming the configuration.
+ */
+export interface LockHolder {
+  /** Process id of the DSH that holds the data. */
+  readonly pid?: number
+  /** When that process took the lock, in Unix milliseconds. */
+  readonly startedAt?: number
+  /** The shared data directory both instances point at. */
+  readonly dataDir?: string
+  /** Machine name the holder runs on. */
+  readonly host?: string
+}
+
 /** Whole panel state; `phase` says whether the service answered. */
 export interface ChannelSnapshot {
-  readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'unauthorized' | 'error'
+  readonly phase: 'idle' | 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'locked' | 'unauthorized' | 'error'
   readonly error: string | undefined
+  /**
+   * #216: set with `phase: 'locked'` — the DSH that holds this machine's channel data, as the
+   * refused instance published it. Absent when the service is simply not configured, and also
+   * when nobody holds the lock any more (see `lockFree`).
+   */
+  readonly lockHolder?: LockHolder
+  /**
+   * #216: with `phase: 'locked'` — the data directory the two DSHs share, as published by the
+   * refused instance. Set even when the holder wrote no record, so the page can still say
+   * where to look instead of guessing.
+   */
+  readonly lockDataDir?: string
+  /**
+   * #216: with `phase: 'locked'` — the lock file the contender could not take, as published by
+   * the refused instance. The page quotes it so the unknown-holder case can say exactly which
+   * file to look at (`lsof <lock>`) without rebuilding a path itself.
+   */
+  readonly lockPath?: string
+  /**
+   * #216: with `phase: 'locked'` — the holder has quit, so the lock is free, but this page's
+   * plugin already refused to start and does not come back on a reload. Asking the user to
+   * restart DSH is the honest step; naming the dead holder is not.
+   */
+  readonly lockFree?: boolean
   readonly rooms: readonly ChannelRoom[]
   readonly roomId: number | undefined
   readonly members: readonly ChannelMember[]
@@ -288,6 +337,8 @@ export interface ChannelSnapshot {
   readonly outbox: readonly OutboxMessage[]
   /** 11-05 体检 #2: room id → members' new messages that arrived while another room was shown. */
   readonly unread?: Readonly<Record<string, number>>
+  /** #197: one attachment's cap in bytes, as the service reports it (composer checks before sending). */
+  readonly maxUploadBytes?: number
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -298,7 +349,12 @@ export interface ChannelActions {
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
-  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[]): Promise<void>
+  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[], roomId?: number): Promise<void>
+  /**
+   * #197: stream one file up before the message is posted; `onProgress` gets bytes sent and
+   * total so the composer can draw a bar. Resolves with the metadata the message names.
+   */
+  uploadAttachment?(file: File, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<OutgoingAttachment>
   /** Re-post a failed message, reusing its `client_key` so the service dedupes. */
   retrySend(clientKey: string): Promise<void>
   /** Drop a failed message from the outbox without sending it. */
@@ -361,6 +417,8 @@ export interface ChannelTransport {
   openEvents(url: string): EventStreamLike
   /** Resolve a service path against the document base. */
   url(path: string): string
+  /** #197: one attachment streamed up, reporting bytes so the composer can draw progress. */
+  upload?(url: string, body: Blob, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<{ status: number; body: unknown }>
   /** Wait before a reconnect attempt; injectable so tests need no real clocks. */
   delay?(ms: number): Promise<void>
   /** Jitter source in `[0, 1)`; injectable so backoff is deterministic in tests. */
@@ -380,7 +438,7 @@ type ServiceEvent =
 
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], leadId: null, tasks: [], taskChat: undefined,
-  hasMoreOlder: false, outbox: [],
+  hasMoreOlder: false, outbox: [], maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
 }
 
 /** Position of message `id` in rows ascending by id, or -1. */
@@ -438,12 +496,85 @@ const rememberedRoom = (): number | undefined => {
 /** Messages requested per catch-up read after a reconnect. */
 const CATCH_UP_LIMIT = 200
 
+/** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
+export class UploadTooLarge extends Error {
+  constructor(readonly fileName: string, readonly size: number, readonly limit: number) {
+    super(`${fileName}：${formatBytes(size)} > ${formatBytes(limit)}`)
+    this.name = 'UploadTooLarge'
+  }
+}
+
+/**
+ * #216: where the instance that lost the lock publishes its holder. It is an exact route the
+ * refused plugin registers before throwing, so it answers while every other `/collab/api/*`
+ * path is a bare 404.
+ */
+const LOCK_HOLDER_PATH = 'collab/api/lock'
+
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
-class ServiceError extends Error {
-  constructor(readonly status: number, message: string) {
+export class ServiceError extends Error {
+  /**
+   * @param status - HTTP status the service answered with.
+   * @param message - the service's own sentence, kept for logs and the fallback line.
+   * @param code - the machine code the service sends beside it (`conflict`, `invalid`, …), if any.
+   */
+  constructor(readonly status: number, message: string, readonly code?: string) {
     super(message)
     this.name = 'ServiceError'
   }
+}
+
+/** Which field a failure came from, so one service code can be worded for it (#268). */
+export type ErrorPlace = 'room' | 'member' | 'other'
+
+/** 工作区<n> is how a workspace is addressed, so the store refuses that shape for a chat channel (collab/store.mjs WORKSPACE_PREFIX). */
+const WORKSPACE_NAME = /^工作区\d+$/
+
+/** The cap the service puts on a member name; source: collab/roster.mjs `MAX_NAME = 32`. */
+const MEMBER_NAME_MAX = 32
+
+/** The one member name the service accepts with a space; source: collab/roster.mjs `validate` (`/^Claude Code(?:-\d+)?$/`). */
+const MEMBER_NAME_SPACED = /^Claude Code(?:-\d+)?$/
+
+/**
+ * The member-name shape the service refuses, copied from collab/roster.mjs `validate` so a name it
+ * accepted (say `Claude Code`) is never blamed for an unrelated `invalid` such as a missing model.
+ * @param name - the name after the service's own trim.
+ * @returns whether the service would word this as a bad name.
+ */
+function memberNameRefused(name: string): boolean {
+  return name.length > MEMBER_NAME_MAX || /[@<>\r\n\t]/.test(name) || (/\s/.test(name) && !MEMBER_NAME_SPACED.test(name))
+}
+
+/**
+ * #268: the collab service answers a refusal with `code` plus an English sentence, and the panel
+ * used to show that sentence as-is. Word the failures a person can act on from the `code` alone —
+ * never by matching the English text — and keep the service sentence only inside the last resort.
+ * @param error - whatever the action rejected with.
+ * @param t - the panel's dictionary, so an English UI stays English.
+ * @param place - the field being edited when the action failed.
+ * @param typed - the name the person typed, for the copy that names it.
+ * @returns one line to show under the form.
+ */
+export function errorText(error: unknown, t: TranslateNS<typeof NS>, place: ErrorPlace = 'other', typed = ''): string {
+  const message = error instanceof Error ? error.message : String(error)
+  // Only the service's own refusals carry an English sentence into the panel; anything else
+  // (a local check, a thrown string) already reads the way this panel meant it to.
+  if (!(error instanceof ServiceError)) return message
+  const code = error.code
+  // A channel name reaches the store with a leading # already dropped (collab/plugin.mjs), while a
+  // member name is only trimmed (collab/roster.mjs), so word the name each one actually answered for.
+  const name = place === 'room' ? typed.trim().replace(/^#/, '') : typed.trim()
+  if (code === 'conflict' && place === 'room') {
+    return WORKSPACE_NAME.test(name) ? t('channelNameReserved', { name }) : t('channelNameTaken', { name })
+  }
+  if (code === 'invalid' && place === 'room') return t('channelNameInvalid')
+  if (code === 'conflict' && place === 'member') return t('memberNameTaken', { name })
+  // A clash is `conflict`; a name the service would not accept at all is `invalid` beside any other
+  // field, so only word it when the typed name itself breaks the rule the service states — an
+  // `invalid` about something else (a model that is not available) falls through to the sentence.
+  if (code === 'invalid' && place === 'member' && memberNameRefused(name)) return t('memberNameInvalid')
+  return t('actionFailed', { message })
 }
 
 function json(method: string, body: unknown): RequestInit {
@@ -457,6 +588,23 @@ function json(method: string, body: unknown): RequestInit {
 export function browserTransport(): ChannelTransport {
   return {
     fetch: (input, init) => fetch(input, { credentials: 'same-origin', ...init }),
+    // #197: XHR rather than fetch — it reports upload progress, which fetch does not.
+    upload: (url, body, onProgress, signal) => new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', url)
+      xhr.withCredentials = true
+      xhr.setRequestHeader('content-type', body.type || 'application/octet-stream')
+      xhr.upload.addEventListener('progress', (event) => { if (event.lengthComputable) onProgress(event.loaded, event.total) })
+      xhr.addEventListener('load', () => {
+        let parsed: unknown
+        try { parsed = JSON.parse(xhr.responseText) } catch { parsed = undefined }
+        resolve({ status: xhr.status, body: parsed })
+      })
+      xhr.addEventListener('error', () => { reject(new Error('Upload failed: the connection dropped')) })
+      xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')) })
+      signal?.addEventListener('abort', () => { xhr.abort() }, { once: true })
+      xhr.send(body)
+    }),
     openEvents: url => new EventSource(url, { withCredentials: true }),
     url: path => new URL(path, document.baseURI).toString(),
     delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
@@ -484,6 +632,8 @@ export function createChannelSource(transport: ChannelTransport): {
   /** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
   let reconnectToken: object | undefined
   /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
+  /** #197: how big one attachment may be, as the service reported it (state) or the collab default. */
+  let uploadLimit = DEFAULT_MAX_UPLOAD_BYTES
   let outbox: OutboxMessage[] = []
   /**
    * Page-back request in flight per room, tagged with the ticket and the epoch
@@ -528,15 +678,44 @@ export function createChannelSource(transport: ChannelTransport): {
   const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const response = await transport.fetch(transport.url(path), init)
     if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { error?: string }
-      throw new ServiceError(response.status, body.error ?? response.statusText)
+      const body = await response.json().catch(() => ({})) as { error?: string; code?: string }
+      throw new ServiceError(response.status, body.error ?? response.statusText, body.code)
     }
     return await response.json() as T
   }
 
-  const fail = (error: unknown): void => {
-    if (error instanceof ServiceError && error.status === 404) set({ phase: 'unavailable', error: undefined })
-    else if (error instanceof ServiceError && error.status === 401) set({ phase: 'unauthorized', error: undefined })
+  /**
+   * #216: a 404 from the channel service means one of two things — no service is configured,
+   * or another DSH on this machine already holds the channel data and its plugin refused to
+   * start. Only the refusing instance knows which, and it publishes `busy` at
+   * `collab/api/lock` before it gives up; a host without that route answers 404 there too, so
+   * the plain "not configured" reading stands.
+   */
+  const readLockHolder = async (): Promise<{ holder?: LockHolder; dataDir?: string; lock?: string; free: boolean } | undefined> => {
+    try {
+      // The request helper turns every non-2xx into ServiceError; a host without the route
+      // answers 404 and must read as "no record", not as a failure of the page.
+      const body = await request<{ busy?: boolean; owner?: LockHolder | null; free?: boolean; dataDir?: string; lock?: string }>(LOCK_HOLDER_PATH)
+      // `busy` alone decides: a refused instance whose holder wrote no record (an older
+      // install) still means another DSH holds this data, only with the holder unknown.
+      // Requiring `owner` here read that case as "not configured" — the very bug #216 fixes.
+      if (body.busy !== true) return body.free === true ? { free: true } : undefined
+      return { holder: body.owner ?? undefined, dataDir: body.dataDir, lock: body.lock, free: false }
+    } catch (error) {
+      void error // A host that does not know the route: the service is simply not configured.
+      return undefined
+    }
+  }
+
+  const fail = async (error: unknown, current: () => boolean = () => true): Promise<void> => {
+    if (error instanceof ServiceError && error.status === 404) {
+      const lock = await readLockHolder()
+      // The read is a round trip: the panel may have been closed or pointed elsewhere since.
+      if (!current()) return
+      if (lock !== undefined) set({ phase: 'locked', lockHolder: lock.holder, lockDataDir: lock.dataDir, lockPath: lock.lock, lockFree: lock.free, error: undefined })
+      else set({ phase: 'unavailable', lockHolder: undefined, lockDataDir: undefined, lockPath: undefined, lockFree: undefined, error: undefined })
+    }
+    else if (error instanceof ServiceError && error.status === 401) set({ phase: 'unauthorized', lockHolder: undefined, error: undefined })
     else set({ phase: 'error', error: error instanceof Error ? error.message : String(error) })
   }
 
@@ -652,10 +831,11 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null; max_upload_bytes?: number }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
+      if (Number.isSafeInteger(state.max_upload_bytes) && (state.max_upload_bytes ?? 0) > 0) uploadLimit = state.max_upload_bytes as number
       // #112: reopening the panel starts from `previous` empty, so fall back to the
       // channel this browser had open, then to the service's first channel.
       const remembered = previous.roomId === undefined ? rememberedRoom() : undefined
@@ -731,9 +911,10 @@ export function createChannelSource(transport: ChannelTransport): {
       const keepBoard = roomId === previous.roomId
       if (!keepBoard) earlyTasks.clear()
       let next: ChannelSnapshot = {
-        phase: 'ready', error: undefined, rooms: state.rooms, roomId,
+        phase: 'ready', error: undefined, lockHolder: undefined, lockDataDir: undefined, lockPath: undefined, lockFree: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder, hasMoreNewer,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
+        maxUploadBytes: uploadLimit,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
       }
@@ -746,8 +927,10 @@ export function createChannelSource(transport: ChannelTransport): {
       if (roomId !== undefined) void loadBoard(owner, roomId)
     } catch (error) {
       if (!current()) return
-      pending = undefined
-      fail(error)
+      // Keep the read current while its lock diagnostic is pending, so a new refresh
+      // or a closed panel prevents stale offline information replacing recovered data.
+      await fail(error, current)
+      if (pending === read) pending = undefined
     }
   }
 
@@ -787,7 +970,7 @@ export function createChannelSource(transport: ChannelTransport): {
     try {
       events = transport.openEvents(transport.url('collab/api/events'))
     } catch (error) {
-      fail(error)
+      void fail(error)
       return
     }
     stream = events
@@ -807,6 +990,10 @@ export function createChannelSource(transport: ChannelTransport): {
       pending?.controller.abort()
       pending = undefined
       retry(owner)
+      // EventSource hides the HTTP status. Re-read through fetch so the existing
+      // 404/lock diagnostic also covers a host disappearing after initial load.
+      // The stream retry stays active and reconnects when a host returns.
+      void refresh(true)
     }
     events.onmessage = (event: MessageEvent<string>) => {
       if (lifetime !== owner || stream !== events) return
@@ -821,7 +1008,9 @@ export function createChannelSource(transport: ChannelTransport): {
     reconnectToken = token
     const wait = backoffMs(attempt)
     attempt += 1
-    set({ phase: 'reconnecting', error: undefined })
+    if (snapshot.phase !== 'locked' && snapshot.phase !== 'unavailable' && snapshot.phase !== 'unauthorized') {
+      set({ phase: 'reconnecting', error: undefined })
+    }
     void pause(wait).then(() => {
       if (lifetime !== owner || reconnectToken !== token) return
       reconnectToken = undefined
@@ -903,7 +1092,28 @@ export function createChannelSource(transport: ChannelTransport): {
     }
   }
 
+  /**
+   * #197: stream one file to the service and return the metadata the message names.
+   * The bytes never pass through the message JSON, so the size cap is the service's
+   * `maxUploadBytes` instead of MAX_MESSAGE_BODY.
+   */
+  const upload = async (file: File, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<OutgoingAttachment> => {
+    if (file.size > uploadLimit) throw new UploadTooLarge(file.name, file.size, uploadLimit)
+    if (transport.upload === undefined) throw new Error('This browser cannot stream uploads')
+    const { status, body } = await transport.upload(transport.url(uploadUrl(file)), file, onProgress ?? (() => {}), signal)
+    const value = body as { attachment?: { id?: string; name?: string; mime?: string; size?: number }; error?: string; max_upload_bytes?: number } | undefined
+    if (status === 413) {
+      // The service may have a smaller cap than the one this browser last read from /state.
+      uploadLimit = Number(value?.max_upload_bytes ?? uploadLimit)
+      throw new UploadTooLarge(file.name, file.size, uploadLimit)
+    }
+    const stored = value?.attachment
+    if (status >= 400 || stored?.id === undefined) throw new ServiceError(status, value?.error ?? 'Upload failed')
+    return { id: stored.id, name: stored.name ?? file.name, mime: stored.mime ?? file.type, size: stored.size ?? file.size }
+  }
+
   const actions: ChannelActions = {
+    uploadAttachment: upload,
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
@@ -915,8 +1125,8 @@ export function createChannelSource(transport: ChannelTransport): {
       set({ tasks: [...(snapshot.tasks ?? []).filter(row => row.id !== task.id), task] })
     },
     selectRoom,
-    async send(text, replyTo, attachments) {
-      const roomId = snapshot.roomId
+    async send(text, replyTo, attachments, targetRoomId) {
+      const roomId = targetRoomId ?? snapshot.roomId
       if (roomId === undefined) throw new Error('No channel is open')
       await post(roomId, randomUUID(), text, replyTo, attachments)
     },

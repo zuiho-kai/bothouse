@@ -31,9 +31,9 @@ export interface Deliverable {
 }
 
 /** The web page this message delivers: an .html upload first, else the first link. */
-export function deliverableOf(message: ChannelMessage): Deliverable | undefined {
+export function deliverableOf(message: ChannelMessage, url: (path: string) => string = path => path): Deliverable | undefined {
   const page = message.attachments?.find(isHtmlAttachment)
-  if (page !== undefined) return { src: `${attachmentUrl(page.id)}?view=page`, title: page.name, sameOrigin: true }
+  if (page !== undefined) return { src: `${url(attachmentUrl(page.id))}?view=page`, title: page.name, sameOrigin: true }
   const link = firstWebLink(message.text)
   if (link === undefined) return undefined
   let sameOrigin = false

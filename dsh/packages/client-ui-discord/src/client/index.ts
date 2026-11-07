@@ -14,6 +14,8 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { browserTransport, createChannelSource } from './channel-source.ts'
 import { ChannelsIcon } from './ChannelsIcon.tsx'
 import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
+import { mappedTransport, remoteCollabUrl } from './collab-url.ts'
+import { RemoteChannelsPage, type RemoteChannelsInjected } from './RemoteChannelsPage.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
 import { bindHostTheme, type Scheme } from './scheme.ts'
 
@@ -31,6 +33,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 type SettingsStore = StoreHandle<object, { openSection(draft: object, id: string): void }>
 
 const PANEL_ID = 'channels' as MainPanelId
+// #236: a paired computer's channels; no sidebar row, opened from 其他电脑 (collab/devices.html).
+const REMOTE_PANEL_ID = 'remote-channels' as MainPanelId
+// Same key as dsh/packages/bothouse-dsh-devices/client.js main panel 'collab-devices'.
+const DEVICES_PANEL_ID = 'collab-devices' as MainPanelId
+/** Global the 其他电脑 page (same origin, in an iframe) calls to open a link's channels here. */
+export const OPEN_REMOTE = '__bothouseOpenRemoteChannels'
 
 /** Required browser services. */
 export const inject = ['slots', 'locale', 'layout']
@@ -44,11 +52,13 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const channels = createChannelSource(browserTransport())
   ctx.effect(() => channels.dispose, 'client-ui-discord: channel stream')
-  const injected = (openModelSettings: () => boolean): ChannelsInjected => ({
+  const injected = (openModelSettings: () => boolean): ChannelsInjected => injectedFor(channels, openModelSettings)
+  const injectedFor = (channels: ReturnType<typeof createChannelSource>, openModelSettings: () => boolean): ChannelsInjected => ({
     openModelSettings,
     hooks: { channels: channels.source },
     selectRoom: channels.actions.selectRoom,
     send: channels.actions.send,
+    uploadAttachment: channels.actions.uploadAttachment,
     reviewTask: channels.actions.reviewTask,
     dispatchTask: channels.actions.dispatchTask,
     openDm: channels.actions.openDm,
@@ -101,6 +111,37 @@ export function apply(ctx: ClientContext): void {
     // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
     if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
     return () => { unsubscribe(); disposePanel?.() }
+  })
+  // #236: 其他电脑 → 频道 opens the paired computer's channels in this same React page. One link at a
+  // time: opening another link (or the same link again after it was dropped) starts a fresh source.
+  ctx.slots.inject('main', () => {
+    let remote: { link: string; dispose: () => void } | undefined
+    const close = () => { remote?.dispose(); remote = undefined }
+    const open = (link: string, name: string): boolean => {
+      const url = remoteCollabUrl(link)
+      if (remote?.link !== link) {
+        close()
+        const source = createChannelSource(mappedTransport(browserTransport(), url))
+        const unregister = ctx.slots.register({
+          name: 'main', key: REMOTE_PANEL_ID, locale: NS,
+          // Model settings belong to this computer's shell, not the paired one: show the web hint.
+          inject: (): ChannelsInjected & RemoteChannelsInjected => ({
+            ...injectedFor(source, () => false),
+            remoteName: name,
+            collabUrl: url,
+            back: () => { ctx.layout.selectPanel(DEVICES_PANEL_ID) },
+          }),
+        }, RemoteChannelsPage)
+        remote = { link, dispose: () => { unregister(); source.dispose() } }
+      }
+      ctx.layout.selectPanel(REMOTE_PANEL_ID)
+      return true
+    }
+    Reflect.set(globalThis, OPEN_REMOTE, open)
+    return () => {
+      if (Reflect.get(globalThis, OPEN_REMOTE) === open) Reflect.deleteProperty(globalThis, OPEN_REMOTE)
+      close()
+    }
   })
   // 体检 #11: follow the DSH theme (ui-theme's ThemeRuntime) when it is loaded.
   if (typeof ctx.inject === 'function') ctx.inject(['theme'], (themed) => {

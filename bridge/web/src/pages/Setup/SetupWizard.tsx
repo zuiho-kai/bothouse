@@ -7,6 +7,7 @@ import { useThemeStore, DEFAULT_THEME } from '@/store/theme';
 import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
+import { JevPreset, JEV_PRESET } from './JevPreset';
 import { restartSystem } from '@/api/status';
 import { shownNames } from '@/api/projects';
 import {
@@ -17,7 +18,7 @@ import {
 } from '@/api/wizard';
 import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
-import DSHSetup from './DSHSetup';
+import DSHSetup, { clearDSHDraft, readDSHDraft } from './DSHSetup';
 import DSHAdd from './DSHAdd';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
@@ -75,12 +76,13 @@ export default function SetupWizard() {
   // default reply language = the UI language picked at the top right, as is (zh-TW, ko … too)
   const sysReply = lang;
 
-  const [step, setStep] = useState(0);
+  // a DSH setup in progress in this tab comes back after a reload (#1173)
+  const [step, setStep] = useState(() => (readDSHDraft() ? 1 : 0));
   // /setup?add=1&platform=qq — `bothouse module add qq` points here; the platform comes preselected
   const [searchParams] = useSearchParams();
   const platformParam = searchParams.get('platform');
   const [picked, setPlatform] = useState<'qq' | 'discord' | 'feishu' | 'cloud_web' | 'dsh'>(
-    platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
+    readDSHDraft() ? 'dsh' : platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
   const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '' });
   const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string; note?: string }>({ running: false });
@@ -128,7 +130,7 @@ export default function SetupWizard() {
   const [chats, setChats] = useState<{ chat_id: string; name: string }[] | null>(null);
   const [chatID, setChatID] = useState('');
   const [fallback, setFallback] = useState('');
-  const [gateMode, setGateMode] = useState<'smart' | 'addressed' | 'off'>('smart');
+  const [gateMode, setGateMode] = useState<'smart' | 'addressed' | 'off'>('addressed');
   const [jev, setJev] = useState({ base_url: '', api_key: '', model: '' });
   // jevTest: the gate-style test (nothing written); jevSave: what 下一步 / 跳过 did to jev.json
   const [jevTest, setJevTest] = useState<{ running: boolean; usable?: boolean; reason?: string; hint?: string }>({ running: false });
@@ -159,7 +161,8 @@ export default function SetupWizard() {
   useEffect(() => {
     if (!state || restoredGatePlatform.current === platform) return;
     restoredGatePlatform.current = platform;
-    setGateMode(state.gate_modes?.[platform] || (state.gate_enabled === false && !state.gate_modes ? 'off' : 'smart'));
+    // a new install starts without the judge model (only the @-mentioned role answers); an existing one keeps what it had
+    setGateMode(state.gate_modes?.[platform] || (!state.has_projects ? 'addressed' : state.gate_enabled === false && !state.gate_modes ? 'off' : 'smart'));
   }, [platform, state]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -480,7 +483,7 @@ export default function SetupWizard() {
   ];
   // Adding roles preserves participation; every initial install offers the choice.
   const visibleSteps = (addMode ? [0, 1, 2, 3, 5, 6] : [0, 1, 2, 3, 4, 5, 6])
-    .filter((s) => s !== 5 || gateMode !== 'addressed')
+    .filter((s) => s !== 5 || gateMode === 'smart') // the judge model page only matters for smart routing
     .filter((s) => platform !== 'qq' || (s !== 4 && s !== 5)); // QQ: one bot, gate and jev are optional extras
   const pos = visibleSteps.indexOf(step);
   const go = (d: number) => setStep(visibleSteps[Math.min(Math.max(pos + d, 0), visibleSteps.length - 1)]);
@@ -489,7 +492,7 @@ export default function SetupWizard() {
     c.login === 'logged_in' ? <Badge variant="success">{T.loggedIn}</Badge>
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
-  if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => setStep(0)} /> : <DSHSetup lang={lang} onBack={() => setStep(0)} />;
+  if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => { clearDSHDraft(); setStep(0); }} /> : <DSHSetup lang={lang} onBack={() => { clearDSHDraft(); setStep(0); }} />;
 
   return (
     <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">
@@ -904,8 +907,8 @@ export default function SetupWizard() {
             <label className="block text-sm font-medium text-gray-900 dark:text-white">
               {T.participation}
               <select className="mt-2 block w-full rounded border p-2 bg-white dark:bg-gray-900" data-testid="gate-mode" value={gateMode} onChange={(e) => setGateMode(e.target.value as typeof gateMode)}>
-                <option value="smart">{T.gateEnabled}</option>
                 <option value="addressed">{T.addressedMode}</option>
+                <option value="smart">{T.gateEnabled}</option>
                 <option value="off">{T.legacyMode}</option>
               </select>
             </label>
@@ -927,14 +930,14 @@ export default function SetupWizard() {
           <div className="space-y-3">
             <p className="text-sm font-medium text-gray-900 dark:text-white">{T.jevTitle}</p>
             <p className="text-xs text-gray-600 dark:text-gray-400">{T.jevQ}</p>
-            <p className="text-xs text-gray-500">{gateMode === 'addressed' ? T.addressedHint : T.jevNoClaude}</p>
+            <JevPreset lang={lang} active={jev.base_url === JEV_PRESET.base_url && jev.model === JEV_PRESET.model} onFill={() => setJev({ base_url: JEV_PRESET.base_url, api_key: '', model: JEV_PRESET.model })} />
             {gateMode === 'smart' && roles.length > 1 && platform !== 'feishu' && !jevUnchanged && jevTest.usable !== true && (
               <p className="text-xs text-amber-600" data-testid="jev-recommend">{T.jevRecommend.replace('{name}', fallbackName)}</p>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <Input label="Base URL" placeholder="https://api.siliconflow.cn/v1" value={jev.base_url} data-testid="jev-url" onChange={(e) => setJev({ ...jev, base_url: e.target.value.trim() })} />
+              <Input label="Base URL" placeholder={JEV_PRESET.base_url} value={jev.base_url} data-testid="jev-url" onChange={(e) => setJev({ ...jev, base_url: e.target.value.trim() })} />
               <Input label="Key" type="password" value={jev.api_key} data-testid="jev-key" onChange={(e) => setJev({ ...jev, api_key: e.target.value.trim() })} />
-              <Input label={T.model} placeholder="Qwen/Qwen3-8B" value={jev.model} data-testid="jev-model" onChange={(e) => setJev({ ...jev, model: e.target.value.trim() })} />
+              <Input label={T.model} placeholder={JEV_PRESET.model} value={jev.model} data-testid="jev-model" onChange={(e) => setJev({ ...jev, model: e.target.value.trim() })} />
             </div>
             <div className="text-sm" data-testid="jev-status">
               {jevUnchanged && <p className="text-emerald-600 flex items-center gap-1"><CheckCircle2 size={13} />{T.jevInUse}{existingJev?.model} @ {existingJev?.url}</p>}
@@ -972,7 +975,7 @@ export default function SetupWizard() {
                   {platform === 'discord' && <li>• {guilds.find((g) => g.id === guildID)?.name} / #{channels.find((c) => c.id === channelID)?.name}</li>}
                   {platform === 'qq' && <li data-testid="review-qq">• QQ: {qqTest.message} · {T.qqAllowFrom}: {qq.allow_from}</li>}
                   {platform === 'cloud_web' && <li data-testid="review-cloud-web">• {T.cwReview}{cwURL}{cwLocalKnown ? T.cwLocalTag : ''}</li>}
-                  {(jevSave.saved || jevUnchanged) && <li>• jev: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
+                  {(jevSave.saved || jevUnchanged) && <li>• {T.steps[5]}: {jev.model} @ {jev.base_url} ✓ {T.jevStored}</li>}
                 </ul>
                 {wikiInfo && (
                   <div className="space-y-2" data-testid="wiki-models">
@@ -1051,8 +1054,8 @@ export default function SetupWizard() {
                   </div>
                 )}
                 {result.config_backup && <p className="text-xs text-gray-500">{T.backupNote} <code>{result.config_backup}</code></p>}
-                {/* jev only decides between roles: nothing to say for a single role on the self-hosted platform */}
-                {!(platform === 'cloud_web' && roles.length === 1) && <p className="text-xs text-gray-500 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5">{result.jev_hint}</p>}
+                {/* the judge model only decides between roles, and only in smart mode: nothing to say otherwise */}
+                {!(platform === 'cloud_web' && roles.length === 1) && gateMode === 'smart' && <p className="text-xs text-gray-500 bg-gray-50 dark:bg-white/[0.04] rounded-lg p-2.5">{result.jev_hint}</p>}
                 {result.restart_required && <Button onClick={async () => { await restartSystem().catch(() => {}); setRestarted(true); }} disabled={restarted}>{restarted ? T.restarted : T.restart}</Button>}
                 {platform === 'cloud_web' && (
                   <div className="text-sm space-y-1" data-testid="cloud-web-open">

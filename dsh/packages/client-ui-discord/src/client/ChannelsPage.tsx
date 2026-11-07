@@ -9,11 +9,12 @@ import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, OutgoingAttachment } from './channel-source.ts'
-import { MAX_MESSAGE_BODY, MAX_ROWS, messageTooLarge } from './channel-source.ts'
-import { AttachmentList, PendingAttachments, useComposerAttachments } from './Attachments.tsx'
+import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, LockHolder, OutgoingAttachment } from './channel-source.ts'
+import { DEFAULT_MAX_UPLOAD_BYTES, MAX_MESSAGE_BODY, MAX_ROWS, UploadTooLarge, errorText, formatBytes, messageTooLarge } from './channel-source.ts'
+import { AttachmentList, PendingAttachments, useComposerAttachments, type PendingFile } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
+import { useCollabUrl } from './collab-url.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded } from './ProgressCard.tsx'
@@ -22,7 +23,7 @@ import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
 import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, needsTarget, slashQuery, type SlashCommand } from './slash-commands.ts'
 import { activeMention, applyMention, insertMention, rankMembers } from './mention-complete.ts'
-import { HighlightedMarkdown, renderQuoteMentions } from './mention-highlight.tsx'
+import { HighlightedMarkdown, renderQuoteMentions, splitMentions } from './mention-highlight.tsx'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog, type SettingsTab } from './ChannelSettingsDialog.tsx'
 import { Avatar } from './Avatar.tsx'
@@ -65,6 +66,18 @@ function KindTag({ kind, cli, name, t }: { name?: string; kind: ChannelMember['k
 /** IME candidate confirmation (desktop isComposing, iOS/Android keyCode 229) must not send/select/save. */
 export function isImeEnter(event: { nativeEvent: KeyboardEvent | Event }): boolean {
   return Reflect.get(event.nativeEvent, 'isComposing') === true || Reflect.get(event.nativeEvent, 'keyCode') === 229
+}
+
+/**
+ * #197: an object URL for an image the composer is about to send, so no base64 copy is
+ * held for the thumbnail. A browser or test environment without createObjectURL simply
+ * shows the 📎 instead of a preview.
+ */
+function previewOf(file: File): string | undefined {
+  // 来源：沿用流式上传前 MAX_MESSAGE_BODY 的内联预览边界；大文件继续以附件发送。
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > MAX_MESSAGE_BODY) return undefined
+  if (typeof URL.createObjectURL !== 'function') return undefined
+  try { return URL.createObjectURL(file) } catch { return undefined }
 }
 
 /** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
@@ -189,6 +202,24 @@ function clockOf(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+/**
+ * #216: fill the "held by another DSH" notice from the holder record. A record written by an
+ * older build may miss a field, so each one falls back to its own unknown placeholder rather
+ * than printing `undefined`. `dataDir` and `lock` come from the refused instance too: a holder
+ * that wrote no record still leaves the page able to name the contended directory and file.
+ */
+function lockHolderText(holder: LockHolder | undefined, dataDir: string | undefined, lockPath: string | undefined, t: T): Record<string, unknown> {
+  const unknown = t('lockedUnknown')
+  return {
+    pid: holder?.pid ?? unknown,
+    started: holder?.startedAt === undefined ? unknown : new Date(holder.startedAt).toLocaleString([], {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    }),
+    dataDir: holder?.dataDir ?? dataDir ?? unknown,
+    lock: lockPath ?? unknown,
+  }
+}
+
 /** #1020: the memory entries a reply used — a small badge that opens to their titles. */
 function MemoryBadge({ items, t }: { items: readonly ChannelMemory[]; t: T }) {
   const [open, setOpen] = useState(false)
@@ -263,6 +294,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   /** #1020: names of the members this own message waits for (queued behind their turn); undefined when it does not wait. */
   queuedFor?: readonly string[]
 }) {
+  const collabUrl = useCollabUrl()
   const labels = useMemo(() => ({ code: { copyLabel: t('copyCode'), copiedLabel: t('copiedCode') }, footnotes: t('footnotes') }), [t])
   const card = parseCard(message)
   const role = cardRole(card)
@@ -366,7 +398,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const progressLines = role === 'progress' ? shown.split('\n') : []
   // #1023: a hand-back that delivers a web page shows the page itself.
   const deliveredFor = deliveredTasks(message, tasks)
-  const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message) : undefined
+  const deliveredPage = deliveredFor.length > 0 ? deliverableOf(message, collabUrl) : undefined
   const delivered = deliveredPage === undefined ? undefined
     : { page: deliveredPage, task: deliveredFor.find(task => task.status === 'returned') ?? deliveredFor[0] }
 
@@ -619,7 +651,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -633,21 +665,78 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const [sending, setSending] = useState<Record<number, boolean>>({})
   // Per room: the message the next send replies to.
   const [replies, setReplies] = useState<Record<number, ChannelMessage | undefined>>({})
-  // Per room: images/files waiting to go out with the next send (#144).
-  const [pendingFiles, setPendingFiles] = useState<Record<number, readonly OutgoingAttachment[]>>({})
-  const attach = useComposerAttachments((files) => {
+  // #197: files waiting to go out with the next send, each streaming up on its own with a
+  // progress bar; the message names the ids the service returned (no base64 in the JSON).
+  const [pendingFiles, setPendingFiles] = useState<Record<number, readonly PendingFile[]>>({})
+  const pendingRef = useRef(pendingFiles)
+  // Upload promises may settle before React renders their state update. Keep the current
+  // queue synchronous so submit observes the completed file or error in that same turn.
+  const updateFiles = (update: (current: typeof pendingFiles) => typeof pendingFiles): void => {
+    pendingRef.current = update(pendingRef.current)
+    setPendingFiles(pendingRef.current)
+  }
+  // One promise per file still on its way up, so a send waits for them instead of racing.
+  const uploading = useRef(new Map<string, { done: Promise<void>; controller: AbortController }>())
+  const patchFile = (roomId: number, key: string, change: (file: PendingFile) => PendingFile): void => {
+    updateFiles(previous => ({
+      ...previous,
+      [roomId]: (previous[roomId] ?? []).map(file => (file.key === key ? change(file) : file)),
+    }))
+  }
+  const limit = state.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES
+  const attach = useComposerAttachments((picked) => {
     const roomId = state.roomId
     if (roomId === undefined) return
-    const next = [...(pendingFiles[roomId] ?? []), ...files]
-    if (messageTooLarge(drafts[roomId] ?? '', next)) {
-      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
-      return
-    }
-    setPendingFiles(previous => ({ ...previous, [roomId]: next }))
-  }, (message) => {
-    const roomId = state.roomId
-    if (roomId !== undefined) setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message }) }))
+    const added: PendingFile[] = picked.map((file) => {
+      // An image preview comes from the File itself, so no base64 copy is kept for it.
+      const preview = previewOf(file)
+      return {
+        key: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        name: file.name || 'pasted',
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        progress: 0,
+        ...(preview === undefined ? {} : { preview }),
+        ...(uploadAttachment === undefined
+          ? { error: t('uploadUnsupported') }
+          : file.size > limit
+            ? { error: t('attachmentTooLarge', { name: file.name || 'pasted', size: formatBytes(file.size), limit: formatBytes(limit) }) }
+            : {}),
+      }
+    })
+    updateFiles(previous => ({ ...previous, [roomId]: [...(previous[roomId] ?? []), ...added] }))
+    picked.forEach((file, index) => {
+      const entry = added[index] as PendingFile
+      if (entry.error !== undefined || uploadAttachment === undefined) return
+      const controller = new AbortController()
+      const done = uploadAttachment(file, (sent, total) => {
+        patchFile(roomId, entry.key, current => ({ ...current, progress: total === 0 ? 1 : Math.min(1, sent / total) }))
+      }, controller.signal).then((attachment) => {
+        patchFile(roomId, entry.key, current => ({ ...current, progress: 1, attachment }))
+      }).catch((error: unknown) => {
+        patchFile(roomId, entry.key, current => ({
+          ...current,
+          error: error instanceof UploadTooLarge
+            ? t('attachmentTooLarge', { name: error.fileName, size: formatBytes(error.size), limit: formatBytes(error.limit) })
+            : t('uploadFailed', { name: current.name, message: error instanceof Error ? error.message : String(error) }),
+        }))
+      }).finally(() => { uploading.current.delete(entry.key) })
+      uploading.current.set(entry.key, { done, controller })
+    })
   })
+  const removeFile = (roomId: number, key: string): void => {
+    const gone = (pendingRef.current[roomId] ?? []).find(file => file.key === key)
+    if (gone?.preview !== undefined) URL.revokeObjectURL(gone.preview)
+    uploading.current.get(key)?.controller.abort()
+    uploading.current.delete(key)
+    updateFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => file.key !== key) }))
+  }
+  useEffect(() => () => {
+    for (const job of uploading.current.values()) job.controller.abort()
+    for (const room of Object.values(pendingRef.current)) {
+      for (const file of room) if (file.preview !== undefined) URL.revokeObjectURL(file.preview)
+    }
+  }, [])
   const pendingRooms = useRef(new Set<number>())
   const draft = state.roomId === undefined ? '' : drafts[state.roomId] ?? ''
   const sendError = state.roomId === undefined ? undefined : errors[state.roomId]
@@ -674,6 +763,26 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     pendingWithdrawRef.current?.commit()
   }, [])
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputHighlightsRef = useRef<HTMLDivElement>(null)
+  const [composing, setComposing] = useState(false)
+  // The native textarea owns editing, selection and IME. Only its ink is mirrored.
+  const syncInputHighlights = (): void => {
+    const input = inputRef.current
+    const highlights = inputHighlightsRef.current
+    if (!input || !highlights) return
+    // Exclude the native scrollbar without rounding fractional layout widths (clientWidth rounds).
+    highlights.style.width = `${input.getBoundingClientRect().width - (input.offsetWidth - input.clientWidth)}px`
+    highlights.scrollTop = input.scrollTop
+    highlights.scrollLeft = input.scrollLeft
+  }
+  useLayoutEffect(() => {
+    syncInputHighlights()
+    const input = inputRef.current
+    if (!input || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(syncInputHighlights)
+    observer.observe(input)
+    return () => observer.disconnect()
+  }, [draft, state.roomId])
   // Caret offset in the draft; drives which `@query` (if any) is being typed.
   const [caret, setCaret] = useState(0)
   // `@` start index whose popup the user closed with Esc; a new `@` reopens.
@@ -988,10 +1097,14 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     return () => { clearTimeout(timer) }
   }, [stopping, stillAnswering])
   if (state.phase !== 'ready') {
-    const notice = state.phase === 'unavailable' ? t('unavailable')
-      : state.phase === 'unauthorized' ? t('unauthorized')
-        : state.phase === 'error' ? t('error', { message: state.error ?? '' })
-          : t('loading')
+    const notice = state.phase === 'locked'
+      ? state.lockFree === true ? t('lockedFree')
+        : state.lockHolder === undefined ? t('lockedUnnamed', lockHolderText(undefined, state.lockDataDir, state.lockPath, t))
+          : t('locked', lockHolderText(state.lockHolder, state.lockDataDir, state.lockPath, t))
+      : state.phase === 'unavailable' ? t('unavailable')
+        : state.phase === 'unauthorized' ? t('unauthorized')
+          : state.phase === 'error' ? t('error', { message: state.error ?? '' })
+            : t('loading')
     return <div className={css.page} data-dc-scheme={scheme}><div className={css.notice} role="status">{notice}</div></div>
   }
 
@@ -1060,10 +1173,12 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     : matchCommands(slash, key => t(key)).filter(c => dmWith === undefined || (c.name !== 'stop all' && c.name !== 'board'))
   const slashOpen = slashCommands.length > 0
   const slashSelected = Math.min(slashHighlight, Math.max(slashCommands.length - 1, 0))
-  // #1017: bothouse bots answering in this room; the send key stops one of them (the primary
-  // role first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  // #1017: agents answering in this room; the send key stops one of them (the primary role
+  // first) while the draft is empty. 停频道全部 and 改方向 live in the / menu only.
+  // #299: a DSH member counts too — its stop key sends `@name /stop`, which DSH now honours out of
+  // band (dsh-member.mjs plan). It used to be bots only, so the key never appeared for a DSH team.
   const workingBots = (state.roomId === undefined ? [] : state.thinking[String(state.roomId)] ?? [])
-    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && m.kind === 'bot')
+    .map(id => byId.get(id)).filter((m): m is ChannelMember => m !== undefined && (m.kind === 'bot' || m.kind === 'dsh'))
   const stopTarget = workingBots.find(m => m.id === commandTarget?.id) ?? workingBots[0]
   const roomFiles = state.roomId === undefined ? [] : pendingFiles[state.roomId] ?? []
   const stopMode = (stopTarget !== undefined || stopping?.phase === 'stopping') && draft.trim() === '' && roomFiles.length === 0
@@ -1141,7 +1256,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (!name) { setNewRoom(undefined); return }
     setRoomError(undefined)
     createRoom(name).then(() => { setNewRoom(undefined) }).catch((error: unknown) => {
-      setRoomError(error instanceof Error ? error.message : String(error))
+      setRoomError(errorText(error, t, 'room', name))
     })
   }
 
@@ -1200,7 +1315,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (!window.confirm(t('removeConfirm', { name: member.name }))) return
     setMemberError(undefined)
     removeMember(member.id).catch((error: unknown) => {
-      setMemberError(error instanceof Error ? error.message : String(error))
+      setMemberError(errorText(error, t, 'member', member.name))
     })
   }
 
@@ -1279,10 +1394,16 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
   const submit = (): void => {
     const roomId = state.roomId
     const text = addressCommand(draft.trim(), commandTarget?.name)
-    const files = roomId === undefined ? [] : pendingFiles[roomId] ?? []
-    if ((!text && files.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
-    if (files.length > 0 && messageTooLarge(text, files)) {
-      setErrors(previous => ({ ...previous, [roomId]: t('attachmentsTooLarge', { limit: `${MAX_MESSAGE_BODY / 1024 / 1024} MiB` }) }))
+    const held = roomId === undefined ? [] : pendingRef.current[roomId] ?? []
+    if ((!text && held.length === 0) || roomId === undefined || pendingRooms.current.has(roomId)) return
+    const refused = held.filter(file => file.error !== undefined)
+    if (refused.length > 0) {
+      setErrors(previous => ({ ...previous, [roomId]: refused[0]?.error }))
+      return
+    }
+    // Text alone still has to fit the message POST (MAX_MESSAGE_BODY); attachments do not count any more.
+    if (messageTooLarge(text, [])) {
+      setErrors(previous => ({ ...previous, [roomId]: t('messageTooLarge', { limit: formatBytes(MAX_MESSAGE_BODY) }) }))
       return
     }
     pendingRooms.current.add(roomId)
@@ -1292,16 +1413,39 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
     if (state.hasMoreNewer === true) void showLatest?.()
     setUnread(undefined)
     const replyTo = replies[roomId]?.id
-    ;(files.length > 0 ? send(text, replyTo, files) : replyTo === undefined ? send(text) : send(text, replyTo)).then(() => {
-      setDrafts(previous => ({ ...previous, [roomId]: '' }))
-      setPendingFiles(previous => ({ ...previous, [roomId]: [] }))
-      setReplies(previous => ({ ...previous, [roomId]: undefined }))
-    }).catch((error: unknown) => {
-      setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
-    }).finally(() => {
+    /** Post the message; a file that failed while it streamed is reported instead of sent. */
+    const go = (): Promise<void> => {
+      const keys = new Set(held.map(file => file.key))
+      const ready = (pendingRef.current[roomId] ?? []).filter(file => keys.has(file.key))
+      const broken = ready.find(file => file.error !== undefined)
+      if (broken?.error !== undefined) {
+        setErrors(previous => ({ ...previous, [roomId]: broken.error }))
+        return Promise.resolve()
+      }
+      const files = ready.map(file => file.attachment).filter((a): a is OutgoingAttachment => a !== undefined)
+      if (!text && ready.length === 0) return Promise.resolve()
+      return send(text, replyTo, files.length > 0 ? files : undefined, roomId).then(() => {
+        for (const file of ready) if (file.preview !== undefined) URL.revokeObjectURL(file.preview)
+        setDrafts(previous => ({ ...previous, [roomId]: '' }))
+        updateFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => !keys.has(file.key)) }))
+        setReplies(previous => ({ ...previous, [roomId]: undefined }))
+      }).catch((error: unknown) => {
+        setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+      })
+    }
+    const settle = (): void => {
       pendingRooms.current.delete(roomId)
       setSending(previous => ({ ...previous, [roomId]: false }))
-    })
+    }
+    // #197: a big file may still be streaming when Enter is pressed; the message goes out
+    // once every file of this room landed (or one of them failed, which is shown instead).
+    // Nothing in flight (the usual case) sends right away, as it always did.
+    const waits = held.map(file => uploading.current.get(file.key)?.done).filter((job): job is Promise<void> => job !== undefined)
+    if (waits.length === 0) {
+      void go().finally(settle)
+      return
+    }
+    void Promise.all(waits).then(go).finally(settle)
   }
 
   const startReply = (message: ChannelMessage): void => {
@@ -1607,7 +1751,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
         />
         <div className={css.composer} ref={composerRef}>
           {helpOpen && <CapabilityList key={state.roomId} t={t} onClose={() => { setHelpOpen(false) }} />}
-          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
+          {slashOpen && <SlashMenu commands={slashCommands} selected={slashSelected} target={commandTarget?.name} leadName={dmWith === undefined && commandTarget === undefined ? lead?.name : undefined} dmName={dmWith === undefined ? undefined : dmPeer?.name ?? room?.name} disabled={c => commandTarget === undefined && needsTarget(c)} grouped={slash === ''} t={t} onPick={runSlash} onHover={setSlashHighlight} />}
           {sendError !== undefined && <div className={css.sendError} role="alert">{sendError}</div>}
           {ownNotice !== undefined && <div className={css.sendError} role="status">{ownNotice}</div>}
           {popupOpen && (
@@ -1657,41 +1801,51 @@ export function ChannelsPage({ useChannels, selectRoom, send, reviewTask, dispat
               <PendingAttachments
                 files={pendingFiles[state.roomId] ?? []}
                 removeLabel={t('removeAttachment')}
-                onRemove={(index) => {
-                  const roomId = state.roomId as number
-                  setPendingFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter((_, i) => i !== index) }))
-                }}
+                labels={{ uploading: t('attachmentUploading'), queued: t('attachmentQueued') }}
+                onRemove={(key) => removeFile(state.roomId as number, key)}
               />
             )}
-            <textarea
-              ref={inputRef}
-              className={css.input}
-              rows={1}
-              enterKeyHint="send"
-              value={draft}
-              disabled={state.roomId === undefined || sending[state.roomId] === true}
-              placeholder={placeholder}
-              role="combobox"
-              aria-expanded={popupOpen || slashOpen}
-              aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
-              aria-autocomplete="list"
-              aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : slashOpen ? `channel-slash-${slashSelected}` : undefined}
-              onChange={(event) => {
-                const roomId = state.roomId
-                const value = event.target.value
-                if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
-                setCapabilitiesDismissed(false)
-                setHelpOpen(false)
-                setCaret(event.target.selectionStart)
-                setHighlight(0)
-                setSlashHighlight(0)
-              }}
-              onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
-              onKeyDown={onKeyDown}
-              onPaste={attach.onPaste}
-              onDragOver={attach.onDragOver}
-              onDrop={attach.onDrop}
-            />
+            <div className={composing ? `${css.inputSurface} ${css.inputComposing}` : css.inputSurface}>
+              <textarea
+                ref={inputRef}
+                className={css.input}
+                rows={1}
+                enterKeyHint="send"
+                value={draft}
+                disabled={state.roomId === undefined || sending[state.roomId] === true}
+                placeholder={placeholder}
+                role="combobox"
+                aria-expanded={popupOpen || slashOpen}
+                aria-controls={slashOpen ? 'channel-slash-list' : 'channel-mention-list'}
+                aria-autocomplete="list"
+                aria-activedescendant={popupOpen ? `channel-mention-${(candidates[selected] as ChannelMember).id}` : slashOpen ? `channel-slash-${slashSelected}` : undefined}
+                onChange={(event) => {
+                  const roomId = state.roomId
+                  const value = event.target.value
+                  if (roomId !== undefined) setDrafts(previous => ({ ...previous, [roomId]: value }))
+                  setCapabilitiesDismissed(false)
+                  setHelpOpen(false)
+                  setCaret(event.target.selectionStart)
+                  setHighlight(0)
+                  setSlashHighlight(0)
+                }}
+                onSelect={(event) => { setCaret(event.currentTarget.selectionStart) }}
+                onScroll={syncInputHighlights}
+                onCompositionStart={() => setComposing(true)}
+                onCompositionEnd={() => setComposing(false)}
+                onKeyDown={onKeyDown}
+                onPaste={attach.onPaste}
+                onDragOver={attach.onDragOver}
+                onDrop={attach.onDrop}
+              />
+              <div ref={inputHighlightsRef} className={css.inputHighlights} data-composer-highlights aria-hidden="true">
+                {splitMentions(draft, visibleMembers).map((segment, index) => segment.member
+                  ? <span key={index} className={`${css.mentionBadge} ${css.inputMention}`} data-mention={segment.member.id}>{segment.text}</span>
+                  : segment.text)}
+                {/* A final empty line must occupy the same line box as in a textarea. */}
+                {'\n'}
+              </div>
+            </div>
             <div className={css.composerToolbar}>
               {attach.button(t('attachButton'), state.roomId === undefined || sending[state.roomId] === true)}
               <button

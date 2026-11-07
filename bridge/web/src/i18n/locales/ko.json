@@ -518,11 +518,23 @@
     "providerScope": "이 제공업체는 참조하는 브리지 프로젝트에 적용됩니다.",
     "dshProviderScope": "DSH 기본 멤버는 자체 모델 경로를 사용합니다.",
     "openDsh": "DSH 열기",
+    "openDshDesktop": "데스크톱 앱에서 열기",
+    "openDshWeb": "웹",
     "settingsModels": "DSH에서 설정 → 모델을 여세요.",
     "cliScope": "CLI 멤버는 로컬 CLI 인증과 설정을 사용하며 여기서 변경되지 않습니다.",
     "bridgeProjects": "브리지 프로젝트",
     "projectScope": "브리지 프로젝트는 에이전트와 작업공간을 플랫폼에 연결합니다. DSH 멤버는 별도로 관리합니다.",
     "savedConfigNextTurn": "저장된 설정 · 다음 턴 전에 적용",
     "savedRoute": "저장된 DSH 경로"
+  },
+  "usage": {
+    "quickFilters": "빠른 필터",
+    "presetToday": "오늘",
+    "presetThisWeek": "이번 주",
+    "presetThisMonth": "이번 달",
+    "presetLast7Days": "최근 7일",
+    "presetPastYear": "최근 1년",
+    "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
+    "tokenBreakdown": "구성"
   }
 }
