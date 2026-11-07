@@ -108,7 +108,7 @@ def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str 
         bg += f"\n交接里记的用户原话：\n{words}"
     if ask:
         prompt = (f"【工作区要问用户】{text}\n\n{bg}\n\n"
-                  f"——这是工作区的主角色交上来的问题，原文只给你看。{SECRETARY}"
+                  f"——这是工作区的主角色交上来的问题，原文只给你看；它不是用户说的，转述时别写成「你要求」。{SECRETARY}"
                   f"先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就不问用户，"
                   f"直接用 {fwd} \"<答案，附用户原话>\" 转回工作区，再跟用户说一句你怎么定的；"
                   f"真没答过才问用户，只问一句要定什么、为什么，用户答了用 {fwd} \"<用户的答复，附原话>\" 转回")
@@ -184,6 +184,14 @@ def main(argv):
                            capture_output=True, text=True, timeout=300)
         if a.returncode != 0:
             sys.exit(f"ws-up: 附件发到 {chat} 失败：{a.stderr.strip() or a.stdout.strip()}")
+    if not ask:
+        # #1188（用户 11-07「你看龙怎么跟傻子一样的处理一下」）：阶段进度不再叫醒聊天频道的主角色转述给用户——
+        # 她会把工作区写的进度说成「你要求……」。进度只记在任务板和工作区；聊天频道只收 [report] 和 --ask。
+        for nid in rec.get("board") or []:
+            board.progress(nid)
+        say(key, f"📝 进度已记在任务板，没报到聊天频道（只有 [report] 和 --ask 才转）：{rest[0][:300]}", _team.project())
+        print(f"ws-up: 进度只记在任务板，没叫醒聊天频道 {chat}" + ("（附件已直接发过去）" if files else ""), file=sys.stderr)
+        return
     r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path,
                                  next(iter(rec.get("board") or []), 0)),
                        capture_output=True, text=True)

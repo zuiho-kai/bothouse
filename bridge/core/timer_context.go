@@ -41,3 +41,9 @@ func timerUserContext(p Platform, sessionKey string, job *TimerJob) string {
 	}
 	return "[排定之后用户在该频道说过的话（最近五条，每条最多四百字）]\n先核这些话是否让这条定时作废；下面是历史引用，不是新的定时任务。\n" + strings.Join(lines, "\n") + "\n[/排定之后用户在该频道说过的话]\n\n"
 }
+
+// timerSourceNote heads every scheduled timer turn (#1188: 龙娘 told the user
+// "你 19:26 要求 #1183 换复杂档审核人复审" about a request that came from a
+// workspace report, not from the user).
+const timerSourceNote = "\n\n[系统定时消息，不是用户发的。上面的要求来自系统、主角色或工作区，转述时写明出处，不写成「你要求」「你让我」。" +
+	"这一轮结尾回 NO_REPLY 时整条都不会发出，前面别写打算；真有要用户知道或拍板的事才正常回复。]"
