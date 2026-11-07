@@ -1698,10 +1698,10 @@
 .own > .messageBody { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; align-items: flex-end; }
 .own .messageHead { flex-direction: row-reverse; }
 .own .ownActions { margin-left: 0; margin-right: auto; }
-.own > .messageBody > .text { max-width: min(560px, 100%); padding: 8px 14px; border-radius: 16px 6px 16px 16px; color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent); }
+.own > .messageBody > .bubbleLine > .text { max-width: 100%; box-sizing: border-box; padding: 8px 14px; border-radius: 16px 6px 16px 16px; color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, var(--dsw-alias-bg-layer-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 28%, transparent); }
 .own > .messageBody > .quote { align-self: flex-end; }
 .own .msgTools { right: auto; left: 16px; }
-.own.grouped > .messageBody > .text { border-radius: 16px 6px 6px 16px; }
+.own.grouped > .messageBody > .bubbleLine > .text { border-radius: 16px 6px 6px 16px; }
 
 /* System notice: a centered divider, not a member speaking; a task record keeps its card under it. */
 .systemRecord { display: flex; flex-direction: column; align-items: center; padding-bottom: 4px; }
@@ -2038,17 +2038,17 @@
 .leadCardName { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .leadCardStatus { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 /* 气泡：对方浅灰圆角，自己深色靠右；卡片、执行条、权限行不套气泡。 */
-.message:not(.own) > .messageBody > .text { width: fit-content; max-width: min(640px, 100%); padding: 8px 14px; border-radius: 6px 16px 16px 16px; background: var(--dsw-alias-bg-layer-2); }
-.message.grouped:not(.own) > .messageBody > .text { border-radius: 6px 16px 16px 6px; }
-.own > .messageBody > .text { color: var(--dsw-alias-bg-base); background: var(--dsw-alias-label-primary); box-shadow: none; }
-.own > .messageBody > .text * { color: inherit; }
-.own > .messageBody > .text a { color: inherit; text-decoration: underline; }
-.own > .messageBody > .text code { color: inherit; background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent); }
-.own > .messageBody > .text .mentionBadge {
+.message:not(.own) > .messageBody > .bubbleLine > .text { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 14px; border-radius: 6px 16px 16px 16px; background: var(--dsw-alias-bg-layer-2); }
+.message.grouped:not(.own) > .messageBody > .bubbleLine > .text { border-radius: 6px 16px 16px 6px; }
+.own > .messageBody > .bubbleLine > .text { color: var(--dsw-alias-bg-base); background: var(--dsw-alias-label-primary); box-shadow: none; }
+.own > .messageBody > .bubbleLine > .text * { color: inherit; }
+.own > .messageBody > .bubbleLine > .text a { color: inherit; text-decoration: underline; }
+.own > .messageBody > .bubbleLine > .text code { color: inherit; background: color-mix(in srgb, var(--dsw-alias-bg-base) 18%, transparent); }
+.own > .messageBody > .bubbleLine > .text .mentionBadge {
   color: var(--dsw-alias-bg-base);
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 24%, transparent);
 }
-.own > .messageBody > .text .mentionBadge:hover {
+.own > .messageBody > .bubbleLine > .text .mentionBadge:hover {
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 36%, transparent);
 }
 /* 白色方案：任务板从右侧抽屉滑出（样张 layout-plan-113 的置顶任务板），聊天留在左边可见；宽 440 量自样张 desktop-board.png（1440 宽视口里抽屉占 1000–1440）。 */
@@ -2327,3 +2327,47 @@ button.headMeta:hover { color: var(--dsw-alias-label-primary); background: var(-
 /* #12 a docked board leaves the title bar its name: the secondary items step aside. */
 .panelOpen .chatHead > .headTeam, .panelOpen .chatHead > .headMeta { display: none; }
 .panelOpen .chatHead > .roomName { flex: 0 1 auto; }
+
+/* #235: the hover toolbar sits beside the message's own bubble, not at the row's far edge
+   (用户 11-06 23:3x「reply不跟手 应该在消息框旁」). Others' bubbles are left, so it goes on the
+   bubble's right; your own bubbles are right, so it goes on their left. The bubble cap moved from
+   .text to its wrapper so the wrapper hugs the bubble; on hover screens the wrapper also leaves the
+   toolbar's width free, so a full-width bubble never sits under it. Touch screens keep the
+   long-press menu on the row (bubbleLine stays static there). */
+.bubbleLine {
+  /* 来源：沿用原气泡正文上限 640px（对方）/560px（自己）加左右 padding 14px×2。 */
+  --bubble-cap: 668px;
+  /* 来源：#235 非作者验收实测（/Users/zhaixinyang/.claude/reviews/235-reply-tools.md）三键工具条宽 88px
+     （按钮 26px×3 + 间隙 2px×2 + 内边距 2px×2 + 边框 1px×2），加 6px 间距 = 94px；原 72px 少算 22px。 */
+  --msg-tools-room: 94px;
+  width: fit-content;
+  max-width: min(var(--bubble-cap), 100%);
+}
+.own > .messageBody > .bubbleLine { --bubble-cap: 588px; align-self: flex-end; }
+@media (hover: hover) {
+  .bubbleLine { position: relative; max-width: min(var(--bubble-cap), 100% - var(--msg-tools-room)); }
+  .bubbleLine > .msgTools { top: 4px; right: auto; left: calc(100% + 6px); }
+  .own .bubbleLine > .msgTools { left: auto; right: calc(100% + 6px); }
+  /* The 2 s note (已复制 / 已放上任务板 / 转任务失败：…) floats above the buttons instead of sitting
+     in their row: in the row it widened the toolbar and pushed the buttons out of a narrow window
+     right after a click (#235 退回). Above, not below: the button's own tip (data-tip) shows below.
+     It reaches over the bubble side, where the row has room, and wraps a long failure. */
+  .bubbleLine > .msgTools > .msgToolNote {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    right: 0;
+    width: max-content;
+    box-sizing: border-box;
+    /* 来源：#235 返工实测（/tmp/c235rw/geometry.txt）两字短消息「好的」时工具条右缘离日志左缘 210px，
+       提示上限取 180px 留余量，更长的失败提示折行。 */
+    max-width: 180px;
+    padding: 2px 6px;
+    border: 1px solid var(--dsw-alias-separator, rgba(127, 127, 127, 0.25));
+    border-radius: var(--dsw-radius-sm, 6px);
+    background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-primary, #fff));
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .own .bubbleLine > .msgTools > .msgToolNote { right: auto; left: 0; }
+}
