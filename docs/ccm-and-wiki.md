@@ -31,7 +31,7 @@
 选择智能分流并保存后，分流马上生效：主 bot 统一回话，被 @ 的角色照常回，其他角色只听。
 bothouse 会自己拉起 gate（服务在跑就马上起，没在跑就下次启动时起），装好 **Python 3.12+** 和 **jev** 后自动启用智能判断，不用重跑向导。
 
-- jev 在向导里填（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）。gate 不会自己下载模型。
+- jev 在向导里填（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起我们在用的 Qwen3.5-4B）。gate 不会自己下载模型。
 - 还缺 Python 或 jev 时，保存页会写出缺哪样（`gate_status`：`python_missing`、`python_too_old`、`jev_missing`），分流照样生效，只是先由主 bot 统一回话。
   bothouse 每分钟复查一次，装好就自动起 gate。
 - bothouse 起的 gate 跟着 bothouse 走：bothouse 退出它也退出，崩了会自动重启。脚本释放在 `~/.bothouse/gate/`，

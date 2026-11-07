@@ -126,7 +126,7 @@ class GateSelection(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 g = load_gate(d)
             self.assertEqual(g.SCORER_KIND, "none")
-            for want in ("没填 jev 模型", "硅基流动", "0.6B"):
+            for want in ("没填 jev 模型", "硅基流动", "Qwen3.5-4B"):
                 self.assertIn(want, out.getvalue())
 
     def test_explicit_gate_model_uses_local(self):
