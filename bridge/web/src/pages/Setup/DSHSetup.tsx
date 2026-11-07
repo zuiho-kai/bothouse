@@ -32,7 +32,7 @@ const TEXT = {
   zh: {
     title: 'DSH 安装', steps: ['检测 DSH', '安装插件', '角色和模型', '打开 DSH'],
     note: '装好以后，角色住在 DSH 网页的 #general 频道里，@ 谁谁回。',
-    detect: '重新检测', missing: '没找到 dsh。若已安装 DSH 桌面版，请确认将其 bin 目录加入环境变量 PATH；或在终端运行 npm i -g @deepseek-ai/dsh（国内推荐使用 npmmirror 镜像源），再点「重新检测」。',
+    detect: '重新检测', missing: '没找到 dsh。若已安装 DSH 桌面版，请确认将其 bin 目录加入环境变量 PATH；或在终端运行 npm i -g @deepseek-ai/dsh@latest（国内推荐使用 npmmirror 镜像源），再点「重新检测」。',
     install: '安装插件', reinstall: '重新安装', installed: '插件已经装好了。', next: '下一步',
     stepNames: { download: '准备插件文件', deps: '安装依赖', plugin: '装进 DSH' } as Record<string, string>,
     showLog: '查看安装日志',
@@ -51,7 +51,7 @@ const TEXT = {
   ja: {
     title: 'DSH セットアップ', steps: ['DSH を検出', 'プラグインをインストール', 'キャラとモデル', 'DSH を開く'],
     note: 'インストール後、キャラは DSH ウェブの #general チャンネルにいて、@ した相手が返事します。',
-    detect: '再検出', missing: 'dsh が見つかりません。公式デスクトップ版をご利用の場合は bin を PATH に追加するか、npm i -g @deepseek-ai/dsh を実行して「再検出」を押してください。',
+    detect: '再検出', missing: 'dsh が見つかりません。公式デスクトップ版をご利用の場合は bin を PATH に追加するか、npm i -g @deepseek-ai/dsh@latest を実行して「再検出」を押してください。',
     install: 'プラグインをインストール', reinstall: '再インストール', installed: 'プラグインはインストール済みです。', next: '次へ',
     stepNames: { download: 'ファイルを準備', deps: '依存関係をインストール', plugin: 'DSH に組み込む' } as Record<string, string>,
     showLog: 'インストールログを見る',
@@ -70,7 +70,7 @@ const TEXT = {
   en: {
     title: 'DSH setup', steps: ['Detect DSH', 'Install plugins', 'Roles and model', 'Open DSH'],
     note: 'Afterwards your roles live in the #general channel of DSH web; whoever you @ replies.',
-    detect: 'Detect again', missing: 'dsh not found. If using the official desktop app, ensure its bin directory is on PATH; or run npm i -g @deepseek-ai/dsh in a terminal, then press "Detect again".',
+    detect: 'Detect again', missing: 'dsh not found. If using the official desktop app, ensure its bin directory is on PATH; or run npm i -g @deepseek-ai/dsh@latest in a terminal, then press "Detect again".',
     install: 'Install plugins', reinstall: 'Reinstall', installed: 'The plugins are already installed.', next: 'Next',
     stepNames: { download: 'Prepare plugin files', deps: 'Install dependencies', plugin: 'Add to DSH' } as Record<string, string>,
     showLog: 'Show install log',
@@ -114,7 +114,8 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   const detect = () => run(async () => { const s = await getDSHStatus(lang); setStatus(s); setStep(s.found ? 1 : 0); });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- detect once on mount
   useEffect(() => { void detect(); }, []);
-  useEffect(() => { getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, []);
+  // asked again on reaching 角色和模型: a CLI the user just logged into (or installed) shows up without a reload
+  useEffect(() => { if (step === 0 || step === 2) getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, [step]);
 
   const runners = clis.filter((c) => c.supported && CLI_OF[c.agent_type]);
   const defaultRunner = () => (runners.find((c) => c.login === 'logged_in') || runners[0])?.agent_type || DEEPSEEK;
