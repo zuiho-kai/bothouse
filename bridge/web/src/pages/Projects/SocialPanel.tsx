@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, RefreshCw, Trash2, Upload, UserRound } from 'lucide-react';
+import { MessageSquare, Pencil, RefreshCw, Trash2, Upload, UserRound } from 'lucide-react';
 import { Button, Card, EmptyState, LoadingState, Textarea } from '@/components/ui';
 import {
   deleteMoment,
   getSocial,
   postMoment,
+  replaceMoment,
   setAvatar,
   type Moment,
   type SocialState,
@@ -33,6 +34,9 @@ export default function SocialPanel({ project }: { project: string }) {
   const [failed, setFailed] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [picked, setPicked] = useState<File | null>(null);
+  // 换说说：一次只改一条，改在原来的位置，不开新卡也不跳页。
+  const [editing, setEditing] = useState('');
+  const [editText, setEditText] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
@@ -64,6 +68,43 @@ export default function SocialPanel({ project }: { project: string }) {
       await postMoment(project, want);
       setText('');
       setNote(T.posted);
+      await fetchData();
+    } catch (e: any) {
+      setFailed(T.failed(e?.message || String(e)));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // 换说说：一个动作、一次请求。后端保证「先发新的、成功了才删旧的」，所以这里
+  // 不做「发一条再删一条」两次调用，也不在这里重试。
+  const startReplace = (m: Moment) => {
+    setEditing(m.id);
+    setEditText(m.text);
+    setFailed('');
+    setNote('');
+  };
+
+  const cancelReplace = () => {
+    setEditing('');
+    setEditText('');
+  };
+
+  const replace = async (m: Moment) => {
+    const want = editText.trim();
+    if (!want) return;
+    if (want === m.text.trim()) {
+      cancelReplace();
+      return;
+    }
+    if (!confirm(`${T.replace}？\n\n${T.replaceConfirm}`)) return;
+    setBusy(`replace-${m.id}`);
+    setFailed('');
+    setNote('');
+    try {
+      await replaceMoment(project, m.id, want);
+      cancelReplace();
+      setNote(T.replaced);
       await fetchData();
     } catch (e: any) {
       setFailed(T.failed(e?.message || String(e)));
@@ -111,6 +152,7 @@ export default function SocialPanel({ project }: { project: string }) {
   const caps = state?.capabilities;
   const canPost = !!caps?.post_moment;
   const canRemove = !!caps?.remove_moment;
+  const canReplace = !!caps?.replace_moment;
   const canAvatar = !!caps?.set_avatar;
 
   return (
@@ -201,16 +243,52 @@ export default function SocialPanel({ project }: { project: string }) {
                           {m.private && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{T.privateLabel}</span>}
                         </p>
                       </div>
-                      <Button
-                        variant="secondary"
-                        onClick={() => remove(m)}
-                        disabled={!canRemove || !m.id || busy !== ''}
-                        data-testid={`social-delete-${m.id}`}
-                      >
-                        <Trash2 size={14} />
-                        {busy === `del-${m.id}` ? T.deleting : T.delete}
-                      </Button>
+                      <div className="flex shrink-0 gap-2">
+                        {canReplace && m.id && editing !== m.id && (
+                          <Button
+                            variant="secondary"
+                            onClick={() => startReplace(m)}
+                            disabled={busy !== ''}
+                            data-testid={`social-replace-${m.id}`}
+                          >
+                            <Pencil size={14} />
+                            {T.replace}
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          onClick={() => remove(m)}
+                          disabled={!canRemove || !m.id || busy !== ''}
+                          data-testid={`social-delete-${m.id}`}
+                        >
+                          <Trash2 size={14} />
+                          {busy === `del-${m.id}` ? T.deleting : T.delete}
+                        </Button>
+                      </div>
                     </div>
+                    {editing === m.id && (
+                      <div className="mt-3 rounded-lg bg-surface-sunken p-3" data-testid={`social-editor-${m.id}`}>
+                        <label className="mb-1 block text-xs font-medium text-ink-soft">{T.replaceLabel}</label>
+                        <Textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          rows={3}
+                          data-testid={`social-edit-text-${m.id}`}
+                        />
+                        <div className="mt-2 flex justify-end gap-2">
+                          <Button variant="secondary" onClick={cancelReplace} disabled={busy !== ''}>
+                            {T.replaceCancel}
+                          </Button>
+                          <Button
+                            onClick={() => replace(m)}
+                            disabled={busy !== '' || !editText.trim()}
+                            data-testid={`social-replace-save-${m.id}`}
+                          >
+                            {busy === `replace-${m.id}` ? T.replacing : T.replace}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {m.images.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {m.images.map((src) => (

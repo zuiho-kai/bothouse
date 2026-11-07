@@ -14,6 +14,7 @@ import (
 //
 //	GET  /projects/<name>/social               → {status, platform, capabilities, moments}
 //	POST /projects/<name>/social/moment        {text} → Moment
+//	POST /projects/<name>/social/moment/replace {id, text} → {moment}
 //	POST /projects/<name>/social/moment/delete {id}   → {result}
 //	POST /projects/<name>/social/avatar        multipart file → {result}
 //
@@ -54,6 +55,10 @@ func socialPlatform(engine *Engine) (Platform, SocialCapabilities) {
 			}
 		}
 		caps := SocialCapabilities{ListMoments: true, PostMoment: true, RemoveMoment: true, SetAvatar: true}
+		// 换说说需要平台真能一次换掉；没有这个接口就报 false，面板不摆一个必然 501 的按钮。
+		if _, ok := p.(MomentReplacer); ok {
+			caps.ReplaceMoment = true
+		}
 		if rep, ok := p.(SocialCapabilityReporter); ok {
 			caps = rep.SocialCapabilities()
 		}
@@ -70,6 +75,8 @@ func (m *ManagementServer) handleProjectSocial(w http.ResponseWriter, r *http.Re
 		m.socialStatus(w, r, engine)
 	case "moment":
 		m.socialPostMoment(w, r, engine)
+	case "moment/replace":
+		m.socialReplaceMoment(w, r, engine)
 	case "moment/delete":
 		m.socialDeleteMoment(w, r, engine)
 	case "avatar":
@@ -183,6 +190,54 @@ func (m *ManagementServer) socialPostMoment(w http.ResponseWriter, r *http.Reque
 	defer cancel()
 	moment, err := plat.(MomentPoster).PostMoment(ctx, body.Text, nil)
 	if err != nil {
+		mgmtError(w, socialStatus(err), socialMessage(err))
+		return
+	}
+	mgmtJSON(w, http.StatusOK, map[string]any{"moment": moment})
+}
+
+// socialReplaceMoment 换说说：把这一条换成新的文字，只发一次请求，不是让面板
+// 自己「先发一条再删一条」——那样中途失败就会留下两条或零条。语义与失败顺序写在
+// core.MomentReplacer 上：先发新的，成功了才删旧的。
+func (m *ManagementServer) socialReplaceMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
+	if !m.requireSocialWrites(w) {
+		return
+	}
+	var body struct {
+		ID   string `json:"id"`
+		Text string `json:"text"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.ID) == "" {
+		mgmtError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		mgmtError(w, http.StatusBadRequest, "text required")
+		return
+	}
+	plat, caps := socialPlatform(engine)
+	if plat == nil {
+		mgmtError(w, http.StatusNotImplemented, "this project's platform cannot post to a timeline")
+		return
+	}
+	replacer, ok := plat.(MomentReplacer)
+	if !ok || !caps.ReplaceMoment {
+		reason := caps.DisabledReason
+		if ok && reason == "" {
+			reason = "this platform cannot replace a moment"
+		}
+		mgmtError(w, http.StatusNotImplemented, "换说说 is not available here: "+reason)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), socialMomentTimeout)
+	defer cancel()
+	moment, err := replacer.ReplaceMoment(ctx, body.ID, body.Text, nil)
+	if err != nil {
+		// 平台把「新的发出去了、旧的没删掉」也包在 err 里带回来，这条消息要原样
+		// 交给面板，因为人需要知道空间里有两条，不能只说一句失败。
 		mgmtError(w, socialStatus(err), socialMessage(err))
 		return
 	}

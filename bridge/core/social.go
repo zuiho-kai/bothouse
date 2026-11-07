@@ -57,6 +57,24 @@ type MomentPoster interface {
 	RemoveMoment(ctx context.Context, id string) error
 }
 
+// MomentReplacer is an optional refinement of MomentPoster: change the words
+// of one existing post in a single call, instead of asking the caller to post
+// a new one and delete the old one as two separate steps.
+//
+// QQ空间 has no "edit this post's text" upstream call, so an implementation may
+// satisfy this by publishing the new text first and deleting the old post
+// afterwards. That order is the point: a failure while publishing leaves the
+// old post untouched, so the caller can never lose the words it already had.
+// When the post is published but the old one cannot be deleted, implementations
+// return the new Moment together with a non-nil error, and the caller must tell
+// the person that both posts exist.
+type MomentReplacer interface {
+	// ReplaceMoment replaces post id with text/images and returns the post that
+	// now carries the words. The returned Moment has an empty ID when the new
+	// post went out but the platform did not say which one it is.
+	ReplaceMoment(ctx context.Context, id, text string, images []MomentImage) (Moment, error)
+}
+
 // AvatarSetter is an optional Platform extension for changing the account's
 // own avatar. The picture is passed as bytes for the same reason as above.
 type AvatarSetter interface {
@@ -71,6 +89,7 @@ type SocialCapabilities struct {
 	ListMoments    bool   `json:"list_moments"`
 	PostMoment     bool   `json:"post_moment"`
 	RemoveMoment   bool   `json:"remove_moment"`
+	ReplaceMoment  bool   `json:"replace_moment"`
 	SetAvatar      bool   `json:"set_avatar"`
 	DisabledReason string `json:"disabled_reason,omitempty"` // why the false ones are false
 }

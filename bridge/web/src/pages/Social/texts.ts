@@ -19,6 +19,12 @@ export interface SocialTexts {
   empty: string
   emptyHint: string
   privateLabel: string
+  replace: string
+  replacing: string
+  replaceLabel: string
+  replaceConfirm: string
+  replaced: string
+  replaceCancel: string
   delete: string
   deleting: string
   deleteConfirm: string
@@ -54,6 +60,12 @@ const zh: SocialTexts = {
   empty: '还没有说说',
   emptyHint: '这个号还没发过，或者上游没返回列表。',
   privateLabel: '仅部分人可见',
+  replace: '换一条',
+  replacing: '正在换…',
+  replaceLabel: '改成什么',
+  replaceConfirm: '换掉这一条的说法？会先发新的，成功了再删旧的；中间失败不会把原来的弄丢。',
+  replaced: '换好了',
+  replaceCancel: '取消',
   delete: '删掉',
   deleting: '正在删…',
   deleteConfirm: '删掉这一条？删了就没了，QQ 空间里也看不到了。',
@@ -89,6 +101,12 @@ const en: SocialTexts = {
   empty: 'No moments yet',
   emptyHint: 'This account has not posted, or the upstream did not return a list.',
   privateLabel: 'Limited audience',
+  replace: 'Replace',
+  replacing: 'Replacing…',
+  replaceLabel: 'New words',
+  replaceConfirm: 'Replace this post? The new one goes out first, then the old one is removed; a failure in between never loses the original.',
+  replaced: 'Replaced',
+  replaceCancel: 'Cancel',
   delete: 'Delete',
   deleting: 'Deleting…',
   deleteConfirm: 'Delete this one? It is gone for good and disappears from QQ too.',
@@ -124,6 +142,12 @@ const ja: SocialTexts = {
   empty: '投稿はまだありません',
   emptyHint: 'まだ投稿していないか、上流が一覧を返しませんでした。',
   privateLabel: '公開範囲あり',
+  replace: '差し替え',
+  replacing: '差し替え中…',
+  replaceLabel: '新しい本文',
+  replaceConfirm: 'この投稿を差し替えますか？新しい投稿を先に出し、成功してから元を削除します。途中で失敗しても元は失われません。',
+  replaced: '差し替えました',
+  replaceCancel: 'キャンセル',
   delete: '削除',
   deleting: '削除中…',
   deleteConfirm: 'この投稿を削除しますか？元に戻せません。',

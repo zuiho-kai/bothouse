@@ -8,6 +8,7 @@ export interface SocialCapabilities {
   list_moments: boolean;
   post_moment: boolean;
   remove_moment: boolean;
+  replace_moment: boolean;
   set_avatar: boolean;
   disabled_reason?: string;
 }
@@ -35,6 +36,10 @@ export const getSocial = (project: string) => api.get<SocialState>(`/projects/${
 /** Post one 说说. Publishes as the account: the panel asks first. */
 export const postMoment = (project: string, text: string) =>
   api.post<{ moment: Moment }>(`/projects/${project}/social/moment`, { text });
+
+/** Replace one 说说 in a single call: new words first, old post only then removed. */
+export const replaceMoment = (project: string, id: string, text: string) =>
+  api.post<{ moment: Moment }>(`/projects/${project}/social/moment/replace`, { id, text });
 
 /** Delete one of the bot's own 说说 by tid. */
 export const deleteMoment = (project: string, id: string) =>

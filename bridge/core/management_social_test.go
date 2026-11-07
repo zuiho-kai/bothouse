@@ -20,15 +20,17 @@ import (
 
 // fakeSocialPlatform 实现 Platform + MomentPoster + AvatarSetter，并记录调用。
 type fakeSocialPlatform struct {
-	mu        sync.Mutex
-	caps      *SocialCapabilities // nil = 全开
-	moments   []Moment
-	posted    []string
-	deleted   []string
-	avatarIn  []byte
-	listErr   error
-	postErr   error
-	avatarErr error
+	mu         sync.Mutex
+	caps       *SocialCapabilities // nil = 全开
+	moments    []Moment
+	posted     []string
+	deleted    []string
+	avatarIn   []byte
+	listErr    error
+	postErr    error
+	replaceErr error
+	avatarErr  error
+	replaced   []string
 }
 
 func (f *fakeSocialPlatform) Name() string                                   { return "qq" }
@@ -41,7 +43,7 @@ func (f *fakeSocialPlatform) SocialCapabilities() SocialCapabilities {
 	if f.caps != nil {
 		return *f.caps
 	}
-	return SocialCapabilities{ListMoments: true, PostMoment: true, RemoveMoment: true, SetAvatar: true}
+	return SocialCapabilities{ListMoments: true, PostMoment: true, RemoveMoment: true, ReplaceMoment: true, SetAvatar: true}
 }
 
 func (f *fakeSocialPlatform) ListMoments(_ context.Context, limit int) ([]Moment, error) {
@@ -65,6 +67,16 @@ func (f *fakeSocialPlatform) PostMoment(_ context.Context, text string, images [
 	}
 	f.posted = append(f.posted, text)
 	return Moment{ID: fmt.Sprintf("tid-%d", len(f.posted)), Text: text, Time: time.Now()}, nil
+}
+
+func (f *fakeSocialPlatform) ReplaceMoment(_ context.Context, id, text string, _ []MomentImage) (Moment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.replaceErr != nil {
+		return Moment{}, f.replaceErr
+	}
+	f.replaced = append(f.replaced, id+"|"+text)
+	return Moment{ID: fmt.Sprintf("tid-replaced-%d", len(f.replaced)), Text: text, Time: time.Now()}, nil
 }
 
 func (f *fakeSocialPlatform) RemoveMoment(_ context.Context, id string) error {
@@ -222,6 +234,58 @@ func TestMgmt_SocialPostsAndDeletes(t *testing.T) {
 	}
 	if code, _ = socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/delete", map[string]string{}); code != http.StatusBadRequest {
 		t.Fatalf("缺 id 该 400，实际 %d", code)
+	}
+}
+
+// TestMgmt_SocialReplacesInOneCall：换说说是一个动作，不是面板自己发一条再删一条。
+// 面板只发一次请求，平台收到的是 id + 新文字。
+func TestMgmt_SocialReplacesInOneCall(t *testing.T) {
+	plat := &fakeSocialPlatform{}
+	ts, _ := engineWithSocial(t, plat)
+
+	var body struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Moment Moment `json:"moment"`
+		} `json:"data"`
+	}
+	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "换了个说法"})
+	if code != 200 || !resp.OK {
+		t.Fatalf("换说说失败：%d %s", code, resp.Error)
+	}
+	if len(plat.replaced) != 1 || plat.replaced[0] != "tid-old|换了个说法" {
+		t.Fatalf("平台没收到换说说：%v", plat.replaced)
+	}
+	// 换说说不该顺手发新的或删旧的：那条路径由平台内部决定，接口层只调一次。
+	if len(plat.posted) != 0 || len(plat.deleted) != 0 {
+		t.Fatalf("接口层不该自己发/删：posted=%v deleted=%v", plat.posted, plat.deleted)
+	}
+	_ = body
+
+	if code, _ = socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"text": "没给 id"}); code != http.StatusBadRequest {
+		t.Fatalf("缺 id 该 400，实际 %d", code)
+	}
+	if code, _ = socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "   "}); code != http.StatusBadRequest {
+		t.Fatalf("空文字该 400，实际 %d", code)
+	}
+}
+
+// TestMgmt_SocialReplaceSaysBothExistWhenDeleteFails：平台报「新的发了、旧的没删」时，
+// 那句人话要原样到面板，不能吞成一句普通失败。
+func TestMgmt_SocialReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
+	plat := &fakeSocialPlatform{replaceErr: fmt.Errorf("新的已经发出（tid=new），但旧的 tid-old 没删掉，现在空间里有两条")}
+	ts, _ := engineWithSocial(t, plat)
+
+	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "新的"})
+	if code == 200 || resp.OK {
+		t.Fatalf("该报失败，实际 %d ok=%v", code, resp.OK)
+	}
+	if !strings.Contains(resp.Error, "两条") {
+		t.Fatalf("丢掉了「有两条」这句：%q", resp.Error)
 	}
 }
 

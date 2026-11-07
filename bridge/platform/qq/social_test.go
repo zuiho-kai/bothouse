@@ -113,7 +113,7 @@ func TestSocial_TurnedOffByDefault(t *testing.T) {
 	p := f.start(t, nil)
 
 	caps := p.SocialCapabilities()
-	if caps.ListMoments || caps.PostMoment || caps.RemoveMoment || caps.SetAvatar {
+	if caps.ListMoments || caps.PostMoment || caps.RemoveMoment || caps.ReplaceMoment || caps.SetAvatar {
 		t.Fatalf("默认应当是关的，实际 %+v", caps)
 	}
 	if !strings.Contains(caps.DisabledReason, "allow_qzone") {
@@ -128,6 +128,9 @@ func TestSocial_TurnedOffByDefault(t *testing.T) {
 	}
 	if err := p.RemoveMoment(context.Background(), "tid-1"); !errors.Is(err, core.ErrSocialDisabled) {
 		t.Fatalf("RemoveMoment 应当回 ErrSocialDisabled，实际 %v", err)
+	}
+	if _, err := p.ReplaceMoment(context.Background(), "tid-1", "换一下", nil); !errors.Is(err, core.ErrSocialDisabled) {
+		t.Fatalf("ReplaceMoment 应当回 ErrSocialDisabled，实际 %v", err)
 	}
 	if err := p.SetAvatar(context.Background(), core.ImageAttachment{Data: []byte("x")}); !errors.Is(err, core.ErrSocialDisabled) {
 		t.Fatalf("SetAvatar 应当回 ErrSocialDisabled，实际 %v", err)
@@ -212,6 +215,88 @@ func TestSocial_PostsReadsAndDeletes(t *testing.T) {
 	}
 	if calls := f.calls("delete_qzone_msg"); len(calls) != 1 || calls[0]["tid"] != "new-tid" {
 		t.Fatalf("delete_qzone_msg 参数不对：%v", calls)
+	}
+}
+
+// TestSocial_ReplacePublishesThenDeletes：换说说不是「发一条再删一条」两个独立动作，
+// 而是一次调用里的有序两步：新的先发出去，成功了才删旧的。顺序也不能反。
+func TestSocial_ReplacePublishesThenDeletes(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "send_qzone_msg" {
+			return 0, map[string]any{"tid": "new-tid"}
+		}
+		return 0, map[string]any{}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	if !p.SocialCapabilities().ReplaceMoment {
+		t.Fatalf("allow_qzone 打开后换说说该可用：%+v", p.SocialCapabilities())
+	}
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", nil)
+	if err != nil {
+		t.Fatalf("ReplaceMoment: %v", err)
+	}
+	if m.ID != "new-tid" || m.Text != "换个说法" {
+		t.Fatalf("返回的新说说不对：%+v", m)
+	}
+	sends := f.calls("send_qzone_msg")
+	dels := f.calls("delete_qzone_msg")
+	if len(sends) != 1 || sends[0]["content"] != "换个说法" {
+		t.Fatalf("send_qzone_msg 不对：%v", sends)
+	}
+	if len(dels) != 1 || dels[0]["tid"] != "old-tid" {
+		t.Fatalf("delete_qzone_msg 该删旧的那条：%v", dels)
+	}
+}
+
+// TestSocial_ReplaceKeepsOldPostWhenPublishFails：发新的失败时，旧的一条绝不能动。
+func TestSocial_ReplaceKeepsOldPostWhenPublishFails(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "send_qzone_msg" {
+			return 1400, nil // 上游拒绝发布
+		}
+		return 0, map[string]any{}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "新的发不出去", nil)
+	if err == nil {
+		t.Fatal("发新的失败时该报错")
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("发新的都失败了还去删旧的 %d 次，会把原话弄丢", n)
+	}
+	if !strings.Contains(err.Error(), "旧的原样保留") {
+		t.Fatalf("错误里要说清旧的没动：%q", err.Error())
+	}
+}
+
+// TestSocial_ReplaceSaysBothExistWhenDeleteFails：新的发出去了、旧的删不掉时，
+// 不能假装替换成功，要把「现在有两条」带回去。
+func TestSocial_ReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		switch action {
+		case "send_qzone_msg":
+			return 0, map[string]any{"tid": "new-tid"}
+		case "delete_qzone_msg":
+			return 1404, nil
+		}
+		return 0, map[string]any{}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的", nil)
+	if err == nil {
+		t.Fatal("旧的没删掉时该报错")
+	}
+	if m.ID != "new-tid" {
+		t.Fatalf("新的已经发出去了，要把它带回：%+v", m)
+	}
+	if !strings.Contains(err.Error(), "两条") {
+		t.Fatalf("错误里要说清现在有两条：%q", err.Error())
 	}
 }
 

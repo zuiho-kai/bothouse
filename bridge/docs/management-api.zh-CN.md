@@ -1113,6 +1113,7 @@ allow_avatar = true   # 换这个号自己的头像
       "list_moments": true,
       "post_moment": true,
       "remove_moment": true,
+      "replace_moment": true,
       "set_avatar": true,
       "disabled_reason": ""
     },
@@ -1160,6 +1161,37 @@ allow_avatar = true   # 换这个号自己的头像
 
 错误：`400` 文字为空、`403` 没打开（消息里点名 `allow_qzone`）、`501` 平台做不了、
 `502` 上游拒绝（消息里带上游 action，扩展不存在时提示升级 NapCat）。
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/replace
+
+换说说：把一个已有的说说改成新的文字。它是一次调用里的一个动作，不是让面板自己
+「先发一条、再删一条」——那样中途失败会留下两条或者零条。
+
+**请求体：**
+
+```json
+{ "id": "d43708d9240ae56ae9670e00", "text": "换了个说法" }
+```
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "换了个说法", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false } } }
+```
+
+**顺序与失败**（重要）：QQ空间的接口里没有「改一条说说的正文」，只有发、删、读和改权限。
+所以这里的实现是**先发新的、成功了再删旧的**，顺序不能反：
+
+1. 发新的失败 → 旧的**原样保留**，报错里写明「旧的原样保留」，人可以继续用原来那条。
+2. 新的发出去了、删旧的失败 → 接口返回非 2xx，消息里写明「新的已经发出（tid=…），旧的没删掉，
+   现在空间里有两条」，并把新那条带回来。不会假装替换干净。
+
+换句话说：**永远向前推进，不会因为一次替换把原来的话弄丢**；代价是极端情况会短暂多一条。
+能力开关是 `capabilities.replace_moment`；平台没有这个接口时面板不显示按钮，接口回 `501`。
+
+错误：`400` 缺 `id` 或文字为空、`403` 没打开（消息里点名 `allow_qzone`）、`501` 平台不能换。
 
 ---
 
@@ -1436,6 +1468,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
 | 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
+| 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment` |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 

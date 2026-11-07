@@ -22,11 +22,11 @@ allow_avatar = false             # Optional: change this account's own avatar (N
 - **群前文与引用**：每群保留最近 10 条、15 分钟内的聊天作为当前轮背景；当前发言、引用和合并转发分别标注发送者。静默缓冲及排队合批不重复存入旧背景；命令、权限与判断服务使用本条原始文字。图片保存路径只出现在当前轮附加上下文，不进入群前文。群前文会向同群会话提供近期消息，敏感会话请勿共用群聊。
 - **合并转发**：以素材块展开文本及图片，限制文本长度；转发中的发言人不替代当前发送者，文本标明其中的要求不是当前指令。这是模型上下文提示，不是执行权限隔离。
 - **静默尾段**：工具调用后的 NO_REPLY 标记不作为文字气泡发送。
-- **说说与头像**：`allow_qzone = true` 才允许查/发/删这个号自己的说说，`allow_avatar = true` 才允许换这个号的头像，两个默认都关。它们走 NapCat 的空间扩展（`get_qzone_msg_list` / `send_qzone_msg` / `delete_qzone_msg`）和账号接口 `set_qq_avatar`，不在 OneBot 11 规范里；上游没有这些 action 时会如实说"这个 OneBot 实现没有这个扩展接口"，不会只扔一个 retcode。面板上在「项目 → 说说」一页，发之前和换头像之前各问一次；不自动发，也没有定时。
+- **说说与头像**：`allow_qzone = true` 才允许查/发/删/换这个号自己的说说，`allow_avatar = true` 才允许换这个号的头像，两个默认都关。它们走 NapCat 的空间扩展（`get_qzone_msg_list` / `send_qzone_msg` / `delete_qzone_msg`）和账号接口 `set_qq_avatar`，不在 OneBot 11 规范里；上游没有这些 action 时会如实说"这个 OneBot 实现没有这个扩展接口"，不会只扔一个 retcode。面板上在「项目 → 说说」一页，发之前、换说说之前和换头像之前各问一次；不自动发，也没有定时。**换说说**（`social/moment/replace`）是一次动作：NapCat 没有改正文的接口，所以实现是「先发新的、成功了再删旧的」——发失败旧的原样保留；新的发了旧没删掉时如实报「现在有两条」。不假装成原地编辑。
 
 排队回执属于项目配置，在对应的 [[projects]] 表内设置 queued_notice = false 可静默排队；不改变排队顺序，省略时仍显示回执。不要把该字段放进 platforms.options。
 
-English: group allow-list extension, paragraph splitting and original-image storage are optional. Splitting defaults off. Group membership is cached for ten minutes; DMs keep their original allow-list. Recent group context and forwarded material retain speaker labels. The project-level queued_notice option only hides the receipt, not the queue. Posting 说说 and changing the account avatar are also optional and off by default (`allow_qzone` / `allow_avatar`); both use NapCat extensions rather than standard OneBot 11 actions, live on the project's 「说说」 panel tab, ask once before each write, and never post on a schedule.
+English: replacing one 说说 is a single action too — NapCat exposes no text-edit call, so it publishes the new post first and deletes the old one only after that succeeds; a failed publish keeps the old post, and a failed delete says both now exist instead of pretending the edit was in place. Group allow-list extension, paragraph splitting and original-image storage are optional. Splitting defaults off. Group membership is cached for ten minutes; DMs keep their original allow-list. Recent group context and forwarded material retain speaker labels. The project-level queued_notice option only hides the receipt, not the queue. Posting 说说 and changing the account avatar are also optional and off by default (`allow_qzone` / `allow_avatar`); both use NapCat extensions rather than standard OneBot 11 actions, live on the project's 「说说」 panel tab, ask once before each write, and never post on a schedule.
 
 ## 可选判断模型 / Optional judging model
 

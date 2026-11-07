@@ -1144,6 +1144,7 @@ Reads the capability flags and the account's own recent posts (newest first).
       "list_moments": true,
       "post_moment": true,
       "remove_moment": true,
+      "replace_moment": true,
       "set_avatar": true,
       "disabled_reason": ""
     },
@@ -1192,6 +1193,43 @@ Publishes one 说说 (text only for now; pictures go through the QQ client's own
 Errors: `400` empty text, `403` the action is off (message names `allow_qzone`), `501` the
 platform cannot post, `502` the OneBot implementation rejected it (the message names the
 upstream action and says to upgrade NapCat when the extension is missing).
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/replace
+
+Replaces one existing post's words. One action in one call, not the panel posting a new one
+and then deleting the old one as two separate steps — that way a failure in between leaves
+two posts or none.
+
+**Request body:**
+
+```json
+{ "id": "d43708d9240ae56ae9670e00", "text": "Said it differently" }
+```
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "Said it differently", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false } } }
+```
+
+**Order and failure** (important): QQ空间 has no upstream call that edits a post's words; it
+has publish, delete, read and visibility only. So the implementation **publishes the new post
+first and only then deletes the old one**, and the order cannot be reversed:
+
+1. Publishing failed → the old post is **untouched**, the error says "the old one is kept as it
+   was", and the person still has the words they had.
+2. The new post went out but deleting the old one failed → the route returns non-2xx, the
+   message names the new tid and says both posts now exist, and the new post comes back with it.
+   It never pretends the replacement was clean.
+
+So it always moves forward and never loses the original words; the price is that the edge case
+briefly leaves two posts. The flag is `capabilities.replace_moment`; when a platform has no such
+capability the panel hides the button and the route answers `501`.
+
+Errors: `400` missing `id` or empty text, `403` not enabled (the message names `allow_qzone`),
+`501` the platform cannot replace.
 
 ---
 
@@ -1499,6 +1537,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
 | 1.2-draft | 2026-11-05 | Add optional QQ 说说 / avatar routes (`/projects/{name}/social…`), off unless `allow_qzone` / `allow_avatar` |
+| 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment` |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |
