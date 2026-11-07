@@ -408,8 +408,10 @@ export class DshMembers {
     this.openTurns = new Map();
     /** Agents whose request hook was installed after they were loaded by someone else. */
     this.hooked = new WeakSet();
-    /** JSON([memberId, cwd, roomId]) -> { memberId, cli, agent } live local CLI agents (members with a `cli` field). */
+    /** JSON([memberId, cwd, roomId]) -> { memberId, roomId, cli, agent } live local CLI agents. */
     this.cliAgents = new Map();
+    // Releasing a workspace retains its bindings for rework, but needs no resident CLI.
+    this.store.onWorkspaceRelease(roomId => this.dropRoomCli(roomId));
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
     this.approvals = ChannelApprovals.of(hub);
     /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card (CLI members: `cli:<ACP session id>`). */
@@ -431,6 +433,14 @@ export class DshMembers {
     if (this.config.get(m.id)?.cli !== m.cli) this.dropCli(m.id);
     this.config.set(m.id, m);
     this.publish(m);
+    // Hub owns scope rules, including workspace inheritance and the member's private chat.
+    const removed = (id, roomId) => id === m.id && !this.hub.membersInRoom(roomId).some(member => member.id === m.id);
+    this.cancelCliStarts(removed);
+    for (const [key, entry] of this.cliAgents) {
+      if (!removed(entry.memberId, entry.roomId)) continue;
+      entry.agent.close();
+      this.cliAgents.delete(key);
+    }
   }
 
   /** Stop routing to a member. Pending jobs for it fail when they run; history keeps its name. */
@@ -748,7 +758,7 @@ export class DshMembers {
     let entry = this.cliAgents.get(cliKey);
     if (entry === undefined) {
       // Persona goes through promptText every turn, so an edit applies without restarting the CLI.
-      entry = { memberId: member.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '',
+      entry = { memberId: member.id, roomId: room.id, cli: member.cli, agent: this.rt.createCliMember({ cli: member.cli, cwd, persona: '',
         // #1020: memvote.py records citations under these (memory-sources.mjs), named as the gate key (gate-context.mjs).
         env: { CC_PROJECT: `dsh:${member.id}`, CC_SESSION_KEY: `dsh:${member.id}:${room.id}` } }) };
       this.cliAgents.set(cliKey, entry);
@@ -873,17 +883,32 @@ export class DshMembers {
   resetRoom(roomId) {
     this.gateContext.resetRoom(roomId);
     this.memoryIndex.resetRoom(roomId);
-    for (const { agent } of this.cliAgents.values()) {
-      agent.sessions?.delete(String(roomId));
-      agent.saved?.delete(String(roomId));
+    this.dropRoomCli(roomId);
+  }
+
+  dropRoomCli(roomId) {
+    this.cancelCliStarts((_memberId, id) => id === roomId);
+    for (const [key, entry] of this.cliAgents) {
+      if (entry.roomId !== roomId) continue;
+      entry.agent.close();
+      this.cliAgents.delete(key);
     }
   }
 
   dropCli(id) {
+    this.cancelCliStarts(memberId => memberId === id);
     for (const [key, entry] of this.cliAgents) {
       if (entry.memberId !== id) continue;
       entry.agent.close();
       this.cliAgents.delete(key);
+    }
+  }
+
+  /** Close queued CLI jobs too: run/markSent must not revive a process after cleanup. */
+  cancelCliStarts(matches) {
+    for (const job of this.store.openJobs()) {
+      if (job.state !== 'pending' || this.config.get(job.member_id)?.cli === undefined || !matches(job.member_id, job.room_id)) continue;
+      this.store.finishJob(job.id, 'interrupted');
     }
   }
 
