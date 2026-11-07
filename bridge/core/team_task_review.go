@@ -217,6 +217,15 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 			}
 			continue
 		}
+		if teamReviewDisabled.Load() {
+			// Verification off: a delivered handback closes as done, no reviewer is woken.
+			if it.ReviewRejected == "" && e.isTeamLead() {
+				if out, err := e.runLeadScript(it.Chat, "board", "done", strconv.Itoa(it.ID), "0", "交回即完成（自动验收已关）"); err != nil {
+					slog.Warn("task review: close handback failed", "board", it.ID, "error", err, "output", string(out))
+				}
+			}
+			continue
+		}
 		unavailable := true
 		for _, x := range w.engines() {
 			if x.name == it.Reviewer && x.timerScheduler != nil {
@@ -258,6 +267,12 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		g.reviewer.queueTaskReview(fmt.Sprintf("review-%x", sum), g.chat, &taskReviewRef{Items: g.refs, Stage: "roundup", Hour: hour}, now)
 	}
 }
+
+// teamReviewDisabled: [team_review] disabled = true closes handbacks without a verifier.
+var teamReviewDisabled atomic.Bool
+
+// SetTeamReviewDisabled turns automatic handback verification off (bridge-wide).
+func SetTeamReviewDisabled(off bool) { teamReviewDisabled.Store(off) }
 
 // teamReviewTiers: the role preferred for each review tier, from [team_review] (bridge-wide,
 // updated live from the settings page).
@@ -505,6 +520,9 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 	ref := job.TaskReview
 	if ref == nil {
 		return job, nil
+	}
+	if teamReviewDisabled.Load() {
+		return nil, nil // queued before the switch: fire as a no-op
 	}
 	if ref.Stage == "roundup" && !now.Before(ref.Hour.Add(teamWorkspaceReconcileEvery)) {
 		return nil, nil

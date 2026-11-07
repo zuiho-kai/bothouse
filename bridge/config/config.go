@@ -4262,6 +4262,9 @@ func GetGlobalSettings() map[string]any {
 // in a fresh session of the role on that model instead of the role's own (user 2026-11-04 13:20
 // 「DSH 设置简单/复杂档可直接选模型」). Empty = the role's own model; ignored without a role.
 type TeamReviewConfig struct {
+	// Disabled: handbacks close as done without dispatching a teammate to verify
+	// (user 2026-11-07「关」: matches 10-26「不派审查、不做复核」).
+	Disabled     bool   `toml:"disabled,omitempty"`
 	Simple       string `toml:"simple,omitempty"`
 	Complex      string `toml:"complex,omitempty"`
 	SimpleModel  string `toml:"simple_model,omitempty"`
