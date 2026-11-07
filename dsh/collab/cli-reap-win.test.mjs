@@ -5,8 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { registerHooks } from 'node:module';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import Module from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 // 命名空间导入：修复前的 cli-member.mjs 还没有这两个导出，这份测试也要能对着老代码跑出红。
@@ -130,13 +130,14 @@ async function verifyLaunch(t, cli, mode) {
   const dir = mkdtempSync(fileURLToPath(new URL('./.cli-launch-', import.meta.url)));
   const marker = 'launch' + process.pid + Date.now();
   const script = 'fake-acp-' + marker + '.cjs';
+  const npxScript = 'npx-cli-' + marker + '.cjs';
   const expected = mode === 'direct-node' ? [] : ['-y', PACKAGES[cli]];
   writeFileSync(join(dir, 'grandchild.js'), 'setInterval(() => {}, 1000)\n');
   writeFileSync(join(dir, script),
     "const assert = require('node:assert/strict');\n" +
     'assert.deepEqual(process.argv.slice(2), ' + JSON.stringify(cli === 'gemini' ? ['--acp'] : []) + ');\n' +
     FAKE_ACP('grandchild.js', marker));
-  writeFileSync(join(dir, 'npx-cli.cjs'),
+  writeFileSync(join(dir, npxScript),
     "const assert = require('node:assert/strict');\n" +
     "const fs = require('node:fs');\n" +
     "const { spawn } = require('node:child_process');\n" +
@@ -144,25 +145,26 @@ async function verifyLaunch(t, cli, mode) {
     "fs.writeFileSync(__dirname + '/argv.json', JSON.stringify(args));\n" +
     'assert.deepEqual(args, ' + JSON.stringify(expected) + ', "npx must receive -y then the adapter package");\n' +
     'spawn(process.execPath, [__dirname + ' + JSON.stringify('/' + script) + '], { stdio: "inherit" });\n');
-  if (mode === 'npx-shim') writeFileSync(join(dir, 'npx.cmd'), NPM_SHIM('npx-cli.cjs'));
+  if (mode === 'npx-shim') writeFileSync(join(dir, 'npx.cmd'), NPM_SHIM(npxScript));
   if (mode === 'fallback') {
     // Valid batch wrapper deliberately outside the npm shim grammar.
     writeFileSync(join(dir, 'gemini.cmd'), '@echo off\r\n"' + process.execPath + '" "%~dp0' + script + '" %*\r\n');
   }
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ bin: script }));
   const lookups = [];
-  const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
+  const resolveFilename = Module._resolveFilename;
+  Module._resolveFilename = function (specifier, ...rest) {
     if (specifier === PACKAGES[cli] + '/package.json') {
       lookups.push(specifier);
-      if (mode === 'direct-node') return { url: pathToFileURL(join(dir, 'package.json')).href, shortCircuit: true };
+      if (mode === 'direct-node') return join(dir, 'package.json');
       throw Object.assign(new Error('adapter deliberately absent'), { code: 'MODULE_NOT_FOUND' });
     }
-    return nextResolve(specifier, context);
-  } });
+    return resolveFilename.call(this, specifier, ...rest);
+  };
   const m = new CliMember({ cli, cwd: dir, env: {
     ...process.env, PATH: dir + delimiter + (process.env.PATH || process.env.Path || ''),
   } });
-  t.after(() => { hooks.deregister(); m.close(); killMarked(marker); });
+  t.after(() => { Module._resolveFilename = resolveFilename; m.close(); killMarked(marker); });
   if (mode === 'npx-shim') assert.ok(resolveShim('npx', m.extraEnv), 'must exercise a resolved npx shim');
   if (mode === 'fallback') assert.equal(resolveShim('gemini', m.extraEnv), null);
   const initialized = await m._start();
@@ -170,12 +172,12 @@ async function verifyLaunch(t, cli, mode) {
   if (cli !== 'gemini') assert.deepEqual(lookups, [PACKAGES[cli] + '/package.json']);
   if (mode === 'npx-shim') assert.deepEqual(JSON.parse(readFileSync(join(dir, 'argv.json'), 'utf8')), expected);
   const argv = m.proc.spawnargs;
-  if (mode === 'npx-shim') assert.deepEqual(argv.slice(1), [join(dir, 'npx-cli.cjs'), ...expected]);
+  if (mode === 'npx-shim') assert.deepEqual(argv.slice(1), [join(dir, npxScript), ...expected]);
   if (mode === 'direct-node') assert.deepEqual(argv.slice(1), [join(dir, script)], 'adapter script must occur only once');
   // 来源：#280 handoff requires 3 seconds before close and 3 seconds after close.
   await new Promise(r => setTimeout(r, 3000));
   const before = aliveWith(marker);
-  assert.ok(before.length >= 2, 'CLI and grandchild must both be running: ' + JSON.stringify(before));
+  assert.equal(before.length, mode === 'npx-shim' ? 3 : 2, 'npx (when used), CLI and grandchild must all be running: ' + JSON.stringify(before));
   t.diagnostic(cli + '/' + mode + ': initialize=OK argv=' + JSON.stringify(argv) + ' before=' + JSON.stringify(before));
   m.close();
   await new Promise(r => setTimeout(r, 3000));
