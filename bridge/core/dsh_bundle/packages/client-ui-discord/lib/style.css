@@ -1847,6 +1847,36 @@
   max-width: 100%;
 }
 
+.dshc_uploadBar {
+  background: var(--dsw-alias-border-l2);
+  border-radius: 2px;
+  flex: 80px;
+  min-width: 60px;
+  height: 4px;
+  overflow: hidden;
+}
+
+.dshc_uploadFill {
+  background: var(--dsw-alias-state-business-primary);
+  height: 100%;
+  transition: width .12s linear;
+  display: block;
+}
+
+.dshc_uploadState {
+  opacity: .7;
+  white-space: nowrap;
+  font-size: .85em;
+}
+
+.dshc_attachmentFile[data-state="failed"] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dshc_attachmentFile[data-state="failed"] .dshc_uploadState {
+  opacity: 1;
+}
+
 .dshc_chatHead button, .dshc_chatHead input, .dshc_chatHead select, .dshc_chatHead a, .dshc_chatHead [role="menu"] {
   -webkit-app-region: no-drag;
 }

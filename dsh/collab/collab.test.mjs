@@ -6602,3 +6602,50 @@ test('tasks: lead watch notices leave a returned chat task unchanged', async (t)
     });
   }
 });
+
+test('#197 merge develop: a CLI start failure before the session is ready does not mark MEMORY.md given, so a retry still carries it', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { MemoryIndex } = await import('./memory-index.mjs');
+  const data = mkdtempSync(join(tmpdir(), 'collab-retry-mem-'));
+  const marker = '- [retry](retry/README.md) — 重试也要带上的记忆';
+  mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), `${marker}\n`);
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const prompts = [];
+  let shouldFail = true;
+  const members = new DshMembers(hub, {
+    ctx: dsh.ctx, createUserMessage: m => m, workspacePath: '/w', logger: quiet,
+    memoryIndex: new MemoryIndex({ dataDir: data, home: data }),
+    createCliMember: () => ({
+      async ask(prompt, _room, _onText, _onTool, opts = {}) {
+        prompts.push(prompt);
+        if (shouldFail) {
+          // cli-member.mjs _ask: the session (and its CLI config) is built before onSession runs.
+          throw Object.assign(new Error('CLI claude cannot start: ENOENT'), { code: 'COLLAB_CLI_START', cwd: '/w', cli: 'claude' });
+        }
+        await opts.onSession?.({ sessionId: 's1' });
+        return '好了';
+      },
+      close() {},
+    }),
+  }, [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 做一下' });
+  await settle();
+  assert.equal(prompts.length, 1, 'the first turn reached the CLI and failed before a session existed');
+  const failed = hub.store.page(1, undefined, 5).find(m => m.card?.includes('"state":"failed"'));
+  assert.ok(failed, 'the failure is reported with a retry card');
+  const trigger = hub.store.message(JSON.parse(failed.card).trigger_id);
+
+  // Red before the fix: the premature commit() had already recorded the index as given for this
+  // session-less CLI conversation, so the retried prompt went out without MEMORY.md.
+  shouldFail = false;
+  assert.equal(members.retry('cc', trigger), true);
+  await settle();
+  assert.equal(prompts.length, 2, 'the retry really ran');
+  assert.ok(prompts[1].includes('你的记忆 wiki 目录页'), `retried prompt keeps the memory index:\n${prompts[1]}`);
+  assert.ok(prompts[1].includes(marker), 'and its content');
+  await members.close(); hub.store.close();
+});
