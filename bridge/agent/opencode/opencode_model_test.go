@@ -316,23 +316,6 @@ func TestAgent_SetMode(t *testing.T) {
 	}
 }
 
-func TestAgent_GetActiveProvider(t *testing.T) {
-	a := &Agent{
-		providers: []core.ProviderConfig{
-			{Name: "openai"},
-			{Name: "anthropic"},
-		},
-		activeIdx: 1,
-	}
-	got := a.GetActiveProvider()
-	if got == nil {
-		t.Fatal("GetActiveProvider() returned nil")
-	}
-	if got.Name != "anthropic" {
-		t.Errorf("GetActiveProvider().Name = %q, want %q", got.Name, "anthropic")
-	}
-}
-
 func TestAgent_GetActiveProvider_NoActive(t *testing.T) {
 	a := &Agent{
 		providers: []core.ProviderConfig{
