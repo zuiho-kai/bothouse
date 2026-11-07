@@ -165,6 +165,7 @@ func TestExtractEmbeddedDSH_StampOmitsUninjectedBuildFields(t *testing.T) {
 		CurrentVersion, CurrentCommit, CurrentBuildTime = prevVersion, prevCommit, prevBuilt
 	})
 
+	withBuildVCS(t, buildVCS{}) // the point: a build that has nothing to fall back on
 	dir := filepath.Join(t.TempDir(), "dsh")
 	CurrentVersion, CurrentCommit, CurrentBuildTime = "dev", "none", "unknown"
 	if _, err := ExtractEmbeddedDSH(dir); err != nil {
@@ -185,13 +186,21 @@ func TestExtractEmbeddedDSH_StampOmitsUninjectedBuildFields(t *testing.T) {
 	}
 }
 
-// #265 P2: the point of omitting them — after an install made by a plain `go build`, a real release
-// refreshes the plugin instead of being stuck on "cannot tell which is newer".
-func TestRefreshDSH_AfterUninjectedBuildStamp(t *testing.T) {
+// #274 P2 replaced the rule this test was written for. #265 let any release replace an install
+// stamped by an unversioned `dev` build without comparing anything, so a stamp left by a plain
+// `go build` was always refreshed — but an older release refreshed it too, and stamped its own
+// credible time over the plugin. Now such a stamp is unorderable like any other: kept, said once,
+// and the documented way out (delete the stamp) really works.
+//
+// The stamp this covers is the one installed binaries hold today: {"version":"dev"}, written before
+// the build info was recorded. A plain `go build` made from now on carries vcs.revision/vcs.time and
+// is ordered by time instead — TestDSHStampPlainBuildRefreshedByNewerRelease.
+func TestRefreshDSH_VersionOnlyStampKeepsAndTheWayOutWorks(t *testing.T) {
 	prevVersion, prevCommit, prevBuilt := CurrentVersion, CurrentCommit, CurrentBuildTime
 	t.Cleanup(func() {
 		CurrentVersion, CurrentCommit, CurrentBuildTime = prevVersion, prevCommit, prevBuilt
 	})
+	withBuildVCS(t, buildVCS{}) // as at the top: no build info to fall back on
 
 	dir := filepath.Join(t.TempDir(), "dsh")
 	CurrentVersion, CurrentCommit, CurrentBuildTime = "dev", "none", "unknown"
@@ -201,6 +210,7 @@ func TestRefreshDSH_AfterUninjectedBuildStamp(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "collab", "plugin.mjs"), []byte("// old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stamp := filepath.Join(dir, dshVersionFile)
 
 	CurrentVersion, CurrentCommit, CurrentBuildTime = "v0.1.55", "abc1234", "2026-11-07T09:00:00Z"
 	logs, restore := captureSlog(t)
@@ -209,10 +219,28 @@ func TestRefreshDSH_AfterUninjectedBuildStamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if !refreshed {
-		t.Fatalf("v0.1.55 did not refresh after a no-ldflags install: %s", logs)
+	if refreshed {
+		t.Fatalf("refreshed on a guess: a version-only stamp proves nothing about order: %s", logs)
 	}
-	if got := stampFields(t, filepath.Join(dir, dshVersionFile)); got["version"] != "v0.1.55" || got["built"] != "2026-11-07T09:00:00Z" {
+	if got := stampFields(t, stamp); got["version"] != "dev" {
+		t.Errorf("stamp = %v, want it left as dev", got)
+	}
+	if !strings.Contains(logs.String(), "delete "+stamp+" and restart") {
+		t.Fatalf("no way out given: %s", logs)
+	}
+
+	// The way out is not just words: delete the stamp, start once more, the plugin is refreshed.
+	if err := os.Remove(stamp); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err = RefreshEmbeddedDSH(dir, CurrentVersion)
+	if err != nil {
+		t.Fatalf("refresh after deleting the stamp: %v", err)
+	}
+	if !refreshed {
+		t.Fatal("deleting the stamp did not force the refresh the warning points at")
+	}
+	if got := stampFields(t, stamp); got["version"] != "v0.1.55" || got["built"] != "2026-11-07T09:00:00Z" {
 		t.Errorf("stamp = %v, want it rewritten by v0.1.55", got)
 	}
 }

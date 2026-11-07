@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -114,18 +115,76 @@ type dshStamp struct {
 	Built   string `json:"built,omitempty"`
 }
 
+// buildVCS is what the go tool records about the checkout a binary was built from.
+type buildVCS struct {
+	Commit   string // vcs.revision: the commit the binary was built from
+	Built    string // vcs.time: that commit's time, RFC3339
+	Modified bool   // vcs.modified: the work tree had uncommitted changes
+}
+
+// readBuildVCS reads the checkout `go build` embeds (#274 P2). The Makefile passes version, commit
+// and build time as ldflags; a bare `go build`, which is how a developer installs the plugin
+// locally, leaves those at "none"/"unknown" but still records the revision and its time. Read as a
+// fallback, those two values make such an install orderable, so a release replaces it only when it
+// is really newer instead of always (the P2 hole). They come from the binary's own build info, not
+// from disk, so nothing at runtime can change the answer. A test binary carries no vcs settings,
+// hence the variable: tests substitute their own.
+var readBuildVCS = func() buildVCS {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return buildVCS{}
+	}
+	var v buildVCS
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			v.Commit = strings.TrimSpace(s.Value)
+		case "vcs.time":
+			v.Built = strings.TrimSpace(s.Value)
+		case "vcs.modified":
+			v.Modified = s.Value == "true"
+		}
+	}
+	return v
+}
+
 // dshStampNow is the stamp of the running program. Only values a later run can actually order
 // by are written (#265 P2): `go build` without the Makefile ldflags leaves the defaults
 // commit="none" and buildTime="unknown", and a stamp carrying those could never be ordered
 // against a real release (`v0.1.55` would keep the plugin forever). Omitted fields are absent
 // from the JSON, which readDSHStamp reads back as empty.
+//
+// The holes the ldflags leave are filled from the build info (#274 P2) rather than left empty:
+// commit becomes vcs.revision and built vcs.time, so a plain `go build` writes a stamp a release
+// can be ordered against by time. vcs.time is the commit's time, not this build's wall clock; for
+// ordering it does not matter, since two builds of one commit carry the same code. Only when the
+// binary carries neither ldflags nor build info (built outside a checkout, or with
+// -buildvcs=false) does the stamp stay version-only, and then nothing can order it — that case is
+// kept, never guessed newer (see stampOrder).
 func dshStampNow(version string) dshStamp {
-	st := dshStamp{Version: version}
-	if _, ok := parseBuildStamp(CurrentBuildTime); ok {
-		st.Built = strings.TrimSpace(CurrentBuildTime)
+	return dshStampFor(version, readBuildVCS())
+}
+
+// dshStampFor is dshStampNow with the build info passed in, so tests can supply what `go test`
+// does not carry (it has no vcs.* settings) and the refresh reads the build info only once.
+func dshStampFor(version string, vcs buildVCS) dshStamp {
+	commit, built := strings.TrimSpace(CurrentCommit), strings.TrimSpace(CurrentBuildTime)
+	commitOK := commit != "" && !strings.EqualFold(commit, "none")
+	_, builtOK := parseBuildStamp(built)
+	if !commitOK && vcs.Commit != "" {
+		commit, commitOK = vcs.Commit, true
 	}
-	if c := strings.TrimSpace(CurrentCommit); c != "" && !strings.EqualFold(c, "none") {
-		st.Commit = c
+	if !builtOK {
+		if _, ok := parseBuildStamp(vcs.Built); ok { // "unknown" and anything unparsable never go in
+			built, builtOK = vcs.Built, true
+		}
+	}
+	st := dshStamp{Version: version}
+	if commitOK {
+		st.Commit = commit
+	}
+	if builtOK {
+		st.Built = built
 	}
 	return st
 }
@@ -195,17 +254,44 @@ const (
 //   - with no build time on both sides (an install stamped before #249, `go build` without ldflags)
 //     nothing is known, and the installed plugin stays: overwriting on a guess is the bug.
 //
-// #265 added two narrow exceptions, both still leaving the 11-05 direction blocked: a local build
-// whose version tail names the same commit as this one is stampSame (same code, nothing to do), and
-// a release replaces an install stamped by an unversioned `dev` build, which could otherwise never
-// be ordered against anything.
-func stampOrder(have, now dshStamp) (stampVerdict, string) {
+// #265 added one narrow exception, which leaves the 11-05 direction blocked: a local build whose
+// version tail names the same commit as this one is stampSame (same code, nothing to do).
+//
+// #274 removed the other one. #265 also let any release replace an install stamped by an
+// unversioned `dev` build without comparing anything, which is the 11-05 overwrite in the other
+// direction: a release from months ago would replace a plugin built later, and write a credible
+// build time over it, so the release that should have refreshed it could be blocked in turn. The
+// version-only stamp that rule was written for is now rare — a plain `go build` records vcs.revision
+// and vcs.time (see dshStampNow) — and when it does happen nothing can prove the order, so it takes
+// the same treatment as any unprovable stamp: keep the plugin, say so once, offer the way out.
+//
+// nowDirty is vcs.modified of the running build: uncommitted changes mean this binary may carry
+// plugin code that no stamp on disk describes, so an equal stamp does not prove equal code
+// (#274 第三条: `git describe` does not change when the work tree is dirty, and a plain `go build`
+// stamps vcs.time, the commit's time, which does not change either — so a dirty rebuild produces
+// exactly the stamp on disk).
+func stampOrder(have, now dshStamp, nowDirty bool) (stampVerdict, string) {
 	if have == now {
-		return stampSame, ""
+		if !nowDirty {
+			return stampSame, ""
+		}
+		return stampUnknown, "this build of " + strings.TrimSpace(now.Version) + " was made with uncommitted changes, so its stamp does not prove the installed plugin is this code"
 	}
 	haveVer, nowVer := strings.TrimSpace(have.Version), strings.TrimSpace(now.Version)
 	if haveVer == nowVer && have.Built == "" {
-		return stampSame, "" // stamped before #249 by this very version: nothing to do
+		// A stamp of this very version from before #249 carries no build time, and used to be called
+		// "same" without looking at anything else. That is right for a release tag (the numbers name
+		// its content) and for a local build whose tail names this commit, but wrong for a dirty
+		// rebuild: `git describe` does not change with uncommitted changes, so it writes the same
+		// string while carrying plugin code the install does not have — the plugin silently stayed
+		// old, with not one log line (#274 第三条). Unproven now falls through to stampUnknown.
+		hc := commitFromVersionTail(haveVer)
+		switch {
+		case nowDirty:
+			return stampUnknown, "the installed " + haveVer + " cannot be compared: this build was made with uncommitted changes"
+		case hc == "" || now.Commit == "" || sameCommit(hc, now.Commit):
+			return stampSame, ""
+		}
 	}
 	if semverRe.MatchString(haveVer) && semverRe.MatchString(nowVer) {
 		hv, nv := parseSemver(haveVer), parseSemver(nowVer)
@@ -221,23 +307,19 @@ func stampOrder(have, now dshStamp) (stampVerdict, string) {
 	// A stamp from before #249 carries no build time, but a local build's version tail still names
 	// its commit (`v0.1.54-local211-final-8ac35a3b`, `v0.1.54-3-gabc1234`). Same commit is the same
 	// plugin code, so that install is current and needs neither a refresh nor a warning (#265 P1).
-	if strings.TrimSpace(have.Built) == "" && strings.TrimSpace(now.Commit) != "" {
+	//
+	// This used to say "same" for any equal version string without a build time, before looking at
+	// the commit at all (#274 第三条). A dirty rebuild of the same commit carries the same version
+	// string, so that install was silently kept and its new plugin code never reached the disk, with
+	// no log line to explain it. Now "same" needs the commit to be proven; anything else falls to
+	// stampUnknown, which keeps the plugin and warns once with the way out.
+	if strings.TrimSpace(have.Built) == "" && !nowDirty && strings.TrimSpace(now.Commit) != "" {
 		if hc := commitFromVersionTail(haveVer); hc != "" && sameCommit(hc, now.Commit) {
 			return stampSame, "the installed " + haveVer + " and this build are the same commit " + hc
 		}
 	}
 	haveBuilt, haveOK := parseBuildStamp(have.Built)
 	nowBuilt, nowOK := parseBuildStamp(now.Built)
-	// An install stamped by a build made without the Makefile ldflags (#265 P2) is version dev with
-	// neither a commit nor a build time, so nothing could ever order it — before #265 P2 it also
-	// carried built="unknown", which no release could beat either. A release takes that plugin over:
-	// it is a developer build being replaced by the shipped program the user actually runs, and a
-	// dev build with a real commit or build time is excluded here, so the 11-05 accident (an older
-	// timed build overwriting a newer plugin) stays blocked.
-	if strings.TrimSpace(have.Built) == "" && isDevVersion(haveVer) && strings.TrimSpace(have.Commit) == "" &&
-		nowOK && semverRe.MatchString(nowVer) {
-		return stampNewer, "release " + nowVer + " replaces the plugin stamped by the unversioned build " + haveVer
-	}
 	switch {
 	case !haveOK || !nowOK:
 		return stampUnknown, "no build time to order " + nowVer + " against the installed " + haveVer
@@ -272,13 +354,21 @@ func commitFromVersionTail(version string) string {
 
 // sameCommit reports whether two commit ids name the same commit. Both sides come from git in
 // whatever length it used (`%h` short, full 40), so the shorter one has to be a prefix of the longer.
+// The shorter side must also be at least minCommitPrefix long: git never abbreviates below 7 by
+// default (`core.abbrev`, 7 since git 2.11), so `8a` or `8ac` is a truncated paste or a hand-typed
+// version tail, and as a prefix of a sha1 it matches a few hundred commits — it proves nothing
+// (#274). A real short id from `%h`/git-describe is 7 or more.
 func sameCommit(a, b string) bool {
+	const minCommitPrefix = 7 // git's default core.abbrev, unchanged since git 2.11
 	a, b = strings.ToLower(strings.TrimSpace(a)), strings.ToLower(strings.TrimSpace(b))
 	if a == "" || b == "" {
 		return false
 	}
 	if len(a) > len(b) {
 		a, b = b, a
+	}
+	if len(a) < minCommitPrefix {
+		return false
 	}
 	return strings.HasPrefix(b, a)
 }
@@ -331,14 +421,19 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	// Only unpack over an install that is provably older (#249): before, any different version
 	// string counted as an upgrade, so an older binary starting once replaced a newer plugin.
 	stamp := filepath.Join(targetDir, dshVersionFile)
-	now := dshStampNow(version)
+	// One read of the build info for both uses: the stamp it fills, and whether the tree was dirty
+	// when this binary was built — a dirty build may carry plugin code that no stamp on disk
+	// describes, so it only ever withholds "same" (#274 第三条).
+	vcs := readBuildVCS()
+	now := dshStampFor(version, vcs)
+	dirty := vcs.Modified
 	have, read := readDSHStamp(stamp)
 	if read == stampBroken {
 		slog.Warn("dsh refresh: version stamp is unreadable, keeping the installed plugin (delete the stamp to force a refresh)", "dir", targetDir, "running", now)
 		return false, nil
 	}
 	if read == stampFound {
-		verdict, why := stampOrder(have, now)
+		verdict, why := stampOrder(have, now, dirty)
 		switch verdict {
 		case stampSame:
 			return false, nil
@@ -346,19 +441,27 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 			slog.Info("dsh refresh: keeping the newer installed plugin", "dir", targetDir, "installed", have, "running", now, "why", why)
 			return false, nil
 		case stampUnknown:
-			// An install stamped before #249 has no build time at all, so nothing can ever order a
-			// later local build with the same numbers against it (`v0.1.54-local211-final-<sha>`):
-			// the install would stay on its old plugin for good (#265 P1). Still keep it — guessing
-			// here is the 11-05 overwrite — but say so once per run, with the way out.
-			if strings.TrimSpace(have.Built) == "" {
+			// Kept, never guessed — but said out loud once per run with the way out, because an
+			// install that can never be ordered stays that way for good and silence looks like a
+			// working refresh (#265 P1, #274 第三条).
+			switch {
+			case dirty:
+				if warnLegacyStampOnce(targetDir, have.Version) {
+					slog.Warn("dsh refresh: this build of "+now.Version+" was made with uncommitted changes, so it cannot prove the installed plugin is its own code and the plugin was kept; delete "+stamp+" and restart to force the refresh",
+						"dir", targetDir, "installed", have, "running", now, "why", why, "fix", "delete "+stamp+" and restart")
+				}
+			case strings.TrimSpace(have.Built) == "":
+				// An install stamped before #249 has no build time at all, so nothing can ever order a
+				// later local build with the same numbers against it (`v0.1.54-local211-final-<sha>`):
+				// the install would stay on its old plugin for good (#265 P1).
 				if warnLegacyStampOnce(targetDir, have.Version) {
 					slog.Warn("dsh refresh: the installed plugin is stamped "+have.Version+" with no build time (old stamp format, or a build made without the version flags), so this build "+now.Version+" cannot be proven newer and the plugin was kept; delete "+stamp+" and restart to force the refresh",
 						"dir", targetDir, "installed", have, "running", now, "why", why, "fix", "delete "+stamp+" and restart")
 				}
-				return false, nil
+			default:
+				slog.Warn("dsh refresh: cannot tell which version is newer, keeping the installed plugin (delete "+dshVersionFile+" to force a refresh)",
+					"dir", targetDir, "installed", have, "running", now, "why", why)
 			}
-			slog.Warn("dsh refresh: cannot tell which version is newer, keeping the installed plugin (delete "+dshVersionFile+" to force a refresh)",
-				"dir", targetDir, "installed", have, "running", now, "why", why)
 			return false, nil
 		}
 	}
