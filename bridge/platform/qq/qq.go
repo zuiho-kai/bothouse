@@ -117,6 +117,7 @@ type quoteEntry struct {
 	name    string // who wrote it; the quote must not read as the quoting person's words
 	self    bool   // this bot sent it, so a reply to it calls the bot
 	at      time.Time
+	chat    string // g:<group> or u:<private peer>, independent of engine session keys
 }
 
 // quoteCacheTTL bounds quoteCache. Source: 沿用 platform/qqbot messageCacheTTL,
@@ -544,8 +545,10 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	// context only.
 	mentioned := parsed.mentioned
 	var quoted []string
+	var reference *core.MessageReference
 	if id := parsed.replyTo; id != "" {
-		if entry, ok := p.loadQuote(id); ok {
+		entry, err := p.resolveQuote(context.Background(), id, chatKey, true)
+		if err == nil {
 			// Keep the quoted speaker's name: a bare quote read as the quoting
 			// person's words is the same mix-up as an unlabelled chat line.
 			line := entry.content
@@ -554,6 +557,10 @@ func (p *Platform) handleMessage(payload map[string]any) {
 			}
 			quoted = append(quoted, line)
 			mentioned = mentioned || entry.self
+			reference = &core.MessageReference{ID: id, Author: entry.name, Text: entry.content}
+		} else {
+			slog.Warn("qq: quoted message unavailable", "message_id", id, "error", err)
+			quoted = append(quoted, fmt.Sprintf("（引用消息 %s 无法获取原文）", id))
 		}
 	}
 
@@ -575,7 +582,10 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		content = forwardOnlyPlaceholder
 	}
 	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil && !mentioned {
-		return
+		if parsed.replyTo == "" {
+			return
+		}
+		content = "（对方引用了一条消息，没说别的）"
 	}
 	if content == "" && len(parsed.images) == 0 && len(parsed.files) == 0 && parsed.audio == nil {
 		content = bareMentionPlaceholder
@@ -583,7 +593,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Store the person's own words, not the bare-@ placeholder: a later reply to
 	// a poke should not quote the placeholder back as if they had said it.
-	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, userName, false)
+	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, userName, false, chatKey)
 
 	var sessionKey string
 	if msgType == "group" {
@@ -632,6 +642,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		ChatName:       chatName,
 		ChannelKey:     channelKey,
 		Content:        content,
+		Reference:      reference,
 		Images:         parsed.images,
 		Files:          parsed.files,
 		Audio:          parsed.audio,
@@ -1398,12 +1409,16 @@ func (p *Platform) warmGroupName(groupID int64) {
 
 // storeQuote remembers a message for reply quoting, dropping entries that are
 // too old or when the cache is full.
-func (p *Platform) storeQuote(messageID, content, name string, self bool) {
+func (p *Platform) storeQuote(messageID, content, name string, self bool, chat ...string) {
 	content = strings.TrimSpace(content)
 	if messageID == "" || content == "" {
 		return
 	}
-	p.quoteCache.Store(messageID, quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), name: strings.TrimSpace(name), self: self, at: time.Now()})
+	entry := quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), name: strings.TrimSpace(name), self: self, at: time.Now()}
+	if len(chat) > 0 {
+		entry.chat = chat[0]
+	}
+	p.quoteCache.Store(messageID, entry)
 
 	now := time.Now()
 	var expired, total int
