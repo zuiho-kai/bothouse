@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: dd446ce3696af2bbd5d77d9f5fcf226ce59990e50931f8b47615511d8124e1ec
+// dsh-client-source-sha256: e11928ac9110d1ca0967b0a0f969990bf32cba304c9089612b837873f011d757
 // dsh-style-sha256: 428f364695a1edfe0849075505515897bd44de2f323e253415d7fde4120b67d7
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -160,7 +160,6 @@ const rememberedRoom = () => {
 };
 /** Messages requested per catch-up read after a reconnect. */
 const CATCH_UP_LIMIT = 200;
-/** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 /** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
 var UploadTooLarge = class extends Error {
 	fileName;
@@ -174,14 +173,58 @@ var UploadTooLarge = class extends Error {
 		this.name = "UploadTooLarge";
 	}
 };
+/** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
 var ServiceError = class extends Error {
 	status;
-	constructor(status, message) {
+	code;
+	/**
+	* @param status - HTTP status the service answered with.
+	* @param message - the service's own sentence, kept for logs and the fallback line.
+	* @param code - the machine code the service sends beside it (`conflict`, `invalid`, …), if any.
+	*/
+	constructor(status, message, code) {
 		super(message);
 		this.status = status;
+		this.code = code;
 		this.name = "ServiceError";
 	}
 };
+/** 工作区<n> is how a workspace is addressed, so the store refuses that shape for a chat channel (collab/store.mjs WORKSPACE_PREFIX). */
+const WORKSPACE_NAME = /^工作区\d+$/;
+/** The cap the service puts on a member name; source: collab/roster.mjs `MAX_NAME = 32`. */
+const MEMBER_NAME_MAX = 32;
+/** The one member name the service accepts with a space; source: collab/roster.mjs `validate` (`/^Claude Code(?:-\d+)?$/`). */
+const MEMBER_NAME_SPACED = /^Claude Code(?:-\d+)?$/;
+/**
+* The member-name shape the service refuses, copied from collab/roster.mjs `validate` so a name it
+* accepted (say `Claude Code`) is never blamed for an unrelated `invalid` such as a missing model.
+* @param name - the name after the service's own trim.
+* @returns whether the service would word this as a bad name.
+*/
+function memberNameRefused(name) {
+	return name.length > MEMBER_NAME_MAX || /[@<>\r\n\t]/.test(name) || /\s/.test(name) && !MEMBER_NAME_SPACED.test(name);
+}
+/**
+* #268: the collab service answers a refusal with `code` plus an English sentence, and the panel
+* used to show that sentence as-is. Word the failures a person can act on from the `code` alone —
+* never by matching the English text — and keep the service sentence only inside the last resort.
+* @param error - whatever the action rejected with.
+* @param t - the panel's dictionary, so an English UI stays English.
+* @param place - the field being edited when the action failed.
+* @param typed - the name the person typed, for the copy that names it.
+* @returns one line to show under the form.
+*/
+function errorText(error, t, place = "other", typed = "") {
+	const message = error instanceof Error ? error.message : String(error);
+	if (!(error instanceof ServiceError)) return message;
+	const code = error.code;
+	const name = place === "room" ? typed.trim().replace(/^#/, "") : typed.trim();
+	if (code === "conflict" && place === "room") return WORKSPACE_NAME.test(name) ? t("channelNameReserved", { name }) : t("channelNameTaken", { name });
+	if (code === "invalid" && place === "room") return t("channelNameInvalid");
+	if (code === "conflict" && place === "member") return t("memberNameTaken", { name });
+	if (code === "invalid" && place === "member" && memberNameRefused(name)) return t("memberNameInvalid");
+	return t("actionFailed", { message });
+}
 function json(method, body) {
 	return {
 		method,
@@ -296,7 +339,7 @@ function createChannelSource(transport) {
 		const response = await transport.fetch(transport.url(path), init);
 		if (!response.ok) {
 			const body = await response.json().catch(() => ({}));
-			throw new ServiceError(response.status, body.error ?? response.statusText);
+			throw new ServiceError(response.status, body.error ?? response.statusText, body.code);
 		}
 		return await response.json();
 	};
@@ -18597,7 +18640,8 @@ const GROUP_TITLE = {
 	model: "slashGroupModel",
 	view: "slashGroupView"
 };
-function SlashMenu({ commands, selected, target, dmName, disabled = () => false, grouped, t, onPick, onHover }) {
+function SlashMenu({ commands, selected, target, leadName, dmName, disabled = () => false, grouped, t, onPick, onHover }) {
+	const noCmd = dmName ?? leadName;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: `${ChannelsPage_module_default.mentionPopup} ${ChannelsPage_module_default.slashPopup}`,
 		role: "region",
@@ -18605,7 +18649,7 @@ function SlashMenu({ commands, selected, target, dmName, disabled = () => false,
 		children: [
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				className: ChannelsPage_module_default.mentionTitle,
-				children: target !== void 0 ? t("slashTitleLead", { name: target }) : dmName !== void 0 ? t("slashTitleDmNoCmd", { name: dmName }) : t("slashTitleNoLead")
+				children: target !== void 0 ? t("slashTitleLead", { name: target }) : noCmd !== void 0 ? t("slashTitleDmNoCmd", { name: noCmd }) : t("slashTitleNoLead")
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				role: "listbox",
@@ -19486,7 +19530,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 			setPreview(png ? `data:image/png;base64,${png}` : void 0);
 		} catch (reason) {
 			const message = reason instanceof Error ? reason.message : String(reason);
-			setError(message === "avatar-png" ? t("memberAvatarPngError") : message === "avatar-size" ? t("memberAvatarSizeError") : message === "avatar-convert" ? t("memberAvatarConvertError") : message);
+			setError(message === "avatar-png" ? t("memberAvatarPngError") : message === "avatar-size" ? t("memberAvatarSizeError") : message === "avatar-convert" ? t("memberAvatarConvertError") : errorText(reason, t));
 		} finally {
 			setBusy(false);
 		}
@@ -19519,7 +19563,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		}).catch((reason) => {
 			if (live) {
 				setRoutes([]);
-				setError(reason instanceof Error ? reason.message : String(reason));
+				setError(errorText(reason, t));
 			}
 		});
 		return () => {
@@ -19537,7 +19581,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		}).catch((reason) => {
 			if (live) {
 				setClis([]);
-				setError(reason instanceof Error ? reason.message : String(reason));
+				setError(errorText(reason, t));
 			}
 		});
 		return () => {
@@ -19551,7 +19595,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 		setBusy(true);
 		setError(void 0);
 		const identity = nameCustomized === void 0 ? {} : { nameCustomized };
-		onSubmit(type === "cli" ? {
+		const input = type === "cli" ? {
 			name: name.trim(),
 			...identity,
 			persona,
@@ -19569,8 +19613,9 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 				provider,
 				model
 			} : null
-		}).then(onClose).catch((reason) => {
-			setError(reason instanceof Error ? reason.message : String(reason));
+		};
+		onSubmit(input).then(onClose).catch((reason) => {
+			setError(errorText(reason, t, "member", input.name));
 		}).finally(() => {
 			setBusy(false);
 		});
@@ -19967,7 +20012,7 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 		} catch (error) {
 			setErrors((previous) => ({
 				...previous,
-				[target]: error instanceof Error ? error.message : String(error)
+				[target]: errorText(error, t, target === "basic" ? "room" : "other", name)
 			}));
 		} finally {
 			setSaving((previous) => ({
@@ -20189,7 +20234,7 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 									}).catch((error) => {
 										setErrors((previous) => ({
 											...previous,
-											workspace: error instanceof Error ? error.message : String(error)
+											workspace: errorText(error, t)
 										}));
 									}).finally(() => {
 										setRenewing(false);
@@ -22205,7 +22250,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 		createRoom(name).then(() => {
 			setNewRoom(void 0);
 		}).catch((error) => {
-			setRoomError(error instanceof Error ? error.message : String(error));
+			setRoomError(errorText(error, t, "room", name));
 		});
 	};
 	const ownActions = (m) => {
@@ -22280,7 +22325,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 		if (!window.confirm(t("removeConfirm", { name: member.name }))) return;
 		setMemberError(void 0);
 		removeMember(member.id).catch((error) => {
-			setMemberError(error instanceof Error ? error.message : String(error));
+			setMemberError(errorText(error, t, "member", member.name));
 		});
 	};
 	const openPicker = () => {
@@ -23105,6 +23150,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 								commands: slashCommands,
 								selected: slashSelected,
 								target: commandTarget?.name,
+								leadName: dmWith === void 0 && commandTarget === void 0 ? lead?.name : void 0,
 								dmName: dmWith === void 0 ? void 0 : dmPeer?.name ?? room?.name,
 								disabled: (c) => commandTarget === void 0 && needsTarget(c),
 								grouped: slash === "",
@@ -23612,6 +23658,12 @@ const zh = {
 	channelName: "频道名称",
 	channelNameHint: "1–32 个字符，不能含空白。",
 	workspaceNameFixed: "工作区名称由系统分配，不能修改。",
+	channelNameReserved: "「{name}」是工作区占用的名字，换个频道名吧。",
+	channelNameTaken: "已经有频道叫「{name}」了，换个名字吧。",
+	channelNameInvalid: "频道名要 1–32 个字符，不能含空白。",
+	memberNameTaken: "已经有成员叫「{name}」了，换个名字吧。",
+	memberNameInvalid: "成员名要 1–32 个字符，不能含空白、@ 或 <>（Claude Code 除外）。",
+	actionFailed: "没成功：{message}",
 	slashTitle: "命令",
 	slashTitleLead: "发给 {name} 的命令",
 	slashTitleNoLead: "命令 · 先在频道设置里选主角色，才能用这些命令",
@@ -24013,6 +24065,12 @@ const en = {
 	channelName: "Channel name",
 	channelNameHint: "1–32 characters, without whitespace.",
 	workspaceNameFixed: "Workspace names are assigned by the system and cannot be changed.",
+	channelNameReserved: "\"{name}\" is a workspace name; pick another channel name.",
+	channelNameTaken: "A channel named \"{name}\" already exists; pick another name.",
+	channelNameInvalid: "A channel name is 1–32 characters and contains no whitespace.",
+	memberNameTaken: "A member named \"{name}\" already exists; pick another name.",
+	memberNameInvalid: "A member name is 1–32 characters, without whitespace, @ or <> (Claude Code excepted).",
+	actionFailed: "That did not work: {message}",
 	slashTitle: "Commands",
 	slashTitleLead: "Commands to {name}",
 	slashTitleNoLead: "Commands · pick a primary role in channel settings to use these",
