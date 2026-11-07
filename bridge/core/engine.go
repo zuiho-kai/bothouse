@@ -4241,6 +4241,19 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 // Voice message handling
 // ──────────────────────────────────────────────────────────────
 
+func (e *Engine) voiceStatusKeptOut(p Platform, msg *Message, notice string) bool {
+	if e.noticeKeptOut(p, msg.ReplyCtx, notice) {
+		return true
+	}
+	if msg != nil && msg.GroupChat {
+		if p != nil {
+			slog.Info("voice status notice kept out of group chat", "project", e.name, "platform", p.Name(), "notice", notice)
+		}
+		return true
+	}
+	return false
+}
+
 func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	if !e.speech.Enabled || e.speech.STT == nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceNotEnabled))
@@ -4257,7 +4270,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 		"platform", msg.Platform, "user", msg.UserName,
 		"format", audio.Format, "size", len(audio.Data),
 	)
-	e.send(p, msg.ReplyCtx, e.i18n.T(MsgVoiceTranscribing))
+	notice := e.i18n.T(MsgVoiceTranscribing)
+	if !e.voiceStatusKeptOut(p, msg, notice) {
+		e.send(p, msg.ReplyCtx, notice)
+	}
 
 	text, err := TranscribeAudio(e.ctx, e.speech.STT, audio, e.speech.Language)
 	if err != nil {
@@ -4273,7 +4289,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	}
 
 	slog.Info("voice transcribed", "text_len", len(text))
-	e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgVoiceTranscribed), text))
+	transcribedNotice := fmt.Sprintf(e.i18n.T(MsgVoiceTranscribed), text)
+	if !e.voiceStatusKeptOut(p, msg, transcribedNotice) {
+		e.send(p, msg.ReplyCtx, transcribedNotice)
+	}
 
 	// Replace audio with transcribed text and re-dispatch
 	msg.Audio = nil
