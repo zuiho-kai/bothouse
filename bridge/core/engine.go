@@ -8087,6 +8087,18 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			turnFailed = true
+			// Match observeQuotaEventFor's structured and textual quota signals.
+			// Quota cooling/takeover owns this interruption even before its async
+			// owner transfer; preserve previous work failures, including when the
+			// provider supplied no usable reset deadline.
+			_, quotaExhausted := QuotaExhaustedReset(event)
+			if event.Error != nil {
+				raw := strings.ToLower(event.Error.Error())
+				quotaExhausted = quotaExhausted || strings.Contains(raw, "quota") || strings.Contains(raw, "resource_exhausted")
+			}
+			if quotaExhausted {
+				watchTurnFinished = true
+			}
 			// A tool may already have changed external state, even when its
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
@@ -8270,6 +8282,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 channelClosed:
 	// Channel closed - process exited unexpectedly
 	slog.Warn("agent process exited", "session_key", sessionKey)
+	// Cleanup marks the state stopped even for a crash. Settle the work
+	// before cleanup so that bookkeeping cannot disguise an unexpected exit
+	// as an intentional stop. Shutdown, user stops and scheduled turns keep
+	// their existing exclusion rules.
+	if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil && !e.isStoppingForJournal() {
+		state.mu.Lock()
+		p, scheduled, cancelled := state.platform, state.turnScheduled, state.turnCancelled
+		state.mu.Unlock()
+		if !cancelled {
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, true, scheduled, e.watchCardResult(state), turnStart)
+		}
+	}
+	watchTurnFinished = true
 	if e.ctx.Err() == nil {
 		board.finish(state, BoardDoneFailed) // maomao fork: channel task board
 	}

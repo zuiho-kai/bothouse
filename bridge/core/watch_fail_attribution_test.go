@@ -15,6 +15,7 @@ type attributedFailSession struct {
 	events chan Event
 	mu     sync.Mutex
 	sends  int
+	event  *Event
 }
 
 func (s *attributedFailSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
@@ -22,7 +23,11 @@ func (s *attributedFailSession) Send(string, string, []ImageAttachment, []FileAt
 	s.sends++
 	s.mu.Unlock()
 	go func() {
-		s.events <- Event{Type: EventError, Error: errors.New("agent crashed: turn failed")}
+		event := Event{Type: EventError, Error: errors.New("agent crashed: turn failed")}
+		if s.event != nil {
+			event = *s.event
+		}
+		s.events <- event
 	}()
 	return nil
 }
@@ -355,5 +360,109 @@ func TestWatchUnretriableTurnStillStopsTheWork(t *testing.T) {
 	}
 	if len(p.sentTo("discord:chatA")) == 0 {
 		t.Fatal("the stopped watch must tell the chat")
+	}
+}
+
+// A quota handoff has not yet moved the owner when this event loop ends.
+// The provider failure must neither escalate nor erase a prior real work failure.
+func TestWatchQuotaCoolingPreservesFailureCountBeforeTakeover(t *testing.T) {
+	sess := capacityTakeoverSession("quota")
+	e, p, ws := watchCapacityFixture(t, sess)
+	e.watchTurnEnded(p, ws, "", false, true, false, false, time.Time{})
+	session := e.sessions.GetOrCreateActive(ws)
+	e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+	inputWait(t, func() bool { return !session.Busy() })
+	if sess.sends() != 1 || e.quotaCooling().IsZero() {
+		t.Fatal("the quota event must establish cooling without capacity retries")
+	}
+	got := handoffsOf(e, ws)[0]
+	if got.Idle.Fails != 1 || got.Idle.Reported || got.Owner != "橘" {
+		t.Fatalf("quota before owner transfer changed the work's failures: %+v", got)
+	}
+}
+
+func TestWatchQuotaMarksWithoutResetPreserveFailureCount(t *testing.T) {
+	for _, event := range []Event{
+		{Type: EventError, Error: errors.New("RESOURCE_EXHAUSTED")},
+		{Type: EventError, Error: errors.New("limit reached"), Metadata: WithQuotaExhausted(nil, "")},
+		{Type: EventError, Metadata: WithQuotaExhausted(nil, "")},
+	} {
+		t.Run("quota without reset", func(t *testing.T) {
+			as := &attributedFailSession{events: make(chan Event, 1), event: &event}
+			e, p, ws := watchTurnFixture(t, &attributedFailAgent{s: as})
+			e.watchTurnEnded(p, ws, "", false, true, false, false, time.Time{})
+			session := e.sessions.GetOrCreateActive(ws)
+			e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+			inputWait(t, func() bool { return !session.Busy() })
+			got := handoffsOf(e, ws)[0]
+			if got.Idle.Fails != 1 || got.Idle.Reported {
+				t.Fatalf("quota without a deadline changed the work failure count: %+v", got.Idle)
+			}
+		})
+	}
+}
+
+type closedWatchAgent struct{ stubAgent }
+
+func (*closedWatchAgent) StartSession(context.Context, string) (AgentSession, error) {
+	events := make(chan Event)
+	close(events)
+	return &closedWatchSession{events: events}, nil
+}
+
+type closedWatchSession struct {
+	stubAgentSession
+	events chan Event
+}
+
+func (s *closedWatchSession) Events() <-chan Event { return s.events }
+func (*closedWatchSession) Alive() bool            { return false }
+
+// Drive the platform message entry twice with a process stream that ends without
+// any EventError. Cleanup marks the state stopped, but that is not a user stop.
+func TestWatchUnexpectedStreamCloseCountsFailure(t *testing.T) {
+	for _, user := range []string{"human", "timer"} {
+		t.Run(user, func(t *testing.T) {
+			e, p, ws := watchTurnFixture(t, &closedWatchAgent{})
+			session := e.sessions.GetOrCreateActive(ws)
+			for range watchFailLimit {
+				e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: user, Content: "ran", ReplyCtx: "rc"})
+				inputWait(t, func() bool { return !session.Busy() })
+			}
+			got := handoffsOf(e, ws)[0]
+			wantFails := watchFailLimit
+			if user == "timer" {
+				wantFails = 0
+			}
+			if got.Idle.Fails != wantFails || got.Idle.Reported != (wantFails == watchFailLimit) {
+				t.Fatalf("bare stream close for %s: %+v, want fails=%d", user, got.Idle, wantFails)
+			}
+		})
+	}
+}
+
+type closingCancelledWatchSession struct {
+	interruptedFailSession
+}
+
+func (s *closingCancelledWatchSession) CancelTurn() error {
+	close(s.events)
+	return nil
+}
+
+func TestWatchCancelledStreamClosePreservesFailureCount(t *testing.T) {
+	s := &closingCancelledWatchSession{interruptedFailSession{events: make(chan Event)}}
+	e, p, ws := watchTurnFixture(t, &resultAgent{session: s})
+	e.watchTurnEnded(p, ws, "", false, true, false, false, time.Time{})
+	session := e.sessions.GetOrCreateActive(ws)
+	e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: "human", Content: "ran", ReplyCtx: "rc"})
+	inputWait(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.sends == 1 })
+	if !e.stopInteractiveSessionForAbort(ws) {
+		t.Fatal("the running turn was not available to abort")
+	}
+	inputWait(t, func() bool { return !session.Busy() })
+	got := handoffsOf(e, ws)[0]
+	if got.Idle.Fails != 1 || got.Idle.Reported {
+		t.Fatalf("intentional stream close changed the work failures: %+v", got.Idle)
 	}
 }
