@@ -141,7 +141,7 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	stopDSHWebLaunch()
 	if b, err := os.ReadFile(dshWebStatePath()); err == nil {
 		var prev DSHWeb
-		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) {
+		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && !isDSHDesktopHost(prev) {
 			stopProcess(prev.PID)
 		}
 		_ = os.Remove(dshWebStatePath())
@@ -449,7 +449,8 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	var prev DSHWeb
 	if b, err := os.ReadFile(statePath); err == nil && json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && prev.URL != "" {
 		// The collab plugin imports the wizard's roles only at boot: with roles still waiting, start it over.
-		if _, err := os.Stat(dshMembersFile()); err != nil {
+		// The desktop app's host is the app's own (it reloads the roles itself): use it as it is.
+		if _, err := os.Stat(dshMembersFile()); err != nil || isDSHDesktopHost(prev) {
 			return prev, nil
 		}
 		if err := stopDSHWebForImport(prev.PID); err != nil {

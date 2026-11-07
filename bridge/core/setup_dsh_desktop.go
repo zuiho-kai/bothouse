@@ -212,6 +212,13 @@ func stopDSHDesktop(app string) error {
 var dshDesktopStart = func(app string, env []string) (int, error) {
 	cmd := exec.Command(dshDesktopExe(app))
 	cmd.Env = append(os.Environ(), env...)
+	// The app's host prints `dsh web: <url>` like dsh web does: kept in dsh-desktop.log, the panel's
+	// proxy adopts that host (dshWebLogPath, self-heal) so the overview shows the DSH members and
+	// channels of a desktop-only setup instead of 「DSH 未运行」.
+	if f, err := os.OpenFile(dshDesktopLogPath(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
+		defer f.Close()
+		cmd.Stdout, cmd.Stderr = f, f
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home // the collab workspace defaults to the host's cwd (dsh/collab/cordis.patch.yml)
 	}
@@ -222,6 +229,17 @@ var dshDesktopStart = func(app string, env []string) (int, error) {
 	pid := cmd.Process.Pid
 	go func() { _ = cmd.Wait() }()
 	return pid, nil
+}
+
+// dshDesktopLogPath is where the app bothouse started prints its host address (next to dsh-web.log).
+func dshDesktopLogPath() string {
+	return filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-desktop.log")
+}
+
+// isDSHDesktopHost: the state file points at the desktop app's host (adopted from dsh-desktop.log),
+// which bothouse must not stop like its own dsh web: the app owns that process.
+func isDSHDesktopHost(w DSHWeb) bool {
+	return w.Log != "" && filepath.Clean(w.Log) == filepath.Clean(dshDesktopLogPath())
 }
 
 // DSHDesktopOpen is what POST /setup/dsh/open-desktop answers.
