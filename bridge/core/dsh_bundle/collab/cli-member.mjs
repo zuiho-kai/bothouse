@@ -1,7 +1,7 @@
 // CLI 成员：把本机 claude / codex / gemini 通过 ACP 适配器接成群成员。
 // 每个（成员, 房间）一个 ACP session；ask(text) 返回该轮 agent_message_chunk 拼接文本。
-import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -44,6 +44,58 @@ function resolveBin(pkg) {
     if (bin) return { cmd: process.execPath, args: [path.join(path.dirname(pj), bin)] }
   } catch {}
   return { cmd: 'npx', args: ['-y', pkg] }
+}
+
+/** PATH 目录（Windows 的键名可能是 Path）；去掉引号。 */
+function pathDirs(env) {
+  return String(env.PATH || env.Path || '').split(path.delimiter).map(d => d.replace(/^"|"$/g, '')).filter(Boolean)
+}
+
+/** 按 PATH + PATHEXT 找可执行文件，返回绝对路径。 */
+function findOnPath(name, env) {
+  if (path.isAbsolute(name)) return existsSync(name) ? name : undefined
+  const exts = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  for (const dir of pathDirs(env)) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, `${name}${ext}`)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return undefined
+}
+
+/**
+ * Windows：`gemini` / `npx` 是 npm 写的 .cmd 外壳，外壳里再起 `node <脚本>`。经外壳启动时
+ * spawn 出来的是 cmd.exe，close() 只杀外壳，真正的 CLI 和它起的进程全成孤儿（PR #1254 Windows 实测）。
+ * 这里把外壳解析成它要跑的 node 脚本，直接 spawn：拿到的 pid 就是 CLI 自己。
+ * 解析不出来（不是 node 脚本、脚本不存在）返回 null，调用方照旧经外壳启动，关闭时按进程树杀。
+ */
+export function resolveShim(cmd, env = process.env) {
+  const file = findOnPath(cmd, env)
+  if (!file) return null
+  const lower = file.toLowerCase()
+  if (lower.endsWith('.exe') || lower.endsWith('.com')) return { cmd: file, args: [], shell: false }
+  if (!lower.endsWith('.cmd') && !lower.endsWith('.bat')) return null
+  let body
+  try { body = readFileSync(file, 'utf8') } catch { return null }
+  // npm / pnpm 的 shim 结尾：「%_prog%」  「%dp0%\<脚本>」 %*（pnpm 用 %~dp0%）。
+  const m = body.match(/"%(?:~)?dp0%\\?([^"%]+?)"\s*%\*/i)
+  if (!m || !/\bnode(?:\.exe)?\b/i.test(body)) return null
+  const script = path.resolve(path.dirname(file), m[1])
+  if (!existsSync(script) || !/\.(?:m?js|cjs)$/i.test(script)) return null
+  return { cmd: process.execPath, args: [script], shell: false }
+}
+
+/**
+ * 关掉一个 CLI 进程。Windows 上按进程树杀：可能还隔着 cmd.exe 外壳或 npx，只杀 pid 会把真 CLI
+ * 和它起的孙进程留下（PR #1254 Windows 实测）。非 Windows 保持原来的 proc.kill()。
+ */
+export function stopProcess(proc) {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return
+  if (process.platform === 'win32' && proc.pid !== undefined) {
+    try { spawnSync('taskkill', ['/T', '/F', '/PID', String(proc.pid)], { stdio: 'ignore' }) } catch {}
+  }
+  proc.kill()
 }
 
 // 去掉外层 Claude Code 会话的标记（CLAUDECODE、CLAUDE_CODE_ENTRYPOINT…），成员的 claude 才不会当成嵌套会话；
@@ -106,13 +158,18 @@ export class CliMember {
     if (this.ready) return this.ready
     const a = ADAPTERS[this.cli]
     const { cmd, args } = a.pkg ? resolveBin(a.pkg) : { cmd: a.cmd, args: [] }
-    const proc = spawn(cmd, [...args, ...a.args], {
+    // 已直接指到 node + 脚本（claude/codex 的包）就不必再解析；其余在 Windows 上先试着把 .cmd 外壳
+    // 拆成 node + 脚本，拆不动才退回经外壳启动。
+    const direct = cmd === process.execPath
+    const shim = !direct && process.platform === 'win32' ? resolveShim(cmd, { ...cleanEnv(), ...this.extraEnv }) : null
+    const launch = direct ? { cmd, args, shell: false } : (shim || { cmd, args, shell: process.platform === 'win32' })
+    const proc = spawn(launch.cmd, [...launch.args, ...a.args], {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
       env: { ...cleanEnv(), ...this.extraEnv },
-      // Windows: `gemini` / `npx` are npm .cmd shims, which only start through a shell (spawn without
-      // one gives ENOENT, and EINVAL for a .cmd path). Args here are fixed names and flags, no spaces.
-      shell: process.platform === 'win32' && cmd !== process.execPath,
+      // Windows 上拆不掉外壳时才用 shell：`gemini` / `npx` 是 .cmd，不经外壳 spawn 会 ENOENT
+      //（.cmd 路径还会 EINVAL）。参数都是固定名字和开关，没有空格。
+      shell: launch.shell,
     })
     this.proc = proc
     const client = this._client()
@@ -139,12 +196,12 @@ export class CliMember {
     })
     exited.catch(() => {})
     this.exited = exited
-    // Windows starts the CLI through a shell, which runs even when the CLI or the folder is missing: the ACP
-    // stream then closes before the process reports exit/error, and the member showed "ACP connection closed"
-    // instead of the install advice (or COLLAB_CLI_START). On a failed handshake, report how the process ended.
+    // Windows 上退回经外壳启动时，外壳即使找不到 CLI 或目录也会跑起来：ACP 流在进程报 exit/error 之前
+    // 就断了，成员只会显示 "ACP connection closed"，而不是安装提示（或 COLLAB_CLI_START）。握手失败时
+    // 按进程结束方式报错。
     const init = this.conn.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} })
       .catch(error => {
-        if (proc.exitCode === null && proc.signalCode === null && proc.pid !== undefined) proc.kill()
+        stopProcess(proc)
         return exited.then(() => { throw error })
       })
     this.ready = Promise.race([
@@ -283,7 +340,7 @@ export class CliMember {
   }
 
   close() {
-    this.proc?.kill()
+    stopProcess(this.proc)
     this.sessions.clear()
     this.saved.clear()
     this.ready = null
