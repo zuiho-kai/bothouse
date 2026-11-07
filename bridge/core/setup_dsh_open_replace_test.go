@@ -17,6 +17,59 @@ import (
 	"time"
 )
 
+// #335: a retry that is alive but has not announced its address is still starting.
+func TestOpenDSHWebFallbackStartingDoesNotClaimReady(t *testing.T) {
+	h262WorldWithDsh(t)
+	// 来源：#329 慢启动探针沿用 h262World 的 300ms 单次等待。
+	dshWebOpenWait = 300 * time.Millisecond
+	serving := h262FakeDshServing(t, "fresh", 1)
+	script, err := os.ReadFile(serving.script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the helper alive without publishing an address; no timing race with an announcement.
+	silent := strings.Replace(string(script), `echo "dsh web:`, `: "dsh web:`, 1)
+	if silent == string(script) {
+		t.Fatal("fake dsh announcement was not suppressed")
+	}
+	if err := os.WriteFile(serving.script, []byte(silent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(serving.script)+string(os.PathListSeparator)+"/usr/sbin:/usr/bin:/bin")
+	old := h262StartHost(t, "good")
+	h262WriteLog(t, h262DefaultLog(), h262Line(old.port, "stale"))
+	h262WriteState(t, DSHWeb{URL: h262URL(old.port, "stale") + "#channels"})
+	buf, restore := captureSlog(t)
+	defer restore()
+	web, err := openDSHWeb(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !web.Starting || web.URL != "" || web.PID <= 0 {
+		t.Fatalf("retry must remain Starting without an address, got %+v", web)
+	}
+	startsLog, err := os.ReadFile(serving.starts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if starts := strings.Count(string(startsLog), "start\n"); starts != 2 {
+		t.Fatalf("starts = %d, want the failed start and exactly one retry", starts)
+	}
+	logs := buf.String()
+	if strings.Contains(logs, "已重新起好") || strings.Contains(logs, "已回退到原 host") {
+		t.Fatalf("retry still Starting without an address falsely claims ready: %s", logs)
+	}
+	if !strings.Contains(logs, "正在启动") || !strings.Contains(logs, "面板暂时打不开") {
+		t.Fatalf("missing pending-start explanation: %s", logs)
+	}
+	for _, field := range []string{"log", "elapsed_sec", "log_tail"} {
+		if !strings.Contains(logs, `"`+field+`":`) {
+			t.Errorf("missing retry diagnostic %q: %s", field, logs)
+		}
+	}
+	t.Logf("retry preserved: Starting=%v URL=%q; logs=%s", web.Starting, web.URL, logs)
+}
+
 // h262FakeDshServing writes a fake `dsh` that is a real host: it starts the out-of-process helper,
 // waits for it to listen, prints the announcement `dsh web` prints, and stays up until it is
 // signalled. It counts its own starts in `<dir>/starts`, so a retry is visible.

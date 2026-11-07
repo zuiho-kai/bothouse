@@ -503,6 +503,10 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		slog.Warn("dsh web: 新实例没有起来，回退也没有起来：面板暂时没有可打开的 host", "log", logPath, "error", retryErr)
 		return web, retryErr
 	}
+	if web.Starting || web.URL == "" {
+		slog.Warn("dsh web: 新实例没有起来，同一个 dsh web 正在启动，还没给出地址，面板暂时打不开", "log", logPath, "elapsed_sec", web.ElapsedSec, "log_tail", web.LogTail)
+		return web, nil
+	}
 	slog.Warn("dsh web: 新实例没有起来，已回退到原 host：同一个 dsh web 已重新起好", "log", logPath)
 	return web, nil
 }
