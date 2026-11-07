@@ -471,11 +471,81 @@ describe('channel source', () => {
 })
 
 describe('messageTooLarge (#144)', () => {
-  it('flags attachments over the server body cap before any request is sent', async () => {
+  it('flags a message whose text alone no longer fits the server body cap', async () => {
     const { MAX_MESSAGE_BODY, messageTooLarge } = await import('../src/client/channel-source.ts')
-    const file = (chars: number) => ({ name: 'a.bin', mime: 'application/octet-stream', data: 'A'.repeat(chars) })
-    expect(messageTooLarge('hi', [file(1024)])).toBe(false)
-    expect(messageTooLarge('hi', [file(MAX_MESSAGE_BODY / 2), file(MAX_MESSAGE_BODY / 2)])).toBe(true)
+    expect(messageTooLarge('hi', [])).toBe(false)
+    expect(messageTooLarge('字'.repeat(MAX_MESSAGE_BODY / 3), [])).toBe(true)
+  })
+})
+
+describe('#197 streamed uploads', () => {
+  it('streams the file to its own route, reports progress, and gives back the id the message names', async () => {
+    // A transport whose upload reports half, then all of the bytes.
+    const upload = vi.fn(async (url: string, body: Blob, onProgress: (sent: number, total: number) => void) => {
+      onProgress(body.size / 2, body.size)
+      onProgress(body.size, body.size)
+      return { status: 201, body: { attachment: { id: 'abc', name: '照片.png', mime: 'image/png', size: body.size } } }
+    })
+    const { transport } = fakeTransport(url => url === '/collab/api/state' ? json(200, { ...state, max_upload_bytes: 64 * 1024 * 1024 }) : json(200, { messages: [] }))
+    transport.upload = upload
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    expect(source.getSnapshot().maxUploadBytes).toBe(64 * 1024 * 1024)
+
+    const file = new File([new Uint8Array([1, 2, 3])], '照片.png', { type: 'image/png' })
+    const seen: number[] = []
+    const stored = await actions.uploadAttachment?.(file, (sent, total) => seen.push(sent / total))
+    expect(upload).toHaveBeenCalledOnce()
+    expect(upload.mock.calls[0]?.[0]).toBe('/collab/api/attachments?name=' + encodeURIComponent('照片.png') + '&mime=image%2Fpng')
+    expect(seen).toEqual([0.5, 1])
+    expect(stored).toEqual({ id: 'abc', name: '照片.png', mime: 'image/png', size: 3 })
+    unsubscribe()
+  })
+
+  it('refuses a file over the reported cap without any request, and follows a smaller cap the service reports', async () => {
+    const { UploadTooLarge } = await import('../src/client/channel-source.ts')
+    const upload = vi.fn(async () => ({ status: 413, body: { error: 'too large', code: 'too-large', max_upload_bytes: 1024 } }))
+    const { transport } = fakeTransport(url => url === '/collab/api/state' ? json(200, { ...state, max_upload_bytes: 2048 }) : json(200, { messages: [] }))
+    transport.upload = upload
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+
+    const tooBig = new File([new Uint8Array(4096)], 'big.bin', { type: 'application/octet-stream' })
+    await expect(actions.uploadAttachment?.(tooBig)).rejects.toBeInstanceOf(UploadTooLarge)
+    expect(upload).not.toHaveBeenCalled()
+
+    // The service's own cap may be smaller than the one /state reported: it wins, and later files check against it.
+    const allowed = new File([new Uint8Array(1500)], 'edge.bin', { type: 'application/octet-stream' })
+    const failure = await actions.uploadAttachment?.(allowed).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(UploadTooLarge)
+    expect((failure as InstanceType<typeof UploadTooLarge>).limit).toBe(1024)
+    expect((failure as InstanceType<typeof UploadTooLarge>).fileName).toBe('edge.bin')
+    await expect(actions.uploadAttachment?.(new File([new Uint8Array(2000)], 'later.bin'))).rejects.toBeInstanceOf(UploadTooLarge)
+    unsubscribe()
+  })
+
+  it('posts the attachment ids on the message, never the bytes', async () => {
+    const bodies: string[] = []
+    const { transport } = fakeTransport((url, init) => {
+      if (url === '/collab/api/state') return json(200, { ...state, max_upload_bytes: 1024 * 1024 })
+      if (url === '/collab/api/rooms/1/messages') {
+        bodies.push(String(init?.body))
+        return json(200, { message: message(9, '带文件') })
+      }
+      return json(200, { messages: [] })
+    })
+    transport.upload = async (url: string, body: Blob) => ({ status: 201, body: { attachment: { id: 'aaaa-bbbb', name: 'run.log', mime: 'text/plain', size: body.size } } })
+    const { source, actions } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+
+    const stored = await actions.uploadAttachment?.(new File([new Uint8Array([1, 2, 3])], 'run.log', { type: 'text/plain' }))
+    await actions.send('带文件', undefined, stored === undefined ? [] : [stored])
+    expect(JSON.parse(bodies[0] ?? '{}')).toMatchObject({ text: '带文件', attachments: [{ id: 'aaaa-bbbb', name: 'run.log', mime: 'text/plain', size: 3 }] })
+    expect(bodies[0]).not.toContain('data')
+    unsubscribe()
   })
 })
 

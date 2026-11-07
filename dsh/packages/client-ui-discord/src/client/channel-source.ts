@@ -46,30 +46,38 @@ export interface ChannelAttachment {
   readonly size: number
 }
 
-/** A file picked, pasted or dropped in the composer, base64-encoded for the POST body. */
+/** A file already streamed to the service, named on the message by id (#197). */
 export interface OutgoingAttachment {
+  readonly id: string
   readonly name: string
   readonly mime: string
-  readonly data: string
+  readonly size: number
 }
 
 /** Relative URL of a stored attachment (same base as the other collab requests). */
 export const attachmentUrl = (id: string): string => `collab/api/attachments/${encodeURIComponent(id)}`
 
-/** Read a browser File into the POST form. */
-// Same cap as collab's MAX_MESSAGE_BODY (dsh/collab/plugin.mjs): a bigger POST gets a 413.
+// Same cap as collab's MAX_MESSAGE_BODY (dsh/collab/plugin.mjs): the message POST carries
+// only text and attachment metadata now, the bytes go up the stream route (#197).
 export const MAX_MESSAGE_BODY = 8 * 1024 * 1024
+
+/** #197: fallback when the service does not report its cap (`max_upload_bytes`); matches collab's DEFAULT_MAX_UPLOAD_BYTES. */
+export const DEFAULT_MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 export const messageTooLarge = (text: string, attachments: readonly OutgoingAttachment[]): boolean =>
   new TextEncoder().encode(JSON.stringify({ text, client_key: randomUUID(), reply_to: Number.MAX_SAFE_INTEGER, attachments })).length > MAX_MESSAGE_BODY
 
-export const readAttachment = async (file: File): Promise<OutgoingAttachment> => {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return { name: file.name || 'pasted', mime: file.type || 'application/octet-stream', data: btoa(binary) }
+/** Bytes as a limit reads in the UI: 1 GB, 500 MB, 12.5 MB. */
+export const formatBytes = (bytes: number): string => {
+  if (bytes >= 1024 ** 3) return `${Number((bytes / 1024 ** 3).toFixed(2))} GB`
+  if (bytes >= 1024 ** 2) return `${Number((bytes / 1024 ** 2).toFixed(1))} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
+
+/** The upload route's path for one file: a header cannot carry 中文, so name and type ride the query. */
+export const uploadUrl = (file: File): string =>
+  `collab/api/attachments?name=${encodeURIComponent(file.name || 'pasted')}&mime=${encodeURIComponent(file.type || 'application/octet-stream')}`
 
 /** The quoted original of a reply: an excerpt, or only its id once it was deleted. */
 export type ChannelQuote =
@@ -288,6 +296,8 @@ export interface ChannelSnapshot {
   readonly outbox: readonly OutboxMessage[]
   /** 11-05 体检 #2: room id → members' new messages that arrived while another room was shown. */
   readonly unread?: Readonly<Record<string, number>>
+  /** #197: one attachment's cap in bytes, as the service reports it (composer checks before sending). */
+  readonly maxUploadBytes?: number
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -298,7 +308,12 @@ export interface ChannelActions {
   /** Show another room and load its recent messages. */
   selectRoom(roomId: number): Promise<void>
   /** Post one human message into the selected room, optionally replying to `replyTo`; rejects with the service's reason. */
-  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[]): Promise<void>
+  send(text: string, replyTo?: number, attachments?: readonly OutgoingAttachment[], roomId?: number): Promise<void>
+  /**
+   * #197: stream one file up before the message is posted; `onProgress` gets bytes sent and
+   * total so the composer can draw a bar. Resolves with the metadata the message names.
+   */
+  uploadAttachment?(file: File, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<OutgoingAttachment>
   /** Re-post a failed message, reusing its `client_key` so the service dedupes. */
   retrySend(clientKey: string): Promise<void>
   /** Drop a failed message from the outbox without sending it. */
@@ -361,6 +376,8 @@ export interface ChannelTransport {
   openEvents(url: string): EventStreamLike
   /** Resolve a service path against the document base. */
   url(path: string): string
+  /** #197: one attachment streamed up, reporting bytes so the composer can draw progress. */
+  upload?(url: string, body: Blob, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<{ status: number; body: unknown }>
   /** Wait before a reconnect attempt; injectable so tests need no real clocks. */
   delay?(ms: number): Promise<void>
   /** Jitter source in `[0, 1)`; injectable so backoff is deterministic in tests. */
@@ -380,7 +397,7 @@ type ServiceEvent =
 
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], leadId: null, tasks: [], taskChat: undefined,
-  hasMoreOlder: false, outbox: [],
+  hasMoreOlder: false, outbox: [], maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
 }
 
 /** Position of message `id` in rows ascending by id, or -1. */
@@ -439,6 +456,14 @@ const rememberedRoom = (): number | undefined => {
 const CATCH_UP_LIMIT = 200
 
 /** Status-coded service failure so the panel can tell "not enabled" from "not signed in". */
+/** #197: one file the composer holds beyond the service's cap, named so the message can say which. */
+export class UploadTooLarge extends Error {
+  constructor(readonly fileName: string, readonly size: number, readonly limit: number) {
+    super(`${fileName}: ${formatBytes(size)} > ${formatBytes(limit)}`)
+    this.name = 'UploadTooLarge'
+  }
+}
+
 class ServiceError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
@@ -457,6 +482,23 @@ function json(method: string, body: unknown): RequestInit {
 export function browserTransport(): ChannelTransport {
   return {
     fetch: (input, init) => fetch(input, { credentials: 'same-origin', ...init }),
+    // #197: XHR rather than fetch — it reports upload progress, which fetch does not.
+    upload: (url, body, onProgress, signal) => new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', url)
+      xhr.withCredentials = true
+      xhr.setRequestHeader('content-type', body.type || 'application/octet-stream')
+      xhr.upload.addEventListener('progress', (event) => { if (event.lengthComputable) onProgress(event.loaded, event.total) })
+      xhr.addEventListener('load', () => {
+        let parsed: unknown
+        try { parsed = JSON.parse(xhr.responseText) } catch { parsed = undefined }
+        resolve({ status: xhr.status, body: parsed })
+      })
+      xhr.addEventListener('error', () => { reject(new Error('Upload failed: the connection dropped')) })
+      xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')) })
+      signal?.addEventListener('abort', () => { xhr.abort() }, { once: true })
+      xhr.send(body)
+    }),
     openEvents: url => new EventSource(url, { withCredentials: true }),
     url: path => new URL(path, document.baseURI).toString(),
     delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
@@ -484,6 +526,8 @@ export function createChannelSource(transport: ChannelTransport): {
   /** Identifies the scheduled retry, so a stop() or a newer retry cancels it. */
   let reconnectToken: object | undefined
   /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
+  /** #197: how big one attachment may be, as the service reported it (state) or the collab default. */
+  let uploadLimit = DEFAULT_MAX_UPLOAD_BYTES
   let outbox: OutboxMessage[] = []
   /**
    * Page-back request in flight per room, tagged with the ticket and the epoch
@@ -652,10 +696,11 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null; max_upload_bytes?: number }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
+      if (Number.isSafeInteger(state.max_upload_bytes) && (state.max_upload_bytes ?? 0) > 0) uploadLimit = state.max_upload_bytes as number
       // #112: reopening the panel starts from `previous` empty, so fall back to the
       // channel this browser had open, then to the service's first channel.
       const remembered = previous.roomId === undefined ? rememberedRoom() : undefined
@@ -734,6 +779,7 @@ export function createChannelSource(transport: ChannelTransport): {
         phase: 'ready', error: undefined, rooms: state.rooms, roomId,
         members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder, hasMoreNewer,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
+        maxUploadBytes: uploadLimit,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
       }
@@ -903,7 +949,28 @@ export function createChannelSource(transport: ChannelTransport): {
     }
   }
 
+  /**
+   * #197: stream one file to the service and return the metadata the message names.
+   * The bytes never pass through the message JSON, so the size cap is the service's
+   * `maxUploadBytes` instead of MAX_MESSAGE_BODY.
+   */
+  const upload = async (file: File, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<OutgoingAttachment> => {
+    if (file.size > uploadLimit) throw new UploadTooLarge(file.name, file.size, uploadLimit)
+    if (transport.upload === undefined) throw new Error('This browser cannot stream uploads')
+    const { status, body } = await transport.upload(transport.url(uploadUrl(file)), file, onProgress ?? (() => {}), signal)
+    const value = body as { attachment?: { id?: string; name?: string; mime?: string; size?: number }; error?: string; max_upload_bytes?: number } | undefined
+    if (status === 413) {
+      // The service may have a smaller cap than the one this browser last read from /state.
+      uploadLimit = Number(value?.max_upload_bytes ?? uploadLimit)
+      throw new UploadTooLarge(file.name, file.size, uploadLimit)
+    }
+    const stored = value?.attachment
+    if (status >= 400 || stored?.id === undefined) throw new ServiceError(status, value?.error ?? 'Upload failed')
+    return { id: stored.id, name: stored.name ?? file.name, mime: stored.mime ?? file.type, size: stored.size ?? file.size }
+  }
+
   const actions: ChannelActions = {
+    uploadAttachment: upload,
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
@@ -915,8 +982,8 @@ export function createChannelSource(transport: ChannelTransport): {
       set({ tasks: [...(snapshot.tasks ?? []).filter(row => row.id !== task.id), task] })
     },
     selectRoom,
-    async send(text, replyTo, attachments) {
-      const roomId = snapshot.roomId
+    async send(text, replyTo, attachments, targetRoomId) {
+      const roomId = targetRoomId ?? snapshot.roomId
       if (roomId === undefined) throw new Error('No channel is open')
       await post(roomId, randomUUID(), text, replyTo, attachments)
     },

@@ -25,7 +25,7 @@ import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
-import { Attachments, INLINE_IMAGE } from './attachments.mjs';
+import { Attachments, DEFAULT_MAX_UPLOAD_BYTES, INLINE_IMAGE, MAX_BOT_ATTACHMENT_BYTES, formatBytes } from './attachments.mjs';
 import { Later, registerLater } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
@@ -86,6 +86,11 @@ export function resolveConfig(config, env = process.env) {
   }
   const maxRelay = c.maxRelay ?? 6;
   if (!Number.isSafeInteger(maxRelay) || maxRelay < 0) throw Error('conest-collab: maxRelay must be a non-negative integer');
+  // #197: the cap of one streamed channel upload, in bytes. The overlay's maxUploadBytes
+  // (README) wins so a slower machine or a small disk can lower it; otherwise the
+  // measured default in attachments.mjs applies (#228's 8 MiB only fit a ~6 MB file).
+  const maxUploadBytes = c.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  if (!Number.isSafeInteger(maxUploadBytes) || maxUploadBytes <= 0) throw Error('conest-collab: maxUploadBytes must be a positive integer');
   const botTokenEnv = c.botTokenEnv ?? 'CONEST_COLLAB_BOT_TOKEN';
   const botToken = env[botTokenEnv] ?? '';
   // #142 桌面版宿主端口每次随机：给一个固定端口另开 bot 接入（bot-port.mjs）。配置或 CONEST_COLLAB_BOT_PORT，都没给就不开。
@@ -110,7 +115,7 @@ export function resolveConfig(config, env = process.env) {
   // #105 侧栏「bothouse」：读这份主桥配置的 [management] 段，在服务端转发管理面板（令牌不进浏览器）。
   const bridgeConfig = String(c.bridgeConfig ?? '').trim() || defaultBridgeConfig(env);
   if (!isAbsolute(bridgeConfig)) throw Error('conest-collab: bridgeConfig must be an absolute path');
-  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, botTokenEnv, botToken, botPort, ownerName: c.ownerName ?? '我' };
+  return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, maxUploadBytes, botTokenEnv, botToken, botPort, ownerName: c.ownerName ?? '我' };
 }
 
 /** Resolve a package from the running DSH installation, never a second copy. */
@@ -326,7 +331,8 @@ export async function apply(ctx, rawConfig) {
         rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.primaryIn(r.id)?.id ?? null,
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
-        queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])) });
+        queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])),
+        max_upload_bytes: config.maxUploadBytes });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {
@@ -343,6 +349,13 @@ export async function apply(ctx, rawConfig) {
         return { lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null };
       });
     }
+    // #197: one attachment streams straight to disk instead of riding base64 in the
+    // message JSON, so its cap no longer comes from MAX_MESSAGE_BODY. The bytes are
+    // the raw request body; the name and type travel in the query string because a
+    // header can not carry 中文. The browser posts the message with the returned
+    // metadata once every file of that message has arrived.
+    const streamed = streamUploadRoute(req, res, url, { files, maxBytes: config.maxUploadBytes });
+    if (streamed !== undefined) return streamed;
     const att = /^\/collab\/api\/attachments\/([0-9a-f-]{36})$/.exec(path);
     if (att !== null && req.method === 'GET') {
       const row = store.attachmentMeta(att[1]);
@@ -398,7 +411,8 @@ export async function apply(ctx, rawConfig) {
         const clientKey = typeof body?.client_key === 'string' && body.client_key ? `web:${body.client_key.slice(0, 64)}` : undefined;
         const roomId = Number(m[1]);
         if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
-        const attachments = files.save(body?.attachments);
+        // #197: ids from the streamed upload endpoint, or base64 from an older client/bot.
+        const attachments = files.receive(body?.attachments);
         const { message } = hub.post(roomId, { authorKind: 'user', author: OWNER, name: config.ownerName, text: String(body?.text ?? ''), clientKey,
           replyTo: Number.isInteger(body?.reply_to) ? body.reply_to : undefined, attachments });
         return { message: publicMessage(message, store) };
@@ -583,6 +597,31 @@ export function memberAvatarRoute(req, res, path, { roster, owner }) {
     if (req.method === 'POST' && typeof body?.png !== 'string') throw new CollabError('invalid', '请提供 PNG base64 头像数据');
     return { member: roster.setAvatar(decodeURIComponent(match[1]), req.method === 'POST' ? body.png : undefined) };
   }, req.method === 'POST', 512 * 1024);
+}
+
+/**
+ * #197: one attachment streams straight to disk instead of riding base64 in the message
+ * JSON, so its cap no longer comes from MAX_MESSAGE_BODY. The bytes are the raw request
+ * body; the name and type travel in the query string because a header can not carry 中文.
+ * The browser posts the message with the returned metadata once every file of that message
+ * has arrived.
+ *   POST /collab/api/attachments?name=…&mime=…  -> 201 { attachment } | 413/400 { error, code, max_upload_bytes }
+ * Owner authentication is checked by browserRoute before this handler, like ownMessageRoute.
+ */
+export function streamUploadRoute(req, res, url, { files, maxBytes }) {
+  // browserRoute normalizes trailing slashes before routing; do the same here so a stray one still lands.
+  if (url.pathname.replace(/\/+$/, '') !== '/collab/api/attachments' || req.method !== 'POST') return undefined;
+  const name = url.searchParams.get('name') ?? '';
+  const mime = url.searchParams.get('mime') ?? String(req.headers?.['content-type'] ?? '');
+  return files.saveStream(req, { name, mime, maxBytes }).then(
+    attachment => json(res, 201, { attachment }),
+    (error) => {
+      if (!(error instanceof CollabError)) throw error;
+      // Past the cap the rest of the body is drained, not cut, so the browser sees this reply
+      // rather than a reset connection (same trade as readBody).
+      return json(res, error.code === 'too-large' ? 413 : 400,
+        { error: error.message, code: error.code, max_upload_bytes: maxBytes });
+    });
 }
 
 /** Owner authentication is checked by browserRoute before this handler, like ownMessageRoute. */
@@ -815,11 +854,10 @@ const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 class BodyTooLarge extends Error {}
 
-// cc-connect send accepts attachments up to 50 MiB by default (DefaultMaxAttachmentSize in
-// bridge/core/api.go). Bot frames carry them base64-encoded (x4/3) plus JSON fields; 1 MiB of
-// headroom covers those. A smaller cap makes ws close the bot with 1009 after the sender
-// already reported success.
-const MAX_BOT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+// A bot frame carries attachments base64-encoded (x4/3) plus JSON fields; 1 MiB of
+// headroom covers those. A smaller cap makes ws close the bot with 1009 after the
+// sender already reported success. MAX_BOT_ATTACHMENT_BYTES lives in attachments.mjs
+// because #197 also uses it to decide which files are too big to send at all.
 export const BOT_WS_MAX_PAYLOAD = Math.ceil(MAX_BOT_ATTACHMENT_BYTES / 3) * 4 + 1024 * 1024;
 
 /** Parses a single `bytes=` range against size: undefined = serve whole body, null = unsatisfiable. */
