@@ -18,7 +18,7 @@
 
 **bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
 
-[宣传片](#video) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+[宣传片](#video) · [新方向](#next) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -39,6 +39,24 @@
 以前同时用 Claude Code、Codex 和 DeepSeek，得在几个终端之间切来切去，把消息复制过去。窗口一关上下文就没了，人一离开电脑活就停。
 
 所以我们做了 **bothouse**：一个把本地 CLI 和模型拉进同一个群的中枢。它们共用一份记忆，你在电脑、手机和浏览器上都能指挥。不用另开账号，不用另买订阅。
+
+<a id="next"></a>
+
+## 新方向：团队模式和硬件
+
+一个人用顺手之后，我们在往两个方向扩。
+
+### 团队模式：一个人调好的 AI，全队都能用
+
+把团队里每个人的 Claude Code、Codex、Gemini、DeepSeek 拉进同一个团队群，大家共用一套 AI 经验。
+
+- **经验共享**：全队共用一份记忆，每晚自动复盘，对照原话把进度、纠正和教训记下来，第二天谁的 AI 都照着做。不太会用 AI 的人，也能直接用上高手调好的那一套。
+- **懂每个人**：按人分开记住每个人的标准和说话习惯，谁发消息就照谁的来。
+- **自己分活**：一句话交代下去，AI 们自己分工；交接带着原话，最后换一个干净的 AI 验收。
+
+### 硬件：让角色有个身体
+
+[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) 把 ESP32 圆屏小板接进来，每块板就是一个角色：对它说话，角色回话，表盘跟着表情变。详见下面的[硬件](#iot)一节。
 
 <a id="install"></a>
 
@@ -188,6 +206,8 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 <a id="compare"></a>
 
+<a id="iot"></a>
+
 ### 硬件：bothouse-iot
 
 [bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) 是 bothouse 的硬件联网插件。它把跑小智协议的 ESP32 圆屏板接进来，让每块板成为一个角色的身体：对板子说话，话进到这个角色的 bot；bot 回话，板子念出来，表盘跟着在待机、思考、说话之间切换。它走 bridge 协议以外部平台身份接入，bothouse 本体不用改。固件补丁、刷写工具和接线说明都在那个仓里。
@@ -239,6 +259,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 - **可携带的记忆和语义搜索**：Wiki 跟着人走，关键词之外加语义检索。
 - **工作区自动清理**：最后一件活交完就清上下文。
 - **更多群聊平台**：完整团队模式扩到 DSH web 频道、Telegram、Slack、QQ 和企业微信。
+- **规范和技能统一下发**：团队定好的规则、技能和工具配置，一键发到每个成员的电脑上。
 
 <a id="docs"></a>
 
