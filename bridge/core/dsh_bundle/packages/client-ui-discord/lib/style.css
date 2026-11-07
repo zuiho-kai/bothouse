@@ -709,25 +709,74 @@
   font-size: 12px;
 }
 
-.dshc_input {
+.dshc_inputSurface {
+  min-width: 0;
+  display: flex;
+  position: relative;
+}
+
+.dshc_input, .dshc_inputHighlights {
   box-sizing: border-box;
   width: 100%;
-  min-height: 52px;
-  max-height: 40vh;
   color: var(--dsw-alias-label-primary);
   font: inherit;
-  resize: none;
-  field-sizing: content;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
   background: none;
   border: 0;
   border-radius: 0;
-  flex: 1;
   min-width: 0;
   padding: 14px 16px 8px;
   line-height: 1.5;
 }
 
+.dshc_input {
+  resize: none;
+  field-sizing: content;
+  color: #0000;
+  min-width: 0;
+  min-height: 52px;
+  max-height: 40vh;
+  caret-color: var(--dsw-alias-label-primary);
+  flex: 1;
+}
+
+.dshc_inputHighlights {
+  pointer-events: none;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.dshc_inputHighlights .dshc_inputMention {
+  font-weight: inherit;
+  cursor: inherit;
+  padding: 0;
+  display: inline;
+}
+
+.dshc_inputComposing .dshc_input {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshc_inputComposing .dshc_inputHighlights {
+  visibility: hidden;
+}
+
+@media (forced-colors: active) {
+  .dshc_input {
+    color: canvastext;
+    caret-color: canvastext;
+  }
+
+  .dshc_inputHighlights {
+    display: none;
+  }
+}
+
 .dshc_input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
@@ -742,7 +791,7 @@
     padding: 4px 8px 8px;
   }
 
-  .dshc_input {
+  .dshc_input, .dshc_inputHighlights {
     padding: 12px 14px 8px;
   }
 }
