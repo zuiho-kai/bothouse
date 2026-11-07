@@ -251,21 +251,16 @@ func watchHandbackLater(text string) bool {
 	return false
 }
 
-// watchStaleAfter: a watch with no board item behind it whose owner ended no turn for this long is
-// left over from finished work (#1183: the 09:13 watch woke 龙娘 at 19:03 after her first turn of
-// the evening). Such a watch closes on the owner's next turn instead of arming a wake. A watch with
-// a board item is judged by the board instead (fireIdleWake).
-const watchStaleAfter = 2 * time.Hour
-
+// watchStale: a watch whose board item or owner cannot be told is closed once its due time has
+// passed, instead of being kept for later wakes (#1183, 11-07: a numberless watch from 09:13 woke
+// 龙娘 at 19:03; 鲸鱼娘's follow-up, relayed by the lead: 「认不出任务编号或负责人的看门，过了 due
+// 就直接按过期关」). Checked when a turn ends and again right before a wake is sent. A watch with a
+// board item is judged by the board instead (fireIdleWake).
 func watchStale(h TeamHandoff, key string, items []teamTaskBoardItem, now time.Time) bool {
-	if h.Board != 0 || handoffBoardID(key, h, items) != 0 {
+	if h.Due.IsZero() || !now.After(h.Due) {
 		return false
 	}
-	last := h.At
-	if h.Idle.Ended.After(last) {
-		last = h.Idle.Ended
-	}
-	return now.Sub(last) > watchStaleAfter
+	return strings.TrimSpace(h.Owner) == "" || h.Board == 0 && handoffBoardID(key, h, items) == 0
 }
 
 // watchAnsweredInChat: a 【接】 turn in a chat channel that ran no tool, names no board item and
@@ -587,6 +582,11 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 				e.updateIdle(a, func(h *TeamHandoff) { h.Idle.Returned = true })
 				return
 			}
+		}
+		if a.script && watchStale(a.h, a.key, items, time.Now()) {
+			e.updateIdle(a, func(h *TeamHandoff) { h.Closed = time.Now() })
+			slog.Info("idle watch: closed a stale watch with no board item", "workspace", a.key, "owner", a.h.Owner, "title", a.h.Title, "at", a.h.At)
+			return
 		}
 	}
 	w := newHandoffWatch(e)

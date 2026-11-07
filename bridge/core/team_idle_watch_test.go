@@ -149,8 +149,8 @@ func TestWatchReportOnLaterLineEndsNumberlessWatch(t *testing.T) {
 	}
 }
 
-// #1183: a watch with no board number whose owner has not ended a turn on it for hours is left over
-// from finished work; the owner's next unrelated turn closes it instead of re-arming 「接着做」.
+// #1183: a watch with no board number past its due time is left over; the owner's next unrelated
+// turn closes it instead of re-arming 「接着做」.
 func TestWatchStaleNumberlessWatchClosesOnNextTurn(t *testing.T) {
 	e, _ := acceptFixture(t)
 	old := time.Now().Add(-10 * time.Hour)
@@ -189,5 +189,34 @@ func TestWatchNumberlessWatchOfClosedBoardItemDoesNotWake(t *testing.T) {
 	e.fireIdleWake(idleAssignment{"discord:chatA", h, true})
 	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || !got[0].Idle.Returned || got[0].Idle.Wakes != 0 {
 		t.Fatalf("a closed board item must end its numberless watch without a wake, got %+v", got)
+	}
+}
+
+// #1183 follow-up: the board is checked right before 「接着做」 is sent, not only at registration. A
+// numberless watch past its due time is closed there without a wake; one still within due wakes.
+func TestWatchNumberlessWatchPastDueClosesBeforeWake(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		due   time.Duration
+		close bool
+	}{{"past due", -time.Minute, true}, {"within due", 5 * time.Minute, false}} {
+		e, _ := acceptFixture(t)
+		now := time.Now()
+		h := TeamHandoff{Chat: "discord:chatA", At: now.Add(-10 * time.Minute), Due: now.Add(tc.due), Owner: e.name, Title: "先核对任务状态", Sender: e.name, Idle: watchIdleState{Ended: now}}
+		teamWorkspaceStore.mu.Lock()
+		err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
+			ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {h}}})
+		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.fireIdleWake(idleAssignment{"discord:chatA", h, true})
+		got := scriptWatchesOf(e, "discord:chatA")
+		if len(got) != 1 {
+			t.Fatalf("%s: got %+v", tc.name, got)
+		}
+		if closed := !got[0].Closed.IsZero(); closed != tc.close || tc.close && got[0].Idle.Wakes != 0 || !tc.close && got[0].Idle.Wakes != 1 {
+			t.Fatalf("%s: closed=%v wakes=%d, want closed=%v", tc.name, closed, got[0].Idle.Wakes, tc.close)
+		}
 	}
 }
