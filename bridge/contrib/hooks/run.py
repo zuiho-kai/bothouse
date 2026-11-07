@@ -836,6 +836,7 @@ def main():
         turn = last_turn(recs)
         payload["stop_hook_active"] = bool(payload.get("stop_hook_active")) or load_state().get(sid) == turn
 
+    draft = last_reply(payload.get("transcript_path")) if stop else ""
     proc = None
     try:
         if name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse" and "deliver-check" not in off:
@@ -904,6 +905,8 @@ def main():
         sys.stdout.write(gemini_output(proc.stdout, payload.get("hook_event_name")))
     else:
         sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
+        if draft and stop_blocked(proc):
+            note_stop_blocked(draft)
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
 
@@ -942,6 +945,60 @@ def deliver_check(payload, dsh_log):
     if proc.stderr:
         sys.stderr.write(proc.stderr)
     return None
+
+
+def last_reply(path):
+    """The text of the last assistant message in a Claude Code transcript: the reply a Stop hook may block."""
+    text = ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") != "assistant":
+                    continue
+                c = (d.get("message") or {}).get("content")
+                parts = [c] if isinstance(c, str) else [b.get("text", "") for b in c or []
+                                                         if isinstance(b, dict) and b.get("type") == "text"]
+                t = "".join(p for p in parts if p)
+                if t.strip():
+                    text = t
+    except (OSError, TypeError):
+        return ""
+    return text
+
+
+def stop_blocked(proc):
+    if proc.returncode == 2:
+        return True
+    try:
+        d = json.loads(proc.stdout or "{}")
+    except ValueError:
+        return False
+    return isinstance(d, dict) and d.get("decision") == "block"
+
+
+def note_stop_blocked(draft):
+    """The draft was already streamed to the channel: tell the bridge (POST /stop-blocked) to take it back, so
+    the user gets the rewrite only, not both (11-08 鲸鱼娘 DM). Best effort: no bridge, no change."""
+    key, data = os.environ.get("CC_SESSION_KEY"), os.environ.get("CC_DATA_DIR") or os.environ.get("BOTHOUSE_DATA_DIR")
+    if not key or not data:
+        return
+    import socket
+    body = json.dumps({"project": os.environ.get("CC_PROJECT", ""), "session_key": key, "draft": draft},
+                      ensure_ascii=False).encode()
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect(os.path.join(data, "run", "api.sock"))
+        s.sendall(b"POST /stop-blocked HTTP/1.0\r\nHost: bothouse\r\nContent-Type: application/json\r\n"
+                  b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+        s.recv(4096)
+        s.close()
+    except OSError as e:
+        sys.stderr.write(f"stop-blocked: bridge not told ({e})\n")
 
 
 # A blocked Stop: the model often writes only an addendum afterwards, and the channel gets that addendum alone
