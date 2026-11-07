@@ -1913,11 +1913,11 @@ func TestProcessInteractiveEvents_CardProgressUsesStructuredPayloadWhenSupported
 	}
 }
 
-// TestProcessInteractiveEvents_CardProgressTruncatesToolInputByToolMaxLen verifies
+// TestProcessInteractiveEvents_CardProgressKeepsWholeToolInput verifies
 // that when progress_style=card is used (e.g. Feishu), a long tool input is
 // truncated to display.ToolMaxLen in the structured card payload. The original
 // event.ToolInput must remain unmutated.
-func TestProcessInteractiveEvents_CardProgressTruncatesToolInputByToolMaxLen(t *testing.T) {
+func TestProcessInteractiveEvents_CardProgressKeepsWholeToolInput(t *testing.T) {
 	p := &stubCompactProgressPlatform{
 		stubPlatformEngine: stubPlatformEngine{n: "feishu"},
 		style:              "card",
@@ -1970,14 +1970,10 @@ func TestProcessInteractiveEvents_CardProgressTruncatesToolInputByToolMaxLen(t *
 	if toolUseText == "" {
 		t.Fatalf("no ProgressEntryToolUse found in any card edit; edits=%v", edits)
 	}
-	if utf8.RuneCountInString(toolUseText) > 50+len("...") {
-		t.Fatalf("card tool input not truncated: runeCount=%d, content=%q", utf8.RuneCountInString(toolUseText), toolUseText)
-	}
-	if !strings.HasSuffix(toolUseText, "...") {
-		t.Fatalf("expected truncated tool input to end with '...', got %q", toolUseText)
-	}
-	if !strings.HasPrefix(toolUseText, "abcdefghij") {
-		t.Fatalf("expected truncated tool input to start with original prefix, got %q", toolUseText)
+	// #1197 (PR #1291): the card keeps the whole tool input; tool_max_len still applies to the
+	// plain-text fallback, and the event itself is left untouched (checked above).
+	if toolUseText != longInput {
+		t.Fatalf("card tool input should be kept whole: runeCount=%d, content=%q", utf8.RuneCountInString(toolUseText), toolUseText)
 	}
 }
 
