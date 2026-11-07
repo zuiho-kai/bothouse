@@ -147,3 +147,74 @@ test('mentions: forMember/forDisplay/withoutLeadingMentions use the same rule', 
   assert.equal(forDisplay('xx@dsh.ai', members), 'xx@dsh.ai');
   assert.equal(forDisplay('<@1001> 你好', members), '@cat 你好');
 });
+
+test('mentions: a hidden footnote definition calls nobody (#271)', () => {
+  // #259 fixed the code-span rule and this one regressed: the page hides a footnote definition
+  // whose label nobody calls, so an @ inside its body is not on the page at all, while the
+  // backend read the body and woke the member. The reported text, with each block line family.
+  const repro = '[^1]: 注\n`@肥鱼\n# 标题\n`';
+  assert.deepEqual(found(repro), []);
+  for (const block of ['# 标题', '- 列表', '> 引用', '---', '<div>x</div>']) {
+    const text = '[^1]: 注\n`@肥鱼\n' + block + '\n`';
+    assert.deepEqual(found(text), [], block);
+    // and the text is still not rewritten: split() keeps every character
+    assert.equal(split(text, members).map(([s]) => s).join(''), text, block);
+  }
+  // a body without a block line is hidden all the same
+  assert.deepEqual(found('[^1]: 注\n@肥鱼 看下'), []);
+  assert.deepEqual(found('[^1]: 注\n    @肥鱼 代码'), []);
+  assert.deepEqual(found('  [^1]: 注\n@肥鱼'), []);
+  // CRLF and a list item holding the definition behave the same
+  assert.deepEqual(found('[^1]: 注\r\n@肥鱼\r\n# 标题'), []);
+  assert.deepEqual(found('- [^2]: 注\n  @G哥'), []);
+});
+
+test('mentions: a footnote body is not hidden when something still refers to it (#271)', () => {
+  // the reverse of the rule above: text after the definition is a paragraph of its own, and a
+  // definition something refers to is shown on the page, so its @ is a call. Without these the
+  // rule could silently turn into "any `[^` mutes the message".
+  assert.deepEqual(found('[^1]: 注 @肥鱼\n\n见 [^1]'), ['dsh']);
+  assert.deepEqual(found('[^1]: 注\n@肥鱼\n\n见 [^1]'), ['dsh']);
+  assert.deepEqual(found('[^A]: 注 @肥鱼\n\n见 [^a]'), ['dsh']);
+  // nothing that follows a definition is muted: a new paragraph, heading, list item or quote is
+  // normal text again
+  assert.deepEqual(found('[^1]: 注\n\n@肥鱼 看下'), ['dsh']);
+  assert.deepEqual(found('[^1]: 注\n# 标题\n@肥鱼'), ['dsh']);
+  assert.deepEqual(found('[^1]: 注\n- 项\n\n@肥鱼 看下'), ['dsh']);
+  assert.deepEqual(found('[^1]: 注\n> 引用\n\n@G哥 看下'), ['gge']);
+  // a `[^` that is not a definition mutes nothing
+  assert.deepEqual(found('[@肥鱼 看下'), ['dsh']);
+  assert.deepEqual(found('`@肥鱼\n# 标题\n` 和 @G哥'), ['dsh', 'gge']);
+  assert.deepEqual(found('    [^1]: 注 @肥鱼'), ['dsh']); // four columns is an indented code block
+});
+
+test('mentions: a repeated footnote label keeps only its first definition (#271)', () => {
+  // the renderer shows the first definition of a label and drops the rest, so the second one is
+  // hidden even when the label is called; only the label's first body can stay visible
+  assert.deepEqual(found('[^1]: 甲 @肥鱼\n\n[^1]: 乙 @G哥'), []);
+  assert.deepEqual(found('[^1]: 甲 @肥鱼\n\n[^1]: 乙 @G哥\n\n见 [^1]'), ['dsh']);
+  // a reference inside another hidden body counts for nothing
+  assert.deepEqual(found('[^1]: 注\n看 [^2]\n\n[^2]: 注 @肥鱼'), []);
+  assert.deepEqual(found('[^1]: 见 [^1] @肥鱼'), []); // a self-reference stays hidden
+  // a reference inside a fence, a code span or a comment does not count either
+  assert.deepEqual(found('[^1]: 注 @肥鱼\n\n```\n[^1]\n```'), []);
+  assert.deepEqual(found('[^1]: 注 @肥鱼\n\n`[^1]`'), []);
+  assert.deepEqual(found('[^1]: 注 @肥鱼\n\n<!-- [^1] -->'), []);
+});
+
+test('mentions: a big text stays linear (#271)', () => {
+  // #271: splitLines() ran inside endsParagraph() per backtick pair, so mentions() was
+  // O(runs x lines). Medians on this machine before the fix: 3000 spans 42 ms, 16000 groups
+  // 2664 ms, 131071 characters one backtick per line 58795 ms — the last inside hub.post's
+  // store.transaction(), blocking every other write on the hub. After the fix: 6 ms, 166 ms,
+  // 16 ms. The bound below is ~100x the measured 16 ms and still far under the 59 s the old
+  // loop took, so it only fails if the quadratic shape comes back.
+  const onePerLine = ('`\n'.repeat(65536)).slice(0, 131071);
+  const started = process.hrtime.bigint();
+  assert.deepEqual(found(onePerLine), []);
+  const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(elapsed < 2000, `one backtick per line took ${elapsed.toFixed(0)} ms`);
+  // the same shape with a name on every line calls the name once: still linear, no truncation
+  const named = ('`@肥鱼\n'.repeat(32767)).slice(0, 131071);
+  assert.deepEqual(found(named), ['dsh']);
+});

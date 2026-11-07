@@ -91,6 +91,21 @@ const CASES: Array<[string, string[]]> = [
   // a block reached with CRLF endings behaves the same
   ['`@肥鱼\r\n# 标题\r\n@G哥`', ['dsh', 'gge']],
   ['`@肥鱼\r# 标题\r@G哥`', ['dsh', 'gge']],
+  // #271: the renderer hides a footnote definition whose label nothing calls, together with the
+  // lines that continue it, so an @ inside that body is not on the page and must not be called.
+  ['[^1]: 注\n`@肥鱼\n# 标题\n`', []],
+  ['[^1]: 注\n`@肥鱼\n- 列表\n`', []],
+  ['[^1]: 注\n`@肥鱼\n> 引用\n`', []],
+  ['[^1]: 注\n`@肥鱼\n---\n`', []],
+  ['[^1]: 注\n`@肥鱼\n<div>x</div>\n`', []],
+  ['[^1]: 注\n@肥鱼 看下', []],
+  ['[^1]: 注\n    @肥鱼 代码', []],
+  ['[^1]: 注\n\n@肥鱼 看下', ['dsh']],
+  ['[^1]: 注\n# 标题\n@肥鱼', ['dsh']],
+  ['[^1]: 注 @肥鱼\n\n见 [^1]', ['dsh']],
+  ['[^1]: 甲 @肥鱼\n\n[^1]: 乙 @G哥\n\n见 [^1]', ['dsh']],
+  ['[^1]: 注 @肥鱼\n\n`[^1]`', []],
+  ['[@肥鱼 看下', ['dsh']],
 ]
 
 describe('mention rule parity: page highlight == backend call (#237)', () => {

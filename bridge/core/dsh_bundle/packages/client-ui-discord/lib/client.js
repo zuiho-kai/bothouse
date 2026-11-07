@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 7023085579a4bd1e528ee1c9be13e053c2f3d1b4e58145d43eaf370ff8f8bfef
+// dsh-client-source-sha256: aba8eb41759112cbc4b7dcaba02a9e325d497976f6e4c87524774995ebae24cc
 // dsh-style-sha256: eb1ce668b0b1783d744af077d35394c83ea96af75a7fb428c315a486340acd35
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18823,7 +18823,8 @@ function escapeRegex(s) {
 function hasBlankLine(text) {
 	return /\n[ \t]*\n/.test(text.replace(/\r\n?/g, "\n"));
 }
-const HTML_BLOCK_TAG = new RegExp(`^ {0,3}</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \\t]|/?>|$)`, "i");
+const HTML_BLOCK_TAGS = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+const HTML_BLOCK_TAG = new RegExp(`^ {0,3}</?(?:${HTML_BLOCK_TAGS})(?:[ \\t]|/?>|$)`, "i");
 const HTML_ANY_TAG = /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?[ \t]*\/?>[ \t]*$/;
 const LIST_MARKER = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)/;
 const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
@@ -18897,10 +18898,11 @@ function itemContentIndent(line) {
 /**
 * True when a line whose content starts with `content` opens one of the block-level structures
 * this rule knows, ending the paragraph before it: ATX headings, setext underlines, thematic
-* breaks, backtick fences, list items, HTML blocks and a further quote marker. Tilde fences, math
-* blocks and footnote definitions also end a paragraph in CommonMark, but the backend has no
-* tilde-fence or footnote reader, so treating them as spans keeps a different bug out of this
-* change (#259 stays on the six families the report names).
+* breaks, backtick fences, list items, HTML blocks and a further quote marker. Tilde fences and
+* math blocks also end a paragraph in CommonMark, but the backend reads neither, so treating them
+* as spans keeps a different bug out of this change (#259 stays on the six families the report
+* names; the deviation list above splitMentions() records both). A footnote definition is handled
+* by footnoteRanges(), not here: it ends a body, not the paragraph a code span sits in (#271).
 * `container` is set for a line that lazily continues an outer container: there a bare list
 * marker or a lone HTML tag already opens a block the paragraph cannot hold.
 */
@@ -18910,7 +18912,12 @@ function startsBlock(content, setext = true, container = false) {
 	if (container && HTML_ANY_TAG.test(content)) return true;
 	return /^ {0,3}#{1,6}(?:[ \t]|$)/.test(content) || setext && /^ {0,3}(?:=+|-+)[ \t]*$/.test(content) || /^ {0,3}(?:[*\-_][ \t]*){3,}$/.test(content) || /^ {0,3}`{3,}[^`]*$/.test(content) || /^ {0,3}>/.test(content) || /^ {0,3}[-*+][ \t]+\S/.test(content) || /^ {0,3}1[.)][ \t]+\S/.test(content) || /^ {0,3}<(?:script|pre|style|textarea)(?:[ \t>]|$)/i.test(content) || /^ {0,3}<!--/.test(content) || /^ {0,3}<\?/.test(content) || /^ {0,3}<![A-Za-z]/.test(content) || /^ {0,3}<!\[CDATA\[/.test(content) || HTML_BLOCK_TAG.test(content);
 }
-/** [start, end) offsets of every physical line; CRLF, CR and LF all end one. */
+/**
+* [start, end) offsets of every physical line; CRLF, CR and LF all end one. Read once per
+* codeSpanRanges() call and handed to lineIndex(), not rescanned per backtick run (#271: doing
+* that cost O(runs × lines) — 128 KiB of one-backtick lines took 54 s inside hub.post's
+* transaction).
+*/
 function splitLines(text) {
 	const lines = [];
 	for (let start = 0; start <= text.length;) {
@@ -18923,42 +18930,82 @@ function splitLines(text) {
 	return lines;
 }
 /**
+* The line holding `offset`: the last line that starts at or before it. `splitLines` covers the
+* whole text contiguously, so that is the line `offset` sits on, or the one that ends there.
+*/
+function lineAt(lines, offset) {
+	let lo = 0;
+	let hi = lines.length - 1;
+	while (lo < hi) {
+		const mid = lo + hi + 1 >> 1;
+		if (lines[mid][0] <= offset) lo = mid;
+		else hi = mid - 1;
+	}
+	return lo;
+}
+function lineFacts(text, lines, i) {
+	const line = text.slice(lines[i][0], lines[i][1]);
+	const { rest, depth, col } = stripQuotes(line);
+	return {
+		blank: line.trim() === "",
+		fence: FENCE_LINE.test(line),
+		itemIndent: itemContentIndent(line),
+		rest,
+		depth,
+		col,
+		atDepth: startsBlock(rest, false, true)
+	};
+}
+function lineIndex(text) {
+	const lines = splitLines(text);
+	const facts = lines.map((_, i) => lineFacts(text, lines, i));
+	const contained = new Array(lines.length);
+	for (let i = 0; i < lines.length; i++) {
+		const f = facts[i];
+		if (f.blank || f.fence) {
+			contained[i] = {
+				baseIndent: 0,
+				depth: 0
+			};
+			continue;
+		}
+		const run = i > 0 && !facts[i - 1].blank && !facts[i - 1].fence ? contained[i - 1] : void 0;
+		contained[i] = {
+			baseIndent: f.itemIndent !== void 0 ? f.itemIndent : run ? run.baseIndent : 0,
+			depth: Math.max(f.depth, run ? run.depth : 0)
+		};
+	}
+	return {
+		lines,
+		facts,
+		contained
+	};
+}
+/**
 * True when the text between an opening and a closing backtick run holds something that ends the
 * paragraph, so the run cannot close the span (#259): a blank line, or a line that opens a
 * block-level structure. The renderer decides this inside the containers the span sits in, so the
 * list item's content indent and the blockquote depth of the opening line are carried along, and
 * a line that lazily continues an outer container is judged by what it would start there.
+*
+* `index` is the lineIndex(text) of the whole text, shared by every pair (#271): rebuilt per pair
+* it cost O(runs × lines), 128 KiB of one-backtick lines taking 54 s.
 */
-function endsParagraph(text, from, to) {
+function endsParagraph(text, from, to, index) {
 	if (hasBlankLine(text.slice(from, to))) return true;
-	const lines = splitLines(text);
-	let openLine = 0;
-	for (let i = 0; i < lines.length; i++) if (lines[i][0] <= from && from <= lines[i][1]) {
-		openLine = i;
-		break;
-	}
-	let baseIndent = 0;
-	let openDepth = 0;
-	for (let i = openLine; i >= 0; i--) {
-		const line = text.slice(lines[i][0], lines[i][1]);
-		if (line.trim() === "" || FENCE_LINE.test(line)) break;
-		const { depth } = stripQuotes(line);
-		if (depth > openDepth) openDepth = depth;
-		if (baseIndent === 0) {
-			const indent = itemContentIndent(line);
-			if (indent !== void 0) baseIndent = indent;
-		}
-	}
+	const { lines, facts, contained } = index;
+	const openLine = lineAt(lines, from);
+	const { baseIndent, depth: openDepth } = contained[openLine];
 	for (let i = openLine + 1; i < lines.length && lines[i][0] < to; i++) {
-		const { rest, depth, col } = stripQuotes(text.slice(lines[i][0], lines[i][1]));
-		if (rest.trim() === "") return true;
-		if (depth > openDepth) return true;
-		if (depth < openDepth) {
-			if (startsBlock(rest, false, true)) return true;
+		const f = facts[i];
+		if (f.rest.trim() === "") return true;
+		if (f.depth > openDepth) return true;
+		if (f.depth < openDepth) {
+			if (f.atDepth) return true;
 			continue;
 		}
-		const indent = indentWidth(rest, col) - baseIndent;
-		if (startsBlock(" ".repeat(Math.max(0, indent)) + rest.trimStart(), indent >= 0, indent < 0)) return true;
+		const indent = indentWidth(f.rest, f.col) - baseIndent;
+		if (startsBlock(" ".repeat(Math.max(0, indent)) + f.rest.trimStart(), indent >= 0, indent < 0)) return true;
 	}
 	return false;
 }
@@ -18986,12 +19033,13 @@ function codeSpanRanges(text) {
 		i = j;
 	}
 	const ranges = [];
+	let index;
 	for (let k = 0; k < runs.length; k++) {
 		const { start, len } = runs[k];
 		if (len >= 3) continue;
 		for (let c = k + 1; c < runs.length; c++) {
 			if (runs[c].len !== len) continue;
-			if (endsParagraph(text, start + len, runs[c].start)) break;
+			if (endsParagraph(text, start + len, runs[c].start, index ??= lineIndex(text))) break;
 			ranges.push([start + len, runs[c].start]);
 			k = c;
 			break;
@@ -19055,10 +19103,240 @@ function fencedRanges(text) {
 	if (open >= 0) ranges.push([open, text.length]);
 	return ranges;
 }
+/** A definition line: `[^label]:` at 0-3 columns, the label holding no space or bracket. */
+const FOOTNOTE_DEF = /^ {0,3}\[\^([^\]\s]+)\]:/;
+/** A line that opens an HTML block (CommonMark types 1-6): its lines are raw until a blank one. */
+const HTML_OPEN = new RegExp(`^ {0,3}(?:<(?:script|pre|style|textarea)(?:[ \\t>]|$)|<!--|<\\?|<![A-Za-z]|<!\\[CDATA\\[|</?(?:${HTML_BLOCK_TAGS})(?:[ \\t>]|/?>|$))`, "i");
 /**
-* Splits plain text into non-mention and mention segments. An @ inside a ``` fence or an inline
-* code span is left as text: the backend does not call anyone there (dsh/collab/mentions.mjs),
-* so colouring it would promise a call that never happens (#237).
+* True when a line at 0-3 columns opens a block, so it ends a footnote body before it. A setext
+* underline (`===`, `--`) is absorbed by the definition's own paragraph and does not end it, while
+* a bare `-` or `1.` does, because it opens a list. A tilde fence is left out on purpose: it ends a
+* body in CommonMark, but the backend reads only ``` fences (#259), and the footnote rule stays on
+* the same side of that gap.
+*/
+function endsDefinitionBody(rest) {
+	if (indentWidth(rest) >= 4) return false;
+	const c = rest.replace(/^[ \t]*/, "");
+	if (/^(?:[*\-_][ \t]*){3,}$/.test(c)) return true;
+	if (/^(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/.test(c)) return true;
+	if (/^(?:=+|-+)[ \t]*$/.test(c)) return false;
+	return /^#{1,6}(?:[ \t]|$)/.test(c) || /^\$\$/.test(c) || /^ {0,3}`{3,}[^`]*$/.test(c) || /^>/.test(c) || /^ {0,3}<(?:script|pre|style|textarea)(?:[ \t>]|$)/i.test(c) || /^ {0,3}<!--/.test(c) || /^ {0,3}<\?/.test(c) || /^ {0,3}<![A-Za-z]/.test(c) || /^ {0,3}<!\[CDATA\[/.test(c) || HTML_BLOCK_TAG.test(c) || HTML_ANY_TAG.test(c);
+}
+/**
+* Ranges whose lines the renderer does not read as Markdown at all, so a `[^x]:` inside one is
+* plain text and not a definition: backtick fences, `~~~` fences and `$$` math blocks.
+*/
+function footnoteOpaqueRanges(text) {
+	const ranges = [...fencedRanges(text)];
+	for (const open of [/^ {0,3}~{3,}/, /^ {0,3}\$\$/]) {
+		let start = -1;
+		let at = 0;
+		for (const line of text.split("\n")) {
+			if (open.test(line)) {
+				if (start < 0) start = at;
+				else {
+					ranges.push([start, at + line.length]);
+					start = -1;
+				}
+			}
+			at += line.length + 1;
+		}
+		if (start >= 0) ranges.push([start, text.length]);
+	}
+	return ranges;
+}
+/** Lines of an HTML block: from its opening line to the line before the next blank one. */
+function htmlBlockRegions(text, lines) {
+	const regions = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (!HTML_OPEN.test(text.slice(lines[i][0], lines[i][1]))) continue;
+		let end = i;
+		while (end + 1 < lines.length && text.slice(lines[end + 1][0], lines[end + 1][1]).trim() !== "") end++;
+		regions.push([lines[i][0], lines[end][1]]);
+		i = end;
+	}
+	return regions;
+}
+/**
+* Every footnote definition in the text with the container it sits in: `depth` quote markers and
+* `base` the content indent of the list item that holds it (0 at the top level). Read from the
+* first line only, which is enough to walk the body.
+*/
+function footnoteDefs(text, lines) {
+	const defs = [];
+	const opaque = [...footnoteOpaqueRanges(text), ...htmlBlockRegions(text, lines)];
+	const inside = (offset) => opaque.some(([start, end]) => offset >= start && offset < end);
+	for (let i = 0; i < lines.length; i++) {
+		if (inside(lines[i][0])) continue;
+		const { rest, depth, col } = stripQuotes(text.slice(lines[i][0], lines[i][1]));
+		let m = FOOTNOTE_DEF.exec(rest);
+		if (m) {
+			defs.push({
+				line: i,
+				label: m[1],
+				depth,
+				base: 0
+			});
+			continue;
+		}
+		const marker = LIST_MARKER.exec(rest);
+		if (!marker) continue;
+		const after = rest.slice(marker[0].length);
+		const gap = /^[ \t]*/.exec(after)[0];
+		if (gap === "") continue;
+		const indent = indentWidth(gap, col + marker[0].length);
+		const content = after.slice(gap.length);
+		m = FOOTNOTE_DEF.exec(content.length < 4 ? " ".repeat(Math.min(indent, 3)) + content : content);
+		if (m && indent < 4) defs.push({
+			line: i,
+			label: m[1],
+			depth,
+			base: indent
+		});
+	}
+	return defs;
+}
+/**
+* Last line of the body of `def`, walking the lines its paragraph covers. `next`/`nextEnd` are the
+* definition right after it and the end already known for it: a definition line never ends a body,
+* so once the walk reaches it the two bodies end together — without that, a text of nothing but
+* definitions would re-walk the rest of the text once per definition.
+*/
+function definitionBodyEnd(text, lines, def, next, nextEnd) {
+	let last = def.line;
+	for (let j = def.line + 1; j < lines.length; j++) {
+		if (j === next) return nextEnd;
+		const { rest, depth, col } = stripQuotes(text.slice(lines[j][0], lines[j][1]));
+		if (rest.trim() === "") {
+			let k = j;
+			while (k < lines.length) {
+				if (stripQuotes(text.slice(lines[k][0], lines[k][1])).rest.trim() !== "") break;
+				k++;
+			}
+			if (k < lines.length) {
+				const r = stripQuotes(text.slice(lines[k][0], lines[k][1]));
+				if (r.depth >= def.depth && indentWidth(r.rest, r.col) - def.base >= 4) {
+					j = k - 1;
+					last = k - 1;
+					continue;
+				}
+			}
+			break;
+		}
+		if (depth > def.depth) break;
+		if (depth < def.depth) {
+			if (endsDefinitionBody(rest)) break;
+			last = j;
+			continue;
+		}
+		if (indentWidth(rest, col) - def.base >= 4) {
+			last = j;
+			continue;
+		}
+		if (endsDefinitionBody(rest)) break;
+		last = j;
+	}
+	return last;
+}
+/** Ranges sorted and merged, so overlapping and stacked ranges cost one pass. */
+function mergeRanges(ranges) {
+	const sorted = [...ranges].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	const out = [];
+	for (const [start, end] of sorted) {
+		const last = out[out.length - 1];
+		if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+		else out.push([start, end]);
+	}
+	return out;
+}
+/** `text` with every `[start, end)` blanked out, line endings kept so offsets stay put. */
+function maskText(text, ranges) {
+	const chars = text.split("");
+	for (const [start, end] of mergeRanges(ranges)) for (let i = start; i < end && i < chars.length; i++) if (chars[i] !== "\n" && chars[i] !== "\r") chars[i] = " ";
+	return chars.join("");
+}
+/**
+* [start, end) of every hidden footnote definition: the definition line and the lines that
+* continue it, for each label nothing readable refers to. A repeated label keeps only its first
+* definition (the renderer shows that one and drops the rest), and a reference counts only where a
+* reader can see it — not inside a fence, an inline code span, an HTML comment, another definition
+* line or another hidden body. The backend applies the same rule in mentions(), so the page and the
+* gate agree on what was called.
+*
+* The early return keeps the cost off ordinary text: without `[^` nothing is scanned at all.
+*/
+function footnoteRanges(text, codeSpans) {
+	if (!text.includes("[^")) return [];
+	const spans = codeSpans ?? codeSpanRanges(text);
+	const lines = splitLines(text);
+	const defs = footnoteDefs(text, lines);
+	if (defs.length === 0) return [];
+	const ends = new Array(defs.length);
+	for (let k = defs.length - 1; k >= 0; k--) {
+		const next = k + 1 < defs.length ? defs[k + 1].line : void 0;
+		ends[k] = definitionBodyEnd(text, lines, defs[k], next, next === void 0 ? 0 : ends[k + 1]);
+	}
+	const blind = [
+		...spans,
+		...footnoteOpaqueRanges(text),
+		...htmlBlockRegions(text, lines)
+	];
+	for (const def of defs) blind.push([lines[def.line][0], lines[def.line][1]]);
+	for (const m of text.matchAll(/<!--[\s\S]*?-->/g)) blind.push([m.index, m.index + m[0].length]);
+	const first = /* @__PURE__ */ new Map();
+	defs.forEach((def, i) => {
+		const key = def.label.toLowerCase();
+		if (!first.has(key)) first.set(key, i);
+	});
+	const shown = /* @__PURE__ */ new Set();
+	for (;;) {
+		const bodies = [];
+		defs.forEach((def, i) => {
+			if (!shown.has(i)) bodies.push([lines[def.line][0], lines[ends[i]][1]]);
+		});
+		const searchable = maskText(text, [...blind, ...bodies]);
+		const called = /* @__PURE__ */ new Set();
+		for (const m of searchable.matchAll(/\[\^([^\]\s]+)\]/g)) {
+			let slashes = 0;
+			for (let i = m.index - 1; i >= 0 && searchable[i] === "\\"; i--) slashes++;
+			if (slashes % 2 === 0) called.add(m[1].toLowerCase());
+		}
+		let changed = false;
+		for (const [label, i] of first) {
+			if (shown.has(i) || !called.has(label)) continue;
+			shown.add(i);
+			changed = true;
+		}
+		if (!changed) break;
+	}
+	const hidden = [];
+	defs.forEach((def, i) => {
+		if (!shown.has(i)) hidden.push([lines[def.line][0], lines[ends[i]][1]]);
+	});
+	return mergeRanges(hidden);
+}
+/**
+* Known deviations from the page, kept on purpose (#259, #271). Each one showed the same answer
+* before this code was written, so the list is the honest edge of this rule, not a regression:
+*
+* - `~~~` fences: the page renders them as code, the backend reads only ```, so a name inside one
+*   is coloured nowhere and called there.
+* - `$$` math blocks: the page ends a paragraph at one, the backend does not, so a code span that
+*   crosses `$$` holds there and breaks here (nobody called, page colours both names).
+* - A GFM table delimiter row (`|---|`): same shape — the page ends the paragraph, the backend
+*   keeps the span, so nobody is called while the page colours both names.
+* - A four-column indented code block: the page renders it as code and colours nothing, the
+*   backend has no indented-code reader and calls the name. The footnote rule below shares it: a
+*   `[^x]:` line indented four columns is a code block on the page and hidden there, and it is
+*   not a definition here either, so a name on that line is a call there.
+* - A code span opened on a block line (`# ` + backtick + name): the paragraph already ended
+*   before the opener, so the page never makes it a span and colours the names; endsParagraph()
+*   only reads the lines between the runs, so the span still holds here.
+*
+* Splits plain text into non-mention and mention segments. An @ inside a ``` fence, an inline
+* code span or a hidden footnote definition is left as text: the backend does not call anyone
+* there (dsh/collab/mentions.mjs), so colouring it would promise a call that never happens (#237,
+* #271).
 */
 function splitMentions(text, members) {
 	if (!text) return [];
@@ -19066,7 +19344,12 @@ function splitMentions(text, members) {
 	if (!matcher) return [{ text }];
 	const { regex, aliasMap } = matcher;
 	const segments = [];
-	const skip = [...fencedRanges(text), ...codeSpanRanges(text)];
+	const codeSpans = codeSpanRanges(text);
+	const skip = [
+		...fencedRanges(text),
+		...codeSpans,
+		...footnoteRanges(text, codeSpans)
+	];
 	let lastIndex = 0;
 	for (const match of text.matchAll(regex)) {
 		const matchText = match[0];
