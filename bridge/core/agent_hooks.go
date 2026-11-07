@@ -883,10 +883,6 @@ func setDSHRole(hooksDir, workDir, dshHome string, enabled []string) error {
 
 const hookRulesBegin, hookRulesEnd = "<!-- conest:hooks -->", "<!-- /conest:hooks -->"
 
-// hookRuleCompanions: guards with no hook entry of their own, run inside another hook's script;
-// their rules/<name>.md is shown when the host hook is enabled.
-var hookRuleCompanions = map[string][]string{"fix-claim-guard": {"surface-guard"}}
-
 // HookRules is the persona block for the enabled hooks ("" for none), from rules/<name>.<zh|en>.md.
 func HookRules(lang string, enabled []string, python, hooksDir, workDir string) string {
 	if len(enabled) == 0 || AgentHookFS == nil {
@@ -905,10 +901,8 @@ func HookRules(lang string, enabled []string, python, hooksDir, workDir string) 
 	}
 	parts := []string{read("_head")}
 	for _, n := range enabled {
-		for _, m := range append([]string{n}, hookRuleCompanions[n]...) {
-			if s := read(m); s != "" {
-				parts = append(parts, s)
-			}
+		if s := read(n); s != "" {
+			parts = append(parts, s)
 		}
 	}
 	reviews := os.Getenv("HOOK_REVIEWS_DIR")
