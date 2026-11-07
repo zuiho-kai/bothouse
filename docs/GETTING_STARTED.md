@@ -46,13 +46,13 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 | **QQ** | 在 QQ 群或私聊里用 | NapCat（登录一个 QQ 号） | [QQ](platforms/qq.md) |
 | **Discord** | 多个角色在一个频道里协作 | 每个角色一个机器人 token | [Discord](platforms/discord.md) |
 | **飞书 / Lark** | 在飞书里用，一个机器人 | 飞书扫码 | [飞书](platforms/feishu.md) |
-| **DSH**（实验） | 在 DeepSeek 的 DSH 网页里用 | Node ≥ 22.12；一把 DeepSeek API Key 或一个已登录的 CLI。DSH 本体和 pnpm 向导会教你装 | [DSH](platforms/dsh.md) |
+| **DSH**（实验） | 在 DeepSeek Harness 桌面版（默认）或 DSH 网页里用 | 桌面版：装好 DeepSeek Harness 桌面版即可；网页版：Node ≥ 22.12 和 dsh 命令。都要一把 DeepSeek API Key 或一个已登录的 CLI | [DSH](platforms/dsh.md) |
 <!-- 自建平台入口停用（用户 11-05 定不再维护），原行：
 | **自建平台** | 自己的聊天网页，打开就聊 | uv（本机一键起） | [自建平台](connect-discord-feishu.md#7-自建平台) |
 -->
 
 QQ、Discord、飞书和自建平台还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
-DSH 的成员在向导「角色和模型」一步配，可以直接使用 DeepSeek 模型，也可接本机已登录的 CLI；以后在 DSH 网页里还能加。
+DSH 的成员在向导「角色和模型」一步配，可以直接使用 DeepSeek 模型，也可接本机已登录的 CLI；以后在 DSH 里还能加。
 不用浏览器也行：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 QQ（或 Discord）」，它按 [AGENTS.md](../AGENTS.md) 一次问齐，跑 `bothouse setup apply`。
 配置写在 `~/.bothouse/config.toml`（Windows 是 `%USERPROFILE%\.bothouse\config.toml`）。
 

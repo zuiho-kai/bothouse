@@ -141,7 +141,7 @@ Discord 和飞书本来就有手机和电脑客户端，不用再包一层 App�
 | Discord | 完整支持 | 多角色、@、派活交回、队友状态、日志频道；服务器和私信里都有斜杠命令 |
 | 飞书（Lark） | 单角色 | 和接上的一个角色对话 |
 | QQ 官方机器人 | 手动配置 | 群聊/私聊，群里 @ 人、@全体，见 [QQ 机器人](bridge/docs/qqbot.md) |
-| DSH web | 实验 | DSH web 里的频道页，见 [DSH 频道](dsh/collab/README.md) |
+| DSH 桌面版 / 网页版 | 实验 | DeepSeek Harness 桌面版（默认）或 DSH 网页里的频道页，见 [DSH](docs/platforms/dsh.md) |
 <!-- 自建平台入口停用（用户 11-05 定不再维护），原行：
 | 自建网页 | 团队模式 | 本地运行、像 Discord 的网页，多角色、@、派活交回 |
 -->

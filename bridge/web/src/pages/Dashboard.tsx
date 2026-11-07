@@ -12,6 +12,7 @@ import { connectedSources, dshStatus, getDSHSummary, type DSHSummary } from '@/a
 import { DSHNotice, errorMessage } from '@/components/DSHNotice';
 import { dshChannelsUrl } from '@/lib/collabPages';
 import { goToDsh } from '@/lib/openDsh';
+import { getDSHStatus, openDSHDesktop } from '@/api/wizard';
 import { listModules } from '@/api/modules';
 import { dshOnlyRows } from '@/lib/dshMerge';
 import api from '@/api/client';
@@ -21,7 +22,7 @@ import { usePageRefresh } from '@/lib/usePageRefresh';
 const MAX_ITEMS = 4;
 
 export default function Dashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [recentSessions, setRecentSessions] = useState<(Session & { project: string })[]>([]);
@@ -89,10 +90,21 @@ export default function Dashboard() {
   // 打开 DSH only where DSH is set up: elsewhere 「DSH 未运行」 needs no button
   const [dshSetUp, setDshSetUp] = useState(false);
   useEffect(() => { listModules().then((r) => setDshSetUp(r.modules.some((x) => x.name === 'dsh' && x.state === 'enabled'))).catch(() => {}); }, []);
+  // the channels are in DeepSeek Harness Desktop too (setup wizard's default route): open it there first
+  const [dshDesktop, setDshDesktop] = useState(false);
+  useEffect(() => { if (dshSetUp) getDSHStatus().then((s) => setDshDesktop(!!s.desktop_app && !!s.desktop_plugin_installed)).catch(() => {}); }, [dshSetUp]);
   const openDsh = (e?: { preventDefault: () => void }) => { e?.preventDefault(); setDshWait(0); void goToDsh(dshUrl, setDshWait).finally(() => setDshWait(null)); };
-  const openDshButton = (
-    <button type="button" onClick={() => openDsh()} disabled={dshWait !== null} data-testid="dashboard-open-dsh"
-      className="shrink-0 rounded-control px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-hairline hover:bg-surface disabled:opacity-60">
+  const openDesktop = () => { setDshWait(0); void openDSHDesktop(i18n.language).catch(() => openDsh()).finally(() => setDshWait(null)); };
+  const btn = 'shrink-0 rounded-control px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-hairline hover:bg-surface disabled:opacity-60';
+  const openDshButton = dshDesktop ? (
+    <span className="inline-flex shrink-0 gap-1.5">
+      <button type="button" onClick={openDesktop} disabled={dshWait !== null} data-testid="dashboard-open-dsh-desktop" className={btn}>
+        {t('dshManage.openDshDesktop', '在桌面版打开')}</button>
+      <button type="button" onClick={() => openDsh()} disabled={dshWait !== null} data-testid="dashboard-open-dsh" className={btn}>
+        {dshWait === null ? t('dshManage.openDshWeb', '网页版') : `${t('dshManage.openDshWeb', '网页版')}… ${dshWait}s`}</button>
+    </span>
+  ) : (
+    <button type="button" onClick={() => openDsh()} disabled={dshWait !== null} data-testid="dashboard-open-dsh" className={btn}>
       {dshWait === null ? t('dshManage.openDsh', '打开 DSH') : `${t('dshManage.openDsh', '打开 DSH')}… ${dshWait}s`}</button>
   );
   // Recent sessions: bridge sessions and DSH channels together, newest first.

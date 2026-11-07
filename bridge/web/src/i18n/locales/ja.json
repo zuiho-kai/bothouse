@@ -541,6 +541,8 @@
     "providerScope": "このプロバイダーは参照しているブリッジプロジェクトに適用されます。",
     "dshProviderScope": "DSH ネイティブメンバーは独自のモデル経路を使用します。",
     "openDsh": "DSH を開く",
+    "openDshDesktop": "デスクトップ版で開く",
+    "openDshWeb": "ウェブ版",
     "settingsModels": "DSH の「設定 → モデル」を開いてください。",
     "cliScope": "CLI メンバーはローカル CLI の認証と設定を使用します。ここで変更されません。",
     "bridgeProjects": "ブリッジプロジェクト",
