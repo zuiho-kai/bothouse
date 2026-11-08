@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -59,25 +58,24 @@ func onTrayReady() {
 		trayUpdate.SetTitle("升级：—")
 	}
 	go func() {
+		open := func(page string) {
+			client = trayCurrentClient(path, client)
+			_ = openBrowser(client.loginURL(page))
+		}
 		for {
 			select {
-			case <-trayOpen.ClickedCh:
-				client = trayCurrentClient(path, client)
-				_ = openBrowser(client.loginURL("/"))
-			case <-trayAdd.ClickedCh:
-				client = trayCurrentClient(path, client)
-				_ = openBrowser(client.loginURL("/setup?add=1"))
+			case <-trayStatus.ClickedCh:
+				open(trayPageStatus)
+			case <-trayRoles.ClickedCh:
+				open(trayPageRoles)
+			case <-trayUsage.ClickedCh:
+				open(trayPageUsage)
 			case <-trayUpdate.ClickedCh:
-				client = trayCurrentClient(path, client)
-				req, _ := http.NewRequest(http.MethodPost, client.base+"/api/v1/update/apply", nil)
-				req.Header.Set("Authorization", "Bearer "+client.token)
-				res, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-				if err == nil {
-					res.Body.Close()
-					trayUpdate.SetTitle("升级：已请求")
-				} else {
-					trayUpdate.SetTitle("升级：请求失败")
-				}
+				open(trayPageUpdate)
+			case <-trayOpen.ClickedCh:
+				open("/")
+			case <-trayAdd.ClickedCh:
+				open("/setup?add=1")
 			case <-trayQuit.ClickedCh:
 				requestDesktopShutdown()
 				return
@@ -166,10 +164,8 @@ func refreshTray(path string) {
 		}
 		if c.get("/api/v1/update", &update) == nil && update.HasUpdate {
 			trayUpdate.SetTitle("升级到 " + update.Latest)
-			trayUpdate.Enable()
 		} else {
 			trayUpdate.SetTitle("升级：已是最新")
-			trayUpdate.Disable()
 		}
 		<-tick.C
 	}
