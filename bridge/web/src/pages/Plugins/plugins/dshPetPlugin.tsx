@@ -24,7 +24,7 @@ import { PetPlayer, type PetAction } from '../pets/PetPlayer';
 import { withBase } from '@/lib/basePath';
 import api from '@/api/client';
 
-export type PetPackFormat = 'spritesheet' | 'webm';
+export type PetPackFormat = 'webp-sprite' | 'webm' | '';
 
 export interface PetAsset {
   key: RoleEventType;
@@ -56,6 +56,7 @@ export interface PetAssetPack {
   manifest?: Record<string, unknown>;
   actionsList?: Array<Record<string, unknown>>;
   notice?: string;
+  error?: string;
   assets: Record<RoleEventType, PetAsset>;
 }
 
@@ -74,10 +75,11 @@ const STATE_LABELS: Record<RoleEventType, string> = {
 
 /** 动作与规格来自本地包；不捏造帧数、文件名或已安装状态。 */
 export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): PetAsset | null {
+  if (pack.error) return null;
   const manifest = pack.manifest || {};
   const actions = [...(pack.actionsList || []), ...((manifest.animations || []) as Record<string, any>[])];
   const patterns: Record<RoleEventType, RegExp> = {
-    idle: /待机|打瞌睡|休闲|idle/i, working: /代码|加班|工作|working|coding/i,
+    idle: /待机|打瞌睡|休闲|idle/i, working: /代码|加班|忙碌|工作|working|coding/i,
     thinking: /思考|thinking/i, celebrate: /庆祝|雀跃|celebrate/i,
     error: /叹气|冒汗|垂头|error/i, speech: /说话|碎碎念|speech/i,
   };
@@ -376,8 +378,8 @@ function RolePetCard({
               <option value="">[未绑定] 形象待接入</option>
               <optgroup label="本地已装形象包">
                 {installedList.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} [本地已装]
+                  <option key={p.id} value={p.id} disabled={!!p.error}>
+                    {p.name} [{p.error ? '包异常' : '本地已装'}]
                   </option>
                 ))}
               </optgroup>
@@ -579,7 +581,7 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
           <div className="flex items-center gap-2 text-xs font-semibold text-ink">
             <CheckCircle2 size={14} className="text-emerald-500" />
             <span>本地已装形象包 ({installedPacks.length})</span>
-            <span className="text-[11px] text-ink-mute font-normal">—— 能直接在面板中播放与绑定</span>
+            <span className="text-[11px] text-ink-mute font-normal">异常包需先修正，才能播放与绑定</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -594,7 +596,7 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-ink text-sm">{pack.name}</span>
-                        <Badge variant="success" className="text-[10px]">本地已装</Badge>
+                        <Badge variant={pack.error ? 'danger' : 'success'} className="text-[10px]">{pack.error ? '包异常' : '本地已装'}</Badge>
                         <Badge variant="outline" className="text-[10px] font-mono">{pack.format}</Badge>
                       </div>
                       <p className="text-xs text-ink-mute font-mono mt-0.5">安装路径：{pack.localPath}</p>
@@ -608,13 +610,13 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
 
                   <div className="mt-3 space-y-1 text-xs text-ink-mute bg-surface/60 rounded-lg p-2.5 ring-1 ring-hairline">
                     <p><span className="font-medium text-ink">规格：</span>{pack.formatSpecs}</p>
-                    <p><span className="font-medium text-ink">状态：</span><span className="text-emerald-600 font-medium">本机已安装就绪</span></p>
+                    <p><span className="font-medium text-ink">状态：</span><span className={pack.error ? 'text-red-600' : 'text-emerald-600'}>{pack.error || '本机已安装就绪'}</span></p>
                   </div>
                 </div>
 
                 <div className="mt-3 pt-2 border-t border-hairline flex items-center justify-between text-xs">
                   <span className="text-[11px] text-ink-mute font-mono">ID: {pack.id}</span>
-                  <span className="text-[11px] text-emerald-600 font-medium">● 适配就绪</span>
+                  <span className="text-[11px] font-medium">{pack.error ? '需修正形象包' : '● 适配就绪'}</span>
                 </div>
               </div>
             ))}

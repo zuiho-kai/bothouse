@@ -25,7 +25,7 @@ const dsh: RoleState = { ...bridge, role_key: 'dsh:deep', source: 'dsh', status:
 const time = '2026-11-09T01:00:00Z';
 const action = (id: string) => ({ id, name: id, sources: { webp: 'spritesheet/' + id + '.webp' },
   spritesheet: { frameWidth: 20, frameHeight: 10, columns: 2, frameCount: 4, fps: 12 } });
-const packs = { installed: [{ id: 'local-pack', name: '本机占位包', format: 'spritesheet' as const,
+const packs = { installed: [{ id: 'local-pack', name: '本机占位包', format: 'webp-sprite' as const,
   localPath: '/isolated/pets/local-pack', actionCount: 2, actions: [action('idle'), action('working')] }], baseDir: '/isolated/pets' };
 const pluginState = { profile: 'test', profile_dir: '/isolated', can_install: false, writes_allowed: true,
   allow_non_registry: false, registry: 'npm', plugins: [{ name: 'installed-plugin', version: '1.0.0', layer: true, enabled: true, shipped: false }] };

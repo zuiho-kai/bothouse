@@ -582,7 +582,7 @@ export default function PluginHubPage() {
                           className="h-8 rounded-md border border-hairline bg-surface px-2.5 text-xs text-ink disabled:opacity-50">
                           <option value="">形象待接入 (未绑定)</option>
                           {cfg?.avatar_pack && !petPacks.some(pack => pack.id === cfg.avatar_pack) && <option value={cfg.avatar_pack}>未安装：{cfg.avatar_pack}</option>}
-                          {petPacks.map(pack => <option key={pack.id} value={pack.id}>{pack.name} [本地已装]</option>)}
+                          {petPacks.map(pack => <option key={pack.id} value={pack.id} disabled={!!pack.error}>{pack.name} [{pack.error ? '包异常' : '本地已装'}]</option>)}
                         </select>
                       </td>
                     </tr>

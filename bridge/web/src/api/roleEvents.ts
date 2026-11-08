@@ -48,6 +48,9 @@ export function subscribeRoleEvents(handlers: {
   for (const kind of ['idle', 'working', 'thinking', 'celebrate', 'error', 'speech']) {
     receive(kind, handlers.event);
   }
-  stream.onerror = handlers.error;
+  // A named business "error" event is a MessageEvent too; it is not a disconnect.
+  stream.onerror = (event) => {
+    if (!(event instanceof MessageEvent)) handlers.error();
+  };
   return () => stream.close();
 }
