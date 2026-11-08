@@ -1063,7 +1063,7 @@ func (cs *CronScheduler) notifyFailure(job *CronJob, err error) {
 	}
 	cs.mu.RUnlock()
 	for _, e := range engines {
-		if sendErr := e.SendToSession(job.SessionKey, text); sendErr == nil {
+		if sendErr := e.sendCronFailureNotice(job.ID, job.SessionKey, text); sendErr == nil {
 			return
 		}
 	}
