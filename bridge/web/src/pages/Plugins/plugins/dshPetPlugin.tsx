@@ -413,7 +413,10 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
     formatSpecs: inst.format === 'webm' ? '透明 WebM' : 'WebP 精灵图（规格读自形象包）',
     actionsList: inst.actions, assets: {},
   } as PetAssetPack])), [petPacks]);
-  const defaultRole = roles.find(r => roleBindings[getRoleKey(r)]?.some(b => b.plugin_id === PET_ADAPTER_ID && b.enabled && b.avatar_pack)) || roles[0];
+  // 用户指定展台默认显示肥鱼；这里只选择角色，不生成任何形象包绑定。
+  const defaultRole = roles.find(r => getRoleKey(r) === 'bridge:deep')
+    || roles.find(r => r.name === 'deep')
+    || roles.find(r => roleBindings[getRoleKey(r)]?.some(b => b.plugin_id === PET_ADAPTER_ID && b.enabled && b.avatar_pack)) || roles[0];
   const [selectedRoleKey, setSelectedRoleKey] = useState('');
   const currentRole = roles.find(r => getRoleKey(r) === selectedRoleKey) || defaultRole;
   const currentRoleKey = currentRole ? getRoleKey(currentRole) : '';

@@ -50,6 +50,13 @@ async function select(id: string, value: string) {
   await act(async () => { const e = find(id) as HTMLSelectElement; e.value = value; e.dispatchEvent(new Event('change', { bubbles: true })); });
 }
 describe('plugin page backend integration', () => {
+  it('keeps deep as the initial display when another bound role sorts first', async () => {
+    await render();
+    const claude = { ...bridge, role_key: 'bridge:claude', name: 'claude', display_name: 'Claude' };
+    await act(async () => handlers.snapshot({ roles: [claude, bridge], time, dsh: { status: 'running' } }));
+    expect(find('pet-card-bridge:deep')).not.toBeNull();
+    expect(find('pet-card-bridge:claude')).toBeNull();
+  });
   it('lists actual installed data, without inventing installed packs or role defaults', async () => {
     await render();
     expect(container.textContent).toContain('installed-plugin');
