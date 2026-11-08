@@ -125,13 +125,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	report    *UsageReport // last successful quota report
-	text      string       // last successful quota text
-	okAt      time.Time    // when text was fetched; zero if never
-	failText  string       // set when the latest attempt failed
-	attemptAt time.Time    // when the latest attempt finished
-	done      chan struct{}
-	waited    bool // a footer already spent the first-probe wait
+	report      *UsageReport // immutable snapshot for the role card
+	reportScope string       // attribution captured when the existing footer fetched it
+	reportAt    time.Time
+	text        string    // last successful quota text
+	okAt        time.Time // when text was fetched; zero if never
+	failText    string    // set when the latest attempt failed
+	attemptAt   time.Time // when the latest attempt finished
+	done        chan struct{}
+	waited      bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -9836,7 +9838,10 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	}
 	// maomao fork: quota the session already holds (CachedUsageReporter, no I/O) wins.
 	if cached, ok := session.(CachedUsageReporter); ok {
-		e.observeQuotaUsageFor(cached.CachedUsage(), "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
+		report := cached.CachedUsage()
+		scope := e.quotaScopeFor(agent, replyFooterModel(session, agent))
+		e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
+		e.observeQuotaUsageFor(report, "", scope)
 	}
 	if text := replyFooterCachedQuotaText(session, e.i18n); text != "" {
 		return text, true
@@ -9855,7 +9860,9 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			if report, err := reporter.GetUsage(ctx); err == nil {
-				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
+				scope := e.quotaScopeFor(agent, replyFooterModel(session, agent))
+				e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
+				e.observeQuotaUsageFor(report, "", scope)
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
 				}
@@ -9948,6 +9955,7 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
+		e.cacheRoleQuotaReport(agent, model, scope, report)
 		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
@@ -9956,7 +9964,7 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 	defer e.replyFooterMu.Unlock()
 	ent.attemptAt = time.Now()
 	if text != "" {
-		ent.report, ent.text, ent.okAt, ent.failText = report, text, ent.attemptAt, ""
+		ent.text, ent.okAt, ent.failText = text, ent.attemptAt, ""
 	} else {
 		ent.failText = failText
 	}
@@ -9984,65 +9992,65 @@ func usageReporterAvailable(v any) bool {
 	return ok
 }
 
-// CachedQuotaReport returns the engine's last known in-memory quota snapshot
-// for the specified model scope without performing any I/O or probe.
-// Returns nil if no quota has been cached for the exact model scope.
-func (e *Engine) CachedQuotaReport(activeSession AgentSession, targetModel ...string) *UsageReport {
-	if e == nil {
+// cacheRoleQuotaReport retains data already obtained by the reply footer. The
+// management page never calls adapter CachedUsage methods: some refresh in the
+// background despite the interface name. Keep attribution and age with the copy.
+func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScope, report *UsageReport) {
+	if report == nil || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
+		return
+	}
+	snapshot := *report
+	snapshot.Buckets = nil
+	for _, bucket := range report.Buckets {
+		if report.QuotaGroup != "" && bucket.QuotaGroup != report.QuotaGroup {
+			continue
+		}
+		bucket.Windows = append([]UsageWindow(nil), bucket.Windows...)
+		snapshot.Buckets = append(snapshot.Buckets, bucket)
+	}
+	primary, secondary := selectUsageWindows(&snapshot)
+	if primary == nil && secondary == nil {
+		return
+	}
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	if e.replyFooterUsage == nil {
+		e.replyFooterUsage = make(map[replyFooterUsageKey]*replyFooterUsageEntry)
+		e.replyFooterInflight = make(map[any]bool)
+	}
+	key := replyFooterUsageKey{agent: replyFooterAgentID(agent), model: model}
+	ent := e.replyFooterUsage[key]
+	if ent == nil {
+		ent = &replyFooterUsageEntry{}
+		e.replyFooterUsage[key] = ent
+	}
+	ent.report, ent.reportScope, ent.reportAt = &snapshot, scope.key(), time.Now()
+}
+
+// CachedQuotaReport reads only the retained snapshot for this agent/model and
+// current provider/account. No adapter usage method, probe, or refresh is called.
+func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
+	scope := e.quotaScopeFor(e.agent, model)
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	ent := e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(e.agent), model: model}]
+	if ent == nil || ent.report == nil || ent.reportScope != scope.key() || ent.reportAt.IsZero() || time.Since(ent.reportAt) >= replyFooterUsageMaxAge {
 		return nil
 	}
-	model := ""
-	if len(targetModel) > 0 && targetModel[0] != "" && targetModel[0] != "未知" {
-		model = targetModel[0]
-	} else if activeSession != nil {
-		model = replyFooterModel(activeSession, e.agent)
-	} else if e.agent != nil {
-		model = replyFooterModel(nil, e.agent)
-	}
-
-	// 1. Try active session if it matches the target model
-	if activeSession != nil {
-		sessModel := replyFooterModel(activeSession, e.agent)
-		if model == "" || sessModel == "" || sessModel == model {
-			if reporter, ok := activeSession.(CachedUsageReporter); ok {
-				if report := reporter.CachedUsage(); report != nil {
-					return report
-				}
+	// A reported reset supersedes a cached percentage, even before the normal
+	// footer cache lifetime expires. Never turn an old zero into an invented 100%.
+	for _, bucket := range ent.report.Buckets {
+		for _, window := range bucket.Windows {
+			reset := time.Unix(window.ResetAtUnix, 0)
+			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
+				reset = ent.reportAt.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+			}
+			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(time.Now()) {
+				return nil
 			}
 		}
 	}
-
-	// 2. Try agent itself if it matches the target model
-	if e.agent != nil {
-		agentModel := replyFooterModel(nil, e.agent)
-		if model == "" || agentModel == "" || agentModel == model {
-			if reporter, ok := e.agent.(CachedUsageReporter); ok {
-				if report := reporter.CachedUsage(); report != nil {
-					return report
-				}
-			}
-		}
-	}
-
-	// 3. Exact match in replyFooterUsage for the agent and model
-	if model != "" {
-		e.replyFooterMu.Lock()
-		defer e.replyFooterMu.Unlock()
-		if e.replyFooterUsage != nil {
-			agentID := replyFooterAgentID(e.agent)
-			ent := e.replyFooterUsage[replyFooterUsageKey{agent: agentID, model: model}]
-			if ent == nil && agentID != nil {
-				ent = e.replyFooterUsage[replyFooterUsageKey{agent: nil, model: model}]
-			}
-			if ent != nil && ent.report != nil {
-				if ent.okAt.IsZero() || time.Since(ent.okAt) < replyFooterUsageMaxAge {
-					return ent.report
-				}
-			}
-		}
-	}
-
-	return nil
+	return ent.report
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds

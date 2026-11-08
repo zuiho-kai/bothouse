@@ -177,12 +177,18 @@ func TestManagementRolesAndDevices(t *testing.T) {
 
 type mockQuotaAgent struct {
 	stubAgent
-	getUsageCalled bool
+	getUsageCalled    bool
+	cachedUsageCalled bool
 }
 
 func (a *mockQuotaAgent) GetUsage(ctx context.Context) (*UsageReport, error) {
 	a.getUsageCalled = true
 	return nil, nil
+}
+
+func (a *mockQuotaAgent) CachedUsage() *UsageReport {
+	a.cachedUsageCalled = true
+	return plusQuotaReport()
 }
 
 func TestManagementRoles_Quota(t *testing.T) {
@@ -207,6 +213,8 @@ func TestManagementRoles_Quota(t *testing.T) {
 			"s1": {agentSession: codexFooterSession(reportFull)},
 		},
 	}
+	eFull.i18n = NewI18n(LangChinese)
+	eFull.replyFooterQuota(codexFooterSession(reportFull), eFull.agent)
 	mgmt.RegisterEngine("full", eFull)
 
 	// 2. Partial quota (only 5h)
@@ -227,6 +235,8 @@ func TestManagementRoles_Quota(t *testing.T) {
 			"s2": {agentSession: codexFooterSession(reportPartial)},
 		},
 	}
+	ePartial.i18n = NewI18n(LangChinese)
+	ePartial.replyFooterQuota(codexFooterSession(reportPartial), ePartial.agent)
 	mgmt.RegisterEngine("partial", ePartial)
 
 	// 3. True zero remaining quota (used 100%, remaining 0%)
@@ -247,6 +257,8 @@ func TestManagementRoles_Quota(t *testing.T) {
 			"s3": {agentSession: codexFooterSession(reportZero)},
 		},
 	}
+	eZero.i18n = NewI18n(LangChinese)
+	eZero.replyFooterQuota(codexFooterSession(reportZero), eZero.agent)
 	mgmt.RegisterEngine("zero", eZero)
 
 	// 4. No quota at all
@@ -271,7 +283,7 @@ func TestManagementRoles_Quota(t *testing.T) {
 	}
 
 	// Verify no I/O / GetUsage was triggered
-	if agentNoProbe.getUsageCalled {
+	if agentNoProbe.getUsageCalled || agentNoProbe.cachedUsageCalled {
 		t.Fatalf("handleRoles triggered GetUsage I/O; expected in-memory cached read only")
 	}
 
@@ -373,13 +385,8 @@ func TestManagementRoles_ModelSwitchQuotaIsolation(t *testing.T) {
 		agent:             agent,
 		sessions:          NewSessionManager(""),
 		interactiveStates: make(map[string]*interactiveState),
-		replyFooterUsage: map[replyFooterUsageKey]*replyFooterUsageEntry{
-			{agent: replyFooterAgentID(agent), model: "model-a"}: {
-				report: reportA,
-				okAt:   time.Now(),
-			},
-		},
 	}
+	e.cacheRoleQuotaReport(agent, "model-a", e.quotaScopeFor(agent, "model-a"), reportA)
 	mgmt.RegisterEngine("switcher", e)
 	handler := mgmt.buildHandler(http.NewServeMux())
 
@@ -424,12 +431,7 @@ func TestManagementRoles_ModelSwitchQuotaIsolation(t *testing.T) {
 	}
 
 	// 3. Add cache for model-b: exact match returns model-b's report (10% used)
-	e.replyFooterMu.Lock()
-	e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(agent), model: "model-b"}] = &replyFooterUsageEntry{
-		report: reportB,
-		okAt:   time.Now(),
-	}
-	e.replyFooterMu.Unlock()
+	e.cacheRoleQuotaReport(agent, "model-b", e.quotaScopeFor(agent, "model-b"), reportB)
 
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
@@ -461,10 +463,83 @@ func TestManagementRoles_ModelSwitchQuotaIsolation(t *testing.T) {
 
 	// 5. Expiry: entries older than replyFooterUsageMaxAge must be hidden
 	e.replyFooterMu.Lock()
-	e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(agent), model: "model-b"}].okAt = time.Now().Add(-35 * time.Minute)
+	e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(agent), model: "model-b"}].reportAt = time.Now().Add(-35 * time.Minute)
 	e.replyFooterMu.Unlock()
 
 	if expired := e.CachedQuotaReport(nil, "model-b"); expired != nil {
 		t.Fatalf("expired cache returned non-nil report: %+v", expired)
+	}
+}
+
+// Adapter cache methods can trigger background refreshes. A roles GET must not
+// call even the session variant, including after its retained snapshot expires.
+type roleQuotaSideEffectSession struct {
+	*cachedQuotaSession
+	called bool
+}
+
+func (s *roleQuotaSideEffectSession) CachedUsage() *UsageReport {
+	s.called = true
+	return s.cached
+}
+
+func TestManagementRoles_QuotaReadOnlyScopeAndExpiry(t *testing.T) {
+	agent := &stubModelModeAgent{model: "same-model", active: "a", providers: []ProviderConfig{
+		{Name: "a", APIKey: "fixture-a"}, {Name: "b", APIKey: "fixture-b"},
+	}}
+	session := &roleQuotaSideEffectSession{cachedQuotaSession: codexFooterSession(plusQuotaReport())}
+	session.model = "same-model"
+	e := &Engine{agent: agent, sessions: NewSessionManager(""), interactiveStates: map[string]*interactiveState{"s": {agentSession: session}}}
+	m := NewManagementServer(0, "test-token", nil)
+	m.RegisterEngine("fixture", e)
+	scope := e.quotaScopeFor(agent, "same-model")
+	e.cacheRoleQuotaReport(agent, "same-model", scope, plusQuotaReport())
+	if got := m.bridgeRoles()[0].Quota; got == nil {
+		t.Fatal("normal cached report was hidden")
+	}
+	agent.active = "b"
+	if got := m.bridgeRoles()[0].Quota; got != nil {
+		t.Fatal("provider B inherited provider A snapshot")
+	}
+	agent.active = "a"
+	key := replyFooterUsageKey{agent: replyFooterAgentID(agent), model: "same-model"}
+	e.replyFooterUsage[key].reportAt = time.Now().Add(-replyFooterUsageMaxAge)
+	if got := m.bridgeRoles()[0].Quota; got != nil {
+		t.Fatal("expired snapshot was revived from session")
+	}
+	if session.called {
+		t.Fatal("roles GET called the adapter cache method")
+	}
+
+	// A late result from A must not be attributed to B, even on the same model.
+	agent.active = "b"
+	e.cacheRoleQuotaReport(agent, "same-model", scope, plusQuotaReport())
+	if got := m.bridgeRoles()[0].Quota; got != nil {
+		t.Fatal("late provider A report appeared on B")
+	}
+
+	agent.active = "a"
+	report := plusQuotaReport()
+	report.Buckets[0].Windows[0].ResetAtUnix = time.Now().Add(-time.Second).Unix()
+	e.cacheRoleQuotaReport(agent, "same-model", scope, report)
+	if got := m.bridgeRoles()[0].Quota; got != nil {
+		t.Fatal("snapshot remained visible after provider reset")
+	}
+}
+
+func TestManagementRoles_QuotaModelGroupAndSnapshotCopy(t *testing.T) {
+	agent := &quotaDomainTestAgent{stubModelModeAgent: stubModelModeAgent{model: "A"}, account: "fixture", groups: map[string]string{"A": "pool-a", "B": "pool-b"}}
+	e := &Engine{agent: agent}
+	report := plusQuotaReport()
+	report.QuotaGroup = "pool-a"
+	report.Buckets[0].QuotaGroup = "pool-a"
+	e.cacheRoleQuotaReport(agent, "B", e.quotaScopeFor(agent, "B"), report)
+	if got := e.CachedQuotaReport(nil, "B"); got != nil {
+		t.Fatal("default-model pool A was attributed to session-model B")
+	}
+	e.cacheRoleQuotaReport(agent, "A", e.quotaScopeFor(agent, "A"), report)
+	report.Buckets[0].Windows[0].UsedPercent = 100
+	if got := e.CachedQuotaReport(nil, "A"); got == nil || got.Buckets[0].Windows[0].UsedPercent != 9 {
+		t.Fatalf("retained snapshot changed with adapter data: %+v", got)
 	}
 }
