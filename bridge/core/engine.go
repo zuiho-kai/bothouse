@@ -2544,8 +2544,17 @@ func scheduledShellContext(parent context.Context, timeout time.Duration) (conte
 	if timeout <= 0 {
 		return context.WithCancel(parent)
 	}
+	if testHookScheduledShellTimeout != nil {
+		timeout = testHookScheduledShellTimeout(timeout)
+	}
 	return context.WithTimeout(parent, timeout)
 }
+
+// testHookScheduledShellTimeout, when set by a test, shortens a scheduled shell job's
+// own timeout so the ⏰ ⚠️ timeout branches can be exercised in milliseconds: a
+// CronJob/TimerJob ExecutionTimeout is whole minutes (core/cron.go, core/timer.go).
+// Production leaves it nil and uses the job's configured timeout unchanged.
+var testHookScheduledShellTimeout func(time.Duration) time.Duration
 
 // executeTimerShell runs a shell command for a timer job and sends the output.
 func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) error {
@@ -2582,7 +2591,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	}
 
 	if err := shellCmd.Start(); err != nil {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
 		return fmt.Errorf("shell: start: %w", err)
 	}
 
@@ -2625,7 +2634,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		if output != "" {
 			msg = fmt.Sprintf("⏰ ⚠️ timeout: `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
 		}
-		e.send(p, replyCtx, msg)
+		e.sendSystemNotice(p, replyCtx, msg)
 		return fmt.Errorf("shell command timed out")
 	case <-time.After(quickFinishTimeout):
 	}
@@ -2650,7 +2659,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		}
 	}
 	if !useUpdate {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
 	}
 
 	updateDone := make(chan struct{})
@@ -2695,7 +2704,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		if useUpdate {
 			_ = updaterFor(p).UpdateMessage(e.ctx, previewHandle, msg)
 		} else {
-			e.send(p, replyCtx, msg)
+			e.sendSystemNotice(p, replyCtx, msg)
 		}
 		return fmt.Errorf("shell command timed out")
 	}
@@ -2750,7 +2759,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	}
 
 	if err := shellCmd.Start(); err != nil {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
 		return fmt.Errorf("shell: start: %w", err)
 	}
 
@@ -2798,7 +2807,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		if output != "" {
 			msg = fmt.Sprintf("⏰ ⚠️ timeout: `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
 		}
-		e.send(p, replyCtx, msg)
+		e.sendSystemNotice(p, replyCtx, msg)
 		return fmt.Errorf("shell command timed out")
 	case <-time.After(quickFinishTimeout):
 		// Still running — fall through to progress mode
@@ -2824,7 +2833,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		}
 	}
 	if !useUpdate {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
 	}
 
 	updateDone := make(chan struct{})
@@ -2869,7 +2878,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		if useUpdate {
 			_ = updaterFor(p).UpdateMessage(e.ctx, previewHandle, msg)
 		} else {
-			e.send(p, replyCtx, msg)
+			e.sendSystemNotice(p, replyCtx, msg)
 		}
 		return fmt.Errorf("shell command timed out")
 	}
@@ -2910,7 +2919,7 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 		}
 	}
 
-	e.send(p, replyCtx, finalMsg)
+	e.sendSystemNotice(p, replyCtx, finalMsg)
 	if !exitOK {
 		return fmt.Errorf("shell: exit code %d", cmd.ProcessState.ExitCode())
 	}
@@ -6261,9 +6270,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 
 	var textParts []string
-	var segmentStart int // index into textParts: text before this has been sent/displayed
+	var segmentStart int    // index into textParts: text before this has been sent/displayed
 	var blockedDraft string // reply a Stop hook blocked this turn, withdrawn from the channel (stop_draft.go)
-	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
+	silentHold := false     // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
 	var toolStartAt time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
 	watchTurnFinished := false

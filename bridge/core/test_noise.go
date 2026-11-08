@@ -85,7 +85,12 @@ func (e *Engine) runQuietOKShell(p Platform, replyCtx any, jobID, desc string, r
 		return nil
 	}
 	if strings.TrimSpace(last) != "" {
-		e.send(p, replyCtx, last)
+		// A check job still reports a failure — that is the point of quietOKPlatform —
+		// but the line is the same ⏰ notice a full run would post, so it goes through
+		// the quiet-chat rule as well: a QQ group keeps it out, private chats keep it.
+		if !e.noticeKeptOut(p, replyCtx, last) {
+			e.send(p, replyCtx, last)
+		}
 	}
 	return err
 }
