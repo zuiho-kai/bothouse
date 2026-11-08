@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
-  Server, Layers, MessageSquare, Clock, ChevronRight, Gauge,
+  Server, Layers, MessageSquare, Clock, ChevronRight, Gauge, Sparkles,
 } from 'lucide-react';
 import { StatCard, Badge, EmptyState, PageHeader, LoadingState, Bars, Ring } from '@/components/ui';
 import { getStatus, type SystemStatus } from '@/api/status';
@@ -127,6 +127,18 @@ export default function Dashboard() {
           </Badge>
         }
       />
+
+      <Link
+        to="/wiki-galaxy"
+        className="flex items-center gap-3 rounded-card bg-surface p-4 text-ink ring-1 ring-hairline transition-colors duration-base hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text"
+      >
+        <Sparkles size={20} className="shrink-0 text-ink-soft" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{t('wikiGalaxy.title')}</p>
+          <p className="mt-1 text-xs text-ink-mute">{t('wikiGalaxy.subtitle')}</p>
+        </div>
+        <ChevronRight size={16} className="shrink-0 text-ink-soft" />
+      </Link>
 
       {loading && !status ? (
         <LoadingState label={t('common.loading')} />
