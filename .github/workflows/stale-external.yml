@@ -1,0 +1,94 @@
+name: "Stale external issues/PRs"
+
+# 每天一次：外部作者提的、开着的、超过 24 小时没有维护者回复的 issue 和 PR，
+# 列成一条消息发到 Discord（secret DISCORD_STALE_WEBHOOK）。没有就不发。
+# 只读 GitHub 数据，不调模型、不写评论。
+"on":
+  schedule:
+    - cron: "0 1 * * *" # UTC 01:00 = 北京 09:00 / 东京 10:00
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_STALE_WEBHOOK }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const MAINTAINERS = new Set(["zuiho-kai", "zssan12"]);
+            const STAFF = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            const DAY = 24 * 3600 * 1000;
+            const now = Date.now();
+            const isBot = (u) => !u || u.type === "Bot" || /\[bot\]$/.test(u.login);
+            const isMaintainer = (u, assoc) =>
+              !!u && (MAINTAINERS.has(u.login.toLowerCase()) || STAFF.has(assoc));
+
+            const items = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: "open", per_page: 100,
+            });
+            const stale = [];
+            for (const it of items) {
+              if (isBot(it.user) || isMaintainer(it.user, it.author_association)) continue;
+              const created = Date.parse(it.created_at);
+              if (now - created < DAY) continue;
+
+              // 时间线：issue 评论；PR 另加 review 和行内评论
+              const events = [];
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: it.number, per_page: 100,
+              });
+              for (const c of comments) events.push({ u: c.user, a: c.author_association, t: c.created_at });
+              if (it.pull_request) {
+                const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                  owner, repo, pull_number: it.number, per_page: 100,
+                });
+                for (const r of reviews) if (r.submitted_at) events.push({ u: r.user, a: r.author_association, t: r.submitted_at });
+                const rc = await github.paginate(github.rest.pulls.listReviewComments, {
+                  owner, repo, pull_number: it.number, per_page: 100,
+                });
+                for (const c of rc) events.push({ u: c.user, a: c.author_association, t: c.created_at });
+              }
+
+              // 等待起点：维护者最后一次回复之后，外部的人最早的一次发言（含提出本身）
+              let lastStaff = 0;
+              for (const e of events) if (isMaintainer(e.u, e.a)) lastStaff = Math.max(lastStaff, Date.parse(e.t));
+              let since = lastStaff < created ? created : Infinity;
+              for (const e of events) {
+                const t = Date.parse(e.t);
+                if (t > lastStaff && !isBot(e.u) && !isMaintainer(e.u, e.a)) since = Math.min(since, t);
+              }
+              if (since === Infinity || now - since < DAY) continue;
+              stale.push({ it, days: Math.floor((now - since) / DAY) });
+            }
+
+            stale.sort((x, y) => y.days - x.days);
+            core.info(`open=${items.length} stale=${stale.length}`);
+            for (const s of stale) core.info(`#${s.it.number} ${s.days}d`);
+            if (stale.length === 0) return;
+            if (!process.env.DISCORD_WEBHOOK) { core.setFailed("DISCORD_STALE_WEBHOOK 未配置"); return; }
+
+            const lines = stale.map(({ it, days }) =>
+              `#${it.number} ${it.pull_request ? "[PR] " : ""}${it.title.slice(0, 120)} @${it.user.login} 已等 ${days} 天 <${it.html_url}>`);
+            const chunks = [];
+            let buf = `外部 issue/PR 超过 24 小时没人回（${stale.length} 条）：`;
+            for (const l of lines) {
+              if (buf.length + l.length + 1 > 1900) { chunks.push(buf); buf = ""; }
+              buf += (buf ? "\n" : "") + l;
+            }
+            if (buf) chunks.push(buf);
+            for (const content of chunks) {
+              const r = await fetch(process.env.DISCORD_WEBHOOK, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+              });
+              if (!r.ok) { core.setFailed(`Discord ${r.status}: ${await r.text()}`); return; }
+            }
