@@ -1113,6 +1113,7 @@ allow_avatar = true   # 换这个号自己的头像
       "list_moments": true,
       "post_moment": true,
       "remove_moment": true,
+      "replace_moment": true,
       "set_avatar": true,
       "disabled_reason": ""
     },
@@ -1122,7 +1123,8 @@ allow_avatar = true   # 换这个号自己的头像
         "text": "今天画了张图",
         "time": "2026-11-05T06:21:06+08:00",
         "images": [],
-        "private": false
+        "private": false,
+        "private_known": true
       }
     ]
   }
@@ -1140,6 +1142,18 @@ allow_avatar = true   # 换这个号自己的头像
 
 `moments` 永远是数组（`[]` 而不是 `null`），面板可以直接读 `.length`。
 
+`private` 和 `private_known` 是两个字段，不是一个。`private_known: true` 表示平台真的回答了：
+`private: false` 是「所有人可见」，`private: true` 是「仅部分人可见（或只有自己）」。
+`private_known: false` 表示它**没有回答**——这时 `private` 没有意义，调用方不能把它读成
+「公开」。QQ 那边的来源是 `get_qzone_msg_list` 每行的 `is_private`：这一行没有这个字段，
+或者值不是布尔 / 数字 / 纯数字字符串，就按「不知道」返回。
+
+这个字段还有一个**它说不了**的事，换说说时很关键：SnowLuma 那条路径上 `is_private` 是必填
+布尔，所以它几乎总在；而上游在它派生自的原始 `secret` 缺失时会把值补成 `false`。因此一行
+`private: false` 既可能是「真的所有人可见」，也可能是「压根没读到」，在这里两者无法区分。
+请把 `private_known && !private` 读成「没有任何迹象显示它是有范围的」，而不是「已经证明它
+是公开的」。
+
 ---
 
 #### POST /api/v1/projects/{name}/social/moment
@@ -1155,11 +1169,96 @@ allow_avatar = true   # 换这个号自己的头像
 **响应：**
 
 ```json
-{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false, "private_known": true } } }
 ```
 
 错误：`400` 文字为空、`403` 没打开（消息里点名 `allow_qzone`）、`501` 平台做不了、
 `502` 上游拒绝（消息里带上游 action，扩展不存在时提示升级 NapCat）。
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/replace
+
+换说说：把一个已有的说说改成新的文字。它是一次调用里的一个动作，不是让面板自己
+「先发一条、再删一条」——那样中途失败会留下两条或者零条。
+
+**请求体：**
+
+```json
+{ "id": "d43708d9240ae56ae9670e00", "text": "换了个说法", "accept_audience_change": true }
+```
+
+`accept_audience_change` 是必填的，缺省为 `false`：不带它或不等于 `true` 时接口回 `400`，
+一个上游请求都不发。它代表调用方问过人、人知道「换一条可能改变谁能看见、而且删掉旧的之后
+回不去」并且同意了。为什么这件事不能由服务端自己决定，见下面的**可见范围**。
+
+**响应：**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "换了个说法", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false, "private_known": true } } }
+```
+
+**顺序与失败**（重要）：QQ空间的接口里没有「改一条说说的正文」，只有发、删、读和改权限。
+所以这里的实现是**先发新的、成功了才删旧的**，顺序不能反。**这不是原子替换**，三种结果：
+
+1. **干净换完**：新的发出去了、旧的也删掉了 → `200`，`data.moment` 是新那条。
+2. **发新的失败** → 旧的**原样保留**，回非 2xx，消息里写明「旧的原样保留」。什么都没多发。
+3. **部分成功**：新的发出去了，但旧的没删掉（或者上游没给新 tid，没法确认删对了哪条）→
+   回非 2xx，`ok:false`，消息里写明「现在空间里有两条」/「可能现在有两条」，**并在同一个
+   响应体里带上 `moment`**（新那条），面板据此提示并重新读列表：
+
+```json
+{ "ok": false, "error": "换说说：新的已经发出（tid=…），但旧的 … 没删掉，现在空间里有两条", "moment": { "id": "new-tid", "text": "…" } }
+```
+
+这种状态下**再点一次换说说会再多一条**，面板不会自动重试；要先把多的那条删掉。
+
+**配图**：换说说只改文字，不接收图片参数。旧说说带的图由平台自己读回来（最近 50 条里
+按 tid 找），再随新说说一起发出去，所以「换一条」不会把图弄丢。读不回旧说说时（太老、
+不在最近 50 条里、或列表读失败）**一个新请求都不发**，直接失败并保留原文——宁可不换，
+也不发一条没图的再把带图的删掉。一行说它有图、其中一张却没给地址时也一样：把其余几张
+带过去、少掉那一张，等于删了一张调用方没同意删的图，所以同样一个请求都不发。
+
+**可见范围**：「这一条谁能看见」有三种回答，它们不能互相替代。前两种**直接拒绝（400，
+线上是 `ErrSocialCannotReplace`「这条不能这么换」），一个上游请求都不发**：
+
+- `private_known: false`——列表这一行没说，说明这份响应不是我们认识的形状。既可能本来是
+  公开的，也可能本来是「仅部分人可见」，两种都同样活着：不是可信的「所有人」，所以不发也不删。
+- `private: true`——原来那条是「仅部分人可见」。上游只给一个布尔（`is_private`，来自
+  `secret` 是否为 0），分不出好友可见、部分好友、仅自己、部分不可见这四种，而发说说不传
+  `ugc_right` 时的缺省值是 1（所有人可见）。照这样换等于把有范围限制的说说变成公开的，
+  删掉旧的之后不可逆。**这一种即使 `accept_audience_change: true` 也照样拒绝**：它不是
+  「可能改宽」，是确定改宽。要改就在 QQ 里手动改。
+
+第三种回答是 `private_known: true, private: false`——`accept_audience_change` 就是为它存在的。
+上游这个布尔是从原始的 `secret` 翻出来的，而 `secret` 缺失时它会**补一个 `false`**。所以桥接
+收到的这个值有两种来源，逐字节相同：
+
+- 这条真的所有人可见（`secret` 是 0），或者
+- 上游压根没读到可见范围，直接用了自己的缺省值。
+
+响应里没有第二份东西能把它们分开：`get_qzone_msg_detail` 既不返回图片也不返回可见范围，
+native 那种列表形状也没有这个字段，整行就一个布尔。与其把「从网上飘过来的缺省值」当成
+「可以把它改宽然后删掉原来的」的授权，不如把这件事问回调用方：只有传了
+`accept_audience_change: true`（即已经告诉过人、人同意了）才走发新删旧；不带就是 `400`，
+不写上游。带了之后就是一次普通的换说说，没有别的附加条件。
+
+面板在同一件事上多挡一层：编辑器里有一个默认不勾的勾选框（「我知道换一条可能会改变谁能看见
+这条」），每次打开编辑器都清空，不勾住保存按钮就是禁用的。
+
+**读列表**：QQ 这边是有意要 `get_qzone_msg_list` 的 `format=snowluma`。不传 `format` 时，
+上游一见到 cursor 就换另一种格式，而那种既没有可见范围字段、图片又是另一个形状——正好
+是换说说需要的两样。
+
+**带不过去的还有**：评论、点赞、发布时间、`tid` 都会变——换说说本质是「发新的、删旧的」，
+不是原地编辑。这一点面板的确认文案里也写了。
+
+能力开关是 `capabilities.replace_moment`；平台没实现 `MomentReplacer` 时面板不显示按钮、
+接口回 `501`。
+
+错误：`400` 缺 `id`、文字为空，或 `accept_audience_change` 不是 `true`（这一种什么都不发，
+连旧说说都不去读）；`403` 没打开（消息里点名 `allow_qzone`；和发说说一致——它排在确认之前，
+因为关着的时候确认了也没用）；`501` 平台不能换；`502` 上游拒绝（部分成功的 `moment` 见上）。
 
 ---
 
@@ -1436,6 +1535,8 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
 | 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
+| 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
+| 1.1-draft  | 2026-11-08 | 换说说改为必须带 `accept_audience_change: true`：上游在 `secret` 缺失时会把 `is_private` 补成 `false`，单看这一行分不出「真的公开」和「没读到」，改宽可见范围这件事不再由缺省值决定 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 

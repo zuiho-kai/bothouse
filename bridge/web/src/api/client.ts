@@ -43,7 +43,9 @@ class ApiClient {
     }
     const json = await res.json();
     if (!json.ok) {
-      throw new ApiError(json.error || 'Unknown error', res.status);
+      // 有的失败响应还带着东西（换说说部分成功会带 moment），原样交给调用方，
+      // 否则面板只能看到一句失败，不知道空间里已经多了一条。
+      throw new ApiError(json.error || 'Unknown error', res.status, json);
     }
     return json.data as T;
   }
@@ -66,7 +68,7 @@ class ApiClient {
       throw new ApiError('Unauthorized', 401);
     }
     const json = await res.json();
-    if (!json.ok) throw new ApiError(json.error || 'Unknown error', res.status);
+    if (!json.ok) throw new ApiError(json.error || 'Unknown error', res.status, json);
     return json.data as T;
   }
 
@@ -102,7 +104,7 @@ class ApiClient {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(message: string, public status: number, public body?: any) {
     super(message);
     this.name = 'ApiError';
   }

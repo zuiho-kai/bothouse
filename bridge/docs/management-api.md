@@ -1144,6 +1144,7 @@ Reads the capability flags and the account's own recent posts (newest first).
       "list_moments": true,
       "post_moment": true,
       "remove_moment": true,
+      "replace_moment": true,
       "set_avatar": true,
       "disabled_reason": ""
     },
@@ -1153,7 +1154,8 @@ Reads the capability flags and the account's own recent posts (newest first).
         "text": "今天画了张图",
         "time": "2026-11-05T06:21:06+08:00",
         "images": [],
-        "private": false
+        "private": false,
+        "private_known": true
       }
     ]
   }
@@ -1171,6 +1173,20 @@ Reads the capability flags and the account's own recent posts (newest first).
 
 `moments` is always an array (`[]`, never `null`), so a panel can read `.length` directly.
 
+`private` and `private_known` are two fields, not one. `private_known: true` means the platform
+actually answered: `private: false` is "everyone can see it", `private: true` is "only some
+people (or nobody but the owner) can". `private_known: false` means it **did not answer** —
+`private` then carries no meaning and a client must not read it as "public". The QQ side gets
+this from `is_private` on each row of `get_qzone_msg_list`; a row without that field, or with a
+value that is not a boolean / a number / a numeric string, comes back as unknown.
+
+One thing that field cannot tell you, and that matters for replace: on the SnowLuma path
+`is_private` is a required boolean, so it is essentially always present — and the upstream fills
+in `false` when the raw `secret` it is derived from is missing. A `private: false` row can
+therefore mean either "really visible to everyone" or "the audience was never read", and the two
+are indistinguishable here. Treat `private_known && !private` as "nothing says this is limited",
+not as proof that it is public.
+
 ---
 
 #### POST /api/v1/projects/{name}/social/moment
@@ -1186,12 +1202,117 @@ Publishes one 说说 (text only for now; pictures go through the QQ client's own
 **Response:**
 
 ```json
-{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false, "private_known": true } } }
 ```
 
 Errors: `400` empty text, `403` the action is off (message names `allow_qzone`), `501` the
 platform cannot post, `502` the OneBot implementation rejected it (the message names the
 upstream action and says to upgrade NapCat when the extension is missing).
+
+---
+
+#### POST /api/v1/projects/{name}/social/moment/replace
+
+Replaces one existing post's words. One action in one call, not the panel posting a new one
+and then deleting the old one as two separate steps — that way a failure in between leaves
+two posts or none.
+
+**Request body:**
+
+```json
+{ "id": "d43708d9240ae56ae9670e00", "text": "Said it differently", "accept_audience_change": true }
+```
+
+`accept_audience_change` is required and defaults to `false`: without it the route answers `400`
+and publishes nothing. It is the caller's statement that the person was shown that replacing may
+change who can see the post, and that deleting the old one is final. See **Visibility** below for
+why the server cannot answer that question itself.
+
+**Response:**
+
+```json
+{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "Said it differently", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false, "private_known": true } } }
+```
+
+**Order and failure** (important): QQ空间 has no upstream call that edits a post's words; it
+has publish, delete, read and visibility only. So the implementation **publishes the new post
+first and only then deletes the old one**, and the order cannot be reversed. **This is not an
+atomic swap.** There are three outcomes:
+
+1. **Clean replace**: new post out, old post deleted → `200`, `data.moment` is the new post.
+2. **Publish failed** → the old post is **untouched** and no extra post exists; non-2xx, and the
+   message says the old one is kept as it was.
+3. **Partial**: the new post went out but the old one survived — the delete failed, or the
+   upstream gave no tid for the new post so it cannot be known which one to remove. The route
+   answers non-2xx with `ok:false`, the message says both posts now exist (or likely do), and the
+   **same body carries `moment`** (the new post) so the panel can show it and re-read the list:
+
+```json
+{ "ok": false, "error": "replace: the new post is out (tid=…) but the old … could not be removed; there are two posts now", "moment": { "id": "new-tid", "text": "…" } }
+```
+
+In that state **pressing replace again publishes another copy**; the panel does not retry by
+itself — the extra post has to be deleted first.
+
+**Pictures**: replace only changes the words; it takes no image parameter. Pictures on the old
+post are read back by the platform itself (looked up by tid among the most recent 50 posts) and
+published with the new post, so "replace" never drops them. When the old post cannot be read back
+(too old, outside those 50, or the list call failed) **nothing is published at all**: the call
+fails and the original stays. The same holds when a row says it has pictures but one of them
+comes back without a URL — carrying the rest over and dropping that one would delete a picture
+the caller never agreed to lose. Better no replace than a picture-less copy after deleting the
+one with pictures.
+
+**Visibility**: there are three answers to "who can see the old post", and they are not
+interchangeable. Two of them stop the call before anything is published (`400`, `ErrSocialCannotReplace`
+on the wire: "this post cannot be replaced as it is"):
+
+- `private_known: false` — the list row said nothing, so this response is not the shape we know.
+  It might have been public, it might have been limited to some people, and both are equally
+  live: not a safe "everyone", so nothing is published or deleted.
+- `private: true` — the old post is marked "visible to some people only". Upstream gives only a
+  boolean (`is_private`, derived from whether `secret` is 0); it cannot tell friend-only,
+  some-friends, private and hidden-from-some apart, and posting without `ugc_right` defaults to
+  1 (everyone). Replacing that way would turn a restricted post into a public one, and deleting
+  the old one makes it irreversible — change it in QQ by hand instead. This one is refused even
+  when `accept_audience_change` is `true`: it is not a *possible* widening, it is a certain one.
+
+The third answer is `private_known: true, private: false` — and it is the reason
+`accept_audience_change` exists. The upstream derives that boolean from the raw `secret` field
+and, when `secret` is missing, **fills in `false`**. So the value the bridge receives has two
+possible origins that are byte-for-byte identical:
+
+- the post is really visible to everyone (`secret` was 0), or
+- the upstream never read the audience at all and substituted its own default.
+
+Nothing else in the response separates them: `get_qzone_msg_detail` returns neither pictures nor
+an audience field, the native list shape has no audience field either, and the row itself is just
+one boolean. Rather than treat a default that arrived over the wire as permission to widen who
+can see a post and then delete the original, the route asks the caller — and only goes ahead when
+`accept_audience_change` is `true`, i.e. when a person was told exactly that and agreed. With the
+flag set, the call proceeds as an ordinary replace; without it, `400` and no upstream write.
+
+The panel does the same thing one level up: the replace editor has a checkbox that starts
+unticked ("I understand replacing it may change who can see it") which is cleared every time the
+editor is opened, and the save button stays disabled until it is ticked.
+
+**Reading the list**: the QQ side asks `get_qzone_msg_list` for `format=snowluma` on purpose.
+Without `format` the upstream switches to its other format as soon as a cursor is passed, and
+that one carries no visibility field and a different picture shape — exactly the two things a
+replace needs.
+
+**What else does not carry over**: comments, likes, the publish time and the `tid` all change.
+Replace means "publish a new one, delete the old one", not an in-place edit; the panel's
+confirmation text says so too.
+
+The flag is `capabilities.replace_moment`; when a platform does not implement `MomentReplacer`
+the panel hides the button and the route answers `501`.
+
+Errors: `400` missing `id`, empty text, or `accept_audience_change` not `true` (that last one
+publishes nothing and does not even read the post); `403` not enabled (the message names
+`allow_qzone`, same as posting — checked before the acknowledgement, because when it is off no
+acknowledgement would help); `501` the platform cannot replace; `502` upstream refused (with
+`moment` on partial success as above).
 
 ---
 
@@ -1499,6 +1620,8 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 |-----------|------------|----------------------------|
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
 | 1.2-draft | 2026-11-05 | Add optional QQ 说说 / avatar routes (`/projects/{name}/social…`), off unless `allow_qzone` / `allow_avatar` |
+| 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment`; posts visible to some people only are refused; `Moment` gains `private_known`, and a post whose audience could not be read is refused too rather than treated as public |
+| 1.2-draft | 2026-11-08 | Replace now requires `accept_audience_change: true`: the upstream fills `is_private` with `false` when the raw `secret` is missing, so "everyone can see it" cannot be proven from that row, and widening who can see a post is not a decision the server makes on a default |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |

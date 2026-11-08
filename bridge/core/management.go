@@ -518,6 +518,18 @@ func mgmtError(w http.ResponseWriter, status int, msg string) {
 	}
 }
 
+// mgmtErrorWithMoment is mgmtError plus the object a partial success produced
+// (换说说: the new post exists even though the call failed). The body stays
+// ok:false so callers cannot mistake it for success, and the extra field lets
+// the panel show which post went out and offer to remove one of the two.
+func mgmtErrorWithMoment(w http.ResponseWriter, status int, msg string, moment any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg, "moment": moment}); err != nil {
+		slog.Error("management api: write error JSON failed", "error", err)
+	}
+}
+
 func mgmtOK(w http.ResponseWriter, msg string) {
 	mgmtJSON(w, http.StatusOK, map[string]string{"message": msg})
 }
