@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDSHDesktopDownloadURL(t *testing.T) {
@@ -87,5 +88,40 @@ func TestDSHDesktopRuntimePathWritesPnpmLauncher(t *testing.T) {
 	}
 	if _, ok := dshDesktopRuntimePath(filepath.Join(t.TempDir(), "none.app"), dir); ok {
 		t.Fatal("an app without a runtime must not be used")
+	}
+}
+
+// A desktop-only machine has no dsh web: the panel's proxy heals from the app's log instead (newer wins),
+// and never stops the app's host like its own dsh web.
+func TestDSHWebLogPathPrefersTheNewerDesktopLog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := filepath.Join(home, ".bothouse")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	webLog := filepath.Join(dir, "dsh-web.log")
+	if got := dshWebLogPath(DSHWeb{}); got != webLog {
+		t.Fatalf("no logs: %s", got)
+	}
+	if err := os.WriteFile(dshDesktopLogPath(), []byte("dsh web: http://127.0.0.1:1/?token=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := dshWebLogPath(DSHWeb{}); got != dshDesktopLogPath() {
+		t.Fatalf("only the desktop log: %s", got)
+	}
+	if err := os.WriteFile(webLog, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(dshDesktopLogPath(), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := dshWebLogPath(DSHWeb{}); got != webLog {
+		t.Fatalf("newer dsh web log must win: %s", got)
+	}
+	if !isDSHDesktopHost(DSHWeb{Log: dshDesktopLogPath()}) || isDSHDesktopHost(DSHWeb{Log: webLog}) {
+		t.Fatal("desktop host detection")
 	}
 }
