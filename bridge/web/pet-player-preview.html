@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<title>PetPlayer 本地测试页</title>
+<style>
+  body { margin: 0; background: #0f1115; color: #e6e8ee; font-family: -apple-system, "PingFang SC", sans-serif; padding: 24px; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  p.hint { margin: 0 0 18px; font-size: 13px; color: #9aa3b2; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .card { width: 236px; border: 1px solid #262b36; border-radius: 14px; padding: 12px; background: #161a22; }
+  .card h2 { font-size: 13px; font-weight: 500; margin: 0 0 8px; color: #c7ccd8; }
+  .slot { border-radius: 10px; background: #0b0d12; overflow: hidden; }
+  footer { margin-top: 18px; font-size: 12px; color: #7d8798; }
+</style>
+</head>
+<body>
+<h1>PetPlayer 逐帧播放</h1>
+<p class="hint">占位精灵图由页面现画（640×360，8 列 5 行 = 40 帧，12fps），不引用任何第三方素材。</p>
+<div class="row" id="row"></div>
+<footer id="stat"></footer>
+<script type="module">
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { PetPlayer } from '/src/pages/Plugins/pets/PetPlayer.tsx';
+
+function makeSheet(color) {
+  const W = 640, H = 360, COLS = 8, ROWS = 5;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * COLS; canvas.height = H * ROWS;
+  const g = canvas.getContext('2d');
+  for (let i = 0; i < COLS * ROWS; i++) {
+    const x = (i % COLS) * W, y = Math.floor(i / COLS) * H;
+    g.fillStyle = '#10131a'; g.fillRect(x, y, W, H);
+    g.fillStyle = color;
+    g.beginPath(); g.arc(x + W / 2, y + H / 2, 110 + Math.sin(i / 3) * 18, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#0b0d12'; g.font = 'bold 96px -apple-system, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(i), x + W / 2, y + H / 2);
+  }
+  return canvas.toDataURL('image/png');
+}
+
+const sheet = { frameWidth: 640, frameHeight: 360, columns: 8, frames: 40 };
+const pink = makeSheet('#ff8fb1');
+const teal = makeSheet('#5fe0c8');
+
+function Card({ title, action, errorText }) {
+  return createElement('div', { className: 'card' },
+    createElement('h2', null, title),
+    createElement('div', { className: 'slot' },
+      createElement(PetPlayer, { action, size: { width: 212 }, errorText })));
+}
+
+const row = document.getElementById('row');
+// ?frozen=1：停在第 0 帧，供逐像素核对「露出来的就是那一帧」。
+const frozen = new URLSearchParams(location.search).has('frozen');
+createRoot(row).render([
+  createElement(Card, { key: 'a', title: frozen ? '玩偶粉 · 停在第 0 帧' : '玩偶粉 · 待机（sprite 12fps）', action: { kind: 'sprite', src: pink, sheet, fps: frozen ? 0 : 12 } }),
+  createElement(Card, { key: 'b', title: frozen ? '青绿 · 停在第 0 帧' : '青绿 · 干活中（sprite 12fps）', action: { kind: 'sprite', src: teal, sheet, fps: frozen ? 0 : 12 } }),
+  createElement(Card, { key: 'c', title: '读图失败（占位）', action: { kind: 'sprite', src: '/definitely-missing.png', sheet, fps: 12 }, errorText: '读不出这个动作的图' }),
+  createElement(Card, { key: 'd', title: 'WebM（video）', action: { kind: 'video', src: '/definitely-missing.webm' }, errorText: '读不出这个动作的视频' }),
+]);
+
+// 把第 2 格当前帧号打到页脚，截图那一瞬间能对上。
+const tick = () => {
+  const el = row.querySelectorAll('[data-testid="pet-player-sprite"]')[1];
+  document.getElementById('stat').textContent =
+    `当前 fps：12；第 2 格 data-frame=${el ? el.dataset.frame : '-'}；背景位置 ${el ? el.style.backgroundPosition : '-'}`;
+};
+setInterval(tick, 100);
+</script>
+</body>
+</html>
