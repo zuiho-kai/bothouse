@@ -23,6 +23,7 @@ const dshRolesTimeout = 3 * time.Second
 // dshStateMember is the part of /collab/api/state members (hub.memberView + presence) the page shows.
 type dshStateMember struct {
 	ID       string   `json:"id"`
+	Error    string   `json:"error"`
 	Name     string   `json:"name"`
 	Kind     string   `json:"kind"`
 	Online   bool     `json:"online"`

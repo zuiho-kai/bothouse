@@ -588,6 +588,7 @@ type Engine struct {
 
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
+	roleEvents        atomic.Pointer[roleEventBroker]
 	interactiveStates map[string]*interactiveState // key = sessionKey
 	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
@@ -6039,6 +6040,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				session.ResetTurnCtx() // maomao fork
 			}
 			e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
+			e.observeRoleAgentEvent(sessionKey, event, textParts)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -6644,6 +6646,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 
 		e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
+		e.observeRoleAgentEvent(sessionKey, event, textParts)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
