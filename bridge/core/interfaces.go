@@ -721,6 +721,9 @@ type UsageBucket struct {
 
 // UsageWindow describes a single quota window.
 type UsageWindow struct {
+	// ObservedAt is the source time for this window in a sparse snapshot.
+	// Zero means the adapter uses UsageReport.ObservedAt for all windows.
+	ObservedAt        time.Time `json:"-"`
 	Name              string
 	UsedPercent       int
 	WindowSeconds     int
