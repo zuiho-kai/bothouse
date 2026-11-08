@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""记忆论坛 Reflector（2026-11-01 #908，实验版，不合主干）：每轮结束后另起一次便宜模型调用，替这轮的角色给推过的记忆投票，
+"""记忆论坛 Reflector（2026-11-01 #908；#1317 起随 wiki 安装默认挂静音 cron）：每轮结束后另起一次便宜模型调用，替这轮的角色给推过的记忆投票，
 顺带把这轮回复里摸到的代码位置补进代码地图。挂在 gate 层（读 gate 的 push.jsonl + 桥存的会话记录），五家 CLI 通用，不靠各家 hook。
 
 为什么：当场投票（memvote.py）只靠提示让助手自觉投，11-01 13:00 上线后推了约 100 次，只有橘投了 3 票；
@@ -21,7 +21,7 @@
 环境：MEMVOTE_DIR（隔离测试时指到副本目录，同 memvote）、CC_DATA_DIR（桥数据目录）、GATE_WIKI、
 CODEMAP_DIR、GATE_DEFAULT_BOT、REFLECTOR_MODEL（可选；未设置时用 Codex CLI 配置模型）。
 """
-import datetime, hashlib, importlib.util, json, os, re, subprocess, sys, tempfile, time
+import datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 EXP = Path(os.environ.get("MEMVOTE_DIR") or Path(__file__).resolve().parent)
@@ -48,6 +48,9 @@ import memvote  # noqa: E402  票照 SO 规则记
 
 
 def _fill_mod():
+    """codemap-fill.py 只在装了代码地图 hook 的机器上有；没有就不补地图、只投票（#1317 审：没有它时每分钟报错）。"""
+    if not FILL_SCRIPT.exists():
+        return None
     spec = importlib.util.spec_from_file_location("codemap_fill", FILL_SCRIPT)
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
@@ -310,7 +313,7 @@ def apply(t, v, dry, fill, wss):
         if mp.endswith(".md") and pl and all(p in t["reply"] for p in pl):
             entries.setdefault(mp, []).append(ent)
     text = t["reply"] + "".join(f"\n\n## 地图要补的条目（{mp}）\n" + "".join(f"- {x}\n" for x in xs) for mp, xs in entries.items())
-    added = [] if dry else fill.fill(text, f"reflector {t['proj']} {t['key'].rpartition(':')[2]}")
+    added = [] if dry or fill is None else fill.fill(text, f"reflector {t['proj']} {t['key'].rpartition(':')[2]}")
     return {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "turn": t["t"], "proj": t["proj"], "key": t["key"],
             "ws": t["key"] in wss, "bullets": len(t["items"]), "tags": tags,
             "votes": [[c, o, n] for c, o, n, _ in votes] if not dry else items,
@@ -320,6 +323,8 @@ def apply(t, v, dry, fill, wss):
 
 def main(argv):
     dry = "--dry" in argv
+    if not shutil.which("codex"):
+        return 0  # 没装 Codex CLI：判不了，静默跳过，不每分钟报错（#1317 审）
     from filelock import lock
     with open(LOCK, "w") as lk:
         try:

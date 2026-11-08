@@ -537,7 +537,11 @@ func AddReflectorCronJob(c WizardCron, project, sessionKey, gateDir, dataDir, wi
 
 // wikiCronEnsuredFile marks a data dir whose wizard install has had its wiki and forum cron jobs checked once on
 // start (EnsureWizardWikiCron). Once only: a job the user deleted on purpose afterwards stays deleted.
-const wikiCronEnsuredFile = ".wiki-cron-ensured-v2"
+const wikiCronEnsuredFile = ".wiki-cron-ensured-v1"
+
+// reflectorCronEnsuredFile: the same once-per-data-dir check for the forum reflector job added later (#1317). A separate
+// mark, so installs that already had the v1 check get only the reflector, not again the wiki/forum jobs a user deleted.
+const reflectorCronEnsuredFile = ".reflector-cron-ensured-v1"
 
 // EnsureWizardWikiCron adds, once per data dir, the wiki cron jobs and the nightly forum settlement a wizard install
 // should have but lacks: installs from before the wizard added them without a default channel (agentm, 2026-11-04)
@@ -548,8 +552,11 @@ func EnsureWizardWikiCron(dataDir string, c WizardCron, sub string) ([]string, e
 	if dataDir == "" || c == nil {
 		return nil, nil
 	}
-	mark := filepath.Join(dataDir, wikiCronEnsuredFile)
-	if _, err := os.Stat(mark); err == nil {
+	mark, rmark := filepath.Join(dataDir, wikiCronEnsuredFile), filepath.Join(dataDir, reflectorCronEnsuredFile)
+	_, werr := os.Stat(mark)
+	_, rerr := os.Stat(rmark)
+	doWiki, doRefl := werr != nil, rerr != nil
+	if !doWiki && !doRefl {
 		return nil, nil
 	}
 	st := LoadSetupState(dataDir)
@@ -577,25 +584,37 @@ func EnsureWizardWikiCron(dataDir string, c WizardCron, sub string) ([]string, e
 	if mainDir == "" && sub == "" {
 		return nil, nil
 	}
-	added, _, err := AddWikiCronJobs(c, project, session, mainDir, sub)
-	if err != nil {
-		return added, err
+	var added []string
+	if doWiki {
+		a, _, err := AddWikiCronJobs(c, project, session, mainDir, sub)
+		added = a
+		if err != nil {
+			return added, err
+		}
+		if mainDir != "" {
+			ok, ferr := AddForumCronJob(c, project, session, filepath.Join(dataDir, "gate"), mainDir)
+			if ferr != nil {
+				return added, ferr
+			}
+			if ok {
+				added = append(added, forumCronDesc)
+			}
+		}
+		if err := os.WriteFile(mark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644); err != nil {
+			return added, err
+		}
 	}
-	if mainDir != "" {
-		ok, ferr := AddForumCronJob(c, project, session, filepath.Join(dataDir, "gate"), mainDir)
-		if ferr != nil {
-			return added, ferr
+	if doRefl {
+		if mainDir != "" {
+			ok, ferr := AddReflectorCronJob(c, project, session, filepath.Join(dataDir, "gate"), dataDir, mainDir)
+			if ferr != nil {
+				return added, ferr
+			}
+			if ok {
+				added = append(added, reflectorCronDesc)
+			}
 		}
-		if ok {
-			added = append(added, forumCronDesc)
-		}
-		ok, ferr = AddReflectorCronJob(c, project, session, filepath.Join(dataDir, "gate"), dataDir, mainDir)
-		if ferr != nil {
-			return added, ferr
-		}
-		if ok {
-			added = append(added, reflectorCronDesc)
-		}
+		return added, os.WriteFile(rmark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
 	}
-	return added, os.WriteFile(mark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
+	return added, nil
 }
