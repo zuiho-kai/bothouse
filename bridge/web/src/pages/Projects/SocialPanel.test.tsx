@@ -185,4 +185,14 @@ describe('social replace', () => {
     expect(byTestId(container, 'social-replace-private-tid-1')).toBeNull();
     expect(byTestId(container, 'social-delete-tid-1')).not.toBeNull();
   });
+
+  it('treats a backend that does not send private_known yet as unknown, not as public', async () => {
+    // 旧后端（v0.1.59 那种）不返回 private_known。缺字段要往安全那边倒：不给换，
+    // 而不是把每一条都当成公开。新后端配旧面板则是后端一律 400，也不会改宽。
+    const { private_known: _dropped, ...fromOldBackend } = moment;
+    const container = await renderPanel({ replace_moment: true }, [fromOldBackend as any]);
+
+    expect(byTestId(container, 'social-replace-tid-1')).toBeNull();
+    expect(byTestId(container, 'social-replace-unknown-tid-1')).not.toBeNull();
+  });
 });
