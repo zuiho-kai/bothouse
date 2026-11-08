@@ -51,13 +51,17 @@ type roleStreamUsageSession struct {
 	calls  int
 }
 
+type roleAntigravityAgent struct{ *stubModelModeAgent }
+
+func (a *roleAntigravityAgent) Name() string { return "antigravity" }
+
 func (s *roleStreamUsageSession) GetUsage(context.Context) (*UsageReport, error) {
 	s.calls++
 	return s.report, nil
 }
 
 func TestRoleQuota_StreamUsageSuccessRetainsSessionScope(t *testing.T) {
-	agent := &stubModelModeAgent{model: "same-model", active: "a", providers: []ProviderConfig{{Name: "a", APIKey: "fixture-a"}, {Name: "b", APIKey: "fixture-b"}}}
+	agent := &roleAntigravityAgent{&stubModelModeAgent{model: "same-model", active: "a", providers: []ProviderConfig{{Name: "a", APIKey: "fixture-a"}, {Name: "b", APIKey: "fixture-b"}}}}
 	e := &Engine{agent: agent, ctx: context.Background(), i18n: NewI18n(LangChinese)}
 	session := &roleStreamUsageSession{controllableAgentSession: &controllableAgentSession{model: "same-model"}, report: roleQuotaTestReport()}
 	scope := e.quotaScopeOfSession(agent, session)

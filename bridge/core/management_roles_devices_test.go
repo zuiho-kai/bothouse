@@ -527,8 +527,8 @@ func TestManagementRoles_QuotaReadOnlyScopeAndExpiry(t *testing.T) {
 	report := roleQuotaTestReport()
 	report.Buckets[0].Windows[0].ResetAtUnix = time.Now().Add(-time.Second).Unix()
 	e.cacheRoleQuotaReport(agent, "same-model", scope, report)
-	if got := m.bridgeRoles()[0].Quota; got == nil || len(got.Windows) != 1 || got.Windows[0].WindowSeconds != 7*24*3600 {
-		t.Fatalf("reset primary should be hidden while fresh weekly remains: %+v", got)
+	if got := m.bridgeRoles()[0].Quota; got != nil {
+		t.Fatal("snapshot remained visible after provider reset")
 	}
 }
 

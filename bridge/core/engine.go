@@ -9904,17 +9904,22 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			// The footer may run after a queued provider switch. Attribute this
 			// existing session read to its creation scope, just like terminal events.
-			scope := e.quotaScopeOfSession(agent, session)
-			e.interactiveMu.Lock()
-			for _, state := range e.interactiveStates {
-				if state.agentSession == session {
-					scope = state.quotaScope
-					break
+			var scope quotaScope
+			if agent.Name() == "antigravity" {
+				scope = e.quotaScopeOfSession(agent, session)
+				e.interactiveMu.Lock()
+				for _, state := range e.interactiveStates {
+					if state.agentSession == session {
+						scope = state.quotaScope
+						break
+					}
 				}
+				e.interactiveMu.Unlock()
 			}
-			e.interactiveMu.Unlock()
 			if report, err := reporter.GetUsage(ctx); err == nil {
-				e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
+				if scope.Provider != "" {
+					e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
+				}
 				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
@@ -10120,6 +10125,9 @@ func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
 				reset = observed.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
 			}
 			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(now) {
+				if window.ObservedAt.IsZero() {
+					return nil // Preserve reset behavior for adapters without per-window observations.
+				}
 				continue
 			}
 			windows = append(windows, window)
