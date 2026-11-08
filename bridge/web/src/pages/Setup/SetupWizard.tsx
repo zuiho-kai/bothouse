@@ -20,6 +20,7 @@ import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup, { clearDSHDraft, readDSHDraft } from './DSHSetup';
 import DSHAdd from './DSHAdd';
+import QQSetup from './QQSetup';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
@@ -69,7 +70,7 @@ export default function SetupWizard() {
     // Also cover entering setup from an already-open management page.
     if (!localStorage.getItem('cc_theme')) useThemeStore.getState().setTheme(DEFAULT_THEME);
   }, []);
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const lang = i18n.language || 'en';
   const zh = isZhLang(lang);
   const T = wizardTexts(lang);
@@ -89,6 +90,7 @@ export default function SetupWizard() {
   const qqKey = JSON.stringify(qq);
   const qqNickname = qqTest.key === qqKey ? qqTest.nickname : undefined;
   const platform = picked;
+  const [officialQQ, setOfficialQQ] = useState(false);
   // 自建平台 (cloud_web): the hub on this machine, or someone else's (address + token, tested)
   const [hub, setHub] = useState<LocalHubStatus | null>(null);
   const [hubBusy, setHubBusy] = useState<'' | 'detect' | 'start'>('');
@@ -376,7 +378,7 @@ export default function SetupWizard() {
 
   // ── request ──
   const buildRequest = (maskSecrets = false): WizardRequest => {
-    if (platform === 'dsh') throw new Error('DSH uses the plugin installer');
+    if (platform === 'dsh') throw new Error('This platform uses its own setup form');
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
       platform: platform === 'feishu' ? ((feishu?.platform_type as 'feishu' | 'lark') || 'feishu') : platform,
@@ -493,6 +495,8 @@ export default function SetupWizard() {
       : c.login === 'not_logged_in' ? <Badge variant="warning">{T.notLoggedIn}</Badge> : <Badge>{T.unknownLogin}</Badge>;
 
   if (picked === 'dsh' && step > 0) return addMode ? <DSHAdd lang={lang} onBack={() => { clearDSHDraft(); setStep(0); }} /> : <DSHSetup lang={lang} onBack={() => { clearDSHDraft(); setStep(0); }} />;
+
+  if (picked === 'qq' && step > 0 && officialQQ) return <QQSetup clis={clis} projects={state?.projects || []} onBack={() => setOfficialQQ(false)} />;
 
   return (
     <div className="setup-wizard animate-fade-in space-y-6 w-full max-w-4xl mx-auto" data-testid="setup-wizard">
@@ -646,6 +650,7 @@ export default function SetupWizard() {
         {/* 1 QQ (NapCat / OneBot) */}
         {step === 1 && platform === 'qq' && (
           <div className="space-y-3" data-testid="qq-step">
+            <Button variant="secondary" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{t('qq.official')}</Button>
             <p className="text-xs text-gray-500">{T.qqNote}</p>
             <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => setQQ({ ...qq, ws_url: e.target.value })} />
             <Input type="password" label={T.qqToken} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />

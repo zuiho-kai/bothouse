@@ -66,6 +66,21 @@ const setSelect = async (el: HTMLSelectElement, value: string) => {
 };
 
 describe('project detail settings naming', () => {
+  it('keeps unsaved settings and shows the server error when saving fails', async () => {
+    updateProject.mockRejectedValueOnce(new Error('config is read-only'));
+    await render();
+    await clickText('projects.tabs.settings');
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Reply footer"]')!.click());
+    await clickText('common.save');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('config is read-only');
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Reply footer"]')?.getAttribute('aria-checked')).toBe('false');
+    await clickText('common.save');
+    expect(updateProject).toHaveBeenLastCalledWith('coder', expect.objectContaining({ reply_footer: false }));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('Saved');
+  });
+
   it('shows the new backend label and leaves the name to the backend when the CLI changes', async () => {
     await render();
     await clickText('projects.tabs.settings');

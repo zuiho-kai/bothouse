@@ -708,6 +708,31 @@ func runMain() {
 			})
 		})
 		mgmtSrv.SetGetProjectConfig(config.GetProjectConfigDetails)
+		mgmtSrv.SetQQSettingsFuncs(
+			func(name string) (*core.QQSettings, error) {
+				s, err := config.GetQQSettings(name)
+				if err != nil {
+					return nil, err
+				}
+				return &core.QQSettings{
+					Configured:            s.Configured,
+					WSURL:                 s.WSURL,
+					HTTPURL:               s.HTTPURL,
+					TokenSet:              s.TokenSet,
+					AllowFrom:             s.AllowFrom,
+					ShareSessionInChannel: s.ShareSessionInChannel,
+				}, nil
+			},
+			func(name string, u core.QQSettingsUpdate) ([]string, error) {
+				return config.UpdateQQSettings(name, config.QQSettingsUpdate{
+					WSURL:                 u.WSURL,
+					HTTPURL:               u.HTTPURL,
+					Token:                 u.Token,
+					AllowFrom:             u.AllowFrom,
+					ShareSessionInChannel: u.ShareSessionInChannel,
+				})
+			},
+		)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
