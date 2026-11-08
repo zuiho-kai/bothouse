@@ -207,7 +207,12 @@
     "externalAdapters": "External adapters",
     "bridgeDisabled": "Bridge service is off",
     "bridgeDisabledHint": "These platforms are connected by the roles themselves; external clients (such as the desktop tray) also need the bridge service enabled in the config.",
-    "noAdapters": "No external adapters"
+    "noAdapters": "No external adapters",
+    "platformsReadFailed": "Connected platforms could not be read",
+    "adaptersReadFailed": "External adapters could not be read",
+    "projectsReadFailed": "Project names could not be read; raw ids are shown below.",
+    "readFailedHint": "The request failed, which is not the same as having nothing here. Check the bridge service and your token, then retry.",
+    "retry": "Retry"
   },
   "system": {
     "title": "System",
