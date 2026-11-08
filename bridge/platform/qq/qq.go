@@ -1927,6 +1927,19 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 
 var _ core.FileSender = (*Platform)(nil)
 
+// OpenDM returns the session key of the private chat with userID (a QQ number), the key an
+// incoming private message from that user gets, so `send --dm` and a cron failure notice
+// from a quiet group (#258) reach the owner privately. QQ needs no call to open the chat.
+func (p *Platform) OpenDM(userID string) (string, error) {
+	uid, err := strconv.ParseInt(strings.TrimSpace(userID), 10, 64)
+	if err != nil || uid <= 0 {
+		return "", fmt.Errorf("qq: open DM: %q is not a QQ number", userID)
+	}
+	return fmt.Sprintf("qq:%d", uid), nil
+}
+
+var _ core.DirectMessageOpener = (*Platform)(nil)
+
 // QuietSystemNotices keeps the bridge's own notices (unknown slash command,
 // ♻️ new session) out of QQ groups, where a slash command is usually meant for
 // another bot; private chats still get them (user 2026-11-03).
