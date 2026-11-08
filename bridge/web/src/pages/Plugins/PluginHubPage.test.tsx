@@ -284,23 +284,27 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
       );
     });
 
-    // Local installed section has dsh1 and claude
+    // Local installed section has dsh1 and claude (cards do NOT display author or license per user request)
     const dsh1Card = container?.querySelector('[data-testid="installed-pack-dsh1"]');
     expect(dsh1Card).not.toBeNull();
     expect(dsh1Card?.textContent).toContain('本地已装');
     expect(dsh1Card?.textContent).toContain('~/.bothouse/pets/dsh1');
-    expect(dsh1Card?.textContent).toContain('素材禁止商用；二创在公开渠道须署名上游仓库 (见 NOTICE.txt)');
+    expect(dsh1Card?.textContent).not.toContain('作者：');
+    expect(dsh1Card?.textContent).not.toContain('许可协议：');
 
     const claudeCard = container?.querySelector('[data-testid="installed-pack-claude"]');
     expect(claudeCard).not.toBeNull();
     expect(claudeCard?.textContent).toContain('本地已装');
     expect(claudeCard?.textContent).toContain('~/.bothouse/pets/claude');
-    expect(claudeCard?.textContent).toContain('未注明许可，请看来源仓库');
+    expect(claudeCard?.textContent).not.toContain('作者：');
+    expect(claudeCard?.textContent).not.toContain('许可协议：');
 
-    // Remote packs have uninstalled badges and download buttons
+    // Remote packs have uninstalled badges and download buttons (no author or license on card)
     const gpt1Card = container?.querySelector('[data-testid="remote-pack-gpt1"]');
     expect(gpt1Card).not.toBeNull();
     expect(gpt1Card?.textContent).toContain('未安装 (仅来源仓库)');
+    expect(gpt1Card?.textContent).not.toContain('作者：');
+    expect(gpt1Card?.textContent).not.toContain('许可协议：');
     expect(container?.querySelector('[data-testid="download-link-gpt1"]')).not.toBeNull();
 
     const geminiCard = container?.querySelector('[data-testid="remote-pack-gemini"]');
@@ -311,7 +315,8 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     const dshOfficialCard = container?.querySelector('[data-testid="remote-pack-dsh-official"]');
     expect(dshOfficialCard).not.toBeNull();
     expect(dshOfficialCard?.textContent).toContain('未安装 (仅来源仓库)');
-    expect(dshOfficialCard?.textContent).toContain('代码 MIT，素材非商用');
+    expect(dshOfficialCard?.textContent).not.toContain('代码 MIT');
+    expect(container?.querySelector('[data-testid="download-link-dsh-official"]')).not.toBeNull();
   });
 
   // Targeted regression test 1 (G哥 feedback): preserves real API source and avoids converting to bridge

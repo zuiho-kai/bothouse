@@ -984,7 +984,7 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
               <span>形象包适配管理与来源仓库</span>
             </h4>
             <p className="text-xs text-ink-mute">
-              严格区分本地已安装包与外部来源仓库，所有包原样展示作者与许可说明，不作镜像转发。
+              严格区分本地已安装包与外部来源仓库，未装包提供去作者仓库下载链接，不作镜像转发。
             </p>
           </div>
           <Badge variant="outline" className="text-[11px] self-start sm:self-auto">
@@ -1026,21 +1026,12 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
 
                   <div className="mt-3 space-y-1 text-xs text-ink-mute bg-surface/60 rounded-lg p-2.5 ring-1 ring-hairline">
                     <p><span className="font-medium text-ink">规格：</span>{pack.formatSpecs}</p>
-                    <p><span className="font-medium text-ink">作者：</span>{pack.author}</p>
-                    <p><span className="font-medium text-ink">许可协议：</span><span className="text-ink">{pack.license}</span></p>
+                    <p><span className="font-medium text-ink">状态：</span><span className="text-emerald-600 font-medium">本机已安装就绪</span></p>
                   </div>
                 </div>
 
                 <div className="mt-3 pt-2 border-t border-hairline flex items-center justify-between text-xs">
-                  <a
-                    href={pack.repo}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-accent hover:underline text-[11px]"
-                  >
-                    <span>来源仓库：{pack.repo.replace('https://github.com/', '')}</span>
-                    <ExternalLink size={11} />
-                  </a>
+                  <span className="text-[11px] text-ink-mute font-mono">ID: {pack.id}</span>
                   <span className="text-[11px] text-emerald-600 font-medium">● 适配就绪</span>
                 </div>
               </div>
@@ -1079,8 +1070,8 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
                   <p className="text-[11px] text-ink-soft mt-2 line-clamp-2">{pack.description}</p>
 
                   <div className="mt-2.5 space-y-1 text-[11px] text-ink-mute bg-surface rounded p-2 ring-1 ring-hairline">
-                    <p><span className="font-medium text-ink">作者：</span>{pack.author}</p>
-                    <p><span className="font-medium text-ink">许可协议：</span>{pack.license}</p>
+                    <p><span className="font-medium text-ink">规格：</span>{pack.formatSpecs}</p>
+                    <p><span className="font-medium text-ink">状态：</span><span className="text-amber-600 font-medium">来源仓库（未安装）</span></p>
                   </div>
                 </div>
 
@@ -1106,14 +1097,14 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
         </div>
       </div>
 
-      {/* 5. Plugin Footer Attribution & Legal Specification */}
+      {/* 5. Plugin Footer Specification */}
       <div className="mt-4 rounded-lg border border-hairline bg-surface-sunken/40 p-3.5 text-xs text-ink-soft flex flex-col gap-1.5">
         <div className="flex items-center gap-1.5 font-semibold text-ink">
           <Sparkles size={13} className="text-accent" />
-          <span>形象包适配规范与许可声明</span>
+          <span>形象包适配规范说明</span>
         </div>
         <p className="text-[11px] leading-relaxed">
-          bothouse 仅提供前端形象包适配器（支持透明 WebM 与 hunmer/aboutme-pets 透明 WebP 精灵图规范）。所有素材均由用户本机自行安装或前往原作者仓库下载，仓库内不内置任何第三方素材文件；素材作者与许可协议以各形象包自带 NOTICE 与 manifest 说明为准（未注明许可的素材请参阅来源仓库）。
+          bothouse 仅提供前端形象包适配器（支持透明 WebM 与 hunmer/aboutme-pets 透明 WebP 精灵图规范）。所有素材均由用户本机自行安装或前往原作者仓库下载，仓库内不内置任何第三方素材文件；未安装的包请参阅来源仓库链接下载使用。
         </p>
       </div>
     </div>
