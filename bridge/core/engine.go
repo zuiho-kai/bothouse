@@ -740,6 +740,7 @@ type interactiveState struct {
 	fromVoice                bool            // true if current turn originated from voice transcription
 	sideText                 string
 	turnSentTexts            []string   // texts this turn already pushed through a script/side send; guarded by mu
+	turnSentNonText          bool       // a sticker/image/file already went out this turn (#181); guarded by mu
 	localInputOnly           *inputTurn // block API/CLI side sends during a local voice turn
 	deleteMode               *deleteModeState
 	modelSwitch              *modelSwitchState
@@ -5007,6 +5008,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.fromVoice = msg.FromVoice
 		state.sideText = ""
 		state.turnSentTexts = nil
+		state.turnSentNonText = false
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
@@ -7585,6 +7587,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// reply must be checked against every text this turn already sent.
 			turnSentTexts := append([]string(nil), state.turnSentTexts...)
 			state.turnSentTexts = nil
+			turnSentNonText := state.turnSentNonText
 			state.mu.Unlock()
 
 			replyStart := time.Now()
@@ -7594,6 +7597,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// (stickers.py -> bin/qq-bridge send). The final reply is compared
 			// against the union so a script-sent line is never repeated.
 			sentThisTurn := append(append([]string(nil), sentReplySegments...), turnSentTexts...)
+			// A turn that already pushed a sticker/image/file gets the extra
+			// #181 guard: drop a closing sentence that only narrates the send
+			// step ("我先把这条回复发出去…"), which has no sent-text prefix to
+			// peel. A reply that never mentions sending is delivered as before.
+			finalReplyText := func(text string) string {
+				if turnSentNonText {
+					return unsentFinalReplyTextAfterNonText(p, text, sentThisTurn)
+				}
+				return unsentFinalReplyText(p, text, sentThisTurn)
+			}
 
 			// --- StreamingCard path ---
 			if streamCard != nil && !streamCard.Failed() {
@@ -7717,7 +7730,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
-					unsent = unsentFinalReplyText(p, unsent, sentThisTurn)
+					unsent = finalReplyText(unsent)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7750,7 +7763,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Nothing previewed this text, so the plain send is the only
 				// delivery: drop a line a script already posted this turn and a
 				// bracketed receipt note addressed to the agent itself.
-				deliver := unsentFinalReplyText(p, fullResponse, sentThisTurn)
+				deliver := finalReplyText(fullResponse)
 				if deliver == "" {
 					slog.Debug("EventResult: suppressed repeated/meta final reply", "response_len", len(fullResponse))
 					sp.discard()
@@ -8013,6 +8026,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.mu.Lock()
 				state.stopDraft = ""
 				state.turnSentTexts = nil
+				state.turnSentNonText = false
 				state.sideText = ""
 				state.mu.Unlock()
 				segmentStart = 0
@@ -8346,8 +8360,17 @@ channelClosed:
 		state.mu.Lock()
 		closedTurnSent := append(append([]string(nil), sentReplySegments...), state.turnSentTexts...)
 		state.turnSentTexts = nil
+		closedTurnNonText := state.turnSentNonText
 		state.sideText = ""
 		state.mu.Unlock()
+		// Same #181 guard on the abnormal channel-close path: a non-text
+		// message already went out, so a closing send-step narration is dropped.
+		closedFinalReplyText := func(text string) string {
+			if closedTurnNonText {
+				return unsentFinalReplyTextAfterNonText(p, text, closedTurnSent)
+			}
+			return unsentFinalReplyText(p, text, closedTurnSent)
+		}
 
 		// Respect NO_REPLY even on abnormal exit so silent turns stay silent.
 		if isSilentReply(fullResponse) {
@@ -8384,7 +8407,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
-				unsent = unsentFinalReplyText(p, unsent, closedTurnSent)
+				unsent = closedFinalReplyText(unsent)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
@@ -8396,7 +8419,7 @@ channelClosed:
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
 		} else {
-			deliver := unsentFinalReplyText(p, fullResponse, closedTurnSent)
+			deliver := closedFinalReplyText(fullResponse)
 			if deliver == "" {
 				slog.Debug("repeated/meta final reply suppressed (channel closed)")
 				return
@@ -13800,6 +13823,14 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		if err := imageSender.SendImage(e.ctx, replyCtx, img); err != nil {
 			return err
 		}
+		if state != nil {
+			// #181: an image does not enter turnSentTexts (that list holds text
+			// only), so the turn remembers separately that something non-text
+			// already went out.
+			state.mu.Lock()
+			state.turnSentNonText = true
+			state.mu.Unlock()
+		}
 	}
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
@@ -13809,6 +13840,11 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 		if err := fileSender.SendFile(e.ctx, replyCtx, file); err != nil {
 			return err
+		}
+		if state != nil {
+			state.mu.Lock()
+			state.turnSentNonText = true
+			state.mu.Unlock()
 		}
 	}
 	return nil
@@ -13897,6 +13933,12 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		if err := imageSender.SendImage(e.ctx, target.replyCtx, img); err != nil {
 			return err
 		}
+		if target.state != nil {
+			// #181: image sends are not text, so they are remembered separately.
+			target.state.mu.Lock()
+			target.state.turnSentNonText = true
+			target.state.mu.Unlock()
+		}
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
 	for _, file := range files {
@@ -13905,6 +13947,11 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		}
 		if err := fileSender.SendFile(e.ctx, target.replyCtx, file); err != nil {
 			return err
+		}
+		if target.state != nil {
+			target.state.mu.Lock()
+			target.state.turnSentNonText = true
+			target.state.mu.Unlock()
 		}
 	}
 	return nil
