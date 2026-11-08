@@ -420,6 +420,8 @@
     "reviewComplexModel": "复杂档模型",
     "reviewModelRole": "沿用该角色自己的模型",
     "reviewModelHint": "审核开新会话，用这个模型跑",
+    "reviewModelNoSwitch": "该角色的后端不支持换模型，审核会按它自己的模型跑",
+    "reviewModelNotice": "最近一次审核模型没生效：#{{board}}（{{tier}}），{{role}} · {{model}}：{{reason}}",
     "log": "日志",
     "logLevel": "日志级别",
     "appearance": "外观",

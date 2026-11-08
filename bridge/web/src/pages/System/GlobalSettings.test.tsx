@@ -101,4 +101,22 @@ describe('GlobalSettings review models', () => {
     expect(selectFor(container, 'settings.reviewSimpleModel')!.value).toBe('');
     act(() => root.unmount());
   });
+  // User 2026-11-04「简单的交给便宜模型」: a tier model that would be ignored is shown, not silent.
+  it('flags a tier model the backend would ignore', async () => {
+    vi.mocked(getGlobalSettings).mockResolvedValue({
+      review_simple_role: 'dsh', review_complex_role: '',
+      review_model_notice: { at: '2026-11-04T14:00:00Z', board: 601, tier: 'simple', role: 'doubao', model: 'cheap-model', reason: 'no-model' },
+    } as never);
+    vi.mocked(listRoles).mockResolvedValue({ roles: [{ name: 'dsh', display_name: 'DSH' }] as never });
+    vi.mocked(listModels).mockRejectedValue(new Error('agent does not support model switching'));
+    const container = document.createElement('div');
+    document.body.append(container);
+    containers.push(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(<GlobalSettings hideHeader />); });
+    await act(async () => {});
+    expect(container.textContent).toContain('settings.reviewModelNoSwitch');
+    expect(container.querySelector('[data-testid="review-model-notice"]')).not.toBeNull();
+    act(() => root.unmount());
+  });
 });
