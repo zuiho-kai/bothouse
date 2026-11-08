@@ -357,6 +357,8 @@ Panel providers apply to bridge projects that reference them. Manage DSH native 
 
 The panel's Plugins page can edit each installed plugin row's YAML configuration, including plugins without a native settings form. Saves preserve `!!js` tags and write the existing DSH profile patch with a backup; restart DSH to apply them. Clearing the editor restores the bundle defaults without changing the row's enabled state. A HOME-level override is read-only here. See [plugin configuration APIs](bridge/docs/management-api.md).
 
+Credential fields use `!bothouse/secret` placeholders: leave a placeholder unchanged to retain its current value, replace the entire placeholder to update it, or set an empty string/remove the field to clear it. Nested keys containing key, token, secret, password, credential, authorization or cookie (case-insensitive) are hidden; anchors and aliases are also hidden to prevent alternate references exposing them. This is field-name based, not a plugin schema: arbitrary credentials embedded in other fields or comments cannot be identified reliably. Configuration requests are limited to 1 MiB, including the JSON envelope.
+
 ## License and thanks
 
 - **License:** [Apache-2.0](LICENSE); see [LICENSING.md](LICENSING.md). Third-party dependencies are listed in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).

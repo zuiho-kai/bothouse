@@ -12,7 +12,9 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,6 +51,8 @@ type DSHPluginConfig struct {
 	// Overridden: this profile's patch sets the row's config itself, so saving replaces it and
 	// clearing the text removes it.
 	Overridden bool `json:"overridden"`
+	// Server-only originals; placeholders are restored under the profile write lock.
+	retained map[string]*yaml.Node
 }
 
 // pluginConfigLayers reads the layers that can set a row's config, in DSH's apply order.
@@ -208,31 +212,31 @@ func GetDSHPluginConfig(id string) (DSHPluginConfig, error) {
 		return DSHPluginConfig{}, fmt.Errorf("插件配置：这份 profile 里没有 id 为 %s 的行", id)
 	}
 	out := DSHPluginConfig{ID: row.ID, Name: row.Name, Layer: pluginConfigLayerNone, Editable: true}
+	var effective *yaml.Node
 	for _, layer := range bundles {
 		_, cfg, _ := configEntry(layer, id, row.Name)
 		if cfg == nil {
 			continue
 		}
-		if out.ConfigYAML, err = nodeText(cfg); err != nil {
-			return DSHPluginConfig{}, err
-		}
+		effective = cfg
 		out.Layer = pluginConfigLayerBundle
 	}
 	if _, cfg, _ := configEntry(profile, id, row.Name); cfg != nil {
-		if out.ConfigYAML, err = nodeText(cfg); err != nil {
-			return DSHPluginConfig{}, err
-		}
+		effective = cfg
 		out.Layer, out.Overridden = pluginConfigLayerProfile, true
 	}
 	if _, cfg, _ := configEntry(home, id, row.Name); cfg != nil {
-		if out.ConfigYAML, err = nodeText(cfg); err != nil {
-			return DSHPluginConfig{}, err
-		}
+		effective = cfg
 		out.Layer = pluginConfigLayerHome
 		out.Editable = false
 		out.Reason = "这条配置由 HOME 的 " + filepath.Join(dshHome(), "cordis.patch.yml") + " 全局决定，在这里存了也不生效；要改请改那一份。"
 	}
-	if out.ConfigYAML == "" {
+	if effective != nil {
+		out.retained = make(map[string]*yaml.Node)
+		if out.ConfigYAML, err = nodeText(pluginConfigForEditor(effective, "", false, out.retained)); err != nil {
+			return DSHPluginConfig{}, err
+		}
+	} else {
 		out.Layer = pluginConfigLayerNone
 	}
 	return out, nil
@@ -287,6 +291,9 @@ func setDSHPluginConfigLocked(id, configYAML string) (DSHPluginConfig, bool, err
 			return state, false, fmt.Errorf("这段配置是空的；要恢复默认请留空再存")
 		}
 		cfg = parsed.Content[0]
+		if err := restorePluginConfigSecrets(cfg, "", state.retained); err != nil {
+			return state, false, err
+		}
 		if cfg.Kind != yaml.MappingNode {
 			return state, false, fmt.Errorf("插件的 config 必须是一组「字段: 值」，这段不是")
 		}
@@ -355,6 +362,12 @@ func setDSHPluginConfigLocked(id, configYAML string) (DSHPluginConfig, bool, err
 	text, err := nodeToYAMLText(doc.Content[0])
 	if err != nil {
 		return state, false, err
+	}
+	// Restored aliases must still have their anchor in the edited document. Reject before
+	// backing up or writing if an edit removed it; otherwise DSH would receive invalid YAML.
+	var checked yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &checked); err != nil {
+		return state, false, fmt.Errorf("配置中的 YAML 引用失效，请保留对应锚点或改成完整值")
 	}
 	before, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -436,7 +449,20 @@ func (m *ManagementServer) handlePluginsConfig(w http.ResponseWriter, r *http.Re
 			ID     string `json:"id"`
 			Config string `json:"config_yaml"`
 		}
-		if !decodeBody(w, r, &req) {
+		// 来源：management_dsh_members.go handleDSHMembersAPI 的管理请求体上限 1 MiB。
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				mgmtError(w, http.StatusRequestEntityTooLarge, "plugin config request exceeds 1 MiB")
+			} else {
+				mgmtError(w, http.StatusBadRequest, "invalid request body")
+			}
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			mgmtError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		state, changed, err := SetDSHPluginConfig(req.ID, req.Config)

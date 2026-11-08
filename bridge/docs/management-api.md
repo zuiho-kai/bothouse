@@ -1444,6 +1444,19 @@ boot. Decoding the config into JSON and re-encoding it would turn `!!js process.
 string it renders to, silently changing the meaning of the person's file. The panel therefore shows
 and accepts text, and the `!!js` tag goes back untouched.
 
+Both GET and POST responses mask nonempty credential values with tagged placeholders, for
+example `token: !bothouse/secret /token`. Detection follows the existing environment redactor:
+case-insensitive key names containing key, token, secret, password or credential, plus
+authorization and cookie. Nested mappings and sequences are covered. Anchors and aliases are
+also kept opaque so an alternate reference cannot reveal a credential. Arbitrary secrets
+embedded in other field names or comments are outside this field-name heuristic.
+
+Keep a placeholder unchanged to preserve the latest stored value under the profile lock.
+Replace the entire tagged value with a new value to update it; use an empty string/null or
+remove the field to clear it. Removing all editor text still means restoring bundle defaults,
+which may include a bundle credential. Placeholder paths cannot be moved or forged; an invalid
+placeholder or a removed anchor needed by a retained alias is rejected before any file write.
+
 `layer` says which layer set the value that is in effect, in DSH's own apply order:
 
 | `layer` | meaning |
@@ -1484,6 +1497,11 @@ effect on the next DSH start (`restart_required: true` when `changed`).
 
 Requires the management token, exactly like install and switch: an unauthenticated management
 server cannot attest an owner, and this route changes what this machine loads.
+
+The entire POST body, including the JSON envelope and trailing whitespace, is limited to 1 MiB
+(the same limit as the DSH member management endpoint). Oversized bodies return `413` before
+parsing or writing a backup, including requests with an unknown Content-Length. Disabled bundles
+and disabled rows remain listed and configurable; saving config does not enable them.
 
 ---
 

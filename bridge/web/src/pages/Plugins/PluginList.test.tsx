@@ -135,6 +135,28 @@ describe('插件配置', () => {
     expect(byTestId('plugins-config-saved')).toBeNull();
   });
 
+  it('keeps the editor and secret placeholders usable on a disabled plugin', async () => {
+    const plugin = state.plugins[0];
+    const row = plugin.rows![0];
+    plugin.enabled = false;
+    row.disabled = true;
+    const config = { ...bundleConfig, config_yaml: 'token: !bothouse/secret /token\n' };
+    getPluginConfig.mockResolvedValueOnce(config);
+    try {
+      await render();
+      await openRow();
+      expect((byTestId('plugins-config-text') as HTMLTextAreaElement).value).toBe(config.config_yaml);
+      expect(container.textContent).toContain('已设置');
+      await act(async () => { byTestId('plugins-config-save')!.click(); });
+      expect(savePluginConfig).toHaveBeenCalledWith('demo-tool', config.config_yaml);
+      expect(plugin.enabled).toBe(false);
+      expect(row.disabled).toBe(true);
+    } finally {
+      plugin.enabled = true;
+      row.disabled = false;
+    }
+  });
+
   it('does not offer the editor when the API has no token to write with', async () => {
     state.writes_allowed = false;
     await render();

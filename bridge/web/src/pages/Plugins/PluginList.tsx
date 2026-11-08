@@ -462,6 +462,9 @@ export default function PluginList() {
                         aria-label={T.rowConfig}
                         data-testid="plugins-config-text"
                       />
+                      {configText.includes('!bothouse/secret') && (
+                        <p className="mt-1 text-xs text-ink-mute" data-testid="plugins-config-secrets">{T.configSecrets}</p>
+                      )}
                       {configMeta?.editable && (
                         <p className="mt-1 text-xs text-ink-mute">
                           {configText.trim() === '' && configMeta.overridden ? T.configEmpty : T.configHint}

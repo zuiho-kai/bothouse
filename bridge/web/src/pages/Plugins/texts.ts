@@ -59,6 +59,7 @@ export interface PluginTexts {
   /** 每一行插件自己的 config：在面板里读出来、改完存回 profile 的 patch */
   rowConfig: string
   configHint: string
+  configSecrets: string
   configSave: string
   configSaving: string
   configCancel: string
@@ -137,6 +138,7 @@ const zh: PluginTexts = {
   rowOn: '',
   rowConfig: '配置',
   configHint: '这一行自己的配置，原样是 YAML；存回的是这份 profile 的 patch，改完重启 DSH 生效。留空保存就恢复插件默认。',
+  configSecrets: '密钥显示为已设置占位（!bothouse/secret），保留原样会保留当前值；替换整个占位可设置新值，填空字符串或删除字段可清除。带锚点或别名的值也会隐藏。',
   configSave: '保存配置',
   configSaving: '正在存…',
   configCancel: '取消',
@@ -215,6 +217,7 @@ const en: PluginTexts = {
   rowOn: '',
   rowConfig: 'Configure',
   configHint: 'This row’s own config, as YAML. Saving writes this profile’s patch; it takes effect after a DSH restart. Save empty to go back to the plugin’s default.',
+  configSecrets: 'Secrets appear as set placeholders (!bothouse/secret). Leave them unchanged to keep the current value, replace the whole placeholder to set a new value, or use an empty string or remove the field to clear it. Anchored values and aliases are hidden too.',
   configSave: 'Save config',
   configSaving: 'Saving…',
   configCancel: 'Cancel',
@@ -293,6 +296,7 @@ const ja: PluginTexts = {
   rowOn: '',
   rowConfig: '設定',
   configHint: 'この行自身の設定です。中身はそのまま YAML で、保存するとこの profile の patch に書き込みます。DSH の再起動後に反映されます。空で保存するとプラグイン既定に戻ります。',
+  configSecrets: '秘密情報は設定済みの印（!bothouse/secret）で表示します。そのまま保存すると現在値を保持し、印全体を新しい値に置き換えると更新します。空文字列または項目の削除で消去します。アンカーや別名の値も非表示です。',
   configSave: '設定を保存',
   configSaving: '保存中…',
   configCancel: 'キャンセル',
