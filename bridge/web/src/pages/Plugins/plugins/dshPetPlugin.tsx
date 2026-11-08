@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import {
   User,
   Users,
@@ -8,9 +8,7 @@ import {
   Download,
   ExternalLink,
   CheckCircle2,
-  Layers,
   Sparkles,
-  Film,
   Boxes,
 } from 'lucide-react';
 import { Badge, Card } from '@/components/ui';
@@ -22,7 +20,9 @@ import {
   getDeduplicatedSpeech,
   getRoleKey,
 } from '../roleAggregation';
-import { listInstalledPetPacks, type InstalledPetPack } from '@/api/pets';
+import { PetPlayer, type PetAction } from '../pets/PetPlayer';
+import { withBase } from '@/lib/basePath';
+import api from '@/api/client';
 
 export type PetPackFormat = 'spritesheet' | 'webm';
 
@@ -59,580 +59,68 @@ export interface PetAssetPack {
   assets: Record<RoleEventType, PetAsset>;
 }
 
-/**
- * Calculates (col, row) and pixel (x, y) coordinates for a given frame index in a spritesheet.
- */
-export function calculateFramePosition(
-  frameIndex: number,
-  columns: number = 8,
-  frameWidth: number = 640,
-  frameHeight: number = 360
-): { col: number; row: number; x: number; y: number } {
-  const safeCols = Math.max(1, columns);
-  const col = frameIndex % safeCols;
-  const row = Math.floor(frameIndex / safeCols);
+export const PET_ADAPTER_ID = 'dsh-pet';
+
+// 来源：用户指定的两种形象包上游；这里只提供链接，不声明本机已装。
+const SOURCES = [
+  { id: 'webp-source', name: 'WebP 精灵图来源', repo: 'https://github.com/hunmer/aboutme-pets' },
+  { id: 'webm-source', name: '透明 WebM 来源', repo: 'https://github.com/PC2005-cloud/dsh-pet' },
+];
+
+const STATE_LABELS: Record<RoleEventType, string> = {
+  idle: '待机中', working: '干活中', thinking: '思考中',
+  celebrate: '交活庆祝', error: '出错', speech: '说话',
+};
+
+/** 动作与规格来自本地包；不捏造帧数、文件名或已安装状态。 */
+export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): PetAsset | null {
+  const manifest = pack.manifest || {};
+  const actions = [...(pack.actionsList || []), ...((manifest.animations || []) as Record<string, any>[])];
+  const patterns: Record<RoleEventType, RegExp> = {
+    idle: /待机|打瞌睡|休闲|idle/i, working: /代码|加班|工作|working|coding/i,
+    thinking: /思考|thinking/i, celebrate: /庆祝|雀跃|celebrate/i,
+    error: /叹气|冒汗|垂头|error/i, speech: /说话|碎碎念|speech/i,
+  };
+  const idle = actions.find(a => a.id === manifest.idleAnimationId);
+  const matched = actions.find(a => a.state === eventType || a.id === eventType)
+    || (eventType === 'idle' ? idle : undefined)
+    || actions.find(a => patterns[eventType].test(String(a.name || a.id || '')))
+    || idle || actions[0];
+  if (!matched) return null;
+  const sources = matched.sources as { webp?: string; webm?: string } | undefined;
+  const filename = sources?.webm || sources?.webp || matched.file;
+  if (typeof filename !== 'string' || !filename) return null;
+  const query = new URLSearchParams({ pack: pack.id, file: filename });
+  if (api.getToken()) query.set('token', api.getToken());
+  const sheet = (matched.spritesheet || matched) as Record<string, unknown>;
+  const sprite = !filename.toLowerCase().endsWith('.webm');
+  if (sprite && !['columns', 'frameCount', 'frameWidth', 'frameHeight', 'fps'].every(
+    key => typeof sheet[key] === 'number' && Number.isFinite(sheet[key]) && Number(sheet[key]) > 0
+  )) return null;
   return {
-    col,
-    row,
-    x: col * frameWidth,
-    y: row * frameHeight,
+    key: eventType, title: String(matched.name || matched.id || eventType),
+    actionName: String(matched.name || matched.id || eventType), filename,
+    url: withBase('/api/v1/plugins/pets/asset') + '?' + query,
+    badgeText: STATE_LABELS[eventType],
+    badgeVariant: eventType === 'error' ? 'danger' : eventType === 'working' || eventType === 'thinking' ? 'info' : 'default',
+    columns: sheet.columns as number, frameCount: sheet.frameCount as number,
+    frameWidth: sheet.frameWidth as number, frameHeight: sheet.frameHeight as number, fps: sheet.fps as number,
   };
 }
 
-// 1. 本地已装包：肥鱼 (dsh1，166动作，WebP精灵图规范 640×360 12fps 8列)
-export const DSH1_PACK: PetAssetPack = {
-  id: 'dsh1',
-  name: '肥鱼 (dsh1 新动作包)',
-  repo: 'https://github.com/hunmer/aboutme-pets',
-  description: '166 个透明 WebP 精灵图动作，含工作加班、换装侦探服思考、站着打瞌睡等；蓝发女仆装鲸鱼尾巴。',
-  format: 'spritesheet',
-  formatSpecs: '640×360, 12fps, 8列 透明 WebP 精灵图',
-  actionCount: 166,
-  installed: true,
-  localPath: '~/.bothouse/pets/dsh1',
-  recommendedRole: 'deep',
-  assets: {
-    idle: {
-      key: 'idle',
-      title: '站着晃神打瞌睡',
-      actionName: '站着晃神打瞌睡',
-      filename: 'spritesheet/站着晃神打瞌睡.webp',
-      url: '/api/v1/plugins/pets/asset?pack=dsh1&file=spritesheet/%E7%AB%99%E7%9D%80%E6%99%83%E7%A5%9E%E6%89%93%E7%9E%8C%E7%9D%A1.webp',
-      badgeText: '待机中',
-      badgeVariant: 'default',
-      columns: 8,
-      frameCount: 180,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    working: {
-      key: 'working',
-      title: '工作加班',
-      actionName: '工作加班',
-      filename: 'spritesheet/工作加班.webp',
-      url: '/api/v1/plugins/pets/asset?pack=dsh1&file=spritesheet/%E5%B7%A5%E4%BD%9C%E5%8A%A0%E7%8F%AD.webp',
-      badgeText: '干活中',
-      badgeVariant: 'info',
-      columns: 8,
-      frameCount: 180,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    thinking: {
-      key: 'thinking',
-      title: '换装侦探服思考',
-      actionName: '换装侦探服思考',
-      filename: 'spritesheet/换装侦探服思考.webp',
-      url: '/api/v1/plugins/pets/asset?pack=dsh1&file=spritesheet/%E6%8D%A2%E8%A3%85%E4%BE%A6%E6%8E%A2%E6%9C%8D%E6%80%9D%E8%80%83.webp',
-      badgeText: '思考中',
-      badgeVariant: 'info',
-      columns: 8,
-      frameCount: 180,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    celebrate: {
-      key: 'celebrate',
-      title: '举杯敬酒',
-      actionName: '举杯敬酒',
-      filename: 'spritesheet/举杯敬酒.webp',
-      url: '/api/v1/plugins/pets/asset?pack=dsh1&file=spritesheet/%E4%B8%BE%E6%9D%AF%E6%95%AC%E9%85%92.webp',
-      badgeText: '交活庆祝',
-      badgeVariant: 'success',
-      columns: 8,
-      frameCount: 180,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    error: {
-      key: 'error',
-      title: '沙发打瞌睡',
-      actionName: '沙发打瞌睡',
-      filename: 'spritesheet/沙发打瞌睡.webp',
-      url: '/api/v1/plugins/pets/asset?pack=dsh1&file=spritesheet/%E6%B2%99%E5%8F%91%E6%89%93%E7%9E%8C%E7%9D%A1.webp',
-      badgeText: '出错/冷却',
-      badgeVariant: 'danger',
-      columns: 8,
-      frameCount: 180,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    speech: {
-      key: 'speech',
-      title: '换装侦探服思考',
-      actionName: '换装侦探服思考',
-      filename: 'spritesheet/换装侦探服思考.webp',
-      url: '/api/v1/plugins/pets/asset?pack=dsh1&file=spritesheet/%E6%8D%A2%E8%A3%85%E4%BE%A6%E6%8E%A2%E6%9C%8D%E6%80%9D%E8%80%83.webp',
-      badgeText: '说话中',
-      badgeVariant: 'info',
-      columns: 8,
-      frameCount: 180,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-  },
-};
-
-// 2. 本地已装包：Claude娘 (claude，166动作，WebP精灵图规范 640×360 12fps 8列)
-export const CLAUDE_PACK: PetAssetPack = {
-  id: 'claude',
-  name: 'Claude娘 (claude 动作包)',
-  repo: 'https://github.com/hunmer/aboutme-pets',
-  description: '166 个透明 WebP 精灵图动作，橘棕长发向日葵发饰，怀抱厚书，干活时头顶齿轮与扳手。',
-  format: 'spritesheet',
-  formatSpecs: '640×360, 12fps, 8列 透明 WebP 精灵图',
-  actionCount: 166,
-  installed: true,
-  localPath: '~/.bothouse/pets/claude',
-  recommendedRole: 'cjiang',
-  assets: {
-    idle: {
-      key: 'idle',
-      title: '待机呼吸休闲',
-      actionName: '待机呼吸休闲',
-      filename: 'spritesheet/待机呼吸休闲.webp',
-      url: '/api/v1/plugins/pets/asset?pack=claude&file=spritesheet/%E5%BE%85%E6%9C%BA%E5%91%BC%E5%90%B8%E4%BC%91%E9%97%B2.webp',
-      badgeText: '待机中',
-      badgeVariant: 'default',
-      columns: 8,
-      frameCount: 120,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    working: {
-      key: 'working',
-      title: '工作状态-写代码',
-      actionName: '写代码',
-      filename: 'spritesheet/写代码.webp',
-      url: '/api/v1/plugins/pets/asset?pack=claude&file=spritesheet/%E5%86%99%E4%BB%A3%E7%A0%81.webp',
-      badgeText: '干活中',
-      badgeVariant: 'info',
-      columns: 8,
-      frameCount: 120,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    thinking: {
-      key: 'thinking',
-      title: '工作状态-思考冒泡',
-      actionName: '工作状态-思考冒泡',
-      filename: 'spritesheet/工作状态-思考冒泡.webp',
-      url: '/api/v1/plugins/pets/asset?pack=claude&file=spritesheet/%E5%B7%A5%E4%BD%9C%E7%8A%B6%E6%80%81-%E6%80%9D%E8%80%83%E5%86%92%E6%B3%A1.webp',
-      badgeText: '思考中',
-      badgeVariant: 'info',
-      columns: 8,
-      frameCount: 120,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    celebrate: {
-      key: 'celebrate',
-      title: '工作状态-雀跃庆祝',
-      actionName: '工作状态-雀跃庆祝',
-      filename: 'spritesheet/工作状态-雀跃庆祝.webp',
-      url: '/api/v1/plugins/pets/asset?pack=claude&file=spritesheet/%E5%B7%A5%E4%BD%9C%E7%8A%B6%E6%80%81-%E9%9B%80%E8%B7%83%E5%BA%86%E7%A5%9D.webp',
-      badgeText: '交活庆祝',
-      badgeVariant: 'success',
-      columns: 8,
-      frameCount: 120,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    error: {
-      key: 'error',
-      title: '工作状态-垂头叹气冒汗',
-      actionName: '工作状态-垂头叹气冒汗',
-      filename: 'spritesheet/工作状态-垂头叹气冒汗.webp',
-      url: '/api/v1/plugins/pets/asset?pack=claude&file=spritesheet/%E5%B7%A5%E4%BD%9C%E7%8A%B6%E6%80%81-%E5%9E%82%E5%A4%B4%E5%8F%B9%E6%B0%94%E5%86%92%E6%B1%97.webp',
-      badgeText: '出错/冷却',
-      badgeVariant: 'danger',
-      columns: 8,
-      frameCount: 120,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-    speech: {
-      key: 'speech',
-      title: '工作状态-思考冒泡',
-      actionName: '工作状态-思考冒泡',
-      filename: 'spritesheet/工作状态-思考冒泡.webp',
-      url: '/api/v1/plugins/pets/asset?pack=claude&file=spritesheet/%E5%B7%A5%E4%BD%9C%E7%8A%B6%E6%80%81-%E6%80%9D%E8%80%83%E5%86%92%E6%B3%A1.webp',
-      badgeText: '说话中',
-      badgeVariant: 'info',
-      columns: 8,
-      frameCount: 120,
-      frameWidth: 640,
-      frameHeight: 360,
-      fps: 12,
-    },
-  },
-};
-
-// 3. 来源仓库包：GPT娘 (gpt1，未安装)
-export const GPT1_PACK: PetAssetPack = {
-  id: 'gpt1',
-  name: 'GPT娘 (gpt1 动作包)',
-  repo: 'https://github.com/hunmer/aboutme-pets',
-  description: '2026-11 GPT 生成第二批次，92 个透明动作；白发紫眼龙角娘，抱笔记本电脑写代码。',
-  format: 'spritesheet',
-  formatSpecs: '640×360, 12fps, 8列 透明 WebP 精灵图',
-  actionCount: 92,
-  installed: false,
-  recommendedRole: 'gge',
-  assets: {} as any,
-};
-
-// 4. 来源仓库包：Gemini猫耳娘 (gemini，未安装)
-export const GEMINI_PACK: PetAssetPack = {
-  id: 'gemini',
-  name: 'Gemini猫耳娘 (gemini 动作包)',
-  repo: 'https://github.com/hunmer/aboutme-pets',
-  description: '2026-11 Gemini 生成批次（猫耳娘版），100 个透明动作；紫粉渐变长发，异色瞳。',
-  format: 'spritesheet',
-  formatSpecs: '640×360, 12fps, 8列 透明 WebP 精灵图',
-  actionCount: 100,
-  installed: false,
-  recommendedRole: 'gjiang',
-  assets: {} as any,
-};
-
-// 5. 来源仓库包：官方 dsh-pet 原版透明 WebM (未安装)
-export const DSH_OFFICIAL_WEBM_PACK: PetAssetPack = {
-  id: 'dsh-official',
-  name: '官方 dsh-pet (透明 WebM 包)',
-  repo: 'https://github.com/PC2005-cloud/dsh-pet',
-  description: '官方 dsh-pet 原生透明 WebM 视频包（pet/ 目录），101 个动作，经典蓝发女仆装。',
-  format: 'webm',
-  formatSpecs: 'VP9 透明通道 WebM (pet/*.webm)',
-  actionCount: 101,
-  installed: false,
-  recommendedRole: 'deep',
-  assets: {} as any,
-};
-
-// Available pet packs catalog baseline
-export const AVAILABLE_PET_PACKS: Record<string, PetAssetPack> = {
-  dsh1: DSH1_PACK,
-  claude: CLAUDE_PACK,
-  gpt1: GPT1_PACK,
-  gemini: GEMINI_PACK,
-  'dsh-official': DSH_OFFICIAL_WEBM_PACK,
-};
-
-// Backward-compatibility aliases
-export const PET_ASSETS = DSH1_PACK.assets;
-export const DSH_FAT_FISH_PACK = DSH1_PACK;
-
-const STORAGE_KEY_BINDINGS = 'bothouse_pet_bindings_v4';
-
-export function getPetPackById(packId: string | null | undefined, catalog: Record<string, PetAssetPack> = AVAILABLE_PET_PACKS): PetAssetPack | null {
-  if (!packId) return null;
-  return catalog[packId] || null;
-}
-
-const RANDOM_SAYINGS: Record<RoleEventType, string[]> = {
-  idle: [
-    '呼呼… 随时待命，有活喊我！',
-    '稍微歇口气，喝口温水 🍵',
-    '状态良好，准备好大显身手啦~',
-    '今天也是元气满满的桌宠~',
-  ],
-  working: [
-    '正在飞速敲键盘中… 噼里啪啦！',
-    '专心干活，代码马上就好！',
-    '全力推进中，细节严谨核验！',
-    '任务进行中，勿扰正在冲刺 ⚡',
-  ],
-  thinking: [
-    '让我仔细推演一下最佳方案… 💭',
-    '梳理模块接口中，马上有思路！',
-    '深度思考中，逻辑推演中…',
-  ],
-  celebrate: [
-    '活交完啦！请老师验收~ 🎉',
-    '顺利搞定！又是充满成就感的一天 ✨',
-    '测试全部通过，交卷啦！',
-  ],
-  error: [
-    '哎呀… 遇到点卡点，正在擦汗排查 💦',
-    '额度好像冷却了，休息片刻马上爬起来！',
-    '呜呜，这行代码怎么报错了，正在急救！',
-  ],
-  speech: [
-    '收到一条新消息，正在响应~ 💬',
-    '伙伴们加油，协同前进！',
-  ],
-};
-
-/**
- * Dynamically resolves or fallback an action asset for an event from the pack's manifest/actions.
- */
-export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): PetAsset {
-  if (pack.assets && pack.assets[eventType]) {
-    return pack.assets[eventType];
-  }
-  const anims = (pack.actionsList || (pack.manifest?.animations as Array<Record<string, unknown>>) || []) as Array<Record<string, any>>;
-  let matched: any = null;
-
-  if (anims.length > 0) {
-    if (eventType === 'idle') {
-      matched = anims.find((a) =>
-        a.category === '待机' ||
-        a.id === pack.manifest?.idleAnimationId ||
-        a.name?.includes('待机') ||
-        a.id?.includes('待机') ||
-        a.category === '日常起居'
-      );
-    } else if (eventType === 'working') {
-      matched = anims.find((a) =>
-        a.category === '工作状态' ||
-        a.category === '工作职业' ||
-        a.name?.includes('工作') ||
-        a.name?.includes('代码') ||
-        a.name?.includes('加班') ||
-        a.id?.includes('工作') ||
-        a.id?.includes('代码')
-      );
-    } else if (eventType === 'thinking') {
-      matched = anims.find((a) =>
-        a.name?.includes('思考') ||
-        a.id?.includes('思考') ||
-        a.name?.includes('冒泡')
-      );
-    } else if (eventType === 'celebrate') {
-      matched = anims.find((a) =>
-        a.name?.includes('庆祝') ||
-        a.id?.includes('庆祝') ||
-        a.name?.includes('敬酒') ||
-        a.name?.includes('雀跃')
-      );
-    } else if (eventType === 'error') {
-      matched = anims.find((a) =>
-        a.name?.includes('叹气') ||
-        a.name?.includes('冒汗') ||
-        a.name?.includes('打瞌睡') ||
-        a.name?.includes('垂头') ||
-        a.id?.includes('打瞌睡') ||
-        a.category === '情绪反应'
-      );
-    } else if (eventType === 'speech') {
-      matched = anims.find((a) =>
-        a.name?.includes('说话') ||
-        a.name?.includes('碎碎念') ||
-        a.id?.includes('思考')
-      );
-    }
-
-    if (!matched) matched = anims[0];
-  }
-
-  const actionName = matched?.name || matched?.id || '待机';
-  const relFile = matched?.sources?.webp || matched?.sources?.webm || `spritesheet/${actionName}.webp`;
-  const url = pack.localPath
-    ? `/api/v1/plugins/pets/asset?pack=${encodeURIComponent(pack.id)}&file=${encodeURIComponent(relFile)}`
-    : '';
-
-  const sheet = matched?.spritesheet || {};
-  return {
-    key: eventType,
-    title: actionName,
-    actionName,
-    filename: relFile,
-    url,
-    badgeText: eventType === 'working' ? '干活中' : eventType === 'thinking' ? '思考中' : eventType === 'celebrate' ? '交活庆祝' : eventType === 'error' ? '出错/冷却' : '待机中',
-    badgeVariant: eventType === 'working' || eventType === 'thinking' ? 'info' : eventType === 'celebrate' ? 'success' : eventType === 'error' ? 'danger' : 'default',
-    columns: sheet.columns || 8,
-    frameCount: sheet.frameCount || 120,
-    frameWidth: sheet.frameWidth || 640,
-    frameHeight: sheet.frameHeight || 360,
-    fps: sheet.fps || 12,
-  };
-}
-
-export function SpritesheetPlayer({
-  asset,
-  eventType,
-  roleKey,
-  onImageError,
-}: {
-  asset: PetAsset;
-  eventType: RoleEventType;
-  roleKey: string;
-  isHero: boolean;
-  onImageError?: () => void;
+function PetVisualDisplay({ asset, roleKey, isHero }: {
+  pack: PetAssetPack; asset: PetAsset; eventType: RoleEventType; roleKey: string; isHero: boolean;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [frameIndex, setFrameIndex] = useState(0);
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-
-  const columns = asset.columns || 8;
-  const frameWidth = asset.frameWidth || 640;
-  const frameHeight = asset.frameHeight || 360;
-  const frameCount = asset.frameCount || 120;
-  const fps = asset.fps || 12;
-
-  const onImageErrorRef = useRef(onImageError);
-  useEffect(() => {
-    onImageErrorRef.current = onImageError;
-  }, [onImageError]);
-
-  // Reset frame when action or url changes
-  useEffect(() => {
-    setFrameIndex(0);
-    setImgLoaded(false);
-    const img = new Image();
-    imgRef.current = img;
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      setImgLoaded(true);
-    };
-    img.onerror = () => {
-      if (onImageErrorRef.current) onImageErrorRef.current();
-    };
-    img.src = asset.url;
-
-    return () => {
-      imgRef.current = null;
-    };
-  }, [asset.url, asset.actionName]);
-
-  // Frame advance loop
-  useEffect(() => {
-    if (frameCount <= 1) return;
-    const intervalMs = Math.max(16, Math.round(1000 / fps));
-    const timer = setInterval(() => {
-      setFrameIndex((prev) => (prev + 1) % frameCount);
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [frameCount, fps]);
-
-  // Canvas frame drawing
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    let ctx: CanvasRenderingContext2D | null = null;
-    try {
-      ctx = canvas.getContext('2d');
-    } catch {
-      // jsdom environment fallback
-    }
-    if (!ctx) return;
-
-    const img = imgRef.current;
-    if (img && imgLoaded) {
-      const { x, y } = calculateFramePosition(frameIndex, columns, frameWidth, frameHeight);
-      ctx.clearRect(0, 0, frameWidth, frameHeight);
-      ctx.drawImage(img, x, y, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
-    }
-  }, [frameIndex, imgLoaded, columns, frameWidth, frameHeight]);
-
-  return (
-    <div
-      data-testid={`spritesheet-player-${roleKey}`}
-      data-frame={frameIndex}
-      data-action={asset.actionName}
-      className="relative flex items-center justify-center w-full h-full"
-    >
-      <canvas
-        ref={canvasRef}
-        width={frameWidth}
-        height={frameHeight}
-        className={cn(
-          'max-h-full max-w-full aspect-[16/9] object-contain drop-shadow transition-transform duration-300 hover:scale-105',
-          eventType === 'working' && 'animate-pulse'
-        )}
-      />
-      {/* Hidden image element for test assertion & error handler */}
-      <img
-        src={asset.url}
-        alt={asset.title}
-        data-testid={`pet-img-${roleKey}`}
-        className="sr-only"
-        onError={onImageError}
-      />
-    </div>
-  );
-}
-
-function PetVisualDisplay({
-  pack,
-  asset,
-  eventType,
-  roleKey,
-  isHero,
-}: {
-  pack: PetAssetPack;
-  asset: PetAsset;
-  eventType: RoleEventType;
-  roleKey: string;
-  isHero: boolean;
-}) {
-  const [imgError, setImgError] = useState(false);
-  const handleImageError = useCallback(() => {
-    setImgError(true);
-  }, []);
-
-  // Reset imgError whenever asset url or eventType changes
-  useEffect(() => {
-    setImgError(false);
-  }, [asset?.url, eventType]);
-
-  return (
-    <div
-      className={cn(
-        'relative flex w-full flex-col items-center justify-center overflow-hidden rounded-xl bg-surface-sunken/40 p-2 border border-hairline/60',
-        isHero ? 'h-52' : 'h-36'
-      )}
-    >
-      {/* Format Indicator Tag */}
-      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded bg-surface/90 px-1.5 py-0.5 text-[9px] font-mono text-ink-mute shadow-xs backdrop-blur">
-        {pack.format === 'spritesheet' ? <Layers size={10} className="text-accent" /> : <Film size={10} className="text-emerald-500" />}
-        <span>{pack.format === 'spritesheet' ? 'WebP 精灵图适配' : 'WebM 视频适配'}</span>
-      </div>
-
-      {imgError ? (
-        <div className="flex flex-col items-center justify-center text-ink-mute p-4 text-center">
-          <ImageOff size={24} className="mb-1 text-ink-mute" />
-          <span className="text-[11px]">素材加载异常</span>
-        </div>
-      ) : pack.format === 'webm' && asset.url?.endsWith('.webm') ? (
-        <video
-          key={asset.url}
-          src={asset.url}
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="max-h-full max-w-full object-contain drop-shadow"
-        />
-      ) : (
-        <SpritesheetPlayer
-          asset={asset}
-          eventType={eventType}
-          roleKey={roleKey}
-          isHero={isHero}
-          onImageError={handleImageError}
-        />
-      )}
-
-      {/* Action Title Sub-badge */}
-      <div className="absolute bottom-1 right-2 z-10 rounded bg-surface/80 px-1.5 py-0.5 text-[10px] text-ink-mute shadow-xs backdrop-blur">
-        动作：{asset.actionName}
-      </div>
-    </div>
-  );
+  const { url, filename, columns, frameCount, frameWidth, frameHeight, fps } = asset;
+  // PetPlayer 的动作对象保持稳定，避免每次角色事件都重置定时器。
+  const action = useMemo<PetAction>(() => filename.toLowerCase().endsWith('.webm')
+    ? { kind: 'video', src: url }
+    : { kind: 'sprite', src: url, fps: fps!, sheet: { columns: columns!, frames: frameCount!, frameWidth: frameWidth!, frameHeight: frameHeight! } },
+    [url, filename, columns, frameCount, frameWidth, frameHeight, fps]);
+  return <div data-testid={`pet-img-${roleKey}`} className="w-full max-w-md">
+    <PetPlayer action={action} size={{ width: '100%', height: isHero ? '13rem' : '9rem' }} errorText="素材加载异常" />
+    <p className="mt-1 text-center text-xs text-ink-mute">动作：{asset.actionName}</p>
+  </div>;
 }
 
 function RolePetCard({
@@ -642,6 +130,7 @@ function RolePetCard({
   isHero = false,
   availablePacks,
   onBindingChange,
+  bindingsDisabled,
 }: {
   role: ExtendedRoleInfo;
   event?: RoleEvent;
@@ -649,6 +138,7 @@ function RolePetCard({
   isHero?: boolean;
   availablePacks: Record<string, PetAssetPack>;
   onBindingChange: (roleKey: string, newPackId: string | null) => void;
+  bindingsDisabled?: boolean;
 }) {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const roleKey = getRoleKey(role);
@@ -657,7 +147,7 @@ function RolePetCard({
   // otherwise aggregate active_sessions by priority: 出错 > 干活/思考 > 庆祝 > 空闲
   let eventType: RoleEventType;
   if (event) {
-    eventType = event.type;
+    eventType = event.type === 'speech' ? (role.status || 'idle') : event.type;
   } else if (role.active_sessions && role.active_sessions.length > 0) {
     eventType = aggregateRoleStatus(role.active_sessions, role.busy ? 'working' : 'idle');
   } else {
@@ -674,7 +164,7 @@ function RolePetCard({
   const asset = pack ? resolvePetAsset(pack, eventType) : null;
 
   // Multi-session busy count
-  const busyCount = getBusySessionCount(role.active_sessions, role.busy, role.sessions_count);
+  const busyCount = role.busy_count ?? getBusySessionCount(role.active_sessions, role.busy, role.sessions_count);
 
   // Deduplicated speech bubble
   let bubbleText = getDeduplicatedSpeech(role.active_sessions, event);
@@ -686,9 +176,7 @@ function RolePetCard({
     } else if (eventType === 'working') {
       bubbleText = role.current_task ? `正在干活：${role.current_task}` : '正在专注推进任务中… 噼里啪啦 ⚡';
     } else {
-      const pool = RANDOM_SAYINGS[eventType] || RANDOM_SAYINGS.idle;
-      const idx = (role.name.charCodeAt(0) + eventType.length) % pool.length;
-      bubbleText = pool[idx];
+      bubbleText = STATE_LABELS[eventType];
     }
   }
 
@@ -881,6 +369,7 @@ function RolePetCard({
               id={`pack-select-${roleKey}`}
               data-testid={`pack-select-${roleKey}`}
               value={pack?.id || ''}
+              disabled={bindingsDisabled}
               onChange={(e) => onBindingChange(roleKey, e.target.value || null)}
               className="h-7 rounded border border-hairline bg-surface px-2 text-[11px] font-medium text-ink shadow-xs focus:border-accent focus:outline-none"
             >
@@ -915,120 +404,27 @@ function RolePetCard({
   );
 }
 
-function DshPetPluginView({ events, roles }: PluginRenderProps) {
+function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onRoleBindingChange, bindingsDisabled }: PluginRenderProps) {
   const [displayMode, setDisplayMode] = useState<'single' | 'all'>('single');
-  const [availablePacks, setAvailablePacks] = useState<Record<string, PetAssetPack>>(AVAILABLE_PET_PACKS);
-
-  // Initialize role bindings from localStorage or initial recommendation
-  const [roleBindings, setRoleBindings] = useState<Record<string, string | null>>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_BINDINGS);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Fallback
-    }
-    return {
-      'bridge:deep': 'dsh1',
-      deep: 'dsh1',
-      'bridge:cjiang': 'claude',
-      cjiang: 'claude',
-    };
-  });
-
-  // Query backend for newly installed local packages
-  useEffect(() => {
-    let isMounted = true;
-    listInstalledPetPacks()
-      .then((res) => {
-        if (!isMounted || !res || !Array.isArray(res.installed)) return;
-        setAvailablePacks((prev) => {
-          const next = { ...prev };
-          res.installed.forEach((inst: InstalledPetPack) => {
-            const existing = next[inst.id];
-            next[inst.id] = {
-              id: inst.id,
-              name: inst.name || inst.id,
-              repo: existing?.repo || 'https://github.com/hunmer/aboutme-pets',
-              description: existing?.description || `本机安装动作包，包含 ${inst.actionCount} 个动作。`,
-              format: inst.format || 'spritesheet',
-              formatSpecs: existing?.formatSpecs || '640×360, 12fps, 8列 透明 WebP 精灵图',
-              actionCount: inst.actionCount,
-              installed: true,
-              localPath: inst.localPath || `~/.bothouse/pets/${inst.id}`,
-              manifest: inst.manifest,
-              actionsList: inst.actions,
-              notice: inst.notice,
-              assets: existing?.assets || ({} as any),
-            };
-          });
-          return next;
-        });
-      })
-      .catch(() => {
-        // Backend offline or error, preserve baseline
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const defaultRole = roles.find((r) => r.name === 'deep' || r.name === '肥鱼') || roles[0];
-  const [selectedRoleKey, setSelectedRoleKey] = useState<string>(
-    defaultRole ? getRoleKey(defaultRole) : 'bridge:deep'
-  );
-
-  const currentRole = roles.find((r) => getRoleKey(r) === selectedRoleKey) || defaultRole || roles[0];
-  const currentRoleKey = currentRole ? getRoleKey(currentRole) : 'bridge:deep';
-
-  // Strict role-to-pack resolution: respect explicit unbinding (null)
-  const getPackForRole = useCallback(
-    (role: ExtendedRoleInfo | string): PetAssetPack | null => {
-      const k = typeof role === 'string' ? role : getRoleKey(role);
-      const name = typeof role === 'string' ? role.split(':').pop()! : role.name;
-
-      if (Object.prototype.hasOwnProperty.call(roleBindings, k)) {
-        const bound = roleBindings[k];
-        if (bound === null || bound === '') return null;
-        return getPetPackById(bound, availablePacks);
-      }
-      if (Object.prototype.hasOwnProperty.call(roleBindings, name)) {
-        const bound = roleBindings[name];
-        if (bound === null || bound === '') return null;
-        return getPetPackById(bound, availablePacks);
-      }
-
-      // Default recommendation: deep defaults to dsh1, cjiang defaults to claude
-      if (name === 'deep' || name === '肥鱼') {
-        return getPetPackById('dsh1', availablePacks);
-      }
-      if (name === 'cjiang' || name === 'C酱') {
-        return getPetPackById('claude', availablePacks);
-      }
-      return null;
-    },
-    [roleBindings, availablePacks]
-  );
-
-  const handleBindingChange = (roleKeyToChange: string, newPackId: string | null) => {
-    setRoleBindings((prev) => {
-      const next = {
-        ...prev,
-        [roleKeyToChange]: newPackId,
-      };
-      try {
-        localStorage.setItem(STORAGE_KEY_BINDINGS, JSON.stringify(next));
-      } catch {
-        // Ignore storage write error
-      }
-      return next;
-    });
+  const availablePacks = useMemo(() => Object.fromEntries(petPacks.map(inst => [inst.id, {
+    ...inst, installed: true, repo: '', description: `本机形象包，包含 ${inst.actionCount} 个动作。`,
+    formatSpecs: inst.format === 'webm' ? '透明 WebM' : 'WebP 精灵图（规格读自形象包）',
+    actionsList: inst.actions, assets: {},
+  } as PetAssetPack])), [petPacks]);
+  const defaultRole = roles.find(r => roleBindings[getRoleKey(r)]?.some(b => b.plugin_id === PET_ADAPTER_ID && b.enabled && b.avatar_pack)) || roles[0];
+  const [selectedRoleKey, setSelectedRoleKey] = useState('');
+  const currentRole = roles.find(r => getRoleKey(r) === selectedRoleKey) || defaultRole;
+  const currentRoleKey = currentRole ? getRoleKey(currentRole) : '';
+  const getPackForRole = (role: ExtendedRoleInfo): PetAssetPack | null => {
+    const binding = roleBindings[getRoleKey(role)]?.find(b => b.plugin_id === PET_ADAPTER_ID);
+    return binding?.enabled && binding.avatar_pack ? availablePacks[binding.avatar_pack] || null : null;
   };
-
+  const handleBindingChange = (roleKey: string, newPackId: string | null) => {
+    onRoleBindingChange?.(roleKey, PET_ADAPTER_ID, newPackId ? { enabled: true, avatar_pack: newPackId } : null);
+  };
   const currentPack = currentRole ? getPackForRole(currentRole) : null;
-
-  const installedPacks = Object.values(availablePacks).filter((p) => p.installed);
-  const uninstalledPacks = Object.values(availablePacks).filter((p) => !p.installed);
+  const installedPacks = Object.values(availablePacks);
+  const uninstalledPacks = SOURCES;
 
   return (
     <div className="space-y-6" data-testid="dsh-pet-plugin-view">
@@ -1135,6 +531,7 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
               isHero={true}
               availablePacks={availablePacks}
               onBindingChange={handleBindingChange}
+              bindingsDisabled={bindingsDisabled}
             />
           </div>
         ) : (
@@ -1153,6 +550,7 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
                 isHero={false}
                 availablePacks={availablePacks}
                 onBindingChange={handleBindingChange}
+                bindingsDisabled={bindingsDisabled}
               />
             );
           })}
@@ -1248,14 +646,13 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
                         </Badge>
                       </div>
                     </div>
-                    <span className="text-[10px] text-ink-mute font-mono">{pack.actionCount} 动作</span>
+
                   </div>
 
-                  <p className="text-[11px] text-ink-soft mt-2 line-clamp-2">{pack.description}</p>
+                  <p className="text-[11px] text-ink-soft mt-2">前往来源仓库选择形象包并安装到本机。</p>
 
                   <div className="mt-2.5 space-y-1 text-[11px] text-ink-mute bg-surface rounded p-2 ring-1 ring-hairline">
-                    <p><span className="font-medium text-ink">规格：</span>{pack.formatSpecs}</p>
-                    <p><span className="font-medium text-ink">状态：</span><span className="text-amber-600 font-medium">来源仓库（未安装）</span></p>
+                    <p>仅提供来源链接，不代表本机已安装。</p>
                   </div>
                 </div>
 

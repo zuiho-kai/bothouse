@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Boxes,
@@ -10,12 +10,8 @@ import {
   AlertTriangle,
   MessageSquare,
   Package,
-  Layers,
   Settings,
-  Sparkles,
   UserCheck,
-  CheckCircle2,
-  ExternalLink,
   Sliders,
 } from 'lucide-react';
 import { Badge, Button, Card } from '@/components/ui';
@@ -24,110 +20,34 @@ import { listRoles } from '@/api/roles';
 import {
   listPlugins,
   switchPlugin,
-  type DSHPlugin,
   type DSHPluginsState,
 } from '@/api/plugins';
 import type { BothousePlugin, ExtendedRoleInfo, RoleEvent, RoleEventType } from './pluginInterface';
 import { aggregateRoleStatus, getRoleKey } from './roleAggregation';
-import { dshPetPlugin } from './plugins/dshPetPlugin';
+import { dshPetPlugin, PET_ADAPTER_ID } from './plugins/dshPetPlugin';
+import { getRoleBindings, saveRoleBindings, type RoleBindings, type RolePluginBinding } from '@/api/roleBindings';
+import { listInstalledPetPacks, type InstalledPetPack } from '@/api/pets';
+import { subscribeRoleEvents, type RoleState } from '@/api/roleEvents';
+import api from '@/api/client';
 
 export function deriveRoleStatus(role: ExtendedRoleInfo): RoleEventType {
   if (role.paused || role.online === false) return 'error';
+  if (role.status) return role.status;
   if (role.active_sessions && role.active_sessions.length > 0) {
     return aggregateRoleStatus(role.active_sessions, role.busy ? 'working' : 'idle');
   }
   return role.busy ? 'working' : 'idle';
 }
 
-export const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
-  {
-    name: 'deep',
-    display_name: '肥鱼',
-    agent_type: 'deepseek',
-    model: 'deepseek-v4.1-flash',
-    online: true,
-    busy: false,
-    current_task: '',
-    paused: false,
-    platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
-    sessions_count: 0,
-    source: 'bridge',
-    active_sessions: [],
-  },
-  {
-    name: 'gjiang',
-    display_name: '大豆包',
-    agent_type: 'frontend',
-    model: 'gemini-3.8-flash',
-    online: true,
-    busy: false,
-    current_task: '',
-    paused: false,
-    platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 0,
-    source: 'bridge',
-    active_sessions: [],
-  },
-  {
-    name: 'gge',
-    display_name: 'G哥',
-    agent_type: 'architect',
-    model: 'xiao/gpt-6-astra',
-    online: true,
-    busy: false,
-    current_task: '',
-    paused: false,
-    platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 0,
-    source: 'bridge',
-    active_sessions: [],
-  },
-  {
-    name: 'cjiang',
-    display_name: 'C酱',
-    agent_type: 'reviewer',
-    model: 'claude-opus-5-5',
-    online: true,
-    busy: false,
-    current_task: '',
-    paused: false,
-    platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 0,
-    source: 'bridge',
-    active_sessions: [],
-  },
-  {
-    name: 'mika',
-    display_name: '橘',
-    agent_type: 'lead',
-    model: 'claude-3-7-sonnet',
-    online: true,
-    busy: false,
-    current_task: '',
-    paused: false,
-    platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 0,
-    source: 'bridge',
-    active_sessions: [],
-  },
-];
-
-export const AVAILABLE_PET_PACK_OPTIONS = [
-  { id: '', name: '形象待接入 (未绑定)' },
-  { id: 'dsh1', name: '肥鱼 (dsh1 新动作包)' },
-  { id: 'claude', name: 'C酱 (claude 动作包)' },
-  { id: 'gpt1', name: 'GPT (gpt1 动作包)' },
-  { id: 'gemini', name: 'Gemini (gemini 动作包)' },
-  { id: 'dsh-official', name: '官方透明 WebM 包' },
-];
-
-export interface RolePluginConfig {
-  petEnabled: boolean;
-  petPackId: string | null;
+function streamRole(state: RoleState, previous?: ExtendedRoleInfo): ExtendedRoleInfo {
+  return {
+    agent_type: '', model: '', current_task: '', paused: false, platforms: [],
+    ...previous, ...state, busy: state.busy_count > 0, sessions_count: state.sessions.length,
+    active_sessions: state.sessions.map(session => ({
+      sessionId: session.session_key, type: session.status, timestamp: '',
+    })),
+  };
 }
-
-const STORAGE_KEY_ROLE_CONFIGS = 'bothouse_role_plugin_bindings_v5';
-const STORAGE_KEY_PET_BINDINGS = 'bothouse_pet_bindings_v4';
 
 export default function PluginHubPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -142,21 +62,17 @@ export default function PluginHubPage() {
   const [dshPluginsError, setDshPluginsError] = useState('');
   const [switchingPlugin, setSwitchingPlugin] = useState<string | null>(null);
 
-  // Role-based plugin configurations (per role, saved in localStorage)
-  const [roleConfigs, setRoleConfigs] = useState<Record<string, RolePluginConfig>>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_ROLE_CONFIGS);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Fallback
-    }
-    return {
-      'bridge:deep': { petEnabled: true, petPackId: 'dsh1' },
-      deep: { petEnabled: true, petPackId: 'dsh1' },
-      'bridge:cjiang': { petEnabled: true, petPackId: 'claude' },
-      cjiang: { petEnabled: true, petPackId: 'claude' },
-    };
-  });
+  const [roleBindings, setRoleBindings] = useState<RoleBindings>({});
+  const [bindingsReady, setBindingsReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [bindingsError, setBindingsError] = useState('');
+  const [petPacks, setPetPacks] = useState<InstalledPetPack[]>([]);
+  const [packsError, setPacksError] = useState('');
+  const [streamError, setStreamError] = useState(true);
+  const [streamEpoch, setStreamEpoch] = useState(0);
+  const hasSnapshot = useRef(false);
+  const bindingsDisabled = !bindingsReady || saving || !api.getToken();
 
   // Built-in Plugins Registry
   const [plugins] = useState<BothousePlugin[]>([dshPetPlugin]);
@@ -165,7 +81,9 @@ export default function PluginHubPage() {
   );
 
   // Unified Role Events Store keyed by roleKey (source:name)
-  const [events, setEvents] = useState<Record<string, RoleEvent>>({});
+  const [liveEvents, setLiveEvents] = useState<Record<string, RoleEvent>>({});
+  const [simEvents, setSimEvents] = useState<Record<string, RoleEvent>>({});
+  const events = { ...liveEvents, ...simEvents };
 
   // Simulator target roleKey
   const [simTargetRoleKey, setSimTargetRoleKey] = useState<string>('bridge:deep');
@@ -194,33 +112,54 @@ export default function PluginHubPage() {
         await fetchDshPlugins();
       }
     } catch (err) {
-      console.error('Failed to toggle plugin', err);
+      setDshPluginsError(err instanceof Error ? err.message : '切换插件失败');
     } finally {
       setSwitchingPlugin(null);
     }
   };
 
-  const handleRoleConfigChange = (
-    roleKey: string,
-    changes: Partial<RolePluginConfig>
-  ) => {
-    setRoleConfigs((prev) => {
-      const current = prev[roleKey] || { petEnabled: true, petPackId: null };
-      const updated = { ...current, ...changes };
-      const next = { ...prev, [roleKey]: updated };
-      try {
-        localStorage.setItem(STORAGE_KEY_ROLE_CONFIGS, JSON.stringify(next));
-        const petBindings: Record<string, string | null> = {};
-        Object.entries(next).forEach(([k, v]) => {
-          petBindings[k] = v.petEnabled ? v.petPackId : null;
-        });
-        localStorage.setItem(STORAGE_KEY_PET_BINDINGS, JSON.stringify(petBindings));
-      } catch {
-        // Storage write error ignored
-      }
-      return next;
-    });
+  const handleRoleBindingChange = async (roleKey: string, pluginId: string, changes: Partial<RolePluginBinding> | null) => {
+    if (bindingsDisabled || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    const current = roleBindings[roleKey] || [];
+    const existing = current.find(binding => binding.plugin_id === pluginId);
+    const updated = current.filter(binding => binding.plugin_id !== pluginId);
+    if (changes) updated.push({ plugin_id: pluginId, enabled: false, ...existing, ...changes });
+    const next = { ...roleBindings };
+    if (updated.length) next[roleKey] = updated;
+    else delete next[roleKey];
+    try {
+      const saved = await saveRoleBindings(next);
+      setRoleBindings(saved.bindings);
+      setBindingsError('');
+    } catch (err) {
+      setBindingsError(err instanceof Error ? err.message : '角色配置保存失败');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
+
+  const fetchSettings = useCallback(async () => {
+    const results = await Promise.allSettled([getRoleBindings(), listInstalledPetPacks()]);
+    const [bindings, packs] = results;
+    if (bindings.status === 'fulfilled') {
+      setRoleBindings(bindings.value.bindings);
+      setBindingsReady(true);
+      setBindingsError('');
+    } else {
+      setBindingsReady(false);
+      setBindingsError('角色绑定读取失败：' + String(bindings.reason));
+    }
+    if (packs.status === 'fulfilled') {
+      setPetPacks(packs.value.installed);
+      setPacksError('');
+    } else {
+      setPetPacks([]);
+      setPacksError('本机形象包读取失败：' + String(packs.reason));
+    }
+  }, []);
 
   const fetchRoles = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -235,7 +174,7 @@ export default function PluginHubPage() {
             active_sessions: ext.active_sessions || [],
           };
         });
-        setRoles(merged);
+        if (!hasSnapshot.current) setRoles(merged);
         setApiError(false);
       } else {
         setRoles((prev) => (prev.length > 0 ? prev : []));
@@ -253,9 +192,44 @@ export default function PluginHubPage() {
   useEffect(() => {
     fetchRoles();
     fetchDshPlugins();
-    const timer = setInterval(() => fetchRoles(), 4000);
-    return () => clearInterval(timer);
-  }, [fetchRoles, fetchDshPlugins]);
+    fetchSettings();
+  }, [fetchRoles, fetchDshPlugins, fetchSettings]);
+
+  useEffect(() => {
+    const roleEvent = (state: RoleState, time: string): RoleEvent => ({
+      roleKey: state.role_key, roleName: state.name, source: state.source,
+      roleDisplayName: state.display_name, type: state.status, timestamp: time,
+    });
+    return subscribeRoleEvents({
+      snapshot(snapshot) {
+        hasSnapshot.current = true;
+        setStreamError(false);
+        setApiError(false);
+        setLoading(false);
+        // 断线重连快照替换整个集合，清掉旧角色、旧会话和旧气泡。
+        const states = snapshot.roles.map(state => state.source === 'dsh' && snapshot.dsh.status !== 'running'
+          ? { ...state, online: false, status: 'error' as const, busy_count: 0, sessions: [] } : state);
+        setRoles(previous => states.map(state => streamRole(state, previous.find(role => getRoleKey(role) === state.role_key))));
+        setLiveEvents(Object.fromEntries(states.map(state => [state.role_key, roleEvent(state, snapshot.time)])));
+        setSimEvents(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => states.some(state => state.role_key === key))));
+        setSimulatedRoles(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => states.some(state => state.role_key === key))));
+      },
+      event(event) {
+        setStreamError(false);
+        setRoles(previous => {
+          const old = previous.find(role => getRoleKey(role) === event.role_key);
+          const updated = streamRole(event.role, old);
+          return old ? previous.map(role => getRoleKey(role) === event.role_key ? updated : role) : [...previous, updated];
+        });
+        setLiveEvents(previous => ({ ...previous, [event.role_key]: {
+          ...roleEvent(event.role, event.time), sessionId: event.session_key,
+          speechText: event.type === 'speech' ? event.text : previous[event.role_key]?.speechText,
+        } }));
+      },
+      error() { setStreamError(true); },
+    });
+  }, [streamEpoch]);
+
 
   // Synchronize target role key when roles change
   useEffect(() => {
@@ -266,33 +240,6 @@ export default function PluginHubPage() {
       }
     }
   }, [roles, simTargetRoleKey]);
-
-  // Update default events from live roles when not simulated
-  useEffect(() => {
-    setEvents((prevEvents) => {
-      const nextEvents: Record<string, RoleEvent> = { ...prevEvents };
-      const now = new Date().toISOString();
-
-      roles.forEach((r) => {
-        const k = getRoleKey(r);
-        if (simulatedRoles[k]) return;
-
-        const type = deriveRoleStatus(r);
-
-        nextEvents[k] = {
-          roleKey: k,
-          roleName: r.name,
-          source: r.source || 'bridge',
-          roleDisplayName: r.display_name,
-          type,
-          timestamp: now,
-          task: r.current_task,
-        };
-      });
-
-      return nextEvents;
-    });
-  }, [roles, simulatedRoles]);
 
   const handleEmitEvent = (type: RoleEventType) => {
     const now = new Date().toISOString();
@@ -320,7 +267,7 @@ export default function PluginHubPage() {
         nextSimMap[k] = type;
       });
 
-      setEvents((prev) => ({ ...prev, ...updatedEvents }));
+      setSimEvents((prev) => ({ ...prev, ...updatedEvents }));
       setSimulatedRoles((prev) => ({ ...prev, ...nextSimMap }));
     } else {
       const targetRole = roles.find((r) => getRoleKey(r) === simTargetRoleKey) || roles[0];
@@ -332,7 +279,7 @@ export default function PluginHubPage() {
         speechText = `${targetRole.display_name || targetRole.name}：统一插件事件联动正常！`;
       }
 
-      setEvents((prev) => ({
+      setSimEvents((prev) => ({
         ...prev,
         [k]: {
           roleKey: k,
@@ -353,46 +300,12 @@ export default function PluginHubPage() {
   };
 
   const handleResetLive = () => {
-    const now = new Date().toISOString();
-
     if (simTargetRoleKey === 'all') {
-      const resetEvents: Record<string, RoleEvent> = {};
-      roles.forEach((r) => {
-        const k = getRoleKey(r);
-        resetEvents[k] = {
-          roleKey: k,
-          roleName: r.name,
-          source: r.source || 'bridge',
-          roleDisplayName: r.display_name,
-          type: deriveRoleStatus(r),
-          timestamp: now,
-          task: r.current_task,
-        };
-      });
-      setEvents(resetEvents);
+      setSimEvents({});
       setSimulatedRoles({});
     } else {
-      const targetRole = roles.find((r) => getRoleKey(r) === simTargetRoleKey) || roles[0];
-      if (!targetRole) return;
-      const k = getRoleKey(targetRole);
-
-      setEvents((prev) => ({
-        ...prev,
-        [k]: {
-          roleKey: k,
-          roleName: targetRole.name,
-          source: targetRole.source || 'bridge',
-          roleDisplayName: targetRole.display_name,
-          type: deriveRoleStatus(targetRole),
-          timestamp: now,
-          task: targetRole.current_task,
-        },
-      }));
-      setSimulatedRoles((prev) => {
-        const next = { ...prev };
-        delete next[k];
-        return next;
-      });
+      setSimEvents(previous => { const next = { ...previous }; delete next[simTargetRoleKey]; return next; });
+      setSimulatedRoles(previous => { const next = { ...previous }; delete next[simTargetRoleKey]; return next; });
     }
   };
 
@@ -431,8 +344,10 @@ export default function PluginHubPage() {
             onClick={() => {
               fetchRoles(true);
               fetchDshPlugins();
+              fetchSettings();
+              setStreamEpoch(epoch => epoch + 1);
             }}
-            disabled={refreshing || loading}
+            disabled={refreshing || loading || saving}
             data-testid="refresh-roles-btn"
           >
             <RotateCw size={14} className={refreshing ? 'animate-spin' : ''} />
@@ -441,23 +356,12 @@ export default function PluginHubPage() {
         </div>
       </div>
 
-      {/* API connection warning if roles failed to load */}
-      {apiError && roles.length === 0 && (
-        <div data-testid="roles-api-error-alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-600 flex items-center justify-between">
-          <span>后台角色接口连接失败或返回空数据</span>
-          <button
-            type="button"
-            data-testid="load-demo-roles-btn"
-            onClick={() => {
-              setRoles(DEFAULT_DEMO_ROLES);
-              setApiError(false);
-            }}
-            className="rounded bg-red-600 px-2.5 py-1 text-white hover:bg-red-700 font-medium"
-          >
-            加载空闲演示角色 (用于本地开发调试)
-          </button>
-        </div>
-      )}
+      {(apiError || streamError) && <div role="status" data-testid="roles-api-error-alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
+        {streamError ? '角色事件连接中或已断开，正在重连；当前显示最后已知状态。' : '角色列表读取失败。'}
+      </div>}
+      {bindingsError && <div role="alert" className="text-sm text-red-600">{bindingsError}</div>}
+      {packsError && <div role="alert" className="text-sm text-amber-700">{packsError}</div>}
+      {!api.getToken() && <p className="text-xs text-ink-mute">当前为只读查看，登录后可保存角色配置。</p>}
 
       {/* 1. Real DSH Plugins Section (from /api/v1/plugins) */}
       <div className="space-y-3" data-testid="dsh-real-plugins-section">
@@ -481,7 +385,7 @@ export default function PluginHubPage() {
 
         {dshPluginsError && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700">
-            DSH 插件接口状态：{dshPluginsError} (使用默认生态声明)
+            DSH 插件接口状态：{dshPluginsError}
           </div>
         )}
 
@@ -517,7 +421,7 @@ export default function PluginHubPage() {
                       <span className="text-accent">遵循各形象包自带说明</span>
                     </div>
                   </div>
-                  <Badge variant="success" className="text-[10px]">运行中</Badge>
+                  <Badge variant="outline" className="text-[10px]">面板适配器</Badge>
                 </div>
                 <p className="mt-2.5 text-xs text-ink-soft leading-relaxed line-clamp-2">
                   为 bothouse 角色注入桌宠动画。按角色事件（空闲、工作中、思考、交活庆祝、出错）切动作并冒气泡。
@@ -582,7 +486,7 @@ export default function PluginHubPage() {
                     variant={plugin.enabled ? 'ghost' : 'secondary'}
                     size="sm"
                     className="text-xs h-7"
-                    disabled={switchingPlugin === plugin.name}
+                    disabled={switchingPlugin === plugin.name || !plugin.layer || !dshPluginsState.writes_allowed}
                     onClick={() => handleTogglePlugin(plugin.name, plugin.enabled)}
                   >
                     {switchingPlugin === plugin.name ? '切换中…' : plugin.enabled ? '停用' : '启用'}
@@ -606,7 +510,7 @@ export default function PluginHubPage() {
               每个角色配一份插件与形象包；解绑即时生效并持久保存，刷新不丢失，解绑真解绑不回退默认。
             </p>
           </div>
-          <span className="text-xs text-ink-mute font-mono">共 {roles.length} 个角色在线</span>
+          <span className="text-xs text-ink-mute font-mono">共 {roles.length} 个角色</span>
         </div>
 
         <Card className="overflow-hidden border p-0 bg-surface">
@@ -623,10 +527,8 @@ export default function PluginHubPage() {
               <tbody className="divide-y divide-hairline">
                 {roles.map((r) => {
                   const k = getRoleKey(r);
-                  const cfg = roleConfigs[k] || roleConfigs[r.name] || {
-                    petEnabled: true,
-                    petPackId: r.name === 'deep' ? 'dsh1' : r.name === 'cjiang' ? 'claude' : null,
-                  };
+                  const bindings = roleBindings[k] || [];
+                  const cfg = bindings.find(binding => binding.plugin_id === PET_ADAPTER_ID);
                   const currentStatus = deriveRoleStatus(r);
 
                   return (
@@ -663,34 +565,24 @@ export default function PluginHubPage() {
                       </td>
 
                       <td className="py-3 px-3">
-                        <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={cfg.petEnabled}
-                            onChange={(e) => handleRoleConfigChange(k, { petEnabled: e.target.checked })}
-                            className="rounded border-hairline text-accent focus:ring-accent"
-                            data-testid={`checkbox-pet-${k}`}
-                          />
-                          <span className="text-xs text-ink">{cfg.petEnabled ? '已启用桌宠' : '未启用'}</span>
-                        </label>
+                        {[{ name: PET_ADAPTER_ID, label: '桌宠适配器' }, ...(dshPluginsState?.plugins || []).map(plugin => ({ name: plugin.name, label: plugin.name }))].map(plugin => {
+                          const binding = bindings.find(item => item.plugin_id === plugin.name);
+                          return <label key={plugin.name} className="mr-3 inline-flex items-center gap-1.5">
+                            <input type="checkbox" checked={binding?.enabled || false} disabled={bindingsDisabled}
+                              data-testid={`checkbox-plugin-${k}-${plugin.name}`}
+                              onChange={event => handleRoleBindingChange(k, plugin.name, { enabled: event.target.checked })} />
+                            <span>{plugin.label}</span>
+                          </label>;
+                        })}
                       </td>
-
                       <td className="py-3 px-4">
-                        <select
-                          value={cfg.petPackId || ''}
-                          disabled={!cfg.petEnabled}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            handleRoleConfigChange(k, { petPackId: val === '' ? null : val });
-                          }}
+                        <select value={cfg?.avatar_pack || ''} disabled={bindingsDisabled}
                           data-testid={`select-pack-${k}`}
-                          className="h-8 rounded-md border border-hairline bg-surface px-2.5 text-xs text-ink shadow-xs focus:border-accent focus:outline-none disabled:opacity-50"
-                        >
-                          {AVAILABLE_PET_PACK_OPTIONS.map((opt) => (
-                            <option key={opt.id} value={opt.id}>
-                              {opt.name}
-                            </option>
-                          ))}
+                          onChange={event => handleRoleBindingChange(k, PET_ADAPTER_ID, event.target.value ? { enabled: true, avatar_pack: event.target.value } : null)}
+                          className="h-8 rounded-md border border-hairline bg-surface px-2.5 text-xs text-ink disabled:opacity-50">
+                          <option value="">形象待接入 (未绑定)</option>
+                          {cfg?.avatar_pack && !petPacks.some(pack => pack.id === cfg.avatar_pack) && <option value={cfg.avatar_pack}>未安装：{cfg.avatar_pack}</option>}
+                          {petPacks.map(pack => <option key={pack.id} value={pack.id}>{pack.name} [本地已装]</option>)}
                         </select>
                       </td>
                     </tr>
@@ -737,7 +629,7 @@ export default function PluginHubPage() {
               </Badge>
             ) : (
               <Badge variant="success" className="text-xs">
-                实时总线监听
+                {streamError ? '事件流重连中' : '实时总线监听'}
               </Badge>
             )}
           </div>
@@ -847,6 +739,10 @@ export default function PluginHubPage() {
               events={events}
               roles={roles}
               isSimulated={Object.keys(simulatedRoles).length > 0}
+              roleBindings={roleBindings}
+              petPacks={petPacks}
+              bindingsDisabled={bindingsDisabled}
+              onRoleBindingChange={handleRoleBindingChange}
             />
           );
         })()}

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import type { RoleInfo } from '@/api/roles';
 import type { RoleEventType, RoleSessionState } from './roleAggregation';
+import type { RoleBindings, RolePluginBinding } from '@/api/roleBindings';
+import type { InstalledPetPack } from '@/api/pets';
 
 export type { RoleEventType, RoleSessionState } from './roleAggregation';
 export { aggregateRoleStatus, getBusySessionCount, getDeduplicatedSpeech, getRoleKey, STATE_PRIORITY } from './roleAggregation';
@@ -17,6 +19,8 @@ export { aggregateRoleStatus, getBusySessionCount, getDeduplicatedSpeech, getRol
 export interface ExtendedRoleInfo extends RoleInfo {
   source?: string;
   active_sessions?: RoleSessionState[];
+  status?: RoleEventType;
+  busy_count?: number;
 }
 
 export interface RoleEvent {
@@ -48,6 +52,10 @@ export interface PluginRenderProps {
   events: Record<string, RoleEvent>;
   roles: ExtendedRoleInfo[];
   isSimulated: boolean;
+  roleBindings?: RoleBindings;
+  petPacks?: InstalledPetPack[];
+  bindingsDisabled?: boolean;
+  onRoleBindingChange?: (roleKey: string, pluginId: string, binding: Partial<RolePluginBinding> | null) => void;
   onEmitEvent?: (event: RoleEvent) => void;
 }
 
