@@ -236,6 +236,11 @@ func dshRoleStates(st *dshState) []RoleState {
 			role.Sessions = append(role.Sessions, RoleSessionState{Status: "error"})
 		}
 		mergeRoleState(&role)
+		// Presence confirms work even when room-level thinking identifies the
+		// same sessions. It changes the role phase without inventing another room.
+		if mb.Online && mb.Busy && role.Status != "error" {
+			role.Status = "working"
+		}
 		roles = append(roles, role)
 	}
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleKey < roles[j].RoleKey })

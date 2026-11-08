@@ -18750,6 +18750,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				continue
 			}
 			e.observeQuotaEventFor(event, sourceSessionKey, agentSession, turnScope)
+			e.observeRoleAgentEvent(relaySessionKey, event, textParts)
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
 			}
@@ -18955,6 +18956,7 @@ func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, ag
 				sessions.Save()
 			}
 			e.observeQuotaEventFor(ev, relaySessionKey, agentSession, turnScope)
+			e.observeRoleAgentEvent(relaySessionKey, ev, textParts)
 			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // as in handleTrackedRelay
 			}

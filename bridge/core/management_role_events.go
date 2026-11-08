@@ -100,14 +100,24 @@ func (m *ManagementServer) handleRoleEvents(w http.ResponseWriter, r *http.Reque
 			if role.RoleKey != ev.RoleKey {
 				continue
 			}
-			ev.Role = roleWithEvent(role, ev)
+			ev.Role = role
+			if ev.Type != "speech" {
+				ev.Role = roleWithEvent(role, ev)
+			}
 			if ev.Text != "" {
 				speech := ev
 				speech.Type = "speech"
 				sse.event("speech", speech)
 			}
-			ev.Text = ""
-			sse.event(ev.Type, ev)
+			if ev.Type != "speech" {
+				ev.Text = ""
+				sse.event(ev.Type, ev)
+			}
+			for i := range previous.Roles {
+				if previous.Roles[i].RoleKey == ev.RoleKey {
+					previous.Roles[i] = ev.Role
+				}
+			}
 			return
 		}
 	}
@@ -183,7 +193,14 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 		return err
 	}
 	req.Host = c.target
+	// Bound the initial headers using the existing DSH read timeout; keep the
+	// established event stream alive until its subscriber disconnects.
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+	req = req.WithContext(streamCtx)
+	headerTimer := time.AfterFunc(dshRolesTimeout, cancelStream)
 	res, err := c.rt.RoundTrip(req)
+	headerTimer.Stop()
 	if err != nil {
 		return err
 	}
@@ -251,9 +268,25 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 			if st.Thinking == nil {
 				st.Thinking = map[string][]string{}
 			}
+			before := st.Thinking[thinking.Room.String()]
 			st.Thinking[thinking.Room.String()] = ids
 			if !send(dshRoleUpdate{state: cloneDSHRoleState(st), status: running}) {
 				return ctx.Err()
+			}
+			for _, id := range before {
+				stillBusy := false
+				for _, active := range ids {
+					if id == active {
+						stillBusy = true
+						break
+					}
+				}
+				if !stillBusy {
+					ev := RoleEvent{Type: "celebrate", RoleKey: "dsh:" + id, SessionKey: thinking.Room.String(), Status: "celebrate", Time: time.Now().UTC()}
+					if !send(dshRoleUpdate{status: running, event: &ev}) {
+						return ctx.Err()
+					}
+				}
 			}
 			continue
 		}
@@ -280,7 +313,14 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 			if !found {
 				continue
 			}
-			ev := RoleEvent{Type: "celebrate", RoleKey: "dsh:" + msg.Author, SessionKey: msg.Room.String(), Status: "celebrate", Text: msg.Text, Time: time.Unix(0, int64(msg.CreatedAt*float64(time.Second))).UTC()}
+			status := "idle"
+			for _, role := range dshRoleStates(&st) {
+				if role.RoleKey == "dsh:"+msg.Author {
+					status = role.Status
+					break
+				}
+			}
+			ev := RoleEvent{Type: "speech", RoleKey: "dsh:" + msg.Author, SessionKey: msg.Room.String(), Status: status, Text: msg.Text, Time: time.Unix(0, int64(msg.CreatedAt*float64(time.Second))).UTC()}
 			if !send(dshRoleUpdate{status: running, event: &ev}) {
 				return ctx.Err()
 			}
