@@ -6,6 +6,7 @@ import {
   getRoleKey,
   type RoleSessionState,
 } from './roleAggregation';
+import { calculateFramePosition } from './plugins/dshPetPlugin';
 
 describe('roleAggregation - 角色状态防串与多开会话状态合并规范', () => {
   it('生成唯一 roleKey：同名不同 source 不串', () => {
@@ -129,5 +130,16 @@ describe('roleAggregation - 角色状态防串与多开会话状态合并规范'
 
     const speech = getDeduplicatedSpeech(sessions);
     expect(speech).toBe('最新的核心汇报内容！');
+  });
+
+  it('精灵图帧位置计算：按列数和帧尺寸精确换算 x, y 偏移', () => {
+    // 8 列，640x360
+    expect(calculateFramePosition(0, 8, 640, 360)).toEqual({ col: 0, row: 0, x: 0, y: 0 });
+    expect(calculateFramePosition(7, 8, 640, 360)).toEqual({ col: 7, row: 0, x: 4480, y: 0 });
+    expect(calculateFramePosition(8, 8, 640, 360)).toEqual({ col: 0, row: 1, x: 0, y: 360 });
+    expect(calculateFramePosition(15, 8, 640, 360)).toEqual({ col: 7, row: 1, x: 4480, y: 360 });
+    expect(calculateFramePosition(16, 8, 640, 360)).toEqual({ col: 0, row: 2, x: 0, y: 720 });
+    // 异常列数保护
+    expect(calculateFramePosition(5, 0, 640, 360)).toEqual({ col: 0, row: 5, x: 0, y: 1800 });
   });
 });

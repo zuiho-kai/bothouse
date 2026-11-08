@@ -85,6 +85,12 @@ let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
 
 beforeEach(() => {
+  HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+    clearRect: vi.fn(),
+    drawImage: vi.fn(),
+    getImageData: vi.fn(),
+    putImageData: vi.fn(),
+  })) as any;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -118,9 +124,9 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     // Target role selector is present
     expect(container?.querySelector('[data-testid="sim-target-select"]')).not.toBeNull();
 
-    // Both plugins are listed
+    // Plugins and role configuration are listed
     expect(container?.textContent).toContain('桌宠角色与形象包适配');
-    expect(container?.textContent).toContain('人格养成 (待接入)');
+    expect(container?.textContent).toContain('插件按角色配置');
 
     // Author and upstream terms are displayed
     expect(container?.textContent).toContain('PC2005-cloud & hunmer');
@@ -203,7 +209,7 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
 
     // Deep's pet image switches to celebrate
     const deepImg = container?.querySelector('[data-testid="pet-img-bridge:deep"]');
-    expect(deepImg?.getAttribute('src')).toContain(PET_ASSETS.celebrate.filename);
+    expect(decodeURIComponent(deepImg?.getAttribute('src') || '')).toContain(PET_ASSETS.celebrate.filename);
 
     // Switch view to all roles to verify that gjiang and gge were NOT modified to celebrate
     const allBtn = container?.querySelector('[data-testid="mode-all-btn"]') as HTMLButtonElement | null;
@@ -390,5 +396,224 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
 
     // No busy sessions badge
     expect(container?.querySelector('[data-testid="busy-badge-bridge:deep"]')).toBeNull();
+  });
+
+  // Targeted regression test 3: 同名不同 source 同时存在互不影响
+  it('同名不同 source (bridge:deep vs dsh:deep) 同时存在且各自事件互不影响', async () => {
+    const multiDeep = [
+      {
+        name: 'deep',
+        display_name: '肥鱼(主桥)',
+        agent_type: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        online: true,
+        busy: false,
+        current_task: '',
+        paused: false,
+        platforms: [{ name: 'discord', ready: true }],
+        sessions_count: 0,
+        source: 'bridge',
+        active_sessions: [],
+      },
+      {
+        name: 'deep',
+        display_name: '肥鱼(DSH)',
+        agent_type: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        online: true,
+        busy: false,
+        current_task: '',
+        paused: false,
+        platforms: [{ name: 'qq', ready: true }],
+        sessions_count: 0,
+        source: 'dsh',
+        active_sessions: [],
+      },
+    ];
+
+    vi.mocked(listRoles).mockResolvedValueOnce({ roles: multiDeep as any });
+
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Switch to all mode
+    const allBtn = container?.querySelector('[data-testid="mode-all-btn"]') as HTMLButtonElement | null;
+    await act(async () => {
+      allBtn?.click();
+    });
+
+    // Both cards exist
+    const bridgeCard = container?.querySelector('[data-testid="pet-card-bridge:deep"]');
+    const dshCard = container?.querySelector('[data-testid="pet-card-dsh:deep"]');
+    expect(bridgeCard).not.toBeNull();
+    expect(dshCard).not.toBeNull();
+
+    // Select bridge:deep as simulator target
+    const targetSelect = container?.querySelector('[data-testid="sim-target-select"]') as HTMLSelectElement | null;
+    await act(async () => {
+      if (targetSelect) {
+        targetSelect.value = 'bridge:deep';
+        targetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    // Emit celebrate to bridge:deep
+    const celebBtn = container?.querySelector('[data-testid="sim-btn-celebrate"]') as HTMLButtonElement | null;
+    await act(async () => {
+      celebBtn?.click();
+    });
+
+    // bridge:deep has celebrate, but dsh:deep remains idle
+    expect(bridgeCard?.textContent).toContain('交活庆祝');
+    expect(dshCard?.textContent).toContain('待机中');
+    expect(dshCard?.textContent).not.toContain('交活庆祝');
+  });
+
+  // Targeted regression test 4: deep 由忙转闲
+  it('deep 角色由忙碌变为由忙转闲，卡片和忙碌角标正确更新复位', async () => {
+    const busyRole = [
+      {
+        name: 'deep',
+        display_name: '肥鱼',
+        agent_type: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        online: true,
+        busy: true,
+        current_task: '排查工单',
+        paused: false,
+        platforms: [{ name: 'discord', ready: true }],
+        sessions_count: 1,
+        source: 'bridge',
+        active_sessions: [{ sessionId: 's1', type: 'working', task: '排查工单' }],
+      },
+    ];
+
+    vi.mocked(listRoles).mockResolvedValueOnce({ roles: busyRole as any });
+
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    const card = container?.querySelector('[data-testid="pet-card-bridge:deep"]');
+    expect(card?.textContent).toContain('干活中');
+    expect(container?.querySelector('[data-testid="busy-badge-bridge:deep"]')?.textContent).toContain('1 处在忙');
+
+    // Simulate next polling turn where deep becomes idle
+    const idleRole = [
+      {
+        name: 'deep',
+        display_name: '肥鱼',
+        agent_type: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        online: true,
+        busy: false,
+        current_task: '',
+        paused: false,
+        platforms: [{ name: 'discord', ready: true }],
+        sessions_count: 0,
+        source: 'bridge',
+        active_sessions: [],
+      },
+    ];
+    vi.mocked(listRoles).mockResolvedValueOnce({ roles: idleRole as any });
+
+    // Click refresh button to trigger fetchRoles
+    const refreshBtn = container?.querySelector('button:has(svg.lucide-rotate-cw)') as HTMLButtonElement | null;
+    await act(async () => {
+      refreshBtn?.click();
+    });
+
+    expect(card?.textContent).toContain('待机中');
+    expect(card?.textContent).not.toContain('干活中');
+    expect(container?.querySelector('[data-testid="busy-badge-bridge:deep"]')).toBeNull();
+  });
+
+  // Targeted regression test 5: 点恢复实时回到真实状态
+  it('点击恢复实时按钮后清除模拟事件，回到后台真实状态', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Simulate error on bridge:deep
+    const errBtn = container?.querySelector('[data-testid="sim-btn-error"]') as HTMLButtonElement | null;
+    await act(async () => {
+      errBtn?.click();
+    });
+
+    const card = container?.querySelector('[data-testid="pet-card-bridge:deep"]');
+    expect(card?.textContent).toContain('出错/冷却');
+
+    // Click reset live button
+    const resetBtn = container?.querySelector('[data-testid="sim-btn-reset"]') as HTMLButtonElement | null;
+    await act(async () => {
+      resetBtn?.click();
+    });
+
+    // Returned to live state (mockRoles has active sessions working/thinking, so live status is working)
+    expect(card?.textContent).toContain('干活中');
+    expect(card?.textContent).not.toContain('出错/冷却');
+  });
+
+  // Targeted regression test 6: 接口失败不显示假忙，显示连接错误提示
+  it('后台角色接口失败时不冒充假忙碌，显示明确错误告警与空闲回退', async () => {
+    vi.mocked(listRoles).mockRejectedValueOnce(new Error('Network offline'));
+
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Shows API connection error alert
+    expect(container?.querySelector('[data-testid="roles-api-error-alert"]')).not.toBeNull();
+    expect(container?.textContent).toContain('后台角色接口连接失败或返回空数据');
+
+    // No pet cards with fake busy status
+    expect(container?.querySelector('[data-testid="busy-badge-bridge:deep"]')).toBeNull();
+  });
+
+  // Targeted regression test 7: 角色解绑置 null 不会回落 deep/cjiang 默认绑定
+  it('角色形象包解绑为未绑定时置 null，显示形象待接入并不回落默认形象包', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Deep initially has dsh1
+    expect(container?.querySelector('[data-testid="pet-img-bridge:deep"]')).not.toBeNull();
+
+    // Select "[未绑定] 形象待接入"
+    const select = container?.querySelector('[data-testid="pack-select-bridge:deep"]') as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+
+    await act(async () => {
+      if (select) {
+        select.value = '';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    // Now deep shows 形象待接入 and slot pending placeholder; pet img is null
+    expect(container?.textContent).toContain('形象待接入');
+    expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:deep"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-img-bridge:deep"]')).toBeNull();
   });
 });
