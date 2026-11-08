@@ -176,7 +176,7 @@ jobs:
             codesign --force --keychain "$keychain" --sign "$SIGN_HASH" --identifier "$SIGN_ID" build/bothouse-universal
             security lock-keychain "$keychain"
             codesign --verify "-R=identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\"" build/bothouse-universal
-            ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG"
+            ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG" build/dmg-stage
           fi
           cd ../dist
           shasum -a 256 bothouse-* > SHA256SUMS
@@ -193,8 +193,11 @@ jobs:
         if: runner.os == 'macOS'
         continue-on-error: true
         run: |
-          mount=$(mktemp -d)
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount" dist/bothouse-mac.dmg
+          # Checks the staged .app that package-dmg.sh put into the image, not a mounted copy: on the
+          # Mac Studio runner mounting is unreliable (writable attach hung, and detach of a read-only
+          # mount hung too), so the dmg itself is only checked by checksum.
+          hdiutil verify dist/bothouse-mac.dmg
+          mount=bridge/build/dmg-stage
           plutil -lint "$mount/Bothouse.app/Contents/Info.plist"
           lipo -info "$mount/Bothouse.app/Contents/MacOS/bothouse"
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch arm64
@@ -209,7 +212,6 @@ jobs:
           req="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\""
           codesign --verify --strict "$mount/Bothouse.app"
           codesign --verify --ignore-resources "-R=$req" "$mount/Bothouse.app/Contents/MacOS/bothouse"
-          hdiutil detach "$mount"
       - name: zstd for the cache archive (macOS)
         # actions/cache falls back to gzip when zstd is missing, and a gzip entry has a different cache version, so the
         # Linux publish job cannot restore it (run 39932903479). The Mac Studio has no zstd/Homebrew: build it once into
