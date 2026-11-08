@@ -393,19 +393,21 @@ export class Store {
    * workspace is addressed, so a duplicate or a workspace-shaped name is refused with 'conflict'.
    */
   checkRoomName(name, selfId) {
-    if (new RegExp(`^${WORKSPACE_PREFIX}\\d+$`).test(name)) throw new CollabError('conflict', `channel name ${name} is reserved for workspaces`);
+    // #366: 这两句会原样显示在客户端改名/新建对话框的错误条里，因此和同页其它校验一样说中文。
+    if (new RegExp(`^${WORKSPACE_PREFIX}\\d+$`).test(name)) throw new CollabError('conflict', `${name} 是工作区保留名，换个名字`);
     // A private chat is named after its member and listed with its avatar, so it does not clash.
     const clash = this.rooms().find(r => r.id !== selfId && r.kind === 'chat' && r.dm_member == null && r.name.toLowerCase() === name.toLowerCase());
-    if (clash !== undefined) throw new CollabError('conflict', `channel name ${name} is already in use`);
+    if (clash !== undefined) throw new CollabError('conflict', `频道名 ${name} 已被占用`);
   }
   /** Rename the channel without changing any room, message or session identity. */
   renameRoom(id, name) {
     if (typeof name !== 'string' || !name || name.length > 32 || /\s/.test(name)) {
-      throw new CollabError('invalid', 'room name must be 1-32 characters without spaces');
+      throw new CollabError('invalid', '频道名 1–32 个字符，且不能有空格');
     }
     const room = this.room(id);
-    if (room === undefined) throw new CollabError('room-missing', `room ${id} does not exist`);
-    if (room.kind === 'workspace') throw new CollabError('invalid', 'workspace names cannot be changed');
+    if (room === undefined) throw new CollabError('room-missing', `频道 ${id} 不存在`);
+    // 工作区名是系统分配的（工作区<n>），改名会和一个地址撞名，所以服务端直接拒绝。
+    if (room.kind === 'workspace') throw new CollabError('invalid', '工作区名称由系统分配，不能修改');
     this.checkRoomName(name, id);
     return this.db.prepare('UPDATE rooms SET name = ? WHERE id = ? RETURNING id, name, kind, parent_id').get(name, id);
   }
