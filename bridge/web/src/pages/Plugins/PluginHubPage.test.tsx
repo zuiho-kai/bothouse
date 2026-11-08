@@ -8,6 +8,18 @@ import type { RoleInfo } from '@/api/roles';
 
 const mockRoles: RoleInfo[] = [
   {
+    name: 'deep',
+    display_name: '肥鱼',
+    agent_type: 'deepseek',
+    model: 'deepseek-v4.1-flash',
+    online: true,
+    busy: false,
+    current_task: '',
+    paused: false,
+    platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
+    sessions_count: 12,
+  },
+  {
     name: 'gjiang',
     display_name: '大豆包',
     agent_type: 'frontend',
@@ -78,6 +90,7 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(container?.textContent).toContain('插件总页与生态接口');
     expect(container?.textContent).toContain('统一插件接口规范');
     expect(container?.textContent).toContain('已接入插件列表');
+    expect(container?.textContent).toContain('DSH 原生配置管理');
 
     // Both plugins are listed
     expect(container?.textContent).toContain('桌宠大肥鱼 (dsh-pet)');
@@ -109,7 +122,86 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(container?.textContent).toContain('说了一句');
   });
 
-  it('emits unified event and drives pet plugin animation response', async () => {
+  it('defaults to single pet display for 肥鱼 (deep) with fat fish asset pack', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Header explains single pet policy and mapping
+    expect(container?.textContent).toContain('一个角色一只桌宠');
+    expect(container?.textContent).toContain('只显示一只 (默认)');
+
+    // Default displayed role is 肥鱼
+    expect(container?.textContent).toContain('肥鱼');
+    expect(container?.textContent).toContain('大肥鱼形象包');
+
+    // Fat fish image exists for deep
+    const deepImg = container?.querySelector('[data-testid="pet-img-deep"]');
+    expect(deepImg).not.toBeNull();
+    expect(deepImg?.getAttribute('src')).toContain(PET_ASSETS.idle.filename);
+  });
+
+  it('switching role in single mode to gjiang displays 形象待接入 without fat fish image', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Find the select dropdown
+    const select = container?.querySelector('[data-testid="pet-role-select"]') as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+
+    await act(async () => {
+      if (select) {
+        select.value = 'gjiang';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    // In single mode with gjiang selected:
+    expect(container?.textContent).toContain('大豆包');
+    expect(container?.textContent).toContain('形象待接入');
+    expect(container?.querySelector('[data-testid="pet-slot-pending-gjiang"]')).not.toBeNull();
+
+    // Fat fish image should NOT be displayed for gjiang
+    expect(container?.querySelector('[data-testid="pet-img-gjiang"]')).toBeNull();
+  });
+
+  it('switching to all roles mode displays grid where only deep has fat fish image', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Click "全部角色" mode button
+    const allBtn = container?.querySelector('[data-testid="mode-all-btn"]') as HTMLButtonElement | null;
+    expect(allBtn).not.toBeNull();
+
+    await act(async () => {
+      allBtn?.click();
+    });
+
+    // In all roles mode: deep has image, while gjiang and gge have empty slot placeholders
+    expect(container?.querySelector('[data-testid="pet-img-deep"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-slot-pending-gjiang"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-slot-pending-gge"]')).not.toBeNull();
+
+    // Only 1 image is in the pet grid (for deep)
+    const images = container?.querySelectorAll('img');
+    expect(images?.length).toBe(1);
+  });
+
+  it('emits unified event and drives pet animation response for 肥鱼', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -131,12 +223,9 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     // Event broadcaster badge should show "正在广播：celebrate"
     expect(container?.textContent).toContain('正在广播：celebrate');
 
-    // Pet images should switch to celebrate gif
-    const images = container?.querySelectorAll('img');
-    const celebImgs = Array.from(images || []).filter((img) =>
-      img.getAttribute('src')?.includes(PET_ASSETS.celebrate.filename)
-    );
-    expect(celebImgs.length).toBeGreaterThanOrEqual(2);
+    // Deep's pet image should switch to celebrate gif
+    const deepImg = container?.querySelector('[data-testid="pet-img-deep"]');
+    expect(deepImg?.getAttribute('src')).toContain(PET_ASSETS.celebrate.filename);
   });
 
   it('switches dedicated area to personality nurture placeholder', async () => {
@@ -149,12 +238,6 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     });
 
     // Click on the Personality Nurture card or its button
-    const nurtureCard = Array.from(container?.querySelectorAll('h4, span') || []).find((el) =>
-      el.textContent?.includes('人格养成 (待接入)')
-    );
-    expect(nurtureCard).toBeDefined();
-
-    // Find the button for entering personality area
     const buttons = Array.from(container?.querySelectorAll('button') || []);
     const enterNurtureBtn = buttons.find(
       (b) => b.textContent?.includes('进入专区') || b.textContent?.includes('人格养成')

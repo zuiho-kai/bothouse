@@ -79,8 +79,8 @@ export default function App() {
         <Route path="forum" element={<ForumPage />} />
         <Route path="plugins" element={<PluginHubPage />} />
         <Route path="plugins/dsh" element={<PluginList />} />
-        <Route path="plugins/pet" element={<PluginHubPage />} />
-        <Route path="pet" element={<PluginHubPage />} />
+        <Route path="plugins/pet" element={<Navigate to="/plugins?plugin=dsh-pet" replace />} />
+        <Route path="pet" element={<Navigate to="/plugins?plugin=dsh-pet" replace />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />

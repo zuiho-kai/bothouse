@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Boxes,
   RotateCw,
@@ -70,6 +70,18 @@ const DEFAULT_DEMO_ROLES: RoleInfo[] = [
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
     sessions_count: 4,
+  },
+  {
+    name: 'mika',
+    display_name: '橘',
+    agent_type: 'lead',
+    model: 'claude-3-7-sonnet',
+    online: true,
+    busy: false,
+    current_task: '',
+    paused: false,
+    platforms: [{ name: 'discord', ready: true }],
+    sessions_count: 6,
   },
 ];
 
@@ -196,6 +208,13 @@ export default function PluginHubPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            to="/plugins/dsh"
+            className="inline-flex items-center gap-1.5 rounded-control border border-hairline bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-sunken transition-colors"
+          >
+            <Boxes size={14} />
+            <span>DSH 原生配置管理</span>
+          </Link>
           <Button
             variant="secondary"
             size="sm"
@@ -453,11 +472,16 @@ export default function PluginHubPage() {
 
         {/* Plugin Render execution */}
         {activePlugin.enabled || activePlugin.status === 'pending' ? (
-          activePlugin.render({
-            events,
-            roles,
-            isSimulated: currentSimType !== null,
-          })
+          (() => {
+            const ActivePluginView = activePlugin.render;
+            return (
+              <ActivePluginView
+                events={events}
+                roles={roles}
+                isSimulated={currentSimType !== null}
+              />
+            );
+          })()
         ) : (
           <div className="py-12 text-center text-sm text-ink-mute">
             该插件已被停用，请在上方卡片中重新启用。

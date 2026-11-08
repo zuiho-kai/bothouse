@@ -214,11 +214,11 @@ export default function PluginList() {
         actions={
           <div className="flex items-center gap-2">
             <Link
-              to="/pet"
+              to="/plugins?plugin=dsh-pet"
               className="inline-flex items-center gap-1.5 rounded-control border border-accent/30 bg-accent-wash px-3 py-1.5 text-xs font-semibold text-accent hover:opacity-90 transition-opacity"
             >
               <Sparkles size={14} />
-              桌宠演示
+              插件总页 (桌宠)
             </Link>
             <Button variant="secondary" size="sm" onClick={fetchData} disabled={loading}>
               <RotateCw size={14} className={loading ? 'animate-spin' : ''} />

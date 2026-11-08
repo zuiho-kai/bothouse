@@ -20,7 +20,6 @@ import {
   Smartphone,
   Network,
   Boxes,
-  Fish,
   ShieldCheck,
   Award,
   X,
@@ -38,8 +37,6 @@ const navItems = [
   { key: 'devices', path: '/devices', icon: Laptop },
   // 插件 (#150 第b项): the DSH profile's own plugins — install, switch on/off
   { key: 'plugins', path: '/plugins', icon: Boxes },
-  // 桌宠 (#416): bothouse 角色联动桌宠插件生态演示
-  { key: 'pet', path: '/pet', icon: Fish },
   // 记忆论坛 (#1143): the memories roles get each turn, as ranked posts (gate GET /forum)
   { key: 'forum', path: '/forum', icon: Award },
   // 接入应用 (#150): which outside apps (QQ / Discord / 飞书) are wired, one row each
