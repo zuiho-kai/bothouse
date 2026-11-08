@@ -50,6 +50,17 @@ async function select(id: string, value: string) {
   await act(async () => { const e = find(id) as HTMLSelectElement; e.value = value; e.dispatchEvent(new Event('change', { bubbles: true })); });
 }
 describe('plugin page backend integration', () => {
+  it('never reintroduces stale manifest actions after receiving the authoritative table', async () => {
+    vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs, installed: [{ ...packs.installed[0],
+      actions: [action('rest-from-actions')],
+      manifest: { idleAnimationId: 'retired', animations: [action('retired')] },
+    }] });
+    await render();
+    await act(async () => handlers.snapshot({ roles: [{ ...bridge, status: 'idle', busy_count: 0, sessions: [] }], time, dsh: { status: 'running' } }));
+    const image = decodeURIComponent(find('pet-player-sprite').style.backgroundImage);
+    expect(image).toContain('rest-from-actions.webp');
+    expect(image).not.toContain('retired.webp');
+  });
   it('keeps deep as the initial display when another bound role sorts first', async () => {
     await render();
     const claude = { ...bridge, role_key: 'bridge:claude', name: 'claude', display_name: 'Claude' };

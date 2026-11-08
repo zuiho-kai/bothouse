@@ -77,7 +77,7 @@ const STATE_LABELS: Record<RoleEventType, string> = {
 export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): PetAsset | null {
   if (pack.error) return null;
   const manifest = pack.manifest || {};
-  const actions = [...(pack.actionsList || []), ...((manifest.animations || []) as Record<string, any>[])];
+  const actions = pack.actionsList ?? ((manifest.animations || []) as Record<string, any>[]);
   const patterns: Record<RoleEventType, RegExp> = {
     idle: /待机|打瞌睡|休闲|idle/i, working: /代码|加班|忙碌|工作|working|coding/i,
     thinking: /思考|thinking/i, celebrate: /庆祝|雀跃|celebrate/i,
