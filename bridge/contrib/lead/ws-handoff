@@ -251,11 +251,36 @@ def claim_cmd(chat: str, wid: str, task: str):
     return [cc_bin(), "workspace", "claim", "--session-key", chat, "--title", task[:60], str(wid)]
 
 
+def _ws_state() -> dict:
+    """桥的工作区状态 <数据目录>/team_workspaces.json（只读）；读不到 → {}。"""
+    try:
+        return json.loads((_team.datadir.data_dir() / "team_workspaces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, SystemExit):
+        return {}
+
+
+def lead_chat(chat: str) -> str:
+    """工作区会话 key → 交活的聊天频道（现在占着它的 owner，否则它最近一件交接的 chat）；不是工作区原样返回。
+    工作区里跑 ws-handoff 时 CC_SESSION_KEY 是工作区自己，桥拒绝从工作区 claim（errTeamIsWorkspace「channel is a
+    workspace」），这件活只能进队列，而 drain 每次在它身上 claim 失败退出，后面的活全卡住（本机 11-08：排队的活
+    卡了 5 天，6 个工作区空着）。池子操作一律以聊天频道的身份做。"""
+    state = _ws_state()
+    wid = chat.split(":", 1)[-1]
+    for owner, rows in (state.get("parents") or {}).items():
+        if any(isinstance(w, dict) and str(w.get("id")) == wid for w in rows or []):
+            return owner
+    for h in reversed((state.get("handoffs") or {}).get(chat) or []):
+        if h.get("chat") and h.get("chat") != chat:
+            return str(h["chat"])
+    return chat
+
+
 def pick_pool(chat: str, task: str = "", preferred: str = ""):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
     没有空的、池子又满 MAX_WS 个时返回 None（排队）。
     claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
     算进展（core/team_watch.go ownerSpoke）；接手的就是本 bot 的主角色，不用另传 id。"""
+    chat = lead_chat(chat)
     board.pause_stale()
     plat = chat.split(":", 1)[0]
     r = ws_cmd(chat, "list")
@@ -550,7 +575,14 @@ def drain():
             if it.get("paused") or it.get("backlog"):
                 index += 1  # 用户 2026-11-02：暂停保留原队列位置，恢复后继续接；待办同样等到 resume。
                 continue
-            if not start(x["path"], x["task"], x["chat"], x["nid"], x.get("project"), x.get("answer")):
+            try:
+                ok = start(x["path"], x["task"], x.get("lead") or x["chat"], x["nid"], x.get("project"), x.get("answer"))
+            except SystemExit as e:
+                # 一件接不上（叫醒失败、claim 被拒）只留在原位，不挡后面的活（本机 11-08：一件 claim 失败退出，整队卡 5 天）
+                print(f"ws-handoff: 排队的 #{x['nid']} 这次没接上，留在队里：{e}", file=sys.stderr)
+                index += 1
+                continue
+            if not ok:
                 break
             q.pop(index)
 
@@ -645,11 +677,14 @@ def main(argv):
     elif ":" not in chat:
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
+        drain()  # 先排先接：池里有空位时先接队里的，新活不插队
         picked = pick_pool(chat, task)
         if picked is None:
             nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name)
             with _queue() as q:
-                q.append({"nid": nid, "path": path, "task": task, "chat": chat, "project": os.environ.get("CC_PROJECT", "")})
+                # lead：入队时就记下交活的聊天频道（工作区里交的活此时 owner 最准；drain 时工作区可能已空）
+                q.append({"nid": nid, "path": path, "task": task, "chat": chat, "lead": lead_chat(chat),
+                          "project": os.environ.get("CC_PROJECT", "")})
             print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
             print(f"queued #{nid}")
             print(f"{MAX_WS} 个工作区都在做活，#{nid} 已排队；有工作区空出来桥会自动接上。跟用户说一句排队了，本轮到此结束。")
