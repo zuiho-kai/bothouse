@@ -193,7 +193,7 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 func buildTurnResumePrompt(en TurnJournalEntry, withOriginal bool) string {
 	var b strings.Builder
 	b.WriteString("（桥重启打断了这一轮）重启前在做：")
-	b.WriteString(turnResumeOneLine(en.LastUserMessage, turnResumeSummaryRunes))
+	b.WriteString(turnResumeMessageSummary(en.LastUserMessage))
 	b.WriteString("\n做到：")
 	switch {
 	case en.LastStep != "" && en.LastText != "":
@@ -217,6 +217,18 @@ func buildTurnResumePrompt(en TurnJournalEntry, withOriginal bool) string {
 		}
 	}
 	return b.String()
+}
+
+// Only display summaries omit standalone source marks. The original message
+// and queued parts retain them for the agent after recovery.
+func turnResumeMessageSummary(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line == voiceNoteMark {
+			lines[i] = ""
+		}
+	}
+	return turnResumeOneLine(strings.Join(lines, "\n"), turnResumeSummaryRunes)
 }
 
 // turnResumeOneLine folds s onto one line, cut to n runes (n <= 0: no cut).
@@ -437,7 +449,7 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		Project:     e.name,
 		SessionKey:  en.SessionKey,
 		Prompt:      prompt,
-		Description: "续做：" + turnResumeOneLine(en.LastUserMessage, turnResumeSummaryRunes),
+		Description: "续做：" + turnResumeMessageSummary(en.LastUserMessage),
 		Silent:      &silent,
 		SessionMode: "reuse",
 		Handoff:     en.Trigger == TurnTriggerWorkspace,
