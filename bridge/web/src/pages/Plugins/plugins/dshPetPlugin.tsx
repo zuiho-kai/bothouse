@@ -3,11 +3,18 @@ import {
   User,
   Users,
   ImageOff,
+  Activity,
+  ChevronDown,
 } from 'lucide-react';
 import { Badge, Card } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import type { BothousePlugin, PluginRenderProps, RoleEvent, RoleEventType } from '../pluginInterface';
-import type { RoleInfo } from '@/api/roles';
+import type { BothousePlugin, ExtendedRoleInfo, PluginRenderProps, RoleEvent, RoleEventType } from '../pluginInterface';
+import {
+  aggregateRoleStatus,
+  getBusySessionCount,
+  getDeduplicatedSpeech,
+  getRoleKey,
+} from '../roleAggregation';
 
 // Runtime assets from PC2005-cloud/dsh-pet (GitHub / jsDelivr)
 // Notice: Assets are NEVER committed into bothouse repository.
@@ -90,7 +97,7 @@ export const DSH_FAT_FISH_PACK: PetAssetPack = {
   author: 'PC2005-cloud',
   repo: 'https://github.com/PC2005-cloud/dsh-pet',
   license: 'CC BY-NC-SA 4.0',
-  description: 'dsh-pet 自带大肥鱼表情动画，遵循 CC BY-NC-SA 4.0 署名协议；目前专属绑定于 肥鱼 (deep)。',
+  description: 'dsh-pet 自带大肥鱼表情动画，遵循 CC BY-NC-SA 4.0 署名协议；专属绑定于 肥鱼 (deep)。',
   assets: PET_ASSETS,
 };
 
@@ -104,15 +111,19 @@ export const AVAILABLE_PET_PACKS: Record<string, PetAssetPack> = {
  * 没形象的显示「形象待接入」空位。
  */
 export const ROLE_PET_PACK_MAPPING: Record<string, string | null> = {
+  'bridge:deep': 'dsh-fat-fish',
+  'dsh:deep': 'dsh-fat-fish',
   deep: 'dsh-fat-fish',
-  gjiang: null,
-  gge: null,
-  cjiang: null,
-  mika: null,
+  'bridge:gjiang': null,
+  'bridge:gge': null,
+  'bridge:cjiang': null,
+  'bridge:mika': null,
 };
 
-export function getPetPackForRole(roleName: string): PetAssetPack | null {
-  const packId = ROLE_PET_PACK_MAPPING[roleName];
+export function getPetPackForRole(role: ExtendedRoleInfo | string): PetAssetPack | null {
+  const key = typeof role === 'string' ? getRoleKey(role) : getRoleKey(role);
+  const name = typeof role === 'string' ? role.split(':').pop()! : role.name;
+  const packId = ROLE_PET_PACK_MAPPING[key] ?? ROLE_PET_PACK_MAPPING[name];
   if (!packId) return null;
   return AVAILABLE_PET_PACKS[packId] || null;
 }
@@ -157,18 +168,45 @@ function RolePetCard({
   pack,
   isHero = false,
 }: {
-  role: RoleInfo;
+  role: ExtendedRoleInfo;
   event?: RoleEvent;
   pack: PetAssetPack | null;
   isHero?: boolean;
 }) {
-  const eventType: RoleEventType = event ? event.type : role.busy ? 'working' : 'idle';
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const roleKey = getRoleKey(role);
+
+  // Determine active state: explicit event (e.g. from simulator or event bus) takes precedence;
+  // otherwise aggregate active_sessions by priority: 出错 (error) > 干活/思考 (working/thinking) > 庆祝 (celebrate) > 空闲 (idle)
+  let eventType: RoleEventType;
+  if (event) {
+    eventType = event.type;
+  } else if (role.active_sessions && role.active_sessions.length > 0) {
+    eventType = aggregateRoleStatus(role.active_sessions, role.busy ? 'working' : 'idle');
+  } else {
+    eventType = role.busy ? 'working' : 'idle';
+  }
+
+  // Offline or paused overrides
+  const isOffline = role.online === false;
+  const isPaused = role.paused === true;
+
+  if (isOffline) eventType = 'error';
+  else if (isPaused) eventType = 'idle';
+
   const asset = pack ? pack.assets[eventType] || pack.assets.idle : null;
 
-  // Compute bubble text
-  let bubbleText = event?.speechText;
+  // Multi-session busy count
+  const busyCount = getBusySessionCount(role.active_sessions, role.busy, role.sessions_count);
+
+  // Deduplicated speech bubble: prioritize recent speech across sessions, then event, then sayings
+  let bubbleText = getDeduplicatedSpeech(role.active_sessions, event);
   if (!bubbleText) {
-    if (eventType === 'working') {
+    if (isOffline) {
+      bubbleText = '已离线，等待连接恢复… 🔌';
+    } else if (isPaused) {
+      bubbleText = '已暂停，待命休息中 ⏸️';
+    } else if (eventType === 'working') {
       bubbleText = role.current_task ? `正在干活：${role.current_task}` : '正在专注推进任务中… 噼里啪啦 ⚡';
     } else {
       const pool = RANDOM_SAYINGS[eventType] || RANDOM_SAYINGS.idle;
@@ -177,7 +215,11 @@ function RolePetCard({
     }
   }
 
-  const badgeVariant = asset
+  const badgeVariant = isOffline
+    ? 'danger'
+    : isPaused
+    ? 'default'
+    : asset
     ? asset.badgeVariant
     : eventType === 'working'
     ? 'info'
@@ -187,7 +229,11 @@ function RolePetCard({
     ? 'danger'
     : 'default';
 
-  const badgeText = asset
+  const badgeText = isOffline
+    ? '已离线'
+    : isPaused
+    ? '已暂停'
+    : asset
     ? asset.badgeText
     : eventType === 'working'
     ? '干活中'
@@ -200,7 +246,7 @@ function RolePetCard({
     : '待机中';
 
   return (
-    <div key={role.name} data-testid={`pet-card-${role.name}`} className={isHero ? 'max-w-2xl mx-auto w-full' : ''}>
+    <div key={roleKey} data-testid={`pet-card-${roleKey}`} className={isHero ? 'max-w-2xl mx-auto w-full' : ''}>
       <Card
         className={cn(
           'flex flex-col justify-between overflow-hidden border transition-all duration-200',
@@ -218,7 +264,9 @@ function RolePetCard({
                 <span className={cn('font-bold text-ink', isHero ? 'text-lg' : 'text-base')}>
                   {role.display_name || role.name}
                 </span>
-                <span className="text-xs text-ink-mute font-mono">({role.name})</span>
+                <span className="text-xs text-ink-mute font-mono" data-testid={`role-key-tag-${roleKey}`}>
+                  ({roleKey})
+                </span>
                 {pack ? (
                   <Badge variant="success" className="text-[10px]">
                     {pack.name}
@@ -227,6 +275,26 @@ function RolePetCard({
                   <Badge variant="outline" className="text-[10px] text-ink-soft">
                     形象待接入
                   </Badge>
+                )}
+
+                {/* Multi-session Busy Badge */}
+                {busyCount > 0 && (
+                  <button
+                    type="button"
+                    data-testid={`busy-badge-${roleKey}`}
+                    onClick={() => setSessionsOpen((v) => !v)}
+                    className="inline-flex items-center gap-1 rounded-full bg-accent-wash px-2 py-0.5 text-[10px] font-semibold text-accent hover:opacity-80 transition-opacity"
+                    title="点击查看多开会话状态"
+                  >
+                    <Activity size={10} />
+                    <span>{busyCount} 处在忙</span>
+                    {role.active_sessions && role.active_sessions.length > 0 && (
+                      <ChevronDown
+                        size={10}
+                        className={cn('transition-transform duration-200', sessionsOpen && 'rotate-180')}
+                      />
+                    )}
+                  </button>
                 )}
               </div>
               <p className="mt-0.5 text-xs text-ink-soft font-mono">
@@ -238,19 +306,46 @@ function RolePetCard({
             </Badge>
           </div>
 
+          {/* Multi-session Task Expansion Panel */}
+          {sessionsOpen && role.active_sessions && role.active_sessions.length > 0 && (
+            <div
+              data-testid={`sessions-list-${roleKey}`}
+              className="mt-3 rounded-lg border border-hairline bg-surface-sunken/60 p-2.5 text-xs space-y-1.5 animate-fade-in"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-ink">
+                <span>会话多开任务详情 ({role.active_sessions.length})：</span>
+                <span className="text-[10px] text-ink-mute">按优先级合并</span>
+              </div>
+              {role.active_sessions.map((sess) => (
+                <div
+                  key={sess.sessionId}
+                  className="flex items-center justify-between gap-2 rounded bg-surface px-2 py-1 text-[11px] ring-1 ring-hairline"
+                >
+                  <span className="truncate text-ink font-mono">• {sess.task || sess.sessionId}</span>
+                  <Badge
+                    variant={sess.type === 'error' ? 'danger' : sess.type === 'working' ? 'info' : 'default'}
+                    className="text-[9px] shrink-0"
+                  >
+                    {sess.type}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Pet Display Area with Speech Bubble */}
           <div className="flex flex-col items-center justify-center py-4">
             {/* Speech Bubble */}
             <div className="relative mb-3 flex w-full justify-center px-2">
               <div className="relative max-w-[95%] rounded-2xl bg-surface-sunken px-3.5 py-2 text-center text-xs font-medium text-ink shadow-sm ring-1 ring-hairline">
-                <span className="break-words">{bubbleText}</span>
+                <span className="break-words" data-testid={`bubble-text-${roleKey}`}>{bubbleText}</span>
                 {/* Bubble Triangle Tail */}
                 <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-0 w-0 border-x-4 border-x-transparent border-t-[6px] border-t-surface-sunken" />
               </div>
             </div>
 
             {/* Visual Display: either Pet GIF or Empty Placeholder */}
-            {pack && asset ? (
+            {pack && asset && !isOffline ? (
               <div
                 className={cn(
                   'relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-surface-sunken/40 p-2',
@@ -260,14 +355,14 @@ function RolePetCard({
                 <img
                   src={asset.url}
                   alt={asset.title}
-                  data-testid={`pet-img-${role.name}`}
+                  data-testid={`pet-img-${roleKey}`}
                   className="max-h-full max-w-full object-contain drop-shadow transition-transform duration-300 hover:scale-105"
                   loading="lazy"
                 />
               </div>
             ) : (
               <div
-                data-testid={`pet-slot-pending-${role.name}`}
+                data-testid={`pet-slot-pending-${roleKey}`}
                 className={cn(
                   'relative flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-hairline bg-surface-sunken/30 p-4 text-center transition-colors',
                   isHero ? 'h-52' : 'h-36'
@@ -276,9 +371,13 @@ function RolePetCard({
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface shadow-xs ring-1 ring-hairline text-ink-mute mb-2">
                   <ImageOff size={18} />
                 </div>
-                <span className="text-xs font-semibold text-ink">形象待接入</span>
+                <span className="text-xs font-semibold text-ink">
+                  {isOffline ? '角色已离线' : '形象待接入'}
+                </span>
                 <p className="mt-1 max-w-xs text-[11px] text-ink-mute leading-tight">
-                  当前角色暂无专属形象包，大肥鱼形象仅归属肥鱼(deep)。后续可按同一接口挂入专属新素材。
+                  {isOffline
+                    ? '角色服务当前未在线连接，等待恢复。'
+                    : '当前角色暂无专属形象包，大肥鱼形象专属归属肥鱼(deep)。后续可按同一接口挂入专属新素材。'}
                 </p>
               </div>
             )}
@@ -301,7 +400,7 @@ function RolePetCard({
         {/* Subscribed Event Status */}
         <div className="border-t border-hairline pt-2 text-[11px] text-ink-mute flex items-center justify-between">
           <span>接收事件：{eventType}</span>
-          <span className="text-[10px] text-ink-soft">
+          <span className="text-[10px] text-ink-soft font-mono">
             {pack ? `形象包：${pack.id}` : '形象包：待接入 (null)'}
           </span>
         </div>
@@ -315,13 +414,14 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
 
   // Find initial selected role: default to role with pack (deep), or first role
   const defaultRole = roles.find((r) => r.name === 'deep' || r.name === '肥鱼') || roles[0];
-  const [selectedRoleName, setSelectedRoleName] = useState<string>(
-    defaultRole ? defaultRole.name : 'deep'
+  const [selectedRoleKey, setSelectedRoleKey] = useState<string>(
+    defaultRole ? getRoleKey(defaultRole) : 'bridge:deep'
   );
 
   // If selected role is not found in roles, fallback to defaultRole
-  const currentRole = roles.find((r) => r.name === selectedRoleName) || defaultRole || roles[0];
-  const currentPack = currentRole ? getPetPackForRole(currentRole.name) : null;
+  const currentRole = roles.find((r) => getRoleKey(r) === selectedRoleKey) || defaultRole || roles[0];
+  const currentRoleKey = currentRole ? getRoleKey(currentRole) : 'bridge:deep';
+  const currentPack = currentRole ? getPetPackForRole(currentRole) : null;
 
   return (
     <div className="space-y-4" data-testid="dsh-pet-plugin-view">
@@ -331,7 +431,7 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
           <div className="flex items-center gap-2">
             <h3 className="text-base font-semibold text-ink">桌宠角色展台</h3>
             <span className="text-xs text-ink-mute">
-              （一个角色一只桌宠；大肥鱼形象专属肥鱼，其他角色待接入新形象）
+              （独立 roleKey 防串，多开按优先级合并；大肥鱼专属肥鱼）
             </span>
           </div>
           <p className="mt-0.5 text-xs text-ink-soft">
@@ -385,15 +485,16 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
               <select
                 id="pet-role-select"
                 data-testid="pet-role-select"
-                value={currentRole?.name || ''}
-                onChange={(e) => setSelectedRoleName(e.target.value)}
+                value={currentRoleKey}
+                onChange={(e) => setSelectedRoleKey(e.target.value)}
                 className="h-8 rounded-md border border-hairline bg-surface pl-2.5 pr-8 text-xs font-medium text-ink shadow-xs focus:border-accent focus:outline-none"
               >
                 {roles.map((r) => {
-                  const pack = getPetPackForRole(r.name);
+                  const k = getRoleKey(r);
+                  const pack = getPetPackForRole(r);
                   return (
-                    <option key={r.name} value={r.name}>
-                      {r.display_name || r.name} ({r.name}) — {pack ? `[${pack.name}]` : '[形象待接入]'}
+                    <option key={k} value={k}>
+                      {r.display_name || r.name} ({k}) — {pack ? `[${pack.name}]` : '[形象待接入]'}
                     </option>
                   );
                 })}
@@ -422,7 +523,7 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
           <div className="py-2">
             <RolePetCard
               role={currentRole}
-              event={events[currentRole.name]}
+              event={events[currentRoleKey]}
               pack={currentPack}
               isHero={true}
             />
@@ -432,15 +533,18 @@ function DshPetPluginView({ events, roles }: PluginRenderProps) {
         )
       ) : (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {roles.map((role) => (
-            <RolePetCard
-              key={role.name}
-              role={role}
-              event={events[role.name]}
-              pack={getPetPackForRole(role.name)}
-              isHero={false}
-            />
-          ))}
+          {roles.map((role) => {
+            const k = getRoleKey(role);
+            return (
+              <RolePetCard
+                key={k}
+                role={role}
+                event={events[k]}
+                pack={getPetPackForRole(role)}
+                isHero={false}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -472,9 +576,9 @@ export const dshPetPlugin: BothousePlugin = {
   author: 'PC2005-cloud',
   repo: 'https://github.com/PC2005-cloud/dsh-pet',
   license: 'CC BY-NC-SA 4.0',
-  version: 'v0.2.2',
+  version: 'v0.2.3',
   description:
-    'bothouse 内置桌宠组件：一个角色一只桌宠，支持形象包独立映射。目前肥鱼(deep)接入大肥鱼形象包，其他角色显示「形象待接入」；专区支持单只与全部切换。',
+    'bothouse 内置桌宠组件：一个角色一只桌宠，带唯一 roleKey 防状态串流，同一角色多开按优先级合并并展示 N 处在忙；目前肥鱼(deep)接入大肥鱼形象包，其他角色显示「形象待接入」；专区支持单只与全部切换。',
   subscriptions: ['idle', 'working', 'thinking', 'celebrate', 'error', 'speech'],
   enabled: true,
   status: 'active',

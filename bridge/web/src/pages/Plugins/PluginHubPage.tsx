@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   Boxes,
   RotateCw,
-  Sparkles,
   ExternalLink,
   Coffee,
   Flame,
@@ -11,18 +10,37 @@ import {
   PartyPopper,
   AlertTriangle,
   MessageSquare,
-  CheckCircle2,
   Sliders,
   Code2,
+  Target,
 } from 'lucide-react';
-import { Badge, Button, Card, PageHeader } from '@/components/ui';
+import { Badge, Button, Card } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { listRoles, type RoleInfo } from '@/api/roles';
-import type { BothousePlugin, RoleEvent, RoleEventType } from './pluginInterface';
+import { listRoles } from '@/api/roles';
+import type { BothousePlugin, ExtendedRoleInfo, RoleEvent, RoleEventType } from './pluginInterface';
+import { aggregateRoleStatus, getRoleKey } from './roleAggregation';
 import { dshPetPlugin } from './plugins/dshPetPlugin';
 import { personalityPlugin } from './plugins/personalityPlugin';
 
-const DEFAULT_DEMO_ROLES: RoleInfo[] = [
+const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
+  {
+    name: 'deep',
+    display_name: '肥鱼',
+    agent_type: 'deepseek',
+    model: 'deepseek-v4.1-flash',
+    online: true,
+    busy: true,
+    current_task: '工作区1：协助审核代码',
+    paused: false,
+    platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
+    sessions_count: 3,
+    source: 'bridge',
+    active_sessions: [
+      { sessionId: 'sess-ws1', type: 'working', task: '工作区1：协助审核代码', timestamp: '2026-11-08T23:00:00Z' },
+      { sessionId: 'sess-ws2', type: 'thinking', task: '工作区2：跑定向单元测试', timestamp: '2026-11-08T23:01:00Z' },
+      { sessionId: 'sess-chat', type: 'idle', task: '聊天频道：待命', timestamp: '2026-11-08T22:50:00Z' },
+    ],
+  },
   {
     name: 'gjiang',
     display_name: '大豆包',
@@ -33,7 +51,8 @@ const DEFAULT_DEMO_ROLES: RoleInfo[] = [
     current_task: '开发插件接口界面：统一事件与桌宠联动',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 5,
+    sessions_count: 1,
+    source: 'bridge',
   },
   {
     name: 'gge',
@@ -45,19 +64,8 @@ const DEFAULT_DEMO_ROLES: RoleInfo[] = [
     current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 8,
-  },
-  {
-    name: 'deep',
-    display_name: '肥鱼',
-    agent_type: 'deepseek',
-    model: 'deepseek-v4.1-flash',
-    online: true,
-    busy: false,
-    current_task: '',
-    paused: false,
-    platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
-    sessions_count: 12,
+    sessions_count: 0,
+    source: 'bridge',
   },
   {
     name: 'cjiang',
@@ -69,7 +77,8 @@ const DEFAULT_DEMO_ROLES: RoleInfo[] = [
     current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 4,
+    sessions_count: 0,
+    source: 'bridge',
   },
   {
     name: 'mika',
@@ -81,13 +90,14 @@ const DEFAULT_DEMO_ROLES: RoleInfo[] = [
     current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 6,
+    sessions_count: 0,
+    source: 'bridge',
   },
 ];
 
 export default function PluginHubPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [roles, setRoles] = useState<RoleInfo[]>([]);
+  const [roles, setRoles] = useState<ExtendedRoleInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -98,17 +108,29 @@ export default function PluginHubPage() {
     searchParams.get('plugin') || 'dsh-pet'
   );
 
-  // Unified Role Events Store
+  // Unified Role Events Store keyed by roleKey (source:name)
   const [events, setEvents] = useState<Record<string, RoleEvent>>({});
-  // Current active simulation type on the interface page
-  const [currentSimType, setCurrentSimType] = useState<RoleEventType | null>(null);
+
+  // Simulator target roleKey: defaults to first role (e.g. bridge:deep), or 'all' for broadcast demo
+  const [simTargetRoleKey, setSimTargetRoleKey] = useState<string>('bridge:deep');
+  // Track which roleKeys have active simulation
+  const [simulatedRoles, setSimulatedRoles] = useState<Record<string, RoleEventType>>({});
 
   const fetchRoles = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
       const res = await listRoles();
       if (res && Array.isArray(res.roles) && res.roles.length > 0) {
-        setRoles(res.roles);
+        // preserve active_sessions if mock/extended data available
+        const merged = res.roles.map((r) => {
+          const matched = DEFAULT_DEMO_ROLES.find((d) => d.name === r.name);
+          return {
+            ...r,
+            source: matched?.source || 'bridge',
+            active_sessions: matched?.active_sessions,
+          };
+        });
+        setRoles(merged);
       } else {
         setRoles(DEFAULT_DEMO_ROLES);
       }
@@ -128,67 +150,157 @@ export default function PluginHubPage() {
 
   // Update default events from live roles when not simulated
   useEffect(() => {
-    if (currentSimType !== null) return;
-    const initialEvents: Record<string, RoleEvent> = {};
-    const now = new Date().toISOString();
-    roles.forEach((r) => {
-      let type: RoleEventType = 'idle';
-      if (r.paused || !r.online) type = 'error';
-      else if (r.busy) type = 'working';
-      initialEvents[r.name] = {
-        roleName: r.name,
-        roleDisplayName: r.display_name,
-        type,
-        timestamp: now,
-        task: r.current_task,
-      };
-    });
-    setEvents(initialEvents);
-  }, [roles, currentSimType]);
+    setEvents((prevEvents) => {
+      const nextEvents: Record<string, RoleEvent> = { ...prevEvents };
+      const now = new Date().toISOString();
 
-  // Emit unified event to all plugins
-  const handleEmitGlobalEvent = (type: RoleEventType) => {
-    setCurrentSimType(type);
+      roles.forEach((r) => {
+        const k = getRoleKey(r);
+        // If this roleKey is currently being simulated, keep the simulated event
+        if (simulatedRoles[k]) return;
+
+        let type: RoleEventType = 'idle';
+        if (r.paused || !r.online) type = 'error';
+        else if (r.active_sessions && r.active_sessions.length > 0) {
+          type = aggregateRoleStatus(r.active_sessions, r.busy ? 'working' : 'idle');
+        } else if (r.busy) {
+          type = 'working';
+        }
+
+        nextEvents[k] = {
+          roleKey: k,
+          roleName: r.name,
+          source: r.source || 'bridge',
+          roleDisplayName: r.display_name,
+          type,
+          timestamp: now,
+          task: r.current_task,
+        };
+      });
+
+      return nextEvents;
+    });
+  }, [roles, simulatedRoles]);
+
+  // Emit unified event to the chosen target roleKey or broadcast to all
+  const handleEmitEvent = (type: RoleEventType) => {
     const now = new Date().toISOString();
-    const updated: Record<string, RoleEvent> = {};
-    roles.forEach((r) => {
+
+    if (simTargetRoleKey === 'all') {
+      // Broadcast to each role with its unique roleKey
+      const updatedEvents: Record<string, RoleEvent> = {};
+      const nextSimMap: Record<string, RoleEventType> = {};
+
+      roles.forEach((r) => {
+        const k = getRoleKey(r);
+        let speechText: string | undefined;
+        if (type === 'speech') {
+          speechText = `${r.display_name || r.name}：统一插件事件联动正常！`;
+        }
+        updatedEvents[k] = {
+          roleKey: k,
+          roleName: r.name,
+          source: r.source || 'bridge',
+          roleDisplayName: r.display_name,
+          type,
+          timestamp: now,
+          task: type === 'working' ? (r.current_task || '模拟推进重要特性开发') : undefined,
+          speechText,
+        };
+        nextSimMap[k] = type;
+      });
+
+      setEvents((prev) => ({ ...prev, ...updatedEvents }));
+      setSimulatedRoles(nextSimMap);
+    } else {
+      // Emit ONLY to the selected roleKey; all other roles stay unchanged!
+      const targetRole = roles.find((r) => getRoleKey(r) === simTargetRoleKey) || roles[0];
+      if (!targetRole) return;
+      const k = simTargetRoleKey;
+
       let speechText: string | undefined;
       if (type === 'speech') {
-        speechText = `${r.display_name || r.name}：统一插件事件联动正常！`;
+        speechText = `${targetRole.display_name || targetRole.name}：收到角色专属事件！`;
       }
-      updated[r.name] = {
-        roleName: r.name,
-        roleDisplayName: r.display_name,
-        type,
-        timestamp: now,
-        task: type === 'working' ? (r.current_task || '模拟推进重要特性开发') : undefined,
-        speechText,
-      };
-    });
-    setEvents(updated);
+
+      setEvents((prev) => ({
+        ...prev,
+        [k]: {
+          roleKey: k,
+          roleName: targetRole.name,
+          source: targetRole.source || 'bridge',
+          roleDisplayName: targetRole.display_name,
+          type,
+          timestamp: now,
+          task: type === 'working' ? (targetRole.current_task || '模拟单角色推进特性开发') : undefined,
+          speechText,
+        },
+      }));
+      setSimulatedRoles((prev) => ({ ...prev, [k]: type }));
+    }
   };
 
   const handleResetLive = () => {
-    setCurrentSimType(null);
-  };
+    const now = new Date().toISOString();
 
-  const handleTogglePlugin = (pluginId: string) => {
-    setPlugins((prev) =>
-      prev.map((p) => {
-        if (p.id === pluginId) {
-          const nextEnabled = !p.enabled;
-          return {
-            ...p,
-            enabled: nextEnabled,
-            status: nextEnabled ? (p.status === 'pending' ? 'pending' : 'active') : 'disabled',
-          };
+    if (simTargetRoleKey === 'all') {
+      // Reset all roles
+      const resetEvents: Record<string, RoleEvent> = {};
+      roles.forEach((r) => {
+        const k = getRoleKey(r);
+        let type: RoleEventType = 'idle';
+        if (r.paused || !r.online) type = 'error';
+        else if (r.active_sessions && r.active_sessions.length > 0) {
+          type = aggregateRoleStatus(r.active_sessions, r.busy ? 'working' : 'idle');
+        } else if (r.busy) {
+          type = 'working';
         }
-        return p;
-      })
-    );
+        resetEvents[k] = {
+          roleKey: k,
+          roleName: r.name,
+          source: r.source || 'bridge',
+          roleDisplayName: r.display_name,
+          type,
+          timestamp: now,
+          task: r.current_task,
+        };
+      });
+      setEvents(resetEvents);
+      setSimulatedRoles({});
+    } else {
+      // Reset only the selected target roleKey
+      const targetRole = roles.find((r) => getRoleKey(r) === simTargetRoleKey);
+      if (!targetRole) return;
+      const k = simTargetRoleKey;
+
+      let type: RoleEventType = 'idle';
+      if (targetRole.paused || !targetRole.online) type = 'error';
+      else if (targetRole.busy) type = 'working';
+
+      setEvents((prev) => ({
+        ...prev,
+        [k]: {
+          roleKey: k,
+          roleName: targetRole.name,
+          source: targetRole.source || 'bridge',
+          roleDisplayName: targetRole.display_name,
+          type,
+          timestamp: now,
+          task: targetRole.current_task,
+        },
+      }));
+      setSimulatedRoles((prev) => {
+        const next = { ...prev };
+        delete next[k];
+        return next;
+      });
+    }
   };
 
   const activePlugin = plugins.find((p) => p.id === selectedPluginId) || plugins[0];
+  const isTargetSimulated = simTargetRoleKey === 'all'
+    ? Object.keys(simulatedRoles).length > 0
+    : Boolean(simulatedRoles[simTargetRoleKey]);
 
   return (
     <div className="space-y-6 pb-12" data-testid="plugins-hub-page">
@@ -203,7 +315,7 @@ export default function PluginHubPage() {
             </Badge>
           </div>
           <p className="mt-1 text-sm text-ink-soft">
-            提供标准化插件接口（元数据声明、角色事件统一订阅推流），任何开源项目均可挂入本页面并联动角色。
+            提供标准化插件接口（元数据声明、带 roleKey 的独立角色事件推流），状态严格隔离不互串，多开按优先级聚合。
           </p>
         </div>
 
@@ -228,34 +340,60 @@ export default function PluginHubPage() {
         </div>
       </div>
 
-      {/* Unified Role Event Simulator Bar */}
+      {/* Unified Role Event Simulator Bar (Target Selection First to Prevent State Bleeding) */}
       <Card className="bg-surface p-4 shadow-sm ring-1 ring-hairline" data-testid="unified-simulator">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2">
-            <Sliders size={16} className="text-accent" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-ink">
-              统一角色事件模拟发射器：
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Sliders size={16} className="text-accent shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink shrink-0">
+              事件模拟发射器：
             </span>
-            {currentSimType ? (
-              <Badge variant="warning" className="text-xs">
-                正在广播：{currentSimType}
+
+            {/* Target Role Selector to ensure state does not bleed */}
+            <div className="flex items-center gap-1.5 rounded-md bg-surface-sunken/60 px-2.5 py-1 border border-hairline">
+              <Target size={13} className="text-accent shrink-0" />
+              <label htmlFor="sim-target-select" className="text-xs font-medium text-ink shrink-0">
+                目标角色：
+              </label>
+              <select
+                id="sim-target-select"
+                data-testid="sim-target-select"
+                value={simTargetRoleKey}
+                onChange={(e) => setSimTargetRoleKey(e.target.value)}
+                className="h-7 rounded border border-hairline bg-surface px-2 text-xs font-medium text-ink focus:border-accent focus:outline-none"
+              >
+                {roles.map((r) => {
+                  const k = getRoleKey(r);
+                  return (
+                    <option key={k} value={k}>
+                      {r.display_name || r.name} ({k})
+                    </option>
+                  );
+                })}
+                <option value="all">【全部角色广播 (仅演示)】</option>
+              </select>
+            </div>
+
+            {isTargetSimulated ? (
+              <Badge variant="warning" className="text-xs" data-testid="sim-broadcasting-badge">
+                {simTargetRoleKey === 'all'
+                  ? '广播模拟中'
+                  : `正在模拟：${simulatedRoles[simTargetRoleKey]}`}
               </Badge>
             ) : (
               <Badge variant="success" className="text-xs">
                 实时总线监听
               </Badge>
             )}
-            <span className="text-[11px] text-ink-mute hidden sm:inline">
-              （事件广播至所有订阅插件）
-            </span>
           </div>
 
-          {/* Unified Simulator Buttons */}
+          {/* Unified Simulator Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant={currentSimType === 'idle' ? 'primary' : 'secondary'}
+              variant="secondary"
               size="sm"
-              onClick={() => handleEmitGlobalEvent('idle')}
+              data-testid="sim-btn-idle"
+              onClick={() => handleEmitEvent('idle')}
               className="flex items-center gap-1 text-xs"
             >
               <Coffee size={13} />
@@ -263,9 +401,10 @@ export default function PluginHubPage() {
             </Button>
 
             <Button
-              variant={currentSimType === 'working' ? 'primary' : 'secondary'}
+              variant="secondary"
               size="sm"
-              onClick={() => handleEmitGlobalEvent('working')}
+              data-testid="sim-btn-working"
+              onClick={() => handleEmitEvent('working')}
               className="flex items-center gap-1 text-xs"
             >
               <Flame size={13} className="text-amber-500" />
@@ -273,9 +412,10 @@ export default function PluginHubPage() {
             </Button>
 
             <Button
-              variant={currentSimType === 'thinking' ? 'primary' : 'secondary'}
+              variant="secondary"
               size="sm"
-              onClick={() => handleEmitGlobalEvent('thinking')}
+              data-testid="sim-btn-thinking"
+              onClick={() => handleEmitEvent('thinking')}
               className="flex items-center gap-1 text-xs"
             >
               <HelpCircle size={13} className="text-blue-500" />
@@ -283,9 +423,10 @@ export default function PluginHubPage() {
             </Button>
 
             <Button
-              variant={currentSimType === 'celebrate' ? 'primary' : 'secondary'}
+              variant="secondary"
               size="sm"
-              onClick={() => handleEmitGlobalEvent('celebrate')}
+              data-testid="sim-btn-celebrate"
+              onClick={() => handleEmitEvent('celebrate')}
               className="flex items-center gap-1 text-xs"
             >
               <PartyPopper size={13} className="text-emerald-500" />
@@ -293,9 +434,10 @@ export default function PluginHubPage() {
             </Button>
 
             <Button
-              variant={currentSimType === 'error' ? 'primary' : 'secondary'}
+              variant="secondary"
               size="sm"
-              onClick={() => handleEmitGlobalEvent('error')}
+              data-testid="sim-btn-error"
+              onClick={() => handleEmitEvent('error')}
               className="flex items-center gap-1 text-xs"
             >
               <AlertTriangle size={13} className="text-red-500" />
@@ -303,23 +445,25 @@ export default function PluginHubPage() {
             </Button>
 
             <Button
-              variant={currentSimType === 'speech' ? 'primary' : 'secondary'}
+              variant="secondary"
               size="sm"
-              onClick={() => handleEmitGlobalEvent('speech')}
+              data-testid="sim-btn-speech"
+              onClick={() => handleEmitEvent('speech')}
               className="flex items-center gap-1 text-xs"
             >
               <MessageSquare size={13} />
               <span>说了一句</span>
             </Button>
 
-            {currentSimType !== null && (
+            {isTargetSimulated && (
               <Button
                 variant="ghost"
                 size="sm"
+                data-testid="sim-btn-reset"
                 onClick={handleResetLive}
                 className="text-xs text-ink-soft hover:text-ink"
               >
-                恢复实时事件
+                {simTargetRoleKey === 'all' ? '恢复全部实时事件' : '恢复该角色实时'}
               </Button>
             )}
           </div>
@@ -478,7 +622,7 @@ export default function PluginHubPage() {
               <ActivePluginView
                 events={events}
                 roles={roles}
-                isSimulated={currentSimType !== null}
+                isSimulated={Object.keys(simulatedRoles).length > 0}
               />
             );
           })()

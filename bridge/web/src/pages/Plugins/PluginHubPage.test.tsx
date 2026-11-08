@@ -4,20 +4,25 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PluginHubPage from './PluginHubPage';
 import { PET_ASSETS } from './plugins/dshPetPlugin';
-import type { RoleInfo } from '@/api/roles';
 
-const mockRoles: RoleInfo[] = [
+const mockRoles: any[] = [
   {
     name: 'deep',
     display_name: '肥鱼',
     agent_type: 'deepseek',
     model: 'deepseek-v4.1-flash',
     online: true,
-    busy: false,
-    current_task: '',
+    busy: true,
+    current_task: '工作区1：协助审核代码',
     paused: false,
     platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
-    sessions_count: 12,
+    sessions_count: 3,
+    source: 'bridge',
+    active_sessions: [
+      { sessionId: 'sess-ws1', type: 'working', task: '工作区1：协助审核代码', timestamp: '2026-11-08T23:00:00Z' },
+      { sessionId: 'sess-ws2', type: 'thinking', task: '工作区2：跑定向单元测试', timestamp: '2026-11-08T23:01:00Z' },
+      { sessionId: 'sess-chat', type: 'idle', task: '聊天频道：待命', timestamp: '2026-11-08T22:50:00Z' },
+    ],
   },
   {
     name: 'gjiang',
@@ -25,11 +30,12 @@ const mockRoles: RoleInfo[] = [
     agent_type: 'frontend',
     model: 'gemini-3.8-flash',
     online: true,
-    busy: true,
-    current_task: '开发插件接口界面',
+    busy: false,
+    current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 5,
+    sessions_count: 1,
+    source: 'bridge',
   },
   {
     name: 'gge',
@@ -41,7 +47,8 @@ const mockRoles: RoleInfo[] = [
     current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 8,
+    sessions_count: 0,
+    source: 'bridge',
   },
 ];
 
@@ -78,7 +85,7 @@ afterEach(() => {
 });
 
 describe('PluginHubPage - 插件总页与生态接口界面', () => {
-  it('renders plugin interface header and registry cards', async () => {
+  it('renders plugin interface header, target role selector and registry cards', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -92,6 +99,9 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(container?.textContent).toContain('已接入插件列表');
     expect(container?.textContent).toContain('DSH 原生配置管理');
 
+    // Target role selector is present
+    expect(container?.querySelector('[data-testid="sim-target-select"]')).not.toBeNull();
+
     // Both plugins are listed
     expect(container?.textContent).toContain('桌宠大肥鱼 (dsh-pet)');
     expect(container?.textContent).toContain('人格养成 (待接入)');
@@ -102,27 +112,7 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(container?.textContent).toContain('MIT');
   });
 
-  it('renders unified role event simulator on the interface page', async () => {
-    await act(async () => {
-      root?.render(
-        <MemoryRouter>
-          <PluginHubPage />
-        </MemoryRouter>
-      );
-    });
-
-    expect(container?.textContent).toContain('统一角色事件模拟发射器');
-
-    // All unified event buttons are present
-    expect(container?.textContent).toContain('待机呼吸');
-    expect(container?.textContent).toContain('干活中');
-    expect(container?.textContent).toContain('思考中');
-    expect(container?.textContent).toContain('交活庆祝');
-    expect(container?.textContent).toContain('出错/疲惫');
-    expect(container?.textContent).toContain('说了一句');
-  });
-
-  it('defaults to single pet display for 肥鱼 (deep) with fat fish asset pack', async () => {
+  it('defaults to single pet display for 肥鱼 (bridge:deep) with fat fish and multi-session busy count', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -132,17 +122,84 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     });
 
     // Header explains single pet policy and mapping
-    expect(container?.textContent).toContain('一个角色一只桌宠');
+    expect(container?.textContent).toContain('独立 roleKey 防串');
     expect(container?.textContent).toContain('只显示一只 (默认)');
 
-    // Default displayed role is 肥鱼
+    // Default displayed role is 肥鱼 (bridge:deep)
     expect(container?.textContent).toContain('肥鱼');
+    expect(container?.textContent).toContain('(bridge:deep)');
     expect(container?.textContent).toContain('大肥鱼形象包');
 
-    // Fat fish image exists for deep
-    const deepImg = container?.querySelector('[data-testid="pet-img-deep"]');
+    // Multi-session busy badge shows 2 处在忙 (from sess-ws1 working + sess-ws2 thinking)
+    const busyBadge = container?.querySelector('[data-testid="busy-badge-bridge:deep"]');
+    expect(busyBadge).not.toBeNull();
+    expect(busyBadge?.textContent).toContain('2 处在忙');
+
+    // Fat fish image exists for bridge:deep
+    const deepImg = container?.querySelector('[data-testid="pet-img-bridge:deep"]');
     expect(deepImg).not.toBeNull();
-    expect(deepImg?.getAttribute('src')).toContain(PET_ASSETS.idle.filename);
+  });
+
+  it('expands active sessions list when busy count badge is clicked', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    const busyBadge = container?.querySelector('[data-testid="busy-badge-bridge:deep"]') as HTMLButtonElement | null;
+    expect(busyBadge).not.toBeNull();
+
+    // Click to expand
+    await act(async () => {
+      busyBadge?.click();
+    });
+
+    // Expanded panel lists tasks from multi-sessions
+    const sessionList = container?.querySelector('[data-testid="sessions-list-bridge:deep"]');
+    expect(sessionList).not.toBeNull();
+    expect(sessionList?.textContent).toContain('工作区1：协助审核代码');
+    expect(sessionList?.textContent).toContain('工作区2：跑定向单元测试');
+    expect(sessionList?.textContent).toContain('聊天频道：待命');
+  });
+
+  it('simulator emits event ONLY to targeted role and does NOT bleed to other roles', async () => {
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Target select is defaults to bridge:deep
+    const targetSelect = container?.querySelector('[data-testid="sim-target-select"]') as HTMLSelectElement | null;
+    expect(targetSelect?.value).toBe('bridge:deep');
+
+    // Emit celebrate to bridge:deep ONLY
+    const celebBtn = container?.querySelector('[data-testid="sim-btn-celebrate"]') as HTMLButtonElement | null;
+    expect(celebBtn).not.toBeNull();
+
+    await act(async () => {
+      celebBtn?.click();
+    });
+
+    // Deep's pet image switches to celebrate
+    const deepImg = container?.querySelector('[data-testid="pet-img-bridge:deep"]');
+    expect(deepImg?.getAttribute('src')).toContain(PET_ASSETS.celebrate.filename);
+
+    // Switch view to all roles to verify that gjiang and gge were NOT modified to celebrate
+    const allBtn = container?.querySelector('[data-testid="mode-all-btn"]') as HTMLButtonElement | null;
+    await act(async () => {
+      allBtn?.click();
+    });
+
+    // gjiang remains idle / pending, not celebrate
+    const gjiangCard = container?.querySelector('[data-testid="pet-card-bridge:gjiang"]');
+    expect(gjiangCard?.textContent).toContain('待机中');
+    expect(gjiangCard?.textContent).not.toContain('交活庆祝');
   });
 
   it('switching role in single mode to gjiang displays 形象待接入 without fat fish image', async () => {
@@ -160,18 +217,19 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
 
     await act(async () => {
       if (select) {
-        select.value = 'gjiang';
+        select.value = 'bridge:gjiang';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }
     });
 
     // In single mode with gjiang selected:
     expect(container?.textContent).toContain('大豆包');
+    expect(container?.textContent).toContain('(bridge:gjiang)');
     expect(container?.textContent).toContain('形象待接入');
-    expect(container?.querySelector('[data-testid="pet-slot-pending-gjiang"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:gjiang"]')).not.toBeNull();
 
     // Fat fish image should NOT be displayed for gjiang
-    expect(container?.querySelector('[data-testid="pet-img-gjiang"]')).toBeNull();
+    expect(container?.querySelector('[data-testid="pet-img-bridge:gjiang"]')).toBeNull();
   });
 
   it('switching to all roles mode displays grid where only deep has fat fish image', async () => {
@@ -192,40 +250,13 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     });
 
     // In all roles mode: deep has image, while gjiang and gge have empty slot placeholders
-    expect(container?.querySelector('[data-testid="pet-img-deep"]')).not.toBeNull();
-    expect(container?.querySelector('[data-testid="pet-slot-pending-gjiang"]')).not.toBeNull();
-    expect(container?.querySelector('[data-testid="pet-slot-pending-gge"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-img-bridge:deep"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:gjiang"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:gge"]')).not.toBeNull();
 
     // Only 1 image is in the pet grid (for deep)
     const images = container?.querySelectorAll('img');
     expect(images?.length).toBe(1);
-  });
-
-  it('emits unified event and drives pet animation response for 肥鱼', async () => {
-    await act(async () => {
-      root?.render(
-        <MemoryRouter>
-          <PluginHubPage />
-        </MemoryRouter>
-      );
-    });
-
-    // Find and click "交活庆祝" simulator button
-    const celebBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
-      b.textContent?.includes('交活庆祝')
-    );
-    expect(celebBtn).toBeDefined();
-
-    await act(async () => {
-      celebBtn?.click();
-    });
-
-    // Event broadcaster badge should show "正在广播：celebrate"
-    expect(container?.textContent).toContain('正在广播：celebrate');
-
-    // Deep's pet image should switch to celebrate gif
-    const deepImg = container?.querySelector('[data-testid="pet-img-deep"]');
-    expect(deepImg?.getAttribute('src')).toContain(PET_ASSETS.celebrate.filename);
   });
 
   it('switches dedicated area to personality nurture placeholder', async () => {
