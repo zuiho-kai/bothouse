@@ -421,6 +421,26 @@ func TestDSHProxyRejectsCrossOrigin(t *testing.T) {
 	conn.Close()
 }
 
+func TestDSHProxyUnavailableGalaxyCannotNestPanel(t *testing.T) {
+	panel := setupDSHProxyTest(t, nil, "secret")
+	c := dshSignIn(t, panel, "secret")
+	res, err := c.Get(panel.URL + "/dsh/collab/wiki-galaxy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), "not running") {
+		t.Fatalf("status %d body %s, want explicit 503 notice", res.StatusCode, body)
+	}
+	if strings.Contains(string(body), `<a `) || strings.Contains(string(body), `<div id="root"`) {
+		t.Fatalf("unavailable galaxy must not load or link the panel inside its frame: %s", body)
+	}
+}
+
 func TestDSHProxyNotRunning(t *testing.T) {
 	panel := setupDSHProxyTest(t, nil, "secret")
 	c := dshSignIn(t, panel, "secret")
