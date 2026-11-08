@@ -26,7 +26,8 @@ NIGHT = DATA / "nightly.jsonl"
 TAGS = DATA / "tags.jsonl"
 WIKI = Path(os.environ.get("GATE_WIKI") or "~/wiki").expanduser()  # 同 memvote.py；隔离测试指到 wiki 副本
 MAX_CHARS = 240_000  # 沿用 wiki 的 bin/ingest.py MAX_CHARS：每次 model 调用的输入上限
-MODEL = os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna")  # 同 wiki 的 bin/ingest.py MODELS["codex"]
+MODEL = os.environ.get("WIKI_CODEX_MODEL", "")
+DEFAULT_BOT = os.environ.get("GATE_DEFAULT_BOT", "assistant")
 
 
 WS_START = "你是工作区频道里的主角色"  # ws-handoff 叫醒工作区的开头（同 ctxsvc._NOT_USER）
@@ -98,7 +99,7 @@ def turns(since):
                 continue
             m = merged.setdefault((key, a["q"]), {"key": key, "t": a["t"], "ts": a["ts"], "task": a.get("task"),
                                                    "q": a["q"], "next": b["q"], "bots": [], "refs": []})
-            m["bots"].append(a.get("bot") or "maomao")
+            m["bots"].append(a.get("bot") or DEFAULT_BOT)
             m["refs"] += a.get("refs") or []
             m["end"] = max(m.get("end", 0), b["ts"])
     out = list(merged.values())
@@ -172,7 +173,7 @@ def judge(batch, prompt, fmt, schema):
     with tempfile.NamedTemporaryFile("w", suffix=".json") as sf, tempfile.NamedTemporaryFile("r", suffix=".txt") as out:
         json.dump(schema, sf)
         sf.flush()
-        r = subprocess.run(["codex", "exec", "-m", MODEL, "-c", "notify=[]", "--skip-git-repo-check",
+        r = subprocess.run(["codex", "exec", *(["-m", MODEL] if MODEL else []), "-c", "notify=[]", "--skip-git-repo-check",
                             "-s", "read-only", "--output-schema", sf.name, "-o", out.name, "-"],
                            input=text, capture_output=True, text=True)
         if r.returncode != 0:

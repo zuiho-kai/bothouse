@@ -110,6 +110,9 @@ def main_wiki(w, lead, project=""):
     (w / MAIN_MARK).write_text(project + "\n")  # first, so a crash below leaves a wiki made() may remove and redo
     for f in (HERE / "llmwiki").glob("*.py"):
         shutil.copy(f, w / "bin" / f.name)
+    for f in (HERE / "llmwiki").glob("*.sh"):
+        shutil.copy(f, w / "bin" / f.name)
+    shutil.copytree(HERE / "llmwiki" / "hooks", w / "bin" / "hooks", dirs_exist_ok=True)
     shutil.copytree(HERE / "llmwiki" / "teammate", w / "bin" / "teammate", dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("__pycache__"))
     if project:

@@ -1,12 +1,13 @@
 """Read native Codex measurements for explicitly selected sessions, without pricing guesses."""
 import collections
 import json
+import os
 from pathlib import Path
 import re
 
 from daypack import SLOW, hm, one_line, ts_of
 
-ROOT = Path.home() / ".codex" / "sessions"
+ROOT = Path(os.environ.get("CODEX_SESSIONS_DIR", Path.home() / ".codex" / "sessions")).expanduser()
 UUID = re.compile(r"(?:^|-)([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$")
 KEYS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens")
 
@@ -113,16 +114,24 @@ def measurements(start, end, sessions, root=ROOT):
 def part(start, end, sessions, root=ROOT):
     stats, commands, waits, pending, warnings = measurements(start, end, sessions, root)
     totals = {"runtime": "codex", **{k: sum(s[k] for s in stats.values()) for k in KEYS},
+              "billing": "missing", "cache_ttl": "missing", "cache_expiry_reason": "missing",
               "slow": len(commands), "slow_min": sum(c[0] for c in commands) / 60,
               "wait_seconds": sum(w[0] for w in waits), "pending": len(pending)}
     lines = ["## Codex 原生用量与等待（仅当前 wiki 所列会话，累计计数的区间增量）",
              "- input 包含 cached input；缓存写入字段未上报时按 0 计，不证明没有写缓存。",
-             "- 费用、缓存 TTL 及过期重写原因未上报，无法计算；不套用 Claude 价格。"]
+             "- 费用、缓存 TTL 及过期重写原因未上报，无法计算；不套用 Claude 价格。",
+             "- 数据状态：billing=missing，cache_ttl=missing，cache_expiry_reason=missing；missing 不等于 0."]
     for sid, s in stats.items():
         lines.append(f"- {sid} {s['model']}：input {s['input_tokens']}，cached input {s['cached_input_tokens']}，"
                      f"cache write {s['cache_write_input_tokens']}，output {s['output_tokens']}")
     if not stats:
         lines.append("- 无匹配的原生用量记录，不能据此判断没有消耗。")
+    else:
+        lines.append("## 会话用量排名（分别按 input/output 降序列出全部；token 排名不代表费用排名）")
+        for label, key in (("input", "input_tokens"), ("output", "output_tokens")):
+            ranked = sorted(stats.items(), key=lambda item: (-item[1][key], item[0]))
+            for rank, (sid, session) in enumerate(ranked, 1):
+                lines.append(f"- {label} #{rank}：{sid} {session['model']}，{label} {session[key]}")
     lines.append(f"## 慢命令（发出到观察到退出超过 5 分钟，共 {len(commands)} 条；包含后台运行及轮询间隔）")
     for secs, sid, sent, done, cmd in commands:
         lines.append(f"- {sid} {hm(sent)}~{hm(done)}，{secs / 60:.1f} 分钟：`{one_line(cmd)}`")
