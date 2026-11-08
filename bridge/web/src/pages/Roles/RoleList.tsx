@@ -8,8 +8,9 @@ import {
   Layers,
   CheckCircle2,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
-import { Button, EmptyState, Modal } from '@/components/ui';
+import { Button, EmptyState, Modal, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
 import { DSHNotice } from '@/components/DSHNotice';
@@ -57,6 +58,14 @@ function roleStateOf(role: RoleInfo): RoleTone {
     pill: 'text-ink-soft bg-surface-sunken border-hairline',
     ring: 'border-hairline',
   };
+}
+
+function isServerMembersIntentNotice(notice: string): boolean {
+  return (
+    /server_members_intent/i.test(notice) ||
+    /SERVER MEMBERS INTENT/i.test(notice) ||
+    /Server Members Intent/i.test(notice)
+  );
 }
 
 /* 骨架卡的张数 = 下面网格的列数 × 2 行（lg 三列），先占住首屏的高度，加载完不跳。 */
@@ -301,11 +310,60 @@ export default function RoleList() {
                   </div>
                 </dl>
 
-                {role.platforms?.filter((p) => p.notice).map((p) => (
-                  <p key={'notice-' + p.name} className="mt-2 text-xs leading-relaxed text-amber-600">
-                    {p.notice}
-                  </p>
-                ))}
+                {role.platforms?.filter((p) => p.notice).map((p) => {
+                  const notice = p.notice;
+                  if (!notice) return null;
+                  const isIntentNotice = isServerMembersIntentNotice(notice);
+
+                  if (isIntentNotice) {
+                    const urlMatch = notice.match(/https?:\/\/[^\s]+/);
+                    const fixUrl = urlMatch ? urlMatch[0] : null;
+                    const description = fixUrl ? notice.replace(fixUrl, '').trim() : notice;
+
+                    return (
+                      <div key={'notice-' + p.name} className="mt-2.5 flex items-center">
+                        <div className="group relative inline-flex">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-pill text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                            aria-label={`${t('roles.membersIntentOff', '未开成员事件')}: ${description}`}
+                          >
+                            <Badge
+                              variant="default"
+                              className="cursor-help px-2 py-0.5 text-[11px] font-normal text-ink-mute transition-colors duration-base group-hover:bg-surface-raised group-hover:text-ink"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-ink-mute/60 transition-colors group-hover:bg-amber-500/70" />
+                              {t('roles.membersIntentOff', '未开成员事件')}
+                            </Badge>
+                          </button>
+                          <div
+                            role="tooltip"
+                            className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 hidden w-72 max-w-[calc(100vw-3rem)] flex-col rounded-control border border-hairline bg-surface p-3 text-xs leading-relaxed text-ink shadow-ui-2 transition-all duration-base before:absolute before:inset-x-0 before:-bottom-2 before:h-2 group-hover:pointer-events-auto group-hover:flex group-focus-within:pointer-events-auto group-focus-within:flex"
+                          >
+                            <p className="select-text whitespace-normal text-ink-soft">{description}</p>
+                            {fixUrl && (
+                              <a
+                                href={fixUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-2.5 inline-flex items-center gap-1 font-medium text-accent hover:underline select-text"
+                              >
+                                <span>{t('roles.openDeveloperPortal', '打开 Discord 开发者后台')}</span>
+                                <ExternalLink size={12} className="shrink-0" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <p key={'notice-' + p.name} className="mt-2 text-xs leading-relaxed text-amber-600">
+                      {p.notice}
+                    </p>
+                  );
+                })}
 
                 {role.source === 'dsh' ? (
                   memberActions(members.find(m => m.id === dshMemberId(role.name)))
