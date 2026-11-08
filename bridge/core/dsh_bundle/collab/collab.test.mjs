@@ -269,7 +269,55 @@ test('channel rename: refreshes loaded and persisted sessions, workspaces and fu
   hub.store.close();
 });
 
-test('channel primary: independent choices persist, inherit to workspaces and fall back only when unset', async () => {
+test('channel default reply: one member answers, multiple wait for a channel choice', async t => {
+  const hub = makeHub();
+  const fake = fakeDsh();
+  const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B', rooms: [2] }]);
+  hub.store.ensureRoom(2, 'other');
+  t.after(async () => { await dsh.close(); hub.store.close(); });
+  const post = text => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
+  const jobs = message => hub.store.openJobs().filter(j => j.trigger_id === message.id).map(j => j.member_id);
+  assert.deepEqual(jobs(post('single member without mention')), ['a']);
+  hub.setMember({ ...hub.members.get('b'), rooms: [1, 2] });
+  hub.leadState = { selected: () => 'a' };
+  assert.deepEqual(jobs(post('multiple members without mention')), [], 'a global primary must not opt the channel in');
+  assert.deepEqual(jobs(post('@B explicit mention')), ['b']);
+  hub.store.setLead(1, 'b');
+  assert.deepEqual(jobs(post('selected channel primary')), ['b']);
+  hub.store.setLead(1, null);
+  assert.deepEqual(jobs(post('cleared channel primary')), []);
+});
+
+test('channel default reply: CLI-neutral selection follows membership, workspaces and private chats', t => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  t.after(() => hub.store.close());
+  const events = [];
+  hub.subscribe(event => events.push(event));
+  const workspace = hub.store.createWorkspace(1);
+  for (const cli of ['codex', 'claudecode', 'gemini']) {
+    hub.setMember({ id: 'a', name: 'A', kind: 'dsh', cli, rooms: [1] });
+    assert.equal(hub.primaryIn(1)?.id, 'a');
+    assert.equal(hub.primaryIn(workspace.id)?.id, 'a');
+    assert.equal(hub.primaryIn(2), undefined);
+    assert.equal(events.filter(e => e.type === 'rooms').at(-1)?.rooms.find(r => r.id === 1).effective_lead_id, 'a');
+  }
+  hub.setMember({ id: 'b', name: 'B', kind: 'dsh', rooms: [1] });
+  assert.equal(hub.primaryIn(1), undefined);
+  assert.equal(events.filter(e => e.type === 'rooms').at(-1).rooms.find(r => r.id === 1).effective_lead_id, null);
+  hub.store.setLead(1, 'b');
+  assert.equal(hub.primaryIn(workspace.id)?.id, 'b');
+  const dm = hub.store.openDm('b', 'B');
+  assert.equal(hub.primaryIn(dm.id)?.id, 'b');
+  hub.store.setLead(1, null);
+  hub.removeMember('b');
+  assert.equal(hub.primaryIn(1)?.id, 'a');
+  assert.equal(events.filter(e => e.type === 'rooms').at(-1).rooms.find(r => r.id === 1).effective_lead_id, 'a');
+  hub.store.setLead(1, 'removed');
+  assert.equal(hub.primaryIn(1), undefined, 'an unavailable explicit choice must not silently pick another member');
+});
+
+test('channel primary: independent choices persist, inherit to workspaces and leave unset multi-member channels quiet', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -286,12 +334,12 @@ test('channel primary: independent choices persist, inherit to workspaces and fa
   store.setLead(1, 'a'); store.setLead(2, 'b');
   assert.equal(hub.primaryIn(1).id, 'a');
   assert.equal(hub.primaryIn(2).id, 'b');
-  assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.primaryIn(3), undefined);
   assert.equal(hub.primaryIn(ws.id).id, 'a');
   store.close(); store = new Store(path); hub = init();
   assert.equal(hub.primaryIn(1).id, 'a');
   assert.equal(hub.primaryIn(2).id, 'b');
-  assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.primaryIn(3), undefined);
   store.setLead(1, 'removed');
   assert.equal(hub.primaryIn(1), undefined, 'a missing explicit primary must not pick another channel’s role');
   store.close();

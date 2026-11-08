@@ -192,7 +192,7 @@ export const zh = {
   dispatchTeam: '完全团队 — 交给团队成员协作',
   dispatchMixed: '混合 — 按任务选择模型与成员',
   lead: '主角色',
-  leadNone: '未选择（按原配置）',
+  leadNone: '未选择（单成员自动接话，多成员不接话）',
   durSeconds: '{n} 秒',
   durMinutes: '{n} 分钟',
   durHours: '{h} 小时 {m} 分',
@@ -486,7 +486,7 @@ export const en: Record<keyof typeof zh, string> = {
   lead: 'Primary role',
   // #176: zh says 未选择（按原配置）—「没有角色可用」是另一回事。这条是 select 的占位项，
   // 频道里明明有五个人时说 no role is available 会让人以为添加成员失败了。
-  leadNone: 'Not selected (use the default)',
+  leadNone: 'No selection (one member replies; multiple stay quiet)',
   durSeconds: '{n}s',
   durMinutes: '{n} min',
   durHours: '{h} h {m} min',
