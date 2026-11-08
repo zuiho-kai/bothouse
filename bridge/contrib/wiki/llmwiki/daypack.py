@@ -15,7 +15,7 @@ import collections, glob, json, os, re, sys, time
 from datetime import datetime
 from pathlib import Path
 
-CC = Path.home() / ".claude" / "projects"
+CC = Path(os.environ.get("CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects")).expanduser()
 # 来源：Opus 5.5 API 价/百万 token（wiki claude-context-costs 2026-10-17，沿用 usage_by_session.py；Fable 价未知按同价）
 PRICE = dict(i=4, o=20, r=.2, w5=5, w1=8)
 # Usage does not report a cache miss's cause. Count *suspected* expiry rewrites, respecting the most recently
@@ -26,6 +26,8 @@ SLOW = 300
 TOP = 20  # 来源：沿用 usage_by_session.py 打印的前 20 个会话
 PROMISE = re.compile(r"接下来|之后|我去")  # the words the approved plan names (dream-reflect.md step 1)
 CMD_CHARS = 300  # 来源：沿用 sessionlog.TOOL_CHARS（ingest.py extract() 与 export.py 截工具调用为 300）
+REWRITES = []
+REASONS = ("过期", "压缩", "换模型", "前缀变")
 
 
 def ts_of(s):
@@ -76,11 +78,24 @@ def call_cost(u):
     return u.get("input_tokens", 0) * PRICE["i"] / 1e6 + write + read + out, write, read, out
 
 
+def rewrite_reason(call, previous, written_tokens):
+    if not previous or written_tokens <= call["u"].get("cache_read_input_tokens", 0):
+        return None
+    if call["t"] - previous[0] > previous[1]:
+        return "过期"
+    if call.get("compact"):
+        return "压缩"
+    if len(previous) > 2 and previous[2] != call.get("model", "?"):
+        return "换模型"
+    return "前缀变"
+
+
 def per_session(calls):
     """{(proj, sid): Counter(cost, sub, main, calls, write, read, out, maxctx, rewrites, rewrite_cost, first, last)}.
     A session includes its sub-agents (their files carry the parent's sessionId)."""
     S = collections.defaultdict(collections.Counter)
-    prev = {}  # file → (previous call time, most recently advertised TTL)
+    REWRITES.clear()
+    prev = {}
     for c in sorted(calls, key=lambda c: c["t"]):
         u, s = c["u"], S[(c["proj"], c["sid"])]
         cost, write, read, out = call_cost(u)
@@ -91,14 +106,24 @@ def per_session(calls):
         s["read"] += read
         s["out"] += out
         w = sum(written(u))
+        s["tok_r"] += u.get("cache_read_input_tokens", 0)
+        s["tok_w"] += w
+        s["tok_i"] += u.get("input_tokens", 0)
         s["maxctx"] = max(s["maxctx"], u.get("cache_read_input_tokens", 0) + w + u.get("input_tokens", 0))
         previous = prev.get(c["file"])
-        if previous and c["t"] - previous[0] > previous[1] and w > u.get("cache_read_input_tokens", 0):
+        reason = rewrite_reason(c, previous, w)
+        if reason:
+            s["rw_" + reason] += 1
+            s["rwcost_" + reason] += write
+            REWRITES.append(dict(t=c["t"], proj=c["proj"], sid=c["sid"], sub=c["sub"], reason=reason, cost=write,
+                                 gap=c["t"] - previous[0], ttl=previous[1], model=c.get("model", "?"),
+                                 read=u.get("cache_read_input_tokens", 0)))
+        if reason == "过期":
             s["rewrites"] += 1
             s["rewrite_cost"] += write
         w5, w1 = written(u)
         ttl = 3600 if w1 else EXPIRED_GAP if w5 else previous[1] if previous else EXPIRED_GAP
-        prev[c["file"]] = (c["t"], ttl)
+        prev[c["file"]] = (c["t"], ttl, c.get("model", "?"))
         s["first"] = min(s["first"] or c["t"], c["t"])
         s["last"] = max(s["last"], c["t"])
     return S
@@ -153,6 +178,22 @@ def one_line(s, n=CMD_CHARS):
     return s if len(s) <= n else s[:n] + "…"
 
 
+REWRITE_SAMPLES = 5
+
+
+def hit_line(sessions):
+    read, write, uncached = (sum(v[k] for v in sessions.values()) for k in ("tok_r", "tok_w", "tok_i"))
+    return (f"- 缓存命中 {read / (read + write + uncached or 1):.0%}（读 {read / 1e6:.1f}M、写 {write / 1e6:.1f}M、"
+            f"未缓存输入 {uncached / 1e6:.2f}M token；写入多于读取的调用 {len(REWRITES)} 次）")
+
+
+def rewrite_samples(n=REWRITE_SAMPLES):
+    top = sorted(REWRITES, key=lambda r: -r["cost"])[:n]
+    return [f"重写样本（写入多于读取、按写入额前 {len(top)} 条）："] + [
+        f"- {hm(r['t'])} {r['sid'][:8]}{' 子 agent' if r['sub'] else ''} {r['reason']}：距上次调用 {r['gap'] / 60:.1f} 分钟，"
+        f"上次 TTL {r['ttl'] // 60} 分钟，仍读 {r['read'] // 1000}k，写入 ${r['cost']:.2f}，{r['model']}" for r in top] if top else []
+
+
 def cost_part(S, slow):
     T = totals(S, slow)
     lines = ["## 开销（按 Opus 5.5 API 价折算；订阅不按 token 收费，只看相对占比；算法同 usage_by_session.py）",
@@ -160,6 +201,11 @@ def cost_part(S, slow):
              f"读缓存 ${sum(v['read'] for v in S.values()):.1f}，输出 ${sum(v['out'] for v in S.values()):.1f}；会话 {len(S)} 个",
              f"- 疑似缓存过期重写 {T['rewrites']} 次，写入 ${T['rewrite_cost']:.1f}（同一会话文件两次调用间隔超过最近记录的 "
              "5m/1h TTL，且这次写入多于读取；日志不能证明重写原因）",
+             "- 写多于读的重写按日志证据分：" + ("，".join(
+                 f"{r} {sum(v['rw_' + r] for v in S.values())} 次 ${sum(v['rwcost_' + r] for v in S.values()):.1f}"
+                 for r in REASONS)) + "（过期=间隔超 TTL；压缩=中间有压缩；换模型=模型变了；前缀变=都不是）",
+             hit_line(S),
+             *rewrite_samples(),
              f"会话（按开销前 {TOP} 个）："]
     for (proj, sid), v in sorted(S.items(), key=lambda x: -x[1]["cost"])[:TOP]:
         lines.append(f"- {sid[:8]} ${v['cost']:.1f}（子 agent ${v['sub']:.1f}）调用 {v['calls']} 次，最大上下文 "
@@ -229,6 +275,88 @@ def compare_part(prev, now, prev_fixes):
     return lines + ([f"- {f}" for f in prev_fixes] or ["- 无"])
 
 
+SIG_BLOCK = re.compile(r"hook|PreToolUse|blocked|denied|拦下|拦了|拒收|不允许|refused|not allowed", re.I)
+SIG_REJECT = re.compile(r"【系统退回|没有转给用户|先核对实际产物，再收口|board'? reject \d+")
+SIG_TIMEOUT = re.compile(r"满 10 分钟|timed out|Killed: 9|被砍|已暂停（")
+SIG_REVERT = re.compile(r"git (?:revert|restore|checkout -- )|rollback|cp -p \S+\.bak|撤回|改回")
+DETOUR_PER_SESSION = 8
+DETOUR_CHARS = 160
+DETOUR_LINES = 60
+
+
+def detour_signals(start, end=None, root=CC):
+    """Return grouped retry, rejection, timeout, revert and guard signals in main Claude Code sessions."""
+    out = []
+    for file in glob.glob(str(root / "*" / "*.jsonl")):
+        if os.path.getmtime(file) < start:
+            continue
+        hits, names, last_err, sid = [], {}, {}, Path(file).stem
+        for line in open(file, errors="ignore"):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            message = d.get("message") if isinstance(d, dict) else None
+            content = message.get("content") if isinstance(message, dict) else None
+            if not d.get("timestamp") or d.get("isSidechain"):
+                continue
+            t = ts_of(d["timestamp"])
+            if t < start or (end and t >= end):
+                continue
+            if d.get("type") == "user" and isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            for block in content if isinstance(content, list) else ():
+                if not isinstance(block, dict):
+                    continue
+                kind, signal, text = block.get("type"), "", ""
+                if kind == "tool_use":
+                    names[block.get("id")] = block.get("name")
+                    command = str((block.get("input") or {}).get("command") or "")
+                    signal, text = ("改了又撤回", command) if SIG_REVERT.search(command) else ("", "")
+                elif kind == "tool_result":
+                    result = block.get("content")
+                    text = " ".join(x.get("text", "") for x in result if isinstance(x, dict)) \
+                        if isinstance(result, list) else str(result or "")
+                    tool = names.get(block.get("tool_use_id"), "?")
+                    if block.get("is_error") and SIG_BLOCK.search(text[:600]):
+                        signal = "被检查拦"
+                    elif block.get("is_error") and last_err.get(tool):
+                        signal = "报错后重试又报错"
+                    elif SIG_TIMEOUT.search(text[:400]):
+                        signal = "超时被砍"
+                    last_err[tool] = bool(block.get("is_error"))
+                elif kind == "text" and d.get("type") == "user":
+                    match = SIG_REJECT.search(block.get("text", ""))
+                    if match:
+                        signal = "验收打回"
+                        text = block["text"][max(0, match.start() - 10):match.start() + DETOUR_CHARS]
+                if signal:
+                    text = one_line(text.strip(), DETOUR_CHARS)
+                    if hits and hits[-1][1] == signal and hits[-1][2][:40] == text[:40]:
+                        hits[-1] = (hits[-1][0], signal, hits[-1][2], hits[-1][3] + 1)
+                    else:
+                        hits.append((t, signal, text, 1))
+        if hits:
+            out.append((sid, hits[-DETOUR_PER_SESSION:]))
+    out.sort(key=lambda item: -sum(hit[3] for hit in item[1]))
+    keep, count = [], 0
+    for sid, hits in out:
+        if count + len(hits) > DETOUR_LINES:
+            break
+        keep.append((sid, hits))
+        count += len(hits)
+    return sorted(keep, key=lambda item: item[1][0][0])
+
+
+def detour_part(signals):
+    lines = ["## 弯路信号（程序粗标，可能误标；同一会话里信号扎堆的地方多半走了弯路）"]
+    for sid, hits in signals:
+        lines.append(f"=== SESSION {sid[:8]}")
+        lines += [f"- [{hm(t)}] {signal}" + (f" ×{count}" if count > 1 else "") + f"：『{text}』"
+                  for t, signal, text, count in hits]
+    return lines + (["- 无"] if len(lines) == 1 else [])
+
+
 def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True, reply_chars=None, codex_root=None):
     """(pack text, totals or None) for [start, end). usage False: read only the selected sessions' native Codex
     measurements when available; never show 橘's Claude Code figures for another wiki.
@@ -240,7 +368,8 @@ def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True
     else:
         import codex_daypack
         cost, T = codex_daypack.part(start, end, sessions, **({"root": codex_root} if codex_root else {}))
-    body = head + cost + promise_part(sessions, reply_chars) + compare_part(prev, T, prev_fixes)
+    detour = detour_part(detour_signals(start, end, root)) if usage else []
+    body = head + cost + detour + promise_part(sessions, reply_chars) + compare_part(prev, T, prev_fixes)
     return "\n".join(body) + "\n", T
 
 

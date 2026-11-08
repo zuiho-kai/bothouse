@@ -57,6 +57,15 @@ class T(unittest.TestCase):
     def judge(self, batch, prompt, fmt, schema):  # 假模型：next 以「不对」开头算纠正
         return [{"i": i, "corrected": t["next"].startswith("不对"), "repeat": False} for i, t in enumerate(batch)]
 
+    def test_missing_push_role_uses_configured_default(self):
+        push = self.exp / "missing-role.jsonl"
+        push.write_text("\n".join(json.dumps({
+            "t": stamp, "key": "discord:helper", "user": True, "q": q, "refs": []
+        }) for stamp, q in (("2026-11-03 10:00:00", "request"), ("2026-11-03 10:01:00", "reply"))) + "\n",
+                         encoding="utf-8")
+        with patch.object(score_night, "PUSH", push), patch.object(score_night, "DEFAULT_BOT", "helper"):
+            self.assertEqual(score_night.turns(0)[0]["bots"], ["helper"])
+
     def test_corrected_turn_is_failure_and_overturns(self):
         asked = []
 

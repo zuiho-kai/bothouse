@@ -468,6 +468,12 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 			fd = "added: " + forumCronDesc
 		}
 		addStep(res, "forum cron", ferr, fd)
+		ok, ferr = AddReflectorCronJob(c, project, sessionKey, filepath.Join(env.DataDir, "gate"), env.DataDir, mainDir)
+		rd := "already there: " + reflectorCronDesc
+		if ok {
+			rd = "added: " + reflectorCronDesc
+		}
+		addStep(res, "forum reflector cron", ferr, rd)
 	}
 }
 
@@ -492,9 +498,9 @@ func AddForumCronJob(c WizardCron, project, sessionKey, gateDir, wikiDir string)
 	}
 	cmd := shellRun(wikiPython(), "-X", "utf8", "-I", cmdQuote(filepath.Join(gateDir, "score_night.py")))
 	if runtime.GOOS == "windows" {
-		cmd = "$env:GATE_WIKI=" + cmdQuote(wikiDir) + "; " + cmd
+		cmd = "$env:GATE_DEFAULT_BOT=" + cmdQuote(project) + "; $env:GATE_WIKI=" + cmdQuote(wikiDir) + "; " + cmd
 	} else {
-		cmd = "GATE_WIKI=" + cmdQuote(wikiDir) + " " + cmd
+		cmd = "GATE_DEFAULT_BOT=" + cmdQuote(project) + " GATE_WIKI=" + cmdQuote(wikiDir) + " " + cmd
 	}
 	noLimit := 0
 	j := &CronJob{ID: GenerateCronID(), Project: project, SessionKey: sessionKey, CronExpr: "30 5 * * *",
@@ -502,9 +508,36 @@ func AddForumCronJob(c WizardCron, project, sessionKey, gateDir, wikiDir string)
 	return true, c.Add(j)
 }
 
+const reflectorCronDesc = "记忆论坛每轮反思"
+
+// AddReflectorCronJob checks for ended turns once a minute using the existing muted cron store.
+func AddReflectorCronJob(c WizardCron, project, sessionKey, gateDir, dataDir, wikiDir string) (bool, error) {
+	jobs, err := c.List()
+	if err != nil {
+		return false, err
+	}
+	for _, j := range jobs {
+		if j.Description == reflectorCronDesc {
+			return false, nil
+		}
+	}
+	cmd := shellRun(wikiPython(), "-X", "utf8", "-I", cmdQuote(filepath.Join(gateDir, "reflector.py")))
+	if runtime.GOOS == "windows" {
+		cmd = "$env:GATE_DEFAULT_BOT=" + cmdQuote(project) + "; $env:GATE_WIKI=" + cmdQuote(wikiDir) +
+			"; $env:CODEMAP_DIR=" + cmdQuote(filepath.Join(dataDir, "codemaps")) + "; " + cmd
+	} else {
+		cmd = "GATE_DEFAULT_BOT=" + cmdQuote(project) + " GATE_WIKI=" + cmdQuote(wikiDir) +
+			" CODEMAP_DIR=" + cmdQuote(filepath.Join(dataDir, "codemaps")) + " " + cmd
+	}
+	noLimit := 0
+	j := &CronJob{ID: GenerateCronID(), Project: project, SessionKey: sessionKey, CronExpr: "* * * * *",
+		Exec: cmd, Description: reflectorCronDesc, Enabled: true, Mute: true, TimeoutMins: &noLimit, CreatedAt: time.Now()}
+	return true, c.Add(j)
+}
+
 // wikiCronEnsuredFile marks a data dir whose wizard install has had its wiki and forum cron jobs checked once on
 // start (EnsureWizardWikiCron). Once only: a job the user deleted on purpose afterwards stays deleted.
-const wikiCronEnsuredFile = ".wiki-cron-ensured-v1"
+const wikiCronEnsuredFile = ".wiki-cron-ensured-v2"
 
 // EnsureWizardWikiCron adds, once per data dir, the wiki cron jobs and the nightly forum settlement a wizard install
 // should have but lacks: installs from before the wizard added them without a default channel (agentm, 2026-11-04)
@@ -555,6 +588,13 @@ func EnsureWizardWikiCron(dataDir string, c WizardCron, sub string) ([]string, e
 		}
 		if ok {
 			added = append(added, forumCronDesc)
+		}
+		ok, ferr = AddReflectorCronJob(c, project, session, filepath.Join(dataDir, "gate"), dataDir, mainDir)
+		if ferr != nil {
+			return added, ferr
+		}
+		if ok {
+			added = append(added, reflectorCronDesc)
 		}
 	}
 	return added, os.WriteFile(mark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
