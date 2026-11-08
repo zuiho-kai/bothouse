@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, RotateCw, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Sparkles, RotateCw, ExternalLink, ArrowLeft } from 'lucide-react';
 import { Button, PageHeader } from '@/components/ui';
 import { api } from '@/api/client';
 import { collabPageUrl } from '@/lib/collabPages';
@@ -22,6 +23,13 @@ export default function WikiGalaxyPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="wiki-galaxy-page">
+      <Link
+        to="/"
+        className="inline-flex w-fit items-center gap-1.5 rounded-control px-2.5 py-1.5 text-sm text-ink-soft transition-colors duration-base hover:bg-surface-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text"
+      >
+        <ArrowLeft size={14} />
+        {t('nav.dashboard')}
+      </Link>
       <PageHeader
         icon={Sparkles}
         title={t('wikiGalaxy.title', 'Wiki 星河')}

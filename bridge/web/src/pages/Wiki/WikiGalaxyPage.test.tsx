@@ -1,5 +1,6 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WikiGalaxyPage from './WikiGalaxyPage';
 
@@ -22,7 +23,7 @@ function renderPage() {
   containers.push(container);
   const root = createRoot(container);
   roots.push(root);
-  act(() => root.render(<WikiGalaxyPage />));
+  act(() => root.render(<MemoryRouter><WikiGalaxyPage /></MemoryRouter>));
   return container;
 }
 
