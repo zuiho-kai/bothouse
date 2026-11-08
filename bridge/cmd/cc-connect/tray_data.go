@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+// Panel pages the info rows open (routes in web/src/App.tsx). The panel has no separate upgrade
+// page: the version shows on the overview and the upgrade button sits in the sidebar
+// (components/Layout/VersionBadge.tsx), so 升级 opens the overview too.
+const (
+	trayPageStatus = "/"
+	trayPageRoles  = "/roles"
+	trayPageUsage  = "/usage"
+	trayPageUpdate = "/"
+)
+
 type trayClient struct{ base, token string }
 
 func (c trayClient) loginURL(path string) string {
