@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,6 +49,11 @@ func TestClassicQuota_CacheAndSessionAccountIsolation(t *testing.T) {
 	if cached.CachedUsage() == nil {
 		t.Fatal("account A lost its own cache")
 	}
+	a.model = "claude-fixture"
+	if cached.CachedUsage() == nil {
+		t.Fatal("session quota model followed a later agent model switch")
+	}
+	a.model = "gemini-fixture"
 	writeQuotaAccount(t, home, "account-b")
 	if got := a.CachedUsage(); got != nil {
 		t.Fatalf("account B inherited account A report: %+v", got)
@@ -61,9 +67,14 @@ func TestClassicQuota_CacheAndSessionAccountIsolation(t *testing.T) {
 func TestClassicQuota_TokenCacheFollowsAccount(t *testing.T) {
 	home := t.TempDir()
 	writeQuotaAccount(t, home, "account-a")
+	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer account-a" && r.Header.Get("Authorization") != "Bearer account-b" {
-			t.Error("unexpected fixture credential")
+		want := "Bearer account-a"
+		if calls.Add(1) == 2 {
+			want = "Bearer account-b"
+		}
+		if r.Header.Get("Authorization") != want {
+			t.Error("request used another account's fixture credential")
 		}
 		_, _ = io.WriteString(w, sampleQuotaSummary)
 	}))
@@ -82,5 +93,34 @@ func TestClassicQuota_TokenCacheFollowsAccount(t *testing.T) {
 	}
 	if report.AccountID != "account-b" {
 		t.Fatal("report did not retain the account that supplied its credential")
+	}
+}
+
+func TestClassicQuota_AccountChangesDuringFetch(t *testing.T) {
+	home := t.TempDir()
+	writeQuotaAccount(t, home, "account-a")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer account-a" {
+			t.Error("unexpected source credential")
+		}
+		writeQuotaAccount(t, home, "account-b")
+		_, _ = io.WriteString(w, sampleQuotaSummary)
+	}))
+	defer srv.Close()
+	q := &quotaState{homeDir: home, quotaURL: srv.URL}
+	report, err := q.fetch(context.Background(), "unused", "gemini-fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.AccountID != "account-a" {
+		t.Fatal("inflight response was relabeled with the replacement credential")
+	}
+}
+
+func TestClassicQuota_MissingSubjectStillSeparatesCredentials(t *testing.T) {
+	a := quotaTokenAccount([]byte(`{"token":{"access_token":"fixture-a"}}`), "same-directory")
+	b := quotaTokenAccount([]byte(`{"token":{"access_token":"fixture-b"}}`), "same-directory")
+	if a == b {
+		t.Fatal("credentials without an OAuth subject shared one account identity")
 	}
 }

@@ -34,6 +34,17 @@ func TestRoleQuota_SparseWindowExpiry(t *testing.T) {
 	}
 }
 
+func TestRoleQuota_RejectsDifferentSourceAccount(t *testing.T) {
+	agent := &quotaDomainTestAgent{stubModelModeAgent: stubModelModeAgent{model: "A"}, account: "account-a"}
+	e := &Engine{agent: agent}
+	report := roleQuotaTestReport()
+	report.AccountID = "account-b"
+	e.cacheRoleQuotaReport(agent, "A", e.quotaScopeFor(agent, "A"), report)
+	if e.CachedQuotaReport(nil, "A") != nil {
+		t.Fatal("read using account B was attributed to captured account A scope")
+	}
+}
+
 type roleStreamUsageSession struct {
 	*controllableAgentSession
 	report *UsageReport
