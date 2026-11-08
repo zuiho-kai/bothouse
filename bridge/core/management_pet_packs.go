@@ -58,7 +58,7 @@ func readPetJSON(root *os.Root, name string, out any) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", name, err)
 	}
-	if strings.HasSuffix(name, ".jsonc") {
+	if strings.HasSuffix(name, ".jsonc") || strings.HasSuffix(name, "-config.json") {
 		data = pretty.Spec(data)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
@@ -172,8 +172,8 @@ func loadWebMPet(root *os.Root, info *PetPackInfo) error {
 		return fmt.Errorf("read pet configs: %w", err)
 	}
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), "-config.json") {
-			kind := strings.TrimSuffix(entry.Name(), "-config.json")
+		if strings.HasSuffix(entry.Name(), "-config.json") || strings.HasSuffix(entry.Name(), "-config.jsonc") {
+			kind := strings.TrimSuffix(strings.TrimSuffix(entry.Name(), "c"), "-config.json")
 			configs = append(configs, configLocation{path.Join("pet", entry.Name()), []string{path.Join("pet", kind+"-animation")}})
 		}
 	}
@@ -191,9 +191,10 @@ func loadWebMPet(root *os.Root, info *PetPackInfo) error {
 			return err
 		}
 		found = true
-		var names []string
-		collectPetAnimationNames(config.Animations, &names)
-		for _, name := range names {
+		var actions []PetPackAction
+		collectPetAnimations(config.Animations, "", &actions)
+		for _, action := range actions {
+			name := action.Name
 			file := ""
 			for _, dir := range location.dirs {
 				candidate := path.Join(dir, name+".webm")
@@ -211,13 +212,15 @@ func loadWebMPet(root *os.Root, info *PetPackInfo) error {
 			if file == "" {
 				return fmt.Errorf("%s action %q: media not found", location.file, name)
 			}
-			if !seen[file] {
-				info.Actions = append(info.Actions, PetPackAction{ID: name, Name: name, File: file})
-				seen[file] = true
+			key := file + "\x00" + action.State
+			if !seen[key] {
+				action.File = file
+				info.Actions = append(info.Actions, action)
+				seen[key] = true
 			}
 		}
 		// A user main config replaces the built-in main animation section when present.
-		if len(names) > 0 && !strings.HasPrefix(location.file, "pet/") {
+		if len(actions) > 0 && !strings.HasPrefix(location.file, "pet/") {
 			break
 		}
 	}
@@ -225,19 +228,18 @@ func loadWebMPet(root *os.Root, info *PetPackInfo) error {
 		return errors.New("missing manifest.json or supported dsh-pet config")
 	}
 	info.Format = "webm"
-	sort.Slice(info.Actions, func(i, j int) bool { return info.Actions[i].File < info.Actions[j].File })
 	return nil
 }
 
-func collectPetAnimationNames(value any, names *[]string) {
+func collectPetAnimations(value any, state string, actions *[]PetPackAction) {
 	switch value := value.(type) {
 	case string:
 		if value != "" {
-			*names = append(*names, value)
+			*actions = append(*actions, PetPackAction{ID: value, Name: value, State: state})
 		}
 	case []any:
 		for _, child := range value {
-			collectPetAnimationNames(child, names)
+			collectPetAnimations(child, state, actions)
 		}
 	case map[string]any:
 		// Category ids are labels, not filenames. Numbers/booleans are ignored below.
@@ -249,7 +251,24 @@ func collectPetAnimationNames(value any, names *[]string) {
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			collectPetAnimationNames(value[key], names)
+			switch key {
+			case "idle":
+				collectPetAnimations(value[key], "idle", actions)
+			case "whisper":
+				collectPetAnimations(value[key], "speech", actions)
+			case "workStatus":
+				// 来源：dsh-pet assets/config.jsonc 的 workStatus 档位顺序。
+				states := []string{"thinking", "working", "working", "thinking", "celebrate", "error"}
+				if slots, ok := value[key].([]any); ok {
+					for index, slot := range slots {
+						if index < len(states) {
+							collectPetAnimations(slot, states[index], actions)
+						}
+					}
+				}
+			default:
+				collectPetAnimations(value[key], state, actions)
+			}
 		}
 	}
 }
@@ -350,7 +369,7 @@ func (m *ManagementServer) handlePetAsset(w http.ResponseWriter, r *http.Request
 		return
 	}
 	packID, file := r.URL.Query().Get("pack"), r.URL.Query().Get("file")
-	if packID == "" || strings.ContainsAny(packID, `/\.:`) || file == "" {
+	if packID == "" || packID == "." || packID == ".." || strings.ContainsAny(packID, `/\:`) || file == "" {
 		mgmtError(w, http.StatusBadRequest, "pack and file must identify a local pack asset")
 		return
 	}

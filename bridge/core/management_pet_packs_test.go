@@ -82,8 +82,12 @@ func TestPetPacksFormatsAndErrors(t *testing.T) {
 	for _, name := range []string{"idle", "coding"} {
 		writePetFixture(t, root, "video/assets/webm/"+name+".webm", generatedPetWebM(t))
 	}
-	writePetFixture(t, root, "kind/pet/fish-config.json", []byte(`{"animations":{"idle":["rest"]}}`))
+	writePetFixture(t, root, "kind/pet/fish-config.json", []byte("{ // JSONC in a .json kind config\n\"animations\":{\"idle\":[\"rest\"]},}"))
 	writePetFixture(t, root, "kind/pet/fish-animation/rest.webm", generatedPetWebM(t))
+	writePetFixture(t, root, "custom.v2/pet/fish-config.jsonc", []byte(`{"animations":{"idle":["rest"],"events":{"workStatus":["ponder","focus","sort","wait","done","oops"],"whisper":["murmur"]}}}`))
+	for _, name := range []string{"rest", "ponder", "focus", "sort", "wait", "done", "oops", "murmur"} {
+		writePetFixture(t, root, "custom.v2/pet/fish-animation/"+name+".webm", generatedPetWebM(t))
+	}
 	writePetFixture(t, root, "broken/manifest.json", []byte("{"))
 	writePetFixture(t, root, "broken-actions/manifest.json", []byte(manifest))
 	writePetFixture(t, root, "broken-actions/actions.json", []byte("{"))
@@ -103,7 +107,7 @@ func TestPetPacksFormatsAndErrors(t *testing.T) {
 	for _, pack := range body.Data.Installed {
 		packs[pack.ID] = pack
 	}
-	if len(packs) != 6 {
+	if len(packs) != 7 {
 		t.Fatalf("bad packages were hidden: %+v", packs)
 	}
 	sprite := packs["sprite"]
@@ -117,6 +121,20 @@ func TestPetPacksFormatsAndErrors(t *testing.T) {
 	}
 	if packs["kind"].Actions[0].File != "pet/fish-animation/rest.webm" {
 		t.Fatal(packs["kind"])
+	}
+	custom := packs["custom.v2"]
+	if custom.Error != "" || custom.ActionCount != 8 {
+		t.Fatalf("JSONC suffix kind config: %+v", custom)
+	}
+	wantStates := map[string]string{"rest": "idle", "ponder": "thinking", "focus": "working", "sort": "working", "wait": "thinking", "done": "celebrate", "oops": "error", "murmur": "speech"}
+	for _, action := range custom.Actions {
+		if action.State != wantStates[action.Name] {
+			t.Fatalf("lost configured state: %+v", action)
+		}
+	}
+	assetURL := "/api/v1/plugins/pets/asset?" + url.Values{"pack": {custom.ID}, "file": {custom.Actions[0].File}}.Encode()
+	if got := petRequest(handler, assetURL, "pet-test-token"); got.Code != 200 {
+		t.Fatalf("listed dotted pack cannot serve media: %d %s", got.Code, got.Body.String())
 	}
 	for _, id := range []string{"broken", "broken-actions", "missing-media"} {
 		if packs[id].Error == "" || len(packs[id].Actions) > 0 {
