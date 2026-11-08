@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PluginHubPage from './PluginHubPage';
-import { PET_ASSETS } from './plugins/dshPetPlugin';
+import { PET_ASSETS, AVAILABLE_PET_PACKS } from './plugins/dshPetPlugin';
+import { listRoles } from '@/api/roles';
 
 const mockRoles: any[] = [
   {
@@ -16,12 +17,11 @@ const mockRoles: any[] = [
     current_task: '工作区1：协助审核代码',
     paused: false,
     platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
-    sessions_count: 3,
+    sessions_count: 2,
     source: 'bridge',
     active_sessions: [
       { sessionId: 'sess-ws1', type: 'working', task: '工作区1：协助审核代码', timestamp: '2026-11-08T23:00:00Z' },
       { sessionId: 'sess-ws2', type: 'thinking', task: '工作区2：跑定向单元测试', timestamp: '2026-11-08T23:01:00Z' },
-      { sessionId: 'sess-chat', type: 'idle', task: '聊天频道：待命', timestamp: '2026-11-08T22:50:00Z' },
     ],
   },
   {
@@ -34,8 +34,23 @@ const mockRoles: any[] = [
     current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 1,
+    sessions_count: 0,
     source: 'bridge',
+    active_sessions: [],
+  },
+  {
+    name: 'cjiang',
+    display_name: 'C酱',
+    agent_type: 'reviewer',
+    model: 'claude-opus-5-5',
+    online: true,
+    busy: false,
+    current_task: '',
+    paused: false,
+    platforms: [{ name: 'discord', ready: true }],
+    sessions_count: 0,
+    source: 'bridge',
+    active_sessions: [],
   },
   {
     name: 'gge',
@@ -49,6 +64,7 @@ const mockRoles: any[] = [
     platforms: [{ name: 'discord', ready: true }],
     sessions_count: 0,
     source: 'bridge',
+    active_sessions: [],
   },
 ];
 
@@ -103,16 +119,16 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(container?.querySelector('[data-testid="sim-target-select"]')).not.toBeNull();
 
     // Both plugins are listed
-    expect(container?.textContent).toContain('桌宠大肥鱼 (dsh-pet)');
+    expect(container?.textContent).toContain('桌宠角色与形象包适配');
     expect(container?.textContent).toContain('人格养成 (待接入)');
 
-    // Author and repo are displayed
-    expect(container?.textContent).toContain('PC2005-cloud');
-    expect(container?.textContent).toContain('CC BY-NC-SA 4.0');
+    // Author and upstream terms are displayed
+    expect(container?.textContent).toContain('PC2005-cloud & hunmer');
+    expect(container?.textContent).toContain('遵循各形象包自带说明');
     expect(container?.textContent).toContain('MIT');
   });
 
-  it('defaults to single pet display for 肥鱼 (bridge:deep) with fat fish and multi-session busy count', async () => {
+  it('defaults to single pet display for 肥鱼 (bridge:deep) with dsh1 local installed pack', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -122,20 +138,20 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     });
 
     // Header explains single pet policy and mapping
-    expect(container?.textContent).toContain('独立 roleKey 防串');
     expect(container?.textContent).toContain('只显示一只 (默认)');
 
     // Default displayed role is 肥鱼 (bridge:deep)
     expect(container?.textContent).toContain('肥鱼');
     expect(container?.textContent).toContain('(bridge:deep)');
-    expect(container?.textContent).toContain('大肥鱼形象包');
+    expect(container?.textContent).toContain('肥鱼 (dsh1 新动作包)');
+    expect(container?.textContent).toContain('[本地已装]');
 
     // Multi-session busy badge shows 2 处在忙 (from sess-ws1 working + sess-ws2 thinking)
     const busyBadge = container?.querySelector('[data-testid="busy-badge-bridge:deep"]');
     expect(busyBadge).not.toBeNull();
     expect(busyBadge?.textContent).toContain('2 处在忙');
 
-    // Fat fish image exists for bridge:deep
+    // Pet image exists for bridge:deep
     const deepImg = container?.querySelector('[data-testid="pet-img-bridge:deep"]');
     expect(deepImg).not.toBeNull();
   });
@@ -162,7 +178,6 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(sessionList).not.toBeNull();
     expect(sessionList?.textContent).toContain('工作区1：协助审核代码');
     expect(sessionList?.textContent).toContain('工作区2：跑定向单元测试');
-    expect(sessionList?.textContent).toContain('聊天频道：待命');
   });
 
   it('simulator emits event ONLY to targeted role and does NOT bleed to other roles', async () => {
@@ -174,7 +189,7 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
       );
     });
 
-    // Target select is defaults to bridge:deep
+    // Target select defaults to bridge:deep
     const targetSelect = container?.querySelector('[data-testid="sim-target-select"]') as HTMLSelectElement | null;
     expect(targetSelect?.value).toBe('bridge:deep');
 
@@ -202,7 +217,7 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(gjiangCard?.textContent).not.toContain('交活庆祝');
   });
 
-  it('switching role in single mode to gjiang displays 形象待接入 without fat fish image', async () => {
+  it('switching role in single mode to gjiang displays 形象待接入 without pet image', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -228,11 +243,11 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
     expect(container?.textContent).toContain('形象待接入');
     expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:gjiang"]')).not.toBeNull();
 
-    // Fat fish image should NOT be displayed for gjiang
+    // No pet image should be displayed for unbound gjiang
     expect(container?.querySelector('[data-testid="pet-img-bridge:gjiang"]')).toBeNull();
   });
 
-  it('switching to all roles mode displays grid where only deep has fat fish image', async () => {
+  it('switching to all roles mode displays grid with deep and cjiang having local installed images', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -249,17 +264,18 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
       allBtn?.click();
     });
 
-    // In all roles mode: deep has image, while gjiang and gge have empty slot placeholders
+    // In all roles mode: deep (dsh1) and cjiang (claude) have images, gjiang and gge have empty slot placeholders
     expect(container?.querySelector('[data-testid="pet-img-bridge:deep"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="pet-img-bridge:cjiang"]')).not.toBeNull();
     expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:gjiang"]')).not.toBeNull();
     expect(container?.querySelector('[data-testid="pet-slot-pending-bridge:gge"]')).not.toBeNull();
 
-    // Only 1 image is in the pet grid (for deep)
-    const images = container?.querySelectorAll('img');
-    expect(images?.length).toBe(1);
+    // Exactly 2 images are in the pet grid (deep dsh1 and cjiang claude)
+    const images = container?.querySelectorAll('[data-testid^="pet-img-"]');
+    expect(images?.length).toBe(2);
   });
 
-  it('switches dedicated area to personality nurture placeholder', async () => {
+  it('displays local installed packs and remote repository packs with distinct badges and links', async () => {
     await act(async () => {
       root?.render(
         <MemoryRouter>
@@ -268,18 +284,106 @@ describe('PluginHubPage - 插件总页与生态接口界面', () => {
       );
     });
 
-    // Click on the Personality Nurture card or its button
-    const buttons = Array.from(container?.querySelectorAll('button') || []);
-    const enterNurtureBtn = buttons.find(
-      (b) => b.textContent?.includes('进入专区') || b.textContent?.includes('人格养成')
-    );
+    // Local installed section has dsh1 and claude
+    const dsh1Card = container?.querySelector('[data-testid="installed-pack-dsh1"]');
+    expect(dsh1Card).not.toBeNull();
+    expect(dsh1Card?.textContent).toContain('本地已装');
+    expect(dsh1Card?.textContent).toContain('~/.bothouse/pets/dsh1');
+    expect(dsh1Card?.textContent).toContain('素材禁止商用；二创在公开渠道须署名上游仓库 (见 NOTICE.txt)');
+
+    const claudeCard = container?.querySelector('[data-testid="installed-pack-claude"]');
+    expect(claudeCard).not.toBeNull();
+    expect(claudeCard?.textContent).toContain('本地已装');
+    expect(claudeCard?.textContent).toContain('~/.bothouse/pets/claude');
+    expect(claudeCard?.textContent).toContain('未注明许可，请看来源仓库');
+
+    // Remote packs have uninstalled badges and download buttons
+    const gpt1Card = container?.querySelector('[data-testid="remote-pack-gpt1"]');
+    expect(gpt1Card).not.toBeNull();
+    expect(gpt1Card?.textContent).toContain('未安装 (仅来源仓库)');
+    expect(container?.querySelector('[data-testid="download-link-gpt1"]')).not.toBeNull();
+
+    const geminiCard = container?.querySelector('[data-testid="remote-pack-gemini"]');
+    expect(geminiCard).not.toBeNull();
+    expect(geminiCard?.textContent).toContain('未安装 (仅来源仓库)');
+    expect(container?.querySelector('[data-testid="download-link-gemini"]')).not.toBeNull();
+
+    const dshOfficialCard = container?.querySelector('[data-testid="remote-pack-dsh-official"]');
+    expect(dshOfficialCard).not.toBeNull();
+    expect(dshOfficialCard?.textContent).toContain('未安装 (仅来源仓库)');
+    expect(dshOfficialCard?.textContent).toContain('代码 MIT，素材非商用');
+  });
+
+  // Targeted regression test 1 (G哥 feedback): preserves real API source and avoids converting to bridge
+  it('preserves real API source from listRoles and does not override to bridge', async () => {
+    const customRoles = [
+      {
+        name: 'deep',
+        display_name: '肥鱼DSH',
+        agent_type: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        online: true,
+        busy: false,
+        current_task: '',
+        paused: false,
+        platforms: [{ name: 'discord', ready: true }],
+        sessions_count: 0,
+        source: 'dsh',
+        active_sessions: [],
+      },
+    ];
+
+    vi.mocked(listRoles).mockResolvedValueOnce({ roles: customRoles as any });
 
     await act(async () => {
-      enterNurtureBtn?.click();
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
     });
 
-    // Dedicated area should show personality content
-    expect(container?.textContent).toContain('人格养成与好感度系统');
-    expect(container?.textContent).toContain('第三方插件如何与 bothouse 角色事件协同');
+    // The rendered roleKey should preserve source 'dsh', yielding dsh:deep
+    const roleKeyTag = container?.querySelector('[data-testid="role-key-tag-dsh:deep"]');
+    expect(roleKeyTag).not.toBeNull();
+    expect(roleKeyTag?.textContent).toContain('(dsh:deep)');
+  });
+
+  // Targeted regression test 2 (G哥 feedback): API busy=false role stays idle and does not get injected with demo sessions
+  it('keeps role completely idle when API returns busy=false and does not inject fake active sessions', async () => {
+    const idleDeep = [
+      {
+        name: 'deep',
+        display_name: '肥鱼',
+        agent_type: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        online: true,
+        busy: false,
+        current_task: '',
+        paused: false,
+        platforms: [{ name: 'discord', ready: true }],
+        sessions_count: 0,
+        source: 'bridge',
+        active_sessions: [],
+      },
+    ];
+
+    vi.mocked(listRoles).mockResolvedValueOnce({ roles: idleDeep as any });
+
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <PluginHubPage />
+        </MemoryRouter>
+      );
+    });
+
+    // Role badge should be 待机中
+    const card = container?.querySelector('[data-testid="pet-card-bridge:deep"]');
+    expect(card?.textContent).toContain('待机中');
+    expect(card?.textContent).not.toContain('干活中');
+
+    // No busy sessions badge
+    expect(container?.querySelector('[data-testid="busy-badge-bridge:deep"]')).toBeNull();
   });
 });

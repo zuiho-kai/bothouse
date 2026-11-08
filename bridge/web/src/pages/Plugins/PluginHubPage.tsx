@@ -33,12 +33,11 @@ const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
     current_task: '工作区1：协助审核代码',
     paused: false,
     platforms: [{ name: 'qq', ready: true }, { name: 'discord', ready: true }],
-    sessions_count: 3,
+    sessions_count: 2,
     source: 'bridge',
     active_sessions: [
       { sessionId: 'sess-ws1', type: 'working', task: '工作区1：协助审核代码', timestamp: '2026-11-08T23:00:00Z' },
       { sessionId: 'sess-ws2', type: 'thinking', task: '工作区2：跑定向单元测试', timestamp: '2026-11-08T23:01:00Z' },
-      { sessionId: 'sess-chat', type: 'idle', task: '聊天频道：待命', timestamp: '2026-11-08T22:50:00Z' },
     ],
   },
   {
@@ -47,12 +46,13 @@ const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
     agent_type: 'frontend',
     model: 'gemini-3.8-flash',
     online: true,
-    busy: true,
-    current_task: '开发插件接口界面：统一事件与桌宠联动',
+    busy: false,
+    current_task: '',
     paused: false,
     platforms: [{ name: 'discord', ready: true }],
-    sessions_count: 1,
+    sessions_count: 0,
     source: 'bridge',
+    active_sessions: [],
   },
   {
     name: 'gge',
@@ -66,6 +66,7 @@ const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
     platforms: [{ name: 'discord', ready: true }],
     sessions_count: 0,
     source: 'bridge',
+    active_sessions: [],
   },
   {
     name: 'cjiang',
@@ -79,6 +80,7 @@ const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
     platforms: [{ name: 'discord', ready: true }],
     sessions_count: 0,
     source: 'bridge',
+    active_sessions: [],
   },
   {
     name: 'mika',
@@ -92,6 +94,7 @@ const DEFAULT_DEMO_ROLES: ExtendedRoleInfo[] = [
     platforms: [{ name: 'discord', ready: true }],
     sessions_count: 0,
     source: 'bridge',
+    active_sessions: [],
   },
 ];
 
@@ -121,13 +124,14 @@ export default function PluginHubPage() {
     try {
       const res = await listRoles();
       if (res && Array.isArray(res.roles) && res.roles.length > 0) {
-        // preserve active_sessions if mock/extended data available
+        // Strictly preserve API source and never overwrite with demo data!
+        // Never inject mock active_sessions into live roles.
         const merged = res.roles.map((r) => {
-          const matched = DEFAULT_DEMO_ROLES.find((d) => d.name === r.name);
+          const ext = r as ExtendedRoleInfo;
           return {
             ...r,
-            source: matched?.source || 'bridge',
-            active_sessions: matched?.active_sessions,
+            source: ext.source || 'bridge',
+            active_sessions: ext.active_sessions || [],
           };
         });
         setRoles(merged);
