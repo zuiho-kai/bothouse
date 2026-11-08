@@ -179,8 +179,8 @@ func TestDSHProxyRequiresPanelToken(t *testing.T) {
 		if res.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("%s: status = %d, want 401", path, res.StatusCode)
 		}
-		if !strings.Contains(string(body), `href="/"`) {
-			t.Fatalf("%s: 401 page has no link to the panel login: %s", path, body)
+		if !strings.Contains(string(body), "Sign in to the bothouse panel first") || strings.Contains(string(body), "<a ") {
+			t.Fatalf("%s: 401 page must explain sign-in without nesting the panel: %s", path, body)
 		}
 	}
 	// A forged cookie is not enough either.
@@ -419,6 +419,26 @@ func TestDSHProxyRejectsCrossOrigin(t *testing.T) {
 		t.Fatalf("same-origin WS: %v", err)
 	}
 	conn.Close()
+}
+
+func TestDSHProxyUnavailableGalaxyCannotNestPanel(t *testing.T) {
+	panel := setupDSHProxyTest(t, nil, "secret")
+	c := dshSignIn(t, panel, "secret")
+	res, err := c.Get(panel.URL + "/dsh/collab/wiki-galaxy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), "not running") {
+		t.Fatalf("status %d body %s, want explicit 503 notice", res.StatusCode, body)
+	}
+	if strings.Contains(string(body), `<a `) || strings.Contains(string(body), `<div id="root"`) {
+		t.Fatalf("unavailable galaxy must not load or link the panel inside its frame: %s", body)
+	}
 }
 
 func TestDSHProxyNotRunning(t *testing.T) {
