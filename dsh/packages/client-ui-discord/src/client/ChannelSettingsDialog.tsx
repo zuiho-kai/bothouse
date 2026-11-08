@@ -30,9 +30,9 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
   const [name, setName] = useState(room.name)
   const [mode, setMode] = useState<DispatchMode>(room.dispatch_mode ?? 'mixed')
   const [relay, setRelay] = useState(String(room.max_relay ?? RELAY_CAP_MIN))
-  const [lead, setLeadDraft] = useState(effectiveLead)
+  const [lead, setLeadDraft] = useState(room.lead_id === undefined ? effectiveLead : room.lead_id ?? '')
   const [directory, setDirectory] = useState(room.workspace_path ?? '')
-  const [saved, setSaved] = useState({ name: room.name, mode: room.dispatch_mode ?? 'mixed', relay: String(room.max_relay ?? RELAY_CAP_MIN), lead: effectiveLead, directory: room.workspace_path ?? '' })
+  const [saved, setSaved] = useState({ name: room.name, mode: room.dispatch_mode ?? 'mixed', relay: String(room.max_relay ?? RELAY_CAP_MIN), lead: room.lead_id === undefined ? effectiveLead : room.lead_id ?? '', directory: room.workspace_path ?? '' })
   const [saving, setSaving] = useState<Partial<Record<Tab, boolean>>>({})
   const [errors, setErrors] = useState<Partial<Record<Tab, string>>>({})
   const [success, setSuccess] = useState<Partial<Record<Tab, boolean>>>({})
@@ -136,7 +136,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
             </div>
             <label className={css.field}>{t('channelLead')}
               <select className={css.fieldInput} aria-label={t('channelLead')} value={lead} disabled={saving.dispatch} onChange={event => { setLeadDraft(event.target.value); clearFeedback('dispatch') }}>
-                <option value="" disabled>{t('leadNone')}</option>
+                <option value="">{t('leadNone')}</option>
                 {members.filter(member => member.kind !== 'human').map(member => <option key={member.id} value={member.id}>{member.name}</option>)}
               </select>
             </label>

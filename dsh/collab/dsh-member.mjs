@@ -597,7 +597,7 @@ export class DshMembers {
     const answered = this.approvals.answerByText(msg);
     const hit = mentions(msg.text, this.hub.routableIn(msg.room_id));
     const only = this.hub.replyRoute(msg);
-    const leadID = this.hub.primaryIn(msg.room_id)?.id;
+    const leadID = this.hub.defaultReplyIn(msg.room_id)?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
     const visible = new Set(this.hub.routableIn(msg.room_id).map(m => m.id));
     const targets = [...this.config.keys()].filter(id => !this.hub.quota?.cooling(id) && visible.has(id) && id !== msg.author && !answered.has(id) && (!target || target === id)

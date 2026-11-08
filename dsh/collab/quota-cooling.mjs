@@ -108,7 +108,7 @@ export class QuotaCooling {
       if (!quota.cooling_until && !state.until) continue;
       if (!this.cooling(member.id)) {
         for (const [room, lead] of Object.entries(state.leads ?? {})) {
-          if (this.hub.primaryIn(Number(room))?.id === lead.to) {
+          if (this.hub.defaultReplyIn(Number(room))?.id === lead.to) {
             this.hub.store.setLead(Number(room), member.id);
             this.notice(Number(room), `${member.id}-${state.until}-restore-${room}`, `${member.name} 额度恢复，主角色已切回。`);
           }
@@ -124,7 +124,7 @@ export class QuotaCooling {
       const key = `${member.id}-${state.until}`;
       const reserved = new Set(Object.values(state.transfers).filter(t => !t.woken).map(t => t.to));
       for (const room of this.hub.store.rooms().filter(r => r.kind !== 'workspace')) {
-        if (state.leads[room.id] || this.hub.primaryIn(room.id)?.id !== member.id) continue;
+        if (state.leads[room.id] || this.hub.defaultReplyIn(room.id)?.id !== member.id) continue;
         const target = this.candidate(room.id, '', member.id, reserved);
         if (!target) continue;
         state.leads[room.id] = { to: target.id, woken: false };
@@ -135,8 +135,8 @@ export class QuotaCooling {
       for (const [room, lead] of Object.entries(state.leads)) {
         if (lead.woken || this.cooling(lead.to)) continue;
         // Replay a crash between persisting intent and changing the selection.
-        if (this.hub.primaryIn(Number(room))?.id === member.id) this.hub.store.setLead(Number(room), lead.to);
-        if (this.hub.primaryIn(Number(room))?.id !== lead.to) continue;
+        if (this.hub.defaultReplyIn(Number(room))?.id === member.id) this.hub.store.setLead(Number(room), lead.to);
+        if (this.hub.defaultReplyIn(Number(room))?.id !== lead.to) continue;
         const msg = this.notice(Number(room), `${key}-lead-${room}`, `${member.name} 额度冷却，主角色交给 ${this.tasks.nameOf(lead.to)}。请接着推进未完成任务。`);
         if (this.wake(lead.to, msg)) { lead.woken = true; this.save(member.id, state, true); }
       }

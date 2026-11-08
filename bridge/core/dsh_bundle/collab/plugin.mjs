@@ -346,7 +346,7 @@ export async function apply(ctx, rawConfig) {
     if (path === '/collab/api/state' && req.method === 'GET') {
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
         effective_lead_id: hub.primaryMember()?.id ?? null,
-        rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.primaryIn(r.id)?.id ?? null,
+        rooms: store.roomsView().map(r => ({ ...r, lead_id: store.leadId(r.id), effective_lead_id: hub.defaultReplyIn(r.id)?.id ?? null,
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
         queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])),
@@ -573,7 +573,7 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
   if (match === null) return undefined;
   const roomId = Number(match[1]);
   if (store.room(roomId) === undefined) return Promise.resolve(json(res, 404, { error: '频道不存在' }));
-  const view = () => ({ lead_id: store.leadId(roomId), effective_lead_id: hub.primaryIn(roomId)?.id ?? null,
+  const view = () => ({ lead_id: store.leadId(roomId), effective_lead_id: hub.defaultReplyIn(roomId)?.id ?? null,
     workspace_path: store.workspacePath(roomId, workspacePath), max_relay: store.relaySetting(roomId).max_relay });
   if (match[2] === 'renew' && req.method === 'POST') {
     return withBody(req, res, async () => ({ members: await dsh.renewRoom(roomId) }), false);
