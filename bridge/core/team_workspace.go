@@ -49,6 +49,10 @@ type TeamChannel struct {
 	// Claim: from CreateTeamWorkspaceChannel only, the platform's id of the claim the create
 	// made (cloud_web: the gateway's claim sequence), "" = the platform keeps none.
 	Claim string
+	// Shelved: a free workspace the platform keeps in its idle category instead of beside the
+	// chat channels (TeamWorkspaceShelver: Discord 「空闲工作区」), so ParentID is that category
+	// rather than the pool's. It is still a pool workspace: adoptable, numbered with the others.
+	Shelved bool
 }
 
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
@@ -120,6 +124,21 @@ var ErrTeamWorkspaceCooling = errors.New("project model is cooling down after qu
 // shared 「工作区n」 pool; without it the old name is only recognised.
 type TeamWorkspaceRenamer interface {
 	RenameTeamWorkspaceChannel(ctx context.Context, channelID, name string) error
+}
+
+// TeamWorkspaceShelver is implemented by platforms that keep a category for idle workspaces
+// (Discord 「空闲工作区」): a workspace that goes back to the pool is moved there, so the chat
+// channels' category shows only the workspaces in use, and a claimed one is moved back beside
+// the chat channels. The category belongs to the platform (found or created by name, collapsed
+// once by hand so it stays out of the way); the platform's listing marks such channels Shelved,
+// and core counts them as pool workspaces wherever they sit (adoption, numbering, listing).
+// Failures only log: a workspace that cannot be moved stays in the pool where it is.
+type TeamWorkspaceShelver interface {
+	// ShelveTeamWorkspaceChannel moves workspaceID into the idle category.
+	ShelveTeamWorkspaceChannel(ctx context.Context, workspaceID string) error
+	// UnshelveTeamWorkspaceChannel moves workspaceID beside besideChannelID, into its category
+	// (the same rule as CreateTeamWorkspaceChannel).
+	UnshelveTeamWorkspaceChannel(ctx context.Context, workspaceID, besideChannelID string) error
 }
 
 const (
@@ -833,7 +852,14 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	if err != nil {
 		return nil, nil, err
 	}
-	// Adopting a pool workspace is a handoff: tell a platform that records the parent itself.
+	// Adopting a pool workspace is a handoff: move it back beside the chat channels if it waited
+	// in the platform's idle category, then tell a platform that records the parent itself.
+	if adopted != "" && shelvedChannel(guild, adopted) {
+		if err := unshelveTeamWorkspace(ctx, plat, adopted, self.ID); err != nil {
+			pname, _, _ := strings.Cut(chat, ":")
+			slog.Warn("team workspace: workspace stays in the idle category", "workspace", pname+":"+adopted, "error", err)
+		}
+	}
 	if c, ok := plat.(TeamWorkspaceClaimer); ok && adopted != "" {
 		claim, err := c.ClaimTeamWorkspaceChannel(ctx, self.ID, adopted)
 		if err != nil {
@@ -872,12 +898,15 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 // the channel a new workspace is created beside. All chat channels share one 「工作区1..n」
 // pool; a chat channel in another category (or none) must not start a second pool there.
 // The pool lives in the category holding the most 「工作区n」 channels; with none, in self's.
+// A shelved workspace (in the platform's idle category, TeamWorkspaceShelver) votes for no
+// category: the idle category must never become the pool home, so a new workspace is not
+// created among the idle ones.
 // 来源：2026-10-28 无分类聊天频道 15:08 又建了一个「工作区1」（编号只数本分类），用户「这个是一个严重问题」。
 func teamWorkspacePoolHome(self TeamChannel, guild []TeamChannel) (TeamChannel, string) {
 	count := map[string]int{}
 	first := map[string]TeamChannel{}
 	for _, c := range guild {
-		if c.ID == self.ID || teamWorkspaceNum(c.Name) <= 0 {
+		if c.ID == self.ID || c.Shelved || teamWorkspaceNum(c.Name) <= 0 {
 			continue
 		}
 		count[c.ParentID]++
@@ -896,6 +925,25 @@ func teamWorkspacePoolHome(self TeamChannel, guild []TeamChannel) (TeamChannel, 
 	}
 	self.ParentID = best
 	return self, first[best].ID
+}
+
+// inPool: the guild channel c is a member of the pool of self (a chat channel, or the pool home
+// teamWorkspacePoolHome returned): a 「工作区n」 in self's category, or one the platform keeps in
+// its idle category (Shelved, TeamWorkspaceShelver). Shelved channels are recognized by the
+// platform, not by a category name here: Feishu and cloud_web never set Shelved.
+func inPool(c, self TeamChannel) bool {
+	return c.ParentID == self.ParentID || c.Shelved
+}
+
+// shelvedChannel reports whether the guild listing has channel id in the platform's idle
+// category, so only a workspace that actually waits there is moved back (no request otherwise).
+func shelvedChannel(guild []TeamChannel, id string) bool {
+	for _, c := range guild {
+		if c.ID == id {
+			return c.Shelved
+		}
+	}
+	return false
 }
 
 // teamWorkspaceStoreList records chat's workspaces (none = drop the entry) and saves.
@@ -979,7 +1027,7 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 				open, _ := teamWorkspaceCountsLocked(st, plat+":"+c.ID)
 				busy = busy || open >= teamWorkspaceBusy
 			}
-			if c.ParentID == self.ParentID && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
+			if inPool(guild[i], self) && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
 				(pick == nil || n < teamWorkspaceNum(pick.Name)) {
 				pick = &guild[i]
 			}
@@ -996,10 +1044,11 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 	}
 
 	if next || len(list) == 0 {
-		// 工作区(max+1) over the whole category pool, whichever chat channel owns each.
+		// 工作区(max+1) over the whole category pool, whichever chat channel owns each. A
+		// shelved workspace belongs to the pool too: its number must not be handed out again.
 		top := 0
 		for _, c := range guild {
-			if c.ParentID == self.ParentID {
+			if inPool(c, self) {
 				top = max(top, teamWorkspaceNum(c.Name))
 			}
 		}
@@ -1035,7 +1084,7 @@ func (e *Engine) teamWorkspaceMigrate(ctx context.Context, chat string, plat Tea
 	var old []int // indexes into guild
 	top := 0
 	for i, c := range guild {
-		if c.ParentID != self.ParentID {
+		if !inPool(c, self) {
 			continue
 		}
 		top = max(top, teamWorkspaceNum(c.Name))
@@ -1207,6 +1256,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	// Do not redirect a workspace request through a possibly stale parent record.
 	p, hasPlatform := e.teamWorkspacePlatform(chat)
 	var sourceName string
+	var source TeamChannel
 	var guild []TeamChannel
 	if hasPlatform {
 		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
@@ -1214,6 +1264,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 		cancel()
 		if err == nil {
 			sourceName, guild = self.Name, channels
+			source = self
 		}
 	}
 	teamWorkspaceStore.mu.Lock()
@@ -1227,11 +1278,14 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	// deciding whether the target is available; the source check must still run first.
 	if _, releases := p.(TeamWorkspaceReleaser); releases {
 		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
-		_, channels, err := p.TeamGuildChannels(ctx, teamChannelID(chat))
+		self, channels, err := p.TeamGuildChannels(ctx, teamChannelID(chat))
 		cancel()
 		guild = nil
 		if err == nil {
 			guild = channels
+			if source.ID == "" { // the first listing failed; this one knows the chat channel
+				source = self
+			}
 		}
 	}
 
@@ -1275,6 +1329,18 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 		}
 	} else if owner != "" && owner != chat {
 		return fmt.Errorf("team workspace claim: %s → %s: %w (%s, until it finishes its last task)", chat, wsID, ErrTeamWorkspaceOwned, owner)
+	}
+
+	// The workspace may have waited in the platform's idle category while free: move it back
+	// beside the chat channels before the agent works there. A failure only logs, the handoff
+	// goes on.
+	if shelvedChannel(guild, wsID) && source.ID != "" {
+		_, beside := teamWorkspacePoolHome(source, guild)
+		ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+		if err := unshelveTeamWorkspace(ctx, p, wsID, beside); err != nil {
+			slog.Warn("team workspace: workspace stays in the idle category", "workspace", plat+":"+wsID, "error", err)
+		}
+		cancel()
 	}
 
 	teamWorkspaceStore.mu.Lock()
@@ -1381,6 +1447,15 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	if !platformReleases {
 		slog.Info("team workspace: released after its last task", "workspace", key, "owner", owner)
 		e.drainTeamWorkspaceQueue(owner)
+		// Moving it to the idle category is cosmetic: off the reset path, and a failure only
+		// logs. A platform that releases itself shelves once its release succeeded.
+		if _, ok := e.platformForName(plat).(TeamWorkspaceShelver); ok {
+			go func() {
+				teamWorkspaceOpMu.Lock()
+				defer teamWorkspaceOpMu.Unlock()
+				e.shelveTeamWorkspace(plat, wsID)
+			}()
+		}
 		return true
 	}
 	// The platform request runs under teamWorkspaceOpMu like claims, so a claim and a release
@@ -1391,6 +1466,51 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 		e.retryTeamWorkspaceReleases(key)
 	}()
 	return true
+}
+
+// shelveTeamWorkspace asks the platform to move a workspace that just went back to the pool into
+// its idle category (TeamWorkspaceShelver: Discord 「空闲工作区」), so the chat channels' category
+// lists only the workspaces in use. A platform without it (Feishu, cloud_web) does nothing, and a
+// failure only logs: the workspace is in the pool wherever it sits. Caller holds
+// teamWorkspaceOpMu (the request never runs under teamWorkspaceStore.mu).
+func (e *Engine) shelveTeamWorkspace(plat, wsID string) {
+	s, ok := e.platformForName(plat).(TeamWorkspaceShelver)
+	if !ok {
+		return
+	}
+	// A claim may have taken it again before this ran (both hold teamWorkspaceOpMu, but the
+	// shelve is queued from the release): a workspace a chat works in stays in its category.
+	if e.dataDir != "" {
+		teamWorkspaceStore.mu.Lock()
+		owner, _ := teamWorkspaceOwnerLocked(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)), plat, wsID)
+		teamWorkspaceStore.mu.Unlock()
+		if owner != "" {
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	defer cancel()
+	if err := s.ShelveTeamWorkspaceChannel(ctx, wsID); err != nil {
+		slog.Warn("team workspace: moving a free workspace into the idle category failed; left where it is",
+			"workspace", plat+":"+wsID, "error", err)
+		return
+	}
+	slog.Info("team workspace: moved into the idle category while free", "workspace", plat+":"+wsID)
+}
+
+// unshelveTeamWorkspace asks the platform to move a workspace back beside chatID before a chat
+// works there again (it may have waited in the idle category while free). A platform without
+// TeamWorkspaceShelver does nothing. It returns an error only to be logged: the workspace works
+// where it is, so a failure never stops a handoff.
+func unshelveTeamWorkspace(ctx context.Context, plat TeamWorkspaceChannels, wsID, chatID string) error {
+	s, ok := plat.(TeamWorkspaceShelver)
+	if !ok {
+		return nil
+	}
+	if err := s.UnshelveTeamWorkspaceChannel(ctx, wsID, chatID); err != nil {
+		return fmt.Errorf("move workspace %s back beside %s: %w", wsID, chatID, err)
+	}
+	return nil
 }
 
 // ErrTeamWorkspaceNotOwned: park named a workspace no chat channel owns (already free).
@@ -1500,6 +1620,12 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 			teamWorkspaceOpMu.Lock()
 			defer teamWorkspaceOpMu.Unlock()
 			e.retryTeamWorkspaceReleases(key)
+		}()
+	} else if _, ok := e.platformForName(plat).(TeamWorkspaceShelver); ok {
+		go func() {
+			teamWorkspaceOpMu.Lock()
+			defer teamWorkspaceOpMu.Unlock()
+			e.shelveTeamWorkspace(plat, wsID)
 		}()
 	}
 	return true, nil
@@ -1737,6 +1863,9 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 		}
 		teamWorkspaceStore.mu.Unlock()
 		slog.Info("team workspace: released after its last task", "workspace", key, "owner", x.owner, "stale_claim", err != nil)
+		if err == nil {
+			e.shelveTeamWorkspace(plat, x.id)
+		}
 	}
 }
 
@@ -1795,7 +1924,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	var out []TeamWorkspace
 	for _, c := range guild {
-		if c.ParentID == self.ParentID && c.ID != self.ID && isTeamWorkspaceName(c.Name) {
+		if inPool(c, self) && c.ID != self.ID && isTeamWorkspaceName(c.Name) {
 			owner := owners[c.ID]
 			if c.OwnerKnown {
 				owner = ""
