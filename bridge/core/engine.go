@@ -9905,7 +9905,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 			// The footer may run after a queued provider switch. Attribute this
 			// existing session read to its creation scope, just like terminal events.
 			var scope quotaScope
-			if agent.Name() == "antigravity" {
+			if agent != nil && agent.Name() == "antigravity" {
 				e.interactiveMu.Lock()
 				for _, state := range e.interactiveStates {
 					if state.agentSession == session {
