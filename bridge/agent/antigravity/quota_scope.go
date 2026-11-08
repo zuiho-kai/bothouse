@@ -8,7 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/chenhg5/cc-connect/core"
 )
+
+var _ core.SessionScopedUsageCapability = (*Agent)(nil)
 
 // Source: the native quota decoder and recorded retrieveUserQuotaSummary
 // fixtures in usage(_cloud)_test.go. Gemini Flash/Pro share a pool; Claude/GPT
@@ -26,6 +30,12 @@ func quotaGroupForModel(model string, argon bool) string {
 		return ""
 	}
 }
+
+// UsageScopedToSession implements core.SessionScopedUsageCapability. A running
+// session holds its own transport (native stream listener or the classic cloud
+// token) and reports that account/model, so a footer read after a queued
+// provider switch still describes the session's creation scope.
+func (a *Agent) UsageScopedToSession() bool { return true }
 
 func (a *Agent) QuotaScope(model string) (string, string) {
 	model = a.usageModel(model)

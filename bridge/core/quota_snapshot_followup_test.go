@@ -53,7 +53,9 @@ type roleStreamUsageSession struct {
 
 type roleAntigravityAgent struct{ *stubModelModeAgent }
 
-func (a *roleAntigravityAgent) Name() string { return "antigravity" }
+// UsageScopedToSession stands in for an adapter whose reads belong to the
+// issuing session; the footer must then use that session's captured scope.
+func (a *roleAntigravityAgent) UsageScopedToSession() bool { return true }
 
 func (s *roleStreamUsageSession) GetUsage(context.Context) (*UsageReport, error) {
 	s.calls++
