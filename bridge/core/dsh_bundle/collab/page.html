@@ -1026,6 +1026,26 @@ function messageNode(m) {
       }
       card.append(bar);
     }
+    // 与原生频道页共用重试接口；后端把已受理的失败卡更新成 retried。
+    if (meta.state === 'failed') {
+      const bar = el('div', 'actions');
+      const retry = el('button', '', '重试');
+      retry.type = 'button';
+      retry.onclick = async () => {
+        retry.disabled = true;
+        retry.textContent = '重试中…';
+        try {
+          await api(`${ROOT}/collab/api/messages/${m.id}/retry`, { method: 'POST' });
+          retry.textContent = '已重试';
+        } catch (err) {
+          retry.disabled = false;
+          retry.textContent = '重试';
+          alert('重试失败：' + err.message);
+        }
+      };
+      bar.append(retry);
+      card.append(bar);
+    }
     col.append(card);
   } else if (m.text) col.append(renderBody(m.text, 'body'));
   if (Array.isArray(m.attachments) && m.attachments.length) col.append(attachmentList(m.attachments));
@@ -1151,7 +1171,43 @@ function showState(kind, title, detail, retry) {
   return box;
 }
 
+// 来源：openRoom 原有每次读取 100 条；向上分页沿用同一页大小。
+const HISTORY_LIMIT = 100;
+let historyPage;
+
+async function loadOlder() {
+  const page = historyPage;
+  if (!page || page.loading || !page.more) return;
+  page.loading = true;
+  const log = $('log');
+  log.querySelector('.history-error')?.remove();
+  try {
+    const { messages } = await api(`${ROOT}/collab/api/rooms/${page.room}/messages?before=${page.before}&limit=${HISTORY_LIMIT}`);
+    if (historyPage !== page) return;
+    const oldHeight = log.scrollHeight;
+    const oldTop = log.scrollTop;
+    messages.forEach(upsert);
+    if (messages.length) page.before = messages[0].id;
+    page.more = messages.length === HISTORY_LIMIT;
+    log.scrollTop = oldTop + log.scrollHeight - oldHeight;
+  } catch (err) {
+    if (historyPage !== page) return;
+    const retry = el('button', 'btn history-error', '历史加载失败，点击重试');
+    retry.type = 'button';
+    retry.title = err.message;
+    retry.onclick = () => loadOlder();
+    log.prepend(retry);
+  } finally {
+    page.loading = false;
+  }
+}
+
+$('log').addEventListener('scroll', () => {
+  if ($('log').scrollTop === 0) void loadOlder();
+}, { passive: true });
+
 async function openRoom(id) {
+  const page = historyPage = { room: id, before: undefined, more: false, loading: true };
   state.room = id; state.synced = 0;
   $('log').replaceChildren(showState('loading', '正在加载消息…'));
   $('log').setAttribute('aria-busy', 'true');
@@ -1161,11 +1217,14 @@ async function openRoom(id) {
     const setting = await api(`${ROOT}/collab/api/rooms/${id}/mode`);
     state.mode = setting.dispatch_mode;
     renderRooms(); renderMembers();
-    const { messages } = await api(`${ROOT}/collab/api/rooms/${id}/messages?limit=100`);
-    if (state.room !== id) return;
+    const { messages } = await api(`${ROOT}/collab/api/rooms/${id}/messages?limit=${HISTORY_LIMIT}`);
+    if (historyPage !== page) return;
     const log = $('log');
     log.querySelector('.state')?.remove();
     messages.forEach(upsert);
+    page.before = messages[0]?.id;
+    page.more = messages.length === HISTORY_LIMIT;
+    page.loading = false;
     state.synced = messages.length ? messages[messages.length - 1].id : 0;
     if (!log.querySelector('.msg')) log.append(showState('empty', '还没有消息', ''));
     $('log').setAttribute('aria-busy', 'false');
@@ -1173,7 +1232,7 @@ async function openRoom(id) {
     stuck = true;
     $('log').scrollTop = $('log').scrollHeight;
   } catch (err) {
-    if (state.room !== id) return;
+    if (historyPage !== page) return;
     $('log').replaceChildren(showState('error', '加载失败', err.message, () => openRoom(id)));
     $('log').setAttribute('aria-busy', 'false');
   }
