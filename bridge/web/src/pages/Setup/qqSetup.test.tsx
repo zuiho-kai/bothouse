@@ -9,7 +9,7 @@ import type { WizardRequest } from '@/api/wizard';
 // #812: QQ as a wizard platform, reached from the panel's "add platform" with ?platform=qq
 const sent = vi.hoisted(() => ({ reqs: [] as WizardRequest[], error: '' }));
 vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'zh', changeLanguage: vi.fn() } }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh', changeLanguage: vi.fn() } }) }));
 vi.mock('@/components/library', () => ({ useLibrary: () => ({ lib: { personas: [] }, reload: vi.fn() }), PersonaLibrary: () => null }));
 vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),
@@ -98,4 +98,15 @@ describe('QQ in the setup wizard', () => {
     expect(saved.gate).toBeUndefined();
     expect(saved.roles).toHaveLength(1);
   });
+});
+
+it('opens the official QQ form from the existing QQ wizard and returns without losing OneBot edits', async () => {
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => root!.render(<MemoryRouter initialEntries={['/setup?add=1&platform=qq']}><SetupWizard /></MemoryRouter>));
+  await act(async () => button(T.next).click());
+  await input('[data-testid="qq-allow-from"]', '12345');
+  await click('[data-testid="qq-official"]');
+  expect($('h2')?.textContent).toBe('qq.official');
+  await act(async () => button('common.back').click());
+  expect($<HTMLInputElement>('[data-testid="qq-allow-from"]')?.value).toBe('12345');
 });

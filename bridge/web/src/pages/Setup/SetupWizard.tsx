@@ -70,7 +70,7 @@ export default function SetupWizard() {
     // Also cover entering setup from an already-open management page.
     if (!localStorage.getItem('cc_theme')) useThemeStore.getState().setTheme(DEFAULT_THEME);
   }, []);
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const lang = i18n.language || 'en';
   const zh = isZhLang(lang);
   const T = wizardTexts(lang);
@@ -650,7 +650,7 @@ export default function SetupWizard() {
         {/* 1 QQ (NapCat / OneBot) */}
         {step === 1 && platform === 'qq' && (
           <div className="space-y-3" data-testid="qq-step">
-            <Button variant="secondary" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{i18n.t('qq.official')}</Button>
+            <Button variant="secondary" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{t('qq.official')}</Button>
             <p className="text-xs text-gray-500">{T.qqNote}</p>
             <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => setQQ({ ...qq, ws_url: e.target.value })} />
             <Input type="password" label={T.qqToken} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />

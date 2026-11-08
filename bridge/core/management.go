@@ -67,6 +67,8 @@ type ManagementServer struct {
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
 	getProjectConfig     func(projectName string) map[string]any
 	saveProviderRefs     func(projectName string, refs []string) error
+	getQQSettings        func(string) (*QQSettings, error)
+	saveQQSettings       func(string, QQSettingsUpdate) ([]string, error)
 	configFilePath       string
 	getGlobalSettings    func() map[string]any
 	saveGlobalSettings   func(map[string]any) error
@@ -799,6 +801,12 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 	// and must work for brand-new projects that have no engine yet.
 	if sub == "add-platform" {
 		m.handleProjectAddPlatform(w, r, projName)
+		return
+	}
+
+	// Settings are persisted even when the project's platform is stopped.
+	if sub == "qq" {
+		m.handleProjectQQ(w, r, projName, rest)
 		return
 	}
 
