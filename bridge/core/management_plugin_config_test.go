@@ -287,7 +287,7 @@ func TestPluginConfigRefusesBadInput(t *testing.T) {
 
 func TestPluginConfigAcceptsEmptyMappingAndQuotedJSBrackets(t *testing.T) {
 	_, _ = writePluginConfigProfile(t)
-	for _, text := range []string{"{}", "pattern: !!js new RegExp('[(]')\n", "label: !!js 'a(b'\n"} {
+	for _, text := range []string{"{}", "pattern: !!js new RegExp('[(]')\n", "label: !!js \"'a(b'\"\n"} {
 		if _, _, err := SetDSHPluginConfig("demo-tool", text); err != nil {
 			t.Errorf("valid config %q rejected: %v", text, err)
 		}
