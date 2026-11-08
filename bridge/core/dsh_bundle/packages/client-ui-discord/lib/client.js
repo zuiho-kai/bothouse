@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: bf3c01b19e0ed8f9d15a02ad7d7e9e9684db4fcbf32f43ba251b220ff57aca56
+// dsh-client-source-sha256: def898ca7c3b5cbc9806630df8269a00d441300d83397256c948bcbf8313e7f7
 // dsh-style-sha256: f6a6de6373a2ead4c3a965e58c158c16626e49a16b91d2d568b35b19fcfdb95a
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -20541,13 +20541,13 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 	const [name, setName] = (0, react.useState)(room.name);
 	const [mode, setMode] = (0, react.useState)(room.dispatch_mode ?? "mixed");
 	const [relay, setRelay] = (0, react.useState)(String(room.max_relay ?? RELAY_CAP_MIN));
-	const [lead, setLeadDraft] = (0, react.useState)(effectiveLead);
+	const [lead, setLeadDraft] = (0, react.useState)(room.lead_id === void 0 ? effectiveLead : room.lead_id ?? "");
 	const [directory, setDirectory] = (0, react.useState)(room.workspace_path ?? "");
 	const [saved, setSaved] = (0, react.useState)({
 		name: room.name,
 		mode: room.dispatch_mode ?? "mixed",
 		relay: String(room.max_relay ?? RELAY_CAP_MIN),
-		lead: effectiveLead,
+		lead: room.lead_id === void 0 ? effectiveLead : room.lead_id ?? "",
 		directory: room.workspace_path ?? ""
 	});
 	const [saving, setSaving] = (0, react.useState)({});
@@ -20776,7 +20776,6 @@ function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDi
 										},
 										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
 											value: "",
-											disabled: true,
 											children: t("leadNone")
 										}), members.filter((member) => member.kind !== "human").map((member) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
 											value: member.id,
@@ -24431,7 +24430,7 @@ const zh = {
 	dispatchTeam: "完全团队 — 交给团队成员协作",
 	dispatchMixed: "混合 — 按任务选择模型与成员",
 	lead: "主角色",
-	leadNone: "未选择（按原配置）",
+	leadNone: "未选择（单成员自动接话，多成员不接话）",
 	durSeconds: "{n} 秒",
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",
@@ -24715,7 +24714,7 @@ const en = {
 	taskReviewReason: "Reason for rework (required)",
 	taskReviewSubmit: "Submit rework",
 	lead: "Primary role",
-	leadNone: "Not selected (use the default)",
+	leadNone: "No selection (one member replies; multiple stay quiet)",
 	durSeconds: "{n}s",
 	durMinutes: "{n} min",
 	durHours: "{h} h {m} min",

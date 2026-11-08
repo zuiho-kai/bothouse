@@ -57,9 +57,9 @@ DSH 有两种用法，向导第一步让你选：
 - 网页版：终端运行 `bothouse web` 打开管理面板，在「概览」页点「打开 DSH」（装了桌面版时是「在桌面版打开」和「网页版」两个按钮）。DSH 网页没在运行时（比如重启过电脑），这个按钮会先把它启动起来再打开，第一次启动可能要等一两分钟。
 - 直接打开频道页地址时如果看到「频道页（DSH）没有在运行」，也照上面在面板里点「打开 DSH」。
 
-## 手动装插件后重启桌面版
+## 手动装插件后不用重启桌面版
 
-不走向导（比如用下面的命令装）时，装完要把桌面版完全退出再重新打开（Mac 上按 ⌘Q，只关窗口不算退出），侧栏才会出现频道。桌面版窗口里的频道在桌面版的 Plugins 页开关。
+不走向导（比如用下面的命令装）时，桌面版会自动加载新插件，侧栏直接出现频道，不用退出重开，也不用另起服务。在频道里 @ 成员说一句话就能用。桌面版窗口里的频道在桌面版的 Plugins 页开关。
 
 ## 不用浏览器
 
@@ -78,7 +78,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 - 再加 QQ、Discord、飞书：管理面板「添加平台」，见[首页](../GETTING_STARTED.md#以后添加或停用平台)。
 - `bothouse module list` 显示 DSH 未配置、已启用或已停用。
 - `bothouse module disable dsh` 停用，`bothouse module add dsh` 恢复启用；结果为 JSON。
-- 插件位于 DSH 的 `web` profile；机器上装过 DeepSeek Harness 桌面版时，安装器也装进桌面版的 `desktop` profile（桌面版只允许它自带的 CLI 改这个 profile，安装器会自动找 `/Applications/DeepSeek Harness.app/...`、`~/Applications/...` 或 `%LOCALAPPDATA%\Programs\DeepSeek Harness\...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。桌面版装完要重启才加载插件。
+- 插件位于 DSH 的 `web` profile；机器上装过 DeepSeek Harness 桌面版时，安装器也装进桌面版的 `desktop` profile（桌面版只允许它自带的 CLI 改这个 profile，安装器会自动找 `/Applications/DeepSeek Harness.app/...`、`~/Applications/...` 或 `%LOCALAPPDATA%\Programs\DeepSeek Harness\...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。桌面版会自动加载插件，不用重启。
 - 只装了 DeepSeek Harness 桌面版、`PATH` 里没有 `dsh` 的 Mac 不用另装命令行：检测、`module add dsh`、`setup hooks --cli dsh` 和面板里给出的打开命令都用桌面版 app 包内自带的那份 CLI（`/Applications/DeepSeek Harness.app/...` 或 `~/Applications/...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。机器上另有 `dsh` 命令时仍然优先用它。
 - 停用使用 DSH 原生的 `disabled` 标记，保留依赖、角色和历史。改动后重启该 DSH profile 生效，命令不会替你重启服务。`bothouse module disable dsh` 只改 `web` profile；桌面版窗口里的频道在桌面版的 Plugins 页开关。
 - 改动前备份原 `cordis.patch.yml` 为旁边的 `.bak-时间戳` 文件；需要回退时恢复备份。其他自定义配置保留；已有动态 `disabled: !!js ...` 表达式时拒绝覆盖，提示在 DSH 中处理。

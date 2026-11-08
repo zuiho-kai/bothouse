@@ -48,9 +48,8 @@ export class Hub {
     return member !== undefined && member.kind !== 'human' ? member : undefined;
   }
 
-  /** Channel selection, inherited by workspaces; only unset channels use the legacy global choice. */
+  /** Channel primary for delegation; unset channels retain the selected global role. */
   primaryIn(roomId) {
-    // #1023: in a private chat the one agent answers every owner message, @ or not.
     const dm = this.store.dmMember?.(roomId);
     if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
     const id = this.store.leadId(roomId);
@@ -58,7 +57,18 @@ export class Hub {
     return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
   }
 
-  /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
+  /** Default replies are channel-local and do not change delegation authority. */
+  defaultReplyIn(roomId) {
+    // #1023: in a private chat the one agent answers every owner message, @ or not.
+    const dm = this.store.dmMember?.(roomId);
+    if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
+    const id = this.store.leadId(roomId);
+    const members = this.routableIn(roomId);
+    if (id === null) return members.length === 1 ? members[0] : undefined;
+    return members.find(member => member.id === id);
+  }
+
+  /** UI-only fallback; message routing uses defaultReplyIn(), delegation uses primaryIn(). */
   primaryMember() {
     const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);
     return this.selectedPrimaryMember() ?? (fallback?.kind !== 'human' ? fallback : undefined);
@@ -68,6 +78,8 @@ export class Hub {
     if (member.avatar?.startsWith('upload:')) member.avatarVersion = Math.random().toString(36).slice(2);
     this.members.set(member.id, member);
     this.emit({ type: 'members', members: this.memberView() });
+    // Membership determines an unset channel's effective primary, including its workspaces.
+    this.emit({ type: 'rooms', rooms: this.store.roomsView() });
   }
 
   removeMember(id) {
@@ -76,6 +88,7 @@ export class Hub {
     for (const room of this.thinking.keys()) this.setThinking(room, id, false);
     for (const room of [...this.queued.keys()]) this.setQueue(room, id, []);
     this.emit({ type: 'members', members: this.memberView() });
+    this.emit({ type: 'rooms', rooms: this.store.roomsView() });
   }
 
   setOnline(id, online) {
@@ -283,7 +296,7 @@ export class Hub {
 
   emit(event) {
     if (event.type === 'rooms') event = { ...event, rooms: event.rooms.map(room => ({ ...room,
-      lead_id: this.store.leadId(room.id), effective_lead_id: this.primaryIn(room.id)?.id ?? null,
+      lead_id: this.store.leadId(room.id), effective_lead_id: this.defaultReplyIn(room.id)?.id ?? null,
       workspace_path: this.store.workspacePath(room.id, this.workspacePath),
     })) };
     for (const s of this.subscribers) {

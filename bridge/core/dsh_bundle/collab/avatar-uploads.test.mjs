@@ -44,10 +44,11 @@ test('avatar upload: owner stores PNG locally, emits members, replaces, survives
     assert.equal(statSync(path).mode & 0o777, 0o600);
     assert.equal(statSync(join(f.dir, 'avatars')).mode & 0o777, 0o700);
   }
-  assert.equal(events.at(-1).type, 'members');
-  const version = events.at(-1).members[0].avatarVersion;
+  const memberEvent = () => events.filter(e => e.type === 'members').at(-1);
+  assert.ok(memberEvent(), 'upload emits the updated member');
+  const version = memberEvent().members[0].avatarVersion;
   await f.call('POST', avatarImage('whale').toString('base64'));
-  assert.notEqual(events.at(-1).members[0].avatarVersion, version);
+  assert.notEqual(memberEvent().members[0].avatarVersion, version);
   assert.equal(f.store.member('coder').persona, 'keep me');
   assert.equal(f.store.member('coder').permission_preset, 'read-only');
   f.store.close();

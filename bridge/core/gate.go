@@ -884,6 +884,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	add("lead_handoff", e.leadHandoffBlock(session, sessionKey))
 	add("handoff", e.handoffBlock(session, sessionKey))
 	add("memory", e.memoryBlock(session)) // before the handoff: the index, then what the old context did
+	add("life_page", e.lifePageBlock())   // every turn, cron and timer included (lifepage.go)
 	if !turnCtx {
 		return content
 	}

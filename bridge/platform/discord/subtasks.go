@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
@@ -119,10 +120,16 @@ func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
 	}
 	when := discordSubTaskWhen(t, zh)
 	head := icon + " " + kind + " · "
-	if name := compactDiscordProgressText(t.Name); name != "" {
-		head += trimDiscordRunes(name, maxDiscordProgressLineLen) + " · "
+	// #1231: in 细节 the name and task text grow with the row's share too
+	// (a quarter each), so the row still fits it as a whole.
+	headLen := detailLen / 4
+	if headLen < maxDiscordProgressLineLen {
+		headLen = maxDiscordProgressLineLen
 	}
-	head += trimDiscordRunes(compactDiscordProgressText(t.Description), maxDiscordProgressLineLen)
+	if name := compactDiscordProgressText(t.Name); name != "" {
+		head += trimDiscordRunes(name, headLen) + " · "
+	}
+	head += trimDiscordRunes(compactDiscordProgressText(t.Description), headLen)
 	if when != "" {
 		head += " · " + when
 	}
@@ -147,7 +154,14 @@ func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
 		detail = wait
 	}
 	if detail = compactDiscordProgressText(detail); detail != "" {
-		head += "\n　└ " + trimDiscordRunes(detail, detailLen)
+		left := detailLen
+		if detailLen > maxDiscordProgressLineLen {
+			left -= utf8.RuneCountInString(head)
+		}
+		if left < maxDiscordProgressLineLen {
+			left = maxDiscordProgressLineLen
+		}
+		head += "\n　└ " + trimDiscordRunes(detail, left)
 	}
 	return head
 }

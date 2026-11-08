@@ -910,6 +910,21 @@ Claude Code auto-creates the cron job. For other agents that rely on memory file
 
 ---
 
+## Role Life Page (`life_page`)
+
+Give a role one file that says how she is right now: what is in her pocket, where she lives, what she promised, what she is working on.
+
+```toml
+[[projects]]
+name = "my-role"
+life_page = "~/wiki/my-days.md"
+```
+
+- Every turn sent to the agent (user messages, cron jobs, timers, queued messages, relays) gets the page before it, with the note "this is how you are now; when something changes, edit this file in place, do not append to it".
+- Up to 2000 characters are attached; a longer page is cut and the block says so.
+- If the file does not exist, the bridge creates it with four empty headings (兜里 / 住在 / 答应过 / 手上在做).
+- Unset (the default) = off. The block is not carried into handoffs; the next context gets the current page anyway.
+
 ## Shell Configuration
 
 By default, bothouse uses `sh` on Unix and `powershell.exe` on Windows for all shell execution (`/shell` commands, cron exec jobs, hooks, and webhook exec). You can override this to use a different shell.

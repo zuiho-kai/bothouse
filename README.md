@@ -77,6 +77,25 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 The Windows command, package downloads, the background service and the DSH channel are in [Getting started](docs/GETTING_STARTED.md).
 
+**Let an AI agent set it up.** Give Claude Code, Codex, DSH or any agent CLI this repo link and say "install bothouse and connect it to Discord"; it needs a bot token, the server ID and (optional) a channel ID from you. Agents: no browser needed, these three steps are the whole job (details and every error code in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add discord --token "$(cat <token file>)" --guild <server ID> --channel <channel ID>
+~/.local/bin/bothouse daemon install   # if it fails inside an agent sandbox: nohup ~/.local/bin/bothouse > ~/.bothouse/run.log 2>&1 &
+```
+
+`module add` prints JSON: `ok: true` means saved; with `needs_user_action: true`, pass every `blocking` warning's `message` and `fix` to the user. Done when the log shows `discord: connected`; then ask the user to @ the bot in the channel. A bot ignores its own messages, so do not try to test it with its own token.
+
+**Put it into DSH (desktop app or web) and @ members in a DSH channel.** Say "install bothouse into DSH": no token, no browser, no bothouse service. Agents: these two commands are the whole job (see [AGENTS.md](AGENTS.md#用户说装进-dsh在-dsh-频道里--成员)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add dsh --lang en
+```
+
+`ok: true` means done; pass `next_steps` to the user as is. No Node needed: the desktop app's bundled one is used, the open app loads the plugin by itself, and the channel starts with one member, 鲸鱼娘. Do not restart the desktop app (you may be running inside it) and do not test the channel yourself.
+
 <a id="features"></a>
 
 <picture>
@@ -141,6 +160,8 @@ _Top row: real channel footage. Bottom row: the author's own dashboard._
 ## Memory you can see
 
 The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer. See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese).
+
+To browse that memory as a star map, open **bothouse panel → Overview → Wiki galaxy**. The galaxy is a subpage with a link back to Overview, rather than a separate navigation item. Existing `/wiki-galaxy` and DSH `#wiki-galaxy` bookmarks still work.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
@@ -335,6 +356,10 @@ Questions, ideas and the teams you build are all welcome.
 The panel's Roles page can add, edit and delete DSH roster-managed members; config and external members are read-only. In an installed environment, adding a DSH role opens the daily member flow instead of reinstalling. Native members can select a DSH provider and model; Codex members can select advertised models and reasoning effort. The desired settings apply before the next turn, and the page shows their application status.
 
 Panel providers apply to bridge projects that reference them. Manage DSH native routes in the DSH shell under Settings → Models; CLI members use local CLI authentication. Bridge project counts are separate from DSH member counts. See [DSH panel APIs](docs/api/dsh-panel.md).
+
+The panel's Plugins page can edit each installed plugin row's YAML configuration, including plugins without a native settings form. Saves preserve `!!js` tags and write the existing DSH profile patch with a backup; restart DSH to apply them. Clearing the editor restores the bundle defaults without changing the row's enabled state. A HOME-level override is read-only here. See [plugin configuration APIs](bridge/docs/management-api.md).
+
+Credential fields use `!bothouse/secret` placeholders: leave a placeholder unchanged to retain its current value, replace the entire placeholder to update it, or set an empty string/remove the field to clear it. Nested keys containing key, token, secret, password, credential, authorization or cookie (case-insensitive) are hidden; anchors and aliases are also hidden to prevent alternate references exposing them. This is field-name based, not a plugin schema: arbitrary credentials embedded in other fields or comments cannot be identified reliably. Configuration requests are limited to 1 MiB, including the JSON envelope.
 
 ## License and thanks
 

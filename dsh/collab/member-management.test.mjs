@@ -19,7 +19,7 @@ test('management persists codex config, partial edit, clearing and source permis
  const reset=await managementUpdate(roster,m.id,{cliConfig:null});assert.equal(reset.cliConfig,null);assert.equal(reset.apply.status,'pending');
  assert.equal(store.member(m.id).cli_config_managed,1);
  await assert.rejects(managementUpdate(roster,'seed',{name:'No'}),/read-only/);
- await assert.rejects(managementCreate(roster,{name:'Coder'}),/already used/);
+ await assert.rejects(managementCreate(roster,{name:'Coder'}),/名字 Coder 已被/);
  roster.remove(m.id);assert.equal(managementMembers(roster,hub).some(x=>x.id===m.id),false);
 });
 

@@ -4,6 +4,8 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 加上一份它们共用、会自己长的记忆（wiki，[llm-wiki](https://github.com/zuiho-kai/llm-wiki)）。
 先接好成员开始对话，再按需要配置团队记忆和调度。
 
+> 你是被叫来帮用户装 bothouse、接 Discord 的 AI：不用读完本页，照 [AGENTS.md](../AGENTS.md) 里「用户说「配 Discord / 飞书」」一节的三步做。
+
 **只有一个 CLI 或一个模型也能组队。** 多个角色可以选择同一套 Codex、Claude Code 或 Gemini CLI；在 DSH 里也可以添加三个都用同一 DeepSeek 的成员。每位成员有独立会话和人设，通过频道交换任务。具体步骤与共享边界见[同模型多成员指南](single-cli-team.md)。
 
 ## 三步用起来：装 → 选平台 → 确认上线

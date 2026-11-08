@@ -12,7 +12,7 @@ import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
-import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute } from './plugin.mjs';
+import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute, withBody } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
 
 // #149: without GATE_PORT the gate context reads the install's config.toml. A test that is not about
@@ -113,6 +113,70 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   hub.store.close();
 });
 
+test('#366: 改名失败的错误串经 HTTP 原样回到客户端，所以必须是中文', async () => {
+  // 客户端把响应里的 error 当一句话直接显示（ChannelsPage.tsx 的 role="alert"），
+  // 中文界面下不该冒出英文原句；同页其它校验（接力上限、工作目录）本来就是中文。
+  const { createServer } = await import('node:http');
+  const { managementCreate } = await import('./member-management.mjs');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.store.ensureRoom(2, 'other');
+  const roster = new Roster(hub, fakeDsh().attach(hub, []), fakeLlm());
+  await roster.create({ name: 'Coder', model: { provider: 'relay', model: 'm1' } });
+  const server = createServer((req, res) => {
+    const path = new URL(req.url, 'http://x').pathname;
+    if (/^\/collab\/api\/rooms\/\d+$/.test(path)) {
+      return renameRoomRoute(req, res, path, { store: hub.store, hub, dsh: { async refreshRoomTitles() {} } });
+    }
+    if (path === '/collab/api/panel/members' && req.method === 'POST') {
+      return withBody(req, res, async body => ({ member: await managementCreate(roster, body) }));
+    }
+    res.writeHead(404); return res.end('{}');
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const patch = async (id, name) => {
+    const r = await fetch(`${base}/collab/api/rooms/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+    return { status: r.status, body: await r.json() };
+  };
+  const said = [];
+  try {
+    // 空格/超长/空：store.renameRoom 的 'invalid'。
+    let r = await patch(1, 'two words');
+    assert.equal(r.status, 400);
+    assert.equal(r.body.error, '频道名 1–32 个字符，且不能有空格');
+    assert.equal(r.body.code, 'invalid');
+    said.push(r.body.error);
+    // 工作区保留名（工作区<n> 是工作区的地址形式）：'conflict'。
+    r = await patch(1, '工作区9');
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, '工作区9 是工作区保留名，换个名字');
+    assert.equal(r.body.code, 'conflict');
+    said.push(r.body.error);
+    // 频道重名：'conflict'。
+    r = await patch(1, 'other');
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, '频道名 other 已被占用');
+    assert.equal(r.body.code, 'conflict');
+    said.push(r.body.error);
+    // 工作区不能改名：'invalid'。
+    r = await patch(ws.id, 'renamed');
+    assert.equal(r.status, 400);
+    assert.equal(r.body.error, '工作区名称由系统分配，不能修改');
+    assert.equal(r.body.code, 'invalid');
+    said.push(r.body.error);
+    // 成员重名：'conflict'，走面板同一个 HTTP 出口。
+    const dup = await fetch(`${base}/collab/api/panel/members`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Coder' }) });
+    assert.equal(dup.status, 409);
+    const dupBody = await dup.json();
+    assert.equal(dupBody.error, '名字 Coder 已被 Coder 使用');
+    assert.equal(dupBody.code, 'conflict');
+    said.push(dupBody.error);
+    // 这五句里不该再留下任何英文原句的痕迹（每条都断言过原文，这条兜住以后新增的分支）。
+    for (const text of said) assert.doesNotMatch(text, /characters|already|reserved|is in use|workspace names|does not exist/i);
+  } finally { server.close(); hub.store.close(); }
+});
+
 test('channel rename: preserves ids, messages, bindings, members, dispatch settings and workspace paths', () => {
   const hub = makeHub();
   const s = hub.store;
@@ -135,9 +199,10 @@ test('channel rename: preserves ids, messages, bindings, members, dispatch setti
   assert.deepEqual(hub.routableIn(ws.id).map(m => m.id), ['ds']);
   assert.equal(s.room(ws.id).parent_id, 1);
   for (const name of ['', 'x'.repeat(33), 'two words', ' name', 'name\n', null, 4]) {
-    assert.throws(() => s.renameRoom(1, name), /1-32 characters/);
+    // #366: 这句话原样显示在客户端，所以是中文。
+    assert.throws(() => s.renameRoom(1, name), /频道名 1–32 个字符/);
   }
-  assert.throws(() => s.renameRoom(ws.id, 'renamed'), /workspace names/);
+  assert.throws(() => s.renameRoom(ws.id, 'renamed'), /工作区名称由系统分配/);
   s.close();
 });
 
@@ -165,11 +230,12 @@ test('#176: channel names are unique and a workspace-shaped name is refused', ()
   s.ensureRoom(1, 'general');
   const dev = s.createRoom('dev');
   // Two #general in the sidebar are indistinguishable: a second channel takes no existing name.
-  assert.throws(() => s.createRoom('general'), e => e.code === 'conflict' && /already in use/.test(e.message));
+  // #366: 这几种回绝消息都会原样显示在客户端，所以断言中文（旧英文串已改掉）。
+  assert.throws(() => s.createRoom('general'), e => e.code === 'conflict' && /频道名 general 已被占用/.test(e.message));
   assert.throws(() => s.createRoom('General'), e => e.code === 'conflict');
   assert.throws(() => s.renameRoom(dev.id, 'general'), e => e.code === 'conflict');
   // 工作区<n> is how a workspace is addressed; a chat channel must not shadow it.
-  assert.throws(() => s.createRoom('工作区9'), e => e.code === 'conflict' && /reserved/.test(e.message));
+  assert.throws(() => s.createRoom('工作区9'), e => e.code === 'conflict' && /工作区保留名/.test(e.message));
   assert.throws(() => s.renameRoom(dev.id, '工作区9'), e => e.code === 'conflict');
   // Renaming a channel onto its own name stays fine, and a private chat does not hold its name.
   assert.equal(s.renameRoom(dev.id, 'dev').name, 'dev');
@@ -203,7 +269,57 @@ test('channel rename: refreshes loaded and persisted sessions, workspaces and fu
   hub.store.close();
 });
 
-test('channel primary: independent choices persist, inherit to workspaces and fall back only when unset', async () => {
+test('channel default reply: one member answers, multiple wait for a channel choice', async t => {
+  const hub = makeHub();
+  const fake = fakeDsh();
+  const dsh = fake.attach(hub, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B', rooms: [2] }]);
+  hub.store.ensureRoom(2, 'other');
+  t.after(async () => { await dsh.close(); hub.store.close(); });
+  const post = text => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
+  const jobs = message => hub.store.openJobs().filter(j => j.trigger_id === message.id).map(j => j.member_id);
+  assert.deepEqual(jobs(post('single member without mention')), ['a']);
+  hub.setMember({ ...hub.members.get('b'), rooms: [1, 2] });
+  hub.leadState = { selected: () => 'a' };
+  assert.deepEqual(jobs(post('multiple members without mention')), [], 'a global primary must not opt the channel in');
+  assert.equal(hub.primaryIn(1)?.id, 'a', 'the explicitly selected global role keeps delegation authority');
+  assert.deepEqual(jobs(post('@B explicit mention')), ['b']);
+  hub.store.setLead(1, 'b');
+  assert.deepEqual(jobs(post('selected channel primary')), ['b']);
+  assert.equal(hub.primaryIn(1)?.id, 'b', 'a channel selection also overrides delegation');
+  hub.store.setLead(1, null);
+  assert.deepEqual(jobs(post('cleared channel primary')), []);
+});
+
+test('channel default reply: CLI-neutral selection follows membership, workspaces and private chats', t => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  t.after(() => hub.store.close());
+  const events = [];
+  hub.subscribe(event => events.push(event));
+  const workspace = hub.store.createWorkspace(1);
+  for (const cli of ['codex', 'claudecode', 'gemini']) {
+    hub.setMember({ id: 'a', name: 'A', kind: 'dsh', cli, rooms: [1] });
+    assert.equal(hub.defaultReplyIn(1)?.id, 'a');
+    assert.equal(hub.defaultReplyIn(workspace.id)?.id, 'a');
+    assert.equal(hub.defaultReplyIn(2), undefined);
+    assert.equal(events.filter(e => e.type === 'rooms').at(-1)?.rooms.find(r => r.id === 1).effective_lead_id, 'a');
+  }
+  hub.setMember({ id: 'b', name: 'B', kind: 'dsh', rooms: [1] });
+  assert.equal(hub.defaultReplyIn(1), undefined);
+  assert.equal(events.filter(e => e.type === 'rooms').at(-1).rooms.find(r => r.id === 1).effective_lead_id, null);
+  hub.store.setLead(1, 'b');
+  assert.equal(hub.defaultReplyIn(workspace.id)?.id, 'b');
+  const dm = hub.store.openDm('b', 'B');
+  assert.equal(hub.defaultReplyIn(dm.id)?.id, 'b');
+  hub.store.setLead(1, null);
+  hub.removeMember('b');
+  assert.equal(hub.defaultReplyIn(1)?.id, 'a');
+  assert.equal(events.filter(e => e.type === 'rooms').at(-1).rooms.find(r => r.id === 1).effective_lead_id, 'a');
+  hub.store.setLead(1, 'removed');
+  assert.equal(hub.defaultReplyIn(1), undefined, 'an unavailable explicit choice must not silently pick another member');
+});
+
+test('channel primary: delegation choices persist, inherit to workspaces and retain global authority', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -221,11 +337,13 @@ test('channel primary: independent choices persist, inherit to workspaces and fa
   assert.equal(hub.primaryIn(1).id, 'a');
   assert.equal(hub.primaryIn(2).id, 'b');
   assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.defaultReplyIn(3), undefined);
   assert.equal(hub.primaryIn(ws.id).id, 'a');
   store.close(); store = new Store(path); hub = init();
   assert.equal(hub.primaryIn(1).id, 'a');
   assert.equal(hub.primaryIn(2).id, 'b');
   assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.defaultReplyIn(3), undefined);
   store.setLead(1, 'removed');
   assert.equal(hub.primaryIn(1), undefined, 'a missing explicit primary must not pick another channel’s role');
   store.close();
@@ -306,10 +424,11 @@ test('channel settings API: validates directories before writing and survives co
   assert.equal((await call({ workspace_path: dir, lead_id: 'a' })).status, 200);
   assert.equal(events.at(-1).room_id, 1);
   assert.equal(hub.primaryIn(1).id, 'a'); assert.equal(hub.store.leadId(2), null);
-  // 频道设置里选回「未选择（按原配置）」时，下拉框送的是空串：等同 null，清掉本频道的选择而不是报错。
+  // 清除频道选择时空串等同 null；单成员仍自动接话，但不会自动获得派活权限。
   assert.equal((await call({ lead_id: '' })).status, 200);
   assert.equal(hub.store.leadId(1), null);
   assert.equal(hub.primaryIn(1), undefined);
+  assert.equal(hub.defaultReplyIn(1)?.id, 'a');
   hub.store.ensureRoom(1, 'general', '/config');
   assert.equal(hub.store.workspacePath(1, '/old'), dir);
   hub.store.close();
@@ -425,7 +544,7 @@ test('relay cap: the channel setting wins over the instance default and pauses o
   }
 });
 
-test('primary role: shared lead state routes explicitly selected roles and keeps fallback display-only', async () => {
+test('primary role: global delegation stays separate from channel default replies', async () => {
   const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -453,6 +572,12 @@ test('primary role: shared lead state routes explicitly selected roles and keeps
   assert.equal(hub.store.openJobs().length, 0, 'fallback is display-only before explicit selection');
 
   leadState.set('ds', 'DeepSeek');
+  assert.equal(hub.primaryIn(1).id, 'ds');
+  assert.equal(hub.defaultReplyIn(1), undefined);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'global selection alone stays quiet' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0);
+  store.setLead(1, 'ds');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '没有点名的消息', clientKey: 'lead-dsh' });
   await settle();
   assert.equal(hub.store.openJobs().at(-1).member_id, 'ds');
@@ -460,6 +585,8 @@ test('primary role: shared lead state routes explicitly selected roles and keeps
   assert.equal('lead_id' in ju.of('message').at(-1), false);
 
   leadState.set('ju', '橘');
+  assert.equal(hub.defaultReplyIn(1).id, 'ds', 'global switches do not replace a channel choice');
+  store.setLead(1, 'ju');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '切换后没有点名', clientKey: 'lead-bot' });
   await settle();
   assert.equal(ju.of('message').at(-1).mentioned, false);
@@ -1476,7 +1603,7 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   assert.deepEqual(members.config.get('coder').model, { provider: 'relay', model: 'm1' });
   assert.equal(hub.memberView().find(m => m.id === 'coder').editable, true);
 
-  await assert.rejects(roster.create({ name: 'deepseek' }), /already used/);
+  await assert.rejects(roster.create({ name: 'deepseek' }), /名字 deepseek 已被 DeepSeek 使用/);
   await assert.rejects(roster.create({ name: 'has space' }), /without spaces/);
   await assert.rejects(roster.create({ name: 'X', model: { provider: 'relay', model: 'nope' } }), /not available/);
   await assert.rejects(roster.update('ds', { name: 'DS2' }), /config file/);
@@ -1496,6 +1623,7 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   roster.remove('coder');
   assert.equal(hub.store.leadId(7), null);
   assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(hub.defaultReplyIn(7)?.id, 'ds', 'the sole remaining member answers without delegation authority');
   assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
@@ -6018,7 +6146,7 @@ test('member room scope: rename and reload retain scope, workspaces follow the p
   assert.deepEqual(hub.routableIn(2).map(m => m.id).sort(), [b.id, global.id].sort());
   const workspace = hub.store.createWorkspace(2);
   assert.deepEqual(hub.routableIn(workspace.id).map(m => m.id).sort(), [b.id, global.id].sort());
-  await assert.rejects(roster.create({ name: 'Shared', rooms: [2] }), /already used/);
+  await assert.rejects(roster.create({ name: 'Shared', rooms: [2] }), /名字 Shared 已被/);
   await assert.rejects(roster.create({ name: 'Bad', rooms: [999] }), /existing chat/);
   await members.close(); hub.store.close();
 });
@@ -6094,6 +6222,10 @@ test('member scope migration: legacy members and primary stay visible in future 
   assert.deepEqual(hub.routableIn(third.id).map(m => m.id).sort(), ['config', 'explicit-global', 'old']);
   assert.equal(hub.membersInRoom(third.id).some(m => m.id === 'old'), true);
   assert.equal(hub.selectedPrimaryMember().id, 'old');
+  hub.post(third.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'no default reply before channel selection' });
+  await settle();
+  assert.equal(store.openJobs().length, 0, 'migrated membership does not opt new channels into replies');
+  store.setLead(third.id, 'old');
   hub.post(third.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hello in the new channel' });
   await settle();
   assert.equal(store.openJobs().at(-1).member_id, 'old');

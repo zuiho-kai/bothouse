@@ -1,5 +1,6 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WikiGalaxyPage from './WikiGalaxyPage';
 
@@ -14,6 +15,7 @@ const roots: ReturnType<typeof createRoot>[] = [];
 afterEach(() => {
   act(() => roots.splice(0).forEach((root) => root.unmount()));
   containers.splice(0).forEach((container) => container.remove());
+  vi.unstubAllGlobals();
 });
 
 function renderPage() {
@@ -22,12 +24,47 @@ function renderPage() {
   containers.push(container);
   const root = createRoot(container);
   roots.push(root);
-  act(() => root.render(<WikiGalaxyPage />));
+  act(() => root.render(<MemoryRouter><WikiGalaxyPage /></MemoryRouter>));
   return container;
 }
 
 // #145: the page shows the collab host's own galaxy rather than a second copy of the canvas.
 describe('Wiki galaxy sub-page', () => {
+  it('does not create another frame when embedded and DSH is unavailable', async () => {
+    vi.stubGlobal('self', {});
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    let c!: HTMLDivElement;
+    await act(async () => { c = renderPage(); });
+    expect(c.querySelector('iframe')).toBeNull();
+    expect(c.textContent).toContain('dsh.stopped');
+    expect(c.textContent).toContain('dshManage.openDsh');
+  });
+
+  it('keeps the normal DSH embedded galaxy when its page is reachable', async () => {
+    vi.stubGlobal('self', {});
+    const fetchPage = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchPage);
+    let c!: HTMLDivElement;
+    await act(async () => { c = renderPage(); });
+    expect(fetchPage).toHaveBeenCalled();
+    expect(c.querySelector('iframe')).not.toBeNull();
+  });
+
+  it('keeps the frame absent until the availability check finishes', () => {
+    vi.stubGlobal('self', {});
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    expect(renderPage().querySelector('iframe')).toBeNull();
+  });
+
+  it('shows a read error without creating a frame when the check fails', async () => {
+    vi.stubGlobal('self', {});
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unavailable')));
+    let c!: HTMLDivElement;
+    await act(async () => { c = renderPage(); });
+    expect(c.querySelector('iframe')).toBeNull();
+    expect(c.textContent).toContain('dsh.readError');
+  });
+
   it('frames the collab galaxy page through the panel mount path', () => {
     const c = renderPage();
     const frame = c.querySelector<HTMLIFrameElement>('[data-testid="wiki-galaxy-frame"]')!;

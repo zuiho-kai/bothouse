@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+// Panel pages the info rows open (routes in web/src/App.tsx). The panel has no separate upgrade
+// page: the version shows on the overview and the upgrade button sits in the sidebar
+// (components/Layout/VersionBadge.tsx), so 升级 opens the overview too.
+const (
+	trayPageStatus = "/"
+	trayPageRoles  = "/roles"
+	trayPageUsage  = "/usage"
+	trayPageUpdate = "/"
+)
+
 type trayClient struct{ base, token string }
 
 func (c trayClient) loginURL(path string) string {
@@ -101,9 +111,9 @@ func trayUsageLabel(items []core.UsageAggregate) string {
 			hasCost = true
 		}
 	}
-	label := fmt.Sprintf("今日用量：%d tokens", tokens)
+	label := fmt.Sprintf("今日用量：%s tokens", trayTokensM(tokens))
 	if unknown > 0 {
-		label = fmt.Sprintf("今日用量：已知 %d tokens（%d 次未完整报告）", tokens, unknown)
+		label = fmt.Sprintf("今日用量：已知 %s tokens（%d 次未完整报告）", trayTokensM(tokens), unknown)
 	}
 	if hasCost {
 		if unpriced > 0 {
@@ -114,6 +124,20 @@ func trayUsageLabel(items []core.UsageAggregate) string {
 	}
 	return label
 }
+
+// trayTokensM shows a token count in millions, the same rule as the panel's Usage page
+// (web/src/store/usageSettings.ts formatToken, unit "M"): 1174406688 -> "1174.4 M".
+func trayTokensM(tokens int64) string {
+	if tokens == 0 {
+		return "0 M"
+	}
+	m := float64(tokens) / 1e6 // 沿用 usageSettings.ts TOKEN_UNIT_M_DIVISOR：百万=1e6
+	if m >= 100 {
+		return fmt.Sprintf("%.1f M", m)
+	}
+	return fmt.Sprintf("%.2f M", m)
+}
+
 func compact(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {

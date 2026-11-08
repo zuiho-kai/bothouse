@@ -19,6 +19,17 @@ export interface SocialTexts {
   empty: string
   emptyHint: string
   privateLabel: string
+  replace: string
+  replacing: string
+  replaceLabel: string
+  replaceConfirm: string
+  replaceKeepsImages: (n: number) => string
+  replacePrivateBlocked: string
+  replaceVisibilityUnknown: string
+  replaceAudienceAck: string
+  replaceAudienceAckHint: string
+  replaced: string
+  replaceCancel: string
   delete: string
   deleting: string
   deleteConfirm: string
@@ -54,6 +65,17 @@ const zh: SocialTexts = {
   empty: '还没有说说',
   emptyHint: '这个号还没发过，或者上游没返回列表。',
   privateLabel: '仅部分人可见',
+  replace: '换一条',
+  replacing: '正在换…',
+  replaceLabel: '改成什么',
+  replaceConfirm: '换掉这一条的说法？会先发新的，成功了才删旧的。发新的失败时原来那条原样保留；万一旧的没删掉，会告诉你空间里有两条。不是原子替换。',
+  replaceKeepsImages: (n) => `这条带的 ${n} 张图会一起搬到新的那条上。`,
+  replacePrivateBlocked: '这条是「仅部分人可见」，换一条会变成所有人可见，所以这儿不给换；要改请在 QQ 里改。',
+  replaceVisibilityUnknown: '读不到这条谁能看见（上游没给可见范围），换一条有可能把它变成所有人可见，所以这儿不给换。',
+  replaceAudienceAck: '我知道换一条可能会改变谁能看见这条',
+  replaceAudienceAckHint: 'QQ 只说这条是不是「仅部分人可见」，说不出具体范围；上游没读到范围时还会补一个「所有人可见」。所以换一条有可能把它变成所有人可见，而删掉旧的之后改不回来。确认这一点之后才能换。',
+  replaced: '换好了',
+  replaceCancel: '取消',
   delete: '删掉',
   deleting: '正在删…',
   deleteConfirm: '删掉这一条？删了就没了，QQ 空间里也看不到了。',
@@ -89,6 +111,17 @@ const en: SocialTexts = {
   empty: 'No moments yet',
   emptyHint: 'This account has not posted, or the upstream did not return a list.',
   privateLabel: 'Limited audience',
+  replace: 'Replace',
+  replacing: 'Replacing…',
+  replaceLabel: 'New words',
+  replaceConfirm: 'Replace this post? The new one goes out first and the old one is removed only after that succeeds. If publishing fails the old post stays as it was; if the old one cannot be removed you will be told there are two. This is not an atomic swap.',
+  replaceKeepsImages: (n) => `The ${n} picture(s) on this post move to the new one too.`,
+  replacePrivateBlocked: 'This post is visible to some people only. Replacing it would make it public, so it cannot be replaced here — change it in QQ instead.',
+  replaceVisibilityUnknown: 'Who can see this post could not be read (the upstream did not say). Replacing it might make it public, so it cannot be replaced here.',
+  replaceAudienceAck: 'I understand replacing it may change who can see it',
+  replaceAudienceAckHint: 'QQ only says whether a post is limited to some people, never to whom; and when the upstream did not read the audience at all it fills in "everyone". So the new post may end up visible to more people, and once the old one is deleted that cannot be undone. Tick this to go ahead.',
+  replaced: 'Replaced',
+  replaceCancel: 'Cancel',
   delete: 'Delete',
   deleting: 'Deleting…',
   deleteConfirm: 'Delete this one? It is gone for good and disappears from QQ too.',
@@ -124,6 +157,17 @@ const ja: SocialTexts = {
   empty: '投稿はまだありません',
   emptyHint: 'まだ投稿していないか、上流が一覧を返しませんでした。',
   privateLabel: '公開範囲あり',
+  replace: '差し替え',
+  replacing: '差し替え中…',
+  replaceLabel: '新しい本文',
+  replaceConfirm: 'この投稿を差し替えますか？新しい投稿を先に出し、それが成功してから元を削除します。投稿に失敗した場合は元の投稿はそのまま残ります。元を削除できなかった場合は「2 件ある」とお伝えします。アトミックな入れ替えではありません。',
+  replaceKeepsImages: (n) => `この投稿の画像 ${n} 枚も新しい投稿に引き継ぎます。`,
+  replacePrivateBlocked: 'この投稿は一部の人だけに公開されています。差し替えると全員に公開されるため、ここでは差し替えできません。QQ で変更してください。',
+  replaceVisibilityUnknown: 'この投稿の公開範囲が読めませんでした（上流が範囲を返していません）。差し替えると全員に公開される恐れがあるため、ここでは差し替えできません。',
+  replaceAudienceAck: '差し替えると誰に見えるかが変わる可能性があると理解しています',
+  replaceAudienceAckHint: 'QQ は「一部の人だけに公開」かどうかしか返さず、具体的な範囲は返しません。上流が範囲を取得できなかった場合は「全員に公開」を補って返します。そのため差し替えると全員に公開される恐れがあり、元を削除すると元に戻せません。確認したうえで差し替えてください。',
+  replaced: '差し替えました',
+  replaceCancel: 'キャンセル',
   delete: '削除',
   deleting: '削除中…',
   deleteConfirm: 'この投稿を削除しますか？元に戻せません。',

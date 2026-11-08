@@ -77,6 +77,25 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 Windows 命令、安装包下载、常驻后台和 DSH 频道见[上手指南](docs/GETTING_STARTED.md)。
 
+**让 AI 帮你配。** 把仓库链接丢给 Claude Code、Codex、DSH 等任一 CLI，说「帮我装好 bothouse 接上 Discord」；它会问你要机器人 token、服务器 ID，频道 ID 可选。给 AI：不用开浏览器，下面三步就是全部（细节和每种报错见 [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add discord --token "$(cat <token 文件>)" --guild <服务器 ID> --channel <频道 ID>
+~/.local/bin/bothouse daemon install   # 在 AI 沙箱里装不上服务时：nohup ~/.local/bin/bothouse > ~/.bothouse/run.log 2>&1 &
+```
+
+`module add` 输出 JSON：`ok: true` 就是存好了；`needs_user_action: true` 时把每条 `blocking` 警告的 `message`、`fix` 原样告诉用户。日志出现 `discord: connected` 就完成，请用户在频道里 @ 机器人试一句。机器人不理自己发的消息，别用它自己的 token 发消息自测。
+
+**装进 DSH（桌面版或网页版），在 DSH 频道里 @ 成员。** 说「帮我把 bothouse 装进 DSH」就行，不用 token、不用开浏览器、不用起 bothouse 服务。给 AI：两条命令就是全部（见 [AGENTS.md](AGENTS.md#用户说装进-dsh在-dsh-频道里--成员)）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add dsh --lang zh
+```
+
+输出 `ok: true` 就装完了，把 `next_steps` 原样告诉用户。没装 Node 也行，借用桌面版自带的；桌面版开着会自动加载，频道里自带一个成员「鲸鱼娘」。不要重启桌面版（你可能就跑在它里面），也不用自己发消息测试。
+
 <a id="features"></a>
 
 <picture>

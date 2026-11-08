@@ -27,6 +27,8 @@ for (const kind of ['dsh', 'bot']) test(`quota journey (${kind}): persisted cool
   const hub = new Hub(store, { warn() {} });
   hub.setMember({ id: 'owner', name: 'Owner', kind: 'human' });
   for (const [id, name] of [['orange', 'Orange'], ['longniang', '龙娘'], ['jingyu', '鲸鱼娘']]) hub.setMember({ id, name, kind, online: true });
+  store.ensureRoom(2, 'quiet');
+  hub.leadState = { selected: () => 'orange' };
   store.setLead(1, 'orange');
   const workspace = store.createWorkspace(1);
   let now = start;
@@ -41,6 +43,9 @@ for (const kind of ['dsh', 'bot']) test(`quota journey (${kind}): persisted cool
   else writeFileSync(join(dir, 'orange.json'), JSON.stringify({ cooling_until: new Date(now + 3600000).toISOString(), transfers: { 'go-task': { to: 'longniang' } } }));
   quota.tick();
   assert.equal(hub.primaryIn(1).id, 'jingyu');
+  assert.equal(store.leadId(2), null, 'quota takeover must not opt an unset multi-member channel into replies');
+  assert.equal(hub.defaultReplyIn(2), undefined);
+  assert.equal(store.page(2).length, 0);
   assert.equal(tasks.task(task.id).owner, 'longniang');
   assert.equal(tasks.task(task.id).reason, '/isolation/original-handoff.md');
   assert.equal(tasks.task(task.id).base, 'develop');
@@ -54,6 +59,7 @@ for (const kind of ['dsh', 'bot']) test(`quota journey (${kind}): persisted cool
   now += 3600001;
   quota.tick();
   assert.equal(hub.primaryIn(1).id, 'orange');
+  assert.equal(store.leadId(2), null, 'quota restoration also leaves the quiet channel unset');
   assert.equal(tasks.task(task.id).owner, 'longniang', 'recovery must not steal active work back');
   assert.ok(store.page(1).some(m => m.text.includes('额度恢复')));
 });

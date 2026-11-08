@@ -266,8 +266,11 @@ func (m *ManagementServer) Start() {
 		Addr:    fmt.Sprintf("%s:%d", m.host, m.port),
 		Handler: handler,
 	}
+	observeManagementConnections(m.server)
 	go func() {
-		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		err := m.server.ListenAndServe()
+		slog.Info("management api serve exited", "pid", os.Getpid(), "error", err)
+		if err != nil && err != http.ErrServerClosed {
 			slog.Error("management api server error", "error", err)
 		}
 	}()
@@ -307,6 +310,8 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
+	// 插件配置 (#150 ②a): 一份插件自己的 config，读出来改完存回 profile 的 patch
+	mux.HandleFunc(prefix+"/plugins/config", m.wrap(m.handlePluginsConfig))
 
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))
@@ -323,8 +328,8 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Setup wizard (conest): local CLIs, API×CLI matrix, Discord/Feishu pickers, 自建平台 (cloud_web) local hub + test, jev test, one-shot apply
 	mux.HandleFunc(prefix+"/setup/dsh/status", m.wrap(m.handleSetupDSHStatus))
 	mux.HandleFunc(prefix+"/setup/dsh/install", m.wrap(m.handleSetupDSHInstall))
-	mux.HandleFunc(prefix+"/setup/dsh/configure", m.wrap(m.handleSetupDSHConfigure))
-	mux.HandleFunc(prefix+"/setup/dsh/open", m.wrap(m.handleSetupDSHOpen))
+	mux.HandleFunc(prefix+"/setup/dsh/configure", traceDSHRequest(m.wrap(m.handleSetupDSHConfigure)))
+	mux.HandleFunc(prefix+"/setup/dsh/open", traceDSHRequest(m.wrap(m.handleSetupDSHOpen)))
 	mux.HandleFunc(prefix+"/setup/dsh/open-desktop", m.wrap(m.handleSetupDSHOpenDesktop))
 	mux.HandleFunc(prefix+"/setup/state", m.wrap(m.handleSetupState))
 	mux.HandleFunc(prefix+"/setup/clis", m.wrap(m.handleSetupCLIs))
@@ -386,11 +391,14 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 // Same 5-second Shutdown as BridgeServer.Stop and WebhookServer.Stop.
 func (m *ManagementServer) Stop() {
 	if m.server != nil {
+		slog.Info("management api shutdown started", "pid", os.Getpid())
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := m.server.Shutdown(ctx); err != nil {
+			slog.Warn("management api shutdown failed", "pid", os.Getpid(), "error", err)
 			m.server.Close()
 		}
+		slog.Info("management api shutdown ended", "pid", os.Getpid())
 	}
 }
 
@@ -508,6 +516,18 @@ func mgmtError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg}); err != nil {
+		slog.Error("management api: write error JSON failed", "error", err)
+	}
+}
+
+// mgmtErrorWithMoment is mgmtError plus the object a partial success produced
+// (换说说: the new post exists even though the call failed). The body stays
+// ok:false so callers cannot mistake it for success, and the extra field lets
+// the panel show which post went out and offer to remove one of the two.
+func mgmtErrorWithMoment(w http.ResponseWriter, status int, msg string, moment any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg, "moment": moment}); err != nil {
 		slog.Error("management api: write error JSON failed", "error", err)
 	}
 }
