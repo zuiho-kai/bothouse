@@ -483,6 +483,11 @@ export function SpritesheetPlayer({
   const frameCount = asset.frameCount || 120;
   const fps = asset.fps || 12;
 
+  const onImageErrorRef = useRef(onImageError);
+  useEffect(() => {
+    onImageErrorRef.current = onImageError;
+  }, [onImageError]);
+
   // Reset frame when action or url changes
   useEffect(() => {
     setFrameIndex(0);
@@ -494,14 +499,14 @@ export function SpritesheetPlayer({
       setImgLoaded(true);
     };
     img.onerror = () => {
-      if (onImageError) onImageError();
+      if (onImageErrorRef.current) onImageErrorRef.current();
     };
     img.src = asset.url;
 
     return () => {
       imgRef.current = null;
     };
-  }, [asset.url, asset.actionName, onImageError]);
+  }, [asset.url, asset.actionName]);
 
   // Frame advance loop
   useEffect(() => {
@@ -575,6 +580,9 @@ function PetVisualDisplay({
   isHero: boolean;
 }) {
   const [imgError, setImgError] = useState(false);
+  const handleImageError = useCallback(() => {
+    setImgError(true);
+  }, []);
 
   // Reset imgError whenever asset url or eventType changes
   useEffect(() => {
@@ -615,7 +623,7 @@ function PetVisualDisplay({
           eventType={eventType}
           roleKey={roleKey}
           isHero={isHero}
-          onImageError={() => setImgError(true)}
+          onImageError={handleImageError}
         />
       )}
 
