@@ -252,7 +252,8 @@ export class Roster {
       throw new CollabError('invalid', 'rooms must contain existing chat channel ids');
     }
     const clash = this.hub.memberList().find(m => m.id !== selfId && (!rooms.length || !m.rooms?.length || rooms.some(id => m.rooms.includes(id))) && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
-    if (clash !== undefined) throw new CollabError('conflict', `name ${name} is already used by ${clash.name}`);
+    // #366: 这条会原样显示在成员对话框的错误条里，和同页的成员名校验一样说中文。
+    if (clash !== undefined) throw new CollabError('conflict', `名字 ${name} 已被 ${clash.name} 使用`);
     const persona = String(input?.persona ?? '');
     if (persona.length > MAX_PERSONA) throw new CollabError('invalid', `persona exceeds ${MAX_PERSONA} characters`);
     let avatar;
