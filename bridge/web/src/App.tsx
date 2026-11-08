@@ -23,6 +23,7 @@ import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
 import PluginList from '@/pages/Plugins/PluginList';
+import PetPage from '@/pages/Pet/PetPage';
 import NotFound from '@/pages/NotFound';
 import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 import GateSettingsPage from '@/pages/Gate/GateSettings';
@@ -77,6 +78,8 @@ export default function App() {
         <Route path="gate" element={<GateSettingsPage />} />
         <Route path="forum" element={<ForumPage />} />
         <Route path="plugins" element={<PluginList />} />
+        <Route path="plugins/pet" element={<PetPage />} />
+        <Route path="pet" element={<PetPage />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />

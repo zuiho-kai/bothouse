@@ -84,7 +84,8 @@
     "wikiGalaxy": "Wiki ギャラクシー",
     "forum": "記憶フォーラム",
     "plugins": "プラグイン",
-    "gate": "ゲート"
+    "gate": "ゲート",
+    "pet": "デスクトップペット"
   },
   "plugins": {
     "stateClientUi": "クライアント UI パッケージ",
