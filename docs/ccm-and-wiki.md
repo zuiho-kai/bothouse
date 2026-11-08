@@ -138,6 +138,7 @@ gate_url = "http://127.0.0.1:9930/decide"
 team_status_dir = "~/.bothouse/team"
 team_name = "协调员"
 team_status_inject = true                      # 每轮开头附上队友在忙什么
+life_page = "~/wiki/my-days.md"                # 可选：角色「现在的样子」页，每轮（含定时）附在消息前，角色有变化直接改这页
 [projects.agent]
 type = "claudecode"
 [projects.agent.options]

@@ -638,6 +638,10 @@ type ProjectConfig struct {
 	// MemoryIndex (maomao fork): the bot's own wiki MEMORY.md, put before the first turn of every fresh agent
 	// context (Claude Code loads its auto-memory itself; Codex/Antigravity bots need this). Empty disables it.
 	MemoryIndex string `toml:"memory_index,omitempty"`
+	// LifePage: a file saying how the role is now (pocket, home, promises, work at hand), put before every turn
+	// sent to the agent, cron included; the agent edits it in place. Created from a template when missing.
+	// Empty disables it.
+	LifePage string `toml:"life_page,omitempty"`
 	// TeamBoard (lead only) keeps one live, pinned "who is doing what" message per channel, edited
 	// in place. Unset means on, so a lead gets the board without config and an upgrade turns it on
 	// without editing config.toml; team_board = false opts out (TeamBoardEnabled). Ignored on
