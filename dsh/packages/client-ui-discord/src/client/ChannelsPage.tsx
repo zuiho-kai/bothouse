@@ -1666,7 +1666,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             if (el.scrollTop <= 40) pageBack()
           }}
         >
-          {!visibleMembers.some(m => m.kind !== 'human') && (
+          {/* #1145: the empty-channel guide offers the same add entry, which a private chat cannot take. */}
+          {dmWith === undefined && !visibleMembers.some(m => m.kind !== 'human') && (
             <div className={css.guide}>
               <div>{t('guideNoMembers')}</div>
               <button type="button" className={css.primaryButton} onClick={() => { setDialog(null) }}>{t('addMember')}</button>
@@ -1920,7 +1921,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             ))}
           </section>
         )}
-        <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>
+        {/* #1145: a private chat holds exactly its one agent (hub.membersInRoom), so a member added
+            here would be stored against it and never show up — no add entry in a private chat. */}
+        {dmWith === undefined && <button type="button" className={css.addMemberButton} onClick={() => { setDrawer(undefined); setDialog(null) }}>+ {t('addMember')}</button>}
         {memberError !== undefined && <div className={css.sendError} role="alert">{memberError}</div>}
         <hr className={css.memberListDivider} />
         <MemberGroup title={t('agents', { count: String(visibleMembers.filter(m => m.kind !== 'human').length) })} members={visibleMembers.filter(m => m.kind !== 'human')} busy={busy} onPick={pickFromList} onEdit={setDialog} onRemove={confirmRemove} onDm={dmWith === undefined ? startDm : undefined} t={t} />

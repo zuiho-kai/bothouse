@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: def898ca7c3b5cbc9806630df8269a00d441300d83397256c948bcbf8313e7f7
+// dsh-client-source-sha256: 4c3b459ae4ff6d707403665d49403f7df1c98589b737fc942000ccf5c1229a54
 // dsh-style-sha256: f6a6de6373a2ead4c3a965e58c158c16626e49a16b91d2d568b35b19fcfdb95a
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -23630,7 +23630,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 									if (el.scrollTop <= 40) pageBack();
 								},
 								children: [
-									!visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									dmWith === void 0 && !visibleMembers.some((m) => m.kind !== "human") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 										className: ChannelsPage_module_default.guide,
 										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: t("guideNoMembers") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 											type: "button",
@@ -24120,7 +24120,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 							]
 						}, a.member.id))]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					dmWith === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 						type: "button",
 						className: ChannelsPage_module_default.addMemberButton,
 						onClick: () => {
