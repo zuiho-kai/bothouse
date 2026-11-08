@@ -84,4 +84,12 @@ func TestRoleQuota_StreamUsageSuccessRetainsSessionScope(t *testing.T) {
 	if session.calls != 1 {
 		t.Fatalf("quota calls=%d, want existing single footer read", session.calls)
 	}
+	e.interactiveStates = nil
+	e.replyFooterUsage = nil
+	if _, measured := e.replyFooterQuota(session, agent); !measured {
+		t.Fatal("untracked session lost its existing footer")
+	}
+	if e.CachedQuotaReport(nil, "same-model") != nil {
+		t.Fatal("untracked session was assigned a guessed account scope")
+	}
 }

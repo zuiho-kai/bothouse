@@ -9906,7 +9906,6 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 			// existing session read to its creation scope, just like terminal events.
 			var scope quotaScope
 			if agent.Name() == "antigravity" {
-				scope = e.quotaScopeOfSession(agent, session)
 				e.interactiveMu.Lock()
 				for _, state := range e.interactiveStates {
 					if state.agentSession == session {
@@ -9916,6 +9915,8 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 				}
 				e.interactiveMu.Unlock()
 			}
+			// An untracked session has no proven creation scope; its footer
+			// still works, but do not assign its report to the current account.
 			if report, err := reporter.GetUsage(ctx); err == nil {
 				if scope.Provider != "" {
 					e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
