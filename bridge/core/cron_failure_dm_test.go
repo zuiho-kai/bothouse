@@ -11,11 +11,12 @@ import (
 // cronFailurePlatform is a QQ-like platform: group chats are quiet, the owner can be
 // reached in a private chat, and every send records which chat it went to.
 type cronFailurePlatform struct {
-	n         string
-	mu        sync.Mutex
-	sent      []string // "<ctx>|<text>"
-	openedFor []string
-	dmErr     error // returned by sends to the private chat
+	n           string
+	mu          sync.Mutex
+	sent        []string // "<ctx>|<text>"
+	openedFor   []string
+	dmErr       error // returned by sends to the private chat
+	normalGroup bool  // a group whose system notices are not quiet
 }
 
 func (p *cronFailurePlatform) Name() string               { return p.n }
@@ -33,7 +34,9 @@ func (p *cronFailurePlatform) Send(_ context.Context, rc any, content string) er
 	p.mu.Unlock()
 	return nil
 }
-func (p *cronFailurePlatform) QuietSystemNotices(rc any) bool { return rc == "group" }
+func (p *cronFailurePlatform) QuietSystemNotices(rc any) bool {
+	return strings.Contains(rc.(string), ":g:") && !p.normalGroup
+}
 func (p *cronFailurePlatform) OpenDM(userID string) (string, error) {
 	p.openedFor = append(p.openedFor, userID)
 	return p.n + ":" + userID, nil
@@ -42,7 +45,7 @@ func (p *cronFailurePlatform) OpenDM(userID string) (string, error) {
 // qq:g:<id> is a group chat, qq:<id> a private chat (the QQ key shapes).
 func (p *cronFailurePlatform) ReconstructReplyCtx(key string) (any, error) {
 	if strings.Contains(key, ":g:") {
-		return "group", nil
+		return key, nil
 	}
 	return "private", nil
 }
@@ -81,8 +84,8 @@ func TestCronFailureNotice_QuietGroupGoesToOwnerDM(t *testing.T) {
 	}
 }
 
-// A group that is not quiet keeps getting the notice in the group, as before.
-func TestCronFailureNotice_NormalChatUnchanged(t *testing.T) {
+// Private chats keep getting their notice directly.
+func TestCronFailureNotice_PrivateChatUnchanged(t *testing.T) {
 	cs, p := newCronFailureFixture(t, nil)
 	cs.notifyFailure(&CronJob{ID: "j2", Project: "p", SessionKey: "qq:777", Description: "每日汇总"}, errors.New("boom"))
 
@@ -91,6 +94,20 @@ func TestCronFailureNotice_NormalChatUnchanged(t *testing.T) {
 	}
 	if got := p.getSent(); len(got) != 1 || got[0] != "private|⚠️ 定时任务「每日汇总」失败：boom" {
 		t.Fatalf("sent = %q", got)
+	}
+}
+
+// A non-quiet group keeps the complete failure notice in its original group, without a DM.
+func TestCronFailureNotice_NormalGroupUnchanged(t *testing.T) {
+	cs, p := newCronFailureFixture(t, nil)
+	p.normalGroup = true
+	cs.notifyFailure(&CronJob{ID: "j4", Project: "p", SessionKey: "qq:g:777", Description: "每日汇总"}, errors.New("boom"))
+
+	if len(p.openedFor) != 0 {
+		t.Fatalf("OpenDM should not be used for a non-quiet group, got %v", p.openedFor)
+	}
+	if got := p.getSent(); len(got) != 1 || got[0] != "qq:g:777|⚠️ 定时任务「每日汇总」失败：boom" {
+		t.Fatalf("sent = %q, want the original group notice only", got)
 	}
 }
 
