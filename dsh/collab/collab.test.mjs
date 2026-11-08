@@ -281,9 +281,11 @@ test('channel default reply: one member answers, multiple wait for a channel cho
   hub.setMember({ ...hub.members.get('b'), rooms: [1, 2] });
   hub.leadState = { selected: () => 'a' };
   assert.deepEqual(jobs(post('multiple members without mention')), [], 'a global primary must not opt the channel in');
+  assert.equal(hub.primaryIn(1)?.id, 'a', 'the explicitly selected global role keeps delegation authority');
   assert.deepEqual(jobs(post('@B explicit mention')), ['b']);
   hub.store.setLead(1, 'b');
   assert.deepEqual(jobs(post('selected channel primary')), ['b']);
+  assert.equal(hub.primaryIn(1)?.id, 'b', 'a channel selection also overrides delegation');
   hub.store.setLead(1, null);
   assert.deepEqual(jobs(post('cleared channel primary')), []);
 });
@@ -297,27 +299,27 @@ test('channel default reply: CLI-neutral selection follows membership, workspace
   const workspace = hub.store.createWorkspace(1);
   for (const cli of ['codex', 'claudecode', 'gemini']) {
     hub.setMember({ id: 'a', name: 'A', kind: 'dsh', cli, rooms: [1] });
-    assert.equal(hub.primaryIn(1)?.id, 'a');
-    assert.equal(hub.primaryIn(workspace.id)?.id, 'a');
-    assert.equal(hub.primaryIn(2), undefined);
+    assert.equal(hub.defaultReplyIn(1)?.id, 'a');
+    assert.equal(hub.defaultReplyIn(workspace.id)?.id, 'a');
+    assert.equal(hub.defaultReplyIn(2), undefined);
     assert.equal(events.filter(e => e.type === 'rooms').at(-1)?.rooms.find(r => r.id === 1).effective_lead_id, 'a');
   }
   hub.setMember({ id: 'b', name: 'B', kind: 'dsh', rooms: [1] });
-  assert.equal(hub.primaryIn(1), undefined);
+  assert.equal(hub.defaultReplyIn(1), undefined);
   assert.equal(events.filter(e => e.type === 'rooms').at(-1).rooms.find(r => r.id === 1).effective_lead_id, null);
   hub.store.setLead(1, 'b');
-  assert.equal(hub.primaryIn(workspace.id)?.id, 'b');
+  assert.equal(hub.defaultReplyIn(workspace.id)?.id, 'b');
   const dm = hub.store.openDm('b', 'B');
-  assert.equal(hub.primaryIn(dm.id)?.id, 'b');
+  assert.equal(hub.defaultReplyIn(dm.id)?.id, 'b');
   hub.store.setLead(1, null);
   hub.removeMember('b');
-  assert.equal(hub.primaryIn(1)?.id, 'a');
+  assert.equal(hub.defaultReplyIn(1)?.id, 'a');
   assert.equal(events.filter(e => e.type === 'rooms').at(-1).rooms.find(r => r.id === 1).effective_lead_id, 'a');
   hub.store.setLead(1, 'removed');
-  assert.equal(hub.primaryIn(1), undefined, 'an unavailable explicit choice must not silently pick another member');
+  assert.equal(hub.defaultReplyIn(1), undefined, 'an unavailable explicit choice must not silently pick another member');
 });
 
-test('channel primary: independent choices persist, inherit to workspaces and leave unset multi-member channels quiet', async () => {
+test('channel primary: delegation choices persist, inherit to workspaces and retain global authority', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -334,12 +336,14 @@ test('channel primary: independent choices persist, inherit to workspaces and le
   store.setLead(1, 'a'); store.setLead(2, 'b');
   assert.equal(hub.primaryIn(1).id, 'a');
   assert.equal(hub.primaryIn(2).id, 'b');
-  assert.equal(hub.primaryIn(3), undefined);
+  assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.defaultReplyIn(3), undefined);
   assert.equal(hub.primaryIn(ws.id).id, 'a');
   store.close(); store = new Store(path); hub = init();
   assert.equal(hub.primaryIn(1).id, 'a');
   assert.equal(hub.primaryIn(2).id, 'b');
-  assert.equal(hub.primaryIn(3), undefined);
+  assert.equal(hub.primaryIn(3).id, 'global');
+  assert.equal(hub.defaultReplyIn(3), undefined);
   store.setLead(1, 'removed');
   assert.equal(hub.primaryIn(1), undefined, 'a missing explicit primary must not pick another channel’s role');
   store.close();
@@ -420,10 +424,11 @@ test('channel settings API: validates directories before writing and survives co
   assert.equal((await call({ workspace_path: dir, lead_id: 'a' })).status, 200);
   assert.equal(events.at(-1).room_id, 1);
   assert.equal(hub.primaryIn(1).id, 'a'); assert.equal(hub.store.leadId(2), null);
-  // 频道设置里选回「未选择（按原配置）」时，下拉框送的是空串：等同 null，清掉本频道的选择而不是报错。
+  // 清除频道选择时空串等同 null；单成员仍自动接话，但不会自动获得派活权限。
   assert.equal((await call({ lead_id: '' })).status, 200);
   assert.equal(hub.store.leadId(1), null);
   assert.equal(hub.primaryIn(1), undefined);
+  assert.equal(hub.defaultReplyIn(1)?.id, 'a');
   hub.store.ensureRoom(1, 'general', '/config');
   assert.equal(hub.store.workspacePath(1, '/old'), dir);
   hub.store.close();
@@ -539,7 +544,7 @@ test('relay cap: the channel setting wins over the instance default and pauses o
   }
 });
 
-test('primary role: shared lead state routes explicitly selected roles and keeps fallback display-only', async () => {
+test('primary role: global delegation stays separate from channel default replies', async () => {
   const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -567,6 +572,12 @@ test('primary role: shared lead state routes explicitly selected roles and keeps
   assert.equal(hub.store.openJobs().length, 0, 'fallback is display-only before explicit selection');
 
   leadState.set('ds', 'DeepSeek');
+  assert.equal(hub.primaryIn(1).id, 'ds');
+  assert.equal(hub.defaultReplyIn(1), undefined);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: 'global selection alone stays quiet' });
+  await settle();
+  assert.equal(hub.store.openJobs().length, 0);
+  store.setLead(1, 'ds');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '没有点名的消息', clientKey: 'lead-dsh' });
   await settle();
   assert.equal(hub.store.openJobs().at(-1).member_id, 'ds');
@@ -574,6 +585,8 @@ test('primary role: shared lead state routes explicitly selected roles and keeps
   assert.equal('lead_id' in ju.of('message').at(-1), false);
 
   leadState.set('ju', '橘');
+  assert.equal(hub.defaultReplyIn(1).id, 'ds', 'global switches do not replace a channel choice');
+  store.setLead(1, 'ju');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '切换后没有点名', clientKey: 'lead-bot' });
   await settle();
   assert.equal(ju.of('message').at(-1).mentioned, false);
@@ -1610,6 +1623,7 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   roster.remove('coder');
   assert.equal(hub.store.leadId(7), null);
   assert.equal(hub.primaryIn(7), undefined);
+  assert.equal(hub.defaultReplyIn(7)?.id, 'ds', 'the sole remaining member answers without delegation authority');
   assert.equal(roomEvents.filter(e => e.type === 'room-settings' && e.room_id === 7).length, 1);
   assert.equal(members.config.has('coder'), false);
   assert.equal(hub.members.has('coder'), false);
@@ -6208,6 +6222,10 @@ test('member scope migration: legacy members and primary stay visible in future 
   assert.deepEqual(hub.routableIn(third.id).map(m => m.id).sort(), ['config', 'explicit-global', 'old']);
   assert.equal(hub.membersInRoom(third.id).some(m => m.id === 'old'), true);
   assert.equal(hub.selectedPrimaryMember().id, 'old');
+  hub.post(third.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'no default reply before channel selection' });
+  await settle();
+  assert.equal(store.openJobs().length, 0, 'migrated membership does not opt new channels into replies');
+  store.setLead(third.id, 'old');
   hub.post(third.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hello in the new channel' });
   await settle();
   assert.equal(store.openJobs().at(-1).member_id, 'old');

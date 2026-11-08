@@ -208,7 +208,7 @@ export class Roster {
     this.avatars?.remove(id);
     this.store.removeMember(id);
     // #176: a dead id must not linger as a channel's primary role.
-    for (const roomId of this.store.clearLeadOf(id)) this.hub.emit({ type: 'room-settings', room_id: this.store.settingsRoom(roomId), lead_id: null, effective_lead_id: this.hub.primaryIn(roomId)?.id ?? null });
+    for (const roomId of this.store.clearLeadOf(id)) this.hub.emit({ type: 'room-settings', room_id: this.store.settingsRoom(roomId), lead_id: null, effective_lead_id: this.hub.defaultReplyIn(roomId)?.id ?? null });
     this.dsh.dropMember(id);
   }
 

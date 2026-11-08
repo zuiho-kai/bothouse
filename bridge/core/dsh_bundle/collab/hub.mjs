@@ -48,8 +48,17 @@ export class Hub {
     return member !== undefined && member.kind !== 'human' ? member : undefined;
   }
 
-  /** Channel selection, inherited by workspaces; an unset channel replies only with one member. */
+  /** Channel primary for delegation; unset channels retain the selected global role. */
   primaryIn(roomId) {
+    const dm = this.store.dmMember?.(roomId);
+    if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
+    const id = this.store.leadId(roomId);
+    const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
+    return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
+  }
+
+  /** Default replies are channel-local and do not change delegation authority. */
+  defaultReplyIn(roomId) {
     // #1023: in a private chat the one agent answers every owner message, @ or not.
     const dm = this.store.dmMember?.(roomId);
     if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
@@ -59,7 +68,7 @@ export class Hub {
     return members.find(member => member.id === id);
   }
 
-  /** UI-only fallback; callers that route messages must use selectedPrimaryMember(). */
+  /** UI-only fallback; message routing uses defaultReplyIn(), delegation uses primaryIn(). */
   primaryMember() {
     const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);
     return this.selectedPrimaryMember() ?? (fallback?.kind !== 'human' ? fallback : undefined);
@@ -287,7 +296,7 @@ export class Hub {
 
   emit(event) {
     if (event.type === 'rooms') event = { ...event, rooms: event.rooms.map(room => ({ ...room,
-      lead_id: this.store.leadId(room.id), effective_lead_id: this.primaryIn(room.id)?.id ?? null,
+      lead_id: this.store.leadId(room.id), effective_lead_id: this.defaultReplyIn(room.id)?.id ?? null,
       workspace_path: this.store.workspacePath(room.id, this.workspacePath),
     })) };
     for (const s of this.subscribers) {
