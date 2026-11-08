@@ -125,12 +125,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	text      string    // last successful quota text
-	okAt      time.Time // when text was fetched; zero if never
-	failText  string    // set when the latest attempt failed
-	attemptAt time.Time // when the latest attempt finished
-	done      chan struct{}
-	waited    bool // a footer already spent the first-probe wait
+	report      *UsageReport // immutable snapshot for the role card
+	reportScope string       // attribution captured when the existing footer fetched it
+	reportAt    time.Time
+	text        string    // last successful quota text
+	okAt        time.Time // when text was fetched; zero if never
+	failText    string    // set when the latest attempt failed
+	attemptAt   time.Time // when the latest attempt finished
+	done        chan struct{}
+	waited      bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -9947,6 +9950,14 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
+		// Non-caching reporters return a freshly fetched result. Cached reporters
+		// carry their original observation time, including after a failed refresh.
+		if report != nil && report.ObservedAt.IsZero() {
+			fresh := *report
+			fresh.ObservedAt = time.Now()
+			report = &fresh
+		}
+		e.cacheRoleQuotaReport(agent, model, scope, report)
 		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
@@ -9981,6 +9992,67 @@ func usageReporterAvailable(v any) bool {
 	}
 	_, ok := v.(UsageReporter)
 	return ok
+}
+
+// cacheRoleQuotaReport retains data already obtained by the reply footer. The
+// management page never calls adapter CachedUsage methods: some refresh in the
+// background despite the interface name. Keep attribution and age with the copy.
+func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScope, report *UsageReport) {
+	if report == nil || report.ObservedAt.IsZero() || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
+		return
+	}
+	snapshot := *report
+	snapshot.Buckets = nil
+	for _, bucket := range report.Buckets {
+		if report.QuotaGroup != "" && bucket.QuotaGroup != report.QuotaGroup {
+			continue
+		}
+		bucket.Windows = append([]UsageWindow(nil), bucket.Windows...)
+		snapshot.Buckets = append(snapshot.Buckets, bucket)
+	}
+	primary, secondary := selectUsageWindows(&snapshot)
+	if primary == nil && secondary == nil {
+		return
+	}
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	if e.replyFooterUsage == nil {
+		e.replyFooterUsage = make(map[replyFooterUsageKey]*replyFooterUsageEntry)
+		e.replyFooterInflight = make(map[any]bool)
+	}
+	key := replyFooterUsageKey{agent: replyFooterAgentID(agent), model: model}
+	ent := e.replyFooterUsage[key]
+	if ent == nil {
+		ent = &replyFooterUsageEntry{}
+		e.replyFooterUsage[key] = ent
+	}
+	ent.report, ent.reportScope, ent.reportAt = &snapshot, scope.key(), report.ObservedAt
+}
+
+// CachedQuotaReport reads only the retained snapshot for this agent/model and
+// current provider/account. No adapter usage method, probe, or refresh is called.
+func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
+	scope := e.quotaScopeFor(e.agent, model)
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	ent := e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(e.agent), model: model}]
+	if ent == nil || ent.report == nil || ent.reportScope != scope.key() || ent.reportAt.IsZero() || time.Since(ent.reportAt) >= replyFooterUsageMaxAge {
+		return nil
+	}
+	// A reported reset supersedes a cached percentage, even before the normal
+	// footer cache lifetime expires. Never turn an old zero into an invented 100%.
+	for _, bucket := range ent.report.Buckets {
+		for _, window := range bucket.Windows {
+			reset := time.Unix(window.ResetAtUnix, 0)
+			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
+				reset = ent.reportAt.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+			}
+			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(time.Now()) {
+				return nil
+			}
+		}
+	}
+	return ent.report
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds

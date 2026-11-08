@@ -1665,7 +1665,7 @@ func appServerToolSuccess(status string, exitCode *int) bool {
 }
 
 func mapAppServerRateLimits(payload appServerRateLimitsResponse) *core.UsageReport {
-	report := &core.UsageReport{Provider: "codex"}
+	report := &core.UsageReport{Provider: "codex", ObservedAt: time.Now()}
 
 	var snapshots []appServerRateLimitSnapshot
 	if len(payload.RateLimitsByLimitID) > 0 {
