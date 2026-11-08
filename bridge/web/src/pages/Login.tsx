@@ -9,6 +9,7 @@ import { THEME_ICONS } from '@/components/Theme/themeIcons';
 import { api } from '@/api/client';
 import { getStatus, getVersion } from '@/api/status';
 import { initialServerUrl } from '@/lib/serverUrl';
+import { sameSitePath } from '@/lib/nextPath';
 
 const languages = [
   { code: 'en', label: 'EN' },
@@ -73,7 +74,8 @@ export default function Login() {
       api.setToken(token.trim());
       await getStatus();
       loginStore(token.trim(), serverUrl.trim());
-      navigate('/');
+      // Same target the /login route picks for a token link: `next` when it is a same-site path.
+      navigate(sameSitePath(searchParams.get('next')));
     } catch {
       setError(t('login.invalidToken'));
       api.setToken('');

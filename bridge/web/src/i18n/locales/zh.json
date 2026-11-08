@@ -207,7 +207,12 @@
     "externalAdapters": "外接适配器",
     "bridgeDisabled": "桥接服务未启用",
     "bridgeDisabledHint": "这些平台由角色直接连接；外接客户端（如桌面托盘）接入还需要在配置里打开桥接服务。",
-    "noAdapters": "暂无外接适配器"
+    "noAdapters": "暂无外接适配器",
+    "platformsReadFailed": "已连接平台读取失败",
+    "adaptersReadFailed": "外接适配器读取失败",
+    "projectsReadFailed": "项目名读取失败，下面显示原始代号。",
+    "readFailedHint": "请求没成功，不代表这里没有内容。先确认桥接服务在跑、登录令牌没过期，再重试。",
+    "retry": "重试"
   },
   "system": {
     "title": "系统",

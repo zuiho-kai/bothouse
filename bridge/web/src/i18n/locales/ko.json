@@ -201,7 +201,12 @@
     "externalAdapters": "외부 어댑터",
     "bridgeDisabled": "브리지 서비스가 꺼져 있습니다",
     "bridgeDisabledHint": "이 플랫폼들은 역할이 직접 연결합니다. 데스크톱 트레이 같은 외부 클라이언트는 설정에서 브리지 서비스를 켜야 합니다.",
-    "noAdapters": "외부 어댑터 없음"
+    "noAdapters": "외부 어댑터 없음",
+    "platformsReadFailed": "연결된 플랫폼을 읽지 못했습니다",
+    "adaptersReadFailed": "외부 어댑터를 읽지 못했습니다",
+    "projectsReadFailed": "프로젝트 이름을 읽지 못했습니다. 아래에는 원래 ID가 표시됩니다.",
+    "readFailedHint": "요청이 실패했습니다. 여기에 아무것도 없다는 뜻은 아닙니다. 브리지 서비스와 토큰을 확인한 뒤 다시 시도하세요.",
+    "retry": "다시 시도"
   },
   "system": {
     "title": "시스템",

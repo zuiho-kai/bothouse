@@ -16,6 +16,13 @@ vi.mock('./pages/Login', () => ({
 }));
 // Only routing is under test here; the sidebar's update badge talks to the network.
 vi.mock('./components/Layout/Layout', () => ({ default: () => <div><Outlet /></div> }));
+// Only routing is under test: the target page just says where it landed.
+vi.mock('./pages/Usage', () => ({
+  default: function UsageProbe() {
+    const loc = useLocation();
+    return <div data-testid="usage-probe">{loc.pathname + loc.search}</div>;
+  },
+}));
 vi.mock('react-i18next', () => ({
   // src/i18n/index.ts calls i18n.use(initReactI18next) at import time.
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -55,6 +62,31 @@ describe('panel entry points', () => {
   it('keeps the token and next query when a signed-out visitor opens the root path', async () => {
     const container = await renderAt('/?token=abc123&next=/setup');
     expect(container.querySelector('[data-testid="login-probe"]')?.textContent).toBe('/login?token=abc123&next=/setup');
+  });
+
+  // #1026: a deep link typed without `next` used to land on `/` after logging in.
+  it('remembers the path when a signed-out visitor opens a deep link without next', async () => {
+    const container = await renderAt('/usage');
+    expect(container.querySelector('[data-testid="login-probe"]')?.textContent).toBe('/login?next=%2Fusage');
+  });
+
+  it('keeps the path and its query together when a deep link has other params', async () => {
+    const container = await renderAt('/sessions/deep/abc?tab=chat');
+    expect(container.querySelector('[data-testid="login-probe"]')?.textContent).toBe('/login?tab=chat&next=%2Fsessions%2Fdeep%2Fabc%3Ftab%3Dchat');
+  });
+
+  it('keeps an explicit next instead of the current path', async () => {
+    const container = await renderAt('/usage?next=/setup');
+    expect(container.querySelector('[data-testid="login-probe"]')?.textContent).toBe('/login?next=/setup');
+  });
+
+  it('sends a signed-in visitor to a same-site next and refuses an off-site one', async () => {
+    useAuthStore.setState({ isAuthenticated: true });
+    const ok = await renderAt('/login?next=/usage');
+    expect(ok.querySelector('[data-testid="usage-probe"]')?.textContent).toBe('/usage');
+    const evil = await renderAt('/login?next=//evil.com');
+    expect(evil.querySelector('[data-testid="usage-probe"]')).toBeNull();
+    expect(evil.textContent).not.toContain('evil.com');
   });
 
   it('shows a 404 with a way home instead of a blank page for unknown paths', async () => {

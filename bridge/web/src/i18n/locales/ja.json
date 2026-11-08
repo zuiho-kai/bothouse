@@ -201,7 +201,12 @@
     "externalAdapters": "外部アダプター",
     "bridgeDisabled": "ブリッジサービスは無効です",
     "bridgeDisabledHint": "これらのプラットフォームはロールが直接接続しています。デスクトップトレイなどの外部クライアントには、設定でブリッジサービスを有効にする必要があります。",
-    "noAdapters": "外部アダプターはありません"
+    "noAdapters": "外部アダプターはありません",
+    "platformsReadFailed": "接続中のプラットフォームを読み取れませんでした",
+    "adaptersReadFailed": "外部アダプターを読み取れませんでした",
+    "projectsReadFailed": "プロジェクト名を読み取れませんでした。以下は元の ID を表示しています。",
+    "readFailedHint": "リクエストが失敗しました。ここに何も無いという意味ではありません。ブリッジサービスとトークンを確認してから再試行してください。",
+    "retry": "再試行"
   },
   "system": {
     "title": "システム",

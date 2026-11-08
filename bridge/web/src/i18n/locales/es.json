@@ -201,7 +201,12 @@
     "externalAdapters": "Adaptadores externos",
     "bridgeDisabled": "El servicio de puente está apagado",
     "bridgeDisabledHint": "Estas plataformas las conectan los propios roles; los clientes externos (como la bandeja del escritorio) necesitan además el servicio de puente activado en la configuración.",
-    "noAdapters": "Sin adaptadores externos"
+    "noAdapters": "Sin adaptadores externos",
+    "platformsReadFailed": "No se pudieron leer las plataformas conectadas",
+    "adaptersReadFailed": "No se pudieron leer los adaptadores externos",
+    "projectsReadFailed": "No se pudieron leer los nombres de proyecto; abajo se muestran los identificadores.",
+    "readFailedHint": "La solicitud falló; esto no significa que no haya nada aquí. Revisa el servicio de puente y tu token, y vuelve a intentarlo.",
+    "retry": "Reintentar"
   },
   "system": {
     "title": "Sistema",
