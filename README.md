@@ -16,11 +16,13 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**bothouse: put Claude Code, Codex, Gemini CLI and DeepSeek on your computer into one group chat — an AI team that shares one memory and divides up its own work.**
+**bothouse: a team collaboration platform for one agent or many. A team, or just you with a single model, can use it, and different sessions and models share one project memory.**
+
+Discord, DSH and QQ are the three ways in; bring the agent CLIs you already signed in to: Claude Code, Codex, Antigravity, DSH, Gemini CLI, OpenCode, and Grok or others over ACP.
 
 What's next: [team mode](#next) — one person tunes the AI, the whole team uses it; [hardware](#next) — give a role a small ESP32 body ([bothouse-iot](https://github.com/zuiho-kai/bothouse-iot)).
 
-[Video](#video) · [What's next](#next) · [Install](#install) · [Features](#features) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
+[Video](#video) · [Three ways in](#usage) · [DSH users](#dsh) · [Install](#install) · [Features](#features) · [What's next](#next) · [Screenshots](#screenshots) · [Memory](#memory) · [Compare](#compare) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -38,27 +40,42 @@ New installs default to **Only when addressed**: the role you @ answers, nothing
 
 ## What it looks like
 
-Using Claude Code, Codex and DeepSeek together used to mean switching between terminals and copying messages across. Close a window and the context is gone; step away and the work stops.
+I had Claude Code, Codex and DeepSeek open at the same time across two screens: four Claude Code windows on one, Codex on the other, and getting them to work together was a pain. So I reused what Discord already does well and built a collaboration platform on top of it. Later, talking with friends at vLLM and ModelBest, it turned out they had built something similar. As the community grew, DSH and QQ support followed.
 
-So we built **bothouse**: a hub that brings your local CLIs and models into one group. They share one memory, and you direct them from your computer, phone or browser — no extra account, no extra subscription.
+That is **bothouse**: a team, or just you, can plug different agent CLIs into one group, and different sessions and models share one project memory. You direct them from your computer, phone or browser — no extra account, no extra subscription.
 
-<a id="next"></a>
+<a id="usage"></a>
 
-## What's next: team mode and hardware
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-en-night.svg" />
+  <img src="docs/assets/readme/banner/usage-en-day.svg" width="960" alt="" />
+</picture>
 
-Once it works for one person, we grow it in two directions.
+## Three ways in
 
-### Team mode: one person tunes the AI, the whole team uses it
+| What you have | How to use it |
+| --- | --- |
+| **Several agent CLIs** | Bring the Claude Code, Codex, Antigravity, DSH and Grok you already signed in to into one group; the lead splits the work and hands it out, and everyone shares one project memory. See [Install](#install). |
+| **One model, one account** | One model and one role works fine. Want more roles? Create several members anyway, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
+| **DSH** | Say "install bothouse-dsh for me" in DSH and it is installed, or run `bothouse module add dsh`. One more sentence to the lead starts a small team of roles on a single model. See below. |
 
-Bring every teammate's Claude Code, Codex, Gemini and DeepSeek into one team group, and the team shares one set of AI know-how.
+<a id="dsh"></a>
 
-- **Shared experience:** the team shares one memory. A nightly review checks against the original messages and records progress, corrections and lessons, so the next day every teammate's AI follows them. People new to AI get the setup the experts tuned.
-- **Knows each person:** it remembers each person's standards and habits separately, and answers each sender their own way.
-- **Splits the work itself:** say it once and the AIs divide the work; every handoff carries your original words, and a fresh AI checks the result.
+### DSH users: one model with many roles
 
-### Hardware: give a role a body
+Two ways in: say "install bothouse-dsh for me" in DSH (it fetches the plugin from npm), or run `bothouse module add dsh` (it installs the copy that ships with the bothouse you just installed). On the npm route, name the exact version if you want the newest release right away: DSH installs plugins with pnpm, which skips releases from the last day. Details in [bothouse-dsh](dsh/plugin-pkg/README.en.md).
 
-[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) connects small ESP32 round-screen boards. Each board is a role: talk to it, the role answers, and the dial face changes with it. See [Hardware](#iot) below.
+One model and one role works fine; the DSH plugins you already have keep working, and popular plugins are being adapted.
+
+For one model with many roles, say one sentence to the lead in a channel:
+
+> Build me a small team: a writer and a programmer, both on deepseek-v4.1-flash, and put them in a channel
+
+The lead creates the channel and both roles in one go through the channels API (`POST /collab/api/rooms/{id}/team`, only the channel's primary role may call it), and posts what it built. The wording of the sentence is not fixed: name the roles, and optionally the model, persona and channel.
+
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-crop.jpg" width="750" alt="One sentence to the lead in DSH builds a writer and a programmer"><br><b>One sentence, two roles</b></p>
+
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="In the new channel, the writer and the programmer are online, both on deepseek-v4.1-flash"><br><b>The roles are in the new channel</b></p>
 
 <a id="install"></a>
 
@@ -107,7 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 | You want | How bothouse helps |
 | --- | --- |
-| **An AI team of your own** | Bring the Claude Code, Codex, Gemini CLI or OpenCode you already signed in to; every role gets its own name, persona and session. |
+| **An AI team of your own** | Bring the Claude Code, Codex, Antigravity, DSH, Gemini CLI or OpenCode you already signed in to — Grok and others over ACP too; every role gets its own name, persona and session. |
 | **A team from one account** | Only one Codex or DeepSeek account? Create several members anyway, each with its own name, persona, job and session; they assign and hand back work by mentioning each other. |
 | **Find it in the chat apps you use** | @ it in Discord, Feishu, QQ, the self-hosted web chat or DSH web; Discord and Feishu already have phone apps, so you can hand out work from bed. |
 | **Chat stays free while big jobs run** | Bigger jobs go to a separate workspace while the lead keeps talking with you; results come back, and you are only pinged for decisions. |
@@ -115,23 +132,35 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 | **A nightly review** | At night it checks what was written down during the day, fixes and dedupes it, and turns your repeated corrections into draft rules that apply only after you approve. |
 | **Long jobs stay on track** | Every handoff carries your original words; a second AI with a clean context checks the result; “fixed” needs evidence. |
 | **Manage it from your phone** | A built-in web dashboard shows who is busy and how much quota is used, lets you edit personas, open a project and add a note to work that is already running. |
-| **Draw a picture when you ask for one** | Optional and off by default: point `[image_gen]` at an OpenAI-compatible image service and the dashboard's 生图 page draws one picture into a local file. It never posts it for you — `bothouse send --image` is a separate, deliberate step. |
+| **Draw a picture when you ask for one** | Optional and off by default: point `[image_gen]` at an OpenAI-compatible image service and the dashboard's image-generation page draws one picture into a local file. It never posts it for you — `bothouse send --image` is a separate, deliberate step. |
 
 <a id="team"></a>
 
-Model and reasoning selections are scoped to the current channel/session key.
-Use `/model` and `/reasoning` in that channel, or let the agent use
-`cc-connect model list --json` followed by `model set <exact-id> --effort <level>`.
-CLI changes are queued until the next turn; the conversation is preserved.
-Selections survive restarts and `/new`, while other channels retain their own
-selections or project/directory defaults. CLI support and pinned model arguments
-still determine which settings a backend can apply.
+Per-channel model and reasoning: use `/model` and `/reasoning` in the channel you are talking in. Selections stay with that channel and survive restarts and `/new`. See [model and reasoning](docs/model-and-reasoning.md).
 
 ### Roles and avatars
 
 <img src="docs/assets/bothouse-team-hero.png" width="660" alt="Four AI roles sitting at one table, each working on a laptop" />
 
 Every role has its own avatar and persona. They come in packs — pick one and it is ready to work; to make your own, see [role packs](docs/persona-packs.md) (Chinese).
+
+<a id="next"></a>
+
+## What's next: team mode and hardware
+
+Once it works for one person, we grow it in two directions.
+
+### Team mode: one person tunes the AI, the whole team uses it
+
+Bring every teammate's Claude Code, Codex, Gemini and DeepSeek into one team group, and the team shares one set of AI know-how.
+
+- **Shared experience:** the team shares one memory. A nightly review checks against the original messages and records progress, corrections and lessons, so the next day every teammate's AI follows them. People new to AI get the setup the experts tuned.
+- **Knows each person:** it remembers each person's standards and habits separately, and answers each sender their own way.
+- **Splits the work itself:** say it once and the AIs divide the work; every handoff carries your original words, and a fresh AI checks the result.
+
+### Hardware: give a role a body
+
+[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) connects small ESP32 round-screen boards. Each board is a role: talk to it, the role answers, and the dial face changes with it. See [Hardware](#iot) below.
 
 <a id="screenshots"></a>
 
@@ -159,13 +188,19 @@ _Top row: real channel footage. Bottom row: the author's own dashboard._
 
 ## Memory you can see
 
-The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer. See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese).
+The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer.
+
+- **Only the titles go in:** each turn picks the related memories by keyword and injects their titles and line numbers; a role opens the full text when it needs it. It costs very little and cuts rework and repeated corrections about your habits — fewer "I already told you that". The idea came from vLLM.
+- **Light on cost:** no knowledge-graph CRUD and no always-on vector store, so cost and memory use stay small.
+- **Memory forum:** the panel's "Memory forum" page scores each memory as a reply — upvotes, downvotes, how often it was pushed and quoted — and sorts the thread for you. Answers to the same question are grouped into one post and ranked, so a wrong memory falls down instead of being repeated.
+
+See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese).
 
 To browse that memory as a star map, open **bothouse panel → Overview → Wiki galaxy**. The galaxy is a subpage with a link back to Overview, rather than a separate navigation item. Existing `/wiki-galaxy` and DSH `#wiki-galaxy` bookmarks still work.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, the self-hosted web chat, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the in-development memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
 </picture>
 
 <a id="how"></a>
@@ -180,6 +215,7 @@ You say one thing from your phone, computer or browser → the **lead** in the c
 
 Chat keeps going the whole time; members take the work on and hand it back, and only decisions that need you come back to chat.
 
+- **The lead splits the work:** the lead breaks real work down and hands it out by skill and quota, so five AIs in one group still don't talk over each other. When it dispatches a sub-agent, the code maps that match the task go with it, and what the sub-agent learns is appended back to that map.
 - **Speak when called:** the lead answers by default; other roles follow along and reply when mentioned or named. Unaddressed messages go to jev, a lightweight dispatcher (a small model that only answers multiple-choice questions), which decides who picks them up. It can run on a free small model from SiliconFlow or the local Qwen3.5-4B we run ourselves (one-click preset in the wizard).
 - **Shared memory:** we extended our open-source llm-wiki into a memory shared by every role. It lives in local Markdown you can read and edit, and Git history records what the team learned.
 - **Nightly review:** when a session ends, idles for 30 minutes or errors, a fast model records progress in the Wiki. At night a slower, more thorough free model checks it against the original conversations to fix errors and fill gaps; on Sundays it reviews everything. Code checks every quoted instruction against your actual words and rejects invented quotes.
@@ -260,7 +296,7 @@ People often ask: DeepSeek now ships its own agent, and there are Tobs, DS Bot, 
 
 | | What it is | Which AIs | How several AIs work together | Memory | Where you chat |
 | --- | --- | --- | --- | --- | --- |
-| **bothouse** | **A coordination layer on your own computer + web panel** | **Claude Code, Codex, Gemini CLI, OpenCode; DSH and others over ACP; OpenAI-compatible APIs** | **The lead role hands work to separate workspaces; task board; one thread per job** | **One shared Markdown wiki, reviewed nightly** | Discord, self-hosted web, Feishu, QQ, DSH web (experimental) |
+| **bothouse** | **A coordination layer on your own computer + web panel** | **Claude Code, Codex, Antigravity, Gemini CLI, OpenCode, DSH; Grok and others over ACP; OpenAI-compatible APIs** | **The lead role hands work to separate workspaces; task board; one thread per job** | **One shared Markdown wiki, reviewed nightly** | Discord, self-hosted web, Feishu, QQ, DSH web (experimental) |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek's official agent framework (developer preview) | DeepSeek by default; other providers can be added | Subagents; agent teams are experimental | No built-in long-term memory; memory plugins can be added | Its own desktop app and web UI |
 | [Tobs](https://github.com/BotHarness/DeepSeekBot) | Bot plugin built on DSH | Models configured in DSH | @ whoever you need; assignments | One Git repo per bot | Feishu, Slack, Discord, QQ, WeChat |
 | [DS Bot](https://github.com/Fei2411/DS-Bot) | Desktop app / plugin / Docker built on DSH | Models configured in DSH | A chief bot runs the team; group admins coordinate | Memory per bot and per group | In the app |
@@ -297,6 +333,7 @@ Mature personal assistants and coding tools get compared too:
 - **Automatic workspace cleanup:** clear context after the last assignment so the next task starts fresh.
 - **More group-chat platforms:** full team mode on DSH web channels, Telegram, Slack, QQ and WeCom.
 - **Team-wide rules and skills:** push the team's rules, skills and tool settings to every member's computer in one step.
+- **Deep support for popular DSH plugins:** reuse the DSH plugin ecosystem, with deep support for the popular plugins.
 
 <a id="docs"></a>
 
@@ -304,7 +341,7 @@ Mature personal assistants and coding tools get compared too:
 
 Contributions are welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Source builds with the web dashboard need the frontend built before Go and must not pass `no_web`; see [dashboard build](docs/dashboard-source-build.md).
 
-More: [Getting started](docs/GETTING_STARTED.md) · [A team from one CLI](docs/single-cli-team.en.md) · [Discord and Feishu setup](docs/connect-discord-feishu.md) · [Codex bot session isolation](docs/codex-session-isolation.md) · [Dispatcher and team memory](docs/ccm-and-wiki.md) · [Role packs](docs/persona-packs.md) · [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) · [Guardrails and tools](bridge/contrib/hooks/README.md) · [Memory read-frequency report](docs/READ_FREQUENCY.md) · [Cross-CLI workflow hooks](docs/workflow-hooks.md) · [Usage API](docs/api/usage.md) · [Self-hosted web protocol](bridge/docs/cloud-web.md) · [Architecture](docs/ARCHITECTURE.md) · [Lead collaboration scripts](bridge/contrib/lead/README.md)
+More: [Getting started](docs/GETTING_STARTED.md) · [A team from one CLI](docs/single-cli-team.en.md) · [Discord and Feishu setup](docs/connect-discord-feishu.md) · [Model and reasoning](docs/model-and-reasoning.md) · [Codex bot session isolation](docs/codex-session-isolation.md) · [Dispatcher and team memory](docs/ccm-and-wiki.md) · [Role packs](docs/persona-packs.md) · [Per-role Wiki and nightly reflection](bridge/contrib/wiki/README.md) · [Guardrails and tools](bridge/contrib/hooks/README.md) · [Memory read-frequency report](docs/READ_FREQUENCY.md) · [Cross-CLI workflow hooks](docs/workflow-hooks.md) · [Usage API](docs/api/usage.md) · [Self-hosted web protocol](bridge/docs/cloud-web.md) · [Architecture](docs/ARCHITECTURE.md) · [Lead collaboration scripts](bridge/contrib/lead/README.md)
 
 Most guides are currently in Chinese; the self-hosted web protocol is in English.
 
