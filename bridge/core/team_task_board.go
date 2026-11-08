@@ -680,6 +680,18 @@ func teamTaskBoardReason(texts ...string) string {
 	return ""
 }
 
+// teamTaskBoardOwnerPlaceholder: 「谁」 words that name nobody (board.py writes 待接手 for an unowned item).
+var teamTaskBoardOwnerPlaceholder = regexp.MustCompile(`^(?:待接手|待安排|待定|没人|无人|无|-|—)$`)
+
+// teamTaskBoardOwner: the item's owner as shown on the card, "" when 「谁」 is empty or a placeholder.
+func teamTaskBoardOwner(who string) string {
+	who = strings.TrimSpace(who)
+	if who == "" || teamTaskBoardOwnerPlaceholder.MatchString(who) {
+		return ""
+	}
+	return shortLabel(who, teamTaskBoardShortRunes)
+}
+
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
 	releaseNote, awaitRelease := teamTaskBoardAwaitRelease(it.Status)
@@ -690,13 +702,17 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 		return teamTaskHidden, ""
 	case it.AwaitDeploy != nil && it.Paused == "":
 		return teamTaskRelease, "已合并，等上线"
-	case !it.ReturnedAt.IsZero():
-		return teamTaskReview, taskReviewNote(it, now)
+	// Paused before returned: board.py clears paused when a workspace returns, so an item with both
+	// was paused after it came back (reassigned, shelved). It no longer waits on a reviewer and must
+	// not hang as 「没人验收」 (user, 2026-11-08: 「为什么做不到及时更新置顶卡片」; #181 paused a minute
+	// after its return showed 没人验收 for three days).
 	case it.Paused != "":
 		if teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
 		}
 		return teamTaskPaused, ""
+	case !it.ReturnedAt.IsZero():
+		return teamTaskReview, taskReviewNote(it, now)
 	// A closing status wins over the release wording: 「已完成，等发布」/「完成后等发布」 say the item
 	// is done and only mention the release (before this the first counted as 交出没人接, the second
 	// was already hidden — #985 review 1). Same words as board.py CLOSED_RE.
@@ -812,7 +828,8 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 			continue
 		}
 		state, note := teamTaskBoardStateOf(it, now)
-		if state == teamTaskPaused && !it.wsEnded {
+		// Returned then paused: still listed (its handback is unreviewed work), but as paused.
+		if state == teamTaskPaused && !it.wsEnded && it.ReturnedAt.IsZero() {
 			paused++
 			continue
 		}
@@ -1030,7 +1047,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" || (state != teamTaskWaiting && state != teamTaskReview && state != teamTaskRelease && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" && it.ReturnedAt.IsZero() || (state != teamTaskWaiting && state != teamTaskReview && state != teamTaskRelease && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -1086,6 +1103,18 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 				row += "  [→点进去](" + url + ")"
 			}
 			waiting = append(waiting, row)
+		case where == "" && teamTaskBoardOwner(it.Who) != "":
+			// Named owner outside a bound workspace (「肥鱼（409续办）」): someone is on it, so it is
+			// not 待安排 (same report as above, 「找bug一路」 listed as 待安排).
+			parts := []string{short, teamTaskBoardOwner(it.Who)}
+			if span != "" {
+				parts = append(parts, "已做 "+span)
+			}
+			row := "  ▶ " + strings.Join(parts, " · ")
+			if url := teamTaskTableRowURL(it, card); url != "" {
+				row += "  [→点进去](" + url + ")"
+			}
+			wsRows = append(wsRows, wsRow{line: row})
 		case where == "":
 			row := "  · " + short
 			if strings.TrimSpace(it.Who) != "" {
@@ -1221,6 +1250,11 @@ func renderWorkspaceTaskBoardFit(items []teamTaskBoardItem, chat string, now tim
 		}
 		switch st, note := teamTaskBoardStateOf(it, now); st {
 		case teamTaskPaused:
+			if !it.ReturnedAt.IsZero() {
+				// Returned then paused: its handback stays in view, marked paused.
+				rows[st] = append(rows[st], teamTaskBoardMarks[st]+" "+teamTaskBoardShort(it)+" · "+teamTaskBoardNames[st])
+				break
+			}
 			paused++
 		case teamTaskHidden:
 		default:
