@@ -179,8 +179,8 @@ func TestDSHProxyRequiresPanelToken(t *testing.T) {
 		if res.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("%s: status = %d, want 401", path, res.StatusCode)
 		}
-		if !strings.Contains(string(body), `href="/"`) {
-			t.Fatalf("%s: 401 page has no link to the panel login: %s", path, body)
+		if !strings.Contains(string(body), "Sign in to the bothouse panel first") || strings.Contains(string(body), "<a ") {
+			t.Fatalf("%s: 401 page must explain sign-in without nesting the panel: %s", path, body)
 		}
 	}
 	// A forged cookie is not enough either.
