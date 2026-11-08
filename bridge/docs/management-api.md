@@ -1420,6 +1420,71 @@ when the profile already had that state.
 A DSH restart is needed for either write to take effect; the response reports
 `restart_required: true`.
 
+#### GET /api/v1/plugins/config?id=<row id>
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "demo-tool",
+    "name": "demo-tool",
+    "layer": "bundle",
+    "editable": true,
+    "config_yaml": "dataDir: !!js process.env.DEMO_DATA || (process.env.HOME + '/.demo')",
+    "overridden": false
+  }
+}
+```
+
+One plugin row's own config — `id` is a row id from `GET /api/v1/plugins`, not a package name.
+
+`config_yaml` is **YAML text, not a JSON object**, and that is deliberate. The fields belong to the
+plugin, which validates them itself, and a value may be a `!!js` expression that DSH evaluates at
+boot. Decoding the config into JSON and re-encoding it would turn `!!js process.env.X` into the
+string it renders to, silently changing the meaning of the person's file. The panel therefore shows
+and accepts text, and the `!!js` tag goes back untouched.
+
+`layer` says which layer set the value that is in effect, in DSH's own apply order:
+
+| `layer` | meaning |
+| --- | --- |
+| `bundle` | the plugin's own patch; saving here writes an override into the profile patch |
+| `profile` | this profile's `cordis.patch.yml` — what a save writes (`overridden: true`) |
+| `home` | `$DSH_HOME/cordis.patch.yml`, which applies after the profile and to every profile |
+| `none` | nothing sets it; the row runs on the plugin's code defaults (`config_yaml` is empty) |
+
+A bundle whose patch list cannot be read is an error, not `none`: "nothing set it" and "I could not
+read what set it" lead to different actions, and only the first one is safe to show as an empty box.
+
+`editable` is `false` only for `home`: a profile write there would look saved and change nothing,
+so the response carries a `reason` naming the file to edit instead.
+
+#### POST /api/v1/plugins/config
+
+```json
+{"id": "demo-tool", "config_yaml": "dataDir: /srv/demo\nverbose: true\n"}
+```
+
+Writes the text as that row's `config` in the profile's `cordis.patch.yml`, replacing an existing
+override rather than appending a second one, and appending a new `- id:` entry when the row had none.
+Everything else in the file is preserved — other entries, their order, comments, and `!!js` tags.
+The whole read-modify-write runs under the profile's `package.json.lock`, the same lock DSH and
+`dsh plugin` take, so a concurrent edit from DSH's own Plugins page is not dropped. A timestamped
+`.bak-` of the previous file is written first; the file stays `0600`. Saving text that renders to
+the file that is already there is not a change: it answers `changed: false` and leaves no new
+`.bak-`, so a repeated save does not pile up copies of an unchanged file.
+
+An empty `config_yaml` **removes all profile overrides** for that row (and bare entries without comments), which
+restores whatever the bundle layer says. Refused with `400`: text that is not valid YAML, text that
+is not a `key: value` mapping, an unknown row id, or a `home`-controlled row. An empty mapping
+(`{}`) is a valid override. JavaScript syntax and plugin field validation remain with DSH/the plugin;
+the editor preserves expressions without executing them. A successful save proves persistence,
+not that the plugin will accept the configuration. Like the other profile writes, it takes
+effect on the next DSH start (`restart_required: true` when `changed`).
+
+Requires the management token, exactly like install and switch: an unauthenticated management
+server cannot attest an owner, and this route changes what this machine loads.
+
 ---
 
 ## 6. Error Handling Conventions
@@ -1506,6 +1571,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
 | 1.2-draft | 2026-11-05 | Add optional QQ 说说 / avatar routes (`/projects/{name}/social…`), off unless `allow_qzone` / `allow_avatar` |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
+| 1.2-draft | 2026-11-08 | Add `GET`/`POST /plugins/config`: one plugin row's own config as YAML text, read from the layer that sets it (bundle / profile / HOME) and written into the profile patch under DSH's own lock |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |
 

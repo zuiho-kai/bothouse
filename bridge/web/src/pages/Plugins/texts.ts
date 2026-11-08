@@ -56,6 +56,17 @@ export interface PluginTexts {
   rowsTitle: (n: number) => string
   rowOff: string
   rowOn: string
+  /** 每一行插件自己的 config：在面板里读出来、改完存回 profile 的 patch */
+  rowConfig: string
+  configHint: string
+  configSave: string
+  configSaving: string
+  configCancel: string
+  configSaved: string
+  configEmpty: string
+  configNoneYet: string
+  configFromBundle: string
+  configFromProfile: string
   details: string
   failurePnpm: string
   failureNotFound: string
@@ -124,6 +135,16 @@ const zh: PluginTexts = {
   rowsTitle: (n) => `这个插件带来 ${n} 项`,
   rowOff: '已停用',
   rowOn: '',
+  rowConfig: '配置',
+  configHint: '这一行自己的配置，原样是 YAML；存回的是这份 profile 的 patch，改完重启 DSH 生效。留空保存就恢复插件默认。',
+  configSave: '保存配置',
+  configSaving: '正在存…',
+  configCancel: '取消',
+  configSaved: '已保存，重启 DSH 后生效。',
+  configEmpty: '这段是空的：留空保存会删掉这里的覆盖，恢复插件默认。',
+  configNoneYet: '这一行没配过东西，用的是插件自己的默认值。在这儿存的就是它整段 config。',
+  configFromBundle: '现在的值来自插件自带的 patch。在这儿保存是整段替换这一行的 config，不是逐字段合并：框里没有的字段就没了。',
+  configFromProfile: '现在的值来自这份 profile 的 patch，就是在这儿存的。',
   details: '安装日志',
   failurePnpm: '找不到 pnpm。先 npm i -g pnpm，或者在 DSH 的插件页里装。',
   failureNotFound: 'npm 上没有这个包（或这个版本），检查包名拼写。',
@@ -192,6 +213,16 @@ const en: PluginTexts = {
   rowsTitle: (n) => `This plugin brings ${n} item${n === 1 ? '' : 's'}`,
   rowOff: 'off',
   rowOn: '',
+  rowConfig: 'Configure',
+  configHint: 'This row’s own config, as YAML. Saving writes this profile’s patch; it takes effect after a DSH restart. Save empty to go back to the plugin’s default.',
+  configSave: 'Save config',
+  configSaving: 'Saving…',
+  configCancel: 'Cancel',
+  configSaved: 'Saved; takes effect after a DSH restart.',
+  configEmpty: 'This is empty: saving it removes the override here and goes back to the plugin’s default.',
+  configNoneYet: 'Nothing is set for this row; it runs on the plugin’s own defaults.',
+  configFromBundle: 'The current value comes from the plugin’s own patch. Saving here replaces this row’s whole config — it is not merged field by field, so a field you leave out is gone.',
+  configFromProfile: 'The current value comes from this profile’s patch — that is what saving here writes.',
   details: 'Install log',
   failurePnpm: 'pnpm was not found. Run npm i -g pnpm, or install from DSH’s own Plugins page.',
   failureNotFound: 'npm has no such package (or version). Check the spelling.',
@@ -260,6 +291,16 @@ const ja: PluginTexts = {
   rowsTitle: (n) => `このプラグインが持つ項目：${n}`,
   rowOff: '無効',
   rowOn: '',
+  rowConfig: '設定',
+  configHint: 'この行自身の設定です。中身はそのまま YAML で、保存するとこの profile の patch に書き込みます。DSH の再起動後に反映されます。空で保存するとプラグイン既定に戻ります。',
+  configSave: '設定を保存',
+  configSaving: '保存中…',
+  configCancel: 'キャンセル',
+  configSaved: '保存しました。DSH の再起動後に反映されます。',
+  configEmpty: '空です。空で保存するとここの上書きを消し、プラグイン既定に戻します。',
+  configNoneYet: 'この行は何も設定されておらず、プラグイン既定で動いています。',
+  configFromBundle: '今の値はプラグイン同梱の patch 由来です。ここで保存するとこの行の config を丸ごと置き換えます（項目ごとのマージではありません）。書かなかった項目は消えます。',
+  configFromProfile: '今の値はこの profile の patch 由来で、ここで保存したものです。',
   details: 'インストールログ',
   failurePnpm: 'pnpm が見つかりません。npm i -g pnpm を実行するか、DSH のプラグイン画面から入れてください。',
   failureNotFound: 'npm にそのパッケージ（またはバージョン）がありません。名前を確認してください。',
