@@ -104,10 +104,20 @@ describe('RoleList platform notice badge', () => {
     const amberNotice = container.querySelector('p.text-amber-600');
     expect(amberNotice).toBeNull();
 
-    // 2. Should render the compact badge with "未开成员事件"
-    const badge = container.querySelector('[role="tooltip"]')?.parentElement?.querySelector('button');
+    // 2. Should render the compact badge inside the platform line next to discord
+    const platformDd = container.querySelector('dd.flex');
+    expect(platformDd).toBeTruthy();
+    const badge = platformDd?.querySelector('button');
     expect(badge).toBeTruthy();
     expect(badge?.textContent).toContain('未开成员事件');
+
+    // Should not render extra notice block outside dl
+    const cardArticle = container.querySelector('article');
+    const dl = cardArticle?.querySelector('dl');
+    const elementsAfterDl = dl?.nextElementSibling;
+    // Next sibling should be action buttons (or nothing if dsh), not a notice
+    expect(elementsAfterDl?.querySelector('p.text-amber-600')).toBeFalsy();
+    expect(elementsAfterDl?.textContent).not.toContain('未开成员事件');
 
     // 3. Should have a tooltip with description and developer portal link
     const tooltip = container.querySelector('[role="tooltip"]');
