@@ -3,15 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Package, RotateCw } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, LoadingState, PageHeader } from '@/components/ui';
 import {
+  getPluginConfig,
   inspectPlugin,
   installPlugin,
   listPlugins,
+  savePluginConfig,
   switchPlugin,
   type DSHPlugin,
   type DSHPluginsState,
+  type PluginConfig,
   type PluginInspection,
 } from '@/api/plugins';
 import { failureText, pluginTexts, rowErrorText } from './texts';
+import api from '@/api/client';
+import { dshHomeUrl } from '@/lib/collabPages';
+import { goToDsh } from '@/lib/openDsh';
 
 /**
  * 插件 (#150 第 b 项): the DSH profile's own plugin list, with the two writes that matter —
@@ -42,6 +48,15 @@ export default function PluginList() {
   const [installError, setInstallError] = useState<{ kind?: string; detail?: string; log?: string } | null>(null);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [openingConfig, setOpeningConfig] = useState(false);
+  // 插件配置 (#150 ②a): one row's config open for editing. The text is YAML on purpose — the
+  // fields belong to the plugin, and a `!!js` expression must go back verbatim.
+  const [configRow, setConfigRow] = useState('');
+  const [configText, setConfigText] = useState('');
+  const [configMeta, setConfigMeta] = useState<PluginConfig | null>(null);
+  const [configBusy, setConfigBusy] = useState(false);
+  const [configError, setConfigError] = useState('');
+  const [configNotice, setConfigNotice] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -122,6 +137,44 @@ export default function PluginList() {
     }
   };
 
+  // openConfig loads a row's config into the editor. A read is cheap and it may have changed under
+  // DSH's own page, so it is read again rather than remembered from the list.
+  const openConfig = async (rowId: string) => {
+    setConfigBusy(true);
+    setConfigRow(rowId);
+    setConfigText('');
+    setConfigError('');
+    setConfigNotice('');
+    setConfigMeta(null);
+    try {
+      const cfg = await getPluginConfig(rowId);
+      setConfigMeta(cfg);
+      setConfigText(cfg.config_yaml);
+    } catch (e: any) {
+      setConfigError(e?.message || '');
+      setConfigText('');
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const saveConfig = async () => {
+    if (!configRow) return;
+    setConfigBusy(true);
+    setConfigError('');
+    setConfigNotice('');
+    try {
+      const r = await savePluginConfig(configRow, configText);
+      setConfigMeta(r.config);
+      setConfigText(r.config.config_yaml);
+      setConfigNotice(r.changed ? T.configSaved : '');
+    } catch (e: any) {
+      setConfigError(e?.message || '');
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
   const plugins = state?.plugins || [];
 
   const stateBadge = (p: DSHPlugin) => {
@@ -163,6 +216,27 @@ export default function PluginList() {
         <p className="rounded-card bg-surface-sunken p-4 text-sm text-ink-soft ring-1 ring-hairline" data-testid="plugins-read-only">
           {T.writesOff}
         </p>
+      )}
+
+      {state?.can_install && state.writes_allowed && (
+        <section className="rounded-card bg-surface p-5 ring-1 ring-hairline" data-testid="plugins-configure">
+          <h2 className="font-medium text-ink">{T.configureTitle}</h2>
+          <p className="mt-1 text-sm text-ink-soft">{T.configureHint}</p>
+          <Button
+            className="mt-3"
+            variant="secondary"
+            loading={openingConfig}
+            disabled={installing || busy !== ''}
+            onClick={() => {
+              setOpeningConfig(true);
+              void goToDsh(dshHomeUrl(undefined, api.getToken()))
+                .finally(() => setOpeningConfig(false));
+            }}
+            data-testid="plugins-configure-open"
+          >
+            {T.configureOpen}
+          </Button>
+        </section>
       )}
 
       {/* Install: one package spec, then a confirm step that names the source, the fit and the
@@ -349,9 +423,82 @@ export default function PluginList() {
                       <li key={row.id} className="text-xs text-ink-soft" data-testid={`plugin-${p.name}-row-${row.id}`}>
                         <code>{row.name}</code>
                         {row.disabled && <span className="ml-1.5 text-ink-mute">({T.rowOff})</span>}
+                        {/* 插件配置 (#150 ②a): the row's own config, opened in place. A shipped
+                            surface layer is not offered: its config is DSH's own UI. */}
+                        {!p.shipped && state?.writes_allowed && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-2"
+                            onClick={() => (configRow === row.id ? setConfigRow('') : void openConfig(row.id))}
+                            disabled={installing || configBusy}
+                            data-testid={`plugin-${p.name}-row-${row.id}-config`}
+                          >
+                            {T.rowConfig}
+                          </Button>
+                        )}
                       </li>
                     ))}
                   </ul>
+                  {configRow !== '' && p.rows.some((r) => r.id === configRow) && (
+                    <div className="mt-3 rounded-control bg-surface-sunken p-3" data-testid="plugins-config-editor">
+                      <h3 className="text-xs font-medium text-ink">{T.rowConfig} · <code>{configRow}</code></h3>
+                      <p className="mt-1 text-xs text-ink-mute" data-testid="plugins-config-layer">
+                        {configMeta?.layer === 'home'
+                          ? configMeta.reason
+                          : configMeta?.overridden
+                            ? T.configFromProfile
+                            : configMeta?.layer === 'none'
+                              ? T.configNoneYet
+                              : T.configFromBundle}
+                      </p>
+                      <textarea
+                        className="mt-2 w-full rounded-control border border-hairline bg-surface p-2 font-mono text-xs text-ink"
+                        rows={8}
+                        spellCheck={false}
+                        value={configText}
+                        onChange={(e) => setConfigText(e.target.value)}
+                        readOnly={configBusy || !configMeta?.editable}
+                        aria-label={T.rowConfig}
+                        data-testid="plugins-config-text"
+                      />
+                      {configText.includes('!bothouse/secret') && (
+                        <p className="mt-1 text-xs text-ink-mute" data-testid="plugins-config-secrets">{T.configSecrets}</p>
+                      )}
+                      {configMeta?.editable && (
+                        <p className="mt-1 text-xs text-ink-mute">
+                          {configText.trim() === '' && configMeta.overridden ? T.configEmpty : T.configHint}
+                        </p>
+                      )}
+                      {configError && (
+                        <p className="mt-2 text-xs text-ink" data-testid="plugins-config-error">{configError}</p>
+                      )}
+                      {configNotice && (
+                        <p className="mt-2 text-xs text-ink-soft" data-testid="plugins-config-saved">{configNotice}</p>
+                      )}
+                      {configMeta?.editable && (
+                        <div className="mt-2 flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={saveConfig}
+                            loading={configBusy}
+                            disabled={configBusy}
+                            data-testid="plugins-config-save"
+                          >
+                            {configBusy ? T.configSaving : T.configSave}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => { setConfigRow(''); setConfigError(''); setConfigNotice(''); }}
+                            disabled={configBusy}
+                          >
+                            {T.configCancel}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </details>
               )}
             </article>

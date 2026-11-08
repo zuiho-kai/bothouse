@@ -63,6 +63,33 @@ export interface PluginInspection {
 export const inspectPlugin = (spec: string) =>
   api.get<PluginInspection>('/plugins/inspect', { spec });
 
+/**
+ * One row's config as the API reads it (core/management_plugin_config.go GetDSHPluginConfig).
+ *
+ * `config_yaml` is YAML text on purpose: the fields belong to the plugin, and a `!!js` expression
+ * has to go back exactly as it came out. `layer` says who set the value that is in effect.
+ */
+export interface PluginConfig {
+  id: string;
+  name: string;
+  /** "profile" (this file, editable) | "bundle" | "home" | "none" */
+  layer: 'profile' | 'bundle' | 'home' | 'none';
+  /** false when a HOME patch decides this value: saving here would not take effect */
+  editable: boolean;
+  reason?: string;
+  config_yaml: string;
+  /** the profile patch sets this row's config itself */
+  overridden: boolean;
+}
+
+export const getPluginConfig = (id: string) => api.get<PluginConfig>('/plugins/config', { id });
+
+export const savePluginConfig = (id: string, configYaml: string) =>
+  api.post<{ changed: boolean; restart_required: boolean; config: PluginConfig }>('/plugins/config', {
+    id,
+    config_yaml: configYaml,
+  });
+
 export const listPlugins = () => api.get<DSHPluginsState>('/plugins');
 
 export const switchPlugin = (name: string, enabled: boolean) =>

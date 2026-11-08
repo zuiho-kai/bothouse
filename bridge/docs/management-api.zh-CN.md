@@ -1362,6 +1362,8 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 
 两个写操作都要求管理 API 设了 token。没设时路由直接回 `403`：没认证的管理端口分不清谁是这台机器的主人。
 
+插件页的「打开 DSH 配置插件」复用现有启动和认证入口。在 DSH 左侧选择「插件」，打开插件提供的配置表单后编辑并保存；未提供表单的插件按其文档配置。配置保存由 DSH 原生实现处理，本接口不另存一份配置。面板直接打开和嵌在 DSH 侧栏时分别沿现有代理路径及同源路径进入。
+
 #### GET /api/v1/plugins
 
 **响应：**
@@ -1449,6 +1451,51 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 只改 profile `package.json` 里 `dsh.profile.bundles` 这一段，其余字节原样保留；用的是 DSH 和 `dsh plugin` 同一个 `package.json.lock`，改之前先写一份带时间戳的备份。不卸载任何东西，所以再开回来就恢复原状。profile 本来就是那个状态时 `changed: false`。
 
 `@deepseek-ai/dsh-base` 会被拒：它是面板本体，关掉就没有界面了。两个写操作都要重启 DSH 才生效，响应里 `restart_required: true`。
+
+#### GET /api/v1/plugins/config?id=<行 id>
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "demo-tool",
+    "name": "demo-tool",
+    "layer": "bundle",
+    "editable": true,
+    "config_yaml": "dataDir: !!js process.env.DEMO_DATA || (process.env.HOME + '/.demo')",
+    "overridden": false
+  }
+}
+```
+
+读一行插件自己的 config。`id` 是 `GET /api/v1/plugins` 里某一行的 id，不是包名。
+
+`config_yaml` **是 YAML 文本，不是 JSON 对象**，这是故意的：字段归插件所有、由插件自己校验，而且值可能是 DSH 启动时求值的 `!!js` 表达式。把 config 解码成 JSON 再编码回去，会把 `!!js process.env.X` 变成它渲染出来的那个字符串，悄悄改掉用户文件的意思。所以面板按文本给、按文本收，`!!js` 标签原样不动。
+
+`layer` 说明当前生效的值来自哪一层（顺序就是 DSH 的叠加顺序）：
+
+| `layer` | 含义 |
+| --- | --- |
+| `bundle` | 插件自带的 patch；在这里存一份就是往 profile patch 写覆盖 |
+| `profile` | 这份 profile 的 `cordis.patch.yml`，也就是保存写的地方（`overridden: true`） |
+| `home` | `$DSH_HOME/cordis.patch.yml`，在 profile 之后生效、对所有 profile 都生效 |
+| `none` | 没人设过，这一行用插件代码里的默认值（`config_yaml` 为空） |
+
+插件自带的 patch 读不出来时是报错，不是 `none`：「没人设过」和「读不出是谁设的」要做的事不一样，只有前一种才能安全地显示成空框。
+
+`editable` 只有 `home` 这一种情况是 `false`：在那儿写 profile 看着像存上了其实不生效，响应里带 `reason` 指明该改哪份文件。
+
+#### POST /api/v1/plugins/config
+
+```json
+{"id": "demo-tool", "config_yaml": "dataDir: /srv/demo\nverbose: true\n"}
+```
+
+把这段文本写成该行的 `config`，落在 profile 的 `cordis.patch.yml` 里：已有覆盖就替换（不会追加第二条），本来没有就追加一条 `- id:`。文件里别的东西都保留——其它条目、它们的顺序、注释、`!!js` 标签。整个读-改-写跑在 profile 的 `package.json.lock` 上（DSH 和 `dsh plugin` 同一个锁），所以 DSH 自己的插件页同时改也不会被覆盖掉。写之前留一份带时间戳的 `.bak-`，文件仍是 `0600`。存进去的内容和文件里已有的完全一样时不算改动：返回 `changed: false`，也不再多留 `.bak-`，所以反复存同一段不会堆出一排备份。
+
+`config_yaml` 传空串表示**删掉该行在 profile 中的所有配置覆盖**（条目没有注释和其它设置时才移除条目），回到 bundle 层原本的值。以下情况返回 `400`：不是合法 YAML、不是「字段: 值」的映射、行 id 不存在、这一行受 HOME 控制。空映射 `{}` 是有效覆盖。JavaScript 语法与字段校验交给 DSH／插件；编辑器保留表达式，不执行它。保存成功仅表示已经写入，不代表插件一定接受该配置。和其它 profile 写操作一样，下次 DSH 启动才生效（`changed` 时 `restart_required: true`）。
+
+和安装、开关一样要 management token：没设 token 的管理 API 分不清谁是主人，而这个接口改的是这台机器会加载什么。
 
 ---
 
@@ -1538,6 +1585,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
 | 1.1-draft  | 2026-11-08 | 换说说改为必须带 `accept_audience_change: true`：上游在 `secret` 缺失时会把 `is_private` 补成 `false`，单看这一行分不出「真的公开」和「没读到」，改宽可见范围这件事不再由缺省值决定 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
+| 1.2-draft  | 2026-11-08 | 新增 `GET`/`POST /plugins/config`：读出单个插件行自己的配置（YAML 文本，标明是插件自带 / profile / HOME 哪一层设的），存进 profile 的 patch，整个读-改-写跑在 DSH 自己的锁上 |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 
 ---
