@@ -86,7 +86,7 @@ func TestQuoteReachesDSHACPWire(t *testing.T) {
 	f.push(groupMessage(111, 2001, 104, replySegment("4242"), atSegment("10000"), textSegment("看看这条")))
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
-		if body, err := os.ReadFile(capture); err == nil {
+		if body, err := os.ReadFile(capture); err == nil && len(body) > 0 {
 			for _, want := range []string{"原作者：重启前原文", "看看这条", "[Message IDs: current=104 reply_to=4242]", "bothouse send --reply-to"} {
 				if !strings.Contains(string(body), want) {
 					t.Fatalf("missing %q from DSH ACP wire payload: %s", want, body)
