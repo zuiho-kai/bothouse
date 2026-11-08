@@ -1180,6 +1180,13 @@ people (or nobody but the owner) can". `private_known: false` means it **did not
 this from `is_private` on each row of `get_qzone_msg_list`; a row without that field, or with a
 value that is not a boolean / a number / a numeric string, comes back as unknown.
 
+One thing that field cannot tell you, and that matters for replace: on the SnowLuma path
+`is_private` is a required boolean, so it is essentially always present — and the upstream fills
+in `false` when the raw `secret` it is derived from is missing. A `private: false` row can
+therefore mean either "really visible to everyone" or "the audience was never read", and the two
+are indistinguishable here. Treat `private_known && !private` as "nothing says this is limited",
+not as proof that it is public.
+
 ---
 
 #### POST /api/v1/projects/{name}/social/moment
@@ -1213,8 +1220,13 @@ two posts or none.
 **Request body:**
 
 ```json
-{ "id": "d43708d9240ae56ae9670e00", "text": "Said it differently" }
+{ "id": "d43708d9240ae56ae9670e00", "text": "Said it differently", "accept_audience_change": true }
 ```
+
+`accept_audience_change` is required and defaults to `false`: without it the route answers `400`
+and publishes nothing. It is the caller's statement that the person was shown that replacing may
+change who can see the post, and that deleting the old one is final. See **Visibility** below for
+why the server cannot answer that question itself.
 
 **Response:**
 
@@ -1251,20 +1263,38 @@ comes back without a URL — carrying the rest over and dropping that one would 
 the caller never agreed to lose. Better no replace than a picture-less copy after deleting the
 one with pictures.
 
-**Visibility**: replacing only goes ahead when the old post is *known* to be visible to
-everyone, i.e. `private_known: true` and `private: false`. Two other cases are refused with
-`400` and **nothing is published**:
+**Visibility**: there are three answers to "who can see the old post", and they are not
+interchangeable. Two of them stop the call before anything is published (`400`, `ErrSocialCannotReplace`
+on the wire: "this post cannot be replaced as it is"):
 
+- `private_known: false` — the list row said nothing, so this response is not the shape we know.
+  It might have been public, it might have been limited to some people, and both are equally
+  live: not a safe "everyone", so nothing is published or deleted.
 - `private: true` — the old post is marked "visible to some people only". Upstream gives only a
   boolean (`is_private`, derived from whether `secret` is 0); it cannot tell friend-only,
   some-friends, private and hidden-from-some apart, and posting without `ugc_right` defaults to
   1 (everyone). Replacing that way would turn a restricted post into a public one, and deleting
-  the old one makes it irreversible — change it in QQ by hand instead.
-- `private_known: false` — the list row did not say. This is not the same as "public": the
-  SnowLuma response schema makes `is_private` a required boolean, and NapCat itself synthesises
-  `false` when the underlying `secret` is missing, so a row without it is not a trustworthy
-  "everyone" — it means the shape was not recognised. Guessing here is the same bet as above,
-  so the call refuses.
+  the old one makes it irreversible — change it in QQ by hand instead. This one is refused even
+  when `accept_audience_change` is `true`: it is not a *possible* widening, it is a certain one.
+
+The third answer is `private_known: true, private: false` — and it is the reason
+`accept_audience_change` exists. The upstream derives that boolean from the raw `secret` field
+and, when `secret` is missing, **fills in `false`**. So the value the bridge receives has two
+possible origins that are byte-for-byte identical:
+
+- the post is really visible to everyone (`secret` was 0), or
+- the upstream never read the audience at all and substituted its own default.
+
+Nothing else in the response separates them: `get_qzone_msg_detail` returns neither pictures nor
+an audience field, the native list shape has no audience field either, and the row itself is just
+one boolean. Rather than treat a default that arrived over the wire as permission to widen who
+can see a post and then delete the original, the route asks the caller — and only goes ahead when
+`accept_audience_change` is `true`, i.e. when a person was told exactly that and agreed. With the
+flag set, the call proceeds as an ordinary replace; without it, `400` and no upstream write.
+
+The panel does the same thing one level up: the replace editor has a checkbox that starts
+unticked ("I understand replacing it may change who can see it") which is cleared every time the
+editor is opened, and the save button stays disabled until it is ticked.
 
 **Reading the list**: the QQ side asks `get_qzone_msg_list` for `format=snowluma` on purpose.
 Without `format` the upstream switches to its other format as soon as a cursor is passed, and
@@ -1278,9 +1308,11 @@ confirmation text says so too.
 The flag is `capabilities.replace_moment`; when a platform does not implement `MomentReplacer`
 the panel hides the button and the route answers `501`.
 
-Errors: `400` missing `id` or empty text, `403` not enabled (the message names `allow_qzone`, same
-as posting), `501` the platform cannot replace, `502` upstream refused (with `moment` on partial
-success as above).
+Errors: `400` missing `id`, empty text, or `accept_audience_change` not `true` (that last one
+publishes nothing and does not even read the post); `403` not enabled (the message names
+`allow_qzone`, same as posting — checked before the acknowledgement, because when it is off no
+acknowledgement would help); `501` the platform cannot replace; `502` upstream refused (with
+`moment` on partial success as above).
 
 ---
 
@@ -1589,6 +1621,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | 1.1-draft | 2026-03-24 | Enrich session list/detail with `live`, `last_message`, `agent_type`, `user_name`, `chat_name`, `active_keys` fields |
 | 1.2-draft | 2026-11-05 | Add optional QQ 说说 / avatar routes (`/projects/{name}/social…`), off unless `allow_qzone` / `allow_avatar` |
 | 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment`; posts visible to some people only are refused; `Moment` gains `private_known`, and a post whose audience could not be read is refused too rather than treated as public |
+| 1.2-draft | 2026-11-08 | Replace now requires `accept_audience_change: true`: the upstream fills `is_private` with `false` when the raw `secret` is missing, so "everyone can see it" cannot be proven from that row, and widening who can see a post is not a decision the server makes on a default |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |

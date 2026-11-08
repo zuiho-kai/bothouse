@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +35,9 @@ type fakeSocialPlatform struct {
 	replacePartial *Moment
 	avatarErr      error
 	replaced       []string
+	// replaceAccepted 记下每次换说说调用里调用方有没有确认「可能改变可见范围」，
+	// 用来断言这个选择真的从 HTTP 层传到了平台层。
+	replaceAccepted []bool
 }
 
 func (f *fakeSocialPlatform) Name() string                                   { return "qq" }
@@ -72,9 +76,10 @@ func (f *fakeSocialPlatform) PostMoment(_ context.Context, text string, images [
 	return Moment{ID: fmt.Sprintf("tid-%d", len(f.posted)), Text: text, Time: time.Now()}, nil
 }
 
-func (f *fakeSocialPlatform) ReplaceMoment(_ context.Context, id, text string) (Moment, error) {
+func (f *fakeSocialPlatform) ReplaceMoment(_ context.Context, id, text string, opts MomentReplaceOptions) (Moment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.replaceAccepted = append(f.replaceAccepted, opts.AcceptAudienceChange)
 	if f.replacePartial != nil {
 		return *f.replacePartial, &MomentReplacePartialError{Moment: *f.replacePartial, Err: f.replaceErr}
 	}
@@ -135,6 +140,15 @@ func engineWithSocial(t *testing.T, plat Platform) (*httptest.Server, string) {
 
 func socialGet(t *testing.T, url string, out any) int {
 	t.Helper()
+	code, _ := socialGetRaw(t, url, out)
+	return code
+}
+
+// socialGetRaw 除了 decode，还把原始响应体交回：有些断言必须看字节
+// （例：JSON 里那个键到底叫 private_known 还是被改了名字），decode 会把这类
+// 错误一起吃掉。
+func socialGetRaw(t *testing.T, url string, out any) (int, []byte) {
+	t.Helper()
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer tok")
 	resp, err := http.DefaultClient.Do(req)
@@ -142,10 +156,14 @@ func socialGet(t *testing.T, url string, out any) int {
 		t.Fatalf("GET %s: %v", url, err)
 	}
 	defer resp.Body.Close()
-	if out != nil {
-		_ = json.NewDecoder(resp.Body).Decode(out)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("读 %s 的响应体: %v", url, err)
 	}
-	return resp.StatusCode
+	if out != nil {
+		_ = json.Unmarshal(raw, out)
+	}
+	return resp.StatusCode, raw
 }
 
 // socialPostRaw 与 socialPostJSON 相同，但把整个响应体按 map 交回，用来核对
@@ -214,6 +232,20 @@ func TestMgmt_SocialListsMoments(t *testing.T) {
 	// private_known 要跟着 JSON 出去：面板靠它区分「公开」和「没读到」。
 	if !body.Data.Moments[1].PrivateKnown || !body.Data.Moments[1].Private {
 		t.Fatalf("private/private_known 没带出去：%+v", body.Data.Moments[1])
+	}
+
+	// 上面那条 decode 回的是同一个 Moment 结构体，tag 改成 camelCase 也照样过；
+	// 面板（和任何第三方调用方）认的是字面键名，所以在字节上看一眼。
+	code, raw := socialGetRaw(t, ts.URL+"/api/v1/projects/test-project/social", nil)
+	if code != 200 {
+		t.Fatalf("GET social 状态码 %d", code)
+	}
+	if !bytes.Contains(raw, []byte(`"private_known":true`)) {
+		t.Fatalf("响应体里没有 \"private_known\":true 这个字面键：%s", raw)
+	}
+	// 两个字段都得在：只发 private 会让调用方把「没读到」当成「公开」。
+	if !bytes.Contains(raw, []byte(`"private":true`)) {
+		t.Fatalf("响应体里没有 \"private\":true：%s", raw)
 	}
 }
 
@@ -286,7 +318,7 @@ func TestMgmt_SocialReplacesInOneCall(t *testing.T) {
 	ts, _ := engineWithSocial(t, plat)
 
 	code, raw := socialPostRaw(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
-		map[string]string{"id": "tid-old", "text": "换了个说法"})
+		map[string]any{"id": "tid-old", "text": "换了个说法", "accept_audience_change": true})
 	if code != 200 || raw["ok"] != true {
 		t.Fatalf("换说说失败：%d %v", code, raw["error"])
 	}
@@ -311,6 +343,76 @@ func TestMgmt_SocialReplacesInOneCall(t *testing.T) {
 		map[string]string{"id": "tid-old", "text": "   "}); code != http.StatusBadRequest {
 		t.Fatalf("空文字该 400，实际 %d", code)
 	}
+	// 这个选择真的从 HTTP 层传到了平台层：上面那次传了 true。
+	if len(plat.replaceAccepted) != 1 || !plat.replaceAccepted[0] {
+		t.Fatalf("accept_audience_change 没传到平台：%v", plat.replaceAccepted)
+	}
+}
+
+// TestMgmt_SocialReplaceNeedsTheAudienceAcknowledgement：不传 accept_audience_change
+// 就不换，而且接口这一层就挡回去——平台层连列表都不用去读。
+//
+// 这是第四轮退回来的那条边界：上游缺失 secret 时会把 is_private 补成 false，
+// 「所有人可见」这个值于是有两个来源，桥接分不开。既然分不开，就把「可能改宽」
+// 这个决定交回给人，默认答案是「不换」。
+func TestMgmt_SocialReplaceNeedsTheAudienceAcknowledgement(t *testing.T) {
+	cases := []struct {
+		name string
+		body map[string]any
+		// want 是错误里必须有的一段话。三种差不多的写法要求不同：前两种是真的
+		// 「没确认」，要说清为什么、以及可以怎么继续；第三种（用字符串冒充布尔）
+		// 在解码那一步就被拒了，一样是 400、一样一条都不发，但话是解码器的话。
+		want string
+	}{
+		{"字段完全不传", map[string]any{"id": "tid-old", "text": "新的"}, "不可逆"},
+		{"传了 false", map[string]any{"id": "tid-old", "text": "新的", "accept_audience_change": false}, "不可逆"},
+		{"传了字符串 true", map[string]any{"id": "tid-old", "text": "新的", "accept_audience_change": "true"}, "accept_audience_change"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plat := &fakeSocialPlatform{}
+			ts, _ := engineWithSocial(t, plat)
+
+			code, raw := socialPostRaw(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace", tc.body)
+			if code != http.StatusBadRequest {
+				t.Fatalf("没确认可见范围该 400，实际 %d %v", code, raw["error"])
+			}
+			if raw["ok"] != false {
+				t.Fatalf("400 不该是 ok:true：%v", raw)
+			}
+			msg, _ := raw["error"].(string)
+			if !strings.Contains(msg, tc.want) {
+				t.Fatalf("错误里该有 %q，实际 %q", tc.want, msg)
+			}
+			// 平台层一次都没被调：没确认连读列表都不做。
+			if len(plat.replaceAccepted) != 0 || len(plat.replaced) != 0 {
+				t.Fatalf("没确认却调到了平台：accepted=%v replaced=%v", plat.replaceAccepted, plat.replaced)
+			}
+		})
+	}
+
+	// 真正的「没确认」那句话要点名接口字段，否则调用方不知道要补什么。
+	ts, _ := engineWithSocial(t, &fakeSocialPlatform{})
+	_, raw := socialPostRaw(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]any{"id": "tid-old", "text": "新的"})
+	msg, _ := raw["error"].(string)
+	if !strings.Contains(msg, "accept_audience_change") {
+		t.Fatalf("错误要点名那个字段：%q", msg)
+	}
+}
+
+// TestMgmt_SocialReplaceOffWinsOverTheMissingAcknowledgement：什么都没打开时，
+// 该报的是「这台机器没打开」（403），不是「你还没确认」（400）——确认了也换不成的
+// 那种情况要先说清楚。
+func TestMgmt_SocialReplaceOffWinsOverTheMissingAcknowledgement(t *testing.T) {
+	off := SocialCapabilities{DisabledReason: "allow_qzone is off in this project's qq options"}
+	ts, _ := engineWithSocial(t, &fakeSocialPlatform{caps: &off})
+
+	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
+		map[string]string{"id": "tid-old", "text": "新的"})
+	if code != http.StatusForbidden {
+		t.Fatalf("关着时该 403（不是 400 的「没确认」），实际 %d %s", code, resp.Error)
+	}
 }
 
 // TestMgmt_SocialReplaceSaysBothExistWhenDeleteFails：平台报「新的发了、旧的没删」时，
@@ -325,7 +427,7 @@ func TestMgmt_SocialReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
 	ts, _ := engineWithSocial(t, plat)
 
 	code, raw := socialPostRaw(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
-		map[string]string{"id": "tid-old", "text": "新的"})
+		map[string]any{"id": "tid-old", "text": "新的", "accept_audience_change": true})
 	if code == 200 || raw["ok"] != false {
 		t.Fatalf("该报失败，实际 %d ok=%v", code, raw["ok"])
 	}
@@ -346,7 +448,7 @@ func TestMgmt_SocialReplaceOffIsForbidden(t *testing.T) {
 	ts, _ := engineWithSocial(t, &fakeSocialPlatform{caps: &off})
 
 	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
-		map[string]string{"id": "tid-old", "text": "新的"})
+		map[string]any{"id": "tid-old", "text": "新的", "accept_audience_change": true})
 	if code != http.StatusForbidden {
 		t.Fatalf("关着时该 403，实际 %d %s", code, resp.Error)
 	}
@@ -364,7 +466,7 @@ func TestMgmt_SocialReplaceRefusedBecauseOfVisibilityIs400(t *testing.T) {
 	ts, _ := engineWithSocial(t, plat)
 
 	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
-		map[string]string{"id": "tid-old", "text": "新的"})
+		map[string]any{"id": "tid-old", "text": "新的", "accept_audience_change": true})
 	if code != http.StatusBadRequest {
 		t.Fatalf("可见范围导致不能换时该 400，实际 %d %s", code, resp.Error)
 	}
@@ -397,7 +499,7 @@ func TestMgmt_SocialReplaceWithoutInterfaceIs501(t *testing.T) {
 	}
 
 	code, resp := socialPostJSON(t, ts.URL+"/api/v1/projects/test-project/social/moment/replace",
-		map[string]string{"id": "tid-old", "text": "新的"})
+		map[string]any{"id": "tid-old", "text": "新的", "accept_audience_change": true})
 	if code != http.StatusNotImplemented {
 		t.Fatalf("平台不能换时该 501，实际 %d %s", code, resp.Error)
 	}

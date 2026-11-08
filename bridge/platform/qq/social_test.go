@@ -106,6 +106,12 @@ func (f *socialOneBot) start(t *testing.T, opts map[string]any) *Platform {
 	return plat
 }
 
+// replaceAccepted 是「人已经确认过：换一条可能改变谁能看见」这一句的具体写法。
+// 单独提出来是为了让用例读起来是「他确认了」，而不是一长串字面量。
+func replaceAccepted() core.MomentReplaceOptions {
+	return core.MomentReplaceOptions{AcceptAudienceChange: true}
+}
+
 // TestSocial_TurnedOffByDefault：不给 allow_qzone/allow_avatar 时，两个能力
 // 都存在但都回 ErrSocialDisabled，且一个请求都不发出去。
 func TestSocial_TurnedOffByDefault(t *testing.T) {
@@ -129,7 +135,8 @@ func TestSocial_TurnedOffByDefault(t *testing.T) {
 	if err := p.RemoveMoment(context.Background(), "tid-1"); !errors.Is(err, core.ErrSocialDisabled) {
 		t.Fatalf("RemoveMoment 应当回 ErrSocialDisabled，实际 %v", err)
 	}
-	if _, err := p.ReplaceMoment(context.Background(), "tid-1", "换一下"); !errors.Is(err, core.ErrSocialDisabled) {
+	// 带上确认，免得「关着」这条用例其实是被「没确认」挡下来的。
+	if _, err := p.ReplaceMoment(context.Background(), "tid-1", "换一下", replaceAccepted()); !errors.Is(err, core.ErrSocialDisabled) {
 		t.Fatalf("ReplaceMoment 应当回 ErrSocialDisabled，实际 %v", err)
 	}
 	if err := p.SetAvatar(context.Background(), core.ImageAttachment{Data: []byte("x")}); !errors.Is(err, core.ErrSocialDisabled) {
@@ -252,7 +259,7 @@ func TestSocial_ReplacePublishesThenDeletes(t *testing.T) {
 	if !p.SocialCapabilities().ReplaceMoment {
 		t.Fatalf("allow_qzone 打开后换说说该可用：%+v", p.SocialCapabilities())
 	}
-	m, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
 	if err != nil {
 		t.Fatalf("ReplaceMoment: %v", err)
 	}
@@ -292,7 +299,7 @@ func TestSocial_ReplaceRefusesPrivateOldPost(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
 	if err == nil {
 		t.Fatal("旧条只有部分人可见时该拒绝")
 	}
@@ -311,9 +318,10 @@ func TestSocial_ReplaceRefusesPrivateOldPost(t *testing.T) {
 //
 // 「字段不在」和「字段说是公开」是两件事。SnowLuma 的 is_private 在发布的 schema 里
 // 是必填布尔（napcat-onebot/action/extends/qzone/common-snowluma.ts:31），而上游自己
-// 是把 secret 缺省翻成 false（napcat-core/data/qzone-snowluma.ts:138-143）——所以读不到
-// 只能说明这份响应不是我们认识的形状。换说说会发新的再删旧的，赌错就把一条有范围的
-// 说说变成公开且不可逆，所以「不知道」也一个请求都不发。
+// 是把 secret 缺省翻成 false（napcat-core/data/qzone-snowluma.ts:138-143）——所以这条
+// 路径上「字段不在」其实不会发生。但一旦它发生了，就是这份响应不合规：既可能本来
+// 是公开的，也可能本来是「仅部分人可见」。换上一条会发新的再删旧的，赌错就把范围
+// 改宽且不可逆，所以一个请求都不发，而且人确认也不行——那不是「可能」，是读不准。
 func TestSocial_ReplaceRefusesUnknownVisibility(t *testing.T) {
 	cases := []struct {
 		name string
@@ -337,7 +345,9 @@ func TestSocial_ReplaceRefusesUnknownVisibility(t *testing.T) {
 			}
 			p := f.start(t, map[string]any{"allow_qzone": true})
 
-			_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+			// 就算人已经确认过「可能改宽」，这一种也不行：它不是「可能」，是已经
+			// 确定读不准了，确认了也还是在赌。
+			_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
 			if err == nil {
 				t.Fatal("上游没说可见范围时该拒绝：不能赌它是公开的")
 			}
@@ -357,6 +367,108 @@ func TestSocial_ReplaceRefusesUnknownVisibility(t *testing.T) {
 	}
 }
 
+// TestSocial_ReplaceWaitsForTheAudienceConfirmation：这是第四轮退回来的那条边界的
+// 正解。上游缺 secret 时会把 is_private 补成 false（napcat-core/data/qzone-snowluma.ts:138-143），
+// 于是「所有人可见」这个值有两个来源——真的 secret == 0，和「上游根本没读到」——
+// 而响应里那个布尔对两种来源完全相同，桥接没有第二份证据可以分开它们（detail
+// 不带可见范围，native 形状也没有这个字段）。
+//
+// 既然分不开，就不能拿它当授权：默认「不换」，0 发 0 删；只有调用方明确说了「我
+// 知道这可能改变可见范围」才走发新删旧。这不是把洞挪个地方，是把那个不可逆的决定
+// 交回给人——它本来也不该由上游一个缺省值来拍板。
+func TestSocial_ReplaceWaitsForTheAudienceConfirmation(t *testing.T) {
+	cases := []struct {
+		name string
+		opts core.MomentReplaceOptions
+	}{
+		{"一个字都没说", core.MomentReplaceOptions{}},
+		{"显式写了 false", core.MomentReplaceOptions{AcceptAudienceChange: false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSocialOneBot(t)
+			f.respond = func(action string) (int, map[string]any) {
+				switch action {
+				case "send_qzone_msg":
+					return 0, map[string]any{"tid": "new-tid"}
+				case "get_qzone_msg_list":
+					// 上游投影出来的「所有人可见」，与真的公开逐字节相同。
+					return socialReplaceListReply()
+				}
+				return 0, map[string]any{}
+			}
+			p := f.start(t, map[string]any{"allow_qzone": true})
+
+			_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", tc.opts)
+			if err == nil {
+				t.Fatal("没确认「可能改变可见范围」就不该换")
+			}
+			if !errors.Is(err, core.ErrSocialCannotReplace) {
+				t.Fatalf("这该是「这条不能这么换」（400），实际 %v", err)
+			}
+			if n := len(f.calls("send_qzone_msg")); n != 0 {
+				t.Fatalf("没确认还发了 %d 次新的——那就是拿缺省值当授权", n)
+			}
+			if n := len(f.calls("delete_qzone_msg")); n != 0 {
+				t.Fatalf("没确认还删了 %d 次旧的——删了就回不来了", n)
+			}
+			if !strings.Contains(err.Error(), "不可逆") || !strings.Contains(err.Error(), "先确认") {
+				t.Fatalf("错误要说清为什么、以及可以怎么继续：%q", err.Error())
+			}
+		})
+	}
+
+	// 确认之后才真的换：这是同一组用例的另一半，免得「一律拒绝」也能过。
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		switch action {
+		case "send_qzone_msg":
+			return 0, map[string]any{"tid": "new-tid"}
+		case "get_qzone_msg_list":
+			return socialReplaceListReply()
+		}
+		return 0, map[string]any{}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
+	if err != nil {
+		t.Fatalf("确认之后该能换：%v", err)
+	}
+	if m.ID != "new-tid" {
+		t.Fatalf("新说说没带回来：%+v", m)
+	}
+	if n := len(f.calls("send_qzone_msg")); n != 1 {
+		t.Fatalf("确认之后该发 1 次，实际 %d", n)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 1 {
+		t.Fatalf("确认之后该删 1 次旧的，实际 %d", n)
+	}
+}
+
+// TestSocial_ReplaceNeverAsksAboutAudienceBeforeReadingThePost：确认与否不改变一件
+// 事——读不回旧说说时仍然什么都不发。确认的是「可能改宽」，不是「你可以乱来」。
+func TestSocial_ReplaceNeverAsksAboutAudienceBeforeReadingThePost(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "get_qzone_msg_list" {
+			return 1400, nil // 读列表就失败
+		}
+		return 0, map[string]any{"tid": "new-tid"}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
+	if err == nil {
+		t.Fatal("读不回旧说说时该报错")
+	}
+	if n := len(f.calls("send_qzone_msg")); n != 0 {
+		t.Fatalf("读不回旧说说还发了 %d 次新的", n)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("读不回旧说说还删了 %d 次旧的", n)
+	}
+}
+
 // TestSocial_ReplaceRefusesWhenAPictureHasNoURL：旧说说有图、其中一张却没有地址时，
 // 不能悄悄少带一张——那等于换个说法顺手删掉一张图，而调用方看不见。
 func TestSocial_ReplaceRefusesWhenAPictureHasNoURL(t *testing.T) {
@@ -372,7 +484,7 @@ func TestSocial_ReplaceRefusesWhenAPictureHasNoURL(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
 	if err == nil {
 		t.Fatal("有图没地址时该拒绝，不能少带一张")
 	}
@@ -429,7 +541,7 @@ func TestSocial_ReplaceRefusesWhenOldPostUnreadable(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
 	if err == nil {
 		t.Fatal("读不回旧说说时该报错")
 	}
@@ -460,7 +572,7 @@ func TestSocial_ReplaceRefusesLocalFileImage(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
 	if err == nil {
 		t.Fatal("图片地址不是 http(s) 时该报错")
 	}
@@ -489,7 +601,7 @@ func TestSocial_ReplaceKeepsOldPostWhenPublishFails(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "新的发不出去")
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "新的发不出去", replaceAccepted())
 	if err == nil {
 		t.Fatal("发新的失败时该报错")
 	}
@@ -523,7 +635,7 @@ func TestSocial_ReplaceSaysBothExistWhenDeleteFails(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的")
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的", replaceAccepted())
 	if err == nil {
 		t.Fatal("旧的没删掉时该报错")
 	}
@@ -557,7 +669,7 @@ func TestSocial_ReplaceWithoutNewTidIsPartialNotClean(t *testing.T) {
 	}
 	p := f.start(t, map[string]any{"allow_qzone": true})
 
-	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的")
+	m, err := p.ReplaceMoment(context.Background(), "old-tid", "新的", replaceAccepted())
 	if err == nil {
 		t.Fatal("没有新 tid 时不能算换完")
 	}

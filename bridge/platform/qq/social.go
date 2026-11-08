@@ -195,7 +195,9 @@ func (p *Platform) RemoveMoment(ctx context.Context, id string) error {
 // there, so a caller never loses what it had. If publishing worked but the delete
 // then failed, both posts exist and the error says so instead of pretending the
 // replacement was clean.
-func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Moment, error) {
+//
+// 可见范围不在这里替你决定：见 replaceAudienceBlocked。
+func (p *Platform) ReplaceMoment(ctx context.Context, id, text string, opts core.MomentReplaceOptions) (core.Moment, error) {
 	if err := p.qzoneOff(); err != nil {
 		return core.Moment{}, err
 	}
@@ -215,23 +217,9 @@ func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Mom
 		// 丢了图的「新版」再把原来的删掉。
 		return core.Moment{}, fmt.Errorf("qq: 换说说：读不回原来那条，先不动它: %w", err)
 	}
-	if !old.PrivateKnown {
-		// 上游没说这条算谁可见。SnowLuma 那份响应里 is_private 是必填布尔
-		// （napcat-onebot/action/extends/qzone/common-snowluma.ts:31，发布的 schema
-		// 就是 Type.Boolean()），上游自己也把它从 secret 硬翻出来——secret 缺失时
-		// privateFlag 回 false（napcat-core/data/qzone-snowluma.ts:138-143）。所以
-		// 读不到这个字段，说明这份响应不是我们认识的那个形状，既可能本来是公开的，
-		// 也可能本来是「仅部分人可见」，此时默认按公开发新删旧就是把范围改宽的赌注。
-		// 不赌：不发、不删。
-		return core.Moment{}, fmt.Errorf("qq: 换说说：上游没说原来那条的可见范围（不是认识的响应形状），换一条有可能把它变成所有人可见，所以先不动它: %w", core.ErrSocialCannotReplace)
-	}
-	if old.Private {
-		// 上游只给一个 is_private 布尔（napcat-core/data/qzone-snowluma.ts:159，源自
-		// secret 是否为 0），分不出「好友可见 / 部分好友 / 仅自己 / 部分不可见」这
-		// 四种，而 send_qzone_msg 不传 ugc_right 时的默认值是 1 = 所有人可见
-		// （napcat-onebot/action/extends/SendQzoneMsg.ts:16）。照这样换，等于把一条
-		// 有范围限制的说说换成公开的，而且删掉旧的之后不可逆——所以不猜，直接不发。
-		return core.Moment{}, fmt.Errorf("qq: 换说说：原来那条是「仅部分人可见」，上游只能告诉我们是或不是、说不出具体范围，换一条会把它变成所有人可见，所以先不动它（要改的话在 QQ 里手动改）: %w", core.ErrSocialCannotReplace)
+	if reason, blocked := replaceAudienceBlocked(old, opts); blocked {
+		// 一个请求都不发：不发新的、更不删旧的。
+		return core.Moment{}, fmt.Errorf("%s: %w", reason, core.ErrSocialCannotReplace)
 	}
 	carry, err := imagesForCarryOver(old)
 	if err != nil {
@@ -255,6 +243,40 @@ func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Mom
 			"qq: 换说说：新的已经发出（tid=%q），但旧的 %s 没删掉，现在空间里有两条；不要直接再点一次换，会再多一条: %w", published.ID, id, err)}
 	}
 	return published, nil
+}
+
+// replaceAudienceBlocked 决定「换这一条会不会动到谁能看见」，以及要不要为它停下。
+//
+// 分三种回不了头的情形。前两种和第三种的区别重要，它们是两个不同的「不知道」：
+//
+//  1. 上游根本没说可见范围（PrivateKnown 为假）——这份响应不是我们认识的形状。
+//  2. 上游说是「仅部分人可见」（Private 为真）——只知道是或不是，说不出是哪一种，
+//     而 send_qzone_msg 不传 ugc_right 时的缺省值是 1 = 所有人可见
+//     （napcat-onebot/action/extends/SendQzoneMsg.ts:16）。换一条就是把有范围的说
+//     说变公开，再删掉旧的，不可逆。
+//  3. 上游说是「所有人可见」，但这个值有两种来源，桥接分不开：真的 secret == 0，
+//     和 secret 缺失时 privateFlag 兜出来的 false（napcat-core/data/qzone-snowluma.ts:138-143）。
+//     SnowLuma 那条路径的 is_private 是必填布尔（napcat-onebot/action/extends/
+//     qzone/common-snowluma.ts:31），所以这里拿到的永远是一个规规矩矩的 false，
+//     与「真的公开」逐字节相同——没有第二份证据能补（detail 不带可见范围，native
+//     形状也没有这个字段）。这种 false 不能当授权用。
+//
+// 所以第 3 种不是靠猜来决策，而是把它交回给人：只有调用方明确说了「我知道这可能
+// 改变可见范围」（opts.AcceptAudienceChange），才走发新删旧。默认值是「不换」。
+// 前两种连人确认也不行——那两种是「已经确定会改宽」，不是「可能」。
+//
+// 返回的 reason 是给人看的那句话；blocked 为真时调用方一个上游请求都不要发。
+func replaceAudienceBlocked(old core.Moment, opts core.MomentReplaceOptions) (reason string, blocked bool) {
+	if !old.PrivateKnown {
+		return "qq: 换说说：上游没说原来那条的可见范围（不是认识的响应形状），换一条有可能把它变成所有人可见，所以先不动它", true
+	}
+	if old.Private {
+		return "qq: 换说说：原来那条是「仅部分人可见」，上游只能告诉我们是或不是、说不出具体范围，换一条会把它变成所有人可见，所以先不动它（要改的话在 QQ 里手动改）", true
+	}
+	if !opts.AcceptAudienceChange {
+		return "qq: 换说说：读到的「所有人可见」也可能只是上游没读到可见范围时补的缺省值，换一条有可能把它变成所有人可见、而且删掉旧的之后不可逆，所以要先确认一次（没确认就不动它）", true
+	}
+	return "", false
 }
 
 // qzoneReplaceLookback 是换说说回读旧说说时翻的最近条数。

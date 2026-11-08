@@ -62,6 +62,15 @@ async function renderPanel(caps: Record<string, boolean>, moments = [moment]) {
 
 const byTestId = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
+// 换说说的按钮要点下去，得先勾「我知道可能改变可见范围」——那是面板唯一能拿到的
+// 授权（后端不带 accept_audience_change 就 400）。每个走成功路径的用例都得先勾。
+const tickAudienceAck = async (c: HTMLElement, id: string) => {
+  const box = byTestId(c, `social-replace-ack-${id}`) as HTMLInputElement;
+  await act(async () => {
+    box.click();
+  });
+};
+
 describe('social replace', () => {
   it('replaces in one call instead of posting then deleting', async () => {
     vi.mocked(replaceMoment).mockResolvedValue({ moment: { ...moment, id: 'tid-2', text: '换个说法' } } as any);
@@ -78,13 +87,72 @@ describe('social replace', () => {
       setter.call(box, '换个说法');
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    await tickAudienceAck(container, 'tid-1');
     await act(async () => {
       byTestId(container, 'social-replace-save-tid-1')!.click();
     });
 
     expect(replaceMoment).toHaveBeenCalledTimes(1);
-    expect(replaceMoment).toHaveBeenCalledWith('test-project', 'tid-1', '换个说法');
+    // 第四个参数就是那一勾：没这个 true，后端一律 400。
+    expect(replaceMoment).toHaveBeenCalledWith('test-project', 'tid-1', '换个说法', true);
     expect(byTestId(container, 'social-editor-tid-1')).toBeNull();
+  });
+
+  it('will not replace until the person ticks that the audience may change', async () => {
+    // 默认不勾、按钮不可用：这一勾不是礼貌性的二次确认，它是这个请求唯一的授权。
+    // 上游缺 secret 时会补一个「所有人可见」，与真的公开逐字节相同，所以面板不能
+    // 替人默认点头。
+    vi.mocked(replaceMoment).mockResolvedValue({ moment: { ...moment, id: 'tid-2', text: '换个说法' } } as any);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const container = await renderPanel({ replace_moment: true });
+
+    await act(async () => {
+      byTestId(container, 'social-replace-tid-1')!.click();
+    });
+    const ack = byTestId(container, 'social-replace-ack-tid-1') as HTMLInputElement;
+    expect(ack).not.toBeNull();
+    expect(ack.checked).toBe(false);
+    expect(byTestId(container, 'social-replace-ack-hint-tid-1')?.textContent).toContain('everyone');
+
+    const box = byTestId(container, 'social-edit-text-tid-1') as HTMLTextAreaElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+      setter.call(box, '换个说法');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // 文字改了、但没勾：按钮是禁用的，点也不会发请求。
+    const save = byTestId(container, 'social-replace-save-tid-1') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    await act(async () => {
+      save.click();
+    });
+    expect(replaceMoment).not.toHaveBeenCalled();
+
+    // 勾上之后才可用。
+    await tickAudienceAck(container, 'tid-1');
+    expect((byTestId(container, 'social-replace-save-tid-1') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('forgets the acknowledgement when the editor is closed and reopened', async () => {
+    // 勾一次就记住、下一条（或同一条重新打开）也自动算同意，等于把「逐条点头」
+    // 变成了「一次全同意」。每次打开都从没勾起。
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const container = await renderPanel({ replace_moment: true });
+
+    await act(async () => {
+      byTestId(container, 'social-replace-tid-1')!.click();
+    });
+    await tickAudienceAck(container, 'tid-1');
+    expect((byTestId(container, 'social-replace-ack-tid-1') as HTMLInputElement).checked).toBe(true);
+
+    await act(async () => {
+      byTestId(container, 'social-edit-cancel-tid-1')!.click();
+    });
+    await act(async () => {
+      byTestId(container, 'social-replace-tid-1')!.click();
+    });
+    expect((byTestId(container, 'social-replace-ack-tid-1') as HTMLInputElement).checked).toBe(false);
   });
 
   it('hides the button when the backend does not report replace', async () => {
@@ -113,6 +181,7 @@ describe('social replace', () => {
       setter.call(box, '换个说法');
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    await tickAudienceAck(container, 'tid-1');
     await act(async () => {
       byTestId(container, 'social-replace-save-tid-1')!.click();
     });
@@ -150,6 +219,7 @@ describe('social replace', () => {
       setter.call(box, '换个说法');
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    await tickAudienceAck(container, 'tid-1');
     await act(async () => {
       byTestId(container, 'social-replace-save-tid-1')!.click();
     });

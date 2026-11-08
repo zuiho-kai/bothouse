@@ -37,6 +37,9 @@ export default function SocialPanel({ project }: { project: string }) {
   // 换说说：一次只改一条，改在原来的位置，不开新卡也不跳页。
   const [editing, setEditing] = useState('');
   const [editText, setEditText] = useState('');
+  // 人有没有明确接受「换一条可能改变谁能看见」。默认关：这不是走个过场的勾选，
+  // 它是这个面板唯一能拿到的授权（见后端 replaceAudienceBlocked 的第 3 种情形）。
+  const [ackAudience, setAckAudience] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -81,6 +84,7 @@ export default function SocialPanel({ project }: { project: string }) {
   const startReplace = (m: Moment) => {
     setEditing(m.id);
     setEditText(m.text);
+    setAckAudience(false);
     setFailed('');
     setNote('');
   };
@@ -88,6 +92,7 @@ export default function SocialPanel({ project }: { project: string }) {
   const cancelReplace = () => {
     setEditing('');
     setEditText('');
+    setAckAudience(false);
   };
 
   const replace = async (m: Moment) => {
@@ -97,12 +102,14 @@ export default function SocialPanel({ project }: { project: string }) {
       cancelReplace();
       return;
     }
+    // 没勾就是没授权。后端也挡（400），这里先挡住，省得让人白看到一句报错。
+    if (!ackAudience) return;
     if (!confirm(`${T.replace}？\n\n${T.replaceConfirm}`)) return;
     setBusy(`replace-${m.id}`);
     setFailed('');
     setNote('');
     try {
-      await replaceMoment(project, m.id, want);
+      await replaceMoment(project, m.id, want, true);
       cancelReplace();
       setNote(T.replaced);
       await fetchData();
@@ -308,13 +315,36 @@ export default function SocialPanel({ project }: { project: string }) {
                           rows={3}
                           data-testid={`social-edit-text-${m.id}`}
                         />
+                        {/* 这一勾不是「再确认一次」的礼貌，它是这个请求唯一的授权：
+                            旧条原来的可见范围有可能读不准（上游缺 secret 时会补一个
+                            「所有人可见」），而换一条会先发新的再删旧的、删了回不来。
+                            默认不勾，勾了才让按钮可用；后端也不认没有这个字段的请求。 */}
+                        <label className="mt-2 flex items-start gap-2 text-[12px] text-ink-soft">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={ackAudience}
+                            onChange={(e) => setAckAudience(e.target.checked)}
+                            disabled={busy !== ''}
+                            data-testid={`social-replace-ack-${m.id}`}
+                          />
+                          <span>{T.replaceAudienceAck}</span>
+                        </label>
+                        <p className="mt-1 text-[12px] text-ink-mute" data-testid={`social-replace-ack-hint-${m.id}`}>
+                          {T.replaceAudienceAckHint}
+                        </p>
                         <div className="mt-2 flex justify-end gap-2">
-                          <Button variant="secondary" onClick={cancelReplace} disabled={busy !== ''}>
+                          <Button
+                            variant="secondary"
+                            onClick={cancelReplace}
+                            disabled={busy !== ''}
+                            data-testid={`social-edit-cancel-${m.id}`}
+                          >
                             {T.replaceCancel}
                           </Button>
                           <Button
                             onClick={() => replace(m)}
-                            disabled={busy !== '' || !editText.trim()}
+                            disabled={busy !== '' || !editText.trim() || !ackAudience}
                             data-testid={`social-replace-save-${m.id}`}
                           >
                             {busy === `replace-${m.id}` ? T.replacing : T.replace}

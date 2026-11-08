@@ -115,7 +115,32 @@ type MomentReplacer interface {
 	// The returned Moment has an empty ID when the new post went out but the
 	// platform did not say which one it is; that is outcome 3 above, never a
 	// clean replace.
-	ReplaceMoment(ctx context.Context, id, text string) (Moment, error)
+	//
+	// opts.AcceptAudienceChange is the caller's answer to "may this widen who
+	// can see it". Implementations must refuse with ErrSocialCannotReplace when
+	// it is false, and must do so before publishing anything.
+	ReplaceMoment(ctx context.Context, id, text string, opts MomentReplaceOptions) (Moment, error)
+}
+
+// MomentReplaceOptions carries the one thing a replace cannot decide for the
+// person: whether they accept that the new post may end up visible to more
+// people than the old one.
+//
+// Why it is a parameter at all, and why it defaults to false. The audience of an
+// existing post arrives as a single boolean. "The platform says everyone" and
+// "the platform filled in a default because it never read the audience" produce
+// the same value, and nothing else in the response tells them apart (see the
+// upstream note on privateOf). So a replace can never prove that it keeps the
+// audience; all it can do is publish a new post, which is public by default,
+// and delete the old one, which cannot be undone. That decision belongs to the
+// person, not to a default value that arrived over the wire, and the zero value
+// of this struct therefore means "no".
+type MomentReplaceOptions struct {
+	// AcceptAudienceChange means the caller showed the person that replacing
+	// may widen who can see the post and that deleting the old one is final,
+	// and the person went ahead anyway. Implementations must refuse — before
+	// publishing anything — when this is false.
+	AcceptAudienceChange bool
 }
 
 // MomentReplacePartialError means the replace did not finish cleanly but the new

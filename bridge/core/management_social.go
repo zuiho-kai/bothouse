@@ -202,13 +202,18 @@ func (m *ManagementServer) socialPostMoment(w http.ResponseWriter, r *http.Reque
 //
 // 这里不发图片参数：旧说说带的图由平台自己读回来并带过去（见 MomentReplacer 的
 // 注释）。接口层拿不到那些图，也就不该假装能传。
+//
+// accept_audience_change 是调用方替人做的那个确认：换一条会先发新的（默认所有人
+// 可见）再删旧的，而旧条原来的可见范围有可能读不准，所以「可能改宽」这件事要人先
+// 点头。字段缺省即 false——不确认就不换，这里不给缺省开任何方便门。
 func (m *ManagementServer) socialReplaceMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
 	if !m.requireSocialWrites(w) {
 		return
 	}
 	var body struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
+		ID                   string `json:"id"`
+		Text                 string `json:"text"`
+		AcceptAudienceChange bool   `json:"accept_audience_change"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -240,9 +245,20 @@ func (m *ManagementServer) socialReplaceMoment(w http.ResponseWriter, r *http.Re
 		mgmtError(w, http.StatusForbidden, "换说说 is turned off: "+reason)
 		return
 	}
+	if !body.AcceptAudienceChange {
+		// 接口这一层就先挡：不确认就不换，也别让平台层白白读一遍列表。放在 403/501
+		// 之后，是因为「这台机器没打开」「这个平台压根不能换」比「你还没确认」更该先
+		// 被说出来——那种情况下确认了也换不成。
+		mgmtError(w, socialStatus(ErrSocialCannotReplace),
+			"换说说要先确认一次：换一条会先发新的（默认所有人可见）再删旧的，而旧条原来的"+
+				"可见范围有可能读不准，所以可能把范围改宽、且删掉旧的之后不可逆。"+
+				"接口调用方要传 accept_audience_change: true 才能继续；不确认就不动它")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), socialMomentTimeout)
 	defer cancel()
-	moment, err := replacer.ReplaceMoment(ctx, body.ID, body.Text)
+	moment, err := replacer.ReplaceMoment(ctx, body.ID, body.Text,
+		MomentReplaceOptions{AcceptAudienceChange: body.AcceptAudienceChange})
 	if err != nil {
 		// 部分成功（新的发出去了、旧的还在）必须把新那条一起带回去，否则人只看
 		// 到一句失败，不知道空间里已经多了一条，也不知道该删哪条。

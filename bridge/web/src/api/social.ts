@@ -42,9 +42,25 @@ export const getSocial = (project: string) => api.get<SocialState>(`/projects/${
 export const postMoment = (project: string, text: string) =>
   api.post<{ moment: Moment }>(`/projects/${project}/social/moment`, { text });
 
-/** Replace one 说说 in a single call: new words first, old post only then removed. */
-export const replaceMoment = (project: string, id: string, text: string) =>
-  api.post<{ moment: Moment }>(`/projects/${project}/social/moment/replace`, { id, text });
+/**
+ * Replace one 说说 in a single call: new words first, old post only then removed.
+ *
+ * acceptAudienceChange is not a formality. Replacing publishes a new post — public
+ * unless told otherwise — and deletes the old one; the old one's audience may have
+ * been read wrongly (the upstream fills in "everyone" when it never read it), so the
+ * person has to be shown that and agree. The backend answers 400 without it.
+ */
+export const replaceMoment = (
+  project: string,
+  id: string,
+  text: string,
+  acceptAudienceChange: boolean,
+) =>
+  api.post<{ moment: Moment }>(`/projects/${project}/social/moment/replace`, {
+    id,
+    text,
+    accept_audience_change: acceptAudienceChange,
+  });
 
 /** Delete one of the bot's own 说说 by tid. */
 export const deleteMoment = (project: string, id: string) =>
