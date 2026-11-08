@@ -181,7 +181,7 @@ func mapToolCallUpdate(sessionID string, update json.RawMessage) []core.Event {
 		return []core.Event{{
 			Type:      core.EventToolResult,
 			ToolName:  toolLabel,
-			Content:   truncateRunes(body, 800),
+			Content:   body,
 			SessionID: sessionID,
 		}}
 	case st == "in_progress" || st == "pending":
@@ -192,7 +192,7 @@ func mapToolCallUpdate(sessionID string, update json.RawMessage) []core.Event {
 		return []core.Event{{
 			Type:      core.EventToolResult,
 			ToolName:  toolLabel,
-			Content:   truncateRunes(body, 800),
+			Content:   body,
 			SessionID: sessionID,
 		}}
 	default:
@@ -200,7 +200,7 @@ func mapToolCallUpdate(sessionID string, update json.RawMessage) []core.Event {
 			return []core.Event{{
 				Type:      core.EventToolResult,
 				ToolName:  toolLabel,
-				Content:   truncateRunes(body, 800),
+				Content:   body,
 				SessionID: sessionID,
 			}}
 		}
