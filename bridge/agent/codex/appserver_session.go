@@ -1548,7 +1548,7 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 			Type:         core.EventToolResult,
 			ToolName:     "Bash",
 			ToolInput:    command,
-			ToolResult:   truncate(strings.TrimSpace(output), 500),
+			ToolResult:   strings.TrimSpace(output),
 			ToolStatus:   strings.TrimSpace(status),
 			ToolExitCode: exitCodePtr,
 			ToolSuccess:  &success,
@@ -1565,7 +1565,7 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 		s.emit(core.Event{
 			Type:        core.EventToolResult,
 			ToolName:    tool,
-			ToolResult:  truncate(strings.TrimSpace(result), 500),
+			ToolResult:  strings.TrimSpace(result),
 			ToolStatus:  strings.TrimSpace(status),
 			ToolSuccess: &success,
 		})
@@ -1575,7 +1575,7 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 		s.emit(core.Event{
 			Type:       core.EventToolResult,
 			ToolName:   "WebSearch",
-			ToolResult: truncate(strings.TrimSpace(query), 500),
+			ToolResult: strings.TrimSpace(query),
 		})
 
 	case "dynamicToolCall":
@@ -1586,7 +1586,7 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 		s.emit(core.Event{
 			Type:        core.EventToolResult,
 			ToolName:    tool,
-			ToolResult:  truncate(strings.TrimSpace(result), 500),
+			ToolResult:  strings.TrimSpace(result),
 			ToolStatus:  strings.TrimSpace(status),
 			ToolSuccess: &success,
 		})
@@ -1603,7 +1603,7 @@ func (s *appServerSession) handleItemCompleted(item map[string]any) {
 			result = failure
 		}
 		success := appServerToolSuccess(status, nil)
-		s.emit(core.Event{Type: core.EventToolResult, ToolName: "ImageGen", ToolResult: truncate(strings.TrimSpace(result), 500), ToolStatus: strings.TrimSpace(status), ToolSuccess: &success})
+		s.emit(core.Event{Type: core.EventToolResult, ToolName: "ImageGen", ToolResult: strings.TrimSpace(result), ToolStatus: strings.TrimSpace(status), ToolSuccess: &success})
 
 	case "collabAgentToolCall":
 		updateCollaborationSubTasks(&s.subTaskTracker, item)

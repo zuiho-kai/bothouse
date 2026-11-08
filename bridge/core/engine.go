@@ -63,8 +63,10 @@ const (
 	defaultThinkingMaxLen = 300
 	defaultToolMaxLen     = 500
 	// cardToolResultMaxLen caps the tool output kept on a progress card
-	// (maomao fork #1197): one Discord detail page.
-	cardToolResultMaxLen = 3500
+	// (maomao fork #1197/#1231). Agents hand over the whole output and the
+	// 细节 view pages through it; this only guards the card payload against a
+	// runaway dump (the agent CLIs cap their own output well below it).
+	cardToolResultMaxLen = 30000
 	defaultHistoryMaxLen = 1000
 )
 
@@ -6939,7 +6941,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if result != "" {
 					result = truncateIf(result, e.display.ToolMaxLen)
 				}
-				// maomao fork: the card keeps up to one detail page of tool output (#1197).
+				// maomao fork: the card keeps the whole tool output, paged in 细节 (#1197/#1231).
 				cardResult = truncateIf(cardResult, cardToolResultMaxLen)
 				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 					if hasRichCard {
@@ -12980,6 +12982,8 @@ func (e *Engine) processCompressEvents(state *interactiveState, session *Session
 				if out == "" {
 					out = strings.TrimSpace(event.ToolResult)
 				}
+				// Agents hand over the whole tool output (#1231); text replies keep the old cap.
+				out = truncateIf(out, defaultToolMaxLen)
 				if out == "" {
 					break
 				}
@@ -18629,6 +18633,8 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				if out == "" {
 					out = strings.TrimSpace(event.ToolResult)
 				}
+				// Agents hand over the whole tool output (#1231); relay replies keep the old cap.
+				out = truncateIf(out, defaultToolMaxLen)
 				if out != "" {
 					tn := strings.TrimSpace(event.ToolName)
 					if tn == "" {

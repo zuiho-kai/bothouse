@@ -1054,7 +1054,7 @@ func (cs *claudeSession) handleUser(raw map[string]any) {
 			}
 			evt := core.Event{
 				Type:         core.EventToolResult,
-				ToolResult:   truncateStr(strings.TrimSpace(result), 500),
+				ToolResult:   strings.TrimSpace(result),
 				ToolExitCode: &code,
 				ToolSuccess:  &success,
 			}
