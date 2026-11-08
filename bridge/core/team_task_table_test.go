@@ -167,3 +167,29 @@ func TestTeamTaskTableSpan(t *testing.T) {
 		t.Error("zero time must give no age")
 	}
 }
+
+// User, 2026-11-08: 「为什么做不到及时更新置顶卡片」. #181 was returned, then paused a minute later,
+// and hung as 「⚠ 没人验收」 for three days; #173 named 「肥鱼（409续办）」 and still counted as 待安排.
+func TestTeamTaskTablePausedAfterReturnAndNamedOwner(t *testing.T) {
+	now := time.Date(2026, 11, 8, 20, 40, 0, 0, time.Local)
+	returned := time.Date(2026, 11, 5, 20, 50, 40, 0, time.Local)
+	items := placeTeamTaskBoard(testTaskBoardPlacer(), []teamTaskBoardItem{
+		{ID: 181, What: "QQ重复回复", Short: "QQ重复回复", Status: "交回待核", WS: "feishu:oc_ws", Chat: "feishu:oc_a",
+			ReturnedAt: returned, Reviewer: "派活人", Paused: "11-05 20:51", Who: "待接手", At: "11-05 20:51"},
+		{ID: 173, What: "找bug一路", Short: "找bug一路", Status: "进行中", Who: "肥鱼（409续办）", At: "11-08 20:30", SK: "feishu:oc_a"},
+		{ID: 2, What: "强制汇报", Short: "强制汇报", Status: "真实阻塞", Who: "待接手", At: "11-08 20:30", SK: "feishu:oc_a"},
+	})
+	if state, _ := teamTaskBoardStateOf(items[0], now); state != teamTaskPaused {
+		t.Fatalf("paused after return: state %v, want paused", state)
+	}
+	got := renderTeamTaskTable(items, nil, "feishu:oc_a", now)
+	if strings.Contains(got, "没人验收") || strings.Contains(got, "⚠") {
+		t.Fatalf("paused item still shown as awaiting review:\n%s", got)
+	}
+	if !strings.Contains(got, "▶ 找bug一路 · 肥鱼（409续办）") {
+		t.Fatalf("named owner not shown as being worked on:\n%s", got)
+	}
+	if !strings.Contains(got, "**待安排 1**\n  · 强制汇报") {
+		t.Fatalf("placeholder owner should stay 待安排:\n%s", got)
+	}
+}
