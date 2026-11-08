@@ -471,6 +471,7 @@ type Engine struct {
 	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
 	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	lifePage                     string                          // life_page: "how she is now" file put before every turn (lifepage.go; "" = off)
 	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
@@ -18577,6 +18578,9 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	// withTurnBlocks (same order): channel handoff and teammate status are not for relays.
 	content := message
 	if c := e.memoryBlock(session); c != "" {
+		content = c + "\n\n" + content
+	}
+	if c := e.lifePageBlock(); c != "" {
 		content = c + "\n\n" + content
 	}
 	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message), ""); c != "" {

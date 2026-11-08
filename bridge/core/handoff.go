@@ -603,6 +603,7 @@ func stamp(t time.Time) string {
 var staleBlocks = []struct{ head, end string }{
 	{"（队友状态", "\n\n"},
 	{"（可能相关的 wiki 页", "\n\n"},
+	{lifePageHead, lifePageEnd}, // life_page (lifepage.go): the next context gets the page anew
 	// A fresh context's MEMORY.md (memoryBlock) is cut by stripReinjectedPrefix:
 	// its head line also reads like something a user could quote, so the whole
 	// block's shape is checked there rather than dropping any paragraph that
