@@ -185,8 +185,8 @@ func socialPostJSON(t *testing.T, url string, body any) (int, mgmtResponse) {
 // TestMgmt_SocialListsMoments：GET 给出能力与列表。
 func TestMgmt_SocialListsMoments(t *testing.T) {
 	plat := &fakeSocialPlatform{moments: []Moment{
-		{ID: "t1", Text: "最新一条", Time: time.Unix(1762300000, 0)},
-		{ID: "t2", Text: "上一条", Time: time.Unix(1762200000, 0), Private: true},
+		{ID: "t1", Text: "最新一条", Time: time.Unix(1762300000, 0), PrivateKnown: true},
+		{ID: "t2", Text: "上一条", Time: time.Unix(1762200000, 0), Private: true, PrivateKnown: true},
 	}}
 	ts, _ := engineWithSocial(t, plat)
 
@@ -210,6 +210,10 @@ func TestMgmt_SocialListsMoments(t *testing.T) {
 	}
 	if len(body.Data.Moments) != 2 || body.Data.Moments[0].ID != "t1" {
 		t.Fatalf("列表不对：%+v", body.Data.Moments)
+	}
+	// private_known 要跟着 JSON 出去：面板靠它区分「公开」和「没读到」。
+	if !body.Data.Moments[1].PrivateKnown || !body.Data.Moments[1].Private {
+		t.Fatalf("private/private_known 没带出去：%+v", body.Data.Moments[1])
 	}
 }
 
