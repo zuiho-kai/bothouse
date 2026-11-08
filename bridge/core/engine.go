@@ -9838,10 +9838,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	}
 	// maomao fork: quota the session already holds (CachedUsageReporter, no I/O) wins.
 	if cached, ok := session.(CachedUsageReporter); ok {
-		report := cached.CachedUsage()
-		scope := e.quotaScopeFor(agent, replyFooterModel(session, agent))
-		e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
-		e.observeQuotaUsageFor(report, "", scope)
+		e.observeQuotaUsageFor(cached.CachedUsage(), "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 	}
 	if text := replyFooterCachedQuotaText(session, e.i18n); text != "" {
 		return text, true
@@ -9860,9 +9857,7 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
 			if report, err := reporter.GetUsage(ctx); err == nil {
-				scope := e.quotaScopeFor(agent, replyFooterModel(session, agent))
-				e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
-				e.observeQuotaUsageFor(report, "", scope)
+				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
 				}
@@ -9955,6 +9950,13 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
+		// Non-caching reporters return a freshly fetched result. Cached reporters
+		// carry their original observation time, including after a failed refresh.
+		if report != nil && report.ObservedAt.IsZero() {
+			fresh := *report
+			fresh.ObservedAt = time.Now()
+			report = &fresh
+		}
 		e.cacheRoleQuotaReport(agent, model, scope, report)
 		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
@@ -9996,7 +9998,7 @@ func usageReporterAvailable(v any) bool {
 // management page never calls adapter CachedUsage methods: some refresh in the
 // background despite the interface name. Keep attribution and age with the copy.
 func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScope, report *UsageReport) {
-	if report == nil || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
+	if report == nil || report.ObservedAt.IsZero() || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
 		return
 	}
 	snapshot := *report
@@ -10024,7 +10026,7 @@ func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScop
 		ent = &replyFooterUsageEntry{}
 		e.replyFooterUsage[key] = ent
 	}
-	ent.report, ent.reportScope, ent.reportAt = &snapshot, scope.key(), time.Now()
+	ent.report, ent.reportScope, ent.reportAt = &snapshot, scope.key(), report.ObservedAt
 }
 
 // CachedQuotaReport reads only the retained snapshot for this agent/model and
