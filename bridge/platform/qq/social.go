@@ -377,16 +377,17 @@ func momentFromAPI(m map[string]any) core.Moment {
 	switch images := m["images"].(type) {
 	case []any:
 		for _, one := range images {
+			// Keep a slot even when an image has no usable URL. Dropping it here
+			// would hide a missing picture from imagesForCarryOver and allow
+			// replacement to delete the original after publishing fewer images.
+			var url string
 			switch v := one.(type) {
 			case string:
-				if v != "" {
-					out.Images = append(out.Images, v)
-				}
+				url = v
 			case map[string]any:
-				if u := stringOf(v["url"]); u != "" {
-					out.Images = append(out.Images, u)
-				}
+				url, _ = v["url"].(string)
 			}
+			out.Images = append(out.Images, url)
 		}
 	}
 	return out

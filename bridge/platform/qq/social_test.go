@@ -472,30 +472,44 @@ func TestSocial_ReplaceNeverAsksAboutAudienceBeforeReadingThePost(t *testing.T) 
 // TestSocial_ReplaceRefusesWhenAPictureHasNoURL：旧说说有图、其中一张却没有地址时，
 // 不能悄悄少带一张——那等于换个说法顺手删掉一张图，而调用方看不见。
 func TestSocial_ReplaceRefusesWhenAPictureHasNoURL(t *testing.T) {
-	f := newSocialOneBot(t)
-	f.respond = func(action string) (int, map[string]any) {
-		if action == "get_qzone_msg_list" {
-			return 0, map[string]any{"total": 1, "msglist": []any{
-				map[string]any{"tid": "old-tid", "content": "三张图，中间那张没地址", "is_private": false,
-					"images": []any{"https://example.invalid/a.jpg", "   ", "https://example.invalid/c.jpg"}},
-			}}
-		}
-		return 0, map[string]any{"tid": "new-tid"}
-	}
-	p := f.start(t, map[string]any{"allow_qzone": true})
+	for _, tc := range []struct {
+		name  string
+		image any
+	}{
+		{"whitespace", "   "},
+		{"empty_string", ""},
+		{"empty_url", map[string]any{"url": ""}},
+		{"missing_url", map[string]any{}},
+		{"null_image", nil},
+		{"invalid_url_type", map[string]any{"url": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSocialOneBot(t)
+			f.respond = func(action string) (int, map[string]any) {
+				if action == "get_qzone_msg_list" {
+					return 0, map[string]any{"total": 1, "msglist": []any{
+						map[string]any{"tid": "old-tid", "content": "三张图，中间那张没地址", "is_private": false,
+							"images": []any{"https://example.invalid/a.jpg", tc.image, "https://example.invalid/c.jpg"}},
+					}}
+				}
+				return 0, map[string]any{"tid": "new-tid"}
+			}
+			p := f.start(t, map[string]any{"allow_qzone": true})
 
-	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
-	if err == nil {
-		t.Fatal("有图没地址时该拒绝，不能少带一张")
-	}
-	if n := len(f.calls("send_qzone_msg")); n != 0 {
-		t.Fatalf("图带不全还发了 %d 次新的", n)
-	}
-	if n := len(f.calls("delete_qzone_msg")); n != 0 {
-		t.Fatalf("图带不全还删了 %d 次旧的", n)
-	}
-	if !strings.Contains(err.Error(), "3 张") || !strings.Contains(err.Error(), "先不动它") {
-		t.Fatalf("错误要说清少图、旧的没动：%q", err.Error())
+			_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法", replaceAccepted())
+			if err == nil {
+				t.Fatal("有图没地址时该拒绝，不能少带一张")
+			}
+			if n := len(f.calls("send_qzone_msg")); n != 0 {
+				t.Fatalf("图带不全还发了 %d 次新的", n)
+			}
+			if n := len(f.calls("delete_qzone_msg")); n != 0 {
+				t.Fatalf("图带不全还删了 %d 次旧的", n)
+			}
+			if !strings.Contains(err.Error(), "3 张") || !strings.Contains(err.Error(), "先不动它") {
+				t.Fatalf("错误要说清少图、旧的没动：%q", err.Error())
+			}
+		})
 	}
 }
 
