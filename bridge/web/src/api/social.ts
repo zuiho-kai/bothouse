@@ -19,6 +19,11 @@ export interface Moment {
   time: string;
   images: string[];
   private: boolean;
+  /**
+   * 上游到底说没说这条算谁可见。private 只有在 private_known 为 true 时才有意义：
+   * 读不到这个字段是「不知道」，不是「公开」（见 platform/qq/social.go privateOf）。
+   */
+  private_known: boolean;
 }
 
 export type SocialStatus = 'ready' | 'off' | 'error' | 'not_supported';

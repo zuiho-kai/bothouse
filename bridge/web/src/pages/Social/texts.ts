@@ -25,6 +25,7 @@ export interface SocialTexts {
   replaceConfirm: string
   replaceKeepsImages: (n: number) => string
   replacePrivateBlocked: string
+  replaceVisibilityUnknown: string
   replaced: string
   replaceCancel: string
   delete: string
@@ -68,6 +69,7 @@ const zh: SocialTexts = {
   replaceConfirm: '换掉这一条的说法？会先发新的，成功了才删旧的。发新的失败时原来那条原样保留；万一旧的没删掉，会告诉你空间里有两条。不是原子替换。',
   replaceKeepsImages: (n) => `这条带的 ${n} 张图会一起搬到新的那条上。`,
   replacePrivateBlocked: '这条是「仅部分人可见」，换一条会变成所有人可见，所以这儿不给换；要改请在 QQ 里改。',
+  replaceVisibilityUnknown: '读不到这条谁能看见（上游没给可见范围），换一条有可能把它变成所有人可见，所以这儿不给换。',
   replaced: '换好了',
   replaceCancel: '取消',
   delete: '删掉',
@@ -111,6 +113,7 @@ const en: SocialTexts = {
   replaceConfirm: 'Replace this post? The new one goes out first and the old one is removed only after that succeeds. If publishing fails the old post stays as it was; if the old one cannot be removed you will be told there are two. This is not an atomic swap.',
   replaceKeepsImages: (n) => `The ${n} picture(s) on this post move to the new one too.`,
   replacePrivateBlocked: 'This post is visible to some people only. Replacing it would make it public, so it cannot be replaced here — change it in QQ instead.',
+  replaceVisibilityUnknown: 'Who can see this post could not be read (the upstream did not say). Replacing it might make it public, so it cannot be replaced here.',
   replaced: 'Replaced',
   replaceCancel: 'Cancel',
   delete: 'Delete',
@@ -154,6 +157,7 @@ const ja: SocialTexts = {
   replaceConfirm: 'この投稿を差し替えますか？新しい投稿を先に出し、それが成功してから元を削除します。投稿に失敗した場合は元の投稿はそのまま残ります。元を削除できなかった場合は「2 件ある」とお伝えします。アトミックな入れ替えではありません。',
   replaceKeepsImages: (n) => `この投稿の画像 ${n} 枚も新しい投稿に引き継ぎます。`,
   replacePrivateBlocked: 'この投稿は一部の人だけに公開されています。差し替えると全員に公開されるため、ここでは差し替えできません。QQ で変更してください。',
+  replaceVisibilityUnknown: 'この投稿の公開範囲が読めませんでした（上流が範囲を返していません）。差し替えると全員に公開される恐れがあるため、ここでは差し替えできません。',
   replaced: '差し替えました',
   replaceCancel: 'キャンセル',
   delete: '削除',

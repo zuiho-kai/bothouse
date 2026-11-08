@@ -33,6 +33,7 @@ const moment = {
   time: '2026-11-08T00:00:00Z',
   images: [] as string[],
   private: false,
+  private_known: true,
 };
 
 async function renderPanel(caps: Record<string, boolean>, moments = [moment]) {
@@ -166,7 +167,22 @@ describe('social replace', () => {
     const note = byTestId(container, 'social-replace-private-tid-1');
     expect(note).not.toBeNull();
     expect(note!.textContent).toContain('QQ');
+    expect(note!.getAttribute('role')).toBe('status');
     // 删还是可以删的，这里不改删除的能力。
+    expect(byTestId(container, 'social-delete-tid-1')).not.toBeNull();
+  });
+
+  it('does not offer to replace a post whose audience the backend could not read', async () => {
+    // 后端说 private_known=false：上游没给可见范围。这不是「公开」，可能本来是
+    // 仅部分人可见；换一条会发新的删旧的，赌错就把范围改宽，所以按钮也不给。
+    const unknown = { ...moment, private_known: false };
+    const container = await renderPanel({ replace_moment: true }, [unknown]);
+
+    expect(byTestId(container, 'social-replace-tid-1')).toBeNull();
+    const note = byTestId(container, 'social-replace-unknown-tid-1');
+    expect(note).not.toBeNull();
+    expect(note!.getAttribute('role')).toBe('status');
+    expect(byTestId(container, 'social-replace-private-tid-1')).toBeNull();
     expect(byTestId(container, 'social-delete-tid-1')).not.toBeNull();
   });
 });

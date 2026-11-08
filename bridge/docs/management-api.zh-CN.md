@@ -1123,7 +1123,8 @@ allow_avatar = true   # 换这个号自己的头像
         "text": "今天画了张图",
         "time": "2026-11-05T06:21:06+08:00",
         "images": [],
-        "private": false
+        "private": false,
+        "private_known": true
       }
     ]
   }
@@ -1141,6 +1142,12 @@ allow_avatar = true   # 换这个号自己的头像
 
 `moments` 永远是数组（`[]` 而不是 `null`），面板可以直接读 `.length`。
 
+`private` 和 `private_known` 是两个字段，不是一个。`private_known: true` 表示平台真的回答了：
+`private: false` 是「所有人可见」，`private: true` 是「仅部分人可见（或只有自己）」。
+`private_known: false` 表示它**没有回答**——这时 `private` 没有意义，调用方不能把它读成
+「公开」。QQ 那边的来源是 `get_qzone_msg_list` 每行的 `is_private`：这一行没有这个字段，
+或者值不是布尔 / 数字 / 纯数字字符串，就按「不知道」返回。
+
 ---
 
 #### POST /api/v1/projects/{name}/social/moment
@@ -1156,7 +1163,7 @@ allow_avatar = true   # 换这个号自己的头像
 **响应：**
 
 ```json
-{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false, "private_known": true } } }
 ```
 
 错误：`400` 文字为空、`403` 没打开（消息里点名 `allow_qzone`）、`501` 平台做不了、
@@ -1178,7 +1185,7 @@ allow_avatar = true   # 换这个号自己的头像
 **响应：**
 
 ```json
-{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "换了个说法", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false } } }
+{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "换了个说法", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false, "private_known": true } } }
 ```
 
 **顺序与失败**（重要）：QQ空间的接口里没有「改一条说说的正文」，只有发、删、读和改权限。
@@ -1199,13 +1206,24 @@ allow_avatar = true   # 换这个号自己的头像
 **配图**：换说说只改文字，不接收图片参数。旧说说带的图由平台自己读回来（最近 50 条里
 按 tid 找），再随新说说一起发出去，所以「换一条」不会把图弄丢。读不回旧说说时（太老、
 不在最近 50 条里、或列表读失败）**一个新请求都不发**，直接失败并保留原文——宁可不换，
-也不发一条没图的再把带图的删掉。
+也不发一条没图的再把带图的删掉。一行说它有图、其中一张却没给地址时也一样：把其余几张
+带过去、少掉那一张，等于删了一张调用方没同意删的图，所以同样一个请求都不发。
 
-**可见范围**：原来那条标着「仅部分人可见」时**直接拒绝（400），一个新请求都不发**。
-上游只给一个布尔（`is_private`，来自 `secret` 是否为 0），分不出好友可见、部分好友、
-仅自己、部分不可见这四种，而发说说不传 `ugc_right` 时的缺省值是 1（所有人可见）。
-照这样换等于把有范围限制的说说变成公开的，删掉旧的之后不可逆，所以不猜、不换。
-要改就在 QQ 里手动改。
+**可见范围**：只有**确定是所有人可见**（`private_known: true` 且 `private: false`）才换。
+另外两种都**直接拒绝（400），一个新请求都不发**：
+
+- `private: true`——原来那条是「仅部分人可见」。上游只给一个布尔（`is_private`，来自
+  `secret` 是否为 0），分不出好友可见、部分好友、仅自己、部分不可见这四种，而发说说不传
+  `ugc_right` 时的缺省值是 1（所有人可见）。照这样换等于把有范围限制的说说变成公开的，
+  删掉旧的之后不可逆，所以不猜、不换。要改就在 QQ 里手动改。
+- `private_known: false`——列表这一行没说。这跟「公开」不是一回事：SnowLuma 响应的 schema
+  里 `is_private` 是必填布尔，而 NapCat 自己在 `secret` 缺失时会补一个 `false`，所以少了
+  这个字段并不可信，只能说明这份响应不是认识的形状。照猜换下去和上一条是同一种赌注，
+  所以也拒绝。
+
+**读列表**：QQ 这边是有意要 `get_qzone_msg_list` 的 `format=snowluma`。不传 `format` 时，
+上游一见到 cursor 就换另一种格式，而那种既没有可见范围字段、图片又是另一个形状——正好
+是换说说需要的两样。
 
 **带不过去的还有**：评论、点赞、发布时间、`tid` 都会变——换说说本质是「发新的、删旧的」，
 不是原地编辑。这一点面板的确认文案里也写了。
@@ -1491,7 +1509,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 |------------|------------|-------------------------|
 | 1.0-draft  | 2026-03-10 | 初始规范                |
 | 1.1-draft  | 2026-11-05 | 新增可选的 QQ 说说 / 头像接口（`/projects/{name}/social…`），`allow_qzone` / `allow_avatar` 未打开时不生效 |
-| 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换 |
+| 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 

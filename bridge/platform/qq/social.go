@@ -92,7 +92,17 @@ func (p *Platform) ListMoments(ctx context.Context, limit int) ([]core.Moment, e
 	}
 	ctx, cancel := context.WithTimeout(ctx, socialCallTimeout)
 	defer cancel()
-	data, err := p.callAPIContext(ctx, "get_qzone_msg_list", map[string]any{"num": limit})
+	// format 固定要 snowluma：get_qzone_msg_list 不传 format 时，上游只要带了 cursor
+	// 就改走 native（napcat-onebot/action/extends/qzone/common-snowluma.ts:174
+	// normalizeQzoneListPayload）。native 那份 QzoneFeedItem
+	// （napcat-core/data/qzone-rpc.ts:89-100）既没有可见范围字段，图片又是另一种形状
+	// （media_items[].image.photo_url[].url.url，见 :202-225），换说说需要的那两样
+	// 它都不给。传了 cursor 上游还会报「好友动态游标不能用于说说列表」，所以在
+	// snowluma 下也别指望 cursor，分页靠 num。
+	data, err := p.callAPIContext(ctx, "get_qzone_msg_list", map[string]any{
+		"format": "snowluma",
+		"num":    limit,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("qq: 读说说列表: %w", socialErrHint(err))
 	}
@@ -157,7 +167,9 @@ func (p *Platform) PostMoment(ctx context.Context, text string, images []core.Mo
 		slog.Warn("qq: 说说已发出但上游没给 tid", "images", len(images))
 	}
 	// Images 总是数组：面板直接读 .length，nil 会让它算不出来。
-	return core.Moment{ID: id, Text: text, Time: time.Now(), Images: []string{}, Private: false}, nil
+	// Private 这里是真的知道的：这条是刚刚发出去的，没带 ugc_right，上游缺省 1 =
+	// 所有人可见（napcat-onebot/action/extends/SendQzoneMsg.ts:16-17）。
+	return core.Moment{ID: id, Text: text, Time: time.Now(), Images: []string{}, Private: false, PrivateKnown: true}, nil
 }
 
 // RemoveMoment deletes one of the bot's own posts.
@@ -202,6 +214,16 @@ func (p *Platform) ReplaceMoment(ctx context.Context, id, text string) (core.Mom
 		// 读不回原来那条就不知道它带没带图。宁可什么都不发，也不发一条
 		// 丢了图的「新版」再把原来的删掉。
 		return core.Moment{}, fmt.Errorf("qq: 换说说：读不回原来那条，先不动它: %w", err)
+	}
+	if !old.PrivateKnown {
+		// 上游没说这条算谁可见。SnowLuma 那份响应里 is_private 是必填布尔
+		// （napcat-onebot/action/extends/qzone/common-snowluma.ts:31，发布的 schema
+		// 就是 Type.Boolean()），上游自己也把它从 secret 硬翻出来——secret 缺失时
+		// privateFlag 回 false（napcat-core/data/qzone-snowluma.ts:138-143）。所以
+		// 读不到这个字段，说明这份响应不是我们认识的那个形状，既可能本来是公开的，
+		// 也可能本来是「仅部分人可见」，此时默认按公开发新删旧就是把范围改宽的赌注。
+		// 不赌：不发、不删。
+		return core.Moment{}, fmt.Errorf("qq: 换说说：上游没说原来那条的可见范围（不是认识的响应形状），换一条有可能把它变成所有人可见，所以先不动它: %w", core.ErrSocialCannotReplace)
 	}
 	if old.Private {
 		// 上游只给一个 is_private 布尔（napcat-core/data/qzone-snowluma.ts:159，源自
@@ -268,10 +290,14 @@ func imagesForCarryOver(m core.Moment) ([]core.MomentImage, error) {
 		return nil, nil
 	}
 	out := make([]core.MomentImage, 0, len(m.Images))
+	total := len(m.Images)
 	for _, u := range m.Images {
 		u = strings.TrimSpace(u)
 		if u == "" {
-			continue
+			// 上游给了几张图，其中一张没有地址。跳过它就会让新的一条比旧的一条少图：
+			// 旧的一删，那张图就真没了，而调用方还以为「带过去了」。少一张也算丢图，
+			// 所以按「带不过去」处理，一个请求都不发。
+			return nil, fmt.Errorf("旧说说上有 %d 张图，其中一张没有地址（上游响应不完整），带过去会少一张", total)
 		}
 		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 			return nil, fmt.Errorf("图片地址不是 http(s) 链接：%q", u)
@@ -318,11 +344,11 @@ func socialErrHint(err error) error {
 
 func momentFromAPI(m map[string]any) core.Moment {
 	out := core.Moment{
-		ID:      stringOf(m["tid"]),
-		Text:    stringOf(m["content"]),
-		Images:  []string{},
-		Private: boolOf(m["is_private"]),
+		ID:     stringOf(m["tid"]),
+		Text:   stringOf(m["content"]),
+		Images: []string{},
 	}
+	out.Private, out.PrivateKnown = privateOf(m)
 	if sec := jsonInt64(m, "time"); sec > 0 {
 		out.Time = time.Unix(sec, 0)
 	}
@@ -363,14 +389,28 @@ func stringOf(v any) string {
 	return ""
 }
 
-func boolOf(v any) bool {
-	switch t := v.(type) {
+// privateOf reads the audience flag off one row of get_qzone_msg_list and says
+// whether it actually got an answer.
+//
+// 两个返回值都要：第二个为 false 表示「上游什么都没说 / 说了个不认识的值」，
+// 而不是「公开」。把它当公开就是在拿别人的可见范围做赌注（见 ReplaceMoment）。
+// 取值照 NapCat 的 privateFlag（napcat-core/data/qzone-snowluma.ts:138-143）认：
+// 布尔、数字、纯数字字符串；其它形状不猜。
+func privateOf(m map[string]any) (private bool, known bool) {
+	switch v := m["is_private"].(type) {
 	case bool:
-		return t
+		return v, true
 	case float64:
-		return t != 0
+		return v != 0, true
 	case string:
-		return t == "true" || t == "1"
+		if v == "" {
+			return false, false
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return false, false
+		}
+		return n != 0, true
 	}
-	return false
+	return false, false
 }

@@ -155,7 +155,7 @@ func TestSocial_PostsReadsAndDeletes(t *testing.T) {
 			return 0, map[string]any{"total": 2, "msglist": []any{
 				map[string]any{"tid": "t2", "content": "今天也在", "time": 1762300000, "is_private": true,
 					"images": []any{"https://example.invalid/a.png"}},
-				map[string]any{"tid": 7001, "content": "更早的一条", "time": 1762200000,
+				map[string]any{"tid": 7001, "content": "更早的一条", "time": 1762200000, "is_private": false,
 					"images": []any{map[string]any{"url": "https://example.invalid/b.png"}}},
 			}}
 		}
@@ -197,7 +197,7 @@ func TestSocial_PostsReadsAndDeletes(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("列表条数 %d", len(list))
 	}
-	if list[0].ID != "t2" || list[0].Text != "今天也在" || !list[0].Private {
+	if list[0].ID != "t2" || list[0].Text != "今天也在" || !list[0].Private || !list[0].PrivateKnown {
 		t.Fatalf("第一条翻错：%+v", list[0])
 	}
 	if list[0].Time.IsZero() || len(list[0].Images) != 1 {
@@ -205,6 +205,9 @@ func TestSocial_PostsReadsAndDeletes(t *testing.T) {
 	}
 	if list[1].ID != "7001" {
 		t.Fatalf("数字 tid 没转成字符串：%+v", list[1])
+	}
+	if list[1].Private || !list[1].PrivateKnown {
+		t.Fatalf("写明 is_private:false 的应当是「知道的、公开的」：%+v", list[1])
 	}
 	if len(list[1].Images) != 1 || list[1].Images[0] != "https://example.invalid/b.png" {
 		t.Fatalf("对象形态的图片没接住：%+v", list[1].Images)
@@ -221,10 +224,13 @@ func TestSocial_PostsReadsAndDeletes(t *testing.T) {
 // socialReplaceListReply 是换说说回读旧说说时用的固定回答：old-tid 带两张图，
 // 用来验证「换一条」不会把图弄丢。
 func socialReplaceListReply() (int, map[string]any) {
+	// is_private:false：上游是明确说了「所有人可见」的，这是换说说唯一允许走下去的
+	// 那种；少写这一个字段会被当成「不知道」而拒绝（见
+	// TestSocial_ReplaceRefusesUnknownVisibility）。
 	return 0, map[string]any{"total": 2, "msglist": []any{
-		map[string]any{"tid": "old-tid", "content": "原来的说法", "time": 1762300000,
+		map[string]any{"tid": "old-tid", "content": "原来的说法", "time": 1762300000, "is_private": false,
 			"images": []any{"https://example.invalid/1.png", "https://example.invalid/2.png"}},
-		map[string]any{"tid": "older-tid", "content": "更早的一条", "time": 1762200000},
+		map[string]any{"tid": "older-tid", "content": "更早的一条", "time": 1762200000, "is_private": false},
 	}}
 }
 
@@ -301,6 +307,114 @@ func TestSocial_ReplaceRefusesPrivateOldPost(t *testing.T) {
 	}
 }
 
+// TestSocial_ReplaceRefusesUnknownVisibility：上游没说可见范围时，不能当作「公开」。
+//
+// 「字段不在」和「字段说是公开」是两件事。SnowLuma 的 is_private 在发布的 schema 里
+// 是必填布尔（napcat-onebot/action/extends/qzone/common-snowluma.ts:31），而上游自己
+// 是把 secret 缺省翻成 false（napcat-core/data/qzone-snowluma.ts:138-143）——所以读不到
+// 只能说明这份响应不是我们认识的形状。换说说会发新的再删旧的，赌错就把一条有范围的
+// 说说变成公开且不可逆，所以「不知道」也一个请求都不发。
+func TestSocial_ReplaceRefusesUnknownVisibility(t *testing.T) {
+	cases := []struct {
+		name string
+		row  map[string]any
+	}{
+		{"字段不在", map[string]any{"tid": "old-tid", "content": "不知道谁能看"}},
+		{"字段是 null", map[string]any{"tid": "old-tid", "content": "不知道谁能看", "is_private": nil}},
+		{"字段是空串", map[string]any{"tid": "old-tid", "content": "不知道谁能看", "is_private": ""}},
+		{"字段不是数字的字符串", map[string]any{"tid": "old-tid", "content": "不知道谁能看", "is_private": "private"}},
+		{"字段是对象", map[string]any{"tid": "old-tid", "content": "不知道谁能看",
+			"is_private": map[string]any{"value": false}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSocialOneBot(t)
+			f.respond = func(action string) (int, map[string]any) {
+				if action == "get_qzone_msg_list" {
+					return 0, map[string]any{"total": 1, "msglist": []any{tc.row}}
+				}
+				return 0, map[string]any{"tid": "new-tid"}
+			}
+			p := f.start(t, map[string]any{"allow_qzone": true})
+
+			_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+			if err == nil {
+				t.Fatal("上游没说可见范围时该拒绝：不能赌它是公开的")
+			}
+			if !errors.Is(err, core.ErrSocialCannotReplace) {
+				t.Fatalf("这该是「这条不能这么换」（400），实际 %v", err)
+			}
+			if n := len(f.calls("send_qzone_msg")); n != 0 {
+				t.Fatalf("可见范围未知还发了 %d 次新的——赌错就是把范围改宽", n)
+			}
+			if n := len(f.calls("delete_qzone_msg")); n != 0 {
+				t.Fatalf("可见范围未知还删了 %d 次旧的", n)
+			}
+			if !strings.Contains(err.Error(), "先不动它") {
+				t.Fatalf("错误要说清旧的没动：%q", err.Error())
+			}
+		})
+	}
+}
+
+// TestSocial_ReplaceRefusesWhenAPictureHasNoURL：旧说说有图、其中一张却没有地址时，
+// 不能悄悄少带一张——那等于换个说法顺手删掉一张图，而调用方看不见。
+func TestSocial_ReplaceRefusesWhenAPictureHasNoURL(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "get_qzone_msg_list" {
+			return 0, map[string]any{"total": 1, "msglist": []any{
+				map[string]any{"tid": "old-tid", "content": "三张图，中间那张没地址", "is_private": false,
+					"images": []any{"https://example.invalid/a.jpg", "   ", "https://example.invalid/c.jpg"}},
+			}}
+		}
+		return 0, map[string]any{"tid": "new-tid"}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	_, err := p.ReplaceMoment(context.Background(), "old-tid", "换个说法")
+	if err == nil {
+		t.Fatal("有图没地址时该拒绝，不能少带一张")
+	}
+	if n := len(f.calls("send_qzone_msg")); n != 0 {
+		t.Fatalf("图带不全还发了 %d 次新的", n)
+	}
+	if n := len(f.calls("delete_qzone_msg")); n != 0 {
+		t.Fatalf("图带不全还删了 %d 次旧的", n)
+	}
+	if !strings.Contains(err.Error(), "3 张") || !strings.Contains(err.Error(), "先不动它") {
+		t.Fatalf("错误要说清少图、旧的没动：%q", err.Error())
+	}
+}
+
+// TestSocial_ListAsksForSnowluma：列表要明确要 snowluma 那份。不传 format 时上游
+// 一见到 cursor 就换 native，而 native 既没有可见范围也没有同样的图片形状
+// （napcat-core/data/qzone-rpc.ts:89-100、:202-225），换说说靠的就是这两样。
+func TestSocial_ListAsksForSnowluma(t *testing.T) {
+	f := newSocialOneBot(t)
+	f.respond = func(action string) (int, map[string]any) {
+		if action == "get_qzone_msg_list" {
+			return 0, map[string]any{"total": 0, "msglist": []any{}}
+		}
+		return 0, map[string]any{}
+	}
+	p := f.start(t, map[string]any{"allow_qzone": true})
+
+	if _, err := p.ListMoments(context.Background(), 5); err != nil {
+		t.Fatalf("ListMoments: %v", err)
+	}
+	calls := f.calls("get_qzone_msg_list")
+	if len(calls) != 1 {
+		t.Fatalf("get_qzone_msg_list 次数 %d", len(calls))
+	}
+	if got := calls[0]["format"]; got != "snowluma" {
+		t.Fatalf("format 该固定要 snowluma，实际 %v", got)
+	}
+	if _, ok := calls[0]["cursor"]; ok {
+		t.Fatal("snowluma 这条路不认 cursor，别传")
+	}
+}
+
 // TestSocial_ReplaceRefusesWhenOldPostUnreadable：读不回原来那条就不知道它带没带
 // 图，这时候一个新请求都不该发出去——宁可不换，也不能发个没图的再把原的删了。
 func TestSocial_ReplaceRefusesWhenOldPostUnreadable(t *testing.T) {
@@ -338,7 +452,7 @@ func TestSocial_ReplaceRefusesLocalFileImage(t *testing.T) {
 	f.respond = func(action string) (int, map[string]any) {
 		if action == "get_qzone_msg_list" {
 			return 0, map[string]any{"total": 1, "msglist": []any{
-				map[string]any{"tid": "old-tid", "content": "带本地路径的图",
+				map[string]any{"tid": "old-tid", "content": "带本地路径的图", "is_private": false,
 					"images": []any{"file:///etc/passwd"}},
 			}}
 		}

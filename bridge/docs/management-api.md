@@ -1154,7 +1154,8 @@ Reads the capability flags and the account's own recent posts (newest first).
         "text": "今天画了张图",
         "time": "2026-11-05T06:21:06+08:00",
         "images": [],
-        "private": false
+        "private": false,
+        "private_known": true
       }
     ]
   }
@@ -1172,6 +1173,13 @@ Reads the capability flags and the account's own recent posts (newest first).
 
 `moments` is always an array (`[]`, never `null`), so a panel can read `.length` directly.
 
+`private` and `private_known` are two fields, not one. `private_known: true` means the platform
+actually answered: `private: false` is "everyone can see it", `private: true` is "only some
+people (or nobody but the owner) can". `private_known: false` means it **did not answer** —
+`private` then carries no meaning and a client must not read it as "public". The QQ side gets
+this from `is_private` on each row of `get_qzone_msg_list`; a row without that field, or with a
+value that is not a boolean / a number / a numeric string, comes back as unknown.
+
 ---
 
 #### POST /api/v1/projects/{name}/social/moment
@@ -1187,7 +1195,7 @@ Publishes one 说说 (text only for now; pictures go through the QQ client's own
 **Response:**
 
 ```json
-{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false } } }
+{ "ok": true, "data": { "moment": { "id": "stub01", "text": "今天画了张图", "time": "2026-11-05T06:21:06+08:00", "images": [], "private": false, "private_known": true } } }
 ```
 
 Errors: `400` empty text, `403` the action is off (message names `allow_qzone`), `501` the
@@ -1211,7 +1219,7 @@ two posts or none.
 **Response:**
 
 ```json
-{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "Said it differently", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false } } }
+{ "ok": true, "data": { "moment": { "id": "new-tid", "text": "Said it differently", "time": "2026-11-08T06:00:00+08:00", "images": [], "private": false, "private_known": true } } }
 ```
 
 **Order and failure** (important): QQ空间 has no upstream call that edits a post's words; it
@@ -1238,15 +1246,30 @@ itself — the extra post has to be deleted first.
 post are read back by the platform itself (looked up by tid among the most recent 50 posts) and
 published with the new post, so "replace" never drops them. When the old post cannot be read back
 (too old, outside those 50, or the list call failed) **nothing is published at all**: the call
-fails and the original stays. Better no replace than a picture-less copy after deleting the one
-with pictures.
+fails and the original stays. The same holds when a row says it has pictures but one of them
+comes back without a URL — carrying the rest over and dropping that one would delete a picture
+the caller never agreed to lose. Better no replace than a picture-less copy after deleting the
+one with pictures.
 
-**Visibility**: when the old post is marked "visible to some people only", the call is refused
-(`400`) and **nothing is published**. Upstream gives only a boolean (`is_private`, derived from
-whether `secret` is 0); it cannot tell friend-only, some-friends, private and hidden-from-some
-apart, and posting without `ugc_right` defaults to 1 (everyone). Replacing that way would turn a
-restricted post into a public one, and deleting the old one makes it irreversible, so the call
-does not guess — change it in QQ by hand instead.
+**Visibility**: replacing only goes ahead when the old post is *known* to be visible to
+everyone, i.e. `private_known: true` and `private: false`. Two other cases are refused with
+`400` and **nothing is published**:
+
+- `private: true` — the old post is marked "visible to some people only". Upstream gives only a
+  boolean (`is_private`, derived from whether `secret` is 0); it cannot tell friend-only,
+  some-friends, private and hidden-from-some apart, and posting without `ugc_right` defaults to
+  1 (everyone). Replacing that way would turn a restricted post into a public one, and deleting
+  the old one makes it irreversible — change it in QQ by hand instead.
+- `private_known: false` — the list row did not say. This is not the same as "public": the
+  SnowLuma response schema makes `is_private` a required boolean, and NapCat itself synthesises
+  `false` when the underlying `secret` is missing, so a row without it is not a trustworthy
+  "everyone" — it means the shape was not recognised. Guessing here is the same bet as above,
+  so the call refuses.
+
+**Reading the list**: the QQ side asks `get_qzone_msg_list` for `format=snowluma` on purpose.
+Without `format` the upstream switches to its other format as soon as a cursor is passed, and
+that one carries no visibility field and a different picture shape — exactly the two things a
+replace needs.
 
 **What else does not carry over**: comments, likes, the publish time and the `tid` all change.
 Replace means "publish a new one, delete the old one", not an in-place edit; the panel's

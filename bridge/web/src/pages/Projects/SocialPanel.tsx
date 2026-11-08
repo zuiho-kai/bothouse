@@ -246,11 +246,11 @@ export default function SocialPanel({ project }: { project: string }) {
                         <p className="whitespace-pre-wrap break-words text-sm text-ink">{m.text}</p>
                         <p className="mt-1 text-[12px] text-ink-mute">
                           {m.time && m.time !== '0001-01-01T00:00:00Z' ? new Date(m.time).toLocaleString() : ''}
-                          {m.private && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{T.privateLabel}</span>}
+                          {m.private_known && m.private && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{T.privateLabel}</span>}
                         </p>
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        {canReplace && m.id && editing !== m.id && !m.private && (
+                        {canReplace && m.id && editing !== m.id && m.private_known && !m.private && (
                           <Button
                             variant="secondary"
                             onClick={() => startReplace(m)}
@@ -261,11 +261,23 @@ export default function SocialPanel({ project }: { project: string }) {
                             {T.replace}
                           </Button>
                         )}
-                        {canReplace && m.id && m.private && (
+                        {canReplace && m.id && !m.private_known && (
+                          // 上游没说这条算谁可见：可能公开，也可能只是几个人。换一条会
+                          // 发新的再删旧的，赌错就把范围改宽且不可逆。
+                          <p
+                            className="max-w-[16rem] text-right text-[12px] text-ink-mute"
+                            role="status"
+                            data-testid={`social-replace-unknown-${m.id}`}
+                          >
+                            {T.replaceVisibilityUnknown}
+                          </p>
+                        )}
+                        {canReplace && m.id && m.private_known && m.private && (
                           // 上游只说「仅部分人可见」，说不出是哪一种；换一条会变成所有人可见。
                           // 后端也已经拒了（400），这里先不让人点，并说明去哪儿改。
                           <p
                             className="max-w-[16rem] text-right text-[12px] text-ink-mute"
+                            role="status"
                             data-testid={`social-replace-private-${m.id}`}
                           >
                             {T.replacePrivateBlocked}
