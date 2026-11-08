@@ -18591,7 +18591,13 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		return "", err
 	}
 	session := sessions.GetOrCreateActive(relaySessionKey)
-	finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	// The team's work key is the relay's role-event session key: the snapshot
+	// counts this one work item by that key, so its events must name it too.
+	teamKey, finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	roleEventKey := relaySessionKey
+	if teamKey != "" {
+		roleEventKey = teamKey
+	}
 	teamOutcome := teamWorkUnconfirmed
 	draining := false
 	defer func() {
@@ -18709,7 +18715,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
+			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, roleEventKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -18750,7 +18756,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				continue
 			}
 			e.observeQuotaEventFor(event, sourceSessionKey, agentSession, turnScope)
-			e.observeRoleAgentEvent(relaySessionKey, event, textParts)
+			e.observeRoleAgentEvent(roleEventKey, event, textParts)
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
 			}
@@ -18892,7 +18898,7 @@ var relayDrainSafety = 10 * time.Minute
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
 // relays leave that to the ten-minute watch (stop and nudge).
-func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey, roleEventKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -18956,7 +18962,7 @@ func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, ag
 				sessions.Save()
 			}
 			e.observeQuotaEventFor(ev, relaySessionKey, agentSession, turnScope)
-			e.observeRoleAgentEvent(relaySessionKey, ev, textParts)
+			e.observeRoleAgentEvent(roleEventKey, ev, textParts)
 			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // as in handleTrackedRelay
 			}

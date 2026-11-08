@@ -9,10 +9,14 @@ GET /api/v1/roles/events 返回 SSE，沿用管理 API 的 Bearer token；浏览
 - snapshot：{roles: [...], dsh: {status, error?}, time}。首次连接和每次重新连接都先返回全部已知角色；角色增删或 DSH 可用性变化也会补快照。
 - 角色：role_key、source、name、display_name、online、status、busy_count、sessions。角色键固定为 bridge:项目名 或 dsh:成员ID；显示名字不能当键。
 - sessions：每项含 session_key、status、busy。桥接用现有会话键；DSH 用房间 ID，只有 presence 时沿用其 busy_chat 标签（缺失时为空），不能当作稳定会话 ID。
-- 增量：{type, role_key, session_key, status, time, role}；speech 另带 text。time 为 RFC3339 UTC。status 是此次会话状态，role.status 才是多开合并后的角色状态；仅聚合变化时 session_key 为空，详情看 role.sessions。
-- idle 空闲，working 干活，thinking 思考，celebrate 完成，error 出错，speech 最终回复或 DSH 实际消息。思考正文不外发，桥接 NO_REPLY 不转成气泡；这些事件不承诺消息已在外部平台送达。
+- 增量：{type, role_key, session_key, status, time, role}；speech 另带 text，DSH 实际消息还带 message_id、revision、category，未定稿的流式回复带 draft，改写本连接已发过的那条带 update。time 为 RFC3339 UTC。status 是此次会话状态，role.status 才是多开合并后的角色状态；仅聚合变化时 session_key 为空，详情看 role.sessions。
+- idle 空闲，working 干活，thinking 思考，celebrate 完成，error 出错，speech 角色说的话（桥接为最终回复，DSH 为房间里的消息，流式期间先发未定稿版本，还会更新）。思考正文不外发，桥接 NO_REPLY 不转成气泡；这些事件不承诺消息已在外部平台送达。界面卡片不算说话，见下条。
+- DSH 一条消息从草稿、逐段改写到提交始终是同一个 message_id，revision 随正文改变（毫秒时间戳，只能比大小、不能当序号），category 为 draft 表示还在流式生成、reply 表示已定稿，draft 字段同时标出未定稿。消费方按 message_id 替换同一条气泡，不要按事件条数追加；update 为 true 表示这是本连接已发过的那条消息的改写。同一连接里正文和 revision 都没变的重复帧直接丢弃，不会重复推送。
+- DSH 的进度卡、授权卡、任务卡是房间内的界面元素，不是角色说的话，一律不转成 speech。判卡只看 card 字段是否非空（null 或缺失即不是卡），不要按作者判断——授权卡、任务卡同样以角色身份发出；也不要用顶层 kind 判卡，顶层 kind 保留给任务板事件。
 
 一个角色开多处，按 error > working > thinking > celebrate > idle 合并。busy_count 是忙的不同会话数，页面显示“N 处在忙”；相同会话不重复计数。DSH 的 thinking 房间集合可数多处，只有单份 presence 时只能确认一处，不推测额外会话。完成/错误是瞬时事件，之后按真实会话忙闲恢复；DSH 自身报告的成员错误会保留至上游清除。
+
+中继和任务这类一次性的活在快照里各自是一份工作，键形如 项目:relay-work-N。它的角色事件也用这个键，所以一次活只算一处忙：事件换了键会多算一份，恢复正常后自行消失（不是永久卡忙），但这段时间页面会短暂多显示一处。
 
 桥接事件实时推送，忙闲另沿用 DSH presence 的两秒刷新周期核对。DSH 事件通过现有原生 SSE 转接，断开后按现有 DSH 三秒读取超时重试并重取状态。DSH 不可用时 dsh.status 为 stopped/error，已有 DSH 角色是最后已知状态，不能当作仍在线。客户端应显示不可用。没有历史事件重放；重连用快照替换角色集合，清理旧会话，避免重放旧气泡。慢订阅者会断开并重取快照。
 
@@ -30,7 +34,7 @@ enabled 是角色自己的开关，DSH 全局启用状态仍由原有插件接�
 
 | 对象 | 能装 | 能跑 | 能收角色事件 |
 | --- | --- | --- | --- |
-| 本次隔离 HTTP 订阅器 | 不适用 | Mac 针对性测试通过 | 首帧、重连、思考、说话、交活、空闲已验；DSH 用本地原生协议桩验证 |
+| 本次隔离 HTTP 订阅器 | 不适用 | Mac 针对性测试通过 | 首帧、重连、思考、说话、交活、空闲已验；DSH 用本地原生协议桩验证，含草稿→改写→提交同一条消息、进度卡不成 speech、中继忙只算一处 |
 | DSH 社区桌宠、人格等插件 | 本次未验 | 本次未验 | 本次未验；需要插件或适配器订阅，不能凭接口就宣称兼容 |
 
 本次没有安装社区插件、连接生产 DSH、部署或重启。接口测试不替代后续发布包与真实插件验收。

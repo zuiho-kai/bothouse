@@ -26,13 +26,52 @@ type RoleState struct {
 }
 
 type RoleEvent struct {
-	Type       string    `json:"type"`
-	RoleKey    string    `json:"role_key"`
-	SessionKey string    `json:"session_key"`
-	Status     string    `json:"status"`
-	Text       string    `json:"text,omitempty"`
-	Time       time.Time `json:"time"`
-	Role       RoleState `json:"role"`
+	Type       string `json:"type"`
+	RoleKey    string `json:"role_key"`
+	SessionKey string `json:"session_key"`
+	Status     string `json:"status"`
+	Text       string `json:"text,omitempty"`
+	// DSH message identity (#1355): one upstream message keeps its id for life, and
+	// revision moves on every in-place edit or draft commit. update marks a frame that
+	// revises a message already sent on this stream; draft marks a reply still streaming.
+	MessageID int64   `json:"message_id,omitempty"`
+	Revision  float64 `json:"revision,omitempty"`
+	Draft     bool    `json:"draft,omitempty"`
+	Update    bool    `json:"update,omitempty"`
+	// Category names the frame's kind without a top-level `kind`: card frames are
+	// progress cards or cards, drafts are text not yet settled. A top-level `kind`
+	// would collide with the task board's event shape in dsh/collab/desk.mjs.
+	Category string    `json:"category,omitempty"`
+	Time     time.Time `json:"time"`
+	Role     RoleState `json:"role"`
+}
+
+// roleMessageLog remembers what this connection already sent for each message id.
+// A frame repeating the same revision and text is a duplicate; a different revision
+// or text for a known id is an update, never a new bubble. Revision alone cannot
+// decide: created_at and changed_at are both milliseconds, and a commit can land in
+// the same millisecond as the last streamed edit.
+type roleMessageLog map[int64]struct {
+	revision float64
+	text     string
+}
+
+func (l roleMessageLog) accept(ev *RoleEvent) bool {
+	if ev.Type != "speech" || ev.MessageID == 0 {
+		return true
+	}
+	prev, seen := l[ev.MessageID]
+	if seen {
+		if prev.revision == ev.Revision && prev.text == ev.Text {
+			return false
+		}
+		ev.Update = true
+	}
+	l[ev.MessageID] = struct {
+		revision float64
+		text     string
+	}{ev.Revision, ev.Text}
+	return true
 }
 
 // The broker remembers only the thinking phase. Busy truth stays in Session/team state.

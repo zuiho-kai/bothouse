@@ -147,6 +147,33 @@ func TestRoleEventsHTTPReconnectSnapshotAndLiveEvents(t *testing.T) {
 	session.Unlock()
 }
 
+// What one connection does with the frames of a streamed reply: the first draft is a
+// new bubble, every later revision of the same id marks update, an identical repeat is
+// dropped, and non-speech frames (no message id) are never filtered.
+func TestRoleEventsSpeechIdentityDedupAndUpdate(t *testing.T) {
+	sent := roleMessageLog{}
+	cases := []struct {
+		name   string
+		ev     RoleEvent
+		want   bool
+		update bool
+	}{
+		{"first draft", RoleEvent{Type: "speech", MessageID: 7, Revision: 100, Text: "半句", Draft: true, Category: "draft"}, true, false},
+		{"identical repeat", RoleEvent{Type: "speech", MessageID: 7, Revision: 100, Text: "半句", Draft: true, Category: "draft"}, false, false},
+		{"grown draft", RoleEvent{Type: "speech", MessageID: 7, Revision: 101, Text: "半句话", Draft: true, Category: "draft"}, true, true},
+		{"commit in the same millisecond", RoleEvent{Type: "speech", MessageID: 7, Revision: 101, Text: "半句话。", Category: "reply"}, true, true},
+		{"same text, later revision", RoleEvent{Type: "speech", MessageID: 7, Revision: 102, Text: "半句话。", Category: "reply"}, true, true},
+		{"a different message", RoleEvent{Type: "speech", MessageID: 8, Revision: 1, Text: "半句话。", Category: "reply"}, true, false},
+		{"status without an id", RoleEvent{Type: "thinking", SessionKey: "1"}, true, false},
+	}
+	for _, tc := range cases {
+		ev := tc.ev
+		if got := sent.accept(&ev); got != tc.want || ev.Update != tc.update {
+			t.Fatalf("%s: accepted=%v update=%v, want %v/%v", tc.name, got, ev.Update, tc.want, tc.update)
+		}
+	}
+}
+
 func TestRoleEventsTerminalAndSilentRules(t *testing.T) {
 	m := NewManagementServer(0, "test", nil)
 	e := roleTestEngine(m, "deep")
@@ -235,13 +262,33 @@ func TestRoleEventsDSHNativeSnapshotThinkingSpeechAndCompletion(t *testing.T) {
 	if dshRoleStates(initial.state)[0].BusyCount != 0 {
 		t.Fatal("initial snapshot mutated")
 	}
-	frames <- `{"type":"message","message":{"author":"deep","author_kind":"role","room_id":1,"text":"hello","created_at":1}}`
-	speech := next()
-	if speech.event == nil || speech.event.Type != "speech" || speech.event.RoleKey != "dsh:deep" || speech.event.SessionKey != "1" || speech.event.Text != "hello" {
-		t.Fatalf("speech: %+v", speech.event)
+	// A streamed reply is one upstream message: the draft and the edit that grows it
+	// keep the id and only move revision, so a consumer can replace one bubble.
+	frames <- `{"type":"message","message":{"id":7,"author":"deep","author_kind":"role","room_id":1,"text":"半句","draft":true,"created_at":1,"revision":100}}`
+	draft := next()
+	if draft.event == nil || draft.event.Type != "speech" || draft.event.RoleKey != "dsh:deep" || draft.event.SessionKey != "1" || draft.event.Text != "半句" {
+		t.Fatalf("draft speech: %+v", draft.event)
 	}
+	if draft.event.MessageID != 7 || draft.event.Revision != 100 || !draft.event.Draft || draft.event.Category != "draft" {
+		t.Fatalf("draft identity: %+v", draft.event)
+	}
+	frames <- `{"type":"message","message":{"id":7,"author":"deep","author_kind":"role","room_id":1,"text":"半句话","draft":true,"created_at":1,"revision":101}}`
+	grown := next()
+	if grown.event == nil || grown.event.MessageID != 7 || grown.event.Revision != 101 || grown.event.Text != "半句话" || grown.event.Category != "draft" {
+		t.Fatalf("draft edit: %+v", grown.event)
+	}
+	frames <- `{"type":"message","message":{"id":7,"author":"deep","author_kind":"role","room_id":1,"text":"半句话","created_at":1,"revision":102}}`
+	committed := next()
+	if committed.event == nil || committed.event.MessageID != 7 || committed.event.Revision != 102 || committed.event.Draft || committed.event.Category != "reply" {
+		t.Fatalf("commit: %+v", committed.event)
+	}
+	// A progress card is in-room UI (card without `kind`), not the role's prose: it
+	// must produce no event at all, so the next update is the thinking frame's.
+	frames <- `{"type":"message","message":{"id":8,"author":"deep","author_kind":"role","room_id":1,"text":"第 2 步 · 5秒","card":"{\"title\":\"deep · 进行中\",\"state\":\"running\",\"steps\":2,\"elapsed_sec\":5,\"brief\":\"第 2 步\",\"chips\":[]}","created_at":2}}`
 	frames <- `{"type":"thinking","room_id":1,"members":[]}`
-	if got := dshRoleStates(next().state)[0]; got.BusyCount != 0 {
+	if settled := next(); settled.event != nil {
+		t.Fatalf("card forwarded as speech: %+v", settled.event)
+	} else if got := dshRoleStates(settled.state)[0]; got.BusyCount != 0 {
 		t.Fatalf("done: %+v", got)
 	}
 	if ev := next().event; ev == nil || ev.Type != "celebrate" {
@@ -252,5 +299,61 @@ func TestRoleEventsDSHNativeSnapshotThinkingSpeechAndCompletion(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("watcher leaked after disconnect")
+	}
+}
+
+// A relay in flight is counted once, by the team work key the snapshot names. Its
+// role events must carry that same key: published under the relay session key they
+// would update nothing and add a second busy session to the frame they arrive on.
+func TestRoleEventsRelayKeyMatchesTeamSnapshot(t *testing.T) {
+	s := newTeamRelaySession()
+	agent := &controllableAgent{nextSession: s}
+	e, _ := teamRelayEngine(t, agent)
+	m := NewManagementServer(0, "test", nil)
+	m.RegisterEngine("worker", e)
+	events, unsubscribe := m.roleEvents.subscribe()
+	defer unsubscribe()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = e.handleTrackedRelay(context.Background(), "lead", "discord:room:u", "discord:room:u", "P", agent, e.sessions, "relay:lead:discord:room:u", true, nil, nil)
+		close(done)
+	}()
+	waitTeamRelay(t, s.sent)
+	s.events <- Event{Type: EventThinking}
+	s.events <- Event{Type: EventToolUse}
+
+	for _, want := range []string{"thinking", "working"} {
+		var ev RoleEvent
+		select {
+		case ev = <-events:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no %s role event from the relay", want)
+		}
+		if ev.Type != want {
+			t.Fatalf("relay event %q, want %q: %+v", ev.Type, want, ev)
+		}
+		role := m.bridgeRoleStates()[0]
+		busy := 0
+		for _, s := range role.Sessions {
+			if s.Busy {
+				busy++
+				if s.SessionKey != ev.SessionKey {
+					t.Fatalf("%s event key %q does not name the snapshot's busy session %q", want, ev.SessionKey, s.SessionKey)
+				}
+			}
+		}
+		if busy != 1 {
+			t.Fatalf("%s event: %d busy sessions for one relay: %+v", want, busy, role.Sessions)
+		}
+		if got := roleWithEvent(role, ev); got.BusyCount != 1 {
+			t.Fatalf("%s frame counted %d busy sessions for one relay: %+v", want, got.BusyCount, got.Sessions)
+		}
+	}
+
+	s.events <- Event{Type: EventResult, Content: "ok"}
+	waitTeamRelay(t, done)
+	if got := m.bridgeRoleStates()[0]; got.BusyCount != 0 {
+		t.Fatalf("finished relay still busy: %+v", got)
 	}
 }

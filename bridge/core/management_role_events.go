@@ -27,6 +27,14 @@ type dshRoleUpdate struct {
 	event  *RoleEvent
 }
 
+// DSH cards are in-room UI — a turn's progress card, a permission request, a
+// task notice — never the role's prose. Forwarding them as speech put card
+// chrome into the bubble stream and let one turn look like several replies, so
+// a card frame is not a speech at all.
+func dshCardFrame(card json.RawMessage) bool {
+	return len(card) != 0 && string(card) != "null"
+}
+
 func (m *ManagementServer) handleRoleEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
@@ -63,6 +71,9 @@ func (m *ManagementServer) handleRoleEvents(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("X-Accel-Buffering", "no")
 	previous := snapshot()
 	sse.event("snapshot", previous)
+	// What this connection already forwarded, so a message edited several times
+	// stays one bubble and a repeated frame is not sent twice.
+	sent := roleMessageLog{}
 
 	sendChanges := func() {
 		next := snapshot()
@@ -99,6 +110,9 @@ func (m *ManagementServer) handleRoleEvents(w http.ResponseWriter, r *http.Reque
 		for _, role := range snapshot().Roles {
 			if role.RoleKey != ev.RoleKey {
 				continue
+			}
+			if !sent.accept(&ev) {
+				return
 			}
 			ev.Role = role
 			if ev.Type != "speech" {
@@ -238,11 +252,15 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 			Room    json.Number      `json:"room_id"`
 			Rooms   []dshStateRoom   `json:"rooms"`
 			Message struct {
-				Author    string      `json:"author"`
-				Kind      string      `json:"author_kind"`
-				Room      json.Number `json:"room_id"`
-				Text      string      `json:"text"`
-				CreatedAt float64     `json:"created_at"`
+				ID        int64           `json:"id"`
+				Author    string          `json:"author"`
+				Kind      string          `json:"author_kind"`
+				Room      json.Number     `json:"room_id"`
+				Text      string          `json:"text"`
+				Card      json.RawMessage `json:"card"`
+				Draft     bool            `json:"draft"`
+				CreatedAt float64         `json:"created_at"`
+				Revision  *float64        `json:"revision"`
 			} `json:"message"`
 		}
 		raw := strings.Join(data, "\n")
@@ -313,6 +331,12 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 			if !found {
 				continue
 			}
+			// A card is in-room UI (a turn's progress card, a permission ask, a
+			// task notice), not something the role said. Forwarding cards as
+			// speech is what put progress chrome into the bubble stream.
+			if dshCardFrame(msg.Card) {
+				continue
+			}
 			status := "idle"
 			for _, role := range dshRoleStates(&st) {
 				if role.RoleKey == "dsh:"+msg.Author {
@@ -320,7 +344,22 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 					break
 				}
 			}
-			ev := RoleEvent{Type: "speech", RoleKey: "dsh:" + msg.Author, SessionKey: msg.Room.String(), Status: status, Text: msg.Text, Time: time.Unix(0, int64(msg.CreatedAt*float64(time.Second))).UTC()}
+			// One upstream message keeps its id across draft, incremental edits
+			// and commit; revision moves whenever the stored text changes. Send
+			// both so the consumer can replace its bubble instead of appending.
+			revision := msg.CreatedAt
+			if msg.Revision != nil {
+				revision = *msg.Revision
+			}
+			category := "reply"
+			if msg.Draft {
+				category = "draft"
+			}
+			ev := RoleEvent{
+				Type: "speech", RoleKey: "dsh:" + msg.Author, SessionKey: msg.Room.String(), Status: status,
+				Text: msg.Text, MessageID: msg.ID, Revision: revision, Draft: msg.Draft, Category: category,
+				Time: time.Unix(0, int64(msg.CreatedAt*float64(time.Second))).UTC(),
+			}
 			if !send(dshRoleUpdate{status: running, event: &ev}) {
 				return ctx.Err()
 			}
