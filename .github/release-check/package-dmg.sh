@@ -33,6 +33,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAppleEventsUsageDescription</key><string>Bothouse 的角色需要读取和操作你打开的应用（如浏览器标签页）来完成你交代的任务。</string>
 </dict></plist>
 PLIST
 # Sign the assembled bundle, not only the executable. Until v0.1.50 the only codesign call was
