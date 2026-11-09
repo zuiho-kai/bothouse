@@ -1189,6 +1189,12 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 				break
 			}
 		}
+		if worker == e && e.watchOwnerIsPerson(plat, chat, taskOwner) {
+			// A person's id (e.g. the user who asked for the task), not a role:
+			// the watch would mention that person to hand back. The lead works it instead.
+			slog.Warn("team workspace claim: owner is a person, not a role; claiming for the lead", "chat", chat, "owner", taskOwner)
+			taskOwner = ""
+		}
 	}
 	platform, _, _ := strings.Cut(chat, ":")
 	if wait := worker.capacityWait(worker.admissionQuotaScope(worker.agent, chat, platform+":"+wsID)); wait > 0 {
