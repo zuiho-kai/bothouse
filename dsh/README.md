@@ -90,7 +90,7 @@ python3 -I dsh/scripts/reload-dsh.py snapshot  # 保留的旧步骤，现在什�
 `run-cutover.py` 不在本仓库里，每个发布目录带自己的一份（按上次的目录复制过来）。它切主桥之前先过一道空闲门禁。#555 之后**默认不会在别人还忙的时候切**：
 
 - **默认（不加任何开关）**：最多等 5 分钟（300 秒，每 5 秒看一次）等所有会话空闲。**部署者自己那个工作区忙也算忙。** 到点还忙就写 `cutover-result.json` 的 `status=stopped_busy`（含 `busy`、`busy_count`、`waited_seconds` 和一句 `need`），日志记 `still busy after 300s, stopped before any change`，然后**直接退出，一个字节都不改**：不调部署、不写 `deployment.json`，也不是失败回执。忙的列表留给主角色决定继续等还是授权强切。
-- **显式授权强切，开关和授权人分开记**：开关来源写 `source`，谁批的写 `authorized_by`，两件事不混。`--force=<谁>` 给的是授权人；`--force` 单独用时必须配 `CUTOVER_FORCE_BY=<谁>`；`CUTOVER_FORCE=1` 同样必须配 `CUTOVER_FORCE_BY=<谁>`。**开关给了、人没给就停手**：写 `status=stopped_no_authorizer`（含 `source`、`error`、`need`）后退出，不猜人、不留空继续切，主桥一个字节不改。
+- **显式授权强切，开关和授权人分开记**：开关来源写 `source`，谁批的写 `authorized_by`，两件事不混。`--force=<谁>` 给的是授权人；`--force` 单独用时必须配 `CUTOVER_FORCE_BY=<谁>`；`CUTOVER_FORCE=1` 同样必须配 `CUTOVER_FORCE_BY=<谁>`。**开关给了、人没给就停手**：写 `status=stopped_no_authorizer`（含 `error`、`need`，以及请求的开关名 `force_requested` 和 `cutover_started: false`；**不含 `source`，也不写 `forced`**——没切过就不自称强切）后退出，不猜人、不留空继续切，主桥一个字节不改。
 - **授权人只是记录，不是凭据**：脚本能查的只有「名字非空」，查不出这个名字背后的人是否真的点过头。`--force=<谁>` 里的名字、`CUTOVER_FORCE_BY` 的值都只是写进日志和回执的交代，别把它当成脚本自己会把关的授权凭证；真正该不该强切，是人看过忙的列表之后决定的。
 - **强切痕迹贯穿整轮**：`deploying_main`、`deploying_qq`、`verifying_entries`、`complete`、`failed` 每条回执都带 `forced`、`source`、`authorized_by`，最后那条（成功或失败）翻得到这轮是强切的、谁批的。只有最终回执才具审计意义，中间回执会被下一条覆盖。
 - **`CUTOVER_RELEASE_HOLD=1` 只是状态标记，不授权强切**（#555 返工收紧）：它表示板上已经把在跑的活标成「为发布暂停」，重启后那些活会从停点续、不计失败；但它**不再**让脚本跳过空闲门禁，只把 `release_hold: true` 记进回执。真要不等空闲立刻切，另给 `--force=<谁>`。原实现（#410）里它单独就能切，和「除非显式 force 否则不切」对不上，所以按后者收紧；要恢复旧语义，得先拿到明确授权再改代码，不要靠设这个环境变量绕过。
