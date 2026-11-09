@@ -1,8 +1,8 @@
 #!/usr/bin/env python3 -I
 """Distill new Claude Code session content into the LLM wiki (~/wiki, schema in ~/wiki/CLAUDE.md).
 
-  ingest.py --pending        day: Haiku ingests every idle session with new content (hourly LaunchAgent
-                             cron, see README; nothing new -> no model call)
+  ingest.py --pending        day: one existing-size batch of idle sessions with new content;
+                             unread tails resume next invocation (nothing new -> no model call)
   ingest.py --session ID     day: ingest one closed session now; if a run is going, queue it for that run
   ingest.py --hook           SessionEnd hook: reads the hook JSON on stdin, runs --session detached
   ingest.py --nightly        night (Mon–Sat 03:00): luna ingests leftovers, then reviews the
