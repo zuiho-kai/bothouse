@@ -313,6 +313,9 @@ each starting with a `=== SESSION` header.
    One home per fact: grep the wiki first; if another page already owns the fact, update it there and link
    `[[name]]` — never restate it. If something was renamed, grep for the old name and update every hit.
    Keep conclusions, not process: result + reason + the few numbers that justify it.
+   When an entry gives the user's words or a decision (用户说/定/同意…), quote them verbatim in the entry — at least
+   four characters, or the whole sentence. Without such a quote, name who really said it or leave the claim out; the
+   script checks every new quote and every user claim against the session's USER lines and rejects the pass.
    Rewrite 现状 to the current truth; delete facts the new content supersedes. A reversed decision leaves one
    line in 决策与踩坑 (曾以为 X → 因 Y 改为 Z, date). Date facts that can go stale (YYYY-MM-DD).
 3. Keep every README line and page `description:` in sync with the page body, and MEMORY.md with the READMEs
@@ -382,8 +385,10 @@ A3 事实清单每条都能在 wiki 里找到（跳过的写出 文件:行），
 A4 没有同一事实写在两页（对新写的路径/ID/端口 grep 自检）。
 A5 每个改过页面的 description: 和 README 行与正文一致。
 A6 没删掉仍然成立的事实。
-A7 本次写的每条「用户说/用户定/用户否决/用户原话」都能对上 TRANSCRIPT 里一条 USER 或 USER→ 行（逐条回看那一行再判 pass）。
-   归给用户的「」引文须逐字取自 USER 行，脚本会核对，不符整次打回。
+A7 本次写的每条「用户说/用户定/用户否决/用户原话/用户同意」都能对上 TRANSCRIPT 里一条 USER 或 USER→ 行（逐条回看那一行再判 pass）。
+   每一条把话或决定归给用户的记录，都带一句从那条 USER 行逐字摘出的原话（≥4 字，或整句）；找不到原话就把说话的人写对，
+   或不写成用户的决定（未答复的提议只进 log.md「- 未答复提议：X」）。归给用户的「」引文须逐字取自 USER 行。
+   脚本会核对引文和归属，不符整次打回。
 
 ## 交付
 最后输出：每个改过的文件一行「<path>: <改了什么>」；每条因已存在而跳过的事实一行「跳过: <事实> → <文件:行>」；然后 A1–A7 各一行 pass/fail。"""
@@ -437,7 +442,8 @@ A2 每个 sid8 都在 log.md 末尾新追加了一条 review 条目。
 A3 事实清单每条都在 wiki 里（写出 文件:行），或判定不记（写出理由）。
 A4 DAY WRITES 里的 + 行没有无依据的说法留下；改动只落在 DAY PAGES 和补漏写入处，每处改动都有 TRANSCRIPT 依据。
 A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样移到 log.md 的除外；脚本核对）。
-A6 本次写下或保留的每条「用户说/用户定」都对得上一条 USER 或 USER→ 行；新写的归给用户的「」引文须逐字取自 USER 行（脚本核对）。
+A6 本次写下或保留的每条「用户说/用户定/用户同意」都对得上一条 USER 或 USER→ 行；每一条把话或决定归给用户的记录都带一句
+   逐字摘出的原话（≥4 字或整句），找不到原话就把说话的人写对或不写成用户的决定；归给用户的「」引文须逐字取自 USER 行（脚本核对）。
 A7 DAY DELETIONS 每行都处理过（恢复，或 TRANSCRIPT 写明它已不成立）。
 
 ## 交付
@@ -2513,37 +2519,100 @@ def review_check(shas):
 # who a quote on a page is given to: 用户答「没问题」, 用户 10-15 原话：「…」, 「…」（用户原话） are the user's. A quote not
 # right after 用户 + a speech verb is a label or someone else's (replay of 10-14..10-17 commits: 「用户否决：…写「凌晨三点半」」,
 # 「用户昵称一律改「家里人」」 are not speech); 需/待/等用户说「发版」 is a condition, not something said
-USER_SAYS = re.compile(r"(?<![需待等请让])用户(?![名未没])(?:(?!" + "|".join(map(re.escape, [*(n for ns in BOTS.values() for n in ns), "助手", "Claude", "队友"])) + r")[^「」。；;]){0,25}?"
-                       r"(?:(?:原话|说|答|回复?|问|定|要求|否决|指出|批评|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽)"
-                       r"[^「」。；;，,]{0,4}[：:（(\s]*|[：:]\s*)$")
+BOT_NAMES = "|".join(map(re.escape, [*(n for ns in BOTS.values() for n in ns), "助手", "Claude", "队友"]))
+USER_SAYS = re.compile(r"(?<![需待等请让])用户(?!" + BOT_NAMES + r"|名|未|没)[^「」。；;]{0,25}?"
+                       r"(?:(?:原话|说|答|回复?|问|定|要求|否决|指出|批评|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽|"
+                       r"同意|答应|批准|认可|采纳|拍板|反对|拒绝)"
+                       r"[^「」。；;，,]{0,8}[：:（(\s]*|[：:]\s*)$")
+# an entry that gives the user words or a decision, whether or not it quotes one: USER_SAYS is anchored to a quote after
+# the verb, so it cannot find the entries that need a quote (user 2026-11-09: 「记忆条目得带原话逐字依据，再核一遍，
+# 我现在只记来源和时间，太松」). 定/问/答 are dropped inside 决定/确定/问题/回答; 的/了/把/被 stop 用户的选择, 替用户答,
+# 用户 ssh 被拦 (data: the 177 added bullet lines with 用户 in the last 40 ingest commits of the three role wikis).
+CLAIM = re.compile(r"(?<![需待等请让替帮被由对给核引存看照按据未没不或部])用户(?!原|" + BOT_NAMES + r"|名|未|没|的|们|自己)"
+                   r"[^「」。；;，,：:的了把被\n]{0,60}?"
+                   r"(?:原话|说(?![明服法话])|答(?![案了])|(?<![撤返收])回复?|问(?![题])|(?<![未没不决确设规判认指约限固假位])定|要求|"
+                   r"否决|指出|批评|拒绝|同意|批准|抱怨|质疑|反对|交代|叮嘱|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽)")
+# a line whose whole point is that the words live on another page (「用户这条要求的原话与场景见 [[user-requests]]。」):
+# the quote is on that page, which is checked when it is written. A line that states the claim and happens to link a
+# page is not this, and neither is a pointer not at the end (appending one must not excuse a missing quote).
+PTR = re.compile(r"原话[^。；\n]{0,20}(?:见|详见)\s*`?(?:\[\[[^\]]+\]\]|[\w./-]+\.md)\s*[。.]?$")
+# 石英 quality.py `_quote_ok`: a quote under 4 characters counts only as a whole message (or its last line, the bridge
+# puts a header above the user's text), or 「好」 would pass inside any sentence that holds it (source:
+# ~/wiki/refs/astrbot-plugin-shrink.md; idea only, no AGPL code copied)
+MIN_QUOTE = 4
 # quotes are compared without whitespace and punctuation: the user types 「,」 where a page writes 「，」
 FLAT = re.compile(r"[\s，,。！!？?、：:；;“”\"'‘’（）()…~～]+|(?<!\d)\.|\.(?!\d)")  # 「v1.2」 ≠ 「v12」
 
 
+def flat(t):
+    """A text without whitespace or punctuation, lowercased: the user's 「,」 where a page writes 「，」 is the same words."""
+    return FLAT.sub("", t).lower()
+
+
+def quotes_on(line):
+    """Every 「…」 and “…” quote on a page line, whoever it is attributed to (pages quote the user both ways)."""
+    return [a or b for a, b in re.findall(r"「([^「」]+)」|“([^“”]+)”", line)]
+
+
 def user_quotes(line):
-    """The 「…」 quotes a page line attributes to the user."""
+    """The 「…」/“…” quotes a page line attributes to the user."""
     out, prev = [], False
-    for m in re.finditer(r"「([^「」]+)」", line):
+    for m in re.finditer(r"「([^「」]+)」|“([^“”]+)”", line):
         before = line[:m.start()]
-        ctx = before[max(before.rfind(c) for c in "」。；;") + 1:]
+        ctx = before[max(before.rfind(c) for c in "」。；;“”") + 1:]
         # 用户说「a」和「b」: a quote joined to a user quote by 和/、/， is the user's too
         prev = bool(USER_SAYS.search(ctx) or line[m.end():].startswith(("（用户原话", "(用户原话"))
                     or prev and re.fullmatch(r"[和与及或、，,\s]*", ctx))
         if prev:
-            out.append(m.group(1))
+            out.append(m.group(1) or m.group(2))
     return out
 
 
 def page_misquotes(sessions, base="HEAD"):
     """Quotes the pass's new page lines give to the user that none of `sessions` (transcript paths; plus any session
-    a line names by sid8) has on a USER/USER→ line. A quote already in the wiki at `base` is not new (a move)."""
+    a line names by sid8) has on a USER/USER→ line, and user claims no such quote backs. A line already in the wiki
+    at `base` is not new (a move)."""
     git("add", "-AN")
     diff = git("diff", "--unified=0", base, "--", "*.md", ":!log.md")
     git("reset", "-q")
     added = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
-    bad = bad_quotes(added, lambda: wiki_text(base), sessions)
-    return ("quotes given to the user (用户说/答/定「…」, 「…」（用户原话）) that no USER line of these sessions has: "
-            + "; ".join(bad) + " — quote the user's words exactly, name who really said it, or drop the quote") if bad else ""
+    old = lambda: wiki_text(base)
+    bad, claims = bad_quotes(added, old, sessions), claim_msgs(added, old, sessions)
+    return "\n".join(e for e in (
+        ("quotes given to the user (用户说/答/定「…」, 「…」（用户原话）) that no USER line of these sessions has: "
+         + "; ".join(bad) + " — quote the user's words exactly, name who really said it, or drop the quote") if bad else "",
+        ("entries that give the user words or a decision without a quote from a USER/USER→ line of this pass's "
+         "sessions: " + "; ".join(claims) + " — add the user's words verbatim (≥4 字, or the whole message), write "
+         "who really said it instead, or leave it out / keep it only in log.md's 未答复提议") if claims else "") if e)
+
+
+def heard(msgs):
+    """A message flattened, and again line by line: the bridge writes a sender/replying header above the user's text,
+    so a short quote is a whole line there rather than the whole message."""
+    return [t for m in msgs for t in dict.fromkeys((flat(m), *(flat(l) for l in m.splitlines() if l.strip()))) if t]
+
+
+def user_texts(p):
+    """The USER/USER→ lines of one session, normalized, one per message line; unreadable: none, so its quotes count
+    as misquotes."""
+    try:
+        if DISCORD_SOURCE and bridged(p):  # a bridged session's user words are Discord's, from the local midnight
+            # of its first turn (the message comes before the turn it starts) to its last
+            ts = [daypack.ts_of(e[3] if e[0] == "in" else e[2]) for e in events(p, 0)[0]
+                  if e[0] in ("in", "out") and (e[3] if e[0] == "in" else e[2])]
+            if not ts:
+                return []
+            # a day before its first turn: the message that started it may have waited behind a turn, across
+            # midnight too (the old local-midnight bound missed 23:59 → 00:00); one day is that bound's widest
+            lo = min(ts) - QUOTE_LEAD
+            return heard(m.text for m in discord_words(lo, max(ts) + 1))
+        return heard(dialog(p, 0)["said"])
+    except HouseholdError as e:
+        household_unreadable(f"quote check {p.stem}", e)
+        return []
+    except discord_said.Unavailable as e:  # unverifiable: its quotes count as misquotes
+        log(f"quote check {p.stem}: Discord history unavailable: {e}")
+        return []
 
 
 def bad_quotes(added, old_text, sessions):
@@ -2551,44 +2620,56 @@ def bad_quotes(added, old_text, sessions):
     quotes = [(l, q) for l in added for q in user_quotes(l)]
     if not quotes:
         return []
-    flat = lambda t: FLAT.sub("", t).lower()  # 「C 小心」 for the user's 「c小心」 is the same words
-    old = flat(old_text())
-    def said(p):  # one entry per USER/USER→ line; unreadable: none, so its quotes count as misquotes
-        try:
-            if DISCORD_SOURCE and bridged(p):  # a bridged session's user words are Discord's, from the local midnight
-                # of its first turn (the message comes before the turn it starts) to its last
-                ts = [daypack.ts_of(e[3] if e[0] == "in" else e[2]) for e in events(p, 0)[0]
-                      if e[0] in ("in", "out") and (e[3] if e[0] == "in" else e[2])]
-                if not ts:
-                    return []
-                # a day before its first turn: the message that started it may have waited behind a turn, across
-                # midnight too (the old local-midnight bound missed 23:59 → 00:00); one day is that bound's widest
-                lo = min(ts) - QUOTE_LEAD
-                return [flat(m.text) for m in discord_words(lo, max(ts) + 1)]
-            return [flat(t) for t in dialog(p, 0)["said"]]
-        except HouseholdError as e:
-            household_unreadable(f"quote check {p.stem}", e)
-            return []
-        except discord_said.Unavailable as e:  # unverifiable: its quotes count as misquotes
-            log(f"quote check {p.stem}: Discord history unavailable: {e}")
-            return []
-    heard = {str(p): said(p) for p in sessions}
+    old = flat(old_text())  # 「C 小心」 for the user's 「c小心」 is the same words
+    said = {str(p): user_texts(p) for p in sessions}
     every = None
     bad = []
     for line, q in quotes:
-        frags = [flat(f) for f in re.split(r"…+|\.\.\.", q) if flat(f)]
-        if not frags or flat(q) in old:
+        if flat(q) in old:
             continue
-        if any(in_order(frags, t) for ts in heard.values() for t in ts):
-            continue
+        texts = [t for ts in said.values() for t in ts]
         cited = re.findall(r"\b[0-9a-f]{8}\b", line)
         if cited:
             every = every or {sid[:8]: p for sid, p in transcripts(hosts=True).items()}
-            texts = [t for c in cited if c in every and str(every[c]) not in heard for t in said(every[c])]
-            if any(in_order(frags, t) for t in texts):
-                continue
-        bad.append(f"「{q}」")
+            texts += [t for c in cited if c in every and str(every[c]) not in said for t in user_texts(every[c])]
+        if not quote_ok(q, texts):
+            bad.append(f"「{q}」")
     return bad
+
+
+def claim_msgs(added, old_text, sessions):
+    """page_misquotes on given lines: each line that gives the user words or a decision (CLAIM) needs one of its quotes
+    to be the user's (quote_ok). A line already on the wiki at `old_text()` is a move; a pointer line (PTR) leaves the
+    words to the page it names, checked when that page is written."""
+    old = flat(old_text())
+    bad, said, every = [], None, None
+    for l in added:
+        if NOT_FACT.match(l) or not CLAIM.search(l) or PTR.search(l) or flat(l) in old:
+            continue
+        quotes = quotes_on(l)
+        if not quotes:
+            bad.append(f"{l.strip()[:100]}（没有引文）")
+            continue
+        said = said if said is not None else {str(p): user_texts(p) for p in sessions}
+        texts = [t for ts in said.values() for t in ts]
+        cited = re.findall(r"\b[0-9a-f]{8}\b", l)
+        if cited:
+            every = every or {sid[:8]: p for sid, p in transcripts(hosts=True).items()}
+            texts += [t for c in cited if c in every and str(every[c]) not in said for t in user_texts(every[c])]
+        if not any(quote_ok(q, texts) for q in quotes):
+            bad.append(f"{l.strip()[:100]}（引文「{quotes[0]}」不是这条会话里用户的话）")
+    return bad
+
+
+def quote_ok(q, texts):
+    """A quote is the user's words: ≥MIN_QUOTE characters in order in one USER line; shorter than that it counts only
+    as a whole line (heard() lists the message and each of its lines, so a header above the text does not block it)."""
+    frags = [flat(f) for f in re.split(r"…+|\.\.\.", q) if flat(f)]
+    if not frags:
+        return False
+    if len(q.strip()) < MIN_QUOTE:
+        return any(t == frags[0] for t in texts)
+    return any(in_order(frags, t) for t in texts)
 
 
 def in_order(frags, text):
