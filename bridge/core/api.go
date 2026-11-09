@@ -59,19 +59,20 @@ type APIServer struct {
 // the dispatch layer in engine.go. See cc-connect internal task
 // t-20260615-cqjbk1.
 type SendRequest struct {
-	TaskText   *TaskTextRequest  `json:"task_text,omitempty"`
-	Project    string            `json:"project"`
-	SessionKey string            `json:"session_key"`
-	Message    string            `json:"message"`
-	WorkDir    string            `json:"work_dir,omitempty"`
-	CWD        string            `json:"cwd,omitempty"`
-	TTSText    string            `json:"tts_text,omitempty"`
-	Images     []ImageAttachment `json:"images,omitempty"`
-	Files      []FileAttachment  `json:"files,omitempty"`
-	Audios     []FileAttachment  `json:"audios,omitempty"`
-	Videos     []FileAttachment  `json:"videos,omitempty"`
-	AtUsers    []string          `json:"at_users,omitempty"`
-	AtAll      bool              `json:"at_all,omitempty"`
+	TaskText         *TaskTextRequest  `json:"task_text,omitempty"`
+	Project          string            `json:"project"`
+	SessionKey       string            `json:"session_key"`
+	Message          string            `json:"message"`
+	WorkDir          string            `json:"work_dir,omitempty"`
+	CWD              string            `json:"cwd,omitempty"`
+	TTSText          string            `json:"tts_text,omitempty"`
+	Images           []ImageAttachment `json:"images,omitempty"`
+	Files            []FileAttachment  `json:"files,omitempty"`
+	Audios           []FileAttachment  `json:"audios,omitempty"`
+	Videos           []FileAttachment  `json:"videos,omitempty"`
+	AtUsers          []string          `json:"at_users,omitempty"`
+	AtAll            bool              `json:"at_all,omitempty"`
+	ReplyToMessageID string            `json:"reply_to_message_id,omitempty"`
 	// DM (maomao fork): send to the private chat with the user in admin_from instead of
 	// SessionKey; the server opens or reuses that chat first.
 	DM bool `json:"dm,omitempty"`
@@ -130,10 +131,12 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
 	s.mux.HandleFunc("/wake", s.handleWake) // run one turn from a hook/script (api_wake.go)
+	s.mux.HandleFunc("/stop-blocked", s.handleStopBlocked) // a Stop hook blocked a reply draft (api_stop_draft.go)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
 	s.mux.HandleFunc("/session/new", s.handleSessionNew)              // `cc-connect session new --after-turn` (session_reset.go)
+	s.mux.HandleFunc("/channel/create", s.handleChannelCreate)        // `bothouse channel create` (team_channel.go)
 	s.mux.HandleFunc("/team/workspace/new", s.handleTeamWorkspaceNew) // team mode D (team_workspace_api.go)
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)
@@ -312,13 +315,17 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TaskText != nil && (req.Message == "" || req.WorkDir != "" || req.CWD != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "") {
+	if req.TaskText != nil && (req.Message == "" || req.WorkDir != "" || req.CWD != "" || req.DM || req.AtAll || len(req.AtUsers)+len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) != 0 || req.TTSText != "" || req.ReplyToMessageID != "") {
 		http.Error(w, "task text requires plain text and an explicit target", http.StatusBadRequest)
 		return
 	}
 	workDir := req.WorkDir
 	if workDir == "" {
 		workDir = req.CWD
+	}
+	if req.ReplyToMessageID != "" && (req.SessionKey == "" || strings.TrimSpace(req.Message) == "" || workDir != "" || req.DM) {
+		http.Error(w, "native reply requires text and an explicit conversation without cwd or dm", http.StatusBadRequest)
+		return
 	}
 	if req.DM {
 		if workDir != "" {
@@ -332,7 +339,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		req.SessionKey = key
 	}
-	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil {
+	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey = engine.sendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
@@ -346,7 +353,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			apiJSON(w, http.StatusAccepted, d)
 			return
 		}
-		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll}); err != nil {
+		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

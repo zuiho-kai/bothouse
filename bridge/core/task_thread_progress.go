@@ -81,8 +81,14 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 		if !w.Active() {
 			return nil
 		}
-		// Only the thread copy lists the recent steps in full; channel cards keep their one line.
-		w.maxEntries, w.lineLen = taskThreadCardEntries, taskThreadCardLineLen
+		// The thread copy lists the steps; it keeps at least the platform's
+		// entries (#1197: Discord keeps every line for the paged 细节 view).
+		if w.maxEntries < taskThreadCardEntries {
+			w.maxEntries = taskThreadCardEntries
+		}
+		if w.lineLen <= 0 {
+			w.lineLen = taskThreadCardLineLen
+		}
 		slog.Info("progress card: copied into the task thread", "session", session, "task_id", t.ID, "thread", t.ThreadID)
 		return w
 	}

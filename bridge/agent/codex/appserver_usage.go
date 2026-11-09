@@ -39,6 +39,7 @@ func mergeUsageReports(base, update *core.UsageReport) *core.UsageReport {
 		return cloneUsageReport(update)
 	}
 	merged := cloneUsageReport(base)
+	merged.ObservedAt = update.ObservedAt
 	if update.Plan != "" {
 		merged.Plan = update.Plan
 	}

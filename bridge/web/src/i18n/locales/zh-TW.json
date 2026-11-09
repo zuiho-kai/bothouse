@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "連接 QQ",
+    "setupHint": "使用已有的 OneBot / NapCat 連接或 QQ 官方機器人憑證。儲存設定不代表已經連通。",
+    "route": "接入方式",
+    "official": "QQ 官方機器人",
+    "projectID": "新角色識別碼",
+    "projectHint": "填寫未使用的英文字母、數字、連字號或底線組合。",
+    "invalidProject": "識別碼格式不正確或已被使用。",
+    "noCLI": "請先安裝並登入支援的 AI CLI。",
+    "savedRestart": "設定已儲存，重新啟動後生效；尚未驗證真實 QQ 收發。",
+    "restartRequested": "已要求重新啟動，服務啟動後可返回角色清單。",
+    "settingsTitle": "QQ 連接與功能",
+    "settingsHint": "修改後需重新啟動生效。已儲存的設定不代表連接正常。",
+    "httpURL": "OneBot HTTP 位址（選填）",
+    "keepToken": "留空保留已儲存的權杖",
+    "clearToken": "清除已儲存的存取權杖",
+    "sharedHint": "開啟後群組成員共用對話。這不提供個人記憶隔離。",
+    "unavailable": "目前版本尚不可用",
+    "capabilities": {
+      "qq_voice_out": "暫不支援語音回覆。",
+      "qq_command_allow_from": "暫不支援獨立指令白名單，仍受專案管理員設定約束。",
+      "memory_import": "記憶匯入待確認來源與格式。"
+    }
+  },
   "nav": {
     "addPlatform": "新增平台",
     "addRole": "新增角色/模型",
@@ -180,7 +204,12 @@
     "externalAdapters": "外接適配器",
     "bridgeDisabled": "橋接服務未啟用",
     "bridgeDisabledHint": "這些平台由角色直接連線；外接客戶端（如桌面托盤）接入還需要在設定裡打開橋接服務。",
-    "noAdapters": "暫無外接適配器"
+    "noAdapters": "暫無外接適配器",
+    "platformsReadFailed": "已連線平台讀取失敗",
+    "adaptersReadFailed": "外接適配器讀取失敗",
+    "projectsReadFailed": "專案名稱讀取失敗，下方顯示原始代號。",
+    "readFailedHint": "請求沒有成功，不代表這裡沒有內容。先確認橋接服務在跑、登入權杖沒有過期，再重試。",
+    "retry": "重試"
   },
   "system": {
     "title": "系統",
@@ -393,6 +422,8 @@
     "reviewComplexModel": "複雜檔模型",
     "reviewModelRole": "沿用該角色自己的模型",
     "reviewModelHint": "審核開新會話，用這個模型跑",
+    "reviewModelNoSwitch": "該角色的後端不支援換模型，審核會按它自己的模型跑",
+    "reviewModelNotice": "最近一次審核模型沒生效：#{{board}}（{{tier}}），{{role}} · {{model}}：{{reason}}",
     "log": "記錄",
     "logLevel": "記錄層級",
     "appearance": "外觀",
@@ -533,11 +564,23 @@
     "providerScope": "此处服务商作用于引用它们的桥接项目。",
     "dshProviderScope": "DSH 原生成员使用自己的模型路由。",
     "openDsh": "打开 DSH",
+    "openDshDesktop": "在桌面版開啟",
+    "openDshWeb": "網頁版",
     "settingsModels": "在 DSH 中进入「设置 → 模型」。",
     "cliScope": "CLI 成员使用本机 CLI 的认证和配置，此处服务商不会更改它们。",
     "bridgeProjects": "桥接项目",
     "projectScope": "桥接项目将 Agent 和工作区连接到平台；DSH 成员单独管理。",
     "savedConfigNextTurn": "已儲存設定 · 下一輪前套用",
     "savedRoute": "已儲存的 DSH 路由"
+  },
+  "usage": {
+    "quickFilters": "快捷篩選",
+    "presetToday": "今日",
+    "presetThisWeek": "本週",
+    "presetThisMonth": "本月",
+    "presetLast7Days": "近7天",
+    "presetPastYear": "近一年",
+    "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
+    "tokenBreakdown": "消耗結構"
   }
 }

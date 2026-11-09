@@ -28,6 +28,9 @@ func TestCachedUsage_PlusNotification(t *testing.T) {
 	if r == nil || len(r.Buckets) != 1 || len(r.Buckets[0].Windows) != 2 {
 		t.Fatalf("report = %+v", r)
 	}
+	if r.ObservedAt.IsZero() || !s.CachedUsage().ObservedAt.Equal(r.ObservedAt) {
+		t.Fatal("cached read must preserve the upstream observation time")
+	}
 	if w := r.Buckets[0].Windows; w[0].UsedPercent != 9 || w[0].WindowSeconds != 18000 || w[1].UsedPercent != 41 || w[1].WindowSeconds != 604800 {
 		t.Errorf("windows = %+v", w)
 	}

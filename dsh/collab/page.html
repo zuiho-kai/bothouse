@@ -247,6 +247,8 @@
      被 40px 的头像列宽挤成一字一行（#112）。 */
   .msg.cont .avatar { visibility: hidden; }
   .msg.cont .head { display: none; }
+  /* 正文列固定落在第二列，即使头像被隐藏也不会顶到第一列。 */
+  .msg > :not(.avatar) { grid-column: 2; min-width: 0; }
   .msg .stamp {
     display: none;
     position: absolute;
@@ -330,12 +332,14 @@
   .card[data-state="completed"] { --card-accent: var(--ok); --card-tint: rgba(35, 165, 90, .16); --card-text: #7ee2a8; }
   .card[data-state="failed"] { --card-accent: var(--danger); --card-tint: rgba(242, 63, 67, .16); --card-text: #ff9a9c; }
   .card[data-state="cancelled"] { --card-accent: var(--muted); --card-tint: rgba(127, 127, 127, .14); --card-text: var(--muted); }
+  .card[data-state="stopped"] { --card-accent: var(--muted); --card-tint: rgba(127, 127, 127, .14); --card-text: var(--muted); }
   @media (prefers-color-scheme: light) {
     .card { --card-text: #3b46b8; --card-tint: rgba(74, 85, 214, .12); }
     .card[data-state="running"] { --card-text: #6d4a00; --card-tint: rgba(240, 178, 50, .18); }
     .card[data-state="completed"] { --card-text: #146c3a; --card-tint: rgba(26, 127, 67, .12); }
     .card[data-state="failed"] { --card-text: #a52327; --card-tint: rgba(194, 43, 47, .12); }
     .card[data-state="cancelled"] { --card-text: #545861; --card-tint: rgba(84, 88, 97, .12); }
+    .card[data-state="stopped"] { --card-text: #545861; --card-tint: rgba(84, 88, 97, .12); }
   }
   .card-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .card .title { font-weight: 600; font-size: var(--fs-sm); color: var(--text-strong); }
@@ -650,7 +654,7 @@ const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls)
 const palette = ['#4F46E5', '#B45309', '#0F766E']; // taste-skill-ignore 靛蓝为 design-spec 唯一强调色（用户标杆），按 SKILL.md 已有品牌条款保留
 const color = id => palette[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % palette.length];
 const kindLabel = { dsh: 'DSH', bot: 'Agent', human: '' };
-const cardStateLabel = { pending: '待确认', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+const cardStateLabel = { pending: '待确认', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已取消', stopped: '已停止', retried: '已重试' };
 // 5 分钟：同一人连续发言合并头像与昵称的窗口，沿用 Discord 的习惯（交接要求「按同一人连续发言分组」）
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 // 768px 是 U2 交接里定的窄屏阈值
@@ -1026,6 +1030,26 @@ function messageNode(m) {
       }
       card.append(bar);
     }
+    // 与原生频道页共用重试接口；后端把已受理的失败卡更新成 retried。
+    if (meta.state === 'failed') {
+      const bar = el('div', 'actions');
+      const retry = el('button', '', '重试');
+      retry.type = 'button';
+      retry.onclick = async () => {
+        retry.disabled = true;
+        retry.textContent = '重试中…';
+        try {
+          await api(`${ROOT}/collab/api/messages/${m.id}/retry`, { method: 'POST' });
+          retry.textContent = '已重试';
+        } catch (err) {
+          retry.disabled = false;
+          retry.textContent = '重试';
+          alert('重试失败：' + err.message);
+        }
+      };
+      bar.append(retry);
+      card.append(bar);
+    }
     col.append(card);
   } else if (m.text) col.append(renderBody(m.text, 'body'));
   if (Array.isArray(m.attachments) && m.attachments.length) col.append(attachmentList(m.attachments));
@@ -1131,6 +1155,9 @@ function upsert(m) {
     const after = [...log.children].find(n => n.dataset.id != null && Number(n.dataset.id) > m.id);
     log.insertBefore(messageNode(m), after || null);
   }
+  // 「还没有消息」只是打开空频道时的占位：第一条消息（本地发的、SSE 推来的、重连补来的）一到就得收起，
+  // 否则它会一直压在真实消息上面，直到手动切换频道或刷新。
+  log.querySelector('.state.empty')?.remove();
   regroup();
   followBottom(log, stick);
 }
@@ -1151,7 +1178,43 @@ function showState(kind, title, detail, retry) {
   return box;
 }
 
+// 来源：openRoom 原有每次读取 100 条；向上分页沿用同一页大小。
+const HISTORY_LIMIT = 100;
+let historyPage;
+
+async function loadOlder() {
+  const page = historyPage;
+  if (!page || page.loading || !page.more) return;
+  page.loading = true;
+  const log = $('log');
+  log.querySelector('.history-error')?.remove();
+  try {
+    const { messages } = await api(`${ROOT}/collab/api/rooms/${page.room}/messages?before=${page.before}&limit=${HISTORY_LIMIT}`);
+    if (historyPage !== page) return;
+    const oldHeight = log.scrollHeight;
+    const oldTop = log.scrollTop;
+    messages.forEach(upsert);
+    if (messages.length) page.before = messages[0].id;
+    page.more = messages.length === HISTORY_LIMIT;
+    log.scrollTop = oldTop + log.scrollHeight - oldHeight;
+  } catch (err) {
+    if (historyPage !== page) return;
+    const retry = el('button', 'btn history-error', '历史加载失败，点击重试');
+    retry.type = 'button';
+    retry.title = err.message;
+    retry.onclick = () => loadOlder();
+    log.prepend(retry);
+  } finally {
+    page.loading = false;
+  }
+}
+
+$('log').addEventListener('scroll', () => {
+  if ($('log').scrollTop === 0) void loadOlder();
+}, { passive: true });
+
 async function openRoom(id) {
+  const page = historyPage = { room: id, before: undefined, more: false, loading: true };
   state.room = id; state.synced = 0;
   $('log').replaceChildren(showState('loading', '正在加载消息…'));
   $('log').setAttribute('aria-busy', 'true');
@@ -1161,11 +1224,14 @@ async function openRoom(id) {
     const setting = await api(`${ROOT}/collab/api/rooms/${id}/mode`);
     state.mode = setting.dispatch_mode;
     renderRooms(); renderMembers();
-    const { messages } = await api(`${ROOT}/collab/api/rooms/${id}/messages?limit=100`);
-    if (state.room !== id) return;
+    const { messages } = await api(`${ROOT}/collab/api/rooms/${id}/messages?limit=${HISTORY_LIMIT}`);
+    if (historyPage !== page) return;
     const log = $('log');
     log.querySelector('.state')?.remove();
     messages.forEach(upsert);
+    page.before = messages[0]?.id;
+    page.more = messages.length === HISTORY_LIMIT;
+    page.loading = false;
     state.synced = messages.length ? messages[messages.length - 1].id : 0;
     if (!log.querySelector('.msg')) log.append(showState('empty', '还没有消息', ''));
     $('log').setAttribute('aria-busy', 'false');
@@ -1173,7 +1239,7 @@ async function openRoom(id) {
     stuck = true;
     $('log').scrollTop = $('log').scrollHeight;
   } catch (err) {
-    if (state.room !== id) return;
+    if (historyPage !== page) return;
     $('log').replaceChildren(showState('error', '加载失败', err.message, () => openRoom(id)));
     $('log').setAttribute('aria-busy', 'false');
   }

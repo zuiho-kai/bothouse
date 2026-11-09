@@ -48,10 +48,12 @@
    ```
 
 4. 定时：向导（网页或 `cc-connect setup apply`）只在主 wiki（`~/wiki` 或 `$WIKI_DIR`）是向导自己建的、
-   里面有 `.bothouse-main` 标记时，才自动加好下面三条静音任务（跑 `ingest.py` 和 sub 角色的整理），
+   里面有 `.bothouse-main` 标记时，才自动加好下面三条 wiki 静音任务（跑 `ingest.py` 和 sub 角色的整理），
    向导里选的三项模型也只写进这本 wiki 的 `config.json`。任务挂在主角色上：Discord / 飞书挂默认频道，
    cloud_web 没有固定房间，挂在 `cloud_web:wiki` 这个会话上（静音任务不发消息，所以不需要真房间）。
    重跑不会重复；同名任务已经有了就不动。
+   向导还会为记忆论坛增加两条静音任务：每分钟运行一次 `gate/reflector.py`，处理已结束轮次的反思和代码地图；
+   每天 05:30 运行 `gate/score_night.py`，按用户后续反馈写外部结果票。两者复用记忆论坛现有推送记录和投票文件。
    主 wiki 是你自己原有的（没有 `.bothouse-main`）时，向导只查不写：不写它的 `config.json`，不挂 `ingest.py`；
    有 sub 角色 wiki 时只挂 sub 角色那部分（`sub-wiki.py`），没有就一条都不挂。这时要整理你自己的 wiki，
    按下面的命令手动加（`--exec` 的输出默认会发到该会话，`--mute` 什么都不发）：
@@ -61,8 +63,16 @@
    cc-connect cron add $S --cron "*/30 * * * *" --exec "python3 -I ~/wiki/bin/ingest.py --pending; sh <本目录>/sub-wiki.sh pending" --desc "wiki ingest"
    cc-connect cron add $S --cron "0 3 * * 1-6"  --exec "python3 -I ~/wiki/bin/ingest.py --nightly; sh <本目录>/sub-wiki.sh nightly" --desc "wiki nightly + 反思"
    cc-connect cron add $S --cron "0 3 * * 0"    --exec "python3 -I ~/wiki/bin/ingest.py --lint; sh <本目录>/sub-wiki.sh lint" --desc "wiki weekly lint"
+   cc-connect cron add $S --cron "* * * * *" --exec "GATE_DEFAULT_BOT=<主角色项目> GATE_WIKI=~/wiki CODEMAP_DIR=~/.bothouse/codemaps python3 -I ~/.bothouse/gate/reflector.py" --desc "记忆论坛每轮反思"
+   cc-connect cron add $S --cron "30 5 * * *" --exec "GATE_DEFAULT_BOT=<主角色项目> GATE_WIKI=~/wiki python3 -I ~/.bothouse/gate/score_night.py" --desc "记忆论坛夜间结算"
    ```
 
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。
 模型引擎（haiku / sonnet / codex …）在向导里选，或在 config.json 的 `*_engine` 键改。
+论坛任务可用 `GATE_DEFAULT_BOT`、`GATE_WIKI`、`CODEMAP_DIR` 指定默认角色、Wiki 和地图目录；
+`WIKI_CODEX_MODEL` / `REFLECTOR_MODEL` 可分别指定夜间结算和反思任务的模型，未设置时使用 Codex CLI 的配置模型；
+`CODEX_SESSIONS_DIR` / `CLAUDE_PROJECTS_DIR`
+指定读取原生会话记录的位置，`CODEMAP_FILL_SCRIPT` 指定地图回填脚本。
+远端转录镜像由 `WIKI_MIRROR_TO` 指定 SSH 主机别名；默认不启用。接收端路径用 wiki 配置的 `mirror_dir`
+设置，默认 `~/.bothouse/wiki-hosts`，按主机名分目录存储。

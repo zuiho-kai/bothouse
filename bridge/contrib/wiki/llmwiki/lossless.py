@@ -28,10 +28,11 @@ STRUCTURE = re.compile(r"\s*(#|```|~~~|\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?
 ENTRY = re.compile(r"\s*- \[[^\]]*\]\([^)]*\)")
 MDLINK = re.compile(r"\]\([^)]*\)")
 WIKILINK = re.compile(r"\[\[[^\]]*\]\]")
+FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 论坛楼层帖标注（同 lint.FLOOR_TAG）：元数据，改标题、楼号不算丢内容
 
 
 def norm(line):
-    return WIKILINK.sub("[[]]", MDLINK.sub("]()", line.strip()))
+    return WIKILINK.sub("[[]]", MDLINK.sub("]()", FLOOR_TAG.sub("", line).strip()))
 
 
 def kept_split(line, pages):

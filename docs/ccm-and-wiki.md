@@ -31,7 +31,7 @@
 选择智能分流并保存后，分流马上生效：主 bot 统一回话，被 @ 的角色照常回，其他角色只听。
 bothouse 会自己拉起 gate（服务在跑就马上起，没在跑就下次启动时起），装好 **Python 3.12+** 和 **jev** 后自动启用智能判断，不用重跑向导。
 
-- jev 在向导里填（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起一个 Qwen3 0.6B）。gate 不会自己下载模型。
+- jev 在向导里填（[线 2](connect-discord-feishu.md) 第 5 节：硅基流动的免费 Qwen 小模型，或本地起我们在用的 Qwen3.5-4B）。gate 不会自己下载模型。
 - 还缺 Python 或 jev 时，保存页会写出缺哪样（`gate_status`：`python_missing`、`python_too_old`、`jev_missing`），分流照样生效，只是先由主 bot 统一回话。
   bothouse 每分钟复查一次，装好就自动起 gate。
 - bothouse 起的 gate 跟着 bothouse 走：bothouse 退出它也退出，崩了会自动重启。脚本释放在 `~/.bothouse/gate/`，
@@ -58,7 +58,7 @@ GATE_WIKI=~/wiki uv run bridge/contrib/gate/gate.py
    "subs": {"coder": {"name": "码农", "aliases": ["Codex"]}}}
   ```
 
-- 没有 jev 时 gate 启动就报错退出，提示两种填法：用硅基流动的免费 Qwen 小模型，或本地起一个 0.6B 小模型（如 `mlx_lm.server --model mlx-community/Qwen3-0.6B-4bit`）再填进向导的 jev。
+- 没有 jev 时 gate 照样启动，打印一段提示说怎么填：每轮 wiki、任务板（/context）和 /lead 照常，只是不判谁回（/decide 回 503），这时只有被 @ 的角色回话，没点名的话没人回（主角色也不回）；只有 gate 没起来（比如没装 Python）时，没点名的话才由主角色回。推荐本机起我们在用的 Qwen3.5-4B：`uv tool install mlx-lm`，再 `mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941`，然后在向导或面板「闸门」页点「一键填」。
   启动时打印的 `scorer=jev` 就是在用 jev。
 - 长期跑用 launchd 或 `nohup`，日志写到文件；不要挂在某个会话上。
 - 想在自己的显卡上跑大一点的本机模型：显式设 `GATE_MODEL=<本地模型目录>`，Apple 芯片用 `bridge/contrib/gate/scorer.py`（`uv run --with mlx-lm`），
@@ -138,6 +138,7 @@ gate_url = "http://127.0.0.1:9930/decide"
 team_status_dir = "~/.bothouse/team"
 team_name = "协调员"
 team_status_inject = true                      # 每轮开头附上队友在忙什么
+life_page = "~/wiki/my-days.md"                # 可选：角色「现在的样子」页，每轮（含定时）附在消息前，角色有变化直接改这页
 [projects.agent]
 type = "claudecode"
 [projects.agent.options]

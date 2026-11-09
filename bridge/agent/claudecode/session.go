@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -1001,18 +1000,7 @@ func (cs *claudeSession) takeStopBlockedReply(result string) (reply string, bloc
 }
 
 func mergeStopBlockedReply(pre, result string) string {
-	pre = strings.TrimSpace(pre)
-	res := strings.TrimSpace(result)
-	// A result at least half as long as the blocked reply is a rewrite, not an
-	// addendum (11-05: a heart-to-heart rewritten a bit shorter reached the
-	// user twice, blocked draft first).
-	if pre == "" || strings.Contains(res, pre) || 2*utf8.RuneCountInString(res) >= utf8.RuneCountInString(pre) {
-		return result
-	}
-	if res == "" {
-		return pre
-	}
-	return pre + "\n\n" + res
+	return core.MergeStopBlockedReply(pre, result)
 }
 
 func (cs *claudeSession) handleUser(raw map[string]any) {
@@ -1066,7 +1054,7 @@ func (cs *claudeSession) handleUser(raw map[string]any) {
 			}
 			evt := core.Event{
 				Type:         core.EventToolResult,
-				ToolResult:   truncateStr(strings.TrimSpace(result), 500),
+				ToolResult:   strings.TrimSpace(result),
 				ToolExitCode: &code,
 				ToolSuccess:  &success,
 			}

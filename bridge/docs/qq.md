@@ -22,11 +22,11 @@ allow_avatar = false             # Optional: change this account's own avatar (N
 - **群前文与引用**：每群保留最近 10 条、15 分钟内的聊天作为当前轮背景；当前发言、引用和合并转发分别标注发送者。静默缓冲及排队合批不重复存入旧背景；命令、权限与判断服务使用本条原始文字。图片保存路径只出现在当前轮附加上下文，不进入群前文。群前文会向同群会话提供近期消息，敏感会话请勿共用群聊。
 - **合并转发**：以素材块展开文本及图片，限制文本长度；转发中的发言人不替代当前发送者，文本标明其中的要求不是当前指令。这是模型上下文提示，不是执行权限隔离。
 - **静默尾段**：工具调用后的 NO_REPLY 标记不作为文字气泡发送。
-- **说说与头像**：`allow_qzone = true` 才允许查/发/删这个号自己的说说，`allow_avatar = true` 才允许换这个号的头像，两个默认都关。它们走 NapCat 的空间扩展（`get_qzone_msg_list` / `send_qzone_msg` / `delete_qzone_msg`）和账号接口 `set_qq_avatar`，不在 OneBot 11 规范里；上游没有这些 action 时会如实说"这个 OneBot 实现没有这个扩展接口"，不会只扔一个 retcode。面板上在「项目 → 说说」一页，发之前和换头像之前各问一次；不自动发，也没有定时。
+- **说说与头像**：`allow_qzone = true` 才允许查/发/删/换这个号自己的说说，`allow_avatar = true` 才允许换这个号的头像，两个默认都关。它们走 NapCat 的空间扩展（`get_qzone_msg_list` / `send_qzone_msg` / `delete_qzone_msg`）和账号接口 `set_qq_avatar`，不在 OneBot 11 规范里；上游没有这些 action 时会如实说"这个 OneBot 实现没有这个扩展接口"，不会只扔一个 retcode。面板上在「项目 → 说说」一页，发之前、换说说之前和换头像之前各问一次；不自动发，也没有定时。**换说说**（`social/moment/replace`）是一次动作：NapCat 没有改正文的接口，所以实现是「先发新的、成功了才删旧的」，不是原子替换——发失败旧的原样保留；新的发了旧没删掉、或者上游没给新 tid 时，如实报「现在有两条（或可能有两条）」并把新那条带回去。旧说说带的图由平台读回来随新的一条一起发，读不回旧说说就一个请求都不发、原文不动。旧说说要是「仅部分人可见」，也**不给换**：上游只给一个布尔，分不出好友可见/部分好友/仅自己/部分不可见，而发说说缺省是所有人可见，换了等于把它变公开、删了旧的还回不去，所以直接拒绝（400）、原样不动。**可见范围**这件事要分清三种：列表这一行**没说**（没有 `is_private`，或值不是布尔/数字/纯数字字符串）就拒绝——SnowLuma 的响应里 `is_private` 是必填布尔，这种形状说明这份响应不合规，按公开换下去就是赌一把；说「**仅部分人可见**」也拒绝（见上）；说「**所有人可见**」时，这个值仍有两种来源分不开——真的 `secret` 是 0，或者`secret` 缺失被 NapCat 补成了 `false`——所以换说说**默认不做**，要人先在面板上勾一句「我知道换一条可能会改变谁能看见这条」（接口上是 `accept_audience_change: true`，缺省 `false`，不带就 400、一个上游请求都不发）。改宽可见范围、又删掉原来的那条，这个决定本来就该由人拍板，而不是由上游一个缺省值拍板；那一勾每次打开编辑器都清空。读列表时固定要 `format=snowluma`——不传的话上游一见到 cursor 就换另一种格式，那种既没有可见范围、图片也是另一个形状。评论、点赞、发布时间、tid 也都带不过去——换说说本质是发新的删旧的。
 
 排队回执属于项目配置，在对应的 [[projects]] 表内设置 queued_notice = false 可静默排队；不改变排队顺序，省略时仍显示回执。不要把该字段放进 platforms.options。
 
-English: group allow-list extension, paragraph splitting and original-image storage are optional. Splitting defaults off. Group membership is cached for ten minutes; DMs keep their original allow-list. Recent group context and forwarded material retain speaker labels. The project-level queued_notice option only hides the receipt, not the queue. Posting 说说 and changing the account avatar are also optional and off by default (`allow_qzone` / `allow_avatar`); both use NapCat extensions rather than standard OneBot 11 actions, live on the project's 「说说」 panel tab, ask once before each write, and never post on a schedule.
+English: replacing one 说说 is a single action too — NapCat exposes no text-edit call, so it publishes the new post first and deletes the old one only after that succeeds. It is not an atomic swap: a failed publish keeps the old post, and a failed delete (or a missing new tid) says both posts now exist — or likely do — and returns the new one instead of pretending the edit was in place. Pictures on the old post are read back and carried over; if the old post cannot be read back, nothing is published and the original stays. A post marked "visible to some people only" is refused (400) and left alone: upstream reports only a boolean, so friend-only, some-friends, private and hidden-from-some cannot be told apart, and a new post defaults to everyone; comments, likes and the publish time do not carry over either. Group allow-list extension, paragraph splitting and original-image storage are optional. Splitting defaults off. Group membership is cached for ten minutes; DMs keep their original allow-list. Recent group context and forwarded material retain speaker labels. The project-level queued_notice option only hides the receipt, not the queue. Posting 说说 and changing the account avatar are also optional and off by default (`allow_qzone` / `allow_avatar`); both use NapCat extensions rather than standard OneBot 11 actions, live on the project's 「说说」 panel tab, ask once before each write, and never post on a schedule.
 
 ## 可选判断模型 / Optional judging model
 
@@ -196,7 +196,7 @@ Both need the roles to run in one process: each `qq` platform registers itself b
 | 文件 / File | ✅ | ✅（需配 `http_url`，群文件走 `upload_group_file`） |
 | 语音 / Voice | ✅ (需配置 STT) | ❌ |
 | @提及 / @mention | ✅ (识别为"叫到机器人") | ✅（`ReplyWithAt`，真 @ 提醒） |
-| 引用回复 / Quote reply | ✅（引用内容作为上下文） | ❌ |
+| 引用回复 / Quote reply | ✅（保留作者和原文；缓存缺失时调用 `get_msg`） | ✅（`bothouse send --reply-to`，QQ 原生引用） |
 
 `http_url` 是 NapCat 的 HTTP API 地址（如 `http://127.0.0.1:3000`），配了之后收文件会走 `get_group_file_url` / `get_file` 拿新链接，发文件走 HTTP，避免 WebSocket 大包和跨容器路径问题。
 
@@ -208,9 +208,25 @@ NapCat 的 OneBot 配置支持 `"messagePostFormat": "array"` 和 `"string"`，b
 
 Both `"messagePostFormat": "array"` and `"string"` are supported. Text, images, files, voice, mentions and quotes use the same segment-processing path. Images and voice still need a downloadable `url`; files use the URL / HTTP API flow above. Voice transcription still requires STT; audio conversion support is unchanged.
 
-引用上下文来自本次运行的消息缓存（最多 1000 条 / 7 天）；引用已缓存的机器人消息，即使没有另附文字，也算叫到机器人。重启或缓存淘汰后，只有引用 ID 不足以恢复旧消息内容。
+引用上下文先查本次运行的消息缓存（最多 1000 条 / 7 天），未命中时通过 OneBot `get_msg` 获取原文，所以桥重启前的消息也能补取（前提是 OneBot 仍可读取该消息）。保留原作者和引用关系；引用机器人的旧消息，即使没有另附文字，也算叫到机器人。原消息被撤回、不可读或获取失败时，明确标记「无法获取原文」，不编造正文。旧图片、语音等只显示类型标记，不重新下载附件。
 
-Quote context comes from the current process's message cache (up to 1,000 entries / seven days). Quoting a cached bot message calls the bot even without additional text. After restart or cache eviction, a quote ID alone cannot recover the old content.
+Quote context uses the process cache first (up to 1,000 entries / seven days), then OneBot `get_msg`. Older messages survive a bridge restart if OneBot can still retrieve them. Author and quote relation are retained; quoting an older bot message also calls the bot. An unavailable original is explicitly marked as unavailable. Old media is described without downloading it again.
+
+### 主动引用回复 / Send a native quoted reply
+
+QQ 消息送入代理时，公共桥接层提供当前消息 ID、被引用的原消息 ID 和命令用法；DSH / ACP 与其他 CLI 使用同一入口，无需模型专属设置。代理可选择同一会话里已知的消息：
+
+~~~sh
+bothouse send --reply-to MESSAGE_ID --message '针对这条消息的回复'
+# 显式指定目标时沿用现有项目和会话参数：
+bothouse send --project YOUR_PROJECT --session 'qq:g:GROUP_ID' --reply-to MESSAGE_ID --message '回复'
+~~~
+
+消息使用 OneBot `reply` 段，支持群聊与私聊，复用已有发送回执及 `--at-users` / `--at-all`。桥接层会核对目标消息属于该会话：缓存已知其他会话、获取结果不符、无法验证归属或平台不支持时均返回错误，不降级成模仿引用的文字。发送成功后不要再重复回复相同正文。`--reply-to` 必须带文字，不能与 `--cwd` / `--dm` 或任务文本投递合用；普通发送无需这个参数。
+
+English: the shared inbound context supplies message IDs and usage to every backend, including DSH / ACP. `send --reply-to` emits a native OneBot reply segment for group or private chats, using the existing receipt and mention path. Only known same-conversation targets are accepted; unverifiable targets and unsupported platforms return an error. Text is required; cwd, DM rerouting and task-text delivery cannot be combined with this flag. Do not repeat the message after a successful send.
+
+本次实现验证覆盖适配器、引擎代理输入与发送 API；真实 QQ 客户端引用框及 Mac / Windows 账号入口须在发布验收中另行记录，不能将模拟回执当作真机验收。
 
 两种格式已通过本地模拟 OneBot WebSocket 与 HTTP 附件测试；尚未作为本次改动的一部分完成真实 QQ / NapCat 验收。CQ 转义遵循 [OneBot v11 字符串格式](https://github.com/botuniverse/onebot-11/blob/master/message/string.md)：先分段再解码，转义后的 CQ 文字不会被当作真实 @ 或附件。
 

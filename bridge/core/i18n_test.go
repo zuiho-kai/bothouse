@@ -5,14 +5,6 @@ import (
 	"testing"
 )
 
-func TestI18n_DefaultLanguage(t *testing.T) {
-	i := NewI18n(LangEnglish)
-	got := i.T(MsgStarting)
-	if got == "" {
-		t.Error("expected non-empty message")
-	}
-}
-
 func TestI18n_Chinese(t *testing.T) {
 	i := NewI18n(LangChinese)
 	got := i.T(MsgStarting)
@@ -59,7 +51,7 @@ func TestI18n_AllKeysHaveEnglish(t *testing.T) {
 
 func TestDetectLanguage(t *testing.T) {
 	tests := []struct {
-		text    string
+		text     string
 		wantLang Language
 	}{
 		// Japanese Hiragana

@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "QQ 연결",
+    "setupHint": "기존 OneBot / NapCat 연결 또는 QQ 공식 봇 인증 정보를 사용합니다. 저장만으로 연결이 확인되지는 않습니다.",
+    "route": "연결 방식",
+    "official": "QQ 공식 봇",
+    "projectID": "새 역할 ID",
+    "projectHint": "영문, 숫자, 하이픈, 밑줄로 고유 ID를 입력하세요.",
+    "invalidProject": "잘못된 ID이거나 이미 사용 중입니다.",
+    "noCLI": "지원되는 AI CLI를 설치하고 로그인하세요.",
+    "savedRestart": "설정을 저장했습니다. 적용하려면 재시작하세요. 실제 QQ 송수신은 확인되지 않았습니다.",
+    "restartRequested": "재시작을 요청했습니다. 서비스가 시작되면 역할 목록으로 돌아가세요.",
+    "settingsTitle": "QQ 연결 및 기능",
+    "settingsHint": "변경 사항은 재시작 후 적용됩니다. 저장은 연결 확인을 의미하지 않습니다.",
+    "httpURL": "OneBot HTTP 주소 (선택)",
+    "keepToken": "비워 두면 저장된 토큰 유지",
+    "clearToken": "저장된 토큰 삭제",
+    "sharedHint": "켜면 그룹 구성원이 대화를 공유합니다. 개인 기억은 분리되지 않습니다.",
+    "unavailable": "현재 버전에서 사용 불가",
+    "capabilities": {
+      "qq_voice_out": "음성 응답을 지원하지 않습니다.",
+      "qq_command_allow_from": "별도 명령 허용 목록은 지원하지 않습니다. 프로젝트 관리자 설정이 적용됩니다.",
+      "memory_import": "기억 가져오기는 출처와 형식 확인을 기다리고 있습니다."
+    }
+  },
   "nav": {
     "addPlatform": "플랫폼 추가",
     "addRole": "역할/모델 추가",
@@ -177,7 +201,12 @@
     "externalAdapters": "외부 어댑터",
     "bridgeDisabled": "브리지 서비스가 꺼져 있습니다",
     "bridgeDisabledHint": "이 플랫폼들은 역할이 직접 연결합니다. 데스크톱 트레이 같은 외부 클라이언트는 설정에서 브리지 서비스를 켜야 합니다.",
-    "noAdapters": "외부 어댑터 없음"
+    "noAdapters": "외부 어댑터 없음",
+    "platformsReadFailed": "연결된 플랫폼을 읽지 못했습니다",
+    "adaptersReadFailed": "외부 어댑터를 읽지 못했습니다",
+    "projectsReadFailed": "프로젝트 이름을 읽지 못했습니다. 아래에는 원래 ID가 표시됩니다.",
+    "readFailedHint": "요청이 실패했습니다. 여기에 아무것도 없다는 뜻은 아닙니다. 브리지 서비스와 토큰을 확인한 뒤 다시 시도하세요.",
+    "retry": "다시 시도"
   },
   "system": {
     "title": "시스템",
@@ -518,11 +547,23 @@
     "providerScope": "이 제공업체는 참조하는 브리지 프로젝트에 적용됩니다.",
     "dshProviderScope": "DSH 기본 멤버는 자체 모델 경로를 사용합니다.",
     "openDsh": "DSH 열기",
+    "openDshDesktop": "데스크톱 앱에서 열기",
+    "openDshWeb": "웹",
     "settingsModels": "DSH에서 설정 → 모델을 여세요.",
     "cliScope": "CLI 멤버는 로컬 CLI 인증과 설정을 사용하며 여기서 변경되지 않습니다.",
     "bridgeProjects": "브리지 프로젝트",
     "projectScope": "브리지 프로젝트는 에이전트와 작업공간을 플랫폼에 연결합니다. DSH 멤버는 별도로 관리합니다.",
     "savedConfigNextTurn": "저장된 설정 · 다음 턴 전에 적용",
     "savedRoute": "저장된 DSH 경로"
+  },
+  "usage": {
+    "quickFilters": "빠른 필터",
+    "presetToday": "오늘",
+    "presetThisWeek": "이번 주",
+    "presetThisMonth": "이번 달",
+    "presetLast7Days": "최근 7일",
+    "presetPastYear": "최근 1년",
+    "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
+    "tokenBreakdown": "구성"
   }
 }

@@ -115,13 +115,15 @@ func runningDSHWeb() (target, launchToken string, err error) {
 
 var errDSHWebNotRunning = errors.New("the channels page (dsh web) is not running")
 
-const dshWebNotRunningMsg = "频道页（DSH）没有在运行：请在电脑上的 bothouse 面板里点「打开 DSH」启动后再试。 / The channels page (DSH) is not running: start it from the bothouse panel (Open DSH) and retry."
+const dshWebNotRunningMsg = "频道页（DSH）没有在运行：在电脑上打开 bothouse 面板（终端运行 bothouse web），到「概览」页点「打开 DSH」。 / The channels page (DSH) is not running: open the bothouse panel (run bothouse web), then Open DSH on the Overview page."
 
 func dshProxyPage(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><p>%s</p><p><a href=\"/\">bothouse</a></p>", html.EscapeString(msg))
+	// This notice also appears inside collab iframes. A link to / would load the
+	// management panel inside that frame and let its galaxy create another frame.
+	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><p>%s</p>", html.EscapeString(msg))
 }
 
 // dshSameOrigin stands in for DSH's own Origin fence, which the proxy defeats by stripping Origin

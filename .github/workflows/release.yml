@@ -176,7 +176,7 @@ jobs:
             codesign --force --keychain "$keychain" --sign "$SIGN_HASH" --identifier "$SIGN_ID" build/bothouse-universal
             security lock-keychain "$keychain"
             codesign --verify "-R=identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\"" build/bothouse-universal
-            ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG"
+            ../.github/release-check/package-dmg.sh build/bothouse-universal ../dist/bothouse-mac.dmg "$TAG" build/dmg-stage
           fi
           cd ../dist
           shasum -a 256 bothouse-* > SHA256SUMS
@@ -193,8 +193,11 @@ jobs:
         if: runner.os == 'macOS'
         continue-on-error: true
         run: |
-          mount=$(mktemp -d)
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount" dist/bothouse-mac.dmg
+          # Checks the staged .app that package-dmg.sh put into the image, not a mounted copy: on the
+          # Mac Studio runner mounting is unreliable (writable attach hung, and detach of a read-only
+          # mount hung too), so the dmg itself is only checked by checksum.
+          hdiutil verify dist/bothouse-mac.dmg
+          mount=bridge/build/dmg-stage
           plutil -lint "$mount/Bothouse.app/Contents/Info.plist"
           lipo -info "$mount/Bothouse.app/Contents/MacOS/bothouse"
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch arm64
@@ -209,7 +212,6 @@ jobs:
           req="identifier \"$SIGN_ID\" and certificate leaf = H\"$SIGN_HASH\""
           codesign --verify --strict "$mount/Bothouse.app"
           codesign --verify --ignore-resources "-R=$req" "$mount/Bothouse.app/Contents/MacOS/bothouse"
-          hdiutil detach "$mount"
       - name: zstd for the cache archive (macOS)
         # actions/cache falls back to gzip when zstd is missing, and a gzip entry has a different cache version, so the
         # Linux publish job cannot restore it (run 39932903479). The Mac Studio has no zstd/Homebrew: build it once into
@@ -439,9 +441,39 @@ jobs:
           $env:BOTHOUSE_VERSION = $prev
           ./install.ps1
           & "$HOME\.local\bin\bothouse.exe" --version
+      # npm i -g pulls ~650 packages and took ~11 min on windows-latest. Cache what it installs (the package's own
+      # tree under the global prefix plus its dsh shims), keyed by the version npm would install, and reuse it on a hit.
+      - name: DSH version npm would install
+        id: dsh
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "version=$(npm view @deepseek-ai/dsh version)" >> "$GITHUB_OUTPUT"
+          echo "node=$(node -p 'process.versions.node')" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(npm config get prefix)" >> "$GITHUB_OUTPUT"
+      - name: Cache the global DSH install
+        id: dsh-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ${{ steps.dsh.outputs.prefix }}/node_modules/@deepseek-ai/dsh
+            ${{ steps.dsh.outputs.prefix }}/dsh
+            ${{ steps.dsh.outputs.prefix }}/dsh.cmd
+            ${{ steps.dsh.outputs.prefix }}/dsh.ps1
+          key: dsh-global-${{ runner.os }}-node${{ steps.dsh.outputs.node }}-${{ steps.dsh.outputs.version }}
       - name: Install DSH (npm i -g @deepseek-ai/dsh, as the wizard tells users)
+        if: steps.dsh-cache.outputs.cache-hit != 'true'
         shell: bash
         run: npm i -g @deepseek-ai/dsh && dsh --version
+      - name: DSH is the version npm would install
+        shell: bash
+        env:
+          WANT: ${{ steps.dsh.outputs.version }}
+        run: |
+          set -euo pipefail
+          got=$(dsh --version)
+          echo "dsh --version: $got (want $WANT)"
+          case "$got" in *"$WANT"*) ;; *) echo "::error::dsh $got, expected $WANT"; exit 1 ;; esac
       - name: Browser for the render check (the runner's Chrome)
         run: python -m pip install --quiet playwright==1.55.0
       - name: Upgrade with install.ps1 and run the end-to-end smoke

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store.mjs';
 import { readFileSync } from 'node:fs';
-import { DeskEvents, deskReplay, deskRoute, readBoardEvents, BOARD_EVENTS_FILE, REPLAY_MAX } from './desk.mjs';
+import { DeskEvents, deskActiveTasks, deskReplay, deskRoute, readBoardEvents, BOARD_EVENTS_FILE, REPLAY_MAX } from './desk.mjs';
 import { resolveConfig } from './plugin.mjs';
 
 const quiet = { warn() {}, info() {} };
@@ -151,6 +151,26 @@ test('desk: /collab/desk 出页面，回放出 JSON，两条之外的路径不�
 
   assert.equal(deskRoute({ method: 'GET' }, fakeRes(), new URL('http://x/collab/api/events'), { store, boardDir: dir }), undefined);
   assert.equal(deskRoute({ method: 'GET' }, fakeRes(), new URL('http://x/collab/desk'), { store, boardDir: dir }), true);
+});
+
+test('desk: 刷新后仍能拿到在做的任务，交回/暂停/完成的不算', () => {
+  const dir = boardDir();
+  writeFileSync(join(dir, BOARD_EVENTS_FILE), [
+    line({ ts: '2026-11-03T12:00:00+08:00', id: '1', kind: 'created', from: 'lead', to: 'a', title: '还在做' }),
+    line({ ts: '2026-11-03T12:00:01+08:00', id: '2', kind: 'assigned', from: 'lead', to: 'b', title: '派了还在做' }),
+    line({ ts: '2026-11-03T12:00:02+08:00', id: '3', kind: 'created', from: 'lead', to: 'c', title: '交回了' }),
+    line({ ts: '2026-11-03T12:00:03+08:00', id: '3', kind: 'returned', from: 'c', to: 'lead' }),
+    line({ ts: '2026-11-03T12:00:04+08:00', id: '4', kind: 'created', from: 'lead', to: 'd', title: '暂停了' }),
+    line({ ts: '2026-11-03T12:00:05+08:00', id: '4', kind: 'paused', from: '', to: 'd' }),
+    line({ ts: '2026-11-03T12:00:06+08:00', id: '5', kind: 'created', from: 'lead', to: 'e', title: '做完了' }),
+    line({ ts: '2026-11-03T12:00:07+08:00', id: '5', kind: 'done', from: 'e', to: 'lead' }),
+  ].join(''));
+  assert.deepEqual(deskActiveTasks({ boardDir: dir }).map(e => e.id), ['1', '2']);
+  const res = fakeRes();
+  assert.equal(deskRoute({ method: 'GET' }, res, new URL('http://x/collab/api/desk/state'), { boardDir: dir }), true);
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(res.body).tasks.map(t => t.id), ['1', '2']);
+  assert.deepEqual(deskActiveTasks({ boardDir: undefined }), []);
 });
 
 test('desk: 板事件超过一页时只留最近的一页', () => {

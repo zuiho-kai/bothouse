@@ -821,6 +821,14 @@ name = "my-backend"
 # team_name = "协调员"               # This bot's name in the team status (default: project name). / 队友状态里的名字。
 # team_status_inject = true        # Main bot only: start each turn with the teammates' status.
 #                                  # 只给主 bot：每轮开头附上队友状态。
+# life_page = "~/wiki/my-days.md"  # A file saying how this role is right now (pocket, home, promises, work at hand).
+#                                  # Put before every turn sent to the agent (cron/timer included), up to 2000 chars
+#                                  # (longer pages are cut with a note), with "edit this file in place when something
+#                                  # changes, do not append". Missing file → a template with four empty headings.
+#                                  # Empty (default) = off.
+#                                  # 角色「现在的样子」页（兜里、住在、答应过、手上在做）。每轮发给 agent 前（含定时）附上，
+#                                  # 最多 2000 字，超了截断并说明；附一句「有变化直接改这个文件，不要往下追加」。
+#                                  # 文件不存在时建一个四项空标题的模板。不填即关。
 # team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。

@@ -104,3 +104,32 @@ func (e *Engine) replyNotice(p Platform, replyCtx any, notice string) {
 		e.reply(p, replyCtx, notice)
 	}
 }
+
+// sendCronFailureNotice posts a cron job's failure notice to its chat. A chat that keeps
+// bridge notices out (QQ groups) gets nothing; the notice goes to the owner's private
+// chat instead (admin_from, the same person `send --dm` writes to), so the group stays
+// quiet and the failure is still seen (#258, user 2026-11-08 「静音吧 私聊提醒」).
+// A private message that cannot be sent is logged and never falls back to the group.
+// The error is non-nil only when this engine cannot reach sessionKey at all, so the
+// caller may try another engine.
+func (e *Engine) sendCronFailureNotice(jobID, sessionKey, text string) error {
+	_, p, replyCtx, err := e.resolveOutboundSessionTarget(sessionKey, false)
+	if err != nil {
+		return err
+	}
+	if q, ok := p.(SystemNoticeQuieter); !ok || !q.QuietSystemNotices(replyCtx) {
+		return e.SendToSession(sessionKey, text)
+	}
+	dmKey, err := e.OpenDMSession()
+	if err == nil {
+		err = e.SendToSession(dmKey, text)
+	}
+	if err != nil {
+		slog.Error("cron: failure notice kept out of quiet chat and owner DM failed",
+			"project", e.name, "job", jobID, "session", sessionKey, "notice", text, "error", err)
+		return nil
+	}
+	slog.Info("cron: failure notice sent to owner DM instead of quiet chat",
+		"project", e.name, "job", jobID, "session", sessionKey, "dm", dmKey)
+	return nil
+}

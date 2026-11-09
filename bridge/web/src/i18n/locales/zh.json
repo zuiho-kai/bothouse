@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "连接 QQ",
+    "setupHint": "使用已有的 OneBot / NapCat 连接或 QQ 官方机器人凭据。保存配置不代表已经连通。",
+    "route": "接入方式",
+    "official": "QQ 官方机器人",
+    "projectID": "新角色标识",
+    "projectHint": "填写未被使用的字母、数字、连字符或下划线组合。",
+    "invalidProject": "标识格式不正确或已被使用。",
+    "noCLI": "请先安装并登录支持的 AI CLI。",
+    "savedRestart": "配置已保存，重启后生效；尚未验证真实 QQ 收发。",
+    "restartRequested": "已请求重启，服务启动后可返回角色列表。",
+    "settingsTitle": "QQ 连接与功能",
+    "settingsHint": "修改后需重启生效。已保存的配置不代表连接正常。",
+    "httpURL": "OneBot HTTP 地址（可选）",
+    "keepToken": "留空保留已保存的令牌",
+    "clearToken": "清除已保存的访问令牌",
+    "sharedHint": "开启后群成员共用会话。这不提供个人记忆隔离。",
+    "unavailable": "当前版本尚不可用",
+    "capabilities": {
+      "qq_voice_out": "暂不支持语音回复。",
+      "qq_command_allow_from": "暂不支持独立命令白名单，仍受项目管理员设置约束。",
+      "memory_import": "记忆导入待确认来源与格式。"
+    }
+  },
   "nav": {
     "addPlatform": "添加平台",
     "addRole": "添加角色/模型",
@@ -183,7 +207,12 @@
     "externalAdapters": "外接适配器",
     "bridgeDisabled": "桥接服务未启用",
     "bridgeDisabledHint": "这些平台由角色直接连接；外接客户端（如桌面托盘）接入还需要在配置里打开桥接服务。",
-    "noAdapters": "暂无外接适配器"
+    "noAdapters": "暂无外接适配器",
+    "platformsReadFailed": "已连接平台读取失败",
+    "adaptersReadFailed": "外接适配器读取失败",
+    "projectsReadFailed": "项目名读取失败，下面显示原始代号。",
+    "readFailedHint": "请求没成功，不代表这里没有内容。先确认桥接服务在跑、登录令牌没过期，再重试。",
+    "retry": "重试"
   },
   "system": {
     "title": "系统",
@@ -396,6 +425,8 @@
     "reviewComplexModel": "复杂档模型",
     "reviewModelRole": "沿用该角色自己的模型",
     "reviewModelHint": "审核开新会话，用这个模型跑",
+    "reviewModelNoSwitch": "该角色的后端不支持换模型，审核会按它自己的模型跑",
+    "reviewModelNotice": "最近一次审核模型没生效：#{{board}}（{{tier}}），{{role}} · {{model}}：{{reason}}",
     "log": "日志",
     "logLevel": "日志级别",
     "appearance": "外观",
@@ -549,7 +580,15 @@
     "unavailable": "暂不可得",
     "unavailableWhy": "该 agent 的协议目前不提供每轮用量（如 ACP），不做估算。",
     "empty": "暂无记录",
-    "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。"
+    "note": "从启用记账开始累计，不回填历史。用量暂不可得 {{unknown}} 次（其协议目前不提供每轮用量，如 ACP；不做估算，也不代表零消耗）；缺少单价或用量 {{unpriced}} 次。图表只含已上报的 token。金额仅为已定价部分的估算，* 表示尚有未计价回复。",
+    "quickFilters": "快捷筛选",
+    "presetToday": "今日",
+    "presetThisWeek": "本周",
+    "presetThisMonth": "本月",
+    "presetLast7Days": "近7天",
+    "tokenBreakdown": "消耗结构",
+    "presetPastYear": "近一年",
+    "presetPastYearHint": "默认范围：今天往前一年（后端单次最多查一年）"
   },
   "wikiGalaxy": {
     "title": "Wiki 星河",
@@ -609,6 +648,8 @@
     "providerScope": "此处服务商作用于引用它们的桥接项目。",
     "dshProviderScope": "DSH 原生成员使用自己的模型路由。",
     "openDsh": "打开 DSH",
+    "openDshDesktop": "在桌面版打开",
+    "openDshWeb": "网页版",
     "settingsModels": "在 DSH 中进入「设置 → 模型」。",
     "cliScope": "CLI 成员使用本机 CLI 的认证和配置，此处服务商不会更改它们。",
     "bridgeProjects": "桥接项目",

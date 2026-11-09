@@ -24,9 +24,9 @@ import (
 //
 // The Python is ProductPython (python_env.go: PATH, else uv, else uv downloaded into <data_dir>/tools), the
 // same one the role wikis use. Without one the gate is not started. Without a jev the gate still starts and
-// serves /context (each turn's wiki pages and task board) and /lead, but not /decide: there, as when the gate
-// is not running, core/gate.go fallbackFor applies: an @-mentioned bot answers, every other message goes to
-// the lead.
+// serves /context (each turn's wiki pages and task board) and /lead, but not /decide: its 503 makes core/gate.go
+// noModelFallback apply, where only an @-mentioned bot answers. Only while the gate is not running does
+// fallbackFor send every other message to the lead.
 
 // GateScriptFS holds contrib/gate/{gate,scorer_remote,ctxsvc,wiki_search,lead,board}.py and
 // team.example.json (embed_gate.go, set in cmd/cc-connect).
@@ -263,9 +263,10 @@ func gateWikiEnv(dataDir, roleWikiDir string) []string {
 	return append(env, "GATE_WIKI_BOTS="+filepath.Join(roleWikiDir, "bots.json"))
 }
 
-// gateProfilePage: the user-profile page (「懂你」) relative to the main wiki, the path the author's wiki ingest writes;
-// ctxsvc.py pushes its 「## 现状」 once a session when the page is there, nothing when it is not.
-const gateProfilePage = "tooling/workflow/workflow/preferences/user-profile.md"
+// gateProfilePage: the directory of the 「懂你」 pages relative to the main wiki, one page per person
+// (profile-<platform>-<sender id>.md, written nightly by the wiki's dream; #1160). ctxsvc.py pushes the 「## 现状」 of
+// the page of whoever sent the turn's message, once a session; nothing when that person has no page.
+const gateProfilePage = "tooling/workflow/workflow/preferences"
 
 // forumCronOn: the nightly memory-forum settlement job (AddForumCronJob) is in the cron store and enabled; the gate
 // then tells the roles the forum settles every night (ctxsvc.py memory_caps).
@@ -448,7 +449,7 @@ func (g *GateSupervisor) step() time.Duration {
 	}
 	py, reason := GatePrereq(g.dataDir)
 	if reason != "" {
-		return gateRecheck // core/gate.go fallbackFor: the lead answers until python / jev are there
+		return gateRecheck // core/gate.go fallbackFor: the lead answers until python is there
 	}
 	if fp := g.inputsLocked(); fp == g.failedFP {
 		return gateRecheck

@@ -27,6 +27,22 @@ const save = async () => { await act(async () => { fireEvent.click(screen.getByR
 const saveDisabled = () => (screen.getByRole('button', { name: zh.messageSave }) as HTMLButtonElement).disabled
 
 describe('channel settings tabs', () => {
+  it('keeps automatic selection distinct from an explicit choice and allows clearing it', async () => {
+    const p = props()
+    p.room.lead_id = null
+    render(<ChannelSettingsDialog {...p} />)
+    tab(zh.settingsDispatch)
+    const select = screen.getByLabelText(zh.channelLead) as HTMLSelectElement
+    expect(select.value).toBe('')
+    expect(select.options[0].disabled).toBe(false)
+    change(zh.channelLead, 'b')
+    await save()
+    expect(p.setLead).toHaveBeenLastCalledWith('b', 1)
+    change(zh.channelLead, '')
+    await save()
+    expect(p.setLead).toHaveBeenLastCalledWith('', 1)
+  })
+
   it('keeps a fixed dialog and scrolling body with shared tabs and a stationary action bar', () => {
     render(<ChannelSettingsDialog {...props()} />)
     const dialog = screen.getByRole('dialog')

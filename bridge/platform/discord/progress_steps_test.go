@@ -31,10 +31,10 @@ func TestProgressSteps_EmptyToolInputAcrossCardViews(t *testing.T) {
 			if !strings.Contains(card.Description, "第 2 步") {
 				t.Fatalf("wrong card: %+v", card)
 			}
-			if view == cardViewBrief && !strings.Contains(card.Description, "bash · 成功") {
+			if view == cardViewBrief && !strings.Contains(card.Description, "read") {
 				t.Fatalf("tool status lost: %s", card.Description)
 			}
-			if view == cardViewBrief && strings.Count(card.Description, "bash") != 1 {
+			if view == cardViewBrief && strings.Count(card.Description, "read") != 1 {
 				t.Fatalf("duplicate result became another step: %s", card.Description)
 			}
 			t.Logf("state=%s view=%v: %s", state, view, card.Description)

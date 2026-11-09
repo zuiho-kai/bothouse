@@ -44,7 +44,9 @@ type cardViews struct {
 	current  map[string]string     // origin channel -> newest progress card ID
 	chanOf   map[string]string     // progress card ID -> its channel
 	originOf map[string]string     // progress card ID -> its origin channel
+	pages    map[string]int        // progress card ID -> 细节 page read back to; absent = newest
 	prefs    *cardViewPrefs        // last choice per origin channel; nil = in-memory store
+	store    *cardSourceStore      // what each card was drawn from, on disk; nil = none (card_view_store.go)
 }
 
 type cardRef struct{ channelID, messageID string }
@@ -53,6 +55,10 @@ type cardRef struct{ channelID, messageID string }
 type cardRender struct {
 	lang   string
 	embeds func(cardView) []*discordgo.MessageEmbed
+	// pages, when set, renders one 细节 page (-1 = newest) and returns the
+	// page shown and the page count (progress cards only, card_pages.go).
+	pages func(v cardView, page int) ([]*discordgo.MessageEmbed, int, int)
+	src   cardSource // saved so the card can be re-drawn after its turn is dropped
 }
 
 func (c *cardViews) init() {
@@ -64,6 +70,9 @@ func (c *cardViews) init() {
 		c.current = make(map[string]string)
 		c.chanOf = make(map[string]string)
 		c.originOf = make(map[string]string)
+	}
+	if c.pages == nil {
+		c.pages = make(map[string]int)
 	}
 	if c.prefs == nil {
 		c.prefs = &cardViewPrefs{modes: map[string]cardView{}}
@@ -166,6 +175,7 @@ func (c *cardViews) join(origin, channelID, messageID string) {
 		c.dropMember(old, messageID)
 	}
 	c.leaderOf[messageID] = leader
+	c.chanOf[messageID] = channelID
 	c.members[leader] = append(c.members[leader], cardRef{channelID: channelID, messageID: messageID})
 }
 
@@ -188,6 +198,17 @@ func (c *cardViews) remember(messageID string, render cardRender) {
 	defer c.mu.Unlock()
 	c.init()
 	c.renders[messageID] = render
+	if c.store == nil || render.src.Kind == "" {
+		return
+	}
+	src := render.src
+	src.Leader = c.leaderOf[messageID]
+	src.Channel = c.chanOf[messageID]
+	src.Origin = c.originOf[src.Leader]
+	if src.Leader == messageID {
+		src.Mode = c.modes[messageID]
+	}
+	c.store.save(messageID, src)
 }
 
 type cardMember struct {
@@ -211,15 +232,20 @@ func (c *cardViews) set(messageID, fallbackOrigin string, mode cardView) (cardRe
 		key = l
 		c.modes[key] = mode
 	}
+	r, ok := c.renders[messageID]
+	if !turnKnown || !ok {
+		// An earlier turn (dropped when the channel's next one started) or a
+		// card sent before a restart: re-draw it from its saved source.
+		return c.setFromStore(messageID, fallbackOrigin, mode)
+	}
 	origin := c.originOf[key]
 	if origin == "" {
 		origin = fallbackOrigin
 	}
 	c.prefs.set(origin, mode)
-	if !turnKnown {
-		return cardRender{}, false, nil
+	if c.store != nil {
+		c.store.setMode(key, mode)
 	}
-	r, ok := c.renders[messageID]
 	var others []cardMember
 	if key != messageID {
 		if lr, ok := c.renders[key]; ok {
@@ -237,6 +263,50 @@ func (c *cardViews) set(messageID, fallbackOrigin string, mode cardView) (cardRe
 	return r, ok, others
 }
 
+// setFromStore is set for a card known only from its saved source. Without
+// one, only the channel's remembered choice changes. Caller holds mu.
+func (c *cardViews) setFromStore(messageID, fallbackOrigin string, mode cardView) (cardRender, bool, []cardMember) {
+	src, found := c.store.load(messageID)
+	if !found {
+		c.prefs.set(fallbackOrigin, mode)
+		return cardRender{}, false, nil
+	}
+	leader := src.Leader
+	if leader == "" {
+		leader = messageID
+	}
+	origin := src.Origin
+	var others []cardMember
+	if leader != messageID {
+		if ls, ok := c.store.load(leader); ok {
+			if origin == "" {
+				origin = ls.Origin
+			}
+			if lr, ok := ls.render(); ok {
+				others = append(others, cardMember{ref: cardRef{channelID: ls.Channel, messageID: leader}, render: lr, leader: true})
+			}
+		}
+	}
+	for id, ms := range c.store.turn(leader) {
+		if id == messageID {
+			continue
+		}
+		if mr, ok := ms.render(); ok {
+			others = append(others, cardMember{ref: cardRef{channelID: ms.Channel, messageID: id}, render: mr})
+		}
+	}
+	if origin == "" {
+		origin = fallbackOrigin
+	}
+	c.prefs.set(origin, mode)
+	c.store.setMode(leader, mode)
+	if _, live := c.leaderOf[leader]; live {
+		c.modes[leader] = mode
+	}
+	r, ok := src.render()
+	return r, ok, others
+}
+
 // dropTurn removes a turn: its progress card and every table and task card
 // filed under it. Caller holds mu.
 func (c *cardViews) dropTurn(leader string) {
@@ -248,6 +318,7 @@ func (c *cardViews) dropTurn(leader string) {
 		}
 	}
 	delete(c.members, leader)
+	delete(c.pages, leader)
 	delete(c.modes, leader)
 	delete(c.renders, leader)
 	delete(c.leaderOf, leader)
@@ -268,6 +339,7 @@ func (c *cardViews) forget(messageID string) {
 		c.dropMember(l, messageID)
 	}
 	delete(c.modes, messageID)
+	delete(c.pages, messageID)
 	delete(c.renders, messageID)
 	delete(c.leaderOf, messageID)
 	delete(c.chanOf, messageID)
@@ -347,7 +419,13 @@ func (p *Platform) handleCardViewInteraction(s *discordgo.Session, i *discordgo.
 	// card uses the chosen view.
 	data := &discordgo.InteractionResponseData{Components: cardViewComponents(mode, lang), Embeds: i.Message.Embeds}
 	if known {
-		data.Embeds = render.embeds(mode)
+		// A switch starts 细节 on its newest page.
+		p.cardViews.setPage(i.Message.ID, -1)
+		embeds, cur, total := render.draw(mode, -1)
+		data.Embeds = embeds
+		if render.pages != nil {
+			data.Components = cardViewComponentsPaged(mode, lang, cur, total)
+		}
 	}
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -360,10 +438,13 @@ func (p *Platform) handleCardViewInteraction(s *discordgo.Session, i *discordgo.
 		if channelID == "" {
 			channelID = i.Message.ChannelID
 		}
-		embeds := m.render.embeds(mode)
+		if m.leader {
+			p.cardViews.setPage(m.ref.messageID, -1)
+		}
+		embeds, cur, total := m.render.draw(mode, -1)
 		edit := &discordgo.MessageEdit{ID: m.ref.messageID, Channel: channelID, Embeds: &embeds}
 		if m.leader { // the turn's progress card keeps the buttons
-			components := cardViewComponents(mode, m.render.lang)
+			components := cardViewComponentsPaged(mode, m.render.lang, cur, total)
 			edit.Components = &components
 		} else { // tables and task cards carry none
 			empty := []discordgo.MessageComponent{}

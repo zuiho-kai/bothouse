@@ -30,9 +30,10 @@ func buildDiscordPreviewMessageView(content string, view cardView) *discordgo.Me
 		}
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
+		embed, cur, total := buildDiscordProgressEmbedPage(payload, view, -1)
 		return &discordgo.MessageSend{
-			Embeds:     []*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, view)},
-			Components: cardViewComponents(view, payload.Lang),
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: cardViewComponentsPaged(view, payload.Lang, cur, total),
 		}
 	}
 	return &discordgo.MessageSend{
@@ -48,6 +49,12 @@ func buildDiscordPreviewEdit(channelID, messageID, content string) *discordgo.Me
 // the turn's chosen view. Every progress card edit carries the buttons, so
 // they never drop off; a table edit clears any old buttons it had.
 func buildDiscordPreviewEditView(channelID, messageID, content string, view cardView) *discordgo.MessageEdit {
+	return buildDiscordPreviewEditViewPage(channelID, messageID, content, view, -1)
+}
+
+// buildDiscordPreviewEditViewPage is buildDiscordPreviewEditView on a given
+// 细节 page (-1 = the newest, following new lines).
+func buildDiscordPreviewEditViewPage(channelID, messageID, content string, view cardView, page int) *discordgo.MessageEdit {
 	edit := discordgo.NewMessageEdit(channelID, messageID)
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		edit.SetContent("")
@@ -58,8 +65,9 @@ func buildDiscordPreviewEditView(channelID, messageID, content string, view card
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
 		edit.SetContent("")
-		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, view)})
-		components := cardViewComponents(view, payload.Lang)
+		embed, cur, total := buildDiscordProgressEmbedPage(payload, view, page)
+		edit.SetEmbeds([]*discordgo.MessageEmbed{embed})
+		components := cardViewComponentsPaged(view, payload.Lang, cur, total)
 		edit.Components = &components
 		return edit
 	}
@@ -73,14 +81,28 @@ func buildDiscordProgressEmbed(payload *core.ProgressCardPayload) *discordgo.Mes
 }
 
 func buildDiscordProgressEmbedView(payload *core.ProgressCardPayload, view cardView) *discordgo.MessageEmbed {
+	embed, _, _ := buildDiscordProgressEmbedPage(payload, view, -1)
+	return embed
+}
+
+// buildDiscordProgressEmbedPage renders the card in a view; 细节 shows page
+// `page` of every line in full (-1 = the newest page). It returns the page
+// shown and the page count (1 for 简略).
+func buildDiscordProgressEmbedPage(payload *core.ProgressCardPayload, view cardView, page int) (*discordgo.MessageEmbed, int, int) {
 	if payload == nil {
-		return &discordgo.MessageEmbed{Description: " "}
+		return &discordgo.MessageEmbed{Description: " "}, 0, 1
 	}
 	agent := discordProgressAgentLabel(payload.Agent)
 	title, color, footer := discordProgressStateMeta(payload.State, payload.Lang, agent)
-	desc := buildDiscordProgressDescription(payload)
+	cur, total := 0, 1
+	var desc string
 	if view == cardViewBrief {
 		desc = buildDiscordProgressBrief(payload)
+	} else {
+		pages := buildDiscordProgressDetailPages(payload)
+		total = len(pages)
+		cur = clampCardPage(page, total)
+		desc = pages[cur]
 	}
 	embed := &discordgo.MessageEmbed{
 		Title:       trimDiscordRunes(title, maxDiscordEmbedTitleLen),
@@ -92,7 +114,7 @@ func buildDiscordProgressEmbedView(payload *core.ProgressCardPayload, view cardV
 			Text: trimDiscordRunes(footer, maxDiscordProgressFooterLen),
 		}
 	}
-	return embed
+	return embed, cur, total
 }
 
 // buildDiscordProgressBrief is the 简略 progress card: the 「第N步 · 用时」 head,
@@ -150,6 +172,11 @@ func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
 	}, nil)}
 	zh := normalizeDiscordProgressLang(payload.Lang) == "zh"
 	running := payload.State == core.ProgressCardStateRunning || payload.State == ""
+	// #1197: 简略 stays a one-line bar — the head and the newest step only;
+	// the card now keeps every line for 细节.
+	if len(steps) > 1 {
+		steps = steps[len(steps)-1:]
+	}
 	for _, s := range steps {
 		name := s.tool
 		if name == "" {
@@ -200,8 +227,11 @@ func progressCardRender(content string) (cardRender, bool) {
 	if !ok {
 		return cardRender{}, false
 	}
-	return cardRender{lang: payload.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
+	return cardRender{lang: payload.Lang, src: cardSource{Kind: cardKindProgress, Content: content, Lang: payload.Lang}, embeds: func(v cardView) []*discordgo.MessageEmbed {
 		return []*discordgo.MessageEmbed{buildDiscordProgressEmbedView(payload, v)}
+	}, pages: func(v cardView, page int) ([]*discordgo.MessageEmbed, int, int) {
+		embed, cur, total := buildDiscordProgressEmbedPage(payload, v, page)
+		return []*discordgo.MessageEmbed{embed}, cur, total
 	}}, true
 }
 
@@ -602,7 +632,7 @@ func subTaskTableRender(content string) (cardRender, bool) {
 	if !ok {
 		return cardRender{}, false
 	}
-	return cardRender{lang: table.Lang, embeds: func(v cardView) []*discordgo.MessageEmbed {
+	return cardRender{lang: table.Lang, src: cardSource{Kind: cardKindTable, Content: content, Lang: table.Lang}, embeds: func(v cardView) []*discordgo.MessageEmbed {
 		return []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, v)}
 	}}, true
 }

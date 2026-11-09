@@ -56,7 +56,7 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range watchFailLimit {
-		source.watchTurnEnded(platforms["orange"], ws, "", false, true, false, time.Time{})
+		source.watchTurnEnded(platforms["orange"], ws, "", false, true, false, false, time.Time{})
 	}
 	if items := readTeamTaskBoard(source.team.dir); len(items) != 1 || items[0].Who != "longniang" {
 		t.Fatalf("board owner after two failures: %+v", items)

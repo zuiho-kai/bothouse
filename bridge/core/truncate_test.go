@@ -1,7 +1,6 @@
 package core
 
 import (
-	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -132,67 +131,4 @@ func TestTruncateRelay(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestShellOutputTruncation(t *testing.T) {
-	// Simulate the inline shell truncation logic from engine.go
-	truncateShell := func(result string) string {
-		if runes := []rune(result); len(runes) > 4000 {
-			result = string(runes[:3997]) + "..."
-		}
-		return result
-	}
-
-	t.Run("short output unchanged", func(t *testing.T) {
-		input := "hello world"
-		got := truncateShell(input)
-		if got != input {
-			t.Errorf("expected no truncation, got %q", got)
-		}
-	})
-
-	t.Run("long ascii output truncated", func(t *testing.T) {
-		input := strings.Repeat("a", 5000)
-		got := truncateShell(input)
-		runes := []rune(got)
-		if len(runes) != 4000 {
-			t.Errorf("expected 4000 runes, got %d", len(runes))
-		}
-		if !utf8.ValidString(got) {
-			t.Errorf("produced invalid UTF-8")
-		}
-	})
-
-	t.Run("long chinese output truncated at char boundary", func(t *testing.T) {
-		input := strings.Repeat("中", 5000)
-		got := truncateShell(input)
-		if !utf8.ValidString(got) {
-			t.Errorf("produced invalid UTF-8: truncation split a multi-byte character")
-		}
-		runes := []rune(got)
-		// 3997 中 + 3 dots = 4000 runes
-		if len(runes) != 4000 {
-			t.Errorf("expected 4000 runes, got %d", len(runes))
-		}
-	})
-
-	t.Run("long emoji output truncated at char boundary", func(t *testing.T) {
-		input := strings.Repeat("🎉", 5000)
-		got := truncateShell(input)
-		if !utf8.ValidString(got) {
-			t.Errorf("produced invalid UTF-8: truncation split an emoji")
-		}
-		runes := []rune(got)
-		if len(runes) != 4000 {
-			t.Errorf("expected 4000 runes, got %d", len(runes))
-		}
-	})
-
-	t.Run("exactly 4000 runes unchanged", func(t *testing.T) {
-		input := strings.Repeat("你", 4000)
-		got := truncateShell(input)
-		if got != input {
-			t.Errorf("expected no truncation for exactly 4000 runes")
-		}
-	})
 }

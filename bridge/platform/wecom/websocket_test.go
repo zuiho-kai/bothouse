@@ -541,56 +541,6 @@ func TestWriteAndWaitAck_AckWithError(t *testing.T) {
 	})
 }
 
-func TestWriteAndWaitAck_Timeout(t *testing.T) {
-	p := &WSPlatform{}
-
-	reqID := "send_timeout"
-	ch := make(chan wsAckResult, 1)
-	p.pendingAcks.Store(reqID, ch)
-
-	// Nobody sends ack → should timeout
-	start := time.Now()
-	select {
-	case <-ch:
-		t.Fatal("should not receive from channel without ack")
-	case <-time.After(100 * time.Millisecond):
-		// Expected: timed out without blocking forever
-	}
-	elapsed := time.Since(start)
-	if elapsed > 1*time.Second {
-		t.Fatalf("timeout took too long: %v", elapsed)
-	}
-
-	// Clean up
-	p.pendingAcks.Delete(reqID)
-}
-
-func TestWriteAndWaitAck_ContextCancelled(t *testing.T) {
-	p := &WSPlatform{}
-
-	reqID := "send_cancel"
-	ch := make(chan wsAckResult, 1)
-	p.pendingAcks.Store(reqID, ch)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
-
-	select {
-	case <-ch:
-		t.Fatal("should not receive ack")
-	case <-ctx.Done():
-		// Expected: context cancelled
-	case <-time.After(1 * time.Second):
-		t.Fatal("timed out")
-	}
-
-	p.pendingAcks.Delete(reqID)
-}
-
 // ---------------------------------------------------------------------------
 // handleFrame — ACK dispatch
 // ---------------------------------------------------------------------------

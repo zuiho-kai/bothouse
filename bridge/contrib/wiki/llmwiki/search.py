@@ -11,8 +11,25 @@ Skipped: MEMORY.md / log.md / CLAUDE.md at the root, README.md, hidden dirs, bin
 dirs without README.md (e.g. refs/media/, written by a script).
 Tokenizer and scoring are the same as /tmp/wiki-retrieval-eval/bm25.py (report.md, 2026-10-18).
 """
-import collections, math, re, sys
+import collections, importlib.util, math, os, re, sys
 from pathlib import Path
+
+def _load_scores():
+    """Load the one shared forum ranker in a source checkout or a bothouse data directory."""
+    configured = os.environ.get("WIKI_GATE_DIR")
+    source = Path(__file__).resolve().parents[2] / "gate" / "forum_scores.py"
+    path = Path(configured).expanduser() / "forum_scores.py" if configured else source
+    if not path.exists():
+        path = Path.home() / ".bothouse" / "gate" / "forum_scores.py"
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("forum_scores", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+forum_scores = _load_scores()
 
 WIKI = Path.home() / "wiki"
 SHARED_TOOL = 1  # marker: this search.py takes --root; teammate/ shims refuse a tool without it
@@ -43,9 +60,11 @@ def _pages(root):
 
 
 class Index:
-    def __init__(self, root=WIKI):
+    def __init__(self, root=WIKI, scored=False):
+        self.root = Path(root)
+        self.scored = bool(scored and forum_scores)
         self.lines, self.desc = [], {}
-        for rel, txt in _pages(Path(root)):
+        for rel, txt in _pages(self.root):
             start = 0
             if txt and txt[0] == "---":
                 for j in range(1, len(txt)):
@@ -76,6 +95,45 @@ class Index:
         top = sorted(sc.items(), key=lambda x: -x[1])[:k]
         return [self.lines[i][:3] for i, _ in top]
 
+    def search_pages(self, query, k=TOP):
+        """Show the best line per page family, with its count and other matching pages."""
+        hits = self.search(query, k=len(self.lines))
+        per_page = collections.Counter(rel for rel, _, _ in hits)
+        out, where = [], {}
+        for rel, ln, text in hits:
+            family = self.family(rel)
+            if family not in where:
+                if len(out) == k:
+                    continue
+                where[family] = len(out)
+                out.append([rel, ln, text, per_page[rel], []])
+            elif rel != out[where[family]][0] and rel not in out[where[family]][4]:
+                out[where[family]][4].append(rel)
+        if self.scored:
+            out = forum_scores.rerank(out, self.root)
+        return [tuple(row) for row in out]
+
+    def family(self, rel):
+        """Return the shortest same-directory page stem that owns this prefix family."""
+        if not hasattr(self, "_fam"):
+            stems = collections.defaultdict(set)
+            for path in self.desc:
+                directory, _, name = path.rpartition("/")
+                stems[directory].add(name[:-3])
+            self._fam = {}
+            for path in self.desc:
+                directory, _, name = path.rpartition("/")
+                stem = name[:-3]
+                roots = [candidate for candidate in stems[directory]
+                         if stem == candidate or stem.startswith(candidate + "-")]
+                base = min(roots, key=len)
+                self._fam[path] = f"{directory}/{base}.md" if directory else f"{base}.md"
+        return self._fam[rel]
+
+    def candidates(self, text, k=TOP):
+        """Return the page families most likely related to a transcript block."""
+        return [self.family(rel) for rel, *_ in self.search_pages(text, k)]
+
 
 def main():
     args, root = sys.argv[1:], WIKI
@@ -85,13 +143,15 @@ def main():
     q = " ".join(args)
     if not q.strip():
         sys.exit("usage: python3 ~/wiki/bin/search.py [--root DIR] <query>")
-    idx = Index(root)
-    hits = idx.search(q)
+    idx = Index(root, scored=True)
+    hits = idx.search_pages(q)
     if not hits:
         print("(no hits)")
     shown = "~/" + str(root.relative_to(Path.home())) if root.is_relative_to(Path.home()) else str(root)
-    for rel, ln, text in hits:
-        print(f"{shown}/{rel}:{ln}  {text.strip()}\n    — {idx.desc[rel]}")
+    for rel, ln, text, count, family in hits:
+        tag = forum_scores.label(forum_scores.entry_id(rel, text, root)) if idx.scored else ""
+        more = f"；同族另有 {', '.join(Path(page).name for page in family)}" if family else ""
+        print(f"{shown}/{rel}:{ln}  {tag}{text.strip()}\n    — {idx.desc[rel]}（本页命中 {count} 行{more}）")
 
 if __name__ == "__main__":
     main()

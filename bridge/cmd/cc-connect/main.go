@@ -225,6 +225,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"cron":         runCron,
 	"model":        runModel,
 	"workspace":    runWorkspace,
+	"channel":      runChannel,
 	"ctx":          runCtx,
 	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
@@ -447,6 +448,7 @@ func runMain() {
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
 	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
+	core.SetTeamReviewPrices(core.UsagePricesWithDefaults(cfg.UsagePrices)) // stand-in reviewers ranked by the same rates
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
@@ -708,9 +710,40 @@ func runMain() {
 			})
 		})
 		mgmtSrv.SetGetProjectConfig(config.GetProjectConfigDetails)
+		mgmtSrv.SetQQSettingsFuncs(
+			func(name string) (*core.QQSettings, error) {
+				s, err := config.GetQQSettings(name)
+				if err != nil {
+					return nil, err
+				}
+				return &core.QQSettings{
+					Configured:            s.Configured,
+					WSURL:                 s.WSURL,
+					HTTPURL:               s.HTTPURL,
+					TokenSet:              s.TokenSet,
+					AllowFrom:             s.AllowFrom,
+					ShareSessionInChannel: s.ShareSessionInChannel,
+				}, nil
+			},
+			func(name string, u core.QQSettingsUpdate) ([]string, error) {
+				return config.UpdateQQSettings(name, config.QQSettingsUpdate{
+					WSURL:                 u.WSURL,
+					HTTPURL:               u.HTTPURL,
+					Token:                 u.Token,
+					AllowFrom:             u.AllowFrom,
+					ShareSessionInChannel: u.ShareSessionInChannel,
+				})
+			},
+		)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
-		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
+		mgmtSrv.SetGetGlobalSettings(func() map[string]any {
+			g := config.GetGlobalSettings()
+			if n := core.TeamReviewModelNotice(); n != nil && g != nil {
+				g["review_model_notice"] = n // read-only: a review model that did not take effect
+			}
+			return g
+		})
 		wireAutostart(mgmtSrv)
 		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
 			u := config.GlobalSettingsUpdate{}
@@ -1327,6 +1360,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
 	}
 	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
+	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
 	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
 
 	// Wire auto-compress settings
@@ -1353,6 +1387,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetLifePage(proj.LifePage)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
@@ -2081,6 +2116,7 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, *proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetLifePage(proj.LifePage)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())

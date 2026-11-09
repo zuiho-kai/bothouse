@@ -26,6 +26,14 @@ except ImportError:
     board = None
 import wiki_search as search
 
+_FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 楼层帖标注（#1177，同 forum_scores.TAG）：算编号、显示时去掉
+
+
+def _bare(s):
+    return _FLOOR_TAG.sub("", s).strip()
+
+
+
 _env = os.environ.get("GATE_WIKI", "~/wiki").strip()
 WIKI = None if _env.lower() in ("", "off") else Path(_env).expanduser()
 TTL = 300  # 来源：作者本机 ctxsvc.py 沿用的 300 秒重建索引（wiki 改了最迟这么久后查得到）
@@ -46,7 +54,7 @@ def is_item(line):
 
 def _title(line):
     """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
-    t = re.sub(r"^[-*\s]+", "", line.strip())
+    t = re.sub(r"^[-*\s]+", "", _bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
     return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
 
@@ -150,14 +158,68 @@ def match_wiki(text, k=TOP_PAGES, root=None):
     hits = [h for h in idx.search(query(text)) if is_item(h[2])]  # 前 10 行，去掉标题行
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
+    shown_th = set()
     for rel, ln, line in hits:  # 按首次出现排页
+        th = _thread(rel, line, root)
+        if th and th["tid"] in shown_th:
+            continue  # 同一帖的别的楼已经推过标题和最高分楼
         if rel not in pages:
             if len(pages) == k:
                 continue
             pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
+        if th:
+            shown_th.add(th["tid"])
+            rows = _thread_rows(th, rel, root)
+            if rows:
+                pages[rel]["rows"] += rows
+                continue
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
         pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in pages.items()]
+
+
+def _thread(rel, line, root):
+    """命中行所在的楼层帖（#1177）；只有一楼、或没装归帖表（forum_scores 旧版）时 None，照旧推这一行。"""
+    if not FORUM or not hasattr(FORUM, "thread_of"):
+        return None
+    th = FORUM.thread_of(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))
+    return th if th and len(th.get("floors", [])) > 1 else None
+
+
+def _floor_line(cid):
+    """楼编号 页#哈希 → (页文件, 行号, 原文)；页里已没有这行返回 None（挪进历史、改写过的楼不推）。"""
+    page, _, h = cid.partition("#")
+    f = Path.home() / page[2:] if page.startswith("~/") else Path(page) if os.path.isabs(page) else WIKI / page
+    try:
+        lines = f.read_text(encoding="utf-8", errors="ignore").split("\n")
+    except OSError:
+        return None
+    for n, x in enumerate(lines, 1):
+        if x.strip() and hashlib.sha1(_bare(x).encode()).hexdigest()[:10] == h:
+            return f, n, x
+    return None
+
+
+def _thread_rows(th, rel, root):
+    """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
+    别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
+    floors = {f["id"]: f for f in th["floors"]}
+    found = [(f, _floor_line(f["id"])) for f in FORUM.floors_ranked(th)]
+    found = [(f, x) for f, x in found if x and is_item(x[2])]
+    if not found:
+        return []
+    top = found[0]
+    latest = max(found, key=lambda t: t[0].get("floor", 0))
+    here = ((root or WIKI) / rel).resolve()
+    out = []
+    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) else []):
+        where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
+        u, d = FORUM.counts(f["id"])
+        head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
+        fold = FORUM.label(f["id"])
+        out.append(_row(file.as_posix(), line, f"{where}: {head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
+                        root=Path("/"), ln=n))
+    return out
 
 
 def context(req):
@@ -176,7 +238,7 @@ def context(req):
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     key = req.get("key") or ""
     dec = decision_items(text, key)
-    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + board_items(key)
+    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender")) + board_items(key)
            + with_lessons(match_wiki(tq), tq) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
@@ -218,9 +280,9 @@ def memory_caps(roots, own):
         night = "；每天 05:30 夜间结算：看引用那轮用户下一句是不是纠正，记成败" if FORUM_NIGHT else ""
         rows.append(f"- 记忆论坛：推送的定案、经验条行尾带 10 位编号，用到哪条就 `python3 {_shown(MEMVOTE, Path('/'))} +编号` 记引用（页面和卡片的 8 位编号是取正文用的，不投）{night}；"
                     "按 Reddit best 排序，低分条折叠沉底、不删" + ("" if FORUM else "（排序模块没装，这项未生效）"))
-    prof = roots[0] / PROFILE if PROFILE else None
-    if prof and prof.exists():
-        rows.append(f"- 用户画像（懂你）：{_shown(PROFILE, roots[0])}，每个会话推一次")
+    if PROFILE and any((roots[0] / PROFILE).glob(PROFILE_PAGE.format(key="*"))):
+        rows.append(f"- 懂你画像：每人一页（{_shown(PROFILE, roots[0])}/{PROFILE_PAGE.format(key='<平台>-<账号 id>')}），"
+                    "夜里从各人原话重写；谁发这条消息就推谁那页，一个会话推一次")
     body = "\n".join(rows)
     tag = hashlib.sha1(body.encode()).hexdigest()[:6]
     return [{"path": f"【记忆能力 {tag}】", "desc": (
@@ -402,13 +464,33 @@ def standing_items(roots):
             continue
         if body:
             out.append({"path": f"【常驻做法 {tag}】", "desc": STANDING_HOW.format(path=shown) + "\n" + body})
-    # 用户画像：GATE_PROFILE 指的页（相对主 wiki 或绝对路径）的「## 现状」一节，同常驻做法按内容指纹每个会话推一次；没配不推
-    m = re.search(r"^## 现状\n(.*?)(?=^## |\Z)", _read(roots[0] / PROFILE) if roots and PROFILE else "", re.S | re.M)
-    if m and m.group(1).strip():
-        body = m.group(1).strip()
-        out.append({"path": f"【懂你 {hashlib.sha1(body.encode()).hexdigest()[:6]}】",
-                    "desc": f"用户画像（{_shown(PROFILE, roots[0])}）：照这些懂用户，说话做事贴用户的判断和口味\n" + body})
     return out
+
+
+# ---- 懂你画像：每人一页（#1160，用户 11-07「现在我们有对每个用户去做人物画像吗，例如还有zzzx，我想把这个做成一个产品能力」）----
+# 页 = <主 wiki>/<GATE_PROFILE 目录>/profile-<平台>-<账号 id>.md（夜间 dream 从这个人自己的原话重写，llmwiki/ingest.py
+# profiles_pass）；推「## 现状」一节。sender 是桥带来的这条消息的发送人（core/gate.go turnContext，personKey）：
+# 只推他自己那页，没有就不推，不拿别人的顶上（cron、定时、队友 bot 的轮次没有 sender）。path 带人和内容指纹：
+# 一个会话里同一个人的同一版只推一次，换人说话推那人的。
+PROFILE_PAGE = "profile-{key}.md"
+_SENDER = re.compile(r"[A-Za-z0-9._-]{1,120}")
+
+
+def profile_items(roots, sender):
+    sender = (sender or "").strip()
+    if not roots or not PROFILE or not _SENDER.fullmatch(sender):
+        return []
+    rel = f"{PROFILE}/{PROFILE_PAGE.format(key=sender)}"
+    text = _read(roots[0] / rel)
+    m = re.search(r"^## 现状\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    if not m or not m.group(1).strip():
+        return []
+    body = m.group(1).strip()
+    name = re.search(r"^# 懂你：(.+)$", text, re.M)
+    who = name.group(1).strip() if name else sender
+    return [{"path": f"【懂你 {who} {hashlib.sha1(body.encode()).hexdigest()[:6]}】",
+             "desc": f"{who} 的画像（夜间从他自己的原话重写，{_shown(rel, roots[0])}）：这条消息是他发的，照这些懂他，"
+                     "说话做事贴他的判断和口味\n" + body}]
 
 
 def _read(f):
@@ -421,7 +503,9 @@ def _read(f):
 # ---- 经验（教训表里按本轮话题命中的条，并进 wiki 推荐）----
 # 经验 = 教训表「关键事实」里「- 经验：」开头的行（缩进的「- MM-DD …」一条是踩一次坑）；没有教训表就不推。
 # 排序：论坛票（forum_scores.rank_key，低分折叠沉底）→ 踩坑次数 → 最近一次。
-PROFILE = os.environ.get("GATE_PROFILE", "").strip()  # 用户画像页；空 = 不推画像
+# 懂你画像目录（相对主 wiki）；空 = 不推画像。旧值是一页 .md（#1160 前只有一页）就取它所在的目录
+PROFILE = os.environ.get("GATE_PROFILE", "").strip().rstrip("/")
+PROFILE = PROFILE.rsplit("/", 1)[0] if PROFILE.endswith(".md") else PROFILE
 LESSON_NAME = "rule-candidates-recurrence.md"
 LESSON_HEAD = "- 经验："
 LESSON_TOP = 3
@@ -567,7 +651,7 @@ EXP_INIT = 2  # ExpeL §4.2「initial importance count of two」
 
 def exp_id(rel, line):
     """条目的稳定编号 = 页 + 这行内容的指纹（ACE §3.1 每条有 unique identifier）；页改了行号也不串分。"""
-    return f"{rel}#{hashlib.sha1(line.strip().encode()).hexdigest()[:10]}"
+    return f"{rel}#{hashlib.sha1(_bare(line).encode()).hexdigest()[:10]}"
 
 
 def _row(rel, line, text, group="", root=None, ln=0):
@@ -688,7 +772,7 @@ def brief(desc):
 
 
 def _line_id(x):
-    return "L" + hashlib.sha1(x.strip().encode()).hexdigest()[:12]
+    return "L" + hashlib.sha1(_bare(x).encode()).hexdigest()[:12]
 
 
 def as_doc(w):

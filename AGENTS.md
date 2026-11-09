@@ -1,6 +1,7 @@
 # 共栖 · Agent 协作入口
 
 > 用户只是要把 bothouse 装好、接上 Discord / 飞书（不是改代码）：直接看文末「用户说「配 Discord / 飞书」」一节。
+> 用户要装进 DSH、在 DSH 频道里 @ 成员：直接看「用户说「装进 DSH」」一节，两条命令就完。
 
 先读 README.md 与 CONTRIBUTING.md；目标/验收读 docs/GOALS.md，模块边界读 docs/ARCHITECTURE.md。开始前核对分支、HEAD、差异和对应 Issue/PR。
 
@@ -22,6 +23,7 @@
 ## 用户说「配 Discord / 飞书」「把这个配好接上 Discord」
 
 这是给用户本机装好、配好 bothouse，不是改代码，不用走 Issue→PR。只有一条路：装 → `setup apply` → 确认上线。
+**不用 clone 仓库、不用读别的文档**：本节就是全部步骤；用户已给 token 和服务器 ID 时最快路径是 `install.sh` → `bothouse module add discord --token … --guild … --channel …` → `bothouse daemon install`，看到 `discord: connected` 就收工。
 
 1. **装**：`command -v bothouse && bothouse setup --help` 能出 `setup apply` 就跳过。否则
    `curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh`，装到 `~/.local/bin`。不要自己编，不要 npm/brew 装（那是没有 setup 的上游版）。
@@ -35,20 +37,36 @@
      不登录也能存配置，但结果里会有阻塞的 `agent_not_logged_in`，机器人答不出话。
    - **机器人用什么语言回**：问用户，写 `"language": "<代码>"`（`zh`、`zh-TW`、`en`、`ja`、`ko`… 原样写进人设）。不问时按本机 locale（`LANG`），服务器常是 en_US，所以最好问；
      结果里每个角色的 `reply_language` / `reply_language_from` 写着选了什么、从哪来，另有一条 `reply_language_default` 提醒。要改：在 role 里加 `"reply_language": "<代码>"` 再跑一次（已配好的机器人只改人设里回复语言那一行），或直接改 `persona_file` 里 `<!-- conest:reply-language -->` 下面那一行。
-   - **群聊参与方式**：想少插话、也不跑小模型，安装请求加 `"gate": {"enabled": true, "mode": "addressed"}`，群聊需 @（Discord 也可回复该角色，自建平台也可开头叫名字）；想接未点名的追问，用 `"mode": "smart"` 并配置可返回 logprobs 的 jev。用户已说明要安静时直接选 addressed；添加角色省略 gate 会保留已保存选择。「关闭分流」会沿用各机器人设置，不能当成安静模式。具体成本见 docs/connect-discord-feishu.md 第 5 节。
-   - 不用问：jev（可选，不填也能跑）、人设（可选，`bothouse setup personas` 有示例）、主角色（默认第一个）、`allow_from`（默认 = 机器人所有者，用 token 自动查；查不到时结果会要你问用户的 Discord 用户 ID）。
+   - **群聊参与方式**：新装默认（和网页向导一致）在安装请求里加 `"gate": {"enabled": true, "mode": "addressed"}`：群聊需 @（Discord 也可回复该角色，自建平台也可开头叫名字），不用装模型。用户要让没点名的话也有人接时才用 `"mode": "smart"`，并配 jev：推荐我们在用的 `{"base_url": "http://127.0.0.1:9941/v1", "model": "mlx-community/Qwen3.5-4B-MLX-4bit"}`（Apple 芯片 Mac，先 `uv tool install mlx-lm`，再 `mlx_lm.server --model mlx-community/Qwen3.5-4B-MLX-4bit --host 127.0.0.1 --port 9941`）。添加角色省略 gate 会保留已保存选择。「关闭分流」会沿用各机器人设置，不能当成安静模式。具体成本见 docs/connect-discord-feishu.md 第 5 节。
+   - 不用问：jev（只有 smart 用；不填也能跑，没点名的话由主角色回）、人设（可选，`bothouse setup personas` 有示例）、主角色（默认第一个）、`allow_from`（默认 = 机器人所有者，用 token 自动查；查不到时结果会要你问用户的 Discord 用户 ID）。
    - 飞书：`"platform": "feishu"`，先让用户跑 `bothouse feishu setup` 扫码拿 app_id/app_secret，一次只接一个机器人。
 3. **执行**：字段说明看 `bothouse setup apply -h`。把请求写进权限 600 的临时文件（token 不打印、不进日志、不进仓库），
    先 `bothouse setup apply --json <文件> --dry-run`（不写任何文件），再去掉 `--dry-run` 跑。最小请求：
    `{"discord": {"guild_id": "<服务器 ID>", "channel_id": "<频道 ID>"}, "roles": [{"token": "<token>"}]}`。
 4. **确认上线**：看输出 JSON，不只看退出码。`ok: true` 才算好。`needs_user_action: true` 时把 `warnings` 里 `blocking: true` 每条的 `message`、`fix`、`url`
    原样告诉用户（Intent 没开 / 机器人没进服务器 / 没查到所有者要用户给自己的 Discord 用户 ID / CLI 没登录 / token 无效要重置，要用户点链接或回话），用户做完不用重跑，重启即可（token 无效时什么都没写，换新 token 重跑）。
-   同一个 token 只能有一个 bothouse 在线：这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的（向导查不出别的机器上有没有在跑）。
+   同一个 token 只能有一个 bothouse 在线：用户说这个机器人已经在别的电脑或别的进程上跑着时，两边会抢消息、各回一遍，先停掉旧的。用户没说就不用自己去翻本机别的进程和配置。
    然后**在后台**启动：`bothouse daemon install`（装成系统服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改；看日志 `bothouse daemon logs -f`）。**不要在你的 shell 里前台跑 `bothouse`**：它不会退出，会占住终端直到被超时杀掉，机器人跟着下线。
-   只想临时试一下用 `nohup bothouse > ~/.bothouse/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.bothouse\run.log"; Start-Process bothouse -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.bothouse\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句。
+   `daemon install` 报 `launchctl bootstrap` / `Bootstrap failed`、`systemctl` 失败或 operation not permitted：多半是你所在的 AI 沙箱不让装系统服务，不是配置错。先用下面的 nohup 起起来，再告诉用户在自己的终端里跑一次 `bothouse daemon install` 让它常驻（nohup 起的进程会随你的会话结束）。
+   只想临时试一下用 `nohup bothouse > ~/.bothouse/run.log 2>&1 &`（Windows：`$env:CC_LOG_FILE="$HOME\.bothouse\run.log"; Start-Process bothouse -WindowStyle Hidden; Remove-Item Env:CC_LOG_FILE`，日志在 `$HOME\.bothouse\run.log`）。日志出现 `discord: connected` 后请用户在频道里 @ 机器人试一句，到这里就完成了。
+   **别自测回话**：机器人不理自己发的消息，用它的 token 往频道发消息、建 webhook 都测不出来，只会白等；日志里 `engine started with partial readiness … pending=1` 是 CLI 收到第一条消息才启动，正常。
    不要动用户已在运行的 bothouse 进程，除非用户同意。
 
 详细说明：[docs/connect-discord-feishu.md](docs/connect-discord-feishu.md) 第 3 节；人用浏览器向导时直接运行 `bothouse`。
+
+## 用户说「装进 DSH」「在 DSH 频道里 @ 成员」
+
+DSH 桌面版或网页版用户，**两条命令就是全部**：不用 clone、不用读别的文档、不用 Discord token、不用起 bothouse 服务（频道跑在 DSH 进程里）。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+~/.local/bin/bothouse module add dsh --lang zh   # 用户说英文就 --lang en
+```
+
+- 输出 JSON 里 `ok: true` 就装完了，把 `next_steps` 原样告诉用户，收工。`ok: false` 时把 `error` 原样告诉用户。
+- 没有 Node、pnpm、`dsh` 命令都行：装了桌面版（`/Applications` 或 `~/Applications`）就用它自带的。桌面版开着会自动加载插件，侧栏出现「频道」。
+- 只装插件时 #general 里自带一个成员「鲸鱼娘」，用 DSH 当前的模型回话；DSH 还没配模型 Key 时第一句话会出卡片让用户去填。要多个成员、换 CLI 成员，让用户跑 `bothouse` 走网页向导。
+- **不要**重启或退出桌面版（你可能就跑在它里面），**不要**自己发消息、读 `~/.conest-collab` 数据库或连调试端口截图来验证，也不用看 web profile、端口和别的进程。
 
 ## 用户说「配 QQ」「接上 QQ」
 

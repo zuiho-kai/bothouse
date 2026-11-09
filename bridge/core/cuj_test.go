@@ -1391,17 +1391,6 @@ func TestCUJ_A5_FileReachesAgent(t *testing.T) {
 	}
 }
 
-// CUJ-A6 / A7 are intentionally covered at the platform layer
-// (mention-strip + group_only) — they require platform-specific @ syntax
-// and are not portable across all platforms with the stub. Marking as
-// covered-by-platform-tests with explicit anchor here so the inventory's
-// "no engine-level test" status is intentional.
-func TestCUJ_A6_A7_CoveredByPlatformLayer(t *testing.T) {
-	t.Log("CUJ-A6 (@-mention required in groups): covered by " +
-		"platform/wecom/mention_strip_test.go and TestCC_SECURITY_02_group_only")
-	t.Log("CUJ-A7 (private chat does not require @): same coverage as A6")
-}
-
 // ===========================================================================
 // SPRINT 2 · B organization (session lifecycle remaining)
 // ===========================================================================
@@ -1537,13 +1526,6 @@ func TestCUJ_B8_HistoryShowsConversation(t *testing.T) {
 	}
 }
 
-// CUJ-B10 · reset_on_idle: after staleness threshold, next message starts
-// a fresh session (already covered by TestHandleMessage_AutoResetOnIdle in
-// engine_test.go; we add a thin CUJ-level link).
-func TestCUJ_B10_ResetOnIdle_LinkedToEngineTest(t *testing.T) {
-	t.Log("CUJ-B10: see TestHandleMessage_AutoResetOnIdle_RotatesToNewSession in engine_test.go — full behavior already locked down")
-}
-
 // CUJ-B11 · Same user in private chat vs group chat: sessions isolated.
 func TestCUJ_B11_PrivateVsGroupSessionsIsolated(t *testing.T) {
 	env := newCUJEnv(t)
@@ -1588,20 +1570,6 @@ func TestCUJ_B11_PrivateVsGroupSessionsIsolated(t *testing.T) {
 // SPRINT 2 · C organization (agent control remaining)
 // ===========================================================================
 
-// CUJ-C1 · yolo mode: tool use does NOT pop permission card.
-// Mode-switching is a per-agent contract; here we assert the engine respects
-// SetLiveMode("bypassPermissions") on the agent session.
-func TestCUJ_C1_YoloModeSkipsPermission(t *testing.T) {
-	t.Log("CUJ-C1: full coverage via release-gate TestCC_AGENT_01_yolo (integration); " +
-		"core unit-test path: yolo mode is enforced inside Agent.StartSession, not Engine")
-}
-
-// CUJ-C2 · plan mode: agent first emits plan, then waits for user approve.
-func TestCUJ_C2_PlanModeRequiresApproval(t *testing.T) {
-	t.Log("CUJ-C2: full coverage via release-gate TestCC_AGENT_02_plan (integration); " +
-		"core unit-test path: plan mode is enforced inside Agent.StartSession, not Engine")
-}
-
 // CUJ-C5 · /stop halts current turn but DOES NOT switch session.
 func TestCUJ_C5_StopKeepsSameSession(t *testing.T) {
 	env := newCUJEnv(t)
@@ -1638,13 +1606,6 @@ func TestCUJ_C6_ModeSwitchAcknowledged(t *testing.T) {
 // SPRINT 2 · D organization (security & permissions)
 // ===========================================================================
 
-// CUJ-D1 · allow_from: stranger gets no engine routing.
-// allow_from is enforced at the PLATFORM boundary (per-platform config), not
-// in Engine; integration tests cover the cross-platform behavior.
-func TestCUJ_D1_AllowFromLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-D1: covered by release-gate TestCC_SECURITY_01_allow_from_strict")
-}
-
 // CUJ-D2 · Non-admin runs an admin-disabled command → gets a clear refusal.
 func TestCUJ_D2_DisabledCommandRefused(t *testing.T) {
 	env := newCUJEnv(t)
@@ -1663,12 +1624,6 @@ func TestCUJ_D2_DisabledCommandRefused(t *testing.T) {
 	// drops the command would leave plat empty.
 }
 
-// CUJ-D3 · admin_from grants privileged-command access — admin gating is
-// also at the per-platform mapping; integration tests cover this path.
-func TestCUJ_D3_AdminFromLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-D3: covered by release-gate TestCC_SAFETY_02_disabled_commands (admin-only commands path) + AdminFrom config validation")
-}
-
 // CUJ-D4 · banned_words: message containing a banned word is dropped before
 // reaching the agent.
 func TestCUJ_D4_BannedWordsBlockMessage(t *testing.T) {
@@ -1685,11 +1640,6 @@ func TestCUJ_D4_BannedWordsBlockMessage(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("banned-words message reached the agent: %d sessions started", n)
 	}
-}
-
-// CUJ-D5 · group_only: in private chat the bot does not respond.
-func TestCUJ_D5_GroupOnlyLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-D5: covered by release-gate TestCC_SECURITY_02_group_only")
 }
 
 // CUJ-D6 · Inbound rate_limit kicks in when a session bursts messages
@@ -1718,13 +1668,6 @@ func TestCUJ_D6_InboundRateLimitDrops(t *testing.T) {
 // SPRINT 2 · E organization (scheduled tasks remaining)
 // ===========================================================================
 
-// CUJ-E1 · /cron sets a recurring task and it fires at the scheduled time.
-// True scheduling assertion requires either ≥1-minute wait or a clock mock;
-// covered by core/cron_test.go's scheduler timing tests.
-func TestCUJ_E1_CronFiresLinkedToSchedulerTest(t *testing.T) {
-	t.Log("CUJ-E1: real-time firing covered by core/cron_test.go scheduler tests (uses cron.New()). Engine-level wiring covered by CUJ-E2.")
-}
-
 // CUJ-E3 · Cron jobs survive restart (store → reload → ListByProject).
 func TestCUJ_E3_CronSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
@@ -1752,130 +1695,6 @@ func TestCUJ_E3_CronSurvivesRestart(t *testing.T) {
 		if len(jobs) != 1 || jobs[0].ID != "persist-cron" {
 			t.Fatalf("after restart, cron jobs = %+v, want 1 entry persist-cron", jobs)
 		}
-	}
-}
-
-// CUJ-E4 · /timer triggers exactly once at scheduled_at and delivers the
-// prompt all the way to the agent + reply to the user.
-//
-// Upgraded from link-only in Sprint 3. The existing core/timer_test.go
-// scheduler tests use a bare engine and only assert the scheduler bookkeeping
-// (timer registered, Fired flag set). They do NOT assert that the prompt
-// actually reaches the agent and the result reaches the user. This CUJ
-// closes that gap with a real engine + cujAgent + ReplyContextReconstructor
-// platform.
-func TestCUJ_E4_TimerFiresAndDeliversToAgentAndUser(t *testing.T) {
-	// Flaky: the timer fires at 200ms and the test waits 3s for the store
-	// to be marked Fired, but the scheduler tick + JSON store write +
-	// cleanup loses that race both locally and on CI (observed in PR
-	// #1348 CI: "timer was not marked as Fired after execution" after
-	// only 0.21s). Skip unconditionally until the race is fixed at the
-	// scheduler layer — TODO(#1348-followup): make ExecuteTimerJob mark
-	// Fired synchronously before returning.
-	t.Skip("CUJ-E4: flaky timer scheduler race; tracking for follow-up")
-	// Use cujReplyCtxPlatform because ExecuteTimerJob requires the platform
-	// to implement ReplyContextReconstructor — that's how it rebuilds a
-	// reply target from just a sessionKey at fire-time.
-	dir := t.TempDir()
-	plat := &cujReplyCtxPlatform{stubPlatformEngine: &stubPlatformEngine{n: "test"}}
-	agent := &cujAgent{}
-	e := NewEngine("test", agent, []Platform{plat}, dir+"/sessions.json", LangEnglish)
-	t.Cleanup(func() {
-		if err := e.Stop(); err != nil {
-			t.Error(err)
-		}
-	})
-
-	timerDir := dir + "/timer"
-	if err := os.MkdirAll(timerDir, 0o755); err != nil {
-		t.Fatalf("mkAll timer dir: %v", err)
-	}
-	store, err := NewTimerStore(timerDir)
-	if err != nil {
-		t.Fatalf("NewTimerStore: %v", err)
-	}
-	sched := NewTimerScheduler(store)
-	sched.RegisterEngine("test", e)
-	e.SetTimerScheduler(sched)
-	if err := sched.Start(); err != nil {
-		t.Fatalf("sched.Start: %v", err)
-	}
-	defer sched.Stop()
-
-	// Establish a session for sessionKey "test:erin" so ReconstructReplyCtx
-	// has something to find (and to mimic the real flow: timers are usually
-	// created after a user is already chatting).
-	sessionKey := "test:erin"
-	msg := &Message{
-		SessionKey: sessionKey, Platform: "test", MessageID: "m1",
-		UserID: "erin", UserName: "erin", Content: "hello", ReplyCtx: "ctx-erin",
-	}
-	e.ReceiveMessage(plat, msg)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && len(plat.getSent()) == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	plat.clearSent()
-	agent.mu.Lock()
-	preFireSessionCount := len(agent.sessions)
-	agent.mu.Unlock()
-
-	// Add a timer that fires VERY soon (200ms).
-	job := &TimerJob{
-		ID:          "timer-fire-soon",
-		Project:     "test",
-		SessionKey:  sessionKey,
-		ScheduledAt: time.Now().Add(200 * time.Millisecond),
-		Prompt:      "remind me to check status",
-		CreatedAt:   time.Now(),
-	}
-	if err := sched.AddJob(job); err != nil {
-		t.Fatalf("sched.AddJob: %v", err)
-	}
-
-	// Wait for the timer to fire AND the prompt to reach the agent.
-	deadline = time.Now().Add(3 * time.Second)
-	var seen bool
-	var sentPromptCount int
-	for time.Now().Before(deadline) {
-		agent.mu.Lock()
-		nowCount := len(agent.sessions)
-		// The timer execution may reuse an existing session or open a new
-		// one — either way, somewhere in agent.sessions[].sentPrompts the
-		// prompt should appear.
-		for _, s := range agent.sessions {
-			for _, p := range s.getSentPrompts() {
-				if strings.Contains(p, "remind me to check status") {
-					seen = true
-					sentPromptCount++
-				}
-			}
-		}
-		agent.mu.Unlock()
-		_ = nowCount
-		_ = preFireSessionCount
-		if seen {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !seen {
-		t.Fatalf("timer fired but prompt never reached the agent. plat.getSent()=%v", plat.getSent())
-	}
-
-	// And the timer should now be marked Fired in the store.
-	stored := store.Get("timer-fire-soon")
-	if stored == nil {
-		t.Fatalf("timer disappeared from store after firing")
-	}
-	if !stored.Fired {
-		t.Fatalf("timer was not marked as Fired after execution")
-	}
-
-	// The user should also see at least one platform message (the prefire
-	// notification "⏰ ..." OR the agent reply).
-	if len(plat.getSent()) == 0 {
-		t.Fatalf("timer fired but user saw no platform message at all")
 	}
 }
 
@@ -1911,12 +1730,6 @@ func TestCUJ_E6_TimerSurvivesRestart(t *testing.T) {
 // ===========================================================================
 // SPRINT 2 · F organization (config switching)
 // ===========================================================================
-
-// CUJ-F1 · /provider switches LLM provider for the next message — provider
-// management lives outside core/engine.go (per-agent). Linked.
-func TestCUJ_F1_ProviderSwitchLinkedToAgent(t *testing.T) {
-	t.Log("CUJ-F1: provider switching is per-agent; covered by agent/*_test.go provider tests")
-}
 
 // CUJ-F2 · /model changes the addressed channel and preserves its native conversation.
 func TestCUJ_F2_ModelSwitchLinkedToAgent(t *testing.T) {
@@ -1996,13 +1809,6 @@ func TestCUJ_F4_HotReloadBannedWordsTakesEffect(t *testing.T) {
 // ===========================================================================
 // SPRINT 2 · G organization (error handling remaining)
 // ===========================================================================
-
-// CUJ-G2 · LLM timeout: when agent never returns an event, user should see
-// some indicator. Real timeout handling is configured per-agent; engine
-// timeout path is exercised in engine_test.go.
-func TestCUJ_G2_TimeoutLinkedToEngineTest(t *testing.T) {
-	t.Log("CUJ-G2: agent timeout handling covered by engine_test.go (agent session timed out path at engine.go:4273)")
-}
 
 // CUJ-G3 already exists above.
 
@@ -2108,54 +1914,13 @@ func TestCUJ_G5_ToolFailureSurfacesToUser(t *testing.T) {
 	}
 }
 
-// CUJ-G6 · Network flap: undelivered outbound messages eventually arrive
-// once the transport recovers. Platform-specific retry logic; covered by
-// platform/feishu/token_retry_test.go and transient_retry_test.go.
-func TestCUJ_G6_NetworkFlapLinkedToPlatformLayer(t *testing.T) {
-	t.Log("CUJ-G6: covered by platform/feishu/{token_retry,transient_retry}_test.go")
-}
-
 // ===========================================================================
 // SPRINT 2 · H organization (multi-platform/multi-project remaining)
 // ===========================================================================
 
-// CUJ-H1 · Two projects in one cc-connect: sessions/messages do not cross
-// project boundaries. Covered at integration level.
-func TestCUJ_H1_MultiProjectLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-H1: covered by release-gate TestCC_MULTI_01_multi_project")
-}
-
-// CUJ-H3 · Within one project, shared session across platforms (configured
-// behavior). Covered at integration level.
-func TestCUJ_H3_SharedSessionLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-H3: covered by release-gate TestCC_SESSION_01_share_session")
-}
-
 // ===========================================================================
 // SPRINT 2 · I organization (UI rendering correctness)
 // ===========================================================================
-
-// CUJ-I1 · Rich card mode produces valid card JSON for the platform.
-// Covered by platform/feishu/card_test.go and release-gate TestCC_CARD_01_rich.
-func TestCUJ_I1_RichCardLinkedToPlatformAndIntegration(t *testing.T) {
-	t.Log("CUJ-I1: covered by platform/feishu/card_test.go + release-gate TestCC_CARD_01_rich")
-}
-
-// CUJ-I2 · Legacy card mode for backwards-compatibility.
-func TestCUJ_I2_LegacyCardLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-I2: covered by release-gate TestCC_CARD_02_legacy")
-}
-
-// CUJ-I3 · Display modes (quiet/compact/full) each produce expected output.
-func TestCUJ_I3_DisplayModesLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-I3: covered by release-gate TestCC_DISPLAY_01..06 (6 modes)")
-}
-
-// CUJ-I4 · Streaming preview can be toggled on/off and takes effect
-// for the next message.
-func TestCUJ_I4_StreamingToggleLinkedToIntegration(t *testing.T) {
-	t.Log("CUJ-I4: covered by release-gate TestCC_STREAM_01_off + TestCC_STREAM_02_on + core/streaming_test.go (14 unit tests)")
-}
 
 // ===========================================================================
 // CUJ-H2 · Two platforms attached to the same engine handle concurrent

@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "Conectar QQ",
+    "setupHint": "Usa una conexión OneBot / NapCat existente o credenciales del bot oficial. Guardar no verifica la conexión.",
+    "route": "Tipo de conexión",
+    "official": "Bot oficial de QQ",
+    "projectID": "ID del nuevo rol",
+    "projectHint": "Usa un ID único con letras, números, guiones o guiones bajos.",
+    "invalidProject": "El ID no es válido o ya existe.",
+    "noCLI": "Instala e inicia sesión en una CLI compatible.",
+    "savedRestart": "Configuración guardada. Reinicia para aplicarla; no se ha verificado el envío real en QQ.",
+    "restartRequested": "Reinicio solicitado. Vuelve a los roles cuando arranque el servicio.",
+    "settingsTitle": "Conexión y funciones de QQ",
+    "settingsHint": "Los cambios requieren reiniciar. Guardar no confirma una conexión activa.",
+    "httpURL": "URL HTTP de OneBot (opcional)",
+    "keepToken": "Deja vacío para conservar el token",
+    "clearToken": "Borrar el token guardado",
+    "sharedHint": "Al activarlo, el grupo comparte una conversación. No aísla la memoria privada.",
+    "unavailable": "No disponible en esta versión",
+    "capabilities": {
+      "qq_voice_out": "Las respuestas de voz no están disponibles.",
+      "qq_command_allow_from": "No hay lista independiente de comandos. Se aplica la configuración de administradores.",
+      "memory_import": "La importación de memoria espera confirmación de origen y formato."
+    }
+  },
   "nav": {
     "addPlatform": "Añadir plataforma",
     "addRole": "Añadir rol / modelo",
@@ -177,7 +201,12 @@
     "externalAdapters": "Adaptadores externos",
     "bridgeDisabled": "El servicio de puente está apagado",
     "bridgeDisabledHint": "Estas plataformas las conectan los propios roles; los clientes externos (como la bandeja del escritorio) necesitan además el servicio de puente activado en la configuración.",
-    "noAdapters": "Sin adaptadores externos"
+    "noAdapters": "Sin adaptadores externos",
+    "platformsReadFailed": "No se pudieron leer las plataformas conectadas",
+    "adaptersReadFailed": "No se pudieron leer los adaptadores externos",
+    "projectsReadFailed": "No se pudieron leer los nombres de proyecto; abajo se muestran los identificadores.",
+    "readFailedHint": "La solicitud falló; esto no significa que no haya nada aquí. Revisa el servicio de puente y tu token, y vuelve a intentarlo.",
+    "retry": "Reintentar"
   },
   "system": {
     "title": "Sistema",
@@ -518,11 +547,23 @@
     "providerScope": "Estos proveedores se aplican a los proyectos de puente que los referencian.",
     "dshProviderScope": "Los miembros DSH nativos usan sus propias rutas.",
     "openDsh": "Abrir DSH",
+    "openDshDesktop": "Abrir en la app de escritorio",
+    "openDshWeb": "Web",
     "settingsModels": "En DSH, abre Ajustes → Modelos.",
     "cliScope": "Los miembros CLI usan autenticación y configuración locales; estos proveedores no las cambian.",
     "bridgeProjects": "Proyectos de puente",
     "projectScope": "Un proyecto de puente conecta un agente y espacio de trabajo con plataformas. Los miembros DSH se administran aparte.",
     "savedConfigNextTurn": "Configuración guardada · se aplica antes del siguiente turno",
     "savedRoute": "Ruta DSH guardada"
+  },
+  "usage": {
+    "quickFilters": "Filtros rápidos",
+    "presetToday": "Hoy",
+    "presetThisWeek": "Esta semana",
+    "presetThisMonth": "Este mes",
+    "presetLast7Days": "Últimos 7 días",
+    "presetPastYear": "Último año",
+    "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
+    "tokenBreakdown": "Desglose"
   }
 }

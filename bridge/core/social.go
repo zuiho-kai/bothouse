@@ -25,6 +25,12 @@ var ErrSocialDisabled = errors.New("social action not enabled in config")
 // account is on Discord, or the OneBot implementation lacks the extension).
 var ErrSocialUnsupported = errors.New("platform does not support this action")
 
+// ErrSocialCannotReplace means the platform understood the request and refused it on
+// purpose: the post cannot be replaced without changing something the person set (how
+// many people can see it). It is the caller's mistake to have asked, not an upstream
+// failure, so it maps to 400 rather than 502.
+var ErrSocialCannotReplace = errors.New("this post cannot be replaced as it is")
+
 // Moment is one post on the bot's own timeline.
 type Moment struct {
 	ID      string    `json:"id"`   // platform id, used to delete or replace it; "" when unknown
@@ -32,12 +38,26 @@ type Moment struct {
 	Time    time.Time `json:"time"` // when it was posted; zero when the platform did not say
 	Images  []string  `json:"images"`
 	Private bool      `json:"private"` // only some people (or nobody but the owner) can see it
+	// PrivateKnown says whether the platform actually told us the audience.
+	//
+	// It is separate from Private because "the platform said this is public" and
+	// "the platform did not say anything" are different answers, and treating the
+	// second as the first is how a post with a limited audience turns into a
+	// public one when it is replaced. When PrivateKnown is false, Private carries
+	// no meaning and callers must not assume either way.
+	PrivateKnown bool `json:"private_known"`
 }
 
-// MomentImage is one picture to attach to a post. Bytes rather than a path so
-// the platform does not need to know the caller's filesystem.
+// MomentImage is one picture to attach to a post.
+//
+// Data is the picture itself, so the platform does not need to know the
+// caller's filesystem. URL is the alternative a replace uses: pictures read
+// back from an existing post arrive as URLs on the platform's own CDN, and
+// handing that URL back to the platform keeps the picture without this process
+// downloading and re-uploading it. Exactly one of the two is set.
 type MomentImage struct {
 	Data []byte
+	URL  string // a URL the platform can fetch itself (what ListMoments returns)
 	Name string // file name, for logs only
 }
 
@@ -57,6 +77,86 @@ type MomentPoster interface {
 	RemoveMoment(ctx context.Context, id string) error
 }
 
+// MomentReplacer is an optional refinement of MomentPoster: change the words
+// of one existing post in a single call, instead of asking the caller to post
+// a new one and delete the old one as two separate steps.
+//
+// QQ空间 has no "edit this post's text" upstream call, so an implementation may
+// satisfy this by publishing the new text first and deleting the old post
+// afterwards. That order is the point: a failure while publishing leaves the
+// old post untouched, so the caller can never lose the words it already had.
+//
+// This is NOT an atomic swap, and callers must not describe it as one. Three
+// outcomes exist:
+//
+//  1. clean replace: the new post is out, the old one is gone, nil error.
+//  2. publish failed: the old post is untouched; non-nil error, zero Moment.
+//     Nothing was lost and nothing extra exists.
+//  3. partial: the new post is out but the old one survives — the delete failed,
+//     or the platform did not say which post the new one is (so nobody could
+//     tidy up afterwards). Implementations return the new Moment together with
+//     a non-nil error, and callers must both show the message and hand the new
+//     Moment back so the person can see there are now two posts and remove one
+//     deliberately. Retrying the same replace in this state publishes another
+//     copy; callers must not offer that retry without a fresh list.
+type MomentReplacer interface {
+	// ReplaceMoment replaces post id with text and returns the one that now
+	// carries the words.
+	//
+	// There is no images parameter on purpose. The parts of the old post that
+	// change how it can be seen — its pictures, and whether it was limited to
+	// some people — belong to the old post, and an implementation must read them
+	// back itself: it is the only side that can. When it cannot read the old
+	// post, or cannot reproduce those parts, it must fail before publishing
+	// anything rather than publish a copy that silently lacks them, because the
+	// old post is deleted afterwards. Comments, likes and the publish time do
+	// not carry over; that is a known limit of replace, not a failure.
+	//
+	// The returned Moment has an empty ID when the new post went out but the
+	// platform did not say which one it is; that is outcome 3 above, never a
+	// clean replace.
+	//
+	// opts.AcceptAudienceChange is the caller's answer to "may this widen who
+	// can see it". Implementations must refuse with ErrSocialCannotReplace when
+	// it is false, and must do so before publishing anything.
+	ReplaceMoment(ctx context.Context, id, text string, opts MomentReplaceOptions) (Moment, error)
+}
+
+// MomentReplaceOptions carries the one thing a replace cannot decide for the
+// person: whether they accept that the new post may end up visible to more
+// people than the old one.
+//
+// Why it is a parameter at all, and why it defaults to false. The audience of an
+// existing post arrives as a single boolean. "The platform says everyone" and
+// "the platform filled in a default because it never read the audience" produce
+// the same value, and nothing else in the response tells them apart (see the
+// upstream note on privateOf). So a replace can never prove that it keeps the
+// audience; all it can do is publish a new post, which is public by default,
+// and delete the old one, which cannot be undone. That decision belongs to the
+// person, not to a default value that arrived over the wire, and the zero value
+// of this struct therefore means "no".
+type MomentReplaceOptions struct {
+	// AcceptAudienceChange means the caller showed the person that replacing
+	// may widen who can see the post and that deleting the old one is final,
+	// and the person went ahead anyway. Implementations must refuse — before
+	// publishing anything — when this is false.
+	AcceptAudienceChange bool
+}
+
+// MomentReplacePartialError means the replace did not finish cleanly but the new
+// post is already out: the old post is still there too. It carries the new
+// Moment so the caller can show it and let the person remove one deliberately.
+// Callers must not treat it as "nothing happened" and must not retry blindly —
+// a retry publishes yet another copy.
+type MomentReplacePartialError struct {
+	Moment Moment
+	Err    error
+}
+
+func (e *MomentReplacePartialError) Error() string { return e.Err.Error() }
+
+func (e *MomentReplacePartialError) Unwrap() error { return e.Err }
+
 // AvatarSetter is an optional Platform extension for changing the account's
 // own avatar. The picture is passed as bytes for the same reason as above.
 type AvatarSetter interface {
@@ -71,6 +171,7 @@ type SocialCapabilities struct {
 	ListMoments    bool   `json:"list_moments"`
 	PostMoment     bool   `json:"post_moment"`
 	RemoveMoment   bool   `json:"remove_moment"`
+	ReplaceMoment  bool   `json:"replace_moment"`
 	SetAvatar      bool   `json:"set_avatar"`
 	DisabledReason string `json:"disabled_reason,omitempty"` // why the false ones are false
 }

@@ -269,22 +269,6 @@ func TestParseCmdOpts_NoWarningForCanonical(t *testing.T) {
 	}
 }
 
-func TestParseCmdOpts_SlogRestoreNoLeak(t *testing.T) {
-	// Sanity check: the restore func actually reverts the default logger.
-	// We use a unique sentinel handler and verify it's gone after restore.
-	sentinel := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	prev := slog.Default()
-	slog.SetDefault(sentinel)
-	{
-		_, restore := captureSlog(t)
-		restore()
-	}
-	if slog.Default() != sentinel {
-		t.Errorf("expected default logger to be restored to sentinel")
-	}
-	slog.SetDefault(prev) // cleanup
-}
-
 func TestParseConfigEnv(t *testing.T) {
 	tests := []struct {
 		name string

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
@@ -61,7 +62,12 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 		if view == cardViewBrief {
 			rows = append(rows, buildDiscordSubTaskBriefRow(t, i+1, zh))
 		} else {
-			rows = append(rows, buildDiscordSubTaskRow(t, zh))
+			// #1197: 细节 shows a sub-agent's whole line, sharing the embed between rows.
+			budget := (maxDiscordProgressDescLen - 100) / len(payload.Tasks)
+			if budget < maxDiscordProgressLineLen {
+				budget = maxDiscordProgressLineLen
+			}
+			rows = append(rows, buildDiscordSubTaskRowN(t, zh, budget))
 		}
 	}
 	// Same colors as the progress card: running / completed / failed.
@@ -90,6 +96,11 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 // A running row's time is a Discord timestamp (<t:unix:R>), which the client
 // keeps counting by itself, so "跑了多久" moves without editing the message.
 func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
+	return buildDiscordSubTaskRowN(t, zh, maxDiscordProgressLineLen)
+}
+
+// buildDiscordSubTaskRowN is buildDiscordSubTaskRow with the detail line cut at detailLen runes.
+func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
 	icon := discordSubTaskIcon(t)
 	kind := "fg"
 	if zh {
@@ -109,10 +120,16 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 	}
 	when := discordSubTaskWhen(t, zh)
 	head := icon + " " + kind + " · "
-	if name := compactDiscordProgressText(t.Name); name != "" {
-		head += trimDiscordRunes(name, maxDiscordProgressLineLen) + " · "
+	// #1231: in 细节 the name and task text grow with the row's share too
+	// (a quarter each), so the row still fits it as a whole.
+	headLen := detailLen / 4
+	if headLen < maxDiscordProgressLineLen {
+		headLen = maxDiscordProgressLineLen
 	}
-	head += trimDiscordRunes(compactDiscordProgressText(t.Description), maxDiscordProgressLineLen)
+	if name := compactDiscordProgressText(t.Name); name != "" {
+		head += trimDiscordRunes(name, headLen) + " · "
+	}
+	head += trimDiscordRunes(compactDiscordProgressText(t.Description), headLen)
 	if when != "" {
 		head += " · " + when
 	}
@@ -137,7 +154,14 @@ func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
 		detail = wait
 	}
 	if detail = compactDiscordProgressText(detail); detail != "" {
-		head += "\n　└ " + trimDiscordRunes(detail, maxDiscordProgressLineLen)
+		left := detailLen
+		if detailLen > maxDiscordProgressLineLen {
+			left -= utf8.RuneCountInString(head)
+		}
+		if left < maxDiscordProgressLineLen {
+			left = maxDiscordProgressLineLen
+		}
+		head += "\n　└ " + trimDiscordRunes(detail, left)
 	}
 	return head
 }

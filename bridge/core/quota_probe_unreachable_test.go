@@ -50,7 +50,10 @@ func TestQuotaUnreachableNextProbeDoesNotStrandLeadTakeover(t *testing.T) {
 }
 
 // The protection above must not weaken normal retry pacing: a retry time this
-// code did write still defers the probe and leaves the takeover alone.
+// code did write still defers the probe. It no longer defers the unwind though:
+// the deadline has passed, so the takeover’s premise is gone and the stand-in
+// goes back now the same tick, while NextProbeAt is left untouched so the pace
+// of probes is unchanged (see TestQuotaRetryGateStillRestoresLead).
 func TestQuotaReachableNextProbeStillDefersProbe(t *testing.T) {
 	a := &stubModelModeAgent{model: "m"}
 	e := NewEngine("fy190gate2", a, nil, "", LangEnglish)
@@ -81,7 +84,13 @@ func TestQuotaReachableNextProbeStillDefersProbe(t *testing.T) {
 	if probes != 0 {
 		t.Fatalf("backoff not honoured: probes=%d", probes)
 	}
-	if !e.quotaState.NextProbeAt.After(now) || e.quotaState.Lead == nil {
+	if !e.quotaState.NextProbeAt.After(now) {
 		t.Fatalf("pending retry state disturbed: %+v", e.quotaState)
+	}
+	if e.quotaState.Lead != nil {
+		t.Fatalf("stand-in kept past the deadline it was chosen for: %+v", *e.quotaState.Lead)
+	}
+	if sel, ok := readLeadSelectionFull(e.dataDir); !ok || sel.Lead != e.name {
+		t.Fatalf("lead selection not restored: ok=%v sel=%+v", ok, sel)
 	}
 }

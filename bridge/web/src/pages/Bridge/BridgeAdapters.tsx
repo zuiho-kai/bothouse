@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Cable, Wifi, Clock, Plug, Layers } from 'lucide-react';
-import { Badge, EmptyState, PageHeader, LoadingState, Section } from '@/components/ui';
+import { AlertTriangle, Cable, RefreshCw, Wifi, Clock, Plug, Layers } from 'lucide-react';
+import { Badge, Button, EmptyState, PageHeader, LoadingState, Section } from '@/components/ui';
 import { listBridgeAdapters, type BridgeAdapter } from '@/api/bridge';
 import { getStatus, type SystemStatus } from '@/api/status';
 import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
@@ -17,13 +17,20 @@ export default function BridgeAdapters() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [adapters, setAdapters] = useState<BridgeAdapter[]>([]);
-  const [adapterReadFailed, setAdapterReadFailed] = useState(false);
-  const [adaptersEnabled, setAdaptersEnabled] = useState(false);
+  // A failed read is not an empty list. Each of the three reads keeps its own failure so the
+  // page can say "this could not be loaded, retry" instead of "there is nothing here".
+  const [statusError, setStatusError] = useState('');
+  const [adapterError, setAdapterError] = useState('');
+  const [projectError, setProjectError] = useState('');
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [dsh, setDsh] = useState<DSHSummary | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
   const [dshError, setDshError] = useState('');
   const [loading, setLoading] = useState(true);
+
+  const statusReadFailed = statusError !== '';
+  const adapterReadFailed = adapterError !== '';
+  const projectReadFailed = projectError !== '';
+  const adaptersEnabled = status?.bridge?.enabled === true;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -31,13 +38,12 @@ export default function BridgeAdapters() {
       const [statusResult, adapterResult, projectResult, dshResult] = await Promise.allSettled([
         getStatus(), listBridgeAdapters(), listProjects(), getDSHSummary(),
       ]);
-      const s = statusResult.status === 'fulfilled' ? statusResult.value : null;
-      setStatus(s);
-      setAdapterReadFailed(statusResult.status === 'rejected' || adapterResult.status === 'rejected');
+      setStatus(statusResult.status === 'fulfilled' ? statusResult.value : null);
+      setStatusError(statusResult.status === 'rejected' ? errorMessage(statusResult.reason) : '');
+      setAdapterError(adapterResult.status === 'rejected' ? errorMessage(adapterResult.reason) : '');
       setAdapters(adapterResult.status === 'fulfilled' ? adapterResult.value.adapters || [] : []);
-      setAdaptersEnabled(s?.bridge?.enabled === true);
+      setProjectError(projectResult.status === 'rejected' ? errorMessage(projectResult.reason) : '');
       if (projectResult.status === 'fulfilled') setProjects(projectResult.value.projects || []);
-      setErrors([statusResult, adapterResult, projectResult].filter((r) => r.status === 'rejected').map((r) => errorMessage(r.reason)));
       setDsh(dshResult.status === 'fulfilled' ? dshResult.value : null);
       setDshError(dshResult.status === 'rejected' ? errorMessage(dshResult.reason) : '');
     } finally {
@@ -63,19 +69,26 @@ export default function BridgeAdapters() {
         description={t('bridge.platform') + ' · ' + t('bridge.capabilities')}
         actions={
           <Badge variant="outline">
-            {platforms.length} {t('bridge.platform')}
+            {statusReadFailed ? '-' : `${platforms.length} ${t('bridge.platform')}`}
           </Badge>
         }
       />
 
-      {loading && !status ? (
+      {loading && !status && !statusReadFailed ? (
         <LoadingState label={t('common.loading')} />
       ) : (
         <>
-          {errors.map((error, i) => <p role="alert" key={i}>{error}</p>)}
           <DSHNotice status={dshError ? 'error' : dsh ? dshStatus(dsh) : undefined} error={dshError || dsh?.error} />
           <Section title={t('bridge.connectedPlatforms')} description={t('bridge.platform')}>
-            {platforms.length === 0 ? (
+            {statusReadFailed ? (
+              <ReadFailure
+                message={t('bridge.platformsReadFailed')}
+                detail={statusError}
+                retryLabel={t('bridge.retry')}
+                retrying={loading}
+                onRetry={fetchData}
+              />
+            ) : platforms.length === 0 ? (
               <EmptyState
                 message={t('bridge.noPlatforms')}
                 hint={t('bridge.noPlatformsHint')}
@@ -101,7 +114,20 @@ export default function BridgeAdapters() {
             description={t('bridge.capabilities')}
             actions={adapters.length > 0 ? <Badge variant="outline">{adapters.length}</Badge> : undefined}
           >
-            {adapterReadFailed ? null : !adaptersEnabled ? (
+            {projectReadFailed && (
+              <p role="status" className="mb-3 rounded-control bg-surface-sunken px-3 py-2 text-xs text-ink-soft">
+                {t('bridge.projectsReadFailed')}: {projectError}
+              </p>
+            )}
+            {adapterReadFailed ? (
+              <ReadFailure
+                message={t('bridge.adaptersReadFailed')}
+                detail={adapterError}
+                retryLabel={t('bridge.retry')}
+                retrying={loading}
+                onRetry={fetchData}
+              />
+            ) : !statusReadFailed && !adaptersEnabled ? (
               // Bridge websocket is off, so no external client can register. Say that instead of
               // implying the platforms themselves are missing.
               <EmptyState
@@ -153,6 +179,33 @@ export default function BridgeAdapters() {
           </Section>
         </>
       )}
+    </div>
+  );
+}
+
+// A read that failed is shown as a failure with a retry, never as an empty state: an unreachable
+// bridge and a bridge with no clients used to look the same on this page (#1026).
+function ReadFailure({ message, detail, retryLabel, retrying, onRetry }: {
+  message: string;
+  detail: string;
+  retryLabel: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div role="alert" className="rounded-card bg-amber-500/10 p-4 ring-1 ring-amber-500/25">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={18} strokeWidth={1.6} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-ink">{message}</p>
+          {detail && <p className="mt-1 break-words text-xs text-ink-soft">{detail}</p>}
+          <p className="mt-1 text-xs text-ink-soft">{t('bridge.readFailedHint')}</p>
+        </div>
+        <Button size="sm" variant="secondary" onClick={onRetry} loading={retrying} data-testid="bridge-read-retry">
+          <RefreshCw size={14} /> {retryLabel}
+        </Button>
+      </div>
     </div>
   );
 }

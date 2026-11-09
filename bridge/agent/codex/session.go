@@ -638,7 +638,7 @@ func (cs *codexSession) handleItemCompleted(raw map[string]any) {
 		evt := core.Event{
 			Type:         core.EventToolResult,
 			ToolName:     "Bash",
-			ToolResult:   truncate(strings.TrimSpace(output), 500),
+			ToolResult:   strings.TrimSpace(output),
 			ToolStatus:   strings.TrimSpace(status),
 			ToolExitCode: &code,
 			ToolSuccess:  &success,
@@ -660,7 +660,7 @@ func (cs *codexSession) handleItemCompleted(raw map[string]any) {
 		evt := core.Event{
 			Type:        core.EventToolResult,
 			ToolName:    name,
-			ToolResult:  truncate(strings.TrimSpace(output), 500),
+			ToolResult:  strings.TrimSpace(output),
 			ToolStatus:  strings.TrimSpace(status),
 			ToolSuccess: &success,
 		}

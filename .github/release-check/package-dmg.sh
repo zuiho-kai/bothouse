@@ -1,14 +1,17 @@
 #!/bin/bash
-# Usage: package-dmg.sh UNIVERSAL_BINARY OUTPUT TAG (run on macOS).
+# Usage: package-dmg.sh UNIVERSAL_BINARY OUTPUT TAG [STAGE_DIR] (run on macOS).
+# STAGE_DIR (optional, recreated) keeps the staged Bothouse.app so the smoke test can check it
+# without mounting the dmg.
 # Needs the release signing identity, like the step that calls it: SIGN_ID and SIGN_HASH
 # (release.yml:93-94) plus the keychain at $HOME/.config/bothouse-signing (release.yml:169-170).
 set -euo pipefail
 binary=$1
 output=$2
 tag=$3
+stage_dir=${4:-}
 lipo "$binary" -verify_arch arm64
 lipo "$binary" -verify_arch x86_64
-stage=$(mktemp -d)
+if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; mkdir "$stage_dir"; stage=$(cd "$stage_dir" && pwd); else stage=$(mktemp -d); fi
 app="$stage/Bothouse.app"
 mkdir -p "$app/Contents/MacOS"
 cp "$binary" "$app/Contents/MacOS/bothouse"
@@ -57,12 +60,12 @@ security lock-keychain "$keychain"
 # that is the artifact this script ships, and nothing may modify it after this line.
 codesign --verify --strict "$app"
 ln -s /Applications "$stage/Applications"
-# hdiutil's own size estimate for -srcfolder came out too small once the DSH
-# plugin was embedded in the binary (release run 39881299879 failed with
-# "hdiutil: create failed - No space left on device"), so size it ourselves.
-stage_kb=$(du -sk "$stage" | cut -f1)
-# Margin: +25% plus a fixed 16 MiB covers HFS+ catalog/journal/allocation
-# overhead, which is a fixed cost plus a few percent of volume size; the
-# padding is free in the final image because UDZO compresses empty blocks.
-size_kb=$(( stage_kb + stage_kb / 4 + 16 * 1024 ))
-hdiutil create -volname Bothouse -srcfolder "$stage" -fs HFS+ -size "${size_kb}k" -format UDZO -ov "$output"
+# Build the image without mounting anything. `hdiutil create -srcfolder` creates a writable image
+# and attaches it, and on the Mac Studio runner every writable attach hung (release runs 42484153070
+# and 42486759821 timed out at 30 min; a 2 MB `hdiutil create` hung the same way, read-only attach
+# was fine). makehybrid writes the HFS+ image directly and convert only reads it.
+raw=$(mktemp -d)/raw.dmg
+hdiutil makehybrid -hfs -hfs-volume-name Bothouse -o "$raw" "$stage"
+hdiutil convert "$raw" -format UDZO -ov -o "$output"
+rm -f "$raw"
+hdiutil verify "$output"

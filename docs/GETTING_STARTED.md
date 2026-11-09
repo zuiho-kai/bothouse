@@ -4,6 +4,8 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 加上一份它们共用、会自己长的记忆（wiki，[llm-wiki](https://github.com/zuiho-kai/llm-wiki)）。
 先接好成员开始对话，再按需要配置团队记忆和调度。
 
+> 你是被叫来帮用户装 bothouse、接 Discord 的 AI：不用读完本页，照 [AGENTS.md](../AGENTS.md) 里「用户说「配 Discord / 飞书」」一节的三步做。
+
 **只有一个 CLI 或一个模型也能组队。** 多个角色可以选择同一套 Codex、Claude Code 或 Gemini CLI；在 DSH 里也可以添加三个都用同一 DeepSeek 的成员。每位成员有独立会话和人设，通过频道交换任务。具体步骤与共享边界见[同模型多成员指南](single-cli-team.md)。
 
 ## 三步用起来：装 → 选平台 → 确认上线
@@ -19,7 +21,7 @@ bothouse 是**核心 + 可选平台**：一个安装包里什么都有，但你�
 - Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
-首次运行无配置时会自动在浏览器打开安装向导。`SHA256SUMS` 提供 SHA-256 校验。手动下载的，打开前先核对文件和该版本的 SHA256SUMS。自更新与安装脚本使用同一份平台下载文件，Mac 从 dmg 提取 universal 二进制。更新到历史版本时，自更新可回退历史架构文件及 `cc-connect-<tag>-<os>-<arch>.tar.gz` / `.zip`（历史包在旧 Release 中，使用其校验文件）。也可用下面的命令行安装，命令仍为 `bothouse`（macOS / Linux 放进 `~/.local/bin`，Windows 放进 `%USERPROFILE%\.local\bin`）。
+首次运行无配置时会自动在浏览器打开安装向导。也可用下面的命令行安装，命令都是 `bothouse`：
 
 macOS / Linux，在终端里：
 
@@ -27,17 +29,7 @@ macOS / Linux，在终端里：
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 ```
 
-装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
-
-默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `BOTHOUSE_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | BOTHOUSE_VERSION=<tag> sh
-```
-
-`<tag>` 换成 Releases 页上的版本名（形如 `v0.1.0-rc5`）。
-
-装完 `bothouse --version` 看装的是哪一版；装完提示里的文档链接也指向这一版的文档。
+装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。装完 `bothouse --version` 看装的是哪一版。
 
 Windows，在 PowerShell 里（开始菜单搜 PowerShell，不用管理员）：
 
@@ -56,13 +48,13 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 | **QQ** | 在 QQ 群或私聊里用 | NapCat（登录一个 QQ 号） | [QQ](platforms/qq.md) |
 | **Discord** | 多个角色在一个频道里协作 | 每个角色一个机器人 token | [Discord](platforms/discord.md) |
 | **飞书 / Lark** | 在飞书里用，一个机器人 | 飞书扫码 | [飞书](platforms/feishu.md) |
-| **DSH**（实验） | 在 DeepSeek 的 DSH 网页里用 | DSH、Node ≥ 22.12、pnpm | [DSH](platforms/dsh.md) |
+| **DSH**（实验） | 在 DeepSeek Harness 桌面版（默认）或 DSH 网页里用 | 桌面版：装好 DeepSeek Harness 桌面版即可；网页版：Node ≥ 22.12 和 dsh 命令。都要一把 DeepSeek API Key 或一个已登录的 CLI | [DSH](platforms/dsh.md) |
 <!-- 自建平台入口停用（用户 11-05 定不再维护），原行：
 | **自建平台** | 自己的聊天网页，打开就聊 | uv（本机一键起） | [自建平台](connect-discord-feishu.md#7-自建平台) |
 -->
 
 QQ、Discord、飞书和自建平台还要本机一个已登录的 CLI（`claude`、`codex`、`gemini`……）；多个角色可以全选同一个。
-DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接本机 CLI。
+DSH 的成员在向导「角色和模型」一步配，可以直接使用 DeepSeek 模型，也可接本机已登录的 CLI；以后在 DSH 里还能加。
 不用浏览器也行：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 QQ（或 Discord）」，它按 [AGENTS.md](../AGENTS.md) 一次问齐，跑 `bothouse setup apply`。
 配置写在 `~/.bothouse/config.toml`（Windows 是 `%USERPROFILE%\.bothouse\config.toml`）。
 
@@ -70,9 +62,8 @@ DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接�
 
 保存后向导最后一页（或 `setup apply` 输出的 JSON）列出还要你做的事，各平台页写了每一条怎么处理。都处理完，去聊天软件里 @ 机器人说一句试试。
 
-- 想关掉终端也一直在线：`bothouse daemon install`（装成后台服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改：macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。Windows 上 `bothouse daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `bothouse daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.bothouse\logs\daemon-handoff.log`。
-
-新安装默认使用 `~/.bothouse`；没有该目录而存在旧配置目录时，会继续沿用旧配置，不移动文件。
+- 想关掉终端也一直在线：`bothouse daemon install`（装成后台服务并立即启动，开机自启默认关，可在管理面板「设置」里改）。细节见[安装进阶](install-advanced.md#后台服务细节)。
+- 以后再打开管理面板：终端运行 `bothouse web`。
 
 ## 以后添加或停用平台
 
@@ -90,61 +81,20 @@ DSH 的成员在 DSH 网页里配置，可以直接使用 DeepSeek，也可接�
 
 下面这些都不影响基本对话，用熟了再加：
 
-- **gate（分流）**：多个角色时让 AI 判断一句话该谁回。没有 gate 时，被 @ 的角色照常回，其余消息由主角色回。见[线 1](ccm-and-wiki.md) 第 3 步。
-- **jev**：gate 用来做判断的模型（OpenAI 兼容、给出选项概率）。在向导的 jev 页填，或跳过。没填 gate 会报错并提示怎么填。
-- **wiki 记忆**：角色共用、自己会长的记忆。见[线 1](ccm-and-wiki.md) 第 4 步。
+- **智能判断（gate）**：多个角色时让判断模型决定一句没点名的话该谁回。新装默认「仅被点名时回复」，不用它：群里 @ 谁谁回，什么都不用装。想开时在向导「主角色」一步选「智能判断」，或装完到管理面板「闸门」页选。
+- **判断模型（jev）**：智能判断用来做判断的模型，要能返回选项概率。向导和「闸门」页都有一键预设：我们自己在用的 Qwen3.5-4B（4bit，Apple 芯片 Mac 本机用 mlx-lm 跑，下载约 3 GB，运行常驻约 3.2 GB 内存）。不填也能用：没点名的话由主角色回，不会报错。细节见 [Discord / 飞书接入第 5、6 步](connect-discord-feishu.md)。
+- **wiki 记忆**：角色共用、自己会长的记忆。见[记忆和分流手动配置](ccm-and-wiki.md) 第 4 步。
 - **全局安装（默认关）**：向导最后一步有两个勾选项，让你在终端里开的 Claude Code 也用上 bothouse 的记忆 hook 和守门 hook。
   命令行是 `bothouse setup hooks on|off --global memory|guards`。机器人自己的会话会跳过全局那份，不会跑两遍。见 [hooks 说明](../bridge/contrib/hooks/README.md)「全局安装」。
 - **语音**：电脑语音伙伴是独立扩展（`companion/`），现状见 [MULTI_VOICE.md](MULTI_VOICE.md)。
 
-## 各部分怎么连
-
-```
-                 ┌──────────── 你的电脑 ────────────────────────────────┐
- Discord / 飞书 ◀─┼─▶ ccm（bridge/，bothouse maomao 分支）              │
-   （线 2）       │     │  每条消息先问 ──▶ gate（bridge/contrib/gate/）   │
-                 │     │                   ├ /decide 谁回、回不回（本地小模型）
-                 │     │                   └ /context 每轮推相关 wiki 页 ──▶ ~/wiki（llm-wiki）
-                 │     ▼                                                 │
-                 │   Claude Code / Codex / … 的会话（一个 bot 一个）      │
-                 └───────────────────────────────────────────────────────┘
-```
-
 ## 术语
 
-- **ccm / maomao 分支**：`bridge/` 里的 bothouse 分支。比上游多了 gate、一主多 sub、队友状态、bot 之间交接。
-- **主 bot / sub**：主 bot 默认接话；sub 听得到群里每句话，只有被 @ 或被点名才开口。
+- **主角色**：没点名的话默认由它接；其他角色听得到群里每句话，只有被 @ 或被点名才开口。
 - **成员和模型**：成员是有名字、人设和独立会话的角色；模型是它使用的后端。多个成员可以用相同模型。DSH 频道的「单模型多进程」则是派活给自己的临时子任务，与添加多个常驻成员不同。
-- **gate（快脑）**：每条消息先问它「回 / 插进正在做的这一轮 / 不回」。先走规则，规则定不了再让 jev 读选项概率。
-- **wiki**：llm-wiki 的分层记忆（`MEMORY.md` → 域 `README.md` → 主题页）。会话结束后自动整理进去，gate 每轮把相关的页推给 bot。
-- **jev**：只做选择题、给出选项概率的模型。gate 用它判断群里一句话该哪个角色回。
-  向导里三个框（Base URL、Key、模型）填一个给概率的 OpenAI 兼容模型就行；gate 要用它，没填时 gate 启动会报错并提示怎么填（gate 没在运行时，没被 @ 的消息由主角色回）。
+- **wiki**：llm-wiki 的分层记忆（`MEMORY.md` → 域 `README.md` → 主题页）。会话结束后自动整理进去。
 
-## 两条线
-
-| 线 | 文档 | 做完会看到什么 |
-|---|---|---|
-| 1. 配 ccm 和 wiki（gate、wiki 都可选） | [ccm-and-wiki.md](ccm-and-wiki.md) | 本机 bothouse 跑着一主多 sub；（装了 gate）gate 在 9930 端口；bot 回话前收到「可能相关的 wiki 页」；会话结束后 wiki 多了记录 |
-| 2. 接进 Discord 或飞书（就是上面第 2 步的向导：网页点几下，或让 AI 跑一条命令） | [connect-discord-feishu.md](connect-discord-feishu.md) | Discord 里几个 bot 接话、互相交接；飞书里一个 bot 能对话 |
-
-## 升级须知：role-household/roles.toml 不再进 git（2026-10-20）
-
-`role-household/roles.toml` 以前在仓库里，带着原作者服务器的 ID；现在改成每人自己的本地文件，仓库只留模板
-`role-household/roles.example.toml`，`.gitignore` 忽略它。**之前 clone 过、本地有这个文件的人，拉这次更新会让 git 删掉它**
-（没改过的副本直接删；改过的会让 pull 停下）。保住自己的配置：
-
-```sh
-cp role-household/roles.toml /tmp/roles.toml.mine     # 拉之前先备份
-git checkout -- role-household/roles.toml             # 改过的话先丢掉工作区改动（内容已在备份里），否则 pull 会停下
-git pull
-cp /tmp/roles.toml.mine role-household/roles.toml      # 放回去，从此 git 不再管它
-```
-
-忘了备份：从删它的那次提交的上一版取回
-
-```sh
-git show "$(git log -1 --diff-filter=D --format=%h -- role-household/roles.toml)^:role-household/roles.toml" > role-household/roles.toml
-```
+想装固定版本、核对校验、看老用户升级须知或各部分怎么连，见[安装进阶](install-advanced.md)。
 
 ## 遇到问题
 

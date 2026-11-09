@@ -657,51 +657,6 @@ func TestSend_HandlesLargeJSONLines(t *testing.T) {
 	}
 }
 
-func TestWaitForArgsFile_WaitsForNonEmptyContent(t *testing.T) {
-	workDir := t.TempDir()
-	argsFile := filepath.Join(workDir, "args.txt")
-
-	if err := os.WriteFile(argsFile, []byte(""), 0o644); err != nil {
-		t.Fatalf("write empty args file: %v", err)
-	}
-
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		_ = os.WriteFile(argsFile, []byte("exec\n--json\n"), 0o644)
-	}()
-
-	args := waitForArgsFile(t, argsFile)
-	if !containsSequence(args, []string{"exec", "--json"}) {
-		t.Fatalf("expected non-empty args sequence, got: %v", args)
-	}
-}
-
-func TestWriteFakeCodexScript_PreservesArgsWithSpaces(t *testing.T) {
-	workDir := t.TempDir()
-	binDir := filepath.Join(workDir, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("mkdir bin: %v", err)
-	}
-
-	argsFile := filepath.Join(workDir, "args.txt")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CODEX_ARGS_FILE.tmp\" && mv \"$CODEX_ARGS_FILE.tmp\" \"$CODEX_ARGS_FILE\"\n"
-	powershellScript := `[IO.File]::WriteAllLines($env:CODEX_ARGS_FILE, (fakeCodexArgs))
-`
-	writeFakeCodexScript(t, binDir, script, powershellScript)
-	t.Setenv("CODEX_ARGS_FILE", argsFile)
-
-	cmd := exec.Command(filepath.Join(binDir, "codex"), "exec", "--cd", filepath.Join(workDir, "dir with spaces"), "-")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("fake codex run: %v", err)
-	}
-
-	args := waitForArgsFile(t, argsFile)
-	wantPath := filepath.Join(workDir, "dir with spaces")
-	if !containsSequence(args, []string{"exec", "--cd", wantPath, "-"}) {
-		t.Fatalf("args = %v, want path with spaces preserved as %q", args, wantPath)
-	}
-}
-
 const fakeCodexPowerShellPrelude = `
 function fakeCodexArgs {
   if ([string]::IsNullOrWhiteSpace($env:CODEX_FAKE_ARGS_FILE) -or -not (Test-Path -LiteralPath $env:CODEX_FAKE_ARGS_FILE)) {

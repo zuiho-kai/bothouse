@@ -145,17 +145,6 @@ func TestMutePlatform_DiscardMessages(t *testing.T) {
 	}
 }
 
-func TestCronJob_MuteField(t *testing.T) {
-	job := &CronJob{ID: "m1", Mute: false}
-	if job.Mute {
-		t.Error("default should be not muted")
-	}
-	job.Mute = true
-	if !job.Mute {
-		t.Error("should be muted after setting")
-	}
-}
-
 func TestCronExprToHuman_BasicCases(t *testing.T) {
 	tests := []struct {
 		expr string

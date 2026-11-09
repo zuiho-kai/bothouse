@@ -96,7 +96,12 @@ export class Roster {
       }
       try {
         const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
-        const member = await this.create({ name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) });
+        const base = { name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) };
+        // The wizard pins a DSH-model role to the route its key belongs to (#1173); a host without that model
+        // still gets the role, on its default model.
+        const model = !m?.cli && m?.model?.provider && m?.model?.model ? { provider: String(m.model.provider), model: String(m.model.model) } : undefined;
+        const member = model === undefined ? await this.create(base)
+          : await this.create({ ...base, model }).catch(() => this.create(base));
         claimed.add(member.id);
         imported.push({ ...m, name: member.name, id: member.id });
         added.push(member.name);
@@ -203,7 +208,7 @@ export class Roster {
     this.avatars?.remove(id);
     this.store.removeMember(id);
     // #176: a dead id must not linger as a channel's primary role.
-    for (const roomId of this.store.clearLeadOf(id)) this.hub.emit({ type: 'room-settings', room_id: this.store.settingsRoom(roomId), lead_id: null, effective_lead_id: this.hub.primaryIn(roomId)?.id ?? null });
+    for (const roomId of this.store.clearLeadOf(id)) this.hub.emit({ type: 'room-settings', room_id: this.store.settingsRoom(roomId), lead_id: null, effective_lead_id: this.hub.defaultReplyIn(roomId)?.id ?? null });
     this.dsh.dropMember(id);
   }
 
@@ -243,11 +248,15 @@ export class Roster {
       throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces (except Claude Code), @ or <>`);
     }
     const rooms = input?.rooms ?? [];
-    if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat')) {
+    // A private chat holds exactly its one member (hub.membersInRoom), so listing it here would
+    // store a membership the room never honours: the extra member shows nowhere, cannot be
+    // dispatched to, and the add-member dialog is the only thing that creates it.
+    if (!Array.isArray(rooms) || rooms.some(id => !Number.isSafeInteger(id) || this.store.room(id)?.kind !== 'chat' || this.store.dmMember(id) !== undefined)) {
       throw new CollabError('invalid', 'rooms must contain existing chat channel ids');
     }
     const clash = this.hub.memberList().find(m => m.id !== selfId && (!rooms.length || !m.rooms?.length || rooms.some(id => m.rooms.includes(id))) && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
-    if (clash !== undefined) throw new CollabError('conflict', `name ${name} is already used by ${clash.name}`);
+    // #366: 这条会原样显示在成员对话框的错误条里，和同页的成员名校验一样说中文。
+    if (clash !== undefined) throw new CollabError('conflict', `名字 ${name} 已被 ${clash.name} 使用`);
     const persona = String(input?.persona ?? '');
     if (persona.length > MAX_PERSONA) throw new CollabError('invalid', `persona exceeds ${MAX_PERSONA} characters`);
     let avatar;

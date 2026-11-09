@@ -62,7 +62,12 @@ func previewText(s string, maxRunes int) string {
 const (
 	defaultThinkingMaxLen = 300
 	defaultToolMaxLen     = 500
-	defaultHistoryMaxLen  = 1000
+	// cardToolResultMaxLen caps the tool output kept on a progress card
+	// (maomao fork #1197/#1231). Agents hand over the whole output and the
+	// 细节 view pages through it; this only guards the card payload against a
+	// runaway dump (the agent CLIs cap their own output well below it).
+	cardToolResultMaxLen = 30000
+	defaultHistoryMaxLen = 1000
 )
 
 // Slow-operation thresholds. Operations exceeding these durations produce a
@@ -120,12 +125,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	text      string    // last successful quota text
-	okAt      time.Time // when text was fetched; zero if never
-	failText  string    // set when the latest attempt failed
-	attemptAt time.Time // when the latest attempt finished
-	done      chan struct{}
-	waited    bool // a footer already spent the first-probe wait
+	report      *UsageReport // immutable snapshot for the role card
+	reportScope string       // attribution captured when the existing footer fetched it
+	reportAt    time.Time
+	text        string    // last successful quota text
+	okAt        time.Time // when text was fetched; zero if never
+	failText    string    // set when the latest attempt failed
+	attemptAt   time.Time // when the latest attempt finished
+	done        chan struct{}
+	waited      bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -466,6 +474,7 @@ type Engine struct {
 	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
 	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	lifePage                     string                          // life_page: "how she is now" file put before every turn (lifepage.go; "" = off)
 	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
@@ -644,20 +653,23 @@ type queuedMessage struct {
 	authorization *AuthorizationTurn
 	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
-	resumedFrom       string
-	timerJobID        string
-	cronJobID         string
-	resumeNoProgress  int
-	resumeFallback    string
-	messageID         string
-	platform          Platform
-	replyCtx          any
-	content           string
-	ambientChat       string // background to include once when queued messages are batched
-	reference         *MessageReference
-	images            []ImageAttachment
-	files             []FileAttachment
-	fromVoice         bool
+	resumedFrom      string
+	timerJobID       string
+	cronJobID        string
+	resumeNoProgress int
+	resumeFallback   string
+	messageID        string
+	platform         Platform
+	replyCtx         any
+	content          string
+	ambientChat      string // background to include once when queued messages are batched
+	reference        *MessageReference
+	images           []ImageAttachment
+	files            []FileAttachment
+	fromVoice        bool
+	// #215: content already carries the per-part speech marks (mergeQueuedChat marks each
+	// voice part where it sits), so the prompt must not mark the whole text again.
+	voiceMarked       bool
 	userID            string
 	userName          string // sender's display name for sender injection
 	msgPlatform       string // platform name for sender injection
@@ -666,6 +678,7 @@ type queuedMessage struct {
 	userMessageTimeMs int64  // Feishu create_time ms (optional); see Message.UserMessageTimeMs
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
+	turnCtxSender     string // #1160
 	fromBot           bool
 	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
 	direct            bool   // Message.Direct
@@ -715,6 +728,7 @@ type interactiveState struct {
 	lastRecallProbeMessageID string
 	lastRecallProbeAt        time.Time
 	recallProbeInFlight      bool
+	stopDraft                string // a Stop hook blocked this reply draft; it is withdrawn when the segment matches (stop_draft.go); guarded by mu
 	workspaceDir             string
 	agent                    Agent
 	mu                       sync.Mutex
@@ -726,6 +740,7 @@ type interactiveState struct {
 	fromVoice                bool            // true if current turn originated from voice transcription
 	sideText                 string
 	turnSentTexts            []string   // texts this turn already pushed through a script/side send; guarded by mu
+	turnSentNonText          bool       // a sticker/image/file already went out this turn (#181); guarded by mu
 	localInputOnly           *inputTurn // block API/CLI side sends during a local voice turn
 	deleteMode               *deleteModeState
 	modelSwitch              *modelSwitchState
@@ -2259,6 +2274,9 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	content = timerUserContext(targetPlatform, sessionKey, job) + content
+	if !job.Handoff && job.resume == nil {
+		content += timerSourceNote // #1188
+	}
 
 	msg := &Message{
 		turnTrigger:  timerTurnTrigger(job),
@@ -2348,6 +2366,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 		e.noteScheduledTurn(job.ID, iKey)
 		e.setTurnModel(iKey, job.Model)
+		noteTurnModelIgnored(job, agent, e.name)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)
@@ -2533,8 +2552,17 @@ func scheduledShellContext(parent context.Context, timeout time.Duration) (conte
 	if timeout <= 0 {
 		return context.WithCancel(parent)
 	}
+	if testHookScheduledShellTimeout != nil {
+		timeout = testHookScheduledShellTimeout(timeout)
+	}
 	return context.WithTimeout(parent, timeout)
 }
+
+// testHookScheduledShellTimeout, when set by a test, shortens a scheduled shell job's
+// own timeout so the ⏰ ⚠️ timeout branches can be exercised in milliseconds: a
+// CronJob/TimerJob ExecutionTimeout is whole minutes (core/cron.go, core/timer.go).
+// Production leaves it nil and uses the job's configured timeout unchanged.
+var testHookScheduledShellTimeout func(time.Duration) time.Duration
 
 // executeTimerShell runs a shell command for a timer job and sends the output.
 func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) error {
@@ -2571,7 +2599,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	}
 
 	if err := shellCmd.Start(); err != nil {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
 		return fmt.Errorf("shell: start: %w", err)
 	}
 
@@ -2614,7 +2642,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		if output != "" {
 			msg = fmt.Sprintf("⏰ ⚠️ timeout: `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
 		}
-		e.send(p, replyCtx, msg)
+		e.sendSystemNotice(p, replyCtx, msg)
 		return fmt.Errorf("shell command timed out")
 	case <-time.After(quickFinishTimeout):
 	}
@@ -2639,7 +2667,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		}
 	}
 	if !useUpdate {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
 	}
 
 	updateDone := make(chan struct{})
@@ -2684,7 +2712,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		if useUpdate {
 			_ = updaterFor(p).UpdateMessage(e.ctx, previewHandle, msg)
 		} else {
-			e.send(p, replyCtx, msg)
+			e.sendSystemNotice(p, replyCtx, msg)
 		}
 		return fmt.Errorf("shell command timed out")
 	}
@@ -2739,7 +2767,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	}
 
 	if err := shellCmd.Start(); err != nil {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ❌ `%s`\nerror: failed to start: %v", cmdLabel, err))
 		return fmt.Errorf("shell: start: %w", err)
 	}
 
@@ -2787,7 +2815,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		if output != "" {
 			msg = fmt.Sprintf("⏰ ⚠️ timeout: `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
 		}
-		e.send(p, replyCtx, msg)
+		e.sendSystemNotice(p, replyCtx, msg)
 		return fmt.Errorf("shell command timed out")
 	case <-time.After(quickFinishTimeout):
 		// Still running — fall through to progress mode
@@ -2813,7 +2841,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		}
 	}
 	if !useUpdate {
-		e.send(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
 	}
 
 	updateDone := make(chan struct{})
@@ -2858,7 +2886,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		if useUpdate {
 			_ = updaterFor(p).UpdateMessage(e.ctx, previewHandle, msg)
 		} else {
-			e.send(p, replyCtx, msg)
+			e.sendSystemNotice(p, replyCtx, msg)
 		}
 		return fmt.Errorf("shell command timed out")
 	}
@@ -2899,7 +2927,7 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 		}
 	}
 
-	e.send(p, replyCtx, finalMsg)
+	e.sendSystemNotice(p, replyCtx, finalMsg)
 	if !exitOK {
 		return fmt.Errorf("shell: exit code %d", cmd.ProcessState.ExitCode())
 	}
@@ -3615,6 +3643,10 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			Extra:      e.agentHookExtra(e.activeAgentSessionID(msg.SessionKey), nil),
 		})
 	}
+	if !msg.peopleDone {
+		msg.peopleDone = true
+		e.recordPersonSaid(msg) // #1160: each person's own words, for their 懂你 page (people_said.go)
+	}
 
 	// Voice message: transcribe to text first
 	if msg.Audio != nil {
@@ -3819,6 +3851,16 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		// text so command parsing and DM routing do not change.
 		body = senderText(msg, body)
 		var head []string
+		if _, ok := p.(MessageReplySender); ok && msg.MessageID != "" {
+			ids := "[Message IDs: current=" + msg.MessageID
+			if msg.Reference != nil && msg.Reference.ID != "" {
+				ids += " reply_to=" + msg.Reference.ID
+			}
+			head = append(head, ids+"]")
+			// ACP backends need the usage inline: they need not implement
+			// SystemPromptSupporter or load an instruction file.
+			head = append(head, nativeQuotedReplyInstructions)
+		}
 		if msg.AmbientChat != "" {
 			head = append(head, msg.AmbientChat)
 		}
@@ -4062,10 +4104,12 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		images:              msg.Images,
 		files:               msg.Files,
 		fromVoice:           msg.FromVoice,
+		voiceMarked:         msg.voiceMarked, // #215: a re-queued batch keeps its per-part marks
 		userID:              msg.UserID,
 		userName:            msg.UserName,
 		turnCtx:             msg.TurnCtx,
 		turnCtxQuery:        msg.TurnCtxQuery,
+		turnCtxSender:       msg.TurnCtxSender,
 		modeOverride:        msg.ModeOverride,
 		scheduledFrom:       scheduledFrom,
 		turnTrigger:         msg.turnTrigger,
@@ -4225,6 +4269,19 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 // Voice message handling
 // ──────────────────────────────────────────────────────────────
 
+func (e *Engine) voiceStatusKeptOut(p Platform, msg *Message, notice string) bool {
+	if e.noticeKeptOut(p, msg.ReplyCtx, notice) {
+		return true
+	}
+	if msg != nil && msg.GroupChat {
+		if p != nil {
+			slog.Info("voice status notice kept out of group chat", "project", e.name, "platform", p.Name(), "notice", notice)
+		}
+		return true
+	}
+	return false
+}
+
 func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	if !e.speech.Enabled || e.speech.STT == nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceNotEnabled))
@@ -4241,7 +4298,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 		"platform", msg.Platform, "user", msg.UserName,
 		"format", audio.Format, "size", len(audio.Data),
 	)
-	e.send(p, msg.ReplyCtx, e.i18n.T(MsgVoiceTranscribing))
+	notice := e.i18n.T(MsgVoiceTranscribing)
+	if !e.voiceStatusKeptOut(p, msg, notice) {
+		e.send(p, msg.ReplyCtx, notice)
+	}
 
 	text, err := TranscribeAudio(e.ctx, e.speech.STT, audio, e.speech.Language)
 	if err != nil {
@@ -4257,7 +4317,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	}
 
 	slog.Info("voice transcribed", "text_len", len(text))
-	e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgVoiceTranscribed), text))
+	transcribedNotice := fmt.Sprintf(e.i18n.T(MsgVoiceTranscribed), text)
+	if !e.voiceStatusKeptOut(p, msg, transcribedNotice) {
+		e.send(p, msg.ReplyCtx, transcribedNotice)
+	}
 
 	// Replace audio with transcribed text and re-dispatch
 	msg.Audio = nil
@@ -4928,7 +4991,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			content = note + "\n\n" + content
 			images = append(imgs, images...)
 		}
-		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, content, msg.TurnCtx, msg.Reference)
+		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
+		// voiceMarked: a merged queue batch already carries its per-part marks, so this
+		// turn must not mark the whole text again (#215).
+		content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
 		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
 		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
 		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
@@ -4942,6 +5008,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.fromVoice = msg.FromVoice
 		state.sideText = ""
 		state.turnSentTexts = nil
+		state.turnSentNonText = false
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
@@ -6025,7 +6092,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 					e.forwardWorkspaceExitContext(ctx, p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -6231,8 +6298,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 
 	var textParts []string
-	var segmentStart int // index into textParts: text before this has been sent/displayed
-	silentHold := false  // true while accumulated segment text could still resolve to a bare NO_REPLY marker
+	var segmentStart int    // index into textParts: text before this has been sent/displayed
+	var blockedDraft string // reply a Stop hook blocked this turn, withdrawn from the channel (stop_draft.go)
+	silentHold := false     // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
 	var toolStartAt time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
 	watchTurnFinished := false
@@ -6241,8 +6309,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil {
 			state.mu.Lock()
 			p := state.platform
+			scheduled := state.turnScheduled
 			state.mu.Unlock()
-			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, e.watchCardResult(state), turnStart)
+			// A scheduled turn's error is not the watched board item's failure (watchTurnEnded).
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, turnFailed, scheduled, e.watchCardResult(state), turnStart)
 		}
 	}()
 	waitStart := time.Now()
@@ -6591,6 +6661,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 		}
 
+		// A Stop hook blocked the reply now in the open segment and asked for a
+		// rewrite: take the draft back so the user does not get both (11-08 DM).
+		if len(textParts) > segmentStart {
+			if draft, ok := state.takeStopDraft(strings.Join(textParts[segmentStart:], "")); ok {
+				sp.retract()
+				textParts = textParts[:segmentStart]
+				silentHold = false
+				if len(draft) > len(blockedDraft) {
+					blockedDraft = draft
+				}
+			}
+		}
+
 		switch event.Type {
 		case EventSpeechText:
 			// Never present these again in platform text/history: the ordinary
@@ -6690,7 +6773,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
 				thinkingMsg := fmt.Sprintf(e.i18n.T(MsgThinking), preview)
-				if !cp.AppendEvent(ProgressEntryThinking, preview, "", thinkingMsg) {
+				// maomao fork: the card keeps the whole thought; only the 简略 view and
+				// the standalone message are shortened (#1197).
+				cardThinking := preview
+				if cp.style == progressStyleCard {
+					cardThinking = event.Content
+				}
+				if !cp.AppendEvent(ProgressEntryThinking, cardThinking, "", thinkingMsg) {
 					sendWorkspace(p, replyCtx, thinkingMsg)
 				}
 			}
@@ -6842,6 +6931,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// tool_max_len applies uniformly to progress_style=card, matching
 				// the rich-card path. event.ToolInput itself is left untouched.
 				cardToolInput := truncateIf(toolInput, e.display.ToolMaxLen)
+				if cp.style == progressStyleCard {
+					// maomao fork: the card keeps the whole tool input (#1197).
+					cardToolInput = toolInput
+				}
 				if !cp.AppendEvent(ProgressEntryToolUse, cardToolInput, event.ToolName, toolMsg) {
 					for _, chunk := range SplitMessageCodeFenceAware(toolMsg, maxPlatformMessageLen) {
 						sendWorkspace(p, replyCtx, chunk)
@@ -6879,9 +6972,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if result == "" {
 					result = strings.TrimSpace(event.Content)
 				}
+				cardResult := result
 				if result != "" {
 					result = truncateIf(result, e.display.ToolMaxLen)
 				}
+				// maomao fork: the card keeps the whole tool output, paged in 细节 (#1197/#1231).
+				cardResult = truncateIf(cardResult, cardToolResultMaxLen)
 				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 					if hasRichCard {
 						toolSteps = mergeRichToolResult(toolSteps, event, result, e.display.ToolMaxLen)
@@ -6909,7 +7005,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					entry := ProgressCardEntry{
 						Kind:     ProgressEntryToolResult,
 						Tool:     event.ToolName,
-						Text:     result,
+						Text:     cardResult,
 						Status:   event.ToolStatus,
 						ExitCode: event.ToolExitCode,
 						Success:  event.ToolSuccess,
@@ -7261,6 +7357,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Unlock()
 			replyCtx = mergeInjectedReplies(p, replyCtx, injected)
 
+			if blockedDraft != "" {
+				// The rewrite replaces the withdrawn draft; a short addendum (or nothing)
+				// goes after it, so the reply is not lost.
+				post := strings.Join(textParts[segmentStart:], "")
+				if merged := MergeStopBlockedReply(blockedDraft, post); merged != post {
+					textParts = append(textParts[:segmentStart], merged)
+				}
+				blockedDraft = ""
+			}
+			state.clearStopDraft()
+
 			fullResponse := event.Content
 			if e.display.HideAgentFooter {
 				fullResponse = stripAgentFooterLines(fullResponse)
@@ -7363,7 +7470,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			if !isSilent {
 				if stripped, ok := stripTrailingSilent(baseResponse); ok {
-					if strings.TrimSpace(stripped) == "" {
+					state.mu.Lock()
+					scheduled := state.turnScheduled
+					state.mu.Unlock()
+					// #1188: a cron/timer turn (兜底到点, 工作区上报, later) has no
+					// user waiting; text before its NO_REPLY is the agent's plan
+					// ("我会先核对…"), not a message. Swallow the whole turn.
+					if strings.TrimSpace(stripped) == "" || scheduled {
 						isSilent = true
 					} else {
 						baseResponse = stripped
@@ -7474,6 +7587,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// reply must be checked against every text this turn already sent.
 			turnSentTexts := append([]string(nil), state.turnSentTexts...)
 			state.turnSentTexts = nil
+			turnSentNonText := state.turnSentNonText
 			state.mu.Unlock()
 
 			replyStart := time.Now()
@@ -7483,6 +7597,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// (stickers.py -> bin/qq-bridge send). The final reply is compared
 			// against the union so a script-sent line is never repeated.
 			sentThisTurn := append(append([]string(nil), sentReplySegments...), turnSentTexts...)
+			// A turn that already pushed a sticker/image/file gets the extra
+			// #181 guard: drop a closing sentence that only narrates the send
+			// step ("我先把这条回复发出去…"), which has no sent-text prefix to
+			// peel. A reply that never mentions sending is delivered as before.
+			finalReplyText := func(text string) string {
+				if turnSentNonText {
+					return unsentFinalReplyTextAfterNonText(p, text, sentThisTurn)
+				}
+				return unsentFinalReplyText(p, text, sentThisTurn)
+			}
 
 			// --- StreamingCard path ---
 			if streamCard != nil && !streamCard.Failed() {
@@ -7606,7 +7730,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
-					unsent = unsentFinalReplyText(p, unsent, sentThisTurn)
+					unsent = finalReplyText(unsent)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7639,7 +7763,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Nothing previewed this text, so the plain send is the only
 				// delivery: drop a line a script already posted this turn and a
 				// bracketed receipt note addressed to the agent itself.
-				deliver := unsentFinalReplyText(p, fullResponse, sentThisTurn)
+				deliver := finalReplyText(fullResponse)
 				if deliver == "" {
 					slog.Debug("EventResult: suppressed repeated/meta final reply", "response_len", len(fullResponse))
 					sp.discard()
@@ -7721,8 +7845,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// before this point); settle the pending handback with what the user got.
 				e.settleReportWake(jobID, text, nil)
 			}
-			if !state.isStopped() {
-				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, e.watchCardResult(state), turnStart)
+			// The adapters may terminate quota exhaustion with EventResult as well
+			// as EventError. It must not erase previous real work failures.
+			_, quotaResult := QuotaExhaustedReset(event)
+			if !state.isStopped() && !quotaResult {
+				e.watchTurnEnded(p, sessionKey, baseResponse, toolCount > 0, false, false, e.watchCardResult(state), turnStart)
 			}
 			e.finishPublicProgress(state, progressOutcome)
 
@@ -7849,8 +7976,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// (the backfill already marked those posts seen).
 				*chainedQueued = queued
 				queued.content = session.renderReference(queued.content, queued.reference)
-				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx, queued.reference)
-				queuedPrompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+				queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+				queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 				queuedPrompt = e.withSharedMemoryHint(queuedPrompt, replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, workspaceDir)
 				queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, replyAgent)
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
@@ -7895,8 +8022,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				msgID = queued.messageID
 				textParts = nil
 				sentReplySegments = nil
+				blockedDraft = ""
 				state.mu.Lock()
+				state.stopDraft = ""
 				state.turnSentTexts = nil
+				state.turnSentNonText = false
 				state.sideText = ""
 				state.mu.Unlock()
 				segmentStart = 0
@@ -7998,6 +8128,18 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventError:
 			turnFailed = true
+			// Match observeQuotaEventFor's structured and textual quota signals.
+			// Quota cooling/takeover owns this interruption even before its async
+			// owner transfer; preserve previous work failures, including when the
+			// provider supplied no usable reset deadline.
+			_, quotaExhausted := QuotaExhaustedReset(event)
+			if event.Error != nil {
+				raw := strings.ToLower(event.Error.Error())
+				quotaExhausted = quotaExhausted || strings.Contains(raw, "quota") || strings.Contains(raw, "resource_exhausted")
+			}
+			if quotaExhausted {
+				watchTurnFinished = true
+			}
 			// A tool may already have changed external state, even when its
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
@@ -8073,6 +8215,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// maomao fork: the user (/stop) or the gate (abort) cancelled this turn and was
 					// already told so; the agent's resulting error is expected — log only.
 					slog.Info("agent error after turn cancel suppressed", "session", sessionKey, "error", errMsg)
+					// The idle watch follows the same rule: someone ended this turn on purpose, so
+					// its error is not the watched board item's failure. 2026-11-06 06:05:49 board
+					// #170 counted a gate abort ("要她停") as its third failure and was stopped.
+					// A turn nobody interrupted never takes this branch and still counts.
+					turnFailed = false
 				} else if e.isStoppingForJournal() {
 					// #618 K4 M2: the bridge is stopping and ended this turn; it is kept in
 					// the journal and resumed after the restart, so it is no failure.
@@ -8082,6 +8229,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// A queued message chained into this loop goes back to the queue head,
 					// so the drain loop retries it (not the turn this loop started with).
 					// A local input turn reports the error to its caller instead.
+					//
+					// The idle watch follows the same rule as for a scheduled or interrupted
+					// turn: this failure belongs to the model, not to the watched item.
+					// board.hold() above already declares "re-sent, one board row, no failure";
+					// an exhausted retry only cools down and re-delivers the same message, so
+					// counting this attempt would stop a board item that never failed. Live
+					// 2026-11-06 19:15 and 20:54 a relay 429 failed a workspace turn three
+					// times, the watch took all three (fails=3, reported=true) and asked the
+					// primary role to reassign work nobody had failed at.
+					turnFailed = false
 					state.mu.Lock()
 					if chainedQueued != nil {
 						state.pendingMessages = append([]queuedMessage{*chainedQueued}, state.pendingMessages...)
@@ -8166,6 +8323,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 channelClosed:
 	// Channel closed - process exited unexpectedly
 	slog.Warn("agent process exited", "session_key", sessionKey)
+	// Cleanup marks the state stopped even for a crash. Settle the work
+	// before cleanup so that bookkeeping cannot disguise an unexpected exit
+	// as an intentional stop. Shutdown, user stops and scheduled turns keep
+	// their existing exclusion rules.
+	if !watchTurnFinished && !state.isStopped() && e.ctx.Err() == nil && !e.isStoppingForJournal() {
+		state.mu.Lock()
+		p, scheduled, cancelled := state.platform, state.turnScheduled, state.turnCancelled
+		state.mu.Unlock()
+		if !cancelled {
+			e.watchTurnEnded(p, sessionKey, "", toolCount > 0, true, scheduled, e.watchCardResult(state), turnStart)
+		}
+	}
+	watchTurnFinished = true
 	if e.ctx.Err() == nil {
 		board.finish(state, BoardDoneFailed) // maomao fork: channel task board
 	}
@@ -8190,8 +8360,17 @@ channelClosed:
 		state.mu.Lock()
 		closedTurnSent := append(append([]string(nil), sentReplySegments...), state.turnSentTexts...)
 		state.turnSentTexts = nil
+		closedTurnNonText := state.turnSentNonText
 		state.sideText = ""
 		state.mu.Unlock()
+		// Same #181 guard on the abnormal channel-close path: a non-text
+		// message already went out, so a closing send-step narration is dropped.
+		closedFinalReplyText := func(text string) string {
+			if closedTurnNonText {
+				return unsentFinalReplyTextAfterNonText(p, text, closedTurnSent)
+			}
+			return unsentFinalReplyText(p, text, closedTurnSent)
+		}
 
 		// Respect NO_REPLY even on abnormal exit so silent turns stay silent.
 		if isSilentReply(fullResponse) {
@@ -8228,7 +8407,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
-				unsent = unsentFinalReplyText(p, unsent, closedTurnSent)
+				unsent = closedFinalReplyText(unsent)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
@@ -8240,7 +8419,7 @@ channelClosed:
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
 		} else {
-			deliver := unsentFinalReplyText(p, fullResponse, closedTurnSent)
+			deliver := closedFinalReplyText(fullResponse)
 			if deliver == "" {
 				slog.Debug("repeated/meta final reply suppressed (channel closed)")
 				return
@@ -8436,8 +8615,8 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(queued.content, queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
@@ -9814,6 +9993,14 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
+		// Non-caching reporters return a freshly fetched result. Cached reporters
+		// carry their original observation time, including after a failed refresh.
+		if report != nil && report.ObservedAt.IsZero() {
+			fresh := *report
+			fresh.ObservedAt = time.Now()
+			report = &fresh
+		}
+		e.cacheRoleQuotaReport(agent, model, scope, report)
 		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
@@ -9848,6 +10035,67 @@ func usageReporterAvailable(v any) bool {
 	}
 	_, ok := v.(UsageReporter)
 	return ok
+}
+
+// cacheRoleQuotaReport retains data already obtained by the reply footer. The
+// management page never calls adapter CachedUsage methods: some refresh in the
+// background despite the interface name. Keep attribution and age with the copy.
+func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScope, report *UsageReport) {
+	if report == nil || report.ObservedAt.IsZero() || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
+		return
+	}
+	snapshot := *report
+	snapshot.Buckets = nil
+	for _, bucket := range report.Buckets {
+		if report.QuotaGroup != "" && bucket.QuotaGroup != report.QuotaGroup {
+			continue
+		}
+		bucket.Windows = append([]UsageWindow(nil), bucket.Windows...)
+		snapshot.Buckets = append(snapshot.Buckets, bucket)
+	}
+	primary, secondary := selectUsageWindows(&snapshot)
+	if primary == nil && secondary == nil {
+		return
+	}
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	if e.replyFooterUsage == nil {
+		e.replyFooterUsage = make(map[replyFooterUsageKey]*replyFooterUsageEntry)
+		e.replyFooterInflight = make(map[any]bool)
+	}
+	key := replyFooterUsageKey{agent: replyFooterAgentID(agent), model: model}
+	ent := e.replyFooterUsage[key]
+	if ent == nil {
+		ent = &replyFooterUsageEntry{}
+		e.replyFooterUsage[key] = ent
+	}
+	ent.report, ent.reportScope, ent.reportAt = &snapshot, scope.key(), report.ObservedAt
+}
+
+// CachedQuotaReport reads only the retained snapshot for this agent/model and
+// current provider/account. No adapter usage method, probe, or refresh is called.
+func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
+	scope := e.quotaScopeFor(e.agent, model)
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	ent := e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(e.agent), model: model}]
+	if ent == nil || ent.report == nil || ent.reportScope != scope.key() || ent.reportAt.IsZero() || time.Since(ent.reportAt) >= replyFooterUsageMaxAge {
+		return nil
+	}
+	// A reported reset supersedes a cached percentage, even before the normal
+	// footer cache lifetime expires. Never turn an old zero into an invented 100%.
+	for _, bucket := range ent.report.Buckets {
+		for _, window := range bucket.Windows {
+			reset := time.Unix(window.ResetAtUnix, 0)
+			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
+				reset = ent.reportAt.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+			}
+			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(time.Now()) {
+				return nil
+			}
+		}
+	}
+	return ent.report
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds
@@ -12887,6 +13135,8 @@ func (e *Engine) processCompressEvents(state *interactiveState, session *Session
 				if out == "" {
 					out = strings.TrimSpace(event.ToolResult)
 				}
+				// Agents hand over the whole tool output (#1231); text replies keep the old cap.
+				out = truncateIf(out, defaultToolMaxLen)
 				if out == "" {
 					break
 				}
@@ -13470,9 +13720,10 @@ func (e *Engine) SendToSession(sessionKey, message string) error {
 
 // SendOptions controls optional behavior for external send callers.
 type SendOptions struct {
-	WorkDir string
-	AtUsers []string
-	AtAll   bool
+	WorkDir          string
+	AtUsers          []string
+	AtAll            bool
+	ReplyToMessageID string
 }
 
 func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images []ImageAttachment, files []FileAttachment, atUsers []string, atAll bool) error {
@@ -13480,6 +13731,9 @@ func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images
 }
 
 func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []ImageAttachment, files []FileAttachment, opts SendOptions) error {
+	if opts.ReplyToMessageID != "" && (sessionKey == "" || strings.TrimSpace(message) == "" || strings.TrimSpace(opts.WorkDir) != "") {
+		return fmt.Errorf("native reply requires text and an explicit conversation without a work directory override")
+	}
 	if strings.TrimSpace(opts.WorkDir) != "" {
 		workDir, useWorkDirSession, err := e.resolveSendWorkDir(opts.WorkDir)
 		if err != nil {
@@ -13511,6 +13765,15 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 	}
 
+	var replySender MessageReplySender
+	if opts.ReplyToMessageID != "" {
+		var ok bool
+		replySender, ok = p.(MessageReplySender)
+		if !ok {
+			return fmt.Errorf("platform %s: native message replies: %w", p.Name(), ErrNotSupported)
+		}
+	}
+
 	var fileSender FileSender
 	if len(files) > 0 {
 		var ok bool
@@ -13525,7 +13788,11 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			return err
 		}
 		// Use AtMentionSender when @users specified and platform supports it
-		if len(opts.AtUsers) > 0 || opts.AtAll {
+		if replySender != nil {
+			if err := replySender.ReplyToMessage(e.ctx, replyCtx, message, opts.ReplyToMessageID, opts.AtUsers, opts.AtAll); err != nil {
+				return err
+			}
+		} else if len(opts.AtUsers) > 0 || opts.AtAll {
 			if atSender, ok := p.(AtMentionSender); ok {
 				if err := atSender.ReplyWithAt(e.ctx, replyCtx, message, opts.AtUsers, opts.AtAll); err != nil {
 					return err
@@ -13556,6 +13823,14 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		if err := imageSender.SendImage(e.ctx, replyCtx, img); err != nil {
 			return err
 		}
+		if state != nil {
+			// #181: an image does not enter turnSentTexts (that list holds text
+			// only), so the turn remembers separately that something non-text
+			// already went out.
+			state.mu.Lock()
+			state.turnSentNonText = true
+			state.mu.Unlock()
+		}
 	}
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
@@ -13565,6 +13840,11 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 		if err := fileSender.SendFile(e.ctx, replyCtx, file); err != nil {
 			return err
+		}
+		if state != nil {
+			state.mu.Lock()
+			state.turnSentNonText = true
+			state.mu.Unlock()
 		}
 	}
 	return nil
@@ -13653,6 +13933,12 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		if err := imageSender.SendImage(e.ctx, target.replyCtx, img); err != nil {
 			return err
 		}
+		if target.state != nil {
+			// #181: image sends are not text, so they are remembered separately.
+			target.state.mu.Lock()
+			target.state.turnSentNonText = true
+			target.state.mu.Unlock()
+		}
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
 	for _, file := range files {
@@ -13661,6 +13947,11 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		}
 		if err := fileSender.SendFile(e.ctx, target.replyCtx, file); err != nil {
 			return err
+		}
+		if target.state != nil {
+			target.state.mu.Lock()
+			target.state.turnSentNonText = true
+			target.state.mu.Unlock()
 		}
 	}
 	return nil
@@ -18428,7 +18719,10 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	if c := e.memoryBlock(session); c != "" {
 		content = c + "\n\n" + content
 	}
-	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message)); c != "" {
+	if c := e.lifePageBlock(); c != "" {
+		content = c + "\n\n" + content
+	}
+	if c := e.turnContext(session, relaySessionKey, relayGateQuery(message), ""); c != "" {
 		content = c + "\n\n" + content
 	}
 	prompt := e.withAgentInstructions(content, "", true, session, agent)
@@ -18519,6 +18813,8 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				if out == "" {
 					out = strings.TrimSpace(event.ToolResult)
 				}
+				// Agents hand over the whole tool output (#1231); relay replies keep the old cap.
+				out = truncateIf(out, defaultToolMaxLen)
 				if out != "" {
 					tn := strings.TrimSpace(event.ToolName)
 					if tn == "" {
@@ -18968,6 +19264,33 @@ func senderText(msg *Message, text string) string {
 		return text
 	}
 	return strings.NewReplacer("\n", " ", "\r", "").Replace(msg.UserName) + "：" + text
+}
+
+// voiceNoteMark tells the model the words under it came from speech
+// recognition, not from the person typing.
+//
+// Why it exists: handleVoiceMessage posts the transcript back to the channel as
+// "🎙 [语音] …" and then re-dispatches the message with only Content replaced,
+// so the prompt the model sees is bare text. #215 (2026-11-06 09:08-09:09) is
+// what that costs: the model read 「1235」 as typing, answered 「听不到，收到的一直是文字」,
+// and the person had to send the voice message twice. The mark goes after the
+// sender header (buildSenderPrompt) so that header stays the first line.
+const voiceNoteMark = "（这条是语音消息，下面是语音转成的文字，是说话人说的，不是打字发的）"
+
+// withVoiceNote marks message text that came from speech recognition. It is
+// applied to the text before buildSenderPrompt so the sender header stays the
+// first line of the prompt. It wraps one part, never a mixed batch: a merged
+// queue batch marks each voice part where it sits, and the gate marks a
+// transcript before the buffered/backfilled history is put above it. Callers
+// pass fromVoice && !voiceMarked, so a part that already carries the mark is
+// not marked again on a re-dispatch (queued turn, mid-turn injection, capacity
+// retry); a plain FromVoice message without that flag is marked by whichever
+// prompt build runs first.
+func withVoiceNote(content string, fromVoice bool) string {
+	if !fromVoice {
+		return content
+	}
+	return voiceNoteMark + "\n" + content
 }
 
 // buildSenderPrompt prepends a sender identity header to content when

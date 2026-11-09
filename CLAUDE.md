@@ -1,6 +1,6 @@
 # CoNest
 
-> 用户只是要把 bothouse 装好、接上 Discord / 飞书（不是改代码）：直接看文末「用户说「配 Discord / 飞书」」一节。
+> 用户只是要把 bothouse 装好、接上 Discord / 飞书（不是改代码）：直接看 [AGENTS.md](AGENTS.md) 里「用户说「配 Discord / 飞书」」一节，不用 clone 仓库、不用读别的文档。
 
 先读取并遵守 [AGENTS.md](AGENTS.md)，再读 [贡献流程](CONTRIBUTING.md)。同一套入口供 Claude、Codex 和其他 Agent 使用。
 

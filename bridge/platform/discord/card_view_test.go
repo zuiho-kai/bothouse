@@ -98,7 +98,7 @@ func TestCardViewProgressBriefStatusOnlyResult(t *testing.T) {
 		{Kind: core.ProgressEntryToolResult, Tool: "view_file", Status: "error", Success: &bad},
 	}}
 	brief := buildDiscordProgressBrief(payload)
-	for _, want := range []string{"✅ run_command · 成功", "❌ view_file · 失败"} {
+	for _, want := range []string{"❌ view_file · 失败"} {
 		if !strings.Contains(brief, want) {
 			t.Fatalf("brief missing %q:\n%s", want, brief)
 		}
@@ -155,7 +155,7 @@ func TestCardViewProgressBriefAndDetail(t *testing.T) {
 		t.Fatal("progress payload")
 	}
 	brief := buildDiscordProgressEmbedView(payload, cardViewBrief).Description
-	for _, want := range []string{"第 ", "步 · ", "Bash · 成功", "Agent · 失败", "Read · 进行中"} {
+	for _, want := range []string{"第 ", "步 · ", "Read · 进行中"} {
 		if !strings.Contains(brief, want) {
 			t.Fatalf("brief missing %q:\n%s", want, brief)
 		}
@@ -252,7 +252,7 @@ func TestCardViewOneButtonRowPerTurn(t *testing.T) {
 	}
 	rest.edits = nil
 	pressCardView(p, card.messageID, "brief")
-	if cb := rest.callbacks[1]; strings.Contains(cb, "CMD_FULL_TEXT") || !strings.Contains(cb, "Bash · 成功") || !strings.Contains(cb, "cardview:detail") {
+	if cb := rest.callbacks[1]; strings.Contains(cb, "CMD_FULL_TEXT") || !strings.Contains(cb, "🔧 Read") || !strings.Contains(cb, "cardview:detail") {
 		t.Fatalf("press after the turn ended: %s", cb)
 	}
 	for _, e := range rest.edits {

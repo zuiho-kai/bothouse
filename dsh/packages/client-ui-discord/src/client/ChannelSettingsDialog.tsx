@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChannelActions, ChannelMember, ChannelRoom, DispatchMode } from './channel-source.ts'
+import { errorText } from './channel-source.ts'
 import type { NS } from './locales.ts'
 import css from './ChannelsPage.module.css'
 
@@ -8,7 +9,8 @@ import css from './ChannelsPage.module.css'
 const RELAY_CAP_MIN = 6
 const RELAY_CAP_MAX = 20
 
-type Tab = 'basic' | 'dispatch' | 'workspace'
+export type SettingsTab = 'basic' | 'dispatch' | 'workspace'
+type Tab = SettingsTab
 const tabs = ['basic', 'dispatch', 'workspace'] as const
 const tabLabels = { basic: 'settingsBasic', dispatch: 'settingsDispatch', workspace: 'settingsWorkspace' } as const
 
@@ -16,19 +18,21 @@ type Props = Pick<ChannelActions, 'renameRoom' | 'setDispatchMode' | 'setMaxRela
   room: ChannelRoom
   members: readonly ChannelMember[]
   effectiveLead: string
+  /** Tab to open on; the pinned lead card opens 'dispatch', where the lead is picked. */
+  initialTab?: SettingsTab
   t: TranslateNS<typeof NS>
   onClose: () => void
 }
 
 /** Drafts and save outcomes live for the whole dialog, independently of the selected tab. */
-export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, t, onClose }: Props) {
-  const [tab, setTab] = useState<Tab>('basic')
+export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom, setDispatchMode, setMaxRelay, setLead, setWorkspacePath, renewRoom, initialTab = 'basic', t, onClose }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [name, setName] = useState(room.name)
   const [mode, setMode] = useState<DispatchMode>(room.dispatch_mode ?? 'mixed')
   const [relay, setRelay] = useState(String(room.max_relay ?? RELAY_CAP_MIN))
-  const [lead, setLeadDraft] = useState(effectiveLead)
+  const [lead, setLeadDraft] = useState(room.lead_id === undefined ? effectiveLead : room.lead_id ?? '')
   const [directory, setDirectory] = useState(room.workspace_path ?? '')
-  const [saved, setSaved] = useState({ name: room.name, mode: room.dispatch_mode ?? 'mixed', relay: String(room.max_relay ?? RELAY_CAP_MIN), lead: effectiveLead, directory: room.workspace_path ?? '' })
+  const [saved, setSaved] = useState({ name: room.name, mode: room.dispatch_mode ?? 'mixed', relay: String(room.max_relay ?? RELAY_CAP_MIN), lead: room.lead_id === undefined ? effectiveLead : room.lead_id ?? '', directory: room.workspace_path ?? '' })
   const [saving, setSaving] = useState<Partial<Record<Tab, boolean>>>({})
   const [errors, setErrors] = useState<Partial<Record<Tab, string>>>({})
   const [success, setSuccess] = useState<Partial<Record<Tab, boolean>>>({})
@@ -84,7 +88,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
       }
       setSuccess(previous => ({ ...previous, [target]: true }))
     } catch (error) {
-      setErrors(previous => ({ ...previous, [target]: error instanceof Error ? error.message : String(error) }))
+      setErrors(previous => ({ ...previous, [target]: errorText(error, t, target === 'basic' ? 'room' : 'other', name) }))
     } finally {
       setSaving(previous => ({ ...previous, [target]: false }))
     }
@@ -132,7 +136,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
             </div>
             <label className={css.field}>{t('channelLead')}
               <select className={css.fieldInput} aria-label={t('channelLead')} value={lead} disabled={saving.dispatch} onChange={event => { setLeadDraft(event.target.value); clearFeedback('dispatch') }}>
-                <option value="" disabled>{t('leadNone')}</option>
+                <option value="">{t('leadNone')}</option>
                 {members.filter(member => member.kind !== 'human').map(member => <option key={member.id} value={member.id}>{member.name}</option>)}
               </select>
             </label>
@@ -155,7 +159,7 @@ export function ChannelSettingsDialog({ room, members, effectiveLead, renameRoom
             <button type="button" className={css.primaryButton} disabled={renewing} onClick={() => {
               setRenewing(true); setErrors(previous => ({ ...previous, workspace: undefined }))
               renewRoom(room.id).then(() => { setRenewPending(false) }).catch((error: unknown) => {
-                setErrors(previous => ({ ...previous, workspace: error instanceof Error ? error.message : String(error) }))
+                setErrors(previous => ({ ...previous, workspace: errorText(error, t) }))
               }).finally(() => { setRenewing(false) })
             }}>{t('renewNow')}</button>
           </div>

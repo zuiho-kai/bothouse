@@ -7,6 +7,19 @@ export interface PlatformStatus {
   notice?: string;
 }
 
+export interface RoleQuotaWindow {
+  name: string;
+  label?: string;
+  used_percent: number;
+  remaining_percent: number;
+  window_seconds?: number;
+  reset_after_seconds?: number;
+}
+
+export interface RoleQuota {
+  windows?: RoleQuotaWindow[];
+}
+
 export interface RoleInfo {
   name: string;
   /** the name people see: team_name (e.g. 橘), else the project name */
@@ -21,6 +34,7 @@ export interface RoleInfo {
   sessions_count: number;
   /** "dsh" = a member DSH runs itself (no pause/restart in DSH); absent = bridge role */
   source?: string;
+  quota?: RoleQuota;
 }
 
 export async function listRoles(): Promise<{ roles: RoleInfo[]; dsh?: { status: 'running' | 'stopped' | 'error'; error?: string } }> {

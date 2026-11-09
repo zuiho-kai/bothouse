@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, RefreshCw, Trash2, Upload, UserRound } from 'lucide-react';
+import { MessageSquare, Pencil, RefreshCw, Trash2, Upload, UserRound } from 'lucide-react';
 import { Button, Card, EmptyState, LoadingState, Textarea } from '@/components/ui';
 import {
   deleteMoment,
   getSocial,
   postMoment,
+  replaceMoment,
   setAvatar,
   type Moment,
   type SocialState,
@@ -33,6 +34,12 @@ export default function SocialPanel({ project }: { project: string }) {
   const [failed, setFailed] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [picked, setPicked] = useState<File | null>(null);
+  // 换说说：一次只改一条，改在原来的位置，不开新卡也不跳页。
+  const [editing, setEditing] = useState('');
+  const [editText, setEditText] = useState('');
+  // 人有没有明确接受「换一条可能改变谁能看见」。默认关：这不是走个过场的勾选，
+  // 它是这个面板唯一能拿到的授权（见后端 replaceAudienceBlocked 的第 3 种情形）。
+  const [ackAudience, setAckAudience] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -67,6 +74,53 @@ export default function SocialPanel({ project }: { project: string }) {
       await fetchData();
     } catch (e: any) {
       setFailed(T.failed(e?.message || String(e)));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // 换说说：一个动作、一次请求。后端保证「先发新的、成功了才删旧的」，所以这里
+  // 不做「发一条再删一条」两次调用，也不在这里重试。
+  const startReplace = (m: Moment) => {
+    setEditing(m.id);
+    setEditText(m.text);
+    setAckAudience(false);
+    setFailed('');
+    setNote('');
+  };
+
+  const cancelReplace = () => {
+    setEditing('');
+    setEditText('');
+    setAckAudience(false);
+  };
+
+  const replace = async (m: Moment) => {
+    const want = editText.trim();
+    if (!want) return;
+    if (want === m.text.trim()) {
+      cancelReplace();
+      return;
+    }
+    // 没勾就是没授权。后端也挡（400），这里先挡住，省得让人白看到一句报错。
+    if (!ackAudience) return;
+    if (!confirm(`${T.replace}？\n\n${T.replaceConfirm}`)) return;
+    setBusy(`replace-${m.id}`);
+    setFailed('');
+    setNote('');
+    try {
+      await replaceMoment(project, m.id, want, true);
+      cancelReplace();
+      setNote(T.replaced);
+      await fetchData();
+    } catch (e: any) {
+      setFailed(T.failed(e?.message || String(e)));
+      // 部分成功：新的已经发出去了、旧的还在。关掉编辑器并重新拉列表，
+      // 让人亲眼看到现在是两条，再自己决定删哪条——这里不替人重试。
+      if (e?.body?.moment) {
+        cancelReplace();
+        await fetchData();
+      }
     } finally {
       setBusy('');
     }
@@ -111,6 +165,7 @@ export default function SocialPanel({ project }: { project: string }) {
   const caps = state?.capabilities;
   const canPost = !!caps?.post_moment;
   const canRemove = !!caps?.remove_moment;
+  const canReplace = !!caps?.replace_moment;
   const canAvatar = !!caps?.set_avatar;
 
   return (
@@ -198,19 +253,105 @@ export default function SocialPanel({ project }: { project: string }) {
                         <p className="whitespace-pre-wrap break-words text-sm text-ink">{m.text}</p>
                         <p className="mt-1 text-[12px] text-ink-mute">
                           {m.time && m.time !== '0001-01-01T00:00:00Z' ? new Date(m.time).toLocaleString() : ''}
-                          {m.private && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{T.privateLabel}</span>}
+                          {m.private_known && m.private && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{T.privateLabel}</span>}
                         </p>
                       </div>
-                      <Button
-                        variant="secondary"
-                        onClick={() => remove(m)}
-                        disabled={!canRemove || !m.id || busy !== ''}
-                        data-testid={`social-delete-${m.id}`}
-                      >
-                        <Trash2 size={14} />
-                        {busy === `del-${m.id}` ? T.deleting : T.delete}
-                      </Button>
+                      <div className="flex shrink-0 gap-2">
+                        {canReplace && m.id && editing !== m.id && m.private_known && !m.private && (
+                          <Button
+                            variant="secondary"
+                            onClick={() => startReplace(m)}
+                            disabled={busy !== ''}
+                            data-testid={`social-replace-${m.id}`}
+                          >
+                            <Pencil size={14} />
+                            {T.replace}
+                          </Button>
+                        )}
+                        {canReplace && m.id && !m.private_known && (
+                          // 上游没说这条算谁可见：可能公开，也可能只是几个人。换一条会
+                          // 发新的再删旧的，赌错就把范围改宽且不可逆。
+                          <p
+                            className="max-w-[16rem] text-right text-[12px] text-ink-mute"
+                            role="status"
+                            data-testid={`social-replace-unknown-${m.id}`}
+                          >
+                            {T.replaceVisibilityUnknown}
+                          </p>
+                        )}
+                        {canReplace && m.id && m.private_known && m.private && (
+                          // 上游只说「仅部分人可见」，说不出是哪一种；换一条会变成所有人可见。
+                          // 后端也已经拒了（400），这里先不让人点，并说明去哪儿改。
+                          <p
+                            className="max-w-[16rem] text-right text-[12px] text-ink-mute"
+                            role="status"
+                            data-testid={`social-replace-private-${m.id}`}
+                          >
+                            {T.replacePrivateBlocked}
+                          </p>
+                        )}
+                        <Button
+                          variant="secondary"
+                          onClick={() => remove(m)}
+                          disabled={!canRemove || !m.id || busy !== ''}
+                          data-testid={`social-delete-${m.id}`}
+                        >
+                          <Trash2 size={14} />
+                          {busy === `del-${m.id}` ? T.deleting : T.delete}
+                        </Button>
+                      </div>
                     </div>
+                    {editing === m.id && (
+                      <div className="mt-3 rounded-lg bg-surface-sunken p-3" data-testid={`social-editor-${m.id}`}>
+                        <label className="mb-1 block text-xs font-medium text-ink-soft">{T.replaceLabel}</label>
+                        {m.images.length > 0 && (
+                          <p className="mb-2 text-[12px] text-ink-mute" data-testid={`social-edit-keeps-images-${m.id}`}>
+                            {T.replaceKeepsImages(m.images.length)}
+                          </p>
+                        )}
+                        <Textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          rows={3}
+                          data-testid={`social-edit-text-${m.id}`}
+                        />
+                        {/* 这一勾不是「再确认一次」的礼貌，它是这个请求唯一的授权：
+                            旧条原来的可见范围有可能读不准（上游缺 secret 时会补一个
+                            「所有人可见」），而换一条会先发新的再删旧的、删了回不来。
+                            默认不勾，勾了才让按钮可用；后端也不认没有这个字段的请求。 */}
+                        <label className="mt-2 flex items-start gap-2 text-[12px] text-ink-soft">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={ackAudience}
+                            onChange={(e) => setAckAudience(e.target.checked)}
+                            disabled={busy !== ''}
+                            data-testid={`social-replace-ack-${m.id}`}
+                          />
+                          <span>{T.replaceAudienceAck}</span>
+                        </label>
+                        <p className="mt-1 text-[12px] text-ink-mute" data-testid={`social-replace-ack-hint-${m.id}`}>
+                          {T.replaceAudienceAckHint}
+                        </p>
+                        <div className="mt-2 flex justify-end gap-2">
+                          <Button
+                            variant="secondary"
+                            onClick={cancelReplace}
+                            disabled={busy !== ''}
+                            data-testid={`social-edit-cancel-${m.id}`}
+                          >
+                            {T.replaceCancel}
+                          </Button>
+                          <Button
+                            onClick={() => replace(m)}
+                            disabled={busy !== '' || !editText.trim() || !ackAudience}
+                            data-testid={`social-replace-save-${m.id}`}
+                          >
+                            {busy === `replace-${m.id}` ? T.replacing : T.replace}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {m.images.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {m.images.map((src) => (

@@ -4,8 +4,10 @@
 // cloud_web wire format they already understand (bridge/platform/cloud-web/protocol.go
 // wireImage / wireFile: base64 data + mime_type + file_name).
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { CollabError, messageAttachments } from './store.mjs';
 
 const ID = /^[0-9a-f-]{36}$/;
@@ -17,6 +19,25 @@ export const INLINE_IMAGE = /^image\/(png|jpeg|gif|webp)$/;
 // Larger images go to bots as files: Anthropic's Messages API rejects an image
 // over 5 MB (docs "Vision" / image size limits).
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// #197: cap of one streamed upload when the overlay sets no maxUploadBytes. The
+// old 8 MiB came from #228 aligning the message POST with the bot socket, which
+// capped a file at ~6 MB once base64 was added. The default follows the owner's
+// 「需要大一些 尽可能大」 (2026-11-05 21:01) at the largest size measured on this
+// machine; the measurements are in the PR and in attachments.test.mjs.
+export const DEFAULT_MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+
+// cc-connect accepts attachments up to 50 MiB by default (DefaultMaxAttachmentSize in
+// bridge/core/api.go) and a bot frame carries them base64-encoded (x4/3) plus JSON
+// fields; plugin.mjs derives BOT_WS_MAX_PAYLOAD from this. A bigger file is not sent
+// over the socket at all: the bot gets its local path in the prompt instead (#197).
+export const MAX_BOT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+/** Bytes as the UI writes them (MiB/GiB), for limits in messages. */
+export function formatBytes(bytes) {
+  if (bytes >= 1024 ** 3) return `${+(bytes / 1024 ** 3).toFixed(2)} GB`;
+  return `${+(bytes / 1024 ** 2).toFixed(bytes >= 100 * 1024 ** 2 ? 0 : 1)} MB`;
+}
 
 export class Attachments {
   constructor(dir) { this.dir = dir; }
@@ -43,11 +64,95 @@ export class Attachments {
     try { return readFileSync(join(this.dir, id)); } catch { return undefined; }
   }
 
+  /** #197: absolute path of a stored attachment (the bot reads it when it is too big for a frame). */
+  path(id) {
+    return ID.test(String(id)) ? join(this.dir, id) : undefined;
+  }
+
+  /**
+   * #197: accept the metadata a streamed upload returned, for a message POST that no
+   * longer carries the bytes. The size is read from disk, never from the request.
+   */
+  adopt(list) {
+    return list.map((item) => {
+      const id = String(item?.id ?? '');
+      if (!ID.test(id)) throw new CollabError('invalid', 'attachment id is invalid');
+      let stats;
+      try { stats = statSync(this.path(id)); } catch { throw new CollabError('invalid', 'attachment is missing'); }
+      if (!stats?.isFile() || stats.size === 0) throw new CollabError('invalid', 'attachment is empty');
+      const name = String(item?.name ?? '').replace(/[\\/]/g, '_').slice(0, 200) || id;
+      return { id, name, mime: String(item?.mime ?? '') || 'application/octet-stream', size: stats.size };
+    });
+  }
+
+  /** #197: a message POST either carries base64 payloads (old clients, bots) or streamed ids. */
+  receive(list) {
+    if (list == null) return [];
+    if (!Array.isArray(list)) throw new CollabError('invalid', 'attachments must be a list');
+    if (list.length === 0) return [];
+    const streamed = list.filter(item => item?.id !== undefined).length;
+    if (streamed === 0) return this.save(list);
+    if (streamed !== list.length) throw new CollabError('invalid', 'attachments must be all streamed uploads or all inline');
+    return this.adopt(list);
+  }
+
+  /**
+   * #197: receive one upload straight from the request body onto disk. Bytes are
+   * never held whole in memory (the old path base64'd them into the message JSON),
+   * they stream through a byte counter into a temp file beside the final one and
+   * are renamed into place only when the whole body arrived. A body over
+   * `maxBytes`, a broken connection or an empty upload leaves no file behind.
+   * Returns the metadata to store on the message; throws CollabError.
+   */
+  async saveStream(body, { name, mime, maxBytes }) {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new CollabError('invalid', 'attachment size limit is not configured');
+    mkdirSync(this.dir, { recursive: true });
+    const id = randomUUID();
+    const temporary = join(this.dir, `${id}.part`);
+    let size = 0;
+    let over = false;
+    const counter = new Transform({
+      transform(chunk, _encoding, done) {
+        size += chunk.length;
+        // Past the cap the rest of the body is still read and dropped, so the browser
+        // gets the 413 instead of a reset connection (same trade as readBody in plugin.mjs).
+        if (size > maxBytes) { over = true; return done(); }
+        done(null, chunk);
+      },
+    });
+    try {
+      await pipeline(body, counter, createWriteStream(temporary, { mode: 0o600, flags: 'wx' }));
+      if (over) throw new CollabError('too-large', `附件不能超过 ${formatBytes(maxBytes)}`);
+      if (size === 0) throw new CollabError('invalid', 'attachment is empty');
+      renameSync(temporary, join(this.dir, id));
+    } catch (error) {
+      try { unlinkSync(temporary); } catch (cleanup) { if (cleanup.code !== 'ENOENT') throw cleanup; }
+      if (error instanceof CollabError) throw error;
+      throw new CollabError('invalid', '上传中断了，文件没有存下');
+    }
+    // The name travels in the query string (a header cannot carry 中文); keep only
+    // the last path segment so a generated name never reaches outside the dir.
+    const clean = String(name ?? '').replace(/[\\/]/g, '_').slice(0, 200) || id;
+    return { id, name: clean, mime: String(mime ?? '') || 'application/octet-stream', size };
+  }
+
+  /**
+   * #197: attachments of a message that are too big to travel over a bot
+   * connection (cloud_web frame or ACP block). The bot gets their local path in
+   * the prompt text instead of the bytes (oversizedNote).
+   */
+  oversized(metas) {
+    return (metas ?? []).filter(a => (a.size ?? 0) > MAX_BOT_ATTACHMENT_BYTES)
+      .map(a => ({ ...a, path: this.path(a.id) }));
+  }
+
   /** cloud_web inbound frame fields (images / files) for a message's attachments. */
   wire(metas) {
     const images = [];
     const files = [];
     for (const a of metas ?? []) {
+      // #197: a file over the frame cap is not encoded at all; the bot is told its path.
+      if ((a.size ?? 0) > MAX_BOT_ATTACHMENT_BYTES) continue;
       const bytes = this.read(a.id);
       if (bytes === undefined) continue;
       const item = { mime_type: a.mime, data: bytes.toString('base64'), file_name: a.name };
@@ -58,6 +163,15 @@ export class Attachments {
     if (files.length) out.files = files;
     return out;
   }
+}
+
+/**
+ * #197: one line per attachment that was not sent over the connection, with the
+ * path on this machine, so a bot can read or move the file itself.
+ */
+export function oversizedNote(oversized) {
+  return (oversized ?? []).map(a =>
+    `📎 ${a.name}（${formatBytes(a.size)}）太大，没有随消息发送；本机文件：${a.path ?? '（文件已不在）'}`).join('\n');
 }
 
 /** Shared wire admission, projected into the ACP prompt format, each block with its file name. */

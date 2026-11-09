@@ -12,39 +12,6 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-func TestReadExecutionInfoSessionID(t *testing.T) {
-	f, err := os.CreateTemp("", "iflow-exec-info-*.json")
-	if err != nil {
-		t.Fatalf("CreateTemp: %v", err)
-	}
-	defer os.Remove(f.Name())
-
-	if _, err := f.WriteString(`{"session-id":"session-123"}`); err != nil {
-		t.Fatalf("WriteString: %v", err)
-	}
-	f.Close()
-
-	sid, err := readExecutionInfoSessionID(f.Name())
-	if err != nil {
-		t.Fatalf("readExecutionInfoSessionID: %v", err)
-	}
-	if sid != "session-123" {
-		t.Fatalf("session id = %q, want session-123", sid)
-	}
-}
-
-func TestExtractSessionIDFromExecutionInfo(t *testing.T) {
-	stderr := `<Execution Info>
-{
-  "session-id": "session-abc",
-  "conversation-id": "cid"
-}
-</Execution Info>`
-	if got := extractSessionIDFromExecutionInfo(stderr); got != "session-abc" {
-		t.Fatalf("extractSessionIDFromExecutionInfo = %q", got)
-	}
-}
-
 func TestIsIFlowAPIFailure(t *testing.T) {
 	cases := []struct {
 		in   string

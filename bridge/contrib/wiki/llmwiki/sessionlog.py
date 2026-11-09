@@ -35,7 +35,8 @@ Record: one JSON object per line, append-only.
   text     the words as said (only instructions the runtime itself injects are dropped)
   via      "bridge" or "reader"
   optional: speaker / speaker_id / project (bridge), src (reader: end byte offset, in the native log, of the line
-  this record came from), queued (Claude Code: typed while a turn ran), cwd / title / custom_title (meta).
+  this record came from), queued (Claude Code: typed while a turn ran), entry / origin / compact (Claude Code user turns),
+  cwd / title / custom_title (meta).
 
 Which files a consumer reads (sessions()): when a reader covers a (role, runtime), that runtime's own log holds
 everything the bridge carried plus tool calls, so the bridge files of that (role, runtime) are not listed. A (role,
@@ -295,7 +296,10 @@ class ClaudeCodeReader:
                 if not isinstance(b, dict):
                     continue
                 if b.get("type") == "text" and isinstance(b.get("text"), str) and b["text"].strip():
-                    out.append({"kind": "message", "dir": "in" if t == "user" else "out", "text": b["text"], "ts": ts})
+                    rec = {"kind": "message", "dir": "in" if t == "user" else "out", "text": b["text"], "ts": ts}
+                    if t == "user":
+                        rec.update(cli_source(d))
+                    out.append(rec)
                 elif b.get("type") == "tool_use" and t == "assistant":
                     inp = b.get("input") or {}
                     arg = inp.get("command") or inp.get("file_path") or inp.get("query") or ""
@@ -303,6 +307,17 @@ class ClaudeCodeReader:
                         out.append({"kind": "tool", "dir": "out", "tool": b.get("name"), "text": str(arg)[:TOOL_CHARS],
                                     "ts": ts})
         return out
+
+
+def cli_source(d):
+    """Record Claude Code's structured entrypoint, origin and compaction metadata on user turns."""
+    origin = d.get("origin")
+    kind = origin.get("kind") if isinstance(origin, dict) else None
+    return {key: value for key, value in (
+        ("entry", d.get("entrypoint")),
+        ("origin", kind),
+        ("compact", True if d.get("isCompactSummary") else None),
+    ) if value is not None}
 
 
 # Codex rollouts: <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl. Format checked 2026-10-20 on longniang's

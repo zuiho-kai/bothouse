@@ -7,6 +7,7 @@ import { exitTarget } from './team-exit.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
 import { CollabError, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
+import { oversizedNote } from './attachments.mjs';
 import { ChannelApprovals, parseCard, textDecision } from './approvals.mjs';
 
 export { textDecision };
@@ -54,7 +55,7 @@ const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息�
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 // cancelled (#913): a card whose turn was cut without an outcome — a restarted bridge, a
 // cancelled DSH job. page.html styles it like any other card state.
-const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', aborted: '已打断' };
+const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', aborted: '已打断', stopped: '已停止' };
 const RESERVED_IDS = new Set(['user', 'system']);
 const MAX_NAME = 64;
 
@@ -344,6 +345,8 @@ export class CloudWebGateway {
     const only = this.hub.replyRoute(msg);
     const metas = messageAttachments(msg);
     const attached = metas.length && this.files ? this.files.wire(metas) : {};
+    // #197: a file too big for the frame travels as its path on this machine instead.
+    const tooBig = metas.length && this.files ? oversizedNote(this.files.oversized(metas)) : '';
     const quoted = this.hub.store.quote(msg);
     const quote = quotePrefix(quoted);
     // The replied-to row's id (same id space as a task card's preview_handle and a reply_ack),
@@ -367,7 +370,7 @@ export class CloudWebGateway {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
         // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
         // command word as its arguments (core/engine.go handleCommand), so no later instructions.
-        user_id: msg.author, user_name: msg.name, content: content + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
+        user_id: msg.author, user_name: msg.name, content: content + (tooBig ? `\n${tooBig}` : '') + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');

@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "Connect QQ",
+    "setupHint": "Use an existing OneBot / NapCat connection or official QQ bot credentials. Saving does not verify a live connection.",
+    "route": "Connection type",
+    "official": "QQ Bot (Official)",
+    "projectID": "New role ID",
+    "projectHint": "Use a unique ID with letters, numbers, hyphens or underscores.",
+    "invalidProject": "This ID is invalid or already in use.",
+    "noCLI": "Install and sign in to a supported CLI first.",
+    "savedRestart": "Configuration saved. Restart to apply; live QQ messaging has not been verified.",
+    "restartRequested": "Restart requested. Return to the role list after the service starts.",
+    "settingsTitle": "QQ connection and features",
+    "settingsHint": "Changes take effect after restart. Saved settings do not prove a live connection.",
+    "httpURL": "OneBot HTTP URL (optional)",
+    "keepToken": "Leave blank to keep the saved token",
+    "clearToken": "Clear saved access token",
+    "sharedHint": "When enabled, group members share a conversation. This does not provide private memory isolation.",
+    "unavailable": "Not available in this version",
+    "capabilities": {
+      "qq_voice_out": "Voice replies are not available.",
+      "qq_command_allow_from": "A separate command allowlist is not available. Project administrator settings still apply.",
+      "memory_import": "Memory import is awaiting a confirmed source and format."
+    }
+  },
   "nav": {
     "addPlatform": "Add platform",
     "addRole": "Add role / model",
@@ -183,7 +207,12 @@
     "externalAdapters": "External adapters",
     "bridgeDisabled": "Bridge service is off",
     "bridgeDisabledHint": "These platforms are connected by the roles themselves; external clients (such as the desktop tray) also need the bridge service enabled in the config.",
-    "noAdapters": "No external adapters"
+    "noAdapters": "No external adapters",
+    "platformsReadFailed": "Connected platforms could not be read",
+    "adaptersReadFailed": "External adapters could not be read",
+    "projectsReadFailed": "Project names could not be read; raw ids are shown below.",
+    "readFailedHint": "The request failed, which is not the same as having nothing here. Check the bridge service and your token, then retry.",
+    "retry": "Retry"
   },
   "system": {
     "title": "System",
@@ -396,6 +425,8 @@
     "reviewComplexModel": "Complex review model",
     "reviewModelRole": "The role's own model",
     "reviewModelHint": "The review runs in a new session on this model",
+    "reviewModelNoSwitch": "This role's backend cannot switch models; reviews run on its own model",
+    "reviewModelNotice": "Latest review whose model did not apply: #{{board}} ({{tier}}), {{role}} · {{model}}: {{reason}}",
     "log": "Log",
     "logLevel": "Log level",
     "appearance": "Appearance",
@@ -549,7 +580,15 @@
     "unavailable": "Unavailable",
     "unavailableWhy": "The agent protocol does not report per-turn token usage yet (e.g. ACP); not estimated.",
     "empty": "No records",
-    "note": "Recorded since tracking was enabled; no historical backfill. Usage unavailable: {{unknown}} replies (their agent protocol does not report per-turn usage yet, e.g. ACP; not estimated, and not zero consumption); missing price or usage: {{unpriced}} replies. Charts show reported tokens only. Costs estimate only priced replies; * indicates incomplete pricing."
+    "note": "Recorded since tracking was enabled; no historical backfill. Usage unavailable: {{unknown}} replies (their agent protocol does not report per-turn usage yet, e.g. ACP; not estimated, and not zero consumption); missing price or usage: {{unpriced}} replies. Charts show reported tokens only. Costs estimate only priced replies; * indicates incomplete pricing.",
+    "quickFilters": "Quick filters",
+    "presetToday": "Today",
+    "presetThisWeek": "This week",
+    "presetThisMonth": "This month",
+    "presetLast7Days": "Last 7 days",
+    "tokenBreakdown": "Breakdown",
+    "presetPastYear": "Past year",
+    "presetPastYearHint": "Default range: the year up to today (a query covers at most one year)"
   },
   "wikiGalaxy": {
     "title": "Wiki galaxy",
@@ -609,6 +648,8 @@
     "providerScope": "These providers apply to bridge projects that reference them.",
     "dshProviderScope": "DSH native members use their own model routes.",
     "openDsh": "Open DSH",
+    "openDshDesktop": "Open in desktop app",
+    "openDshWeb": "Web",
     "settingsModels": "In DSH, open Settings → Models.",
     "cliScope": "CLI members use local CLI authentication and configuration; these providers do not change it.",
     "bridgeProjects": "Bridge projects",

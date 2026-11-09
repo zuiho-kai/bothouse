@@ -10,6 +10,9 @@ export interface PluginTexts {
   empty: string
   emptyHint: string
   noDSH: string
+  configureTitle: string
+  configureHint: string
+  configureOpen: string
   installTitle: string
   installHint: string
   installPlaceholder: string
@@ -53,6 +56,18 @@ export interface PluginTexts {
   rowsTitle: (n: number) => string
   rowOff: string
   rowOn: string
+  /** 每一行插件自己的 config：在面板里读出来、改完存回 profile 的 patch */
+  rowConfig: string
+  configHint: string
+  configSecrets: string
+  configSave: string
+  configSaving: string
+  configCancel: string
+  configSaved: string
+  configEmpty: string
+  configNoneYet: string
+  configFromBundle: string
+  configFromProfile: string
   details: string
   failurePnpm: string
   failureNotFound: string
@@ -69,6 +84,9 @@ export interface PluginTexts {
 }
 
 const zh: PluginTexts = {
+  configureTitle: '配置已装插件',
+  configureHint: '打开 DSH 后，点左侧「插件」，选择插件，编辑并保存配置。配置表单由插件提供；未提供表单的插件需按其说明配置。',
+  configureOpen: '打开 DSH 配置插件',
   title: '插件',
   subtitle: '这页管的是 DSH 自己那份 profile：已经装了哪些插件、开没开、装个新的。跟 DSH 侧栏的「插件」读写同一份文件，两边看到的一样。',
   refresh: '刷新',
@@ -76,7 +94,7 @@ const zh: PluginTexts = {
   loadFailed: '读不到插件状态',
   empty: '这份 profile 还没有插件',
   emptyHint: '在下面填包名装一个；DSH 自己的面板层由安装自带，不算在这里。',
-  noDSH: '这台电脑没找到 dsh，先装 DSH（npm i -g @deepseek-ai/dsh）才能装插件。',
+  noDSH: '这台电脑没找到 dsh，先装 DSH（npm i -g @deepseek-ai/dsh@latest）才能装插件。',
   installTitle: '装一个插件',
   installHint: '填 npm 包名或「包名@版本」，装完要重启一次 DSH 才会加载。',
   installPlaceholder: '@scope/plugin 或 plugin@1.2.3',
@@ -118,6 +136,17 @@ const zh: PluginTexts = {
   rowsTitle: (n) => `这个插件带来 ${n} 项`,
   rowOff: '已停用',
   rowOn: '',
+  rowConfig: '配置',
+  configHint: '这一行自己的配置，原样是 YAML；存回的是这份 profile 的 patch，改完重启 DSH 生效。留空保存就恢复插件默认。',
+  configSecrets: '密钥显示为已设置占位（!bothouse/secret），保留原样会保留当前值；替换整个占位可设置新值，填空字符串或删除字段可清除。带锚点或别名的值也会隐藏。',
+  configSave: '保存配置',
+  configSaving: '正在存…',
+  configCancel: '取消',
+  configSaved: '已保存，重启 DSH 后生效。',
+  configEmpty: '这段是空的：留空保存会删掉这里的覆盖，恢复插件默认。',
+  configNoneYet: '这一行没配过东西，用的是插件自己的默认值。在这儿存的就是它整段 config。',
+  configFromBundle: '现在的值来自插件自带的 patch。在这儿保存是整段替换这一行的 config，不是逐字段合并：框里没有的字段就没了。',
+  configFromProfile: '现在的值来自这份 profile 的 patch，就是在这儿存的。',
   details: '安装日志',
   failurePnpm: '找不到 pnpm。先 npm i -g pnpm，或者在 DSH 的插件页里装。',
   failureNotFound: 'npm 上没有这个包（或这个版本），检查包名拼写。',
@@ -134,6 +163,9 @@ const zh: PluginTexts = {
 }
 
 const en: PluginTexts = {
+  configureTitle: 'Configure installed plugins',
+  configureHint: 'Open DSH, choose Plugins in the sidebar, then select a plugin to edit and save its settings. Forms are provided by plugins; plugins without a form follow their own setup instructions.',
+  configureOpen: 'Open DSH to configure plugins',
   title: 'Plugins',
   subtitle: 'This page manages the DSH profile itself: what is installed, what is switched on, and installing something new. It reads and writes the same files as DSH’s own Plugins page, so both show the same thing.',
   refresh: 'Refresh',
@@ -141,7 +173,7 @@ const en: PluginTexts = {
   loadFailed: 'Could not read the plugin state',
   empty: 'No plugin in this profile yet',
   emptyHint: 'Install one by package name below; the DSH panel layers ship with the installation and are not listed here.',
-  noDSH: 'dsh is not on this machine. Install DSH (npm i -g @deepseek-ai/dsh) before installing plugins.',
+  noDSH: 'dsh is not on this machine. Install DSH (npm i -g @deepseek-ai/dsh@latest) before installing plugins.',
   installTitle: 'Install a plugin',
   installHint: 'A package name or name@version. DSH loads it after one restart.',
   installPlaceholder: '@scope/plugin or plugin@1.2.3',
@@ -183,6 +215,17 @@ const en: PluginTexts = {
   rowsTitle: (n) => `This plugin brings ${n} item${n === 1 ? '' : 's'}`,
   rowOff: 'off',
   rowOn: '',
+  rowConfig: 'Configure',
+  configHint: 'This row’s own config, as YAML. Saving writes this profile’s patch; it takes effect after a DSH restart. Save empty to go back to the plugin’s default.',
+  configSecrets: 'Secrets appear as set placeholders (!bothouse/secret). Leave them unchanged to keep the current value, replace the whole placeholder to set a new value, or use an empty string or remove the field to clear it. Anchored values and aliases are hidden too.',
+  configSave: 'Save config',
+  configSaving: 'Saving…',
+  configCancel: 'Cancel',
+  configSaved: 'Saved; takes effect after a DSH restart.',
+  configEmpty: 'This is empty: saving it removes the override here and goes back to the plugin’s default.',
+  configNoneYet: 'Nothing is set for this row; it runs on the plugin’s own defaults.',
+  configFromBundle: 'The current value comes from the plugin’s own patch. Saving here replaces this row’s whole config — it is not merged field by field, so a field you leave out is gone.',
+  configFromProfile: 'The current value comes from this profile’s patch — that is what saving here writes.',
   details: 'Install log',
   failurePnpm: 'pnpm was not found. Run npm i -g pnpm, or install from DSH’s own Plugins page.',
   failureNotFound: 'npm has no such package (or version). Check the spelling.',
@@ -199,6 +242,9 @@ const en: PluginTexts = {
 }
 
 const ja: PluginTexts = {
+  configureTitle: 'インストール済みプラグインの設定',
+  configureHint: 'DSH を開き、左側の「プラグイン」で対象を選んで設定を編集・保存します。設定フォームは各プラグインが提供します。フォームがない場合はプラグインの説明に従ってください。',
+  configureOpen: 'DSH でプラグインを設定',
   title: 'プラグイン',
   subtitle: 'このページは DSH 自身の profile を管理します。何が入っているか、有効か、新しく入れるか。DSH 側の「プラグイン」ページと同じファイルを読み書きするので、表示は一致します。',
   refresh: '更新',
@@ -206,7 +252,7 @@ const ja: PluginTexts = {
   loadFailed: 'プラグインの状態を読めません',
   empty: 'この profile にはまだプラグインがありません',
   emptyHint: '下の欄にパッケージ名を入れて入れてください。DSH のパネル層は製品に同梱されます。',
-  noDSH: 'この PC に dsh が見つかりません。先に DSH を入れてください（npm i -g @deepseek-ai/dsh）。',
+  noDSH: 'この PC に dsh が見つかりません。先に DSH を入れてください（npm i -g @deepseek-ai/dsh@latest）。',
   installTitle: 'プラグインを入れる',
   installHint: 'npm のパッケージ名か「名前@バージョン」。DSH を一度再起動すると読み込まれます。',
   installPlaceholder: '@scope/plugin または plugin@1.2.3',
@@ -248,6 +294,17 @@ const ja: PluginTexts = {
   rowsTitle: (n) => `このプラグインが持つ項目：${n}`,
   rowOff: '無効',
   rowOn: '',
+  rowConfig: '設定',
+  configHint: 'この行自身の設定です。中身はそのまま YAML で、保存するとこの profile の patch に書き込みます。DSH の再起動後に反映されます。空で保存するとプラグイン既定に戻ります。',
+  configSecrets: '秘密情報は設定済みの印（!bothouse/secret）で表示します。そのまま保存すると現在値を保持し、印全体を新しい値に置き換えると更新します。空文字列または項目の削除で消去します。アンカーや別名の値も非表示です。',
+  configSave: '設定を保存',
+  configSaving: '保存中…',
+  configCancel: 'キャンセル',
+  configSaved: '保存しました。DSH の再起動後に反映されます。',
+  configEmpty: '空です。空で保存するとここの上書きを消し、プラグイン既定に戻します。',
+  configNoneYet: 'この行は何も設定されておらず、プラグイン既定で動いています。',
+  configFromBundle: '今の値はプラグイン同梱の patch 由来です。ここで保存するとこの行の config を丸ごと置き換えます（項目ごとのマージではありません）。書かなかった項目は消えます。',
+  configFromProfile: '今の値はこの profile の patch 由来で、ここで保存したものです。',
   details: 'インストールログ',
   failurePnpm: 'pnpm が見つかりません。npm i -g pnpm を実行するか、DSH のプラグイン画面から入れてください。',
   failureNotFound: 'npm にそのパッケージ（またはバージョン）がありません。名前を確認してください。',

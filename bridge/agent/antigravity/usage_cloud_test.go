@@ -46,6 +46,9 @@ func decodeSample(t *testing.T) cloudQuotaSummary {
 func TestMapQuotaSummary_GeminiModelFirst(t *testing.T) {
 	now := time.Date(2026, 10, 15, 5, 0, 0, 0, time.UTC)
 	r := mapQuotaSummary(decodeSample(t), "gemini-3.8-flash-high", now)
+	if !r.ObservedAt.Equal(now) || !cloneReport(r).ObservedAt.Equal(now) {
+		t.Fatal("cached copies must preserve the upstream observation time")
+	}
 	if len(r.Buckets) != 2 || r.Buckets[0].Name != "Gemini Models" {
 		t.Fatalf("buckets = %+v", r.Buckets)
 	}

@@ -254,7 +254,7 @@ func mapQuotaSummary(payload cloudQuotaSummary, model string, now time.Time) *co
 			argon = argon || strings.HasPrefix(b.BucketID, "gemini-argon-")
 		}
 	}
-	report := &core.UsageReport{Provider: "antigravity", QuotaGroup: quotaGroupForModel(model, argon)}
+	report := &core.UsageReport{Provider: "antigravity", ObservedAt: now, QuotaGroup: quotaGroupForModel(model, argon)}
 	preferred := -1
 	wantThirdParty := isThirdPartyModel(model)
 	for i, g := range payload.Groups {

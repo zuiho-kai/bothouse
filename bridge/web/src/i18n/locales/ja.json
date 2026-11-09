@@ -1,4 +1,28 @@
 {
+  "qq": {
+    "setupTitle": "QQ に接続",
+    "setupHint": "既存の OneBot / NapCat 接続または QQ 公式 Bot の認証情報を使用します。保存だけでは接続を確認できません。",
+    "route": "接続方式",
+    "official": "QQ 公式 Bot",
+    "projectID": "新しいロール ID",
+    "projectHint": "未使用の英数字、ハイフン、アンダースコアを指定してください。",
+    "invalidProject": "ID が無効か、すでに使用されています。",
+    "noCLI": "対応する AI CLI をインストールしてログインしてください。",
+    "savedRestart": "設定を保存しました。反映には再起動が必要です。QQ の実際の送受信は未確認です。",
+    "restartRequested": "再起動を要求しました。起動後にロール一覧に戻ってください。",
+    "settingsTitle": "QQ 接続と機能",
+    "settingsHint": "変更は再起動後に反映されます。設定の保存は接続確認ではありません。",
+    "httpURL": "OneBot HTTP URL（任意）",
+    "keepToken": "空欄で保存済みトークンを保持",
+    "clearToken": "保存済みトークンを消去",
+    "sharedHint": "有効にするとグループ全員が会話を共有します。個人の記憶は分離されません。",
+    "unavailable": "このバージョンでは利用不可",
+    "capabilities": {
+      "qq_voice_out": "音声返信は利用できません。",
+      "qq_command_allow_from": "個別のコマンド許可リストは利用できません。プロジェクトの管理者設定が適用されます。",
+      "memory_import": "記憶のインポートは、ソースと形式の確認待ちです。"
+    }
+  },
   "nav": {
     "addPlatform": "プラットフォーム追加",
     "addRole": "ロール/モデルを追加",
@@ -177,7 +201,12 @@
     "externalAdapters": "外部アダプター",
     "bridgeDisabled": "ブリッジサービスは無効です",
     "bridgeDisabledHint": "これらのプラットフォームはロールが直接接続しています。デスクトップトレイなどの外部クライアントには、設定でブリッジサービスを有効にする必要があります。",
-    "noAdapters": "外部アダプターはありません"
+    "noAdapters": "外部アダプターはありません",
+    "platformsReadFailed": "接続中のプラットフォームを読み取れませんでした",
+    "adaptersReadFailed": "外部アダプターを読み取れませんでした",
+    "projectsReadFailed": "プロジェクト名を読み取れませんでした。以下は元の ID を表示しています。",
+    "readFailedHint": "リクエストが失敗しました。ここに何も無いという意味ではありません。ブリッジサービスとトークンを確認してから再試行してください。",
+    "retry": "再試行"
   },
   "system": {
     "title": "システム",
@@ -541,11 +570,23 @@
     "providerScope": "このプロバイダーは参照しているブリッジプロジェクトに適用されます。",
     "dshProviderScope": "DSH ネイティブメンバーは独自のモデル経路を使用します。",
     "openDsh": "DSH を開く",
+    "openDshDesktop": "デスクトップ版で開く",
+    "openDshWeb": "ウェブ版",
     "settingsModels": "DSH の「設定 → モデル」を開いてください。",
     "cliScope": "CLI メンバーはローカル CLI の認証と設定を使用します。ここで変更されません。",
     "bridgeProjects": "ブリッジプロジェクト",
     "projectScope": "ブリッジプロジェクトはエージェントとワークスペースをプラットフォームに接続します。DSH メンバーは別に管理します。",
     "savedConfigNextTurn": "保存済み設定 · 次のターンの前に適用",
     "savedRoute": "保存済み DSH 経路"
+  },
+  "usage": {
+    "quickFilters": "クイックフィルター",
+    "presetToday": "今日",
+    "presetThisWeek": "今週",
+    "presetThisMonth": "今月",
+    "presetLast7Days": "過去7日間",
+    "presetPastYear": "過去1年",
+    "presetPastYearHint": "既定の範囲：今日までの1年間（1回の照会は最大1年）",
+    "tokenBreakdown": "内訳"
   }
 }

@@ -14,6 +14,7 @@ import (
 //
 //	GET  /projects/<name>/social               → {status, platform, capabilities, moments}
 //	POST /projects/<name>/social/moment        {text} → Moment
+//	POST /projects/<name>/social/moment/replace {id, text} → {moment}
 //	POST /projects/<name>/social/moment/delete {id}   → {result}
 //	POST /projects/<name>/social/avatar        multipart file → {result}
 //
@@ -54,6 +55,10 @@ func socialPlatform(engine *Engine) (Platform, SocialCapabilities) {
 			}
 		}
 		caps := SocialCapabilities{ListMoments: true, PostMoment: true, RemoveMoment: true, SetAvatar: true}
+		// 换说说需要平台真能一次换掉；没有这个接口就报 false，面板不摆一个必然 501 的按钮。
+		if _, ok := p.(MomentReplacer); ok {
+			caps.ReplaceMoment = true
+		}
 		if rep, ok := p.(SocialCapabilityReporter); ok {
 			caps = rep.SocialCapabilities()
 		}
@@ -70,6 +75,8 @@ func (m *ManagementServer) handleProjectSocial(w http.ResponseWriter, r *http.Re
 		m.socialStatus(w, r, engine)
 	case "moment":
 		m.socialPostMoment(w, r, engine)
+	case "moment/replace":
+		m.socialReplaceMoment(w, r, engine)
 	case "moment/delete":
 		m.socialDeleteMoment(w, r, engine)
 	case "avatar":
@@ -189,6 +196,89 @@ func (m *ManagementServer) socialPostMoment(w http.ResponseWriter, r *http.Reque
 	mgmtJSON(w, http.StatusOK, map[string]any{"moment": moment})
 }
 
+// socialReplaceMoment 换说说：把这一条换成新的文字，只发一次请求，不是让面板
+// 自己「先发一条再删一条」——那样中途失败就会留下两条或零条。语义与失败顺序写在
+// core.MomentReplacer 上：先发新的，成功了才删旧的。
+//
+// 这里不发图片参数：旧说说带的图由平台自己读回来并带过去（见 MomentReplacer 的
+// 注释）。接口层拿不到那些图，也就不该假装能传。
+//
+// accept_audience_change 是调用方替人做的那个确认：换一条会先发新的（默认所有人
+// 可见）再删旧的，而旧条原来的可见范围有可能读不准，所以「可能改宽」这件事要人先
+// 点头。字段缺省即 false——不确认就不换，这里不给缺省开任何方便门。
+func (m *ManagementServer) socialReplaceMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
+	if !m.requireSocialWrites(w) {
+		return
+	}
+	var body struct {
+		ID                   string `json:"id"`
+		Text                 string `json:"text"`
+		AcceptAudienceChange bool   `json:"accept_audience_change"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.ID) == "" {
+		mgmtError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		mgmtError(w, http.StatusBadRequest, "text required")
+		return
+	}
+	plat, caps := socialPlatform(engine)
+	if plat == nil {
+		mgmtError(w, http.StatusNotImplemented, "this project's platform cannot post to a timeline")
+		return
+	}
+	replacer, ok := plat.(MomentReplacer)
+	if !ok {
+		mgmtError(w, http.StatusNotImplemented, "换说说 is not available here: this platform cannot replace a moment")
+		return
+	}
+	if !caps.ReplaceMoment {
+		// 和发说说一样：接口在、但这台机器上的配置没打开，是 403 不是 501。
+		reason := caps.DisabledReason
+		if reason == "" {
+			reason = "replace is turned off"
+		}
+		mgmtError(w, http.StatusForbidden, "换说说 is turned off: "+reason)
+		return
+	}
+	if !body.AcceptAudienceChange {
+		// 接口这一层就先挡：不确认就不换，也别让平台层白白读一遍列表。放在 403/501
+		// 之后，是因为「这台机器没打开」「这个平台压根不能换」比「你还没确认」更该先
+		// 被说出来——那种情况下确认了也换不成。
+		mgmtError(w, socialStatus(ErrSocialCannotReplace),
+			"换说说要先确认一次：换一条会先发新的（默认所有人可见）再删旧的，而旧条原来的"+
+				"可见范围有可能读不准，所以可能把范围改宽、且删掉旧的之后不可逆。"+
+				"接口调用方要传 accept_audience_change: true 才能继续；不确认就不动它")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), socialMomentTimeout)
+	defer cancel()
+	moment, err := replacer.ReplaceMoment(ctx, body.ID, body.Text,
+		MomentReplaceOptions{AcceptAudienceChange: body.AcceptAudienceChange})
+	if err != nil {
+		// 部分成功（新的发出去了、旧的还在）必须把新那条一起带回去，否则人只看
+		// 到一句失败，不知道空间里已经多了一条，也不知道该删哪条。
+		var partial *MomentReplacePartialError
+		if errors.As(err, &partial) {
+			mgmtErrorWithMoment(w, socialStatus(partial), socialMessage(partial), partial.Moment)
+			return
+		}
+		mgmtError(w, socialStatus(err), socialMessage(err))
+		return
+	}
+	if moment.ID == "" {
+		// 走了干净路径却没有 id：不能算换完（也没法确认删对了哪条）。
+		mgmtErrorWithMoment(w, http.StatusBadGateway,
+			"换说说没有完成：新的已经发出，但平台没给新的 id，旧的没有动", moment)
+		return
+	}
+	mgmtJSON(w, http.StatusOK, map[string]any{"moment": moment})
+}
+
 func (m *ManagementServer) socialDeleteMoment(w http.ResponseWriter, r *http.Request, engine *Engine) {
 	if !m.requireSocialWrites(w) {
 		return
@@ -289,6 +379,9 @@ func socialStatus(err error) int {
 		return http.StatusForbidden
 	case errors.Is(err, ErrSocialUnsupported):
 		return http.StatusNotImplemented
+	case errors.Is(err, ErrSocialCannotReplace):
+		// 不是上游坏了，是这条说说本身不能这么换（例：仅部分人可见）。
+		return http.StatusBadRequest
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return http.StatusGatewayTimeout
 	}
