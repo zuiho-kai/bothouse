@@ -115,6 +115,23 @@ func TestPluginSpecRefusalNamesWhatItSaw(t *testing.T) {
 	}
 }
 
+// #1431: the route must classify a Windows path as a non-registry source, not as a bad package name.
+// The page's install box and the inspect endpoint both go through parsePluginSpec, so this pins the
+// answer the person actually sees: either "turn on allow_non_registry", or an install attempt.
+func TestPluginsInstallReadsWindowsPathAsNonRegistry(t *testing.T) {
+	writePluginsProfile(t)
+	_, ts, _ := testManagementServer(t, "tok")
+	for _, spec := range []string{`C:\Users\ASUS\plugins\x`, "C:/Users/ASUS/plugins/x", `\\srv\share\x`} {
+		r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": spec})
+		if r.OK || !strings.Contains(r.Error, "allow_non_registry") {
+			t.Fatalf("%q: ok=%v error=%q, want the non-registry switch named", spec, r.OK, r.Error)
+		}
+		if strings.Contains(r.Error, "包名只能是") {
+			t.Fatalf("%q: error=%q, still reads a Windows path as a package name", spec, r.Error)
+		}
+	}
+}
+
 func TestPluginsInstallRefusesNonRegistryByDefault(t *testing.T) {
 	writePluginsProfile(t)
 	_, ts, _ := testManagementServer(t, "tok")
