@@ -46,8 +46,10 @@ export default function PluginList() {
   const [installing, setInstalling] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   // installError keeps the classifier kind so the readable text can be in the reader's language.
-  const [installError, setInstallError] = useState<{ kind?: string; detail?: string; log?: string } | null>(null);
+  const [installError, setInstallError] = useState<{ kind?: string; detail?: string; log?: string; allowVersion?: string } | null>(null);
   const [notice, setNotice] = useState('');
+  // copied marks the allow-version command as copied; a clipboard refusal leaves the text visible.
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState('');
   const [openingConfig, setOpeningConfig] = useState(false);
   // 插件配置 (#150 ②a): one row's config open for editing. The text is YAML on purpose — the
@@ -107,6 +109,7 @@ export default function PluginList() {
     setInstalling(true);
     setLines([]);
     setInstallError(null);
+    setCopied(false);
     setNotice('');
     try {
       // The checkbox is only sent when it is both shown and ticked: a registry install has no box
@@ -121,9 +124,18 @@ export default function PluginList() {
       const added = next.plugins.find((p) => p.name === want || pxName(p.name) === pxName(want));
       setNotice(added && !added.layer ? T.installedNoLayer : T.installed);
     } catch (e: any) {
-      setInstallError({ kind: e?.kind, detail: e?.message || '', log: e?.log });
+      setInstallError({ kind: e?.kind, detail: e?.message || '', log: e?.log, allowVersion: e?.allowVersion });
     } finally {
       setInstalling(false);
+    }
+  };
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      /* clipboard blocked: the command stays on screen and is selectable */
     }
   };
 
@@ -362,6 +374,25 @@ export default function PluginList() {
                   ? installError.detail
                   : T.installFailed(failureText(T, installError.kind))}
               </p>
+              {/* A version rejection is DSH's own decision. When DSH printed the exact-version
+                  remedy, the page only relays that sentence: running it here would make this
+                  profile editor the thing that approves a mismatch (#460). */}
+              {installError.kind === 'incompatible' && installError.allowVersion && (
+                <div className="mt-2 rounded-control bg-surface-sunken p-3 text-xs" data-testid="plugins-allow-version">
+                  <p className="text-ink-mute">{T.allowVersionHint}</p>
+                  <div className="mt-1 flex items-start gap-2">
+                    <code className="min-w-0 flex-1 break-all text-[11px] text-ink-soft">{installError.allowVersion}</code>
+                    <Button
+                      variant="secondary"
+                      onClick={() => copy(installError.allowVersion || '')}
+                      data-testid="plugins-allow-version-copy"
+                    >
+                      {copied ? T.copied : T.copy}
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-ink-mute">{T.allowVersionNote}</p>
+                </div>
+              )}
               {installError.log && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-ink-mute">{T.details}</summary>

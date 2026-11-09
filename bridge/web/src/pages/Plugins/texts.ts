@@ -80,6 +80,11 @@ export interface PluginTexts {
   failureIntegrity: string
   failureTimeout: string
   failureUnknown: string
+  /** version rejection: the panel relays DSH's own allow-version sentence, it does not run it */
+  allowVersionHint: string
+  allowVersionNote: string
+  copy: string
+  copied: string
   switchFailed: string
 }
 
@@ -159,6 +164,10 @@ const zh: PluginTexts = {
   failureIntegrity: '下到的包校验不对（可能是代理或镜像改过内容），换网络再试。',
   failureTimeout: '安装超时了。网络慢时先在终端跑一次 dsh plugin add，再来这里看状态。',
   failureUnknown: '装失败了，下面是 pnpm 的原始输出。',
+  allowVersionHint: 'DSH 还给了放行的原话。这条命令要你自己在终端里跑，这一页不会替你执行：',
+  allowVersionNote: '放行等于接受这个版本组合可能崩溃或坏数据；授权只对这一个包的这一个版本有效。',
+  copy: '复制命令',
+  copied: '已复制',
   switchFailed: '改启用状态失败',
 }
 
@@ -238,6 +247,10 @@ const en: PluginTexts = {
   failureIntegrity: 'The downloaded package failed its integrity check (a proxy or mirror altered it). Retry on another network.',
   failureTimeout: 'The install timed out. On a slow network, run dsh plugin add in a terminal once, then come back for the state.',
   failureUnknown: 'The install failed; pnpm’s own output is below.',
+  allowVersionHint: 'DSH also printed the command that would accept this version. Run it yourself in a terminal; this page does not run it for you:',
+  allowVersionNote: 'Accepting means taking the risk of a crash or data loss, and it covers only this package at this version.',
+  copy: 'Copy command',
+  copied: 'Copied',
   switchFailed: 'Could not change the switch',
 }
 
@@ -317,6 +330,10 @@ const ja: PluginTexts = {
   failureIntegrity: 'ダウンロードしたパッケージの検証が合いません（プロキシやミラーが内容を変えた可能性）。別の回線で再試行してください。',
   failureTimeout: 'インストールがタイムアウトしました。遅い回線では端末で一度 dsh plugin add を実行し、ここで状態を確認してください。',
   failureUnknown: 'インストールに失敗しました。下は pnpm の生の出力です。',
+  allowVersionHint: 'DSH は受け入れるためのコマンドも出力しています。このページは実行しません。端末でご自身で実行してください：',
+  allowVersionNote: '受け入れるとクラッシュやデータ破損の危険を引き受けることになり、効くのはこのパッケージのこのバージョンだけです。',
+  copy: 'コマンドをコピー',
+  copied: 'コピーしました',
   switchFailed: '有効・無効の切り替えに失敗しました',
 }
 
