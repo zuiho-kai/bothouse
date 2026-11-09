@@ -20,6 +20,38 @@ import ingest as I
 
 
 class PendingRound(unittest.TestCase):
+    def test_main_releases_lock_and_leaves_new_hooks_for_next_round(self):
+        root = Path(tempfile.mkdtemp(prefix="pending-entry-", dir=ROOT))
+        queue, lock = root / "queue", root / "ingest.lock"
+        paths = [root / f"{n:08d}-entry.jsonl" for n in range(3)]
+        for p in paths:
+            p.write_text(json.dumps({"type": "user", "message": {"content": p.stem + "x" * 120}}) + "\n")
+        queue.write_text("\n".join(p.stem for p in paths) + "\n")
+        offered = []
+
+        def accept(_label, _prompt, **kw):
+            offered.extend(kw["sids"])
+            with queue.open("a") as f:
+                f.write("arrived-during-model-call\n")
+            return True
+
+        with patch.multiple(I, MAX_CHARS=300, WIKI=root, WORK=root, STATE=root / "state.sqlite",
+                            LOCK=lock, QUEUE=queue, MIRROR_TO=None, LAST_ENGINE="fake"), \
+                patch.object(sys, "argv", ["ingest.py", "--pending"]), \
+                patch.object(I, "transcripts", return_value={p.stem: p for p in paths}), \
+                patch.object(I, "pull"), patch.object(I, "prepare"), patch.object(I, "push"), \
+                patch.object(I, "split_pass"), patch.object(I, "candidates_note", return_value=""), \
+                patch.object(I, "model_pass", accept), patch.object(I, "reject_streaks"), patch.object(I, "log"):
+            for n in range(3):
+                I.main()
+                self.assertEqual(len(offered), n + 1)
+                with lock.open("a") as f:
+                    I.filelock.lock(f, False)
+            I.main()
+            self.assertEqual(len(offered), 3)
+            self.assertEqual(len(set(offered)), 3)
+            self.assertIn("arrived-during-model-call", queue.read_text())
+
     def test_pending_yields_and_resumes_without_repeating_accepted_sessions(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"

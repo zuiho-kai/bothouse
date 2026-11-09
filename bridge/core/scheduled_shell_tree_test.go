@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,6 +32,11 @@ func TestScheduledShellTreeHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
+	unlock, err := lockBoardFile(os.Getenv("BOTHOUSE_SHELL_TREE_FILE") + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
 	data, _ := json.Marshal(struct {
 		PID  int
 		Addr string
@@ -69,7 +75,7 @@ func TestScheduledShellTimeoutStopsDescendants(t *testing.T) {
 			t.Setenv("BOTHOUSE_SHELL_TREE_HELPER", "parent")
 			command := fmt.Sprintf("%q -test.run=^TestScheduledShellTreeHelper$", os.Args[0])
 			if runtime.GOOS == "windows" {
-				command = "& " + command
+				command = "& '" + strings.ReplaceAll(os.Args[0], "'", "''") + "' '-test.run=^TestScheduledShellTreeHelper$'"
 			}
 			started := time.Now()
 			if kind == "cron" {
@@ -77,8 +83,8 @@ func TestScheduledShellTimeoutStopsDescendants(t *testing.T) {
 			} else {
 				err = e.executeTimerShell(p, nil, &TimerJob{Exec: command, WorkDir: dir})
 			}
-			if err == nil {
-				t.Fatal("expected timeout")
+			if err == nil || !strings.Contains(err.Error(), "timed out") {
+				t.Fatalf("expected timeout, got %v; notices: %v", err, p.getSent())
 			}
 			var child struct {
 				PID  int
@@ -86,14 +92,16 @@ func TestScheduledShellTimeoutStopsDescendants(t *testing.T) {
 			}
 			data, readErr := os.ReadFile(path)
 			if readErr != nil {
-				t.Fatal(readErr)
+				t.Fatalf("helper did not start: %v; notices: %v", readErr, p.getSent())
 			}
 			if err := json.Unmarshal(data, &child); err != nil {
 				t.Fatal(err)
 			}
 			// On the red run, clean up only the known fixture process.
 			defer stopProcess(child.PID)
-			if elapsed := time.Since(started); elapsed > 3*time.Second {
+			// Windows taskkill took 3.75s on the real runner; this still must
+			// return before the helper's own 10s lifetime, without its cooperation.
+			if elapsed := time.Since(started); elapsed > 5*time.Second {
 				t.Errorf("cancel waited %s for descendant to exit on its own", elapsed)
 			}
 			conn, dialErr := net.DialTimeout("tcp", child.Addr, 100*time.Millisecond)
@@ -113,6 +121,11 @@ func TestScheduledShellTimeoutStopsDescendants(t *testing.T) {
 			if before.Size() != after.Size() {
 				t.Error("descendant keeps writing after timeout")
 			}
+			unlock, err := lockBoardFile(path + ".lock")
+			if err != nil {
+				t.Fatalf("next round cannot acquire the descendant's file lock: %v", err)
+			}
+			unlock()
 		})
 	}
 }
