@@ -322,7 +322,8 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
-	// 插件卸载 (#1377): 走同一条 `dsh plugin remove`，卸载前三道前置检查（内置层、link 层、被依赖）
+	// 插件卸载 (#1377): 锁内直接调 DSH 的 runProfilePnpm（不是会自己抢同一把锁的 `dsh plugin remove`），
+	// 卸载前三道前置检查（内置层、link 层、被依赖）
 	mux.HandleFunc(prefix+"/plugins/uninstall", m.wrap(m.handlePluginsUninstall))
 	// 插件配置 (#150 ②a): 一份插件自己的 config，读出来改完存回 profile 的 patch
 	mux.HandleFunc(prefix+"/plugins/config", m.wrap(m.handlePluginsConfig))

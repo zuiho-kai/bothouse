@@ -52,7 +52,7 @@ try {
       execution: 'cli',
       // 来源：DSH 安装流程的 collectTail 用 64KB 截尾；这里的回调只是把子进程的输出原样转给
       // 桥的日志缓冲，同样的上限，避免一次坏掉的 pnpm 把整段输出堆在内存里。
-      outputBytes: 16384,
+      outputBytes: 64 * 1024,
       onOutput: (text, stream) => { process[stream === 'stderr' ? 'stderr' : 'stdout'].write(text); },
       ...(pnpmNode ? { command: pnpmNode } : {}),
       ...(pnpm ? { args: [pnpm] } : {}),

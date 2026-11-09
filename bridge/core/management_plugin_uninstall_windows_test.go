@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chenhg5/cc-connect/tests/testutil"
+	"golang.org/x/sys/windows"
 )
 
 // A real Node helper starts a pnpm stand-in and a grandchild. Both keep writing until killed,
@@ -109,4 +110,29 @@ func uninstallTestPID(t *testing.T, dir, role string) int {
 		t.Fatal(err)
 	}
 	return pid
+}
+
+// TestPluginsUninstallWindowsJobWaitGivesUp: a job that keeps reporting live processes must end in
+// a retained-lock error within pluginUninstallJobIdleWait, not in an endless poll that holds the
+// request and the profile lock. The real job object is created here; only the count is stubbed,
+// because a process the kernel refuses to end cannot be produced on demand.
+func TestPluginsUninstallWindowsJobWaitGivesUp(t *testing.T) {
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(job)
+	restore := pluginUninstallJobActive
+	pluginUninstallJobActive = func(windows.Handle) (uint32, error) { return 1, nil }
+	t.Cleanup(func() { pluginUninstallJobActive = restore })
+
+	start := time.Now()
+	err = finishPluginUninstallJob(job)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("a job with live processes reported a confirmed cleanup")
+	}
+	if elapsed > pluginUninstallJobIdleWait+3*time.Second {
+		t.Fatalf("cleanup wait took %s, want it bounded by %s", elapsed, pluginUninstallJobIdleWait)
+	}
 }

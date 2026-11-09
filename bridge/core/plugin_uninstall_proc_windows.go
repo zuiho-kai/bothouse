@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -60,7 +59,7 @@ func runPluginUninstallCommand(cmd *exec.Cmd) (runErr error) {
 	defer func() {
 		// Also collect children if the helper exits on its own before the context expires.
 		if err := finishPluginUninstallJob(job); err != nil {
-			runErr = errors.Join(runErr, fmt.Errorf("%w: 无法确认卸载子进程已退出，profile 写锁已保留：%v", errPluginLockRetain, err))
+			runErr = errors.Join(runErr, pluginUninstallCleanupError(err))
 		}
 	}()
 	_, writeErr := io.Copy(input, script)
@@ -71,10 +70,23 @@ func runPluginUninstallCommand(cmd *exec.Cmd) (runErr error) {
 	return errors.Join(cmd.Wait(), writeErr, closeErr)
 }
 
+// pluginUninstallJobIdleWait bounds the wait for the job to report zero live processes. It runs
+// inside the caller's profile lock and after the handler's ctx has expired (the deferred cleanup
+// is not part of the 30s timeout), so it needs its own bound; without one a process pinned by a
+// driver would hold both the request and the write lock forever.
+// 来源：与同一次卸载的 pluginUninstallWaitDelay = 5s 同量级（core/management_plugin_uninstall.go:60）。
+const pluginUninstallJobIdleWait = pluginUninstallWaitDelay
+
 func finishPluginUninstallJob(job windows.Handle) error {
 	if err := windows.TerminateJobObject(job, 1); err != nil {
 		return fmt.Errorf("terminate uninstall job: %w", err)
 	}
+	return waitPluginUninstallIdle(func() (uint32, error) { return pluginUninstallJobActive(job) }, pluginUninstallJobIdleWait)
+}
+
+// pluginUninstallJobActive is how many processes are still alive in the job. It is a var so the
+// Windows test can prove the bound above without a process the kernel refuses to end.
+var pluginUninstallJobActive = func(job windows.Handle) (uint32, error) {
 	// 来源：Win32 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION layout. x/sys exposes the
 	// information class but not this struct; ActiveProcesses counts nested-job descendants too.
 	var accounting struct {
@@ -83,14 +95,8 @@ func finishPluginUninstallJob(job windows.Handle) error {
 		TotalPageFaultCount, TotalProcesses                uint32
 		ActiveProcesses, TotalTerminatedProcesses          uint32
 	}
-	for {
-		if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
-			return fmt.Errorf("wait for uninstall job: %w", err)
-		}
-		if accounting.ActiveProcesses == 0 {
-			return nil
-		}
-		// 沿用 profile 锁的现有轮询间隔，不新增超时或配置。
-		time.Sleep(pluginLockRetryInitial)
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+		return 0, err
 	}
+	return accounting.ActiveProcesses, nil
 }
