@@ -22,6 +22,8 @@ import { bothouse } from './bothouse.ts';
 interface SkinInfo {
   id: string;
   name: string;
+  /** 菜单分组（「自家角色」「模型」），一组一个子菜单，免得一列太长出窗口 */
+  group?: string;
   aliases?: string[];
 }
 
@@ -169,7 +171,7 @@ export async function skinAnimationFile(fileName: string): Promise<string | unde
 export async function listSkins(): Promise<{
   chosen: string;
   current: string;
-  builtin: { id: string; name: string }[];
+  builtin: { id: string; name: string; group: string }[];
   recommended: { id: string; name: string; author: string; license: string; homepage: string; installed: boolean }[];
 }> {
   const m = manifest();
@@ -178,7 +180,7 @@ export async function listSkins(): Promise<{
   return {
     chosen: chosenSkin(),
     current,
-    builtin: m.builtin.filter((s) => skinDir(s.id) !== undefined).map((s) => ({ id: s.id, name: s.name })),
+    builtin: m.builtin.filter((s) => skinDir(s.id) !== undefined).map((s) => ({ id: s.id, name: s.name, group: s.group ?? '' })),
     recommended: m.recommended.map((r) => ({
       id: r.id,
       name: r.name,
