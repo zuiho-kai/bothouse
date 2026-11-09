@@ -4852,6 +4852,15 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		agentOverride = agent
 	}
 	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, ccSessionKey, msg.inputTurn)
+	// #1421: messages that queued between this turn being accepted and its
+	// journal entry existing had nothing to attach to. enqueueForBusySession
+	// syncs through j.Active(interactiveKey), which is empty until
+	// journalTurnBegin above, and the drain-time sync (#1399) only runs when
+	// the queue is consumed — a shutdown in this window kept the messages in
+	// memory, logged them as kept, and wrote none of them to disk, so the
+	// restart resumed the turn without them. Now that the entry exists, attach
+	// whatever arrived first.
+	e.journalSyncQueued(state, interactiveKey)
 	if msg.inputTurn != nil {
 		state.mu.Lock()
 		state.localInputOnly = msg.inputTurn
