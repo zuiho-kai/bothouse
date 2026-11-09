@@ -736,6 +736,112 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.members.get('ju').online, false, 'disconnected bot remains in the member list offline');
 });
 
+
+// M3 draft: external-member cases for dsh/collab/collab.test.mjs
+//
+// Where to put it (develop a28f19b7): insert after the existing
+//   test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', ...)
+// All helpers/imports used below already exist in collab.test.mjs:
+//   test, assert, makeHub(), connect(), tick(), CloudWebGateway, quiet
+//
+// Scope note: this file only covers behavior supported by the CURRENT gateway.
+// Pre-provisioned members, per-member credentials, revocation and offline
+// feedback are M1/M2 and are intentionally NOT asserted here; see
+// reports/issue-drafts/321-外部成员身份与权限设计说明-草案.md (§10, §18).
+
+test('cloud-web external member: register is visible in the roster and scoped to its room', () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'office');
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+
+  const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  assert.equal(ext.of('register_ack')[0].ok, true);
+
+  const member = hub.members.get('ext-qq');
+  assert.equal(member.kind, 'bot');
+  assert.equal(member.online, true);
+  assert.equal(member.mentionId, '999');
+  assert.deepEqual(member.rooms, [1]);
+  assert.equal(hub.routableIn(1).some(m => m.id === 'ext-qq'), true);
+  assert.equal(hub.routableIn(2).some(m => m.id === 'ext-qq'), false);
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('cloud-web external member: disconnect is offline, reconnect replaces the old socket', () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'office');
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+
+  const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  ext.close(1000);
+  assert.equal(hub.members.get('ext-qq').online, false);
+  assert.deepEqual(hub.members.get('ext-qq').rooms, [1], 'disconnect keeps the room scope');
+
+  const again = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  assert.equal(ext.closed.code, 1000, 'a clean close stays 1000');
+  assert.equal(hub.members.get('ext-qq').online, true);
+  assert.equal(hub.memberList().filter(m => m.id === 'ext-qq').length, 1, 'no duplicate member');
+
+  const replaced = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  assert.equal(again.closed.code, 4003, 'a reconnect replaces the old socket');
+  assert.equal(replaced.of('register_ack')[0].ok, true);
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('cloud-web external member: name collision, reserved ids and unknown rooms are refused', () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'office');
+  hub.setMember({ id: 'agent', name: 'ExternalBot', kind: 'dsh', rooms: [1] });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+
+  const duplicate = connect(gw, 'bot=ext-2&name=ExternalBot&room=1');
+  assert.equal(duplicate.of('register_ack')[0].ok, false);
+  assert.equal(duplicate.closed.code, 4002);
+
+  const reserved = connect(gw, 'bot=user&name=User&room=1');
+  assert.equal(reserved.of('register_ack')[0].ok, false);
+  assert.equal(reserved.closed.code, 4002);
+
+  const unknownRoom = connect(gw, 'bot=ext-3&name=ExtThree&room=999');
+  assert.equal(unknownRoom.of('register_ack')[0].ok, false);
+  assert.equal(unknownRoom.closed.code, 4002);
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('cloud-web external member: mentioned follows @name and <@mention_id>, chatter stays silent', async () => {
+  const hub = makeHub();
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@ExternalBot hello' });
+  await tick();
+  assert.equal(ext.of('message').at(-1).mentioned, true);
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'no mention in this message' });
+  await tick();
+  assert.equal(ext.of('message').at(-1).mentioned, false);
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '<@999> hello again' });
+  await tick();
+  assert.equal(ext.of('message').at(-1).mentioned, true, 'the numeric <@mention_id> form calls the member');
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+// Intentionally not asserted here (M1/M2):
+// - "unknown member id is refused" and "removed member cannot re-register" need a
+//   persistent member registry + revocation (M1);
+// - "offline member mention feedback" needs M2.
+// Add those after M1/M2 land, and mark them with the same test names for traceability.
+
 test('cloud-web: a line-start name calls a non-primary role', async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
