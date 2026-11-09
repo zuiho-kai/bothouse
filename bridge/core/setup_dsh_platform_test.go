@@ -74,6 +74,18 @@ func noAppDSH(t *testing.T) {
 	t.Cleanup(func() { dshInstallCandidates = restore })
 }
 
+// noDesktopApp makes GetDSHStatus see a machine without DeepSeek Harness Desktop. The app ships
+// its own Node, and GetDSHStatus treats that bundled Node as satisfying the runtime check no
+// matter what PATH holds; a test that plants an old Node on PATH therefore only measures what it
+// means to on a machine without the app (#1412). CI runners have no app, so this stub changes
+// nothing there: the assertions still run for real.
+func noDesktopApp(t *testing.T) {
+	t.Helper()
+	restore := dshDesktopApps
+	dshDesktopApps = func() []string { return nil }
+	t.Cleanup(func() { dshDesktopApps = restore })
+}
+
 func TestLookDSHAndBash(t *testing.T) {
 	// 1. With dsh on PATH
 	d := t.TempDir()
