@@ -8545,6 +8545,9 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		if e.isStoppingForJournal() {
 			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
 			// turn after Stop has begun; the journal already holds its queue.
+			if n := len(state.pendingMessages); n > 0 {
+				slog.Info("queued messages kept for resume after shutdown", "count", n)
+			}
 			session.Unlock()
 			state.mu.Unlock()
 			return true
