@@ -339,7 +339,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
                   </select>
                   {notLoggedIn && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-1" data-testid={`dsh-cli-login-hint-${idx}`}>
-                      {fmt(t.cliLoginHint, { cli: selectedCli.agent_type })}
+                      {fmt(t.cliLoginHint, { cli: selectedCli.binary || selectedCli.agent_type })}
                     </p>
                   )}
                 </label>
