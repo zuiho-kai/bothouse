@@ -418,7 +418,8 @@ func queuedTurnTrigger(q *queuedMessage) string {
 // journalTurnBegin writes the entry for a turn whose user message was just
 // saved, before the agent is started (pid/session id follow in
 // journalTurnAgent). Returns the turn id ("" when the journal is off or the
-// write failed).
+// write failed). Persist voice marks with the text: the resume journal stores
+// strings, so the in-memory FromVoice/voiceMarked flags will not survive restart.
 func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir string, session *Session) string {
 	j := e.turnJournalStore()
 	if j == nil || msg == nil || msg.inputTurn != nil {
@@ -432,7 +433,7 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		WorkspaceDir:    workspaceDir,
 		Platform:        msg.Platform,
 		Trigger:         turnTriggerOf(msg),
-		LastUserMessage: msg.Content,
+		LastUserMessage: withVoiceNote(msg.Content, msg.FromVoice && !msg.voiceMarked),
 		ResumedFrom:     msg.resumedFrom,
 		Supersedes:      msg.journalSupersedes,
 		AgentType:       e.agentTypeName(),
@@ -498,7 +499,7 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 	now := time.Now()
 	if id := j.Active(interactiveKey); id != "" {
 		ok, err := j.Update(id, func(en *TurnJournalEntry) {
-			en.LastUserMessage = q.content
+			en.LastUserMessage = withVoiceNote(q.content, q.fromVoice && !q.voiceMarked)
 			en.Authorization = q.authorization
 			en.StartedAt = now
 			en.Trigger = queuedTurnTrigger(q)
@@ -534,7 +535,7 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 		WorkspaceDir:    workspaceDir,
 		Platform:        q.msgPlatform,
 		Trigger:         queuedTurnTrigger(q),
-		LastUserMessage: q.content,
+		LastUserMessage: withVoiceNote(q.content, q.fromVoice && !q.voiceMarked),
 		StartedAt:       now,
 		ResumedFrom:     q.resumedFrom, // Begin removes the entry it continues (S4)
 		AgentType:       e.agentTypeName(),
@@ -632,9 +633,9 @@ func (e *Engine) journalSyncQueued(state *interactiveState, interactiveKey strin
 	for _, q := range state.pendingMessages {
 		if q.resumedFrom == "" {
 			for _, c := range q.contextBefore { // folded context goes right before its holder
-				msgs = append(msgs, c.content)
+				msgs = append(msgs, withVoiceNote(c.content, c.fromVoice && !c.voiceMarked))
 			}
-			msgs = append(msgs, q.content)
+			msgs = append(msgs, withVoiceNote(q.content, q.fromVoice && !q.voiceMarked))
 		}
 	}
 	state.mu.Unlock()

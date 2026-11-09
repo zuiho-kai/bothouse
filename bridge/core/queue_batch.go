@@ -310,11 +310,15 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 		} else {
 			fmt.Fprintf(&b, "[%d]\n", i+1)
 		}
+		// A re-queued batch already marks its own voice parts; never wrap its
+		// typed parts or let the last part decide whether earlier parts are marked.
+		mark := p.fromVoice && !p.voiceMarked
 		if i == 0 {
-			b.WriteString(p.content)
+			b.WriteString(withVoiceNote(p.content, mark))
 		} else {
-			b.WriteString(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}))
+			b.WriteString(withVoiceNote(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}), mark))
 		}
+		out.voiceMarked = out.voiceMarked || p.fromVoice || p.voiceMarked
 		b.WriteString("\n")
 	}
 	out.content = strings.TrimRight(b.String(), "\n")
