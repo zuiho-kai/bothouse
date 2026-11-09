@@ -242,48 +242,30 @@ Reloads configuration from disk without restarting the process. New projects may
 
 #### GET /api/v1/config
 
-Returns the current configuration with secrets redacted. Useful for debugging and UI display.
+Returns the current configuration file as TOML text with secrets redacted. The panel's System → Config page renders this text as-is, so comments, key order and formatting are preserved — only credential values change.
 
 **Query parameters:** None
 
-**Response:**
+**Response:** `text/plain; charset=utf-8`, the config file with every credential-looking value replaced by `"***"`:
 
-```json
-{
-  "ok": true,
-  "data": {
-    "data_dir": "/home/user/.bothouse",
-    "language": "en",
-    "projects": [
-      {
-        "name": "my-backend",
-        "agent": {
-          "type": "claudecode",
-          "providers": [
-            {
-              "name": "anthropic",
-              "api_key": "***",
-              "base_url": "",
-              "model": "claude-sonnet-4-20250514"
-            }
-          ]
-        },
-        "platforms": [
-          {
-            "type": "feishu",
-            "options": {
-              "app_id": "***",
-              "app_secret": "***"
-            }
-          }
-        ]
-      }
-    ]
-  }
-}
+```toml
+[management]
+port = 51442
+token = "***"
+
+[feishu]
+app_id = "cli_xxxxxxxx"     # not a secret, kept as written
+app_secret = "***"
+
+[[projects.agent.providers]]
+name = "anthropic"
+api_key = "***"
+max_tokens = 8192           # token counters are not secrets
 ```
 
-Secrets (e.g. `api_key`, `token`, `app_secret`, `client_secret`) are replaced with `"***"`.
+Redaction is by key name, case- and separator-insensitive, and applies recursively through tables, arrays and inline tables (`env = { ANTHROPIC_API_KEY = "***", REGION = "us" }`). A key is masked when it contains `secret`, `password`, `credential`, `api_key`, `private_key` or `access_key`, or ends in `token`, `_aes_key`, `encrypt_key` or `_signing_key`. Names that only locate a credential — `token_endpoint`, `token_url`, `credentials_file` — and counters such as `max_tokens`, `min_tokens`, `max_context_tokens` are left alone.
+
+If the file cannot be read or redacted the endpoint returns an error and no content, so a failure never leaks secrets.
 
 ---
 

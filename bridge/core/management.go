@@ -709,9 +709,20 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Credentials never leave the machine in clear text: the panel shows this
+	// text as-is, so every token/secret/api_key value is masked here (#710 件3).
+	redacted, err := RedactConfigText(string(data))
+	if err != nil {
+		// Fail closed: an unredactable config is not served at all rather than
+		// served with secrets in it.
+		slog.Error("management api: redact config failed", "error", err)
+		mgmtError(w, http.StatusInternalServerError, "redact config: "+err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(redacted))
 }
 
 func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.Request) {
