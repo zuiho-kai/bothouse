@@ -136,6 +136,7 @@ func (s *streamSession) Send(prompt, _ string, images []core.ImageAttachment, fi
 	if s.busy {
 		return fmt.Errorf("antigravity: previous stream turn is still running")
 	}
+	s.openInbox()
 	fullPrompt, tempFiles := s.preparePrompt(prompt, images, files)
 	s.tempFiles = tempFiles
 	s.busy, s.streamed = true, false
