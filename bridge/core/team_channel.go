@@ -53,7 +53,25 @@ func (e *Engine) CreateTeamChannel(sessionKey, name string) (TeamChannel, error)
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
-	return c.CreateTeamChannel(ctx, teamChannelID(chat), name)
+	ch, err := c.CreateTeamChannel(ctx, teamChannelID(chat), name)
+	if ch.ID != "" {
+		e.adoptCreatedLeadChat(sessionKey, plat+":"+ch.ID)
+	}
+	return ch, err
+}
+
+// adoptCreatedLeadChat makes a channel the lead just created one of its chat channels right
+// away (#1275): isTeamLeadChat only knows chats where the lead has a session, so before anyone
+// spoke there `bothouse workspace new` in it failed with "not a chat channel of the primary
+// role" and the role moved the work back to the old channel. It registers a session for the
+// new chat under the user part of the creating key (the same key a message from that user in
+// the new channel gets); sessions are persisted, so the chat is still known after a restart.
+func (e *Engine) adoptCreatedLeadChat(fromKey, newChat string) {
+	if e.sessions == nil {
+		return
+	}
+	key := newChat + strings.TrimPrefix(fromKey, chatOf(fromKey))
+	e.sessions.GetOrCreateActive(key)
 }
 
 // TeamChannelCreateResult is the reply of POST /channel/create.
