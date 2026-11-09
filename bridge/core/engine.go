@@ -4174,8 +4174,8 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 
-	// #545: the waiting time of the turn this message queued behind, so a report of
-	// "my @ waited minutes" can be answered from the log alone.
+	// #545: age of the running turn at enqueue time, not this message's wait.
+	// Message waiting time requires correlating enqueue and processing timestamps.
 	turnElapsed := time.Duration(0)
 	if !state.turnStartedAt.IsZero() {
 		turnElapsed = time.Since(state.turnStartedAt).Round(time.Second)
@@ -4197,23 +4197,17 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 }
 
 // queueReceiptText renders the receipt for a message queued behind a running turn.
-// A turn that has already run for a while says how long and how deep the queue is,
-// plus the one command that really shortens the wait: #545 was an 8m22s turn whose
-// later messages — an @ of the bot among them — got exactly the plain one-line
-// receipt, so waiting and being lost looked the same.
+// Always include status and the consequences of /stop: an early arrival may wait
+// behind a long turn with no later message to trigger an updated receipt (#882).
 // Caller holds state.mu (turnStartedAt is guarded by it).
 func (e *Engine) queueReceiptText(state *interactiveState, depth int) string {
 	base := e.i18n.T(MsgMessageQueued)
-	if state == nil || state.turnStartedAt.IsZero() {
-		return base
+	elapsed := e.i18n.T(MsgMessageQueuedAgeUnknown)
+	if !state.turnStartedAt.IsZero() {
+		// 来源: #545 返工要求秒级入队也显示时长；沿用 Go duration 的秒精度。
+		elapsed = time.Since(state.turnStartedAt).Truncate(time.Second).String()
 	}
-	elapsed := time.Since(state.turnStartedAt)
-	// 来源: 沿用 formatDurationI18n 的分钟粒度 — under a minute it renders "0分钟",
-	// which says less than the plain line, so the plain line stands.
-	if elapsed < time.Minute {
-		return base
-	}
-	return base + "\n" + e.i18n.Tf(MsgMessageQueuedWaiting, formatDurationI18n(elapsed, e.i18n.CurrentLang()), depth)
+	return base + "\n" + e.i18n.Tf(MsgMessageQueuedWaiting, elapsed, depth)
 }
 
 // queueForBusySession queues msg behind the turn running on session (see

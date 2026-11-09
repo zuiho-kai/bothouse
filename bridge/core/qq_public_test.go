@@ -91,7 +91,7 @@ func TestQueuedNoticeDisabledQueuesSilently(t *testing.T) {
 	}
 	e.SetQueuedNoticeEnabled(true)
 	e.queueMessageForBusySession(p, &Message{SessionKey: key, Content: "二", ReplyCtx: "c2"}, key)
-	if sent := p.getSent(); len(sent) != 1 || sent[0] != e.i18n.T(MsgMessageQueued) {
+	if sent := p.getSent(); len(sent) != 1 || !strings.HasPrefix(sent[0], e.i18n.T(MsgMessageQueued)+"\n⏳") {
 		t.Fatalf("sent %v, want one queued receipt", sent)
 	}
 	state.mu.Lock()
