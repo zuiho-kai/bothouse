@@ -7901,6 +7901,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Check for queued messages — if present, continue the event loop
 			// for the next turn instead of returning.
 			state.mu.Lock()
+			if e.isStoppingForJournal() {
+				// #1368: shutdown owns the current journal entry. Leave even
+				// stale queued messages untouched for restart recovery.
+				state.mu.Unlock()
+				return
+			}
 			droppedStale := 0
 			var staleDescs []string // maomao fork: channel task board
 			e.refreshQueuedTaskReviewsLocked(state)
@@ -8536,6 +8542,16 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if e.isStoppingForJournal() {
+			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
+			// turn after Stop has begun; the journal already holds its queue.
+			if n := len(state.pendingMessages); n > 0 {
+				slog.Info("queued messages kept for resume after shutdown", "count", n)
+			}
+			session.Unlock()
+			state.mu.Unlock()
+			return true
+		}
 		if state.stopped && state.resetHandoff {
 			// A gate abort had to close the process. This worker still owns the
 			// conversation lock: move unsent messages to the replacement state
