@@ -139,8 +139,8 @@ func TestGroupQueueFull_MakesRoom(t *testing.T) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, s := range p.sent {
-		if strings.Contains(s, "queue") || strings.Contains(s, "队列") {
-			t.Fatalf("queue-full notice sent: %q", p.sent)
+		if !strings.HasPrefix(s, e.i18n.T(MsgMessageQueued)) {
+			t.Fatalf("unexpected notice instead of queue receipt: %q", p.sent)
 		}
 	}
 }
