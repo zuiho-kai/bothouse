@@ -77,12 +77,37 @@ export default function PluginList() {
   // the position the person was reading. The row object and its index are kept because the server's
   // post-uninstall state no longer lists the package: without them the row would vanish on success
   // and the person would never see "已卸载，重启 DSH 后生效".
+  //
+  // The mark speaks about one removal, so it may not outlive it. Every list the server hands back
+  // goes through acceptServerState, which drops the marks that list has caught up with — install A
+  // again and the mark goes with it — and a fetch clears them outright, because after a refresh the
+  // row came from a list that no longer has it, and merging that stale row into the next uninstall
+  // would put a package nobody removed back on the page (G哥 实拍).
   const [removedRows, setRemovedRows] = useState<Map<string, { row: DSHPlugin; index: number }>>(new Map());
+
+  // acceptServerState takes a list as the page's new truth and forgets the marks that list already
+  // reflects: a name the server lists again is installed again, so "已卸载" would be a lie.
+  const acceptServerState = (next: DSHPluginsState) => {
+    setState(next);
+    setRemovedRows((prev) => {
+      let kept: Map<string, { row: DSHPlugin; index: number }> | null = null;
+      for (const name of prev.keys()) {
+        if (!next.plugins.some((p) => p.name === name)) continue;
+        if (!kept) kept = new Map(prev);
+        kept.delete(name);
+      }
+      return kept ?? prev;
+    });
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      setState(await listPlugins());
+      const next = await listPlugins();
+      setState(next);
+      // A reload is the person asking what is there now: the marks were only ever about removals
+      // made on this screen before it, and those rows are not in the list any more.
+      setRemovedRows(new Map());
       setError('');
     } catch (e: any) {
       setError(e?.message || '');
@@ -136,7 +161,9 @@ export default function PluginList() {
       const next = await installPlugin(want, confirmSource, (ev) => {
         if (ev.line) setLines((prev) => [...prev.slice(-19), ev.line!]);
       });
-      setState(next);
+      // A package that is back in the list is installed again: a "已卸载" mark left from removing it
+      // earlier in this session would hide its switch and its button.
+      acceptServerState(next);
       setSpec('');
       setInspection(null);
       const added = next.plugins.find((p) => p.name === want || pxName(p.name) === pxName(want));
@@ -162,7 +189,7 @@ export default function PluginList() {
     setNotice('');
     try {
       const r = await switchPlugin(p.name, !p.enabled);
-      setState(r.state);
+      acceptServerState(r.state);
       if (r.changed) setNotice(T.restartNote);
     } catch (e: any) {
       setError(`${T.switchFailed}: ${e?.message || ''}`);
@@ -198,8 +225,20 @@ export default function PluginList() {
     setUninstallError(null);
     try {
       const r = await uninstallPlugin(row.name, confirmText);
+      // The mark is what the person reads as "it is gone", so it follows the backend's own answer
+      // for this request. Anything but `uninstalled: true` leaves the row unmarked and the dialog
+      // open with the reason, rather than naming a removal that did not happen.
+      if (!r.uninstalled) {
+        setUninstallError({ why: T.uninstallKindUnknown, wrapFailed: false });
+        return;
+      }
       const index = plugins.findIndex((p) => p.name === row.name);
+      // Marks this removal replaces: a name the new list holds again was installed again, so the
+      // old mark is dropped instead of being merged back with the row it points at.
       const kept = new Map(removedRows);
+      for (const name of [...kept.keys()]) {
+        if (r.state.plugins.some((p) => p.name === name)) kept.delete(name);
+      }
       kept.set(row.name, { row, index: index < 0 ? kept.size : index });
       // Merge the removed rows back into the server's list at the place they were, so the page keeps
       // its order and the row stays visible (marked) instead of disappearing.

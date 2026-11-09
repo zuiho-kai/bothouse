@@ -38,15 +38,26 @@ const removable: DSHPluginsState = {
   registry: 'https://registry.npmjs.org',
 };
 
-// The real endpoint answers with the state *after* the removal, so the package is gone from it;
-// the page still has to show the row, marked, where it was.
-const afterRemoval: DSHPluginsState = {
-  ...removable,
-  plugins: removable.plugins.filter((p) => p.name !== 'demo-bundle'),
-};
-const uninstallPlugin = vi.fn(async (_name: string, _confirm: string) => ({
-  uninstalled: true, restart_required: true, state: afterRemoval,
-}));
+// What the server would answer right now. The page reads it on mount, on refresh, and after each
+// write, so a test can move it forward the way a real uninstall/install does.
+let serverState: DSHPluginsState = removable;
+const without = (state: DSHPluginsState, name: string): DSHPluginsState => ({
+  ...state,
+  plugins: state.plugins.filter((p) => p.name !== name),
+});
+
+const uninstallPlugin = vi.fn(async (name: string, _confirm: string) => {
+  serverState = without(serverState, name);
+  return { uninstalled: true, restart_required: true, state: serverState };
+});
+const installPlugin = vi.fn(async (spec: string) => {
+  // Installing a name the profile no longer has puts it back, which is the case that must clear a
+  // mark left by removing it earlier on this page.
+  if (!serverState.plugins.some((p) => p.name === spec)) {
+    serverState = { ...serverState, plugins: [...serverState.plugins, removable.plugins.find((p) => p.name === spec)!] };
+  }
+  return serverState;
+});
 
 vi.mock('react-i18next', async () => {
   const zh = (await import('@/i18n/locales/zh.json')).default as { [k: string]: unknown };
@@ -63,10 +74,12 @@ vi.mock('@/api/plugins', async (orig) => {
   const real = await orig<typeof import('@/api/plugins')>();
   return {
     ...real,
-    listPlugins: async () => removable,
+    listPlugins: async () => serverState,
     uninstallPlugin: (name: string, confirm: string) => uninstallPlugin(name, confirm),
-    inspectPlugin: vi.fn(),
-    installPlugin: vi.fn(),
+    inspectPlugin: async (spec: string) => ({
+      spec, name: spec, kind: 'registry', version: '0.4.2', bundle: true, required: '', allowed: true,
+    }),
+    installPlugin: (spec: string, confirmSource: string, _onEvent: unknown) => installPlugin(spec),
     getPluginConfig: vi.fn(),
     savePluginConfig: vi.fn(),
     switchPlugin: vi.fn(),
@@ -78,7 +91,11 @@ vi.mock('@/api/plugins', async (orig) => {
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
 
-beforeEach(() => { uninstallPlugin.mockClear(); });
+beforeEach(() => {
+  uninstallPlugin.mockClear();
+  installPlugin.mockClear();
+  serverState = removable;
+});
 afterEach(() => { act(() => root?.unmount()); container?.remove(); });
 
 const render = async () => {
@@ -183,5 +200,66 @@ describe('插件卸载', () => {
     await typeConfirm('demo-bundle');
     await act(async () => { byTestId('plugins-uninstall-go')!.click(); });
     expect(byTestId('plugins-uninstall-error')?.textContent).toContain('随 DSH 一起安装');
+  });
+
+  // G哥 实拍：卸 A → 同页再装 A → 列表里有 A，标记还写着"已卸载"，开关和卸载按钮都被藏起来。
+  it('drops the removed mark when the package is installed again on the same page', async () => {
+    await render();
+    await openDialog();
+    await typeConfirm('demo-bundle');
+    await act(async () => { byTestId('plugins-uninstall-go')!.click(); });
+    expect(byTestId('plugin-demo-bundle-uninstalled')).not.toBeNull();
+
+    // Install the same name again: the response lists it, so the mark has nothing left to say.
+    await act(async () => {
+      const input = byTestId('plugins-install-spec') as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, 'demo-bundle');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { byTestId('plugins-inspect-go')!.click(); });
+    await act(async () => { byTestId('plugins-install-go')!.click(); });
+
+    expect(installPlugin).toHaveBeenCalled();
+    expect(byTestId('plugin-demo-bundle')).not.toBeNull();
+    expect(byTestId('plugin-demo-bundle-uninstalled')).toBeNull();
+    expect(byTestId('plugin-demo-bundle-toggle')).not.toBeNull();
+    expect(byTestId('plugin-demo-bundle-uninstall')).not.toBeNull();
+  });
+
+  // 同页卸 A → 刷新 → A 从列表消失而旧标记留着 → 再卸 B 时把 A 的旧行插回来。
+  it('does not splice a row removed before a refresh back when another package is removed', async () => {
+    await render();
+    await openDialog();
+    await typeConfirm('demo-bundle');
+    await act(async () => { byTestId('plugins-uninstall-go')!.click(); });
+    expect(byTestId('plugin-demo-bundle')).not.toBeNull();
+
+    // 刷新: the list is the server's again, and demo-bundle is not in it.
+    const refresh = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('刷新'));
+    await act(async () => { refresh!.click(); });
+    expect(byTestId('plugin-demo-bundle')).toBeNull();
+
+    await openDialog('@deepseek-ai/dsh-experimental-client-ui-discord');
+    await typeConfirm('@deepseek-ai/dsh-experimental-client-ui-discord');
+    await act(async () => { byTestId('plugins-uninstall-go')!.click(); });
+
+    expect(byTestId('plugin-@deepseek-ai/dsh-experimental-client-ui-discord-uninstalled')).not.toBeNull();
+    // The row removed before the refresh stays removed; the stale mark is not merged back.
+    expect(byTestId('plugin-demo-bundle')).toBeNull();
+    expect(byTestId('plugin-demo-bundle-uninstalled')).toBeNull();
+  });
+
+  it('marks nothing when the answer does not say the package was uninstalled', async () => {
+    uninstallPlugin.mockResolvedValueOnce({
+      uninstalled: false, restart_required: false, state: removable,
+    } as never);
+    await render();
+    await openDialog();
+    await typeConfirm('demo-bundle');
+    await act(async () => { byTestId('plugins-uninstall-go')!.click(); });
+    expect(byTestId('plugin-demo-bundle-uninstalled')).toBeNull();
+    expect(byTestId('plugins-uninstall-dialog')).not.toBeNull();
+    expect(byTestId('plugins-uninstall-error')).not.toBeNull();
   });
 });
