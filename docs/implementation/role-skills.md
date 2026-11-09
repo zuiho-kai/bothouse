@@ -37,7 +37,9 @@ inspect observed use counts. Existing candidate-selection logic is preserved.
    lookup. A UI-only filter is insufficient. Do not change global CLI homes or
    credentials to approximate role isolation.
 4. Reuse DSH's native skill registry, session-addressed `skills/list`, and market
-   installation mechanism. Add only the missing management operations in the
+   installation mechanism. The DSH plugin can register a provider on each
+   member's agent-preset scope and expose the manager through a
+   `sidebar.panellist` page. Add only the missing management operations in the
    collaboration plugin. Both UIs must display the same pending/provenance state.
 5. Count successful skill-body loads or explicit skill invocations, not catalog
    listing, page previews, or string mentions. Backend observability gaps remain
@@ -54,10 +56,12 @@ loading is viable, but the management operations need an adapter rather than
 calls to presumed native CRUD endpoints.
 
 The shared default discovery directory is visible to several CLIs independently
-of the bridge. Backend-specific exclusion support must be demonstrated before
-claiming per-role disablement. A prompt telling an agent to ignore a discoverable
-skill does not meet the enablement requirement. Unsupported backends must be
-reported rather than quietly changing the requested semantics.
+of the bridge. DSH can scope a provider to its member preset; other backends need
+their own supported per-session skill-root mechanism or bridge-managed
+role-specific roots. Backend-specific exclusion support must be demonstrated
+before claiming per-role disablement. A prompt telling an agent to ignore a
+discoverable skill does not meet the enablement requirement. Unsupported
+backends must be reported rather than quietly changing the requested semantics.
 
 ## Verification plan
 
