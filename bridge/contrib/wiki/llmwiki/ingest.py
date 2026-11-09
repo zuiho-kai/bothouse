@@ -1673,7 +1673,7 @@ def runner(name):
     """The single-call function for a non-codex engine name."""
     if name.startswith("api-"):  # Claude API credits: official Agent SDK with the API key (not claude -p)
         return lambda *a, **k: claude(*a, **k, model=name[4:], api=True)
-    return {"gemini": gemini, "agy": agy}.get(name) or (lambda *a, **k: claude(*a, **k, model=None if name == "claude" else name))
+    return {"gemini": gemini, "agy": agy, "dsh": dsh}.get(name) or (lambda *a, **k: claude(*a, **k, model=None if name == "claude" else name))
 
 
 def model_pass(label, *a, **k):
