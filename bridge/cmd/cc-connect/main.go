@@ -749,86 +749,8 @@ func runMain() {
 		)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
-		mgmtSrv.SetGetGlobalSettings(func() map[string]any {
-			g := config.GetGlobalSettings()
-			if n := core.TeamReviewModelNotice(); n != nil && g != nil {
-				g["review_model_notice"] = n // read-only: a review model that did not take effect
-			}
-			return g
-		})
+		wireGlobalSettings(mgmtSrv)
 		wireAutostart(mgmtSrv)
-		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
-			u := config.GlobalSettingsUpdate{}
-			if v, ok := updates["language"].(string); ok {
-				u.Language = &v
-			}
-			if v, ok := updates["attachment_send"].(string); ok {
-				u.AttachmentSend = &v
-			}
-			if v, ok := updates["log_level"].(string); ok {
-				u.LogLevel = &v
-			}
-			if v, ok := updates["idle_timeout_mins"].(float64); ok {
-				iv := int(v)
-				u.IdleTimeoutMins = &iv
-			}
-			if v, ok := updates["thinking_messages"].(bool); ok {
-				u.ThinkingMessages = &v
-			}
-			if v, ok := updates["thinking_max_len"].(float64); ok {
-				iv := int(v)
-				u.ThinkingMaxLen = &iv
-			}
-			if v, ok := updates["tool_messages"].(bool); ok {
-				u.ToolMessages = &v
-			}
-			if v, ok := updates["tool_max_len"].(float64); ok {
-				iv := int(v)
-				u.ToolMaxLen = &iv
-			}
-			if v, ok := updates["stream_preview_enabled"].(bool); ok {
-				u.StreamPreviewOn = &v
-			}
-			if v, ok := updates["stream_preview_interval_ms"].(float64); ok {
-				iv := int(v)
-				u.StreamPreviewIntMs = &iv
-			}
-			if v, ok := updates["rate_limit_max_messages"].(float64); ok {
-				iv := int(v)
-				u.RateLimitMax = &iv
-			}
-			if v, ok := updates["rate_limit_window_secs"].(float64); ok {
-				iv := int(v)
-				u.RateLimitWindow = &iv
-			}
-			if v, ok := updates["review_simple_role"].(string); ok {
-				u.ReviewSimpleRole = &v
-			}
-			if v, ok := updates["review_complex_role"].(string); ok {
-				u.ReviewComplexRole = &v
-			}
-			if v, ok := updates["review_simple_model"].(string); ok {
-				u.ReviewSimpleModel = &v
-			}
-			if v, ok := updates["review_complex_model"].(string); ok {
-				u.ReviewComplexModel = &v
-			}
-			if err := config.SaveGlobalSettings(u); err != nil {
-				return err
-			}
-			if u.ReviewSimpleRole != nil || u.ReviewComplexRole != nil || u.ReviewSimpleModel != nil || u.ReviewComplexModel != nil {
-				// Applies at the next review scan; no restart.
-				if g := config.GetGlobalSettings(); g != nil {
-					simple, _ := g["review_simple_role"].(string)
-					complex, _ := g["review_complex_role"].(string)
-					core.SetTeamReviewTiers(simple, complex)
-					simpleModel, _ := g["review_simple_model"].(string)
-					complexModel, _ := g["review_complex_model"].(string)
-					core.SetTeamReviewModels(simpleModel, complexModel)
-				}
-			}
-			return nil
-		})
 		mgmtSrv.SetListGlobalProviders(func() ([]core.GlobalProviderInfo, error) {
 			providers, err := config.ListGlobalProviders()
 			if err != nil {
