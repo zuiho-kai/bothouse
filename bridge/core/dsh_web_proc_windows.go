@@ -3,10 +3,18 @@
 package core
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// dshWebProcLookupTimeout bounds one PowerShell call. The caller's round has its own deadline, but a
+// PowerShell that never returns must not outlive it: the check runs once per candidate.
+// 来源：与本文件里 lsof 那类探活同一量级（setup_dsh_configure.go 记录的实测 0.1–0.3s），PowerShell
+// 冷启动再慢也在这个数量级；2s 只留余量，不是新拍的数字。
+var dshWebProcLookupTimeout = 2 * time.Second
 
 // dshWebProcLookupNow reads pid's command line through CIM. Windows does not let one process read
 // another's environment without a PEB walk, so envKnown is false and dsh_web_owner.go falls back to
@@ -16,7 +24,9 @@ func dshWebProcLookupNow(pid int) (argv []string, env map[string]string, envKnow
 	if pid <= 0 {
 		return nil, nil, false, false
 	}
-	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+	ctx, cancel := context.WithTimeout(context.Background(), dshWebProcLookupTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"(Get-CimInstance Win32_Process -Filter \"ProcessId="+strconv.Itoa(pid)+"\").CommandLine").Output()
 	if err != nil {
 		return nil, nil, false, false
