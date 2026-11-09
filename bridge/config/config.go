@@ -4107,7 +4107,11 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 }
 
 func writeRawConfig(content string) error {
-	content = formatTOML(content)
+	return writeConfigText(formatTOML(content))
+}
+
+// writeConfigText atomically persists exact bytes, without formatting the file.
+func writeConfigText(content string) error {
 	dir := filepath.Dir(ConfigPath)
 	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
