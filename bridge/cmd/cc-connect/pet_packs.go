@@ -20,19 +20,21 @@ import (
 	"github.com/tidwall/pretty"
 )
 
-// One role, one desktop pet (#549). Each bound role gets its own pet instance; a role whose binding names
-// an avatar pack (plugin page → 形象包, stored as avatar_pack) shows that pack. The bundled pet only plays
-// transparent WebM, so `bothouse pet run` turns a pack into one of the pet's own "kinds"
-// (docs/CONFIG.md「方式四：额外宠物」): $DSH_HOME/dsh-pet/pet/bothouse-<pack>-config.json holds the
-// animation table and the instances, bothouse-<pack>-animation/ the clips. WebP sprite packs
-// (hunmer/aboutme-pets) are encoded to WebM once with ffmpeg, the same command as the pack author's own
-// spritesheet_to_video_pet.py.
+// One role, one desktop pet (#549). The first bound role keeps the pet's own "main"; every other bound
+// role gets its own pet as one of the pet's "kinds" (docs/CONFIG.md「方式四：额外宠物」):
+// $DSH_HOME/dsh-pet/pet/<pet id>-config.json with the stock animation table and one instance. A kind has no
+// clips of its own, so the pet dresses it in a skin (src/host/skins.ts): it asks /skin?pet=<pet id> which
+// role it is, and wears that role's built-in skin — or, when the role was given an imported avatar pack on
+// the plugin page, that pack, which this file turns into a skin under $DSH_HOME/dsh-pet/skins/ (WebP sprite
+// packs are encoded to WebM once with ffmpeg, the same encode as hunmer/aboutme-pets'
+// spritesheet_to_video_pet.py).
 
-// petKindPrefix marks the kind files bothouse owns; any other file under pet/ is the user's and is left alone.
-const petKindPrefix = "bothouse-"
+// petKindPrefix marks the kind files bothouse owns (pet ids are bh-<role key>); any other file under pet/
+// is the user's and is left alone.
+const petKindPrefix = "bh-"
 
-// petDefaultPack is the kind for extra roles without a pack: the bundled pet's own clips.
-const petDefaultPack = "default"
+// petSkinPrefix names the skin made from an imported pack: $DSH_HOME/dsh-pet/skins/bh-pack-<pack>/.
+const petSkinPrefix = "bh-pack-"
 
 // petRule picks a pack action for a role status: category and name patterns, tried in order.
 type petRule struct{ category, name *regexp.Regexp }
@@ -72,77 +74,15 @@ func petMatch(actions []core.PetPackAction, state string) string {
 	return ""
 }
 
-// petKindAnimations builds the kind's `animations` and `animationWeights` from a pack. dsh-pet validates
-// them as a whole (src/host/config/validate.ts animationsValid): idle/turn/drag/clicks arrays, moves,
-// categories, and every events pool non-empty with a balance pool.
-func petKindAnimations(actions []core.PetPackAction) (map[string]any, map[string]any) {
-	pick := func(state, fallback string) string {
-		if id := petMatch(actions, state); id != "" {
-			return id
-		}
-		return fallback
-	}
-	idle := pick("idle", actions[0].ID)
-	working := pick("working", idle)
-	thinking := pick("thinking", working)
-	celebrate := pick("celebrate", idle)
-	failed := pick("error", idle)
-	byCategory := func(cat string) []string {
-		var out []string
-		for _, a := range actions {
-			if a.Category == cat {
-				out = append(out, a.ID)
-			}
-		}
-		return out
-	}
-	// events.workStatus tiers: thinking, working, result, waiting, success, error (dsh-pet shared/work-status.ts).
-	events := map[string]any{"workStatus": []any{thinking, working, working, thinking, celebrate, failed}}
-	balance := byCategory("余额")
-	if len(balance) < 6 { // 6 = dsh-pet 的余额档数（assets/config.jsonc events.balance）
-		balance = []string{idle}
-	}
-	events["balance"] = balance
-	if speech := petMatch(actions, "speech"); speech != "" {
-		events["whisper"] = []string{speech}
-	}
-	used := map[string]bool{}
-	for _, list := range [][]string{{idle, working, thinking, celebrate, failed}, balance} {
-		for _, id := range list {
-			used[id] = true
-		}
-	}
-	var rest []string
-	for _, a := range actions {
-		if !used[a.ID] && a.Category != "移动" && a.Category != "拖拽" {
-			rest = append(rest, a.ID)
-		}
-	}
-	clicks := byCategory("点击回应")
-	if clicks == nil {
-		clicks = []string{}
-	}
-	categories := []any{}
-	if len(rest) > 0 {
-		categories = append(categories, map[string]any{"id": "动作", "weight": 20, "actions": rest}) // 20 沿用 assets/config.jsonc 的小动作权重
-	}
-	anims := map[string]any{
-		"idle":       []string{idle},
-		"turn":       []string{},
-		"drag":       []string{},
-		"clicks":     clicks,
-		"moves":      map[string]any{"default": map[string]any{"minDist": 60, "maxDist": 240, "margin": 20, "leadSec": 2, "tailSec": 2}, "actions": []any{}}, // 沿用 assets/config.jsonc moves.default
-		"categories": categories,
-		"events":     events,
-	}
-	// 没有走路片段：move 权重 0，只在原地换动作；idle/turn 沿用 assets/config.jsonc 的 10/5。
-	return anims, map[string]any{"idle": 10, "turn": 0, "move": 0}
-}
+// petSkinStates are the eight state clips a skin holds (src/host/skins.ts); each is filled from the pack
+// action that petMatch picks for the matching role status. sleep and drag stay empty: the pet falls back to idle.
+var petSkinStates = map[string]string{"idle": "idle", "talk": "speech", "think": "thinking", "work": "working", "happy": "celebrate", "surprise": "error"}
 
 // ---- where the pet's files live ----
 
 type petLayoutPaths struct {
 	petDir   string // $DSH_HOME/dsh-pet/pet (the pet's kind directory)
+	skins    string // $DSH_HOME/dsh-pet/skins (installed skins, src/host/skins.ts installedRoot)
 	mainConf string // $DSH_HOME/dsh-pet/main-config.jsonc
 	packs    string // bothouse's pack store (<DataDir>/pets, same as GET /api/v1/plugins/pets)
 	status   string // <DataDir>/pet/packs: one <pack>.json per conversion, read by the plugin page
@@ -153,6 +93,7 @@ func newPetLayoutPaths(dataDir, bundled string) petLayoutPaths {
 	home := filepath.Join(dshPetHome(), "dsh-pet")
 	return petLayoutPaths{
 		petDir:   filepath.Join(home, "pet"),
+		skins:    filepath.Join(home, "skins"),
 		mainConf: filepath.Join(home, "main-config.jsonc"),
 		packs:    filepath.Join(dataDir, "pets"),
 		status:   filepath.Join(dataDir, "pet", "packs"),
@@ -160,10 +101,9 @@ func newPetLayoutPaths(dataDir, bundled string) petLayoutPaths {
 	}
 }
 
-func (p petLayoutPaths) kind(pack string) string { return petKindPrefix + pack }
-
-func (p petLayoutPaths) animDir(pack string) string {
-	return filepath.Join(p.petDir, p.kind(pack)+"-animation")
+// skinDir is where an imported pack becomes a skin the pet can wear.
+func (p petLayoutPaths) skinDir(pack string) string {
+	return filepath.Join(p.skins, petSkinPrefix+pack)
 }
 
 // readJSONC reads a JSONC file the way dsh-pet does (comments and trailing commas allowed).
@@ -256,21 +196,17 @@ func writePetPackStatus(p petLayoutPaths, st petPackStatus) {
 	}
 }
 
-// petClipsReady reports whether every action of the pack has its clip.
-func petClipsReady(p petLayoutPaths, pack string, actions []core.PetPackAction) bool {
-	dir := p.animDir(pack)
-	for _, a := range actions {
-		if fi, err := os.Stat(filepath.Join(dir, a.ID+".webm")); err != nil || fi.Size() == 0 {
-			return false
-		}
-	}
-	return len(actions) > 0
+// petSkinReady reports whether the pack's skin is complete (the pet only wears a skin with .installed).
+func petSkinReady(p petLayoutPaths, pack string) bool {
+	_, err := os.Stat(filepath.Join(p.skinDir(pack), ".installed"))
+	return err == nil
 }
 
-// petPrepareClips fills bothouse-<pack>-animation with <action>.webm: WebM packs are linked or copied,
-// WebP sprite packs encoded with ffmpeg. Existing clips are kept, so an interrupted run resumes.
+// petPrepareClips turns a pack into a skin: <action>.webm for every action (WebM packs linked or copied,
+// WebP sprite packs encoded with ffmpeg), the eight state clips the pet falls back to, then .installed.
+// Existing clips are kept, so an interrupted run resumes.
 func petPrepareClips(ctx context.Context, p petLayoutPaths, info core.PetPackInfo, logf func(string, ...any)) error {
-	dir := p.animDir(info.ID)
+	dir := p.skinDir(info.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -322,9 +258,31 @@ func petPrepareClips(ctx context.Context, p petLayoutPaths, info core.PetPackInf
 		writePetPackStatus(p, st)
 		return first
 	}
+	for state, status := range petSkinStates {
+		id := petMatch(info.Actions, status)
+		if id == "" {
+			continue // the pet falls back to idle.webm
+		}
+		dst := filepath.Join(dir, state+".webm")
+		_ = os.Remove(dst)
+		if err := os.Link(filepath.Join(dir, id+".webm"), dst); err != nil {
+			if err := copyPetFile(filepath.Join(dir, id+".webm"), dst); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "idle.webm")); err != nil && len(info.Actions) > 0 {
+		if err := copyPetFile(filepath.Join(dir, info.Actions[0].ID+".webm"), filepath.Join(dir, "idle.webm")); err != nil {
+			return err
+		}
+	}
+	mark, _ := json.Marshal(map[string]string{"from": "bothouse import", "pack": info.ID})
+	if err := os.WriteFile(filepath.Join(dir, ".installed"), append(mark, '\n'), 0o644); err != nil {
+		return err
+	}
 	st.State = "ready"
 	writePetPackStatus(p, st)
-	logf("pack %s: %d clips ready in %s", info.ID, total, dir)
+	logf("pack %s: skin ready in %s (%d clips)", info.ID, dir, total)
 	return nil
 }
 
@@ -393,53 +351,17 @@ func copyPetFile(src, dst string) error {
 	return out.Close()
 }
 
-// petLinkBundled points bothouse-default-animation at the bundled pet's own clips (assets/webm), copying
-// them where a directory link is not allowed (Windows without developer mode).
-func petLinkBundled(p petLayoutPaths) error {
-	if p.bundled == "" {
-		return fmt.Errorf("bundled pet location unknown")
-	}
-	src := filepath.Join(p.bundled, "assets", "webm")
-	dst := p.animDir(petDefaultPack)
-	if _, err := os.Stat(dst); err == nil {
-		return nil
-	}
-	if err := os.MkdirAll(p.petDir, 0o755); err != nil {
-		return err
-	}
-	if os.Symlink(src, dst) == nil {
-		return nil
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".webm") {
-			if err := copyPetFile(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // ---- the layout: which role is which pet ----
 
 // petAssign is one bound role on the desktop.
 type petAssign struct {
 	Role string // role key, bridge:<project> or dsh:<id>
-	Name string // display name
-	Pack string // avatar pack ("" = the bundled look)
-	Pet  string // dsh-pet instance id
-	Kind string // "main" or bothouse-<pack>
+	Pack string // imported avatar pack picked on the plugin page ("" = the role's built-in skin)
+	Pet  string // dsh-pet instance id; also the kind prefix (asset root) of its pet/<id>-config.json
 }
 
 // petInstanceID derives the pet id from the role key ("bridge:deep" → "bh-bridge-deep"); dsh-pet ids
-// may not hold \ / : or control characters (src/host/config/constants.ts ID_FORBIDDEN) and are at most
+// may not hold \\ / : or control characters (src/host/config/constants.ts ID_FORBIDDEN) and are at most
 // 64 long (MAX_PET_ID_LENGTH).
 func petInstanceID(role string) string {
 	var b strings.Builder
@@ -451,88 +373,60 @@ func petInstanceID(role string) string {
 			b.WriteRune(r)
 		}
 	}
-	id := "bh-" + b.String()
+	id := petKindPrefix + b.String()
 	if r := []rune(id); len(r) > 64 { // MAX_PET_ID_LENGTH
 		id = string(r[:64])
 	}
 	return id
 }
 
-// petPlan decides the pets: the first role without a usable pack keeps the existing "main" pet (one
-// bound role behaves as before); every other role gets its own instance in its pack's kind, or in
-// bothouse-default when it has none. ready says whether a pack's clips are there; a role whose pack is
-// still being prepared shows the bundled look until it is.
-func petPlan(roles []string, packs, names map[string]string, ready func(pack string) bool) []petAssign {
+// petPlan decides the pets: the first role (by key — the same role /skin used to name before #549) keeps
+// the existing "main" pet, so one bound role behaves as before; every other role gets its own pet.
+func petPlan(roles []string, packs map[string]string) []petAssign {
 	sorted := append([]string(nil), roles...)
 	sort.Strings(sorted)
-	var out []petAssign
-	mainTaken := false
-	for _, role := range sorted {
-		a := petAssign{Role: role, Name: names[role], Pack: packs[role]}
-		if a.Name == "" {
-			a.Name = role
-		}
-		if a.Pack != "" && !ready(a.Pack) {
-			a.Pack = ""
-		}
-		switch {
-		case a.Pack == "" && !mainTaken:
-			a.Pet, a.Kind, mainTaken = "main", "main", true
-		case a.Pack == "":
-			a.Pet, a.Kind, a.Pack = petInstanceID(role), petKindPrefix+petDefaultPack, petDefaultPack
-		default:
-			a.Pet, a.Kind = petInstanceID(role), petKindPrefix+a.Pack
+	out := make([]petAssign, 0, len(sorted))
+	for i, role := range sorted {
+		a := petAssign{Role: role, Pack: packs[role], Pet: "main"}
+		if i > 0 {
+			a.Pet = petInstanceID(role)
 		}
 		out = append(out, a)
 	}
 	return out
 }
 
-// petKindFiles renders the kind config files for a plan: file name → content. Instances line up beside
-// the main pet, half a pet apart (the characters fill about the middle half of the 640×360 frames of
-// the aboutme-pets / dsh-pet clips), so they do not cover each other.
-func petKindFiles(plan []petAssign, look petMainLook, anims map[string][2]map[string]any) map[string][]byte {
-	byKind := map[string][]map[string]any{}
-	var kinds []string
+// petKindFiles renders one kind file per extra pet: the stock animation table (the skin maps every name to
+// its clips) and one instance. They line up beside the main pet, half a pet apart (the characters fill
+// about the middle half of their 640×360 frames), so they do not cover each other.
+func petKindFiles(plan []petAssign, look petMainLook, anims map[string]any, weights map[string]any) map[string][]byte {
+	files := map[string][]byte{}
 	slot := 0
 	for _, a := range plan {
-		if a.Kind == "main" {
+		if a.Pet == "main" {
 			continue
 		}
 		slot++
-		if _, ok := byKind[a.Kind]; !ok {
-			kinds = append(kinds, a.Kind)
-		}
-		// name is the role key without "bridge:": stable, so a display name arriving later does not
-		// rewrite the file and reload the pet.
-		name := strings.TrimPrefix(a.Role, "bridge:")
-		byKind[a.Kind] = append(byKind[a.Kind], map[string]any{
-			"id": a.Pet, "name": name, "size": look.Size,
-			"balanceEnabled": false, "whisperEnabled": true, "workStatusEnabled": true, "fixedEnabled": false,
-			"display":  "desktop",
-			"position": map[string]any{"corner": look.Corner, "marginX": look.MarginX + slot*look.Size/2, "marginY": look.MarginY},
-		})
-	}
-	files := map[string][]byte{}
-	for _, kind := range kinds {
-		pair, ok := anims[strings.TrimPrefix(kind, petKindPrefix)]
-		if !ok {
-			continue
-		}
 		conf := map[string]any{
-			"_comment":         "bothouse 生成（bothouse pet run，一个角色一只桌宠）；改形象请在 bothouse 插件页给角色选形象包，这里手改会被覆盖。",
-			"pets":             byKind[kind],
-			"animations":       pair[0],
-			"animationWeights": pair[1],
+			"_comment": "bothouse 生成（bothouse pet run，一个角色一只桌宠）；这只穿角色自己的形象，手改会被覆盖。",
+			"pets": []any{map[string]any{
+				// name is the role key without "bridge:": stable, so display names never rewrite the file.
+				"id": a.Pet, "name": strings.TrimPrefix(a.Role, "bridge:"), "size": look.Size,
+				"balanceEnabled": false, "whisperEnabled": true, "workStatusEnabled": true, "fixedEnabled": false,
+				"display":  "desktop",
+				"position": map[string]any{"corner": look.Corner, "marginX": look.MarginX + slot*look.Size/2, "marginY": look.MarginY},
+			}},
+			"animations":       anims,
+			"animationWeights": weights,
 		}
 		b, _ := json.MarshalIndent(conf, "", "  ")
-		files[kind+"-config.json"] = append(b, '\n')
+		files[a.Pet+"-config.json"] = append(b, '\n')
 	}
 	return files
 }
 
 // petWriteKinds writes the kind files and removes bothouse's stale ones; it reports whether anything
-// changed (then the pet has to reload). Clip directories stay: they are the conversion cache.
+// changed (then the pet has to reload).
 func petWriteKinds(p petLayoutPaths, files map[string][]byte) (bool, error) {
 	if err := os.MkdirAll(p.petDir, 0o755); err != nil {
 		return false, err
@@ -563,8 +457,8 @@ func petWriteKinds(p petLayoutPaths, files map[string][]byte) (bool, error) {
 	return changed, nil
 }
 
-// petLayout keeps the pet's kinds in step with the role bindings: it runs once before the pet starts
-// and again whenever a role, its pack or a pack's clips change.
+// petLayout keeps the pet's kinds in step with the role bindings: it runs once before the pet starts and
+// again whenever the bound roles or their packs change.
 type petLayout struct {
 	paths petLayoutPaths
 	relay *petRelay
@@ -574,7 +468,7 @@ type petLayout struct {
 
 	mu        sync.Mutex
 	preparing map[string]bool
-	failed    map[string]string // pack → why it cannot be used (shown in the log and the plugin page)
+	failed    map[string]string // pack → why it cannot be used (log and plugin page)
 }
 
 func newPetLayout(ctx context.Context, paths petLayoutPaths, relay *petRelay, pet *dshPetClient) *petLayout {
@@ -602,55 +496,41 @@ func (l *petLayout) run(done <-chan struct{}) {
 	}
 }
 
-// packAnims loads a pack and its kind animations; ok is false when it cannot be shown yet.
-func (l *petLayout) packAnims(pack string) (anims [2]map[string]any, ready bool) {
-	if pack == petDefaultPack {
-		var conf struct {
-			Animations       map[string]any `json:"animations"`
-			AnimationWeights map[string]any `json:"animationWeights"`
-		}
-		if l.paths.bundled == "" || readJSONC(filepath.Join(l.paths.bundled, "assets", "config.jsonc"), &conf) != nil || petLinkBundled(l.paths) != nil {
-			return anims, false
-		}
-		return [2]map[string]any{conf.Animations, conf.AnimationWeights}, true
+// skinFor is the skin id /skin hands the pet for a role's pack ("" = the role's built-in skin), starting the
+// conversion when the pack has none yet.
+func (l *petLayout) skinFor(pack string) string {
+	if pack == "" || strings.ContainsAny(pack, `/\\:`) || pack == "." || pack == ".." {
+		return ""
 	}
-	if strings.ContainsAny(pack, `/\:`) || pack == "." || pack == ".." {
-		return anims, false
-	}
-	info, err := core.LoadPetPackDir(filepath.Join(l.paths.packs, pack))
-	if err != nil {
-		l.fail(pack, err)
-		return anims, false
-	}
-	a, w := petKindAnimations(info.Actions)
-	anims = [2]map[string]any{a, w}
-	if petClipsReady(l.paths, pack, info.Actions) {
-		return anims, true
+	if petSkinReady(l.paths, pack) {
+		return petSkinPrefix + pack
 	}
 	l.mu.Lock()
-	busy := l.preparing[pack]
 	_, failed := l.failed[pack]
+	busy := l.preparing[pack]
 	if !busy && !failed {
 		l.preparing[pack] = true
 	}
 	l.mu.Unlock()
-	if !busy && !failed {
-		l.relay.logf("pack %s: preparing %d desktop clips (%s)", pack, len(info.Actions), info.Format)
-		go func() {
-			err := petPrepareClips(l.ctx, l.paths, info, l.relay.logf)
+	if busy || failed {
+		return ""
+	}
+	go func() {
+		defer func() {
 			l.mu.Lock()
 			delete(l.preparing, pack)
 			l.mu.Unlock()
-			if err != nil {
-				if l.ctx.Err() == nil {
-					l.fail(pack, err)
-				}
-				return
-			}
-			l.request()
 		}()
-	}
-	return anims, false
+		info, err := core.LoadPetPackDir(filepath.Join(l.paths.packs, pack))
+		if err == nil {
+			l.relay.logf("pack %s: making a desktop skin from %d actions (%s)", pack, len(info.Actions), info.Format)
+			err = petPrepareClips(l.ctx, l.paths, info, l.relay.logf)
+		}
+		if err != nil && l.ctx.Err() == nil {
+			l.fail(pack, err)
+		}
+	}()
+	return ""
 }
 
 func (l *petLayout) fail(pack string, err error) {
@@ -659,54 +539,44 @@ func (l *petLayout) fail(pack string, err error) {
 	l.failed[pack] = err.Error()
 	l.mu.Unlock()
 	if !seen {
-		l.relay.logf("pack %s cannot be shown, the role keeps the default look: %v", pack, err)
+		l.relay.logf("pack %s cannot be worn, the role keeps its built-in look: %v", pack, err)
 		writePetPackStatus(l.paths, petPackStatus{Pack: pack, State: "failed", Error: err.Error()})
 	}
 }
 
 // once lays the pets out for the current bindings. live means the pet is up: then it reloads the pet when
-// the kinds changed and hides or restores the main pet.
+// the kinds changed.
 func (l *petLayout) once(live bool) {
 	r := l.relay
 	r.mu.Lock()
 	roles := make([]string, 0, len(r.bound))
 	packs := map[string]string{}
-	names := map[string]string{}
 	for role, pack := range r.bound {
 		roles = append(roles, role)
 		packs[role] = pack
-		names[role] = r.names[role]
 	}
 	r.mu.Unlock()
 
-	anims := map[string][2]map[string]any{}
-	ready := func(pack string) bool {
-		if _, ok := anims[pack]; ok {
-			return true
-		}
-		a, ok := l.packAnims(pack)
-		if ok {
-			anims[pack] = a
-		}
-		return ok
+	plan := petPlan(roles, packs)
+	var conf struct {
+		Animations       map[string]any `json:"animations"`
+		AnimationWeights map[string]any `json:"animationWeights"`
 	}
-	plan := petPlan(roles, packs, names, ready)
-	for i, a := range plan {
-		if a.Pack == petDefaultPack && !ready(petDefaultPack) {
-			plan[i].Pet, plan[i].Kind = "main", "main" // no bundled clips to copy: share the main pet
+	if l.paths.bundled == "" || readJSONC(filepath.Join(l.paths.bundled, "assets", "config.jsonc"), &conf) != nil {
+		r.logf("pet kinds: cannot read the bundled animation table; extra roles share the main pet")
+		for i := range plan {
+			plan[i].Pet = "main"
 		}
 	}
-	look := readPetMainLook(l.paths)
-	changed, err := petWriteKinds(l.paths, petKindFiles(plan, look, anims))
+	changed, err := petWriteKinds(l.paths, petKindFiles(plan, readPetMainLook(l.paths), conf.Animations, conf.AnimationWeights))
 	if err != nil {
 		r.logf("write pet kinds: %v", err)
 	}
 	assign := map[string]petAssign{}
-	hasMain := false
 	for _, a := range plan {
 		assign[a.Role] = a
-		hasMain = hasMain || a.Pet == "main"
-		r.logf("pet %s ← %s (%s)", a.Pet, a.Role, a.Kind)
+		_ = l.skinFor(a.Pack) // start converting an imported pack early
+		r.logf("pet %s ← %s", a.Pet, a.Role)
 	}
 	r.mu.Lock()
 	r.assign = assign
@@ -719,33 +589,5 @@ func (l *petLayout) once(live bool) {
 			r.logf("reload pet: %v", err)
 		}
 	}
-	l.mainDisplay(len(plan) > 0 && !hasMain, look)
 	r.resend()
-}
-
-// mainDisplay hides the main pet while every bound role has a pet of its own, and puts its display back
-// (the value it had before, kept in <DataDir>/pet/main-display.json) once a role uses it again.
-func (l *petLayout) mainDisplay(hide bool, look petMainLook) {
-	saved := filepath.Join(filepath.Dir(l.paths.status), "main-display.json")
-	var prev struct {
-		Display string `json:"display"`
-	}
-	hidden := readJSONC(saved, &prev) == nil && prev.Display != ""
-	switch {
-	case hide && !hidden && look.Display != "none":
-		b, _ := json.Marshal(map[string]string{"display": look.Display})
-		if err := os.WriteFile(saved, b, 0o644); err != nil {
-			l.relay.logf("main pet display: %v", err)
-			return
-		}
-		if err := l.pet.do("POST", "/pet-display", map[string]string{"id": "main", "display": "none"}); err != nil {
-			l.relay.logf("hide main pet: %v", err)
-		}
-	case !hide && hidden:
-		if err := l.pet.do("POST", "/pet-display", map[string]string{"id": "main", "display": prev.Display}); err != nil {
-			l.relay.logf("restore main pet: %v", err)
-			return
-		}
-		_ = os.Remove(saved)
-	}
 }

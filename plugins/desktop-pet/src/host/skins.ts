@@ -101,16 +101,22 @@ function skinForRole(role: string): string | undefined {
   return undefined;
 }
 
-/** 当前该穿的形象目录：用户选的 → 绑定角色 → 清单默认。 */
-export async function resolveSkin(): Promise<string | undefined> {
-  let dir = skinDir(chosenSkin());
+/**
+ * 当前该穿的形象目录：用户选的 → 绑定角色 → 清单默认。
+ * bothouse fork（#549，一个角色一只桌宠）：root 是宠物的素材根（main 或 bothouse 写的 `pet/<id>-config.json` 前缀）。
+ * main 照旧（右键选的形象只管 main）；别的宠物按自己的角色穿：给角色选了导入形象就穿它，否则按角色认内置形象。
+ */
+export async function resolveSkin(root = 'main'): Promise<string | undefined> {
+  const main = root === 'main';
+  let dir = main ? skinDir(chosenSkin()) : undefined;
   if (dir === undefined) {
-    const role = await bothouse()?.skinRole();
-    const id = role ? skinForRole(role) : undefined;
-    dir = id ? skinDir(id) : undefined;
+    const who = await bothouse()?.skinRole(main ? undefined : root);
+    dir = who?.skin ? skinDir(who.skin) : undefined;
+    const id = dir === undefined && who?.role ? skinForRole(who.role) : undefined;
+    if (id) dir = skinDir(id);
   }
   dir ??= skinDir(manifest().default);
-  currentDir = dir;
+  if (main) currentDir = dir;
   return dir;
 }
 
@@ -156,8 +162,8 @@ export function stateForAnimation(name: string): string {
 }
 
 /** 动画文件：同名优先（整套上游动画的推荐形象），其次按意思归的状态，最后 idle。 */
-export async function skinAnimationFile(fileName: string): Promise<string | undefined> {
-  const dir = await resolveSkin();
+export async function skinAnimationFile(fileName: string, root = 'main'): Promise<string | undefined> {
+  const dir = await resolveSkin(root);
   if (dir === undefined) return undefined;
   const base = fileName.replace(/\.(webm|mov)$/i, '');
   return (

@@ -421,19 +421,32 @@ func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
 	petAPIJSON(w, map[string]any{"items": items})
 }
 
-// handleSkin tells the pet whose look to wear: the first bound role (by key, same order as chatTarget).
-// The pet maps it to its bundled assets/roles/<role>/; a role without assets keeps the upstream look.
+// handleSkin tells a pet whose look to wear. Without ?pet= (or for "main") it is the first bound role (by
+// key, same order as chatTarget and petPlan); with ?pet=<pet id> it is the role that pet belongs to (#549,
+// one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases); skin,
+// when set, is the skin made from the imported pack picked for that role on the plugin page.
 func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
-	a.relay.mu.Lock()
-	keys := make([]string, 0, len(a.relay.bound))
-	for k := range a.relay.bound {
-		keys = append(keys, k)
-	}
-	a.relay.mu.Unlock()
-	sort.Strings(keys)
 	role := ""
-	if len(keys) > 0 {
-		role = strings.TrimPrefix(keys[0], "bridge:")
+	if pet := r.URL.Query().Get("pet"); pet != "" && pet != "main" {
+		role = a.relay.roleOf(pet)
+	} else {
+		a.relay.mu.Lock()
+		keys := make([]string, 0, len(a.relay.bound))
+		for k := range a.relay.bound {
+			keys = append(keys, k)
+		}
+		a.relay.mu.Unlock()
+		sort.Strings(keys)
+		if len(keys) > 0 {
+			role = keys[0]
+		}
 	}
-	petAPIJSON(w, map[string]any{"role": role})
+	a.relay.mu.Lock()
+	pack := a.relay.bound[role]
+	a.relay.mu.Unlock()
+	skin := ""
+	if a.relay.layout != nil {
+		skin = a.relay.layout.skinFor(pack)
+	}
+	petAPIJSON(w, map[string]any{"role": strings.TrimPrefix(role, "bridge:"), "skin": skin})
 }

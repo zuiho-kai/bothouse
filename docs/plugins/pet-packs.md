@@ -18,23 +18,11 @@ dsh-pet 透明 WebM 包可用 `main-config.jsonc`、`assets/config.jsonc`、`dsh
 
 `bothouse pet start` 起的桌面桌宠按角色分：插件页给几个角色打开桌宠，桌面上就有几只，每只只跟自己的角色动（`/work-status?pet=<id>`，桌宠 fork 里新加的按宠物状态槽），气泡、右键「对话」「碎碎念」也只找自己的角色；「查看余额」在团队总量后面列出每个绑定角色今天的用量。
 
-- 角色在插件页选的形象包（绑定里的 `avatar_pack`）决定那只的样子。`bothouse pet run` 把包转成桌宠自己的「种类」：`$DSH_HOME/dsh-pet/pet/bothouse-<包>-config.json`（动作表和这几只的位置）与 `bothouse-<包>-animation/`（每个动作一段透明 WebM）。`bothouse-` 开头的文件归 bothouse 管，每次绑定变化重写；别的种类文件不动。
-- 状态到动作的对应与插件页预览同一套规则（`dshPetPlugin.tsx` 的 `PET_MATCH_RULES`，Go 侧 `cmd/cc-connect/pet_packs.go` 的 `petRules`）。
-- WebP 精灵图包要先用本机 `ffmpeg`（需带 libvpx-vp9）转成透明 WebM，命令与 aboutme-pets 作者自带的 `spritesheet_to_video_pet.py` 相同；一包一百多个动作，本机 12 核约两三分钟，转好前那个角色先用默认形象。进度写在 `<DataDir>/pet/packs/<包>.json`，插件页「本地已装形象包」里显示；没装 ffmpeg 时显示原因。
-- 只绑一个角色且没选形象包时与以前一样：就是原来那只 main。第一个没选包的角色用 main；所有角色都有自己的包时，main 暂时隐藏（原来的显示方式记在 `<DataDir>/pet/main-display.json`，有角色再用 main 时恢复）。
-- 新加的几只与 main 同样大小、同一个角落，往里错开半只宽，互不遮挡。
+- 第一个绑定角色（按角色键排序，和以前 `/skin` 认的是同一个）用原来那只 main，只绑一个角色时与以前完全一样。其余每个角色一只：`bothouse pet run` 写 `$DSH_HOME/dsh-pet/pet/bh-<角色键>-config.json`（包内默认动画表 + 这一只，和 main 同样大小、同一个角落、往里错开半只宽），`bh-` 开头的文件归 bothouse 管，绑定变化时重写并让桌宠重载。
+- 每只穿自己角色的形象：桌宠取动画时带上这只的素材根问 `/skin?pet=<id>`，按角色认内置形象（`assets/roles/skins.json` 的 aliases，见 plugins/desktop-pet/BOTHOUSE.md「形象」）。右键「换形象」选的只管 main。
+- 表情图（碎碎念配图）仍只给 main 跟形象走，其余几只用默认表情图。
 
-## 开源展示包与导入
+## 导入自己的形象包
 
-- 插件页「开源形象包」列出 hunmer/aboutme-pets 的 dsh1、claude、gpt、gemini 四包（`bridge/core/pet_showcase.json`：来源仓库、固定提交、每个文件的 sha256）。点「从作者仓库下载到本机」才按固定提交从 raw.githubusercontent.com 下载、逐个校验，全对才放进 `pets/<包>`；bothouse 仓库和发布页都不带素材。下载失败在卡片上写原因，不影响默认形象。
-- `POST /api/v1/plugins/pets/fetch {"pack":"dsh1"}` 后台下载，进度在 `GET /api/v1/plugins/pets` 的 `showcase[].fetch`。
-- `POST /api/v1/plugins/pets/import`（multipart）：一个 `zip` 文件，或浏览器选的文件夹（每个文件一段，段名 `p:<相对路径>`），可选 `name`。用上面同一个解析器检查，格式不对回一句中文原因，不留半截文件。导入后出现在每个角色的形象下拉里。
-
-### 四个展示包的许可（2026-11-09 按固定提交核对）
-
-| 包 | 出处 | 作者写明的许可 |
-| --- | --- | --- |
-| dsh1（蓝毛小女仆·新动作包） | aboutme-pets `pets/dsh1`，形象出自 PC2005-cloud/dsh-pet | 包内 NOTICE.txt：「素材: 禁止商用；二创在公开渠道须署名上述上游仓库」；LICENSE-code/assets.txt 是上游代码的 MIT 原文。上游 dsh-pet README：形象为社区二创「大肥鱼」，非 DeepSeek 官方，形象授权 CC BY-NC-SA 4.0 |
-| claude / gpt / gemini | aboutme-pets `pets/<包>`，作者用 AI 生成（pets.json 描述「2026-11 Claude/GPT/Gemini 生成批次」） | 包目录里没有 LICENSE/NOTICE；aboutme-pets 仓库本身没有 LICENSE 文件；每个动作的 JSON 写着 `"License": "Non-commercial; attribution required. See NOTICE.txt and SOURCE-upstream.txt."`，但所指的两个文件在这三个包里不存在 |
-
-结论：四包都只能非商用、须署名；claude/gpt/gemini 没有正式许可文本，再分发（转存、打进发布包）没有授权，所以只做「用户点了从作者仓库下载」。商用或转存前要先问作者。
+- 插件页「导入自己的形象包」：选文件夹或 zip（本页上面两种格式）。`POST /api/v1/plugins/pets/import`（multipart：一个 `zip`，或每个文件一段、段名 `p:<相对路径>`，可选 `name`）用同一个解析器检查，格式不对回一句中文原因、不留半截文件，越界路径拒收。导入后进 `pets/<名字>`，出现在每个角色的形象下拉里。
+- 给角色选上导入的包，那只桌宠就穿它：`bothouse pet run` 把包做成形象 `$DSH_HOME/dsh-pet/skins/bh-pack-<包>/`（每个动作一段透明 WebM，再按状态挑出 idle/talk/think/work/happy/surprise 六段，规则同插件页预览），`/skin` 回 `skin: bh-pack-<包>`。WebP 精灵图包要本机 `ffmpeg`（带 libvpx-vp9）转一次，命令同 aboutme-pets 作者自带的 `spritesheet_to_video_pet.py`，用 untile 一次切开；转好前和转失败时那只先穿角色的内置形象。进度在 `<DataDir>/pet/packs/<包>.json`，插件页已装包卡片上显示，没装 ffmpeg 会写原因。
