@@ -201,10 +201,11 @@ Object.assign(PetSprite.prototype, {
     ];
     const rec = sk.recommended.length
       ? sk.recommended.map((r) => ({
+          // 已装的点了就换上它，不再重下
           label: r.name + (r.installed ? ' ✓' : ''),
-          action: 'skin-install',
+          action: r.installed ? 'skin' : 'skin-install',
           skin: r.id,
-          hint: r.installed ? '已装' : '点了下载',
+          hint: r.installed ? '已装，点了换上' : '点了下载',
         }))
       : [{ label: '（还没有推荐，敬请期待）', action: 'skin-install', skin: '' }];
     return [
