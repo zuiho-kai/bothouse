@@ -84,7 +84,8 @@
     "wikiGalaxy": "Галактика wiki",
     "forum": "Форум памяти",
     "plugins": "Плагины",
-    "gate": "Шлюз"
+    "gate": "Шлюз",
+    "pet": "Питомец"
   },
   "plugins": {
     "stateClientUi": "Клиентский UI-пакет",

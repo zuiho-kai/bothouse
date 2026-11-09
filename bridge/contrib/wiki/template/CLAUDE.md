@@ -64,6 +64,11 @@ Claude Code's memory system adds `node_type`/`originSessionId`/`modified` under
   the old name and update every hit; keep the old name once only as `formerly X`.
 - **Conclusions, not process.** Experiment/debug pages keep the result, why, and the 2–3 numbers that
   justify it. Step-by-step timing breakdowns and trial logs go to log.md or stay in the transcript.
+- **User words come with a quote.** An entry that attributes words or a decision to the user
+  (the user said / asked / decided / agreed / rejected) quotes one sentence verbatim from the session's USER
+  line (≥ 4 characters, or the whole sentence) instead of only recording the source and date. Without such a
+  quote, name who really said it or leave the claim out. What only the bot said is no evidence. `bin/ingest.py`
+  checks every new quote and attribution against that session and rejects the pass when one does not match.
 - **No bookkeeping on pages.** Pages state facts, not how the writer judged them. Never write things like
   "not confirmed by the user", "not claiming…", "(per the user)". An unconfirmed proposal is one Open items line
   (`Whether X: proposed, no answer yet`); an unsupported claim is removed. `bin/lint.py` rejects these phrases.

@@ -115,6 +115,67 @@ func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 	}
 }
 
+// #1438: board.py's CLOSED_RE and watchBoardClosed take "done" as a closing word, so this writer
+// must too — otherwise a row left at done keeps getting its progress_at raised and the 10-minute
+// grace in reconcileTeamWorkspaces holds that workspace forever. Three spellings, one rule.
+func TestBoardProgressSkipsEnglishDoneRows(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, teamTaskBoardFile)
+	stamp := time.Now().Add(-20 * time.Minute)
+	wantStamp := float64(stamp.UnixNano()) / 1e9
+	at := strconv.FormatFloat(wantStamp, 'f', -1, 64)
+	statuses := []string{"done", "Done", "done: 已交回"}
+	rows := ""
+	for i, s := range statuses {
+		rows += `{"id":` + strconv.Itoa(i+1) + `,"what":"英文收尾","status":"` + s + `","who":"工作区1橘",` +
+			`"ws":"discord:ws1","chat":"discord:main","progress_at":` + at + `}` + "\n"
+	}
+	if err := os.WriteFile(path, []byte(rows), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for i, s := range statuses {
+		wrote, err := writeBoardProgress(dir, i+1, "Bash go test ./core", true, "discord:ws1", now)
+		if err != nil || wrote {
+			t.Fatalf("status %q: wrote %v, err %v (a done row must stay untouched)", s, wrote, err)
+		}
+		if got := boardItemOf(t, dir, i+1).ProgressAt; got != wantStamp {
+			t.Fatalf("status %q: progress_at = %v, want it left at %v", s, got, wantStamp)
+		}
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != rows {
+		t.Fatalf("done rows rewritten (err %v):\n%s", err, data)
+	}
+	// Not a whole word: board.py's CLOSED_RE needs \bdone\b, so this stays live.
+	live := `{"id":9,"what":"英文前缀","status":"donext 收尾","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main"}` + "\n"
+	if err := os.WriteFile(path, []byte(live), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := writeBoardProgress(dir, 9, "Bash go test ./core", true, "discord:ws1", now); err != nil || !wrote {
+		t.Fatalf("status \"donext 收尾\": wrote %v, err %v (want live)", wrote, err)
+	}
+}
+
+// #208 复核必修①: the 在做 prefix still wins over any closing word — keeping this branch is what
+// stops a workspace's own running status from freezing. #1438 must not drop it while adding done.
+func TestBoardProgressStillRenewsDoingRows(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, teamTaskBoardFile)
+	row := `{"id":4,"what":"在跑的活","status":"在做：跑测试","who":"工作区1橘","ws":"discord:ws1",` +
+		`"chat":"discord:main","progress_at":1}` + "\n"
+	if err := os.WriteFile(path, []byte(row), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if wrote, err := writeBoardProgress(dir, 4, "Bash go test ./core", true, "discord:ws1", now); err != nil || !wrote {
+		t.Fatalf("wrote %v, err %v (a 在做 row must still renew)", wrote, err)
+	}
+	got := boardItemOf(t, dir, 4)
+	if got.ProgressAt != float64(now.UnixNano())/1e9 {
+		t.Fatalf("progress_at = %v, want %v", got.ProgressAt, float64(now.UnixNano())/1e9)
+	}
+}
+
 // boardItemOf: the row with that id, decoded the way the table decodes it.
 func boardItemOf(t *testing.T, dir string, id int) teamTaskBoardItem {
 	t.Helper()

@@ -161,6 +161,11 @@ func TestDSHModuleFreshReadOnlyAndInstall(t *testing.T) {
 }
 
 func TestDSHDependencyFailureDoesNotExtractOrInstall(t *testing.T) {
+	// This test is about a machine whose only runtime is an old Node on PATH. DeepSeek Harness
+	// Desktop carries its own Node and GetDSHStatus lets that bundled one stand in for PATH's, so
+	// on a machine with the app installed the setup below would never be the one under test
+	// (#1412). Hide the app; CI has none, so the assertions below run for real there.
+	noDesktopApp(t)
 	home := t.TempDir()
 	testutil.SetHome(t, home)
 	t.Setenv("DSH_HOME", filepath.Join(home, "dsh"))

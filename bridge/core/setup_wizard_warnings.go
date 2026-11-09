@@ -421,7 +421,7 @@ func finishWizardResult(res *WizardResult, req WizardRequest, pl *wizardPlan, je
 		case GateStatusPythonMissing, GateStatusPythonTooOld:
 			res.Warnings = append(res.Warnings, warnGatePython(req.Language, res.GateStatus))
 		}
-		if team && req.gateOn() && !jevUsable {
+		if team && req.gateOn() && !jevUsable && !req.addressed() { // addressed asked for no judge model
 			res.Warnings = append(res.Warnings, warnJevRecommended(req.Language, pl.fallbackName))
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,6 +17,7 @@ import (
 var (
 	_ core.TeamWorkspaceChannels = (*Platform)(nil)
 	_ core.TeamWorkspaceRenamer  = (*Platform)(nil)
+	_ core.TeamWorkspaceShelver  = (*Platform)(nil)
 )
 
 // workspaceAPI is the slice of discordgo the workspace channels need, so tests can stub it.
@@ -39,7 +41,7 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, channelID string) (cor
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
-	self, all, err := teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
+	self, all, err := p.teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
 	return self, all, workspaceErr(err)
 }
 
@@ -60,6 +62,43 @@ func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, channelID, na
 		return err
 	}
 	_, err = api.ChannelEdit(channelID, &discordgo.ChannelEdit{Name: name}, discordgo.WithContext(ctx))
+	return workspaceErr(p.missingPermissionErr(err, permManageChannels))
+}
+
+// idleCategoryName is the category free workspaces are kept in (user 2026-11-08 22:2x:
+// 「工作区 用的工作区自动收起吧」): a workspace that goes back to the pool moves there, so the chat
+// channels' category lists only the workspaces in use. Core sees it as Shelved for those channels,
+// so adoption, numbering and the pool listing still treat them as pool workspaces. The category is
+// created on first use; the user collapses it once by hand and Discord keeps it collapsed.
+const idleCategoryName = "空闲工作区"
+
+// ShelveTeamWorkspaceChannel moves a free workspace into the idle category, creating it if the
+// server has none yet.
+func (p *Platform) ShelveTeamWorkspaceChannel(ctx context.Context, workspaceID string) error {
+	api, err := p.workspaceSession()
+	if err != nil {
+		return err
+	}
+	err = p.shelveWorkspaceChannel(api, workspaceID, discordgo.WithContext(ctx))
+	if err != nil && !errors.Is(err, errIdleCategoryPerm) {
+		err = p.missingPermissionErr(err, permManageChannels)
+	}
+	return workspaceErr(err)
+}
+
+// errIdleCategoryPerm marks an error that already says what the idle category needs (Discord has
+// no guild-wide 「管理频道」 for the bot on servers that grant it per category: the chat channels'
+// category allows it, the idle one does not).
+var errIdleCategoryPerm = errors.New("the idle category needs Manage Channels for the bot")
+
+// UnshelveTeamWorkspaceChannel moves a workspace back beside besideChannelID, into its category
+// (the rule CreateTeamWorkspaceChannel uses), before a chat channel works there again.
+func (p *Platform) UnshelveTeamWorkspaceChannel(ctx context.Context, workspaceID, besideChannelID string) error {
+	api, err := p.workspaceSession()
+	if err != nil {
+		return err
+	}
+	err = unshelveWorkspaceChannel(api, workspaceID, besideChannelID, discordgo.WithContext(ctx))
 	return workspaceErr(p.missingPermissionErr(err, permManageChannels))
 }
 
@@ -96,7 +135,7 @@ func workspaceErr(err error) error {
 	return err
 }
 
-func teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (core.TeamChannel, []core.TeamChannel, error) {
+func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (core.TeamChannel, []core.TeamChannel, error) {
 	ch, err := api.Channel(channelID, options...)
 	if err != nil {
 		return core.TeamChannel{}, nil, err
@@ -108,13 +147,129 @@ func teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
+	owned, err := p.workspaceShelfStore().guild(ch.GuildID)
+	if err != nil {
+		// Ownership is unproven: keep active channels usable, exclude idle strangers.
+		slog.Warn("discord: ignoring unverified workspace shelf ownership", "error", err)
+		owned = workspaceShelfGuild{}
+	}
+	idle := map[string]bool{}
+	for _, c := range list {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildCategory && (c.Name == idleCategoryName || c.ID == owned.Category) {
+			idle[c.ID] = true
+		}
+	}
+	shelved := func(c *discordgo.Channel) bool { return owned.Channels[c.ID] && idle[c.ParentID] }
 	var all []core.TeamChannel
 	for _, c := range list {
 		if c != nil && c.Type == discordgo.ChannelTypeGuildText {
-			all = append(all, core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID})
+			// Exclude strangers entirely: merely clearing Shelved would let their
+			// workspace names vote this category into core's active pool home.
+			if idle[c.ParentID] && !owned.Channels[c.ID] {
+				continue
+			}
+			all = append(all, core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved(c)})
 		}
 	}
-	return core.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID}, all, nil
+	return core.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID, Shelved: shelved(ch)}, all, nil
+}
+
+// idleCategory returns the ID of the guild's idle category ("" when it has none).
+func idleCategory(list []*discordgo.Channel, remembered string) string {
+	for _, c := range list {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildCategory && c.ID == remembered {
+			return c.ID
+		}
+	}
+	for _, c := range list {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildCategory && c.Name == idleCategoryName {
+			slog.Warn("discord: workspace shelf destination selected by name; channel ownership still requires a record", "category", c.ID)
+			return c.ID
+		}
+	}
+	return ""
+}
+
+// shelveWorkspaceChannel moves workspaceID into the idle category (see idleCategoryName).
+func (p *Platform) shelveWorkspaceChannel(api workspaceAPI, workspaceID string, options ...discordgo.RequestOption) error {
+	ch, err := api.Channel(workspaceID, options...)
+	if err != nil {
+		return err
+	}
+	if ch.GuildID == "" {
+		return fmt.Errorf("discord: channel %s: %w", workspaceID, core.ErrNotTeamChannel)
+	}
+	list, err := api.GuildChannels(ch.GuildID, options...)
+	if err != nil {
+		return err
+	}
+	store := p.workspaceShelfStore()
+	owned, err := store.guild(ch.GuildID)
+	if err != nil {
+		return err
+	}
+	id := idleCategory(list, owned.Category)
+	if id == "" {
+		c, err := api.GuildChannelCreateComplex(ch.GuildID, discordgo.GuildChannelCreateData{
+			Name: idleCategoryName, Type: discordgo.ChannelTypeGuildCategory,
+		}, options...)
+		if err != nil {
+			if missingPermission(err) {
+				return fmt.Errorf("%w: 建「%s」分类失败：Discord 建分类要 bot 在服务器层面有「管理频道」，"+
+					"可以在服务器设置 → 身份组里给 bot 的身份组勾上一次，或者自己建好「%s」分类再把已用的工作区拖进去（bot 只要在该分类有「管理频道」就能自动搬）: %w",
+					errIdleCategoryPerm, idleCategoryName, idleCategoryName, err)
+			}
+			return err
+		}
+		id = c.ID
+	}
+	if err := store.remember(ch.GuildID, id, workspaceID); err != nil {
+		return err
+	}
+	if ch.ParentID == id {
+		return nil // already idle
+	}
+	_, err = api.ChannelEdit(workspaceID, &discordgo.ChannelEdit{ParentID: id}, options...)
+	if err != nil && missingPermission(err) {
+		return fmt.Errorf("%w: 把「%s」挪进「%s」分类失败：bot 在那个分类里没有「管理频道」。到该分类的权限设置里给 bot 的身份组勾上「管理频道」，"+
+			"或把 bot 的身份组在服务器设置 → 身份组里加一次「管理频道」: %w",
+			errIdleCategoryPerm, ch.Name, idleCategoryName, err)
+	}
+	return err
+}
+
+// missingPermission: Discord's 50013 Missing Permissions (or a bare 403).
+func missingPermission(err error) bool {
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) {
+		return false
+	}
+	if rest.Message != nil && rest.Message.Code == discordgo.ErrCodeMissingPermissions {
+		return true
+	}
+	return rest.Response != nil && rest.Response.StatusCode == http.StatusForbidden
+}
+
+// unshelveWorkspaceChannel moves workspaceID into the category of besideChannelID.
+func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID string, options ...discordgo.RequestOption) error {
+	beside, err := api.Channel(besideChannelID, options...)
+	if err != nil {
+		return err
+	}
+	ch, err := api.Channel(workspaceID, options...)
+	if err != nil {
+		return err
+	}
+	if ch.ParentID == beside.ParentID {
+		return nil // already beside
+	}
+	if beside.ParentID == "" {
+		// discordgo's ChannelEdit leaves an empty parent_id out of the request, so "no
+		// category" cannot be asked for; the workspace stays in the idle category.
+		return fmt.Errorf("discord: channel %s has no category; cannot move workspace %s beside it", besideChannelID, workspaceID)
+	}
+	_, err = api.ChannelEdit(workspaceID, &discordgo.ChannelEdit{ParentID: beside.ParentID}, options...)
+	return workspacePermissionHint(err)
 }
 
 func createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {

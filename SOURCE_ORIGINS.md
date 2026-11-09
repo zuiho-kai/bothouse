@@ -7,6 +7,7 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 | bridge/ | zuiho-kai/cc-connect 的 maomao，8b27736e5b6f2dba61bc0cfb2d5397b73224156c；其 Go module 为 github.com/chenhg5/cc-connect | 保留 Git 祖先历史，移入子目录，包含本机后续桥接补丁 |
 | companion/ | Zssan12/yijiazi，b408538ab1428604c93827928b24971ff9b00a5b 之后的本地语音、活动、日报实现 | 导入当前相关源码和测试；旧网页 demo 留在原仓库 |
 | skills/ | 同一产品开发阶段的项目协作技能 | 纳入产品工作流 |
+| plugins/desktop-pet/ | PC2005-cloud/dsh-pet 的 dsh-pet 包，c25386848f70f6e40902e4376f6e7b1e196bc326（MIT，© 2026 PC2005-cloud） | fork 成 bothouse 自带桌宠，保留上游 LICENSE；改动和同步方法见 plugins/desktop-pet/BOTHOUSE.md |
 
 项目自有代码（包括 `companion/`）按 Apache-2.0 授权；上游组件与第三方依赖仍按各自许可使用，详见 [LICENSING.md](LICENSING.md)。
 

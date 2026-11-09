@@ -84,7 +84,8 @@
     "wikiGalaxy": "Wiki 갤럭시",
     "forum": "기억 포럼",
     "plugins": "플러그인",
-    "gate": "게이트"
+    "gate": "게이트",
+    "pet": "데스크톱 펫"
   },
   "plugins": {
     "stateClientUi": "클라이언트 UI 패키지",

@@ -292,6 +292,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	prefix := "/api/v1"
 
 	mux.HandleFunc(prefix+"/usage/", m.wrap(m.handleUsage))
+	mux.HandleFunc(prefix+"/team/board", m.wrap(m.handleTeamBoard)) // desktop pet 待办 (management_team_board.go)
 
 	// System
 	mux.HandleFunc(prefix+"/version", m.handlePublicVersion)
@@ -323,6 +324,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
 	// 插件配置 (#150 ②a): 一份插件自己的 config，读出来改完存回 profile 的 patch
 	mux.HandleFunc(prefix+"/plugins/config", m.wrap(m.handlePluginsConfig))
+	// 形象包适配 (#416): 读本机形象包与素材文件
+	mux.HandleFunc(prefix+"/plugins/pets", m.wrap(m.handlePetPacks))
+	mux.HandleFunc(prefix+"/plugins/pets/asset", m.wrap(m.handlePetAsset))
 
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))

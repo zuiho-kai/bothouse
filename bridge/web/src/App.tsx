@@ -23,6 +23,7 @@ import AppList from '@/pages/Apps/AppList';
 import BridgeAdapters from '@/pages/Bridge/BridgeAdapters';
 import WikiGalaxyPage from '@/pages/Wiki/WikiGalaxyPage';
 import PluginList from '@/pages/Plugins/PluginList';
+import PluginHubPage from '@/pages/Plugins/PluginHubPage';
 import NotFound from '@/pages/NotFound';
 import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 import GateSettingsPage from '@/pages/Gate/GateSettings';
@@ -76,7 +77,10 @@ export default function App() {
         {/* 闸门设置 (#217): 装好以后改谁在什么时候接话，不用重装 */}
         <Route path="gate" element={<GateSettingsPage />} />
         <Route path="forum" element={<ForumPage />} />
-        <Route path="plugins" element={<PluginList />} />
+        <Route path="plugins" element={<PluginHubPage />} />
+        <Route path="plugins/dsh" element={<PluginList />} />
+        <Route path="plugins/pet" element={<Navigate to="/plugins?plugin=dsh-pet" replace />} />
+        <Route path="pet" element={<Navigate to="/plugins?plugin=dsh-pet" replace />} />
         <Route path="projects" element={<ProjectList />} />
         <Route path="projects/:name" element={<ProjectDetail />} />
         <Route path="sessions" element={<SessionList />} />

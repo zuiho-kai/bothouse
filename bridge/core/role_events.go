@@ -170,6 +170,14 @@ func (e *Engine) observeRoleAgentEvent(session string, ev Event, textParts []str
 			e.publishRoleEvent(session, "error", "")
 			return
 		}
+		// #551：适配器报了这一回合失败（Claude result 的 is_error，鉴权 401/403 也走
+		// 这条）时，回合虽然「正常结束」，但它不是交活，不能发成 celebrate——那会让
+		// 用户在出错那一刻看到桌宠庆祝。失败标记在，就按 error 走，不往下猜 celebrate：
+		// 猜错成庆祝比不切更伤人。没有失败标记又没有 Error 的 result 才当成交活。
+		if failed, _ := ev.Metadata[MetaResultIsError].(bool); failed {
+			e.publishRoleEvent(session, "error", "")
+			return
+		}
 		text := ev.Content
 		if text == "" {
 			text = strings.Join(textParts, "")

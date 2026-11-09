@@ -20,6 +20,9 @@ output/
 bin/
 models/
 runtime/
+# 自带桌宠的 Electron 窗口代码要进 git（#1299）；shared-core.js 是构建产物
+!plugins/desktop-pet/runtime/
+plugins/desktop-pet/runtime/electron-helper/shared-core.js
 
 # 角色小家的本地配置：模板是 role-household/roles.example.toml（2026-10-20 起不进 git，见 docs/GETTING_STARTED.md「升级须知」）
 role-household/roles.toml

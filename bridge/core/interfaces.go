@@ -681,6 +681,16 @@ type UsageCapability interface {
 	SupportsUsageReporting() bool
 }
 
+// SessionScopedUsageCapability is an optional interface for agents whose usage
+// reads belong to the session that issued them: the quota is bound to the
+// account/model the session was created with and can lag a later provider
+// switch. Core then attributes such a read to the scope it captured for that
+// session, instead of the agent's current selection; without a tracked scope
+// the session keeps its footer but its report is not cached.
+type SessionScopedUsageCapability interface {
+	UsageScopedToSession() bool
+}
+
 // CachedUsageReporter is an optional interface for running agent sessions
 // that already receive quota snapshots as part of normal turns (e.g. Codex
 // app-server rate-limit notifications). CachedUsage must not do I/O; the
@@ -721,6 +731,9 @@ type UsageBucket struct {
 
 // UsageWindow describes a single quota window.
 type UsageWindow struct {
+	// ObservedAt is the source time for this window in a sparse snapshot.
+	// Zero means the adapter uses UsageReport.ObservedAt for all windows.
+	ObservedAt        time.Time `json:"-"`
 	Name              string
 	UsedPercent       int
 	WindowSeconds     int

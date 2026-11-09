@@ -189,6 +189,9 @@ jobs:
           dist/bothouse-linux-x64 setup --help | grep -q 'setup apply'
           file dist/bothouse-linux-arm64 | tee /dev/stderr | grep -q 'ELF 64-bit.*ARM aarch64'
           file dist/bothouse-windows.exe | tee /dev/stderr | grep -q 'PE32+ executable.*x86-64'
+      - name: Require macOS automation usage description
+        if: runner.os == 'macOS'
+        run: plutil -extract NSAppleEventsUsageDescription raw bridge/build/dmg-stage/Bothouse.app/Contents/Info.plist
       - name: Smoke test (macOS app bundle)
         if: runner.os == 'macOS'
         continue-on-error: true
@@ -199,6 +202,7 @@ jobs:
           hdiutil verify dist/bothouse-mac.dmg
           mount=bridge/build/dmg-stage
           plutil -lint "$mount/Bothouse.app/Contents/Info.plist"
+          plutil -extract NSAppleEventsUsageDescription raw "$mount/Bothouse.app/Contents/Info.plist"
           lipo -info "$mount/Bothouse.app/Contents/MacOS/bothouse"
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch arm64
           lipo "$mount/Bothouse.app/Contents/MacOS/bothouse" -verify_arch x86_64
@@ -341,6 +345,39 @@ jobs:
             gh release create "$TAG" dist/* "${pre[@]}" --title "bothouse $TAG" \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
+
+  # The bundled desktop pet (plugins/desktop-pet, fork of dsh-pet): `bothouse pet start` installs this release's
+  # bothouse-pet.tgz with npm (bridge/cmd/cc-connect/pet.go petPackageURL). assets/webm is not in git; the
+  # fetch script downloads it from the pinned upstream commit and checks sha256 (plugins/desktop-pet/BOTHOUSE.md).
+  desktop-pet:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Build and attach bothouse-pet.tgz
+        working-directory: plugins/desktop-pet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npx -y pnpm@10 install --frozen-lockfile
+          npx tsdown
+          node scripts/build-desktop-core.mjs # runtime/electron-helper/shared-core.js is gitignored; without it the pet window is empty
+          npm pack --ignore-scripts
+          mv bothouse-pet-*.tgz bothouse-pet.tgz
+          gh release upload "$TAG" bothouse-pet.tgz --clobber
 
   # DSH installs plugins from git: `dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'`.
   # The built outputs (plugin-pkg/collab, plugin-pkg/client) are gitignored on main, so each release force-pushes

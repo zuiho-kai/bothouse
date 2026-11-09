@@ -22,10 +22,11 @@ const QQDefaultWSURL = "ws://127.0.0.1:3001"
 
 // WizardQQ is the request's QQ section.
 type WizardQQ struct {
-	WSURL     string `json:"ws_url,omitempty"`     // default QQDefaultWSURL
-	Token     string `json:"token,omitempty"`      // NapCat access token, if set there
-	HTTPURL   string `json:"http_url,omitempty"`   // optional OneBot HTTP API (file sending)
-	AllowFrom string `json:"allow_from,omitempty"` // QQ numbers that may give orders; "*" = anyone
+	WSURL      string `json:"ws_url,omitempty"`      // default QQDefaultWSURL
+	Token      string `json:"token,omitempty"`       // NapCat access token, if set there
+	ClearToken bool   `json:"clear_token,omitempty"` // explicit removal; an empty Token otherwise keeps the saved value
+	HTTPURL    string `json:"http_url,omitempty"`    // optional OneBot HTTP API (file sending)
+	AllowFrom  string `json:"allow_from,omitempty"`  // QQ numbers that may give orders; "*" = anyone
 	// ShareSessionInChannel (#710 件 5): nil = leave the stored value alone; true writes it on.
 	// False is never sent by the wizard, so a rerun on an existing bot cannot silently cut a
 	// group's shared session off (the same rule as discord's allow_guilds); the QQ panel

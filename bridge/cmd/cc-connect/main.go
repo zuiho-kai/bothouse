@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/chenhg5/cc-connect/agent/antigravityhook"
 	"io"
 	"log/slog"
 	"os"
@@ -266,6 +267,10 @@ func runMain() {
 	// this internal command before update checks, logging, or normal CLI setup.
 	if len(os.Args) > 1 && os.Args[1] == "_agy-permission-hook" {
 		runAntigravityPermissionHook()
+		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == antigravityhook.InboxHookArg {
+		_ = antigravityhook.RunInboxHook(os.Args[2], os.Stdin, os.Stdout, os.Getenv(antigravityhook.EnvInbox))
 		return
 	}
 
@@ -1505,6 +1510,9 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 			}
 			ttsCfg.TTS = core.NewPicoTTS("", voice)
 			ttsCfg.Provider = "pico"
+		case "local":
+			ttsCfg.TTS = core.NewLocalTTS(cfg.TTS.Local.BaseURL, time.Duration(cfg.TTS.Local.TimeoutSeconds)*time.Second, nil)
+			ttsCfg.Provider = "local"
 		case "edge":
 			voice := ttsEffective.Voice
 			if voice == "" {

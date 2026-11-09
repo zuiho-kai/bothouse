@@ -80,3 +80,11 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书没有服务器分类和频道排序，新建的是群聊，工作区也不是飞书频道
 - cloud-web: 不支持：本机网页频道的房间由 collab 网关管，没有给角色建房间和排序的接口
 - dsh: 不支持：同 cloud-web
+
+## TeamWorkspaceShelver
+
+工作区平台可选实现它：释放最后一个任务后异步收纳频道，认领或复用时取回（docs/ARCHITECTURE.md:71）。Discord 将空闲工作区挪入「空闲工作区」分类，并通过 TeamChannel.Shelved 保留共享池的复用与编号语义；搬动失败只记日志，其他平台沿用原流程。
+
+- discord: 已接
+- feishu: 不支持：飞书的群组接口没有分类这个概念（platform/feishu/workspaces.go:76「Feishu has no categories: ParentID is empty」），工作区本身就是一个群，没有可挪的频道容器
+- cloud-web: 不支持：网页频道的工作区是 gateway 的房间，整个共享池只有一个平铺的「分类」（platform/cloud-web/workspaces.go:98-99，ParentID 为空），没有可挪的频道容器

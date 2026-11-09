@@ -504,6 +504,32 @@ class Quotes(Fake):
         self.page("tooling/a.md", "- 用户说「就这样定了」\n- 正式包是 `pywebview`（0.2.8.beta1）。")
         self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
 
+    def test_claim_needs_users_quote(self):
+        """Every new entry that gives the user words or a decision carries a quote the user really said (2026-11-09:
+        「记忆条目得带原话逐字依据，再核一遍，我现在只记来源和时间，太松」)."""
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2，换头像不用等代办"), claude("好，那就改成两个"), user("好")])
+        (self.w / "tooling" / "README.md").write_text("- [a](a.md) — x\n")
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+
+        def check(body):
+            self.page("tooling/a.md", body)
+            try:
+                return I.page_checks("ingest aaaaaaaa", [s])
+            finally:
+                self.page("tooling/a.md", "- 旧行")
+
+        self.assertEqual(check("- 用户要求头像限额改成 2，换头像不用等代办：「头像限额改成 2，换头像不用等代办」\n"), "")
+        self.assertEqual(check("- 头像限额是 2，换头像不用等代办（来源：会话 aaaaaaaa）。\n"), "")  # no claim made
+        self.assertIn("没有引文", check("- 用户要求头像限额改成 2，换头像不用等代办。\n"))  # source+time only
+        self.assertIn("不是这条会话里用户的话",
+                      check("- 用户要求头像限额改成 2：「头像限额改成 3，换头像不用等代办」\n"))  # one char changed
+        self.assertIn("不是这条会话里用户的话", check("- 用户说「好，那就改成两个」\n"))  # the bot's words
+        self.assertIn("没有引文", check("- 用户同意把头像限额降到 2（G哥提，用户同意按此修）。\n"))
+        self.assertEqual(check("- 用户这条要求的原话与场景见 [[user-requests]]。\n"), "")  # pointer to the words
+        self.assertEqual(check("- 用户说「好」（用户原话），限额两个。\n"), "")  # 「好」is the whole message
+
     def test_lost_lines(self):
         gone = I.lost_lines(["- 正式包是 PyInstaller + `pywebview`（0.2.8.beta1）", "- 端口 8080 改了", "- 全是中文"],
                             "页面写着 PyInstaller")

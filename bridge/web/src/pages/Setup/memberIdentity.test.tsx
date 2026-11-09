@@ -9,7 +9,7 @@ import { nextRoleName, roleLabel } from '@/lib/roleIdentity';
 const setupFixture = vi.hoisted(() => ({ projects: ['codex'] as string[], displayNames: [] as string[] }));
 vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'zh', changeLanguage: vi.fn() } }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh', changeLanguage: vi.fn() } }) }));
 vi.mock('@/components/library', () => ({
  useLibrary: () => ({ lib: { personas: [] }, reload: vi.fn() }),
  PersonaLibrary: ({onPick}: {onPick: (p: unknown) => void}) => <button data-testid="pick-fixture" onClick={() => onPick({slug:'dragon',name:'龙娘',text:'# 角色：龙娘\n\n你是「龙娘」。认真工作。'})}>选人设</button>,

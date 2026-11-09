@@ -94,24 +94,25 @@ func boardProgressStep(step string) string {
 // ansiEscape: CSI sequences and the two-byte escapes tools emit in coloured output.
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 
-// boardProgressClosed: whether this row really stopped being live work. watchBoardClosed is a plain
-// substring test (team_idle_watch.go:236) while board.py's CLOSED_RE (contrib/gate/board.py:1130)
-// is anchored at the start of the line, so a workspace's own 「在做：检查已验收的条目」 read as
-// closed and froze the row for good — the very symptom #208 removes (复核 2026-11-06 必修①:
-// wrote=false, progress_at 停在 100, 一小时后表格重回「1 小时前 + 卡住」). A line still marked
-// 在做 is work in progress whatever its text mentions; anything else must *start* with a closing
-// word to count.
+// boardProgressClosed: whether this row really stopped being live work. It shares the closing
+// words with watchBoardClosed (team_idle_watch.go, watchBoardClosedWords + watchBoardClosedDone)
+// instead of keeping a third copy: f76d6cec unified the watch and board.py's CLOSED_RE (#1401), and
+// a separate list here left "done" rows renewing forever (#1438). A workspace's own
+// 「在做：检查已验收的条目」 must not read as closed either — that froze the row for good, the very
+// symptom #208 removes (复核 2026-11-06 必修①: wrote=false, progress_at 停在 100, 一小时后表格重回
+// 「1 小时前 + 卡住」). A line still marked 在做 is work in progress whatever its text mentions;
+// anything else must *start* with a closing word to count.
 func boardProgressClosed(status string) bool {
 	self := strings.TrimSpace(status)
 	if strings.HasPrefix(self, "在做：") {
 		return false
 	}
-	for _, closing := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
+	for _, closing := range watchBoardClosedWords {
 		if strings.HasPrefix(self, closing) {
 			return true
 		}
 	}
-	return false
+	return watchBoardClosedDone.MatchString(self)
 }
 
 // progressStepField: the row field that records which step this watch last put in status. It is

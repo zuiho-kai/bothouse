@@ -251,6 +251,47 @@ func TestRoleEventsTerminalAndSilentRules(t *testing.T) {
 	}
 }
 
+// #551：鉴权失败被发成 celebrate（桌宠在庆祝）。适配器用 result_is_error 明确报了
+// 这一回合失败，桥侧就必须发 error，不能因为「回合正常结束」就当成交活；失败时也
+// 不把 CLI 的错误原文放进气泡（它不是回复）。
+func TestRoleEventsFailedResultIsNeverCelebrate(t *testing.T) {
+	m := NewManagementServer(0, "test", nil)
+	e := roleTestEngine(m, "deep")
+	events, unsubscribe := m.roleEvents.subscribe()
+	defer unsubscribe()
+
+	// 真实文本来自 #467 证据：401 假 API 下 claude 的 result 带 is_error=true。
+	e.observeRoleAgentEvent("discord:a", Event{
+		Type: EventResult, Done: true,
+		Content:  "Invalid API key · Fix external API key",
+		Metadata: map[string]any{MetaResultIsError: true},
+	}, nil)
+	ev := <-events
+	if ev.Status != "error" || ev.Text != "" {
+		t.Fatalf("auth failure must be error without a bubble: %+v", ev)
+	}
+	select {
+	case extra := <-events:
+		t.Fatalf("failure published a second frame: %+v", extra)
+	default:
+	}
+
+	// 同一回合的文本只由 textParts 带上来时，结论一样。
+	e.observeRoleAgentEvent("discord:a", Event{
+		Type: EventResult, Done: true,
+		Metadata: map[string]any{MetaResultIsError: true},
+	}, []string{"Not logged in · Please run /login"})
+	if ev := <-events; ev.Status != "error" || ev.Text != "" {
+		t.Fatalf("failed result with streamed text: %+v", ev)
+	}
+
+	// 正常结束（没有失败标记）仍然是交活庆祝，别把成功路径一起改坏。
+	e.observeRoleAgentEvent("discord:a", Event{Type: EventResult, Done: true, Content: "好了"}, nil)
+	if ev := <-events; ev.Status != "celebrate" || ev.Text != "好了" {
+		t.Fatalf("normal result: %+v", ev)
+	}
+}
+
 func TestRoleEventsDSHNativeSnapshotThinkingSpeechAndCompletion(t *testing.T) {
 	frames := make(chan string)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

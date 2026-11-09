@@ -325,7 +325,7 @@ type SpeechConfig struct {
 // TTSConfig configures text-to-speech output (mirrors SpeechConfig style).
 type TTSConfig struct {
 	Enabled      bool                      `toml:"enabled"`
-	Provider     string                    `toml:"provider"`      // "qwen" | "openai" | "minimax" | "mimo" | "espeak" | "pico" | "edge"
+	Provider     string                    `toml:"provider"`      // "qwen" | "openai" | "minimax" | "mimo" | "espeak" | "pico" | "edge" | "local"
 	Voice        string                    `toml:"voice"`         // default voice name (for edge: "zh-CN-XiaoxiaoNeural"; for pico: "zh-CN"; for espeak: "zh"; for mimo: "mimo_default" / "冰糖" / "Mia" …)
 	VoiceID      string                    `toml:"voice_id"`      // alias for voice; useful for MiniMax voice IDs
 	Speed        float64                   `toml:"speed"`         // optional speaking speed multiplier; 0 = provider default
@@ -354,6 +354,13 @@ type TTSConfig struct {
 		BaseURL string `toml:"base_url"`
 		Model   string `toml:"model"`
 	} `toml:"mimo"`
+	// Local is a self-hosted voice-clone service (e.g. ~/ai-voice role_tts_server.py
+	// running IndexTTS 2.0): POST {base_url}/audio/speech {"input","voice"} → mp3.
+	// voice names a reference clip on the server, so set it per project under [tts.agents.<name>].
+	Local struct {
+		BaseURL        string `toml:"base_url"`        // default http://127.0.0.1:8790/v1
+		TimeoutSeconds int    `toml:"timeout_seconds"` // default 180
+	} `toml:"local"`
 }
 
 // TTSAgentConfig overrides global [tts] synthesis parameters for one project.

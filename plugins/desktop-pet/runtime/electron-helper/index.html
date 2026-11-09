@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' http: https: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; media-src 'self' http: https: blob:; font-src 'self' http: https: data:"
+    />
+    <title>dsh-pet 桌宠（桌面模式）</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+        user-select: none;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      /* 宠物 sprite：绝对定位在画布内，由 renderer 按角落/边距或拖拽位置计算 left/top */
+      .pet-sprite {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+      }
+      .pet-stage {
+        position: relative;
+        width: var(--pet-size, 462px);
+        height: calc(var(--pet-size, 462px) * 9 / 16);
+        pointer-events: none;
+      }
+      video.pet-video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+        /* WebM 的「透明」背景实测 alpha 恒为 1/255（109 个素材逐一验证），
+           Chromium 按 0.4% 不透明度合成，浅色底上就是一层淡灰矩形。
+           扣掉一档即精确归零；本体只降一档（≤1/255），不可见。 */
+        filter: url(#dsh-pet-alpha-fix);
+      }
+      video.pet-video.is-front {
+        opacity: 1;
+      }
+      .pet-hit {
+        position: absolute;
+        pointer-events: auto;
+        cursor: grab;
+        z-index: 1;
+      }
+      .pet-hit.dragging {
+        cursor: grabbing;
+      }
+      /* 余额气泡：与浏览器 overlay 同一套视觉（白色圆润泡 + 峰/谷/错误着色）。
+         尺寸分两类锚点：盒子（宽度/内边距/圆角/尾巴/阴影/行间距）锚在字号 --f 上——字号调大盒子同步变大，
+         文字不会顶出白底；位置（bottom 偏移）仍锚在宠物宽度 var(--pet-size)，气泡始终贴着宠物头顶。
+         宽度必须写 width:max-content：气泡是 left:50% 的绝对定位盒，可用宽度只有包含块一半，
+         shrink-to-fit 会先被这道墙卡死（max-width 调多大都不生效）；写 max-content 后按内容取宽，
+         再由 max-width 收口，上限同时不超过宠物宽度（桌面窗口只比宠物大一圈，超了会被裁）。
+         字体经 renderer 注入上首软糖体 @font-face */
+      .pet-bubble {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: calc(100% - var(--pet-size, 462px) * 0.108);
+        width: max-content;
+        /* 钉死 content-box：本文件全局设了 border-box，那会让 min/max-width 把内边距也算进去，
+           内容可用宽度被悄悄缩掉一圈（表现为「明明还有空位却折行」）。与浏览器 bubble.ts 同一口径 */
+        box-sizing: content-box;
+        min-width: calc(var(--f) * 5.7143);
+        max-width: min(calc(var(--f) * 16), 100%);
+        padding: calc(var(--f) * 0.4835) calc(var(--f) * 0.6593);
+        border-radius: calc(var(--f) * 0.7692);
+        background: rgba(255, 255, 255, 0.92);
+        color: #2b2b2b;
+        /* 字体族走全局配置变量（renderer.js 注入到 documentElement）：对话窗/得分弹窗挂在 body 下、
+           继承不到宠物根容器，气泡也统一从这里取；回退参数是变量未注入时的默认字体栈 */
+        font-family: var(
+          --dsh-pet-font-family,
+          'ShangshouSoftCandy',
+          'Yuanti SC',
+          'YouYuan',
+          '幼圆',
+          'Comic Sans MS',
+          'PingFang SC',
+          'Microsoft YaHei',
+          sans-serif
+        );
+        /* 字号：正文取 --dsh-pet-font-bubble（sprite.js 按本宠物尺寸算好注入）；--f0 是收起态的字号，
+           --f 是当前生效值（展开态在 .is-expanded 里按 --f0 折算 60%），气泡内其余层级都从 --f 派生 */
+        --f0: var(--dsh-pet-font-bubble, calc(var(--pet-size, 462px) * 0.0455));
+        --f: var(--f0);
+        font-size: var(--f);
+        line-height: 1.6;
+        z-index: 3;
+        pointer-events: none;
+        box-shadow:
+          0 calc(var(--f) * 0.1978) calc(var(--f) * 0.7692) rgba(0, 0, 0, 0.14),
+          0 1px 3px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        /* 不锁 nowrap：折行只在内容真超过宽度上限时才发生；break-word 只在整词放不下时断，
+           不会把 85% / ¥12.34 这类数字拆到两行 */
+        white-space: normal;
+        overflow-wrap: break-word;
+      }
+      .pet-bubble::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        bottom: calc(var(--f) * -0.3736);
+        transform: translateX(-50%);
+        border: calc(var(--f) * 0.3736) solid transparent;
+        border-top-color: rgba(255, 255, 255, 0.92);
+        border-bottom: none;
+      }
+      .pet-bubble.is-on {
+        opacity: 1;
+      }
+      /* 碎碎念变体：与浏览器 overlay 一致 —— 字号缩到余额气泡的 0.75、宽度下限更窄（0.10 → 2.1978），
+         上限与余额气泡相同；宽度取宽/折行规则继承 .pet-bubble，高度随行数自然增长 */
+      .pet-bubble.is-whisper {
+        font-size: calc(var(--f) * 0.7473);
+        min-width: calc(var(--f) * 2.1978);
+        max-width: min(calc(var(--f) * 10.989), 100%);
+      }
+      .pet-bub-row {
+        display: flex;
+        justify-content: space-between;
+        gap: calc(var(--f) * 0.6593);
+        flex-wrap: wrap;
+      }
+      /* 档位行由多个片段拼成：只允许在片段之间换行，片段内部不拆字 */
+      .pet-bub-row > span {
+        white-space: nowrap;
+      }
+      .pet-bub-sub {
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.6);
+      }
+      .pet-bub-err {
+        color: #d94f3d;
+        font-size: calc(var(--f) * 0.7692);
+      }
+      .pet-bub-tier {
+        font-weight: 700;
+      }
+      .pet-bub-tier-peak {
+        color: #e53935;
+      }
+      .pet-bub-tier-idle {
+        color: #2e9e4f;
+      }
+      /* ---- 展开态（点余额气泡后的完整额度）：每窗口一行，进度条长度 = 已用百分比 ----
+         与浏览器端 src/client/bubble.ts 的规则逐条对应（两端样式各存一份，数值必须同步） */
+      /* 可点：气泡默认 pointer-events:none（不挡下层应用），只有这张可展开的余额气泡才开命中。
+         光有 DOM 可点还不够——窗口级穿透由 main 的 setIgnoreMouseEvents 管，气泡矩形要经
+         syncInputRegions 上报给主进程，见 sprite.js */
+      .pet-bubble.is-clickable {
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      /* 收起态宽度上限 10.989em 排不下四列，展开态单独给一档更宽的：21em（60% 字号下 ≈265px）。
+         整体缩到收起字号的 60%：--f 是盒内所有尺寸的锚点（字号/内边距/圆角/进度条高度全跟着它缩） */
+      .pet-bubble.is-expanded {
+        --f: calc(var(--f0) * 0.6);
+        width: min(calc(var(--f) * 21), 100%);
+        max-width: 100%;
+      }
+      /* 淡出：换内容前先降到透明（.25s，复用 opacity 那条过渡曲线），换完去掉这个类再淡入 */
+      .pet-bubble.is-on.is-fading {
+        opacity: 0;
+      }
+      .pet-bub-quota {
+        display: flex;
+        align-items: center;
+        gap: calc(var(--f) * 0.4);
+        margin: calc(var(--f) * 0.13) 0;
+      }
+      .pet-bub-quota-label {
+        flex: none;
+        min-width: calc(var(--f) * 1.9);
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.6);
+      }
+      .pet-bub-quota-bar {
+        flex: 1 1 auto;
+        height: calc(var(--f) * 0.5);
+        border-radius: calc(var(--f) * 0.25);
+        background: rgba(43, 43, 43, 0.12);
+        overflow: hidden;
+      }
+      .pet-bub-quota-fill {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: #2e9e4f;
+      }
+      .pet-bub-quota-fill.pet-bub-quota-warn {
+        background: #e8952f;
+      }
+      .pet-bub-quota-fill.pet-bub-quota-crit {
+        background: #e53935;
+      }
+      .pet-bub-quota-used {
+        flex: none;
+        min-width: calc(var(--f) * 2.2);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-weight: 650;
+        color: #1f1f1f;
+      }
+      .pet-bub-quota-reset {
+        flex: none;
+        min-width: calc(var(--f) * 2.6);
+        text-align: right;
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.6);
+      }
+      /* 用量页（第三页）：三行两列占满展开态宽度，总量是唯一的大字。
+         配色只给进/出两处强调，其余沿用次级灰——同页里超过两种彩色会盖过数值本身。
+         与浏览器端 src/client/bubble.ts 的规则逐条对应，数值必须同步 */
+      .pet-bub-usage {
+        display: flex;
+        flex-direction: column;
+        gap: calc(var(--f) * 0.22);
+        margin: calc(var(--f) * 0.1) 0;
+      }
+      .pet-bub-usage-line {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: calc(var(--f) * 0.8);
+        line-height: 1.45;
+      }
+      .pet-bub-usage-title {
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.62);
+      }
+      .pet-bub-usage-total {
+        font-size: calc(var(--f) * 1.45);
+        line-height: 1.2;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+        color: #1f1f1f;
+      }
+      .pet-bub-usage-in {
+        font-size: calc(var(--f) * 0.7692);
+        font-variant-numeric: tabular-nums;
+        color: #3f6ea8;
+      }
+      .pet-bub-usage-out {
+        font-size: calc(var(--f) * 0.7692);
+        font-variant-numeric: tabular-nums;
+        color: #b4703c;
+      }
+      .pet-bub-usage-period {
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.62);
+      }
+      .pet-bub-usage-spend {
+        font-size: calc(var(--f) * 0.7692);
+        font-weight: 650;
+        font-variant-numeric: tabular-nums;
+        color: #1f1f1f;
+      }
+      /* 进出比例条：两段按真实占比分宽，颜色与下面的数字一一对应；占比极小时只留一条细线，不放大 */
+      .pet-bub-usage-bar {
+        display: flex;
+        height: calc(var(--f) * 0.3);
+        border-radius: calc(var(--f) * 0.15);
+        overflow: hidden;
+        background: rgba(43, 43, 43, 0.1);
+        margin: calc(var(--f) * 0.05) 0;
+      }
+      .pet-bub-usage-bar-in {
+        display: block;
+        height: 100%;
+        background: #3f6ea8;
+      }
+      .pet-bub-usage-bar-out {
+        display: block;
+        height: 100%;
+        background: #b4703c;
+      }
+      /* 配置错误提示（大声报错，不做静默兜底）：配置缺失/非法时显示，每 5s 自动重试 */
+      .pet-error {
+        position: fixed;
+        left: 50%;
+        top: 24px;
+        transform: translateX(-50%);
+        max-width: 80vw;
+        background: rgba(217, 79, 61, 0.95);
+        color: #fff;
+        border-radius: 12px;
+        padding: 10px 16px;
+        font-size: 13px;
+        line-height: 1.5;
+        display: none;
+        z-index: 999;
+        pointer-events: none;
+        word-break: break-all;
+      }
+      .pet-error.visible {
+        display: block;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        video.pet-video {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- alpha 修正滤镜：见 video.pet-video 的 filter 注释 -->
+    <svg width="0" height="0" aria-hidden="true">
+      <defs>
+        <filter id="dsh-pet-alpha-fix">
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="1" intercept="-0.0039215686" />
+          </feComponentTransfer>
+        </filter>
+      </defs>
+    </svg>
+    <div id="root"></div>
+    <div id="pet-error" class="pet-error"></div>
+    <!-- 共享纯逻辑（src/shared 的 iife 构建产物，window.PetShared）——经经典 script，避开 file:// ESM 的 CORS 限制。
+         桌面端同模式拆分：shared-core（纯逻辑）→ constants（基础设施）→ sprite（宠物本体与几何）→ sprite-*（原型扩展，
+         须排在 sprite.js 之后）→ events（事件联动）→ renderer（启动入口） -->
+    <script src="./shared-core.js"></script>
+    <script src="./constants.js"></script>
+    <script src="./sprite.js"></script>
+    <script src="./sprite/window-fit.js"></script>
+    <script src="./sprite/init.js"></script>
+    <script src="./sprite/playback.js"></script>
+    <script src="./sprite/motion.js"></script>
+    <script src="./sprite/input.js"></script>
+    <script src="./sprite/bubble.js"></script>
+    <script src="./sprite/menu.js"></script>
+    <script src="./events.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

@@ -83,9 +83,16 @@ type WizardGate struct {
 	Mode    string `json:"mode,omitempty"`
 }
 
+// gateOn: the local gate runs. "addressed" keeps it on too (#1318): the gate is not only who answers but every
+// turn's context — the wiki, lessons, each sender's 懂你 page, the task board (gate.go withTurnBlocksRef). With
+// no jev its /decide answers 503 and only the @-mentioned role answers (noModelFallback), which is what
+// "addressed" means; group_reply_all=false keeps unaddressed messages out at the platform. The panel's
+// addressed mode already kept the gate (gate_settings.go); only the wizard turned it off.
 func (r WizardRequest) gateOn() bool {
-	return r.Gate == nil || r.Gate.Enabled && r.Gate.Mode != "addressed"
+	return r.Gate == nil || r.Gate.Enabled
 }
+
+func (r WizardRequest) addressed() bool { return r.Gate != nil && r.Gate.Mode == "addressed" }
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
@@ -1012,7 +1019,22 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			res.Roles = append(res.Roles, rr)
 		} else if isQQ {
 			// the same connection the bot makes: a wrong address or token writes nothing
-			t := TestQQ(ctx, req.QQ.WSURL, req.QQ.Token, req.Language)
+			token := req.QQ.Token
+			if req.QQ.ClearToken {
+				token = ""
+			} else if token == "" {
+				project := r.ReuseProject
+				if project == "" {
+					project = sameQQAccount(snap, req.QQ.WSURL, nil)
+				}
+				raw, _ := snap.projectPlatform(project, "qq")["token"].(string)
+				var missing, empty string
+				token, missing, empty = expandEnvRefs(raw)
+				if missing != "" || empty != "" {
+					return fail(step+" qq", errors.New("saved NapCat token environment variable is missing or empty"))
+				}
+			}
+			t := TestQQ(ctx, req.QQ.WSURL, token, req.Language)
 			if t.Code != "ok" {
 				r := fail(step+" qq", errors.New(t.Message+"; "+t.Fix))
 				r.QQ = &t
@@ -1842,6 +1864,11 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 	for _, r := range pl.roles {
 		pw := WizardProjectWrite{Name: r.project, AgentType: r.AgentType, PlatformType: req.Platform, Options: map[string]any{}}
 		ex, exists := s.project(r.project)
+		// A QQ connection-only rerun must not fill in defaults in the existing agent table.
+		keepQQAgent := req.Platform == "qq" && r.reused && r.agentAsked == ""
+		if keepQQAgent {
+			pw.AgentType = ""
+		}
 		if !r.reused {
 			pw.WorkDir = r.workDir
 			pw.NameCustomized = r.NameCustomized
@@ -1849,7 +1876,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				pw.DisplayName = r.Name
 			}
 		}
-		if r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
+		if !keepQQAgent && r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
 			pw.AgentCmd = r.agentCmd
 		}
 		if r.Provider != nil && r.AgentType != "dsh" { // DSH has no cc-connect provider: dshRoleLaunch + the role's overlay
@@ -1938,8 +1965,13 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 		} else if req.Platform == "qq" {
 			q := req.QQ
-			// token always written: "" removes an old one, so what was tested is what is saved
-			pw.Options["ws_url"], pw.Options["allow_from"], pw.Options["token"] = q.WSURL, q.AllowFrom, q.Token
+			pw.Options["ws_url"], pw.Options["allow_from"] = q.WSURL, q.AllowFrom
+			// Match the QQ settings panel: blank keeps the stored token, including environment references.
+			if q.ClearToken {
+				pw.Options["token"] = ""
+			} else if q.Token != "" {
+				pw.Options["token"] = q.Token
+			}
 			// http_url is optional and the wizard does not test it: an empty field leaves the value
 			// saved from the panel alone (#710 件 5).
 			if q.HTTPURL != "" {
