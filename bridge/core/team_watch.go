@@ -495,8 +495,8 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			return time.Time{} // handed back, closed or parked meanwhile
 		default:
 			nh := h
-			if w.e.watchOwns(p, h.Owner) {
-				nh.Owner = "" // the posting bot owns the task: a lone bot does not mention itself
+			if w.e.watchOwns(p, h.Owner) || w.e.watchOwnerIsPerson(plat, h.Chat, h.Owner) {
+				nh.Owner = "" // the posting bot owns the task (a lone bot does not mention itself), or the owner is a person
 			}
 			if err := w.send(p, key, watchNudgeText(plat, nh)); err != nil {
 				slog.Warn("team watch: nudge failed; preserving the response window", "workspace", key, "error", err)
@@ -823,6 +823,14 @@ func (w *handoffWatch) ownerSpoke(key, owner string, since time.Time) (bool, err
 	if err != nil {
 		return false, err
 	}
+	if id != "" && w.e.watchTarget(plat+":", owner) == nil {
+		for _, m := range msgs {
+			if m.AuthorID == id && !m.IsBot {
+				id = "" // a person's id: the role working the task is this bot (IsSelf)
+				break
+			}
+		}
+	}
 	for _, m := range msgs {
 		mine := m.IsSelf
 		if id != "" {
@@ -954,7 +962,7 @@ func (w *handoffWatch) autoResume(p Platform, key string, h TeamHandoff) {
 	slog.Info("team watch: waking the workspace to continue", "workspace", key, "stopped", stopped)
 	owner := h.Owner
 	sp := sender.lookupReadyPlatform(plat)
-	if sp == nil || sender.watchOwns(sp, h.Owner) || owner == "" {
+	if sp == nil || owner == "" || sender.watchOwns(sp, h.Owner) || w.e.watchOwnerIsPerson(plat, h.Chat, owner) {
 		sender.wakeWatchRole(key, text, h.Title)
 		return
 	}

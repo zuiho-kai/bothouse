@@ -75,6 +75,40 @@ func (e *Engine) watchOwns(p Platform, owner string) bool {
 	return ok && watchOwnerID(m.SelfMention()) == watchOwnerID(owner)
 }
 
+// watchOwnerIsPerson: owner is a person, not a bot (a claim that named the user who asked for
+// the task). The watch talks only to the roles working a task: a person is never mentioned to
+// hand back or carry on, and their posts are not the task's progress. A person is an admin_from
+// id, or an author whose posts in chat (or the workspace) are not a bot's; a role of this bridge
+// and an id never seen there count as bots (the mention stays as before).
+func (e *Engine) watchOwnerIsPerson(plat, chat, owner string) bool {
+	id := watchOwnerID(owner)
+	if id == "" || e.watchTarget(plat+":", owner) != nil {
+		return false
+	}
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, a := range strings.Split(af, ",") {
+		if strings.TrimSpace(a) == id {
+			return true
+		}
+	}
+	r, ok := e.lookupReadyPlatform(plat).(ChannelHistoryReader)
+	if !ok {
+		return false
+	}
+	msgs, err := r.ChannelHistory(teamChannelID(chat), "", watchHistoryLimit)
+	if err != nil {
+		return false
+	}
+	for _, m := range msgs {
+		if m.AuthorID == id {
+			return !m.IsBot
+		}
+	}
+	return false
+}
+
 func (e *Engine) watchTarget(key, owner string) *Engine {
 	plat, _, _ := strings.Cut(key, ":")
 	for _, x := range e.watchEngines() {
@@ -699,8 +733,8 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		return
 	}
 	who := watchMention(plat, h.Owner)
-	if sender.watchOwns(p, h.Owner) {
-		who = sender.DisplayName() // a lone bot does not mention itself
+	if sender.watchOwns(p, h.Owner) || e.watchOwnerIsPerson(plat, h.Chat, h.Owner) {
+		who = sender.DisplayName() // a lone bot does not mention itself; a person is never mentioned
 	} else if msg == MsgWatchFailEscalate {
 		// Naming, not mentioning: a mention would start one more failing turn.
 		if t := e.watchTarget(key, h.Owner); t != nil {
