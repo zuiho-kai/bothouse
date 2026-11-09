@@ -31,3 +31,8 @@ func forceKillCmd(cmd *exec.Cmd) error {
 
 // codexOwnProcessGroup: exec cmds lead their own process group (Setpgid).
 const codexOwnProcessGroup = true
+
+// prepareAppServerCmd: no console windows on Unix and the app-server child
+// must keep the default attributes (it is not put in its own process group,
+// unlike the exec path).
+func prepareAppServerCmd(cmd *exec.Cmd) {}
