@@ -22,7 +22,7 @@
 | 重载配置 | 重启桌面窗口，按最新配置重建 | 不变：纯桌宠本地维护，跟 bothouse 无关 |
 | 睡觉、动作、显示位置、回到初始位置 | — | 不变 |
 
-外形：桌宠穿绑定角色的衣服。`bothouse pet run` 的本机接口 `/skin` 回第一个绑定角色（按 key 排序，去掉 `bridge:`），宿主 `/thumb` 先查包内 `assets/roles/<角色>/`：同名动画优先，拖拽类用 `drag.webm`，其余都用 `idle.webm`（`src/host/routes/assets.ts` 的 `bothouseSkinFile`）。现带龙娘、橘、彩虹猫、grok 娘四套（工作台像素小人做的 640×360 VP9-alpha），鲸鱼娘就是上游原素材。在 bothouse 下素材回 `no-cache`，换绑定后下一个动作就换装。
+外形：桌宠穿绑定角色的衣服。`bothouse pet run` 的本机接口 `/skin` 回第一个绑定角色（按 key 排序，去掉 `bridge:`），宿主 `/thumb` 先查包内 `assets/roles/<角色>/`：同名动画优先，拖拽类用 `drag.webm`，其余都用 `idle.webm`（`src/host/routes/assets.ts` 的 `bothouseSkinFile`）。现带龙娘、橘、彩虹猫、grok 娘四套（工作台像素小人按 12 倍最近邻放大的 1280×720 无损 VP9-alpha，头顶落在气泡之下），鲸鱼娘就是上游原素材。在 bothouse 下素材回 `no-cache`，换绑定后下一个动作就换装。
 
 待办只读：宿主 `GET /todos` 带 `readOnly: true`，面板藏掉添加框、勾选、删除和提醒提示。
 
