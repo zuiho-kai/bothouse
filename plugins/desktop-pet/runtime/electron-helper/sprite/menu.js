@@ -184,7 +184,11 @@ Object.assign(PetSprite.prototype, {
     try {
       const res = await fetch(BASE + '/skins', { cache: 'no-store' });
       const data = await res.json();
-      if (data && data.ok) this.skins = data;
+      if (!data || !data.ok) return;
+      const before = this.skins && this.skins.current;
+      this.skins = data;
+      // 形象变了（菜单换的或绑定角色变了）：重载当前这一段，地址里的形象标记跟着变
+      if (before && before !== data.current) this.reloadSkinAnim();
     } catch (e) {
       console.warn('[dsh-pet] 取形象列表失败', e);
     }
@@ -245,9 +249,13 @@ Object.assign(PetSprite.prototype, {
     } catch (e) {
       console.warn('[dsh-pet] 换形象后刷新表情图失败', e);
     }
-    // 同名动画换了内容：重新加载当前这一段（地址加个参数让播放器真的重取）
+  },
+
+  /** 换了形象：当前这一段按新地址（带形象标记）重新加载。 */
+  reloadSkinAnim() {
+    if (!this.anim) return;
     this.pending = null;
-    this.switchTo(this.anim || 'idle', false, null, this.assetBase + encodeURIComponent(this.anim || 'idle') + (S.ANIMATION_EXT || '.webm') + '?skin=' + Date.now());
+    this.switchTo(this.anim, !this.once);
   },
 
   async installSkin(id, label) {
