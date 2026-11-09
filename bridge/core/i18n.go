@@ -176,6 +176,7 @@ const (
 	MsgPreviousProcessing        MsgKey = "previous_processing"
 	MsgQueueFull                 MsgKey = "queue_full"
 	MsgMessageQueued             MsgKey = "message_queued"
+	MsgMessageQueuedWaiting      MsgKey = "message_queued_waiting"
 	MsgNoToolsAllowed            MsgKey = "no_tools_allowed"
 	MsgCurrentTools              MsgKey = "current_tools"
 	MsgCurrentSession            MsgKey = "current_session"
@@ -1342,6 +1343,15 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "📬 訊息已收到，將在目前任務完成後處理。",
 		LangJapanese:           "📬 メッセージを受信しました。現在のタスク完了後に処理します。",
 		LangSpanish:            "📬 Mensaje recibido — se procesará después de que termine la tarea actual.",
+	},
+	// #545: appended to MsgMessageQueued when the running turn has already taken minutes,
+	// so waiting reads as waiting. Args: how long the turn has run, queue depth.
+	MsgMessageQueuedWaiting: {
+		LangEnglish:            "⏳ The current task has been running for %s; your message is #%d in line and starts when it ends. To stop the current task now, send /stop.",
+		LangChinese:            "⏳ 当前任务已运行 %s，你的消息排在第 %d 位，任务结束后就开始。想立刻停下当前任务，发 /stop。",
+		LangTraditionalChinese: "⏳ 目前任務已執行 %s，你的訊息排在第 %d 位，任務結束後就開始。想立刻停下目前任務，傳 /stop。",
+		LangJapanese:           "⏳ 現在のタスクは %s 実行中です。メッセージは %d 番目で、終了後に開始します。今すぐ止めるには /stop。",
+		LangSpanish:            "⏳ La tarea actual lleva %s en ejecución; tu mensaje es el nº %d de la cola y empieza al terminar. Para detenerla ahora, envía /stop.",
 	},
 	MsgQueueFull: {
 		LangEnglish:            "📬 Message queue is full (%d pending). Please wait for current tasks to complete.",
