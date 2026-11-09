@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/tests/testutil"
 )
 
 func TestConfigureDSHExistingModelLogin(t *testing.T) {
@@ -22,8 +24,7 @@ func TestConfigureDSHExistingModelLogin(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
-			t.Setenv("USERPROFILE", home)
+			testutil.SetHome(t, home)
 			t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
 			t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
 			t.Setenv("DEEPSEEK_API_KEY", "")
