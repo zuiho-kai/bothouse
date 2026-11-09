@@ -22,11 +22,15 @@
 | 重载配置 | 重启桌面窗口，按最新配置重建 | 不变：纯桌宠本地维护，跟 bothouse 无关 |
 | 睡觉、动作、显示位置、回到初始位置 | — | 不变 |
 
+外形：桌宠穿绑定角色的衣服。`bothouse pet run` 的本机接口 `/skin` 回第一个绑定角色（按 key 排序，去掉 `bridge:`），宿主 `/thumb` 先查包内 `assets/roles/<角色>/`：同名动画优先，拖拽类用 `drag.webm`，其余都用 `idle.webm`（`src/host/routes/assets.ts` 的 `bothouseSkinFile`）。现带龙娘、橘、彩虹猫、grok 娘四套（工作台像素小人做的 640×360 VP9-alpha），鲸鱼娘就是上游原素材。在 bothouse 下素材回 `no-cache`，换绑定后下一个动作就换装。
+
+待办只读：宿主 `GET /todos` 带 `readOnly: true`，面板藏掉添加框、勾选、删除和提醒提示。
+
 状态：去掉了对 DSH 会话事件的订阅（删 `src/host/plugin/session-watch.ts`，`src/host/index.ts` 不再注册），
 工作状态只由 bothouse 的角色事件驱动：`bothouse pet run` 读 `/api/v1/roles/events` 和插件页的角色绑定，经桌宠的
 `/work-status`、`/broadcast` 推进来（`bridge/cmd/cc-connect/pet.go`）。
 
-改动点都带「bothouse fork」注释：`grep -rn 'bothouse fork' src runtime`。新增文件：`src/host/bothouse.ts`、
+改动点都带「bothouse fork」注释：`grep -rn 'bothouse fork' src runtime`。新增文件：`src/host/bothouse.ts`、`assets/roles/`、
 `scripts/bothouse-fetch-assets.mjs`、`bothouse-assets.json`、本文件。`package.json` 改了包名（bothouse-pet）、bin 名、
 仓库地址，peerDependencies 全标可选（独立模式用 shims 替身，不装 DSH）。
 

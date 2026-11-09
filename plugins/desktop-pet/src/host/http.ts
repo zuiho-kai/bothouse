@@ -10,6 +10,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, normalize, sep } from 'node:path';
 
 /** 不同扩展名对应的 Content-Type 映射 */
+
+/** bothouse fork：桌宠外形随角色绑定换，同名素材会变，所以在 bothouse 下每次都回源（本机回环，代价小）。 */
+const ASSET_CACHE = process.env.BOTHOUSE_PET_API ? 'no-cache' : 'public, max-age=3600';
 export const MIME: Record<string, string> = {
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
@@ -146,7 +149,7 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
       totalBytes = fstatSync(fd).size;
     } catch {
       // 极端情况下 fstat 拿不到：不发长度头，交给 Node 用 chunked 收尾（长度天然一致，只是没声明）
-      res.writeHead(200, { 'content-type': contentType, 'cache-control': 'public, max-age=3600' });
+      res.writeHead(200, { 'content-type': contentType, 'cache-control': ASSET_CACHE });
       stream.pipe(res);
       return;
     }
@@ -157,7 +160,7 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
         'content-type': contentType,
         'content-range': `bytes */${totalBytes}`,
         'accept-ranges': 'bytes',
-        'cache-control': 'public, max-age=3600',
+        'cache-control': ASSET_CACHE,
       });
       res.end();
       return;
@@ -171,7 +174,7 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
         'content-length': decision.end - decision.start + 1,
         'content-range': `bytes ${decision.start}-${decision.end}/${totalBytes}`,
         'accept-ranges': 'bytes',
-        'cache-control': 'public, max-age=3600',
+        'cache-control': ASSET_CACHE,
       });
       ranged.pipe(res);
       ranged.on('error', () => res.destroy());
@@ -182,7 +185,7 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
       'content-type': contentType,
       'content-length': totalBytes,
       'accept-ranges': 'bytes',
-      'cache-control': 'public, max-age=3600',
+      'cache-control': ASSET_CACHE,
     });
     stream.pipe(res);
   });

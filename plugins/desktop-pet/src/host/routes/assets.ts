@@ -13,6 +13,7 @@ import { petAvatarFile } from '../pet-avatar.ts';
 import { existsSync } from 'node:fs';
 import type { PetRouteDeps, RouteInput } from './types.ts';
 import type { RouteResult } from '../http.ts';
+import { bothouse } from '../bothouse.ts';
 
 /** 静态素材领域：未命中返回 undefined，命中返回应答。 */
 export async function handleAssetsRoutes(deps: PetRouteDeps, input: RouteInput): Promise<RouteResult | undefined> {
@@ -136,6 +137,11 @@ export async function handleAssetsRoutes(deps: PetRouteDeps, input: RouteInput):
       : (resolveExisting(userRootFor(e), name) ?? resolveExisting(assetRootFor(e), name));
   };
 
+  // bothouse fork：桌宠外形跟绑定的角色走。包内 assets/roles/<角色>/ 有这个角色的素材时，同名动画优先，
+  // 拖拽类用 drag，其余一律 idle；没有素材的角色（如鲸鱼娘）照上游素材。
+  const skin = await bothouseSkinFile(fileName);
+  if (skin !== undefined) return { kind: 'file', file: skin, contentType: MIME['.webm'] ?? 'video/webm' };
+
   let file = findAnim(ext);
 
   let servedExt = ext;
@@ -154,4 +160,20 @@ export async function handleAssetsRoutes(deps: PetRouteDeps, input: RouteInput):
   if (file === undefined) return { kind: 'text', status: 404, body: 'dsh-pet: asset not found' };
 
   return { kind: 'file', file, contentType: MIME[servedExt] ?? 'application/octet-stream' };
+}
+
+/** bothouse fork：绑定角色的外形素材（包内 assets/roles/<角色>/）；不在 bothouse 下或该角色没有素材时 undefined。 */
+async function bothouseSkinFile(fileName: string): Promise<string | undefined> {
+  const backend = bothouse();
+  if (backend === undefined) return undefined;
+  const role = await backend.skinRole();
+  if (role === undefined || !isValidPetId(role)) return undefined;
+  const dir = resolveAsset(join(PACKAGE_ROOT, 'assets', 'roles'), role);
+  if (dir === undefined || !existsSync(dir)) return undefined;
+  const base = fileName.replace(/\.(webm|mov)$/i, '');
+  return (
+    resolveExisting(dir, base + '.webm') ??
+    (base.includes('拖拽') ? resolveExisting(dir, 'drag.webm') : undefined) ??
+    resolveExisting(dir, 'idle.webm')
+  );
 }

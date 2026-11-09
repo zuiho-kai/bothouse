@@ -138,6 +138,8 @@ export const TODO_CSS = [
   '.dsh-pet-todo-err{flex:0 0 auto;padding:0 calc(var(--t)*0.923) calc(var(--t)*0.615);color:#d94f3d;',
   'font-size:.923em;white-space:pre-wrap;overflow-wrap:anywhere}',
   '.dsh-pet-todo-err[hidden]{display:none}',
+  // bothouse fork：只读清单不给写入口。
+  '.dsh-pet-todo-form[hidden],.is-readonly .dsh-pet-todo-check,.is-readonly .dsh-pet-todo-del,.is-readonly .dsh-pet-todo-hint{display:none}',
   // margin-top:auto 把提示钉在下半区底部：清单只有两行时，多出来的空当留在中间而不是堆在提示下面。
   '.dsh-pet-todo-hint{margin-top:auto;padding:calc(var(--t)*0.462) calc(var(--t)*0.923) calc(var(--t)*0.692);',
   'color:rgba(43,43,43,.4);font-size:.846em;text-align:center}',
