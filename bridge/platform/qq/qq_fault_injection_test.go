@@ -29,6 +29,8 @@ type faultUpstream struct {
 	mu       sync.Mutex
 	conns    []*websocket.Conn
 	attempts map[string]int // action -> 到达上游的次数
+	sent     map[string][]map[string]any
+	writeMu  sync.Mutex
 	done     chan struct{}
 	handlers sync.WaitGroup
 
@@ -44,7 +46,7 @@ type faultUpstream struct {
 
 func newFaultUpstream(t *testing.T) *faultUpstream {
 	t.Helper()
-	f := &faultUpstream{t: t, attempts: map[string]int{}, done: make(chan struct{})}
+	f := &faultUpstream{t: t, attempts: map[string]int{}, sent: map[string][]map[string]any{}, done: make(chan struct{})}
 	upgrader := websocket.Upgrader{}
 	f.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.handlers.Add(1)
@@ -65,7 +67,7 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 			}
 			action, _ := req["action"].(string)
 			if action == "get_login_info" {
-				_ = c.WriteJSON(map[string]any{"status": "ok", "retcode": 0, "echo": req["echo"],
+				_ = f.write(c, map[string]any{"status": "ok", "retcode": 0, "echo": req["echo"],
 					"data": map[string]any{"user_id": botUserID, "nickname": "FaultBot"}})
 				if stall {
 					<-f.done // 不再读；清理时仍能退出。
@@ -75,6 +77,8 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 			}
 			f.mu.Lock()
 			f.attempts[action]++
+			params, _ := req["params"].(map[string]any)
+			f.sent[action] = append(f.sent[action], params)
 			n := f.attempts[action]
 			respond := f.respond
 			drop := f.dropAfterRead
@@ -94,7 +98,7 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 					resp["echo"] = req["echo"]
 				}
 			}
-			if c.WriteJSON(resp) != nil {
+			if f.write(c, resp) != nil {
 				return
 			}
 		}
@@ -106,6 +110,22 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 		f.handlers.Wait()
 	})
 	return f
+}
+
+func (f *faultUpstream) write(c *websocket.Conn, value any) error {
+	f.writeMu.Lock()
+	defer f.writeMu.Unlock()
+	return c.WriteJSON(value)
+}
+
+func (f *faultUpstream) push(event map[string]any) {
+	f.t.Helper()
+	f.mu.Lock()
+	c := f.conns[len(f.conns)-1]
+	f.mu.Unlock()
+	if err := f.write(c, event); err != nil {
+		f.t.Fatal(err)
+	}
 }
 
 func (f *faultUpstream) closeConnections() {
@@ -165,7 +185,19 @@ func TestSlowUpstreamWriteDoesNotStallOtherConversations(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 2}, "short") }()
+	go func() {
+		defer close(done)
+		done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 2}, "short")
+	}()
+	t.Cleanup(func() {
+		cancel()
+		f.closeConnections()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("second sender did not exit after connection close")
+		}
+	})
 	select {
 	case err := <-done:
 		if err == nil {
@@ -189,7 +221,10 @@ func TestSlowReceiptDoesNotBlockOtherConversations(t *testing.T) {
 	p := f.start(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	firstDone := make(chan error, 1)
-	go func() { firstDone <- p.Send(ctx, &replyContext{messageType: "group", groupID: 1}, "A") }()
+	go func() {
+		defer close(firstDone)
+		firstDone <- p.Send(ctx, &replyContext{messageType: "group", groupID: 1}, "A")
+	}()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -213,7 +248,6 @@ func TestSlowReceiptDoesNotBlockOtherConversations(t *testing.T) {
 	}
 	select {
 	case err := <-firstDone:
-		firstDone <- err
 		t.Fatalf("A finished before its withheld receipt or cancellation: %v", err)
 	default:
 	}
