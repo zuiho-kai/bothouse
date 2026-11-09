@@ -24,7 +24,7 @@
 
 形象（`src/host/skins.ts`，清单 `assets/roles/skins.json`）：
 
-- 内置形象随包：橘（Claude）、龙娘（GPT）、鲸鱼娘（DeepSeek）、彩虹猫（Gemini）、grok 娘（Grok）、Cursor 娘（Cursor），
+- 内置形象随包：橘（Claude）、龙娘（GPT）、鲸鱼娘（DeepSeek）、彩虹猫（Gemini）、grok 娘（Grok），
   在 `assets/roles/<id>/`。按各自官方设定板用生图接口出 2×4 姿势表（站、眨眼、说话、思考、敲电脑、开心、打盹、吓一跳），
   抠图后做成 640×360 VP9-alpha 的 8 个状态动画（idle/talk/think/work/happy/sleep/drag/surprise.webm）和 `memes/` 表情图。
   上游 114 段动画名按关键词归到这 8 个状态（`stateForAnimation`），同名文件优先。
