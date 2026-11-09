@@ -312,7 +312,7 @@ func writeYAML(path string, doc *yaml.Node, mode os.FileMode) error {
 	if err := os.Chmod(tmp, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return renameDSHYAML(tmp, path)
 }
 
 // ── dsh web in the background ──────────────────────────────────
