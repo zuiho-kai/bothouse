@@ -192,7 +192,8 @@ func (a *petAPI) handleChat(w http.ResponseWriter, r *http.Request) {
 		t.mu.Unlock()
 	}
 	text := "（主人在桌面桌宠里对你说，你的回复会显示在桌宠的对话框里）\n" + strings.TrimSpace(body.Text)
-	if err := a.wakeFn(role, session, text); err != nil {
+	// role keys are "bridge:<project>" (role-bindings); /wake wants the bare project name.
+	if err := a.wakeFn(strings.TrimPrefix(role, "bridge:"), session, text); err != nil {
 		drop()
 		petAPIFail(w, http.StatusBadGateway, "叫醒 "+name+" 失败："+err.Error())
 		return
