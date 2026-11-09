@@ -1,12 +1,18 @@
 package antigravity
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/chenhg5/cc-connect/core"
 )
+
+var _ core.SessionScopedUsageCapability = (*Agent)(nil)
 
 // Source: the native quota decoder and recorded retrieveUserQuotaSummary
 // fixtures in usage(_cloud)_test.go. Gemini Flash/Pro share a pool; Claude/GPT
@@ -24,6 +30,12 @@ func quotaGroupForModel(model string, argon bool) string {
 		return ""
 	}
 }
+
+// UsageScopedToSession implements core.SessionScopedUsageCapability. A running
+// session holds its own transport (native stream listener or the classic cloud
+// token) and reports that account/model, so a footer read after a queued
+// provider switch still describes the session's creation scope.
+func (a *Agent) UsageScopedToSession() bool { return true }
 
 func (a *Agent) QuotaScope(model string) (string, string) {
 	model = a.usageModel(model)
@@ -51,10 +63,23 @@ func (a *Agent) QuotaScope(model string) (string, string) {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	account := filepath.Join(home, ".gemini", "antigravity-cli")
+	account := cloudQuotaAccount(home)
+	return account, quotaGroupForModel(model, argon)
+}
+
+func cloudQuotaAccount(home string) string {
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	raw, _ := os.ReadFile(filepath.Join(dir, "antigravity-oauth-token"))
+	return quotaTokenAccount(raw, dir)
+}
+
+func quotaTokenAccount(raw []byte, fallback string) string {
 	// Stable OAuth subject, not the rotating access token. This is only an
 	// identity hint for local quota attribution, never authentication.
-	if raw, err := os.ReadFile(filepath.Join(account, "antigravity-oauth-token")); err == nil {
+	if len(raw) > 0 {
 		var token struct {
 			IDToken string `json:"id_token"`
 		}
@@ -66,10 +91,13 @@ func (a *Agent) QuotaScope(model string) (string, string) {
 					Subject string `json:"sub"`
 				}
 				if err == nil && json.Unmarshal(payload, &claims) == nil && claims.Subject != "" {
-					account = claims.Subject
+					return claims.Subject
 				}
 			}
 		}
+		// Without a subject, hide old data on any credential change rather
+		// than treating every account in one directory as the same account.
+		return fmt.Sprintf("credential:%x", sha256.Sum256(raw))
 	}
-	return account, quotaGroupForModel(model, argon)
+	return fallback
 }

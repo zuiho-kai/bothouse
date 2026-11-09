@@ -39,7 +39,17 @@ func mergeUsageReports(base, update *core.UsageReport) *core.UsageReport {
 		return cloneUsageReport(update)
 	}
 	merged := cloneUsageReport(base)
-	merged.ObservedAt = update.ObservedAt
+	for i := range merged.Buckets {
+		for j := range merged.Buckets[i].Windows {
+			if merged.Buckets[i].Windows[j].ObservedAt.IsZero() {
+				merged.Buckets[i].Windows[j].ObservedAt = base.ObservedAt
+			}
+		}
+	}
+	// A metadata-only update did not observe any quota window.
+	if len(update.Buckets) > 0 {
+		merged.ObservedAt = update.ObservedAt
+	}
 	if update.Plan != "" {
 		merged.Plan = update.Plan
 	}
@@ -48,6 +58,12 @@ func mergeUsageReports(base, update *core.UsageReport) *core.UsageReport {
 		merged.Credits = &credits
 	}
 	for _, ub := range update.Buckets {
+		ub.Windows = append([]core.UsageWindow(nil), ub.Windows...)
+		for i := range ub.Windows {
+			if ub.Windows[i].ObservedAt.IsZero() {
+				ub.Windows[i].ObservedAt = update.ObservedAt
+			}
+		}
 		idx := matchUsageBucket(merged.Buckets, ub)
 		if idx < 0 {
 			ub.Windows = append([]core.UsageWindow(nil), ub.Windows...)

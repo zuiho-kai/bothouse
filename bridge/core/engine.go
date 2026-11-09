@@ -9927,7 +9927,25 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
+			// The footer may run after a queued provider switch. Attribute this
+			// existing session read to its creation scope, just like terminal events.
+			var scope quotaScope
+			if adapter, ok := agent.(SessionScopedUsageCapability); ok && adapter.UsageScopedToSession() {
+				e.interactiveMu.Lock()
+				for _, state := range e.interactiveStates {
+					if state.agentSession == session {
+						scope = state.quotaScope
+						break
+					}
+				}
+				e.interactiveMu.Unlock()
+			}
+			// An untracked session has no proven creation scope; its footer
+			// still works, but do not assign its report to the current account.
 			if report, err := reporter.GetUsage(ctx); err == nil {
+				if scope.Provider != "" {
+					e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
+				}
 				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
@@ -10072,6 +10090,9 @@ func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScop
 	if report == nil || report.ObservedAt.IsZero() || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
 		return
 	}
+	if report.AccountID != "" && report.AccountID != scope.Account {
+		return // The credential used by a delayed read must match its captured scope.
+	}
 	snapshot := *report
 	snapshot.Buckets = nil
 	for _, bucket := range report.Buckets {
@@ -10110,20 +10131,42 @@ func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
 	if ent == nil || ent.report == nil || ent.reportScope != scope.key() || ent.reportAt.IsZero() || time.Since(ent.reportAt) >= replyFooterUsageMaxAge {
 		return nil
 	}
-	// A reported reset supersedes a cached percentage, even before the normal
-	// footer cache lifetime expires. Never turn an old zero into an invented 100%.
+	// Sparse updates retain independently observed windows. A newer primary
+	// must not extend an untouched weekly window or its relative reset.
+	snapshot := *ent.report
+	snapshot.Buckets = nil
+	now := time.Now()
 	for _, bucket := range ent.report.Buckets {
+		windows := make([]UsageWindow, 0, len(bucket.Windows))
 		for _, window := range bucket.Windows {
+			observed := window.ObservedAt
+			if observed.IsZero() {
+				observed = ent.reportAt
+			}
+			if now.Sub(observed) >= replyFooterUsageMaxAge {
+				continue
+			}
 			reset := time.Unix(window.ResetAtUnix, 0)
 			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
-				reset = ent.reportAt.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+				reset = observed.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
 			}
-			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(time.Now()) {
-				return nil
+			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(now) {
+				if window.ObservedAt.IsZero() {
+					return nil // Preserve reset behavior for adapters without per-window observations.
+				}
+				continue
 			}
+			windows = append(windows, window)
+		}
+		bucket.Windows = windows
+		if len(windows) > 0 {
+			snapshot.Buckets = append(snapshot.Buckets, bucket)
 		}
 	}
-	return ent.report
+	if len(snapshot.Buckets) == 0 {
+		return nil
+	}
+	return &snapshot
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds

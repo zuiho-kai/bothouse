@@ -1700,6 +1700,9 @@ func mapAppServerRateLimits(payload appServerRateLimitsResponse) *core.UsageRepo
 		}
 
 		windows := appServerUsageWindows(snapshot)
+		for i := range windows {
+			windows[i].ObservedAt = report.ObservedAt
+		}
 		if len(windows) == 0 {
 			continue
 		}

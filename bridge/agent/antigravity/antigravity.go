@@ -248,7 +248,20 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, sessi
 	}
 	// The reply footer reads quota from the session (CachedUsage); agy's
 	// account quota lives on the Agent, so hand the session a view of it.
-	s.cachedUsage = a.CachedUsage
+	account, _ := a.QuotaScope(model)
+	s.cachedUsage = func() *core.UsageReport {
+		current, _ := a.QuotaScope(model)
+		if current != account {
+			return nil
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Same nonblocking refresh behavior as Agent.CachedUsage.
+		report, _ := a.cloudUsage(ctx, model)
+		if report != nil && report.AccountID == account {
+			return report
+		}
+		return nil
+	}
 	return s, nil
 }
 
