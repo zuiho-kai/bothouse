@@ -1,0 +1,51 @@
+# electron-builder 配置 —— 把「单进程桌宠」打成双击可运行的 Windows 应用。
+#
+# 关键取舍：
+#   1. 不带 node_modules：`lib/app.js` 已把 zod 打进来，其余外部只有 `electron` 与两个
+#      永不执行的动态 import（@electron/get、@electron-internal/extract-zip，见 tsdown.config.mjs）。
+#   2. electronDist 指向本机已解压的 Electron（默认 ~/.dsh/electron），由 scripts/dist.mjs 注入，
+#      避免每次打包都从 GitHub 重新下一套 110 MB —— 这台机器 github.com 不通。
+#   3. asar 打开：素材（webm 51 MB）留在包内由主进程 fs 读取；没有原生模块需要 unpack。
+appId: com.pc2005.dsh-pet
+productName: dsh-pet
+copyright: dsh-pet contributors
+
+directories:
+  output: dist-app
+
+# 应用主进程入口不是插件入口（package.json 的 main 必须留给 DSH 插件加载），所以在打包元数据里覆盖
+extraMetadata:
+  main: lib/app.js
+
+files:
+  - lib/**
+  - runtime/**
+  # 素材只带运行时要用的五类：动画（webm）、字体、表情包、头像、点击音效；
+  # `assets/preview` 是 README 的 GIF（64 MB），插件自己的 files 白名单也不发它，这里同样排除。
+  # 这份清单与 package.json 的 files 是两处独立真相：新增素材目录时必须两边都加，
+  # 否则插件模式（读真实文件）正常、打包应用（读 asar）里那个功能静默失效。
+  - assets/webm/**
+  - assets/fonts/**
+  - assets/pic/**
+  - assets/memes/**
+  - assets/sound/**
+  - assets/config.jsonc
+  - assets/logo.png
+  - package.json
+  - '!node_modules/**'
+
+asar: true
+npmRebuild: false
+
+# 与 package.json 的 @electron/get 默认下载版本保持一致；改版本时两处一起改
+electronVersion: 43.3.0
+# electronDist 由 scripts/dist.mjs 经 `--config.electronDist=<本机解压目录>` 传入：
+# 这个字段不做 ${env.*} 宏展开（实测会原样当成路径），所以不能写死在 YAML 里。
+
+# 只出「解包目录」一种形态：分发时把 win-unpacked 整个压成 zip 即可（绿色版）。
+# 不做 portable（每次启动自解压，慢）也不做 nsis（安装包对自用场景没有增量价值）——
+# 真要回归安装包，把 target 改回 [nsis] 并补回 nsis 段（向导/快捷方式/卸载登记）即可。
+win:
+  icon: assets/logo.png
+  target:
+    - dir

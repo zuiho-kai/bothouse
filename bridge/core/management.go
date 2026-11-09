@@ -292,6 +292,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	prefix := "/api/v1"
 
 	mux.HandleFunc(prefix+"/usage/", m.wrap(m.handleUsage))
+	mux.HandleFunc(prefix+"/team/board", m.wrap(m.handleTeamBoard)) // desktop pet 待办 (management_team_board.go)
 
 	// System
 	mux.HandleFunc(prefix+"/version", m.handlePublicVersion)
