@@ -24,9 +24,10 @@
 
 形象（`src/host/skins.ts`，清单 `assets/roles/skins.json`）：
 
-- 内置形象随包：橘（Claude）、龙娘（GPT）、鲸鱼娘（DeepSeek）、彩虹猫（Gemini）、grok 娘（Grok），
-  在 `assets/roles/<id>/`。按各自官方设定板用生图接口出 2×4 姿势表（站、眨眼、说话、思考、敲电脑、开心、打盹、吓一跳），
-  抠图后做成 640×360 VP9-alpha 的 8 个状态动画（idle/talk/think/work/happy/sleep/drag/surprise.webm）和 `memes/` 表情图。
+- 内置形象随包，在 `assets/roles/<id>/`：自家五个角色（橘、龙娘、鲸鱼娘、彩虹猫、grok 娘，按官方设定板生图），以及按模型命名的
+  Claude、GPT、DeepSeek、Gemini、Grok、Cursor（照鲸鱼娘那套高清 Q 版画风新设计；Grok 和 grok 娘是两个形象）。每套是 2×4 姿势表
+  （站、眨眼、说话、思考、敲电脑、开心、打盹、吓一跳）抠图后做成的 640×360 VP9-alpha 8 个状态动画
+  （idle/talk/think/work/happy/sleep/drag/surprise.webm）和 `memes/` 表情图。
   上游 114 段动画名按关键词归到这 8 个状态（`stateForAnimation`），同名文件优先。
 - 穿哪套：右键「换形象」里选过就用选的（存 `<用户根>/bothouse-skin.json`）；没选 = 跟绑定的角色走（`bothouse pet run` 的 `/skin`，
   按清单 aliases 认工作台成员名）；都没有用 default（橘）。表情包池和「配图」菜单跟着形象的 `memes/` 走。

@@ -42,6 +42,12 @@ Object.assign(PetSprite.prototype, {
     // （桌面窗口是 file://，相对路径取不到图）。
     const memeBranch = S.buildMemeBranch(this.pet, (name) => S.memeThumbUrl(BASE, this.pet.assetRoot, name));
     if (memeBranch) tools.push(memeBranch);
+    // bothouse fork：形象（内置 + 已装的推荐形象）和推荐形象（别人家的开源形象，点了才下载）。
+    // 列表右键时顺手刷新，供下一次用；首次在 initPanels 里预取。
+    const skinBranches = this.buildSkinBranches();
+    void this.refreshSkins();
+    // 放在配图之后、睡觉之前：桌宠在窗口底部，菜单越靠下子菜单越容易被窗口底边裁掉
+    tools.push(...skinBranches);
     // 睡觉/起来：睡着时这一项是「起来」（点它等于叫醒），醒着时是「睡觉」。两种文案共用一个位置，
     // 排在「配图」之后、动作树之前（与浏览器端的菜单同一排法）。
     // 该条目没配 animations.sleep 就整项不出现——与配置注释「不写 = 没有睡觉功能」一致。
@@ -49,13 +55,8 @@ Object.assign(PetSprite.prototype, {
       if (this.sleeping) tools.push({ label: '起来', action: 'wake', hint: S.SLEEP_HOTKEY_HINT });
       else tools.push({ label: '睡觉', action: 'sleep', hint: S.SLEEP_HOTKEY_HINT });
     }
-    // bothouse fork：形象（内置 + 已装的推荐形象）和推荐形象（别人家的开源形象，点了才下载）。
-    // 列表右键时顺手刷新，供下一次用；首次在 initPanels 里预取。
-    const skinBranches = this.buildSkinBranches();
-    void this.refreshSkins();
     // 动作树之后是维护类：显示位置 → 重载配置 → 回到初始位置。
     const tail = [
-      ...skinBranches,
       // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置，由宿主重载生效。
       // 与浏览器端注入同一份子菜单，两端文案与取值不会漂移。不就地开关窗：窗口是进程启动时按
       // DSH_PET_PETS 一次性建的，就地增删既改不了磁盘配置也改不了窗口数量。
@@ -194,9 +195,23 @@ Object.assign(PetSprite.prototype, {
     if (!sk) return [];
     const mark = (on, label) => (on ? '✓ ' : '　') + label;
     const installed = sk.recommended.filter((r) => r.installed);
+    // 内置形象按清单 group 分子菜单（一列太长会出窗口），没分组的直接平铺
+    const groups = [];
+    const flat = [];
+    for (const b of sk.builtin) {
+      const leaf = { label: mark(sk.chosen === b.id, b.name), action: 'skin', skin: b.id };
+      if (!b.group) {
+        flat.push(leaf);
+        continue;
+      }
+      let g = groups.find((x) => x.label === b.group);
+      if (!g) groups.push((g = { label: b.group, children: [] }));
+      g.children.push(leaf);
+    }
     const pick = [
       { label: mark(sk.chosen === '', '跟绑定的角色走'), action: 'skin', skin: '' },
-      ...sk.builtin.map((b) => ({ label: mark(sk.chosen === b.id, b.name), action: 'skin', skin: b.id })),
+      ...groups,
+      ...flat,
       ...installed.map((r) => ({ label: mark(sk.chosen === r.id, r.name), action: 'skin', skin: r.id })),
     ];
     const rec = sk.recommended.length

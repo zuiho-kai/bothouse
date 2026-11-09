@@ -1,57 +1,109 @@
 {
- "_comment": "bothouse fork：桌宠形象清单，见 src/host/skins.ts。builtin 随包（assets/roles/<id>/，自家角色按官方设定板生图）；recommended 是别人家的开源形象，包里不带文件，用户点了才下载。default = 没选也没绑定角色时穿的。",
+ "_comment": "bothouse fork：桌宠形象清单，见 src/host/skins.ts。builtin 随包（assets/roles/<id>/）：前五个是自家角色（按官方设定板生图），后面是按模型命名的形象（照鲸鱼娘那套高清 Q 版画风新设计）；绑定角色按 id 和 aliases 认，自家角色排前面先匹配。recommended 是别人家的开源形象，包里不带文件，用户点了才下载。default = 没选也没绑定角色时穿的。",
  "default": "maomao",
  "builtin": [
   {
    "id": "maomao",
-   "name": "橘（Claude）",
+   "name": "橘",
    "aliases": [
-    "橘",
-    "Claude",
-    "cjiang",
-    "C酱"
-   ]
+    "橘"
+   ],
+   "group": "自家角色"
   },
   {
    "id": "longniang",
-   "name": "龙娘（GPT）",
+   "name": "龙娘",
    "aliases": [
-    "龙娘",
-    "GPT",
-    "Codex",
-    "gge",
-    "G哥"
-   ]
+    "龙娘"
+   ],
+   "group": "自家角色"
   },
   {
    "id": "jingyu",
-   "name": "鲸鱼娘（DeepSeek）",
+   "name": "鲸鱼娘",
    "aliases": [
     "鲸鱼娘",
-    "DeepSeek",
-    "deep",
     "鲸鱼",
     "大肥鱼",
     "肥鱼"
-   ]
+   ],
+   "group": "自家角色"
   },
   {
    "id": "caihongmao",
-   "name": "彩虹猫（Gemini）",
+   "name": "彩虹猫",
    "aliases": [
-    "彩虹猫",
-    "Gemini",
-    "gjiang"
-   ]
+    "彩虹猫"
+   ],
+   "group": "自家角色"
   },
   {
    "id": "grok",
-   "name": "grok娘（Grok）",
+   "name": "grok娘",
    "aliases": [
-    "grok娘",
+    "grok娘"
+   ],
+   "group": "自家角色"
+  },
+  {
+   "id": "claude",
+   "name": "Claude",
+   "aliases": [
+    "Claude",
+    "cjiang",
+    "C酱"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "gpt",
+   "name": "GPT",
+   "aliases": [
+    "GPT",
+    "ChatGPT",
+    "Codex",
+    "OpenAI",
+    "gge",
+    "G哥"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "deepseek",
+   "name": "DeepSeek",
+   "aliases": [
+    "DeepSeek",
+    "deep",
+    "深度求索"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "gemini",
+   "name": "Gemini",
+   "aliases": [
+    "Gemini",
+    "gjiang"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "grok-ai",
+   "name": "Grok",
+   "aliases": [
     "Grok",
     "xAI"
-   ]
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "cursor",
+   "name": "Cursor",
+   "aliases": [
+    "Cursor",
+    "Cursor娘"
+   ],
+   "group": "模型"
   }
  ],
  "recommended": [
