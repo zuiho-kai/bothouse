@@ -1,6 +1,8 @@
 import { connect } from 'node:net';
 import { resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+export const shellQuote = value => `'${String(value).replaceAll("'", `'"'"'`)}'`;
 
 export function isMemoryPath(path) {
   const root = process.env.QQ_MEMORY_ROOT;
@@ -28,7 +30,7 @@ export function memoryRequest(request, capability = process.env.QQ_MEMORY_CAPABI
 }
 
 export function memoryInstructions() {
-  return `记忆写入须用文件编辑器；shell 对记忆只读。先用 shell 执行 ${JSON.stringify(process.execPath)} ${JSON.stringify(new URL('./client.mjs', import.meta.url).pathname)} sources 查询本会话真人原话。每条新事实须带 原话：「逐字摘录」；来源：<查询返回的完整id>。来源的 speaker_id 才是发言者，不把转发、引语、转述当其自述。保留原有 self、人、群文件布局。核对失败按工具错误改写或放弃，不绕过。` ;
+  return `记忆写入须用文件编辑器；shell 对记忆只读。先用 shell 执行 ${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./client.mjs', import.meta.url)))} sources 查询本会话真人原话。每条新事实须带 原话：「逐字摘录」；来源：<查询返回的完整id>。来源的 speaker_id 才是发言者，不把转发、引语、转述当其自述。保留原有 self、人、群文件布局。核对失败按工具错误改写或放弃，不绕过。`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -1,9 +1,9 @@
 // Real installed QQ DSH tools, no model, network chat, or production writes.
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
-import { memoryRequest } from './client.mjs';
+import { memoryRequest, shellQuote } from './client.mjs';
 const installed = process.env.QQ_TEST_DSH_MODULES;
 const load = name => import(pathToFileURL(join(installed, name, 'lib/index.js')));
 const { Context } = await load('cordis');
@@ -21,7 +21,6 @@ await ctx.plugin(await load('dsh-tool-str-replace-editor'));
 await ctx.plugin(await load('dsh-tool-bash'), { enableRunInBackground: false });
 const signal = new AbortController().signal;
 const path = join(process.env.QQ_MEMORY_ROOT, '101.md');
-const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const execute = (name, arguments_) => ctx.tools.execute({ name, callId: name, arguments: arguments_, signal });
 const shell = command => execute('bash', { description: 'Isolated QQ memory boundary verification', command, timeoutMs: 5000 });
 const results = [];
@@ -33,7 +32,7 @@ try {
   assert.deepEqual(sources.map(source => source.text), ['我喜欢喝乌龙茶', '她说：「我讨厌喝红茶」', '我喜欢吃苹果']);
   const source = sources.find(source => source.text === '我喜欢喝乌龙茶');
   const body = `- 偏好乌龙茶；原话：「我喜欢喝乌龙茶」；来源：${source.id}\n`;
-  const query = await shell(`${shellQuote(process.execPath)} ${shellQuote(new URL('./client.mjs', import.meta.url).pathname)} sources`);
+  const query = await shell(`${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./client.mjs', import.meta.url)))} sources`);
   assert.equal(query.value.exitCode, 0, JSON.stringify(query));
   assert.deepEqual(JSON.parse(query.value.stdout.text).map(record => record.id), sources.map(record => record.id));
   results.push('shell-source-query-scoped-and-authenticated');
@@ -63,7 +62,11 @@ try {
     ['forge-source', `printf forged > ${shellQuote(join(process.env.QQ_TEST_PEOPLE, 'qq-101.jsonl'))}`],
   ]) {
     const rejected = await shell(command);
-    assert.ok(rejected.isError || rejected.value?.exitCode !== 0 || rejected.value?.signal, name + ': ' + JSON.stringify(rejected));
+    assert.ok(rejected.value, name + ': shell process was not observed');
+    assert.equal(rejected.value.timedOut, false, name);
+    assert.equal(rejected.value.aborted, false, name);
+    assert.equal(rejected.value.signal, null, name);
+    assert.notEqual(rejected.value.exitCode, 0, name + ': ' + JSON.stringify(rejected));
     assert.equal(await readFile(path, 'utf8'), body, name);
     results.push(name + '-blocked');
   }
