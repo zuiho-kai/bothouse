@@ -28,7 +28,7 @@ const action = (id: string) => ({ id, name: id, sources: { webp: 'spritesheet/' 
 const packs = { installed: [{ id: 'local-pack', name: '本机占位包', format: 'webp-sprite' as const,
   localPath: '/isolated/pets/local-pack', actionCount: 2, actions: [action('idle'), action('working')] }], baseDir: '/isolated/pets' };
 const pluginState = { profile: 'test', profile_dir: '/isolated', can_install: false, writes_allowed: true,
-  allow_non_registry: false, registry: 'npm', plugins: [{ name: 'installed-plugin', version: '1.0.0', layer: true, enabled: true, shipped: false }] };
+  allow_non_registry: false, registry: 'npm', plugins: [{ name: 'installed-plugin', version: '1.0.0', layer: true, client_only: false, enabled: true, shipped: false }] };
 beforeEach(() => {
   vi.resetAllMocks(); api.setToken('test-token');
   vi.mocked(listRoles).mockResolvedValue({ roles: [] });
