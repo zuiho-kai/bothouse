@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -588,6 +589,11 @@ var credentialQueryNames = map[string]bool{
 // isCredentialQueryName also catches family names (x-api-key, relay_token, client_secret)
 // so a relay inventing its own spelling is still covered.
 func isCredentialQueryName(name string) bool {
+	// Decode only for matching; the caller keeps the original query spelling.
+	// Invalid escapes retain the existing raw-name matching behavior.
+	if decoded, err := url.QueryUnescape(name); err == nil {
+		name = decoded
+	}
 	n := strings.ToLower(name)
 	if credentialQueryNames[n] {
 		return true

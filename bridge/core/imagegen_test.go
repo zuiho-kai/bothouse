@@ -731,6 +731,51 @@ func TestImageGen_StatusRedactsBaseURLCredentials(t *testing.T) {
 	}
 }
 
+// Encoded credential names must be recognized without reserializing the URL or
+// changing the encoding of ordinary parameters (review 466).
+func TestImageGen_StatusRedactsEncodedCredentialNames(t *testing.T) {
+	cases := []struct{ name, baseURL, want string }{
+		{"encoded_token", "https://relay.example/v1?%74oken=sk-example-secret", "https://relay.example/v1?%74oken=***"},
+		{"encoded_mixed_case_key", "https://relay.example/v1?%41PI%5fKEY=sk-example-secret&%73ize=1024%78%31%30%32%34", "https://relay.example/v1?%41PI%5fKEY=***&%73ize=1024%78%31%30%32%34"},
+		{"ordinary_encoded_parameter", "https://relay.example/v1?%73ize=1024%78%31%30%32%34", "https://relay.example/v1?%73ize=1024%78%31%30%32%34"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgmt, ts, _ := testManagementServer(t, "tok")
+			mgmt.SetImageGenerator(testImageGenerator(t, tc.baseURL))
+			r := mgmtGet(t, ts.URL+"/api/v1/image-gen", "tok")
+			if strings.Contains(string(r.Data), "sk-example-secret") {
+				t.Fatalf("status echoed encoded query credential: %s", r.Data)
+			}
+			var st struct {
+				BaseURL string `json:"base_url"`
+			}
+			if err := json.Unmarshal(r.Data, &st); err != nil {
+				t.Fatalf("decode status: %v", err)
+			}
+			if st.BaseURL != tc.want {
+				t.Fatalf("base_url = %q, want %q", st.BaseURL, tc.want)
+			}
+		})
+	}
+}
+
+func TestImageGen_RequestErrorsRedactEncodedCredentialNames(t *testing.T) {
+	g := testImageGenerator(t, "https://relay.example/v1?%74oken=sk-example-secret&%73ize=1024%78%31%30%32%34")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Exercise the real URL error without sending a request to the relay.
+	_, err := g.Generate(ctx, "x")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("request error lost context.Canceled: %v", err)
+	}
+	if strings.Contains(err.Error(), "sk-example-secret") {
+		t.Fatalf("request error leaked encoded query credential: %v", err)
+	}
+	if !strings.Contains(err.Error(), "https://relay.example/v1?%74oken=***&%73ize=1024%78%31%30%32%34") {
+		t.Fatalf("request error changed the endpoint or ordinary parameter: %v", err)
+	}
+}
+
 // A provider call that fails at the transport leaves a *url.Error quoting the request URL.
 // Go masks a userinfo password but keeps the user name and the whole query string, so the
 // key survived into the 502 text and the log (review 466).
