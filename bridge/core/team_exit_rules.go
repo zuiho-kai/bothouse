@@ -145,6 +145,24 @@ func parseExitKindTurn(text string) (kind, body string, ok bool) {
 	return "", "", false
 }
 
+// exitReplyText picks the text the workspace exit checks read (#1270): the turn's last message
+// when the adapter reported one (Metadata MetaLastReply, else Content) and it starts with a marker,
+// otherwise the whole turn, where parseExitKindTurn still finds a marker after progress text.
+func exitReplyText(event Event, full string) string {
+	for _, c := range []string{metaString(event.Metadata, MetaLastReply), event.Content} {
+		c = strings.TrimRight(ctxSelfReportRe.ReplaceAllString(c, ""), "\n ")
+		if _, _, ok := parseExitKind(c); ok {
+			return c
+		}
+	}
+	return full
+}
+
+func metaString(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
+
 // lastExitMarker is the byte offset of the last [ask]/[report] marker that starts a line or follows
 // a sentence end; -1 when none. Markers inside a sentence or a quote (「[ask]」, `[report]`) do not count.
 func lastExitMarker(text string) int {

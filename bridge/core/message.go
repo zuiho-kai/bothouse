@@ -544,6 +544,13 @@ const MetaContextCompacted = "context_compacted"
 // rewrite both.
 const MetaStopBlockedReply = "stop_blocked_reply"
 
+// MetaLastReply carries the turn's last assistant message (Metadata key, string) on a
+// turn-ending EventResult, for adapters whose Content stays empty so the chat still gets
+// the whole turn (#1270). Workspace [ask]/[report] detection reads it first: the engine
+// otherwise joins every text event of the turn, so a progress line before the marker
+// pushed it off the first line and the handback was dropped.
+const MetaLastReply = "last_reply"
+
 // MetaQuotaExhausted marks a turn-ending Event (EventResult or EventError) whose
 // turn ended because the agent's account/model quota is used up (maomao fork).
 // The value is the reset time as the CLI printed it (string, may be empty).
