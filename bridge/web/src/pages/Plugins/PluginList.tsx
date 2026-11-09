@@ -532,15 +532,19 @@ export default function PluginList() {
                         {p.enabled ? T.off : T.on}
                       </Button>
                     )}
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => openUninstall(p)}
-                      disabled={installing || busy !== '' || uninstalling}
-                      data-testid={`plugin-${p.name}-uninstall`}
-                    >
-                      {T.uninstall}
-                    </Button>
+                    {/* A read-only page (no management token) cannot uninstall: the backend refuses
+                        it anyway, so the button is not offered rather than failing on click. */}
+                    {state?.writes_allowed && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => openUninstall(p)}
+                        disabled={installing || busy !== '' || uninstalling}
+                        data-testid={`plugin-${p.name}-uninstall`}
+                      >
+                        {T.uninstall}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>

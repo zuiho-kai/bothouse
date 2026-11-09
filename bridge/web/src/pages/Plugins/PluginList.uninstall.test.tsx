@@ -118,6 +118,17 @@ describe('插件卸载', () => {
     expect(byTestId('plugin-@deepseek-ai/dsh-experimental-client-ui-discord-uninstall')).not.toBeNull();
   });
 
+  it('offers no uninstall button when the API has no token to write with', async () => {
+    const before = removable.writes_allowed;
+    removable.writes_allowed = false;
+    try {
+      await render();
+      expect(byTestId('plugin-demo-bundle-uninstall')).toBeNull();
+    } finally {
+      removable.writes_allowed = before;
+    }
+  });
+
   it('keeps the confirm button locked until the package name is typed', async () => {
     await render();
     await openDialog();
