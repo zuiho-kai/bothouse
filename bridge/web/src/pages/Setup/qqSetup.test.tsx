@@ -146,6 +146,22 @@ it.each([false, true])('reuses an existing QQ role and only changes CLI when sel
   expect(role.edit_persona).toBeUndefined();
 });
 
+it('clears the saved token only through the explicit control', async () => {
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => root!.render(<MemoryRouter initialEntries={['/setup?platform=qq']}><SetupWizard /></MemoryRouter>));
+  await act(async () => button(T.next).click());
+  await input('[data-testid="qq-allow-from"]', '12345');
+  await click('[data-testid="qq-test-btn"]');
+  expect(sent.reqs[sent.reqs.length - 1]?.qq?.clear_token).toBeUndefined();
+  await input('[data-testid="qq-token"]', 'replacement');
+  await click('[data-testid="qq-clear-token"]');
+  expect($<HTMLInputElement>('[data-testid="qq-token"]')?.disabled).toBe(true);
+  expect($<HTMLInputElement>('[data-testid="qq-token"]')?.value).toBe('');
+  await click('[data-testid="qq-test-btn"]');
+  expect(sent.reqs[sent.reqs.length - 1]?.qq).toMatchObject({ clear_token: true });
+  expect(sent.reqs[sent.reqs.length - 1]?.qq?.token).toBeUndefined();
+});
+
 it('opens the official QQ form from the existing QQ wizard and returns without losing OneBot edits', async () => {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root!.render(<MemoryRouter initialEntries={['/setup?add=1&platform=qq']}><SetupWizard /></MemoryRouter>));

@@ -36,6 +36,7 @@ interface RoleDraft {
   checking?: boolean;
   error?: string;
   agent_type: string;
+  agentTouched?: boolean; // QQ: only an explicit CLI selection may replace an existing role's agent
   useProvider: boolean;
   provider: { vendor: string; base_url: string; api_key: string; model: string };
   persona: string;
@@ -86,9 +87,11 @@ export default function SetupWizard() {
     readDSHDraft() ? 'dsh' : platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
   // http_url / share_session_in_channel are the two fields the step did not send before (#710 件 5)
-  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '', http_url: '', share_session_in_channel: false });
+  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', clear_token: false, allow_from: '', http_url: '', share_session_in_channel: false });
   const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string; note?: string }>({ running: false });
   const qqKey = JSON.stringify(qq);
+  const latestQQKey = useRef(qqKey);
+  latestQQKey.current = qqKey;
   const qqNickname = qqTest.key === qqKey ? qqTest.nickname : undefined;
   const platform = picked;
   const [officialQQ, setOfficialQQ] = useState(false);
@@ -390,7 +393,7 @@ export default function SetupWizard() {
           name: platform !== 'cloud_web' && !r.nameCustomized ? undefined : nameOf(r),
           name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName,
         } : {}),
-        agent_type: r.agent_type,
+        agent_type: platform === 'qq' && !r.agentTouched ? undefined : r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
@@ -414,6 +417,7 @@ export default function SetupWizard() {
     // travels when ticked so a rerun never turns it off (#710 件 5)
     if (platform === 'qq') req.qq = {
       ws_url: qq.ws_url.trim(), token: mask(qq.token, '<NAPCAT_TOKEN>') || undefined, allow_from: qq.allow_from.trim(),
+      ...(qq.clear_token ? { clear_token: true } : {}),
       ...(qq.http_url.trim() ? { http_url: qq.http_url.trim() } : {}),
       ...(qq.share_session_in_channel ? { share_session_in_channel: true } : {}),
     };
@@ -659,8 +663,15 @@ export default function SetupWizard() {
           <div className="space-y-3" data-testid="qq-step">
             <Button variant="secondary" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{t('qq.official')}</Button>
             <p className="text-xs text-gray-500">{T.qqNote}</p>
-            <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => setQQ({ ...qq, ws_url: e.target.value })} />
-            <Input type="password" label={T.qqToken} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />
+            <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => {
+              setQQ({ ...qq, ws_url: e.target.value });
+              patchRole(roles[0].key, { reuse_project: undefined, existingWorkDir: undefined, existingPersona: undefined, editPersona: false });
+            }} />
+            <Input type="password" label={T.qqToken} placeholder={T.qqTokenHint} disabled={qq.clear_token} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" data-testid="qq-clear-token" checked={qq.clear_token}
+                onChange={(e) => setQQ({ ...qq, clear_token: e.target.checked, token: '' })} />{T.qqClearToken}
+            </label>
             <Input label={T.qqAllowFrom} placeholder="12345678" value={qq.allow_from} data-testid="qq-allow-from" onChange={(e) => setQQ({ ...qq, allow_from: e.target.value })} />
             {/* the two keys the panel (PATCH /projects/{name}/qq/settings) used to be the only
                 way in; both optional, so an empty field keeps what is already saved (#710 件 5) */}
@@ -676,6 +687,14 @@ export default function SetupWizard() {
                   setQQTest({ running: true, key });
                   try {
                     const r = await applyWizard({ ...buildRequest(), dry_run: true });
+                    if (latestQQKey.current !== key) {
+                      setQQTest({ running: false });
+                      return;
+                    }
+                    const reused = r.roles.find((role) => role.reused);
+                    if (r.qq?.code === 'ok' && reused) {
+                      pickExisting(roles[0], { project: reused.project, username: reused.name, agent_type: reused.agent_type, work_dir: reused.work_dir });
+                    }
                     // only the QQ connection is judged here; the rest of the request (CLI, persona …) is checked on save
                     // a plan error after a good connection (no CLI yet, name taken …) is shown, not hidden; later steps can fix it
                     // the API's error already ends with "; " + fix for a bad connection; take the message alone and
@@ -819,10 +838,11 @@ export default function SetupWizard() {
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
                   <p className="text-sm font-medium" data-testid={`role-label-${idx}`}>{roleLabel(nameOf(r), r.agent_type)}</p>
+                  {platform === 'qq' && r.reuse_project && <p className="text-xs text-gray-500" data-testid={`existing-cli-${idx}`}>{T.existingCLI} {roleLabel('', r.agent_type)}</p>}
                   <Input label={zh ? '名字' : 'Name'} data-testid={`role-name-${idx}`} value={r.name || ''} onChange={e => patchRole(r.key, { name: e.target.value, nameCustomized: true })} />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {(clis || []).map((c) => (
-                      <button key={c.label} disabled={!c.supported} onClick={() => patchRole(r.key, { agent_type: c.agent_type })}
+                      <button key={c.label} disabled={!c.supported} onClick={() => patchRole(r.key, { agent_type: c.agent_type, agentTouched: true })}
                         data-testid={`cli-${idx}-${c.agent_type || c.label}`}
                         className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${!c.supported ? 'opacity-50 cursor-not-allowed border-dashed border-gray-300' : r.agent_type === c.agent_type ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
                         <div className="flex items-center justify-between gap-2"><span className="font-medium">{c.label}</span>{c.supported ? loginBadge(c) : <Badge>{T.unsupported}</Badge>}</div>

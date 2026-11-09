@@ -52,7 +52,7 @@ export interface WizardRequest {
   /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *).
    * http_url = file sending, optional; share_session_in_channel is only sent when ticked, so a
    * rerun leaves an existing value as it is (#710 件 5). */
-  qq?: { ws_url: string; token?: string; allow_from: string; http_url?: string; share_session_in_channel?: boolean };
+  qq?: { ws_url: string; token?: string; clear_token?: boolean; allow_from: string; http_url?: string; share_session_in_channel?: boolean };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
   gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
