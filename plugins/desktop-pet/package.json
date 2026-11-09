@@ -98,7 +98,7 @@
     "format:check": "prettier --check .",
     "test:ui": "node --test scripts/tests/*.test.mjs",
     "check:runtime": "eslint --config eslint.runtime.config.js runtime/electron-helper",
-    "bothouse:pack": "node scripts/bothouse-fetch-assets.mjs && tsdown && npm pack --ignore-scripts"
+    "bothouse:pack": "node scripts/bothouse-fetch-assets.mjs && tsdown && node scripts/build-desktop-core.mjs && npm pack --ignore-scripts"
   },
   "license": "MIT",
   "engines": {

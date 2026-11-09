@@ -37,9 +37,9 @@
 
 ## 出包和安装
 
-发版时 release.yml 的 `desktop-pet` 作业：`pnpm install` → 下素材 → `tsdown` → `npm pack`，把
+发版时 release.yml 的 `desktop-pet` 作业：`pnpm install` → 下素材 → `tsdown` → `build-desktop-core`（生成 `runtime/electron-helper/shared-core.js`，不进 git，漏了桌宠窗口是空的） → `npm pack`，把
 `bothouse-pet.tgz` 挂到发布页。`bothouse pet start` 用 npm 装本版本的这个包（开发版装最新发布的）；
-本地调试设 `BOTHOUSE_PET_DIR=<本目录>`（先 `npx pnpm@10 install && node scripts/bothouse-fetch-assets.mjs && npx tsdown`）。
+本地调试设 `BOTHOUSE_PET_DIR=<本目录>`（先 `npx pnpm@10 install && node scripts/bothouse-fetch-assets.mjs && npx tsdown && node scripts/build-desktop-core.mjs`）。
 
 ## 跟上游拿更新
 
