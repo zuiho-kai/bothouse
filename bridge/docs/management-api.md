@@ -1393,7 +1393,13 @@ spends the owner's money, and an empty token means the port is open to the whole
 ```
 
 `status` is `ready`, `not_configured` or `error` (with `message`). `api_key_set` says whether a key
-exists; the key itself is never returned.
+exists; the key itself is never returned. `base_url` still names the endpoint — host, path and
+parameters like `size` come through — but credentials written into it are replaced with `***`:
+`https://user:sk-…@relay/v1` comes back as `https://***@relay/v1`, and `…?token=sk-…` as
+`…?token=***`. Parameter names such as `token`, `api_key`, `secret`, `password` and `signature`
+(including spellings like `x-api-key`) count as credentials; other parameters are untouched. Error
+text (a failed request, the provider's own message, a failed download) is masked the same way before
+it is returned.
 
 #### POST /api/v1/image-gen
 
@@ -1712,6 +1718,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment`; posts visible to some people only are refused; `Moment` gains `private_known`, and a post whose audience could not be read is refused too rather than treated as public |
 | 1.2-draft | 2026-11-08 | Replace now requires `accept_audience_change: true`: the upstream fills `is_private` with `false` when the raw `secret` is missing, so "everyone can see it" cannot be proven from that row, and widening who can see a post is not a decision the server makes on a default |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
+| 1.2-draft | 2026-11-09 | Mask credentials in the image-gen `base_url` echo and in error text: URL userinfo (`https://…@relay`) and `token` / `api_key` / `secret` query parameters become `***`; the endpoint itself is still shown |
 | 1.2-draft | 2026-11-08 | Add `GET`/`POST /plugins/config`: one plugin row's own config as YAML text, read from the layer that sets it (bundle / profile / HOME) and written into the profile patch under DSH's own lock |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |

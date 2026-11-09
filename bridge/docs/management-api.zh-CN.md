@@ -1335,7 +1335,11 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 ```
 
 `status` 是 `ready`、`not_configured` 或 `error`（带 `message`）；`api_key_set` 只说明有没有填密钥，
-密钥本身永不返回。
+密钥本身永不返回。`base_url` 照实给出端点（主机、路径、`size` 这类参数都保留），但写在里面的
+凭据换成 `***`：`https://user:sk-…@relay/v1` 回 `https://***@relay/v1`，`…?token=sk-…` 回
+`…?token=***`。`token`、`api_key`、`secret`、`password`、`signature` 一类参数名（含 `x-api-key`
+这种写法）都按凭据处理，别的参数不动。出错时（请求失败、服务商报错原文、下载图片失败）报错
+文字里的 URL 也先这样脱敏再返回。
 
 #### POST /api/v1/image-gen
 
@@ -1585,6 +1589,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
 | 1.1-draft  | 2026-11-08 | 换说说改为必须带 `accept_audience_change: true`：上游在 `secret` 缺失时会把 `is_private` 补成 `false`，单看这一行分不出「真的公开」和「没读到」，改宽可见范围这件事不再由缺省值决定 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
+| 1.2-draft  | 2026-11-09 | 生图状态与报错里的 `base_url` 脱敏：URL 里的用户信息（`https://…@relay`）和 `token` / `api_key` / `secret` 一类查询参数换成 `***`，端点本身照旧显示 |
 | 1.2-draft  | 2026-11-08 | 新增 `GET`/`POST /plugins/config`：读出单个插件行自己的配置（YAML 文本，标明是插件自带 / profile / HOME 哪一层设的），存进 profile 的 patch，整个读-改-写跑在 DSH 自己的锁上 |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 
