@@ -38,6 +38,11 @@
 
 待办只读：宿主 `GET /todos` 带 `readOnly: true`，面板藏掉添加框、勾选、删除和提醒提示。
 
+一个角色一只（#549）：`POST /work-status?pet=<id>` 写那只宠物自己的状态槽（`src/host/work-status.ts` 的 `setPet`，
+`sections.workStatus.pets`），写过的宠物只跟自己这份走、tick 也各算各的（网页端 `src/client/pet/multi.ts`、桌面窗口
+`runtime/electron-helper/events.js`）；不带 `?pet=` 时照上游。右键「对话」「碎碎念」和形象查询（`/skin`）调 bothouse 时带
+`?pet=<素材根>`，bothouse 按宠物找它的角色，每只穿自己角色的形象（`skinAnimationFile(file, root)`）。
+
 状态：去掉了对 DSH 会话事件的订阅（删 `src/host/plugin/session-watch.ts`，`src/host/index.ts` 不再注册），
 工作状态只由 bothouse 的角色事件驱动：`bothouse pet run` 读 `/api/v1/roles/events` 和插件页的角色绑定，经桌宠的
 `/work-status`、`/broadcast` 推进来（`bridge/cmd/cc-connect/pet.go`）。

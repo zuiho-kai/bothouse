@@ -493,8 +493,11 @@ func petKindFiles(plan []petAssign, look petMainLook, anims map[string][2]map[st
 		if _, ok := byKind[a.Kind]; !ok {
 			kinds = append(kinds, a.Kind)
 		}
+		// name is the role key without "bridge:": stable, so a display name arriving later does not
+		// rewrite the file and reload the pet.
+		name := strings.TrimPrefix(a.Role, "bridge:")
 		byKind[a.Kind] = append(byKind[a.Kind], map[string]any{
-			"id": a.Pet, "name": a.Name, "size": look.Size,
+			"id": a.Pet, "name": name, "size": look.Size,
 			"balanceEnabled": false, "whisperEnabled": true, "workStatusEnabled": true, "fixedEnabled": false,
 			"display":  "desktop",
 			"position": map[string]any{"corner": look.Corner, "marginX": look.MarginX + slot*look.Size/2, "marginY": look.MarginY},
