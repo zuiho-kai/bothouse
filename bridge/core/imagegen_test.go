@@ -681,3 +681,155 @@ func TestMgmt_ImageGenDrawsAndServesPicture(t *testing.T) {
 		t.Fatalf("expected the new picture in the list, got %+v", stBody.Pictures)
 	}
 }
+
+// The status echo used to return [image_gen.openai] base_url verbatim. A relay URL that
+// carries a key in its userinfo or query string therefore handed the key to anyone who
+// could read the management API (review 466). The endpoint must stay visible, the secret
+// must not.
+func TestImageGen_StatusRedactsBaseURLCredentials(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	g := NewImageGenerator(ImageGenConfig{
+		Enabled: true, Provider: "openai", APIKey: "test-key",
+		BaseURL: "https://relay-user:sk-userinfo-secret@relay.example/v1?token=sk-query-secret&size=1024x1024",
+		Model:   "gpt-image-1", OutDir: t.TempDir(),
+	})
+	mgmt.SetImageGenerator(g)
+
+	r := mgmtGet(t, ts.URL+"/api/v1/image-gen", "tok")
+	body := string(r.Data)
+	for _, secret := range []string{"sk-userinfo-secret", "sk-query-secret"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("status echoed %q: %s", secret, body)
+		}
+	}
+	var st struct {
+		BaseURL string `json:"base_url"`
+	}
+	if err := json.Unmarshal(r.Data, &st); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if !strings.Contains(st.BaseURL, "relay.example/v1") {
+		t.Fatalf("base_url lost the endpoint itself: %q", st.BaseURL)
+	}
+	if !strings.Contains(st.BaseURL, "size=1024x1024") {
+		t.Fatalf("base_url dropped an ordinary query parameter: %q", st.BaseURL)
+	}
+
+	// An ordinary endpoint comes back exactly as configured: the panel shows it, and a
+	// value with nothing to hide must not grow "***" out of nowhere.
+	plain, plainTS, _ := testManagementServer(t, "tok")
+	plain.SetImageGenerator(testImageGenerator(t, "https://api.openai.com/v1"))
+	pr := mgmtGet(t, plainTS.URL+"/api/v1/image-gen", "tok")
+	var pst struct {
+		BaseURL string `json:"base_url"`
+	}
+	if err := json.Unmarshal(pr.Data, &pst); err != nil {
+		t.Fatalf("decode plain status: %v", err)
+	}
+	if pst.BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("ordinary base_url changed: %q", pst.BaseURL)
+	}
+}
+
+// A provider call that fails at the transport leaves a *url.Error quoting the request URL.
+// Go masks a userinfo password but keeps the user name and the whole query string, so the
+// key survived into the 502 text and the log (review 466).
+func TestImageGen_RequestErrorsHideURLCredentials(t *testing.T) {
+	// Nothing listens on port 1: the dial fails before any request leaves the machine.
+	g := NewImageGenerator(ImageGenConfig{
+		Enabled: true, Provider: "openai", APIKey: "test-key",
+		BaseURL: "https://relay-user:sk-userinfo-secret@127.0.0.1:1/v1?token=sk-query-secret",
+		Model:   "gpt-image-1", OutDir: t.TempDir(),
+	})
+	_, err := g.Generate(context.Background(), "x")
+	if err == nil {
+		t.Fatal("expected the dial to fail on port 1")
+	}
+	for _, secret := range []string{"sk-userinfo-secret", "sk-query-secret"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("request error leaked %q: %v", secret, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "***") {
+		t.Fatalf("request error should show a masked URL, got: %v", err)
+	}
+}
+
+// Masking must not turn the error into an opaque string: a cancelled draw still has to be
+// recognisable as a cancellation, because that is what the caller acts on.
+func TestImageGen_RequestErrorKeepsTheCause(t *testing.T) {
+	g := NewImageGenerator(ImageGenConfig{
+		Enabled: true, Provider: "openai", APIKey: "test-key",
+		BaseURL: "https://relay.example/v1?token=sk-query-secret", Model: "gpt-image-1", OutDir: t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := g.Generate(ctx, "x")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("masked request error lost context.Canceled: %v", err)
+	}
+	if strings.Contains(err.Error(), "sk-query-secret") {
+		t.Fatalf("cancelled request leaked the query key: %v", err)
+	}
+}
+
+// Provider error bodies are forwarded to the page because they explain a bad key, model or
+// quota. A relay that quotes the request URL in that body was quoting the key with it.
+func TestImageGen_ProviderErrorBodyRedactsURLCredentials(t *testing.T) {
+	srv, _ := stubImageAPI(t, func(w http.ResponseWriter, r *http.Request) bool {
+		http.Error(w, `{"error":{"message":"bad request to https://relay.example/v1/images/generations?token=sk-body-secret&model=gpt-image-1"}}`, http.StatusBadRequest)
+		return true
+	})
+	g := NewImageGenerator(ImageGenConfig{
+		Enabled: true, Provider: "openai", APIKey: "test-key",
+		BaseURL: srv.URL, Model: "gpt-image-1", OutDir: t.TempDir(),
+	})
+	_, err := g.Generate(context.Background(), "x")
+	if err == nil {
+		t.Fatal("expected the provider error to surface")
+	}
+	if strings.Contains(err.Error(), "sk-body-secret") {
+		t.Fatalf("provider error leaked the query key: %v", err)
+	}
+	if !strings.Contains(err.Error(), "bad request") || !strings.Contains(err.Error(), "model=gpt-image-1") {
+		t.Fatalf("provider error lost the reason it exists for: %v", err)
+	}
+}
+
+// The download step takes a URL from the provider's answer, and a signed link carries its
+// own key. Its transport error must not print that key either.
+func TestImageGen_DownloadErrorsHideURLCredentials(t *testing.T) {
+	srv, _ := stubImageAPI(t, func(w http.ResponseWriter, r *http.Request) bool {
+		_, _ = io.WriteString(w, `{"data":[{"url":"http://127.0.0.1:1/pic.png?sig=sk-signed-secret&expires=1"}]}`)
+		return true
+	})
+	g := NewImageGenerator(ImageGenConfig{
+		Enabled: true, Provider: "openai", APIKey: "test-key",
+		BaseURL: srv.URL, Model: "gpt-image-1", OutDir: t.TempDir(),
+	})
+	_, err := g.Generate(context.Background(), "x")
+	if err == nil {
+		t.Fatal("expected the download to fail on port 1")
+	}
+	if strings.Contains(err.Error(), "sk-signed-secret") {
+		t.Fatalf("download error leaked the signed link's key: %v", err)
+	}
+}
+
+func TestRedactURLSecrets(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://api.openai.com/v1", "https://api.openai.com/v1"},
+		{"https://api.openai.com/v1?size=1024x1024", "https://api.openai.com/v1?size=1024x1024"},
+		{"https://user:sk-pass@relay.example/v1", "https://***@relay.example/v1"},
+		{"https://sk-bare@relay.example/v1", "https://***@relay.example/v1"},
+		{"https://relay.example/v1?token=sk-q&size=1024x1024", "https://relay.example/v1?token=***&size=1024x1024"},
+		{"https://relay.example/v1?x-api-key=sk-k", "https://relay.example/v1?x-api-key=***"},
+		{"http://127.0.0.1:8080?x=1", "http://127.0.0.1:8080?x=1"},
+		{`Post "https://user:sk-p@relay/v1?token=sk-q": EOF`, `Post "https://***@relay/v1?token=***": EOF`},
+	}
+	for _, c := range cases {
+		if got := redactURLSecrets(c.in); got != c.want {
+			t.Fatalf("redactURLSecrets(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
