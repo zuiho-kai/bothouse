@@ -565,6 +565,11 @@ def paused_item(path):
     return next((i for i in _read() if (i.get("paused") or i.get("backlog")) and i.get("where") == path), None)
 
 
+def done_records():
+    """board-done.jsonl 里全部做完的记录（旧到新）。ws-forward 按交接记下的编号查这件活交回没有。"""
+    return _read("board-done.jsonl")
+
+
 def done_item(path):
     """交接文件 path 对应的活已交回：板上没有它的条目，board-done.jsonl 里有它做完的记录（自动收起的暂停不算），返回最后一条；否则 None。
     ws-forward 用它拦下往已交回的活转话（工作区交回后会话已清空，话发过去没人接）。"""
