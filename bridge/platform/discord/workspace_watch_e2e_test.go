@@ -84,6 +84,21 @@ func (r *guildREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		body = string(b)
 	case req.Method == http.MethodPut && strings.HasPrefix(path, "/applications/app1/"):
 		body = `[]` // slash command registration on ready
+	case req.Method == http.MethodGet && strings.HasPrefix(path, "/channels/"):
+		// Any channel of the guild, as Discord answers it (shelving a free workspace reads the
+		// workspace channel, then the guild's channels for the idle category).
+		id := strings.TrimPrefix(path, "/channels/")
+		found := false
+		for _, c := range r.channels {
+			if c["id"] == id {
+				b, _ := json.Marshal(c)
+				body = string(b)
+				found = true
+			}
+		}
+		if !found {
+			status, body = http.StatusNotFound, `{"code":10003,"message":"Unknown Channel"}`
+		}
 	default:
 		r.unexpected = append(r.unexpected, req.Method+" "+req.URL.Path)
 		status, body = http.StatusNotFound, `{"code":10003,"message":"Unknown Channel"}`

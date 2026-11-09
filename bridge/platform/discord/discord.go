@@ -74,6 +74,7 @@ type progressPlatform struct {
 }
 
 type Platform struct {
+	workspaceShelves           *workspaceShelfStore
 	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
 	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
 	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
@@ -229,6 +230,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		proxyURL:                   proxyU,
 	}
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
+		base.workspaceShelves = workspaceShelfStoreFor(dir)
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
 		base.cardViews.prefs = cardViewPrefsFor(dir) // shared by the bots of this data dir
