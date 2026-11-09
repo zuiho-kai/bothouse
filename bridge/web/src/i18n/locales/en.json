@@ -87,7 +87,8 @@
     "usage": "Usage",
     "wikiGalaxy": "Wiki galaxy",
     "forum": "Memory forum",
-    "gate": "Gate"
+    "gate": "Gate",
+    "pet": "Pet Plugin"
   },
   "plugins": {
     "stateClientUi": "Client UI package",
