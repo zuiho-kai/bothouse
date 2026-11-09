@@ -423,3 +423,16 @@ func (m *ManagementServer) handlePetAsset(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
+
+// LoadPetPackDir reads one pet pack directory with the same parser as GET /plugins/pets
+// (`bothouse pet run` turns it into the desktop pet's own config, see cmd/cc-connect/pet_packs.go).
+func LoadPetPackDir(dir string) (PetPackInfo, error) {
+	info := PetPackInfo{ID: filepath.Base(dir), Name: filepath.Base(dir), LocalPath: dir, Actions: []PetPackAction{}}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return info, err
+	}
+	defer root.Close()
+	err = loadPetPack(root, &info)
+	return info, err
+}

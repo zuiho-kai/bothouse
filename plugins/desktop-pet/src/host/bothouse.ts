@@ -20,9 +20,9 @@ type Said = { ok: true; text: string; image?: string; action?: string };
 
 export interface BothouseBackend {
   /** 对话：把这句话交给绑定的角色，等它这一轮的回话。 */
-  chat(text: string): Promise<Said | Fail>;
+  chat(text: string, petId?: string): Promise<Said | Fail>;
   /** 碎碎念：绑定角色自己最近说过的一句（没有就是小日子里的一行）。 */
-  whisper(): Promise<Said | Fail>;
+  whisper(petId?: string): Promise<Said | Fail>;
   /** 余额：bothouse 的用量（今天 / 本月），custom 形态。 */
   balance(): Promise<BalanceResult>;
   /** 待办：任务板上没收口的活，只读。 */
@@ -43,6 +43,8 @@ export interface BoardTodos {
 }
 
 let cached: BothouseBackend | null | undefined;
+
+const petQuery = (petId: string | undefined): string => (petId ? '?pet=' + encodeURIComponent(petId) : '');
 
 /** 读环境变量建一次；不在 bothouse 下运行时返回 undefined。 */
 export function bothouse(): BothouseBackend | undefined {
@@ -94,8 +96,9 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
       return skin.role;
     },
     // 角色跑一轮可能要几分钟：比默认超时宽得多，超时由 bothouse 那边先回。
-    chat: (text) => say('/chat', { text }, 6 * 60_000),
-    whisper: () => say('/whisper'),
+    // ?pet=：一个角色一只桌宠时，bothouse 按宠物找它的角色（没有就照旧用第一个绑定角色）。
+    chat: (text, petId) => say('/chat' + petQuery(petId), { text }, 6 * 60_000),
+    whisper: (petId) => say('/whisper' + petQuery(petId)),
     async balance() {
       try {
         const data = (await call('GET', '/balance')) as { rows?: unknown };
