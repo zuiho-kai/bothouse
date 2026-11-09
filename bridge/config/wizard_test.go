@@ -10,6 +10,31 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// #1407: connection-only QQ wizard writes must preserve the raw agent table and comments.
+func TestApplyWizardQQOptionsPreservesUnrelatedBytes(t *testing.T) {
+	old := ConfigPath
+	ConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	defer func() { ConfigPath = old }()
+	before := "# handwritten config\n[[projects]]\nname='existing'\n[projects.agent]\ntype = 'codex' # keep CLI\n[projects.agent.options]\nwork_dir = '/existing'\ncustom = 'untouched'\n[[projects.platforms]]\ntype='qq'\n[projects.platforms.options]\nws_url='ws://localhost:3001'\nallow_from = '12345' # keep comment\ntoken='saved'\n"
+	if err := os.WriteFile(ConfigPath, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ApplyWizardProjects(func([]WizardProjectSnapshot) ([]WizardProjectOptions, error) {
+		return []WizardProjectOptions{{Name: "existing", PlatformType: "qq", Options: map[string]any{"allow_from": "67890"}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(before, "allow_from = '12345'", "allow_from = \"67890\"", 1)
+	if string(after) != want {
+		t.Fatalf("unrelated config bytes changed:\n%s", after)
+	}
+}
+
 func TestUpsertWizardProject(t *testing.T) {
 	dir := t.TempDir()
 	old := ConfigPath
