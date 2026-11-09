@@ -33,7 +33,8 @@ type DSHMember struct {
 	Persona        string `json:"persona,omitempty"`
 	Avatar         string `json:"avatar,omitempty"`
 	NameCustomized *bool  `json:"name_customized,omitempty"`
-	// Model pins a DSH-model role to the route the wizard's key belongs to (set by configure, not the page).
+	// Model pins a DSH-model role to one route. configure leaves it empty: a member without a model
+	// inherits the DSH host's agent-default-model (roster.mjs:102, dsh-member.mjs:1203,1218).
 	Model *DSHMemberModel `json:"model,omitempty"`
 }
 
@@ -43,17 +44,13 @@ type DSHMemberModel struct {
 	Model    string `json:"model"`
 }
 
-// dshKeyModel is the route the wizard's DeepSeek key serves: DSH's API-key adapter
-// (@deepseek-ai/dsh-llm-deepseek-api-key, provider deepseek-official, key DEEPSEEK_API_KEY) and the model
-// dsh-base sets as its default (agent-default-model, same in DeepSeek Harness Desktop 0.2.2-rc.1). Pinning it
-// keeps the role answering with the key it was set up with even when the DSH default model is switched to a
-// route without a key (for example a DeepSeek account sign-in in the desktop app): that showed 还没填模型密钥 (#1173).
-var dshKeyModel = DSHMemberModel{Provider: "deepseek-official", Model: "deepseek-flash"}
-
 // DSHConfigureRequest is the body of POST /setup/dsh/configure.
 type DSHConfigureRequest struct {
-	DeepSeekAPIKey string      `json:"deepseek_api_key,omitempty"`
-	Members        []DSHMember `json:"members"`
+	DeepSeekAPIKey string `json:"deepseek_api_key,omitempty"`
+	// Target is the wizard's route: DSHDesktopProfile for DeepSeek Harness Desktop, empty or "web" for
+	// the DSH web profile. It decides which profile's model selection the credential check reads.
+	Target  string      `json:"target,omitempty"`
+	Members []DSHMember `json:"members"`
 }
 
 // DSHConfigureResult says what was written (never the key itself).
@@ -117,14 +114,17 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 		if m.CLI != "" && !dshCLIs[m.CLI] {
 			return res, fmt.Errorf("unsupported cli %q", m.CLI)
 		}
-		if m.CLI == "" && !dshNativeModelConfigured(req.DeepSeekAPIKey) {
+		// Rebase of #952 onto #1387: both checks are kept. #952 reads the credential of the route this
+		// wizard target selects; #1387 accepts a DeepSeek account login or an own llm-deepseek entry.
+		// Either one lets a native role through; neither writes a model.
+		native := dshNativeModelConfigured(req.Target, req.DeepSeekAPIKey) || dshHasUsableModel()
+		if m.CLI == "" && !native {
 			return res, fmt.Errorf("角色「%s」当前 DSH 原生模型没有对应凭据：请在 DSH 模型设置中配置；使用官方 DeepSeek 默认模型时也可在这里填 API Key", m.Name)
 		}
-		// Only an official API key selects this route; account and relay users keep their own default.
-		if m.CLI == "" && (strings.TrimSpace(req.DeepSeekAPIKey) != "" || dshHasDeepSeekKey()) {
-			mm := dshKeyModel
-			m.Model = &mm
-		}
+		// No model is written: an empty member.model makes the collab plugin send no route override, so
+		// the role keeps answering with whatever agent-default-model selects now (roster.mjs:102,
+		// dsh-member.mjs:1203,1218). Writing the route here pinned every role to deepseek-flash even
+		// when the check above passed on a gateway or account route (#1173, review of #952).
 		req.Members[i] = m
 	}
 	if k := strings.TrimSpace(req.DeepSeekAPIKey); k != "" {

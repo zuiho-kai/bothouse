@@ -8,10 +8,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// dshNativeModelConfigured checks the web profile's selected credential, not network
-// availability. Native collab members inherit agent-default-model at runtime.
-func dshNativeModelConfigured(officialKey string) bool {
-	layers := []string{filepath.Join(dshHome(), "profiles", DSHProfile, "cordis.patch.yml"), filepath.Join(dshHome(), "cordis.patch.yml")}
+// dshProfileDirFor is the profile a wizard route writes to and reads its model selection from: the
+// desktop app keeps profiles/desktop (setup_dsh_desktop.go), while an empty target and "web" both
+// mean the profile install.sh sets up.
+func dshProfileDirFor(target string) string {
+	if target == DSHDesktopProfile {
+		return dshDesktopProfileDir()
+	}
+	return filepath.Join(dshHome(), "profiles", DSHProfile)
+}
+
+// dshNativeModelConfigured checks the selected credential of the profile this route uses (target,
+// as in DSHConfigureRequest.Target), not network availability. Native collab members inherit
+// agent-default-model at runtime.
+func dshNativeModelConfigured(target, officialKey string) bool {
+	layers := []string{filepath.Join(dshProfileDirFor(target), "cordis.patch.yml"), filepath.Join(dshHome(), "cordis.patch.yml")}
 	config := func(id string) *yaml.Node {
 		var selected *yaml.Node
 		for _, layer := range layers {

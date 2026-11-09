@@ -264,8 +264,16 @@ func bashScriptArg(goos, script string) string {
 	return script
 }
 
-// GetDSHStatus detects dsh and whether the CoNest plugin is in the profile.
+// GetDSHStatus detects dsh and whether the CoNest plugin is in the profile, with the model
+// selection of the DSH web profile (the route install.sh sets up).
 func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
+	return GetDSHStatusFor(ctx, "", langs...)
+}
+
+// GetDSHStatusFor is GetDSHStatus for a wizard route (target: DSHDesktopProfile for DeepSeek
+// Harness Desktop, empty or "web" for the DSH web profile): native_model_configured reads that
+// profile's model selection, not always the web one (review of #952, point d).
+func GetDSHStatusFor(ctx context.Context, target string, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
@@ -292,8 +300,10 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 		return st
 	}
 	st.Found = true
-	st.HasDeepSeekKey = dshHasDeepSeekKey()
-	st.NativeModelConfigured = dshNativeModelConfigured("")
+	st.NativeModelConfigured = dshNativeModelConfigured(target, "") || dshHasUsableModel()
+	// #1387 made this the "existing model login/key lets the wizard leave the key empty" flag; this
+	// PR's key-presence read (including $DSH_HOME/.env) still counts, so both are ORed.
+	st.HasDeepSeekKey = dshHasUsableModel() || dshHasDeepSeekKey()
 	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
 	}
@@ -336,15 +346,19 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 			}
 		}
 	}
+	target := ""
+	if desktop {
+		target = DSHDesktopProfile
+	}
 	if nodeIssue != "" {
-		return GetDSHStatus(ctx, lang), errors.New(nodeIssue)
+		return GetDSHStatusFor(ctx, target, lang), errors.New(nodeIssue)
 	}
 	if desktop {
 		// The app loads the plugins the moment they are added, before the wizard's roles exist: without
 		// this marker the plugin would seed its own default role (鲸鱼娘) and make it the primary role.
 		markDSHDefaultsHandled()
 		if err := ensureDSHDesktopProfile(ctx, dataDir, onLine); err != nil {
-			return GetDSHStatus(ctx, lang), err
+			return GetDSHStatusFor(ctx, target, lang), err
 		}
 	}
 	script := FindDSHInstallScript()
@@ -355,15 +369,15 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 		}
 	}
 	if script == "" {
-		return GetDSHStatus(ctx, lang), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
+		return GetDSHStatusFor(ctx, target, lang), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
 	}
 	dshBin, err := LookDSH()
 	if err != nil {
-		return GetDSHStatus(ctx, lang), errDSHMissing
+		return GetDSHStatusFor(ctx, target, lang), errDSHMissing
 	}
 	bashBin, err := LookBash()
 	if err != nil {
-		return GetDSHStatus(ctx, lang), err
+		return GetDSHStatusFor(ctx, target, lang), err
 	}
 	l := "en"
 	if strings.HasPrefix(strings.ToLower(lang), "zh") {
@@ -404,7 +418,7 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 	}
 	_ = pw.Close()
 	<-scanned
-	st := GetDSHStatus(ctx, lang)
+	st := GetDSHStatusFor(ctx, target, lang)
 	st.Log = out.String()
 	if err != nil {
 		return st, errors.New("install.sh failed: " + err.Error() + "\n" + tailLines(st.Log, 20))
@@ -432,7 +446,8 @@ func tailLines(s string, n int) string {
 // ── HTTP ──────────────────────────────────────────────────────
 
 func (m *ManagementServer) handleSetupDSHStatus(w http.ResponseWriter, r *http.Request) {
-	mgmtJSON(w, http.StatusOK, GetDSHStatus(r.Context(), r.URL.Query().Get("lang")))
+	q := r.URL.Query()
+	mgmtJSON(w, http.StatusOK, GetDSHStatusFor(r.Context(), q.Get("target"), q.Get("lang")))
 }
 
 // handleSetupDSHInstall streams the install as NDJSON, one object per line:
