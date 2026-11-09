@@ -29,24 +29,31 @@ type faultUpstream struct {
 	mu       sync.Mutex
 	conns    []*websocket.Conn
 	attempts map[string]int // action -> 到达上游的次数
+	done     chan struct{}
+	handlers sync.WaitGroup
 
 	// respond 决定给这个 action 回什么；nil 表示回成功。
 	respond func(action string, n int) map[string]any
 	// dropAfterRead 在读到第 n 次发送后直接关掉这条 socket，不回执（断连注入）。
 	dropAfterRead func(action string, n int) bool
+	// holdReceipt 扣住回执但继续读后续请求，不把慢回执混同于慢写。
+	holdReceipt func(action string, n int) bool
 	// stallAfterLogin：读完登录请求后不再读，模拟上游饱和/慢响应。
 	stallAfterLogin bool
 }
 
 func newFaultUpstream(t *testing.T) *faultUpstream {
 	t.Helper()
-	f := &faultUpstream{t: t, attempts: map[string]int{}}
+	f := &faultUpstream{t: t, attempts: map[string]int{}, done: make(chan struct{})}
 	upgrader := websocket.Upgrader{}
 	f.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.handlers.Add(1)
+		defer f.handlers.Done()
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
+		defer c.Close()
 		f.mu.Lock()
 		f.conns = append(f.conns, c)
 		stall := f.stallAfterLogin
@@ -61,7 +68,8 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 				_ = c.WriteJSON(map[string]any{"status": "ok", "retcode": 0, "echo": req["echo"],
 					"data": map[string]any{"user_id": botUserID, "nickname": "FaultBot"}})
 				if stall {
-					select {} // 不再读：后续写会把 socket 缓冲写满
+					<-f.done // 不再读；清理时仍能退出。
+					return
 				}
 				continue
 			}
@@ -74,6 +82,9 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 			if drop != nil && drop(action, n) {
 				_ = c.Close()
 				return
+			}
+			if f.holdReceipt != nil && f.holdReceipt(action, n) {
+				continue
 			}
 			resp := map[string]any{"status": "ok", "retcode": 0, "echo": req["echo"],
 				"data": map[string]any{"message_id": 7000 + n}}
@@ -88,8 +99,21 @@ func newFaultUpstream(t *testing.T) *faultUpstream {
 			}
 		}
 	}))
-	t.Cleanup(f.ts.Close)
+	t.Cleanup(func() {
+		close(f.done)
+		f.ts.Close()
+		f.closeConnections()
+		f.handlers.Wait()
+	})
 	return f
+}
+
+func (f *faultUpstream) closeConnections() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.conns {
+		_ = c.Close()
+	}
 }
 
 func (f *faultUpstream) start(t *testing.T) *Platform {
@@ -121,11 +145,21 @@ func TestSlowUpstreamWriteDoesNotStallOtherConversations(t *testing.T) {
 
 	// 一帧 8MB 足以填满本机回环缓冲。
 	big := strings.Repeat("x", 8<<20)
+	slowCtx, stopSlow := context.WithTimeout(context.Background(), 10*time.Second)
+	slowDone := make(chan struct{})
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = p.Send(ctx, &replyContext{messageType: "group", groupID: 1}, big)
+		defer close(slowDone)
+		_ = p.Send(slowCtx, &replyContext{messageType: "group", groupID: 1}, big)
 	}()
+	t.Cleanup(func() {
+		stopSlow()
+		f.closeConnections()
+		select {
+		case <-slowDone:
+		case <-time.After(3 * time.Second):
+			t.Error("slow sender did not exit after connection close")
+		}
+	})
 	time.Sleep(300 * time.Millisecond) // 让慢写先拿住锁
 
 	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
@@ -139,6 +173,49 @@ func TestSlowUpstreamWriteDoesNotStallOtherConversations(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("second conversation waited past its own 700ms deadline: one stalled write holds every other sender")
+	}
+}
+
+func TestSlowReceiptDoesNotBlockOtherConversations(t *testing.T) {
+	f := newFaultUpstream(t)
+	firstSeen := make(chan struct{})
+	f.holdReceipt = func(action string, n int) bool {
+		if action == "send_group_msg" && n == 1 {
+			close(firstSeen)
+			return true
+		}
+		return false
+	}
+	p := f.start(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- p.Send(ctx, &replyContext{messageType: "group", groupID: 1}, "A") }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-firstDone:
+		case <-time.After(3 * time.Second):
+			t.Error("first sender did not exit after cancellation")
+		}
+	})
+	select {
+	case <-firstSeen:
+	case <-time.After(3 * time.Second):
+		t.Fatal("A was not written")
+	}
+	secondCtx, stopSecond := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer stopSecond()
+	if err := p.Send(secondCtx, &replyContext{messageType: "group", groupID: 2}, "B"); err != nil {
+		t.Fatalf("B could not send while A's receipt was held: %v", err)
+	}
+	if got := f.count("send_group_msg"); got != 2 {
+		t.Fatalf("upstream received %d sends, want both A and B exactly once", got)
+	}
+	select {
+	case err := <-firstDone:
+		firstDone <- err
+		t.Fatalf("A finished before its withheld receipt or cancellation: %v", err)
+	default:
 	}
 }
 

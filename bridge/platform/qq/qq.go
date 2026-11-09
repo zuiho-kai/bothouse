@@ -57,17 +57,17 @@ type Platform struct {
 	// writeSem 让同一时刻只有一次写在写 socket（gorilla 不允许并发写），但
 	// 排队等这个名额本身受调用方 ctx 约束：一个卡住的慢写不会把别的会话一起
 	// 拖住，排队的人按自己的期限退出，而不是无限等一把互斥锁。
-	writeSem              chan struct{}
-	mu                    sync.Mutex
-	platformEvents        core.PlatformEventHandler // maomao fork: platform events (events.go)
-	echoSeq               atomic.Int64
-	echoCh                sync.Map // echo -> chan json.RawMessage
-	cancel                context.CancelFunc
-	selfID                int64
-	dedup                 core.MessageDedup
-	groupNameCache        sync.Map // groupID -> group name
-	groupNamePending      sync.Map // groupID -> struct{}: a lookup is already running
-	httpURL               string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
+	writeSem         chan struct{}
+	mu               sync.Mutex
+	platformEvents   core.PlatformEventHandler // maomao fork: platform events (events.go)
+	echoSeq          atomic.Int64
+	echoCh           sync.Map // echo -> chan json.RawMessage
+	cancel           context.CancelFunc
+	selfID           int64
+	dedup            core.MessageDedup
+	groupNameCache   sync.Map // groupID -> group name
+	groupNamePending sync.Map // groupID -> struct{}: a lookup is already running
+	httpURL          string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
 
 	// quoteCache holds recent messages by OneBot message ID. A reply segment
 	// carries only that ID, so without this the model sees "继续" with no idea
@@ -1534,39 +1534,43 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 	case <-time.After(qqWriteTimeout):
 		return nil, fmt.Errorf("qq: API %s not sent: another write is still stuck on a slow upstream", action)
 	}
-	defer func() { <-sem }()
+	err = func() error {
+		defer func() { <-sem }()
+		// 写入本身也带期限（qqWriteTimeout 与 ctx 取早者）。期限到了就把这次写
+		// 收口成错误；是否真的送到按未知处理，绝不自动重放。这里必须用真实时间：
+		// SetWriteDeadline 比的是墙钟，测试注入的 now 只服务补收边界。
+		now := time.Now()
+		writeDeadline := now.Add(qqWriteTimeout)
+		if dl, ok := ctx.Deadline(); ok && dl.Before(writeDeadline) {
+			writeDeadline = dl
+		}
+		if !writeDeadline.After(now) {
+			return ctx.Err()
+		}
 
-	// 写入本身也带期限（qqWriteTimeout 与 ctx 取早者）。期限到了就把这次写
-	// 收口成错误；是否真的送到按未知处理，绝不自动重放。这里必须用真实时间：
-	// SetWriteDeadline 比的是墙钟，测试注入的 now 只服务补收边界。
-	now := time.Now()
-	writeDeadline := now.Add(qqWriteTimeout)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(writeDeadline) {
-		writeDeadline = dl
-	}
-	if !writeDeadline.After(now) {
-		return nil, ctx.Err()
-	}
-
-	p.mu.Lock()
-	if err := ctx.Err(); err != nil {
+		p.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			p.mu.Unlock()
+			return err
+		}
+		conn := p.conn
 		p.mu.Unlock()
-		return nil, err
-	}
-	conn := p.conn
-	p.mu.Unlock()
-	if conn == nil {
-		return nil, core.ErrTaskTextNotAccepted
-	}
-	_ = conn.SetWriteDeadline(writeDeadline)
-	err = conn.WriteMessage(websocket.TextMessage, data)
-	// 期限只管这一次写：清掉后回执仍按 ctx 自己的分支等待。
-	_ = conn.SetWriteDeadline(time.Time{})
+		if conn == nil {
+			return core.ErrTaskTextNotAccepted
+		}
+		_ = conn.SetWriteDeadline(writeDeadline)
+		err = conn.WriteMessage(websocket.TextMessage, data)
+		// 期限只管这一次写：清掉后回执仍按 ctx 自己的分支等待。
+		_ = conn.SetWriteDeadline(time.Time{})
+		if err != nil {
+			_ = conn.Close()
+		}
+		return err
+	}()
 	if err != nil {
 		// 写到一半超时的帧已经把这条 WS 流写坏了：留着它复用会让后续消息
 		// 落在一个不完整的帧后面。关掉连接让 readLoop 走既有重连；在重连
 		// 成功前，下一次发送会如实回报写失败，不重放这一条。
-		_ = conn.Close()
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
