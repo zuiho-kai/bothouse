@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,11 @@ import (
 //
 // The values are found textually rather than by re-encoding the parsed config:
 // re-encoding would drop every comment in the file.
+//
+// An empty or comment-only file is fine and comes back as it is. A file that
+// does not parse as TOML is not: the textual pass cannot prove that every
+// credential was masked, so this returns an error and handleConfig answers 500
+// without serving any of the file (#480).
 func RedactConfigText(raw string) (string, error) {
 	out := redactConfigText(raw)
 	if err := verifyConfigRedaction(raw, out); err != nil {
@@ -535,15 +541,21 @@ func skipConfigToken(s string, j int) (next int, advanced, ok bool) {
 // verifyConfigRedaction re-parses the original and the redacted text and makes
 // sure every credential-looking key really came out as "***". Without this a
 // scanner miss would silently leak, which is the one failure mode that matters
-// here. A file that does not parse cannot be verified and is left to the
-// textual pass.
+// here.
+//
+// An empty or comment-only file has nothing to verify and passes. Anything else
+// must parse: a file the parser rejects cannot be checked, so it fails closed
+// rather than going out with whatever the textual pass happened to mask (#480).
 func verifyConfigRedaction(orig, redacted string) error {
 	if strings.TrimSpace(orig) == "" {
 		return nil
 	}
 	var origMap map[string]any
 	if _, err := toml.Decode(orig, &origMap); err != nil {
-		return nil
+		// The parser's own message can quote the offending value, and this
+		// error ends up in the HTTP response, so only the position is reported.
+		return fmt.Errorf("original config does not parse as TOML (line %d); "+
+			"cannot verify redaction, refusing to serve it", tomlErrorLine(err))
 	}
 	want := sensitiveConfigValues(origMap)
 	if len(want) == 0 {
@@ -551,7 +563,7 @@ func verifyConfigRedaction(orig, redacted string) error {
 	}
 	var redMap map[string]any
 	if _, err := toml.Decode(redacted, &redMap); err != nil {
-		return fmt.Errorf("redacted config no longer parses: %w", err)
+		return fmt.Errorf("redacted config no longer parses as TOML (line %d)", tomlErrorLine(err))
 	}
 	got := sensitiveConfigValues(redMap)
 	var missing []string
@@ -601,4 +613,15 @@ func sensitiveConfigValues(root map[string]any) map[string]any {
 	}
 	walk(root, nil)
 	return out
+}
+
+// tomlErrorLine reports where a TOML decode failed. The message text itself is
+// not reused: BurntSushi/toml quotes the unexpected value in some of its
+// messages, and this line number is all an operator needs to fix the file.
+func tomlErrorLine(err error) int {
+	var pe toml.ParseError
+	if errors.As(err, &pe) && pe.Position.Line > 0 {
+		return pe.Position.Line
+	}
+	return 0
 }

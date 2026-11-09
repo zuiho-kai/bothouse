@@ -717,8 +717,9 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 	// text as-is, so every token/secret/api_key value is masked here (#710 件3).
 	redacted, err := RedactConfigText(string(data))
 	if err != nil {
-		// Fail closed: an unredactable config is not served at all rather than
-		// served with secrets in it.
+		// Fail closed: a config that cannot be redacted and verified — including
+		// one that does not parse as TOML — is not served at all rather than
+		// served with secrets in it (#480).
 		slog.Error("management api: redact config failed", "error", err)
 		mgmtError(w, http.StatusInternalServerError, "redact config: "+err.Error())
 		return
