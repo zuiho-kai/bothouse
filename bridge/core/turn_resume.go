@@ -228,7 +228,35 @@ func turnResumeMessageSummary(s string) string {
 			lines[i] = ""
 		}
 	}
+	// #1327 follow-up: the entry prepends the message IDs and the native quoted
+	// replies instructions to the text; the summary is what the resumed turn
+	// reads first, so it must start with the person's own words. Only when a
+	// prefix-only message would leave nothing does the folded original stay.
+	if body := stripEntryPrefix(lines); len(body) > 0 {
+		lines = body
+	}
 	return turnResumeOneLine(strings.Join(lines, "\n"), turnResumeSummaryRunes)
+}
+
+// stripEntryPrefix drops the blocks engine.go prepends before the user's text
+// (#1327 follow-up): "[Message IDs: ...]" lines and the native quoted replies
+// instructions, plus blank lines between them. It stops at the first other
+// line, so the returned lines still begin with the user's own words; nil means
+// the message held nothing but prefixes.
+func stripEntryPrefix(lines []string) []string {
+	for i := 0; i < len(lines); {
+		switch line := strings.TrimSpace(lines[i]); {
+		case line == "":
+			i++
+		case strings.HasPrefix(line, "[Message IDs:"):
+			i++
+		case strings.HasPrefix(strings.Join(lines[i:], "\n"), nativeQuotedReplyInstructions):
+			i += strings.Count(nativeQuotedReplyInstructions, "\n") + 1
+		default:
+			return lines[i:]
+		}
+	}
+	return nil
 }
 
 // turnResumeOneLine folds s onto one line, cut to n runes (n <= 0: no cut).
