@@ -342,6 +342,39 @@ jobs:
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
 
+  # The bundled desktop pet (plugins/desktop-pet, fork of dsh-pet): `bothouse pet start` installs this release's
+  # bothouse-pet.tgz with npm (bridge/cmd/cc-connect/pet.go petPackageURL). assets/webm is not in git; the
+  # fetch script downloads it from the pinned upstream commit and checks sha256 (plugins/desktop-pet/BOTHOUSE.md).
+  desktop-pet:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Build and attach bothouse-pet.tgz
+        working-directory: plugins/desktop-pet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npx -y pnpm@10 install --frozen-lockfile
+          node scripts/bothouse-fetch-assets.mjs
+          npx tsdown
+          npm pack --ignore-scripts
+          mv bothouse-pet-*.tgz bothouse-pet.tgz
+          gh release upload "$TAG" bothouse-pet.tgz --clobber
+
   # DSH installs plugins from git: `dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plugin-pkg'`.
   # The built outputs (plugin-pkg/collab, plugin-pkg/client) are gitignored on main, so each release force-pushes
   # a one-commit `dsh-plugin` branch holding only the packed files. Runs in parallel with the binary builds.

@@ -14,7 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,17 +27,19 @@ import (
 
 const petUsage = `Usage: bothouse pet <start|stop|status>
 
-Desktop pet: runs dsh-pet (https://github.com/PC2005-cloud/dsh-pet) in its standalone mode — its own
-transparent, always-on-top desktop window — and feeds it the role events of this bothouse. Only roles
-bound to the "dsh-pet" plugin (plugin page → role bindings, enabled) drive the pet.
+Desktop pet: bothouse's own desktop pet (plugins/desktop-pet, forked from dsh-pet by PC2005-cloud, MIT) —
+a transparent, always-on-top desktop window driven by the role events of this bothouse. Only roles bound
+to the "dsh-pet" plugin (plugin page → role bindings, enabled) drive it; its right-click menu talks to
+the bound role, shows bothouse usage, the team task board and opens the web admin.
 
 Commands:
-  start    Start the desktop pet in the background (installs dsh-pet with npm on first use)
+  start    Start the desktop pet in the background (installs it with npm on first use)
   stop     Close the desktop pet
   status   Show whether it is running, its port and log file
 
 Environment:
-  BOTHOUSE_DSH_PET_BIN   Path to an existing dsh-pet-standalone (skips the npm install)
+  BOTHOUSE_PET_DIR       A built plugins/desktop-pet checkout to run (skips the install)
+  BOTHOUSE_PET_PACKAGE   npm package (file or URL) to install instead of this release's bothouse-pet.tgz
 `
 
 // petPluginID is the role-binding plugin id that means "this role drives the desktop pet": the plugin
@@ -45,8 +47,19 @@ Environment:
 // also the npm package name.
 const petPluginID = "dsh-pet"
 
-// dshPetVersion is the dsh-pet release installed on first use (npm latest on 2026-11-09).
-const dshPetVersion = "0.4.7"
+// petPackageURL is the bundled pet's npm package for this bothouse version: release.yml attaches
+// bothouse-pet.tgz (built from plugins/desktop-pet) to every release; dev builds take the latest one.
+func petPackageURL() string {
+	if p := os.Getenv("BOTHOUSE_PET_PACKAGE"); p != "" {
+		return p
+	}
+	if petReleaseTag.MatchString(version) {
+		return "https://github.com/zuiho-kai/bothouse/releases/download/" + version + "/bothouse-pet.tgz"
+	}
+	return "https://github.com/zuiho-kai/bothouse/releases/latest/download/bothouse-pet.tgz"
+}
+
+var petReleaseTag = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
 type petPaths struct{ dir, stateFile, logFile, installDir string }
 
@@ -56,7 +69,7 @@ func petPathsFor(dataDir string) petPaths {
 		dir:        dir,
 		stateFile:  filepath.Join(dir, "desktop.json"),
 		logFile:    filepath.Join(dir, "desktop.log"),
-		installDir: filepath.Join(dir, "dsh-pet"),
+		installDir: filepath.Join(dir, "app"),
 	}
 }
 
@@ -148,7 +161,7 @@ func petStart(paths petPaths, configPath string) {
 	}
 	done := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(done) }()
-	fmt.Println("Starting desktop pet (the first start installs dsh-pet and downloads Electron) ...")
+	fmt.Println("Starting desktop pet (the first start installs it and downloads Electron) ...")
 	for {
 		if st, alive := readPetState(paths); alive {
 			fmt.Printf("Desktop pet started (port %d). Log: %s\n", st.Port, paths.logFile)
@@ -191,33 +204,42 @@ func petStatus(paths petPaths) {
 	fmt.Printf("not running\nlog: %s\n", paths.logFile)
 }
 
-// findDshPet returns the dsh-pet-standalone command, installing dsh-pet with npm when none is found.
-func findDshPet(paths petPaths) (string, error) {
-	if p := os.Getenv("BOTHOUSE_DSH_PET_BIN"); p != "" {
-		return p, nil
+// findPet returns the command line that runs the bundled pet's standalone mode, installing the
+// package for this version with npm when it is missing or was installed from another package.
+func findPet(paths petPaths) ([]string, error) {
+	node, nodeErr := exec.LookPath("node")
+	if dir := os.Getenv("BOTHOUSE_PET_DIR"); dir != "" {
+		if nodeErr != nil {
+			return nil, fmt.Errorf("node was not found; install Node.js 22.12 or newer")
+		}
+		return []string{node, filepath.Join(dir, "lib", "standalone.js")}, nil
 	}
-	name := "dsh-pet-standalone"
-	if runtime.GOOS == "windows" {
-		name += ".cmd"
-	}
-	local := filepath.Join(paths.installDir, "node_modules", ".bin", name)
-	if _, err := os.Stat(local); err == nil {
-		return local, nil
-	}
-	if p, err := exec.LookPath("dsh-pet-standalone"); err == nil {
-		return p, nil
+	pkg := petPackageURL()
+	marker := filepath.Join(paths.installDir, "package-source.txt")
+	entry := filepath.Join(paths.installDir, "node_modules", "bothouse-pet", "lib", "standalone.js")
+	if b, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(b)) == pkg {
+		if _, err := os.Stat(entry); err == nil && nodeErr == nil {
+			return []string{node, entry}, nil
+		}
 	}
 	npm, err := exec.LookPath("npm")
-	if err != nil {
-		return "", fmt.Errorf("dsh-pet is not installed and npm was not found; install Node.js, or `npm install -g dsh-pet`")
+	if err != nil || nodeErr != nil {
+		return nil, fmt.Errorf("the desktop pet needs Node.js 22.12 or newer (node and npm on PATH)")
 	}
-	fmt.Printf("installing dsh-pet@%s into %s ...\n", dshPetVersion, paths.installDir)
-	cmd := exec.Command(npm, "install", "--prefix", paths.installDir, "dsh-pet@"+dshPetVersion)
+	if err := os.MkdirAll(paths.installDir, 0o755); err != nil {
+		return nil, err
+	}
+	fmt.Printf("installing the desktop pet from %s into %s ...\n", pkg, paths.installDir)
+	cmd := exec.Command(npm, "install", "--prefix", paths.installDir, "--no-audit", "--no-fund", pkg)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("npm install dsh-pet: %w", err)
+		return nil, fmt.Errorf("npm install %s: %w", pkg, err)
 	}
-	return local, nil
+	if _, err := os.Stat(entry); err != nil {
+		return nil, fmt.Errorf("installed %s but %s is missing", pkg, entry)
+	}
+	_ = os.WriteFile(marker, []byte(pkg+"\n"), 0o644)
+	return []string{node, entry}, nil
 }
 
 // freePort asks the OS for a free loopback port, so the relay knows where dsh-pet listens (dsh-pet
@@ -244,7 +266,7 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	if cfg.Management.Enabled == nil || !*cfg.Management.Enabled {
 		return fmt.Errorf("the web admin is off; run `bothouse web` once to switch it on")
 	}
-	bin, err := findDshPet(paths)
+	argv, err := findPet(paths)
 	if err != nil {
 		return err
 	}
@@ -254,10 +276,20 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	child := exec.Command(bin, "--port", strconv.Itoa(port))
+	pet := newDshPetClient(port)
+	relay := newPetRelay(pet)
+	// The pet's menu (对话 / 查看余额 / 待办事项 / 碎碎念 / 打开 AI 设置) calls back into bothouse (pet_api.go).
+	api := newPetAPI(relay, managementURL(cfg), cfg.Management.Token, resolveSocketPath(cfg.DataDir))
+	apiURL, err := api.serve(ctx)
+	if err != nil {
+		return err
+	}
+	child := exec.Command(argv[0], append(argv[1:], "--port", strconv.Itoa(port))...)
+	child.Env = append(os.Environ(), "BOTHOUSE_PET_API="+apiURL, "BOTHOUSE_PET_TOKEN="+api.secret,
+		"BOTHOUSE_ADMIN_URL="+managementURL(cfg))
 	child.Stdout, child.Stderr = os.Stdout, os.Stderr
 	if err := child.Start(); err != nil {
-		return fmt.Errorf("start %s: %w", bin, err)
+		return fmt.Errorf("start %s: %w", strings.Join(argv, " "), err)
 	}
 	st := petRunState{PID: os.Getpid(), Port: port, Started: time.Now().Format(time.RFC3339)}
 	b, _ := json.Marshal(st)
@@ -275,8 +307,6 @@ func petRun(cfg *config.Config, paths petPaths) error {
 		}
 	}()
 
-	pet := newDshPetClient(port)
-	relay := newPetRelay(pet)
 	exited := make(chan error, 1)
 	go func() { exited <- child.Wait() }()
 	// Feed it only once its HTTP side is up; until then the window has nothing to show anyway.
@@ -293,7 +323,7 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	err = <-exited
 	cancel()
 	if err != nil {
-		return fmt.Errorf("dsh-pet exited: %v", err)
+		return fmt.Errorf("desktop pet exited: %v", err)
 	}
 	return nil
 }
@@ -440,13 +470,14 @@ type petRelay struct {
 	status map[string]string // role_key → merged role status
 	names  map[string]string // role_key → display name
 	sent   string            // last work-status sent ("" = cleared)
+	talk   *petTalk          // sessions, recent lines and pending 对话 of the bound roles (pet_api.go)
 	logf   func(string, ...any)
 	// out replaces the HTTP calls in tests: kind is a work-status tier, "" (clear) or "speech".
 	out func(kind, text string)
 }
 
 func newPetRelay(pet *dshPetClient) *petRelay {
-	return &petRelay{pet: pet, bound: map[string]bool{}, status: map[string]string{}, names: map[string]string{},
+	return &petRelay{pet: pet, bound: map[string]bool{}, status: map[string]string{}, names: map[string]string{}, talk: newPetTalk(),
 		logf: func(f string, a ...any) { fmt.Printf("[pet] "+f+"\n", a...) }}
 }
 
@@ -458,11 +489,12 @@ type petRole struct {
 }
 
 type petEvent struct {
-	Type    string  `json:"type"`
-	RoleKey string  `json:"role_key"`
-	Text    string  `json:"text"`
-	Draft   bool    `json:"draft"`
-	Role    petRole `json:"role"`
+	Type       string  `json:"type"`
+	RoleKey    string  `json:"role_key"`
+	SessionKey string  `json:"session_key"`
+	Text       string  `json:"text"`
+	Draft      bool    `json:"draft"`
+	Role       petRole `json:"role"`
 }
 
 type petBinding struct {
@@ -635,11 +667,17 @@ func (r *petRelay) handle(kind string, data []byte) {
 		return
 	}
 	r.logf("%s %s", ev.RoleKey, ev.Type)
+	if ev.SessionKey != "" {
+		r.talk.seen(ev.RoleKey, ev.SessionKey)
+	}
 	switch ev.Type {
 	case "speech":
 		// Drafts are rewritten until final; like the sample plugins, only the final text is shown.
 		if !ev.Draft && strings.TrimSpace(ev.Text) != "" {
-			r.say(ev.Text)
+			// A reply to the pet's 对话 goes back in the chat panel, which bubbles it itself.
+			if !r.talk.spoke(ev.RoleKey, ev.SessionKey, ev.Text) {
+				r.say(ev.Text)
+			}
 		}
 	case "celebrate", "error":
 		// One-off: play it even though the merged role status may already be back to idle.

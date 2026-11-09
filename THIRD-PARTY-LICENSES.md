@@ -66,6 +66,12 @@
 
 「仅构建」的包不进入打包产物。
 
+## 内置的上游代码
+
+| 目录 | 来源 | 许可证 |
+| --- | --- | --- |
+| plugins/desktop-pet/ | [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) c25386848f70（fork） | MIT（原文见 plugins/desktop-pet/LICENSE）；它的 npm 依赖见该目录 package.json |
+
 ## 尚未列出
 
 - `companion/`、`role-household/`、`experiments/` 的 Python 依赖（见各自 `uv.lock`）还没有生成清单。`integrations/` 没有 package.json，没有第三方 Node 依赖。
