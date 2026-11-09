@@ -135,35 +135,47 @@ func TestOpenDSHWebKeepsThePreviousAnnouncementInTheLog(t *testing.T) {
 	}
 }
 
-// fakeOwnDSHHost starts a process whose command line says it is a DSH host of this bridge: a `dsh`
-// wrapper script that execs bin, started with this bridge's data directory. Since #1255 the recorded
-// pid is stopped only when it is provably such a host (dshWebPIDOwned), so a test that needs "the old
-// host gets stopped for the import" has to start one instead of a bare /bin/sleep.
+// fakeOwnDSHHost starts a stand-in for this bridge's own dsh web and describes it the way a real one
+// looks: `--profile web` in the command line and this bridge's data directory in the environment.
+//
+// The description comes from dshWebProcLookup, not from the process itself: a `dsh` wrapper script
+// that execs another binary replaces its own image with it, so the kernel then reports the target's
+// argv (`/bin/sleep 60`) and the pid no longer looks like a dsh host at all. That is a property of
+// `exec`, not of the wait: it happens a few hundred milliseconds after Start, which is why the tests
+// that used the wrapper passed or failed depending on how fast they read the command line. Replacing
+// the lookup is the pattern TestDSHWebPortOwnedRefusesAnotherDataDir already uses: only this pid gets
+// described, every other pid keeps the real answer, and the process itself is real enough to stop.
 func fakeOwnDSHHost(t *testing.T, bin string, args ...string) *exec.Cmd {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("uses a sh wrapper as dsh")
+		t.Skip("uses /bin/sleep")
 	}
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no "+bin+":", err)
 	}
-	dir := t.TempDir()
-	dst := filepath.Join(dir, "dsh")
-	script := "#!/bin/sh\nexec " + bin
-	for _, a := range args {
-		script += " " + a
-	}
-	if err := os.WriteFile(dst, []byte(script+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(dst, args...)
-	if own := dshWebOwnDataDir(); own != "" {
-		cmd.Env = append(os.Environ(), ccconnect.DataDirEnv+"="+own)
-	}
+	cmd := exec.Command(bin, args...)
 	if err := cmd.Start(); err != nil {
 		t.Skip("cannot start the stand-in host:", err)
 	}
 	go func() { _ = cmd.Wait() }()
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	dir := dshWebOwnDataDir()
+	if dir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = ccconnect.DataDir(home)
+		}
+	}
+	argv := append([]string{"node", "/opt/homebrew/bin/dsh", "--profile", DSHProfile}, args...)
+	env := map[string]string{ccconnect.DataDirEnv: dir}
+	pid := cmd.Process.Pid
+	old := dshWebProcLookup
+	dshWebProcLookup = func(p int) ([]string, map[string]string, bool, bool) {
+		if p == pid {
+			return argv, env, true, true
+		}
+		return old(p)
+	}
+	t.Cleanup(func() { dshWebProcLookup = old })
 	return cmd
 }
