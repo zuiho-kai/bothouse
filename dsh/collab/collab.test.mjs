@@ -2001,11 +2001,24 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
   await tick();
   assert.deepEqual([seen, planned], [[], []], 'drafts and edits reach no agent');
   assert.deepEqual(pushed.map(e => e.message?.text), ['半句', '半句话'], 'browsers see the draft and its edit');
+  // #1355: one message keeps its id for life; `draft` says whether it has settled and
+  // `revision` moves with the stored text, so a consumer replaces one bubble instead of
+  // appending a new one per streaming edit.
+  assert.deepEqual(pushed.map(e => [e.message.id, e.message.draft === true]), [[d.id, true], [d.id, true]], 'draft frames keep one id and stay marked as drafts');
+  const [draftRev, editRev] = pushed.map(e => e.message.revision);
+  assert.equal(typeof draftRev, 'number');
+  assert.ok(editRev >= draftRev, 'an edit never moves revision backwards');
   const row = hub.commit(d.id, 'role', 'ju', '整句话 @鲸鱼娘', true);
   assert.equal(row.id, d.id);
   assert.equal(row.text, '整句话 @鲸鱼娘');
   assert.equal(row.from_turn, 1);
   assert.equal(row.draft, 0);
+  const committed = pushed.at(-1).message;
+  assert.equal(pushed.length, 3, 'the commit is forwarded too');
+  assert.equal(committed.id, d.id);
+  assert.equal('draft' in committed, false, 'a committed reply is no longer a draft');
+  assert.ok(committed.revision >= editRev, 'the commit moves revision on');
+  assert.notEqual(committed.text, pushed[1].message.text);
   await tick();
   assert.deepEqual([seen, planned], [['整句话 @鲸鱼娘'], ['整句话 @鲸鱼娘']]);
   store.close();

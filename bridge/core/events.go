@@ -26,7 +26,7 @@ const (
 )
 
 const (
-	streamEventMaxText  = 500     // runes kept per text field
+	streamEventMaxText  = 500      // runes kept per text field
 	streamEventMaxBytes = 20 << 20 // rotate to events.jsonl.1 past this size
 )
 
@@ -82,6 +82,9 @@ func AppendStreamEvent(dataDir string, ev StreamEvent) error {
 
 // emitStreamEvent records an event for this engine's project; failures only log.
 func (e *Engine) emitStreamEvent(typ, sessionKey, text string, data map[string]any) {
+	if e != nil && typ == StreamEventMessage {
+		e.publishRoleEvent(sessionKey, "working", "")
+	}
 	if e == nil || e.dataDir == "" {
 		return
 	}

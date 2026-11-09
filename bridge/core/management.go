@@ -37,14 +37,16 @@ type ProjectSettingsUpdate struct {
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
-	usageLedger   *UsageLedger
-	usageImporter *UsageImporter
-	port          int
-	host          string // "" = all interfaces
-	token         string
-	corsOrigins   []string
-	server        *http.Server
-	startedAt     time.Time
+	usageLedger    *UsageLedger
+	usageImporter  *UsageImporter
+	port           int
+	host           string // "" = all interfaces
+	token          string
+	corsOrigins    []string
+	server         *http.Server
+	startedAt      time.Time
+	roleEvents     *roleEventBroker
+	roleBindingsMu sync.Mutex
 
 	mu      sync.RWMutex
 	engines map[string]*Engine // project name → engine
@@ -106,6 +108,7 @@ func NewManagementServer(port int, token string, corsOrigins []string) *Manageme
 		corsOrigins: corsOrigins,
 		engines:     make(map[string]*Engine),
 		startedAt:   time.Now(),
+		roleEvents:  newRoleEventBroker(),
 	}
 }
 
@@ -116,6 +119,7 @@ func (m *ManagementServer) RegisterEngine(name string, e *Engine) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.engines[name] = e
+	e.roleEvents.Store(m.roleEvents)
 }
 
 func (m *ManagementServer) SetCronScheduler(cs *CronScheduler)           { m.cronScheduler = cs }
@@ -309,6 +313,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
+	mux.HandleFunc(prefix+"/plugins/role-bindings", m.wrap(m.handleRoleBindings))
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
@@ -370,6 +375,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Roles
 	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
+	mux.HandleFunc(prefix+"/roles/events", m.wrap(m.handleRoleEvents))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
 	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
 	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHMembersAPI))
@@ -492,7 +498,7 @@ func (m *ManagementServer) setCORS(w http.ResponseWriter, r *http.Request) {
 	for _, o := range m.corsOrigins {
 		if o == "*" || o == origin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			break
