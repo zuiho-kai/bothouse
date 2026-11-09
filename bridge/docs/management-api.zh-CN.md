@@ -1642,8 +1642,10 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 `reconcile()` 把该包从 `dsh.profile.bundles` 里摘掉 ③ 重读 profile 核对结果，最后才放锁。
 它**不是**一次 `dsh plugin --profile <profile> remove`：那条命令自己会去拿同一把锁，在桥已经
 持锁的情况下再起它，父子互相等锁，就是死锁。所以桥起的是一个内嵌脚本，脚本直接调
-`runProfilePnpm`（`dsh plugin` 在锁内用的正是这个函数），不碰锁；pnpm 和它拉起的进程都在
-桥的进程组里，超时一起收掉。
+`runProfilePnpm`（`dsh plugin` 在锁内用的正是这个函数），不碰锁。Unix 上 helper 使用独立于
+桥的进程组，超时杀该组；Windows 上先把 helper 纳入 Job，再喂入脚本，取消时复用
+`taskkill /T /F` 并终止 Job，确认其中活跃进程数归零后才放锁。即使 helper 已退出，Job 仍追踪
+pnpm 的后代；若系统无法确认清理完成，则返回错误并保留 profile 写锁，不让后续写者进入。
 
 检查（第 ① 步，都在锁里、都在起进程之前做完）：
 
@@ -1667,7 +1669,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 | 这份 profile 里还有上一次安装/卸载留下的进程没退（DSH 的运行记录还指着一个活着的进程） | 409 | `unknown` |
 | 这份 DSH 没带插件管理器（版本太旧或装不完整） | 409 | `unknown` |
 | 找不到 pnpm，或这台电脑没有能跑卸载的 Node | 409 | `unknown` |
-| 桥自己的超时到了，卸载被整组杀掉 | 409 | `timeout` |
+| 桥自己的超时到了，卸载进程树已清理完成 | 409 | `timeout` |
 | 命令说做完了，但 profile 里还列着它 | 409 | `unknown` |
 | 其他 | 409 | `unknown` |
 

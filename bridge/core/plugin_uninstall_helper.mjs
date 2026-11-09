@@ -47,7 +47,8 @@ try {
     ['remove', '--', name],
     {
       // 'cli' inherits this process's descriptors, exactly as `dsh plugin` runs pnpm: the bridge's
-      // process group owns the tree, so its timeout reaches pnpm and anything pnpm started.
+      // helper's Unix process group / Windows job owns the tree. The bridge waits for Windows
+      // job cleanup before releasing the profile lock, including detached pnpm descendants.
       execution: 'cli',
       // 来源：DSH 安装流程的 collectTail 用 64KB 截尾；这里的回调只是把子进程的输出原样转给
       // 桥的日志缓冲，同样的上限，避免一次坏掉的 pnpm 把整段输出堆在内存里。

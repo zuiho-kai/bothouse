@@ -280,13 +280,15 @@ func runPluginUninstallRemoval(ctx context.Context, plan pluginUninstallPlan, na
 		)
 	}
 	cmd.Env = MergeEnv(os.Environ(), env)
-	// The bridge kills the whole group on timeout: pnpm and anything pnpm started die with it.
-	ownProcessGroup(cmd)
 	cmd.WaitDelay = pluginUninstallWaitDelay
 	tail := &pluginUninstallTail{}
 	cmd.Stdout, cmd.Stderr = tail, tail
-	runErr := cmd.Run()
+	runErr := runPluginUninstallCommand(cmd)
 	run.output = tail.String()
+	// An unconfirmed Windows cleanup must not release the caller's profile lock.
+	if errors.Is(runErr, errPluginLockRetain) {
+		return run, runErr
+	}
 	// The timeout is checked before the exit status: a run this bridge ended leaves an ExitError
 	// behind (the group was killed), and reporting its status as pnpm's answer would be a lie.
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
