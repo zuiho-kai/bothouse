@@ -288,13 +288,28 @@ func (e *Engine) exitHeadlineBounced(key, body string) bool {
 	return id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit
 }
 
+// watchBoardClosedWords: the closing words a board status may start with, the same set as
+// board.py's CLOSED_RE (#497, user 2026-10-28 定过这五个词).
+var watchBoardClosedWords = []string{"已验收", "验收通过", "已收口", "已完成", "已结束"}
+
+// watchBoardClosedDone: board.py's CLOSED_RE also takes "done" but only as a whole word
+// (\bdone\b), case-insensitively.
+var watchBoardClosedDone = regexp.MustCompile(`(?i)^done\b`)
+
+// watchBoardClosed: whether a board item is really finished. It must *start* with a closing word
+// after leading spaces — the same prefix anchored test as board.py's CLOSED_RE (#497), not a
+// substring anywhere in the status. 2026-11-09 the substring test read 「在做：脱敏实现…已完成，
+// PR 已开」 as closed twice: the idle watch stopped watching and reconcileTeamWorkspaces freed the
+// workspace at 15:07:04, killing the session (signal:killed at 15:07:05) while the author was
+// still working. Statuses such as 「交回待验收」 or 「等待用户拍板」 never start with these words.
 func watchBoardClosed(it teamTaskBoardItem) bool {
-	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
-		if strings.Contains(it.Status, status) {
+	status := strings.TrimSpace(it.Status)
+	for _, word := range watchBoardClosedWords {
+		if strings.HasPrefix(status, word) {
 			return true
 		}
 	}
-	return false
+	return watchBoardClosedDone.MatchString(status)
 }
 
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
