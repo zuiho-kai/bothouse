@@ -136,6 +136,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
 	s.mux.HandleFunc("/session/new", s.handleSessionNew)              // `cc-connect session new --after-turn` (session_reset.go)
+	s.mux.HandleFunc("/channel/create", s.handleChannelCreate)        // `bothouse channel create` (team_channel.go)
 	s.mux.HandleFunc("/team/workspace/new", s.handleTeamWorkspaceNew) // team mode D (team_workspace_api.go)
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)

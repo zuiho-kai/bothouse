@@ -36,6 +36,7 @@ var helpNoopSubcommands = [][]string{
 	{"timer", "add"}, {"timer", "del"},
 	{"model", "set"}, {"model", "effort"}, {"model", "auto"},
 	{"workspace", "new"}, {"workspace", "claim"}, {"workspace", "park"},
+	{"channel", "create"},
 	{"relay", "send"},
 	{"sessions", "prune"},
 	{"session", "new"},

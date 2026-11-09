@@ -71,3 +71,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 已接
 - cloud-web: 不支持：本机网页频道没有成员、表情、语音这些平台侧事件可上报
 - dsh: 不支持：同 cloud-web，DSH 房间经 collab 网关只转消息
+
+## TeamChannelCreator
+
+`bothouse channel create <名字>`：在聊天频道同一分类里建用户要的新频道，并排到该分类的「工作区n」上面（core/team_channel.go，用户 11-09「用户要求创建的新频道统一放到工作区上面」）。
+
+- discord: 已接
+- feishu: 不支持：飞书没有服务器分类和频道排序，新建的是群聊，工作区也不是飞书频道
+- cloud-web: 不支持：本机网页频道的房间由 collab 网关管，没有给角色建房间和排序的接口
+- dsh: 不支持：同 cloud-web

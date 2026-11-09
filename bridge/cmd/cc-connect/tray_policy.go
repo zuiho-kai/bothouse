@@ -12,7 +12,7 @@ func trayInvocation(args []string) bool {
 		return true
 	}
 	switch args[0] {
-	case "config-example", "config", "update", "check-update", "provider", "send", "progress", "task", "cron", "model", "workspace", "timer", "at", "relay", "sessions", "session", "agent-sid", "daemon", "feishu", "tuitui", "weixin", "yuanbao", "doctor", "web", "setup", "version", "help", "upgrade":
+	case "config-example", "config", "update", "check-update", "provider", "send", "progress", "task", "cron", "model", "workspace", "channel", "timer", "at", "relay", "sessions", "session", "agent-sid", "daemon", "feishu", "tuitui", "weixin", "yuanbao", "doctor", "web", "setup", "version", "help", "upgrade":
 		return false
 	}
 	for _, a := range args {
