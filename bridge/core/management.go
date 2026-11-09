@@ -71,11 +71,15 @@ type ManagementServer struct {
 	saveProviderRefs     func(projectName string, refs []string) error
 	getQQSettings        func(string) (*QQSettings, error)
 	saveQQSettings       func(string, QQSettingsUpdate) ([]string, error)
-	configFilePath       string
-	getGlobalSettings    func() map[string]any
-	saveGlobalSettings   func(map[string]any) error
-	getAutostart         func() (AutostartInfo, error)
-	setAutostart         func(bool) (AutostartInfo, error)
+	// Official QQ Bot (platform type "qqbot"), #710 件 5: its own panel, because
+	// the OneBot settings above and this one share no options.
+	getQQBotSettings   func(string) (*QQBotSettings, error)
+	saveQQBotSettings  func(string, QQBotSettingsUpdate) ([]string, error)
+	configFilePath     string
+	getGlobalSettings  func() map[string]any
+	saveGlobalSettings func(map[string]any) error
+	getAutostart       func() (AutostartInfo, error)
+	setAutostart       func(bool) (AutostartInfo, error)
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -709,9 +713,20 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Credentials never leave the machine in clear text: the panel shows this
+	// text as-is, so every token/secret/api_key value is masked here (#710 件3).
+	redacted, err := RedactConfigText(string(data))
+	if err != nil {
+		// Fail closed: an unredactable config is not served at all rather than
+		// served with secrets in it.
+		slog.Error("management api: redact config failed", "error", err)
+		mgmtError(w, http.StatusInternalServerError, "redact config: "+err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(redacted))
 }
 
 func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.Request) {
@@ -819,6 +834,12 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		m.handleProjectQQ(w, r, projName, rest)
 		return
 	}
+	// "qqbot" is the official Bot (platform type "qqbot"), a separate platform
+	// from the OneBot bridge above; the two never share options (#710 件 5).
+	if sub == "qqbot" {
+		m.handleProjectQQBot(w, r, projName, rest)
+		return
+	}
 
 	m.mu.RLock()
 	engine, ok := m.engines[projName]
@@ -860,13 +881,25 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Request, name string, e *Engine) {
 	if r.Method == http.MethodGet {
-		platInfos := make([]map[string]any, len(e.platforms))
-		for i, p := range e.platforms {
-			platInfos[i] = map[string]any{
-				"type":      p.Name(),
-				"connected": true,
+		// connected is the runtime readiness bit (platformReady), not "this platform is written in
+		// config.toml": a platform whose Start failed, or an async one still reconnecting, is listed
+		// but not connected. Same map and same lock bridgeRoles reads (management_roles_devices.go),
+		// so the detail page and the roles page cannot disagree.
+		platInfos := make([]map[string]any, 0, len(e.platforms))
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			// The bridge transport is not a chat platform (handleStatus reports it under "bridge"),
+			// and it is attached after Engine.Start, so it never appears in platformReady. Listing it
+			// here would pin a permanent red pill on a transport that is in fact working.
+			if _, ok := p.(*BridgePlatform); ok {
+				continue
 			}
+			platInfos = append(platInfos, map[string]any{
+				"type":      p.Name(),
+				"connected": e.platformReady[p],
+			})
 		}
+		e.platformLifecycleMu.Unlock()
 
 		allSessions := e.sessions.AllSessions()
 		sessCount := len(allSessions)

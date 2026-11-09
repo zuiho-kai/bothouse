@@ -19,6 +19,7 @@ beforeEach(() => {
   mocks.save.mockReset().mockResolvedValue({ restart_required: true, changed: ['share_session_in_channel'] });
   mocks.get.mockReset().mockResolvedValue({ configured: true, capabilities: [], settings: {
     ws_url: 'ws://localhost:3001', http_url: '', token_set: true, allow_from: '123', share_session_in_channel: true,
+    split_bubbles: false, allow_groups_with: '', command_allow_from: '', save_images_dir: '', allow_qzone: false, allow_avatar: false,
   } });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
@@ -56,7 +57,10 @@ it('preserves the saved token and sends an explicit false when disabling shared 
   const toggle = [...host.querySelectorAll('label')].find(l => l.textContent === 'fields.sharedGroupSession')!.querySelector('input')!;
   await act(async () => toggle.click());
   await click('common.save');
-  expect(mocks.save).toHaveBeenCalledWith('qq-role', { ws_url: 'ws://localhost:3001', http_url: '', share_session_in_channel: false });
+  expect(mocks.save).toHaveBeenCalledWith('qq-role', {
+    ws_url: 'ws://localhost:3001', http_url: '', share_session_in_channel: false,
+    split_bubbles: false, allow_groups_with: '', command_allow_from: '', save_images_dir: '', allow_qzone: false, allow_avatar: false,
+  });
   expect(host.querySelector('[role="status"]')?.textContent).toBe('qq.savedRestart');
 });
 
@@ -73,4 +77,34 @@ it('keeps edits on save failure and clears a stored token only when explicitly s
   await click('common.save');
   expect(mocks.save).toHaveBeenLastCalledWith('qq-role', expect.objectContaining({ token: '', ws_url: 'ws://localhost:3002' }));
   expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('shows every switch the adapter honors, keeps allow_from read-only, and sends all of them', async () => {
+  await render(<QQSettingsPanel project="qq-role" />);
+  // allow_from is display-only: no input carries it.
+  expect(host.querySelector('input[aria-label="fields.allowFrom"]')).toBeNull();
+  expect(host.textContent).toContain('qq.allowFromReadonly');
+
+  await fill('qq.saveImagesDir', '/tmp/shots');
+  const split = host.querySelector<HTMLInputElement>('input[aria-label="qq.splitBubbles"]')!;
+  const qzone = host.querySelector<HTMLInputElement>('input[aria-label="qq.allowQzone"]')!;
+  const avatar = host.querySelector<HTMLInputElement>('input[aria-label="qq.allowAvatar"]')!;
+  await act(async () => { split.click(); qzone.click(); avatar.click(); });
+  await click('common.save');
+  expect(mocks.save).toHaveBeenCalledWith('qq-role', expect.objectContaining({
+    split_bubbles: true, allow_qzone: true, allow_avatar: true, save_images_dir: '/tmp/shots',
+  }));
+});
+
+it('re-reads on cc:refresh so a save elsewhere does not leave stale switches', async () => {
+  await render(<QQSettingsPanel project="qq-role" />);
+  expect(mocks.get).toHaveBeenCalledTimes(1);
+  mocks.get.mockResolvedValueOnce({ configured: true, settings: {
+    ws_url: 'ws://localhost:3001', http_url: '', token_set: true, allow_from: '123', share_session_in_channel: true,
+    split_bubbles: true, allow_groups_with: '55555', command_allow_from: '', save_images_dir: '', allow_qzone: true, allow_avatar: false,
+  } });
+  await act(async () => { window.dispatchEvent(new Event('cc:refresh')); });
+  expect(mocks.get).toHaveBeenCalledTimes(2);
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="qq.splitBubbles"]')?.checked).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="qq.allowGroupsWith"]')?.value).toBe('55555');
 });

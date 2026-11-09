@@ -40,7 +40,7 @@ const zh: AppTexts = {
   noProjects: '没有角色在用',
   dshOwner: 'DSH 自己就是宿主，不挂在某个角色上',
   resumeWith: '重新打开：',
-  qqHint: 'QQ 走本机 NapCat / OneBot 的 WebSocket，接之前先在 NapCat 里开一个 WS 服务器。',
+  qqHint: 'QQ 有两种接法：本机 NapCat / OneBot 的 WebSocket（接之前先在 NapCat 里开一个 WS 服务器），或 QQ 官方 Bot（AppID + AppSecret）；这行两种都算。',
   dshHint: 'DSH 不是聊天平台，是跑插件的宿主；它的插件在 DSH 自己的「插件」页里装、开、停。',
   otherHint: 'Discord 和飞书用各自的机器人凭据；停用只把配置里的段落标成 disabled，凭据和设置都留着。',
 }
@@ -62,7 +62,7 @@ const en: AppTexts = {
   noProjects: 'no role uses it',
   dshOwner: 'DSH is the host itself; it does not belong to one role',
   resumeWith: 'Turn it back on with',
-  qqHint: 'QQ goes through a local NapCat / OneBot WebSocket; start that WS server in NapCat first.',
+  qqHint: 'QQ has two routes: a local NapCat / OneBot WebSocket (start that WS server in NapCat first) or the official QQ Bot (AppID + AppSecret). This row counts both.',
   dshHint: 'DSH is not a chat platform but the host that runs plugins; its own Plugins page installs, enables and stops them.',
   otherHint: 'Discord and Feishu use their own bot credentials. Disabling only marks the config section disabled: credentials and options stay.',
 }
@@ -84,7 +84,7 @@ const ja: AppTexts = {
   noProjects: '利用中のロールなし',
   dshOwner: 'DSH 自身がホストで、特定のロールには属しません',
   resumeWith: '再開するには',
-  qqHint: 'QQ はローカルの NapCat / OneBot WebSocket 経由です。先に NapCat で WS サーバーを起動してください。',
+  qqHint: 'QQ は 2 通りあります。ローカルの NapCat / OneBot WebSocket（先に NapCat で WS サーバーを起動）か、QQ 公式 Bot（AppID + AppSecret）です。この行は両方を数えます。',
   dshHint: 'DSH はチャットプラットフォームではなく、プラグインを動かすホストです。プラグインは DSH 自身の「プラグイン」ページで導入・有効化・停止します。',
   otherHint: 'Discord と飛書はそれぞれのボット認証情報を使います。停止は設定セクションに disabled を付けるだけで、認証情報と設定は残ります。',
 }

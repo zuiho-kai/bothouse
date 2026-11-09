@@ -292,3 +292,152 @@ func TestUpdateQQSettings_PreservesUnknownFieldsAndFalseAndOmittedToken(t *testi
 		t.Fatal("no-op rewrote config")
 	}
 }
+
+// qqSwitchConfigFixture has every switch this panel exposes plus a second project,
+// so an update to one project can be checked against the other.
+const qqSwitchConfigFixture = `
+[[projects]]
+name = "alpha"
+
+[projects.agent]
+type = "codex"
+
+[[projects.platforms]]
+type = "qq"
+
+[projects.platforms.options]
+ws_url = "ws://127.0.0.1:3001"
+allow_from = "*"
+split_bubbles = true
+allow_groups_with = "12345,67890"
+command_allow_from = "12345"
+save_images_dir = "/tmp/shots"
+allow_qzone = false
+allow_avatar = true
+
+[[projects]]
+name = "beta"
+
+[projects.agent]
+type = "codex"
+
+[[projects.platforms]]
+type = "qq"
+
+[projects.platforms.options]
+ws_url = "ws://127.0.0.1:3002"
+allow_from = "42"
+split_bubbles = false
+save_images_dir = "/tmp/beta"
+`
+
+func TestGetQQSettings_ReadsEverySwitch(t *testing.T) {
+	path := writeConfigFixture(t, qqSwitchConfigFixture)
+	patchConfigPath(t, path)
+
+	s, err := GetQQSettings("alpha")
+	if err != nil {
+		t.Fatalf("GetQQSettings: %v", err)
+	}
+	if !s.SplitBubbles {
+		t.Fatal("split_bubbles = false, want true")
+	}
+	if s.AllowGroupsWith != "12345,67890" || s.CommandAllowFrom != "12345" || s.SaveImagesDir != "/tmp/shots" {
+		t.Fatalf("strings = %q %q %q", s.AllowGroupsWith, s.CommandAllowFrom, s.SaveImagesDir)
+	}
+	if s.AllowQzone || !s.AllowAvatar {
+		t.Fatalf("allow_qzone/allow_avatar = %v/%v, want false/true", s.AllowQzone, s.AllowAvatar)
+	}
+
+	b, err := GetQQSettings("beta")
+	if err != nil {
+		t.Fatalf("GetQQSettings(beta): %v", err)
+	}
+	if b.SplitBubbles || b.SaveImagesDir != "/tmp/beta" || b.AllowGroupsWith != "" {
+		t.Fatalf("beta reads alpha's values: %+v", b)
+	}
+}
+
+func TestUpdateQQSettings_WritesAndClearsSwitches(t *testing.T) {
+	path := writeConfigFixture(t, qqSwitchConfigFixture)
+	patchConfigPath(t, path)
+
+	off, on := false, true
+	groups, images := " 55555 ", ""
+	changed, err := UpdateQQSettings("alpha", QQSettingsUpdate{
+		SplitBubbles:    &off,
+		AllowQzone:      &on,
+		AllowGroupsWith: &groups,
+		SaveImagesDir:   &images,
+	})
+	if err != nil {
+		t.Fatalf("UpdateQQSettings: %v", err)
+	}
+	want := []string{"split_bubbles", "allow_qzone", "allow_groups_with", "save_images_dir"}
+	if strings.Join(changed, ",") != strings.Join(want, ",") {
+		t.Fatalf("changed = %v, want %v", changed, want)
+	}
+
+	s, err := GetQQSettings("alpha")
+	if err != nil {
+		t.Fatalf("Get after update: %v", err)
+	}
+	if s.SplitBubbles || !s.AllowQzone {
+		t.Fatalf("booleans = split %v qzone %v", s.SplitBubbles, s.AllowQzone)
+	}
+	if s.AllowGroupsWith != "55555" {
+		t.Fatalf("allow_groups_with = %q, want trimmed 55555", s.AllowGroupsWith)
+	}
+	if s.SaveImagesDir != "" {
+		t.Fatalf("save_images_dir = %q, want cleared", s.SaveImagesDir)
+	}
+	// Omitted fields stay as they were: command_allow_from and allow_avatar.
+	if s.CommandAllowFrom != "12345" || !s.AllowAvatar {
+		t.Fatalf("omitted fields changed: %+v", s)
+	}
+
+	cfg := readConfigFixture(t, path)
+	opts := cfg.Projects[0].Platforms[0].Options
+	if _, exists := opts["save_images_dir"]; exists {
+		t.Fatal("save_images_dir key should be removed, not written as empty")
+	}
+	if _, exists := opts["allow_groups_with"]; !exists {
+		t.Fatal("allow_groups_with key disappeared")
+	}
+
+	beta, err := GetQQSettings("beta")
+	if err != nil {
+		t.Fatalf("GetQQSettings(beta): %v", err)
+	}
+	if beta.SplitBubbles || beta.SaveImagesDir != "/tmp/beta" || beta.AllowQzone {
+		t.Fatalf("beta was touched: %+v", beta)
+	}
+}
+
+func TestUpdateQQSettings_ExplicitFalseReachesDiskAndOmittedDoesNot(t *testing.T) {
+	path := writeConfigFixture(t, qqSwitchConfigFixture)
+	patchConfigPath(t, path)
+
+	off := false
+	changed, err := UpdateQQSettings("alpha", QQSettingsUpdate{AllowAvatar: &off})
+	if err != nil {
+		t.Fatalf("UpdateQQSettings: %v", err)
+	}
+	if len(changed) != 1 || changed[0] != "allow_avatar" {
+		t.Fatalf("changed = %v, want [allow_avatar]", changed)
+	}
+	cfg := readConfigFixture(t, path)
+	opts := cfg.Projects[0].Platforms[0].Options
+	if v, ok := opts["allow_avatar"].(bool); !ok || v {
+		t.Fatalf("allow_avatar on disk = %v (present %v), want false written", opts["allow_avatar"], ok)
+	}
+	// An omitted bool must not be mistaken for false and written over an unset key.
+	if _, exists := opts["split_bubbles"]; !exists {
+		t.Fatal("split_bubbles vanished on an unrelated update")
+	}
+
+	changed, err = UpdateQQSettings("alpha", QQSettingsUpdate{AllowAvatar: &off})
+	if err != nil || len(changed) != 0 {
+		t.Fatalf("no-op reported changes: %v %v", changed, err)
+	}
+}

@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import DSHSetup from './DSHSetup';
+import DSHSetup, { clearDSHDraft } from './DSHSetup';
 
 const configure = vi.fn(async (_body: unknown) => ({ key_saved: false, members_file: '/tmp/members.json', members: 1 }));
 vi.mock('@/components/library', () => ({
@@ -14,8 +14,9 @@ vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),
   getDSHStatus: async () => ({ found: true, plugin_installed: true, version: 'fixture', has_deepseek_key: true }),
   getCLIs: async () => ({ clis: [
-    { agent_type: 'codex', label: 'Codex', supported: true, login: 'logged_in', path: '/fixture/codex' },
-    { agent_type: 'claudecode', label: 'Claude Code', supported: true, login: 'logged_in', path: '/fixture/claude' },
+    { agent_type: 'codex', label: 'Codex', binary: 'codex', supported: true, login: 'logged_in', path: '/fixture/codex' },
+    // #1372: the login hint must name the command to run (`claude`), not the agent_type (`claudecode`)
+    { agent_type: 'claudecode', label: 'Claude Code', binary: 'claude', supported: true, login: 'not_logged_in', path: '/fixture/claude' },
   ] }),
   configureDSH: (body: unknown) => configure(body),
 }));
@@ -23,7 +24,9 @@ vi.mock('@/api/wizard', async (original) => ({
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
 beforeEach(() => { configure.mockClear(); });
-afterEach(() => { act(() => root?.unmount()); container?.remove(); });
+// the draft in sessionStorage outlives a test and would reopen the next one on the roles step
+// #1372 keeps this file honest: clear it, or the next case starts on the roles step.
+afterEach(() => { act(() => root?.unmount()); container?.remove(); clearDSHDraft(); });
 
 const render = async () => {
   container = document.createElement('div');
@@ -71,6 +74,15 @@ describe('DSH setup roles', () => {
     expect(configure).toHaveBeenCalledWith(expect.objectContaining({
       members: [expect.objectContaining({ name: 'Claude Code', cli: 'claude', name_customized: false, persona: '' })],
     }));
+  });
+
+  it('names the CLI command in the login hint, not the agent type', async () => {
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    await select('[data-testid="dsh-role-runner-0"]', 'claudecode');
+    const hint = container.querySelector('[data-testid="dsh-cli-login-hint-0"]');
+    expect(hint?.textContent).toContain('claude');
+    expect(hint?.textContent).not.toContain('claudecode');
   });
 
   it('rewrites the picked persona identity when the name is edited afterwards', async () => {

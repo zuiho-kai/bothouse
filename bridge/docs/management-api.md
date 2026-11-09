@@ -242,48 +242,30 @@ Reloads configuration from disk without restarting the process. New projects may
 
 #### GET /api/v1/config
 
-Returns the current configuration with secrets redacted. Useful for debugging and UI display.
+Returns the current configuration file as TOML text with secrets redacted. The panel's System → Config page renders this text as-is, so comments, key order and formatting are preserved — only credential values change.
 
 **Query parameters:** None
 
-**Response:**
+**Response:** `text/plain; charset=utf-8`, the config file with every credential-looking value replaced by `"***"`:
 
-```json
-{
-  "ok": true,
-  "data": {
-    "data_dir": "/home/user/.bothouse",
-    "language": "en",
-    "projects": [
-      {
-        "name": "my-backend",
-        "agent": {
-          "type": "claudecode",
-          "providers": [
-            {
-              "name": "anthropic",
-              "api_key": "***",
-              "base_url": "",
-              "model": "claude-sonnet-4-20250514"
-            }
-          ]
-        },
-        "platforms": [
-          {
-            "type": "feishu",
-            "options": {
-              "app_id": "***",
-              "app_secret": "***"
-            }
-          }
-        ]
-      }
-    ]
-  }
-}
+```toml
+[management]
+port = 51442
+token = "***"
+
+[feishu]
+app_id = "cli_xxxxxxxx"     # not a secret, kept as written
+app_secret = "***"
+
+[[projects.agent.providers]]
+name = "anthropic"
+api_key = "***"
+max_tokens = 8192           # token counters are not secrets
 ```
 
-Secrets (e.g. `api_key`, `token`, `app_secret`, `client_secret`) are replaced with `"***"`.
+Redaction is by key name, case- and separator-insensitive, and applies recursively through tables, arrays and inline tables (`env = { ANTHROPIC_API_KEY = "***", REGION = "us" }`). A key is masked when it contains `secret`, `password`, `credential`, `api_key`, `private_key` or `access_key`, or ends in `token`, `_aes_key`, `encrypt_key` or `_signing_key`. Names that only locate a credential — `token_endpoint`, `token_url`, `credentials_file` — and counters such as `max_tokens`, `min_tokens`, `max_context_tokens` are left alone.
+
+If the file cannot be read or redacted the endpoint returns an error and no content, so a failure never leaks secrets.
 
 ---
 
@@ -357,6 +339,11 @@ Returns detailed information for a single project.
 
 **Response:**
 
+`platforms[].connected` is that platform's runtime readiness, not "it is written in
+config.toml": a platform that failed to start, or an async one still reconnecting, is
+listed with `"connected": false`. The bridge transport is reported under `bridge` in
+`GET /api/v1/status` and is not listed here.
+
 ```json
 {
   "ok": true,
@@ -423,6 +410,7 @@ Updates project settings. Only provided fields are updated.
 | `admin_from`        | string   | Comma-separated user IDs for privileged commands; `"*"` = all |
 | `language`          | string   | UI language: `en`, `zh`, `zh-TW`, `ja`, `es`             |
 | `disabled_commands` | string[] | Commands to disable (e.g. `restart`, `upgrade`, `cron`)  |
+| `platform_allow_from` | object | Writes `allow_from` per platform type, e.g. `{"qq": "12345", "discord": "user1,user2"}`; keys match the platform `type` case-insensitively. This is the **single writer** of `allow_from`: `PATCH /projects/{name}/qq/settings` and the `qqbot` panel answer `400` when sent it. `""` clears that platform's allow list |
 
 **Response:**
 
@@ -440,6 +428,177 @@ Updates project settings. Only provided fields are updated.
   }
 }
 ```
+
+---
+
+#### GET /api/v1/projects/{name}/qq/settings
+
+Reads the saved OneBot v11 (`qq`) connection settings of a project. The access
+token is never returned — `token_set` only says whether one is stored. A project
+with no `qq` platform answers `200` with `configured: false`. This route works
+whether or not the project's engine is running.
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "ws_url": "ws://127.0.0.1:3001",
+      "http_url": "http://127.0.0.1:3000",
+      "token_set": true,
+      "allow_from": "12345",
+      "share_session_in_channel": false,
+      "split_bubbles": false,
+      "allow_groups_with": "",
+      "command_allow_from": "",
+      "save_images_dir": "",
+      "allow_qzone": false,
+      "allow_avatar": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qq/settings
+
+Saves a partial update. Only the fields present in the body change; an unknown
+field is a `400`. For the string fields, `""` removes the key from
+`config.toml`, which is how the adapter reads "not set". Booleans are tri-state:
+omitting one leaves it alone, and an explicit `false` is written as `false`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ws_url` | string | OneBot forward WebSocket URL; required when set, must be `ws://` or `wss://` |
+| `http_url` | string | OneBot HTTP API URL for file sends; `""` removes it |
+| `token` | string | Access token; omitted keeps it, `""` removes it |
+| `share_session_in_channel` | boolean | Group members share one agent session |
+| `split_bubbles` | boolean | One message per blank-line paragraph (`platform/qq`) |
+| `allow_groups_with` | string | Comma-separated QQ IDs whose groups may also be answered |
+| `command_allow_from` | string | Who may submit slash-prefixed commands; `""` keeps the default |
+| `save_images_dir` | string | Where received images are also stored; `""` stops storing |
+| `allow_qzone` | boolean | Read/post/replace/delete this account's own 说说 (NapCat extension) |
+| `allow_avatar` | boolean | Change this account's own avatar (NapCat extension) |
+
+`allow_from` is **not** writable here: it has a single writer, `PATCH
+/api/v1/projects/{name}` with `platform_allow_from`. Sending it answers `400`
+instead of silently doing nothing.
+
+**Request body:**
+
+```json
+{
+  "split_bubbles": true,
+  "allow_groups_with": "12345,67890",
+  "save_images_dir": "/path/to/received-images"
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qq settings saved",
+    "changed": ["split_bubbles", "allow_groups_with", "save_images_dir"],
+    "restart_required": true,
+    "settings": { "ws_url": "ws://127.0.0.1:3001", "split_bubbles": true }
+  }
+}
+```
+
+`changed` lists only the fields that actually differ from what was stored, and
+`restart_required` follows it: an unchanged save reports `false` and does not
+rewrite the file. The platform reads these options when the project starts, so a
+change takes effect after a restart.
+
+Errors: `404` unknown project, `400` invalid value / no `qq` platform / read-only
+`allow_from`, `503` when the management API has no settings callbacks wired.
+
+---
+
+#### GET /api/v1/projects/{name}/qqbot/settings
+
+Reads a project's saved official QQ Bot (`qqbot`) settings. **Neither the AppID nor
+the AppSecret is returned**: `app_id_set` / `app_secret_set` only say whether one is
+stored, because the panel neither prefills nor shows them; a different AppID means
+adding a new Bot. A project with no `qqbot` platform answers `200` with
+`configured: false`. Works whether or not the engine is running.
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "app_id_set": true,
+      "app_secret_set": true,
+      "sandbox": false,
+      "allow_from": "OPEN_ID_1",
+      "share_session_in_channel": false,
+      "markdown_support": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qqbot/settings
+
+Saves a partial update. Only the fields present in the body change; an unknown field
+is a `400`. Booleans are tri-state: omitting one leaves it alone, and an explicit
+`false` is written as `false`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `app_secret` | string | Rotate the AppSecret; **an empty or omitted value keeps the stored one** and is never read as "delete the credential" |
+| `sandbox` | boolean | Use the sandbox API instead of production |
+| `share_session_in_channel` | boolean | Group members share one agent session |
+| `markdown_support` | boolean | Send Markdown messages (the bot needs that permission in the QQ console) |
+
+`app_id` is not writable here: it is the bot's identity, the panel neither shows nor
+edits it, and a different one means adding a new Bot. `allow_from` is **not**
+writable here either: only `PATCH /api/v1/projects/{name}` with `platform_allow_from`
+writes it, and sending it answers `400`.
+
+**Request body:**
+
+```json
+{
+  "sandbox": true,
+  "markdown_support": true
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qqbot settings saved",
+    "changed": ["sandbox", "markdown_support"],
+    "restart_required": true,
+    "settings": { "app_id_set": true, "sandbox": true, "markdown_support": true }
+  }
+}
+```
+
+`changed` lists only the fields that actually differ; an unchanged save reports
+`restart_required: false` and does not rewrite the file. The adapter reads these
+options when the project starts, so a change takes effect after a restart.
+
+Errors: `404` unknown project, `400` invalid value / no `qqbot` platform / read-only
+`allow_from`, `503` when no settings callbacks are wired. A config read/write failure
+is a `500` with one fixed sentence; the detail goes to the log.
 
 ---
 
@@ -1393,7 +1552,13 @@ spends the owner's money, and an empty token means the port is open to the whole
 ```
 
 `status` is `ready`, `not_configured` or `error` (with `message`). `api_key_set` says whether a key
-exists; the key itself is never returned.
+exists; the key itself is never returned. `base_url` still names the endpoint — host, path and
+parameters like `size` come through — but credentials written into it are replaced with `***`:
+`https://user:sk-…@relay/v1` comes back as `https://***@relay/v1`, and `…?token=sk-…` as
+`…?token=***`. Parameter names such as `token`, `api_key`, `secret`, `password` and `signature`
+(including spellings like `x-api-key`) count as credentials; other parameters are untouched. Error
+text (a failed request, the provider's own message, a failed download) is masked the same way before
+it is returned.
 
 #### POST /api/v1/image-gen
 
@@ -1454,6 +1619,7 @@ unauthenticated management port cannot tell the owner from anyone else on the ma
         "version": "0.2.1-rc.5",
         "description": "DSH base surface",
         "layer": true,
+        "client_only": false,
         "enabled": true,
         "shipped": true,
         "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
@@ -1466,6 +1632,13 @@ unauthenticated management port cannot tell the owner from anyone else on the ma
 `shipped` marks a bundle that resolves from the DSH installation rather than this profile; those are
 the panel's own surface, so the response lists them but the page offers no switch. A dependency that
 does not declare `dsh.bundle` has `layer: false`: it is installed, but DSH never loads it as a plugin.
+`client_only` (added in #1376) separates the two kinds of non-layer dependency: `true` means the
+package declares `dsh.client` (at least `platform`), i.e. a client UI package such as
+`@deepseek-ai/dsh-experimental-client-ui-discord` that the install script puts into the profile and DSH
+renders; `false` means it declares neither block, a plain dependency such as `is-odd`. It is a
+separate field on purpose: `layer: false` still means "not a bundle", and `client_only` never turns it
+into one. A client UI package gets no switch here — whether DSH can turn it off is not this page's
+question.
 
 #### GET /api/v1/plugins/inspect?spec=<package spec>
 
@@ -1712,6 +1885,7 @@ If not configured, CORS may be disabled or use a default (e.g. `*` for same-orig
 | 1.2-draft | 2026-11-08 | Add `POST /projects/{name}/social/moment/replace` (replace a post: publish new, then delete old) and `capabilities.replace_moment`; posts visible to some people only are refused; `Moment` gains `private_known`, and a post whose audience could not be read is refused too rather than treated as public |
 | 1.2-draft | 2026-11-08 | Replace now requires `accept_audience_change: true`: the upstream fills `is_private` with `false` when the raw `secret` is missing, so "everyone can see it" cannot be proven from that row, and widening who can see a post is not a decision the server makes on a default |
 | 1.2-draft | 2026-11-05 | Add optional image generation routes (`/image-gen`, `/image-gen/file/<name>`) |
+| 1.2-draft | 2026-11-09 | Mask credentials in the image-gen `base_url` echo and in error text: URL userinfo (`https://…@relay`) and `token` / `api_key` / `secret` query parameters become `***`; the endpoint itself is still shown |
 | 1.2-draft | 2026-11-08 | Add `GET`/`POST /plugins/config`: one plugin row's own config as YAML text, read from the layer that sets it (bundle / profile / HOME) and written into the profile patch under DSH's own lock |
 | 1.2-draft | 2026-11-05 | Add the DSH plugin page routes (`/plugins…`), writes need the management token |
 | 1.0-draft | 2026-03-10 | Initial specification      |

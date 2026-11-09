@@ -7,6 +7,7 @@ import {
   inspectPlugin,
   installPlugin,
   listPlugins,
+  NON_REGISTRY_CONFIRM,
   savePluginConfig,
   switchPlugin,
   type DSHPlugin,
@@ -29,7 +30,7 @@ import { goToDsh } from '@/lib/openDsh';
  * same state. Both the list and the switch need a DSH restart to take effect, which the page says.
  */
 export default function PluginList() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const T = pluginTexts(i18n.language || 'en');
   const [state, setState] = useState<DSHPluginsState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,7 +109,10 @@ export default function PluginList() {
     setInstallError(null);
     setNotice('');
     try {
-      const next = await installPlugin(want, (ev) => {
+      // The checkbox is only sent when it is both shown and ticked: a registry install has no box
+      // to tick, and sends nothing extra.
+      const confirmSource = inspection?.kind !== 'registry' && ackNonRegistry ? NON_REGISTRY_CONFIRM : '';
+      const next = await installPlugin(want, confirmSource, (ev) => {
         if (ev.line) setLines((prev) => [...prev.slice(-19), ev.line!]);
       });
       setState(next);
@@ -179,6 +183,9 @@ export default function PluginList() {
 
   const stateBadge = (p: DSHPlugin) => {
     if (p.error) return <Badge variant="danger">{T.stateMissing}</Badge>;
+    // Client UI packages (dsh.client, no dsh.bundle) are rendered by DSH itself. They are not a
+    // profile layer and not a plain dependency, so they get their own label (#1376).
+    if (p.client_only) return <Badge variant="outline">{t('plugins.stateClientUi')}</Badge>;
     // A plain dependency is installed but never loaded: it is not off, it is not a plugin.
     if (!p.layer) return <Badge variant="outline">{T.statePlain}</Badge>;
     if (p.shipped) return <Badge variant="outline">{T.stateShipped}</Badge>;
@@ -412,6 +419,12 @@ export default function PluginList() {
               </div>
               {p.layer && p.shipped && (
                 <p className="mt-3 text-xs text-ink-mute">{T.shippedNote}</p>
+              )}
+              {/* DSH renders a client UI package; this page has no switch for it (#1376). */}
+              {p.client_only && (
+                <p className="mt-3 text-xs text-ink-mute" data-testid={`plugin-${p.name}-client-note`}>
+                  {t('plugins.clientUiNote')}
+                </p>
               )}
               {/* The bundled surfaces carry dozens of rows each; collapsed by default so the page
                   stays a list of plugins, and open when the owner wants the detail. */}

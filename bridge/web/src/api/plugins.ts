@@ -16,6 +16,8 @@ export interface DSHPlugin {
   source?: string;
   /** declarse dsh.bundle, so selecting it adds a profile layer */
   layer: boolean;
+  /** declares dsh.client but no dsh.bundle: a client UI package (the Discord shell), no switch */
+  client_only: boolean;
   /** selected in package.json's dsh.profile.bundles */
   enabled: boolean;
   /** ships with the DSH installation (a surface layer); the page does not offer its switch */
@@ -107,16 +109,32 @@ export interface PluginInstallEvent {
 }
 
 /**
+ * The value the page sends in `confirm_source` once the person has ticked the non-registry box.
+ * The backend requires this exact literal (core/management_plugins.go pluginNonRegistryConfirm):
+ * the checkbox is the acknowledgement, this is how the API call carries it.
+ */
+export const NON_REGISTRY_CONFIRM = 'non-registry';
+
+/**
  * Runs `dsh plugin add <spec>` and reports each streamed line. Rejects with the classifier kind on
  * the thrown error so the page can say what happened in the reader's language; the raw log rides
  * along as `.log` for the details fold.
+ *
+ * confirmSource is NON_REGISTRY_CONFIRM only after the person acknowledged a non-registry source;
+ * registry installs send nothing, so their request is unchanged.
  */
-export async function installPlugin(spec: string, onEvent: (e: PluginInstallEvent) => void): Promise<DSHPluginsState> {
+export async function installPlugin(
+  spec: string,
+  confirmSource: string,
+  onEvent: (e: PluginInstallEvent) => void,
+): Promise<DSHPluginsState> {
   const token = api.getToken();
+  const body: { spec: string; confirm_source?: string } = { spec };
+  if (confirmSource) body.confirm_source = confirmSource;
   const res = await fetch(withBase('/api/v1/plugins/install'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ spec }),
+    body: JSON.stringify(body),
   });
   if (!res.ok || !res.body) {
     const text = await res.text();

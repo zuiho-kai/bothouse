@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -296,7 +297,8 @@ func (g *ImageGenerator) fetch(ctx context.Context, prompt string) ([]byte, stri
 	url := g.cfg.BaseURL + "/images/generations"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, "", fmt.Errorf("image_gen: build request: %w", err)
+		// The parse error quotes the URL it rejected, key and all.
+		return nil, "", redactedWrap("image_gen: build request: ", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+g.cfg.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -306,7 +308,9 @@ func (g *ImageGenerator) fetch(ctx context.Context, prompt string) ([]byte, stri
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("image_gen: request: %w", err)
+		// The *url.Error inside quotes the request URL; Go masks a userinfo password but
+		// not the user name or the query string, so mask before this can reach the log.
+		return nil, "", redactedWrap("image_gen: request: ", err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, imageGenMaxBytes+1))
@@ -319,7 +323,9 @@ func (g *ImageGenerator) fetch(ctx context.Context, prompt string) ([]byte, stri
 		return nil, "", fmt.Errorf("image_gen: 服务商的应答超过 %d MiB，已停下（多半是图太大或地址填错）", imageGenMaxBytes>>20)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("image_gen: provider returned %d: %s", resp.StatusCode, truncateForError(raw))
+		// A relay's error body sometimes quotes the request URL with its key; mask it here
+		// so the 502 text the page shows (and the log line) carries the reason, not the key.
+		return nil, "", fmt.Errorf("image_gen: provider returned %d: %s", resp.StatusCode, redactURLSecrets(truncateForError(raw)))
 	}
 
 	var parsed struct {
@@ -366,12 +372,15 @@ func (g *ImageGenerator) fetch(ctx context.Context, prompt string) ([]byte, stri
 func (g *ImageGenerator) download(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("image_gen: build download: %w", err)
+		// url.Parse quotes the raw URL it could not read, key and all.
+		return nil, redactedWrap("image_gen: build download: ", err)
 	}
 	req.Header.Set("User-Agent", "bothouse-image/0.1 (+curl-compatible)")
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("image_gen: download picture: %w", err)
+		// The provider's picture URL may carry a key in its query string (a relay's signed
+		// link does); the error text keeps the reason, not the secret.
+		return nil, redactedWrap("image_gen: download picture: ", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -539,6 +548,123 @@ func imageExt(mime string) string {
 		return ".webp"
 	default:
 		return ".png"
+	}
+}
+
+// redactedWrap prefixes an error with context and masks credentials in its text while
+// keeping the original reachable: unwrapping still finds a cancelled context or a timed-out
+// dial, so callers can keep matching on the cause (errors.Is/As) instead of on a string.
+func redactedWrap(prefix string, err error) error {
+	e := &redactedError{prefix: prefix, msg: redactURLSecrets(err.Error()), err: err}
+	return e
+}
+
+type redactedError struct {
+	prefix string
+	msg    string
+	err    error
+}
+
+func (e *redactedError) Error() string { return e.prefix + e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
+
+// credentialQueryNames are the query parameter names whose value is a secret. A relay
+// that wants a key in the query string uses one of these; `size`, `model` and the like
+// are left alone (review 466).
+var credentialQueryNames = map[string]bool{
+	"token":         true,
+	"access_token":  true,
+	"refresh_token": true,
+	"api_key":       true,
+	"apikey":        true,
+	"key":           true,
+	"secret":        true,
+	"password":      true,
+	"sig":           true,
+	"signature":     true,
+	"credential":    true,
+	"credentials":   true,
+}
+
+// isCredentialQueryName also catches family names (x-api-key, relay_token, client_secret)
+// so a relay inventing its own spelling is still covered.
+func isCredentialQueryName(name string) bool {
+	// Decode only for matching; the caller keeps the original query spelling.
+	// Invalid escapes retain the existing raw-name matching behavior.
+	if decoded, err := url.QueryUnescape(name); err == nil {
+		name = decoded
+	}
+	n := strings.ToLower(name)
+	if credentialQueryNames[n] {
+		return true
+	}
+	return strings.Contains(n, "token") || strings.Contains(n, "secret") ||
+		strings.Contains(n, "password") || strings.Contains(n, "credential") ||
+		strings.HasSuffix(n, "_key") || strings.HasSuffix(n, "-key")
+}
+
+// redactURLSecrets masks the two places a key can ride inside a URL: the userinfo
+// (https://user:sk-...@relay/v1, or a bare https://sk-...@relay/v1 where the user name is
+// the key) and the value of a credential-named query parameter (…?token=sk-...). The host
+// and path stay readable, and an ordinary URL comes back byte-for-byte, so the panel can
+// still show which endpoint is configured. Used for the status echo and for error text:
+// the Go client masks a userinfo password but leaves the user name and the query string
+// in *url.Error, and a provider's error body may quote the request URL.
+func redactURLSecrets(s string) string {
+	var b strings.Builder
+	rest := s
+	for {
+		i := strings.Index(rest, "://")
+		if i < 0 {
+			b.WriteString(rest)
+			break
+		}
+		start := i + 3
+		b.WriteString(rest[:start])
+		// The authority ends at the first character that cannot belong to it; in error
+		// text that is the quote around the URL, or the space before the next word.
+		end := len(rest)
+		if j := strings.IndexAny(rest[start:], "/?# \t\"'`<>"); j >= 0 {
+			end = start + j
+		}
+		auth := rest[start:end]
+		if at := strings.LastIndexByte(auth, '@'); at >= 0 {
+			b.WriteString("***")
+			b.WriteString(auth[at:])
+		} else {
+			b.WriteString(auth)
+		}
+		rest = rest[end:]
+	}
+	return maskCredentialQueryValues(b.String())
+}
+
+// maskCredentialQueryValues masks sensitive query values in a string that may be a bare URL
+// or a sentence quoting one; a query ends at whitespace, a quote, or the end of the text.
+// Every query in the text is visited, so an error naming two URLs is covered too.
+func maskCredentialQueryValues(s string) string {
+	var b strings.Builder
+	rest := s
+	for {
+		q := strings.IndexByte(rest, '?')
+		if q < 0 {
+			b.WriteString(rest)
+			return b.String()
+		}
+		end := len(rest)
+		if j := strings.IndexAny(rest[q:], " \t\"'`<>"); j >= 0 {
+			end = q + j
+		}
+		b.WriteString(rest[:q+1])
+		parts := strings.Split(rest[q+1:end], "&")
+		for i, p := range parts {
+			name, _, ok := strings.Cut(p, "=")
+			if ok && isCredentialQueryName(name) {
+				parts[i] = name + "=***"
+			}
+		}
+		b.WriteString(strings.Join(parts, "&"))
+		rest = rest[end:]
 	}
 }
 

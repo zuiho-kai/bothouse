@@ -867,6 +867,17 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				"qq: allow_from needs your own QQ number (comma-separated for several); * lets anyone command the bot")))
 		}
 		req.QQ.AllowFrom = a
+		// http_url is optional (file sending); a wrong one would only fail at start, so it is
+		// checked here the way the QQ panel checks it (#710 件 5).
+		if req.QQ.HTTPURL = strings.TrimSpace(req.QQ.HTTPURL); req.QQ.HTTPURL != "" {
+			u, err := url.Parse(req.QQ.HTTPURL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fail("qq", errors.New(tr3(req.Language,
+					"qq：http_url 要填 http:// 或 https:// 开头的地址（不用文件发送就留空）",
+					"qq：http_url は http:// または https:// で始まる必要があります（ファイル送信を使わないなら空欄）",
+					"qq: http_url must start with http:// or https:// (leave it empty if file sending is not used)")))
+			}
+		}
 	}
 	// cloud_web: the platform's address and bot token; empty ones come from the hub this wizard started
 	cwBase, cwToken := "", ""
@@ -1929,8 +1940,15 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			q := req.QQ
 			// token always written: "" removes an old one, so what was tested is what is saved
 			pw.Options["ws_url"], pw.Options["allow_from"], pw.Options["token"] = q.WSURL, q.AllowFrom, q.Token
+			// http_url is optional and the wizard does not test it: an empty field leaves the value
+			// saved from the panel alone (#710 件 5).
 			if q.HTTPURL != "" {
 				pw.Options["http_url"] = q.HTTPURL
+			}
+			// share_session_in_channel: only "on" is written, so rerunning the wizard never turns a
+			// group's shared session off behind the owner's back (see WizardQQ).
+			if q.ShareSessionInChannel != nil && *q.ShareSessionInChannel {
+				pw.Options["share_session_in_channel"] = true
 			}
 		} else {
 			f := req.Feishu

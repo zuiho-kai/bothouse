@@ -12,16 +12,59 @@
     "restartRequested": "Restart requested. Return to the role list after the service starts.",
     "settingsTitle": "QQ connection and features",
     "settingsHint": "Changes take effect after restart. Saved settings do not prove a live connection.",
+    "stateRestart": "Not restarted",
+    "stateRestartHint": "QQ is in the configuration, but this process is not running it: either it has not been restarted into yet, or this platform is disabled. Restart the bridge to try connecting.",
+    "stateOffline": "Restarted, not connected",
+    "stateOfflineHint": "The bridge did start QQ, but OneBot is not connected. Check the ws_url, whether NapCat is running, and the token.",
+    "stateConnected": "Connected",
+    "stateConnectedHint": "QQ is connected to OneBot and can send and receive messages.",
     "httpURL": "OneBot HTTP URL (optional)",
     "keepToken": "Leave blank to keep the saved token",
     "clearToken": "Clear saved access token",
     "sharedHint": "When enabled, group members share a conversation. This does not provide private memory isolation.",
+    "connection": "Connection",
+    "groupBehavior": "Group behavior",
+    "contentSection": "Content and safety",
+    "socialSection": "说说 and avatar",
+    "socialHint": "Both act as this QQ account itself and stay off unless turned on here.",
+    "allowFromReadonly": "Edited in the project's platform access control, not here.",
+    "splitBubbles": "Split replies at blank lines",
+    "splitBubblesHint": "Sends one message per blank-line paragraph. Replies containing a code fence stay one message; a failure stops the rest.",
+    "allowGroupsWith": "Allow others in groups with these users (optional)",
+    "allowGroupsWithPlaceholder": "QQ IDs, comma-separated",
+    "allowGroupsWithHint": "When set, other members of a group containing one of these users are let in. Private chats still follow the allowed users above. Only enable in trusted groups: ordinary commands such as /stop and /new also follow it.",
+    "commandAllowFrom": "Who may send slash commands (optional)",
+    "commandAllowFromPlaceholder": "QQ IDs, comma-separated; empty keeps the default",
+    "commandAllowFromHint": "Applies in groups and private chats to standard, custom and unknown commands. Ordinary chat still follows the allowed users; this grants no administrator rights.",
+    "saveImagesDir": "Save received images to (optional)",
+    "saveImagesDirPlaceholder": "/path/to/received-images",
+    "saveImagesDirHint": "Stores the original bytes, including GIF. You manage this directory; nothing cleans it up.",
+    "allowQzone": "Read, post, replace and delete this account's own 说说",
+    "allowQzoneHint": "Uses NapCat's 说说 extension, not the OneBot 11 spec. Every write asks first and nothing posts on a schedule.",
+    "allowAvatar": "Change this account's own avatar",
+    "allowAvatarHint": "Uses NapCat's set_qq_avatar. An avatar is visible everywhere at once; asks before changing.",
     "unavailable": "Not available in this version",
     "capabilities": {
       "qq_voice_out": "Voice replies are not available.",
       "qq_command_allow_from": "A separate command allowlist is not available. Project administrator settings still apply.",
       "memory_import": "Memory import is awaiting a confirmed source and format."
     }
+  },
+  "qqbot": {
+    "title": "Official QQ Bot",
+    "hint": "The official QQ Bot API (AppID + AppSecret). Separate from the NapCat / OneBot entry above; changes take effect after restart.",
+    "credentials": "Credentials",
+    "appIDSet": "An AppID is saved",
+    "stored": "Saved (not shown)",
+    "missing": "Not saved",
+    "appIDReadonly": "The AppID is not shown or edited here; add a new Bot if it changed.",
+    "keepSecret": "Leave blank to keep the saved secret",
+    "secretHint": "The secret is never shown, not even masked. A blank field keeps the stored one.",
+    "behavior": "Behavior",
+    "sandboxHint": "Sandbox talks to the sandbox API host, not to real QQ users.",
+    "markdown": "Markdown messages",
+    "markdownHint": "Needs the bot permission on the QQ Bot console; without it messages arrive as plain text.",
+    "sharedHint": "When enabled, group members share one conversation. This does not isolate private memory."
   },
   "nav": {
     "addPlatform": "Add platform",
@@ -45,6 +88,13 @@
     "wikiGalaxy": "Wiki galaxy",
     "forum": "Memory forum",
     "gate": "Gate"
+  },
+  "plugins": {
+    "stateClientUi": "Client UI package",
+    "clientUiNote": "Provided by DSH; the panel cannot switch it."
+  },
+  "roles": {
+    "title": "Role management"
   },
   "dashboard": {
     "title": "Dashboard",
