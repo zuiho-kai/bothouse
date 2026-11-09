@@ -242,6 +242,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"yuanbao":      runYuanbao,
 	"doctor":       runDoctor,
 	"web":          runWeb,
+	"pet":          runPet,
 	"setup":        runSetup,
 	"module":       runModule,
 }
@@ -1843,6 +1844,7 @@ Commands:
     personas         Example personas
 
   web                Open the web admin (with no bots configured yet: the setup wizard)
+  pet                Desktop pet on/off: dsh-pet's always-on-top window, driven by role events
 
   module             Platforms as optional modules (qq, discord, feishu, dsh, cloud_web)
     list             Which platforms are enabled / disabled / not configured
