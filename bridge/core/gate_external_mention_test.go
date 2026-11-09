@@ -17,13 +17,17 @@ func TestGateFailureExternalAddressee(t *testing.T) {
 		}))
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			g := &gateState{url: srv.URL, timeout: time.Second, fallback: "reply"}
+			ordinary := "reply"
+			if status == http.StatusServiceUnavailable {
+				ordinary = "context"
+			}
 			for _, tc := range []struct {
 				req  gateRequest
 				want string
 			}{
 				{gateRequest{Content: "<@222> help", AddressedOther: true}, "context"},
 				{gateRequest{Content: "help", Mentioned: true}, "reply"},
-				{gateRequest{Content: "hello"}, map[bool]string{true: "context", false: "reply"}[status == http.StatusServiceUnavailable]},
+				{gateRequest{Content: "hello"}, ordinary},
 			} {
 				if got := g.decide(context.Background(), tc.req); got.Action != tc.want {
 					t.Errorf("decide(%+v) = %+v, want %s", tc.req, got, tc.want)
