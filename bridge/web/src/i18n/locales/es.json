@@ -84,7 +84,8 @@
     "wikiGalaxy": "Galaxia del wiki",
     "forum": "Foro de memoria",
     "plugins": "Plugins",
-    "gate": "Puerta"
+    "gate": "Puerta",
+    "pet": "Mascota"
   },
   "plugins": {
     "stateClientUi": "Paquete de interfaz de cliente",

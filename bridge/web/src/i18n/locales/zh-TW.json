@@ -86,7 +86,8 @@
     "system": "系統",
     "wikiGalaxy": "Wiki 星河",
     "forum": "記憶論壇",
-    "gate": "閘門"
+    "gate": "閘門",
+    "pet": "桌寵外掛"
   },
   "plugins": {
     "stateClientUi": "用戶端 UI 套件",

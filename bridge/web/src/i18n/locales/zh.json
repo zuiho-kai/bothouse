@@ -87,7 +87,8 @@
     "usage": "用量",
     "wikiGalaxy": "Wiki 星河",
     "forum": "记忆论坛",
-    "gate": "闸门"
+    "gate": "闸门",
+    "pet": "桌宠插件"
   },
   "plugins": {
     "stateClientUi": "客户端 UI 包",
