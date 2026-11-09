@@ -1639,6 +1639,26 @@ test('roster: config seeds are read-only, UI members are created, edited and rem
   assert.match(routes[1].error, /no key/);
 });
 
+test('#1150: a private chat cannot be listed as a member\'s channel', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([]);
+  hub.store.addMember({ id: 'peer', name: 'Peer' });
+  const dm = hub.store.openDm('peer', 'Peer');
+  const channel = hub.store.createRoom('dev');
+  // A private chat holds exactly its one member (hub.membersInRoom): storing the id would save a
+  // membership the room never honours — the member shows nowhere and cannot be dispatched to.
+  await assert.rejects(roster.create({ name: 'Ghost', rooms: [dm.id], model: { provider: 'relay', model: 'm1' } }), /existing chat channel ids/);
+  assert.equal(hub.store.members().some(m => m.name === 'Ghost'), false, 'nothing is stored for a refused create');
+  // The channel list still takes ordinary channels, and an edit keeps the stored membership.
+  const dev = await roster.create({ name: 'Dev', rooms: [channel.id], model: { provider: 'relay', model: 'm1' } });
+  assert.deepEqual(dev.rooms, [channel.id]);
+  await assert.rejects(roster.update(dev.id, { rooms: [dm.id], model: { provider: 'relay', model: 'm1' } }), /existing chat channel ids/);
+  assert.deepEqual(roster.store.member(dev.id).rooms, JSON.stringify([channel.id]));
+});
+
 function makeHubFrom(store) {
   const hub = new Hub(store, quiet);
   hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
@@ -1981,11 +2001,24 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
   await tick();
   assert.deepEqual([seen, planned], [[], []], 'drafts and edits reach no agent');
   assert.deepEqual(pushed.map(e => e.message?.text), ['半句', '半句话'], 'browsers see the draft and its edit');
+  // #1355: one message keeps its id for life; `draft` says whether it has settled and
+  // `revision` moves with the stored text, so a consumer replaces one bubble instead of
+  // appending a new one per streaming edit.
+  assert.deepEqual(pushed.map(e => [e.message.id, e.message.draft === true]), [[d.id, true], [d.id, true]], 'draft frames keep one id and stay marked as drafts');
+  const [draftRev, editRev] = pushed.map(e => e.message.revision);
+  assert.equal(typeof draftRev, 'number');
+  assert.ok(editRev >= draftRev, 'an edit never moves revision backwards');
   const row = hub.commit(d.id, 'role', 'ju', '整句话 @鲸鱼娘', true);
   assert.equal(row.id, d.id);
   assert.equal(row.text, '整句话 @鲸鱼娘');
   assert.equal(row.from_turn, 1);
   assert.equal(row.draft, 0);
+  const committed = pushed.at(-1).message;
+  assert.equal(pushed.length, 3, 'the commit is forwarded too');
+  assert.equal(committed.id, d.id);
+  assert.equal('draft' in committed, false, 'a committed reply is no longer a draft');
+  assert.ok(committed.revision >= editRev, 'the commit moves revision on');
+  assert.notEqual(committed.text, pushed[1].message.text);
   await tick();
   assert.deepEqual([seen, planned], [['整句话 @鲸鱼娘'], ['整句话 @鲸鱼娘']]);
   store.close();
@@ -4002,6 +4035,36 @@ test('#148 withdrawing stops a DSH turn already running, keeps its queue, posts 
   const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '回复' });
   assert.equal((await call('DELETE', `/collab/api/messages/${bot.id}`)).status, 403);
   assert.notEqual(hub.store.message(bot.id), undefined);
+});
+
+test('#123 withdrawing a running DSH turn closes its progress card as 已停止, not 失败', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const call = route(hub, gw, members);
+  const { message: m } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 跑起来' });
+  await settle();
+  const ds = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(ds, [], null);
+  const n = ds.turns;
+  dsh.emit(ds, 'tool/call', { turn: n, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"sleep 60"}' });
+  await settle();
+  const cardRow = () => hub.store.page(1, undefined, 10).find(r => r.card !== null);
+  assert.equal(JSON.parse(cardRow().card).state, 'running');
+  assert.deepEqual((await call('DELETE', `/collab/api/messages/${m.id}`)).json.stopped, ['DeepSeek']);
+  await settle();
+  const card = JSON.parse(cardRow().card);
+  assert.equal(card.state, 'stopped', 'the owner stopped it, so the card must not read as failed');
+  assert.equal(card.title, 'DeepSeek · 已停止');
+});
+
+test('channel page (#123): grouped messages keep the avatar column and the empty placeholder is cleared', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(new URL('./page.html', import.meta.url), 'utf8');
+  assert.match(page, /\.msg\.cont \.avatar \{ visibility: hidden; \}/, 'hiding the avatar must keep its grid slot');
+  assert.match(page, /\.msg > :not\(\.avatar\) \{ grid-column: 2; min-width: 0; \}/, 'the message column stays in column 2');
+  assert.match(page, /log\.querySelector\('\.state\.empty'\)\?\.remove\(\)/, 'the first message takes the empty placeholder down');
 });
 
 function route(hub, gateway, dsh) {

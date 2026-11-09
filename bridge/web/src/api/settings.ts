@@ -21,6 +21,17 @@ export interface GlobalSettings {
   review_simple_model?: string;
   /** model ID the complex review runs on; "" = the role's own */
   review_complex_model?: string;
+  /** read-only: the latest review whose tier model did not take effect (backend lacks it) */
+  review_model_notice?: ReviewModelNotice;
+}
+
+export interface ReviewModelNotice {
+  at: string;
+  board: number;
+  tier: 'simple' | 'complex';
+  role: string;
+  model: string;
+  reason: string;
 }
 
 export const getGlobalSettings = () => api.get<GlobalSettings>('/settings');

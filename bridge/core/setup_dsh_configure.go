@@ -117,10 +117,11 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 		if m.CLI != "" && !dshCLIs[m.CLI] {
 			return res, fmt.Errorf("unsupported cli %q", m.CLI)
 		}
-		if m.CLI == "" && strings.TrimSpace(req.DeepSeekAPIKey) == "" && !dshHasDeepSeekKey() {
+		if m.CLI == "" && strings.TrimSpace(req.DeepSeekAPIKey) == "" && !dshHasUsableModel() {
 			return res, fmt.Errorf("角色「%s」没选本机 CLI，也没有 DeepSeek API Key：选一个 CLI，或填 Key", m.Name)
 		}
-		if m.CLI == "" {
+		// Only an official API key selects this route; account and relay users keep their own default.
+		if m.CLI == "" && (strings.TrimSpace(req.DeepSeekAPIKey) != "" || dshHasDeepSeekKey()) {
 			mm := dshKeyModel
 			m.Model = &mm
 		}
@@ -160,12 +161,23 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	stopDSHWebLaunch()
 	if b, err := os.ReadFile(dshWebStatePath()); err == nil {
 		var prev DSHWeb
-		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) {
+		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && !isDSHDesktopHost(prev) {
 			stopProcess(prev.PID)
 		}
 		_ = os.Remove(dshWebStatePath())
 	}
 	return res, nil
+}
+
+// dshHasUsableModel shares CLI login detection and the existing model/key validation.
+// A route declaration alone must not let a role without credentials through the wizard.
+func dshHasUsableModel() bool {
+	home, _ := os.UserHomeDir()
+	if dshLogin(home) != "logged_in" {
+		return false
+	}
+	_, err := dshModelSetup("en", "", dshHome(), nil)
+	return err == nil
 }
 
 // dshHasDeepSeekKey: a DeepSeek key is already stored or exported (dsh-credentials-local precedence).
@@ -468,7 +480,8 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	var prev DSHWeb
 	if b, err := os.ReadFile(statePath); err == nil && json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && prev.URL != "" {
 		// The collab plugin imports the wizard's roles only at boot: with roles still waiting, start it over.
-		if _, err := os.Stat(dshMembersFile()); err != nil {
+		// The desktop app's host is the app's own (it reloads the roles itself): use it as it is.
+		if _, err := os.Stat(dshMembersFile()); err != nil || isDSHDesktopHost(prev) {
 			return prev, nil
 		}
 		if err := stopDSHWebForImport(prev.PID); err != nil {

@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import PersonaPanel from './PersonaPanel';
 import SocialPanel from './SocialPanel';
+import QQSettingsPanel from './QQSettingsPanel';
+import QQBotSettingsPanel from './QQBotSettingsPanel';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, shownName, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
@@ -126,6 +128,8 @@ export default function ProjectDetail() {
   const [injectSender, setInjectSender] = useState(false);
   const [platformAllowFrom, setPlatformAllowFrom] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
+  const [settingsSaved, setSettingsSaved] = useState(false);
 
   // Agent type
   const [agentTypes, setAgentTypes] = useState<string[]>([]);
@@ -149,6 +153,9 @@ export default function ProjectDetail() {
   const [showAddPlatform, setShowAddPlatform] = useState(false);
   const [addPlatType, setAddPlatType] = useState('');
   const [showRestartModal, setShowRestartModal] = useState(false);
+  // Changes when this page restarts the bridge and re-reads the detail, so the QQ panel
+  // stops saying "saved, not restarted yet" once the new process is actually up.
+  const [restartSeq, setRestartSeq] = useState(0);
 
   // Delete project
   const navigate = useNavigate();
@@ -256,6 +263,8 @@ export default function ProjectDetail() {
   const handleSaveSettings = async () => {
     if (!name) return;
     setSaving(true);
+    setSettingsError('');
+    setSettingsSaved(false);
     try {
       const agentTypeChanged = project && selectedAgentType !== project.agent_type;
       const res = await updateProject(name, {
@@ -277,6 +286,9 @@ export default function ProjectDetail() {
         return;
       }
       await fetchAll();
+      setSettingsSaved(true);
+    } catch (e: unknown) {
+      setSettingsError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -603,6 +615,11 @@ export default function ProjectDetail() {
 
       {tab === 'settings' && project && (
         <div className="space-y-4">
+        {project.platform_configs?.some(p => p.type === 'qq') && <QQSettingsPanel project={project.name} platforms={project.platforms} restartSeq={restartSeq} />}
+        {/* The official Bot is its own platform ("qqbot") with its own options, so it gets
+            its own panel; sharing one block with the OneBot bridge would offer keys the
+            other adapter ignores (#710 件 5). */}
+        {project.platform_configs?.some(p => p.type === 'qqbot') && <QQBotSettingsPanel project={project.name} />}
         {/* Agent settings */}
         <Card>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('projects.agentSettings', 'Agent')}</h3>
@@ -657,6 +674,7 @@ export default function ProjectDetail() {
                 <p className="text-[11px] text-gray-400 mt-0.5">{t('projects.replyFooterHint', 'Master toggle for the per-turn reply footer')}</p>
               </div>
               <button
+                type="button" role="switch" aria-checked={replyFooter} aria-label={t('projects.replyFooter', 'Reply footer')}
                 onClick={() => setReplyFooter(!replyFooter)}
                 className={cn('w-10 h-6 rounded-full transition-colors', replyFooter ? 'bg-accent' : 'bg-gray-300 dark:bg-gray-700')}
               >
@@ -669,6 +687,7 @@ export default function ProjectDetail() {
                 <p className="text-[11px] text-gray-400 mt-0.5">{t('projects.showCtxIndicatorHint', 'Show model · effort · token usage · context % line in the reply footer')}</p>
               </div>
               <button
+                type="button" role="switch" aria-checked={showCtxIndicator} aria-label={t('projects.showContextIndicator', 'Context indicator')}
                 onClick={() => setShowCtxIndicator(!showCtxIndicator)}
                 className={cn('w-10 h-6 rounded-full transition-colors', showCtxIndicator ? 'bg-accent' : 'bg-gray-300 dark:bg-gray-700')}
               >
@@ -681,6 +700,7 @@ export default function ProjectDetail() {
                 <p className="text-[11px] text-gray-400 mt-0.5">{t('projects.showWorkdirIndicatorHint', 'Show workspace directory line in the reply footer')}</p>
               </div>
               <button
+                type="button" role="switch" aria-checked={showWorkdirIndicator} aria-label={t('projects.showWorkdirIndicator', 'Footer line 2: workdir')}
                 onClick={() => setShowWorkdirIndicator(!showWorkdirIndicator)}
                 className={cn('w-10 h-6 rounded-full transition-colors', showWorkdirIndicator ? 'bg-accent' : 'bg-gray-300 dark:bg-gray-700')}
               >
@@ -693,6 +713,7 @@ export default function ProjectDetail() {
                 <p className="text-[11px] text-gray-400 mt-0.5">{t('projects.injectSenderHint', 'Prepend sender identity to messages sent to agent')}</p>
               </div>
               <button
+                type="button" role="switch" aria-checked={injectSender} aria-label={t('projects.injectSender', 'Inject sender')}
                 onClick={() => setInjectSender(!injectSender)}
                 className={cn('w-10 h-6 rounded-full transition-colors', injectSender ? 'bg-accent' : 'bg-gray-300 dark:bg-gray-700')}
               >
@@ -724,6 +745,8 @@ export default function ProjectDetail() {
         )}
 
         <div className="max-w-lg">
+          {settingsError && <p role="alert" className="text-sm text-red-600 dark:text-red-400 mb-3">{settingsError}</p>}
+          {settingsSaved && <p role="status" className="text-sm text-green-600 dark:text-green-400 mb-3">{t('common.saved', 'Saved')}</p>}
           <Button loading={saving} onClick={handleSaveSettings}>{t('common.save')}</Button>
         </div>
         <Card>
@@ -823,7 +846,7 @@ export default function ProjectDetail() {
             <Button variant="secondary" onClick={() => { setShowRestartModal(false); setTimeout(fetchAll, 300); }}>
               {t('setup.later', 'Later')}
             </Button>
-            <Button onClick={async () => { await restartSystem(); setShowRestartModal(false); await waitForService(8000); await fetchAll(); }}>
+            <Button onClick={async () => { await restartSystem(); setShowRestartModal(false); await waitForService(8000); await fetchAll(); setRestartSeq(n => n + 1); }}>
               {t('setup.restartNow', 'Restart now')}
             </Button>
           </div>

@@ -458,8 +458,12 @@ func (cs *codexSession) handleEvent(raw map[string]any) {
 
 	case "turn.completed":
 		cs.refreshContextUsageFromRollout()
+		last := cs.lastPendingMsg()
 		cs.flushPendingAsText()
 		evt := core.Event{Type: core.EventResult, SessionID: cs.CurrentSessionID(), Done: true}
+		if last != "" {
+			evt.Metadata = map[string]any{core.MetaLastReply: last}
+		}
 		if usage, ok := raw["usage"].(map[string]any); ok {
 			b, _ := json.Marshal(usage)
 			var u codexSnakeTokenUsage
@@ -522,6 +526,17 @@ func (cs *codexSession) flushPendingAsThinking() {
 		}
 	}
 	cs.pendingMsgs = cs.pendingMsgs[:0]
+}
+
+// lastPendingMsg is the turn's last buffered agent_message: what EventResult reports as
+// MetaLastReply so the workspace [report] check does not read the joined turn (#1270).
+func (cs *codexSession) lastPendingMsg() string {
+	for i := len(cs.pendingMsgs) - 1; i >= 0; i-- {
+		if strings.TrimSpace(cs.pendingMsgs[i]) != "" {
+			return cs.pendingMsgs[i]
+		}
+	}
+	return ""
 }
 
 // flushPendingAsText emits all buffered agent_messages as EventText (final response).

@@ -7,6 +7,7 @@ import {
   inspectPlugin,
   installPlugin,
   listPlugins,
+  NON_REGISTRY_CONFIRM,
   savePluginConfig,
   switchPlugin,
   type DSHPlugin,
@@ -29,7 +30,7 @@ import { goToDsh } from '@/lib/openDsh';
  * same state. Both the list and the switch need a DSH restart to take effect, which the page says.
  */
 export default function PluginList() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const T = pluginTexts(i18n.language || 'en');
   const [state, setState] = useState<DSHPluginsState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,8 +46,10 @@ export default function PluginList() {
   const [installing, setInstalling] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   // installError keeps the classifier kind so the readable text can be in the reader's language.
-  const [installError, setInstallError] = useState<{ kind?: string; detail?: string; log?: string } | null>(null);
+  const [installError, setInstallError] = useState<{ kind?: string; detail?: string; log?: string; allowVersion?: string } | null>(null);
   const [notice, setNotice] = useState('');
+  // copied marks the allow-version command as copied; a clipboard refusal leaves the text visible.
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState('');
   const [openingConfig, setOpeningConfig] = useState(false);
   // 插件配置 (#150 ②a): one row's config open for editing. The text is YAML on purpose — the
@@ -106,9 +109,13 @@ export default function PluginList() {
     setInstalling(true);
     setLines([]);
     setInstallError(null);
+    setCopied(false);
     setNotice('');
     try {
-      const next = await installPlugin(want, (ev) => {
+      // The checkbox is only sent when it is both shown and ticked: a registry install has no box
+      // to tick, and sends nothing extra.
+      const confirmSource = inspection?.kind !== 'registry' && ackNonRegistry ? NON_REGISTRY_CONFIRM : '';
+      const next = await installPlugin(want, confirmSource, (ev) => {
         if (ev.line) setLines((prev) => [...prev.slice(-19), ev.line!]);
       });
       setState(next);
@@ -117,9 +124,18 @@ export default function PluginList() {
       const added = next.plugins.find((p) => p.name === want || pxName(p.name) === pxName(want));
       setNotice(added && !added.layer ? T.installedNoLayer : T.installed);
     } catch (e: any) {
-      setInstallError({ kind: e?.kind, detail: e?.message || '', log: e?.log });
+      setInstallError({ kind: e?.kind, detail: e?.message || '', log: e?.log, allowVersion: e?.allowVersion });
     } finally {
       setInstalling(false);
+    }
+  };
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      /* clipboard blocked: the command stays on screen and is selectable */
     }
   };
 
@@ -179,6 +195,9 @@ export default function PluginList() {
 
   const stateBadge = (p: DSHPlugin) => {
     if (p.error) return <Badge variant="danger">{T.stateMissing}</Badge>;
+    // Client UI packages (dsh.client, no dsh.bundle) are rendered by DSH itself. They are not a
+    // profile layer and not a plain dependency, so they get their own label (#1376).
+    if (p.client_only) return <Badge variant="outline">{t('plugins.stateClientUi')}</Badge>;
     // A plain dependency is installed but never loaded: it is not off, it is not a plugin.
     if (!p.layer) return <Badge variant="outline">{T.statePlain}</Badge>;
     if (p.shipped) return <Badge variant="outline">{T.stateShipped}</Badge>;
@@ -355,6 +374,25 @@ export default function PluginList() {
                   ? installError.detail
                   : T.installFailed(failureText(T, installError.kind))}
               </p>
+              {/* A version rejection is DSH's own decision. When DSH printed the exact-version
+                  remedy, the page only relays that sentence: running it here would make this
+                  profile editor the thing that approves a mismatch (#460). */}
+              {installError.kind === 'incompatible' && installError.allowVersion && (
+                <div className="mt-2 rounded-control bg-surface-sunken p-3 text-xs" data-testid="plugins-allow-version">
+                  <p className="text-ink-mute">{T.allowVersionHint}</p>
+                  <div className="mt-1 flex items-start gap-2">
+                    <code className="min-w-0 flex-1 break-all text-[11px] text-ink-soft">{installError.allowVersion}</code>
+                    <Button
+                      variant="secondary"
+                      onClick={() => copy(installError.allowVersion || '')}
+                      data-testid="plugins-allow-version-copy"
+                    >
+                      {copied ? T.copied : T.copy}
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-ink-mute">{T.allowVersionNote}</p>
+                </div>
+              )}
               {installError.log && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-ink-mute">{T.details}</summary>
@@ -412,6 +450,12 @@ export default function PluginList() {
               </div>
               {p.layer && p.shipped && (
                 <p className="mt-3 text-xs text-ink-mute">{T.shippedNote}</p>
+              )}
+              {/* DSH renders a client UI package; this page has no switch for it (#1376). */}
+              {p.client_only && (
+                <p className="mt-3 text-xs text-ink-mute" data-testid={`plugin-${p.name}-client-note`}>
+                  {t('plugins.clientUiNote')}
+                </p>
               )}
               {/* The bundled surfaces carry dozens of rows each; collapsed by default so the page
                   stays a list of plugins, and open when the owner wants the detail. */}

@@ -1,0 +1,13 @@
+# Applied by `dsh plugin add bothouse-plugin-template`: one row, loaded from this package.
+# Everything under config: is what the panel's 插件 → 配置 editor shows and saves.
+# A key whose name contains token / key / secret / password is masked in that editor.
+- insert:
+    - id: bothouse-plugin-template
+      name: bothouse-plugin-template
+      config:
+        # bothouse management API (config.toml [management] port, default 9820)
+        bridge: http://127.0.0.1:9820
+        # config.toml [management] token
+        token: ""
+        # role statuses to log; empty = all (idle working thinking celebrate error speech)
+        statuses: [celebrate, error]

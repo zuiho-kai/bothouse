@@ -160,6 +160,9 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 			cancel()
 		}
 	}
+	// Retain the already-read session report with its session-creation scope.
+	// The Agent's current provider may have changed while this turn was running.
+	e.cacheRoleQuotaReport(e.agent, replyFooterModel(as, e.agent), scope, report)
 	if report != nil && report.QuotaGroup != "" {
 		scope.Group = report.QuotaGroup
 	}

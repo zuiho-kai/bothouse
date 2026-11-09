@@ -17,7 +17,8 @@ import (
 )
 
 // writePluginsProfile builds a profile with one DSH bundle (two rows, one disabled by the profile
-// patch) and one plain dependency that declares no dsh.bundle.
+// patch), one client UI package (dsh.client, no dsh.bundle) and one plain dependency that declares
+// no dsh.bundle.
 func writePluginsProfile(t *testing.T) (home, dir string) {
 	t.Helper()
 	home = t.TempDir()
@@ -31,6 +32,7 @@ func writePluginsProfile(t *testing.T) (home, dir string) {
   "dependencies": {
     "@deepseek-ai/dsh-web-app": "link:/nonexistent/dsh-web-app",
     "demo-bundle": "link:./demo-bundle",
+    "client-ui-dep": "0.2.1-rc.2",
     "plain-dep": "1.2.3"
   },
   "dsh": {
@@ -57,6 +59,13 @@ func writePluginsProfile(t *testing.T) (home, dir string) {
 - id: system-prompt
   config:
     personaPrefix: demo
+`,
+		filepath.Join(dir, "node_modules", "client-ui-dep", "package.json"): `{
+  "name": "client-ui-dep",
+  "version": "0.2.1-rc.2",
+  "description": "Client UI package for the plugins page",
+  "dsh": {"client": {"inject": ["@deepseek-ai/dsh-client-ui-layout"], "platform": "web"}}
+}
 `,
 		filepath.Join(dir, "node_modules", "plain-dep", "package.json"): `{"name": "plain-dep", "version": "1.2.3"}`,
 	}
@@ -97,15 +106,20 @@ func TestPluginsListsProfileDependencies(t *testing.T) {
 	if state.Profile != "web" || state.ProfileDir != dir {
 		t.Fatalf("profile = %q at %q, want web at %q", state.Profile, state.ProfileDir, dir)
 	}
-	if len(state.Plugins) != 3 {
-		t.Fatalf("plugins = %+v, want the three dependencies", state.Plugins)
+	if len(state.Plugins) != 4 {
+		t.Fatalf("plugins = %+v, want the four dependencies", state.Plugins)
 	}
 	// sorted by name so the page does not jump between refreshes
-	if state.Plugins[0].Name != "@deepseek-ai/dsh-web-app" || state.Plugins[1].Name != "demo-bundle" || state.Plugins[2].Name != "plain-dep" {
-		t.Fatalf("order = %q,%q,%q", state.Plugins[0].Name, state.Plugins[1].Name, state.Plugins[2].Name)
+	if state.Plugins[0].Name != "@deepseek-ai/dsh-web-app" || state.Plugins[1].Name != "client-ui-dep" ||
+		state.Plugins[2].Name != "demo-bundle" || state.Plugins[3].Name != "plain-dep" {
+		t.Fatalf("order = %q,%q,%q,%q", state.Plugins[0].Name, state.Plugins[1].Name, state.Plugins[2].Name, state.Plugins[3].Name)
+	}
+	client := pluginByName(t, state, "client-ui-dep")
+	if !client.ClientOnly || client.Layer || client.Enabled {
+		t.Fatalf("client = %+v, want a client-only package: dsh.client without dsh.bundle", client)
 	}
 	demo := pluginByName(t, state, "demo-bundle")
-	if !demo.Layer || !demo.Enabled || demo.Version != "0.4.2" || demo.Description == "" {
+	if !demo.Layer || demo.ClientOnly || !demo.Enabled || demo.Version != "0.4.2" || demo.Description == "" {
 		t.Fatalf("demo = %+v, want an enabled layer at 0.4.2 with a description", demo)
 	}
 	// Only insert: items are plugins; the id-targeted system-prompt override is not.
@@ -116,14 +130,61 @@ func TestPluginsListsProfileDependencies(t *testing.T) {
 		t.Fatalf("rows = %+v; the profile patch disables demo-page only", demo.Rows)
 	}
 	plain := pluginByName(t, state, "plain-dep")
-	if plain.Layer || len(plain.Rows) != 0 || plain.Enabled {
-		// plain-dep is not selected as a bundle, so it is installed but not loaded.
+	if plain.Layer || plain.ClientOnly || len(plain.Rows) != 0 || plain.Enabled {
+		// plain-dep declares neither dsh.bundle nor dsh.client, and is not selected as a bundle.
 		t.Fatalf("plain = %+v, want a non-layer dependency that is not selected", plain)
 	}
 	// A link: target outside the profile that does not exist reads as a broken row, not a panic.
 	webApp := pluginByName(t, state, "@deepseek-ai/dsh-web-app")
 	if webApp.Error == "" {
 		t.Fatalf("web-app = %+v, want a readable missing-files error", webApp)
+	}
+}
+
+// TestPluginsSeparatesBundleClientAndPlain pins #1376's three kinds apart: a bundle (dsh.bundle),
+// a client UI package (dsh.client only, the Discord shell the install script adds) and a plain
+// dependency (neither). Before this, the client package and is-odd looked identical to the page.
+func TestPluginsSeparatesBundleClientAndPlain(t *testing.T) {
+	_, _ = writePluginsProfile(t)
+	_, ts, _ := testManagementServer(t, "tok")
+	r := mgmtGet(t, ts.URL+"/api/v1/plugins", "tok")
+	if !r.OK {
+		t.Fatalf("plugins failed: %s", r.Error)
+	}
+	var state DSHPluginsState
+	if err := json.Unmarshal(r.Data, &state); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// The wire carries the field explicitly on every row: the page branches on it, not on a guess.
+	var wire struct {
+		Plugins []map[string]any `json:"plugins"`
+	}
+	if err := json.Unmarshal(r.Data, &wire); err != nil {
+		t.Fatalf("unmarshal wire: %v", err)
+	}
+	clientOnlyOnWire := map[string]bool{}
+	for _, row := range wire.Plugins {
+		value, ok := row["client_only"]
+		if !ok {
+			t.Fatalf("%v is missing client_only in the response: %+v", row["name"], row)
+		}
+		clientOnlyOnWire[row["name"].(string)] = value.(bool)
+	}
+	for _, tc := range []struct {
+		name                 string
+		layer, client, plain bool
+	}{
+		{"demo-bundle", true, false, false},
+		{"client-ui-dep", false, true, false},
+		{"plain-dep", false, false, true},
+	} {
+		p := pluginByName(t, state, tc.name)
+		if p.Layer != tc.layer || p.ClientOnly != tc.client || (!p.Layer && !p.ClientOnly) != tc.plain {
+			t.Fatalf("%s = layer:%v client_only:%v, want layer:%v client_only:%v", tc.name, p.Layer, p.ClientOnly, tc.layer, tc.client)
+		}
+		if clientOnlyOnWire[tc.name] != tc.client {
+			t.Fatalf("%s: client_only on the wire = %v, want %v", tc.name, clientOnlyOnWire[tc.name], tc.client)
+		}
 	}
 }
 
@@ -345,5 +406,30 @@ func TestPluginsSwitchComputesInsideTheLock(t *testing.T) {
 	}
 	if slices.Contains(m.DSH.Profile.Bundles, "demo-bundle") {
 		t.Fatalf("the switch did not turn demo-bundle off: %s", after)
+	}
+}
+
+// TestPluginAllowVersionCommandRelaysDSHOwnLine pins the one thing this panel adds for a version
+// rejection: it repeats DSH's own `allow-version … --accept-risk` sentence verbatim, and says
+// nothing when DSH did not print one. The page shows the sentence; the panel never runs it, because
+// accepting a mismatch is DSH's exact-version decision, not this profile editor's (#460).
+func TestPluginAllowVersionCommandRelaysDSHOwnLine(t *testing.T) {
+	log := "\ndsh: installation rejected: Plugin dsh-ops@0.5.2 is incompatible with dsh 0.2.1-rc.5: requirements {\"engines.dsh\":\">=0.2.2-rc.1 <0.2.3-0\"}.\n" +
+		"dsh: nothing was installed.\n" +
+		"dsh: to accept the risk, run: dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk\n"
+	want := "dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk"
+	if got := pluginAllowVersionCommand(log); got != want {
+		t.Fatalf("allow-version = %q, want the DSH line %q", got, want)
+	}
+	for _, other := range []string{
+		"", // nothing printed
+		"Error: ERR_PNPM_FETCH_404\n  × 404 Not Found - GET https://registry.npmjs.org/nope",
+		// A version rejection whose remedy line DSH changed or dropped: the field stays empty
+		// rather than this panel inventing a command.
+		"dsh: installation rejected: Plugin x@1 is incompatible with dsh 0.2.1-rc.5: requirements {}.\n",
+	} {
+		if got := pluginAllowVersionCommand(other); got != "" {
+			t.Fatalf("allow-version(%q) = %q, want empty", other, got)
+		}
 	}
 }

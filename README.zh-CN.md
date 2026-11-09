@@ -16,11 +16,13 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**bothouse：把电脑上的 Claude Code、Codex、Gemini CLI 拉进一个群，再接上 DeepSeek 这类模型，组成一支共享记忆、自己分活的 AI 小团队。**
+**bothouse：一个单 / 多 agent 的团队协作平台。团队成员，或者自己单人、单模型都能用，不同会话和模型共享同一份项目记忆。**
+
+Discord、DSH、QQ 三种入口最先做好；可以接入你已经登录好的 agent CLI：Claude Code、Codex、Antigravity、DSH、Gemini CLI、OpenCode，Grok 等走 ACP 的也能接。
 
 新方向：[团队模式](#next)——一个人调好的 AI，全队都能用；[硬件](#next)——给角色一个 ESP32 小身体（[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot)）。
 
-[宣传片](#video) · [新方向](#next) · [安装](#install) · [能力](#features) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+[宣传片](#video) · [三种用法](#usage) · [DSH 用户](#dsh) · [安装](#install) · [能力](#features) · [新方向](#next) · [截图](#screenshots) · [记忆](#memory) · [对比](#compare) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -38,27 +40,44 @@
 
 ## 用起来是什么样
 
-以前同时用 Claude Code、Codex 和 DeepSeek，得在几个终端之间切来切去，把消息复制过去。窗口一关上下文就没了，人一离开电脑活就停。
+我手上同时开着 cc、codex、ds，两个屏幕：一个屏幕开 4 个 cc 窗口，另一个开 codex，几个之间协作有点牢。所以就复用 Discord 的能力搞了个协作平台。后来跟 vLLM 和面壁的同学聊了聊，他们也是类似的做法。再后来随着社区发展，又加上了 DSH、QQ 等支持。
 
-所以我们做了 **bothouse**：一个把本地 CLI 和模型拉进同一个群的中枢。它们共用一份记忆，你在电脑、手机和浏览器上都能指挥。不用另开账号，不用另买订阅。
+这就是 **bothouse**：团队成员或者你自己一个人，都能把不同的 agent CLI 接进同一个群，不同会话、不同模型共享同一份项目记忆。你在电脑、手机和浏览器上都能指挥，不用另开账号，不用另买订阅。
 
-<a id="next"></a>
+<a id="usage"></a>
 
-## 新方向：团队模式和硬件
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-zh-night.svg" />
+  <img src="docs/assets/readme/banner/usage-zh-day.svg" width="960" alt="" />
+</picture>
 
-一个人用顺手之后，我们在往两个方向扩。
+## 三种用法
 
-### 团队模式：一个人调好的 AI，全队都能用
+| 你手上有 | 怎么用 |
+| --- | --- |
+| **几种 agent CLI** | 把已经登录好的 Claude Code、Codex、Antigravity、DSH、Grok 拉进一个群，主角色拆活、派出去，大家共用一份项目记忆。见[安装](#install)。 |
+| **一个模型、一个账号** | 单模型单角色也能玩。想要多角色，照样建几个成员，各管一摊。见[一个 CLI 组团队](docs/single-cli-team.md)。 |
+| **DSH** | 在 DSH 里说一句「帮我装 bothouse-dsh」就能装上，或者跑 `bothouse module add dsh`；再对主角色说一句，就拉起单模型多角色的小团队。见下面。 |
 
-把团队里每个人的 Claude Code、Codex、Gemini、DeepSeek 拉进同一个团队群，大家共用一套 AI 经验。
+<a id="dsh"></a>
 
-- **经验共享**：全队共用一份记忆，每晚自动复盘，对照原话把进度、纠正和教训记下来，第二天谁的 AI 都照着做。不太会用 AI 的人，也能直接用上高手调好的那一套。
-- **懂每个人**：按人分开记住每个人的标准和说话习惯，谁发消息就照谁的来。
-- **自己分活**：一句话交代下去，AI 们自己分工；交接带着原话，最后换一个干净的 AI 验收。
+### DSH 用户：单模型拉多角色
 
-### 硬件：让角色有个身体
+装法有两种：在 DSH 里说「帮我装 bothouse-dsh」（它从 npm 拉插件），或者用刚装好的 bothouse 跑 `bothouse module add dsh`（装的是这个 bothouse 自带的插件）。走 npm 那条想看最新版本，就写准版本号：DSH 装插件走 pnpm，一天内新发的版本会先跳过。细节见 [bothouse-dsh](dsh/plugin-pkg/README.md)。
 
-[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) 把 ESP32 圆屏小板接进来，每块板就是一个角色：对它说话，角色回话，表盘跟着表情变。详见下面的[硬件](#iot)一节。
+单模型单角色也能玩，DSH 已有的插件照常用，热门插件也在做适配。
+
+想自己写插件：照 [插件开发说明](docs/plugins/plugin-dev.md) 从模板起步，仓库里 [plugins/](plugins) 有现成的样板（交活/出错推群、事件流水、桌面提醒）。
+
+想拉单模型多角色，对频道里的主角色说一句：
+
+> 帮我搭一个小团队：写手、程序员，模型都用 deepseek-v4.1-flash，拉个频道
+
+主角色用频道接口（`POST /collab/api/rooms/{id}/team`，只有频道主角色能调）一次把新频道和两个角色建好，并在频道里说明建了什么。这句话不必逐字照抄：说清哪几个角色，模型、人设、频道名可选。
+
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-crop.jpg" width="750" alt="DSH 里对主角色说一句，建好写手和程序员"><br><b>说一句，建好两个角色</b></p>
+
+<p align="center"><img src="docs/assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="新频道小团队里，写手和程序员都在线，模型都是 deepseek-v4.1-flash"><br><b>新频道里角色已就位</b></p>
 
 <a id="install"></a>
 
@@ -107,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 | 你想要 | bothouse 怎么帮你 |
 | --- | --- |
-| **一支自己的 AI 小团队** | 把已经登录好的 Claude Code、Codex、Gemini CLI、OpenCode 拉进群，每个角色有自己的名字、人设和会话。 |
+| **一支自己的 AI 小团队** | 把已经登录好的 Claude Code、Codex、Antigravity、DSH、Gemini CLI、OpenCode 拉进群，走 ACP 的 Grok 等也能接；每个角色有自己的名字、人设和会话。 |
 | **一个账号也能组队** | 只有一个 Codex 或一个 DeepSeek 账号？照样建几个成员，分工各管一摊，在群里 @ 来 @ 去地派活。 |
 | **在常用的聊天软件里找它** | 在 Discord、飞书、QQ、自建网页或 DSH web 里 @ 它；Discord 和飞书本来就有手机版，躺床上也能派活。 |
 | **聊天不卡，大活另开** | 大一点的活交给单独的工作区去做，主角色继续陪你聊；做完交回，需要你拍板时才叫你。 |
@@ -118,11 +137,31 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 <a id="team"></a>
 
+模型和推理档位按频道分开记：在哪个频道说话，就在那个频道用 `/model` 和 `/reasoning`。改过的设置跟着这个频道走，重启和 `/new` 之后还在。见[模型和推理档位](docs/model-and-reasoning.md)。
+
 ### 角色和头像
 
 <img src="docs/assets/bothouse-team-hero.png" width="660" alt="四个 AI 角色围坐在同一张桌前，各自对着电脑干活" />
 
 每个角色都有自己的头像和人设，按包管理，挑一个就能上岗；想自己做一个，见[角色包](docs/persona-packs.md)。
+
+<a id="next"></a>
+
+## 新方向：团队模式和硬件
+
+一个人用顺手之后，我们在往两个方向扩。
+
+### 团队模式：一个人调好的 AI，全队都能用
+
+把团队里每个人的 Claude Code、Codex、Gemini、DeepSeek 拉进同一个团队群，大家共用一套 AI 经验。
+
+- **经验共享**：全队共用一份记忆，每晚自动复盘，对照原话把进度、纠正和教训记下来，第二天谁的 AI 都照着做。不太会用 AI 的人，也能直接用上高手调好的那一套。
+- **懂每个人**：按人分开记住每个人的标准和说话习惯，谁发消息就照谁的来。
+- **自己分活**：一句话交代下去，AI 们自己分工；交接带着原话，最后换一个干净的 AI 验收。
+
+### 硬件：让角色有个身体
+
+[bothouse-iot](https://github.com/zuiho-kai/bothouse-iot) 把 ESP32 圆屏小板接进来，每块板就是一个角色：对它说话，角色回话，表盘跟着表情变。详见下面的[硬件](#iot)一节。
 
 <a id="screenshots"></a>
 
@@ -150,12 +189,20 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 
 ## 看得见的记忆
 
-团队的记忆就是一个普通的 Markdown 文件夹。每条消息进来，先查相关的几页再回答；夜里自动复盘，把记错的改掉。你可以直接翻、直接改；它用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。详见[调度与团队记忆](docs/ccm-and-wiki.md)。
+团队的记忆就是一个普通的 Markdown 文件夹。每条消息进来，先查相关的几页再回答；夜里自动复盘，把记错的改掉。你可以直接翻、直接改；它用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。
+
+- **只推标题**：每轮按话题挑出相关的记忆，推给角色的只有标题和行号，要用再按行号去读正文。花得很少，也少了几次「这个我跟你说过」的返工。这个思路来自 vLLM。
+- **不堆开销**：不做知识图谱的增删改查，也不常驻向量库，所以花的钱和内存都小。
+- **记忆论坛**：面板里的「记忆论坛」把每条记忆当成一个回答来算分——赞、踩、被推和被引用的次数——再按分数排序。问同一件事的回答归成一个帖子，排在前面，记错的那条会往下沉，不会被反复推出来。
+
+详见[调度与团队记忆](docs/ccm-and-wiki.md)。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
-  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、自建网页、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和开发中的记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
+  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
 </picture>
+
+想看记忆的全貌，打开 **bothouse 面板 → 概览 → Wiki 星图**。星图是概览下的子页，有一条链接回到概览，不再单独占一个导航项；原来的 `/wiki-galaxy` 和 DSH 里的 `#wiki-galaxy` 书签照样能用。
 
 <a id="how"></a>
 
@@ -165,6 +212,7 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 
 聊天频道一直不停；只有要你拍板的事才回到聊天频道，别的不打扰你。
 
+- **主角色自己拆活**：主角色把真正的活拆开，按所长和额度派出去，一个群里五个 AI 也不会抢话。它派子 agent 时，把对得上的代码地图一起带过去，子 agent 学到的东西再补回那张地图。
 - **叫到才开口**：默认主角色接话，其他角色跟着看，被 @ 或点名才回。没点名的消息由轻量调度模块 jev（一个只做选择题的小模型）判断该谁接；它能用硅基流动的免费小模型，也能用本地 Qwen3.5-4B。
 - **共享记忆**：基于我们开源的 llm-wiki 扩展成多角色共用的记忆，存在本地 Markdown 里，能直接读、直接改，Git 记录团队学到的东西。
 - **夜间复盘**：会话结束、闲置 30 分钟或出错时，快模型把进度记进 Wiki。夜里换更慢但更细的免费模型，对照原始对话纠错补漏，周日再全量查一遍。引用你的话会被代码逐字核对，编造的引用直接拒掉。
@@ -244,7 +292,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 | | 是什么 | 接哪些 AI | 几个 AI 怎么协作 | 记忆 | 在哪聊 |
 | --- | --- | --- | --- | --- | --- |
-| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Gemini CLI、OpenCode；DSH 等走 ACP；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord、自建网页、飞书、QQ、DSH web（实验） |
+| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Antigravity、Gemini CLI、OpenCode、DSH；Grok 等走 ACP；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord、自建网页、飞书、QQ、DSH web（实验） |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek 官方 agent 框架（开发者预览） | 默认 DeepSeek，也能加其他模型提供商 | 子 agent；团队模式在实验 | 没有内置长期记忆，可接记忆插件 | 自带桌面端和网页 |
 | [Tobs](https://github.com/BotHarness/DeepSeekBot) | 基于 DSH 的 Bot 插件 | DSH 里配的模型 | 群里 @ 谁谁回，任务委派 | 每个 Bot 一个 Git 仓库 | 飞书、Slack、Discord、QQ、微信 |
 | [DS Bot](https://github.com/Fei2411/DS-Bot) | 基于 DSH 的桌面 App / 插件 / Docker | DSH 里配的模型 | 主 Bot 带团队，群管理员统筹 | 每个 Bot、每个群各有记忆 | App 内 |
@@ -281,6 +329,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 - **工作区自动清理**：最后一件活交完就清上下文。
 - **更多群聊平台**：完整团队模式扩到 DSH web 频道、Telegram、Slack、QQ 和企业微信。
 - **规范和技能统一下发**：团队定好的规则、技能和工具配置，一键发到每个成员的电脑上。
+- **热门 DSH 插件深度支持**：复用 DSH 的插件生态，给热门插件做深度适配。
 
 <a id="docs"></a>
 
@@ -288,7 +337,7 @@ bothouse 跑在家里电脑上，自带网页管理面板。Tailscale 让手机�
 
 欢迎贡献，先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。带网页面板的源码构建要先构建前端、再编译 Go，且不加 `no_web`，见[面板构建](docs/dashboard-source-build.md)。
 
-更多见[上手指南](docs/GETTING_STARTED.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
+更多见[上手指南](docs/GETTING_STARTED.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [模型和推理档位](docs/model-and-reasoning.md) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
 
 <a id="community"></a>
 

@@ -565,6 +565,11 @@ def paused_item(path):
     return next((i for i in _read() if (i.get("paused") or i.get("backlog")) and i.get("where") == path), None)
 
 
+def done_records():
+    """board-done.jsonl 里全部做完的记录（旧到新）。ws-forward 按交接记下的编号查这件活交回没有。"""
+    return _read("board-done.jsonl")
+
+
 def done_item(path):
     """交接文件 path 对应的活已交回：板上没有它的条目，board-done.jsonl 里有它做完的记录（自动收起的暂停不算），返回最后一条；否则 None。
     ws-forward 用它拦下往已交回的活转话（工作区交回后会话已清空，话发过去没人接）。"""
@@ -583,6 +588,8 @@ def pause(nid, why=None):
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
+        hit.pop("pause_req", None)
+        hit.pop("pause_req_at", None)
         for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
             hit.pop(k, None)  # 暂停比待办更急：从待办挪出来，进团队板的「暂停」块
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
@@ -599,6 +606,53 @@ def pause(nid, why=None):
         event(nid, "paused", hit, why)
     _del_timer(tid)
     return {**hit, "ws": ws} if ws else hit
+
+
+WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀（core/team_wait_external.go waitExternalWhy，两边改要一起改）
+
+
+def wait_external(nid, why, minutes):
+    """外部条件卡住：照 ask 暂停（放回工作区、撤兜底），原因写「等外部：<why>」，wait_until 记到点时刻（epoch）。"""
+    hit = pause(nid, WAIT_EXT + (why or "外部条件"))
+    if not hit:
+        return hit
+    until = int(time.time()) + minutes * 60
+    with _locked():
+        cur = _read()
+        it = next((i for i in cur if i["id"] == nid), None)
+        if it is not None:
+            it["wait_until"] = until
+            it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
+            _write(cur)
+    hit["wait_until"] = until
+    if os.path.isfile(hit.get("where") or ""):
+        append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，"
+                                     f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
+    return hit
+
+
+def _in_own_workspace(it):
+    """这一轮就跑在条目绑定的工作区里（CC_SESSION_KEY 的频道 = it["ws"] 的频道）。"""
+    here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+    return bool(here) and bool(it.get("ws")) and here == it["ws"].split(":")[1:2]
+
+
+def self_pause(nid, why=None):
+    """工作区在自己那一轮里 board pause 自己：不暂停、不放回，只记 pause_req（停手原因）和时刻，返回条目；
+    不是这种情况返回 None，照常 pause。桥看到 pause_req 就要这一轮交 [report]（core workspace_report.go）。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or hit.get("paused") or not _in_own_workspace(hit):
+            return None
+        hit["pause_req"] = why or "工作区自己停手"
+        hit["pause_req_at"] = _bound_now()
+        hit["at"] = _now()
+        _write(cur)
+        event(nid, "pause_req", hit, why)
+    if os.path.isfile(hit.get("where") or ""):
+        append_forward(hit["where"], f"{_now()} 工作区自己停手（#{nid}）{'：' + why if why else ''}。这一轮交 [report] 说做到哪。")
+    return hit
 
 
 def _ws_key(it):
@@ -1079,6 +1133,8 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
         hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
         hit["reviewer"] = hit.get("dispatcher") or reviewer
         hit.pop("review_rejected", None)  # A new handback supersedes the earlier rejection.
+        hit.pop("pause_req", None)  # 停手的那一轮交回了
+        hit.pop("pause_req_at", None)
         hit["status"], hit["at"] = "已交回待验收", _now()
         if hit.get("chat"):
             hit["sk"] = hit["chat"]
@@ -1826,6 +1882,14 @@ def main(argv):
                 sys.exit(1)
         elif cmd == "pause" and 2 <= len(argv) <= 3:
             nid = int(argv[1].lstrip("#"))
+            req = self_pause(nid, argv[2] if len(argv) > 2 else None)
+            if req:
+                # 工作区在自己那一轮里 pause 自己：当场放回会清会话、把这一轮连同要写的 [report] 一起掐掉，
+                # 暂停的条目又会让桥把交回扣在工作区（agentm #26，11-09）。改成记一笔「要停手」，不放回：
+                # 这一轮照常写 [report] 交回，桥收到后放回工作区；没写，桥叫它补交，补不上就把最后一段话转给主角色。
+                print(f"已记停手（#{nid}）：工作区里不自己暂停。这一轮最后一条回复第一行写 [report] #{nid}，"
+                      "说做到哪、卡在哪、要谁定；交回后桥自动放回工作区。")
+                return
             hit = pause(nid, argv[2] if len(argv) > 2 else None)
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
@@ -1834,9 +1898,7 @@ def main(argv):
                 append_forward(hit["where"], f"{_now()} 已暂停（#{nid}）{'：' + hit['pause_why'] if hit.get('pause_why') else ''}。"
                                              "停手，不要再起后台命令，正在跑的停掉；上面更早的「接着做」作废，等主频道恢复再做。")
             schedule_prune_check(hit)
-            # 在那个工作区里自己 pause 的不打断（会把正在跑 board 的这一轮掐掉）
-            here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
-            freed = park_workspace(hit, stop=(here != (hit.get("ws") or "").split(":")[1:2]))
+            freed = park_workspace(hit, stop=True)  # 在那个工作区里自己 pause 的已在上面改成记停手
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "ask" and len(argv) == 2:
@@ -1849,6 +1911,18 @@ def main(argv):
             print("已记等你")
             if os.path.isfile(hit.get("where") or ""):
                 append_forward(hit["where"], f"{_now()} 已提问、等用户答复（#{nid}）：工作区已放回，答复到了会另交一个空工作区接着做。")
+            freed = park_workspace(hit)
+            if freed is not None:
+                print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+        elif cmd == "wait" and len(argv) == 4:
+            # 工作区 [report] 写了「等外部：…」（桥调，core/team_wait_external.go）：外部条件卡住（没空卡、等 CI、等对方），
+            # 条目记「等外部」并带 wait_until，工作区放回池子、撤兜底；看门不再叫醒，到点桥 ws-handoff --resume 接着做
+            # （用户 11-09「没卡导致不断重复跑」→「修」）。
+            nid, minutes = int(argv[1].lstrip("#")), max(1, int(argv[3]))
+            hit = wait_external(nid, argv[2].strip(), minutes)
+            if not hit:
+                sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            print(f"已记等外部，{minutes} 分钟后接着做")
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")

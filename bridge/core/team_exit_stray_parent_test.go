@@ -95,21 +95,39 @@ func TestForwardReportLogsSuccess(t *testing.T) {
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q", got)
 	}
-	if !strings.Contains(logs.String(), "team exit: report posted") {
+	// No lead engine can accept it here, so it goes out at once marked unchecked (team_report_accept.go).
+	if !strings.Contains(logs.String(), "report accept: report posted") {
 		t.Fatalf("no success line: %s", logs.String())
 	}
 }
 
-// A marker that does not start the reply is not forwarded; the log says why, instead of dropping
+// A marker that sits inside a sentence is not forwarded; the log says why, instead of dropping
 // it silently.
 func TestForwardReportMarkerNotFirstLineLogs(t *testing.T) {
 	logs := captureLogs(t)
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
-	if out := e.forwardWorkspaceExit(p, exitWSKey, "先说一句\n[report]\n好了"); out != "" {
+	if out := e.forwardWorkspaceExit(p, exitWSKey, "先说一句，照 [report] 格式交\n好了"); out != "" {
 		t.Fatalf("forward returned %q", out)
 	}
 	if !strings.Contains(logs.String(), "marker is not on the first line") {
 		t.Fatalf("no warning: %s", logs.String())
+	}
+}
+
+// Codex narrates before its final answer and the turn's text arrives joined: the [report] that
+// opens a later line is still the answer and goes to the chat channel (agentm #25, 11-09).
+func TestForwardReportAfterCommentary(t *testing.T) {
+	logs := captureLogs(t)
+	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	writeTeamWorkspaces(t, e.dataDir, &teamWorkspaceState{
+		Version:  teamWorkspaceStateVersion,
+		Parents:  map[string][]TeamWorkspace{"discord:chat1": {{Name: "工作区1", ID: "ws1"}}},
+		Handoffs: map[string][]TeamHandoff{"discord:ws1": {{Chat: "discord:chat1", At: time.Now()}}},
+	})
+	exitBoardItem(t, e, 7, "活")
+	e.forwardWorkspaceExit(p, exitWSKey, "退回原因是漏了两项，本龙只修正交回文字。[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n我加的：无")
+	if got := p.sentTo("discord:chat1"); len(got) != 1 {
+		t.Fatalf("chat1 got %q, logs %s", got, logs.String())
 	}
 }
 

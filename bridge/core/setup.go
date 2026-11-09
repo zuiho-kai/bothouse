@@ -500,7 +500,11 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		return
 	}
 	if err := m.addPlatformToProject(projectName, req.Type, req.Options, req.WorkDir, req.AgentType); err != nil {
-		mgmtError(w, http.StatusInternalServerError, "save config: "+err.Error())
+		// #710 件 5: a config write error carries the config path, a temp-file name
+		// or a rename target. The caller gets a fixed sentence; the detail goes to
+		// the log, where an operator can read it without it reaching the browser.
+		slog.Error("add-platform: save config", "project", projectName, "platform", req.Type, "error", err)
+		mgmtError(w, http.StatusInternalServerError, "could not save the platform configuration")
 		return
 	}
 	mgmtJSON(w, http.StatusCreated, map[string]any{

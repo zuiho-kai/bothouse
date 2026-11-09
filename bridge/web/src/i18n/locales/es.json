@@ -1,4 +1,71 @@
 {
+  "qq": {
+    "setupTitle": "Conectar QQ",
+    "setupHint": "Usa una conexión OneBot / NapCat existente o credenciales del bot oficial. Guardar no verifica la conexión.",
+    "route": "Tipo de conexión",
+    "official": "Bot oficial de QQ",
+    "projectID": "ID del nuevo rol",
+    "projectHint": "Usa un ID único con letras, números, guiones o guiones bajos.",
+    "invalidProject": "El ID no es válido o ya existe.",
+    "noCLI": "Instala e inicia sesión en una CLI compatible.",
+    "savedRestart": "Configuración guardada. Reinicia para aplicarla; no se ha verificado el envío real en QQ.",
+    "restartRequested": "Reinicio solicitado. Vuelve a los roles cuando arranque el servicio.",
+    "settingsTitle": "Conexión y funciones de QQ",
+    "settingsHint": "Los cambios requieren reiniciar. Guardar no confirma una conexión activa.",
+    "stateRestart": "Sin reiniciar",
+    "stateRestartHint": "QQ está en la configuración, pero este proceso no lo está ejecutando: o aún no se ha reiniciado con él, o esta plataforma está desactivada. Reinicia el puente para intentar la conexión.",
+    "stateOffline": "Reiniciado, sin conexión",
+    "stateOfflineHint": "El puente sí inició QQ, pero OneBot no está conectado. Revisa ws_url, si NapCat está en marcha y el token.",
+    "stateConnected": "Conectado",
+    "stateConnectedHint": "QQ está conectado a OneBot y puede enviar y recibir mensajes.",
+    "httpURL": "URL HTTP de OneBot (opcional)",
+    "keepToken": "Deja vacío para conservar el token",
+    "clearToken": "Borrar el token guardado",
+    "sharedHint": "Al activarlo, el grupo comparte una conversación. No aísla la memoria privada.",
+    "connection": "Conexión",
+    "groupBehavior": "Comportamiento en grupos",
+    "contentSection": "Contenido y seguridad",
+    "socialSection": "说说 y avatar",
+    "socialHint": "Ambas actúan como esta cuenta de QQ y quedan apagadas salvo que se activen aquí.",
+    "allowFromReadonly": "Se edita en el control de acceso de plataformas del proyecto, no aquí.",
+    "splitBubbles": "Dividir respuestas por líneas en blanco",
+    "splitBubblesHint": "Envía un mensaje por párrafo separado por una línea en blanco. Las respuestas con bloque de código siguen siendo un solo mensaje; si falla, se detiene el resto.",
+    "allowGroupsWith": "Permitir a otros en grupos con estos usuarios (opcional)",
+    "allowGroupsWithPlaceholder": "IDs de QQ separados por comas",
+    "allowGroupsWithHint": "Si se define, otros miembros de un grupo que contenga a uno de estos usuarios entran. Los chats privados siguen la lista de usuarios permitidos. Actívalo solo en grupos de confianza: comandos como /stop y /new también lo siguen.",
+    "commandAllowFrom": "Quién puede enviar comandos con barra (opcional)",
+    "commandAllowFromPlaceholder": "IDs de QQ separados por comas; vacío mantiene el valor por defecto",
+    "commandAllowFromHint": "Se aplica en grupos y chats privados a comandos estándar, personalizados y desconocidos. El chat normal sigue la lista de permitidos; no concede permisos de administrador.",
+    "saveImagesDir": "Guardar las imágenes recibidas en (opcional)",
+    "saveImagesDirPlaceholder": "/ruta/a/imagenes",
+    "saveImagesDirHint": "Guarda los bytes originales, incluidos los GIF. Tú gestionas ese directorio; nada lo limpia.",
+    "allowQzone": "Leer, publicar, reemplazar y borrar los 说说 de esta cuenta",
+    "allowQzoneHint": "Usa la extensión de 说说 de NapCat, no la especificación OneBot 11. Cada escritura pregunta antes y nada se publica con temporizador.",
+    "allowAvatar": "Cambiar el avatar de esta cuenta",
+    "allowAvatarHint": "Usa set_qq_avatar de NapCat. Un avatar se ve en todas partes; se pregunta antes de cambiarlo.",
+    "unavailable": "No disponible en esta versión",
+    "capabilities": {
+      "qq_voice_out": "Las respuestas de voz no están disponibles.",
+      "qq_command_allow_from": "No hay lista independiente de comandos. Se aplica la configuración de administradores.",
+      "memory_import": "La importación de memoria espera confirmación de origen y formato."
+    }
+  },
+  "qqbot": {
+    "title": "Bot oficial de QQ",
+    "hint": "API oficial de QQ Bot (AppID + AppSecret). Es independiente de la entrada NapCat / OneBot de arriba; los cambios se aplican al reiniciar.",
+    "credentials": "Credenciales",
+    "appIDSet": "Hay un AppID guardado",
+    "stored": "Guardado (no se muestra)",
+    "missing": "Sin guardar",
+    "appIDReadonly": "El AppID no se muestra ni se edita aquí; si cambió, añade otro Bot.",
+    "keepSecret": "Deja vacío para conservar el secret guardado",
+    "secretHint": "El secret nunca se muestra, ni siquiera enmascarado. Un campo vacío conserva el guardado.",
+    "behavior": "Comportamiento",
+    "sandboxHint": "El sandbox usa la API de sandbox, no habla con usuarios reales de QQ.",
+    "markdown": "Mensajes Markdown",
+    "markdownHint": "Requiere el permiso del bot en la consola de QQ Bot; sin él los mensajes llegan como texto plano.",
+    "sharedHint": "Al activarlo, el grupo comparte una conversación. No aísla la memoria privada."
+  },
   "nav": {
     "addPlatform": "Añadir plataforma",
     "addRole": "Añadir rol / modelo",
@@ -18,6 +85,13 @@
     "forum": "Foro de memoria",
     "plugins": "Plugins",
     "gate": "Puerta"
+  },
+  "plugins": {
+    "stateClientUi": "Paquete de interfaz de cliente",
+    "clientUiNote": "Lo proporciona DSH; el panel no puede activarlo ni desactivarlo."
+  },
+  "roles": {
+    "title": "Gestión de roles"
   },
   "dashboard": {
     "title": "Panel",
@@ -177,7 +251,12 @@
     "externalAdapters": "Adaptadores externos",
     "bridgeDisabled": "El servicio de puente está apagado",
     "bridgeDisabledHint": "Estas plataformas las conectan los propios roles; los clientes externos (como la bandeja del escritorio) necesitan además el servicio de puente activado en la configuración.",
-    "noAdapters": "Sin adaptadores externos"
+    "noAdapters": "Sin adaptadores externos",
+    "platformsReadFailed": "No se pudieron leer las plataformas conectadas",
+    "adaptersReadFailed": "No se pudieron leer los adaptadores externos",
+    "projectsReadFailed": "No se pudieron leer los nombres de proyecto; abajo se muestran los identificadores.",
+    "readFailedHint": "La solicitud falló; esto no significa que no haya nada aquí. Revisa el servicio de puente y tu token, y vuelve a intentarlo.",
+    "retry": "Reintentar"
   },
   "system": {
     "title": "Sistema",

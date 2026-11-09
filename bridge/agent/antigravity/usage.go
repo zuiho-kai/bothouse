@@ -212,7 +212,7 @@ func (s quotaSummary) report(model string) (*core.UsageReport, error) {
 			}
 		}
 	}
-	report := &core.UsageReport{Provider: "Antigravity", QuotaGroup: prefix}
+	report := &core.UsageReport{Provider: "Antigravity", ObservedAt: time.Now(), QuotaGroup: prefix}
 	seen := map[string]bool{}
 	for _, g := range s.Response.Groups {
 		for _, b := range g.Buckets {

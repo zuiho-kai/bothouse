@@ -1,0 +1,12 @@
+# Applied by `dsh plugin add bothouse-role-webhook`. Edit config in the panel: 插件 → 配置.
+- insert:
+    - id: bothouse-role-webhook
+      name: bothouse-role-webhook
+      config:
+        bridge: http://127.0.0.1:9820
+        token: ""
+        # webhook address; the config editor shows it, so keep the panel private
+        url: ""
+        # discord | slack | feishu | json (json posts {text, event})
+        format: discord
+        statuses: [celebrate, error]

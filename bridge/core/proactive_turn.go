@@ -159,8 +159,9 @@ func (e *Engine) journalPendingAuthorizationTurn(q *queuedMessage, key, workspac
 	}
 	entry, err := j.begin(TurnJournalEntry{
 		Project: e.name, SessionKey: q.msgSessionKey, InteractiveKey: key, WorkspaceDir: workspace,
-		Platform: q.msgPlatform, Trigger: queuedTurnTrigger(q), LastUserMessage: q.content,
-		Authorization: q.authorization, TimerJobID: q.timerJobID, NoProgressCount: q.resumeNoProgress,
+		Platform: q.msgPlatform, Trigger: queuedTurnTrigger(q),
+		LastUserMessage: withVoiceNote(q.content, q.fromVoice && !q.voiceMarked),
+		Authorization:   q.authorization, TimerJobID: q.timerJobID, NoProgressCount: q.resumeNoProgress,
 	}, false)
 	return entry.TurnID, err
 }

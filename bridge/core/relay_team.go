@@ -10,10 +10,14 @@ import (
 // Keep each invocation independent of chat turns and of other relays, even
 // when they resume the same underlying conversation. Only a fixed description
 // and the source channel are published; prompts, errors and run IDs stay out.
-func (e *Engine) teamBeginRelay(sourceSessionKey string) func(teamWorkOutcome) {
+//
+// The work key is also the role-event session key for that relay: the roles
+// snapshot already names this work by that key, so events published under it
+// update the one busy entry instead of adding a second.
+func (e *Engine) teamBeginRelay(sourceSessionKey string) (string, func(teamWorkOutcome)) {
 	t := e.team
 	if t == nil {
-		return func(teamWorkOutcome) {}
+		return "", func(teamWorkOutcome) {}
 	}
 	t.mu.Lock()
 	t.nextRelay++
@@ -25,7 +29,7 @@ func (e *Engine) teamBeginRelay(sourceSessionKey string) func(teamWorkOutcome) {
 	t.seen[key] = &teamSession{relay: work}
 	t.mu.Unlock()
 	var once sync.Once
-	return func(outcome teamWorkOutcome) {
+	finish := func(outcome teamWorkOutcome) {
 		once.Do(func() {
 			// SetTeam can replace teamState and its mutex while a relay drains.
 			// Synchronize on the lifecycle object shared across those states.
@@ -42,4 +46,5 @@ func (e *Engine) teamBeginRelay(sourceSessionKey string) func(teamWorkOutcome) {
 			work.mu.Unlock()
 		})
 	}
+	return key, finish
 }

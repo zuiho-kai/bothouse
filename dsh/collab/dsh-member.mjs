@@ -308,6 +308,7 @@ export class TurnProgress {
     this.id = undefined;
     this.queued = false;
     this.ended = false;
+    this.interrupted = false;
   }
 
   call(callId, name, args) {
@@ -346,9 +347,14 @@ export class TurnProgress {
   end(state) {
     if (this.ended) return;
     this.ended = true;
+    // The owner withdrew the trigger, so this turn was stopped by hand, not broken: its card says 已停止.
+    if (this.interrupted) state = 'stopped';
     // Only a turn that had events has a card to close.
     if (this.steps > 0 || this.items.length > 0) this.write(state);
   }
+
+  /** The owner withdrew the trigger message (#148): the card must not read as a failure. */
+  interrupt() { this.interrupted = true; }
 
   write(state) {
     const body = progressCardOf({ agent: this.member.name, state, steps: this.steps, elapsed_sec: Math.floor((this.now() - this.started) / 1000), items: this.items });
@@ -517,6 +523,7 @@ export class DshMembers {
       this.approvals.expireWhere(p => p.meta?.sessionId === job.session_id);
       if (w.turn === undefined && agent.inbox.remove(job.input_id)) continue;
       this.watching.delete(job.session_id);
+      w.progress?.interrupt?.();
       w.resolve(INTERRUPTED);
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       stopped.push(job.member_id);

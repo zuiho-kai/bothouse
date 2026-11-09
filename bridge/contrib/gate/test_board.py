@@ -28,6 +28,27 @@ class Board(unittest.TestCase):
         for f in Path(TMP).glob("board*"):
             f.unlink()
 
+    def test_wait_external(self):
+        # 外部卡住（agentm #26 GPU 全占，11-09）：记等外部、带到点时刻、撤兜底，不算交回待验收
+        self.assertEqual(cli("add", "PR9977 验证", "~/n.md", "在做", "工作区1"), (0, "#1"))
+        cur = board._read()
+        cur[0]["guard"] = "t-guard"
+        board._write(cur)
+        import time
+        before = int(time.time())
+        rc, out = cli("wait", "1", "GPU 8 张全被占用", "120")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("已记等外部", out)
+        it = board._read()[0]
+        self.assertTrue(it.get("paused"))
+        self.assertTrue(it["pause_why"].startswith(board.WAIT_EXT))
+        self.assertIn("GPU", it["pause_why"])
+        self.assertGreaterEqual(it["wait_until"], before + 120 * 60)
+        self.assertNotIn("guard", it)
+        self.assertNotIn("returned_at", it)
+        self.assertFalse(board._asking(it))
+        self.assertNotEqual(cli("wait", "9", "x", "10")[0], 0)
+
     def test_add_update_done(self):
         self.assertEqual(cli("add", "@ 路由修复", "PR #236", "等实测", "橘"), (0, "#1"))
         self.assertEqual(cli("add", "release 0.1.1", "~/code/x", "写说明", "鲸鱼娘"), (0, "#2"))
@@ -363,6 +384,38 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
             calls = log.read_text().splitlines()  # 恢复时向桥收回（claim）、重新绑上，再停再放一次
             self.assertEqual([c.split()[1] for c in calls], ["park", "claim", "park"])
         finally:
+            os.environ["CC_BIN"] = "false"
+
+    def test_self_pause_in_own_workspace_records_request(self):
+        """agentm #26（11-09）：工作区在自己那一轮 board pause 自己的活：不暂停、不 park（park 会清会话、掐掉这一轮，
+        暂停又会让桥扣下交回），只记 pause_req，叫它交 [report]；别处 pause 照旧停、照旧 park --stop。"""
+        log = Path(TMP) / "selfpark.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakeselfpark"
+        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        board.set_prune_conf(on=False)
+        try:
+            board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="discord:ws1", chat="discord:ch1")
+            os.environ["CC_SESSION_KEY"] = "discord:ws1:u1"
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                board.main(["pause", "1", "十分钟上限"])
+            self.assertIn("[report] #1", buf.getvalue())
+            it = board.items()[0]
+            self.assertEqual(it.get("pause_req"), "十分钟上限")
+            self.assertFalse(it.get("paused"))
+            self.assertEqual(it.get("ws"), "discord:ws1")
+            self.assertEqual(log.read_text(), "")
+            os.environ["CC_SESSION_KEY"] = "discord:ch1:u1"  # 聊天频道里 pause：照旧停、连那一轮一起停
+            board.main(["pause", "1"])
+            it = board.items()[0]
+            self.assertTrue(it.get("paused"))
+            self.assertNotIn("pause_req", it)
+            self.assertIn("--stop", log.read_text().split())
+        finally:
+            os.environ.pop("CC_SESSION_KEY", None)
             os.environ["CC_BIN"] = "false"
 
     def test_done_parks_bound_item(self):

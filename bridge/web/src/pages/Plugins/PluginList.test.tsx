@@ -18,12 +18,21 @@ const state: DSHPluginsState = {
   profile_dir: '/home/u/.dsh/profiles/web',
   plugins: [
     {
-      name: 'demo-bundle', version: '0.4.2', layer: true, enabled: true, shipped: false,
+      name: 'demo-bundle', version: '0.4.2', layer: true, client_only: false, enabled: true, shipped: false,
       rows: [{ id: 'demo-tool', name: 'demo-tool', disabled: false }],
     },
     {
-      name: '@deepseek-ai/dsh-web-app', version: '0.2.1', layer: true, enabled: true, shipped: true,
+      name: '@deepseek-ai/dsh-web-app', version: '0.2.1', layer: true, client_only: false, enabled: true, shipped: true,
       rows: [{ id: 'system-prompt', name: 'system-prompt', disabled: false }],
+    },
+    {
+      // #1376: dsh.client without dsh.bundle — the Discord shell the install script adds.
+      name: '@deepseek-ai/dsh-experimental-client-ui-discord', version: '0.2.1-rc.2',
+      layer: false, client_only: true, enabled: false, shipped: false,
+    },
+    {
+      // A plain runtime dependency: neither block, so it stays "not a plugin".
+      name: 'is-odd', version: '3.0.1', layer: false, client_only: false, enabled: false, shipped: false,
     },
   ],
   can_install: true,
@@ -43,9 +52,19 @@ const savePluginConfig = vi.fn(async (_id: string, _text: string) => ({
   config: { ...bundleConfig, layer: 'profile' as const, overridden: true, config_yaml: 'dataDir: /tmp/x' },
 }));
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string, f?: string) => f ?? k, i18n: { language: 'zh', changeLanguage: vi.fn() } }),
-}));
+vi.mock('react-i18next', async () => {
+  // Same as the browser: the page reads the real locale file, so a missing key would show the key
+  // name itself instead of being covered up by a default in the test (#1376).
+  const zh = (await import('@/i18n/locales/zh.json')).default as { [k: string]: unknown };
+  const lookup = (key: string) =>
+    key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], zh);
+  return {
+    useTranslation: () => ({
+      t: (k: string, f?: string) => (typeof lookup(k) === 'string' ? (lookup(k) as string) : f ?? k),
+      i18n: { language: 'zh', changeLanguage: vi.fn() },
+    }),
+  };
+});
 vi.mock('@/api/plugins', () => ({
   listPlugins: async () => state,
   getPluginConfig: (id: string) => getPluginConfig(id),
@@ -162,5 +181,33 @@ describe('插件配置', () => {
     await render();
     expect(byTestId('plugin-demo-bundle-row-demo-tool-config')).toBeNull();
     state.writes_allowed = true;
+  });
+});
+
+describe('插件种类 (#1376)', () => {
+  it('labels a bundle, a client UI package and a plain dependency apart', async () => {
+    await render();
+    // The badge is the only chip in the row (version is a plain span, hence the ring class).
+    const badge = (id: string) => byTestId(`plugin-${id}`)!.querySelector('span.ring-1')!.textContent;
+    const clientUi = badge('@deepseek-ai/dsh-experimental-client-ui-discord');
+    const plain = badge('is-odd');
+    expect(badge('demo-bundle')).toBe('已启用');
+    expect(clientUi).toBe('客户端 UI 包');
+    expect(plain).toBe('不是插件包');
+    expect(new Set([badge('demo-bundle'), clientUi, plain]).size).toBe(3);
+  });
+
+  it('says a client UI package comes from DSH with no switch, and offers no switch', async () => {
+    await render();
+    const note = byTestId('plugin-@deepseek-ai/dsh-experimental-client-ui-discord-client-note');
+    expect(note?.textContent).toBe('由 DSH 提供，面板不能开关。');
+    expect(byTestId('plugin-@deepseek-ai/dsh-experimental-client-ui-discord-toggle')).toBeNull();
+    // A plain dependency gets no explanation either: nothing to explain about a plain package.
+    expect(byTestId('plugin-is-odd-client-note')).toBeNull();
+  });
+
+  it('leaves a switchable bundle switchable', async () => {
+    await render();
+    expect(byTestId('plugin-demo-bundle-toggle')).not.toBeNull();
   });
 });

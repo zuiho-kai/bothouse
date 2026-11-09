@@ -193,7 +193,7 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 func buildTurnResumePrompt(en TurnJournalEntry, withOriginal bool) string {
 	var b strings.Builder
 	b.WriteString("（桥重启打断了这一轮）重启前在做：")
-	b.WriteString(turnResumeOneLine(en.LastUserMessage, turnResumeSummaryRunes))
+	b.WriteString(turnResumeMessageSummary(en.LastUserMessage))
 	b.WriteString("\n做到：")
 	switch {
 	case en.LastStep != "" && en.LastText != "":
@@ -217,6 +217,46 @@ func buildTurnResumePrompt(en TurnJournalEntry, withOriginal bool) string {
 		}
 	}
 	return b.String()
+}
+
+// Only display summaries omit standalone source marks. The original message
+// and queued parts retain them for the agent after recovery.
+func turnResumeMessageSummary(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line == voiceNoteMark {
+			lines[i] = ""
+		}
+	}
+	// #1327 follow-up: the entry prepends the message IDs and the native quoted
+	// replies instructions to the text; the summary is what the resumed turn
+	// reads first, so it must start with the person's own words. Only when a
+	// prefix-only message would leave nothing does the folded original stay.
+	if body := stripEntryPrefix(lines); len(body) > 0 {
+		lines = body
+	}
+	return turnResumeOneLine(strings.Join(lines, "\n"), turnResumeSummaryRunes)
+}
+
+// stripEntryPrefix drops the blocks engine.go prepends before the user's text
+// (#1327 follow-up): "[Message IDs: ...]" lines and the native quoted replies
+// instructions, plus blank lines between them. It stops at the first other
+// line, so the returned lines still begin with the user's own words; nil means
+// the message held nothing but prefixes.
+func stripEntryPrefix(lines []string) []string {
+	for i := 0; i < len(lines); {
+		switch line := strings.TrimSpace(lines[i]); {
+		case line == "":
+			i++
+		case strings.HasPrefix(line, "[Message IDs:"):
+			i++
+		case strings.HasPrefix(strings.Join(lines[i:], "\n"), nativeQuotedReplyInstructions):
+			i += strings.Count(nativeQuotedReplyInstructions, "\n") + 1
+		default:
+			return lines[i:]
+		}
+	}
+	return nil
 }
 
 // turnResumeOneLine folds s onto one line, cut to n runes (n <= 0: no cut).
@@ -437,7 +477,7 @@ func (e *Engine) deliverTurnResume(en TurnJournalEntry) {
 		Project:     e.name,
 		SessionKey:  en.SessionKey,
 		Prompt:      prompt,
-		Description: "续做：" + turnResumeOneLine(en.LastUserMessage, turnResumeSummaryRunes),
+		Description: "续做：" + turnResumeMessageSummary(en.LastUserMessage),
 		Silent:      &silent,
 		SessionMode: "reuse",
 		Handoff:     en.Trigger == TurnTriggerWorkspace,

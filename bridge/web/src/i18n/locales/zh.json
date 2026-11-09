@@ -1,4 +1,71 @@
 {
+  "qq": {
+    "setupTitle": "连接 QQ",
+    "setupHint": "使用已有的 OneBot / NapCat 连接或 QQ 官方机器人凭据。保存配置不代表已经连通。",
+    "route": "接入方式",
+    "official": "QQ 官方机器人",
+    "projectID": "新角色标识",
+    "projectHint": "填写未被使用的字母、数字、连字符或下划线组合。",
+    "invalidProject": "标识格式不正确或已被使用。",
+    "noCLI": "请先安装并登录支持的 AI CLI。",
+    "savedRestart": "配置已保存，重启后生效；尚未验证真实 QQ 收发。",
+    "restartRequested": "已请求重启，服务启动后可返回角色列表。",
+    "settingsTitle": "QQ 连接与功能",
+    "settingsHint": "修改后需重启生效。已保存的配置不代表连接正常。",
+    "stateRestart": "未重启",
+    "stateRestartHint": "配置里有 QQ，但这次进程没在跑它：还没重启，也可能这一项被停用了。保存或新增后重启桥才会尝试连接。",
+    "stateOffline": "已重启，未连上",
+    "stateOfflineHint": "桥已经启动 QQ，但还没连上 OneBot。检查 ws_url、NapCat 是否在跑、令牌对不对。",
+    "stateConnected": "已连接",
+    "stateConnectedHint": "QQ 已连上 OneBot，可以收发消息。",
+    "httpURL": "OneBot HTTP 地址（可选）",
+    "keepToken": "留空保留已保存的令牌",
+    "clearToken": "清除已保存的访问令牌",
+    "sharedHint": "开启后群成员共用会话。这不提供个人记忆隔离。",
+    "connection": "连接",
+    "groupBehavior": "群聊行为",
+    "contentSection": "内容与安全",
+    "socialSection": "说说与头像",
+    "socialHint": "两项都以这个 QQ 号本人的身份生效，不开就不启用。",
+    "allowFromReadonly": "在项目设置的平台访问控制里改，这里只读。",
+    "splitBubbles": "按空行拆成多条",
+    "splitBubblesHint": "按空行顺序逐条发送。含代码围栏的回复保持一条；中途失败会停掉后面几条，已发的不会撤回。",
+    "allowGroupsWith": "放行含这些用户的群（可选）",
+    "allowGroupsWithPlaceholder": "QQ 号，逗号分隔",
+    "allowGroupsWithHint": "设置后，群里有指定用户时放行该群其他成员；私聊仍按上面的允许用户。只应在可信群启用：/stop、/new 这类普通命令也按它放行。",
+    "commandAllowFrom": "谁可以发斜杠命令（可选）",
+    "commandAllowFromPlaceholder": "QQ 号，逗号分隔；留空保持默认",
+    "commandAllowFromHint": "对群聊和私聊、内置命令、自定义命令和转给模型处理的未知命令都生效。普通聊天仍按允许用户放行；不会授予管理员权限。",
+    "saveImagesDir": "收到的图片保存到（可选）",
+    "saveImagesDirPlaceholder": "/path/to/received-images",
+    "saveImagesDirHint": "保存原始字节，包括 GIF。这个目录由你自己管理，不会自动清理。",
+    "allowQzone": "允许查、发、换、删这个号自己的说说",
+    "allowQzoneHint": "走 NapCat 的空间扩展，不在 OneBot 11 规范里。每次写之前都会问一次，也不会定时自动发。",
+    "allowAvatar": "允许换这个号自己的头像",
+    "allowAvatarHint": "走 NapCat 的 set_qq_avatar。头像处处可见，换之前会问一次。",
+    "unavailable": "当前版本尚不可用",
+    "capabilities": {
+      "qq_voice_out": "暂不支持语音回复。",
+      "qq_command_allow_from": "暂不支持独立命令白名单，仍受项目管理员设置约束。",
+      "memory_import": "记忆导入待确认来源与格式。"
+    }
+  },
+  "qqbot": {
+    "title": "QQ 官方机器人",
+    "hint": "QQ 官方 Bot API（AppID + AppSecret）。和上面的 NapCat / OneBot 是两条独立入口；改完重启生效。",
+    "credentials": "凭据",
+    "appIDSet": "已保存 AppID",
+    "stored": "已保存（不回显）",
+    "missing": "未保存",
+    "appIDReadonly": "AppID 不在这里显示或修改；换了就重新添加一个 Bot。",
+    "keepSecret": "留空保留已保存的 Secret",
+    "secretHint": "Secret 从不显示，连打码也不显示；留空表示保留原来的。",
+    "behavior": "行为",
+    "sandboxHint": "沙箱环境连的是沙箱 API，不会和真实 QQ 用户对话。",
+    "markdown": "Markdown 消息",
+    "markdownHint": "需要 QQ 机器人后台给这个 Bot 开权限；没开就按纯文本发。",
+    "sharedHint": "开启后群成员共用一段对话。这不提供个人记忆隔离。"
+  },
   "nav": {
     "addPlatform": "添加平台",
     "addRole": "添加角色/模型",
@@ -21,6 +88,13 @@
     "wikiGalaxy": "Wiki 星河",
     "forum": "记忆论坛",
     "gate": "闸门"
+  },
+  "plugins": {
+    "stateClientUi": "客户端 UI 包",
+    "clientUiNote": "由 DSH 提供，面板不能开关。"
+  },
+  "roles": {
+    "title": "角色管理"
   },
   "dashboard": {
     "title": "概览",
@@ -183,7 +257,12 @@
     "externalAdapters": "外接适配器",
     "bridgeDisabled": "桥接服务未启用",
     "bridgeDisabledHint": "这些平台由角色直接连接；外接客户端（如桌面托盘）接入还需要在配置里打开桥接服务。",
-    "noAdapters": "暂无外接适配器"
+    "noAdapters": "暂无外接适配器",
+    "platformsReadFailed": "已连接平台读取失败",
+    "adaptersReadFailed": "外接适配器读取失败",
+    "projectsReadFailed": "项目名读取失败，下面显示原始代号。",
+    "readFailedHint": "请求没成功，不代表这里没有内容。先确认桥接服务在跑、登录令牌没过期，再重试。",
+    "retry": "重试"
   },
   "system": {
     "title": "系统",
@@ -396,6 +475,8 @@
     "reviewComplexModel": "复杂档模型",
     "reviewModelRole": "沿用该角色自己的模型",
     "reviewModelHint": "审核开新会话，用这个模型跑",
+    "reviewModelNoSwitch": "该角色的后端不支持换模型，审核会按它自己的模型跑",
+    "reviewModelNotice": "最近一次审核模型没生效：#{{board}}（{{tier}}），{{role}} · {{model}}：{{reason}}",
     "log": "日志",
     "logLevel": "日志级别",
     "appearance": "外观",

@@ -880,6 +880,11 @@ export function publicMessage(row, store) {
     id: row.id, room_id: row.room_id, author_kind: row.author_kind, author: row.author, name: row.name,
     text: row.text, created_at: row.created_at, card: row.card, from_turn: row.from_turn,
     ...(row.edited_at != null ? { edited_at: row.edited_at } : {}),
+    // #1355: one message keeps its id for life; revision moves on every in-place edit or
+    // commit (changed_at), so a consumer can tell an update from a new message. `draft`
+    // marks a streamed reply that has not settled yet.
+    revision: row.changed_at ?? row.created_at,
+    ...(row.draft ? { draft: true } : {}),
   };
   const quote = store?.quote(row);
   if (quote !== undefined) out.reply_to = quote;

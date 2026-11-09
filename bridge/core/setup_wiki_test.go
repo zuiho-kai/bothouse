@@ -175,11 +175,20 @@ func TestApplyWizardAddsWikiCron(t *testing.T) {
 		}
 	}
 	st, _ := NewCronStore(dir)
-	if n := len(st.List()); n != 5 { // the three wiki runs + the nightly forum settlement + the role's hourly 想不想说 (setup_defaults.go)
-		t.Fatalf("want 5 jobs after two runs, got %d", n)
+	if n := len(st.List()); n != 6 { // the three wiki runs + forum reflection and settlement + role's hourly 想不想说 (setup_defaults.go)
+		t.Fatalf("want 6 jobs after two runs, got %d", n)
 	}
 	if j := st.List()[0]; j.SessionKey != "discord:1" || j.Project == "" {
 		t.Fatalf("job: %+v", j)
+	}
+	foundReflector := false
+	for _, j := range st.List() {
+		if j.Description == reflectorCronDesc {
+			foundReflector = j.CronExpr == "* * * * *" && j.Mute && strings.Contains(j.Exec, "reflector.py")
+		}
+	}
+	if !foundReflector {
+		t.Fatal("forum reflector cron missing or misconfigured")
 	}
 	b, _ := os.ReadFile(filepath.Join(wiki, "config.json"))
 	if !strings.Contains(string(b), `"split_engine": "opus"`) {

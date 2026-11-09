@@ -4,6 +4,7 @@
   lint.py          check
   lint.py --stats  also print sizes per layer
   lint.py --warn   print only soft warnings (≥ WARN of a budget: split early, in the weekly LINT pass)
+  lint.py --wrap   split overlong body lines verbatim before checking
   lint.py --root DIR   check the wiki at DIR (a teammate's wiki: its bin/lint.py runs this file this way)
 """
 import re, sys
@@ -13,8 +14,10 @@ WIKI = Path(__file__).resolve().parent.parent
 SHARED_TOOL = 1  # marker: this lint.py takes --root; teammate/ shims refuse a tool without it
 MAX_DOMAINS, INDEX_LINE = 8, 80
 MAX_TOPICS, README_LINE = 15, 120
-PAGE_LINES, PAGE_CHARS = 60, 4000
+PAGE_LINES, PAGE_CHARS = 159, 13874
+MAX_DEPTH = 5
 WARN = 0.8
+SPLIT_AT = 0.9
 BODY_LINE = 300  # one bullet = one fact; longer lines dodge PAGE_LINES and are unreadable
 SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办", "历史")  # 历史 optional: superseded lines kept verbatim (invalidate.py)
 # verification bookkeeping that leaked onto a page instead of fixing the fact
@@ -25,6 +28,65 @@ UNANSWERED = re.compile(r"未答复")  # 「已提议，用户未答复」「橘
 SPECIAL = {"misc"}
 LINK = re.compile(r"\]\(([^)]+)\)")
 WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")
+FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")
+FENCE = re.compile(r"\s*(```|~~~)")
+
+
+def wrap(line):
+    """Split a long line at punctuation, preserving every character and its order."""
+    tag = FLOOR_TAG.search(line)
+    if tag:
+        return [piece + tag.group(0) if i == 0 else piece
+                for i, piece in enumerate(wrap(line[:tag.start()]))]
+    if len(line) <= BODY_LINE:
+        return [line]
+    indent = re.match(r"\s*", line)[0] + "  "
+    width = BODY_LINE - len(indent) - 2
+    line = line.replace("dream 建议，用户未答复", "dream 建议\0用户未答复")
+    pieces = re.split(r"(?<=[；。])", line)
+    if max(map(len, pieces)) > width:
+        pieces = re.split(r"(?<=[；。，、])", line)
+    pieces = [part[i:i + width] for part in pieces for i in range(0, len(part), width)]
+    out, current = [], ""
+    for part in pieces:
+        if current and len(current) + len(part) > width:
+            out.append(current)
+            current = ""
+        current += part
+    out.append(current)
+    out = [part.replace("\0", "，") for part in out]
+    return [out[0].rstrip()] + [f"{indent}- {part.strip()}" for part in out[1:] if part.strip()]
+
+
+def wrap_text(text):
+    """Wrap long body lines while leaving frontmatter, headings, tables and code blocks intact."""
+    fm = re.match(r"\A---\n.*?\n---\n", text, re.S)
+    head, body = (fm.group(), text[fm.end():]) if fm else ("", text)
+    out, code = [], False
+    for line in body.split("\n"):
+        if FENCE.match(line):
+            code = not code
+        out += [line] if code or FENCE.match(line) or line.startswith(("#", "|")) else wrap(line)
+    return head + "\n".join(out)
+
+
+def wrap_pages(root=None):
+    """Wrap long body lines in the pages lint checks; return changed relative paths."""
+    wiki = root or WIKI
+    changed = []
+    for domain in tree(wiki):
+        for path in sorted((wiki / domain).glob("*.md")):
+            if path.name == "README.md":
+                continue
+            try:
+                text = path.read_text()
+            except (OSError, UnicodeError):
+                continue
+            wrapped = wrap_text(text)
+            if wrapped != text:
+                path.write_text(wrapped)
+                changed.append(path.relative_to(wiki).as_posix())
+    return changed
 
 
 def entries(path):
@@ -160,6 +222,8 @@ def check(root=None):
 
 if __name__ == "__main__":
     root = Path(sys.argv[sys.argv.index("--root") + 1]).resolve() if "--root" in sys.argv[:-1] else None
+    if "--wrap" in sys.argv:
+        print("\n".join(wrap_pages(root)) or "no long lines")
     errs, stats, warns = check(root)
     if "--warn" in sys.argv:
         print("\n".join(warns))

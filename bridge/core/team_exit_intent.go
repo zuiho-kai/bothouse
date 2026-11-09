@@ -20,6 +20,9 @@ const (
 	intentDoubtPrefix = "对题疑点："
 )
 
+// intentWaitHint closes a fail: a report blocked outside says so instead of retrying in place.
+const intentWaitHint = "（要是被外部条件卡住测不了（没空卡、等 CI、等对方），别原地重试：先做不依赖它的部分，在汇报里写一行「等外部：卡在什么」和一行「再看：<多久后>」，桥会放行并到点再交给工作区）"
+
 type intentVerdict struct {
 	Problems []string `json:"problems"`
 	Doubt    string   `json:"doubt"`
@@ -57,6 +60,10 @@ func (e *Engine) reportIntentCheck(sessionKey, where, body string, id int) (prob
 			problems = append(problems, intentFailPrefix+p)
 		}
 	}
+	if n := len(problems); n > 0 {
+		// the way out of the loop when the named thing cannot be tested now (team_wait_external.go)
+		problems[n-1] += intentWaitHint
+	}
 	doubt = strings.Join(strings.Fields(v.Doubt), " ")
 	slog.Info("team exit: report intent check", "board_item", id, "problems", len(problems), "doubt", doubt != "")
 	return problems, doubt
@@ -83,7 +90,7 @@ func intentFailLine(problems []string) string {
 	var parts []string
 	for _, p := range problems {
 		if strings.HasPrefix(p, intentFailPrefix) {
-			parts = append(parts, strings.TrimPrefix(p, intentFailPrefix))
+			parts = append(parts, strings.TrimSuffix(strings.TrimPrefix(p, intentFailPrefix), intentWaitHint))
 		}
 	}
 	if parts == nil {

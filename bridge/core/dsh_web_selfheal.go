@@ -96,7 +96,14 @@ func dshWebLogPath(web DSHWeb) string {
 	if p := strings.TrimSpace(web.Log); p != "" {
 		return p
 	}
-	return filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-web.log")
+	// The newer of our own dsh web's log and the desktop app's (setup_dsh_desktop.go): a machine on
+	// the desktop route has no dsh web, and its panel should still reach the app's host.
+	webLog := filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-web.log")
+	wi, werr := os.Stat(webLog)
+	if di, err := os.Stat(dshDesktopLogPath()); err == nil && (werr != nil || di.ModTime().After(wi.ModTime())) {
+		return dshDesktopLogPath()
+	}
+	return webLog
 }
 
 // lastDSHWebURL returns the last `dsh web: <url>` line in the tail of path, or "".

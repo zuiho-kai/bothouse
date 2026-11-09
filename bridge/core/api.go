@@ -136,11 +136,13 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
 	s.mux.HandleFunc("/model/set", s.handleModelSet)
 	s.mux.HandleFunc("/session/new", s.handleSessionNew)              // `cc-connect session new --after-turn` (session_reset.go)
+	s.mux.HandleFunc("/channel/create", s.handleChannelCreate)        // `bothouse channel create` (team_channel.go)
 	s.mux.HandleFunc("/team/workspace/new", s.handleTeamWorkspaceNew) // team mode D (team_workspace_api.go)
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)
 	s.mux.HandleFunc("/team/workspace/park", s.handleTeamWorkspacePark)
 	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
+	s.mux.HandleFunc("/team/report/verdict", s.handleTeamReportVerdict) // ws-pass / ws-forward on a held [report] (team_report_accept.go)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
 	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)

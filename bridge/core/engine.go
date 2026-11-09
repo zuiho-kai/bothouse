@@ -125,12 +125,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	text      string    // last successful quota text
-	okAt      time.Time // when text was fetched; zero if never
-	failText  string    // set when the latest attempt failed
-	attemptAt time.Time // when the latest attempt finished
-	done      chan struct{}
-	waited    bool // a footer already spent the first-probe wait
+	report      *UsageReport // immutable snapshot for the role card
+	reportScope string       // attribution captured when the existing footer fetched it
+	reportAt    time.Time
+	text        string    // last successful quota text
+	okAt        time.Time // when text was fetched; zero if never
+	failText    string    // set when the latest attempt failed
+	attemptAt   time.Time // when the latest attempt finished
+	done        chan struct{}
+	waited      bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -585,6 +588,7 @@ type Engine struct {
 
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
+	roleEvents        atomic.Pointer[roleEventBroker]
 	interactiveStates map[string]*interactiveState // key = sessionKey
 	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
@@ -737,6 +741,7 @@ type interactiveState struct {
 	fromVoice                bool            // true if current turn originated from voice transcription
 	sideText                 string
 	turnSentTexts            []string   // texts this turn already pushed through a script/side send; guarded by mu
+	turnSentNonText          bool       // a sticker/image/file already went out this turn (#181); guarded by mu
 	localInputOnly           *inputTurn // block API/CLI side sends during a local voice turn
 	deleteMode               *deleteModeState
 	modelSwitch              *modelSwitchState
@@ -2362,6 +2367,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		}
 		e.noteScheduledTurn(job.ID, iKey)
 		e.setTurnModel(iKey, job.Model)
+		noteTurnModelIgnored(job, agent, e.name)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)
@@ -4264,6 +4270,19 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 // Voice message handling
 // ──────────────────────────────────────────────────────────────
 
+func (e *Engine) voiceStatusKeptOut(p Platform, msg *Message, notice string) bool {
+	if e.noticeKeptOut(p, msg.ReplyCtx, notice) {
+		return true
+	}
+	if msg != nil && msg.GroupChat {
+		if p != nil {
+			slog.Info("voice status notice kept out of group chat", "project", e.name, "platform", p.Name(), "notice", notice)
+		}
+		return true
+	}
+	return false
+}
+
 func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	if !e.speech.Enabled || e.speech.STT == nil {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceNotEnabled))
@@ -4280,7 +4299,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 		"platform", msg.Platform, "user", msg.UserName,
 		"format", audio.Format, "size", len(audio.Data),
 	)
-	e.send(p, msg.ReplyCtx, e.i18n.T(MsgVoiceTranscribing))
+	notice := e.i18n.T(MsgVoiceTranscribing)
+	if !e.voiceStatusKeptOut(p, msg, notice) {
+		e.send(p, msg.ReplyCtx, notice)
+	}
 
 	text, err := TranscribeAudio(e.ctx, e.speech.STT, audio, e.speech.Language)
 	if err != nil {
@@ -4296,7 +4318,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	}
 
 	slog.Info("voice transcribed", "text_len", len(text))
-	e.send(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgVoiceTranscribed), text))
+	transcribedNotice := fmt.Sprintf(e.i18n.T(MsgVoiceTranscribed), text)
+	if !e.voiceStatusKeptOut(p, msg, transcribedNotice) {
+		e.send(p, msg.ReplyCtx, transcribedNotice)
+	}
 
 	// Replace audio with transcribed text and re-dispatch
 	msg.Audio = nil
@@ -4984,6 +5009,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.fromVoice = msg.FromVoice
 		state.sideText = ""
 		state.turnSentTexts = nil
+		state.turnSentNonText = false
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
@@ -6016,6 +6042,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				session.ResetTurnCtx() // maomao fork
 			}
 			e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
+			e.observeRoleAgentEvent(sessionKey, event, textParts)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -6064,10 +6091,10 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				}
 				// A quota notice is not the workspace's answer: it must not go back as a [report].
 				if _, exhausted := QuotaExhaustedReset(event); fullResponse != "" && !exhausted {
-					e.forwardWorkspaceExitContext(ctx, p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
+					e.forwardWorkspaceExitContext(ctx, p, sessionKey, exitReplyText(event, fullResponse)) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, exitReplyText(event, fullResponse), len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -6621,6 +6648,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 
 		e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
+		e.observeRoleAgentEvent(sessionKey, event, textParts)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
@@ -7466,7 +7494,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
 			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
-				e.forwardWorkspaceExitContext(outputCtx, p, sessionKey, baseResponse) // #139 C: workspace [ask]/[report] -> chat channel
+				e.forwardWorkspaceExitContext(outputCtx, p, sessionKey, exitReplyText(event, baseResponse)) // #139 C: workspace [ask]/[report] -> chat channel
 			}
 			if !isSilent && input == nil {
 				e.hooks.Emit(HookEvent{
@@ -7562,6 +7590,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// reply must be checked against every text this turn already sent.
 			turnSentTexts := append([]string(nil), state.turnSentTexts...)
 			state.turnSentTexts = nil
+			turnSentNonText := state.turnSentNonText
 			state.mu.Unlock()
 
 			replyStart := time.Now()
@@ -7571,6 +7600,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// (stickers.py -> bin/qq-bridge send). The final reply is compared
 			// against the union so a script-sent line is never repeated.
 			sentThisTurn := append(append([]string(nil), sentReplySegments...), turnSentTexts...)
+			// A turn that already pushed a sticker/image/file gets the extra
+			// #181 guard: drop a closing sentence that only narrates the send
+			// step ("我先把这条回复发出去…"), which has no sent-text prefix to
+			// peel. A reply that never mentions sending is delivered as before.
+			finalReplyText := func(text string) string {
+				if turnSentNonText {
+					return unsentFinalReplyTextAfterNonText(p, text, sentThisTurn)
+				}
+				return unsentFinalReplyText(p, text, sentThisTurn)
+			}
 
 			// --- StreamingCard path ---
 			if streamCard != nil && !streamCard.Failed() {
@@ -7694,7 +7733,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
-					unsent = unsentFinalReplyText(p, unsent, sentThisTurn)
+					unsent = finalReplyText(unsent)
 					// The text before the tool call already went out, so the whole-reply
 					// NO_REPLY check above does not cover this remainder after a tool call.
 					if isSilentReply(unsent) {
@@ -7727,7 +7766,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// Nothing previewed this text, so the plain send is the only
 				// delivery: drop a line a script already posted this turn and a
 				// bracketed receipt note addressed to the agent itself.
-				deliver := unsentFinalReplyText(p, fullResponse, sentThisTurn)
+				deliver := finalReplyText(fullResponse)
 				if deliver == "" {
 					slog.Debug("EventResult: suppressed repeated/meta final reply", "response_len", len(fullResponse))
 					sp.discard()
@@ -7862,6 +7901,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Check for queued messages — if present, continue the event loop
 			// for the next turn instead of returning.
 			state.mu.Lock()
+			if e.isStoppingForJournal() {
+				// #1368: shutdown owns the current journal entry. Leave even
+				// stale queued messages untouched for restart recovery.
+				state.mu.Unlock()
+				return
+			}
 			droppedStale := 0
 			var staleDescs []string // maomao fork: channel task board
 			e.refreshQueuedTaskReviewsLocked(state)
@@ -7990,6 +8035,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.mu.Lock()
 				state.stopDraft = ""
 				state.turnSentTexts = nil
+				state.turnSentNonText = false
 				state.sideText = ""
 				state.mu.Unlock()
 				segmentStart = 0
@@ -8323,8 +8369,17 @@ channelClosed:
 		state.mu.Lock()
 		closedTurnSent := append(append([]string(nil), sentReplySegments...), state.turnSentTexts...)
 		state.turnSentTexts = nil
+		closedTurnNonText := state.turnSentNonText
 		state.sideText = ""
 		state.mu.Unlock()
+		// Same #181 guard on the abnormal channel-close path: a non-text
+		// message already went out, so a closing send-step narration is dropped.
+		closedFinalReplyText := func(text string) string {
+			if closedTurnNonText {
+				return unsentFinalReplyTextAfterNonText(p, text, closedTurnSent)
+			}
+			return unsentFinalReplyText(p, text, closedTurnSent)
+		}
 
 		// Respect NO_REPLY even on abnormal exit so silent turns stay silent.
 		if isSilentReply(fullResponse) {
@@ -8361,7 +8416,7 @@ channelClosed:
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
-				unsent = unsentFinalReplyText(p, unsent, closedTurnSent)
+				unsent = closedFinalReplyText(unsent)
 				if unsent != "" {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
@@ -8373,7 +8428,7 @@ channelClosed:
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
 		} else {
-			deliver := unsentFinalReplyText(p, fullResponse, closedTurnSent)
+			deliver := closedFinalReplyText(fullResponse)
 			if deliver == "" {
 				slog.Debug("repeated/meta final reply suppressed (channel closed)")
 				return
@@ -8487,6 +8542,16 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if e.isStoppingForJournal() {
+			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
+			// turn after Stop has begun; the journal already holds its queue.
+			if n := len(state.pendingMessages); n > 0 {
+				slog.Info("queued messages kept for resume after shutdown", "count", n)
+			}
+			session.Unlock()
+			state.mu.Unlock()
+			return true
+		}
 		if state.stopped && state.resetHandoff {
 			// A gate abort had to close the process. This worker still owns the
 			// conversation lock: move unsent messages to the replacement state
@@ -9947,6 +10012,14 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 		slog.Debug("reply footer: quota probe failed", "agent", agent.Name(), "model", model, "error", err)
 		failText = e.i18n.T(MsgQuotaFetchFailed)
 	} else {
+		// Non-caching reporters return a freshly fetched result. Cached reporters
+		// carry their original observation time, including after a failed refresh.
+		if report != nil && report.ObservedAt.IsZero() {
+			fresh := *report
+			fresh.ObservedAt = time.Now()
+			report = &fresh
+		}
+		e.cacheRoleQuotaReport(agent, model, scope, report)
 		e.observeQuotaUsageFor(report, "", scope)
 		text = formatReplyFooterUsage(report, e.i18n)
 	}
@@ -9981,6 +10054,67 @@ func usageReporterAvailable(v any) bool {
 	}
 	_, ok := v.(UsageReporter)
 	return ok
+}
+
+// cacheRoleQuotaReport retains data already obtained by the reply footer. The
+// management page never calls adapter CachedUsage methods: some refresh in the
+// background despite the interface name. Keep attribution and age with the copy.
+func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScope, report *UsageReport) {
+	if report == nil || report.ObservedAt.IsZero() || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
+		return
+	}
+	snapshot := *report
+	snapshot.Buckets = nil
+	for _, bucket := range report.Buckets {
+		if report.QuotaGroup != "" && bucket.QuotaGroup != report.QuotaGroup {
+			continue
+		}
+		bucket.Windows = append([]UsageWindow(nil), bucket.Windows...)
+		snapshot.Buckets = append(snapshot.Buckets, bucket)
+	}
+	primary, secondary := selectUsageWindows(&snapshot)
+	if primary == nil && secondary == nil {
+		return
+	}
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	if e.replyFooterUsage == nil {
+		e.replyFooterUsage = make(map[replyFooterUsageKey]*replyFooterUsageEntry)
+		e.replyFooterInflight = make(map[any]bool)
+	}
+	key := replyFooterUsageKey{agent: replyFooterAgentID(agent), model: model}
+	ent := e.replyFooterUsage[key]
+	if ent == nil {
+		ent = &replyFooterUsageEntry{}
+		e.replyFooterUsage[key] = ent
+	}
+	ent.report, ent.reportScope, ent.reportAt = &snapshot, scope.key(), report.ObservedAt
+}
+
+// CachedQuotaReport reads only the retained snapshot for this agent/model and
+// current provider/account. No adapter usage method, probe, or refresh is called.
+func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
+	scope := e.quotaScopeFor(e.agent, model)
+	e.replyFooterMu.Lock()
+	defer e.replyFooterMu.Unlock()
+	ent := e.replyFooterUsage[replyFooterUsageKey{agent: replyFooterAgentID(e.agent), model: model}]
+	if ent == nil || ent.report == nil || ent.reportScope != scope.key() || ent.reportAt.IsZero() || time.Since(ent.reportAt) >= replyFooterUsageMaxAge {
+		return nil
+	}
+	// A reported reset supersedes a cached percentage, even before the normal
+	// footer cache lifetime expires. Never turn an old zero into an invented 100%.
+	for _, bucket := range ent.report.Buckets {
+		for _, window := range bucket.Windows {
+			reset := time.Unix(window.ResetAtUnix, 0)
+			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
+				reset = ent.reportAt.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+			}
+			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(time.Now()) {
+				return nil
+			}
+		}
+	}
+	return ent.report
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds
@@ -13708,6 +13842,14 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		if err := imageSender.SendImage(e.ctx, replyCtx, img); err != nil {
 			return err
 		}
+		if state != nil {
+			// #181: an image does not enter turnSentTexts (that list holds text
+			// only), so the turn remembers separately that something non-text
+			// already went out.
+			state.mu.Lock()
+			state.turnSentNonText = true
+			state.mu.Unlock()
+		}
 	}
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
@@ -13717,6 +13859,11 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 		if err := fileSender.SendFile(e.ctx, replyCtx, file); err != nil {
 			return err
+		}
+		if state != nil {
+			state.mu.Lock()
+			state.turnSentNonText = true
+			state.mu.Unlock()
 		}
 	}
 	return nil
@@ -13805,6 +13952,12 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		if err := imageSender.SendImage(e.ctx, target.replyCtx, img); err != nil {
 			return err
 		}
+		if target.state != nil {
+			// #181: image sends are not text, so they are remembered separately.
+			target.state.mu.Lock()
+			target.state.turnSentNonText = true
+			target.state.mu.Unlock()
+		}
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
 	for _, file := range files {
@@ -13813,6 +13966,11 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		}
 		if err := fileSender.SendFile(e.ctx, target.replyCtx, file); err != nil {
 			return err
+		}
+		if target.state != nil {
+			target.state.mu.Lock()
+			target.state.turnSentNonText = true
+			target.state.mu.Unlock()
 		}
 	}
 	return nil
@@ -18496,7 +18654,13 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		return "", err
 	}
 	session := sessions.GetOrCreateActive(relaySessionKey)
-	finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	// The team's work key is the relay's role-event session key: the snapshot
+	// counts this one work item by that key, so its events must name it too.
+	teamKey, finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	roleEventKey := relaySessionKey
+	if teamKey != "" {
+		roleEventKey = teamKey
+	}
 	teamOutcome := teamWorkUnconfirmed
 	draining := false
 	defer func() {
@@ -18614,7 +18778,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
+			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, roleEventKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -18655,6 +18819,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				continue
 			}
 			e.observeQuotaEventFor(event, sourceSessionKey, agentSession, turnScope)
+			e.observeRoleAgentEvent(roleEventKey, event, textParts)
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
 			}
@@ -18796,7 +18961,7 @@ var relayDrainSafety = 10 * time.Minute
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
 // relays leave that to the ten-minute watch (stop and nudge).
-func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey, roleEventKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -18860,6 +19025,7 @@ func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, ag
 				sessions.Save()
 			}
 			e.observeQuotaEventFor(ev, relaySessionKey, agentSession, turnScope)
+			e.observeRoleAgentEvent(roleEventKey, ev, textParts)
 			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // as in handleTrackedRelay
 			}

@@ -492,11 +492,15 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 		if ev.Type == core.EventToolUse && s.outputMessageID == "" {
 			s.outputFilter = privateOutput{}
 		}
+		if ev.Type == core.EventToolUse {
+			s.outputTurn.lastDone = true
+		}
 		if ev.Type == core.EventText {
 			id := header.Update.MessageID
 			if id != "" && id != s.outputMessageID {
 				s.outputFilter = privateOutput{}
 				s.outputMessageID = id
+				s.outputTurn.lastDone = true
 			}
 			content := ev.Content
 			if s.cursorStreamErrors && s.promptInFlight.Load() {
@@ -507,6 +511,10 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 			if ev.Content == "" {
 				continue
 			}
+			if s.outputTurn.lastDone {
+				s.outputTurn.last, s.outputTurn.lastDone = "", false
+			}
+			s.outputTurn.last += ev.Content
 		}
 		s.emit(ev)
 	}
@@ -892,11 +900,15 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	}
 
 	// Text was streamed via session/update; engine aggregates EventText.
-	s.emit(core.Event{
+	evt := core.Event{
 		Type:      core.EventResult,
 		SessionID: sid,
 		Done:      true,
-	})
+	}
+	if strings.TrimSpace(output.last) != "" {
+		evt.Metadata = map[string]any{core.MetaLastReply: output.last} // #1270: the [report] check reads this
+	}
+	s.emit(evt)
 	return nil
 }
 

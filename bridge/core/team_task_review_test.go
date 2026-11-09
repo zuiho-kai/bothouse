@@ -314,7 +314,7 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 	writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, What: "verify", Chat: "room:main", WS: "room:ws1", Dispatcher: "lead"})
 	e.markExitReported(46)
 	// No installed scripts: the delivered final report must still end the execution session.
-	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46)
+	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46, "")
 	if e.sessions.ActiveSessionID("room:ws1") == old.ID {
 		t.Fatal("board write failure kept the old workspace session")
 	}

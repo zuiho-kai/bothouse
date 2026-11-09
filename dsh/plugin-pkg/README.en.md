@@ -6,13 +6,15 @@ BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page w
 
 ## Install (pick one)
 
-1. **Easiest**: tell DSH "install the plugin bothouse-dsh".
-2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh`, click "Install"; then switch bothouse on under "Installed plugins" — "Channels" appears in the sidebar right away, no restart.
+1. **Easiest**: tell DSH "install the plugin bothouse-dsh, pinned to the newest version on npm".
+2. **From the UI**: DSH sidebar "Plugins" → "Add plugin", enter `bothouse-dsh@<newest version on npm>`, click "Install"; then switch bothouse on under "Installed plugins" — "Channels" appears in the sidebar right away, no restart.
 3. **From a terminal**:
 
 ~~~sh
-dsh plugin --profile web add bothouse-dsh
+dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 ~~~
+
+Pin the version: DSH installs plugins with pnpm, and pnpm's supply-chain policy skips very fresh releases, so plain `bothouse-dsh` or `bothouse-dsh@latest` can install a version from days ago. An exact version goes through at once (pnpm records it as an exclusion). Measured 2026-11-08 with pnpm 12.16.1: `bothouse-dsh` resolved to 0.1.57, then the newest release older than a day — 0.1.59 was 19 hours old and 0.1.60 about 30 minutes; `bothouse-dsh@0.1.60` resolved to 0.1.60.
 
 Asked through DSH, "Channels" appears right after the install; installed from the command line while DSH is running, restart DSH once. Then click "Channels" in the sidebar. Team desk, bothouse panel and other computers start off; switch the one you want on under "Plugins → bothouse" and it appears in the sidebar right away. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
 

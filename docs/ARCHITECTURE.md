@@ -1,5 +1,9 @@
 # bothouse 软件架构
 
+## 角色与插件
+
+管理 API 的角色 SSE 聚合桥接实际会话忙闲/智能体事件与 DSH 原生状态/事件流，角色键按来源隔离；连接先发快照，重连恢复当前状态。角色插件绑定独立存入数据目录 plugins/role-bindings.json，不改变 DSH 的全局插件加载和开关，不内置形象素材。字段、多会话规则及实测边界见 [角色事件接口](plugins/role-events.md)。
+
 ## 原生引用回复
 
 平台可选实现 `MessageReplySender`，由平台验证目标消息属于当前会话。`send --reply-to` 经既有 `/send` API 和 `Engine.SendToSessionWithOptions` 调用该能力；不支持时返回错误，普通发送不变。公共入站边界只向具有该能力的平台提供消息 ID 和使用说明，因此 DSH / ACP 等不加载系统提示的后端同样能发现命令。QQ 的 `get_msg` 补取位于适配层，保留原作者、正文和 `Message.Reference`；原文不可读时保留引用 ID 并明确标记缺失。核心不判断平台或模型名称。

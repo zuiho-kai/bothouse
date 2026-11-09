@@ -37,14 +37,16 @@ type ProjectSettingsUpdate struct {
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
-	usageLedger   *UsageLedger
-	usageImporter *UsageImporter
-	port          int
-	host          string // "" = all interfaces
-	token         string
-	corsOrigins   []string
-	server        *http.Server
-	startedAt     time.Time
+	usageLedger    *UsageLedger
+	usageImporter  *UsageImporter
+	port           int
+	host           string // "" = all interfaces
+	token          string
+	corsOrigins    []string
+	server         *http.Server
+	startedAt      time.Time
+	roleEvents     *roleEventBroker
+	roleBindingsMu sync.Mutex
 
 	mu      sync.RWMutex
 	engines map[string]*Engine // project name → engine
@@ -67,11 +69,17 @@ type ManagementServer struct {
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
 	getProjectConfig     func(projectName string) map[string]any
 	saveProviderRefs     func(projectName string, refs []string) error
-	configFilePath       string
-	getGlobalSettings    func() map[string]any
-	saveGlobalSettings   func(map[string]any) error
-	getAutostart         func() (AutostartInfo, error)
-	setAutostart         func(bool) (AutostartInfo, error)
+	getQQSettings        func(string) (*QQSettings, error)
+	saveQQSettings       func(string, QQSettingsUpdate) ([]string, error)
+	// Official QQ Bot (platform type "qqbot"), #710 件 5: its own panel, because
+	// the OneBot settings above and this one share no options.
+	getQQBotSettings   func(string) (*QQBotSettings, error)
+	saveQQBotSettings  func(string, QQBotSettingsUpdate) ([]string, error)
+	configFilePath     string
+	getGlobalSettings  func() map[string]any
+	saveGlobalSettings func(map[string]any) error
+	getAutostart       func() (AutostartInfo, error)
+	setAutostart       func(bool) (AutostartInfo, error)
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -104,6 +112,7 @@ func NewManagementServer(port int, token string, corsOrigins []string) *Manageme
 		corsOrigins: corsOrigins,
 		engines:     make(map[string]*Engine),
 		startedAt:   time.Now(),
+		roleEvents:  newRoleEventBroker(),
 	}
 }
 
@@ -114,6 +123,7 @@ func (m *ManagementServer) RegisterEngine(name string, e *Engine) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.engines[name] = e
+	e.roleEvents.Store(m.roleEvents)
 }
 
 func (m *ManagementServer) SetCronScheduler(cs *CronScheduler)           { m.cronScheduler = cs }
@@ -307,6 +317,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
+	mux.HandleFunc(prefix+"/plugins/role-bindings", m.wrap(m.handleRoleBindings))
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
@@ -368,6 +379,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Roles
 	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
+	mux.HandleFunc(prefix+"/roles/events", m.wrap(m.handleRoleEvents))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
 	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
 	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHMembersAPI))
@@ -490,7 +502,7 @@ func (m *ManagementServer) setCORS(w http.ResponseWriter, r *http.Request) {
 	for _, o := range m.corsOrigins {
 		if o == "*" || o == origin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			break
@@ -561,6 +573,10 @@ func (m *ManagementServer) handleStatus(w http.ResponseWriter, r *http.Request) 
 	platformSet := make(map[string]bool)
 	for _, e := range m.engines {
 		for _, p := range e.platforms {
+			// The bridge transport is not a chat platform; it is reported under "bridge".
+			if _, ok := p.(*BridgePlatform); ok {
+				continue
+			}
 			platformSet[p.Name()] = true
 		}
 	}
@@ -697,9 +713,21 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Credentials never leave the machine in clear text: the panel shows this
+	// text as-is, so every token/secret/api_key value is masked here (#710 件3).
+	redacted, err := RedactConfigText(string(data))
+	if err != nil {
+		// Fail closed: a config that cannot be redacted and verified — including
+		// one that does not parse as TOML — is not served at all rather than
+		// served with secrets in it (#480).
+		slog.Error("management api: redact config failed", "error", err)
+		mgmtError(w, http.StatusInternalServerError, "redact config: "+err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(redacted))
 }
 
 func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.Request) {
@@ -802,6 +830,18 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Settings are persisted even when the project's platform is stopped.
+	if sub == "qq" {
+		m.handleProjectQQ(w, r, projName, rest)
+		return
+	}
+	// "qqbot" is the official Bot (platform type "qqbot"), a separate platform
+	// from the OneBot bridge above; the two never share options (#710 件 5).
+	if sub == "qqbot" {
+		m.handleProjectQQBot(w, r, projName, rest)
+		return
+	}
+
 	m.mu.RLock()
 	engine, ok := m.engines[projName]
 	m.mu.RUnlock()
@@ -842,13 +882,25 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Request, name string, e *Engine) {
 	if r.Method == http.MethodGet {
-		platInfos := make([]map[string]any, len(e.platforms))
-		for i, p := range e.platforms {
-			platInfos[i] = map[string]any{
-				"type":      p.Name(),
-				"connected": true,
+		// connected is the runtime readiness bit (platformReady), not "this platform is written in
+		// config.toml": a platform whose Start failed, or an async one still reconnecting, is listed
+		// but not connected. Same map and same lock bridgeRoles reads (management_roles_devices.go),
+		// so the detail page and the roles page cannot disagree.
+		platInfos := make([]map[string]any, 0, len(e.platforms))
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			// The bridge transport is not a chat platform (handleStatus reports it under "bridge"),
+			// and it is attached after Engine.Start, so it never appears in platformReady. Listing it
+			// here would pin a permanent red pill on a transport that is in fact working.
+			if _, ok := p.(*BridgePlatform); ok {
+				continue
 			}
+			platInfos = append(platInfos, map[string]any{
+				"type":      p.Name(),
+				"connected": e.platformReady[p],
+			})
 		}
+		e.platformLifecycleMu.Unlock()
 
 		allSessions := e.sessions.AllSessions()
 		sessCount := len(allSessions)

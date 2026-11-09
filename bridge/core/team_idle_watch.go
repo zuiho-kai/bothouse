@@ -75,6 +75,40 @@ func (e *Engine) watchOwns(p Platform, owner string) bool {
 	return ok && watchOwnerID(m.SelfMention()) == watchOwnerID(owner)
 }
 
+// watchOwnerIsPerson: owner is a person, not a bot (a claim that named the user who asked for
+// the task). The watch talks only to the roles working a task: a person is never mentioned to
+// hand back or carry on, and their posts are not the task's progress. A person is an admin_from
+// id, or an author whose posts in chat (or the workspace) are not a bot's; a role of this bridge
+// and an id never seen there count as bots (the mention stays as before).
+func (e *Engine) watchOwnerIsPerson(plat, chat, owner string) bool {
+	id := watchOwnerID(owner)
+	if id == "" || e.watchTarget(plat+":", owner) != nil {
+		return false
+	}
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, a := range strings.Split(af, ",") {
+		if strings.TrimSpace(a) == id {
+			return true
+		}
+	}
+	r, ok := e.lookupReadyPlatform(plat).(ChannelHistoryReader)
+	if !ok {
+		return false
+	}
+	msgs, err := r.ChannelHistory(teamChannelID(chat), "", watchHistoryLimit)
+	if err != nil {
+		return false
+	}
+	for _, m := range msgs {
+		if m.AuthorID == id {
+			return !m.IsBot
+		}
+	}
+	return false
+}
+
 func (e *Engine) watchTarget(key, owner string) *Engine {
 	plat, _, _ := strings.Cut(key, ":")
 	for _, x := range e.watchEngines() {
@@ -224,6 +258,9 @@ func watchIsHandback(text string) bool {
 	if strings.HasPrefix(text, "[report]") || strings.HasPrefix(text, "【交回】") || watchHandbackPR.MatchString(text) {
 		return true
 	}
+	if kind, _, ok := parseExitKindTurn(text); ok && kind == exitKindReport {
+		return true // a [report] after progress text is still the handback (#1270)
+	}
 	if strings.HasPrefix(text, "【接】") {
 		return utf8.RuneCountInString(text) >= 300
 	}
@@ -279,13 +316,34 @@ func watchBlankTitle(title string) bool {
 	return boardLabel(title) == "-"
 }
 
+// exitHeadlineBounced: a [report] naming a board item whose headline forwardWorkspaceExit bounces.
+func (e *Engine) exitHeadlineBounced(key, body string) bool {
+	id, _, _ := exitHeadline(body)
+	return id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit
+}
+
+// watchBoardClosedWords: the closing words a board status may start with, the same set as
+// board.py's CLOSED_RE (#497, user 2026-10-28 定过这五个词).
+var watchBoardClosedWords = []string{"已验收", "验收通过", "已收口", "已完成", "已结束"}
+
+// watchBoardClosedDone: board.py's CLOSED_RE also takes "done" but only as a whole word
+// (\bdone\b), case-insensitively.
+var watchBoardClosedDone = regexp.MustCompile(`(?i)^done\b`)
+
+// watchBoardClosed: whether a board item is really finished. It must *start* with a closing word
+// after leading spaces — the same prefix anchored test as board.py's CLOSED_RE (#497), not a
+// substring anywhere in the status. 2026-11-09 the substring test read 「在做：脱敏实现…已完成，
+// PR 已开」 as closed twice: the idle watch stopped watching and reconcileTeamWorkspaces freed the
+// workspace at 15:07:04, killing the session (signal:killed at 15:07:05) while the author was
+// still working. Statuses such as 「交回待验收」 or 「等待用户拍板」 never start with these words.
 func watchBoardClosed(it teamTaskBoardItem) bool {
-	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
-		if strings.Contains(it.Status, status) {
+	status := strings.TrimSpace(it.Status)
+	for _, word := range watchBoardClosedWords {
+		if strings.HasPrefix(status, word) {
 			return true
 		}
 	}
-	return false
+	return watchBoardClosedDone.MatchString(status)
 }
 
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
@@ -319,10 +377,12 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	returned := cardResult && !accepted || watchIsHandback(text) || watchHandbackLater(text)
 	// A validated user question waits for the user's answer, not an idle wake.
 	asking := false
-	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
+	// #1270: an [ask] after a progress line (parseExitKindTurn, as forwardWorkspaceExit reads it)
+	// still waits for the user; it used to look like idle work and woke the workspace again.
+	if kind, body, ok := parseExitKindTurn(text); ok && kind == exitKindAsk {
 		returned = askEvidenceProblems(body) == nil
 		asking = true
-	} else if id, _, _ := exitHeadline(body); ok && returned && id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit {
+	} else if _, body, ok := parseExitKind(text); ok && returned && e.exitHeadlineBounced(key, body) {
 		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
 		// Only a report that names a board item has a headline to repair: one without a #id cannot
 		// satisfy the check however often it is resent, so there the reply stays a handback and its
@@ -673,8 +733,8 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		return
 	}
 	who := watchMention(plat, h.Owner)
-	if sender.watchOwns(p, h.Owner) {
-		who = sender.DisplayName() // a lone bot does not mention itself
+	if sender.watchOwns(p, h.Owner) || e.watchOwnerIsPerson(plat, h.Chat, h.Owner) {
+		who = sender.DisplayName() // a lone bot does not mention itself; a person is never mentioned
 	} else if msg == MsgWatchFailEscalate {
 		// Naming, not mentioning: a mention would start one more failing turn.
 		if t := e.watchTarget(key, h.Owner); t != nil {

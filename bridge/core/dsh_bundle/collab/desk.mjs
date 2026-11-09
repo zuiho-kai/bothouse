@@ -125,6 +125,19 @@ export function deskReplay({ store, boardDir, from, to, members = [] }) {
   return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event) };
 }
 
+/**
+ * 现在还在进行中的任务：按任务 id 取最后一条板事件，最后一条是 created/assigned 就算在做。
+ * 页面刷新或第一次打开时用它把工位上的任务和「进行中」计数补回来，不必等下一个事件。
+ */
+export function deskActiveTasks({ boardDir }) {
+  const last = new Map();
+  for (const entry of readBoardEvents(boardDir)) {
+    const id = String(entry.id ?? '').trim();
+    if (id && entry.kind) last.set(id, entry);
+  }
+  return [...last.values()].filter(entry => entry.kind === 'created' || entry.kind === 'assigned');
+}
+
 /** 桌面页：C 路提供的 dsh/collab/desk/index.html；还没落地时给一个能看事件流的占位页。 */
 export function deskPage() {
   try { return readFileSync(new URL('./desk/index.html', import.meta.url), 'utf8'); } catch { return PLACEHOLDER_PAGE; }
@@ -177,9 +190,13 @@ async function namesRoute(req, res, namesFile) {
   }
 }
 
-/** /collab/desk、/collab/api/desk/replay、/collab/api/desk/names；返回 true（或 Promise）表示已处理，未匹配返回 undefined。 */
+/** /collab/desk、/collab/api/desk/replay、/collab/api/desk/state、/collab/api/desk/names；返回 true（或 Promise）表示已处理，未匹配返回 undefined。 */
 export function deskRoute(req, res, url, { store, boardDir, members = [], namesFile } = {}) {
   if (url.pathname.replace(/\/+$/, '') === '/collab/api/desk/names' && (req.method === 'GET' || req.method === 'PUT')) return namesRoute(req, res, namesFile);
+  if (url.pathname.replace(/\/+$/, '') === '/collab/api/desk/state' && req.method === 'GET') {
+    sendJson(res, 200, { tasks: deskActiveTasks({ boardDir }) });
+    return true;
+  }
   if (url.pathname.replace(/\/+$/, '') !== '/collab/desk' && url.pathname.replace(/\/+$/, '') !== '/collab/api/desk/replay') return undefined;
   if (req.method !== 'GET') return undefined;
   if (url.pathname.replace(/\/+$/, '') === '/collab/desk') {

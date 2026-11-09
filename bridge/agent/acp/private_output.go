@@ -203,6 +203,10 @@ func (m *codeLiteral) endRun() {
 // boundary so later notifications cannot change the completed turn's outcome.
 type privateOutputTurn struct {
 	public bool
+	// last is the public text of the turn's last message: a new message id or a tool call
+	// starts it over (#1270, EventResult MetaLastReply).
+	last     string
+	lastDone bool // a tool call ended the message in last
 }
 
 func (s *acpSession) resetPrivateOutput() privateOutputTurn {

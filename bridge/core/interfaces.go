@@ -691,6 +691,9 @@ type CachedUsageReporter interface {
 
 // UsageReport is a provider-neutral quota snapshot returned by UsageReporter.
 type UsageReport struct {
+	// ObservedAt is when the upstream snapshot arrived, not when a cached copy
+	// was read. Caching adapters preserve it so stale data cannot renew itself.
+	ObservedAt time.Time `json:"-"`
 	// QuotaGroup identifies the pool selected for the requested model. Empty
 	// means account-wide/unknown; adapters must not infer model independence.
 	QuotaGroup  string

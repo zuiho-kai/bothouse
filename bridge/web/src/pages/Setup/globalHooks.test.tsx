@@ -9,7 +9,7 @@ import type { WizardRequest } from '@/api/wizard';
 // the review step's two "install globally" checkboxes: off by default, start from /setup/state, always sent
 const sent = vi.hoisted(() => ({ reqs: [] as WizardRequest[], guards: false }));
 vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'zh', changeLanguage: vi.fn() } }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh', changeLanguage: vi.fn() } }) }));
 vi.mock('@/components/library', () => ({ useLibrary: () => ({ lib: { personas: [] }, reload: vi.fn() }), PersonaLibrary: () => null }));
 vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),

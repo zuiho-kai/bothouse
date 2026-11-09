@@ -385,3 +385,105 @@ func TestWatchTurnEnded_LiveStuckRowNotRevived(t *testing.T) {
 		t.Fatalf("the stuck live row was revived by a turn that ran tools: %+v", live)
 	}
 }
+
+// #497 (11-09): the very row that got two sessions killed. Its status is work in progress that
+// happens to mention 「已完成」, and the old strings.Contains test read it as a finished item.
+const watchBoardWorkInProgress = "在做：脱敏实现+单测+隔离实例截图已完成，PR #1382 草稿已开，CI 跑完即交回"
+
+// 1/6 of #497 (the regression, red before the fix): a status that only *mentions* a closing word is
+// still work. This is what freed 工作区 and killed the author's session at 15:07 on 11-09.
+func TestWatchBoardClosedRegressionStatusMentionsClosing(t *testing.T) {
+	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: watchBoardWorkInProgress}) {
+		t.Fatalf("%q read as closed (want live work)", watchBoardWorkInProgress)
+	}
+	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "在做：等验收通过再合"}) {
+		t.Fatalf("「在做：等验收通过再合」 read as closed")
+	}
+}
+
+// 2/6 of #497: the plain closing status is still closed.
+func TestWatchBoardClosedBareClosingStatus(t *testing.T) {
+	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "已完成"}) {
+		t.Fatal("「已完成」 must read as closed")
+	}
+}
+
+// 3/6 of #497: board.py's `\s*` allows leading spaces; the bridge must trim them the same way.
+func TestWatchBoardClosedLeadingSpace(t *testing.T) {
+	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "  已完成（返工0）"}) {
+		t.Fatal("「  已完成（返工0）」 must read as closed")
+	}
+	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "\t已结束"}) {
+		t.Fatal("a tab-indented closing status must read as closed")
+	}
+}
+
+// 4/6 of #497: the other two acceptance words, still anchored at the start.
+func TestWatchBoardClosedAcceptanceWords(t *testing.T) {
+	for _, status := range []string{"已验收", "已收口", "验收通过", "已验收（返工 0，无人返工）"} {
+		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must read as closed", status)
+		}
+	}
+}
+
+// 5/6 of #497: board.py's CLOSED_RE is case-insensitive and takes "done" as a whole word only.
+func TestWatchBoardClosedDoneWord(t *testing.T) {
+	for _, status := range []string{"DONE", "done", "Done：收工", "  done"} {
+		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must read as closed", status)
+		}
+	}
+	for _, status := range []string{"donezo", "还没 done", "doing"} {
+		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must not read as closed (done needs a word boundary)", status)
+		}
+	}
+}
+
+// 6/6 of #497: a handback and a waiting item are not closed — 「已交回」 still needs acceptance
+// (board.py 的注释：只有明确完成/验收/收口才关闭).
+func TestWatchBoardClosedNotClosed(t *testing.T) {
+	for _, status := range []string{"交回待验收", "等待用户拍板", "已交回", "已交接", "在做：已开工", ""} {
+		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must not read as closed", status)
+		}
+	}
+}
+
+// #497: reconcileTeamWorkspaces frees a workspace by looking only at the bound board item
+// (team_workspace_one.go:244). With the anchored test, the in-progress row above keeps it live;
+// before the fix the same row made the workspace stale and reset the session.
+func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		freed  bool
+	}{
+		{watchBoardWorkInProgress, false},
+		{"已完成", true},
+	} {
+		e, _, _ := exitFixture(t, nil)
+		e.SetTeam(t.TempDir(), "橘", true)
+		if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		writeReviewBoard(t, e, teamTaskBoardItem{ID: 497, What: "看门误判", Who: "工作区1橘",
+			Status: tc.status, WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"})
+		teamWorkspaceStore.mu.Lock()
+		path := teamWorkspacePath(e.dataDir)
+		st := loadTeamWorkspacesLocked(path)
+		st.Handoffs["discord:ws1"] = []TeamHandoff{{Chat: "discord:chatA", At: now.Add(-time.Hour),
+			Due: now.Add(time.Minute), Owner: e.name, Board: 497, Sender: e.name, Name: "工作区1"}}
+		err := saveTeamWorkspacesLocked(path, st)
+		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := newHandoffWatch(e)
+		freed := len(w.reconcileTeamWorkspaces(now)) > 0
+		if freed != tc.freed {
+			t.Fatalf("status %q: freed=%v, want %v", tc.status, freed, tc.freed)
+		}
+	}
+}

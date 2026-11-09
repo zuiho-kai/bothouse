@@ -1,0 +1,54 @@
+#!/usr/bin/python3 -I
+"""No-forgetting check for direct wiki commits. Installed with bin/install-hooks.sh."""
+import signal, subprocess, sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import lossless
+
+TIMEOUT = 10
+
+
+def git(root, *args, **kw):
+    return subprocess.run(["git", "-c", "core.quotepath=off", *args], cwd=root, capture_output=True, check=True, **kw).stdout
+
+
+def index_corpus(root):
+    ents = []
+    for e in git(root, "ls-files", "-s", "-z").split(b"\0"):
+        if e:
+            meta, name = e.split(b"\t", 1)
+            name = name.decode()
+            if lossless.wanted(name) and meta.split()[2] == b"0":
+                ents.append((name, meta.split()[1].decode()))
+    blob = git(root, "cat-file", "--batch", input="".join(f"{s}\n" for _, s in ents).encode())
+    out, i = {}, 0
+    for n, _ in ents:
+        j = blob.index(b"\n", i)
+        size = int(blob[i:j].split()[2])
+        out[n] = blob[j + 1:j + 1 + size].decode(errors="ignore")
+        i = j + 1 + size + 1
+    return out
+
+
+def check(root):
+    if subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD^{commit}"], cwd=root, capture_output=True).returncode:
+        return 0
+    miss = lossless.missing(lossless.corpus("HEAD", root), index_corpus(root))
+    if not miss:
+        return 0
+    print(lossless.report(miss, limit=len(miss)), file=sys.stderr)
+    print("pre-commit: commit rejected; restore missing lines under the page's history section.", file=sys.stderr)
+    return 1
+
+
+def timeout(*_):
+    print(f"pre-commit: no-forgetting check exceeded {TIMEOUT}s; commit rejected.", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGALRM, timeout)
+    signal.alarm(TIMEOUT)
+    root = git(".", "rev-parse", "--show-toplevel").decode().strip()
+    sys.exit(check(root))

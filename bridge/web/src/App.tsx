@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
+import { sameSitePath } from '@/lib/nextPath';
 import { useAuthStore } from '@/store/auth';
 import Layout from '@/components/Layout/Layout';
 import Login from '@/pages/Login';
@@ -32,7 +33,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   // Carry the query along: the bridge prints links like /?token=…&next=… and the old redirect
   // dropped everything after the path, so the token never reached the login form.
-  if (!isAuthenticated) return <Navigate to={{ pathname: '/login', search: location.search }} replace />;
+  let search = location.search;
+  // A deep link without `next` (typed URL, bookmark) would otherwise land on `/` after login.
+  // The path travels as `next`; an explicit `next` in the URL still wins, and AfterLogin keeps
+  // refusing off-site targets, so this does not open a redirect hole.
+  if (!(new URLSearchParams(search)).has('next') && location.pathname !== '/') {
+    const params = new URLSearchParams(search);
+    params.set('next', location.pathname + location.search);
+    search = `?${params.toString()}`;
+  }
+  if (!isAuthenticated) return <Navigate to={{ pathname: '/login', search }} replace />;
   return <>{children}</>;
 }
 
@@ -46,8 +56,7 @@ function SetupRoute() {
 // After logging in from a link like /login?token=…&next=/setup, go to `next` (same-site paths only).
 function AfterLogin() {
   const [params] = useSearchParams();
-  const next = params.get('next');
-  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') ? next : '/'} replace />;
+  return <Navigate to={sameSitePath(params.get('next'))} replace />;
 }
 
 export default function App() {

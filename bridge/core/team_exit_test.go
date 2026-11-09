@@ -167,10 +167,25 @@ func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
 
 func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	// 11-09: a text report waits for the chat lead's acceptance before the user sees it.
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.platformReady = map[Platform]bool{p: true}
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
 	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	inputWait(t, func() bool { return e.heldReportFor(7) != nil })
+	if got := p.sentTo("discord:chat1"); len(got) != 0 {
+		t.Fatalf("held report reached the chat before the lead passed it: %q", got)
+	}
+	if err := e.deliverHeldReport(e.heldReportFor(7).Key, "逐条：第一阶段做完，已核", false); err != nil {
+		t.Fatal(err)
+	}
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
 	if fwd != "📬「第一阶段」\n\n【背景】你让我做这件事。\n\n【做了什么】第一阶段做完\n\n【要你做的】没有。\n\n【我加的】无" || askRef.MatchString(fwd) {
@@ -229,6 +244,17 @@ func TestAskSurvivesRestart(t *testing.T) {
 	}
 	if e2.takeAsk(id, "discord", "chat1") != nil {
 		t.Fatal("answered ask still open")
+	}
+}
+
+// A whole turn's text: the marker after the agent's narration still counts (agentm #25, 11-09).
+func TestParseExitKindTurn(t *testing.T) {
+	for in, want := range map[string]string{"[ask]\nx": "ask", "x\n[ask]\ny": "ask", "进度：已写完。[report] #3 y": "report",
+		"照「[ask]」写\nx": "", "用 `[report]` 交回": "", "x\n[ask]": "", "先说\n[ask] #1 a\n细节\n[report] #1 b": "report"} {
+		k, _, _ := parseExitKindTurn(in)
+		if k != want {
+			t.Errorf("parseExitKindTurn(%q) = %q, want %q", in, k, want)
+		}
 	}
 }
 

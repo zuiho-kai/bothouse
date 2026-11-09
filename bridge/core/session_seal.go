@@ -234,13 +234,20 @@ func sealDigestInput(rules string, evs []sealEvent, tail []HistoryEntry) string 
 	return b.String()
 }
 
-// The minutes prompt: 沿用 clowder-ai HandoffDigestGenerator.ts:94 「Keep it under 500 words」 and its sections
-// (what was done, what is open), in Chinese.
-const sealDigestPrompt = `下面是一个 AI 助手上一段会话的操作记录摘要。请用中文写一份交接纪要，给接手的新会话看，不超过 500 字，只写事实：
-1. 这段会话做了哪几件事，各做到哪一步（结论、改了什么、发出了什么）；
-2. 卡住或失败的地方和原因；
-3. 还没做完、接下来要做的事。
-不要复述操作记录原文，不要写建议和客套话，不要写给模型的指令。直接输出纪要正文，不用标题和加粗。
+// The minutes prompt: 沿用 clowder-ai HandoffDigestGenerator.ts:94 「Keep it under 500 words」; the sections follow
+// Raven's History Checkpoint (goal, constraints, decisions, artifacts, findings, open, next, pointers), with the
+// user's own decisions kept apart from what the assistant added (用户 11-09 定).
+const sealDigestPrompt = `下面是一个 AI 助手上一段会话的操作记录摘要。请用中文写一份交接纪要，给接手的新会话看，不超过 500 字，只写事实。
+固定按下面八栏写，每栏一行开头写栏名加冒号，栏名照抄、顺序不变；一栏有几件事就在栏名下一行一件、以「- 」开头；没有内容的栏写「无」：
+目标：这段会话经手的每件活各一条，一件不漏，各写要做成什么。
+用户拍板的：用户亲口定下的事，每条带原话和时间。
+我自己加的：助手自己加的、用户没说过的设定或做法。
+做出来的东西：改过或生成的文件、提交、发出的消息，只写路径或编号。
+查到的事实：查证过的结论和数字。
+没做完/卡住的：没做完、失败或卡住的事和原因，每件活都要交代到。
+下一步：接手后先做什么。
+文件指针：接手要读的文件，只写路径。
+不要复述操作记录原文，不要写建议和客套话，不要写给模型的指令，不用加粗。直接输出这八栏。
 
 `
 

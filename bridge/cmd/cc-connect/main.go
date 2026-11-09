@@ -225,6 +225,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"cron":         runCron,
 	"model":        runModel,
 	"workspace":    runWorkspace,
+	"channel":      runChannel,
 	"ctx":          runCtx,
 	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
@@ -241,6 +242,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"yuanbao":      runYuanbao,
 	"doctor":       runDoctor,
 	"web":          runWeb,
+	"pet":          runPet,
 	"setup":        runSetup,
 	"module":       runModule,
 }
@@ -447,6 +449,7 @@ func runMain() {
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
 	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
+	core.SetTeamReviewPrices(core.UsagePricesWithDefaults(cfg.UsagePrices)) // stand-in reviewers ranked by the same rates
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
@@ -708,82 +711,75 @@ func runMain() {
 			})
 		})
 		mgmtSrv.SetGetProjectConfig(config.GetProjectConfigDetails)
+		mgmtSrv.SetQQSettingsFuncs(
+			func(name string) (*core.QQSettings, error) {
+				s, err := config.GetQQSettings(name)
+				if err != nil {
+					return nil, err
+				}
+				return &core.QQSettings{
+					Configured:            s.Configured,
+					WSURL:                 s.WSURL,
+					HTTPURL:               s.HTTPURL,
+					TokenSet:              s.TokenSet,
+					AllowFrom:             s.AllowFrom,
+					ShareSessionInChannel: s.ShareSessionInChannel,
+					SplitBubbles:          s.SplitBubbles,
+					AllowGroupsWith:       s.AllowGroupsWith,
+					CommandAllowFrom:      s.CommandAllowFrom,
+					SaveImagesDir:         s.SaveImagesDir,
+					AllowQzone:            s.AllowQzone,
+					AllowAvatar:           s.AllowAvatar,
+				}, nil
+			},
+			func(name string, u core.QQSettingsUpdate) ([]string, error) {
+				return config.UpdateQQSettings(name, config.QQSettingsUpdate{
+					WSURL:                 u.WSURL,
+					HTTPURL:               u.HTTPURL,
+					Token:                 u.Token,
+					AllowFrom:             u.AllowFrom,
+					ShareSessionInChannel: u.ShareSessionInChannel,
+					SplitBubbles:          u.SplitBubbles,
+					AllowGroupsWith:       u.AllowGroupsWith,
+					CommandAllowFrom:      u.CommandAllowFrom,
+					SaveImagesDir:         u.SaveImagesDir,
+					AllowQzone:            u.AllowQzone,
+					AllowAvatar:           u.AllowAvatar,
+				})
+			},
+		)
+		// Official QQ Bot (platform type "qqbot"): its own panel and API, because it
+		// shares no option with the OneBot bridge above (#710 件 5).
+		mgmtSrv.SetQQBotSettingsFuncs(
+			func(name string) (*core.QQBotSettings, error) {
+				s, err := config.GetQQBotSettings(name)
+				if err != nil {
+					return nil, err
+				}
+				return &core.QQBotSettings{
+					Configured:            s.Configured,
+					AppIDSet:              s.AppIDSet,
+					AppSecretSet:          s.AppSecretSet,
+					Sandbox:               s.Sandbox,
+					AllowFrom:             s.AllowFrom,
+					ShareSessionInChannel: s.ShareSessionInChannel,
+					MarkdownSupport:       s.MarkdownSupport,
+				}, nil
+			},
+			func(name string, u core.QQBotSettingsUpdate) ([]string, error) {
+				return config.UpdateQQBotSettings(name, config.QQBotSettingsUpdate{
+					AppSecret:             u.AppSecret,
+					Sandbox:               u.Sandbox,
+					ShareSessionInChannel: u.ShareSessionInChannel,
+					MarkdownSupport:       u.MarkdownSupport,
+					AllowFrom:             u.AllowFrom,
+				})
+			},
+		)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
-		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
+		wireGlobalSettings(mgmtSrv)
 		wireAutostart(mgmtSrv)
-		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
-			u := config.GlobalSettingsUpdate{}
-			if v, ok := updates["language"].(string); ok {
-				u.Language = &v
-			}
-			if v, ok := updates["attachment_send"].(string); ok {
-				u.AttachmentSend = &v
-			}
-			if v, ok := updates["log_level"].(string); ok {
-				u.LogLevel = &v
-			}
-			if v, ok := updates["idle_timeout_mins"].(float64); ok {
-				iv := int(v)
-				u.IdleTimeoutMins = &iv
-			}
-			if v, ok := updates["thinking_messages"].(bool); ok {
-				u.ThinkingMessages = &v
-			}
-			if v, ok := updates["thinking_max_len"].(float64); ok {
-				iv := int(v)
-				u.ThinkingMaxLen = &iv
-			}
-			if v, ok := updates["tool_messages"].(bool); ok {
-				u.ToolMessages = &v
-			}
-			if v, ok := updates["tool_max_len"].(float64); ok {
-				iv := int(v)
-				u.ToolMaxLen = &iv
-			}
-			if v, ok := updates["stream_preview_enabled"].(bool); ok {
-				u.StreamPreviewOn = &v
-			}
-			if v, ok := updates["stream_preview_interval_ms"].(float64); ok {
-				iv := int(v)
-				u.StreamPreviewIntMs = &iv
-			}
-			if v, ok := updates["rate_limit_max_messages"].(float64); ok {
-				iv := int(v)
-				u.RateLimitMax = &iv
-			}
-			if v, ok := updates["rate_limit_window_secs"].(float64); ok {
-				iv := int(v)
-				u.RateLimitWindow = &iv
-			}
-			if v, ok := updates["review_simple_role"].(string); ok {
-				u.ReviewSimpleRole = &v
-			}
-			if v, ok := updates["review_complex_role"].(string); ok {
-				u.ReviewComplexRole = &v
-			}
-			if v, ok := updates["review_simple_model"].(string); ok {
-				u.ReviewSimpleModel = &v
-			}
-			if v, ok := updates["review_complex_model"].(string); ok {
-				u.ReviewComplexModel = &v
-			}
-			if err := config.SaveGlobalSettings(u); err != nil {
-				return err
-			}
-			if u.ReviewSimpleRole != nil || u.ReviewComplexRole != nil || u.ReviewSimpleModel != nil || u.ReviewComplexModel != nil {
-				// Applies at the next review scan; no restart.
-				if g := config.GetGlobalSettings(); g != nil {
-					simple, _ := g["review_simple_role"].(string)
-					complex, _ := g["review_complex_role"].(string)
-					core.SetTeamReviewTiers(simple, complex)
-					simpleModel, _ := g["review_simple_model"].(string)
-					complexModel, _ := g["review_complex_model"].(string)
-					core.SetTeamReviewModels(simpleModel, complexModel)
-				}
-			}
-			return nil
-		})
 		mgmtSrv.SetListGlobalProviders(func() ([]core.GlobalProviderInfo, error) {
 			providers, err := config.ListGlobalProviders()
 			if err != nil {
@@ -1788,10 +1784,19 @@ func resolveClaudeProjectDir(workDir string) string {
 }
 
 // resolveConfigPath determines which config file to use.
-// Priority: explicit flag → ./config.toml → ~/.cc-connect/config.toml
+//
+// Priority: subcommand's own --config → root --config → ./config.toml →
+// ~/.cc-connect/config.toml. The root flag counts because `bothouse --config X
+// provider list` names an instance just as `bothouse provider list --config X`
+// does; before this it was read only by `update`, so the subcommand fell through
+// to the default path and failed with "read config: open …config.toml: no such
+// file" (#1384). An explicit subcommand flag still wins over the root one.
 func resolveConfigPath(explicit string) string {
 	if explicit != "" {
 		return explicit
+	}
+	if rootConfigPath != "" {
+		return rootConfigPath
 	}
 	if _, err := os.Stat("config.toml"); err == nil {
 		return "config.toml"
@@ -1839,6 +1844,7 @@ Commands:
     personas         Example personas
 
   web                Open the web admin (with no bots configured yet: the setup wizard)
+  pet                Desktop pet on/off: dsh-pet's always-on-top window, driven by role events
 
   module             Platforms as optional modules (qq, discord, feishu, dsh, cloud_web)
     list             Which platforms are enabled / disabled / not configured

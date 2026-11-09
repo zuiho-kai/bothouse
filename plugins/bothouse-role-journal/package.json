@@ -1,0 +1,41 @@
+{
+  "name": "bothouse-role-journal",
+  "version": "0.1.0",
+  "description": "Append every event of a bound bothouse role to a JSON Lines file, one file a day.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "lib/bothouse.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "bothouse",
+    "plugin"
+  ],
+  "license": "Apache-2.0",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0",
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test lib/*.test.mjs *.test.mjs",
+    "pack": "npm pack"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zuiho-kai/bothouse",
+    "directory": "plugins/bothouse-role-journal"
+  }
+}

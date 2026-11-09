@@ -34,14 +34,15 @@ class ForwardRecipientTest(unittest.TestCase):
             LAST=types.SimpleNamespace(is_file=lambda: True, read_text=lambda **kw: json.dumps(self.record)),
         )
         self.board = types.SimpleNamespace(
-            done_item=lambda p: None, paused_item=lambda p: None,
+            done_item=lambda p: None, paused_item=lambda p: None, done_records=lambda: [],
             items=lambda: [self.live], append_forward=Mock(), arm_guard=Mock(),
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
-        self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "main"}, dict(
+        self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",
+                                                "task_ids", "find_live", "find_done", "main"}, dict(
             _team=self.team, board=self.board, json=json, re=re, os=os,
             subprocess=types.SimpleNamespace(run=self.run),
-            sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message))),
+            sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),
             time=types.SimpleNamespace(strftime=lambda fmt: "2026-11-08"),
             PROMPT_MAX=1500, Path=Path,
         ))
@@ -49,7 +50,47 @@ class ForwardRecipientTest(unittest.TestCase):
     def forward(self, *args):
         with contextlib.redirect_stdout(io.StringIO()):
             self.ns["main"]([*args, "continue existing task"])
-        return self.run.call_args.args[0]
+        # the timer that wakes the workspace (a held report's reject call may follow it)
+        return next(c.args[0] for c in self.run.call_args_list if "timer" in c.args[0])
+
+    def test_forward_rejects_held_report_after_delivery(self):
+        # 11-09: a forward while the bridge holds this task's text [report] for the lead sends it back
+        # (bothouse report reject) once the work reached the workspace.
+        self.forward()
+        self.assertIn("timer", self.run.call_args_list[0].args[0])
+        first = self.run.call_args_list[1].args[0]
+        self.assertEqual(first[:5], ["bothouse", "report", "reject", "--id", "362"])
+        self.assertEqual(first[first.index("--reason")+1], "continue existing task")
+
+    def test_done_task_still_rejects_held_report(self):
+        # 11-09 #1261: returned a minute earlier, the lead's forward exited on "已交回" without rejecting,
+        # so the held [report] was posted 10 minutes later as 「主角色未验收」.
+        done = dict(id=1261, where=self.notes, what="仿片照抄", done_at="11-09 13:15")
+        self.record["board"] = [1261]
+        self.board.items = lambda: []
+        self.board.done_records = lambda: [done]
+        self.board.done_item = lambda p: done if p == self.notes else None
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
+            self.ns["main"](["redo the ending"])
+        self.assertIn("已交回", str(cm.exception))
+        cmds = [c.args[0] for c in self.run.call_args_list]
+        self.assertEqual(len(cmds), 1)
+        self.assertEqual(cmds[0][:5], ["bothouse", "report", "reject", "--id", "1261"])
+        self.assertEqual(cmds[0][cmds[0].index("--reason")+1], "redo the ending")
+
+    def test_same_notes_new_item_not_blocked_by_old_done_item(self):
+        # 11-09: one notes file handed to two workspaces (#1261 done, #1271 live with a changed where);
+        # done-by-filename found #1261 and blocked the forward meant for #1271.
+        old = dict(id=1261, where=self.notes, done_at="11-09 13:15")
+        self.board.done_item = lambda p: old if p == self.notes else None
+        self.board.done_records = lambda: [old]
+        self.live.update(id=1271, where="/work/tmp/fish1261", ws="discord:ws3")
+        self.record["board"] = [1271]
+        cmd = self.forward()
+        self.assertEqual(cmd[cmd.index("-s")+1], "discord:ws3")
+        reject = self.run.call_args_list[1].args[0]
+        self.assertEqual(reject[:5], ["bothouse", "report", "reject", "--id", "1271"])
+        self.board.arm_guard.assert_called_once_with(1271)
 
     def test_cross_project_forward_keeps_recipient_and_workspace(self):
         cmd = self.forward()
