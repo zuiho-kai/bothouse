@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -268,7 +269,7 @@ func petClipsReady(p petLayoutPaths, pack string, actions []core.PetPackAction) 
 
 // petPrepareClips fills bothouse-<pack>-animation with <action>.webm: WebM packs are linked or copied,
 // WebP sprite packs encoded with ffmpeg. Existing clips are kept, so an interrupted run resumes.
-func petPrepareClips(p petLayoutPaths, info core.PetPackInfo, logf func(string, ...any)) error {
+func petPrepareClips(ctx context.Context, p petLayoutPaths, info core.PetPackInfo, logf func(string, ...any)) error {
 	dir := p.animDir(info.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -289,17 +290,14 @@ func petPrepareClips(p petLayoutPaths, info core.PetPackInfo, logf func(string, 
 		first error
 	)
 	jobs := make(chan core.PetPackAction)
-	workers := runtime.NumCPU() / 2
-	if workers < 1 {
-		workers = 1
-	}
+	workers := cap(petConvertSlots)
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for a := range jobs {
-				err := petPrepareClip(ffmpeg, info.LocalPath, dir, a)
+				err := petPrepareClip(ctx, ffmpeg, info.LocalPath, dir, a)
 				mu.Lock()
 				done++
 				if err != nil && first == nil {
@@ -330,7 +328,14 @@ func petPrepareClips(p petLayoutPaths, info core.PetPackInfo, logf func(string, 
 	return nil
 }
 
-func petPrepareClip(ffmpeg, packDir, outDir string, a core.PetPackAction) error {
+// petConvertSlots caps ffmpeg runs across all packs at half the CPUs (two packs at once used to start
+// a full set each and starve the machine).
+var petConvertSlots = make(chan struct{}, max(1, runtime.NumCPU()/2))
+
+func petPrepareClip(ctx context.Context, ffmpeg, packDir, outDir string, a core.PetPackAction) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	out := filepath.Join(outDir, a.ID+".webm")
 	if fi, err := os.Stat(out); err == nil && fi.Size() > 0 {
 		return nil
@@ -345,18 +350,23 @@ func petPrepareClip(ffmpeg, packDir, outDir string, a core.PetPackAction) error 
 		}
 		return os.Rename(tmp, out)
 	}
-	// Same encode as hunmer/aboutme-pets spritesheet_to_video_pet.py: loop the sheet, crop frame n of the
-	// grid, VP9 with alpha. crf 30 + realtime instead of its crf 20 — 实测（本机 2026-11-09，claude 包
-	// 「写代码」120 帧 640×360）：crf 20 5.7 s / 1.47 MB，crf 30 realtime 4.5 s / 1.02 MB，260–460 px 的桌宠窗口里看不出差别。
-	vf := fmt.Sprintf("crop=%d:%d:x='mod(n\\,%d)*%d':y='floor(n/%d)*%d',format=yuva420p",
-		a.FrameWidth, a.FrameHeight, a.Columns, a.FrameWidth, a.Columns, a.FrameHeight)
+	// Same encode as hunmer/aboutme-pets spritesheet_to_video_pet.py (VP9 with alpha), but the sheet is
+	// decoded once and cut with ffmpeg's untile filter instead of looping the image and cropping frame n:
+	// 实测（本机 2026-11-09，claude「写代码」120 帧 640×360，机器同时在转两包）：loop+crop 135 s，untile 38 s，
+	// 输出逐帧相同。crf 30 + realtime instead of its crf 20：unloaded 5.7 s / 1.47 MB → 4.5 s / 1.02 MB,
+	// no visible difference in a 260–460 px pet window.
+	rows := (a.FrameCount + a.Columns - 1) / a.Columns
+	vf := fmt.Sprintf("untile=%dx%d,setpts=N/(%g*TB),format=yuva420p", a.Columns, rows, a.FPS)
 	fps := fmt.Sprintf("%g", a.FPS)
 	args := []string{"-hide_banner", "-nostdin", "-y", "-v", "error",
-		"-loop", "1", "-framerate", fps, "-i", src, "-frames:v", fmt.Sprint(a.FrameCount),
-		"-vf", vf, "-c:v", "libvpx-vp9", "-auto-alt-ref", "0", "-pix_fmt", "yuva420p",
+		"-i", src, "-vf", vf, "-frames:v", fmt.Sprint(a.FrameCount), "-r", fps,
+		"-c:v", "libvpx-vp9", "-auto-alt-ref", "0", "-pix_fmt", "yuva420p",
 		"-row-mt", "1", "-b:v", "0", "-crf", "30", "-deadline", "realtime", "-cpu-used", "8",
 		"-metadata:s:v:0", "alpha_mode=1", "-f", "webm", tmp}
-	cmd := exec.Command(ffmpeg, args...)
+	petConvertSlots <- struct{}{}
+	defer func() { <-petConvertSlots }()
+	// CommandContext: `pet stop` ends `pet run`, and with it every conversion still running.
+	cmd := exec.CommandContext(ctx, ffmpeg, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -560,14 +570,15 @@ type petLayout struct {
 	relay *petRelay
 	pet   *dshPetClient
 	kick  chan struct{}
+	ctx   context.Context // ends with `pet run`; conversions stop with it
 
 	mu        sync.Mutex
 	preparing map[string]bool
 	failed    map[string]string // pack → why it cannot be used (shown in the log and the plugin page)
 }
 
-func newPetLayout(paths petLayoutPaths, relay *petRelay, pet *dshPetClient) *petLayout {
-	l := &petLayout{paths: paths, relay: relay, pet: pet, kick: make(chan struct{}, 1),
+func newPetLayout(ctx context.Context, paths petLayoutPaths, relay *petRelay, pet *dshPetClient) *petLayout {
+	l := &petLayout{ctx: ctx, paths: paths, relay: relay, pet: pet, kick: make(chan struct{}, 1),
 		preparing: map[string]bool{}, failed: map[string]string{}}
 	relay.layout = l
 	return l
@@ -626,12 +637,14 @@ func (l *petLayout) packAnims(pack string) (anims [2]map[string]any, ready bool)
 	if !busy && !failed {
 		l.relay.logf("pack %s: preparing %d desktop clips (%s)", pack, len(info.Actions), info.Format)
 		go func() {
-			err := petPrepareClips(l.paths, info, l.relay.logf)
+			err := petPrepareClips(l.ctx, l.paths, info, l.relay.logf)
 			l.mu.Lock()
 			delete(l.preparing, pack)
 			l.mu.Unlock()
 			if err != nil {
-				l.fail(pack, err)
+				if l.ctx.Err() == nil {
+					l.fail(pack, err)
+				}
 				return
 			}
 			l.request()
