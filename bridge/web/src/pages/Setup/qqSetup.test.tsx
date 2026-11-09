@@ -78,7 +78,13 @@ describe('QQ in the setup wizard', () => {
     // editing a field after the test asks for a new test
     await input('[data-testid="qq-allow-from"]', '12345,67890');
     expect(button(T.next).disabled).toBe(true);
+    // #710 件 5: the two optional keys the step used to drop; both travel with the request
+    await input('[data-testid="qq-http-url"]', 'http://127.0.0.1:3000');
+    await click('[data-testid="qq-share-session"]');
+    expect(button(T.next).disabled).toBe(true); // the edited address still needs a new test
     await click('[data-testid="qq-test-btn"]');
+    expect(sent.reqs[sent.reqs.length - 1]).toMatchObject({ dry_run: true,
+      qq: { http_url: 'http://127.0.0.1:3000', share_session_in_channel: true } });
 
     // QQ skips the gate and jev steps: CLI → persona → review
     await act(async () => button(T.next).click());

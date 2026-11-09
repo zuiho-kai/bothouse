@@ -85,7 +85,8 @@ export default function SetupWizard() {
   const [picked, setPlatform] = useState<'qq' | 'discord' | 'feishu' | 'cloud_web' | 'dsh'>(
     readDSHDraft() ? 'dsh' : platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
-  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '' });
+  // http_url / share_session_in_channel are the two fields the step did not send before (#710 件 5)
+  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '', http_url: '', share_session_in_channel: false });
   const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string; note?: string }>({ running: false });
   const qqKey = JSON.stringify(qq);
   const qqNickname = qqTest.key === qqKey ? qqTest.nickname : undefined;
@@ -409,7 +410,13 @@ export default function SetupWizard() {
       req.discord = { guild_id: guildID, channel_id: channelID };
       if (allowFromValue.trim()) req.allow_from = allowFromValue.trim();
     }
-    if (platform === 'qq') req.qq = { ws_url: qq.ws_url.trim(), token: mask(qq.token, '<NAPCAT_TOKEN>') || undefined, allow_from: qq.allow_from.trim() };
+    // http_url: "" = not set, and the server keeps whatever the panel saved; share_session only
+    // travels when ticked so a rerun never turns it off (#710 件 5)
+    if (platform === 'qq') req.qq = {
+      ws_url: qq.ws_url.trim(), token: mask(qq.token, '<NAPCAT_TOKEN>') || undefined, allow_from: qq.allow_from.trim(),
+      ...(qq.http_url.trim() ? { http_url: qq.http_url.trim() } : {}),
+      ...(qq.share_session_in_channel ? { share_session_in_channel: true } : {}),
+    };
     if (platform === 'cloud_web') req.cloud_web = cwLocalKnown ? {} : { url: cwURL, token: mask(cw.token, '<PLATFORM_BOT_TOKEN>') };
     if (platform === 'feishu' && feishu) req.feishu = { ...feishu, app_secret: mask(feishu.app_secret, '<APP_SECRET>'), chat_id: chatID };
     if (wikiInfo) {
@@ -655,6 +662,13 @@ export default function SetupWizard() {
             <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => setQQ({ ...qq, ws_url: e.target.value })} />
             <Input type="password" label={T.qqToken} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />
             <Input label={T.qqAllowFrom} placeholder="12345678" value={qq.allow_from} data-testid="qq-allow-from" onChange={(e) => setQQ({ ...qq, allow_from: e.target.value })} />
+            {/* the two keys the panel (PATCH /projects/{name}/qq/settings) used to be the only
+                way in; both optional, so an empty field keeps what is already saved (#710 件 5) */}
+            <Input label={`${T.qqHTTPURL} (${T.qqOptional})`} placeholder="http://127.0.0.1:3000" value={qq.http_url} data-testid="qq-http-url" onChange={(e) => setQQ({ ...qq, http_url: e.target.value })} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={qq.share_session_in_channel} data-testid="qq-share-session"
+                onChange={(e) => setQQ({ ...qq, share_session_in_channel: e.target.checked })} />{T.qqShareSession}
+            </label>
             <div className="text-sm space-y-1">
               <Button size="sm" variant="secondary" disabled={qqTest.running || !qq.ws_url.trim() || !qq.allow_from.trim()} data-testid="qq-test-btn"
                 onClick={async () => {

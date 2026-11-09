@@ -26,6 +26,11 @@ type WizardQQ struct {
 	Token     string `json:"token,omitempty"`      // NapCat access token, if set there
 	HTTPURL   string `json:"http_url,omitempty"`   // optional OneBot HTTP API (file sending)
 	AllowFrom string `json:"allow_from,omitempty"` // QQ numbers that may give orders; "*" = anyone
+	// ShareSessionInChannel (#710 件 5): nil = leave the stored value alone; true writes it on.
+	// False is never sent by the wizard, so a rerun on an existing bot cannot silently cut a
+	// group's shared session off (the same rule as discord's allow_guilds); the QQ panel
+	// (PATCH /projects/{name}/qq/settings) is where it is turned off.
+	ShareSessionInChannel *bool `json:"share_session_in_channel,omitempty"`
 }
 
 // QQTestResult is the connection test: code ok | unreachable | unauthorized | error.

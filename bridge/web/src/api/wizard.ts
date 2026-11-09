@@ -49,8 +49,10 @@ export interface WizardRequest {
   feishu?: { app_id: string; app_secret: string; platform_type?: string; owner_open_id?: string; chat_id?: string };
   /** 自建平台: empty url/token = the hub this wizard started on this machine (filled in server-side) */
   cloud_web?: { url?: string; token?: string };
-  /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *) */
-  qq?: { ws_url: string; token?: string; allow_from: string };
+  /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *).
+   * http_url = file sending, optional; share_session_in_channel is only sent when ticked, so a
+   * rerun leaves an existing value as it is (#710 件 5). */
+  qq?: { ws_url: string; token?: string; allow_from: string; http_url?: string; share_session_in_channel?: boolean };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
   gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
