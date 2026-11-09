@@ -558,7 +558,7 @@ function agentFor(m, d) {
   let a = P.agents.get(m.id);
   const seat = seatPoint(d);
   if (!a) {
-    a = { id: m.id, x: seat.x, y: seat.y, path: [], state: 'sit', view: 'front', frame: 0, ft: 0, timer: 1.5 + Math.random() * 6, poi: null, mode: 'idle', react: null, flash: null, bob: Math.random() * 6 };
+    a = { id: m.id, x: seat.x, y: seat.y, path: [], state: 'sit', view: 'front', frame: 0, ft: 0, timer: Math.random() * 1.5, poi: null, mode: 'idle', react: null, flash: null, bob: Math.random() * 6 };
     P.agents.set(m.id, a);
   }
   a.desk = d;
@@ -602,19 +602,21 @@ function updateAgent(a, dt) {
     }
     a.ft += dt * (a.run ? 2 : 1);
     if (!a.path.length) {
-      if (a.target === 'desk') { a.state = 'sit'; a.timer = 6 + Math.random() * 12; }
+      // 只有干活中、想事情才回工位坐下；摸鱼的人走到工位时活已经没了，就接着在屋里走。
+      if (a.target === 'desk') { if (busy || REDUCED) { a.state = 'sit'; a.timer = 0.8 + Math.random() * 1.2; } else wander(a); }
       else { a.state = 'stay'; a.timer = 4 + Math.random() * 8; if (a.poi) a.view = a.poi.face; }
     }
     return;
   }
   if (a.state === 'sit') {
     a.view = 'front';
-    if (!busy && !REDUCED) { a.timer -= dt; if (a.timer <= 0) wander(a); }
+    // 摸鱼、发呆不占工位：交了活歇一下就起身在屋里随便走（窗边、白板、书架、饮水机、沙发）。
+    if (!busy && !REDUCED) { a.timer = Math.min(a.timer, 1.5) - dt; if (a.timer <= 0) wander(a); }
     return;
   }
   if (a.state === 'stay') {
     a.timer -= dt;
-    if (a.timer <= 0) { if (Math.random() < 0.4) goDesk(a, false); else wander(a); }
+    if (a.timer <= 0) wander(a);
   }
 }
 
