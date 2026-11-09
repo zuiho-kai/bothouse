@@ -16,6 +16,8 @@ export interface DSHPlugin {
   source?: string;
   /** declarse dsh.bundle, so selecting it adds a profile layer */
   layer: boolean;
+  /** declares dsh.client but no dsh.bundle: a client UI package (the Discord shell), no switch */
+  client_only: boolean;
   /** selected in package.json's dsh.profile.bundles */
   enabled: boolean;
   /** ships with the DSH installation (a surface layer); the page does not offer its switch */

@@ -80,6 +80,10 @@
     "plugins": "プラグイン",
     "gate": "ゲート"
   },
+  "plugins": {
+    "stateClientUi": "クライアント UI パッケージ",
+    "clientUiNote": "DSH が提供するもので、このパネルからは切り替えられません。"
+  },
   "roles": {
     "title": "ロール管理"
   },

@@ -50,6 +50,10 @@ type DSHPlugin struct {
 	// Layer: the package declares dsh.bundle, so selecting it adds a profile layer. A dependency
 	// without it is installed but never loaded as a plugin (DSH prints a warning for those).
 	Layer bool `json:"layer"`
+	// ClientOnly: the package declares dsh.client but no dsh.bundle (the Discord shell the install
+	// script puts into this profile is one). DSH renders it as a client UI, so it is neither a
+	// profile layer nor a plain dependency: the page gives it its own label and no switch (#1376).
+	ClientOnly bool `json:"client_only"`
 	// Enabled: the profile selects this bundle (package.json dsh.profile.bundles).
 	Enabled bool `json:"enabled"`
 	// Shipped: the package resolves from the DSH installation rather than this profile. Those are
@@ -215,6 +219,11 @@ func listDSHPlugins() DSHPluginsState {
 				Bundle struct {
 					Patch dshBundlePatch `json:"patch"`
 				} `json:"bundle"`
+				// Client is the client UI block (`dsh.client.inject` / `dsh.client.platform`). Its
+				// presence, without a bundle patch, is what makes this a client UI package (#1376).
+				Client struct {
+					Platform string `json:"platform"`
+				} `json:"client"`
 			} `json:"dsh"`
 		}
 		raw, err := os.ReadFile(filepath.Join(pkgDir, "package.json"))
@@ -228,6 +237,9 @@ func listDSHPlugins() DSHPluginsState {
 			}
 			p.Version, p.Description = pkg.Version, pkg.Description
 			p.Layer = len(pkg.DSH.Bundle.Patch) > 0
+			// 来源：安装脚本装进 profile 的 client-ui 包（bridge/core/dsh_bundle/packages/*/package.json，
+			// dsh.client.inject + dsh.client.platform，无 dsh.bundle）；#1376 把它们跟纯依赖分开。
+			p.ClientOnly = !p.Layer && pkg.DSH.Client.Platform != ""
 			if p.Layer {
 				rows, err := bundleRows(pkgDir, pkg.DSH.Bundle.Patch, disabled)
 				if err != nil {

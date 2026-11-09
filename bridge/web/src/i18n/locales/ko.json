@@ -80,6 +80,10 @@
     "plugins": "플러그인",
     "gate": "게이트"
   },
+  "plugins": {
+    "stateClientUi": "클라이언트 UI 패키지",
+    "clientUiNote": "DSH가 제공하며 패널에서 켜고 끌 수 없습니다."
+  },
   "roles": {
     "title": "역할 관리"
   },
