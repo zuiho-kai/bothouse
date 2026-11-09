@@ -233,19 +233,30 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, sessi
 		model = m // pinned CLI args still determine the model that actually runs
 	}
 
+	inbox, inboxEnv := setupInbox(workDir)
+	if inboxEnv != "" {
+		extraEnv = append(extraEnv, inboxEnv)
+	}
 	if streamJSON {
 		s, err := newStreamSession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout, stallTimeout)
 		if err == nil {
+			s.inbox = inbox
 			a.mu.Lock()
 			a.quota = s.quota
 			a.mu.Unlock()
+		} else if inbox != nil {
+			_ = inbox.Remove()
 		}
 		return s, err
 	}
 	s, err := newAntigravitySession(ctx, cmd, extraArgs, workDir, model, mode, sessionID, extraEnv, timeout)
 	if err != nil {
+		if inbox != nil {
+			_ = inbox.Remove()
+		}
 		return nil, err
 	}
+	s.inbox = inbox
 	// The reply footer reads quota from the session (CachedUsage); agy's
 	// account quota lives on the Agent, so hand the session a view of it.
 	account, _ := a.QuotaScope(model)
