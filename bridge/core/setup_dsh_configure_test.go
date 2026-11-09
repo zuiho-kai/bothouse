@@ -1,12 +1,83 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestConfigureDSHExistingModelLogin(t *testing.T) {
+	for _, tc := range []struct {
+		name, credentials, patch string
+		wantModel, wantKeyRoute  bool
+	}{
+		{name: "account", credentials: "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {}\n", wantModel: true},
+		{name: "relay", credentials: "version: 1\nrefs:\n  RELAY_API_KEY: synthetic-relay-key\n", patch: "- id: llm-deepseek\n  config:\n    baseURL: https://relay.invalid\n    apiKeyEnv: RELAY_API_KEY\n", wantModel: true},
+		{name: "key", credentials: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: synthetic-key\n", wantModel: true, wantKeyRoute: true},
+		{name: "none"},
+		{name: "relay_without_key", patch: "- id: llm-deepseek\n  config:\n    baseURL: https://relay.invalid\n    apiKeyEnv: RELAY_API_KEY\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+			t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+			t.Setenv("DEEPSEEK_API_KEY", "")
+			t.Setenv("RELAY_API_KEY", "")
+			t.Setenv("CC_DATA_DIR", filepath.Join(home, "bothouse"))
+			if err := os.MkdirAll(dshHome(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cred := filepath.Join(dshHome(), ".credentials.yaml")
+			if tc.credentials != "" {
+				if err := os.WriteFile(cred, []byte(tc.credentials), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.patch != "" {
+				if err := os.WriteFile(filepath.Join(dshHome(), "cordis.patch.yml"), []byte(tc.patch), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := GetDSHStatus(context.Background()).HasDeepSeekKey; got != tc.wantModel {
+				t.Errorf("wizard model status = %v, want %v", got, tc.wantModel)
+			}
+			res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+			if !tc.wantModel {
+				want := "角色「DSH」没选本机 CLI，也没有 DeepSeek API Key：选一个 CLI，或填 Key"
+				if err == nil || err.Error() != want {
+					t.Fatalf("missing model: got %v, want %s", err, want)
+				}
+				if _, err := os.Stat(dshMembersFile()); !os.IsNotExist(err) {
+					t.Fatalf("rejected save wrote members: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("existing model login rejected: %v", err)
+			}
+			var seed struct{ Members []DSHMember }
+			b, err := os.ReadFile(res.MembersFile)
+			if err != nil || json.Unmarshal(b, &seed) != nil || len(seed.Members) != 1 {
+				t.Fatalf("saved members: %s, %v", b, err)
+			}
+			if got := seed.Members[0].Model; tc.wantKeyRoute {
+				if got == nil || *got != dshKeyModel {
+					t.Fatalf("key route changed: %+v", got)
+				}
+			} else if got != nil {
+				t.Fatalf("existing model overridden by API-key route: %+v", got)
+			}
+			if b, err := os.ReadFile(cred); err != nil || string(b) != tc.credentials || res.KeySaved {
+				t.Fatalf("existing credentials changed: %v, key_saved=%v", err, res.KeySaved)
+			}
+		})
+	}
+}
 
 func TestConfigureDSHWritesKeyPatchAndMembers(t *testing.T) {
 	home := t.TempDir()
