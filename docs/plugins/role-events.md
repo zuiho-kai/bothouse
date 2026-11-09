@@ -11,8 +11,9 @@ GET /api/v1/roles/events 返回 SSE，沿用管理 API 的 Bearer token；浏览
 - sessions：每项含 session_key、status、busy。桥接用现有会话键；DSH 用房间 ID，只有 presence 时沿用其 busy_chat 标签（缺失时为空），不能当作稳定会话 ID。
 - 增量：{type, role_key, session_key, status, time, role}；speech 另带 text，DSH 实际消息还带 message_id、revision、category，未定稿的流式回复带 draft，改写本连接已发过的那条带 update。time 为 RFC3339 UTC。status 是此次会话状态，role.status 才是多开合并后的角色状态；仅聚合变化时 session_key 为空，详情看 role.sessions。
 - idle 空闲，working 干活，thinking 思考，celebrate 完成，error 出错，speech 角色说的话（桥接为最终回复，DSH 为房间里的消息，流式期间先发未定稿版本，还会更新）。思考正文不外发，桥接 NO_REPLY 不转成气泡；这些事件不承诺消息已在外部平台送达。界面卡片不算说话，见下条。
-- DSH 一条消息从草稿、逐段改写到提交始终是同一个 message_id，revision 随正文改变（毫秒时间戳，只能比大小、不能当序号），category 为 draft 表示还在流式生成、reply 表示已定稿，draft 字段同时标出未定稿。消费方按 message_id 替换同一条气泡，不要按事件条数追加；update 为 true 表示这是本连接已发过的那条消息的改写。同一连接里正文和 revision 都没变的重复帧直接丢弃，不会重复推送。
+- DSH 一条消息从草稿、逐段改写到提交始终是同一个 message_id，revision 随正文改变（以秒为单位的浮点时间戳、含毫秒精度，只能比大小、不能当序号，也不能按毫秒解析），category 为 draft 表示还在流式生成、reply 表示已定稿，draft 字段同时标出未定稿。消费方按 message_id 替换同一条气泡，不要按事件条数追加；update 为 true 表示这是本连接已发过的那条消息的改写。同一连接里 revision、正文和定稿状态都没变的重复帧才丢弃；草稿转定稿即使 revision 与正文都没变（上游同毫秒提交）也照发，并带 update。这份「本连接已发过什么」的记录按连接生命周期只增不减、重连即清空。
 - DSH 的进度卡、授权卡、任务卡是房间内的界面元素，不是角色说的话，一律不转成 speech。判卡只看 card 字段是否非空（null 或缺失即不是卡），不要按作者判断——授权卡、任务卡同样以角色身份发出；也不要用顶层 kind 判卡，顶层 kind 保留给任务板事件。
+- 删除边界：上游撤回或回滚一条消息时会发删除帧（hub.mjs 的 type:'deleted'），当前转接层只认成员、房间、消息三种帧，删除帧未转接。因此已作为草稿发出去的 speech 若被这一轮回滚，消费方收不到收回通知，需要自己处理残留气泡；这里不承诺自动收回，也不靠重连纠正。
 
 一个角色开多处，按 error > working > thinking > celebrate > idle 合并。busy_count 是忙的不同会话数，页面显示“N 处在忙”；相同会话不重复计数。DSH 的 thinking 房间集合可数多处，只有单份 presence 时只能确认一处，不推测额外会话。完成/错误是瞬时事件，之后按真实会话忙闲恢复；DSH 自身报告的成员错误会保留至上游清除。
 

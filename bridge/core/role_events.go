@@ -32,7 +32,9 @@ type RoleEvent struct {
 	Status     string `json:"status"`
 	Text       string `json:"text,omitempty"`
 	// DSH message identity (#1355): one upstream message keeps its id for life, and
-	// revision moves on every in-place edit or draft commit. update marks a frame that
+	// revision moves on every in-place edit or draft commit. It is a float timestamp in
+	// seconds with millisecond precision (upstream writes Date.now()/1000), not a
+	// millisecond epoch: compare it, never read it as one. update marks a frame that
 	// revises a message already sent on this stream; draft marks a reply still streaming.
 	MessageID int64   `json:"message_id,omitempty"`
 	Revision  float64 `json:"revision,omitempty"`
@@ -46,15 +48,24 @@ type RoleEvent struct {
 	Role     RoleState `json:"role"`
 }
 
-// roleMessageLog remembers what this connection already sent for each message id.
-// A frame repeating the same revision and text is a duplicate; a different revision
-// or text for a known id is an update, never a new bubble. Revision alone cannot
-// decide: created_at and changed_at are both milliseconds, and a commit can land in
-// the same millisecond as the last streamed edit.
-type roleMessageLog map[int64]struct {
+// roleMessageFrame is what this connection last sent for one message id. revision is
+// the upstream changed_at, a float timestamp in seconds with millisecond precision
+// (dsh/collab/store.mjs:734 writes Date.now()/1000), not a millisecond epoch.
+type roleMessageFrame struct {
 	revision float64
 	text     string
+	draft    bool
+	category string
 }
+
+// roleMessageLog remembers what this connection already sent for each message id.
+// A frame repeating the same revision, text and settle state (draft/category) is a
+// duplicate; any difference for a known id is an update, never a new bubble.
+// Revision and text alone cannot decide: a commit can land in the same millisecond
+// as the last streamed edit and keep the same text, changing only draft:true/
+// category:draft to draft:false/category:reply. That commit frame carries the settle
+// meaning no snapshot or reconnect can recover, so it must be forwarded.
+type roleMessageLog map[int64]roleMessageFrame
 
 func (l roleMessageLog) accept(ev *RoleEvent) bool {
 	if ev.Type != "speech" || ev.MessageID == 0 {
@@ -62,15 +73,12 @@ func (l roleMessageLog) accept(ev *RoleEvent) bool {
 	}
 	prev, seen := l[ev.MessageID]
 	if seen {
-		if prev.revision == ev.Revision && prev.text == ev.Text {
+		if prev.revision == ev.Revision && prev.text == ev.Text && prev.draft == ev.Draft && prev.category == ev.Category {
 			return false
 		}
 		ev.Update = true
 	}
-	l[ev.MessageID] = struct {
-		revision float64
-		text     string
-	}{ev.Revision, ev.Text}
+	l[ev.MessageID] = roleMessageFrame{revision: ev.Revision, text: ev.Text, draft: ev.Draft, category: ev.Category}
 	return true
 }
 

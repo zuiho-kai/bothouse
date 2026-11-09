@@ -72,7 +72,9 @@ func (m *ManagementServer) handleRoleEvents(w http.ResponseWriter, r *http.Reque
 	previous := snapshot()
 	sse.event("snapshot", previous)
 	// What this connection already forwarded, so a message edited several times
-	// stays one bubble and a repeated frame is not sent twice.
+	// stays one bubble and a repeated frame is not sent twice. It lives exactly as
+	// long as the connection: entries are never pruned while it is open, so it grows
+	// with the messages sent on this stream, and a reconnect starts from an empty one.
 	sent := roleMessageLog{}
 
 	sendChanges := func() {
@@ -345,8 +347,11 @@ func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate)
 				}
 			}
 			// One upstream message keeps its id across draft, incremental edits
-			// and commit; revision moves whenever the stored text changes. Send
-			// both so the consumer can replace its bubble instead of appending.
+			// and commit; revision (changed_at) moves whenever the stored text
+			// changes and is a float timestamp in seconds with millisecond
+			// precision — upstream writes Date.now()/1000, so it is not a
+			// millisecond epoch. Send both so the consumer can replace its bubble
+			// instead of appending.
 			revision := msg.CreatedAt
 			if msg.Revision != nil {
 				revision = *msg.Revision

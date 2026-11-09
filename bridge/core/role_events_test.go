@@ -174,6 +174,58 @@ func TestRoleEventsSpeechIdentityDedupAndUpdate(t *testing.T) {
 	}
 }
 
+// The settle frame that carries no new text: same id, same revision, same text, only
+// draft:true/category:draft turning into draft:false/category:reply. Upstream stamps
+// both the last edit and the commit from Date.now(), so the revision can be identical,
+// and a commit keeps the text as it stands. Dropping this frame leaves the consumer
+// showing a bubble that never settles, and no snapshot or reconnect replays it.
+func TestRoleEventsSettleFrameWithSameRevisionAndTextIsForwarded(t *testing.T) {
+	sent := roleMessageLog{}
+	const revision = 1762650000.123 // 秒为单位的浮点时间戳（含毫秒精度），不是毫秒
+	draft := RoleEvent{Type: "speech", MessageID: 9, Revision: revision, Text: "整句话。", Draft: true, Category: "draft"}
+	if got := sent.accept(&draft); !got || draft.Update {
+		t.Fatalf("first draft accepted=%v update=%v, want true/false", got, draft.Update)
+	}
+	settle := RoleEvent{Type: "speech", MessageID: 9, Revision: revision, Text: "整句话。", Category: "reply"}
+	if got := sent.accept(&settle); !got {
+		t.Fatal("the commit that keeps the same revision and text was dropped; the consumer would never learn the reply settled")
+	}
+	if !settle.Update {
+		t.Fatal("the settle frame was not marked update")
+	}
+	if settle.Draft || settle.Category != "reply" {
+		t.Fatalf("settle frame still looks like a draft: draft=%v category=%q", settle.Draft, settle.Category)
+	}
+	// What a consumer does with it: the id matches the streaming bubble, so it replaces
+	// that one bubble and marks it settled instead of appending another.
+	if settle.MessageID != draft.MessageID || settle.Draft || settle.Category != "reply" || !settle.Update {
+		t.Fatalf("consumer cannot confirm the settle from the frame: %+v", settle)
+	}
+	again := RoleEvent{Type: "speech", MessageID: 9, Revision: revision, Text: "整句话。", Category: "reply"}
+	if got := sent.accept(&again); got {
+		t.Fatal("a repeated commit frame was forwarded twice")
+	}
+	// The draft flag is compared too, so a settle frame that only clears draft (category
+	// unchanged) is still forwarded rather than swallowed.
+	recycle := roleMessageLog{9: {revision: revision, text: "整句话。", draft: true, category: "reply"}}
+	flagOnly := RoleEvent{Type: "speech", MessageID: 9, Revision: revision, Text: "整句话。", Category: "reply"}
+	if got := recycle.accept(&flagOnly); !got || !flagOnly.Update {
+		t.Fatalf("draft flag change accepted=%v update=%v, want true/true", got, flagOnly.Update)
+	}
+}
+
+// A duplicate is only a frame that repeats everything the connection already sent:
+// dropping the settle frame would be the bug this guards against.
+func TestRoleEventsSettleFrameNotSwallowedBySameTextDedup(t *testing.T) {
+	sent := roleMessageLog{}
+	first := RoleEvent{Type: "speech", MessageID: 11, Revision: 1762650001, Text: "好了", Draft: true, Category: "draft"}
+	sent.accept(&first)
+	settle := RoleEvent{Type: "speech", MessageID: 11, Revision: 1762650001, Text: "好了", Category: "reply"}
+	if !sent.accept(&settle) || !settle.Update {
+		t.Fatalf("same revision and text but draft cleared must be forwarded as update: %+v", settle)
+	}
+}
+
 func TestRoleEventsTerminalAndSilentRules(t *testing.T) {
 	m := NewManagementServer(0, "test", nil)
 	e := roleTestEngine(m, "deep")
@@ -277,10 +329,14 @@ func TestRoleEventsDSHNativeSnapshotThinkingSpeechAndCompletion(t *testing.T) {
 	if grown.event == nil || grown.event.MessageID != 7 || grown.event.Revision != 101 || grown.event.Text != "半句话" || grown.event.Category != "draft" {
 		t.Fatalf("draft edit: %+v", grown.event)
 	}
-	frames <- `{"type":"message","message":{"id":7,"author":"deep","author_kind":"role","room_id":1,"text":"半句话","created_at":1,"revision":102}}`
+	// The commit lands in the same millisecond as the last edit and keeps the text:
+	// only the draft flag clears. The frame still has to carry id, revision, text and
+	// the settled category, otherwise the connection-level dedup cannot tell it apart
+	// from a repeat of the draft it already forwarded.
+	frames <- `{"type":"message","message":{"id":7,"author":"deep","author_kind":"role","room_id":1,"text":"半句话","created_at":1,"revision":101}}`
 	committed := next()
-	if committed.event == nil || committed.event.MessageID != 7 || committed.event.Revision != 102 || committed.event.Draft || committed.event.Category != "reply" {
-		t.Fatalf("commit: %+v", committed.event)
+	if committed.event == nil || committed.event.MessageID != 7 || committed.event.Revision != 101 || committed.event.Text != "半句话" || committed.event.Draft || committed.event.Category != "reply" {
+		t.Fatalf("same-millisecond commit: %+v", committed.event)
 	}
 	// A progress card is in-room UI (card without `kind`), not the role's prose: it
 	// must produce no event at all, so the next update is the thinking frame's.
