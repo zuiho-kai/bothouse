@@ -245,26 +245,42 @@ func TestRedactConfigText_ExampleConfig(t *testing.T) {
 	}
 }
 
-// TestRedactConfigText_EmptyAndBroken covers the edges handleConfig can hit: an
-// empty file, and a file that parses badly (the textual pass still has to
-// return something usable rather than failing the request).
-func TestRedactConfigText_EmptyAndBroken(t *testing.T) {
-	for _, in := range []string{"", "\n", "# only a comment\n", "not toml at all\n"} {
+// TestRedactConfigText_EmptyAndCommentOnly covers the one case that still
+// passes without a parse: an empty or comment-only file has no credentials to
+// verify, so handleConfig keeps serving it as it is.
+func TestRedactConfigText_EmptyAndCommentOnly(t *testing.T) {
+	for _, in := range []string{"", "\n", "# only a comment\n", "\n# one\n# two\n"} {
 		out, err := RedactConfigText(in)
 		if err != nil {
 			t.Errorf("RedactConfigText(%q) returned error: %v", in, err)
 		}
-		if out == "" && in != "" {
-			t.Errorf("RedactConfigText(%q) returned empty output", in)
+		if out != in {
+			t.Errorf("RedactConfigText(%q) = %q, want it unchanged", in, out)
 		}
 	}
-	broken := "token = \"unterminated\n[key\n"
-	out, err := RedactConfigText(broken)
-	if err != nil {
-		t.Fatalf("broken input should not error, got %v", err)
-	}
-	if strings.Contains(out, "unterminated") {
-		t.Errorf("unterminated value leaked:\n%s", out)
+}
+
+// TestRedactConfigText_BrokenFailsClosed is the #480 half of the promise: a
+// file that does not parse cannot be verified, so it errors instead of going
+// out with whatever the textual pass happened to mask.
+func TestRedactConfigText_BrokenFailsClosed(t *testing.T) {
+	for _, in := range []string{
+		"not toml at all\n",
+		"token = \"unterminated\n[key\n",
+		"[key\n",
+		"token = supersecretvalue\n",
+	} {
+		out, err := RedactConfigText(in)
+		if err == nil {
+			t.Errorf("RedactConfigText(%q) returned %q, want an error", in, out)
+			continue
+		}
+		if out != "" {
+			t.Errorf("RedactConfigText(%q) returned %q alongside the error", in, out)
+		}
+		if strings.Contains(err.Error(), "supersecretvalue") {
+			t.Errorf("error for %q quotes the config value: %v", in, err)
+		}
 	}
 }
 

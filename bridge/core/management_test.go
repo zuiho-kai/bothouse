@@ -686,6 +686,54 @@ func TestMgmt_Config_RedactsSecrets_StructurePreserved(t *testing.T) {
 	}
 }
 
+// TestMgmt_Config_BrokenFailsClosed is the #480 acceptance test at the handler
+// level: an unparseable config must answer 500 and must not carry any of the
+// file — the credential above all — in the response body.
+func TestMgmt_Config_BrokenFailsClosed(t *testing.T) {
+	srv, ts, _ := testManagementServer(t, "tok")
+
+	cfg := "[management]\nport = 51442\ntoken = \"mgmt-token-do-not-leak\"\n\n[bridge]\nname = \"my-bridge\"\ntoken = unquoted-token-do-not-leak\n"
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetConfigFilePath(cfgPath)
+
+	status, body := mgmtGetRaw(t, ts.URL+"/api/v1/config", "tok")
+	if status != http.StatusInternalServerError {
+		t.Fatalf("broken config: status = %d, want 500; body = %s", status, body)
+	}
+	for _, forbidden := range []string{
+		"mgmt-token-do-not-leak", "unquoted-token-do-not-leak",
+		"[management]", "port = 51442", "my-bridge",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("500 body carries config content %q: %s", forbidden, body)
+		}
+	}
+}
+
+// TestMgmt_Config_CommentOnlyStillServed pins the other half of #480: an empty
+// or comment-only file has no credentials, so the endpoint still answers 200.
+func TestMgmt_Config_CommentOnlyStillServed(t *testing.T) {
+	srv, ts, _ := testManagementServer(t, "tok")
+
+	cfg := "# nothing configured yet\n"
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetConfigFilePath(cfgPath)
+
+	status, body := mgmtGetRaw(t, ts.URL+"/api/v1/config", "tok")
+	if status != http.StatusOK {
+		t.Fatalf("comment-only config: status = %d, want 200; body = %s", status, body)
+	}
+	if body != cfg {
+		t.Errorf("comment-only config changed:\n got %q\nwant %q", body, cfg)
+	}
+}
+
 func TestMgmt_Reload(t *testing.T) {
 	_, ts, e := testManagementServer(t, "tok")
 
