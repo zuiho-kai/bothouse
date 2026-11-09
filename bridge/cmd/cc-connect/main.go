@@ -1755,10 +1755,19 @@ func resolveClaudeProjectDir(workDir string) string {
 }
 
 // resolveConfigPath determines which config file to use.
-// Priority: explicit flag → ./config.toml → ~/.cc-connect/config.toml
+//
+// Priority: subcommand's own --config → root --config → ./config.toml →
+// ~/.cc-connect/config.toml. The root flag counts because `bothouse --config X
+// provider list` names an instance just as `bothouse provider list --config X`
+// does; before this it was read only by `update`, so the subcommand fell through
+// to the default path and failed with "read config: open …config.toml: no such
+// file" (#1384). An explicit subcommand flag still wins over the root one.
 func resolveConfigPath(explicit string) string {
 	if explicit != "" {
 		return explicit
+	}
+	if rootConfigPath != "" {
+		return rootConfigPath
 	}
 	if _, err := os.Stat("config.toml"); err == nil {
 		return "config.toml"
