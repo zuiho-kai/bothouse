@@ -267,3 +267,31 @@ func TestRedactConfigText_EmptyAndBroken(t *testing.T) {
 		t.Errorf("unterminated value leaked:\n%s", out)
 	}
 }
+
+// TestRedactConfigText_Multiline covers values that span lines: an array of
+// inline tables (where the credential keys sit inside elements) and a
+// multi-line string that must not be touched.
+func TestRedactConfigText_Multiline(t *testing.T) {
+	in := `note = """
+token = "this is prose, not a setting"
+"""
+servers = [
+  { name = "a", api_key = "key-a-value", port = 1 },
+  { name = "b", api_key = "key-b-value", port = 2 }, # comment
+]
+`
+	out := redactConfigText(in)
+	for _, secret := range []string{"key-a-value", "key-b-value"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("secret %q survived:\n%s", secret, out)
+		}
+	}
+	if n := strings.Count(out, `api_key = "***"`); n != 2 {
+		t.Errorf("expected 2 masked api_key values, got %d:\n%s", n, out)
+	}
+	for _, kept := range []string{`token = "this is prose, not a setting"`, `name = "a"`, `port = 1`, `# comment`} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("lost %q:\n%s", kept, out)
+		}
+	}
+}
