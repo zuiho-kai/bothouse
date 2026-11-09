@@ -365,6 +365,38 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
         finally:
             os.environ["CC_BIN"] = "false"
 
+    def test_self_pause_in_own_workspace_records_request(self):
+        """agentm #26（11-09）：工作区在自己那一轮 board pause 自己的活：不暂停、不 park（park 会清会话、掐掉这一轮，
+        暂停又会让桥扣下交回），只记 pause_req，叫它交 [report]；别处 pause 照旧停、照旧 park --stop。"""
+        log = Path(TMP) / "selfpark.log"
+        log.write_text("")
+        fake = Path(TMP) / "fakeselfpark"
+        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        board.set_prune_conf(on=False)
+        try:
+            board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="discord:ws1", chat="discord:ch1")
+            os.environ["CC_SESSION_KEY"] = "discord:ws1:u1"
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                board.main(["pause", "1", "十分钟上限"])
+            self.assertIn("[report] #1", buf.getvalue())
+            it = board.items()[0]
+            self.assertEqual(it.get("pause_req"), "十分钟上限")
+            self.assertFalse(it.get("paused"))
+            self.assertEqual(it.get("ws"), "discord:ws1")
+            self.assertEqual(log.read_text(), "")
+            os.environ["CC_SESSION_KEY"] = "discord:ch1:u1"  # 聊天频道里 pause：照旧停、连那一轮一起停
+            board.main(["pause", "1"])
+            it = board.items()[0]
+            self.assertTrue(it.get("paused"))
+            self.assertNotIn("pause_req", it)
+            self.assertIn("--stop", log.read_text().split())
+        finally:
+            os.environ.pop("CC_SESSION_KEY", None)
+            os.environ["CC_BIN"] = "false"
+
     def test_done_parks_bound_item(self):
         """用户 2026-11-04「交回/暂停/验收完当场放回」：没交回就直接 done（或收尾词）的条目还绑着工作区，
         当场 park 放回，不等每小时对账；已交回（解绑）或没绑工作区的不动桥。"""
