@@ -266,6 +266,10 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	if cfg.Management.Enabled == nil || !*cfg.Management.Enabled {
 		return fmt.Errorf("the web admin is off; run `bothouse web` once to switch it on")
 	}
+	// `pet start` creates it; make sure a direct `pet run` (and its state file) works too.
+	if err := os.MkdirAll(paths.dir, 0o755); err != nil {
+		return err
+	}
 	argv, err := findPet(paths)
 	if err != nil {
 		return err

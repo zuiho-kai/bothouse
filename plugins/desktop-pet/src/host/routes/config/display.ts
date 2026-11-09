@@ -79,3 +79,45 @@ export async function setPetDisplay(deps: PetRouteDeps, input: RouteInput): Prom
   // 也就不会拿到可能陈旧的配置（现场表现：不返回聚合时浏览器端要刷新才生效）。
   return okResult(readAllConfig(deps.configPaths));
 }
+
+/**
+ * bothouse fork（#549，一个角色一只桌宠）：改一只宠物的大小（POST /pet-size {id, size}），右键「大小」用。
+ * 与 /pet-display 同一套：反查这只所在的层，只换它的 size，整层白名单重建后写回，再请宿主重启桌面窗口。
+ */
+export async function setPetSize(deps: PetRouteDeps, input: RouteInput): Promise<RouteResult> {
+  if (input.method !== 'POST') return methodNotAllowed();
+  let payload: { id?: unknown; size?: unknown };
+  try {
+    payload = JSON.parse(input.body ?? '') as { id?: unknown; size?: unknown };
+  } catch {
+    return invalidJson();
+  }
+  const petId = typeof payload.id === 'string' ? payload.id.trim() : '';
+  const size = Math.round(Number(payload.size));
+  if (!petId) return failResult('pet-required', 'pet 必填：要指定操作哪只桌宠');
+  if (!Number.isFinite(size) || size <= 0) return failResult('bad-request', 'size 必须是正数');
+  let merged: Record<string, Record<string, unknown>>;
+  try {
+    merged = readAllConfig(deps.configPaths);
+  } catch (e) {
+    return failResult('generate-error', e instanceof Error ? e.message : String(e));
+  }
+  const hit = findPetInstance(merged, petId);
+  if (!hit) return failResult('unknown-pet', `没有这只桌宠：${petId}`);
+  const resolved = resolveConfigLayer(deps, hit.entry);
+  if (!resolved.ok) return failResult('generate-error', `宠物条目配置文件找不到：${hit.entry}`);
+  const layer = resolved.layer;
+  const layerPets = Array.isArray(hit.conf.pets) ? (hit.conf.pets as Record<string, unknown>[]) : [];
+  const pets = layerPets.map((p) => (String(p.id) === petId ? { ...p, size } : p));
+  const clean = saveUserConfig({ pets }, layer.existing);
+  if (!clean) return failResult('bad-request', '宠物配置非法');
+  try {
+    await mkdir(layer.dir, { recursive: true });
+    await writeFile(layer.path, JSON.stringify(clean, null, 2), 'utf8');
+  } catch (e) {
+    return failResult('generate-error', e instanceof Error ? e.message : String(e));
+  }
+  deps.state.writeSection('config', {});
+  void deps.requestRestart();
+  return okResult(readAllConfig(deps.configPaths));
+}
