@@ -36,8 +36,8 @@ const petChatTimeout = 5 * time.Minute
 // petTalk keeps what the API needs from the role event stream.
 type petTalk struct {
 	mu      sync.Mutex
-	session map[string]string // role_key → session it last spoke or worked in
-	recent  []string          // final lines of bound roles, newest last
+	session map[string]string   // role_key → session it last spoke or worked in
+	recent  []string            // final lines of bound roles, newest last
 	byRole  map[string][]string // role_key → its final lines, newest last
 	waiting map[string]chan string
 }

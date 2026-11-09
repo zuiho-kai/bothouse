@@ -26,7 +26,7 @@ import type { BothousePlugin, ExtendedRoleInfo, RoleEvent, RoleEventType } from 
 import { aggregateRoleStatus, getRoleKey } from './roleAggregation';
 import { dshPetPlugin, PET_ADAPTER_ID } from './plugins/dshPetPlugin';
 import { getRoleBindings, saveRoleBindings, type RoleBindings, type RolePluginBinding } from '@/api/roleBindings';
-import { listInstalledPetPacks, type InstalledPetPack } from '@/api/pets';
+import { listInstalledPetPacks, type InstalledPetPack, type PetShowcasePack } from '@/api/pets';
 import { subscribeRoleEvents, type RoleState } from '@/api/roleEvents';
 import api from '@/api/client';
 
@@ -68,6 +68,7 @@ export default function PluginHubPage() {
   const savingRef = useRef(false);
   const [bindingsError, setBindingsError] = useState('');
   const [petPacks, setPetPacks] = useState<InstalledPetPack[]>([]);
+  const [petShowcase, setPetShowcase] = useState<PetShowcasePack[]>([]);
   const [packsError, setPacksError] = useState('');
   const [streamError, setStreamError] = useState(true);
   const [streamEpoch, setStreamEpoch] = useState(0);
@@ -154,6 +155,7 @@ export default function PluginHubPage() {
     }
     if (packs.status === 'fulfilled') {
       setPetPacks(packs.value.installed);
+      setPetShowcase(packs.value.showcase ?? []);
       setPacksError('');
     } else {
       setPetPacks([]);
@@ -731,6 +733,8 @@ export default function PluginHubPage() {
               isSimulated={Object.keys(simulatedRoles).length > 0}
               roleBindings={roleBindings}
               petPacks={petPacks}
+              petShowcase={petShowcase}
+              onPetPacksChanged={fetchSettings}
               bindingsDisabled={bindingsDisabled}
               onRoleBindingChange={handleRoleBindingChange}
             />

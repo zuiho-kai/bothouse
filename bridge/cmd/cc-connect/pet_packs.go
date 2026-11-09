@@ -346,14 +346,15 @@ func petPrepareClip(ffmpeg, packDir, outDir string, a core.PetPackAction) error 
 		return os.Rename(tmp, out)
 	}
 	// Same encode as hunmer/aboutme-pets spritesheet_to_video_pet.py: loop the sheet, crop frame n of the
-	// grid, VP9 with alpha.
+	// grid, VP9 with alpha. crf 30 + realtime instead of its crf 20 — 实测（本机 2026-11-09，claude 包
+	// 「写代码」120 帧 640×360）：crf 20 5.7 s / 1.47 MB，crf 30 realtime 4.5 s / 1.02 MB，260–460 px 的桌宠窗口里看不出差别。
 	vf := fmt.Sprintf("crop=%d:%d:x='mod(n\\,%d)*%d':y='floor(n/%d)*%d',format=yuva420p",
 		a.FrameWidth, a.FrameHeight, a.Columns, a.FrameWidth, a.Columns, a.FrameHeight)
 	fps := fmt.Sprintf("%g", a.FPS)
 	args := []string{"-hide_banner", "-nostdin", "-y", "-v", "error",
 		"-loop", "1", "-framerate", fps, "-i", src, "-frames:v", fmt.Sprint(a.FrameCount),
 		"-vf", vf, "-c:v", "libvpx-vp9", "-auto-alt-ref", "0", "-pix_fmt", "yuva420p",
-		"-row-mt", "1", "-b:v", "0", "-crf", "30", "-deadline", "realtime", "-cpu-used", "8", // crf 30 / realtime：桌宠窗口 260–460px 下看不出差别，转一包快很多（实测见 PR）
+		"-row-mt", "1", "-b:v", "0", "-crf", "30", "-deadline", "realtime", "-cpu-used", "8",
 		"-metadata:s:v:0", "alpha_mode=1", "-f", "webm", tmp}
 	cmd := exec.Command(ffmpeg, args...)
 	var stderr bytes.Buffer
@@ -495,7 +496,7 @@ func petKindFiles(plan []petAssign, look petMainLook, anims map[string][2]map[st
 		byKind[a.Kind] = append(byKind[a.Kind], map[string]any{
 			"id": a.Pet, "name": a.Name, "size": look.Size,
 			"balanceEnabled": false, "whisperEnabled": true, "workStatusEnabled": true, "fixedEnabled": false,
-			"display": "desktop",
+			"display":  "desktop",
 			"position": map[string]any{"corner": look.Corner, "marginX": look.MarginX + slot*look.Size/2, "marginY": look.MarginY},
 		})
 	}

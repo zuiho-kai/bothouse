@@ -6,12 +6,12 @@ import PluginHubPage from './PluginHubPage';
 import api from '@/api/client';
 import { listRoles } from '@/api/roles';
 import { listPlugins, switchPlugin } from '@/api/plugins';
-import { listInstalledPetPacks } from '@/api/pets';
+import { fetchShowcasePack, listInstalledPetPacks } from '@/api/pets';
 import { getRoleBindings, saveRoleBindings } from '@/api/roleBindings';
 import { subscribeRoleEvents, type RoleState } from '@/api/roleEvents';
 vi.mock('@/api/roles', () => ({ listRoles: vi.fn() }));
 vi.mock('@/api/plugins', () => ({ listPlugins: vi.fn(), switchPlugin: vi.fn() }));
-vi.mock('@/api/pets', () => ({ listInstalledPetPacks: vi.fn() }));
+vi.mock('@/api/pets', () => ({ listInstalledPetPacks: vi.fn(), fetchShowcasePack: vi.fn(), importPetPack: vi.fn() }));
 vi.mock('@/api/roleBindings', () => ({ getRoleBindings: vi.fn(), saveRoleBindings: vi.fn() }));
 vi.mock('@/api/roleEvents', () => ({ subscribeRoleEvents: vi.fn() }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -115,11 +115,27 @@ describe('plugin page backend integration', () => {
     expect((find('select-pack-bridge:deep') as HTMLSelectElement).disabled).toBe(true);
     expect(container.textContent).toContain('角色绑定读取失败'); expect(saveRoleBindings).not.toHaveBeenCalled();
   });
-  it('keeps an empty local catalog on failure and only offers repository links', async () => {
+  it('keeps an empty local catalog on failure and still offers the import entry', async () => {
     vi.mocked(listInstalledPetPacks).mockRejectedValue(new Error('offline')); await render();
     expect(container.textContent).toContain('本机形象包读取失败'); expect(container.textContent).toContain('本地已装形象包 (0)');
-    expect(container.querySelector('a[href="https://github.com/hunmer/aboutme-pets"]')).not.toBeNull();
+    expect(find('pet-import-section')).not.toBeNull();
+    expect(container.querySelector('[data-testid^="showcase-pack-"]')).toBeNull();
     expect(find('pet-player-sprite')).toBeNull();
+  });
+  it('lists the open showcase packs with source and license, and downloads one on click', async () => {
+    const source = 'https://github.com/hunmer/aboutme-pets/tree/cb205c271517336b500981a2cca050a1759bceaa/pets/gemini';
+    vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs, showcase: [
+      { id: 'gemini', dir: 'pets/gemini', name: 'Gemini 动作包', description: '猫耳娘', forRole: 'Gemini', license: '作者仓库未附许可', bytes: 215e6, source, installed: false },
+      { id: 'dsh1', dir: 'pets/dsh1', name: '蓝毛小女仆', description: '', forRole: 'DeepSeek', license: '禁止商用', bytes: 256e6, source, installed: false,
+        fetch: { state: 'failed', done: 3, total: 343, error: '从作者仓库下载失败：HTTP 404' } },
+    ] });
+    vi.mocked(fetchShowcasePack).mockResolvedValue({ state: 'downloading', done: 0, total: 299 });
+    await render();
+    expect(find('showcase-pack-gemini').textContent).toContain('作者仓库未附许可');
+    expect(find('showcase-pack-gemini').querySelector('a')?.getAttribute('href')).toBe(source);
+    expect(find('showcase-error-dsh1').textContent).toContain('HTTP 404');
+    await act(async () => { find('showcase-download-gemini').click(); });
+    expect(fetchShowcasePack).toHaveBeenCalledWith('gemini');
   });
   it('uses aggregate role state when a single session becomes idle', async () => {
     await render();
