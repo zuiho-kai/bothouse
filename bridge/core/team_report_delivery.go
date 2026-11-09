@@ -434,7 +434,7 @@ func (e *Engine) completeReportDelivery(rec *pendingReport) {
 		e.markExitReported(rec.Board)
 	}
 	if rec.Board > 0 && !rec.Posted {
-		e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, rec.Kind, rec.Board)
+		e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, rec.Kind, rec.Board, rec.Body)
 	}
 	e.dropDeliveredReport(rec.Key)
 }

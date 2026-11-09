@@ -608,6 +608,29 @@ def pause(nid, why=None):
     return {**hit, "ws": ws} if ws else hit
 
 
+WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀（core/team_wait_external.go waitExternalWhy，两边改要一起改）
+
+
+def wait_external(nid, why, minutes):
+    """外部条件卡住：照 ask 暂停（放回工作区、撤兜底），原因写「等外部：<why>」，wait_until 记到点时刻（epoch）。"""
+    hit = pause(nid, WAIT_EXT + (why or "外部条件"))
+    if not hit:
+        return hit
+    until = int(time.time()) + minutes * 60
+    with _locked():
+        cur = _read()
+        it = next((i for i in cur if i["id"] == nid), None)
+        if it is not None:
+            it["wait_until"] = until
+            it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
+            _write(cur)
+    hit["wait_until"] = until
+    if os.path.isfile(hit.get("where") or ""):
+        append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，"
+                                     f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
+    return hit
+
+
 def _in_own_workspace(it):
     """这一轮就跑在条目绑定的工作区里（CC_SESSION_KEY 的频道 = it["ws"] 的频道）。"""
     here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
@@ -1888,6 +1911,18 @@ def main(argv):
             print("已记等你")
             if os.path.isfile(hit.get("where") or ""):
                 append_forward(hit["where"], f"{_now()} 已提问、等用户答复（#{nid}）：工作区已放回，答复到了会另交一个空工作区接着做。")
+            freed = park_workspace(hit)
+            if freed is not None:
+                print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+        elif cmd == "wait" and len(argv) == 4:
+            # 工作区 [report] 写了「等外部：…」（桥调，core/team_wait_external.go）：外部条件卡住（没空卡、等 CI、等对方），
+            # 条目记「等外部」并带 wait_until，工作区放回池子、撤兜底；看门不再叫醒，到点桥 ws-handoff --resume 接着做
+            # （用户 11-09「没卡导致不断重复跑」→「修」）。
+            nid, minutes = int(argv[1].lstrip("#")), max(1, int(argv[3]))
+            hit = wait_external(nid, argv[2].strip(), minutes)
+            if not hit:
+                sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            print(f"已记等外部，{minutes} 分钟后接着做")
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")

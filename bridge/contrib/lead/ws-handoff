@@ -456,7 +456,10 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
     开工提示对照本机 ws-handoff timer_cmd：任务板编号、上报方式。--desc 带任务：桥把它当这一轮的任务名（谁在干啥、
     频道任务板，core/team.go teamNoteTurn → boardDescOf），不是把开工提示当任务名（#597 G36）。"""
-    head = (f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}。用户答复了：{answer}\n"
+    head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}。{answer}\n"
+            f"先读交接 {path}（之前的进度都在里面）。这块活在任务板是 #{nid}，接手后用 board update {nid} <状态> 更新，"
+            if answer is not None and answer.startswith("到点重试") else
+            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}。用户答复了：{answer}\n"
             f"先读交接 {path}（之前的进度都在里面）。这块活在任务板是 #{nid}，接手后用 board update {nid} <状态> 更新，"
             if answer is not None else
             f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
@@ -473,7 +476,9 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"做完交回：这一轮最后一条回复的第一行写 [report] #{nid} 背景：……，再起一行写做了什么，再一行写「要你做的：……」（只写要用户拍板或只有用户本人能做的事；你自己能验的先验完，不让用户替你核对，没有写「要你做的：没有」），再一行写「我加的：……」（用户原话里没有、你自己加的设定，没有写「我加的：无」）（这四段系统原样贴到聊天频道），之后的行是细节，贴在那条消息下的子话题（中途发的话不转）；"
               f"交回前照交接里「{SKELETON}」节填空（没有就跑 {cc_bin()} report skeleton --id {nid} --notes {path}），"
               f"把草稿写进文件跑 {cc_bin()} report check --notes {path} <草稿文件>，不通过改到通过再发；"
-              f"交回后桥自动把这件标完成、清空会话、放回工作区")
+              f"交回后桥自动把这件标完成、清空会话、放回工作区。"
+              f"被外部条件卡住（没空卡、等 CI、等对方）做不下去时，先做不依赖它的部分，然后照常交 [report] 说做到哪，"
+              f"细节里写一行「等外部：卡在什么」和一行「再看：<多久后，如 2h>」：桥放行、标等外部、放回工作区，到点另交工作区接着做，不要原地反复重试")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
@@ -597,7 +602,8 @@ def resume_answered(nid, answer):
         # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
         sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
                  "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
-    source = "验收退回" if it.get("review_rejected") else "用户答复"
+    source = ("验收退回" if it.get("review_rejected") else
+              "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else "用户答复")
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）
     project = os.environ.get("CC_PROJECT", "")

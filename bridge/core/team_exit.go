@@ -198,7 +198,13 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 				problems, legacy = append(problems, g...), false
 			}
 		}
-		if kind == exitKindReport && item != nil && problems == nil {
+		_, _, waiting := waitExternalOf(body)
+		if kind == exitKindReport && item != nil && problems == nil && waiting {
+			// blocked outside (no free GPU, CI, the other side): it cannot test what it cannot get;
+			// the intent check would bounce it into a loop of repair turns (team_wait_external.go)
+			slog.Info("team exit: report waits on something outside; intent check skipped", "board_item", hid)
+		}
+		if kind == exitKindReport && item != nil && problems == nil && !waiting {
 			// tested what the user named, not a look-alike (team_exit_intent.go); only once the form
 			// passes, so a format bounce costs no model call
 			var in []string
@@ -279,7 +285,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		slog.Info("team exit: test item; nothing posted in the chat channel",
 			"kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "headline", truncateStr(hline, 120))
 		takeWorkspaceImages(sessionKey, time.Time{})
-		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
 		return ""
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
@@ -401,12 +407,12 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	if kind == exitKindReport {
 		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 		e.markExitReported(hid)
-		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
 		return ""
 	}
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 	e.putAsk(&teamAsk{ID: id, Platform: p.Name(), Workspace: ws, Parent: parent, SessionKey: sessionKey, Board: hid, Bot: bot, Forwarded: []string{text}, At: time.Now()})
-	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid)
+	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
 	e.retryPostedAskWake(rec.Key)
 	return id
 }

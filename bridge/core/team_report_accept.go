@@ -89,7 +89,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			owner.teamExit.mu.Unlock()
 		}
 	}
-	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, exitKindReport, hid)
+	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, exitKindReport, hid, body)
 	if !queued {
 		// No lead can look at it: the user still gets it, marked unchecked.
 		slog.Warn("report accept: no lead to accept the report; posting it unchecked", "board_item", hid, "workspace", ws)
@@ -122,7 +122,7 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 	e.postExitImages(ctx, p, rc, rec.Session, rec.Body, item)
 	e.exitMarkPosted(exitKindReport, rec.Board, rec.Headline)
 	e.markExitReported(rec.Board)
-	e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, exitKindReport, rec.Board)
+	e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, exitKindReport, rec.Board, rec.Body)
 }
 
 func boundTime(item *teamTaskBoardItem) time.Time {

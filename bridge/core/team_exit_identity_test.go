@@ -98,7 +98,7 @@ func TestWorkspaceLateReportDoesNotResetNewTask(t *testing.T) {
 		teamTaskBoardItem{ID: 60, What: "新任务", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T02:00:00Z"},
 	)
 	current := e.sessions.GetOrCreateActive(exitWSKey)
-	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65)
+	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65, "")
 	if e.sessions.ActiveSessionID(exitWSKey) != current.ID {
 		t.Fatal("late old report reset the newer task session")
 	}
@@ -118,7 +118,7 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	writeReviewBoard(t, e, old)
 	// Missing board scripts inject a real write failure. The session is released
 	// while the old board record still claims this workspace.
-	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65)
+	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65, "")
 	if it := e.boardItemByID(65); it == nil || it.WS == "" || !it.ReturnedAt.IsZero() {
 		t.Fatalf("board failure not reproduced: %+v", it)
 	}
@@ -139,7 +139,7 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	e.sessions.GetOrCreateActive(exitWSKey)
 	e.beginResetTurn(exitWSKey)
 	defer e.endResetTurn(exitWSKey)
-	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 60)
+	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 60, "")
 	if it := e.boardItemByID(60); it == nil || it.ReturnedAt.IsZero() || it.WS != "" {
 		t.Fatalf("old failed write blocked current handback: %+v", it)
 	}

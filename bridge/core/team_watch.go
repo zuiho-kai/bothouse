@@ -222,6 +222,7 @@ func (w *handoffWatch) run(ctx context.Context) {
 		hour := now.Truncate(teamWorkspaceReconcileEvery)
 		w.reconcileTaskReviews(now, !hour.Equal(reviewHour))
 		reviewHour = hour
+		w.retryWaitingExternal(now)
 		next := w.tick(w.now())
 		wait := watchIdleWake()
 		if !next.IsZero() {
