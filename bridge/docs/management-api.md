@@ -1699,6 +1699,18 @@ On failure the last line carries `error` (pnpm's own line) and `kind`, which the
 own language: `pnpm-missing`, `build-blocked`, `not-found`, `no-matching-version`, `disk-full`,
 `permission`, `integrity`, `network`, `timeout`, `unknown`.
 
+A version rejection is `kind: "incompatible"`. For those, DSH itself prints the exact remedy, and
+the line also carries it as `allow_version` (empty when DSH printed none):
+
+```
+{"error": "…", "kind": "incompatible", "log": "…",
+ "allow_version": "dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk"}
+```
+
+The panel shows that sentence and never runs it: approving an incompatible version is DSH's own
+exact-version exemption, scoped to that package and that runtime version, and it is the person's
+decision to take the risk the command warns about.
+
 #### POST /api/v1/plugins/switch
 
 ```json

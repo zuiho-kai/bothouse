@@ -372,6 +372,10 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 		"error": pluginFailureDetail(tail.String()),
 		"kind":  kind,
 		"log":   tailLines(tail.String(), 40),
+		// DSH prints the exact remedy for a version rejection on its own; the page shows it and
+		// stops there. Bothouse never runs it: approving a mismatch is DSH's own exact-version
+		// decision, and this panel only relays what DSH said (#460).
+		"allow_version": pluginAllowVersionCommand(tail.String()),
 	})
 }
 
@@ -404,6 +408,22 @@ func classifyPluginFailure(log string, timedOut bool) string {
 		}
 	}
 	return "unknown"
+}
+
+// pluginAllowVersionCommand returns DSH's own "to accept the risk, run: …" line, if the run printed
+// one. DSH prints it only for a version rejection, naming the exact package@version, the exact DSH
+// runtime and `--accept-risk`; the page relays that sentence instead of spelling a command itself,
+// so a later DSH wording change cannot leave this panel telling people to run something wrong.
+// 来源：dsh lib/plugin-BiveYA7h.js:95 "dsh: to accept the risk, run: dsh plugin --profile … allow-version … --accept-risk"。
+func pluginAllowVersionCommand(log string) string {
+	const prefix = "dsh: to accept the risk, run: "
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 // pluginFailureDetail is the one line worth showing next to the readable message: pnpm's own error

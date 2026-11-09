@@ -106,6 +106,8 @@ export interface PluginInstallEvent {
   error?: string;
   kind?: string;
   log?: string;
+  /** DSH's own `allow-version … --accept-risk` sentence, when it printed one (version rejection). */
+  allow_version?: string;
 }
 
 /**
@@ -156,7 +158,7 @@ export async function installPlugin(
       const ev = JSON.parse(line) as PluginInstallEvent;
       onEvent(ev);
       if (ev.error !== undefined) {
-        throw Object.assign(new Error(ev.error), { kind: ev.kind, log: ev.log });
+        throw Object.assign(new Error(ev.error), { kind: ev.kind, log: ev.log, allowVersion: ev.allow_version });
       }
       if (ev.done && ev.state) return ev.state;
     }

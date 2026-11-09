@@ -134,3 +134,45 @@ describe('插件安装的来源确认', () => {
     expect(byTestId('plugins-install-error')?.textContent).toContain('显式确认');
   });
 });
+/**
+ * 版本门禁 (#460): DSH refuses a plugin whose declared requirements this DSH does not satisfy and
+ * prints the exact `allow-version … --accept-risk` remedy itself. The page relays that sentence —
+ * it never runs it, and it never invents one — so the person can go to a terminal knowing exactly
+ * what DSH asked for.
+ */
+describe('版本门禁的放行信息', () => {
+  const incompatible = Object.assign(
+    new Error('dsh: plugin command failed; diagnostics: …'),
+    {
+      kind: 'incompatible',
+      log: 'dsh: installation rejected: Plugin dsh-ops@0.5.2 is incompatible with dsh 0.2.1-rc.5',
+      allowVersion: 'dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk',
+    },
+  );
+
+  beforeEach(() => { inspectPlugin.mockImplementation(async () => registryInspection); });
+
+  it('relays the command DSH printed without running it', async () => {
+    installPlugin.mockRejectedValueOnce(incompatible);
+    await render();
+    await typeSpec('dsh-ops@0.5.2');
+    await inspect();
+    await act(async () => { byTestId('plugins-install-go')!.click(); });
+
+    const relay = byTestId('plugins-allow-version');
+    expect(relay?.textContent).toContain('dsh plugin --profile web allow-version dsh-ops@0.5.2');
+    expect(relay?.textContent).toContain('--accept-risk');
+    // Shown, not executed: one install attempt, and nothing else was asked of the backend.
+    expect(installPlugin).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows nothing extra when DSH printed no remedy line', async () => {
+    installPlugin.mockRejectedValueOnce(Object.assign(new Error('boom'), { kind: 'incompatible', log: 'x' }));
+    await render();
+    await typeSpec('dsh-ops@0.5.2');
+    await inspect();
+    await act(async () => { byTestId('plugins-install-go')!.click(); });
+    expect(byTestId('plugins-allow-version')).toBeNull();
+    expect(byTestId('plugins-install-error')?.textContent).toContain('没装成');
+  });
+});

@@ -408,3 +408,28 @@ func TestPluginsSwitchComputesInsideTheLock(t *testing.T) {
 		t.Fatalf("the switch did not turn demo-bundle off: %s", after)
 	}
 }
+
+// TestPluginAllowVersionCommandRelaysDSHOwnLine pins the one thing this panel adds for a version
+// rejection: it repeats DSH's own `allow-version … --accept-risk` sentence verbatim, and says
+// nothing when DSH did not print one. The page shows the sentence; the panel never runs it, because
+// accepting a mismatch is DSH's exact-version decision, not this profile editor's (#460).
+func TestPluginAllowVersionCommandRelaysDSHOwnLine(t *testing.T) {
+	log := "\ndsh: installation rejected: Plugin dsh-ops@0.5.2 is incompatible with dsh 0.2.1-rc.5: requirements {\"engines.dsh\":\">=0.2.2-rc.1 <0.2.3-0\"}.\n" +
+		"dsh: nothing was installed.\n" +
+		"dsh: to accept the risk, run: dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk\n"
+	want := "dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk"
+	if got := pluginAllowVersionCommand(log); got != want {
+		t.Fatalf("allow-version = %q, want the DSH line %q", got, want)
+	}
+	for _, other := range []string{
+		"", // nothing printed
+		"Error: ERR_PNPM_FETCH_404\n  × 404 Not Found - GET https://registry.npmjs.org/nope",
+		// A version rejection whose remedy line DSH changed or dropped: the field stays empty
+		// rather than this panel inventing a command.
+		"dsh: installation rejected: Plugin x@1 is incompatible with dsh 0.2.1-rc.5: requirements {}.\n",
+	} {
+		if got := pluginAllowVersionCommand(other); got != "" {
+			t.Fatalf("allow-version(%q) = %q, want empty", other, got)
+		}
+	}
+}

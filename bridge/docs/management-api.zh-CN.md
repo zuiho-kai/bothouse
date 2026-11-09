@@ -1597,6 +1597,15 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 
 失败时最后一行带 `error`（pnpm 原话）和 `kind`，页面翻成中文：`pnpm-missing`、`build-blocked`、`not-found`、`no-matching-version`、`disk-full`、`permission`、`integrity`、`network`、`timeout`、`unknown`。
 
+版本门禁拒绝是 `kind: "incompatible"`。这种失败 DSH 自己会打出确切的放行命令，最后一行同时带 `allow_version`（DSH 没打就是空串）：
+
+```
+{"error": "…", "kind": "incompatible", "log": "…",
+ "allow_version": "dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk"}
+```
+
+页面只把这句话显示出来，不会替你执行：放行是 DSH 自己的精确版本豁免，只对那个包的那个运行时版本有效，要不要承担命令里写的风险由人决定。
+
 #### POST /api/v1/plugins/switch
 
 ```json
