@@ -363,7 +363,7 @@ func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(keys)
 	role := ""
 	if len(keys) > 0 {
-		role = keys[0]
+		role = strings.TrimPrefix(keys[0], "bridge:")
 	}
 	petAPIJSON(w, map[string]any{"role": role})
 }
