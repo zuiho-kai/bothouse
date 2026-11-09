@@ -1,6 +1,9 @@
 package core
 
-import "log/slog"
+import (
+	"log/slog"
+	"strings"
+)
 
 // SystemNoticeQuieter is implemented by platforms that keep the bridge's own
 // notices out of some chats (QQ groups: other people's slash commands drew a
@@ -9,6 +12,19 @@ import "log/slog"
 // only logged there; private chats and other platforms are unchanged.
 type SystemNoticeQuieter interface {
 	QuietSystemNotices(replyCtx any) bool
+}
+
+// sessionNoticePrefix starts every "starting a fresh session" notice (cold cache,
+// context size, image bloat, prompt too long, resume failure).
+const sessionNoticePrefix = "♻️ "
+
+// SessionNoticeQuieter is implemented by platforms that drop the ♻️ new-session
+// notice in every chat, private ones included. QQ is such a platform: the owner
+// asked to stop seeing it in her private chat too (user 2026-11-09 「改吧 你直接改了」
+// after a 「空闲 39.2 小时…开新会话」 line showed up in a private chat). The
+// session still switches and carries the handoff; only the line is not sent.
+type SessionNoticeQuieter interface {
+	QuietSessionNotices(replyCtx any) bool
 }
 
 // InsertReceiptQuieter is implemented by platforms that drop the mid-turn insert
@@ -63,6 +79,12 @@ func (e *Engine) errorKeptOutOfChat(p Platform, replyCtx any, errText string) bo
 // sendSystemNotice posts a bridge notice (marked for SystemNoticeMarker
 // platforms) unless the platform keeps such notices out of that chat.
 func (e *Engine) sendSystemNotice(p Platform, replyCtx any, notice string) {
+	if strings.HasPrefix(notice, sessionNoticePrefix) {
+		if q, ok := p.(SessionNoticeQuieter); ok && q.QuietSessionNotices(replyCtx) {
+			slog.Info("new-session notice kept out of chat", "project", e.name, "platform", p.Name(), "notice", notice)
+			return
+		}
+	}
 	if !e.noticeKeptOut(p, replyCtx, notice) {
 		e.send(p, markSystemNotice(p, replyCtx), notice)
 	}

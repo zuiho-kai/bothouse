@@ -63,3 +63,24 @@ func TestSendSystemNoticeKeptOutOfQuietGroup(t *testing.T) {
 		t.Fatalf("private chat should keep the new-session notice, got %q", sent)
 	}
 }
+
+// quietSessionPlatform drops the ♻️ new-session notice in every chat, like QQ
+// (user 2026-11-09), while other notices keep the group-only rule.
+type quietSessionPlatform struct {
+	quietGroupPlatform
+}
+
+func (p *quietSessionPlatform) QuietSessionNotices(replyCtx any) bool { return true }
+
+func TestNewSessionNoticeKeptOutOfPrivateChat(t *testing.T) {
+	e := newTestEngine()
+	p := &quietSessionPlatform{quietGroupPlatform{stubPlatformEngine{n: "qq"}}}
+	e.sendSystemNotice(p, "private", "♻️ 空闲 39.2 小时、上下文约 8.2 万 token，缓存已过期：开新会话")
+	if sent := p.getSent(); len(sent) != 0 {
+		t.Fatalf("private chat got the new-session notice: %q", sent)
+	}
+	e.sendSystemNotice(p, "private", "未知命令 /foo")
+	if sent := p.getSent(); len(sent) != 1 {
+		t.Fatalf("other notices should still reach a private chat, got %q", sent)
+	}
+}

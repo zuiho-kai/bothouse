@@ -1948,6 +1948,13 @@ func (p *Platform) QuietSystemNotices(replyCtx any) bool {
 	return ok && rc != nil && rc.messageType == "group"
 }
 
+// QuietSessionNotices drops the ♻️ new-session notice in private chats as well as
+// groups; the fresh session and its handoff are unaffected (user 2026-11-09).
+func (p *Platform) QuietSessionNotices(replyCtx any) bool {
+	rc, ok := replyCtx.(*replyContext)
+	return ok && rc != nil
+}
+
 // QuietInsertReceipt drops the mid-turn insert acknowledgement (↪ 已插入) in private
 // chats as well as groups: the line is the bridge talking about itself, the inserted
 // text still reaches the running turn and that turn still answers (user 2026-11-05
