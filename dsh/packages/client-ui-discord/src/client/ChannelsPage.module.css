@@ -2319,4 +2319,14 @@ button.headMeta:hover { color: var(--dsw-alias-label-primary); background: var(-
     overflow-wrap: anywhere;
   }
   .own .bubbleLine > .msgTools > .msgToolNote { right: auto; left: 0; }
+  /* #235 返工：日志是滚动容器，行贴着日志上沿时「在上方」会被裁掉（贴顶时整条 42px 全不可见）。
+     只在实测上方放不下时才翻到工具条下方，默认位置不变（贴底更常遇到）；翻转用与 bottom 对称的
+     top: calc(100% + 4px)，工具条定位不动。 */
+  .bubbleLine > .msgTools > .msgToolNote.msgToolNoteBelow {
+    top: calc(100% + 4px);
+    bottom: auto;
+    /* 翻到下方后正落在按钮 data-tip（z-index:3）的位置上，不抬一层会被那两字的深底压住；
+       只在翻转这一种情况抬，默认位置与工具条不动。 */
+    z-index: 4;
+  }
 }

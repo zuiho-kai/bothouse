@@ -277,9 +277,30 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const [toolNote, setToolNote] = useState<{ tool: 'copy' | 'task'; text: string } | undefined>(undefined)
   const noteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => { clearTimeout(noteTimer.current) }, [])
-  const note = (tool: 'copy' | 'task', text: string): void => {
+  // #235 返工：日志（.log）是滚动容器，提示浮在工具条上方时，行贴着日志上沿就会被裁掉，行在正上沿时整条不可见。
+  // 默认仍在上面（贴底更常遇到），只在实测上方放不下时翻到工具条下方。
+  const noteRef = useRef<HTMLSpanElement>(null)
+  const [noteBelow, setNoteBelow] = useState(false)
+  const showNote = (next: { tool: 'copy' | 'task'; text: string }): void => {
     clearTimeout(noteTimer.current)
-    setToolNote({ tool, text })
+    setNoteBelow(false)
+    setToolNote(next)
+  }
+  useLayoutEffect(() => {
+    if (toolNote === undefined || noteBelow) return
+    const el = noteRef.current
+    if (el === null) return
+    // 裁切边是最近的可滚动祖先的 padding 盒上沿（overflow 在边框内侧裁）。
+    let clip: HTMLElement | undefined
+    for (let node = el.parentElement; node !== null; node = node.parentElement) {
+      const overflowY = getComputedStyle(node).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll') { clip = node; break }
+    }
+    if (clip === undefined) return
+    if (el.getBoundingClientRect().top < clip.getBoundingClientRect().top + clip.clientTop) setNoteBelow(true)
+  }, [toolNote, noteBelow])
+  const note = (tool: 'copy' | 'task', text: string): void => {
+    showNote({ tool, text })
     noteTimer.current = setTimeout(() => { setToolNote(undefined) }, 2000)
   }
   const copy = (): void => {
@@ -291,6 +312,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const toTask = (): void => {
     if (onTask === undefined || toolNote?.tool === 'task') return
     setToolNote({ tool: 'task', text: t('toolTasking') })
+    setNoteBelow(false)
     onTask(message).then(() => { note('task', t('toolTasked')) }, (error: unknown) => {
       note('task', t('toolTaskFailed', { message: error instanceof Error ? error.message : String(error) }))
     })
@@ -378,7 +400,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const tools = message.author_kind !== 'system' && card === undefined
     ? (
         <span className={css.msgTools} data-message-tools>
-          {toolNote !== undefined && <span className={css.msgToolNote} role="status">{toolNote.text}</span>}
+          {toolNote !== undefined && <span ref={noteRef} className={`${css.msgToolNote} ${noteBelow ? css.msgToolNoteBelow : ''}`} data-note-below={noteBelow ? '' : undefined} role="status">{toolNote.text}</span>}
           {/* #1017: icons with a label 80 ms after hover (data-tip); aria-label keeps the name for readers. */}
           {message.text !== '' && <button type="button" className={css.msgTool} data-tip={t('toolCopy')} aria-label={t('toolCopy')} onClick={copy}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></svg>
