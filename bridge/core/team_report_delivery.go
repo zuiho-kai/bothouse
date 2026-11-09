@@ -44,19 +44,23 @@ type pendingReport struct {
 	Authorization *AuthorizationTurn `json:"authorization,omitempty"`
 	// sending serializes a finishing turn and recovery sweep for this record;
 	// it is process-local so a restart can retry an interrupted delivery.
-	sending     bool
-	Key         string    `json:"key"` // dedupe key: platform/chat/workspace/kind/board/body
-	JobID       string    `json:"job_id"`
-	Platform    string    `json:"platform"`
-	Chat        string    `json:"chat"`
-	Workspace   string    `json:"workspace"`
-	Bot         string    `json:"bot"`
-	Kind        string    `json:"kind"`
-	Body        string    `json:"body"`
-	Headline    string    `json:"headline,omitempty"` // first line posted by postExitHeadline, if any
-	Board       int       `json:"board,omitempty"`
-	Session     string    `json:"session"`
-	Posted      bool      `json:"posted"` // the headline is already in the chat channel
+	sending   bool
+	Key       string `json:"key"` // dedupe key: platform/chat/workspace/kind/board/body
+	JobID     string `json:"job_id"`
+	Platform  string `json:"platform"`
+	Chat      string `json:"chat"`
+	Workspace string `json:"workspace"`
+	Bot       string `json:"bot"`
+	Kind      string `json:"kind"`
+	Body      string `json:"body"`
+	Headline  string `json:"headline,omitempty"` // first line posted by postExitHeadline, if any
+	Board     int    `json:"board,omitempty"`
+	Session   string `json:"session"`
+	Posted    bool   `json:"posted"` // the headline is already in the chat channel
+	// Held: a [report] waiting for the chat lead's acceptance (team_report_accept.go); the user
+	// has not seen it. Only ws-pass (release), ws-forward (reject) or leadAcceptTimeout end it.
+	Held        bool      `json:"held,omitempty"`
+	Verdict     string    `json:"verdict,omitempty"` // the lead's item-by-item check, or why it went back
 	CreatedAt   time.Time `json:"created_at"`
 	DeliveredAt time.Time `json:"delivered_at,omitzero"`
 	Attempts    int       `json:"attempts,omitempty"`
@@ -376,7 +380,8 @@ func (e *Engine) settleReportRecord(key, text string, runErr error) {
 	}
 	e.teamExit.mu.Lock()
 	rec := e.loadReportsLocked()[key]
-	if rec == nil || rec.delivered() || rec.sending {
+	if rec == nil || rec.delivered() || rec.sending || rec.Held {
+		// A held report is ended by the lead's verdict or the timeout, not by its turn ending.
 		e.teamExit.mu.Unlock()
 		return
 	}
@@ -520,7 +525,17 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 		jobID := rec.JobID
 		createdAt := rec.CreatedAt
 		wakePending := rec.Posted && rec.Wake != nil
+		held := rec.Held
 		e.teamExit.mu.Unlock()
+		if held {
+			// No verdict from the lead in time: post it as written, marked unchecked (11-09).
+			if time.Since(createdAt) >= leadAcceptTimeout {
+				if err := e.deliverHeldReport(k, "", true); err != nil {
+					slog.Error("report accept: unchecked fallback post failed; record kept", "key", k, "error", err)
+				}
+			}
+			continue
+		}
 		if wakePending {
 			if !onlyFailed || time.Since(createdAt) >= teamReportRecoveryGrace {
 				e.retryPostedAskWake(k)

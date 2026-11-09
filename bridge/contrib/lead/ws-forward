@@ -4,6 +4,8 @@
 #   --notes 转给那份交接对应的工作区（ws-up 给聊天频道的提示里会带上）；不给就转给最近一次交接。
 #   --interrupt 用户改了要求：工作区正在跑就插进当前这一轮（timer --inject-if-busy），提示让它先停下按旧要求做的部分。
 #     桥在用户回复某件活的汇报时自动带上它（reply_task.go forwardReplyToWorkspace）。来源：用户 10-30 复盘，改需求没转进工作区。
+# 桥扣着这件活的文字 [report] 等主角色验收时（core/team_report_accept.go），转话即打回：照常转给工作区返工，
+# 送到后让桥丢掉那份汇报不贴（bothouse report reject）；没送到就不丢，超时照贴。来源：用户 11-09「工作群返回你要看一眼」，打回用 ws-forward。
 # 最近一次交接记在 <GATE_SETUP_DIR>/ws-handoff-last.json（ws-handoff 写，见 _team.py）。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区……」「方便任意人当主角色，并且也能放到仓库」。
 import json, os, re, subprocess, sys, time
@@ -69,6 +71,24 @@ def recipient_project(last: dict, live):
     raise ValueError("ws-forward: 当前任务负责人无法唯一对应接收项目；请核任务板与交接归属，不转给调用者")
 
 
+def reject_held_report(path: str, summary: str):
+    """这份交接的文字汇报正被桥扣着等验收：转话就是打回，让桥别再贴它（超时也不贴）。没扣着就什么都不做。"""
+    ids = [int(i["id"]) for i in board.items() if i.get("where") == path and str(i.get("id", "")).isdigit()]
+    if not ids:
+        return
+    nid = max(ids)
+    try:
+        r = subprocess.run([_team.cc_bin() or "cc-connect", "report", "reject", "--id", str(nid), "--reason", summary],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"ws-forward: 没能让桥打回 #{nid} 的待验收汇报（{exc}），它可能超时后照贴", file=sys.stderr)
+        return
+    if r.returncode == 0:
+        print(f"ws-forward: #{nid} 的文字汇报已打回，不会贴给用户", file=sys.stderr)
+    elif r.returncode != 3:  # 3：没有扣着的汇报
+        print(f"ws-forward: 打回 #{nid} 的待验收汇报失败：{(r.stderr or r.stdout).strip()[:200]}", file=sys.stderr)
+
+
 def other_chat_work(last: dict):
     """last 的工作区眼下挂着的、别的聊天频道交来的在做条目（没暂停、不在待办）；没有返回 None。
     这份交接的来源频道查不到时，工作区上任何别的交接的在做条目都算（宁可不转，不串频道）。"""
@@ -111,6 +131,8 @@ def main(argv):
     if hit and hit.get("pause_why") == board.ASK_WHY and not hit.get("ws"):
         # 提问后工作区已让出（board ask / ws-up --ask）：答复交 ws-handoff --resume 找空工作区接着做，不发去旧工作区
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
+        if r.returncode == 0:
+            reject_held_report(last["file"], argv[0])
         sys.exit(r.returncode)
     live = next((i for i in board.items() if i.get("where") == last["file"] and i.get("chat") and not i.get("paused")), None)
     if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
@@ -121,6 +143,8 @@ def main(argv):
             # 交 ws-handoff --resume 找空着的接着做（都占着就新建或排队）。来源 #1154：11-06 23:02 记忆论坛的转话
             # 发进了已在做小剧场的工作区2，截图落到小剧场频道，用户「为什么会推到这边来」。
             r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
+            if r.returncode == 0:  # 交回待验收的活转话＝打回：桥扣着的文字汇报不再贴
+                reject_held_report(last["file"], argv[0])
             sys.exit(r.returncode)
     if live is None:
         other = other_chat_work(last)
@@ -141,6 +165,7 @@ def main(argv):
         why = (r.stderr.strip() or r.stdout.strip())[:200]
         board.append_forward(last["file"], f"{now} ⚠️ 上面这条没送到工作区（timer add 失败：{why}）。工作区没收到它，重试请原样重发这一句。")
         sys.exit(f"ws-forward: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
+    reject_held_report(last["file"], argv[0])  # 送到了：桥扣着的文字汇报（如有）算打回
     # 转了新话，工作区要接着做：这件活的兜底定时器从现在重新算（board.arm_guard；暂停的活不挂）
     for it in board.items():
         if it.get("where") == last["file"] and it.get("ws") and not it.get("paused") and not it.get("backlog"):
