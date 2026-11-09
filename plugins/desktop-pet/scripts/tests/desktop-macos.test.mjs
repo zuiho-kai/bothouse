@@ -38,7 +38,9 @@ test(
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ main: config }));
       } else if (path.includes('/thumb/')) {
-        const file = join(root, 'assets/webm', basename(path));
+        // bothouse fork：包里不带上游 assets/webm，缺的动画用默认形象的待机动画
+        const up = join(root, 'assets/webm', basename(path));
+        const file = existsSync(up) ? up : join(root, 'assets/roles/maomao/idle.webm');
         if (!existsSync(file)) {
           res.writeHead(404);
           res.end();

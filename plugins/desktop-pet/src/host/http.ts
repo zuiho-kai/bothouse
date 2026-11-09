@@ -11,8 +11,8 @@ import { join, normalize, sep } from 'node:path';
 
 /** 不同扩展名对应的 Content-Type 映射 */
 
-/** bothouse fork：桌宠外形随角色绑定换，同名素材会变，所以在 bothouse 下每次都回源（本机回环，代价小）。 */
-const ASSET_CACHE = process.env.BOTHOUSE_PET_API ? 'no-cache' : 'public, max-age=3600';
+/** bothouse fork：桌宠外形随形象换（菜单换形象、绑定角色变），同名素材会变，所以每次都回源（本机回环，代价小）。 */
+const ASSET_CACHE = 'no-cache';
 export const MIME: Record<string, string> = {
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',

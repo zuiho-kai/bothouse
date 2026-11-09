@@ -369,7 +369,6 @@ jobs:
         run: |
           set -euo pipefail
           npx -y pnpm@10 install --frozen-lockfile
-          node scripts/bothouse-fetch-assets.mjs
           npx tsdown
           node scripts/build-desktop-core.mjs # runtime/electron-helper/shared-core.js is gitignored; without it the pet window is empty
           npm pack --ignore-scripts

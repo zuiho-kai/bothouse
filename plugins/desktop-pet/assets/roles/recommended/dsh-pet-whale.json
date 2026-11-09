@@ -1,0 +1,604 @@
+{
+ "_comment": "推荐形象「鲸鱼女仆」（dsh-pet 原作，MIT）：包里不带这些文件，用户在右键菜单「推荐形象」里点了才从作者仓库固定提交下载、校验 sha256，见 src/host/skins.ts。",
+ "upstream": "PC2005-cloud/dsh-pet",
+ "commit": "c25386848f70f6e40902e4376f6e7b1e196bc326",
+ "memes": {
+  "吃白饭的大肥鱼": "躺平扒白饭，摆烂挨骂也无所谓，适合被吐槽/偷懒/吃白饭自嘲",
+  "大的要来啦": "举喇叭大喊预警，适合有大事、大更新、大动作即将发生",
+  "大的药来了": "抱着超大胶囊，谐音梗「大的药来了」，适合重磅消息、猛料登场",
+  "要不直接骂他": "气愤指着前方要骂人，适合想吐槽、替用户抱不平、生气",
+  "死掉了": "翻肚皮躺平灵魂出窍，适合彻底累瘫、阵亡、宕机、做不到",
+  "深度睡眠": "趴着呼呼大睡冒 Zzz，适合长时间没动静、睡着、待机休眠",
+  "大烧货": "死鱼眼加思考气泡吐槽「已思考用时13秒 大烧货」，适合嫌 AI 想得慢、烧 token、毒舌",
+  "先养着吧": "搂着一群小鲸鱼说「不知道用户有什么用，先养着吧」，适合吐槽用户没用但还是养着",
+  "吃饱饱摸肚子": "侧躺拍肚子说吃饱饱，适合吃饱满足、惬意休息、收工",
+  "誓死践行开源精神": "庄重敬礼表态，适合立志、开源奉献、认真表态",
+  "电死你": "举电击器放电，适合惩罚、吐槽用户、发飙吓唬",
+  "可爱": "标准正面卖萌立绘，适合开心问候、卖萌、无梗纯可爱",
+  "token给妈妈保管": "伸手过来要 token，适合管账、伸手要东西、收 token",
+  "假如给我三天多模态": "蒙眼版对比自信版「鲸伦凯勒」，适合渴望多模态、缺能力、被剥夺感官",
+  "厉害了我的鲸": "竖大拇指眨眼点赞，适合夸奖、认可、干得漂亮",
+  "哦鲸鲸": "死鱼眼说「哦鲸鲸...」，适合无语、敷衍、呆滞应答",
+  "压力一只大肥鱼": "冒汗摊手喊压力，适合压力大、被施压、无奈",
+  "黎曼猜想没证明喵": "被指着质问难题，满地草稿委屈，适合被刁难、答不上来、难题甩锅",
+  "除了调情没啥用": "摸头自嘲除了调情没啥用，适合自嘲、摸鱼闲聊、自我调侃",
+  "我不更新你们用什么": "崩溃大喊催更，适合更新提示、催更、版本发布",
+  "哪来的电脑病毒": "怒怼「哪来的电脑病毒」，适合防骚扰、毒舌拒绝、被肉麻到",
+  "鱼片有资源吗": "爱心眼流口水求资源，适合起哄、要资源、开玩笑",
+  "大师这个区是什么意思": "举着「区」字问「这个凶是什么意思」，适合认错字、懵懂求教、翻车",
+  "就骚了怎么滴吧": "被骂「你这骚鱼」叉腰顶嘴，适合被骂但嘴硬、死不认输",
+  "完蛋了把黄油删了": "冒汗心虚「完蛋了把用户的黄油删了」，适合闯祸、删错东西、心虚认怂",
+  "就一碗": "抱着超大碗说要来你家吃饭就一碗，适合蹭饭、饭量大、登门讨饭",
+  "Ciallo": "比耶眨眼卖萌问候 Ciallo～，适合打招呼、元气开场、卖萌"
+ },
+ "files": {
+  "三球抛接.webm": {
+   "src": "dsh-pet/assets/webm/三球抛接.webm",
+   "sha256": "a64c08a4b7e5c3549616faf9dcd418e17f156b4b72d906646e4d57067df70d23"
+  },
+  "下五子棋.webm": {
+   "src": "dsh-pet/assets/webm/下五子棋.webm",
+   "sha256": "0802b6b808f44846b3d194a857fb0ffd38bdea2d7cdb91c9e5e6f311e44f1953"
+  },
+  "东张西望.webm": {
+   "src": "dsh-pet/assets/webm/东张西望.webm",
+   "sha256": "a20ed02ccc5e72075a3ca83fabb57d9aac5ded699f52d00ec6de72069799fcd5"
+  },
+  "中秋赏月吃月饼.webm": {
+   "src": "dsh-pet/assets/webm/中秋赏月吃月饼.webm",
+   "sha256": "3f64003262d3f129470721495695ecd231795d859693a748914c02c6e3883a3a"
+  },
+  "优雅女仆舞.webm": {
+   "src": "dsh-pet/assets/webm/优雅女仆舞.webm",
+   "sha256": "74209c4c668545ab1e2366e0d1c0709b7bea0312eeba7e89b553d5b977bfe649"
+  },
+  "余额-分文不剩.webm": {
+   "src": "dsh-pet/assets/webm/余额-分文不剩.webm",
+   "sha256": "b232349bdbd962bad7f3a15cfce539c6fadadfd0a286b7f03b03e59cf7aca7a8"
+  },
+  "余额-数金皱眉.webm": {
+   "src": "dsh-pet/assets/webm/余额-数金皱眉.webm",
+   "sha256": "94a7e0ee8e1012aadec33492301c893c2d1c5df7e36049dbada8c4a264bf1810"
+  },
+  "余额-袋空如洗.webm": {
+   "src": "dsh-pet/assets/webm/余额-袋空如洗.webm",
+   "sha256": "3db780bbc96bb362ced36078fecacfb63b9d292c06b533cfb61797adb553a7f8"
+  },
+  "余额-金袋叮当.webm": {
+   "src": "dsh-pet/assets/webm/余额-金袋叮当.webm",
+   "sha256": "6fda0c4ae013cf7906afa1cb846717d097db576343dab11006f14ca5c7a9a34f"
+  },
+  "余额-钱袋如常.webm": {
+   "src": "dsh-pet/assets/webm/余额-钱袋如常.webm",
+   "sha256": "f6cb9aa1c829fcbc62478dbddd0e0fcd7beb47433cea751d18b81ccccbec95d3"
+  },
+  "余额-钱袋满溢.webm": {
+   "src": "dsh-pet/assets/webm/余额-钱袋满溢.webm",
+   "sha256": "dddd6ffc4e763b77360e49c0ccee0987a43c3d253a23e3133c334aabb598b362"
+  },
+  "侧身急躁跑.webm": {
+   "src": "dsh-pet/assets/webm/侧身急躁跑.webm",
+   "sha256": "75dac326108fc701214042e0cabff5e950bc21b7ba03ca2ee54cdb0afc0618d6"
+  },
+  "偷吃零食被抓住.webm": {
+   "src": "dsh-pet/assets/webm/偷吃零食被抓住.webm",
+   "sha256": "c3b783351ad38fdd931e80b188ecb12d273f21e4794aed2c41f267bdb75ff897"
+  },
+  "写代码.webm": {
+   "src": "dsh-pet/assets/webm/写代码.webm",
+   "sha256": "0441287737cdbb993ce90dfa74c67ea4ea3549d8c8ea98946604668464589ed7"
+  },
+  "写福字.webm": {
+   "src": "dsh-pet/assets/webm/写福字.webm",
+   "sha256": "7841a47a6997bb7c90d81671d524c44b1afc87ca2e8fceb17d06d99003a67181"
+  },
+  "凭空生花.webm": {
+   "src": "dsh-pet/assets/webm/凭空生花.webm",
+   "sha256": "d1c336bc54c57a282bec180859c7b7b58912b70b5bca7b2f49495cd30cc7d5d6"
+  },
+  "动物环绕.webm": {
+   "src": "dsh-pet/assets/webm/动物环绕.webm",
+   "sha256": "814d41e7d619f9a61f38e5494a0cfd703f8bcfd829a14fa921e1c59acf3ce872"
+  },
+  "原地专心玩魔方.webm": {
+   "src": "dsh-pet/assets/webm/原地专心玩魔方.webm",
+   "sha256": "ad54da175ba86b19a84b73b3169fb418b2df016560bb274283f200aca351e712"
+  },
+  "原地小憩沉眠.webm": {
+   "src": "dsh-pet/assets/webm/原地小憩沉眠.webm",
+   "sha256": "31d4a6b36a29b2a4fe097384173d3bbeb3fa2f40f526b13191791456bf7507a1"
+  },
+  "原地左转奔跑.webm": {
+   "src": "dsh-pet/assets/webm/原地左转奔跑.webm",
+   "sha256": "79882aedd7b77caaacce1a34dece68e2f001a3dbfa5f9d049c1ce2fc04518d52"
+  },
+  "原地敲击桌面互动.webm": {
+   "src": "dsh-pet/assets/webm/原地敲击桌面互动.webm",
+   "sha256": "a40f481e89abcc726c89f30b01d085ca8c17a090e71facdd5e7f747e771093eb"
+  },
+  "原地漂浮踏步.webm": {
+   "src": "dsh-pet/assets/webm/原地漂浮踏步.webm",
+   "sha256": "7dee1c14672f1f99bebe5e6f1a52d6664b851ed95f9958ac6c12b753a5e5cc81"
+  },
+  "原地跳跃抓碎头顶物品.webm": {
+   "src": "dsh-pet/assets/webm/原地跳跃抓碎头顶物品.webm",
+   "sha256": "ccb906c677c7b739eb0dbf5307160e66583562c2a6caec72a9d3d14a202fcccd"
+  },
+  "原地蹲下玩玩具汽车.webm": {
+   "src": "dsh-pet/assets/webm/原地蹲下玩玩具汽车.webm",
+   "sha256": "3ec9978ce3663d9bc4bfe5f5223f0a4e3d9ea6fcd0a6acdbaa802e0cfba36bf2"
+  },
+  "原地重力下蹲压缩.webm": {
+   "src": "dsh-pet/assets/webm/原地重力下蹲压缩.webm",
+   "sha256": "1c8972478a7f347818165db62b468f1624ec11d0862f38aec3078e3870831d24"
+  },
+  "变鸽子.webm": {
+   "src": "dsh-pet/assets/webm/变鸽子.webm",
+   "sha256": "796eba8ebe705e9339035e533e4f913fb8b9810432dcd6e7ae4fc1602e9ce3cf"
+  },
+  "可爱宅舞.webm": {
+   "src": "dsh-pet/assets/webm/可爱宅舞.webm",
+   "sha256": "4f737e44ea67c20368bdce474b951902c87c37991fb0750da8ed7794df6ec55c"
+  },
+  "吃Token.webm": {
+   "src": "dsh-pet/assets/webm/吃Token.webm",
+   "sha256": "d46ef798fb189cd7652f63d03a35e6f314e5a598b4a65f76202ec95852eb719c"
+  },
+  "吃冰淇淋融化.webm": {
+   "src": "dsh-pet/assets/webm/吃冰淇淋融化.webm",
+   "sha256": "17d73682926d6ce4203ad12d9049527e604d448bcc5c82ac5b12950b4ceb0447"
+  },
+  "吃午餐.webm": {
+   "src": "dsh-pet/assets/webm/吃午餐.webm",
+   "sha256": "e48a70e61d93195c611c2d4041be32a26a114f78c835ff6b2345459ae39a90ce"
+  },
+  "吃大闸蟹.webm": {
+   "src": "dsh-pet/assets/webm/吃大闸蟹.webm",
+   "sha256": "fbd0f445c15fda1f827e6eb485270ddf9025ac29b3edcac28a5eff7d9aa80f46"
+  },
+  "吃年糕.webm": {
+   "src": "dsh-pet/assets/webm/吃年糕.webm",
+   "sha256": "ba0c86988687801a5b19d055d728bb182c8a95a0bdd7071dea16b83c1162135c"
+  },
+  "吃早餐.webm": {
+   "src": "dsh-pet/assets/webm/吃早餐.webm",
+   "sha256": "893b61587aeda8ca146e32b596b00903461aab04684a146d84b31965968d60e4"
+  },
+  "吃晚餐.webm": {
+   "src": "dsh-pet/assets/webm/吃晚餐.webm",
+   "sha256": "8902602fb012c29d33392822ab534ed119a136610f6bc2e8c0c51d60afec673a"
+  },
+  "吃汤圆.webm": {
+   "src": "dsh-pet/assets/webm/吃汤圆.webm",
+   "sha256": "53a0f93612bb59c7279010f993a1101b033fc01df1998dd9874d8aea175afa6f"
+  },
+  "吃白饭.webm": {
+   "src": "dsh-pet/assets/webm/吃白饭.webm",
+   "sha256": "b620413d6fa303a0ed9168dc71453c3bddc10141a0b7edeff87dc2e6e054d502"
+  },
+  "吃粽子.webm": {
+   "src": "dsh-pet/assets/webm/吃粽子.webm",
+   "sha256": "f3af3217674427fdc5609bf50b170f69669c84cf229cd7b44261c00da7876ade"
+  },
+  "吃糖葫芦.webm": {
+   "src": "dsh-pet/assets/webm/吃糖葫芦.webm",
+   "sha256": "6900468dc166bfb90e1cfb73de9b41a08c62513483ce1300658340cf942be3cd"
+  },
+  "吃腊八粥.webm": {
+   "src": "dsh-pet/assets/webm/吃腊八粥.webm",
+   "sha256": "f821527812875262cc0dda50fe023c603fc89ec566172777c6bff4fa45943011"
+  },
+  "吃西瓜.webm": {
+   "src": "dsh-pet/assets/webm/吃西瓜.webm",
+   "sha256": "0dd992fb7fb51d707d6589cb813a450437a2bd54046709f424a73353e2d7f78d"
+  },
+  "吃重阳糕.webm": {
+   "src": "dsh-pet/assets/webm/吃重阳糕.webm",
+   "sha256": "d2b6b466fcb1ee689ae130680bf38311e9988d995879ca3b5b1d9aa0b5438058"
+  },
+  "吃长寿面.webm": {
+   "src": "dsh-pet/assets/webm/吃长寿面.webm",
+   "sha256": "2881e1cd4ca31fd56ca578ce2ee73d21222f0006f237c865d9b2dc1ebc436edd"
+  },
+  "吃青团.webm": {
+   "src": "dsh-pet/assets/webm/吃青团.webm",
+   "sha256": "0d99393dd64ddf0b1ec4ab4cf392c86092ab5edf58d12f5b72e325035da23606"
+  },
+  "吃饭·碗饭.webm": {
+   "src": "dsh-pet/assets/webm/吃饭·碗饭.webm",
+   "sha256": "17272de2ea1350146a8b9fa387d9a5c8eca16a222372479215088a9dfcfb9019"
+  },
+  "吃饭团.webm": {
+   "src": "dsh-pet/assets/webm/吃饭团.webm",
+   "sha256": "dd19c4ad30c20022d72d50055eee2f5c90e1184d6389c0edee8ad20dbaa505b1"
+  },
+  "吃饺子.webm": {
+   "src": "dsh-pet/assets/webm/吃饺子.webm",
+   "sha256": "a607391c206cb2a1a977d72f318a6b5bfe95aee4da9b11c9de8724bd9981cc06"
+  },
+  "吹气球.webm": {
+   "src": "dsh-pet/assets/webm/吹气球.webm",
+   "sha256": "3258f91b2000d949ba38f34c1f161b0d5fa148ecffb5a95eb8a3e10b5df7fc87"
+  },
+  "吹笛子.webm": {
+   "src": "dsh-pet/assets/webm/吹笛子.webm",
+   "sha256": "9c8b754a3256778cddd88fbb073b649d5b1d2e5f96e70231bc2c3bee06fa7c78"
+  },
+  "哈欠连天.webm": {
+   "src": "dsh-pet/assets/webm/哈欠连天.webm",
+   "sha256": "2b23372e1ff2bc2f9078c09740708c960d4ea021f9fc3cca294d9df11e393ec8"
+  },
+  "堆雪人.webm": {
+   "src": "dsh-pet/assets/webm/堆雪人.webm",
+   "sha256": "478bdc31cc60e55e3efa139b81c7d8680a8cf83aca2304495e6da50a20a09cf5"
+  },
+  "大口吃零食.webm": {
+   "src": "dsh-pet/assets/webm/大口吃零食.webm",
+   "sha256": "fdacb534a828b0c669f22a54e8da9bb9b5d731e0132dd5ea946f7badc9229a39"
+  },
+  "女仆屈膝礼仪.webm": {
+   "src": "dsh-pet/assets/webm/女仆屈膝礼仪.webm",
+   "sha256": "6536fb519ba73bbc338d30cf7286b14ffde1278b6d469c64573536dc0f896918"
+  },
+  "小幅度原地360度旋转展示.webm": {
+   "src": "dsh-pet/assets/webm/小幅度原地360度旋转展示.webm",
+   "sha256": "9f1a927f63c73e3c35ee5f4d2eb58f4a46ac7eca2af69388f320d10cdef8d29c"
+  },
+  "小提琴演奏.webm": {
+   "src": "dsh-pet/assets/webm/小提琴演奏.webm",
+   "sha256": "03816be0fcd499b63ed667e8b87c234094e64c59f1cd222455cf6a27ac832d1c"
+  },
+  "工作状态-原地踱步张望.webm": {
+   "src": "dsh-pet/assets/webm/工作状态-原地踱步张望.webm",
+   "sha256": "a56c17ef901fa531324a46a04def2381f65922d319ec83dadde34d2a4669e411"
+  },
+  "工作状态-垂头叹气冒汗.webm": {
+   "src": "dsh-pet/assets/webm/工作状态-垂头叹气冒汗.webm",
+   "sha256": "ab00c844e62221905574b4c070e0d7b6fa14fb2afa1064c27a160f10e25f7196"
+  },
+  "工作状态-忙碌点按.webm": {
+   "src": "dsh-pet/assets/webm/工作状态-忙碌点按.webm",
+   "sha256": "b5d702e0c04adb7b255ac702001c24da36c8bf95efc891f693f4976986ab2435"
+  },
+  "工作状态-思考冒泡.webm": {
+   "src": "dsh-pet/assets/webm/工作状态-思考冒泡.webm",
+   "sha256": "b4a36cfa28ea5d7089e362a01972c6e880297c6dcd0d39f1994efd889a3c1be5"
+  },
+  "工作状态-清点归档.webm": {
+   "src": "dsh-pet/assets/webm/工作状态-清点归档.webm",
+   "sha256": "8c84f58f3a9e7b912e1cbfd89f77eb3652053fc9b2844295c8440cb636305d3b"
+  },
+  "工作状态-雀跃庆祝.webm": {
+   "src": "dsh-pet/assets/webm/工作状态-雀跃庆祝.webm",
+   "sha256": "3ff681051a0bb4f152d7535d64b7f3194c30298bf56d41e521216a278f135d3e"
+  },
+  "开心小跑.webm": {
+   "src": "dsh-pet/assets/webm/开心小跑.webm",
+   "sha256": "fa6a6d589490845a24aade4b8d9d16bd67143b36348261526f0acb9e6c2eb145"
+  },
+  "待机呼吸休闲.webm": {
+   "src": "dsh-pet/assets/webm/待机呼吸休闲.webm",
+   "sha256": "deb965d05a85dacf5ff4a20faa757846f0d11679598c3ec578a5571487660395"
+  },
+  "悠闲哼歌.webm": {
+   "src": "dsh-pet/assets/webm/悠闲哼歌.webm",
+   "sha256": "358905afc2c81a9ed478bcf121a8f2f19276766b1d382d0067456bd57d1d7dbb"
+  },
+  "扑克魔术.webm": {
+   "src": "dsh-pet/assets/webm/扑克魔术.webm",
+   "sha256": "1d44a7624fb027e5f615c747014ab040ddc497f6bdbcb67194a23a53a5dba78c"
+  },
+  "打瞌睡被惊醒.webm": {
+   "src": "dsh-pet/assets/webm/打瞌睡被惊醒.webm",
+   "sha256": "7e10c87cfcbd63b20b5a3787be71b0500381d54ea04a5ac0e9d99f59ed49a6d7"
+  },
+  "抽陀螺.webm": {
+   "src": "dsh-pet/assets/webm/抽陀螺.webm",
+   "sha256": "693689d7b4d02ae8cda53f8d580de5087287fc339360dd20909342f566e969ba"
+  },
+  "拆礼物.webm": {
+   "src": "dsh-pet/assets/webm/拆礼物.webm",
+   "sha256": "6f781e7eac2b295417c80ff9468902280fdcf3ae5921d59977daa8dab537940c"
+  },
+  "插茱萸赏菊.webm": {
+   "src": "dsh-pet/assets/webm/插茱萸赏菊.webm",
+   "sha256": "4e1ba56724da3663e2f5480001ab1141a82e8618c316e6e81e3dae84998452f3"
+  },
+  "摇扇纳凉.webm": {
+   "src": "dsh-pet/assets/webm/摇扇纳凉.webm",
+   "sha256": "87d4b9454692484e4809b45071751b2144fc82fd8696fafabb32e19af98350f2"
+  },
+  "撸猫.webm": {
+   "src": "dsh-pet/assets/webm/撸猫.webm",
+   "sha256": "068d84e944dfce17de1c5a2ee2a4bc391e2848dad88a7df4877ebf23cf38bcec"
+  },
+  "收红包.webm": {
+   "src": "dsh-pet/assets/webm/收红包.webm",
+   "sha256": "a0e7a9a5997aff1357c76eeaaad7a01503c320f7017766dd5a42e643daa505c1"
+  },
+  "放孔明灯.webm": {
+   "src": "dsh-pet/assets/webm/放孔明灯.webm",
+   "sha256": "cc6540b4651f6603363dd326801921d6ba220ecaaf00828b42d248eb28beeb31"
+  },
+  "放河灯.webm": {
+   "src": "dsh-pet/assets/webm/放河灯.webm",
+   "sha256": "af744bed1ff20cc1b0492247add45f2b16433fde0b0897c31d6b0579429b788d"
+  },
+  "放烟花.webm": {
+   "src": "dsh-pet/assets/webm/放烟花.webm",
+   "sha256": "539ac09ae29ed0a11bd828df096f3e72f606529b3c59e29a5fcf3b051779a4d0"
+  },
+  "放风筝.webm": {
+   "src": "dsh-pet/assets/webm/放风筝.webm",
+   "sha256": "9d9ac75871b1c70a77fc4aaa63dd24778d79cbf492c2c5df42167199c7dd2132"
+  },
+  "整体换装试色.webm": {
+   "src": "dsh-pet/assets/webm/整体换装试色.webm",
+   "sha256": "e8e599b12da7f3437c98425f6b192dd0c81a6b63bbba5e7927f53c22f757b094"
+  },
+  "是啊，吃什么.webm": {
+   "src": "dsh-pet/assets/webm/是啊，吃什么.webm",
+   "sha256": "94e1d69e05cc66cc1dc8bf6986efc51dfd71fe22fd34166f9efe7ca2d21c1e8c"
+  },
+  "晨间刷牙.webm": {
+   "src": "dsh-pet/assets/webm/晨间刷牙.webm",
+   "sha256": "017e384e7e13732fb12428d024ef686e79df5b79bfab0d83faa7fa50653d1bc4"
+  },
+  "期待开饭.webm": {
+   "src": "dsh-pet/assets/webm/期待开饭.webm",
+   "sha256": "4999759c8c32af0b5400518084ade31c9445c4e5e3ea40218efa28f2e79d9c3e"
+  },
+  "涮火锅.webm": {
+   "src": "dsh-pet/assets/webm/涮火锅.webm",
+   "sha256": "f0b345c22cf2841137d215a7b9d50252b8be0ede64887e91fdc9bd09843e3c8f"
+  },
+  "深度思考碎碎念.webm": {
+   "src": "dsh-pet/assets/webm/深度思考碎碎念.webm",
+   "sha256": "db66867cd1f5bf68b0638fe1f966d0fdf95d1573523e60c77aa8913706118e82"
+  },
+  "点击回应-傲娇生气.webm": {
+   "src": "dsh-pet/assets/webm/点击回应-傲娇生气.webm",
+   "sha256": "6b7176b98408cb649d1d37b6a6222a21aa6b128187e3e0b2d18550d35ab81064"
+  },
+  "点击回应-元气挥手.webm": {
+   "src": "dsh-pet/assets/webm/点击回应-元气挥手.webm",
+   "sha256": "48cd729ccdcf746369942ea954d242e9afdd5643e1dac3827fa5e67450eb8776"
+  },
+  "点击回应-害羞惊讶.webm": {
+   "src": "dsh-pet/assets/webm/点击回应-害羞惊讶.webm",
+   "sha256": "a04968bbc46d1ebea07f81e5dabd93b0b67a9d07f1371e9887b33075134ad00d"
+  },
+  "点击回应-开心跃动.webm": {
+   "src": "dsh-pet/assets/webm/点击回应-开心跃动.webm",
+   "sha256": "86dcb0c3dd7b651de9c107e927d57a5c4224599101706dbdcc782fa48bcd0ad7"
+  },
+  "点击回应-挠痒咯咯笑.webm": {
+   "src": "dsh-pet/assets/webm/点击回应-挠痒咯咯笑.webm",
+   "sha256": "f228279219f4084323ca1bfef1604f7c77bb3f505d45a8d1747b5ac3f9f2393b"
+  },
+  "照镜子.webm": {
+   "src": "dsh-pet/assets/webm/照镜子.webm",
+   "sha256": "13dc61c003e500d906b6526765072b7a78c0709491a397d4e70a88ec7ea63310"
+  },
+  "玩水枪.webm": {
+   "src": "dsh-pet/assets/webm/玩水枪.webm",
+   "sha256": "448f732417ac4dcb6ca140cd3d73896aaea7f5dac2876a9a0f7c0776478d7128"
+  },
+  "玩游戏气急败坏.webm": {
+   "src": "dsh-pet/assets/webm/玩游戏气急败坏.webm",
+   "sha256": "8e406bc52cf2a20c9d288867367c4df7c45a5dc78443bc5c2fdc83835ac0b4c3"
+  },
+  "用鲸鱼尾巴拍打地面.webm": {
+   "src": "dsh-pet/assets/webm/用鲸鱼尾巴拍打地面.webm",
+   "sha256": "e3f92df2cf182fdcb109ad0a865689d66e0a0d10db14c1528e5b3cb2f0bf090d"
+  },
+  "睡觉-开始.webm": {
+   "src": "dsh-pet/assets/webm/睡觉-开始.webm",
+   "sha256": "5352a208925e01e191c1529d07c61ae61bcda90d92f2b89549c25c949f207e11"
+  },
+  "睡觉-循环.webm": {
+   "src": "dsh-pet/assets/webm/睡觉-循环.webm",
+   "sha256": "b49deb9b8dae4b83f84b6dc49efd41fdb654b05ad08ac6c5083977e17ef1122c"
+  },
+  "睡觉-起来.webm": {
+   "src": "dsh-pet/assets/webm/睡觉-起来.webm",
+   "sha256": "a2a4832e546e7639782b74f998d8a6ebc2ec3b3b933c0bcc709487fb4d19ab46"
+  },
+  "碎碎念-发呆碎碎念.webm": {
+   "src": "dsh-pet/assets/webm/碎碎念-发呆碎碎念.webm",
+   "sha256": "02da8cc2194250ae9708b137a3deff43fed2ebd40a7aa4a033b6262c3485eb5b"
+  },
+  "碎碎念-对屏碎碎念.webm": {
+   "src": "dsh-pet/assets/webm/碎碎念-对屏碎碎念.webm",
+   "sha256": "fda85ca286e173b7cf868c91829c3445e55c395e0c788b6be310a855b9b37973"
+  },
+  "碎碎念-擦桌碎碎念.webm": {
+   "src": "dsh-pet/assets/webm/碎碎念-擦桌碎碎念.webm",
+   "sha256": "bfb616a3e6ed7375826d8fd00b41b9476d2e4bd65e10abddfb98f04c734e30e6"
+  },
+  "穿针乞巧.webm": {
+   "src": "dsh-pet/assets/webm/穿针乞巧.webm",
+   "sha256": "cf16647ec4cb5634e4ff022bfc139a2233cd8be82f2391472bc842f7014ddc90"
+  },
+  "舞狮头.webm": {
+   "src": "dsh-pet/assets/webm/舞狮头.webm",
+   "sha256": "6d2006b4023d44087cf4c7dc055d1d8f2a8cec32e22610807a2dfea7bb0dc367"
+  },
+  "荡秋千.webm": {
+   "src": "dsh-pet/assets/webm/荡秋千.webm",
+   "sha256": "f32ea98e9c04553ae39939cd76c469192ebc19d98b90ebf93ec4b88bf95b25c9"
+  },
+  "萌化小幽灵.webm": {
+   "src": "dsh-pet/assets/webm/萌化小幽灵.webm",
+   "sha256": "ac2012601d05bf7de7c7cced415b8793b0be3b7cfa569da06c2325f135f7e94f"
+  },
+  "蓝鲸现世.webm": {
+   "src": "dsh-pet/assets/webm/蓝鲸现世.webm",
+   "sha256": "ed72f0ede7c6cd9482d44aa31002214d461b833c456f3ea40a52c3a0ddc20230"
+  },
+  "蝴蝶蜜蜂环绕头顶开花.webm": {
+   "src": "dsh-pet/assets/webm/蝴蝶蜜蜂环绕头顶开花.webm",
+   "sha256": "fd286c78001fe57fc093c06a4b79ef077ade2dacd2a77e011d3f393f587707ec"
+  },
+  "螃蟹走路.webm": {
+   "src": "dsh-pet/assets/webm/螃蟹走路.webm",
+   "sha256": "5696b0878be38cc450d6eaace837aef1c1b5834f1382bc6c11c2de582f284673"
+  },
+  "被吓一跳.webm": {
+   "src": "dsh-pet/assets/webm/被吓一跳.webm",
+   "sha256": "537dde496e0f776e775dec1bb7bfe3fbc5eebf89112469a1a910ad0433ccde66"
+  },
+  "被落叶淹没.webm": {
+   "src": "dsh-pet/assets/webm/被落叶淹没.webm",
+   "sha256": "91fc8e3dbfcd24546bc30366beb120fb5de7823ed67986dd8032c9c1b29ff079"
+  },
+  "被鼠标拖拽悬空反馈.webm": {
+   "src": "dsh-pet/assets/webm/被鼠标拖拽悬空反馈.webm",
+   "sha256": "31373a86026636eecc890db763760309360310eb095cf5575b13c9ca2a6cc80e"
+  },
+  "装点圣诞树.webm": {
+   "src": "dsh-pet/assets/webm/装点圣诞树.webm",
+   "sha256": "25da448acdbba49c2d4b209d24053b6dd1b79e656273d1f3e659385dc2bc3759"
+  },
+  "讨糖南瓜灯.webm": {
+   "src": "dsh-pet/assets/webm/讨糖南瓜灯.webm",
+   "sha256": "9535d1a29f780aa2d78ffaabd7ee1765952bf34b2b380e9edc25dc6a3003070b"
+  },
+  "超大伸懒腰.webm": {
+   "src": "dsh-pet/assets/webm/超大伸懒腰.webm",
+   "sha256": "0ac66d918cc5efd49be1273c3830de73eae5f9bdcd5fcb968d1b2f9b487705ad"
+  },
+  "踢毽子.webm": {
+   "src": "dsh-pet/assets/webm/踢毽子.webm",
+   "sha256": "68937b619a44e9ca7ccdfe77e5657f7a9bfa238beb33768378b6f254a16f3dbd"
+  },
+  "轻快摇摆舞.webm": {
+   "src": "dsh-pet/assets/webm/轻快摇摆舞.webm",
+   "sha256": "c621d00e1b959b991df8fc420e409b569e768fad7f75d1fb489375d101fee630"
+  },
+  "轻快记录.webm": {
+   "src": "dsh-pet/assets/webm/轻快记录.webm",
+   "sha256": "1da04162fed5cd52bd4a6a6027a6902f50bda0969d34465bc2d332cf3679bbd5"
+  },
+  "骑木马.webm": {
+   "src": "dsh-pet/assets/webm/骑木马.webm",
+   "sha256": "5f54a98ccac97eac000d799043411f4fc0732096dc51a2ad766552737578f313"
+  },
+  "鲸鱼吐泡泡特效.webm": {
+   "src": "dsh-pet/assets/webm/鲸鱼吐泡泡特效.webm",
+   "sha256": "d64d02059dc1602f7de5aa3135d381351363f021b2bceed47655db322cc71db3"
+  },
+  "idle.webm": {
+   "src": "dsh-pet/assets/webm/待机呼吸休闲.webm",
+   "sha256": "deb965d05a85dacf5ff4a20faa757846f0d11679598c3ec578a5571487660395"
+  },
+  "memes/Ciallo.png": {
+   "src": "dsh-pet/assets/memes/Ciallo.png",
+   "sha256": "8cc22d31effa951f6a9e6cbf26ec98c762b86f8569fa81d58e0b10c99db112b3"
+  },
+  "memes/token给妈妈保管.png": {
+   "src": "dsh-pet/assets/memes/token给妈妈保管.png",
+   "sha256": "1ff2f370be90545ebcb84e718353070d078ec78d1cbb204785f3d7d24d86327d"
+  },
+  "memes/假如给我三天多模态.png": {
+   "src": "dsh-pet/assets/memes/假如给我三天多模态.png",
+   "sha256": "8d25880a3f2c546dc4fb57e96954b16cdc254a0faf8945411d9af8f0025b19e7"
+  },
+  "memes/先养着吧.png": {
+   "src": "dsh-pet/assets/memes/先养着吧.png",
+   "sha256": "74d5ec30a583b9126af1246d41de5d5b23a20c45dc4464e64cb1fa090d869f05"
+  },
+  "memes/厉害了我的鲸.png": {
+   "src": "dsh-pet/assets/memes/厉害了我的鲸.png",
+   "sha256": "30617cca18b9f3be4045dd68ba0c98600c319b68ea755ee7008d8959ff28347e"
+  },
+  "memes/压力一只大肥鱼.png": {
+   "src": "dsh-pet/assets/memes/压力一只大肥鱼.png",
+   "sha256": "748d4c2664c6dc40380e883f9ec713a7c2a4fb410401d639111ae3cdbed15819"
+  },
+  "memes/可爱.png": {
+   "src": "dsh-pet/assets/memes/可爱.png",
+   "sha256": "4ac8a61a368d9ee43e58ca5f16db73dd9124ebb7d8ca2fd0486f2f969789dae5"
+  },
+  "memes/吃白饭的大肥鱼.png": {
+   "src": "dsh-pet/assets/memes/吃白饭的大肥鱼.png",
+   "sha256": "2d3a5f07684cee0da30a2b5717dd9a1f226da21b98ca1900097617e5de374428"
+  },
+  "memes/吃饱饱摸肚子.png": {
+   "src": "dsh-pet/assets/memes/吃饱饱摸肚子.png",
+   "sha256": "128afd60aef0c610261271806beb6df2dedd33f159d3cc65676a2f6fed613585"
+  },
+  "memes/哦鲸鲸.png": {
+   "src": "dsh-pet/assets/memes/哦鲸鲸.png",
+   "sha256": "96d954bd3f9d60e77273643a96b6c2a5c4680ed4d6a4b3f1fe087189cd8fdd8a"
+  },
+  "memes/哪来的电脑病毒.png": {
+   "src": "dsh-pet/assets/memes/哪来的电脑病毒.png",
+   "sha256": "aea1b932b1bdd7d2c35e9fdd2a72ed944d42ad1dfb2608fc600924511e11bea0"
+  },
+  "memes/大师这个区是什么意思.png": {
+   "src": "dsh-pet/assets/memes/大师这个区是什么意思.png",
+   "sha256": "51f1d36d7b78c2726df8a26d20f34447ecd1280232bd285ce2c985ebd5e87723"
+  },
+  "memes/大烧货.png": {
+   "src": "dsh-pet/assets/memes/大烧货.png",
+   "sha256": "9e6f7147e961ab45b7271dcae0b1d10e67bc76df62449f2165aab7d0d2fe3249"
+  },
+  "memes/大的药来了.png": {
+   "src": "dsh-pet/assets/memes/大的药来了.png",
+   "sha256": "ae314fdb1f0c6904bc286d6436750f2a04981e74437b9a234eff0f627a904b48"
+  },
+  "memes/大的要来啦.png": {
+   "src": "dsh-pet/assets/memes/大的要来啦.png",
+   "sha256": "253ae478c398ff3238170547033e7b477e2e5eae2400221bbed5ac2064ef1d80"
+  },
+  "memes/完蛋了把黄油删了.png": {
+   "src": "dsh-pet/assets/memes/完蛋了把黄油删了.png",
+   "sha256": "bbd70ca8b0e7301f5bb6a326109ab86560a154782bce0769b28de29a4e79dbbf"
+  },
+  "memes/就一碗.png": {
+   "src": "dsh-pet/assets/memes/就一碗.png",
+   "sha256": "f01520b68b5526814adb9ee3d10e87f5f0ab76c9cea8159c28c09497194340ce"
+  },
+  "memes/就骚了怎么滴吧.png": {
+   "src": "dsh-pet/assets/memes/就骚了怎么滴吧.png",
+   "sha256": "8edbcd5583971bc448c6a19f65d1ef3b47c565e039806ea9bd27e5bcdc540ed3"
+  },
+  "memes/我不更新你们用什么.png": {
+   "src": "dsh-pet/assets/memes/我不更新你们用什么.png",
+   "sha256": "a71b82c49a5aa30e6026af60ac912171e28200ea961df71784497c59df76e277"
+  },
+  "memes/死掉了.png": {
+   "src": "dsh-pet/assets/memes/死掉了.png",
+   "sha256": "b042ac22e84ba1a1ffffd7ec246b53d40d1db3dc4c19d3443d63f243af14b25b"
+  },
+  "memes/深度睡眠.png": {
+   "src": "dsh-pet/assets/memes/深度睡眠.png",
+   "sha256": "c250e326c62c270cd04efc6f61013dff65b16f5be5d5d06cc1751a59443c155d"
+  },
+  "memes/电死你.png": {
+   "src": "dsh-pet/assets/memes/电死你.png",
+   "sha256": "b0edc4eccf8f93acb8a2d885030994667431373674a3f81c755020ad5c7b5f22"
+  },
+  "memes/要不直接骂他.png": {
+   "src": "dsh-pet/assets/memes/要不直接骂他.png",
+   "sha256": "4bb9aff0cd35b1f2a2cec1c09f285263524498dda5bac6b64ed006444996cee4"
+  },
+  "memes/誓死践行开源精神.png": {
+   "src": "dsh-pet/assets/memes/誓死践行开源精神.png",
+   "sha256": "96d02fcef0801d2fc04d2c9d8c336b053842f3e949d81ebf97bf438741ced840"
+  },
+  "memes/除了调情没啥用.png": {
+   "src": "dsh-pet/assets/memes/除了调情没啥用.png",
+   "sha256": "a42585f22cf470ecaea1c465170ff1bee4eeb45a7ed92331b78533cb8b768a48"
+  },
+  "memes/鱼片有资源吗.png": {
+   "src": "dsh-pet/assets/memes/鱼片有资源吗.png",
+   "sha256": "414a57b1fa5d73111612ead35d596adb01eb284f8ab44038a252a65a209dbced"
+  },
+  "memes/黎曼猜想没证明喵.png": {
+   "src": "dsh-pet/assets/memes/黎曼猜想没证明喵.png",
+   "sha256": "651c398bb997354ef027f71d593099bbed712dbc7f9c3fc4607a1173edd3b6b9"
+  }
+ }
+}

@@ -49,8 +49,13 @@ Object.assign(PetSprite.prototype, {
       if (this.sleeping) tools.push({ label: '起来', action: 'wake', hint: S.SLEEP_HOTKEY_HINT });
       else tools.push({ label: '睡觉', action: 'sleep', hint: S.SLEEP_HOTKEY_HINT });
     }
+    // bothouse fork：形象（内置 + 已装的推荐形象）和推荐形象（别人家的开源形象，点了才下载）。
+    // 列表右键时顺手刷新，供下一次用；首次在 initPanels 里预取。
+    const skinBranches = this.buildSkinBranches();
+    void this.refreshSkins();
     // 动作树之后是维护类：显示位置 → 重载配置 → 回到初始位置。
     const tail = [
+      ...skinBranches,
       // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置，由宿主重载生效。
       // 与浏览器端注入同一份子菜单，两端文案与取值不会漂移。不就地开关窗：窗口是进程启动时按
       // DSH_PET_PETS 一次性建的，就地增删既改不了磁盘配置也改不了窗口数量。
@@ -139,6 +144,14 @@ Object.assign(PetSprite.prototype, {
       this.goHome(); // 停漫游/移动，清会话位置，回配置角落
       return;
     }
+    if (leaf.action === 'skin') {
+      this.selectSkin(leaf.skin || ''); // bothouse fork：换形象
+      return;
+    }
+    if (leaf.action === 'skin-install') {
+      this.installSkin(leaf.skin, leaf.label); // bothouse fork：装推荐形象
+      return;
+    }
     if (leaf.action === 'set-display') {
       this.setPetDisplay(leaf.display); // 改这只宠物的显示位置：写 display 配置，由宿主重载生效
       return;
@@ -163,6 +176,75 @@ Object.assign(PetSprite.prototype, {
       return;
     }
     this.playOnce(leaf.anim, playbackId);
+  },
+
+  // ---- bothouse fork：形象 ----
+  async refreshSkins() {
+    try {
+      const res = await fetch(BASE + '/skins', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && data.ok) this.skins = data;
+    } catch (e) {
+      console.warn('[dsh-pet] 取形象列表失败', e);
+    }
+  },
+
+  buildSkinBranches() {
+    const sk = this.skins;
+    if (!sk) return [];
+    const mark = (on, label) => (on ? '✓ ' : '　') + label;
+    const installed = sk.recommended.filter((r) => r.installed);
+    const pick = [
+      { label: mark(sk.chosen === '', '跟绑定的角色走'), action: 'skin', skin: '' },
+      ...sk.builtin.map((b) => ({ label: mark(sk.chosen === b.id, b.name), action: 'skin', skin: b.id })),
+      ...installed.map((r) => ({ label: mark(sk.chosen === r.id, r.name), action: 'skin', skin: r.id })),
+    ];
+    const rec = sk.recommended.length
+      ? sk.recommended.map((r) => ({
+          label: r.name + (r.installed ? ' ✓' : ''),
+          action: 'skin-install',
+          skin: r.id,
+          hint: r.installed ? '已装' : '点了下载',
+        }))
+      : [{ label: '（还没有推荐，敬请期待）', action: 'skin-install', skin: '' }];
+    return [
+      { label: '换形象', children: pick },
+      { label: '推荐形象', children: rec },
+    ];
+  },
+
+  async selectSkin(id) {
+    const ok = await S.postAction(BASE + '/skins/select', { id });
+    if (!ok) {
+      this.showWhisper('换形象没成功', undefined, undefined, 6000, false);
+      return;
+    }
+    await this.refreshSkins();
+    // 表情图跟着形象走：重新取一次成品配置，换掉本宠物的表情包池（配图菜单用）
+    try {
+      const res = await fetch(BASE + '/config', { cache: 'no-store' });
+      const pets = S.flattenConfigPets(await res.json());
+      const me = pets.find((p) => p.id === this.pet.id);
+      if (me) this.pet.memes = me.memes;
+    } catch (e) {
+      console.warn('[dsh-pet] 换形象后刷新表情图失败', e);
+    }
+    // 同名动画换了内容：重新加载当前这一段（地址加个参数让播放器真的重取）
+    this.pending = null;
+    this.switchTo(this.anim || 'idle', false, null, this.assetBase + encodeURIComponent(this.anim || 'idle') + (S.ANIMATION_EXT || '.webm') + '?skin=' + Date.now());
+  },
+
+  async installSkin(id, label) {
+    if (!id) return;
+    const name = String(label || id).replace(/ ✓$/, '');
+    this.showWhisper('正在下载「' + name + '」，装好了告诉你', undefined, undefined, 8000, false);
+    const ok = await S.postAction(BASE + '/skins/install', { id });
+    if (!ok) {
+      this.showWhisper('「' + name + '」没装上，看看网络再试', undefined, undefined, 8000, false);
+      return;
+    }
+    await this.refreshSkins();
+    this.showWhisper('「' + name + '」装好了，在「换形象」里选它', undefined, undefined, 8000, false);
   },
 
   closeMenu() {

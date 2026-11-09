@@ -5,6 +5,7 @@
  * 必须始终成立：所有读取都经 readAllConfig，模块外不得自行拼路径。
  * @module dsh-pet/src/host/config/read
  */
+import { currentSkinMemes } from '../skins.ts';
 import { existsSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { warnOnce } from './constants.ts';
@@ -95,6 +96,9 @@ export function readAllConfig(paths: ConfigPaths): Record<string, Record<string,
     }
     out[file.prefix] = mergeEntry(filePetBase, parsed, file.prefix + '-config.json', basePets, seenIds);
   }
+  // bothouse fork：主条目的表情包池换成当前形象自己的表情图（碎碎念、配图菜单跟着形象走，见 ../skins.ts）。
+  const skinMemes = currentSkinMemes();
+  if (skinMemes !== undefined && out.main) out.main = { ...out.main, memes: skinMemes.memes };
   return out;
 }
 

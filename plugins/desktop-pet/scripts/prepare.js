@@ -49,13 +49,11 @@ const pkg = JSON.parse(readFileSync(PKG, 'utf8'));
 const keep = [
   'lib',
   'src',
-  'assets/webm',
+  // bothouse fork：形象（自家角色的动画和表情图，见 src/host/skins.ts）；上游 assets/webm、assets/memes 不随包，改成推荐形象用户自装。
+  'assets/roles',
   'runtime/electron-helper',
   'assets/fonts',
   'assets/pic',
-  // 表情包：宿主半侧只从包内 assets/memes 读图，并与配置的 memes 键配对，漏掉即配图功能整体失效。
-  // 本数组每次发布都覆盖 package.json 的 files，所以必须加在这里，只在 package.json 里加一行无效。
-  'assets/memes',
   // 点击音效：宿主半侧的 /sound 路由只读包内这一份，漏掉则点击静音；同 memes，必须加在本数组。
   'assets/sound',
   'assets/config.jsonc',

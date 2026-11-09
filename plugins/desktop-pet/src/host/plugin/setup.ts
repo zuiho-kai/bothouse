@@ -20,6 +20,7 @@ import { PACKAGE_MEMES_DIR, PACKAGE_ROOT } from '../paths.ts';
 import { PlaybackStore } from '../playback.ts';
 import { resolveAsset } from '../http.ts';
 import { PollStateStore } from '../state.ts';
+import { currentSkinMemes, initSkins } from '../skins.ts';
 import { WorkStatusStore } from '../work-status.ts';
 import type { StandaloneWhisperPolicy } from '../whisper-policy.ts';
 
@@ -89,6 +90,7 @@ export function createHostSetup(ctx: HostSetupContext): HostSetup {
   const dshHome = resolveDshHome();
 
   const userRoot = join(dshHome, 'dsh-pet');
+  initSkins(userRoot); // bothouse fork：形象的选择和装好的推荐形象存在用户根下
 
   // 统一日志出口（单文件、按大小截断，见 ./log-file）：桌面版 DSH 没有控制台，ctx.logger 只写
   // stdout 等于把排障信息丢掉；base 保留终端输出。
@@ -177,6 +179,9 @@ export function createHostSetup(ctx: HostSetupContext): HostSetup {
   const memeDirsFor = (assetRoot: string): string[] => {
     const own = resolveAsset(petConfigDir, assetRoot + '-memes');
     if (own !== undefined && existsSync(own)) return [own];
+    // bothouse fork：主条目的表情图跟着形象走（形象目录的 memes/ 优先，见 ../skins.ts）。
+    const skin = assetRoot === 'main' ? currentSkinMemes() : undefined;
+    if (skin !== undefined) return [skin.dir, memesUserRoot, PACKAGE_MEMES_DIR];
     return [memesUserRoot, PACKAGE_MEMES_DIR];
   };
 
