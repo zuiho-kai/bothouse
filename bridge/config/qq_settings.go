@@ -3,11 +3,13 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	"github.com/chenhg5/cc-connect/core"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // QQSettingsUpdate is a partial update of a project's QQ (OneBot v11) platform
@@ -126,8 +128,7 @@ func GetQQSettings(projectName string) (*QQSettings, error) {
 
 // UpdateQQSettings applies a partial update to a project's first qq platform and
 // persists it. It returns the names of the fields that actually changed. The
-// whole file is read and written back, so unrelated project/platform fields are
-// preserved.
+// changed options are patched in the original text, preserving unrelated bytes.
 func UpdateQQSettings(projectName string, u QQSettingsUpdate) ([]string, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -263,7 +264,23 @@ func UpdateQQSettings(projectName string, u QQSettingsUpdate) ([]string, error) 
 	if len(changed) == 0 {
 		return changed, nil
 	}
-	if err := saveConfig(cfg); err != nil {
+	raw := string(data)
+	for _, key := range changed {
+		raw, err = patchPlatformOption(raw, projectName, "qq", key, target[key])
+		if err != nil {
+			return nil, fmt.Errorf("patch qq option %s: %w", key, err)
+		}
+	}
+	// Validate the edited text against the intended update before committing any
+	// bytes. Unusual TOML layouts must never redirect a patch to another field.
+	var patched map[string]any
+	if err := toml.Unmarshal([]byte(raw), &patched); err != nil {
+		return nil, fmt.Errorf("parse patched config: %w", err)
+	}
+	if !reflect.DeepEqual(patched, cfg) {
+		return nil, fmt.Errorf("QQ settings could not be patched without changing other config fields")
+	}
+	if err := writeConfigText(raw); err != nil {
 		return nil, fmt.Errorf("save config: %w", err)
 	}
 	return changed, nil
