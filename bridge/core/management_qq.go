@@ -16,6 +16,15 @@ type QQSettingsUpdate struct {
 	// /projects/{name} (platform_allow_from) owns this field.
 	AllowFrom             *string `json:"allow_from"`
 	ShareSessionInChannel *bool   `json:"share_session_in_channel"`
+	// The six switches the QQ adapter already honors (platform/qq/qq.go:153-206).
+	// Omitted (nil) still means "unchanged"; "" in a string field removes that
+	// key, matching http_url.
+	SplitBubbles     *bool   `json:"split_bubbles"`
+	AllowGroupsWith  *string `json:"allow_groups_with"`
+	CommandAllowFrom *string `json:"command_allow_from"`
+	SaveImagesDir    *string `json:"save_images_dir"`
+	AllowQzone       *bool   `json:"allow_qzone"`
+	AllowAvatar      *bool   `json:"allow_avatar"`
 }
 
 // QQSettings is the non-secret view of a project's QQ (OneBot v11) platform.
@@ -26,6 +35,12 @@ type QQSettings struct {
 	TokenSet              bool
 	AllowFrom             string
 	ShareSessionInChannel bool
+	SplitBubbles          bool
+	AllowGroupsWith       string
+	CommandAllowFrom      string
+	SaveImagesDir         string
+	AllowQzone            bool
+	AllowAvatar           bool
 }
 
 // handleProjectQQ serves /api/v1/projects/{name}/qq/settings.
@@ -107,6 +122,12 @@ func qqSettingsView(s *QQSettings) map[string]any {
 		"token_set":                s.TokenSet,
 		"allow_from":               s.AllowFrom,
 		"share_session_in_channel": s.ShareSessionInChannel,
+		"split_bubbles":            s.SplitBubbles,
+		"allow_groups_with":        s.AllowGroupsWith,
+		"command_allow_from":       s.CommandAllowFrom,
+		"save_images_dir":          s.SaveImagesDir,
+		"allow_qzone":              s.AllowQzone,
+		"allow_avatar":             s.AllowAvatar,
 	}
 }
 
