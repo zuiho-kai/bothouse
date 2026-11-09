@@ -59,6 +59,79 @@ func TestPluginSpecRefusesWhatRegistryCannotName(t *testing.T) {
 	}
 }
 
+// #1431: a local path is read the same on every host. The panel runs on Mac, Linux and Windows, and
+// the person typing `C:\…` means a path there even though this build can be tested anywhere; so the
+// table below asserts Windows shapes on a Mac run too, with no runtime.GOOS branch.
+func TestPluginSpecReadsWindowsPathsOnEveryHost(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec string
+		want string // pluginKindPath or pluginKindRegistry
+	}{
+		{"posixAbsolute", "/abs/mac", pluginKindPath},
+		{"windowsBackslash", `C:\abs\win`, pluginKindPath},
+		{"windowsForwardSlash", "C:/abs/win", pluginKindPath},
+		{"uncShare", `\\srv\share\x`, pluginKindPath},
+		{"registryName", "bothouse-dsh", pluginKindRegistry},
+		{"scopedRegistryName", "@scope/name", pluginKindRegistry},
+		{"linkPrefix", "link:C:/abs/win", pluginKindPath},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parsePluginSpec(tc.spec)
+			if err != nil {
+				t.Fatalf("parse %q: %v", tc.spec, err)
+			}
+			if got.Kind != tc.want {
+				t.Fatalf("parse %q kind = %q, want %q", tc.spec, got.Kind, tc.want)
+			}
+			if got.Raw != tc.spec {
+				t.Fatalf("parse %q kept raw %q", tc.spec, got.Raw)
+			}
+		})
+	}
+}
+
+// #1431: a refusal must point at the right thing. A spec that looks like a path but was not read as an
+// absolute one says so; a spec that is simply not a package name still says that.
+func TestPluginSpecRefusalNamesWhatItSaw(t *testing.T) {
+	pathish := []string{`C:relative\win`, "C:relative", "C:", "setup/x"}
+	for _, spec := range pathish {
+		_, err := parsePluginSpec(spec)
+		if err == nil {
+			t.Fatalf("parse %q = accepted, want a refusal", spec)
+		}
+		if !strings.Contains(err.Error(), "本地路径") {
+			t.Fatalf("parse %q error %q, want it to say the spec looks like a local path", spec, err)
+		}
+	}
+	for _, spec := range []string{"Demo-Bundle", ".hidden", "@scope", "demo bundle"} {
+		_, err := parsePluginSpec(spec)
+		if err == nil {
+			t.Fatalf("parse %q = accepted, want a refusal", spec)
+		}
+		if strings.Contains(err.Error(), "本地路径") {
+			t.Fatalf("parse %q error %q, want the package-name refusal (it is not a path)", spec, err)
+		}
+	}
+}
+
+// #1431: the route must classify a Windows path as a non-registry source, not as a bad package name.
+// The page's install box and the inspect endpoint both go through parsePluginSpec, so this pins the
+// answer the person actually sees: either "turn on allow_non_registry", or an install attempt.
+func TestPluginsInstallReadsWindowsPathAsNonRegistry(t *testing.T) {
+	writePluginsProfile(t)
+	_, ts, _ := testManagementServer(t, "tok")
+	for _, spec := range []string{`C:\Users\ASUS\plugins\x`, "C:/Users/ASUS/plugins/x", `\\srv\share\x`} {
+		r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": spec})
+		if r.OK || !strings.Contains(r.Error, "allow_non_registry") {
+			t.Fatalf("%q: ok=%v error=%q, want the non-registry switch named", spec, r.OK, r.Error)
+		}
+		if strings.Contains(r.Error, "包名只能是") {
+			t.Fatalf("%q: error=%q, still reads a Windows path as a package name", spec, r.Error)
+		}
+	}
+}
+
 func TestPluginsInstallRefusesNonRegistryByDefault(t *testing.T) {
 	writePluginsProfile(t)
 	_, ts, _ := testManagementServer(t, "tok")
