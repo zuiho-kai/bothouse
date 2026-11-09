@@ -41,14 +41,14 @@ inspect observed use counts. Existing candidate-selection logic is preserved.
    over ACP, expose role-view descriptions and a bridge body-load command, and
    label this bridge-mediated rather than native. If native per-role isolation
    cannot be demonstrated, report the specific limit rather than claiming it.
-4. Implement one skills manager in `bridge/web`; the existing DSH bothouse panel
-   embeds that whole management UI, so no second DSH skills page is needed. Adapt
-   DSH member presets so their native filesystem provider reads that member's
-   generated role view (via `customSkillDirs` and a preset patch). Keep the DSH
-   native registry, `skills/list`, and body loader as the actual discovery and
-   invocation path. The DSH plugin marketplace installs npm plugins, not loose
-   skills; one-click skill installation therefore downloads declared bundles
-   through the bridge into the managed library, without executing scripts.
+4. Implement the skills manager only in `bridge/web`. Do not add or change a
+   DSH skill-management page. Adapt DSH member presets so their native filesystem
+   provider reads that member's generated role view (via `customSkillDirs` and a
+   preset patch). Keep the DSH native registry, `skills/list`, and body loader as
+   the actual discovery and invocation path. The DSH plugin marketplace installs
+   npm plugins, not loose skills; one-click skill installation therefore
+   downloads declared bundles through the bridge into the managed library,
+   without executing scripts.
 5. Count use only at observed invocation/load points: Claude Skill tool or
    successful `SKILL.md` read; DSH successful skill tool return or `/name`
    injection; Codex successful read of a role-view skill; Grok bridge body load.
@@ -90,8 +90,8 @@ discovery. Record this distinction in the backend result table.
 - Existing global skills show a global-visibility marker and no per-role switch.
 - The web UI exercises body preview, edit-as-new-approved-version, delete,
   approval, role toggles, one-click preset installation, and use counts against
-  the service. Capture evidence in the web page and the same page embedded in the
-  DSH bothouse panel.
+  the service. DSH verification covers role-scoped native discovery and actual
+  invocation through the adapted member preset; it does not add a management UI.
 - Claude, Codex, DSH, Antigravity, and Grok each receive a dedicated isolated
   invocation probe. DSH uses its real member preset and native skill tool; Grok
   uses the bridge body-load path. Record actual body-load/result evidence and any

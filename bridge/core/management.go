@@ -375,6 +375,8 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Skills
 	mux.HandleFunc(prefix+"/skills", m.wrap(m.handleSkills))
+	mux.HandleFunc(prefix+"/skills/managed", m.wrap(m.handleManagedSkills))
+	mux.HandleFunc(prefix+"/skills/managed/", m.wrap(m.handleManagedSkill))
 	mux.HandleFunc(prefix+"/skills/presets", m.wrap(m.handleSkillPresets))
 
 	// Roles
@@ -2239,6 +2241,7 @@ type skillInfo struct {
 	DisplayName string `json:"display_name,omitempty"`
 	Description string `json:"description,omitempty"`
 	Source      string `json:"source"`
+	Global      bool   `json:"global,omitempty"`
 }
 
 type projectSkills struct {
@@ -2267,6 +2270,7 @@ func (m *ManagementServer) handleSkills(w http.ResponseWriter, r *http.Request) 
 				DisplayName: s.DisplayName,
 				Description: s.Description,
 				Source:      s.Source,
+				Global:      isGlobalSkillSource(s.Source),
 			})
 		}
 		result = append(result, projectSkills{
@@ -2277,7 +2281,17 @@ func (m *ManagementServer) handleSkills(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 
-	mgmtJSON(w, http.StatusOK, map[string]any{"projects": result})
+	var managed []managedSkill
+	var pending []managedSkillRecord
+	var err error
+	if m.wizardDataDir != "" {
+		managed, pending, err = listManagedSkills(m.wizardDataDir)
+	}
+	if err != nil {
+		mgmtError(w, http.StatusInternalServerError, "read managed skills: "+err.Error())
+		return
+	}
+	mgmtJSON(w, http.StatusOK, map[string]any{"projects": result, "managed_skills": managed, "pending_skills": pending})
 }
 
 func (m *ManagementServer) handleSkillPresets(w http.ResponseWriter, r *http.Request) {
