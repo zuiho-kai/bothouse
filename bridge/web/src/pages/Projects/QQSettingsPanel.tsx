@@ -2,14 +2,25 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Card, Input } from '@/components/ui';
 import { getQQSettings, saveQQSettings, type QQSettings, type QQSettingsResponse } from '@/api/qq';
+import { qqConnectionState, QQ_STATE_HINT, QQ_STATE_LABEL } from '@/lib/qqConnection';
 
 /**
  * QQ (OneBot v11) connection settings plus the switches the adapter already honors
  * (#710 件 1). Every field here maps to a key the adapter reads in
  * platform/qq/qq.go:153-206; nothing is offered that the adapter ignores, and
  * allow_from stays read-only because PATCH /projects/{name} owns it.
+ *
+ * `platforms` is the running-platform list from the project detail endpoint: with it
+ * the panel says whether this connection is actually up, instead of leaving people to
+ * guess from "restart to apply". `restartSeq` changes when the page has restarted the
+ * bridge and reloaded the detail, which is when "saved, not restarted yet" stops being
+ * true.
  */
-export default function QQSettingsPanel({ project }: { project: string }) {
+export default function QQSettingsPanel({ project, platforms, restartSeq }: {
+  project: string;
+  platforms?: { type: string; connected: boolean }[];
+  restartSeq?: number;
+}) {
   const { t } = useTranslation();
   const [data, setData] = useState<QQSettingsResponse | null>(null);
   const [token, setToken] = useState('');
@@ -36,7 +47,9 @@ export default function QQSettingsPanel({ project }: { project: string }) {
     const handler = () => { fetchData(); };
     window.addEventListener('cc:refresh', handler);
     return () => { window.removeEventListener('cc:refresh', handler); };
-  }, [fetchData]);
+    // restartSeq: the bridge was restarted and the detail reloaded, so a save that was
+    // waiting for a restart is live now and its note should go away.
+  }, [fetchData, restartSeq]);
 
   const edit = (patch: Partial<QQSettings>) => {
     setSaved('');
@@ -68,11 +81,28 @@ export default function QQSettingsPanel({ project }: { project: string }) {
     } finally { setBusy(false); }
   };
 
+  // A save that needs a restart stays "not restarted" until the page restarts the
+  // bridge; a save that needed nothing leaves the readiness the detail reports alone.
+  const state = qqConnectionState({
+    configured: data?.configured ?? true,
+    platforms,
+    pendingRestart: saved === 'restart',
+  });
+  const savedNote = saved === 'restart' ? t('qq.savedRestart') : saved === 'unchanged' ? t('common.saved') : '';
+
   return <Card className="space-y-4">
     <h3 className="text-sm font-semibold">{t('qq.settingsTitle')}</h3>
+    {/* Whether the running bridge actually has QQ up; the settings below are only what
+        is saved on disk, which is why this is stated separately. */}
+    {state !== 'unknown' && <div role="status" data-qq-state={state} aria-live="polite" className="space-y-1">
+      <p className={state === 'connected' ? 'text-sm text-green-600' : state === 'offline' ? 'text-sm text-red-600' : 'text-sm text-amber-600'}>
+        {t(QQ_STATE_LABEL[state])}
+      </p>
+      <p className="text-xs text-gray-500">{t(QQ_STATE_HINT[state])}</p>
+    </div>}
     <p className="text-sm text-gray-500">{t('qq.settingsHint')}</p>
     {error && <p role="alert" className="text-red-500">{error}</p>}
-    {saved && <p role="status" className="text-green-600">{t(saved === 'restart' ? 'qq.savedRestart' : 'common.saved')}</p>}
+    {savedNote && <p role="status" data-qq-saved={saved} className="text-green-600">{savedNote}</p>}
     {data && <fieldset disabled={busy} className="space-y-6 max-w-lg">
       <section className="space-y-4">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t('qq.connection')}</h4>

@@ -339,6 +339,11 @@ Returns detailed information for a single project.
 
 **Response:**
 
+`platforms[].connected` is that platform's runtime readiness, not "it is written in
+config.toml": a platform that failed to start, or an async one still reconnecting, is
+listed with `"connected": false`. The bridge transport is reported under `bridge` in
+`GET /api/v1/status` and is not listed here.
+
 ```json
 {
   "ok": true,
