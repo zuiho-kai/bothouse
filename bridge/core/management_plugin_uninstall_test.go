@@ -37,7 +37,7 @@ func writeUninstallProfile(t *testing.T) uninstallFixture {
 	}
 	script := "#!/bin/sh\n" +
 		"for a in \"$@\"; do name=\"$a\"; done\n" +
-		"printf '%s\\n' \"$name\" > " + shellQuote(filepath.Join(home, "removed.txt")) + "\n" +
+		"printf '%s\\n' \"$name\" > " + posixQuote(filepath.Join(home, "removed.txt")) + "\n" +
 		"exit 0\n"
 	if err := os.WriteFile(filepath.Join(binDir, "dsh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -120,6 +120,11 @@ func uninstallBody(t *testing.T, base, token, name, confirm string) uninstallAns
 	}
 	return body
 }
+
+// posixQuote quotes a path for the POSIX sh script the fixture writes. It is local rather than the
+// package's shellQuote because that one lives in a !windows file, and this test file must compile
+// on Windows too (only the test run is skipped there).
+func posixQuote(p string) string { return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'" }
 
 // ranRemoval reports the name the fake dsh was asked to remove, "" when it never ran.
 func (f uninstallFixture) ranRemoval(t *testing.T) string {
