@@ -881,13 +881,25 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Request, name string, e *Engine) {
 	if r.Method == http.MethodGet {
-		platInfos := make([]map[string]any, len(e.platforms))
-		for i, p := range e.platforms {
-			platInfos[i] = map[string]any{
-				"type":      p.Name(),
-				"connected": true,
+		// connected is the runtime readiness bit (platformReady), not "this platform is written in
+		// config.toml": a platform whose Start failed, or an async one still reconnecting, is listed
+		// but not connected. Same map and same lock bridgeRoles reads (management_roles_devices.go),
+		// so the detail page and the roles page cannot disagree.
+		platInfos := make([]map[string]any, 0, len(e.platforms))
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			// The bridge transport is not a chat platform (handleStatus reports it under "bridge"),
+			// and it is attached after Engine.Start, so it never appears in platformReady. Listing it
+			// here would pin a permanent red pill on a transport that is in fact working.
+			if _, ok := p.(*BridgePlatform); ok {
+				continue
 			}
+			platInfos = append(platInfos, map[string]any{
+				"type":      p.Name(),
+				"connected": e.platformReady[p],
+			})
 		}
+		e.platformLifecycleMu.Unlock()
 
 		allSessions := e.sessions.AllSessions()
 		sessCount := len(allSessions)

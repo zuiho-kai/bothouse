@@ -339,6 +339,10 @@ max_tokens = 8192           # token 计数不是密钥
 
 **响应：**
 
+`platforms[].connected` 是这个平台的运行期就绪状态，不是「config.toml 里写了」：
+起不来、或异步平台还在重连的，列出来但 `"connected": false`。bridge 传输在
+`GET /api/v1/status` 的 `bridge` 字段里，不在这里列。
+
 ```json
 {
   "ok": true,

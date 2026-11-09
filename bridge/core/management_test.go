@@ -362,6 +362,59 @@ func TestMgmt_ProjectDetail(t *testing.T) {
 	}
 }
 
+// connected on the project detail page is the runtime readiness bit, not "this platform is
+// written in config.toml". A configured platform that came up, one that never did, and the
+// bridge transport (attached after Engine.Start, not a chat platform) must be told apart;
+// before this every platform was reported connected regardless of state.
+func TestMgmt_ProjectDetail_ConnectedReflectsPlatformReady(t *testing.T) {
+	mgmt, ts, e := testManagementServer(t, "tok")
+
+	ready := &stubPlatform{n: "feishu"}
+	notReady := &stubPlatform{n: "qq"}
+	e.platforms = append(e.platforms, ready, notReady)
+	if !e.markPlatformReady(ready) {
+		t.Fatal("expected feishu to be marked ready")
+	}
+
+	// The bridge transport is appended by registerBridge after Engine.Start, so it is never in
+	// platformReady; listing it here would pin a permanent "disconnected" pill.
+	bs := NewBridgeServer(9810, "bridge-secret", "/bridge/ws", nil)
+	mgmt.SetBridgeServer(bs)
+	e.platforms = append(e.platforms, bs.NewPlatform("test-project"))
+
+	r := mgmtGet(t, ts.URL+"/api/v1/projects/test-project", "tok")
+	if !r.OK {
+		t.Fatalf("project detail failed: %s", r.Error)
+	}
+
+	var data struct {
+		Platforms []struct {
+			Type      string `json:"type"`
+			Connected bool   `json:"connected"`
+		} `json:"platforms"`
+	}
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal project detail: %v", err)
+	}
+
+	got := make(map[string]bool, len(data.Platforms))
+	for _, p := range data.Platforms {
+		got[p.Type] = p.Connected
+	}
+	if v, ok := got["feishu"]; !ok || !v {
+		t.Fatalf("feishu reached ready, should be connected, got %+v", data.Platforms)
+	}
+	if v, ok := got["qq"]; !ok || v {
+		t.Fatalf("qq never became ready, should be disconnected, got %+v", data.Platforms)
+	}
+	if _, ok := got["bridge"]; ok {
+		t.Fatalf("bridge transport must not be listed as a platform, got %+v", data.Platforms)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected exactly feishu and qq, got %+v", data.Platforms)
+	}
+}
+
 func TestMgmt_ProjectPatch(t *testing.T) {
 	_, ts, _ := testManagementServer(t, "tok")
 

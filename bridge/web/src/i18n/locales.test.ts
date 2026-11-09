@@ -47,6 +47,21 @@ describe('locale files stay in step', () => {
     expect(PLUGIN_KEYS.filter(k => !keys.has(k))).toEqual([]);
   });
 
+  // QQ 面板的三种状态各有一句标题一句提示，少一种语言就会出现键名本身。
+  const QQ_STATE_KEYS = [
+    'qq.stateRestart',
+    'qq.stateRestartHint',
+    'qq.stateOffline',
+    'qq.stateOfflineHint',
+    'qq.stateConnected',
+    'qq.stateConnectedHint',
+  ];
+
+  it.each(Object.keys(dicts))('%s has every QQ connection-state key', lang => {
+    const keys = new Set(flatten(dicts[lang]));
+    expect(QQ_STATE_KEYS.filter(k => !keys.has(k))).toEqual([]);
+  });
+
   it.each(Object.keys(dicts))('%s has no key that en.json does not have', lang => {
     const english = new Set(flatten(dicts.en));
     expect(flatten(dicts[lang]).filter(k => !english.has(k))).toEqual([]);
