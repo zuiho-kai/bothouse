@@ -88,6 +88,7 @@ type ManagementServer struct {
 	removeGlobalProvider func(name string) error
 	fetchPresets         func() (*ProviderPresetsResponse, error)
 	fetchSkillPresets    func() (*SkillPresetsResponse, error)
+	downloadSkillPreset  func(string) (string, error)
 
 	// cc-switch migration callback
 	listCCSwitchProviders func() ([]CCSwitchProviderInfo, error)
@@ -377,6 +378,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/skills", m.wrap(m.handleSkills))
 	mux.HandleFunc(prefix+"/skills/managed", m.wrap(m.handleManagedSkills))
 	mux.HandleFunc(prefix+"/skills/managed/", m.wrap(m.handleManagedSkill))
+	mux.HandleFunc(prefix+"/skills/install", m.wrap(m.handleSkillInstall))
 	mux.HandleFunc(prefix+"/skills/presets", m.wrap(m.handleSkillPresets))
 
 	// Roles

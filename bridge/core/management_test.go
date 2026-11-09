@@ -74,6 +74,9 @@ func testManagementServer(t *testing.T, token string) (*ManagementServer, *httpt
 	mux.HandleFunc(prefix+"/providers", mgmt.wrap(mgmt.handleGlobalProviders))
 	mux.HandleFunc(prefix+"/providers/", mgmt.wrap(mgmt.handleGlobalProviderRoutes))
 	mux.HandleFunc(prefix+"/skills", mgmt.wrap(mgmt.handleSkills))
+	mux.HandleFunc(prefix+"/skills/managed", mgmt.wrap(mgmt.handleManagedSkills))
+	mux.HandleFunc(prefix+"/skills/managed/", mgmt.wrap(mgmt.handleManagedSkill))
+	mux.HandleFunc(prefix+"/skills/install", mgmt.wrap(mgmt.handleSkillInstall))
 	mux.HandleFunc(prefix+"/skills/presets", mgmt.wrap(mgmt.handleSkillPresets))
 	mux.HandleFunc(prefix+"/bridge/adapters", mgmt.wrap(mgmt.handleBridgeAdapters))
 	mux.HandleFunc(prefix+"/image-gen", mgmt.wrap(mgmt.handleImageGen))
@@ -2142,6 +2145,76 @@ func TestMgmt_SkillPresets_Error(t *testing.T) {
 	r := mgmtGet(t, ts.URL+"/api/v1/skills/presets", "tok")
 	if r.OK {
 		t.Fatal("expected error")
+	}
+}
+
+func TestMgmt_SkillInstallWritesApprovedManagedSkillToRole(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	dataDir := t.TempDir()
+	mgmt.SetWizard(newMemStore(), dataDir)
+	mgmt.SetFetchSkillPresets(func() (*SkillPresetsResponse, error) {
+		return &SkillPresetsResponse{Skills: []SkillPreset{{Name: "preset-guide", InstallURL: "https://raw.githubusercontent.com/example/guide/SKILL.md"}}}, nil
+	})
+	mgmt.SetDownloadSkillPreset(func(string) (string, error) {
+		return "---\nname: preset-guide\ndescription: Installed guide\n---\n\nUse the guide.\n", nil
+	})
+	r := mgmtPost(t, ts.URL+"/api/v1/skills/install", "tok", map[string]string{"name": "preset-guide", "project": "dsh-role"})
+	if !r.OK {
+		t.Fatalf("install failed: %s", r.Error)
+	}
+	state, err := readManagedSkillState(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := state.Skills["preset-guide"]
+	if got.Version != 1 || got.Learned || !got.Enabled["dsh-role"] {
+		t.Fatalf("installed record = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(ManagedSkillViewDir(dataDir, "dsh-role"), "preset-guide", "SKILL.md")); err != nil {
+		t.Fatalf("role view missing installed skill: %v", err)
+	}
+	if again := mgmtPost(t, ts.URL+"/api/v1/skills/install", "tok", map[string]string{"name": "preset-guide", "project": "dsh-role"}); again.OK {
+		t.Fatal("duplicate install should be rejected")
+	}
+}
+
+func TestDownloadSkillBundleRejectsUntrustedSource(t *testing.T) {
+	for _, raw := range []string{"http://raw.githubusercontent.com/x/y", "https://github.com/x/y", "https://127.0.0.1/a"} {
+		if _, err := downloadSkillBundle(raw); err == nil {
+			t.Fatalf("downloadSkillBundle(%q) unexpectedly accepted", raw)
+		}
+	}
+}
+
+func TestMgmt_ManagedSkillWriteLifecycle(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	dataDir := t.TempDir()
+	mgmt.SetWizard(newMemStore(), dataDir)
+	if _, err := writeManagedSkill(dataDir, "dsh-role", "guide", "dsh-role", "---\nname: guide\ndescription: Guide\n---\n\nOld body.\n", true); err != nil {
+		t.Fatal(err)
+	}
+	base := ts.URL + "/api/v1/skills/managed/guide"
+	read := mgmtGet(t, base, "tok")
+	if !read.OK || !bytes.Contains(read.Data, []byte("Old body.")) {
+		t.Fatalf("read managed document: ok=%v data=%s error=%s", read.OK, read.Data, read.Error)
+	}
+	if updated := mgmtPut(t, base, "tok", map[string]string{"body": "---\nname: guide\ndescription: Edited\n---\n\nNew body.\n"}); !updated.OK {
+		t.Fatalf("edit failed: %s", updated.Error)
+	}
+	if disabled := mgmtPut(t, base+"/enabled", "tok", map[string]any{"project": "dsh-role", "enabled": false}); !disabled.OK {
+		t.Fatalf("disable failed: %s", disabled.Error)
+	}
+	if _, err := os.Stat(filepath.Join(ManagedSkillViewDir(dataDir, "dsh-role"), "guide")); !os.IsNotExist(err) {
+		t.Fatalf("disabled role view still exists: %v", err)
+	}
+	if enabled := mgmtPut(t, base+"/enabled", "tok", map[string]any{"project": "dsh-role", "enabled": true}); !enabled.OK {
+		t.Fatalf("enable failed: %s", enabled.Error)
+	}
+	if deleted := mgmtDelete(t, base, "tok"); !deleted.OK {
+		t.Fatalf("delete failed: %s", deleted.Error)
+	}
+	if _, err := os.Stat(filepath.Join(managedSkillsDir(dataDir), "library", "guide")); !os.IsNotExist(err) {
+		t.Fatalf("deleted library skill remains: %v", err)
 	}
 }
 

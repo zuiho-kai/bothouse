@@ -27,6 +27,7 @@ type SkillPreset struct {
 	Version       string        `json:"version,omitempty"`
 	Author        string        `json:"author,omitempty"`
 	URL           string        `json:"url,omitempty"`
+	InstallURL    string        `json:"install_url,omitempty"`
 	AgentTypes    []string      `json:"agent_types,omitempty"`
 	Tags          []string      `json:"tags,omitempty"`
 	Featured      bool          `json:"featured,omitempty"`

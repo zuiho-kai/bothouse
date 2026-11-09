@@ -49,6 +49,24 @@ def run_one(rows, b, *args):
                             env=dict(os.environ, WIKI_DIR=str(d))).returncode
     if rc:
         say(f"{b} ingest {' '.join(args)} exited {rc}")
+    data_dir = (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
+                os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
+    if args == ("--nightly",):
+        env = dict(os.environ,
+                   MANUALS_ROLE=b,
+                   MANUALS_WIKI=str(d),
+                   BOTHOUSE_DATA_DIR=data_dir,
+                   MANUALS_STATE=str(Path(data_dir) / "skills" / "manuals-state" / f"{b}.json"),
+                   MANUALS_SKILLS=str(Path(data_dir) / "skills" / "library"),
+                   MANUALS_PENDING_DIR=str(Path(data_dir) / "skills" / "pending" / b),
+                   MANUALS_LINKS="",
+                   MANUALS_TRANSCRIPTS=str((Path(os.environ.get("WIKI_TRANSCRIPTS") or HERE / "transcripts") / b)))
+        say(f"{b} manuals")
+        with open(Path(d) / ".ingest.log", "a") as err:
+            rc = subprocess.run([PY, "-X", "utf8", "-I", str(HERE / "llmwiki" / "manuals.py")],
+                                stderr=err, env=env).returncode
+        if rc:
+            say(f"{b} manuals exited {rc}")
 
 
 def export(*args):

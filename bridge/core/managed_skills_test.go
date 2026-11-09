@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,7 +79,35 @@ func TestManagedSkillEditCreatesNewApprovedVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Body != "second" {
-		t.Fatalf("current body = %q, want second", current.Body)
+	if !strings.Contains(current.Body, "description: Second") || !strings.Contains(current.Body, "second") {
+		t.Fatalf("current document = %q, want frontmatter and updated body", current.Body)
+	}
+}
+
+func TestManagedSkillUseIsCountedOnlyFromEnabledRoleView(t *testing.T) {
+	dataDir := t.TempDir()
+	_, err := writeManagedSkill(dataDir, "writer", "guide", "writer", "Follow the guide.", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := filepath.Join(ManagedSkillViewDir(dataDir, "writer"), "guide")
+	recordManagedSkillUseFromView(view)
+	state, err := readManagedSkillState(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Skills["guide"].Uses["writer"]; got != 1 {
+		t.Fatalf("writer uses = %d, want 1", got)
+	}
+	if _, err := setManagedSkillEnabled(dataDir, "writer", "guide", false); err != nil {
+		t.Fatal(err)
+	}
+	recordManagedSkillUseFromView(view)
+	state, err = readManagedSkillState(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Skills["guide"].Uses["writer"]; got != 1 {
+		t.Fatalf("disabled view uses = %d, want 1", got)
 	}
 }

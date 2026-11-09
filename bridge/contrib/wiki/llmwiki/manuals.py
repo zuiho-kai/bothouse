@@ -23,6 +23,7 @@ dream() 跑完规则候选和今日反思后调 run()（ingest.py）；也能单
   指纹），搜到推送、用的人投票、低分沉底都走现成论坛；这一行以后不改，改了指纹就丢票。
 """
 import argparse, json, os, re, subprocess, sys, time
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -38,6 +39,8 @@ WIKI = Path(os.environ.get("MANUALS_WIKI", HOME / "wiki"))
 MAPS = Path(os.environ.get("MANUALS_MAPS", HOME / "work/codemaps"))
 INDEX = "tooling/agent-tools/wiki/auto-manuals.md"  # 论坛帖子所在页（相对 WIKI）
 STATE = Path(os.environ.get("MANUALS_STATE", HOME / ".local/state/wiki-manuals.json"))
+PENDING = Path(os.environ["MANUALS_PENDING_DIR"]) if os.environ.get("MANUALS_PENDING_DIR") else None
+ROLE = os.environ.get("MANUALS_ROLE", "")
 MODEL = os.environ.get("MANUALS_MODEL", "sonnet")  # 沿用 ingest.py MODELS["claude"] 默认
 FIRST = 86400  # 首晚只看最近一天，沿用 ingest.py dream()（time.time() - 86400）
 MAX_CHARS = 240_000  # 一次调用的上下文上限，沿用 ingest.py MAX_CHARS
@@ -48,6 +51,11 @@ MIN_STEPS = 2
 TMP = re.compile(r"(?<![\w~.$/-])/(?:private/)?tmp(?:/|\b)")
 WARN = re.compile(r"重启(?:就|会)?丢|会丢|失效|找不到|别用|不要用|不要依赖|别依赖|不可靠|临时目录")
 TIDY_TRIES = 2  # 合并校验不过，带上没过的原因再让模型改一次；还不过就留原文
+TOOL_KIND = {
+    "bash": "Bash", "exec": "Bash", "exec_command": "Bash", "run_command": "Bash", "terminal": "Bash", "shell": "Bash",
+    "glob": "Glob", "glob_tool": "Glob", "list_directory": "Glob", "find_files": "Glob",
+    "grep": "Grep", "grep_search": "Grep", "search_files": "Grep", "find_text": "Grep",
+}
 
 SEARCH = re.compile(r"(?:^|[;&|(]\s*|\s)(find|mdfind|which|whereis|locate|command -v|type -a|ls -d|ls -la?d?|rg -l|grep -r\w*|grep -\w*r\w*)\b"
                     r"|\bls\s[^;|&]*(?:\*|2>/dev/null)")
@@ -68,6 +76,7 @@ def log(msg):
 
 
 def is_search(tool, text):
+    tool = TOOL_KIND.get((tool or "").lower(), tool)
     if tool in ("Glob", "Grep"):
         return True
     t = text or ""
@@ -76,6 +85,7 @@ def is_search(tool, text):
 
 def targets(tool, text):
     """一条找东西的命令在找什么：-name 的参数、which/mdfind 的对象、路径里的通配段、grep -r 的词。小写、去通配。"""
+    tool = TOOL_KIND.get((tool or "").lower(), tool)
     t = text or ""
     out = set(NAME_ARG.findall(t))
     for m in re.finditer(r"\b(?:which|whereis|command -v|type -a|mdfind(?: -name)?)\s+['\"]?([\w.+-]+)", t):
@@ -106,17 +116,32 @@ def records(path, lo, hi):
     out = []
     with open(path, errors="ignore") as f:
         for n, line in enumerate(f, 1):
-            if '"tool"' not in line:
+            if '"tool"' not in line and '"tool_use"' not in line:
                 continue
             try:
                 d = json.loads(line)
             except ValueError:
                 continue
-            if d.get("kind") != "tool" or not d.get("ts"):
+            if d.get("kind") == "tool":
+                ts, calls = d.get("ts"), [(d.get("tool") or "", d.get("text") or "")]
+            elif d.get("type") == "assistant":
+                ts = d.get("timestamp")
+                calls = []
+                for item in (d.get("message") or {}).get("content", []):
+                    if isinstance(item, dict) and item.get("type") == "tool_use":
+                        args = item.get("input") or {}
+                        text = args.get("command") or args.get("file_path") or args.get("path") or args.get("url") or json.dumps(args, ensure_ascii=False)
+                        calls.append((item.get("name") or "tool", str(text)))
+            else:
                 continue
-            t = time.mktime(time.strptime(d["ts"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+            if not ts:
+                continue
+            try:
+                t = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            except (TypeError, ValueError):
+                continue
             if lo <= t < hi:
-                out.append((n, t, d.get("tool") or "", d.get("text") or ""))
+                out.extend((n, t, tool, text) for tool, text in calls)
     return out
 
 
@@ -255,17 +280,27 @@ def write_new(ans, day, g):
     name = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]", "", ans["name"].lower().replace("_", "-"))).strip("-")
     if not name:
         raise ValueError("empty name")
-    d = SKILLS / name
-    if d.exists():
-        raise ValueError(f"{name} exists")
+    if PENDING:
+        PENDING.mkdir(parents=True, exist_ok=True)
+        d = PENDING / f"{name}.md"
+        if d.exists() or (SKILLS / name / "SKILL.md").exists():
+            raise ValueError(f"{name} exists")
+    else:
+        d = SKILLS / name / "SKILL.md"
+        if d.exists():
+            raise ValueError(f"{name} exists")
     desc = " ".join(ans["description"].split())
-    d.mkdir(parents=True)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\n" + ans["body"].strip() +
-                                f"\n\n<!-- 夜里自动起草 {day}（~/wiki/bin/manuals.py），找的对象：{', '.join(sorted(g['targets']))} -->\n")
+    content = f"---\nname: {name}\ndescription: {desc}\n---\n" + ans["body"].strip() + \
+        f"\n\n<!-- 夜里自动起草 {day}（llmwiki manuals），找的对象：{', '.join(sorted(g['targets']))} -->\n"
+    if PENDING:
+        d.write_text(content)
+        return name, desc, d
+    d.parent.mkdir(parents=True)
+    d.write_text(content)
     for l in LINKS:
         if l.is_dir() and not (l / name).exists():
-            (l / name).symlink_to(d)
-    return name, desc, d / "SKILL.md"
+            (l / name).symlink_to(d.parent)
+    return name, desc, d
 
 
 def write_append(ans, day, have):
@@ -429,8 +464,13 @@ def run(since=None, until=None, dry=False, deadline=None):
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
     new_from = since or st.get("at") or hi - FIRST
     lo = new_from - FIRST  # 今晚新摸索的那次，和前一天里另一次配成一对也算重复
-    files = {s.id: s.path for s in sessionlog.sessions(None, hosts=True)
-             if s.path.stat().st_mtime >= lo and not str(s.path).startswith(("/tmp", "/private/tmp"))}
+    transcript_root = Path(os.environ["MANUALS_TRANSCRIPTS"]) if os.environ.get("MANUALS_TRANSCRIPTS") else None
+    if transcript_root:
+        files = {p.stem: p for p in transcript_root.glob("**/*.jsonl")
+                 if p.stat().st_mtime >= lo and not str(p).startswith(("/tmp", "/private/tmp"))}
+    else:
+        files = {s.id: s.path for s in sessionlog.sessions(ROLE or None, hosts=True)
+                 if s.path.stat().st_mtime >= lo and not str(s.path).startswith(("/tmp", "/private/tmp"))}
     gs = candidates(files, lo, new_from, hi)
     log(f"{len(files)} sessions, {len(gs)} repeated-search groups")
     if dry:

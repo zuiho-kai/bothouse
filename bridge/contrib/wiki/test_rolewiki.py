@@ -192,6 +192,13 @@ class SubWikiPy(unittest.TestCase):
         (self.dir / "export.py").write_text(
             "import sys\nif '--list' in sys.argv: print(" + repr("\n".join(lines)) + ")\n")
         self.env = dict(os.environ, WIKI_PYTHON=sys.executable, WIKI_TRANSCRIPTS=str(self.tmp / "tr"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.data = self.tmp / "data"
+        self.env.update(HOME=str(self.home), USERPROFILE=str(self.home), BOTHOUSE_DATA_DIR=str(self.data))
+        (self.dir / "llmwiki").mkdir()
+        (self.dir / "llmwiki" / "manuals.py").write_text(
+            f"import os\nopen({str(self.calls)!r}, 'a').write(os.environ['MANUALS_ROLE'] + ' manuals ' + os.environ['MANUALS_PENDING_DIR'] + '\\n')\n")
 
     def got(self):
         got = self.calls.read_text().splitlines()
@@ -203,7 +210,10 @@ class SubWikiPy(unittest.TestCase):
         return self.got()
 
     def test_nightly_runs_each_bot(self):
-        self.assertEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
+        self.assertEqual(self.run_py("nightly"), [
+            "juzi --nightly", f"juzi manuals {self.data / 'skills' / 'pending' / 'juzi'}",
+            "whale --nightly", f"whale manuals {self.data / 'skills' / 'pending' / 'whale'}",
+        ])
 
     def test_hook_run_finds_session(self):
         d = self.tmp / "tr" / "whale" / "2026-10"
@@ -231,7 +241,7 @@ class SubWikiPy(unittest.TestCase):
         w = self.tmp / "wikis" / "whale"
         (w / "bin" / "ingest.py").write_text(
             f"import os,sys\nopen({str(self.calls)!r}, 'a').write('whale ' + os.environ.get('WIKI_DIR', '') + '\\n')\n")
-        self.assertEqual(self.run_py("nightly"), [f"whale {w}"])
+        self.assertEqual(self.run_py("nightly"), [f"whale {w}", f"whale manuals {self.data / 'skills' / 'pending' / 'whale'}"])
         self.assertEqual(self.run_py("hook-run", "juzi", "nope"), ["juzi --pending"])  # the hook still runs her
 
     @unittest.skipIf(os.name == "nt", "no /bin/sh on Windows")

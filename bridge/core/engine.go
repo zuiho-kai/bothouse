@@ -17635,6 +17635,9 @@ func (e *Engine) executeSkill(p Platform, msg *Message, skill *Skill, args []str
 		"user", msg.UserName,
 		"workspace", workspaceDir,
 	)
+	if strings.Contains(filepath.ToSlash(skill.Source), "/skills/views/") {
+		recordManagedSkillUseFromView(skill.Source)
+	}
 
 	msg.Content = prompt
 	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)

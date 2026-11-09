@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Sparkles, Star, ExternalLink, FolderOpen, Puzzle, RefreshCw,
+  Sparkles, Star, ExternalLink, Download, FolderOpen, Puzzle, RefreshCw, Eye, Pencil, Trash2, Check,
 } from 'lucide-react';
-import { Card, Badge, Button, EmptyState } from '@/components/ui';
+import { Card, Badge, Button, EmptyState, Modal, Textarea } from '@/components/ui';
 import {
-  listSkills, fetchSkillPresets,
-  type ProjectSkills, type SkillPreset,
+  listSkills, fetchSkillPresets, getManagedSkill, editManagedSkill, deleteManagedSkill,
+  setManagedSkillEnabled, approveManagedSkill, installSkillPreset,
+  type ProjectSkills, type SkillPreset, type ManagedSkill,
 } from '@/api/skills';
 import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
 import { cn } from '@/lib/utils';
@@ -17,6 +18,8 @@ export default function SkillList() {
   const { t, i18n } = useTranslation();
   const [tab, setTab] = useState<Tab>('local');
   const [projects, setProjects] = useState<ProjectSkills[]>([]);
+  const [managed, setManaged] = useState<ManagedSkill[]>([]);
+  const [pending, setPending] = useState<ManagedSkill[]>([]);
   const [presets, setPresets] = useState<SkillPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [presetsLoading, setPresetsLoading] = useState(false);
@@ -30,12 +33,19 @@ export default function SkillList() {
     setLoading(true);
     try {
       const data = await listSkills();
-      const ps = data.projects || [];
+      const ps = [...(data.projects || [])];
+      for (const p of summaries) {
+        if (['dsh', 'acp'].includes(p.agent_type) && !ps.some(x => x.project === p.name)) {
+          ps.push({ project: p.name, agent_type: p.agent_type, dirs: [], skills: [] });
+        }
+      }
       setProjects(ps);
+      setManaged(data.managed_skills || []);
+      setPending(data.pending_skills || []);
       if (ps.length > 0 && !activeProject) setActiveProject(ps[0].project);
     } catch { /* empty */ }
     setLoading(false);
-  }, [activeProject]);
+  }, [activeProject, summaries]);
 
   const loadPresets = useCallback(async () => {
     setPresetsLoading(true);
@@ -46,7 +56,7 @@ export default function SkillList() {
     setPresetsLoading(false);
   }, []);
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
     if (tab === 'recommended' && presets.length === 0) loadPresets();
   }, [tab, presets.length, loadPresets]);
@@ -55,6 +65,11 @@ export default function SkillList() {
   const lang = i18n.language || 'en';
   // 这一屏的「一个发现」放在标题下：装在几个项目里、一共几个技能，答一眼就知道数量。
   const skillTotal = projects.reduce((n, p) => n + (p.skills?.length || 0), 0);
+  const install = async (name: string) => {
+    if (!activeProject) return;
+    try { await installSkillPreset(name, activeProject); await refresh(); }
+    catch (e) { window.alert(String(e)); }
+  };
 
   return (
     <div className="space-y-6">
@@ -105,6 +120,9 @@ export default function SkillList() {
           onSelectProject={setActiveProject}
           loading={loading}
           t={t}
+          managed={managed}
+          pending={pending.filter(s => s.owner === activeProject)}
+          refresh={refresh}
         />
       )}
       {tab === 'recommended' && (
@@ -114,6 +132,9 @@ export default function SkillList() {
           onRefresh={loadPresets}
           t={t}
           lang={lang}
+          activeProject={activeProject}
+          onInstall={install}
+          installed={new Set(managed.map(s => s.name))}
         />
       )}
     </div>
@@ -123,7 +144,7 @@ export default function SkillList() {
 /* ── Local Skills ── */
 
 function LocalSkills({
-  projects, shown, current, activeProject, onSelectProject, loading, t,
+  projects, shown, current, activeProject, onSelectProject, loading, t, managed, pending, refresh,
 }: {
   projects: ProjectSkills[];
   shown: (name: string) => string;
@@ -132,6 +153,9 @@ function LocalSkills({
   onSelectProject: (name: string) => void;
   loading: boolean;
   t: (k: string, opts?: any) => string;
+  managed: ManagedSkill[];
+  pending: ManagedSkill[];
+  refresh: () => void;
 }) {
   if (loading) {
     // 骨架而不是转圈：先摆出侧栏 + 三行卡的位置，数据回来不跳。
@@ -211,9 +235,7 @@ function LocalSkills({
             )}
 
             {(!current.skills || current.skills.length === 0) ? (
-              <div className="rounded-card bg-surface p-6 border border-hairline">
-                <EmptyState message={t('skills.emptyProject')} icon={Puzzle} />
-              </div>
+              <p className="mb-2 text-sm text-ink-mute">{t('skills.emptyProject')}</p>
             ) : (
               <div className="space-y-2">
                 {current.skills.map(s => (
@@ -227,11 +249,30 @@ function LocalSkills({
                           <p className="mt-0.5 line-clamp-2 text-[13px] text-ink-soft">{s.description}</p>
                         )}
                         <p className="mt-1 truncate font-mono text-xs text-ink-mute">{s.source}</p>
+                        {s.global && <Badge variant="outline">{t('skills.global', '全局，所有角色可见')}</Badge>}
                       </div>
                     </div>
                   </Card>
                 ))}
               </div>
+            )}
+            {managed.length > 0 && (
+              <section className="mt-6 space-y-2" aria-label={t('skills.managed', '托管技能')}>
+                <h3 className="text-sm font-semibold text-ink">{t('skills.managed', '托管技能')}</h3>
+                {managed.map(skill => <ManagedSkillCard key={skill.name} skill={skill} project={activeProject} refresh={refresh} t={t} />)}
+              </section>
+            )}
+            {pending.length > 0 && (
+              <section className="mt-6 space-y-2" aria-label={t('skills.pending', '待确认')}>
+                <h3 className="text-sm font-semibold text-ink">{t('skills.pending', '待确认')}</h3>
+                {pending.map(skill => (
+                  <Card key={skill.name} className="!py-3 flex items-center gap-3">
+                    <div className="min-w-0 flex-1"><p className="text-sm font-medium">{skill.name}</p><p className="text-xs text-ink-soft">{skill.description}</p></div>
+                    <Badge variant="warning">{t('skills.awaiting', '待确认')}</Badge>
+                    <Button size="sm" onClick={async () => { await approveManagedSkill(skill.name, activeProject); refresh(); }}><Check size={14} />{t('skills.approve', '确认生效')}</Button>
+                  </Card>
+                ))}
+              </section>
             )}
           </>
         )}
@@ -240,16 +281,64 @@ function LocalSkills({
   );
 }
 
+function ManagedSkillCard({ skill, project, refresh, t }: {
+  skill: ManagedSkill; project: string; refresh: () => void; t: (k: string, fallback?: string) => string;
+}) {
+  const [body, setBody] = useState('');
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const useCount = skill.uses?.[project];
+  const loadBody = async () => {
+    const data = await getManagedSkill(skill.name);
+    setBody(data.body || '');
+    setEditing(false);
+    setOpen(true);
+  };
+  const save = async () => {
+    setBusy(true);
+    try { await editManagedSkill(skill.name, body); setOpen(false); refresh(); }
+    catch (e) { window.alert(String(e)); }
+    setBusy(false);
+  };
+  return (
+    <Card className="!py-3">
+      <div className="flex flex-wrap items-start gap-3">
+        <Puzzle size={15} className="mt-1 shrink-0 text-ink-mute" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-medium">{skill.name}</h4>{skill.learned && <Badge variant="success">{t('skills.learned', '自己学会的')}</Badge>}</div>
+          {skill.description && <p className="mt-1 text-[13px] text-ink-soft">{skill.description}</p>}
+          <p className="mt-1 text-xs text-ink-mute">{t('skills.uses', '使用次数')}: {useCount == null ? t('skills.unknown', '无法统计') : useCount}</p>
+        </div>
+        <label className="inline-flex items-center gap-2 text-xs text-ink-soft"><input type="checkbox" checked={skill.enabled?.[project] === true} onChange={async e => { setBusy(true); await setManagedSkillEnabled(skill.name, project, e.target.checked); setBusy(false); refresh(); }} disabled={busy} />{t('skills.enabled', '启用')}</label>
+        <Button size="sm" className="!p-2" variant="ghost" title={t('skills.view', '查看正文')} aria-label={t('skills.view', '查看正文')} onClick={loadBody}><Eye size={15} /></Button>
+        <Button size="sm" className="!p-2" variant="ghost" title={t('skills.edit', '编辑')} aria-label={t('skills.edit', '编辑')} onClick={async () => { await loadBody(); setEditing(true); }}><Pencil size={15} /></Button>
+        <Button size="sm" className="!p-2" variant="ghost" title={t('skills.delete', '删除')} aria-label={t('skills.delete', '删除')} onClick={async () => { if (window.confirm(t('skills.deleteConfirm', `删除 ${skill.name}？`))) { await deleteManagedSkill(skill.name); refresh(); } }}><Trash2 size={15} /></Button>
+      </div>
+      <Modal open={open} onClose={() => setOpen(false)} title={editing ? t('skills.edit', '编辑技能') : skill.name} className="max-w-3xl">
+        {editing ? <Textarea aria-label={t('skills.body', '正文')} rows={22} value={body} onChange={e => setBody(e.target.value)} /> : <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap text-sm text-ink-soft">{body}</pre>}
+        <div className="mt-4 flex justify-end gap-2">
+          {editing && <Button variant="secondary" onClick={() => setEditing(false)}>{t('common.cancel', '取消')}</Button>}
+          {editing && <Button onClick={save} disabled={busy}>{t('common.save', '保存')}</Button>}
+        </div>
+      </Modal>
+    </Card>
+  );
+}
+
 /* ── Recommended Skills ── */
 
 function RecommendedSkills({
-  presets, loading, onRefresh, t, lang,
+  presets, loading, onRefresh, t, lang, activeProject, onInstall, installed,
 }: {
   presets: SkillPreset[];
   loading: boolean;
   onRefresh: () => void;
   t: (k: string, opts?: any) => string;
   lang: string;
+  activeProject: string;
+  onInstall: (name: string) => void;
+  installed: Set<string>;
 }) {
   if (loading) {
     return (
@@ -278,7 +367,7 @@ function RecommendedSkills({
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {presets.map(s => (
-        <SkillPresetCard key={s.name} skill={s} t={t} lang={lang} />
+        <SkillPresetCard key={s.name} skill={s} t={t} lang={lang} activeProject={activeProject} onInstall={onInstall} installed={installed.has(s.name)} />
       ))}
     </div>
   );
@@ -321,11 +410,14 @@ function PricingBadge({ pricing, t }: { pricing: SkillPreset['pricing']; t: (k: 
 /* ── Skill Card ── */
 
 function SkillPresetCard({
-  skill: s, t, lang,
+  skill: s, t, lang, activeProject, onInstall, installed,
 }: {
   skill: SkillPreset;
-  t: (k: string) => string;
+  t: (k: string, opts?: any) => string;
   lang: string;
+  activeProject: string;
+  onInstall: (name: string) => void;
+  installed: boolean;
 }) {
   return (
     <Card className="flex flex-col">
@@ -376,16 +468,9 @@ function SkillPresetCard({
           )}
           {s.author && <span className="truncate">{t('skills.author')}: {s.author}</span>}
         </div>
-        {s.url && (
-          <a
-            href={s.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-medium text-accent transition-colors duration-base ease-ui-out hover:bg-accent-wash"
-          >
-            {t('skills.download')} <ExternalLink size={12} />
-          </a>
-        )}
+        <Button size="sm" disabled={!s.install_url || !activeProject || installed} title={!s.install_url ? t('skills.installUnavailable', { defaultValue: '没有可用的安装来源' }) : undefined} onClick={() => onInstall(s.name)}>
+          {installed ? t('skills.installed', { defaultValue: '已安装' }) : t('skills.install', { defaultValue: '安装到托管库' })} {!installed && <Download size={12} />}
+        </Button>
       </div>
     </Card>
   );

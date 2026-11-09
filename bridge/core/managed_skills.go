@@ -18,6 +18,7 @@ type managedSkillRecord struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Owner       string          `json:"owner,omitempty"`
+	Learned     bool            `json:"learned,omitempty"`
 	Version     int             `json:"version"`
 	Enabled     map[string]bool `json:"enabled"`
 	Uses        map[string]int  `json:"uses,omitempty"`
@@ -83,7 +84,7 @@ func readManagedSkill(dataDir, name string, state managedSkillRecord) (managedSk
 		return managedSkill{}, fmt.Errorf("managed skill %q is invalid", name)
 	}
 	state.Description = parsed.Description
-	return managedSkill{managedSkillRecord: state, Body: parsed.Prompt}, nil
+	return managedSkill{managedSkillRecord: state, Body: string(raw)}, nil
 }
 
 func writeManagedSkill(dataDir, project, name, owner, body string, approve bool) (managedSkillRecord, error) {
@@ -133,6 +134,7 @@ func writeManagedSkill(dataDir, project, name, owner, body string, approve bool)
 	if previous.Owner == "" {
 		previous.Owner = owner
 	}
+	previous.Learned = owner != "" && owner != "recommended"
 	previous.UpdatedAt = time.Now()
 	state.Skills[name] = previous
 	if err := writeManagedSkillState(dataDir, state); err != nil {
@@ -289,6 +291,7 @@ func listManagedSkills(dataDir string) ([]managedSkill, []managedSkillRecord, er
 			return nil, nil, err
 		}
 		active = append(active, skill)
+		active[len(active)-1].Body = ""
 	}
 	sort.Slice(active, func(i, j int) bool { return active[i].Name < active[j].Name })
 	pending := make([]managedSkillRecord, 0)
@@ -316,4 +319,27 @@ func listManagedSkills(dataDir string) ([]managedSkill, []managedSkillRecord, er
 	}
 	sort.Slice(pending, func(i, j int) bool { return pending[i].Name < pending[j].Name })
 	return active, pending, nil
+}
+
+func recordManagedSkillUseFromView(skillDir string) {
+	name := filepath.Base(skillDir)
+	project := filepath.Base(filepath.Dir(skillDir))
+	dataDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(skillDir))))
+	if !managedSkillName.MatchString(name) || project == "" || filepath.Base(project) != project {
+		return
+	}
+	state, err := readManagedSkillState(dataDir)
+	if err != nil {
+		return
+	}
+	record, ok := state.Skills[name]
+	if !ok || !record.Enabled[project] {
+		return
+	}
+	if record.Uses == nil {
+		record.Uses = map[string]int{}
+	}
+	record.Uses[project]++
+	state.Skills[name] = record
+	_ = writeManagedSkillState(dataDir, state)
 }

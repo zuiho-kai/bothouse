@@ -2697,6 +2697,19 @@ def nightly(a):
     run(a, engines=[NIGHT_ENGINE])
     split_pass(state())
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
+    data_dir = (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
+                os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
+    if data_dir:
+        import manuals
+        cfg = load_config(REPO)
+        data_dir = Path(data_dir)
+        manuals.WIKI = REPO
+        manuals.STATE = data_dir / "skills" / "manuals-state" / f"{cfg['assistant']}.json"
+        manuals.SKILLS = data_dir / "skills" / "library"
+        manuals.LINKS = []
+        manuals.PENDING = data_dir / "skills" / "pending" / cfg["assistant"]
+        manuals.ROLE = cfg["assistant"]
+        manuals.run(deadline=deadline)
     review(state(), deadline)
 
 
