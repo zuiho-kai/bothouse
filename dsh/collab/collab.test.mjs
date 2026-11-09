@@ -880,7 +880,9 @@ function fakeDsh() {
   };
   const createUserMessage = m => ({ ...m, role: 'user', id: `in-${++ids}` });
   const attach = (hub, list, options) => {
-    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet }, list, options);
+    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet,
+      mountManagedSkills: (agentCtx, member) => agentCtx.tools?.push(`skills:${member.id}`),
+    }, list, options);
     return members;
   };
   return { ctx, sessions, made, emit, turn, attach, restart, remove };
@@ -1056,6 +1058,7 @@ test('DSH member: after a restart the resumed Session gets its agent preset tool
   const agent = await askAgain(hub, dsh, '@DeepSeek 重启后 fa');
   assert.equal(agent, old, 'the same Session answers');
   assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
+  assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('skills:ds'), 'the role skill view is mounted on resume');
   assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
 });
 

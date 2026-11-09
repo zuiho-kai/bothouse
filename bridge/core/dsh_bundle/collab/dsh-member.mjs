@@ -1219,6 +1219,7 @@ export class DshMembers {
    */
   setup(agentCtx, initial, agent) {
     if (agent !== undefined) this.hooked.add(agent);
+    this.rt.mountManagedSkills?.(agentCtx, initial);
     // Read the member's current config on each request so an edit in the UI
     // reaches a Session whose hook was installed before the edit.
     const current = () => this.config.get(initial.id) ?? initial;

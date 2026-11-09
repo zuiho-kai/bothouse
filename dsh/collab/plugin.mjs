@@ -17,6 +17,7 @@ import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
+import { mountManagedSkills } from './managed-skills.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
@@ -135,6 +136,7 @@ export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   const require = dshRequire();
   const { createUserMessage } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
+  const skillFilesystem = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-skill-filesystem')).href);
   // ws is declared by this package and resolved from this file, so the server never borrows a
   // transitive copy from the surrounding DSH runtime. It is CommonJS; its WebSocketServer is
   // not a statically detectable named export.
@@ -205,7 +207,9 @@ export async function apply(ctx, rawConfig) {
   const gateway = r.gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
   const later = r.later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
   gateway.later = later;
-  const dsh = r.dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const dsh = r.dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember,
+    mountManagedSkills: (agentCtx, member) => mountManagedSkills(agentCtx, member, skillFilesystem),
+    workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
   const roster = new Roster(hub, dsh, ctx.llm, avatarUploads);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
