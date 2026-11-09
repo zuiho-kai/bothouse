@@ -67,6 +67,10 @@
     "forum": "Memory forum",
     "gate": "Gate"
   },
+  "plugins": {
+    "stateClientUi": "Client UI package",
+    "clientUiNote": "Provided by DSH; the panel cannot switch it."
+  },
   "roles": {
     "title": "Role management"
   },

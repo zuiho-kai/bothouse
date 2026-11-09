@@ -1475,6 +1475,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
         "version": "0.2.1-rc.5",
         "description": "DSH base surface",
         "layer": true,
+        "client_only": false,
         "enabled": true,
         "shipped": true,
         "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
@@ -1484,7 +1485,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 }
 ```
 
-`shipped` 表示这个 bundle 来自 DSH 安装本身而不是这份 profile：它们是面板自己的层，照样列出来，但页面不给开关。没有声明 `dsh.bundle` 的依赖 `layer: false`：装上了，但 DSH 不会把它当插件加载。
+`shipped` 表示这个 bundle 来自 DSH 安装本身而不是这份 profile：它们是面板自己的层，照样列出来，但页面不给开关。没有声明 `dsh.bundle` 的依赖 `layer: false`：装上了，但 DSH 不会把它当插件加载。`client_only`（#1376 新增）把两种非 layer 依赖分开：`true` 表示这个包声明了 `dsh.client`（至少读到 `platform`），即安装脚本装进 profile、由 DSH 渲染的客户端 UI 包（如 `@deepseek-ai/dsh-experimental-client-ui-discord`）；`false` 表示两段都没有，是纯依赖（如 `is-odd`）。它特意单列一个字段：`layer: false` 仍然只表示「不是 bundle」，`client_only` 不会把它变成 bundle。客户端 UI 包在这页没有开关——DSH 能不能关掉它不是这页要回答的事。
 
 #### GET /api/v1/plugins/inspect?spec=<包规格>
 

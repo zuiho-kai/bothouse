@@ -66,6 +66,10 @@
     "forum": "記憶論壇",
     "gate": "閘門"
   },
+  "plugins": {
+    "stateClientUi": "用戶端 UI 套件",
+    "clientUiNote": "由 DSH 提供，面板無法開關。"
+  },
   "roles": {
     "title": "角色管理"
   },

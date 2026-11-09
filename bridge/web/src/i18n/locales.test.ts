@@ -32,10 +32,19 @@ const USAGE_KEYS = [
   'usage.tokenBreakdown',
 ];
 
+// #1376: the plugins page's package-kind labels. They live in the locale files (the rest of that
+// page keeps its zh/en/ja table), so all seven must carry them or a user sees the key name.
+const PLUGIN_KEYS = ['plugins.stateClientUi', 'plugins.clientUiNote'];
+
 describe('locale files stay in step', () => {
   it.each(Object.keys(dicts))('%s has every usage quick-filter key', lang => {
     const keys = new Set(flatten(dicts[lang]));
     expect(USAGE_KEYS.filter(k => !keys.has(k))).toEqual([]);
+  });
+
+  it.each(Object.keys(dicts))('%s has every plugin package-kind key', lang => {
+    const keys = new Set(flatten(dicts[lang]));
+    expect(PLUGIN_KEYS.filter(k => !keys.has(k))).toEqual([]);
   });
 
   it.each(Object.keys(dicts))('%s has no key that en.json does not have', lang => {

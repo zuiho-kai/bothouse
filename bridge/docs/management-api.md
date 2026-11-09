@@ -1551,6 +1551,7 @@ unauthenticated management port cannot tell the owner from anyone else on the ma
         "version": "0.2.1-rc.5",
         "description": "DSH base surface",
         "layer": true,
+        "client_only": false,
         "enabled": true,
         "shipped": true,
         "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
@@ -1563,6 +1564,13 @@ unauthenticated management port cannot tell the owner from anyone else on the ma
 `shipped` marks a bundle that resolves from the DSH installation rather than this profile; those are
 the panel's own surface, so the response lists them but the page offers no switch. A dependency that
 does not declare `dsh.bundle` has `layer: false`: it is installed, but DSH never loads it as a plugin.
+`client_only` (added in #1376) separates the two kinds of non-layer dependency: `true` means the
+package declares `dsh.client` (at least `platform`), i.e. a client UI package such as
+`@deepseek-ai/dsh-experimental-client-ui-discord` that the install script puts into the profile and DSH
+renders; `false` means it declares neither block, a plain dependency such as `is-odd`. It is a
+separate field on purpose: `layer: false` still means "not a bundle", and `client_only` never turns it
+into one. A client UI package gets no switch here — whether DSH can turn it off is not this page's
+question.
 
 #### GET /api/v1/plugins/inspect?spec=<package spec>
 

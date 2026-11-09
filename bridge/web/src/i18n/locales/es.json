@@ -64,6 +64,10 @@
     "plugins": "Plugins",
     "gate": "Puerta"
   },
+  "plugins": {
+    "stateClientUi": "Paquete de interfaz de cliente",
+    "clientUiNote": "Lo proporciona DSH; el panel no puede activarlo ni desactivarlo."
+  },
   "roles": {
     "title": "Gestión de roles"
   },

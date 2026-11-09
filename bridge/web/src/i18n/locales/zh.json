@@ -67,6 +67,10 @@
     "forum": "记忆论坛",
     "gate": "闸门"
   },
+  "plugins": {
+    "stateClientUi": "客户端 UI 包",
+    "clientUiNote": "由 DSH 提供，面板不能开关。"
+  },
   "roles": {
     "title": "角色管理"
   },
