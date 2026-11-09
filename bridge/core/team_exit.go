@@ -293,6 +293,14 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound, "legacy", legacy)
 		return ""
 	}
+	if !legacy && kind == exitKindReport && item != nil {
+		if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); !bound {
+			// The lead accepts a text report before the user sees it (user 11-09, team_report_accept.go).
+			// A proactive task's turn keeps the old direct post: its authority cannot ride a lead timer.
+			e.holdReportForLead(ctx, p, parent, ws, bot, body, sessionKey, hid, hline, doubt, item)
+			return ""
+		}
+	}
 	if !legacy {
 		// The 📬 posts report on board item hid: a reply to them brings its background (reply_task.go).
 		rc = e.recordReplyTask(p, rc, hid)
@@ -319,8 +327,9 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 
 // postExitHeadline posts the part for the user (background, what was done, what the user is to
 // do; exitSplit) in chat channel parent, named by board item hid; the details go under that post
-// (postWithDetail; user 10-30 「要么只给最后一句…看不懂前面，要么给全量…更加炸」). A report is not
-// handed to the chat lead, which sees the post in its channel history. An [ask] is handed to the
+// (postWithDetail; user 10-30 「要么只给最后一句…看不懂前面，要么给全量…更加炸」). A report normally
+// does not come here: since 11-09 it is held for the chat lead first (holdReportForLead); only a
+// proactive task's report still posts directly. An [ask] is handed to the
 // lead as background. A report for an item the board already closed is the workspace answering
 // a late nudge: it stays in the workspace. The same text for the same item within
 // exitHeadlineDedup is not posted or handed again.

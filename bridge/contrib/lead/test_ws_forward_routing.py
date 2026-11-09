@@ -38,10 +38,10 @@ class ForwardRecipientTest(unittest.TestCase):
             items=lambda: [self.live], append_forward=Mock(), arm_guard=Mock(),
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
-        self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "main"}, dict(
+        self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report", "main"}, dict(
             _team=self.team, board=self.board, json=json, re=re, os=os,
             subprocess=types.SimpleNamespace(run=self.run),
-            sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message))),
+            sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),
             time=types.SimpleNamespace(strftime=lambda fmt: "2026-11-08"),
             PROMPT_MAX=1500, Path=Path,
         ))
@@ -49,7 +49,17 @@ class ForwardRecipientTest(unittest.TestCase):
     def forward(self, *args):
         with contextlib.redirect_stdout(io.StringIO()):
             self.ns["main"]([*args, "continue existing task"])
-        return self.run.call_args.args[0]
+        # the timer that wakes the workspace (a held report's reject call may follow it)
+        return next(c.args[0] for c in self.run.call_args_list if "timer" in c.args[0])
+
+    def test_forward_rejects_held_report_after_delivery(self):
+        # 11-09: a forward while the bridge holds this task's text [report] for the lead sends it back
+        # (bothouse report reject) once the work reached the workspace.
+        self.forward()
+        self.assertIn("timer", self.run.call_args_list[0].args[0])
+        first = self.run.call_args_list[1].args[0]
+        self.assertEqual(first[:5], ["bothouse", "report", "reject", "--id", "362"])
+        self.assertEqual(first[first.index("--reason")+1], "continue existing task")
 
     def test_cross_project_forward_keeps_recipient_and_workspace(self):
         cmd = self.forward()

@@ -1,0 +1,242 @@
+#!/usr/bin/env -S python3 -I
+# 主角色验收工作区交上来的成品（ws-up --image/--file 只投给主角色，用户未见），合格后用它发到聊天频道给用户看。
+# 来源：#1223，用户 11-08「他给了你的时候你再看一下是否符合预期，然后看打回还是说重做」「两个防火墙你都给他啊，绕过了」。
+# 用法：
+#   ws-pass [--notes <交接>] --stitch <成品图>...        拼一张「参考 | 成品」并排图，只打印路径，不发送；打开看过再决定
+#   ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"   发到这件活的来源聊天频道
+#   ws-pass [--notes <交接>] --verdict "<逐条对照>"     不带附件：放行桥扣下的文字 [report]，原文照贴给用户（11-09
+#     用户「我都说工作群返回你要看一眼，结果你他妈就图片跟视频，你看一眼文字你不看」；桥 core/team_report_accept.go）。
+#   封面/宣传活（交接提到封面、宣传片、B 站、投稿）：--stitch 顺带出手机大小缩略图并打印 bili-playbook 规则，发送要加 --cover-checked。
+#   交接里有参考材料（参考链接或 ~/work/ref/ 下的图/视频）时必须带 --compare，没有就拦。不合格用 ws-forward 打回。
+#   哪件活：--notes 指定；不给时按 ws-handoff-last.json 里来源是当前聊天频道（CC_SESSION_KEY）的活，只有一件才自动认。
+import json, os, shutil, subprocess, sys, time
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+sys.path.insert(0, str(here))
+import _team  # noqa: E402
+import _handoff_rules  # noqa: E402
+sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
+import board  # noqa: E402
+
+USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
+         '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
+         '       ws-pass [--notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报）')
+IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
+OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
+
+
+def cc_bin() -> str:
+    return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
+
+
+def ffmpeg() -> str:
+    return shutil.which("ffmpeg") or str(Path.home() / ".local" / "bin" / "ffmpeg")
+
+
+def find_task(key: str, notes):
+    """返回 (交接文件, 记录)；没有对应交接返回 ("", {})；拿不准就退出列出可选项。"""
+    try:
+        last = json.loads(_team.LAST.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = {}
+    tasks = {k: v for k, v in (last.get("tasks") or {}).items() if isinstance(v, dict)}
+    if notes:
+        path = os.path.abspath(os.path.expanduser(notes))
+        rec = tasks.get(path) or next((v for v in tasks.values() if v.get("file") == path), {})
+        return path, rec
+    mine = {k: v for k, v in tasks.items() if v.get("chat") == key}
+    if len(mine) > 1:
+        sys.exit("ws-pass: 本频道交出去的活有好几件，用 --notes 写明是哪件：" + "；".join(
+            f"--notes {k}（{v.get('task') or ''}）" for k, v in mine.items()))
+    return next(iter(mine.items()), ("", {}))
+
+
+def refs_of(notes: str):
+    """(参考链接, 本地参考图/视频)。"""
+    if not notes:
+        return [], []
+    try:
+        links, have, _ = _handoff_rules.ref_material(Path(notes).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RuntimeError):
+        return [], []
+    return links, have
+
+
+def stitch(ref: str, shots: list) -> Path:
+    """参考 | 成品… 横排一张图（统一高 720，视频取第一帧），存到 ~/work/ref/compare/。"""
+    OUT.mkdir(parents=True, exist_ok=True)
+    out = OUT / f"compare-{time.strftime('%Y%m%d-%H%M%S')}.png"
+    srcs = [ref, *shots]
+    args = [ffmpeg(), "-y", "-loglevel", "error"]
+    for s in srcs:
+        args += ["-i", s]
+    chain = ";".join(f"[{i}:v]scale=-2:720,setsar=1[v{i}]" for i in range(len(srcs)))
+    chain += ";" + "".join(f"[v{i}]" for i in range(len(srcs))) + f"hstack=inputs={len(srcs)}[out]"
+    args += ["-filter_complex", chain, "-map", "[out]", "-frames:v", "1", str(out)]
+    r = subprocess.run(args, capture_output=True, text=True, timeout=120)
+    if r.returncode != 0 or not out.is_file():
+        sys.exit(f"ws-pass: 拼并排图失败：{r.stderr.strip()[-500:]}")
+    return out
+
+
+PLAYBOOK = Path.home() / "wiki/projects/software/household/biz/oss-launch/bili-playbook.md"
+COVER_WORDS = ("封面", "宣传片", "B 站", "B站", "投稿", "bili")
+
+
+def is_cover_job(rec, path) -> bool:
+    """交接或活名提到封面/宣传/投稿，就按 bili-playbook 的封面规则验（11-09「封面一坨」，规则 11-01 就写了但只靠自觉）。"""
+    text = rec.get("task") or ""
+    for f in (rec.get("file"), path):
+        try:
+            text += Path(f).read_text(encoding="utf-8")
+        except Exception:
+            pass
+    return any(w in text for w in COVER_WORDS)
+
+
+def cover_rules() -> str:
+    try:
+        lines = [l.strip() for l in PLAYBOOK.read_text(encoding="utf-8").splitlines()
+                 if l.lstrip().startswith(("- 封面：", "- 标题：", "- 开头："))]
+    except Exception:
+        lines = []
+    return "\n".join(lines) or f"（没读到 {PLAYBOOK} 的封面/标题/开头规则，去页里看）"
+
+
+def expectations(f) -> str:
+    """交接里的「用户原话」「总目标」「验收」几节：验收对的是这些，不是像不像参考（#1223 原话「看一下是否符合预期」）。"""
+    try:
+        lines = Path(f).read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return ""
+    out, keep = [], False
+    for l in lines:
+        if l.lstrip().startswith("#"):
+            keep = any(w in l for w in ("用户原话", "总目标", "验收", "做完长什么样"))
+        if keep and l.strip():
+            out.append(l)
+    return "\n".join(out[:40])
+
+
+def thumbs(shots: list) -> Path:
+    """成品缩到手机列表大小（宽 320）横排，看字还读不读得出。"""
+    OUT.mkdir(parents=True, exist_ok=True)
+    out = OUT / f"thumb-{time.strftime('%Y%m%d-%H%M%S')}.png"
+    args = [ffmpeg(), "-y", "-loglevel", "error"]
+    for s in shots:
+        args += ["-i", s]
+    chain = ";".join(f"[{i}:v]scale=320:-2,pad=320:240:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}]" for i in range(len(shots)))
+    chain += ";" + "".join(f"[v{i}]" for i in range(len(shots))) + (f"hstack=inputs={len(shots)}[out]" if len(shots) > 1 else "null[out]")
+    args += ["-filter_complex", chain, "-map", "[out]", "-frames:v", "1", str(out)]
+    r = subprocess.run(args, capture_output=True, text=True, timeout=120)
+    if r.returncode != 0 or not out.is_file():
+        sys.exit(f"ws-pass: 拼缩略图失败：{r.stderr.strip()[-500:]}")
+    return out
+
+
+def board_id(rec, path):
+    """这件活在任务板上的编号（交回待验收的条目还在板上；做完的在 board-done.jsonl）；没有返回 0。"""
+    files = {f for f in (rec.get("file"), path) if f}
+    rows = [i for i in board.items() if i.get("where") in files]
+    if not rows:
+        try:
+            rows = [i for i in board._read("board-done.jsonl") if i.get("where") in files]
+        except Exception:
+            rows = []
+    return max((int(i["id"]) for i in rows if str(i.get("id", "")).isdigit()), default=0)
+
+
+def pass_text(rec, path, verdict):
+    """放行桥扣下的文字 [report]：桥照原文贴 📬 到聊天频道，挂在任务板编号上。"""
+    if len(verdict.strip()) < 15:
+        sys.exit("ws-pass: 放行文字汇报要写 --verdict \"逐条对用户原话/总目标/验收：哪条做到、证据是什么\"；"
+                 "没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
+    nid = board_id(rec, path)
+    if not nid:
+        sys.exit(f"ws-pass: 任务板上找不到这份交接的条目（{rec.get('file') or path or '未指定交接'}），用 --notes 写明是哪件")
+    r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        sys.exit(f"ws-pass: 放行 #{nid} 的文字汇报失败：{(r.stderr or r.stdout).strip()}")
+    print(f"ws-pass: #{nid} 的文字汇报已放行，桥已贴到聊天频道", file=sys.stderr)
+
+
+def main(argv):
+    if not argv or any(a in ("-h", "--help") for a in argv):
+        print(f"用法：{USAGE}")
+        return
+    notes, compare, do_stitch, cover_ok, verdict, rest, it = None, None, False, False, "", [], iter(argv)
+    for a in it:
+        if a == "--notes":
+            notes = next(it, "") or sys.exit(f"用法：{USAGE}（--notes 后面要跟交接文件）")
+        elif a == "--compare":
+            compare = next(it, "") or sys.exit(f"用法：{USAGE}（--compare 后面要跟并排图）")
+        elif a == "--stitch":
+            do_stitch = True
+        elif a == "--verdict":
+            verdict = next(it, "")
+        elif a == "--cover-checked":
+            cover_ok = True
+        else:
+            rest.append(a)
+    key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    path, rec = find_task(key, notes)
+    links, have = refs_of(rec.get("file") or path)
+    if do_stitch:
+        shots = [os.path.abspath(os.path.expanduser(p)) for p in rest]
+        if not shots or any(not os.path.isfile(p) for p in shots):
+            sys.exit(f"用法：{USAGE}（--stitch 后面跟存在的成品图）")
+        if not have:
+            sys.exit("ws-pass: 这件活的交接里没有本地参考图/视频，拼不了并排图" +
+                     (f"（只有链接：{'、'.join(links[:3])}，先下载到 ~/work/ref/）" if links else ""))
+        print(stitch(have[0], shots))
+        exp = expectations(rec.get("file") or path)
+        print("ws-pass: 并排图只回答「像不像参考」。能不能发看的是下面这件活的预期，逐条对：\n"
+              + (exp or "（交接里没找到用户原话/总目标/验收，去交接里看）")
+              + "\n发时加 --verdict \"逐条：哪条做到、哪条没做到\"；有一条没做到就用 ws-forward 打回或重做。", file=sys.stderr)
+        if is_cover_job(rec, path):
+            print(thumbs([p for p in shots if p.lower().endswith(IMG)] or shots))
+            print("ws-pass: 这是封面/宣传活：并排图只看画法，不等于能发。再打开上面的缩略图（手机列表大小），逐条对 bili-playbook 规则：\n"
+                  + cover_rules() + "\n全对再发，发时加 --cover-checked；照抄参考构图不算对。", file=sys.stderr)
+        return
+    if not rest:
+        pass_text(rec, path, verdict)
+        return
+    if len(rest) < 2 or not rest[-1].strip() or rest[-1].startswith("-"):
+        sys.exit(f"用法：{USAGE}（至少一个附件，最后一个参数是给用户的话；只放行文字汇报就不带附件和话，只写 --verdict）")
+    msg, shots = rest[-1], [os.path.abspath(os.path.expanduser(p)) for p in rest[:-1]]
+    bad = [p for p in shots if not os.path.isfile(p)]
+    if bad:
+        sys.exit(f"ws-pass: 附件不存在：{'、'.join(bad)}")
+    if have or links:
+        if not compare:
+            sys.exit("ws-pass: 这件活的交接里有参考材料（" + "、".join((have + links)[:3]) + "），发给用户前要附一张「参考 | 成品」并排图："
+                     f"先跑 {here / 'ws-pass'} --notes {path} --stitch <成品图>，打开看过，像了再用 --compare <并排图> 发")
+        compare = os.path.abspath(os.path.expanduser(compare))
+        if not os.path.isfile(compare) or not compare.lower().endswith(IMG) or compare in shots:
+            sys.exit(f"ws-pass: --compare 要跟一张存在的并排图（图片，不是成品本身）：{compare}")
+        shots = [compare, *shots]
+    if len(verdict.strip()) < 15:
+        sys.exit("ws-pass: 发前要写 --verdict \"逐条对用户原话/总目标：哪条做到、哪条没做到\"（--stitch 会列出这件活的预期）；"
+                 "只写「像参考」不算。没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
+    if is_cover_job(rec, path) and not cover_ok:
+        sys.exit("ws-pass: 这是封面/宣传活，发前要对 bili-playbook 规则逐条看过手机列表大小的缩略图（--stitch 会顺带出）：\n"
+                 + cover_rules() + "\n全对了再加 --cover-checked 发；不对用 ws-forward 打回。")
+    chat = rec.get("chat") or key
+    if not chat:
+        sys.exit("ws-pass: 不知道发到哪个频道（没有 CC_SESSION_KEY，也没找到交接记录）")
+    if board.is_test(rec.get("task") or ""):
+        print(f"ws-pass: 测试活（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
+        return
+    args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
+    for p in shots:
+        args += ["--image" if p.lower().endswith(IMG) else "--file", p]
+    r = subprocess.run(args + ["--message", msg], capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        sys.exit(f"ws-pass: 发到 {chat} 失败：{r.stderr.strip() or r.stdout.strip()}")
+    print(f"ws-pass: 已发到聊天频道 {chat}（{len(shots)} 个附件）", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

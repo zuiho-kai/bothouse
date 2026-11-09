@@ -47,6 +47,8 @@ func runReport(args []string) {
 		os.Exit(reportCheckCommand(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "skeleton":
 		os.Exit(reportSkeletonCommand(args[1:], os.Stdout, os.Stderr))
+	case "pass", "reject":
+		os.Exit(reportVerdictCommand(args[0], args[1:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "report: unknown subcommand %q\n\n", args[0])
 		printReportUsage(os.Stderr)
@@ -262,9 +264,11 @@ Subcommands:
   file-frequency     Files read most often (also: reads)
   check              Check a workspace [report]/[ask] draft before sending it (same rules as the bridge)
   skeleton           Print the [report] to fill in for a board item, one line per scope item
+  pass               Release a workspace [report] held for the lead: --id <board> --verdict "..." (ws-pass)
+  reject             Drop a held [report] unposted: --id <board> --reason "..." (ws-forward)
 
 Run 'bothouse report file-frequency -h' for flags.
-The command is read-only: it never changes memory or STANDING.md.`)
+file-frequency, check and skeleton are read-only: they never change memory or STANDING.md.`)
 }
 
 func printReportFileFrequencyUsage(w io.Writer) {

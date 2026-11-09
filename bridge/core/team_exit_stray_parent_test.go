@@ -95,7 +95,8 @@ func TestForwardReportLogsSuccess(t *testing.T) {
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q", got)
 	}
-	if !strings.Contains(logs.String(), "team exit: report posted") {
+	// No lead engine can accept it here, so it goes out at once marked unchecked (team_report_accept.go).
+	if !strings.Contains(logs.String(), "report accept: report posted") {
 		t.Fatalf("no success line: %s", logs.String())
 	}
 }
