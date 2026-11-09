@@ -83,9 +83,16 @@ type WizardGate struct {
 	Mode    string `json:"mode,omitempty"`
 }
 
+// gateOn: the local gate runs. "addressed" keeps it on too (#1318): the gate is not only who answers but every
+// turn's context — the wiki, lessons, each sender's 懂你 page, the task board (gate.go withTurnBlocksRef). With
+// no jev its /decide answers 503 and only the @-mentioned role answers (noModelFallback), which is what
+// "addressed" means; group_reply_all=false keeps unaddressed messages out at the platform. The panel's
+// addressed mode already kept the gate (gate_settings.go); only the wizard turned it off.
 func (r WizardRequest) gateOn() bool {
-	return r.Gate == nil || r.Gate.Enabled && r.Gate.Mode != "addressed"
+	return r.Gate == nil || r.Gate.Enabled
 }
+
+func (r WizardRequest) addressed() bool { return r.Gate != nil && r.Gate.Mode == "addressed" }
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
