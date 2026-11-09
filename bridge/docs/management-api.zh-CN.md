@@ -1512,7 +1512,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 
 ### 5.10 Plugins（DSH profile）
 
-列出 DSH 那份 profile 里已有的插件，并提供两个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
+列出 DSH 那份 profile 里已有的插件，并提供三个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle、卸掉一个包（`dsh plugin --profile <profile> remove`，同一条 CLI）。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
 
 两个写操作都要求管理 API 设了 token。没设时路由直接回 `403`：没认证的管理端口分不清谁是这台机器的主人。
 
@@ -1615,6 +1615,46 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 只改 profile `package.json` 里 `dsh.profile.bundles` 这一段，其余字节原样保留；用的是 DSH 和 `dsh plugin` 同一个 `package.json.lock`，改之前先写一份带时间戳的备份。不卸载任何东西，所以再开回来就恢复原状。profile 本来就是那个状态时 `changed: false`。
 
 `@deepseek-ai/dsh-base` 会被拒：它是面板本体，关掉就没有界面了。两个写操作都要重启 DSH 才生效，响应里 `restart_required: true`。
+
+#### POST /api/v1/plugins/uninstall
+
+```json
+{"name": "some-bundle", "confirm": "some-bundle"}
+```
+
+把这份 profile 的一个依赖卸掉，走的是和安装同一条命令：`dsh plugin --profile <profile> remove -- <name>`
+（`dsh plugin --help` 原话是 pnpm 的参数原样转发）。因此它和 `dsh plugin add` 抢同一个
+`package.json.lock`；`reconcile()` 会把该包从 `dsh.profile.bundles` 里摘掉。响应：
+
+```json
+{"uninstalled": true, "restart_required": true, "state": {"…同 GET /api/v1/plugins…"}}
+```
+
+`name` 必须是 profile `dependencies` 里的精确包名，不接受 `name@version`、前缀或模糊匹配。
+`confirm` 必须**等于 `name`**：页面是让人在弹窗里把包名打一遍才发这个字段，服务端不接受
+`true` / `1` / 空。
+
+卸载前有三道检查，都在同一个 profile 锁里、在起进程之前做完：
+
+| 拦下的是 | HTTP | `kind` | 文案 |
+| --- | --- | --- | --- |
+| 内置层（`@deepseek-ai/dsh-base`） | 403 | `not-removable` | dsh-base 是 DSH 的面板本体，卸掉就没有界面可用了。 |
+| 从 DSH 安装目录 `link:` 进来的层（如 `@deepseek-ai/dsh-web-app`） | 403 | `not-removable` | 这一层随 DSH 一起安装，不能在这里卸载。 |
+| profile 里没有这个名字 | 404 | `not-installed` | 这份 profile 里没有这个包。 |
+| 还被别的包依赖 | 409 | `in-use` | 「A、B 还在用它，先卸载 A、B。」（响应另带 `in_use_by: ["A","B"]`） |
+| `confirm` 与 `name` 不一致 | 400 | `confirm-mismatch` | 包名不对，再输一次。 |
+
+被依赖时只拦、不连带卸。反向依赖扫的是 profile 的 `node_modules/<pkg>/package.json` 和
+`node_modules/@<scope>/<pkg>/package.json` 里的 `dependencies` / `peerDependencies` /
+`optionalDependencies`，不用 `pnpm why`：对 `link:` 包它会返回空，看不出谁在依赖。
+
+`dsh plugin remove` 自己失败时（例如这个包其实不在依赖里，pnpm 报
+`ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`），也归到 `not-removable` 并给出上面那句中文，**不把 pnpm
+的英文原话交给页面**；超时归 `timeout`，其余归 `unknown`。卸载要重启 DSH 才生效（DSH 只在启动时
+读 `dsh.profile.bundles`），所以成功的响应里 `restart_required` 固定为 `true`。
+
+这次不做：回滚/撤销、批量卸载、清 pnpm 内容寻址 store、清 `.plugin-manager/logs`、清孤儿
+`cordis.patch.yml` 覆盖、卸完自动重启 DSH。
 
 #### GET /api/v1/plugins/config?id=<行 id>
 
@@ -1749,6 +1789,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
 | 1.1-draft  | 2026-11-08 | 换说说改为必须带 `accept_audience_change: true`：上游在 `secret` 缺失时会把 `is_private` 补成 `false`，单看这一行分不出「真的公开」和「没读到」，改宽可见范围这件事不再由缺省值决定 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
+| 1.2-draft  | 2026-11-09 | 新增 `POST /plugins/uninstall`：卸载 profile 的一个依赖，走同一条 `dsh plugin remove`，内置层 / 安装目录 link 进来的层 / 被别的包依赖三种情况直接拦住并给中文原因，需重启生效 |
 | 1.2-draft  | 2026-11-09 | 生图状态与报错里的 `base_url` 脱敏：URL 里的用户信息（`https://…@relay`）和 `token` / `api_key` / `secret` 一类查询参数换成 `***`，端点本身照旧显示 |
 | 1.2-draft  | 2026-11-08 | 新增 `GET`/`POST /plugins/config`：读出单个插件行自己的配置（YAML 文本，标明是插件自带 / profile / HOME 哪一层设的），存进 profile 的 patch，整个读-改-写跑在 DSH 自己的锁上 |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |

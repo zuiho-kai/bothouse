@@ -316,12 +316,14 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
 
-	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
+	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off, remove
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
 	mux.HandleFunc(prefix+"/plugins/role-bindings", m.wrap(m.handleRoleBindings))
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
+	// 插件卸载 (#1377): 走同一条 `dsh plugin remove`，卸载前三道前置检查（内置层、link 层、被依赖）
+	mux.HandleFunc(prefix+"/plugins/uninstall", m.wrap(m.handlePluginsUninstall))
 	// 插件配置 (#150 ②a): 一份插件自己的 config，读出来改完存回 profile 的 patch
 	mux.HandleFunc(prefix+"/plugins/config", m.wrap(m.handlePluginsConfig))
 	// 形象包适配 (#416): 读本机形象包与素材文件
