@@ -242,7 +242,7 @@ Reloads configuration from disk without restarting the process. New projects may
 
 #### GET /api/v1/config
 
-Returns the current configuration file as TOML text with secrets redacted. The panel's Settings → Config page renders this text as-is, so comments, key order and formatting are preserved — only credential values change.
+Returns the current configuration file as TOML text with secrets redacted. The panel's System → Config page renders this text as-is, so comments, key order and formatting are preserved — only credential values change.
 
 **Query parameters:** None
 
