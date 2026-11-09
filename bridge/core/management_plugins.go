@@ -285,6 +285,9 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	var req struct {
 		Spec string `json:"spec"`
+		// ConfirmSource is the page's non-registry checkbox, sent back verbatim: with the switch on,
+		// an API call alone must not be enough, or the checkbox would be page decoration.
+		ConfirmSource string `json:"confirm_source"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -296,6 +299,10 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	if parsed.Kind != pluginKindRegistry && !m.pluginPolicy().AllowNonRegistry {
 		mgmtError(w, http.StatusForbidden, "这个来源不是 npm registry："+nonRegistryHint)
+		return
+	}
+	if parsed.Kind != pluginKindRegistry && req.ConfirmSource != pluginNonRegistryConfirm {
+		mgmtError(w, http.StatusBadRequest, nonRegistryConfirmHint)
 		return
 	}
 	dshBin, err := LookDSH()
@@ -590,6 +597,16 @@ func walkJSONPath(dec *json.Decoder, path []string) (int, int, error) {
 // nonRegistryHint is the one sentence both the refusal and the page use, so the person learns the
 // switch's name once.
 const nonRegistryHint = "只有 npm registry 上的包默认能装。要装 git 仓库、tarball 或本地路径，先在 config.toml 里加 [plugins] allow_non_registry = true，装的时候这里会再问你一次。"
+
+// pluginNonRegistryConfirm is the exact value the page sends after the person ticks the
+// non-registry box. A literal rather than true/1: a truthy value would be sent by anything that can
+// set an extra JSON field, which is the one-click path the confirm step exists to close.
+const pluginNonRegistryConfirm = "non-registry"
+
+// nonRegistryConfirmHint refuses a non-registry install that skipped the page's acknowledgement.
+// Wording follows nonRegistryAck in bridge/web/src/pages/Plugins/texts.ts, so the page's checkbox
+// and this error name the same sentence.
+const nonRegistryConfirmHint = "其它来源需要先在这个页面上显式确认：勾选「我知道这个地址是什么，继续」后再装。"
 
 // SetPluginInstallPolicy wires the install switch to config.toml (cmd/cc-connect).
 func (m *ManagementServer) SetPluginInstallPolicy(fn func() PluginInstallPolicy) {

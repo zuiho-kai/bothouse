@@ -7,6 +7,7 @@ import {
   inspectPlugin,
   installPlugin,
   listPlugins,
+  NON_REGISTRY_CONFIRM,
   savePluginConfig,
   switchPlugin,
   type DSHPlugin,
@@ -108,7 +109,10 @@ export default function PluginList() {
     setInstallError(null);
     setNotice('');
     try {
-      const next = await installPlugin(want, (ev) => {
+      // The checkbox is only sent when it is both shown and ticked: a registry install has no box
+      // to tick, and sends nothing extra.
+      const confirmSource = inspection?.kind !== 'registry' && ackNonRegistry ? NON_REGISTRY_CONFIRM : '';
+      const next = await installPlugin(want, confirmSource, (ev) => {
         if (ev.line) setLines((prev) => [...prev.slice(-19), ev.line!]);
       });
       setState(next);

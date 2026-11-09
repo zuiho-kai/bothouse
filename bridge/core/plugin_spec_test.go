@@ -76,9 +76,66 @@ func TestPluginsInstallAllowsNonRegistryWhenSwitchedOn(t *testing.T) {
 	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
 	t.Setenv("PATH", t.TempDir()) // no dsh: the spec passes parsing and stops at the real check
 	noAppDSH(t)
-	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "git+https://host/x"})
+	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{
+		"spec": "git+https://host/x", "confirm_source": pluginNonRegistryConfirm,
+	})
 	if r.OK || !strings.Contains(r.Error, "npm i -g @deepseek-ai/dsh") {
 		t.Fatalf("ok=%v error=%q, want it to get past the source check", r.OK, r.Error)
+	}
+}
+
+// TestPluginsInstallNonRegistryNeedsTheConfirmation pins the second confirmation as a backend rule,
+// not a page decoration: with allow_non_registry on, an API call that skips the page's checkbox must
+// still be refused. Before this, `curl` with the token could install a git URL the person never
+// acknowledged; the page's tick was never part of the request.
+func TestPluginsInstallNonRegistryNeedsTheConfirmation(t *testing.T) {
+	writePluginsProfile(t)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
+	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "git+https://host/x"})
+	if r.OK || !strings.Contains(r.Error, "确认") {
+		t.Fatalf("ok=%v error=%q, want a 400 naming the missing confirmation", r.OK, r.Error)
+	}
+}
+
+// TestPluginsInstallNonRegistryRejectsAVagueConfirmation: true/1/"1"/"yes" are what an API call
+// sends when it is guessing, and accepting any truthy value would put the one-click path back.
+func TestPluginsInstallNonRegistryRejectsAVagueConfirmation(t *testing.T) {
+	writePluginsProfile(t)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
+	for _, confirm := range []string{"", "yes", "true", "1"} {
+		r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{
+			"spec": "git+https://host/x", "confirm_source": confirm,
+		})
+		if r.OK || !strings.Contains(r.Error, "确认") {
+			t.Fatalf("confirm_source=%q: ok=%v error=%q, want a refusal", confirm, r.OK, r.Error)
+		}
+	}
+	// A JSON boolean is refused one step earlier, by the decoder (the field is a string): also a 400,
+	// just not the wording above.
+	if r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{
+		"spec": "git+https://host/x", "confirm_source": true,
+	}); r.OK {
+		t.Fatalf("confirm_source=true: ok=%v, want a refusal", r.OK)
+	}
+}
+
+// TestPluginsInstallRegistryIgnoresTheConfirmation: a registry name is the default path and must
+// keep working exactly as before, with no extra field in the request.
+func TestPluginsInstallRegistryIgnoresTheConfirmation(t *testing.T) {
+	writePluginsProfile(t)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
+	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "demo-bundle"})
+	if r.OK || !strings.Contains(r.Error, "npm i -g @deepseek-ai/dsh") {
+		t.Fatalf("ok=%v error=%q, want a registry install to pass the source check", r.OK, r.Error)
 	}
 }
 
