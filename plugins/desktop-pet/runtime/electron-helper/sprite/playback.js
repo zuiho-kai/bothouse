@@ -36,7 +36,9 @@ Object.assign(PetSprite.prototype, {
     if (!el) return;
     // 素材地址两条路：url 形态直接用第三方给的完整地址（宿主已把 scheme 卡在 http/https，
     // 不经 bridge、也不拼 BASE）；name 形态按「素材根 + 名字」拼。
-    el.src = url || this.assetBase + encodeURIComponent(next) + (S.ANIMATION_EXT || '.webm');
+    // bothouse fork：地址带上当前形象，换形象后同名动画不会被播放器缓存成旧形象（见 sprite/menu.js 的 refreshSkins）
+    const skinTag = this.skins && this.skins.current ? '?skin=' + encodeURIComponent(this.skins.current) : '';
+    el.src = url || this.assetBase + encodeURIComponent(next) + (S.ANIMATION_EXT || '.webm') + skinTag;
     el.loop = !nextOnce;
     el.muted = true;
     el.autoplay = true;
