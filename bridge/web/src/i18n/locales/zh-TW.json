@@ -66,6 +66,9 @@
     "forum": "記憶論壇",
     "gate": "閘門"
   },
+  "roles": {
+    "title": "角色管理"
+  },
   "dashboard": {
     "title": "總覽",
     "version": "版本",

@@ -64,6 +64,9 @@
     "plugins": "플러그인",
     "gate": "게이트"
   },
+  "roles": {
+    "title": "역할 관리"
+  },
   "dashboard": {
     "title": "대시보드",
     "version": "버전",

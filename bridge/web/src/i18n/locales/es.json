@@ -64,6 +64,9 @@
     "plugins": "Plugins",
     "gate": "Puerta"
   },
+  "roles": {
+    "title": "Gestión de roles"
+  },
   "dashboard": {
     "title": "Panel",
     "version": "Versión",

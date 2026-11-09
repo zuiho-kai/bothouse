@@ -67,6 +67,9 @@
     "forum": "记忆论坛",
     "gate": "闸门"
   },
+  "roles": {
+    "title": "角色管理"
+  },
   "dashboard": {
     "title": "概览",
     "version": "版本",

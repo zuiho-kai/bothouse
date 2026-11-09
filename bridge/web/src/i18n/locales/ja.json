@@ -64,6 +64,9 @@
     "plugins": "プラグイン",
     "gate": "ゲート"
   },
+  "roles": {
+    "title": "ロール管理"
+  },
   "dashboard": {
     "title": "ダッシュボード",
     "version": "バージョン",
