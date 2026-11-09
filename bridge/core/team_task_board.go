@@ -39,6 +39,9 @@ type teamTaskBoardItem struct {
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
+	// PauseReq: the workspace ran `board pause` on its own task inside its own turn (board.py
+	// self_pause). Nothing was paused or parked; the turn owes a [report] (workspace_report.go).
+	PauseReq string `json:"pause_req"`
 	PausedBy string `json:"paused_by"`
 	PausedAt string `json:"paused_at"`
 	DoneAt   string `json:"done_at"` // board-done.jsonl: "MM-DD HH:MM", local time

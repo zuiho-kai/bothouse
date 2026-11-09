@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 )
 
@@ -47,6 +48,9 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 		}
 		if it.DoneAt != "" || teamTaskBoardWaitUser.MatchString(it.Status) {
 			out[it.ID] = it.Status + "\n" + it.DoneAt
+		} else if it.PauseReq != "" && it.DoneAt == "" && it.Paused == "" {
+			// stopped itself this turn (board.py self_pause): a report is owed like for a done item
+			out[it.ID] = selfPauseMark + it.PauseReq
 		}
 	}
 	return out
@@ -108,6 +112,15 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	wake := r.wakes < 2
 	r.wakes++
 	e.pendingResetMu.Unlock()
+	if id, why := selfPauseOf(board); id > 0 {
+		if wake {
+			slog.Warn("workspace stopped itself without a report: requesting delivery", "session", key, "board_item", id)
+			e.wakeWatchRole(key, fmt.Sprintf("你在工作区里给 #%d 记了停手（%s），但这一轮没交 [report]。保留当前会话，现在交回：最后一条回复第一行写 [report] #%d，说做到哪、卡在哪、要谁定，第二行起写已核实的产物和证据。不要再跑新命令，不要重做已完成的工作。", id, why, id), "补交停手汇报")
+			return true
+		}
+		e.selfPauseFallback(key, id, why, text)
+		return true
+	}
 	if wake {
 		slog.Warn("workspace report missing: preserving session and requesting delivery", "session", key)
 		e.wakeWatchRole(key, fmt.Sprintf("你把活标成完成或等用户，但没交 [report]。保留当前会话，请立即补交上一轮的结果；最后一条回复第一行写 [report] #任务板编号 给用户的一两句话，第二行起写交付内容和证据，让聊天频道收到。需要用户决定时用带自验证据和类别的 [ask]。不要重新做已经完成的工作。原会话：%s", key), "补交工作区结果")
@@ -115,4 +128,59 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 		slog.Error("workspace report recovery exhausted; session reset remains blocked", "session", key)
 	}
 	return true
+}
+
+const selfPauseMark = "pause_req\n"
+
+// selfPauseOf returns the board item the workspace asked to stop on (board.py self_pause) and
+// why, from a workspaceReportBoard snapshot; 0 when none.
+func selfPauseOf(board map[int]string) (int, string) {
+	best := 0
+	for id, v := range board {
+		if strings.HasPrefix(v, selfPauseMark) && (best == 0 || id < best) {
+			best = id
+		}
+	}
+	if best == 0 {
+		return 0, ""
+	}
+	return best, strings.TrimPrefix(board[best], selfPauseMark)
+}
+
+// selfPauseFallback: the workspace stopped itself (board.py self_pause) and still wrote no
+// [report] after the wakes. Its last words go to the chat channel's lead as the pause note (agentm
+// #26, 11-09: the result never reached the chat), and then the task is paused for real from the
+// chat side, which parks the workspace and resets its session.
+func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
+	parent, ok := e.workspaceParent(teamChatKey(key))
+	if !ok {
+		parent, ok = e.workspaceParent(sessionChannel(key))
+	}
+	if !ok {
+		slog.Error("workspace self-pause: no chat channel; nothing posted", "session", key, "board_item", id)
+		return
+	}
+	plat, _, _ := strings.Cut(teamChatKey(key), ":")
+	p := e.platformForName(plat)
+	note := strings.TrimSpace(stripFillerLines(text))
+	if note == "" {
+		note = "（这一轮最后没说话）"
+	}
+	body := fmt.Sprintf("工作区自己停手（#%d）：%s\n最后一段话：\n%s", id, why, note)
+	chatID := parent
+	if _, cid, full := strings.Cut(parent, ":"); full {
+		chatID = cid
+	}
+	posted := false
+	if p != nil {
+		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), exitKindReport, body, key, id, false, "")
+	}
+	slog.Warn("workspace self-pause: no report after the wakes; last words handed to the chat lead", "session", key, "board_item", id, "handed", posted)
+	chat := parent
+	if !strings.Contains(chat, ":") {
+		chat = plat + ":" + chat
+	}
+	if out, err := e.runLeadScript(chat, "board", "pause", strconv.Itoa(id), "工作区自己停手："+why); err != nil {
+		slog.Warn("workspace self-pause: board pause failed", "board_item", id, "error", err, "output", strings.TrimSpace(string(out)))
+	}
 }
