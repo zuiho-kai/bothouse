@@ -85,6 +85,45 @@ func TestSetModuleDisabled(t *testing.T) {
 	}
 }
 
+// #710 件 5: the official Bot ("qqbot") is the same app as the OneBot bridge on the 接入应用
+// page, so both types count as the "qq" module — enable and disable work on either.
+func TestModuleQQCoversOfficialBot(t *testing.T) {
+	old := ConfigPath
+	defer func() { ConfigPath = old }()
+	dir := t.TempDir()
+	ConfigPath = filepath.Join(dir, "config.toml")
+	const raw = `[[projects]]
+name = "a"
+[projects.agent]
+type = "codex"
+[[projects.platforms]]
+type = "qqbot"
+[projects.platforms.options]
+app_id = "123"
+app_secret = "xyz"
+`
+	if err := os.WriteFile(ConfigPath, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadForSetup(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := ModuleStates(cfg)["qq"]; !reflect.DeepEqual(st, ModuleState{Enabled: []string{"a"}}) {
+		t.Fatalf("qqbot-only project state = %+v, want qq enabled for a", st)
+	}
+	if changed, _, err := SetModuleDisabled("qq", true); err != nil || !reflect.DeepEqual(changed, []string{"a"}) {
+		t.Fatalf("disable qq on a qqbot-only project = %v, %v", changed, err)
+	}
+	cfg, err = LoadForSetup(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Projects[0].ActivePlatforms(); len(got) != 0 {
+		t.Fatalf("qqbot section is still active: %+v", got)
+	}
+}
+
 // Review of #813: a fresh install has no config file; that is "nothing configured", not an error.
 func TestSetModuleDisabledNoConfig(t *testing.T) {
 	old := ConfigPath

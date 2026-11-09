@@ -44,6 +44,22 @@
       "memory_import": "Memory import is awaiting a confirmed source and format."
     }
   },
+  "qqbot": {
+    "title": "Official QQ Bot",
+    "hint": "The official QQ Bot API (AppID + AppSecret). Separate from the NapCat / OneBot entry above; changes take effect after restart.",
+    "credentials": "Credentials",
+    "appIDSet": "An AppID is saved",
+    "stored": "Saved (not shown)",
+    "missing": "Not saved",
+    "appIDReadonly": "The AppID is not shown or edited here; add a new Bot if it changed.",
+    "keepSecret": "Leave blank to keep the saved secret",
+    "secretHint": "The secret is never shown, not even masked. A blank field keeps the stored one.",
+    "behavior": "Behavior",
+    "sandboxHint": "Sandbox talks to the sandbox API host, not to real QQ users.",
+    "markdown": "Markdown messages",
+    "markdownHint": "Needs the bot permission on the QQ Bot console; without it messages arrive as plain text.",
+    "sharedHint": "When enabled, group members share one conversation. This does not isolate private memory."
+  },
   "nav": {
     "addPlatform": "Add platform",
     "addRole": "Add role / model",

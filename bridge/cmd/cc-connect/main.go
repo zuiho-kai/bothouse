@@ -747,6 +747,34 @@ func runMain() {
 				})
 			},
 		)
+		// Official QQ Bot (platform type "qqbot"): its own panel and API, because it
+		// shares no option with the OneBot bridge above (#710 件 5).
+		mgmtSrv.SetQQBotSettingsFuncs(
+			func(name string) (*core.QQBotSettings, error) {
+				s, err := config.GetQQBotSettings(name)
+				if err != nil {
+					return nil, err
+				}
+				return &core.QQBotSettings{
+					Configured:            s.Configured,
+					AppIDSet:              s.AppIDSet,
+					AppSecretSet:          s.AppSecretSet,
+					Sandbox:               s.Sandbox,
+					AllowFrom:             s.AllowFrom,
+					ShareSessionInChannel: s.ShareSessionInChannel,
+					MarkdownSupport:       s.MarkdownSupport,
+				}, nil
+			},
+			func(name string, u core.QQBotSettingsUpdate) ([]string, error) {
+				return config.UpdateQQBotSettings(name, config.QQBotSettingsUpdate{
+					AppSecret:             u.AppSecret,
+					Sandbox:               u.Sandbox,
+					ShareSessionInChannel: u.ShareSessionInChannel,
+					MarkdownSupport:       u.MarkdownSupport,
+					AllowFrom:             u.AllowFrom,
+				})
+			},
+		)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		mgmtSrv.SetGetGlobalSettings(func() map[string]any {
