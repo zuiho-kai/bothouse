@@ -1505,6 +1505,9 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 			}
 			ttsCfg.TTS = core.NewPicoTTS("", voice)
 			ttsCfg.Provider = "pico"
+		case "local":
+			ttsCfg.TTS = core.NewLocalTTS(cfg.TTS.Local.BaseURL, time.Duration(cfg.TTS.Local.TimeoutSeconds)*time.Second, nil)
+			ttsCfg.Provider = "local"
 		case "edge":
 			voice := ttsEffective.Voice
 			if voice == "" {
