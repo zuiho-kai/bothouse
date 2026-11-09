@@ -76,7 +76,7 @@ func (e *Engine) beginWorkspaceReportTurn(key string) {
 // event, so the generic idle watcher cannot queue a duplicate continuation.
 func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	board := e.workspaceReportBoard(key)
-	kind, body, valid := parseExitKind(text)
+	kind, body, valid := parseExitKindTurn(text)
 	if valid && kind == exitKindAsk {
 		valid = askEvidenceProblems(body) == nil
 	}

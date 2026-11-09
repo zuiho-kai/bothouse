@@ -162,7 +162,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		return ""
 	}
 	reply = stripFillerLines(reply)
-	kind, body, ok := parseExitKind(reply)
+	kind, body, ok := parseExitKindTurn(reply)
 	// An open handoff can be waiting for external evidence with no background
 	// process running. A turn ending is not a delivery: only explicit markers
 	// enter report validation. Board/reset transitions recover missing reports

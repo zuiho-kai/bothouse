@@ -232,6 +232,17 @@ func TestAskSurvivesRestart(t *testing.T) {
 	}
 }
 
+// A whole turn's text: the marker after the agent's narration still counts (agentm #25, 11-09).
+func TestParseExitKindTurn(t *testing.T) {
+	for in, want := range map[string]string{"[ask]\nx": "ask", "x\n[ask]\ny": "ask", "进度：已写完。[report] #3 y": "report",
+		"照「[ask]」写\nx": "", "用 `[report]` 交回": "", "x\n[ask]": "", "先说\n[ask] #1 a\n细节\n[report] #1 b": "report"} {
+		k, _, _ := parseExitKindTurn(in)
+		if k != want {
+			t.Errorf("parseExitKindTurn(%q) = %q, want %q", in, k, want)
+		}
+	}
+}
+
 func TestParseExitKind(t *testing.T) {
 	for in, want := range map[string]string{"[ask]\nx": "ask", "  [REPORT] y": "report", "[ask]": "", "ask x": "", "x\n[ask]\ny": ""} {
 		k, _, _ := parseExitKind(in)
