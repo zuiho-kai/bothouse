@@ -181,6 +181,10 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
+	// The 系统 page belongs to the wizard and edits global settings (language, log level, …);
+	// without these two it answered 503 to every load and save on a fresh install (#1370).
+	// Same wiring as normal mode, so the two cannot drift apart.
+	wireGlobalSettings(srv)
 	wireAutostart(srv)
 	srv.Start()
 	// A machine with only DSH-native members stays in setup mode; their per-turn wiki pages and
