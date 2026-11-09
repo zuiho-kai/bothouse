@@ -17,6 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 type deadlineAwareModelAgent struct {
@@ -494,6 +496,140 @@ func TestMgmt_Config(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "title") {
 		t.Fatalf("expected TOML content, got: %s", body)
+	}
+}
+
+// mgmtGetRaw issues a GET and returns the body as text — the config endpoint
+// answers with TOML, not the usual {"ok":true,...} JSON envelope.
+func mgmtGetRaw(t *testing.T, url, token string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
+// TestMgmt_Config_RedactsSecrets is the #710 件3 acceptance test: the three
+// documented field families (token/app_secret/api_key) come back as "***",
+// their originals are nowhere in the body, and ordinary settings are untouched.
+func TestMgmt_Config_RedactsSecrets(t *testing.T) {
+	srv, ts, _ := testManagementServer(t, "tok")
+
+	cfg := `# 真实配置，注释要保留
+data_dir = "/Users/someone/.bothouse"
+language = "zh-CN"
+
+[management]
+port = 51442
+token = "mgmt-token-do-not-leak"
+
+[bridge]
+name = "my-bridge"
+token = "bridge-token-do-not-leak"
+
+[feishu]
+app_id = "cli_app_id"
+app_secret = "feishu-secret-do-not-leak"
+
+[[projects]]
+name = "demo"
+
+[[projects.agent.providers]]
+name = "anthropic"
+api_key = "sk-ant-do-not-leak"
+env_key = "ANTHROPIC_API_KEY"
+max_tokens = 8192
+
+[[projects.platforms]]
+type = "telegram"
+
+[projects.platforms.options]
+token = "telegram-token-do-not-leak"
+app_id = "app-id-ok"
+env = { GOOGLE_API_KEY = "google-key-do-not-leak", REGION = "us" }
+banned_words = ["违禁词1", "secret_project"]
+`
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetConfigFilePath(cfgPath)
+
+	status, body := mgmtGetRaw(t, ts.URL+"/api/v1/config", "tok")
+	if status != 200 {
+		t.Fatalf("expected 200, got %d: %s", status, body)
+	}
+
+	for _, secret := range []string{
+		"mgmt-token-do-not-leak", "bridge-token-do-not-leak",
+		"feishu-secret-do-not-leak", "sk-ant-do-not-leak",
+		"telegram-token-do-not-leak", "google-key-do-not-leak",
+	} {
+		if strings.Contains(body, secret) {
+			t.Errorf("GET /config leaked %q: %s", secret, body)
+		}
+	}
+	for _, kept := range []string{
+		`data_dir = "/Users/someone/.bothouse"`,
+		`language = "zh-CN"`,
+		`port = 51442`,
+		`name = "my-bridge"`,
+		`app_id = "cli_app_id"`,
+		`env_key = "ANTHROPIC_API_KEY"`,
+		`max_tokens = 8192`,
+		`banned_words = ["违禁词1", "secret_project"]`,
+		`REGION = "us"`,
+		`# 真实配置，注释要保留`,
+	} {
+		if !strings.Contains(body, kept) {
+			t.Errorf("GET /config changed an ordinary line %q: %s", kept, body)
+		}
+	}
+	for _, masked := range []string{
+		`token = "***"`, `app_secret = "***"`, `api_key = "***"`,
+		`GOOGLE_API_KEY = "***"`,
+	} {
+		if !strings.Contains(body, masked) {
+			t.Errorf("GET /config missing %q: %s", masked, body)
+		}
+	}
+
+	// The panel still gets parseable TOML with the same structure.
+	var parsed map[string]any
+	if _, err := toml.Decode(body, &parsed); err != nil {
+		t.Fatalf("redacted config is not valid TOML: %v: %s", err, body)
+	}
+	if _, ok := parsed["data_dir"]; !ok {
+		t.Error("top-level data_dir disappeared")
+	}
+}
+
+// TestMgmt_Config_RedactsSecrets_StructurePreserved makes sure the response is
+// still the raw text the 配置 page renders: same line count, comments in place,
+// only values swapped.
+func TestMgmt_Config_RedactsSecrets_StructurePreserved(t *testing.T) {
+	srv, ts, _ := testManagementServer(t, "tok")
+	cfg := "[display]\ntitle = \"test\"\n\n[management]\nport = 51442\ntoken = \"abc\"\n"
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetConfigFilePath(cfgPath)
+
+	_, body := mgmtGetRaw(t, ts.URL+"/api/v1/config", "tok")
+	if strings.Count(body, "\n") != strings.Count(cfg, "\n") {
+		t.Errorf("line structure changed:\n%s", body)
+	}
+	if !strings.HasPrefix(body, "[display]\ntitle = \"test\"\n") {
+		t.Errorf("prefix changed:\n%s", body)
+	}
+	if !strings.Contains(body, "token = \"***\"") {
+		t.Errorf("token not masked:\n%s", body)
 	}
 }
 

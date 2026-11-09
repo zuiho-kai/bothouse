@@ -242,48 +242,30 @@ GET /api/v1/status?token=mgmt-secret
 
 #### GET /api/v1/config
 
-返回当前配置，敏感信息已脱敏。适用于调试和 UI 展示。
+返回当前配置文件的 TOML 文本，敏感信息已脱敏。面板「设置 → 配置」页把这段文本原样展示，所以注释、键顺序和格式都保留，只有凭证的值被替换。
 
 **查询参数：** 无
 
-**响应：**
+**响应：** `text/plain; charset=utf-8`，即配置文件原文，所有凭证类键的值替换为 `"***"`：
 
-```json
-{
-  "ok": true,
-  "data": {
-    "data_dir": "/home/user/.bothouse",
-    "language": "en",
-    "projects": [
-      {
-        "name": "my-backend",
-        "agent": {
-          "type": "claudecode",
-          "providers": [
-            {
-              "name": "anthropic",
-              "api_key": "***",
-              "base_url": "",
-              "model": "claude-sonnet-4-20250514"
-            }
-          ]
-        },
-        "platforms": [
-          {
-            "type": "feishu",
-            "options": {
-              "app_id": "***",
-              "app_secret": "***"
-            }
-          }
-        ]
-      }
-    ]
-  }
-}
+```toml
+[management]
+port = 51442
+token = "***"
+
+[feishu]
+app_id = "cli_xxxxxxxx"     # 不是密钥，原样返回
+app_secret = "***"
+
+[[projects.agent.providers]]
+name = "anthropic"
+api_key = "***"
+max_tokens = 8192           # token 计数不是密钥
 ```
 
-敏感信息（如 `api_key`、`token`、`app_secret`、`client_secret`）将被替换为 `"***"`。
+脱敏按键名判断，不区分大小写和分隔符，并递归进入表、数组和内联表（`env = { ANTHROPIC_API_KEY = "***", REGION = "us" }`）。键名包含 `secret`、`password`、`credential`、`api_key`、`private_key`、`access_key`，或以 `token`、`_aes_key`、`encrypt_key`、`_signing_key` 结尾的，一律替换为 `"***"`。只表示位置的 `token_endpoint`、`token_url`、`credentials_file`，以及 `max_tokens`、`min_tokens`、`max_context_tokens` 这类计数保持原值。
+
+文件读不到或脱敏失败时接口返回错误且不返回配置内容，失败不会泄露密钥。
 
 ---
 
