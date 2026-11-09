@@ -52,9 +52,9 @@ HOME = Path.home()
 OUT = Path(os.environ.get("WIKI_TRANSCRIPTS") or Path(__file__).resolve().parent / "transcripts").expanduser()
 CODEX_HOMES = [HOME / ".codex", HOME / ".codex-relay"]
 AGY_DIR = HOME / ".gemini" / "antigravity-cli" / "conversations"
-CC_ORIGINATORS = ("cc-connect-codex-agent", "codex_cli_rs")
+CC_ORIGINATORS = ("bothouse-codex-agent", "cc-connect-codex-agent", "codex_cli_rs")  # bothouse-*: after the rename
 # Which bots to export: $WIKI_BOTS (default <this dir>/bots.json, see bots.example.json). Per bot:
-#   kind codex|agy, workdir = its cc-connect work_dir, optional dsh_home (DSH_HOME of a DSH wrapper),
+#   kind codex|agy, workdir = its cc-connect work_dir, optional dsh_home (DSH_HOME of a DSH wrapper), optional codex_home (the role's own CODEX_HOME),
 #   optional wiki (default <workdir>/wiki), project (cc-connect project name, for sub-wiki.sh hook), name, persona.
 _bots_file = Path(os.environ.get("WIKI_BOTS") or Path(__file__).resolve().parent / "bots.json").expanduser()
 BOTS = {}
@@ -166,13 +166,15 @@ def codex_meta(path):
     return d.get("payload", {}) if d.get("type") == "session_meta" else {}
 
 
-def codex_sessions(workdir):
-    """{session id: rollout path} of the bot's cc-connect sessions in every codex home."""
+def codex_sessions(workdir, codex_home=None):
+    """{session id: rollout path} of the bot's cc-connect sessions in every codex home, plus the role's own
+    codex_home (bots.json; the bridge's per-role codex_home is not under ~/.codex)."""
     found = {}
-    for home in CODEX_HOMES:
+    homes = [Path(codex_home).expanduser()] + CODEX_HOMES if codex_home else CODEX_HOMES
+    for home in homes:
         for p in sorted((home / "sessions").glob("**/rollout-*.jsonl")):
             m = codex_meta(p)
-            if m.get("cwd") == workdir and m.get("originator") in CC_ORIGINATORS and m.get("id"):
+            if same_dir(m.get("cwd"), workdir) and m.get("originator") in CC_ORIGINATORS and m.get("id"):
                 found[m["id"]] = p
     return found
 
@@ -701,7 +703,7 @@ def sources(bot):
     kind = cfg.get("kind", "agy")
     items = []
     if kind == "codex":
-        items = [("codex", stem(s), p, codex_records) for s, p in codex_sessions(wd).items()]
+        items = [("codex", stem(s), p, codex_records) for s, p in codex_sessions(wd, cfg.get("codex_home")).items()]
     elif kind in ("agy", "antigravity"):
         items = [("agy", stem(s), p, agy_records) for s, p in agy_sessions(wd).items()]
     elif kind == "claudecode":
