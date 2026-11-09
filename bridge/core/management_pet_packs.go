@@ -21,6 +21,7 @@ type PetPackAction struct {
 	Name        string  `json:"name"`
 	File        string  `json:"file"`
 	State       string  `json:"state,omitempty"`
+	Category    string  `json:"category,omitempty"`
 	FrameWidth  int     `json:"frameWidth,omitempty"`
 	FrameHeight int     `json:"frameHeight,omitempty"`
 	Columns     int     `json:"columns,omitempty"`
@@ -93,7 +94,9 @@ func loadPetPack(root *os.Root, info *PetPackInfo) error {
 		for _, raw := range table.Animations {
 			var source struct {
 				PetPackAction
-				Sources struct {
+				// category 在 aboutme-pets 里是分类文字，前端用它挑动作；不是文字时忽略，不让整包报错。
+				Category any `json:"category"`
+				Sources  struct {
 					WebP string `json:"webp"`
 					WebM string `json:"webm"`
 				} `json:"sources"`
@@ -109,6 +112,9 @@ func loadPetPack(root *os.Root, info *PetPackInfo) error {
 				return fmt.Errorf("parse action: %w", err)
 			}
 			action := source.PetPackAction
+			if category, ok := source.Category.(string); ok {
+				action.Category = category
+			}
 			if source.Sources.WebM != "" {
 				action.File = source.Sources.WebM
 			} else if source.Sources.WebP != "" {

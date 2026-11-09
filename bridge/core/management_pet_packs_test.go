@@ -77,7 +77,7 @@ func TestPetPacksFormatsAndErrors(t *testing.T) {
 	manifest := `{"name":"Generated test pack","idleAnimationId":"idle","animations":[{"id":"idle","file":"sheet.png","frameWidth":2,"frameHeight":2,"columns":2,"frameCount":2,"fps":1}]}`
 	writePetFixture(t, root, "sprite/manifest.json", []byte(manifest))
 	writePetFixture(t, root, "sprite/sheet.png", generatedPetFrames(t))
-	writePetFixture(t, root, "sprite/actions.json", []byte(`{"animations":[{"id":"idle","sources":{"webp":"sheet.png"},"spritesheet":{"frameWidth":2,"frameHeight":2,"columns":2,"frameCount":2,"fps":1}},{"id":"working","file":"sheet.png","frameWidth":2,"frameHeight":2,"columns":2,"frameCount":2,"fps":1}]}`))
+	writePetFixture(t, root, "sprite/actions.json", []byte(`{"animations":[{"id":"idle","category":"待机","sources":{"webp":"sheet.png"},"spritesheet":{"frameWidth":2,"frameHeight":2,"columns":2,"frameCount":2,"fps":1}},{"id":"working","category":3,"file":"sheet.png","frameWidth":2,"frameHeight":2,"columns":2,"frameCount":2,"fps":1}]}`))
 	writePetFixture(t, root, "video/assets/config.jsonc", []byte("{ // generated config\n\"animations\":{\"idle\":[\"idle\"],\"categories\":[{\"id\":\"label-is-not-a-file\",\"actions\":[\"coding\"]}]},}"))
 	for _, name := range []string{"idle", "coding"} {
 		writePetFixture(t, root, "video/assets/webm/"+name+".webm", generatedPetWebM(t))
@@ -113,6 +113,9 @@ func TestPetPacksFormatsAndErrors(t *testing.T) {
 	sprite := packs["sprite"]
 	if sprite.Error != "" || sprite.Format != "webp-sprite" || sprite.ActionCount != 2 || sprite.Actions[1].FrameWidth != 2 || sprite.Actions[1].File != "sheet.png" {
 		t.Fatalf("normalized sprite: %+v", sprite)
+	}
+	if sprite.Actions[0].Category != "待机" || sprite.Actions[1].Category != "" {
+		t.Fatalf("category must pass through as text and ignore non-text: %+v", sprite.Actions)
 	}
 	for _, id := range []string{"video", "kind"} {
 		if packs[id].Error != "" || packs[id].Format != "webm" || packs[id].ActionCount == 0 {
