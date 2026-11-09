@@ -651,6 +651,10 @@ def main(argv):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
     with open(path, encoding="utf-8") as fh:
         notes = fh.read()
+    # 先说一声在交：后面搜旧定案、挑工作区要几十秒；Codex 的命令等几秒就先返回，没这行它会以为桥没响应，
+    # 跟用户说「工作区还没回执、不确定成没成」（agentm 11-09 #25，那次交活跑了 47 秒）
+    print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
+          "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
     try:
         err = check_notes(notes)
     except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
