@@ -1,0 +1,8 @@
+# Applied by `dsh plugin add bothouse-role-notify`. Edit config in the panel: 插件 → 配置.
+- insert:
+    - id: bothouse-role-notify
+      name: bothouse-role-notify
+      config:
+        bridge: http://127.0.0.1:9820
+        token: ""
+        statuses: [celebrate, error]

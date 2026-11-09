@@ -67,6 +67,8 @@ Two ways in: say "install bothouse-dsh for me" in DSH (it fetches the plugin fro
 
 One model and one role works fine; the DSH plugins you already have keep working, and popular plugins are being adapted.
 
+To write your own plugin, start from the template in the [plugin guide](docs/plugins/plugin-dev.md) (Chinese); [plugins/](plugins) has working examples (webhook on finish/error, event journal, desktop notifications).
+
 For one model with many roles, say one sentence to the lead in a channel:
 
 > Build me a small team: a writer and a programmer, both on deepseek-v4.1-flash, and put them in a channel
