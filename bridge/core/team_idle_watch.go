@@ -224,6 +224,9 @@ func watchIsHandback(text string) bool {
 	if strings.HasPrefix(text, "[report]") || strings.HasPrefix(text, "【交回】") || watchHandbackPR.MatchString(text) {
 		return true
 	}
+	if kind, _, ok := parseExitKindTurn(text); ok && kind == exitKindReport {
+		return true // a [report] after progress text is still the handback (#1270)
+	}
 	if strings.HasPrefix(text, "【接】") {
 		return utf8.RuneCountInString(text) >= 300
 	}
@@ -279,6 +282,12 @@ func watchBlankTitle(title string) bool {
 	return boardLabel(title) == "-"
 }
 
+// exitHeadlineBounced: a [report] naming a board item whose headline forwardWorkspaceExit bounces.
+func (e *Engine) exitHeadlineBounced(key, body string) bool {
+	id, _, _ := exitHeadline(body)
+	return id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit
+}
+
 func watchBoardClosed(it teamTaskBoardItem) bool {
 	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
 		if strings.Contains(it.Status, status) {
@@ -319,10 +328,12 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	returned := cardResult && !accepted || watchIsHandback(text) || watchHandbackLater(text)
 	// A validated user question waits for the user's answer, not an idle wake.
 	asking := false
-	if kind, body, ok := parseExitKind(text); ok && kind == exitKindAsk {
+	// #1270: an [ask] after a progress line (parseExitKindTurn, as forwardWorkspaceExit reads it)
+	// still waits for the user; it used to look like idle work and woke the workspace again.
+	if kind, body, ok := parseExitKindTurn(text); ok && kind == exitKindAsk {
 		returned = askEvidenceProblems(body) == nil
 		asking = true
-	} else if id, _, _ := exitHeadline(body); ok && returned && id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit {
+	} else if _, body, ok := parseExitKind(text); ok && returned && e.exitHeadlineBounced(key, body) {
 		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
 		// Only a report that names a board item has a headline to repair: one without a #id cannot
 		// satisfy the check however often it is resent, so there the reply stays a handback and its

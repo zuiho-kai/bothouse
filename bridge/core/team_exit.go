@@ -216,7 +216,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		// Most turns carry no marker; only complain when one exists but did not start the reply.
 		for _, k := range exitRules.Kinds {
 			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
-				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey)
+				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey, "project", e.name)
 				break
 			}
 		}

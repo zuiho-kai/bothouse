@@ -274,9 +274,10 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 	// Runs last, so a retry launched below is counted before this one is done.
 	defer as.wg.Done()
 	resultErr := ""
-	sawInit := false    // this process reported "init"
-	replied := false    // the turn already streamed reply text
-	readFailed := false // a read error was already reported to core
+	sawInit := false            // this process reported "init"
+	replied := false            // the turn already streamed reply text
+	readFailed := false         // a read error was already reported to core
+	last, lastDone := "", false // the reply text after the turn's last tool step (#1270, MetaLastReply)
 	defer func() {
 		err := cmd.Wait()
 		failed := false // the turn ended with EventError
@@ -366,7 +367,7 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 		// Finalize turn.
 		sid := as.CurrentSessionID()
 		select {
-		case as.events <- core.Event{Type: core.EventResult, SessionID: sid, Done: true}:
+		case as.events <- agyResult(sid, last):
 		case <-as.ctx.Done():
 		}
 	}()
@@ -395,6 +396,15 @@ func (as *antigravitySession) readLoop(ctx context.Context, cmd *exec.Cmd, stdou
 			} else if ok {
 				if ev.Content != "" {
 					replied = true
+				}
+				switch {
+				case ev.Type == core.EventToolUse:
+					lastDone = true
+				case ev.Type == core.EventText && ev.Content != "":
+					if lastDone {
+						last, lastDone = "", false
+					}
+					last += ev.Content
 				}
 				select {
 				case as.events <- ev:
@@ -437,6 +447,16 @@ type agyStreamLine struct {
 		ConversationID string `json:"conversation_id"`
 		Status         string `json:"status"`
 	} `json:"result"`
+}
+
+// agyResult ends a turn; last (the reply after its last tool step) goes in MetaLastReply so the
+// workspace [report] check does not read the whole turn joined (#1270).
+func agyResult(sid, last string) core.Event {
+	ev := core.Event{Type: core.EventResult, SessionID: sid, Done: true}
+	if strings.TrimSpace(last) != "" {
+		ev.Metadata = map[string]any{core.MetaLastReply: last}
+	}
+	return ev
 }
 
 // parseStreamLine turns one stdout line into the event core sees. Reply text

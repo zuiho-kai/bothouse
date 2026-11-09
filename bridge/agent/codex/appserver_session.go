@@ -1866,8 +1866,12 @@ func (s *appServerSession) completeTurn() {
 	}
 	s.currentTurn = ""
 	s.stateMu.Unlock()
-	s.flushPendingAsText()
-	s.emit(s.billingResult())
+	last := s.flushPendingAsText()
+	evt := s.billingResult()
+	if last != "" {
+		evt.Metadata = map[string]any{core.MetaLastReply: last} // #1270: the [report] check reads this, not the joined turn
+	}
+	s.emit(evt)
 }
 
 func (s *appServerSession) flushPendingAsThinking() {
@@ -1883,7 +1887,8 @@ func (s *appServerSession) flushPendingAsThinking() {
 	}
 }
 
-func (s *appServerSession) flushPendingAsText() {
+// flushPendingAsText emits the buffered agent messages and returns the last non-blank one.
+func (s *appServerSession) flushPendingAsText() (last string) {
 	s.stateMu.Lock()
 	msgs := append([]string(nil), s.pendingMsgs...)
 	s.pendingMsgs = s.pendingMsgs[:0]
@@ -1892,8 +1897,10 @@ func (s *appServerSession) flushPendingAsText() {
 	for _, text := range msgs {
 		if strings.TrimSpace(text) != "" {
 			s.emit(core.Event{Type: core.EventText, Content: text})
+			last = text
 		}
 	}
+	return last
 }
 
 func (s *appServerSession) emit(event core.Event) {

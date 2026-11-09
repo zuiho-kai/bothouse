@@ -6089,10 +6089,10 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				}
 				// A quota notice is not the workspace's answer: it must not go back as a [report].
 				if _, exhausted := QuotaExhaustedReset(event); fullResponse != "" && !exhausted {
-					e.forwardWorkspaceExitContext(ctx, p, sessionKey, fullResponse) // #139 C: workspace [ask]/[report] -> chat channel
+					e.forwardWorkspaceExitContext(ctx, p, sessionKey, exitReplyText(event, fullResponse)) // #139 C: workspace [ask]/[report] -> chat channel
 				}
 
-				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, exitReplyText(event, fullResponse), len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.
@@ -7491,7 +7491,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			// A quota notice is not the workspace's answer: it must not go back as a [report].
 			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
-				e.forwardWorkspaceExitContext(outputCtx, p, sessionKey, baseResponse) // #139 C: workspace [ask]/[report] -> chat channel
+				e.forwardWorkspaceExitContext(outputCtx, p, sessionKey, exitReplyText(event, baseResponse)) // #139 C: workspace [ask]/[report] -> chat channel
 			}
 			if !isSilent && input == nil {
 				e.hooks.Emit(HookEvent{
