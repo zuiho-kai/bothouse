@@ -43,6 +43,9 @@
     "plugins": "Плагины",
     "gate": "Шлюз"
   },
+  "roles": {
+    "title": "Управление ролями"
+  },
   "dashboard": {
     "title": "Панель",
     "version": "Версия",

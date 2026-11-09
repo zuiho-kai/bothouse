@@ -46,6 +46,9 @@
     "forum": "Memory forum",
     "gate": "Gate"
   },
+  "roles": {
+    "title": "Role management"
+  },
   "dashboard": {
     "title": "Dashboard",
     "version": "Version",
