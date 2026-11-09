@@ -73,22 +73,45 @@ const STATE_LABELS: Record<RoleEventType, string> = {
   celebrate: '交活庆祝', error: '出错', speech: '说话',
 };
 
-/** 动作与规格来自本地包；不捏造帧数、文件名或已安装状态。 */
-export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): PetAsset | null {
+// 来源：本机 hunmer/aboutme-pets 的 dsh1、claude 两个完整包 actions.json 里的真实动作名和 category（2026-11-09 核对）。
+// 规则按顺序试，先命中的规则优先；同一规则内按包里的动作顺序取第一个。
+type PetMatchRule = { name?: RegExp; category?: RegExp };
+const EVENT_RULES: Record<RoleEventType, PetMatchRule[]> = {
+  idle: [{ category: /^待机$/ }, { name: /待机|打瞌睡|idle/i }],
+  working: [{ category: /^工作状态$/, name: /忙碌/ }, { name: /写代码|加班|忙碌|working|coding/i }],
+  thinking: [{ category: /^工作状态$/, name: /思考/ }, { name: /思考|thinking/i }],
+  celebrate: [{ category: /^工作状态$/, name: /庆祝|雀跃/ }, { name: /庆祝|雀跃|狂喜|celebrate/i }],
+  error: [{ category: /^工作状态$/, name: /叹气|冒汗|垂头/ }, { name: /叹气|冒汗|垂头|扶额|error/i }],
+  speech: [{ category: /^碎碎念$/ }, { name: /说话|碎碎念|speech/i }],
+};
+
+/** 按事件挑包里真正对应的动作；挑不到返回 null（调用方显示「没有对应动作」），不拿待机或第一个动作顶替。 */
+export function matchPetAction(
+  actions: Array<Record<string, unknown>>, eventType: RoleEventType, idleAnimationId?: unknown,
+): Record<string, unknown> | null {
+  const exact = actions.find(a => a.state === eventType || a.id === eventType);
+  if (exact) return exact;
+  if (eventType === 'idle' && idleAnimationId) {
+    const idle = actions.find(a => a.id === idleAnimationId);
+    if (idle) return idle;
+  }
+  for (const rule of EVENT_RULES[eventType]) {
+    const hit = actions.find(a => (!rule.category || rule.category.test(String(a.category ?? '')))
+      && (!rule.name || rule.name.test(String(a.name || a.id || ''))));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export type PetResolution = { kind: 'asset'; asset: PetAsset } | { kind: 'unmatched' } | null;
+
+/** 动作与规格来自本地包；不捏造帧数、文件名或已安装状态。包异常或规格坏返回 null，没有对应动作返回 unmatched。 */
+export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): PetResolution {
   if (pack.error) return null;
   const manifest = pack.manifest || {};
   const actions = pack.actionsList ?? ((manifest.animations || []) as Record<string, any>[]);
-  const patterns: Record<RoleEventType, RegExp> = {
-    idle: /待机|打瞌睡|休闲|idle/i, working: /代码|加班|忙碌|工作|working|coding/i,
-    thinking: /思考|thinking/i, celebrate: /庆祝|雀跃|celebrate/i,
-    error: /叹气|冒汗|垂头|error/i, speech: /说话|碎碎念|speech/i,
-  };
-  const idle = actions.find(a => a.id === manifest.idleAnimationId);
-  const matched = actions.find(a => a.state === eventType || a.id === eventType)
-    || (eventType === 'idle' ? idle : undefined)
-    || actions.find(a => patterns[eventType].test(String(a.name || a.id || '')))
-    || idle || actions[0];
-  if (!matched) return null;
+  const matched = matchPetAction(actions, eventType, manifest.idleAnimationId) as Record<string, any> | null;
+  if (!matched) return { kind: 'unmatched' };
   const sources = matched.sources as { webp?: string; webm?: string } | undefined;
   const filename = sources?.webm || sources?.webp || matched.file;
   if (typeof filename !== 'string' || !filename) return null;
@@ -99,7 +122,7 @@ export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): P
   if (sprite && !['columns', 'frameCount', 'frameWidth', 'frameHeight', 'fps'].every(
     key => typeof sheet[key] === 'number' && Number.isFinite(sheet[key]) && Number(sheet[key]) > 0
   )) return null;
-  return {
+  return { kind: 'asset', asset: {
     key: eventType, title: String(matched.name || matched.id || eventType),
     actionName: String(matched.name || matched.id || eventType), filename,
     url: withBase('/api/v1/plugins/pets/asset') + '?' + query,
@@ -107,7 +130,7 @@ export function resolvePetAsset(pack: PetAssetPack, eventType: RoleEventType): P
     badgeVariant: eventType === 'error' ? 'danger' : eventType === 'working' || eventType === 'thinking' ? 'info' : 'default',
     columns: sheet.columns as number, frameCount: sheet.frameCount as number,
     frameWidth: sheet.frameWidth as number, frameHeight: sheet.frameHeight as number, fps: sheet.fps as number,
-  };
+  } };
 }
 
 function PetVisualDisplay({ asset, roleKey, isHero }: {
@@ -163,7 +186,15 @@ function RolePetCard({
   if (isOffline) eventType = 'error';
   else if (isPaused) eventType = 'idle';
 
-  const asset = pack ? resolvePetAsset(pack, eventType) : null;
+  const resolution = pack ? resolvePetAsset(pack, eventType) : null;
+  // asset 只代表当前事件真正匹配到的动作；匹配不到时画面停在上一次匹配到的动作，不拿别的动作冒充。
+  const asset = resolution?.kind === 'asset' ? resolution.asset : null;
+  const unmatched = resolution?.kind === 'unmatched';
+  const [lastShown, setLastShown] = useState<{ packId: string; asset: PetAsset } | null>(null);
+  if (pack && asset && (lastShown?.packId !== pack.id || lastShown.asset.url !== asset.url)) {
+    setLastShown({ packId: pack.id, asset });
+  }
+  const shownAsset = asset ?? (unmatched && pack && lastShown?.packId === pack.id ? lastShown.asset : null);
 
   // Multi-session busy count
   const busyCount = role.busy_count ?? getBusySessionCount(role.active_sessions, role.busy, role.sessions_count);
@@ -314,14 +345,21 @@ function RolePetCard({
             </div>
 
             {/* Visual Display: either Pet Visual or Empty Slot Placeholder */}
-            {pack && asset && !isOffline && pack.installed ? (
-              <PetVisualDisplay
-                pack={pack}
-                asset={asset}
-                eventType={eventType}
-                roleKey={roleKey}
-                isHero={isHero}
-              />
+            {pack && shownAsset && !isOffline && pack.installed ? (
+              <>
+                <PetVisualDisplay
+                  pack={pack}
+                  asset={shownAsset}
+                  eventType={eventType}
+                  roleKey={roleKey}
+                  isHero={isHero}
+                />
+                {unmatched && (
+                  <p data-testid={`pet-unmatched-${roleKey}`} className="mt-1 text-center text-[11px] font-medium text-amber-600">
+                    这个形象包没有「{STATE_LABELS[eventType]}」对应动作，画面保持不变
+                  </p>
+                )}
+              </>
             ) : (
               <div
                 data-testid={`pet-slot-pending-${roleKey}`}
@@ -334,13 +372,15 @@ function RolePetCard({
                   <ImageOff size={18} />
                 </div>
                 <span className="text-xs font-semibold text-ink">
-                  {isOffline ? '角色已离线' : pack && !pack.installed ? '形象包未在本地安装' : '形象待接入'}
+                  {isOffline ? '角色已离线' : pack && !pack.installed ? '形象包未在本地安装' : unmatched ? '这个形象包没有对应动作' : '形象待接入'}
                 </span>
                 <p className="mt-1 max-w-xs text-[11px] text-ink-mute leading-tight">
                   {isOffline
                     ? '角色服务当前未在线连接，等待恢复。'
                     : pack && !pack.installed
                     ? `已选定 ${pack.name}，属于来源仓库素材，请先下载安装到本机。`
+                    : unmatched && pack
+                    ? `${pack.name} 里没有「${STATE_LABELS[eventType]}」对应的动作，不拿别的动作顶替。`
                     : '当前角色暂未绑定本地形象包，可在下方下拉列表绑定已安装的形象包。'}
                 </p>
               </div>
@@ -353,6 +393,8 @@ function RolePetCard({
                   <span className="text-ink font-medium">任务：{role.current_task}</span>
                 ) : pack && asset ? (
                   <span>动作状态：{asset.title} ({asset.badgeText})</span>
+                ) : unmatched ? (
+                  <span>状态说明：{badgeText}（这个形象包没有对应动作）</span>
                 ) : (
                   <span>状态说明：{badgeText}</span>
                 )}
@@ -700,9 +742,7 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
 export const dshPetPlugin: BothousePlugin = {
   id: 'dsh-pet',
   name: '桌宠角色与形象包适配 (dsh-pet & aboutme-pets)',
-  author: 'PC2005-cloud & hunmer',
   repo: 'https://github.com/hunmer/aboutme-pets',
-  license: '遵循各形象包自带说明 (NOTICE / Upstream)',
   version: 'v0.3.0',
   description:
     'bothouse 形象包适配插件：支持透明 WebM 与 hunmer/aboutme-pets 透明 WebP 精灵图规范；不内置素材，分清本地已装与来源仓库；每角色一只桌宠，独立 roleKey 防串流，多开按优先级合并展示；支持自选形象包绑定与未绑定待接入展示。',

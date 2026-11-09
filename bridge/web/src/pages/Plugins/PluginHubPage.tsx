@@ -413,12 +413,6 @@ export default function PluginHubPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-ink text-sm">桌宠角色与形象包适配</span>
-                      <Badge variant="outline" className="text-[10px] font-mono">v0.1.0</Badge>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-soft">
-                      <span>PC2005-cloud & hunmer</span>
-                      <span>•</span>
-                      <span className="text-accent">遵循各形象包自带说明</span>
                     </div>
                   </div>
                   <Badge variant="outline" className="text-[10px]">面板适配器</Badge>
@@ -434,8 +428,7 @@ export default function PluginHubPage() {
                   ))}
                 </div>
               </div>
-              <div className="mt-3 flex items-center justify-between border-t border-hairline pt-2.5">
-                <span className="text-[10px] text-ink-mute">MIT 适配层</span>
+              <div className="mt-3 flex items-center justify-end border-t border-hairline pt-2.5">
                 <Button
                   variant={selectedPluginId === 'dsh-pet' ? 'primary' : 'secondary'}
                   size="sm"
@@ -726,9 +719,6 @@ export default function PluginHubPage() {
             </span>
             <h2 className="text-lg font-bold text-ink">{activePlugin.name}</h2>
           </div>
-          <span className="text-xs text-ink-mute">
-            {activePlugin.author} ({activePlugin.license})
-          </span>
         </div>
 
         {/* Plugin Render execution */}

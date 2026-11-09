@@ -52,13 +52,13 @@ async function select(id: string, value: string) {
 describe('plugin page backend integration', () => {
   it('never reintroduces stale manifest actions after receiving the authoritative table', async () => {
     vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs, installed: [{ ...packs.installed[0],
-      actions: [action('rest-from-actions')],
+      actions: [action('idle-from-actions')],
       manifest: { idleAnimationId: 'retired', animations: [action('retired')] },
     }] });
     await render();
     await act(async () => handlers.snapshot({ roles: [{ ...bridge, status: 'idle', busy_count: 0, sessions: [] }], time, dsh: { status: 'running' } }));
     const image = decodeURIComponent(find('pet-player-sprite').style.backgroundImage);
-    expect(image).toContain('rest-from-actions.webp');
+    expect(image).toContain('idle-from-actions.webp');
     expect(image).not.toContain('retired.webp');
   });
   it('keeps deep as the initial display when another bound role sorts first', async () => {

@@ -38,9 +38,9 @@ export interface RoleEvent {
 export interface BothousePluginMeta {
   id: string;
   name: string;
-  author: string;
+  author?: string;
   repo: string;
-  license: string;
+  license?: string;
   version: string;
   description: string;
   subscriptions: RoleEventType[];
