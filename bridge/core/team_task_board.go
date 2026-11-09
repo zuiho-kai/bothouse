@@ -39,6 +39,9 @@ type teamTaskBoardItem struct {
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
+	// WaitUntil: epoch when a task paused as 「等外部：…」 (board.py wait) is handed to a workspace
+	// again (team_wait_external.go retryWaitingExternal).
+	WaitUntil int64 `json:"wait_until"`
 	// PauseReq: the workspace ran `board pause` on its own task inside its own turn (board.py
 	// self_pause). Nothing was paused or parked; the turn owes a [report] (workspace_report.go).
 	PauseReq string `json:"pause_req"`

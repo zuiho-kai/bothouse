@@ -28,6 +28,27 @@ class Board(unittest.TestCase):
         for f in Path(TMP).glob("board*"):
             f.unlink()
 
+    def test_wait_external(self):
+        # 外部卡住（agentm #26 GPU 全占，11-09）：记等外部、带到点时刻、撤兜底，不算交回待验收
+        self.assertEqual(cli("add", "PR9977 验证", "~/n.md", "在做", "工作区1"), (0, "#1"))
+        cur = board._read()
+        cur[0]["guard"] = "t-guard"
+        board._write(cur)
+        import time
+        before = int(time.time())
+        rc, out = cli("wait", "1", "GPU 8 张全被占用", "120")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("已记等外部", out)
+        it = board._read()[0]
+        self.assertTrue(it.get("paused"))
+        self.assertTrue(it["pause_why"].startswith(board.WAIT_EXT))
+        self.assertIn("GPU", it["pause_why"])
+        self.assertGreaterEqual(it["wait_until"], before + 120 * 60)
+        self.assertNotIn("guard", it)
+        self.assertNotIn("returned_at", it)
+        self.assertFalse(board._asking(it))
+        self.assertNotEqual(cli("wait", "9", "x", "10")[0], 0)
+
     def test_add_update_done(self):
         self.assertEqual(cli("add", "@ 路由修复", "PR #236", "等实测", "橘"), (0, "#1"))
         self.assertEqual(cli("add", "release 0.1.1", "~/code/x", "写说明", "鲸鱼娘"), (0, "#2"))

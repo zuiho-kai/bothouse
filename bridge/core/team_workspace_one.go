@@ -136,7 +136,7 @@ func windowsLeadArgv(bin, py string) ([]string, error) {
 // endWorkspaceTask runs after a workspace's [report]/[ask] headline for board item hid was
 // posted in chat: a report records pending verification and resets the session after this turn (the reset
 // frees the workspace); an ask pauses the item as waiting for the user and frees the workspace now.
-func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
+func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body string) {
 	if hid <= 0 || !e.isTeamLead() {
 		return
 	}
@@ -162,6 +162,12 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int) {
 	}
 	switch kind {
 	case exitKindReport:
+		if why, after, ok := waitExternalOf(body); ok {
+			// blocked outside: paused as 「等外部」 with a retry time instead of 「已交回待验收」; the
+			// workspace is freed and nothing wakes it before then (team_wait_external.go)
+			e.parkWaitingExternal(chat, hid, why, after)
+			return
+		}
 		reviewer := e.name
 		if it := e.boardItemByID(hid); it != nil {
 			bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
