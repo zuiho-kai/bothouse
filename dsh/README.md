@@ -103,9 +103,9 @@ python3 -I dsh/scripts/reload-dsh.py snapshot  # 保留的旧步骤，现在什�
 
 管理面板的 DSH 向导默认创建一个原生角色；本机已安装或已登录的 CLI 留作手动选项，检测 CLI 失败也不会阻断原生配置。新增角色同样默认使用原生运行时，不会沿用上一位角色选择的 CLI。
 
-原生成员沿用 DSH web 当前选择的模型。官方 API 默认路径可复用启动环境变量、`$DSH_HOME/.credentials.yaml` 的 `refs.DEEPSEEK_API_KEY` 或 `$DSH_HOME/.env` 中的 Key；已有 `llm-pi-ai` 网关则检测所选路由的 `apiKeyEnv`，选择账号模型时检测其账号登录记录，不要求另填官方 Key。向导不切换已有模型，只有提交新 Key 时才更新凭据文件。
+原生成员不写 `model` 字段，因此沿用 DSH 宿主当前选择的模型（`agent-default-model`），不把任何角色钉在某条路线上。官方 API 默认路径可复用启动环境变量、`$DSH_HOME/.credentials.yaml` 的 `refs.DEEPSEEK_API_KEY` 或 `$DSH_HOME/.env` 中的 Key；已有 `llm-pi-ai` 网关则检测所选路由的 `apiKeyEnv`，选择账号模型时检测其账号登录记录，不要求另填官方 Key。向导不切换已有模型，只有提交新 Key 时才更新凭据文件。
 
-`GET /setup/dsh/status` 的 `has_deepseek_key` 仍只表示官方 API Key 是否存在；新增 `native_model_configured` 表示当前原生模型的对应凭据已配置。二者都不证明联网、令牌有效性或额度，账号记录不冒充 API Key。最终凭据优先级由 DSH 决定。
+`GET /setup/dsh/status` 的 `has_deepseek_key` 仍只表示官方 API Key 是否存在；新增 `native_model_configured` 表示当前原生模型的对应凭据已配置。它按向导所选路线读对应 profile：DeepSeek Harness Desktop 读 `profiles/desktop`，DSH web 读 `profiles/web`，两者都会再叠加 `$DSH_HOME` 根层的补丁；`?target=desktop|web` 指定路线，不传按 web。二者都不证明联网、令牌有效性或额度，账号记录不冒充 API Key。最终凭据优先级由 DSH 决定。
 
 向导通过既有 `POST /setup/dsh/configure` 写入角色导入文件，插件启动时沿用现有导入逻辑；`members` 省略 `cli` 表示 DSH 原生成员。配置保存成功仅表示导入已准备，不代表角色全部导入或模型已真实回复。
 

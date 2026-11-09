@@ -157,12 +157,13 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     setBusy(true); setError('');
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
-  const detect = () => run(async () => { const s = await getDSHStatus(lang); setStatus(s); });
+  // the status answers for the chosen route's profile, so a route switch asks again (review of #952, d)
+  const detect = (t: DSHTarget = target) => run(async () => { const s = await getDSHStatus(lang, t); setStatus(s); });
   const desktopFound = !!status?.desktop_app;
   const targetReady = target === 'desktop' ? desktopFound : !!status?.found;
   const pluginInstalled = target === 'desktop' ? !!status?.desktop_plugin_installed : !!status?.plugin_installed;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- detect once on mount
-  useEffect(() => { void detect(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- detect on mount and whenever the route changes
+  useEffect(() => { void detect(target); }, [target]);
   // asked again on reaching 角色和模型: a CLI the user just logged into (or installed) shows up without a reload
   useEffect(() => { if (step === 0 || step === 2) getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([])); }, [step]);
 
@@ -232,7 +233,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
       avatar: r.avatar || undefined,
       ...(r.runner === DEEPSEEK ? {} : { cli: CLI_OF[r.runner] }),
     }));
-    await configureDSH({ deepseek_api_key: needsKey ? apiKey.trim() : undefined, members });
+    await configureDSH({ deepseek_api_key: needsKey ? apiKey.trim() : undefined, target, members });
     setStep(3);
   });
   const openDesktop = () => run(async () => {
@@ -287,7 +288,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
             : <div className="space-y-2"><p className="text-sm">{t.missing}</p>
               {desktopFound && <Button variant="secondary" size="sm" onClick={() => setTarget('desktop')}>{t.useDesktop}</Button>}</div>)}
         <div className="flex gap-2">
-          {!targetReady && <Button variant="secondary" onClick={detect} disabled={busy}>{t.detect}</Button>}
+          {!targetReady && <Button variant="secondary" onClick={() => detect()} disabled={busy}>{t.detect}</Button>}
           <Button onClick={() => setStep(1)} disabled={busy || !targetReady} data-testid="dsh-target-next">{t.next}</Button>
         </div>
       </>}
@@ -298,7 +299,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         {target === 'desktop' && !status?.desktop_profile_ready && !pluginInstalled && <p className="text-sm" data-testid="dsh-desktop-first-open">{t.desktopFirstOpen}</p>}
         {status?.node_from_desktop && <p className="text-sm">{t.nodeFromDesktop}</p>}
         {status?.pnpm_found === false && <p className="text-sm">{lang.startsWith('zh') ? '未检测到 pnpm，安装插件时会通过 npm 自动补齐。' : 'pnpm was not detected; the plugin installer will install it using npm.'}</p>}
-        {status?.dependency_error && <Button onClick={detect} disabled={busy}>{t.detect}</Button>}
+        {status?.dependency_error && <Button onClick={() => detect()} disabled={busy}>{t.detect}</Button>}
         <p>{target === 'desktop' ? 'DeepSeek Harness Desktop' : `DSH ${status?.version ?? ''}`}{pluginInstalled && !busy && !log.length ? ` · ${t.installed}` : ''}</p>
         {(busy || log.length > 0) && <ol className="space-y-1 text-sm" data-testid="dsh-install-progress">
           {INSTALL_STEPS.map((s) => {

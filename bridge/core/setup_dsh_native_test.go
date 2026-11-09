@@ -13,8 +13,8 @@ func TestDSHNativeModelConfiguredSources(t *testing.T) {
 	account := "- id: agent-default-model\n  config:\n    provider: deepseek-account\n    model: fixture-model\n"
 	grant := "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {version: 1, token: fixture-token, issuer: 'https://platform.deepseek.com'}\n"
 	for _, tc := range []struct {
-		name, profile, root, credential, dotenv, env, suppliedKey string
-		want                                                      bool
+		name, target, profile, desktopProfile, root, credential, dotenv, env, suppliedKey string
+		want                                                                              bool
 	}{
 		{name: "official missing"},
 		{name: "official supplied", suppliedKey: "fixture-official", want: true},
@@ -30,6 +30,10 @@ func TestDSHNativeModelConfiguredSources(t *testing.T) {
 		{name: "account device is not login", profile: account, credential: "version: 1\nrecords:\n  deepseek-account-platform/device: {kind: grant, payload: {id: fixture-device}}\n"},
 		{name: "account without token", profile: account, credential: "version: 1\nrecords:\n  deepseek-account-platform/default: {kind: grant, payload: {version: 1}}\n"},
 		{name: "other opaque records do not hide account", profile: account, credential: grant + "  other/default: {kind: grant, payload: opaque}\n", want: true},
+		// review of #952 (d): the desktop route keeps its own profile; the web selection must not stand in.
+		{name: "desktop profile selects the gateway", target: DSHDesktopProfile, desktopProfile: gateway, credential: "version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n", want: true},
+		{name: "desktop route ignores the web selection", target: DSHDesktopProfile, profile: gateway, credential: "version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n"},
+		{name: "web route ignores the desktop selection", desktopProfile: gateway, credential: "version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -38,7 +42,8 @@ func TestDSHNativeModelConfiguredSources(t *testing.T) {
 			t.Setenv("DEEPSEEK_API_KEY", "")
 			t.Setenv("FIXTURE_DSH_NATIVE_KEY", tc.env)
 			for name, content := range map[string]string{
-				filepath.Join("profiles", DSHProfile, "cordis.patch.yml"): tc.profile,
+				filepath.Join("profiles", DSHProfile, "cordis.patch.yml"):        tc.profile,
+				filepath.Join("profiles", DSHDesktopProfile, "cordis.patch.yml"): tc.desktopProfile,
 				"cordis.patch.yml": tc.root, ".credentials.yaml": tc.credential, ".env": tc.dotenv,
 			} {
 				if content == "" {
@@ -52,7 +57,7 @@ func TestDSHNativeModelConfiguredSources(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := dshNativeModelConfigured(tc.suppliedKey); got != tc.want {
+			if got := dshNativeModelConfigured(tc.target, tc.suppliedKey); got != tc.want {
 				t.Fatalf("configured=%v, want %v", got, tc.want)
 			}
 		})
