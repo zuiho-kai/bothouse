@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -87,7 +88,8 @@ func parsePluginSpec(raw string) (pluginSpec, error) {
 		pluginHTTPGit.MatchString(lower):
 		return pluginSpec{Raw: spec, Name: spec, Kind: pluginKindGit}, nil
 	case strings.HasPrefix(lower, "file:"), strings.HasPrefix(lower, "link:"),
-		strings.HasPrefix(spec, "/"), strings.HasPrefix(spec, "./"), strings.HasPrefix(spec, "../"):
+		strings.HasPrefix(spec, "./"), strings.HasPrefix(spec, "../"),
+		pluginPathSpec(spec):
 		return pluginSpec{Raw: spec, Name: spec, Kind: pluginKindPath}, nil
 	}
 
@@ -98,12 +100,99 @@ func parsePluginSpec(raw string) (pluginSpec, error) {
 		name, rng = spec[:at], spec[at+1:]
 	}
 	if len(name) > pluginNameMaxLength || !pluginRegistryName.MatchString(name) {
+		if pluginPathLikeSpec(spec) {
+			// #1431: someone typed a path and this build did not read it as one. Saying "包名只能是
+			// npm registry 上的名字" here sends them looking in the wrong place.
+			return pluginSpec{}, fmt.Errorf("%w: 这看着像个本地路径，但不是能装的绝对路径：Mac/Linux 用 / 开头，Windows 用 C:\\ 或 C:/ 开头（网络路径用 \\\\服务器\\共享\\…），也可以写 link: 前缀；现在是 %q", ErrPluginSpecRefused, spec)
+		}
 		return pluginSpec{}, fmt.Errorf("%w: 包名只能是 npm registry 上的名字（小写字母、数字、- _ . ~，可带 @scope/），现在是 %q", ErrPluginSpecRefused, name)
 	}
 	if rng != "" && !pluginRangeOK.MatchString(rng) {
 		return pluginSpec{}, fmt.Errorf("%w: 版本或标签只能是字母、数字和 . - _ ~ ^ + * |", ErrPluginSpecRefused)
 	}
 	return pluginSpec{Raw: spec, Name: name, Kind: pluginKindRegistry}, nil
+}
+
+// pluginPathSpec reports whether spec names a local path in any of the forms the three platforms use.
+//
+// #1431: the first version asked only `strings.HasPrefix(spec, "/")`, so `C:\…` fell through to the
+// npm-name check and was refused with a message about package names. The question here is what the
+// person typed, not what the host would resolve: the same panel is used on Windows and on Mac/Linux,
+// and a Windows path is still a Windows path when the check runs somewhere else (tests, a log copied
+// between machines). So the answer is the same on every host: filepath.IsAbs for the host's own forms
+// (POSIX `/…`, plus whatever Windows adds there), windowsVolumeOf for the Windows drive and UNC shapes
+// a non-Windows filepath does not know.
+func pluginPathSpec(spec string) bool {
+	// POSIX absolute: the form this branch has always taken, kept first so Mac/Linux behaviour cannot move.
+	if strings.HasPrefix(spec, "/") || filepath.IsAbs(spec) {
+		return true
+	}
+	// Windows absolute paths, judged the same way on every host: filepath knows them only on Windows,
+	// so the drive/UNC rule is spelled out in windowsVolumeOf. On Windows filepath.IsAbs covers the
+	// same specs; on Mac/Linux it does not, and that is the whole point of the second check.
+	//
+	// filepath.VolumeName is not used as the test: on Windows it answers "C:" for `C:relative\win`
+	// too, and that is a drive-relative path, not an absolute one (a Windows test run caught this).
+	return windowsVolumeOf(spec) != ""
+}
+
+// windowsVolumeOf is what filepath.VolumeName returns on Windows for an absolute spec's volume
+// ("C:", `\\host\share`), or "" when spec is not a Windows absolute path. Kept separate so the answer
+// does not depend on the host: on Unix filepath.VolumeName always returns "".
+// 来源：Windows 路径规则——盘符 + 冒号 + 分隔符是绝对路径；`C:foo` 是「当前盘上的相对路径」，
+// VolumeName 对它同样返回 "C:"，所以只认卷名会把非绝对路径当绝对路径，必须同时要求分隔符。
+// UNC 是 `\\服务器\共享\…`，服务器名与共享名都要有。
+func windowsVolumeOf(spec string) string {
+	if len(spec) >= 3 && isPluginDriveLetter(spec[0]) && spec[1] == ':' && (spec[2] == '\\' || spec[2] == '/') {
+		return spec[:2]
+	}
+	if !strings.HasPrefix(spec, `\\`) {
+		return ""
+	}
+	rest := spec[2:]
+	if rest == "" {
+		// `\\` on its own: Windows calls this absolute (its volume is `\\`), so say the same here.
+		return `\\`
+	}
+	i := strings.IndexAny(rest, `\/`)
+	if i <= 0 { // `\\` followed by a separator: no server name
+		return ""
+	}
+	server, tail := rest[:i], rest[i+1:]
+	share := tail
+	if j := strings.IndexAny(tail, `\/`); j >= 0 {
+		share = tail[:j]
+	}
+	if share == "" {
+		// `\\server` with no share: Windows' own filepath.IsAbs calls a UNC path absolute from the
+		// leading `\\` on, so this returns the server alone rather than disagreeing with the host.
+		return `\\` + server
+	}
+	return `\\` + server + `\` + share
+}
+
+// pluginPathLikeSpec reports whether a spec this build refused still looks like a path the person meant
+// to give, so the refusal can name the shapes it reads instead of repeating npm's package-name rule.
+// It only shapes the message: nothing is accepted because of it.
+func pluginPathLikeSpec(spec string) bool {
+	if strings.Contains(spec, `\`) {
+		return true // `C:\…`, `\\server\…`, or a path with a typo in the drive part
+	}
+	// A colon before any scope or version separator: `C:…` (a drive-relative Windows path, which is not
+	// absolute), `C:`, or a scheme this build does not take.
+	colon := strings.IndexByte(spec, ':')
+	if colon >= 0 && (strings.IndexByte(spec, '@') < 0 || colon < strings.IndexByte(spec, '@')) {
+		return true
+	}
+	// Any other slash is a path too: the only registry name with a slash is `@scope/name`.
+	return strings.Contains(spec, "/") && !strings.HasPrefix(spec, "@")
+}
+
+// isPluginDriveLetter reports whether b can start a Windows drive path. Letters cover real drives;
+// digits are included because Windows' own filepath.VolumeName accepts them too, and this check must
+// not answer differently on a different host.
+func isPluginDriveLetter(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }
 
 // PluginInstallPolicy is what the config allows. Zero value = registry only, npm's own registry.
