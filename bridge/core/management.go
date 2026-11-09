@@ -327,7 +327,6 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// 形象包适配 (#416): 读本机形象包与素材文件
 	mux.HandleFunc(prefix+"/plugins/pets", m.wrap(m.handlePetPacks))
 	mux.HandleFunc(prefix+"/plugins/pets/asset", m.wrap(m.handlePetAsset))
-	mux.HandleFunc(prefix+"/plugins/pets/import", m.wrap(m.handlePetImport))
 
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))

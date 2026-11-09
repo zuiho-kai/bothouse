@@ -283,7 +283,7 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	pet := newDshPetClient(port)
 	relay := newPetRelay(pet)
 	// One pet per bound role (#549): lay the pets out before the window opens, so it starts with them.
-	layout := newPetLayout(ctx, newPetLayoutPaths(cfg.DataDir, petBundledRoot(argv)), relay, pet)
+	layout := newPetLayout(newPetLayoutPaths(cfg.DataDir, petBundledRoot(argv)), relay, pet)
 	if bound, err := fetchPetBindings(&http.Client{Timeout: 5 * time.Second}, managementURL(cfg), cfg.Management.Token); err == nil {
 		relay.bound = bound
 		layout.once(false)

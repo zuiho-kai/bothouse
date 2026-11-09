@@ -23,7 +23,6 @@ import {
 import { PetPlayer, type PetAction } from '../pets/PetPlayer';
 import { withBase } from '@/lib/basePath';
 import api from '@/api/client';
-import { PetPackImport, petDesktopLine } from './PetPackImport';
 
 export type PetPackFormat = 'webp-sprite' | 'webm' | '';
 
@@ -449,7 +448,7 @@ function RolePetCard({
   );
 }
 
-function DshPetPluginView({ events, roles, petPacks = [], onPetPacksChanged, roleBindings = {}, onRoleBindingChange, bindingsDisabled }: PluginRenderProps) {
+function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onRoleBindingChange, bindingsDisabled }: PluginRenderProps) {
   const [displayMode, setDisplayMode] = useState<'single' | 'all'>('single');
   const availablePacks = useMemo(() => Object.fromEntries(petPacks.map(inst => [inst.id, {
     ...inst, installed: true, repo: '', description: `本机形象包，包含 ${inst.actionCount} 个动作。`,
@@ -657,13 +656,6 @@ function DshPetPluginView({ events, roles, petPacks = [], onPetPacksChanged, rol
                   <div className="mt-3 space-y-1 text-xs text-ink-mute bg-surface/60 rounded-lg p-2.5 ring-1 ring-hairline">
                     <p><span className="font-medium text-ink">规格：</span>{pack.formatSpecs}</p>
                     <p><span className="font-medium text-ink">状态：</span><span className={pack.error ? 'text-red-600' : 'text-emerald-600'}>{pack.error || '本机已安装就绪'}</span></p>
-                    {(() => {
-                      const line = petDesktopLine(petPacks.find(p => p.id === pack.id) ?? (pack as never));
-                      return line && (
-                        <p data-testid={`pack-desktop-${pack.id}`}><span className="font-medium text-ink">桌面桌宠：</span>
-                          <span className={line.tone === 'bad' ? 'text-red-600' : line.tone === 'busy' ? 'text-amber-600' : 'text-emerald-600'}>{line.text}</span></p>
-                      );
-                    })()}
                   </div>
                 </div>
 
@@ -675,8 +667,6 @@ function DshPetPluginView({ events, roles, petPacks = [], onPetPacksChanged, rol
             ))}
           </div>
         </div>
-
-        <PetPackImport installed={petPacks} onChanged={onPetPacksChanged} disabled={bindingsDisabled} />
 
         {/* Group B: 来源仓库（未安装）形象包 */}
         <div className="space-y-3 pt-3">

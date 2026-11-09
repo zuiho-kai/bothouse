@@ -6,12 +6,12 @@ import PluginHubPage from './PluginHubPage';
 import api from '@/api/client';
 import { listRoles } from '@/api/roles';
 import { listPlugins, switchPlugin } from '@/api/plugins';
-import { importPetPack, listInstalledPetPacks } from '@/api/pets';
+import { listInstalledPetPacks } from '@/api/pets';
 import { getRoleBindings, saveRoleBindings } from '@/api/roleBindings';
 import { subscribeRoleEvents, type RoleState } from '@/api/roleEvents';
 vi.mock('@/api/roles', () => ({ listRoles: vi.fn() }));
 vi.mock('@/api/plugins', () => ({ listPlugins: vi.fn(), switchPlugin: vi.fn() }));
-vi.mock('@/api/pets', () => ({ listInstalledPetPacks: vi.fn(), importPetPack: vi.fn() }));
+vi.mock('@/api/pets', () => ({ listInstalledPetPacks: vi.fn() }));
 vi.mock('@/api/roleBindings', () => ({ getRoleBindings: vi.fn(), saveRoleBindings: vi.fn() }));
 vi.mock('@/api/roleEvents', () => ({ subscribeRoleEvents: vi.fn() }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -120,16 +120,6 @@ describe('plugin page backend integration', () => {
     expect(container.textContent).toContain('本机形象包读取失败'); expect(container.textContent).toContain('本地已装形象包 (0)');
     expect(container.querySelector('a[href="https://github.com/hunmer/aboutme-pets"]')).not.toBeNull();
     expect(find('pet-player-sprite')).toBeNull();
-  });
-  it('imports a pack zip and shows the Chinese reason when it is not a pack', async () => {
-    vi.mocked(importPetPack).mockRejectedValueOnce(new Error('认不出这个形象包：缺 manifest.json'));
-    await render();
-    const input = find('pet-import-zip-input') as HTMLInputElement;
-    const file = new File(['x'], 'bad.zip', { type: 'application/zip' });
-    Object.defineProperty(input, 'files', { value: [file], configurable: true });
-    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
-    expect(importPetPack).toHaveBeenCalledWith(expect.objectContaining({ zip: file }));
-    expect(find('pet-import-error').textContent).toContain('认不出这个形象包');
   });
   it('uses aggregate role state when a single session becomes idle', async () => {
     await render();

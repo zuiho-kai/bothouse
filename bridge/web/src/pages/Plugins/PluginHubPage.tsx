@@ -731,7 +731,6 @@ export default function PluginHubPage() {
               isSimulated={Object.keys(simulatedRoles).length > 0}
               roleBindings={roleBindings}
               petPacks={petPacks}
-              onPetPacksChanged={fetchSettings}
               bindingsDisabled={bindingsDisabled}
               onRoleBindingChange={handleRoleBindingChange}
             />

@@ -423,8 +423,7 @@ func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
 
 // handleSkin tells a pet whose look to wear. Without ?pet= (or for "main") it is the first bound role (by
 // key, same order as chatTarget and petPlan); with ?pet=<pet id> it is the role that pet belongs to (#549,
-// one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases); skin,
-// when set, is the skin made from the imported pack picked for that role on the plugin page.
+// one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases).
 func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 	role := ""
 	if pet := r.URL.Query().Get("pet"); pet != "" && pet != "main" {
@@ -441,12 +440,5 @@ func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 			role = keys[0]
 		}
 	}
-	a.relay.mu.Lock()
-	pack := a.relay.bound[role]
-	a.relay.mu.Unlock()
-	skin := ""
-	if a.relay.layout != nil {
-		skin = a.relay.layout.skinFor(pack)
-	}
-	petAPIJSON(w, map[string]any{"role": strings.TrimPrefix(role, "bridge:"), "skin": skin})
+	petAPIJSON(w, map[string]any{"role": strings.TrimPrefix(role, "bridge:")})
 }

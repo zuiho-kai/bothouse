@@ -104,16 +104,15 @@ function skinForRole(role: string): string | undefined {
 /**
  * 当前该穿的形象目录：用户选的 → 绑定角色 → 清单默认。
  * bothouse fork（#549，一个角色一只桌宠）：root 是宠物的素材根（main 或 bothouse 写的 `pet/<id>-config.json` 前缀）。
- * main 照旧（右键选的形象只管 main）；别的宠物按自己的角色穿：给角色选了导入形象就穿它，否则按角色认内置形象。
+ * main 照旧（右键选的形象只管 main）；别的宠物按自己的角色认内置形象。
  */
 export async function resolveSkin(root = 'main'): Promise<string | undefined> {
   const main = root === 'main';
   let dir = main ? skinDir(chosenSkin()) : undefined;
   if (dir === undefined) {
-    const who = await bothouse()?.skinRole(main ? undefined : root);
-    dir = who?.skin ? skinDir(who.skin) : undefined;
-    const id = dir === undefined && who?.role ? skinForRole(who.role) : undefined;
-    if (id) dir = skinDir(id);
+    const role = await bothouse()?.skinRole(main ? undefined : root);
+    const id = role ? skinForRole(role) : undefined;
+    dir = id ? skinDir(id) : undefined;
   }
   dir ??= skinDir(manifest().default);
   if (main) currentDir = dir;

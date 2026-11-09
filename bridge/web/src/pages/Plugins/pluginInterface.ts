@@ -54,8 +54,6 @@ export interface PluginRenderProps {
   isSimulated: boolean;
   roleBindings?: RoleBindings;
   petPacks?: InstalledPetPack[];
-  /** 让页面重新读形象包列表（导入后、桌面转换进行中时）。 */
-  onPetPacksChanged?: () => void;
   bindingsDisabled?: boolean;
   onRoleBindingChange?: (roleKey: string, pluginId: string, binding: Partial<RolePluginBinding> | null) => void;
   onEmitEvent?: (event: RoleEvent) => void;

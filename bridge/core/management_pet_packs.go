@@ -38,8 +38,6 @@ type PetPackInfo struct {
 	Manifest    map[string]any  `json:"manifest,omitempty"`
 	Actions     []PetPackAction `json:"actions"`
 	Error       string          `json:"error,omitempty"`
-	// Desktop is how far `bothouse pet run` got turning the pack into a desktop pet skin (#549).
-	Desktop *PetDesktopStatus `json:"desktop,omitempty"`
 }
 
 type PetPacksResponse struct {
@@ -355,10 +353,6 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 		if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
 			continue
 		}
-		// Imports in progress (handlePetImport) are not packs yet.
-		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), ".part") {
-			continue
-		}
 		info := PetPackInfo{ID: entry.Name(), Name: entry.Name(), LocalPath: filepath.Join(dir, entry.Name()), Actions: []PetPackAction{}}
 		pack, err := base.OpenRoot(entry.Name())
 		if err == nil {
@@ -370,7 +364,6 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 			info.Actions = []PetPackAction{}
 			info.ActionCount = 0
 		}
-		info.Desktop = petDesktopStatus(m.wizardDataDir, info.ID)
 		result.Installed = append(result.Installed, info)
 	}
 	mgmtJSON(w, http.StatusOK, result)
@@ -429,17 +422,4 @@ func (m *ManagementServer) handlePetAsset(w http.ResponseWriter, r *http.Request
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
-}
-
-// LoadPetPackDir reads one pet pack directory with the same parser as GET /plugins/pets
-// (`bothouse pet run` turns it into the desktop pet's own config, see cmd/cc-connect/pet_packs.go).
-func LoadPetPackDir(dir string) (PetPackInfo, error) {
-	info := PetPackInfo{ID: filepath.Base(dir), Name: filepath.Base(dir), LocalPath: dir, Actions: []PetPackAction{}}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return info, err
-	}
-	defer root.Close()
-	err = loadPetPack(root, &info)
-	return info, err
 }

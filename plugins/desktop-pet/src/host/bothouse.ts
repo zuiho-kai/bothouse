@@ -28,7 +28,7 @@ export interface BothouseBackend {
   /** 待办：任务板上没收口的活，只读。 */
   todos: BoardTodos;
   /** 外形：当前绑定桌宠的角色 key（没有绑定或取不到时 undefined），2 秒内缓存。 */
-  skinRole(petId?: string): Promise<{ role?: string; skin?: string } | undefined>;
+  skinRole(petId?: string): Promise<string | undefined>;
 }
 
 /** 与 TodoStore 同形（路由与提醒循环只用这几个方法）；写操作一律拒绝：任务板在 bothouse 里改。 */
@@ -83,7 +83,7 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
   const readOnly = (): never => {
     throw new Error('待办来自 bothouse 任务板，请在任务板里改');
   };
-  const skins = new Map<string, { at: number; value: { role?: string; skin?: string } | undefined }>();
+  const skins = new Map<string, { at: number; value: string | undefined }>();
   return {
     async skinRole(petId) {
       const key = petId ?? '';
@@ -91,11 +91,9 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
       if (hit && Date.now() - hit.at < 2_000) return hit.value;
       let value = hit?.value;
       try {
-        // bothouse fork：?pet=<素材根> 问这只宠物的角色（一个角色一只桌宠，#549）；skin 是给它选的导入形象。
-        const data = (await call('GET', '/skin' + petQuery(petId), undefined, 3_000)) as { role?: unknown; skin?: unknown };
-        const role = typeof data.role === 'string' && data.role ? data.role : undefined;
-        const skin = typeof data.skin === 'string' && data.skin ? data.skin : undefined;
-        value = role || skin ? { role, skin } : undefined;
+        // bothouse fork：?pet=<素材根> 问这只宠物的角色（一个角色一只桌宠，#549）。
+        const data = (await call('GET', '/skin' + petQuery(petId), undefined, 3_000)) as { role?: unknown };
+        value = typeof data.role === 'string' && data.role ? data.role : undefined;
       } catch {
         // 取不到就沿用上一次
       }

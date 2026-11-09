@@ -18,11 +18,8 @@ dsh-pet 透明 WebM 包可用 `main-config.jsonc`、`assets/config.jsonc`、`dsh
 
 `bothouse pet start` 起的桌面桌宠按角色分：插件页给几个角色打开桌宠，桌面上就有几只，每只只跟自己的角色动（`/work-status?pet=<id>`，桌宠 fork 里新加的按宠物状态槽），气泡、右键「对话」「碎碎念」也只找自己的角色；「查看余额」在团队总量后面列出每个绑定角色今天的用量。
 
-- 第一个绑定角色（按角色键排序，和以前 `/skin` 认的是同一个）用原来那只 main，只绑一个角色时与以前完全一样。其余每个角色一只：`bothouse pet run` 写 `$DSH_HOME/dsh-pet/pet/bh-<角色键>-config.json`（包内默认动画表 + 这一只，和 main 同样大小、同一个角落、往里错开半只宽），`bh-` 开头的文件归 bothouse 管，绑定变化时重写并让桌宠重载。
-- 每只穿自己角色的形象：桌宠取动画时带上这只的素材根问 `/skin?pet=<id>`，按角色认内置形象（`assets/roles/skins.json` 的 aliases，见 plugins/desktop-pet/BOTHOUSE.md「形象」）。右键「换形象」选的只管 main。
+- 第一个绑定角色（按角色键排序，和以前 `/skin` 认的是同一个）用原来那只 main，只绑一个角色时与以前完全一样。其余每个角色一只：`bothouse pet run` 写 `$DSH_HOME/dsh-pet/pet/bh-<角色键>-config.json`（包内默认动画表 + 这一只，默认 260、和 main 同一个角落、往里错开半只宽），`bh-` 开头的文件归 bothouse 管，绑定变化时重写并让桌宠重载；用户改过的大小和位置重写时保留。
+- 大小：包内默认改成 260（上游 462）。每只在桌宠上右键「大小」选 小 200 / 中 260 / 大 360，写回这只自己所在的配置（`POST /pet-size {id, size}`），桌宠重建窗口生效。
+- 内存（Mac 实测，整棵进程树 RSS：`pet run` + node 宿主 + Electron 主进程与各 helper）：1 只约 500 MB，3 只约 770 MB。几只共用一个 Electron 和一个宿主，每多一只多一个窗口渲染进程，约 130–140 MB。
+- 每只穿自己角色的形象：桌宠取动画时带上这只的素材根问 `/skin?pet=<id>`，按角色认内置形象（`assets/roles/skins.json` 的 aliases，见 plugins/desktop-pet/BOTHOUSE.md「形象」）：C酱（cjiang）＝橘、肥鱼（deep）＝鲸鱼娘、G哥（gge）＝龙娘。右键「换形象」选的只管 main。
 - 表情图（碎碎念配图）仍只给 main 跟形象走，其余几只用默认表情图。
-
-## 导入自己的形象包
-
-- 插件页「导入自己的形象包」：选文件夹或 zip（本页上面两种格式）。`POST /api/v1/plugins/pets/import`（multipart：一个 `zip`，或每个文件一段、段名 `p:<相对路径>`，可选 `name`）用同一个解析器检查，格式不对回一句中文原因、不留半截文件，越界路径拒收。导入后进 `pets/<名字>`，出现在每个角色的形象下拉里。
-- 给角色选上导入的包，那只桌宠就穿它：`bothouse pet run` 把包做成形象 `$DSH_HOME/dsh-pet/skins/bh-pack-<包>/`（每个动作一段透明 WebM，再按状态挑出 idle/talk/think/work/happy/surprise 六段，规则同插件页预览），`/skin` 回 `skin: bh-pack-<包>`。WebP 精灵图包要本机 `ffmpeg`（带 libvpx-vp9）转一次，命令同 aboutme-pets 作者自带的 `spritesheet_to_video_pet.py`，用 untile 一次切开；转好前和转失败时那只先穿角色的内置形象。进度在 `<DataDir>/pet/packs/<包>.json`，插件页已装包卡片上显示，没装 ffmpeg 会写原因。
