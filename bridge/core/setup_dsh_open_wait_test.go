@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // fakeSlowDSH puts a `dsh` on PATH that prints a log line, sleeps, then prints its address (or exits).
@@ -130,4 +133,37 @@ func TestOpenDSHWebKeepsThePreviousAnnouncementInTheLog(t *testing.T) {
 	if !strings.Contains(string(b), "token=previous") {
 		t.Fatalf("the previous announcement was truncated: %q", b)
 	}
+}
+
+// fakeOwnDSHHost starts a process whose command line says it is a DSH host of this bridge: a `dsh`
+// wrapper script that execs bin, started with this bridge's data directory. Since #1255 the recorded
+// pid is stopped only when it is provably such a host (dshWebPIDOwned), so a test that needs "the old
+// host gets stopped for the import" has to start one instead of a bare /bin/sleep.
+func fakeOwnDSHHost(t *testing.T, bin string, args ...string) *exec.Cmd {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a sh wrapper as dsh")
+	}
+	if _, err := os.Stat(bin); err != nil {
+		t.Skip("no "+bin+":", err)
+	}
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "dsh")
+	script := "#!/bin/sh\nexec " + bin
+	for _, a := range args {
+		script += " " + a
+	}
+	if err := os.WriteFile(dst, []byte(script+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(dst, args...)
+	if own := dshWebOwnDataDir(); own != "" {
+		cmd.Env = append(os.Environ(), ccconnect.DataDirEnv+"="+own)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Skip("cannot start the stand-in host:", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	return cmd
 }

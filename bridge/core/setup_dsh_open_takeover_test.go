@@ -149,6 +149,10 @@ func TestOpenDSHWebNeverStopsAHostTheStateFileStillSignsInto(t *testing.T) {
 
 // Nothing proves the host on the announced port (every log and the state file carry refused tokens):
 // the old behaviour stays — that untracked host is stopped once, after every candidate was tried.
+// Since #1255 the stop also needs proof that the host is this bridge's (dshWebPortOwned); the fake
+// serves from this process and newProxyFakeDSH claims its port as ours, so this still is the
+// "our own host, all tokens refused" case. The foreign case is
+// TestTakeOverOrphanDSHWebNeverStopsAForeignHostOnTheOldPort.
 func TestTakeOverOrphanDSHWebStopsOnlyAfterEveryCandidateFailed(t *testing.T) {
 	w := newOpenTakeoverWorld(t)
 	recorded := filepath.Join(w.releases, "v0.1.52", "dsh-web.log")

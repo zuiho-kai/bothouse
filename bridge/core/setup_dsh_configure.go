@@ -162,7 +162,13 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 	if b, err := os.ReadFile(dshWebStatePath()); err == nil {
 		var prev DSHWeb
 		if json.Unmarshal(b, &prev) == nil && prev.PID > 0 && processAlive(prev.PID) && !isDSHDesktopHost(prev) {
-			stopProcess(prev.PID)
+			// Same rule as stopDSHWebForImport: the recorded pid may already be someone else's.
+			if owned, why := dshWebPIDOwned(prev.PID); !owned {
+				slog.Warn("dsh web: not stopping the pid the state file records: it is not this bridge's: "+why,
+					"pid", prev.PID)
+			} else {
+				stopProcess(prev.PID)
+			}
 		}
 		_ = os.Remove(dshWebStatePath())
 	}
@@ -573,7 +579,18 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 var dshWebStopWait = 10 * time.Second
 
 // stopDSHWebForImport stops the `dsh web` at pid so a new one imports the waiting roles; it errs if it stays up.
+//
+// The pid is a hint, not proof: it comes from the state file, from lsof, or from an announcement, and
+// any of those can outlive the host they named — macOS reuses pids within seconds, and an
+// announcement is only as fresh as the log (#1255 阻塞二: this used to kill whatever carried the
+// number). So the kill itself checks that the process still is a DSH host started for this bridge's
+// data directory (dshWebPIDOwned); when it is not, nothing is signalled and the caller goes on to
+// start its own host. Refusing costs a second instance; killing costs someone else's session.
 func stopDSHWebForImport(pid int) error {
+	if owned, why := dshWebPIDOwned(pid); !owned {
+		slog.Warn("dsh web: not stopping this process, it is not this bridge's dsh web: "+why, "pid", pid)
+		return nil
+	}
 	stopProcess(pid)
 	for deadline := time.Now().Add(dshWebStopWait); processAlive(pid); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
@@ -688,30 +705,47 @@ func takeOverOrphanDSHWeb(logPaths []string, trackedPID int) (DSHWeb, bool, erro
 	deadline := time.Now().Add(dshWebProbeTimeout)
 	var refused *url.URL // the first announcement naming a loopback port whose host refused its token
 	for _, logPath := range logPaths {
-		au, token, port := orphanDSHWebPort(logPath, state, deadline)
+		if expired(deadline) {
+			break // every candidate gets the same budget, not its own (#1255 阻塞三)
+		}
+		au, token, port, pid := orphanDSHWebPort(logPath, state, deadline)
 		if au == nil {
 			continue
 		}
 		if port != "" {
-			return adoptOrphanDSHWeb(logPath, token, port, trackedPID)
+			return adoptOrphanDSHWeb(logPath, token, port, pid, trackedPID)
 		}
 		if refused == nil && au.Port() != "" && loopbackTarget(au.Host) {
 			refused = au
 		}
 	}
 	if su, err := url.Parse(state.URL); err == nil && state.URL != "" && loopbackTarget(su.Host) && su.Port() != "" {
-		if token := su.Query().Get("token"); token != "" && probeDSHWebToken(su.Port(), token) {
+		if token := su.Query().Get("token"); token != "" && !expired(deadline) && probeDSHWebToken(deadline, su.Port(), token) {
 			logPath := state.Log
 			if logPath == "" && len(logPaths) > 0 {
 				logPath = logPaths[len(logPaths)-1]
 			}
-			return adoptOrphanDSHWeb(logPath, token, su.Port(), trackedPID)
+			pid, owned, _ := dshWebPortOwned(dshWebDeadlineCtx0(deadline), su.Port())
+			if owned {
+				return adoptOrphanDSHWeb(logPath, token, su.Port(), pid, trackedPID)
+			}
 		}
 	}
 	if refused != nil {
-		// The announcement named a loopback port, so that is the host to stop even though its token
-		// was refused (a second instance on the same port, a reused pid).
-		if pid := pidListeningOnPort(refused.Port()); pid > 0 && pid != trackedPID {
+		// The announcement named a loopback port but its host refused every token. That refusal says
+		// "this is not the host we recorded"; it does not say "this is ours to stop" — the port may
+		// now hold an unrelated service, or another bothouse's DSH (#1255 阻塞二: pid != trackedPID
+		// was the only check, and pid reuse plus a stale announcement was enough to kill a stranger).
+		// So the stop needs the same ownership proof as an adoption, and a port that cannot be shown
+		// to be ours is left alone; the caller starts a fresh host on a new port instead.
+		pid, owned, why := dshWebPortOwned(dshWebDeadlineCtx0(deadline), refused.Port())
+		switch {
+		case pid == trackedPID:
+			// The host this call is replacing; openDSHWeb stops it itself, before the takeover.
+		case !owned:
+			slog.Warn("dsh web: not stopping the host on the announced port: it is not this bridge's: "+
+				why, "port", refused.Port())
+		default:
 			slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", refused.Port())
 			if err := stopUntrackedDSHWeb(pid); err != nil {
 				return DSHWeb{}, false, err
@@ -725,20 +759,22 @@ func takeOverOrphanDSHWeb(logPaths []string, trackedPID int) (DSHWeb, bool, erro
 // see a stop without signalling the test process that serves the fake host.
 var stopUntrackedDSHWeb = stopDSHWebForImport
 
-// orphanDSHWebPort reads logPath's last announcement and returns it with its token and the loopback
-// port whose host accepts that token ("" when none does; au is nil when the log has no usable line).
-func orphanDSHWebPort(logPath string, state DSHWeb, deadline time.Time) (au *url.URL, token, port string) {
+// orphanDSHWebPort reads logPath's last announcement and returns it with its token, the loopback
+// port whose host accepts that token and the pid of that host ("" / 0 when none does; au is nil when
+// the log has no usable line). A candidate counts only when the token signs in *and* the listener is
+// provably this bridge's DSH: the token alone is not ownership (#1255 阻塞一).
+func orphanDSHWebPort(logPath string, state DSHWeb, deadline time.Time) (au *url.URL, token, port string, pid int) {
 	announced := lastDSHWebURL(logPath)
 	if announced == "" {
-		return nil, "", ""
+		return nil, "", "", 0
 	}
 	au, err := url.Parse(announced)
 	if err != nil || au.Host == "" {
-		return nil, "", ""
+		return nil, "", "", 0
 	}
 	token = au.Query().Get("token")
 	if token == "" {
-		return au, "", ""
+		return au, "", "", 0
 	}
 	// `--public-url` announcements (the launchd unit passes the tailnet name) carry no port and a
 	// non-loopback host, so the line alone cannot say where the host is: the port comes from the
@@ -762,34 +798,58 @@ func orphanDSHWebPort(logPath string, state DSHWeb, deadline time.Time) (au *url
 		addPort(au.Port())
 	}
 	addPort(statePort(state.URL))
+	take := func(p string) (string, int, bool) {
+		if expired(deadline) {
+			return "", 0, false
+		}
+		if !probeDSHWebToken(deadline, p, token) {
+			return "", 0, false
+		}
+		pid, owned, why := dshWebPortOwned(dshWebDeadlineCtx0(deadline), p)
+		if !owned {
+			slog.Warn("dsh web: a port answers the announcement's token but is not this bridge's host: "+why, "port", p)
+			return "", 0, false
+		}
+		return p, pid, true
+	}
 	for _, p := range ports {
-		if probeDSHWebToken(p, token) {
-			return au, token, p
+		if got, gotPID, ok := take(p); ok {
+			return au, token, got, gotPID
 		}
 	}
 	if au.Port() == "" {
-		for _, p := range dshWebListeners() {
+		ctx, cancel := dshWebDeadlineCtx(deadline)
+		defer cancel()
+		for _, p := range dshWebListenersFn(ctx) {
 			addPort(p)
-			if probeDSHWebToken(p, token) {
-				return au, token, p
-			}
-			if time.Now().After(deadline) {
+			if expired(deadline) {
 				break
+			}
+			if got, gotPID, ok := take(p); ok {
+				return au, token, got, gotPID
 			}
 		}
 	}
-	return au, token, ""
+	return au, token, "", 0
 }
 
-// adoptOrphanDSHWeb records the host on port, whose token signed in, as the running `dsh web` and
-// logPath as the log that proved it, so the next open and self-heal read that one first.
-func adoptOrphanDSHWeb(logPath, token, port string, trackedPID int) (DSHWeb, bool, error) {
-	pid := pidListeningOnPort(port)
-	if pid <= 0 || pid == trackedPID {
+// adoptOrphanDSHWeb records the host on port, whose token signed in and whose pid belongs to this
+// bridge, as the running `dsh web` and logPath as the log that proved it, so the next open and
+// self-heal read that one first. pid comes from orphanDSHWebPort's ownership check, so a caller that
+// reached here has already proved the host is ours; pid <= 0 (no lsof) is still allowed, the address
+// and token being what the proxy uses.
+func adoptOrphanDSHWeb(logPath, token, port string, pid, trackedPID int) (DSHWeb, bool, error) {
+	if pid == trackedPID {
 		return DSHWeb{}, false, nil
 	}
 	if _, membersErr := os.Stat(dshMembersFile()); membersErr == nil {
 		// Roles still wait for import: the plugin reads them only at boot, so start over.
+		if pid <= 0 {
+			// Nothing proved which process to stop (owned is never true without a pid, but a caller
+			// that could not read lsof must not end up signalling pid 0 — that is the process group).
+			slog.Warn("dsh web: not stopping the host with roles waiting: no pid proves which process it is", "port", port)
+			return DSHWeb{}, false, nil
+		}
 		slog.Info("dsh web: stopping an untracked dsh web before starting a new one", "pid", pid, "port", port)
 		if err := stopUntrackedDSHWeb(pid); err != nil {
 			return DSHWeb{}, false, err

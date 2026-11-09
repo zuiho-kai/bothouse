@@ -127,12 +127,11 @@ func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 	noAppDSH(t)
 	_ = os.MkdirAll(collab, 0o700)
 	_ = os.WriteFile(dshMembersFile(), []byte(`{"members":[{"name":"橘"}]}`), 0o600)
-	cmd := exec.Command("/bin/sleep", "60")
-	if err := cmd.Start(); err != nil {
-		t.Skip("no sleep:", err)
-	}
-	go func() { _ = cmd.Wait() }()
-	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	// A real `dsh web` for the state file to name. Since #1255 openDSHWeb stops the recorded pid only
+	// when it is provably a DSH host on this data directory, so a bare /bin/sleep would (correctly) be
+	// left alone; this stands in for the host: its command line says --profile web and it runs on the
+	// same HOME as the bridge.
+	cmd := fakeOwnDSHHost(t, "/bin/sleep", "60")
 	b, _ := json.Marshal(DSHWeb{URL: "http://127.0.0.1:1/", PID: cmd.Process.Pid})
 	_ = os.MkdirAll(filepath.Dir(dshWebStatePath()), 0o700)
 	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
@@ -144,10 +143,7 @@ func TestOpenDSHWebRestartsForWaitingRoles(t *testing.T) {
 		t.Fatal("the old dsh web is still running")
 	}
 	// no roles waiting: a running dsh web is reused
-	cmd2 := exec.Command("/bin/sleep", "60")
-	_ = cmd2.Start()
-	go func() { _ = cmd2.Wait() }()
-	t.Cleanup(func() { _ = cmd2.Process.Kill() })
+	cmd2 := fakeOwnDSHHost(t, "/bin/sleep", "60")
 	_ = os.Remove(dshMembersFile())
 	b, _ = json.Marshal(DSHWeb{URL: "http://127.0.0.1:1/", PID: cmd2.Process.Pid})
 	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
