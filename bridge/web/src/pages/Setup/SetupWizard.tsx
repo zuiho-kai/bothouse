@@ -16,7 +16,7 @@ import {
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
-import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
+import { backendLabel, nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup, { clearDSHDraft, readDSHDraft } from './DSHSetup';
 import DSHAdd from './DSHAdd';
@@ -838,7 +838,7 @@ export default function SetupWizard() {
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
                   <p className="text-sm font-medium" data-testid={`role-label-${idx}`}>{roleLabel(nameOf(r), r.agent_type)}</p>
-                  {platform === 'qq' && r.reuse_project && <p className="text-xs text-gray-500" data-testid={`existing-cli-${idx}`}>{T.existingCLI} {roleLabel('', r.agent_type)}</p>}
+                  {platform === 'qq' && r.reuse_project && <p className="text-xs text-gray-500" data-testid={`existing-cli-${idx}`}>{T.existingCLI} {backendLabel(r.agent_type)}</p>}
                   <Input label={zh ? '名字' : 'Name'} data-testid={`role-name-${idx}`} value={r.name || ''} onChange={e => patchRole(r.key, { name: e.target.value, nameCustomized: true })} />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {(clis || []).map((c) => (
