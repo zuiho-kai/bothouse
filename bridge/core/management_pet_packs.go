@@ -38,11 +38,15 @@ type PetPackInfo struct {
 	Manifest    map[string]any  `json:"manifest,omitempty"`
 	Actions     []PetPackAction `json:"actions"`
 	Error       string          `json:"error,omitempty"`
+	// Desktop is how far `bothouse pet run` got turning the pack into desktop clips (#549).
+	Desktop *PetDesktopStatus `json:"desktop,omitempty"`
 }
 
 type PetPacksResponse struct {
 	Installed []PetPackInfo `json:"installed"`
 	BaseDir   string        `json:"baseDir"`
+	// Showcase lists the open packs offered for one-click download from their author's repo (#549).
+	Showcase []PetShowcaseEntry `json:"showcase"`
 }
 
 // The entry point selects DataDir (brand.go) and passes it through SetWizard.
@@ -336,6 +340,7 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 	result := PetPacksResponse{Installed: []PetPackInfo{}, BaseDir: dir}
 	base, err := os.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {
+		result.Showcase = m.petShowcaseEntries(dir, nil)
 		mgmtJSON(w, http.StatusOK, result)
 		return
 	}
@@ -353,6 +358,10 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 		if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
 			continue
 		}
+		// Downloads and imports in progress (fetchShowcasePack, handlePetImport) are not packs yet.
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), ".part") {
+			continue
+		}
 		info := PetPackInfo{ID: entry.Name(), Name: entry.Name(), LocalPath: filepath.Join(dir, entry.Name()), Actions: []PetPackAction{}}
 		pack, err := base.OpenRoot(entry.Name())
 		if err == nil {
@@ -364,8 +373,14 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 			info.Actions = []PetPackAction{}
 			info.ActionCount = 0
 		}
+		info.Desktop = petDesktopStatus(m.wizardDataDir, info.ID)
 		result.Installed = append(result.Installed, info)
 	}
+	installed := map[string]bool{}
+	for _, p := range result.Installed {
+		installed[p.ID] = p.Error == ""
+	}
+	result.Showcase = m.petShowcaseEntries(dir, installed)
 	mgmtJSON(w, http.StatusOK, result)
 }
 
