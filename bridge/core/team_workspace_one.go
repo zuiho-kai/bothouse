@@ -231,6 +231,13 @@ func (e *Engine) drainTeamWorkspaceQueue(chat string) {
 // reconcileTeamWorkspaces frees every workspace that holds handoffs but no live board item: an
 // item bound to it (ws) that is neither paused nor finished. Finished, paused or missing items
 // do not keep a workspace busy; a stuck item is still bound and keeps it. Returns the freed keys.
+//
+// #497 核到的（只记录，不改策略）：这里只按 it.WS 绑定的板条目判断「还有没有活」，不看
+// it.ProgressAt，也不看工作区最后一步 —— 那两样只在 team_task_board.go 的表格和「卡住」判定里读。
+// 所以一个状态被误判成「已完成」的条目，工作区会在下一次整点对账（每 teamWorkspaceReconcileEvery
+// 一次）加 10 分钟宽限后被直接放回并 reset 会话，中途没有任何「最近还在动」的保护。
+// 2026-11-09 15:07 那两次砍会话走的就是这条路径，不是看门单独做的。要加进展宽限属于改回收策略，
+// 另开卡；这次只把 watchBoardClosed 对齐 board.py。
 func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 	e := w.e
 	if e == nil || e.dataDir == "" || e.team == nil {
