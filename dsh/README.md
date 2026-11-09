@@ -85,6 +85,16 @@ python3 -I dsh/scripts/reload-dsh.py snapshot  # 保留的旧步骤，现在什�
 测试：`python3 -I dsh/scripts/test_reload_web.py`（宿主重启与回写的全部路径）、
 `python3 -I dsh/scripts/test_reload_dsh.py`（入口只转交、缺脚本要失败、失败要冒泡、两种布局都能找到脚本）。
 
+### 发布切换的空闲门禁与强切语义（各发布目录的 `run-cutover.py`）
+
+`run-cutover.py` 不在本仓库里，每个发布目录带自己的一份（按上次的目录复制过来）。它切主桥之前先过一道空闲门禁。#555 之后**默认不会在别人还忙的时候切**：
+
+- **默认（不加任何开关）**：最多等 5 分钟（300 秒，每 5 秒看一次）等所有会话空闲。**部署者自己那个工作区忙也算忙。** 到点还忙就写 `cutover-result.json` 的 `status=stopped_busy`（含 `busy`、`busy_count`、`waited_seconds` 和一句 `need`），日志记 `still busy after 300s, stopped before any change`，然后**直接退出，一个字节都不改**：不调部署、不写 `deployment.json`，也不是失败回执。忙的列表留给主角色决定继续等还是授权强切。
+- **显式授权强切**：`--force`（可写 `--force=<谁>`）、或 `CUTOVER_FORCE=1`（配 `CUTOVER_FORCE_BY=<谁>` 记下授权人）。这时不等空闲，日志写 `forced cutover authorized by <来源>`，`deploying_main` 回执带 `forced: true` 和 `authorized_by`。
+- **发布集中暂停**：`CUTOVER_RELEASE_HOLD=1` 沿用既有语义（board hold 把在跑的活挂起后立刻切，不等空闲），同样记成强切，`authorized_by` 写 `CUTOVER_RELEASE_HOLD=1`。
+
+一句话：没有开关就没有强切；「等到超时」只产出 `stopped_busy`，不产出切换。
+
 ## 目标
 
 1. **频道**：网页里是 Discord 的样子——服务器栏、频道、消息流、成员列表。真人和 AI 都是频道成员，@谁谁干活。
