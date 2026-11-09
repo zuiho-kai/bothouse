@@ -10,6 +10,7 @@ import {
 import PersonaPanel from './PersonaPanel';
 import SocialPanel from './SocialPanel';
 import QQSettingsPanel from './QQSettingsPanel';
+import QQBotSettingsPanel from './QQBotSettingsPanel';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, shownName, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
@@ -612,6 +613,10 @@ export default function ProjectDetail() {
       {tab === 'settings' && project && (
         <div className="space-y-4">
         {project.platform_configs?.some(p => p.type === 'qq') && <QQSettingsPanel project={project.name} />}
+        {/* The official Bot is its own platform ("qqbot") with its own options, so it gets
+            its own panel; sharing one block with the OneBot bridge would offer keys the
+            other adapter ignores (#710 件 5). */}
+        {project.platform_configs?.some(p => p.type === 'qqbot') && <QQBotSettingsPanel project={project.name} />}
         {/* Agent settings */}
         <Card>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('projects.agentSettings', 'Agent')}</h3>

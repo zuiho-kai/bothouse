@@ -71,11 +71,15 @@ type ManagementServer struct {
 	saveProviderRefs     func(projectName string, refs []string) error
 	getQQSettings        func(string) (*QQSettings, error)
 	saveQQSettings       func(string, QQSettingsUpdate) ([]string, error)
-	configFilePath       string
-	getGlobalSettings    func() map[string]any
-	saveGlobalSettings   func(map[string]any) error
-	getAutostart         func() (AutostartInfo, error)
-	setAutostart         func(bool) (AutostartInfo, error)
+	// Official QQ Bot (platform type "qqbot"), #710 件 5: its own panel, because
+	// the OneBot settings above and this one share no options.
+	getQQBotSettings   func(string) (*QQBotSettings, error)
+	saveQQBotSettings  func(string, QQBotSettingsUpdate) ([]string, error)
+	configFilePath     string
+	getGlobalSettings  func() map[string]any
+	saveGlobalSettings func(map[string]any) error
+	getAutostart       func() (AutostartInfo, error)
+	setAutostart       func(bool) (AutostartInfo, error)
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -828,6 +832,12 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 	// Settings are persisted even when the project's platform is stopped.
 	if sub == "qq" {
 		m.handleProjectQQ(w, r, projName, rest)
+		return
+	}
+	// "qqbot" is the official Bot (platform type "qqbot"), a separate platform
+	// from the OneBot bridge above; the two never share options (#710 件 5).
+	if sub == "qqbot" {
+		m.handleProjectQQBot(w, r, projName, rest)
 		return
 	}
 

@@ -44,6 +44,22 @@
       "memory_import": "記憶匯入待確認來源與格式。"
     }
   },
+  "qqbot": {
+    "title": "QQ 官方機器人",
+    "hint": "QQ 官方 Bot API（AppID + AppSecret）。和上面的 NapCat / OneBot 是兩條獨立入口；改完重新啟動生效。",
+    "credentials": "憑證",
+    "appIDSet": "已儲存 AppID",
+    "stored": "已儲存（不回顯）",
+    "missing": "未儲存",
+    "appIDReadonly": "AppID 不在這裡顯示或修改；換了就重新新增一個 Bot。",
+    "keepSecret": "留空保留已儲存的 Secret",
+    "secretHint": "Secret 從不顯示，連打碼也不顯示；留空表示保留原本的。",
+    "behavior": "行為",
+    "sandboxHint": "沙箱環境連的是沙箱 API，不會和真實 QQ 使用者對話。",
+    "markdown": "Markdown 訊息",
+    "markdownHint": "需要 QQ 機器人後台給這個 Bot 開權限；沒開就按純文字傳送。",
+    "sharedHint": "開啟後群組成員共用一段對話。這不提供個人記憶隔離。"
+  },
   "nav": {
     "addPlatform": "新增平台",
     "addRole": "新增角色/模型",

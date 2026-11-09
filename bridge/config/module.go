@@ -16,8 +16,14 @@ import (
 )
 
 // ModulePlatformTypes maps a module name to the [[projects.platforms]] types it covers.
+//
+// "qq" covers both QQ platforms on purpose (#710 件 5): the OneBot bridge ("qq") and the
+// official Bot ("qqbot") are one app to the household, the 接入应用 page draws one QQ row,
+// and the wizard's QQ step is where both are added (its "official Bot" button). A separate
+// "qqbot" module would need its own add path, and the only add entry for the official Bot is
+// that step, so the row would link somewhere that cannot add one.
 var ModulePlatformTypes = map[string][]string{
-	"qq":        {"qq"},
+	"qq":        {"qq", "qqbot"},
 	"discord":   {"discord"},
 	"feishu":    {"feishu", "lark"},
 	"cloud_web": {"cloud_web"},

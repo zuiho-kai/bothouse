@@ -405,6 +405,7 @@ Updates project settings. Only provided fields are updated.
 | `admin_from`        | string   | Comma-separated user IDs for privileged commands; `"*"` = all |
 | `language`          | string   | UI language: `en`, `zh`, `zh-TW`, `ja`, `es`             |
 | `disabled_commands` | string[] | Commands to disable (e.g. `restart`, `upgrade`, `cron`)  |
+| `platform_allow_from` | object | Writes `allow_from` per platform type, e.g. `{"qq": "12345", "discord": "user1,user2"}`; keys match the platform `type` case-insensitively. This is the **single writer** of `allow_from`: `PATCH /projects/{name}/qq/settings` and the `qqbot` panel answer `400` when sent it. `""` clears that platform's allow list |
 
 **Response:**
 
@@ -513,6 +514,86 @@ change takes effect after a restart.
 
 Errors: `404` unknown project, `400` invalid value / no `qq` platform / read-only
 `allow_from`, `503` when the management API has no settings callbacks wired.
+
+---
+
+#### GET /api/v1/projects/{name}/qqbot/settings
+
+Reads a project's saved official QQ Bot (`qqbot`) settings. **Neither the AppID nor
+the AppSecret is returned**: `app_id_set` / `app_secret_set` only say whether one is
+stored, because the panel neither prefills nor shows them; a different AppID means
+adding a new Bot. A project with no `qqbot` platform answers `200` with
+`configured: false`. Works whether or not the engine is running.
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "app_id_set": true,
+      "app_secret_set": true,
+      "sandbox": false,
+      "allow_from": "OPEN_ID_1",
+      "share_session_in_channel": false,
+      "markdown_support": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qqbot/settings
+
+Saves a partial update. Only the fields present in the body change; an unknown field
+is a `400`. Booleans are tri-state: omitting one leaves it alone, and an explicit
+`false` is written as `false`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `app_secret` | string | Rotate the AppSecret; **an empty or omitted value keeps the stored one** and is never read as "delete the credential" |
+| `sandbox` | boolean | Use the sandbox API instead of production |
+| `share_session_in_channel` | boolean | Group members share one agent session |
+| `markdown_support` | boolean | Send Markdown messages (the bot needs that permission in the QQ console) |
+
+`app_id` is not writable here: it is the bot's identity, the panel neither shows nor
+edits it, and a different one means adding a new Bot. `allow_from` is **not**
+writable here either: only `PATCH /api/v1/projects/{name}` with `platform_allow_from`
+writes it, and sending it answers `400`.
+
+**Request body:**
+
+```json
+{
+  "sandbox": true,
+  "markdown_support": true
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qqbot settings saved",
+    "changed": ["sandbox", "markdown_support"],
+    "restart_required": true,
+    "settings": { "app_id_set": true, "sandbox": true, "markdown_support": true }
+  }
+}
+```
+
+`changed` lists only the fields that actually differ; an unchanged save reports
+`restart_required: false` and does not rewrite the file. The adapter reads these
+options when the project starts, so a change takes effect after a restart.
+
+Errors: `404` unknown project, `400` invalid value / no `qqbot` platform / read-only
+`allow_from`, `503` when no settings callbacks are wired. A config read/write failure
+is a `500` with one fixed sentence; the detail goes to the log.
 
 ---
 

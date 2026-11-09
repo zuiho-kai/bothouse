@@ -44,6 +44,22 @@
       "memory_import": "기억 가져오기는 출처와 형식 확인을 기다리고 있습니다."
     }
   },
+  "qqbot": {
+    "title": "QQ 공식 봇",
+    "hint": "QQ 공식 Bot API(AppID + AppSecret). 위의 NapCat / OneBot 과는 별개 경로입니다. 변경은 재시작 후 적용됩니다.",
+    "credentials": "자격 증명",
+    "appIDSet": "AppID 저장됨",
+    "stored": "저장됨(표시하지 않음)",
+    "missing": "저장 안 됨",
+    "appIDReadonly": "AppID 는 여기서 표시하거나 수정하지 않습니다. 바뀌면 Bot 을 새로 추가하세요.",
+    "keepSecret": "비워 두면 저장된 secret 유지",
+    "secretHint": "secret 은 마스킹조차 하지 않고 표시하지 않습니다. 빈 칸은 저장된 값을 유지합니다.",
+    "behavior": "동작",
+    "sandboxHint": "샌드박스는 샌드박스 API 에 연결되며 실제 QQ 사용자와 대화하지 않습니다.",
+    "markdown": "Markdown 메시지",
+    "markdownHint": "QQ 봇 콘솔에서 이 Bot 에 권한이 필요합니다. 없으면 일반 텍스트로 전송됩니다.",
+    "sharedHint": "켜면 그룹 구성원이 하나의 대화를 공유합니다. 개인 기억은 분리되지 않습니다."
+  },
   "nav": {
     "addPlatform": "플랫폼 추가",
     "addRole": "역할/모델 추가",

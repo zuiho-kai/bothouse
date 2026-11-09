@@ -405,6 +405,7 @@ max_tokens = 8192           # token 计数不是密钥
 | `admin_from`         | string   | 特权命令用户 ID 列表（逗号分隔）；`"*"` 表示全部用户      |
 | `language`           | string   | 界面语言：`en`、`zh`、`zh-TW`、`ja`、`es`                 |
 | `disabled_commands`  | string[] | 要禁用的命令（如 `restart`、`upgrade`、`cron`）           |
+| `platform_allow_from`| object   | 按平台类型写 `allow_from`，如 `{"qq": "12345", "discord": "user1,user2"}`；键按平台 `type` 不区分大小写匹配。这是 `allow_from` 的**唯一写入者**：`PATCH /projects/{name}/qq/settings` 和 `qqbot` 面板传 `allow_from` 都会返回 `400`。传 `""` 表示清空该平台的允许名单 |
 
 **响应：**
 
@@ -509,6 +510,82 @@ max_tokens = 8192           # token 计数不是密钥
 
 错误：`404` 项目不存在，`400` 取值非法 / 没有 `qq` 平台 / 写了只读的
 `allow_from`，`503` 管理接口没接上配置读写回调。
+
+---
+
+#### GET /api/v1/projects/{name}/qqbot/settings
+
+读取项目已保存的 QQ 官方 Bot（`qqbot`）配置。**AppID 和 AppSecret 都不返回**，
+`app_id_set` / `app_secret_set` 只说有没有存过：面板既不重填也不显示，换 AppID
+就是重新添加一个 Bot。项目里没有 `qqbot` 平台时返回 `200` 且 `configured: false`；
+引擎没在跑也能读写。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "app_id_set": true,
+      "app_secret_set": true,
+      "sandbox": false,
+      "allow_from": "OPEN_ID_1",
+      "share_session_in_channel": false,
+      "markdown_support": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qqbot/settings
+
+保存局部更新：只改请求体里出现的字段，出现未知字段返回 `400`。布尔是三态：不传
+就不动，显式传 `false` 会写成 `false`。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `app_secret` | string | 换 AppSecret；**留空或省略都表示保留原值**，不会被当成「删除凭据」 |
+| `sandbox` | boolean | 连沙箱 API 而不是正式环境 |
+| `share_session_in_channel` | boolean | 群成员共用一个会话 |
+| `markdown_support` | boolean | 发 Markdown 消息（需要机器人在 QQ 后台有这个权限） |
+
+`app_id` 不能从这里改：它是 Bot 的身份，面板不回显也不编辑，换号请重新添加 Bot。
+`allow_from` 同样**不能**从这里写，只有 `PATCH /api/v1/projects/{name}` 的
+`platform_allow_from` 能写；传了返回 `400`。
+
+**请求体：**
+
+```json
+{
+  "sandbox": true,
+  "markdown_support": true
+}
+```
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qqbot settings saved",
+    "changed": ["sandbox", "markdown_support"],
+    "restart_required": true,
+    "settings": { "app_id_set": true, "sandbox": true, "markdown_support": true }
+  }
+}
+```
+
+`changed` 只列真正和已存值不同的字段；没有变化时 `restart_required` 是 `false`，
+也不重写文件。适配器在项目启动时读这些选项，所以改动重启后生效。
+
+错误：`404` 项目不存在，`400` 取值非法 / 没有 `qqbot` 平台 / 写了只读的
+`allow_from`，`503` 管理接口没接上配置读写回调；配置读写失败一律 `500` 且只回
+一句固定提示，细节进日志。
 
 ---
 
