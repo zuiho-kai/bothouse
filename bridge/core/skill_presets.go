@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	defaultSkillPresetsURL          = "https://raw.githubusercontent.com/chenhg5/bothouse/main/skill-presets.json"
-	fallbackSkillPresetsURL         = "https://gitee.com/chenhg5/bothouse/raw/main/skill-presets.json"
+	defaultSkillPresetsURL          = "https://raw.githubusercontent.com/zuiho-kai/bothouse/main/bridge/skill-presets.json"
+	fallbackSkillPresetsURL         = "https://github.com/zuiho-kai/bothouse/raw/refs/heads/main/bridge/skill-presets.json"
 	skillPresetsCacheTTL            = 6 * time.Hour
 	skillPresetsHTTPTimeout         = 15 * time.Second
 	skillPresetsFallbackHTTPTimeout = 10 * time.Second
