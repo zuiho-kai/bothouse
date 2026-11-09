@@ -54,16 +54,20 @@ type Platform struct {
 	project               string // this bot's project name (opts["cc_project"]), named in outbound receipts
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
-	mu                    sync.Mutex
-	platformEvents        core.PlatformEventHandler // maomao fork: platform events (events.go)
-	echoSeq               atomic.Int64
-	echoCh                sync.Map // echo -> chan json.RawMessage
-	cancel                context.CancelFunc
-	selfID                int64
-	dedup                 core.MessageDedup
-	groupNameCache        sync.Map // groupID -> group name
-	groupNamePending      sync.Map // groupID -> struct{}: a lookup is already running
-	httpURL               string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
+	// writeSem 让同一时刻只有一次写在写 socket（gorilla 不允许并发写），但
+	// 排队等这个名额本身受调用方 ctx 约束：一个卡住的慢写不会把别的会话一起
+	// 拖住，排队的人按自己的期限退出，而不是无限等一把互斥锁。
+	writeSem         chan struct{}
+	mu               sync.Mutex
+	platformEvents   core.PlatformEventHandler // maomao fork: platform events (events.go)
+	echoSeq          atomic.Int64
+	echoCh           sync.Map // echo -> chan json.RawMessage
+	cancel           context.CancelFunc
+	selfID           int64
+	dedup            core.MessageDedup
+	groupNameCache   sync.Map // groupID -> group name
+	groupNamePending sync.Map // groupID -> struct{}: a lookup is already running
+	httpURL          string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
 
 	// quoteCache holds recent messages by OneBot message ID. A reply segment
 	// carries only that ID, so without this the model sees "继续" with no idea
@@ -353,6 +357,12 @@ const (
 	// 一次失败的 Dial 最长占用 websocket.DefaultDialer 的握手超时；本包未
 	// 改写它，gorilla/websocket 的默认值是 45 秒。
 	qqDialTimeout = 45 * time.Second
+
+	// qqWriteTimeout bounds one websocket write. 来源：沿用 callAPIContext 里
+	// 等待回执的 15s（qq.go:1543），写入本身不该比它等回执更久。上游读端卡住
+	// 时一帧大消息会把 socket 缓冲写满，没有这个期限这次写会一直占着连接，
+	// 同一条桥上的其他会话连自己的 ctx 期限都用不上。
+	qqWriteTimeout = 15 * time.Second
 )
 
 // qqCatchUpWindow is how old a replayed message may be: one full reconnect
@@ -1507,17 +1517,63 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 	}
 
 	p.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		p.mu.Unlock()
-		return nil, err
+	if p.writeSem == nil {
+		p.writeSem = make(chan struct{}, 1)
 	}
-	if p.conn == nil {
-		p.mu.Unlock()
-		return nil, core.ErrTaskTextNotAccepted
-	}
-	err = p.conn.WriteMessage(websocket.TextMessage, data)
+	sem := p.writeSem
 	p.mu.Unlock()
+
+	// 同一个连接只允许一次写在写（gorilla 会直接 panic），所以写之间排一个
+	// 名额；但排队本身必须能用调用方自己的期限退出。上游读端卡住时，一帧大
+	// 消息会把 socket 缓冲写满，抢到名额的那次写会等很久——没有这一步，后面
+	// 所有会话都在共享锁上干等，自己的 ctx 根本轮不到。
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(qqWriteTimeout):
+		return nil, fmt.Errorf("qq: API %s not sent: another write is still stuck on a slow upstream", action)
+	}
+	err = func() error {
+		defer func() { <-sem }()
+		// 写入本身也带期限（qqWriteTimeout 与 ctx 取早者）。期限到了就把这次写
+		// 收口成错误；是否真的送到按未知处理，绝不自动重放。这里必须用真实时间：
+		// SetWriteDeadline 比的是墙钟，测试注入的 now 只服务补收边界。
+		now := time.Now()
+		writeDeadline := now.Add(qqWriteTimeout)
+		if dl, ok := ctx.Deadline(); ok && dl.Before(writeDeadline) {
+			writeDeadline = dl
+		}
+		if !writeDeadline.After(now) {
+			return ctx.Err()
+		}
+
+		p.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			p.mu.Unlock()
+			return err
+		}
+		conn := p.conn
+		p.mu.Unlock()
+		if conn == nil {
+			return core.ErrTaskTextNotAccepted
+		}
+		_ = conn.SetWriteDeadline(writeDeadline)
+		err = conn.WriteMessage(websocket.TextMessage, data)
+		// 期限只管这一次写：清掉后回执仍按 ctx 自己的分支等待。
+		_ = conn.SetWriteDeadline(time.Time{})
+		if err != nil {
+			_ = conn.Close()
+		}
+		return err
+	}()
 	if err != nil {
+		// 写到一半超时的帧已经把这条 WS 流写坏了：留着它复用会让后续消息
+		// 落在一个不完整的帧后面。关掉连接让 readLoop 走既有重连；在重连
+		// 成功前，下一次发送会如实回报写失败，不重放这一条。
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("qq: ws write: %w", err)
 	}
 
