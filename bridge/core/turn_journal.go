@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -37,6 +38,30 @@ const (
 )
 
 const turnJournalMaxUserMessage = 2000 // runes
+
+// turnJournalMaxQueuedMessage caps one queued message. The journal copy is the
+// only one a restart has (the queue is in memory), so it is replayed as the
+// message itself, not a summary: a lead-accept wake (#1278, ~4–5k runes: four
+// paragraphs, the 2000-rune report, then the ws-pass / ws-forward lines) must
+// arrive whole. 5 queued × 12k runes keeps the file small.
+const turnJournalMaxQueuedMessage = 12000 // runes
+
+// truncateKeepEnds cuts s to max runes keeping its head and its tail: a message
+// ends with what to do (ws-pass / ws-forward, 「回 NO_REPLY」), so a plain head
+// cut (truncateRunes) dropped exactly that part (#1278).
+func truncateKeepEnds(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	tail := max / 3
+	mark := fmt.Sprintf("\n…（重启存档时中间略去 %d 字）…\n", len(runes)-max)
+	head := max - tail - len([]rune(mark))
+	if head < 0 {
+		head = 0
+	}
+	return string(runes[:head]) + mark + string(runes[len(runes)-tail:])
+}
 
 // TurnJournalEntry is the on-disk record of one running turn.
 type TurnJournalEntry struct {
@@ -188,7 +213,7 @@ func (j *TurnJournal) begin(en TurnJournalEntry, active bool) (TurnJournalEntry,
 	if en.StartedAt.IsZero() {
 		en.StartedAt = time.Now()
 	}
-	en.LastUserMessage = truncateRunes(en.LastUserMessage, turnJournalMaxUserMessage)
+	en.LastUserMessage = truncateKeepEnds(en.LastUserMessage, turnJournalMaxUserMessage)
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if en.ResumedFrom != "" {
@@ -227,7 +252,7 @@ func (j *TurnJournal) Update(turnID string, fn func(*TurnJournalEntry)) (bool, e
 	}
 	fn(en)
 	en.TurnID = turnID
-	en.LastUserMessage = truncateRunes(en.LastUserMessage, turnJournalMaxUserMessage)
+	en.LastUserMessage = truncateKeepEnds(en.LastUserMessage, turnJournalMaxUserMessage)
 	return true, j.saveLocked()
 }
 
@@ -303,7 +328,7 @@ func (j *TurnJournal) SetQueued(turnID string, msgs []string) error {
 	}
 	out := make([]string, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, truncateRunes(m, turnJournalMaxUserMessage))
+		out = append(out, truncateKeepEnds(m, turnJournalMaxQueuedMessage))
 	}
 	if len(out) == 0 {
 		out = nil
