@@ -2,6 +2,8 @@ import api from './client';
 
 export interface QQSettings {
   ws_url: string; http_url: string; token_set: boolean; allow_from: string; share_session_in_channel: boolean;
+  split_bubbles: boolean; allow_groups_with: string; command_allow_from: string; save_images_dir: string;
+  allow_qzone: boolean; allow_avatar: boolean;
 }
 export interface QQSettingsResponse {
   configured: boolean; settings: QQSettings;

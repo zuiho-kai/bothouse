@@ -166,3 +166,53 @@ func TestMgmt_QQSettings_RejectsUnknownFieldsAndHidesInternalErrors(t *testing.T
 		t.Fatalf("error not sanitized: %d %+v", status, r)
 	}
 }
+
+func TestMgmt_QQSettings_SwitchFieldsRoundTrip(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	saved := &QQSettings{Configured: true, WSURL: "ws://127.0.0.1:3001", TokenSet: true}
+	var got QQSettingsUpdate
+	mgmt.SetQQSettingsFuncs(func(string) (*QQSettings, error) { return saved, nil },
+		func(_ string, u QQSettingsUpdate) ([]string, error) {
+			got = u
+			saved.SplitBubbles = u.SplitBubbles != nil && *u.SplitBubbles
+			saved.AllowGroupsWith = "from-save"
+			return []string{"split_bubbles", "allow_groups_with"}, nil
+		})
+
+	r, status := qqRequest(t, http.MethodPatch, ts.URL+"/api/v1/projects/p/qq/settings", "tok", map[string]any{
+		"split_bubbles":     false,
+		"allow_groups_with": "12345",
+		"allow_avatar":      true,
+	})
+	if status != http.StatusOK || !r.OK {
+		t.Fatalf("PATCH: %d %+v", status, r)
+	}
+	// false must arrive as a pointer to false, not as "omitted".
+	if got.SplitBubbles == nil || *got.SplitBubbles {
+		t.Fatalf("split_bubbles = %v, want explicit false", got.SplitBubbles)
+	}
+	if got.AllowGroupsWith == nil || *got.AllowGroupsWith != "12345" {
+		t.Fatalf("allow_groups_with = %v", got.AllowGroupsWith)
+	}
+	if got.AllowAvatar == nil || !*got.AllowAvatar {
+		t.Fatalf("allow_avatar = %v", got.AllowAvatar)
+	}
+	if got.CommandAllowFrom != nil || got.SaveImagesDir != nil || got.AllowQzone != nil {
+		t.Fatalf("omitted switch fields became non-nil: %+v", got)
+	}
+
+	var body struct {
+		Settings map[string]any `json:"settings"`
+	}
+	if err := json.Unmarshal(r.Data, &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"split_bubbles", "allow_groups_with", "command_allow_from", "save_images_dir", "allow_qzone", "allow_avatar"} {
+		if _, exists := body.Settings[key]; !exists {
+			t.Fatalf("settings response is missing %q: %v", key, body.Settings)
+		}
+	}
+	if body.Settings["allow_groups_with"] != "from-save" {
+		t.Fatalf("response settings not refreshed after save: %v", body.Settings)
+	}
+}

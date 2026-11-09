@@ -723,6 +723,12 @@ func runMain() {
 					TokenSet:              s.TokenSet,
 					AllowFrom:             s.AllowFrom,
 					ShareSessionInChannel: s.ShareSessionInChannel,
+					SplitBubbles:          s.SplitBubbles,
+					AllowGroupsWith:       s.AllowGroupsWith,
+					CommandAllowFrom:      s.CommandAllowFrom,
+					SaveImagesDir:         s.SaveImagesDir,
+					AllowQzone:            s.AllowQzone,
+					AllowAvatar:           s.AllowAvatar,
 				}, nil
 			},
 			func(name string, u core.QQSettingsUpdate) ([]string, error) {
@@ -732,6 +738,12 @@ func runMain() {
 					Token:                 u.Token,
 					AllowFrom:             u.AllowFrom,
 					ShareSessionInChannel: u.ShareSessionInChannel,
+					SplitBubbles:          u.SplitBubbles,
+					AllowGroupsWith:       u.AllowGroupsWith,
+					CommandAllowFrom:      u.CommandAllowFrom,
+					SaveImagesDir:         u.SaveImagesDir,
+					AllowQzone:            u.AllowQzone,
+					AllowAvatar:           u.AllowAvatar,
 				})
 			},
 		)

@@ -443,6 +443,97 @@ Updates project settings. Only provided fields are updated.
 
 ---
 
+#### GET /api/v1/projects/{name}/qq/settings
+
+Reads the saved OneBot v11 (`qq`) connection settings of a project. The access
+token is never returned — `token_set` only says whether one is stored. A project
+with no `qq` platform answers `200` with `configured: false`. This route works
+whether or not the project's engine is running.
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "ws_url": "ws://127.0.0.1:3001",
+      "http_url": "http://127.0.0.1:3000",
+      "token_set": true,
+      "allow_from": "12345",
+      "share_session_in_channel": false,
+      "split_bubbles": false,
+      "allow_groups_with": "",
+      "command_allow_from": "",
+      "save_images_dir": "",
+      "allow_qzone": false,
+      "allow_avatar": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qq/settings
+
+Saves a partial update. Only the fields present in the body change; an unknown
+field is a `400`. For the string fields, `""` removes the key from
+`config.toml`, which is how the adapter reads "not set". Booleans are tri-state:
+omitting one leaves it alone, and an explicit `false` is written as `false`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ws_url` | string | OneBot forward WebSocket URL; required when set, must be `ws://` or `wss://` |
+| `http_url` | string | OneBot HTTP API URL for file sends; `""` removes it |
+| `token` | string | Access token; omitted keeps it, `""` removes it |
+| `share_session_in_channel` | boolean | Group members share one agent session |
+| `split_bubbles` | boolean | One message per blank-line paragraph (`platform/qq`) |
+| `allow_groups_with` | string | Comma-separated QQ IDs whose groups may also be answered |
+| `command_allow_from` | string | Who may submit slash-prefixed commands; `""` keeps the default |
+| `save_images_dir` | string | Where received images are also stored; `""` stops storing |
+| `allow_qzone` | boolean | Read/post/replace/delete this account's own 说说 (NapCat extension) |
+| `allow_avatar` | boolean | Change this account's own avatar (NapCat extension) |
+
+`allow_from` is **not** writable here: it has a single writer, `PATCH
+/api/v1/projects/{name}` with `platform_allow_from`. Sending it answers `400`
+instead of silently doing nothing.
+
+**Request body:**
+
+```json
+{
+  "split_bubbles": true,
+  "allow_groups_with": "12345,67890",
+  "save_images_dir": "/path/to/received-images"
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qq settings saved",
+    "changed": ["split_bubbles", "allow_groups_with", "save_images_dir"],
+    "restart_required": true,
+    "settings": { "ws_url": "ws://127.0.0.1:3001", "split_bubbles": true }
+  }
+}
+```
+
+`changed` lists only the fields that actually differ from what was stored, and
+`restart_required` follows it: an unchanged save reports `false` and does not
+rewrite the file. The platform reads these options when the project starts, so a
+change takes effect after a restart.
+
+Errors: `404` unknown project, `400` invalid value / no `qq` platform / read-only
+`allow_from`, `503` when the management API has no settings callbacks wired.
+
+---
+
 ### 5.3 Sessions
 
 Sessions are conversation contexts within a project. A session is identified by a `session_key` (format: `platform:chatId:userId`) and optionally by an internal `id` for named sessions (e.g. `/new work` creates a named session).

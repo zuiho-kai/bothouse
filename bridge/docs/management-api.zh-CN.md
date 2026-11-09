@@ -443,6 +443,93 @@ GET /api/v1/status?token=mgmt-secret
 
 ---
 
+#### GET /api/v1/projects/{name}/qq/settings
+
+读取项目已保存的 OneBot v11（`qq`）连接配置。访问令牌从不返回，`token_set`
+只表示有没有存。项目里没有 `qq` 平台时返回 `200` 且 `configured: false`。项目
+引擎没在跑也能读写这条接口。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "ws_url": "ws://127.0.0.1:3001",
+      "http_url": "http://127.0.0.1:3000",
+      "token_set": true,
+      "allow_from": "12345",
+      "share_session_in_channel": false,
+      "split_bubbles": false,
+      "allow_groups_with": "",
+      "command_allow_from": "",
+      "save_images_dir": "",
+      "allow_qzone": false,
+      "allow_avatar": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qq/settings
+
+保存局部更新：只改请求体里出现的字段，出现未知字段返回 `400`。字符串字段传
+`""` 表示从 `config.toml` 里删掉这个 key，这正是适配器读「没设置」的方式。布尔是
+三态：不传就不动，显式传 `false` 会写成 `false`。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ws_url` | string | OneBot 正向 WebSocket 地址；设置了就必须是 `ws://` 或 `wss://` |
+| `http_url` | string | 文件发送用的 OneBot HTTP API 地址；`""` 删除 |
+| `token` | string | 访问令牌；不传保留，`""` 删除 |
+| `share_session_in_channel` | boolean | 群成员共用一个会话 |
+| `split_bubbles` | boolean | 按空行拆成多条（`platform/qq`） |
+| `allow_groups_with` | string | 逗号分隔的 QQ 号：含这些人的群也放行 |
+| `command_allow_from` | string | 谁能发斜杠命令；`""` 保持默认 |
+| `save_images_dir` | string | 收到的图片另存到哪；`""` 停止另存 |
+| `allow_qzone` | boolean | 查/发/换/删这个号自己的说说（NapCat 扩展） |
+| `allow_avatar` | boolean | 换这个号自己的头像（NapCat 扩展） |
+
+`allow_from` **不能**从这里写：它只有一个写入者，即 `PATCH
+/api/v1/projects/{name}` 的 `platform_allow_from`。传了会返回 `400`，而不是
+悄悄什么都不做。
+
+**请求体：**
+
+```json
+{
+  "split_bubbles": true,
+  "allow_groups_with": "12345,67890",
+  "save_images_dir": "/path/to/received-images"
+}
+```
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qq settings saved",
+    "changed": ["split_bubbles", "allow_groups_with", "save_images_dir"],
+    "restart_required": true,
+    "settings": { "ws_url": "ws://127.0.0.1:3001", "split_bubbles": true }
+  }
+}
+```
+
+`changed` 只列真正和已存值不同的字段，`restart_required` 跟着它：没有变化时
+返回 `false`，也不会重写文件。平台在项目启动时读这些选项，所以改动重启后生效。
+
+错误：`404` 项目不存在，`400` 取值非法 / 没有 `qq` 平台 / 写了只读的
+`allow_from`，`503` 管理接口没接上配置读写回调。
+
+---
+
 ### 5.3 会话
 
 会话是项目内的对话上下文。会话由 `session_key`（格式：`platform:chatId:userId`）标识，命名会话还可通过内部 `id` 标识（例如 `/new work` 会创建命名会话）。
