@@ -664,7 +664,9 @@ export default function SetupWizard() {
                     const r = await applyWizard({ ...buildRequest(), dry_run: true });
                     // only the QQ connection is judged here; the rest of the request (CLI, persona …) is checked on save
                     // a plan error after a good connection (no CLI yet, name taken …) is shown, not hidden; later steps can fix it
-                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok', message: r.qq?.code === 'ok' ? r.qq.message : (r.error || r.qq?.message),
+                    // the API's error already ends with "; " + fix for a bad connection; take the message alone and
+                    // let the fix render once below (other failures have no qq block, so error is the only text)
+                    setQQTest({ running: false, key, ok: r.qq?.code === 'ok', message: r.qq?.code === 'ok' ? r.qq.message : (r.qq?.message || r.error),
                       fix: r.qq?.fix, nickname: r.qq?.nickname, note: r.qq?.code === 'ok' ? r.error : undefined });
                   } catch (e: any) {
                     setQQTest({ running: false, key, ok: false, message: e?.message || String(e) });
