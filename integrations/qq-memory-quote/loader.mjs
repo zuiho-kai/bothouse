@@ -4,6 +4,13 @@ const client = new URL('./client.mjs', import.meta.url).href;
 registerHooks({
   load(url, context, nextLoad) {
     const loaded = nextLoad(url, context);
+    if (url.endsWith('/@deepseek-ai/dsh-system-prompt/lib/index.js')) {
+      const source = Buffer.from(loaded.source).toString();
+      const signature = 'function renderPrompt(assembly) {';
+      if (!source.includes(signature)) throw new Error('QQ memory: DSH prompt renderer changed; revalidate before use');
+      return { ...loaded, source: `import { memoryInstructions as qqMemoryInstructions } from ${JSON.stringify(client)};\n` +
+        source.replace(signature, signature + `\nassembly = { ...assembly, sections: [...assembly.sections, {name: 'qq-memory-quotes', interpolate: false, text: qqMemoryInstructions()}] };`) };
+    }
     if (!url.endsWith('/@deepseek-ai/dsh-fs-local/lib/index.js')) return loaded;
     const source = Buffer.from(loaded.source).toString();
     for (const signature of ['async writeText(target, content, expected, signal)', 'async editText(target, edit, expected, signal)']) {

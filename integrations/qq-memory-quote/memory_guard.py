@@ -2,11 +2,14 @@
 import argparse
 import ast
 from collections import Counter
+import fcntl
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import re
+import secrets
 import signal
 import socketserver
 import subprocess
@@ -128,7 +131,10 @@ class MemoryStore:
                 raise ValueError("quote does not match trusted human words; memory unchanged")
 
     def request(self, request):
-        with self.lock:
+        # Multiple ACP conversations share the same memory directory. The file
+        # lock spans version checking, validation and publication across services.
+        with self.lock, (self.memory / ".quote-commit.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
             if request.get("op") == "sources":
                 return [{"id": identity, **record} for identity, record in self.sources().items()]
             if request.get("op") not in ("write", "edit"):
@@ -169,7 +175,10 @@ class MemoryStore:
 class RequestHandler(socketserver.StreamRequestHandler):
     def handle(self):
         try:
-            result = self.server.store.request(json.loads(self.rfile.readline()))
+            envelope = json.loads(self.rfile.readline())
+            if not hmac.compare_digest(str(envelope.get("capability", "")), self.server.capability):
+                raise ValueError("memory capability is not valid for this conversation")
+            result = self.server.store.request(envelope["request"])
             response = {"ok": True, "result": result}
         except (OSError, ValueError, KeyError, TypeError) as error:
             response = {"ok": False, "error": str(error)}
@@ -179,6 +188,7 @@ class RequestHandler(socketserver.StreamRequestHandler):
 def sandbox_overlay(profile, memory, people, runtime, code):
     """Extend the existing QQ policy; the entire agent tree stays untrusted."""
     forms = [profile]
+    forms.append(f"(allow file-read-data (subpath {json.dumps(str(Path(code).resolve()))}))")
     for root in (memory, people, runtime, code):
         path = Path(root).resolve()
         forms.append(f"(deny file-write* (subpath {json.dumps(str(path))}))")
@@ -186,7 +196,9 @@ def sandbox_overlay(profile, memory, people, runtime, code):
         forms.extend(f"(deny file-write* (literal {json.dumps(str(parent))}))"
                      for parent in path.parents if parent != Path("/"))
     forms.append(f"(deny file-read-data (subpath {json.dumps(str(Path(people).resolve()))}))")
-    forms.extend(["(deny signal (target others))", "(deny process-info*)"])
+    forms.extend(["(deny mach-priv-task-port)",
+                  "(deny signal (target others))", "(allow signal (target same-sandbox))",
+                  "(deny process-info* (target others))", "(allow process-info* (target same-sandbox))"])
     return "\n".join(forms)
 
 
@@ -213,11 +225,15 @@ def main():
     with socketserver.ThreadingUnixStreamServer(str(socket), RequestHandler) as server:
         server.daemon_threads = True
         server.store = store
+        server.capability = secrets.token_hex()
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         env = os.environ.copy()
         env["QQ_MEMORY_SOCKET"] = str(socket)
         env["QQ_MEMORY_ROOT"] = str(store.memory)
+        # The capability is never written into the child-readable runtime files.
+        # Another QQ channel's agent cannot use a discovered socket to change scope.
+        env["QQ_MEMORY_CAPABILITY"] = server.capability
         # Compose with existing Node --import loaders (image/session fixes).
         env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") +
                                " --import " + (code / "loader.mjs").as_uri()).strip()
