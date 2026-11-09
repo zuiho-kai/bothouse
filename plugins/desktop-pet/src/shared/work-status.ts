@@ -27,6 +27,8 @@ export interface WorkStatusSnapshot {
   task: string | null; // 当前任务详情（todo/write 提供，可 null）
   /** 当前展示条目所属会话；空闲 / 外部槽 / 老版本宿主缺该字段时都不出现，气泡因此不可点。 */
   sessionId?: string | null;
+  /** bothouse fork：各宠物自己的槽（宿主 POST /work-status?pet=<id>）；写过的宠物只看自己这份。 */
+  pets?: Record<string, { state: WorkStatusState | null; task: string | null }>;
 }
 
 /** 快照解析：档位不认识 → 归一成 null（空闲）；形状非法 → null，消费端跳过这一拍。 */
@@ -39,5 +41,14 @@ export function toWorkStatus(raw: unknown): WorkStatusSnapshot | null {
       : null;
   const sessionId =
     typeof r.sessionId === 'string' && r.sessionId !== '' && r.sessionId !== 'unknown' ? r.sessionId : null;
-  return { state, task: typeof r.task === 'string' ? r.task : null, sessionId };
+  const snap: WorkStatusSnapshot = { state, task: typeof r.task === 'string' ? r.task : null, sessionId };
+  const pets = (raw as { pets?: unknown }).pets;
+  if (pets && typeof pets === 'object' && !Array.isArray(pets)) {
+    snap.pets = {};
+    for (const [id, slot] of Object.entries(pets as Record<string, unknown>)) {
+      const one = toWorkStatus(slot);
+      if (one) snap.pets[id] = { state: one.state, task: one.task };
+    }
+  }
+  return snap;
 }
