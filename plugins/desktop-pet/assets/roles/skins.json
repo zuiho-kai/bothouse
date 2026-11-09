@@ -1,0 +1,75 @@
+{
+ "_comment": "bothouse fork：桌宠形象清单，见 src/host/skins.ts。builtin 随包（assets/roles/<id>/，自家角色按官方设定板生图）；recommended 是别人家的开源形象，包里不带文件，用户点了才下载。default = 没选也没绑定角色时穿的。",
+ "default": "maomao",
+ "builtin": [
+  {
+   "id": "maomao",
+   "name": "橘（Claude）",
+   "aliases": [
+    "橘",
+    "Claude",
+    "cjiang",
+    "C酱"
+   ]
+  },
+  {
+   "id": "longniang",
+   "name": "龙娘（GPT）",
+   "aliases": [
+    "龙娘",
+    "GPT",
+    "Codex",
+    "gge",
+    "G哥"
+   ]
+  },
+  {
+   "id": "jingyu",
+   "name": "鲸鱼娘（DeepSeek）",
+   "aliases": [
+    "鲸鱼娘",
+    "DeepSeek",
+    "deep",
+    "鲸鱼",
+    "大肥鱼",
+    "肥鱼"
+   ]
+  },
+  {
+   "id": "caihongmao",
+   "name": "彩虹猫（Gemini）",
+   "aliases": [
+    "彩虹猫",
+    "Gemini",
+    "gjiang"
+   ]
+  },
+  {
+   "id": "grok",
+   "name": "grok娘（Grok）",
+   "aliases": [
+    "grok娘",
+    "Grok",
+    "xAI"
+   ]
+  },
+  {
+   "id": "cursor",
+   "name": "Cursor 娘（Cursor）",
+   "aliases": [
+    "Cursor",
+    "Cursor娘"
+   ]
+  }
+ ],
+ "recommended": [
+  {
+   "id": "dsh-pet-whale",
+   "name": "鲸鱼女仆（dsh-pet）",
+   "author": "PC2005-cloud",
+   "license": "MIT",
+   "homepage": "https://github.com/PC2005-cloud/dsh-pet",
+   "manifest": "assets/roles/recommended/dsh-pet-whale.json"
+  }
+ ]
+}

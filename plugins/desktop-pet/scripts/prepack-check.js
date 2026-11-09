@@ -93,8 +93,9 @@ for (const f of required) {
 }
 
 // 待机动画是播放链的起点，缺了宠物立不起来；浏览器与桌面 Helper 共用这一份 webm。
-const idleWebm = join(ROOT, 'assets', 'webm', '待机呼吸休闲.webm');
-existsSync(idleWebm) ? ok('idle webm present') : fail('missing 待机呼吸休闲.webm thumb');
+// bothouse fork：待机动画在默认形象目录里（assets/roles/<default>/idle.webm）。
+const idleWebm = join(ROOT, 'assets', 'roles', 'maomao', 'idle.webm');
+existsSync(idleWebm) ? ok('idle webm present') : fail('missing default skin idle.webm');
 
 // 原始母版（1200×1200）体积超限，应放 GitHub Releases，不进 npm 包。
 // assets/ 根下若有 .webm 就是原始母版，播放素材在 assets/webm|mov 子目录。
@@ -123,32 +124,17 @@ else fail('package.json missing dsh.bundle.patch');
 if (pkg.dsh?.client?.platform === 'web') ok('dsh.client.web declared');
 else fail('package.json missing dsh.client platform web');
 
-// 配图功能只读包内 assets/memes，漏发即整体失效。
-// scripts/prepare.js 每次发布都用硬编码白名单覆盖 package.json 的 files，
-// 只在 package.json 里加一行是无效的，故这里显式断言，防止再次静默漏发。
-const memesDir = join(ROOT, 'assets', 'memes');
-if (Array.isArray(pkg.files) && pkg.files.includes('assets/memes')) ok('files includes assets/memes');
-else fail('package.json files must include assets/memes (meme images would not ship)');
-const memePngs = existsSync(memesDir) ? readdirSync(memesDir).filter((n) => n.endsWith('.png')) : [];
-if (memePngs.length > 0) ok(`meme images present (${memePngs.length} png)`);
-else fail('no png in assets/memes (whisper/chat 配图会整体失效)');
-// memes 键 ↔ 图片文件对齐：缺图条目会被 host 静默剔除（设计如此，不阻断发布），
-// 但数字对不上值得发布前看一眼，故只提示
+// bothouse fork：动画和表情图都在形象目录 assets/roles/<id>/（见 src/host/skins.ts），漏发桌宠就是空的。
+// 上游的 assets/webm、assets/memes 不随包（推荐形象，用户自装）。
+if (Array.isArray(pkg.files) && pkg.files.includes('assets/roles')) ok('files includes assets/roles');
+else fail('package.json files must include assets/roles (pet skins would not ship)');
 try {
-  const conf = JSON.parse(stripJsonc(readFileSync(join(ROOT, 'assets', 'config.jsonc'), 'utf8')));
-  const keys = Object.keys(conf.memes ?? {});
-  const onDisk = new Set(memePngs.map((n) => n.slice(0, -'.png'.length)));
-  const missing = keys.filter((k) => !onDisk.has(k));
-  const extra = [...onDisk].filter((k) => !keys.includes(k));
-  if (!missing.length && !extra.length) ok(`memes mapping aligned (${keys.length} keys = ${memePngs.length} png)`);
-  else
-    console.log(
-      `[prepack-check] note: memes 键与图片不齐 —— 缺图 ${missing.length} 条${
-        missing.length ? `（${missing.join('、')}）` : ''
-      }；没写进配置的图 ${extra.length} 张${extra.length ? `（${extra.join('、')}）` : ''}`,
-    );
+  const skins = JSON.parse(readFileSync(join(ROOT, 'assets', 'roles', 'skins.json'), 'utf8'));
+  const missing = skins.builtin.filter((s) => !existsSync(join(ROOT, 'assets', 'roles', s.id, 'idle.webm')));
+  if (missing.length === 0) ok(`builtin skins present (${skins.builtin.length})`);
+  else fail('skins missing idle.webm: ' + missing.map((s) => s.id).join(', '));
 } catch (e) {
-  console.log(`[prepack-check] note: 跳过 memes 键对齐核对（config.jsonc 解析失败：${e.message}）`);
+  fail('assets/roles/skins.json unreadable: ' + e.message);
 }
 
 // 角色参考图：/character 的包内兜底只读这张图，漏发则第三方拿不到任何官方参考图。

@@ -22,7 +22,18 @@
 | 重载配置 | 重启桌面窗口，按最新配置重建 | 不变：纯桌宠本地维护，跟 bothouse 无关 |
 | 睡觉、动作、显示位置、回到初始位置 | — | 不变 |
 
-外形：桌宠穿绑定角色的衣服。`bothouse pet run` 的本机接口 `/skin` 回第一个绑定角色（按 key 排序，去掉 `bridge:`），宿主 `/thumb` 先查包内 `assets/roles/<角色>/`：同名动画优先，拖拽类用 `drag.webm`，其余都用 `idle.webm`（`src/host/routes/assets.ts` 的 `bothouseSkinFile`）。现带龙娘、橘、彩虹猫、grok 娘四套（工作台像素小人按 12 倍最近邻放大的 1280×720 无损 VP9-alpha，头顶落在气泡之下），鲸鱼娘就是上游原素材。在 bothouse 下素材回 `no-cache`，换绑定后下一个动作就换装。
+形象（`src/host/skins.ts`，清单 `assets/roles/skins.json`）：
+
+- 内置形象随包：橘（Claude）、龙娘（GPT）、鲸鱼娘（DeepSeek）、彩虹猫（Gemini）、grok 娘（Grok）、Cursor 娘（Cursor），
+  在 `assets/roles/<id>/`。按各自官方设定板用生图接口出 2×4 姿势表（站、眨眼、说话、思考、敲电脑、开心、打盹、吓一跳），
+  抠图后做成 640×360 VP9-alpha 的 8 个状态动画（idle/talk/think/work/happy/sleep/drag/surprise.webm）和 `memes/` 表情图。
+  上游 114 段动画名按关键词归到这 8 个状态（`stateForAnimation`），同名文件优先。
+- 穿哪套：右键「换形象」里选过就用选的（存 `<用户根>/bothouse-skin.json`）；没选 = 跟绑定的角色走（`bothouse pet run` 的 `/skin`，
+  按清单 aliases 认工作台成员名）；都没有用 default（橘）。表情包池和「配图」菜单跟着形象的 `memes/` 走。
+- 推荐形象：别人家的开源形象不进包。清单 recommended 只列名字和下载清单（如 `assets/roles/recommended/dsh-pet-whale.json`：
+  上游鲸鱼女仆的 114 段动画和 27 张表情图，固定提交 + sha256），右键「推荐形象」点了才下载到 `<用户根>/skins/<id>/`，装好后在「换形象」里可选。
+- 宿主接口：`GET /skins`、`POST /skins/select {id}`、`POST /skins/install {id}`（`src/host/routes/skins.ts`）。素材一律回 `no-cache`，换形象即时生效。
+- 包内 logo、`main-character.png`、通知图标也换成了自家形象。
 
 待办只读：宿主 `GET /todos` 带 `readOnly: true`，面板藏掉添加框、勾选、删除和提醒提示。
 
@@ -30,20 +41,19 @@
 工作状态只由 bothouse 的角色事件驱动：`bothouse pet run` 读 `/api/v1/roles/events` 和插件页的角色绑定，经桌宠的
 `/work-status`、`/broadcast` 推进来（`bridge/cmd/cc-connect/pet.go`）。
 
-改动点都带「bothouse fork」注释：`grep -rn 'bothouse fork' src runtime`。新增文件：`src/host/bothouse.ts`、`assets/roles/`、
-`scripts/bothouse-fetch-assets.mjs`、`bothouse-assets.json`、本文件。`package.json` 改了包名（bothouse-pet）、bin 名、
+改动点都带「bothouse fork」注释：`grep -rn 'bothouse fork' src runtime`。新增文件：`src/host/bothouse.ts`、`src/host/skins.ts`、`src/host/routes/skins.ts`、`assets/roles/`、本文件。`package.json` 改了包名（bothouse-pet）、bin 名、
 仓库地址，peerDependencies 全标可选（独立模式用 shims 替身，不装 DSH）。
 
 ## 素材
 
-`assets/webm`（114 个动画，55MB）不进 bothouse 仓库。出包时 `node scripts/bothouse-fetch-assets.mjs` 按
-`bothouse-assets.json` 从上游基线提交下载并校验 sha256。`assets/preview`（README 用的 GIF）不要。
+上游的 `assets/webm`（114 段动画）和 `assets/memes`（表情图）是上游作者的形象，不进 bothouse 仓库也不进包，只作为推荐形象供用户自装。
+`assets/preview`（README 用的 GIF）不要。
 
 ## 出包和安装
 
-发版时 release.yml 的 `desktop-pet` 作业：`pnpm install` → 下素材 → `tsdown` → `build-desktop-core`（生成 `runtime/electron-helper/shared-core.js`，不进 git，漏了桌宠窗口是空的） → `npm pack`，把
+发版时 release.yml 的 `desktop-pet` 作业：`pnpm install` → `tsdown` → `build-desktop-core`（生成 `runtime/electron-helper/shared-core.js`，不进 git，漏了桌宠窗口是空的） → `npm pack`，把
 `bothouse-pet.tgz` 挂到发布页。`bothouse pet start` 用 npm 装本版本的这个包（开发版装最新发布的）；
-本地调试设 `BOTHOUSE_PET_DIR=<本目录>`（先 `npx pnpm@10 install && node scripts/bothouse-fetch-assets.mjs && npx tsdown && node scripts/build-desktop-core.mjs`）。
+本地调试设 `BOTHOUSE_PET_DIR=<本目录>`（先 `npx pnpm@10 install && npx tsdown && node scripts/build-desktop-core.mjs`）。
 
 ## 跟上游拿更新
 
@@ -51,5 +61,5 @@
    `git -C /tmp/dsh-pet log --oneline c25386848f70f6e40902e4376f6e7b1e196bc326..main -- dsh-pet`。
 2. 出补丁打到本目录：`git -C /tmp/dsh-pet diff c25386848f70..main -- dsh-pet | git apply -p2 --directory=plugins/desktop-pet --3way`
    （在 bothouse 仓库根目录跑）。冲突只会出在带「bothouse fork」注释的地方，保留我们的改动。
-3. 上游改了 `assets/webm`：重算 `bothouse-assets.json`（新提交号 + 各文件 sha256）。
-4. 把本文件和 `bothouse-assets.json` 里的基线提交号改成新的。
+3. 上游改了 `assets/webm` 或 `assets/memes`：重算 `assets/roles/recommended/dsh-pet-whale.json`（新提交号 + 各文件 sha256），这两个目录本身不要打进来。
+4. 把本文件和 `dsh-pet-whale.json` 里的基线提交号改成新的。

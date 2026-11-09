@@ -63,12 +63,10 @@
   "files": [
     "lib",
     "src",
-    "assets/webm",
     "assets/roles",
     "runtime/electron-helper",
     "assets/fonts",
     "assets/pic",
-    "assets/memes",
     "assets/sound",
     "assets/config.jsonc",
     "assets/logo.png",
