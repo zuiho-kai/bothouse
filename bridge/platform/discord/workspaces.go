@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/bwmarrin/discordgo"
@@ -40,7 +41,7 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, channelID string) (cor
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
-	self, all, err := teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
+	self, all, err := p.teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
 	return self, all, workspaceErr(err)
 }
 
@@ -78,7 +79,7 @@ func (p *Platform) ShelveTeamWorkspaceChannel(ctx context.Context, workspaceID s
 	if err != nil {
 		return err
 	}
-	err = shelveWorkspaceChannel(api, workspaceID, discordgo.WithContext(ctx))
+	err = p.shelveWorkspaceChannel(api, workspaceID, discordgo.WithContext(ctx))
 	if err != nil && !errors.Is(err, errIdleCategoryPerm) {
 		err = p.missingPermissionErr(err, permManageChannels)
 	}
@@ -134,7 +135,7 @@ func workspaceErr(err error) error {
 	return err
 }
 
-func teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (core.TeamChannel, []core.TeamChannel, error) {
+func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (core.TeamChannel, []core.TeamChannel, error) {
 	ch, err := api.Channel(channelID, options...)
 	if err != nil {
 		return core.TeamChannel{}, nil, err
@@ -146,11 +147,27 @@ func teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
-	shelf := idleCategory(list)
-	shelved := func(c *discordgo.Channel) bool { return shelf != "" && c.ParentID == shelf }
+	owned, err := p.workspaceShelfStore().guild(ch.GuildID)
+	if err != nil {
+		// Ownership is unproven: keep active channels usable, exclude idle strangers.
+		slog.Warn("discord: ignoring unverified workspace shelf ownership", "error", err)
+		owned = workspaceShelfGuild{}
+	}
+	idle := map[string]bool{}
+	for _, c := range list {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildCategory && (c.Name == idleCategoryName || c.ID == owned.Category) {
+			idle[c.ID] = true
+		}
+	}
+	shelved := func(c *discordgo.Channel) bool { return owned.Channels[c.ID] && idle[c.ParentID] }
 	var all []core.TeamChannel
 	for _, c := range list {
 		if c != nil && c.Type == discordgo.ChannelTypeGuildText {
+			// Exclude strangers entirely: merely clearing Shelved would let their
+			// workspace names vote this category into core's active pool home.
+			if idle[c.ParentID] && !owned.Channels[c.ID] {
+				continue
+			}
 			all = append(all, core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved(c)})
 		}
 	}
@@ -158,9 +175,15 @@ func teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.
 }
 
 // idleCategory returns the ID of the guild's idle category ("" when it has none).
-func idleCategory(list []*discordgo.Channel) string {
+func idleCategory(list []*discordgo.Channel, remembered string) string {
+	for _, c := range list {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildCategory && c.ID == remembered {
+			return c.ID
+		}
+	}
 	for _, c := range list {
 		if c != nil && c.Type == discordgo.ChannelTypeGuildCategory && c.Name == idleCategoryName {
+			slog.Warn("discord: workspace shelf destination selected by name; channel ownership still requires a record", "category", c.ID)
 			return c.ID
 		}
 	}
@@ -168,7 +191,7 @@ func idleCategory(list []*discordgo.Channel) string {
 }
 
 // shelveWorkspaceChannel moves workspaceID into the idle category (see idleCategoryName).
-func shelveWorkspaceChannel(api workspaceAPI, workspaceID string, options ...discordgo.RequestOption) error {
+func (p *Platform) shelveWorkspaceChannel(api workspaceAPI, workspaceID string, options ...discordgo.RequestOption) error {
 	ch, err := api.Channel(workspaceID, options...)
 	if err != nil {
 		return err
@@ -180,7 +203,12 @@ func shelveWorkspaceChannel(api workspaceAPI, workspaceID string, options ...dis
 	if err != nil {
 		return err
 	}
-	id := idleCategory(list)
+	store := p.workspaceShelfStore()
+	owned, err := store.guild(ch.GuildID)
+	if err != nil {
+		return err
+	}
+	id := idleCategory(list, owned.Category)
 	if id == "" {
 		c, err := api.GuildChannelCreateComplex(ch.GuildID, discordgo.GuildChannelCreateData{
 			Name: idleCategoryName, Type: discordgo.ChannelTypeGuildCategory,
@@ -194,6 +222,9 @@ func shelveWorkspaceChannel(api workspaceAPI, workspaceID string, options ...dis
 			return err
 		}
 		id = c.ID
+	}
+	if err := store.remember(ch.GuildID, id, workspaceID); err != nil {
+		return err
 	}
 	if ch.ParentID == id {
 		return nil // already idle
