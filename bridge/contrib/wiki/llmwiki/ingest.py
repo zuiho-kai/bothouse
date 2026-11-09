@@ -2563,16 +2563,55 @@ def user_quotes(line):
     return out
 
 
+def page_additions(base):
+    """Added lines and their structural status, using their actual file and line position."""
+    files = git("diff", "--name-only", "--no-renames", "-z", base, "--", "*.md", ":!log.md").split("\0")
+    for f in filter(None, files):
+        path = WIKI / f
+        if not path.is_file():
+            continue
+        text = path.read_text()
+        front = re.match(r"---\n.*?\n---(?:\n|$)", text, re.S)
+        metadata = len(front.group().splitlines()) if front else 0
+        index = path.name == "README.md" or f == "MEMORY.md"
+        structural, fence = set(), None
+        for n, line in enumerate(text.splitlines()):
+            if n < metadata:
+                structural.add(n)
+                continue
+            mark = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+            if fence:
+                if mark and mark[1][0] == fence[0] and len(mark[1]) >= len(fence) and not mark[2].strip():
+                    fence = None
+                    structural.add(n)
+            elif mark:
+                fence = mark[1]
+                structural.add(n)
+            elif (re.match(r" {0,3}#{1,6}(?:[ \t]+|$)", line)
+                  or re.fullmatch(r" {0,3}(?:-[ \t]*){3,}", line)
+                  or index and re.fullmatch(r" {0,3}[-*+] +\[[^\]]+\]\([^()]+\.md\)[ \t]*", line)):
+                structural.add(n)
+        at = None
+        for line in git("diff", "--no-renames", "--unified=0", base, "--", f).splitlines():
+            hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+            if hunk:
+                at = int(hunk[1]) - 1
+            elif at is not None and line.startswith(("+", " ")):
+                if line.startswith("+"):
+                    yield line[1:], at in structural
+                at += 1
+
+
 def page_misquotes(sessions, base="HEAD"):
     """Quotes the pass's new page lines give to the user that none of `sessions` (transcript paths; plus any session
     a line names by sid8) has on a USER/USER→ line, and new facts no such quote backs. A line already in the wiki
     at `base` is not new (a move)."""
     git("add", "-AN")
-    diff = git("diff", "--unified=0", base, "--", "*.md", ":!log.md")
+    added = list(page_additions(base))
     git("reset", "-q")
-    added = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
     old = lambda: wiki_text(base)
-    bad, claims = bad_quotes(added, old, sessions), claim_msgs(added, old, sessions)
+    bad = bad_quotes([line for line, _ in added], old, sessions)
+    claims = claim_msgs([line for line, structural in added if not structural], old, sessions)
     return "\n".join(e for e in (
         ("quotes given to the user (用户说/答/定「…」, 「…」（用户原话）) that no USER line of these sessions has: "
          + "; ".join(bad) + " — quote the user's words exactly, name who really said it, or drop the quote") if bad else "",
@@ -2633,13 +2672,13 @@ def bad_quotes(added, old_text, sessions):
 
 
 def claim_msgs(added, old_text, sessions):
-    """page_misquotes on given lines: every new fact line needs one of its quotes
+    """page_misquotes on body lines (file structure already excluded): every new fact line needs one of its quotes
     to be the user's (quote_ok). A line already on the wiki at `old_text()` is a move; a pointer line (PTR) leaves the
     words to the page it names, checked when that page is written."""
     old = flat(old_text())
     bad, said, every = [], None, None
     for l in added:
-        if not l.strip() or NOT_FACT.match(l) or PTR.fullmatch(l) or flat(l) in old:
+        if not l.strip() or PTR.fullmatch(l) or flat(l) in old:
             continue
         quotes = quotes_on(l)
         if not quotes:

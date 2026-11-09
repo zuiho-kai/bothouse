@@ -570,6 +570,48 @@ class Quotes(Fake):
         self.assertTrue(I.quote_ok("c 小心！", I.heard(["c小心"])))
         self.assertTrue(I.quote_ok("头像…两个", I.heard(["头像限额改成两个"])))
 
+    def test_body_key_value_requires_quote(self):
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2")])
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        for body in ("限额: 2", "limit: 2", "---\n限额: 2\n---"):
+            with self.subTest(body=body):
+                self.page("tooling/a.md", body)
+                self.assertIn("没有引文", I.page_checks("ingest aaaaaaaa", [s]))
+        self.page("tooling/a.md", "限额: 2，依据：「头像限额改成 2」。")
+        self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+
+    def test_index_link_with_fact_requires_quote(self):
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2")])
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        for path in ("tooling/a.md", "tooling/README.md", "MEMORY.md"):
+            with self.subTest(path=path):
+                p = self.w / path
+                before = p.read_text() if p.exists() else ""
+                p.write_text(before + "\n- [配置](config.md)：头像限额已改为2。\n")
+                self.assertIn("没有引文", I.page_checks("ingest aaaaaaaa", [s]))
+                p.write_text(before + "\n- [配置](config.md)：头像限额已改为2，依据：「头像限额改成 2」。\n")
+                self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+                p.write_text(before)
+
+    def test_structural_exemptions_use_file_context(self):
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        self.page("tooling/a.md", "# 配置\n## 限额\n- 旧行")
+        p = self.w / "tooling/a.md"
+        p.write_text(p.read_text().replace("description: d", "description: 配置索引"))
+        (self.w / "tooling/README.md").write_text("# 目录\n- [配置](a.md)\n")
+        with (self.w / "MEMORY.md").open("a") as f:
+            f.write("- [配置](tooling/a.md)\n")
+        self.assertEqual(I.page_checks("ingest", []), "")
+        for body in ("#限额改为2", "- [配置](config.md)", "```markdown\n# 限额改为2\n```"):
+            with self.subTest(body=body):
+                self.page("tooling/a.md", body)
+                self.assertIn("没有引文", I.page_checks("ingest", []))
+
     def test_lost_lines(self):
         gone = I.lost_lines(["- 正式包是 PyInstaller + `pywebview`（0.2.8.beta1）", "- 端口 8080 改了", "- 全是中文"],
                             "页面写着 PyInstaller")
