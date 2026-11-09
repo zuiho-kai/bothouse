@@ -64,7 +64,8 @@ export async function handleTodoRoutes(deps: PetRouteDeps, input: RouteInput): P
 
   try {
     if (rest === 'todos') {
-      if (method === 'GET') return okResult({ ok: true, todos: await todos.list() });
+      // bothouse fork：任务板只读时告诉面板，面板藏掉添加框、勾选和删除。
+      if (method === 'GET') return okResult({ ok: true, todos: await todos.list(), ...((todos as { readOnly?: boolean }).readOnly ? { readOnly: true } : {}) });
       if (method !== 'POST') return methodNotAllowed();
       if (Buffer.byteLength(body ?? '', 'utf8') > TODO_BODY_MAX_BYTES) return payloadTooLarge();
       const raw = parseObjectBody(body);

@@ -63,6 +63,12 @@ export function createTodoPanel(options: TodoPanelOptions = {}): TodoPanel {
     todos = result.value;
     setTodoError(parts, null);
     renderTodoList(parts, todos, handlers, Date.now());
+    // bothouse fork：只读清单（bothouse 任务板）藏掉添加框、勾选、删除和提醒提示，空态换成只读文案。
+    if (result.readOnly) {
+      parts.root.classList.add('is-readonly');
+      parts.form.hidden = true;
+      parts.empty.textContent = '任务板上没有没收口的活';
+    }
   }
 
   /** 串行执行一次修改：请求在途时禁止再次提交，成功后统一重拉。 */

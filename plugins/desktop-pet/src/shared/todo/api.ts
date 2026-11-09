@@ -48,10 +48,11 @@ function readTodo(body: OkBody): TodoResult<TodoItem> {
 }
 
 /** 读整张清单。 */
-export async function loadTodos(baseUrl = TODOS_PATH): Promise<TodoResult<TodoItem[]>> {
+export async function loadTodos(baseUrl = TODOS_PATH): Promise<TodoResult<TodoItem[]> & { readOnly?: boolean }> {
   const result = await send(baseUrl, 'GET');
   if (result.failed) return { ok: false, message: result.message };
-  return { ok: true, value: parseTodoList(result.body.todos) };
+  // bothouse fork：宿主标了 readOnly（待办来自 bothouse 任务板）时面板只展示。
+  return { ok: true, value: parseTodoList(result.body.todos), readOnly: result.body.readOnly === true };
 }
 
 /** 新建一条；`dueAt` 为 null 表示没有期限。 */

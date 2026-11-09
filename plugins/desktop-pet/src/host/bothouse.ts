@@ -27,10 +27,14 @@ export interface BothouseBackend {
   balance(): Promise<BalanceResult>;
   /** 待办：任务板上没收口的活，只读。 */
   todos: BoardTodos;
+  /** 外形：当前绑定桌宠的角色 key（没有绑定或取不到时 undefined），2 秒内缓存。 */
+  skinRole(): Promise<string | undefined>;
 }
 
 /** 与 TodoStore 同形（路由与提醒循环只用这几个方法）；写操作一律拒绝：任务板在 bothouse 里改。 */
 export interface BoardTodos {
+  /** 恒为 true：面板据此藏掉写入口。 */
+  readonly readOnly: true;
   list(): Promise<TodoRecord[]>;
   create(input: { text: string; dueAt: number | null }): Promise<TodoRecord>;
   update(id: string, patch: unknown): Promise<TodoRecord | null>;
@@ -77,7 +81,18 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
   const readOnly = (): never => {
     throw new Error('待办来自 bothouse 任务板，请在任务板里改');
   };
+  let skin: { at: number; role: string | undefined } = { at: 0, role: undefined };
   return {
+    async skinRole() {
+      if (Date.now() - skin.at < 2_000) return skin.role;
+      try {
+        const data = (await call('GET', '/skin', undefined, 3_000)) as { role?: unknown };
+        skin = { at: Date.now(), role: typeof data.role === 'string' && data.role ? data.role : undefined };
+      } catch {
+        skin = { at: Date.now(), role: skin.role };
+      }
+      return skin.role;
+    },
     // 角色跑一轮可能要几分钟：比默认超时宽得多，超时由 bothouse 那边先回。
     chat: (text) => say('/chat', { text }, 6 * 60_000),
     whisper: () => say('/whisper'),
@@ -106,6 +121,7 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
       }
     },
     todos: {
+      readOnly: true,
       async list() {
         const data = (await call('GET', '/todos')) as { items?: unknown };
         const items = Array.isArray(data.items) ? (data.items as Record<string, unknown>[]) : [];

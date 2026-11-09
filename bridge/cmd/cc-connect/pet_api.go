@@ -111,6 +111,7 @@ func (a *petAPI) handler() http.Handler {
 	mux.HandleFunc("/whisper", a.handleWhisper)
 	mux.HandleFunc("/balance", a.handleBalance)
 	mux.HandleFunc("/todos", a.handleTodos)
+	mux.HandleFunc("/skin", a.handleSkin)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+a.secret {
 			petAPIFail(w, http.StatusUnauthorized, "unauthorized")
@@ -348,4 +349,21 @@ func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
 		items = append(items, map[string]any{"id": it.ID, "text": text})
 	}
 	petAPIJSON(w, map[string]any{"items": items})
+}
+
+// handleSkin tells the pet whose look to wear: the first bound role (by key, same order as chatTarget).
+// The pet maps it to its bundled assets/roles/<role>/; a role without assets keeps the upstream look.
+func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
+	a.relay.mu.Lock()
+	keys := make([]string, 0, len(a.relay.bound))
+	for k := range a.relay.bound {
+		keys = append(keys, k)
+	}
+	a.relay.mu.Unlock()
+	sort.Strings(keys)
+	role := ""
+	if len(keys) > 0 {
+		role = keys[0]
+	}
+	petAPIJSON(w, map[string]any{"role": role})
 }

@@ -64,6 +64,7 @@
     "lib",
     "src",
     "assets/webm",
+    "assets/roles",
     "runtime/electron-helper",
     "assets/fonts",
     "assets/pic",
