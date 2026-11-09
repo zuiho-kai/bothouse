@@ -732,13 +732,15 @@ func (r *petRelay) apply() {
 func (r *petRelay) send(pet, state, task string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	sent := r.sent[pet]
-	if state == sent && state != "success" && state != "error" {
+	// A pet with no entry has not been sent anything yet (start, or after resend): its slot may still hold
+	// another role's state, so even idle is sent. "" means idle was sent.
+	sent, ok := r.sent[pet]
+	if ok && state == sent && state != "success" && state != "error" {
 		return
 	}
 	// success / error are one-offs: the pet plays them once and drops the bubble by itself
 	// (README「工作状态联动」), so going idle after them must not cut them off.
-	if state == "" && (sent == "success" || sent == "error") {
+	if ok && state == "" && (sent == "success" || sent == "error") {
 		return
 	}
 	r.sent[pet] = state
@@ -767,12 +769,28 @@ func (r *petRelay) emit(pet, state, task string) {
 	}
 }
 
-// resend forgets what was sent, so the next apply repeats every pet's state (after the pets were rebuilt).
+// resend forgets what was sent and repeats every pet's state (after the bindings changed or the pets were
+// rebuilt). The host keeps each pet's work-status slot across a rebuild, so a pet that took over another
+// role starts from a clear, and a pet whose role went away (down to none bound) is cleared too.
 func (r *petRelay) resend() {
 	r.mu.Lock()
+	before := r.sent
 	r.sent = map[string]string{}
 	r.mu.Unlock()
 	r.apply()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var gone []string
+	for pet := range before {
+		if _, ok := r.sent[pet]; !ok {
+			gone = append(gone, pet)
+		}
+	}
+	sort.Strings(gone)
+	for _, pet := range gone {
+		r.sent[pet] = ""
+		r.emit(pet, "", "")
+	}
 }
 
 func (r *petRelay) say(role, text string) {

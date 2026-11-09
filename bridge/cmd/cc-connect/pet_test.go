@@ -44,7 +44,7 @@ func TestPetRelayFollowsOnlyBoundRoles(t *testing.T) {
 		"",
 	}, "\n")
 	_ = r.readSSE(strings.NewReader(sse))
-	want := []string{"main|thinking|橘", "main|working|橘", "main|speech|做完了", "main|success|橘", "main|error|橘"}
+	want := []string{"main||橘", "main|thinking|橘", "main|working|橘", "main|speech|做完了", "main|success|橘", "main|error|橘"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
@@ -75,7 +75,7 @@ func TestPetRelayOnePetPerRole(t *testing.T) {
 		"",
 	}, "\n")
 	_ = r.readSSE(strings.NewReader(sse))
-	want := []string{"bh-bridge-deep|working|肥鱼", "main|thinking|C酱", "main|speech|好了"}
+	want := []string{"bh-bridge-deep|working|肥鱼", "main||", "main|thinking|C酱", "main|speech|好了"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
@@ -88,6 +88,53 @@ func TestPetRelayOnePetPerRole(t *testing.T) {
 	}
 	if _, _, _, err := a.chatTarget("bh-bridge-deep"); err == nil {
 		t.Fatalf("肥鱼 has no session yet, chat must not go to C酱")
+	}
+}
+
+// petRebind points the relay at new bindings the way petLayout.once does, then resends.
+func petRebind(r *petRelay, bound map[string]string) {
+	r.bound = bound
+	roles := []string{}
+	for role := range bound {
+		roles = append(roles, role)
+	}
+	r.assign = map[string]petAssign{}
+	for _, a := range petPlan(roles) {
+		r.assign[a.Role] = a
+	}
+	r.resend()
+}
+
+// #566 R1: an idle role taking over a pet clears what the previous role left in that pet's slot.
+func TestPetRelayRebindToIdleRoleClearsPet(t *testing.T) {
+	var got []string
+	r := newPetRelay(nil)
+	r.logf = func(string, ...any) {}
+	r.out = func(pet, kind, text string) { got = append(got, pet+"|"+kind+"|"+text) }
+	r.status = map[string]string{"bridge:cj": "working", "bridge:deep": "idle"}
+	r.names = map[string]string{"bridge:cj": "C酱", "bridge:deep": "肥鱼"}
+	petRebind(r, map[string]string{"bridge:cj": ""})
+	got = nil
+	petRebind(r, map[string]string{"bridge:deep": ""})
+	want := []string{"main||肥鱼"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v\nwant %v", got, want)
+	}
+}
+
+// #566 R1: unbinding every role clears every pet that was driven.
+func TestPetRelayUnbindAllClearsPets(t *testing.T) {
+	var got []string
+	r := newPetRelay(nil)
+	r.logf = func(string, ...any) {}
+	r.out = func(pet, kind, text string) { got = append(got, pet+"|"+kind+"|"+text) }
+	r.status = map[string]string{"bridge:cj": "working", "bridge:deep": "thinking"}
+	petRebind(r, map[string]string{"bridge:cj": "", "bridge:deep": ""})
+	got = nil
+	petRebind(r, map[string]string{})
+	want := []string{"bh-bridge-deep||", "main||"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v\nwant %v", got, want)
 	}
 }
 
