@@ -396,10 +396,43 @@ func petPlan(roles []string, packs map[string]string) []petAssign {
 	return out
 }
 
+// petDefaultSize is a new extra pet's size; the user turns it per pet with right-click 大小.
+const petDefaultSize = 260 // 用户 22:59「默认尺寸调小（参照线上旧桌宠 260）」
+
+// petKept is what the user changed on an extra pet (size, position) and a rewrite must keep.
+type petKept struct {
+	Size     int            `json:"size"`
+	Position map[string]any `json:"position"`
+}
+
+// readPetKept reads size/position of bothouse's existing kind files (pet id → values).
+func readPetKept(p petLayoutPaths) map[string]petKept {
+	out := map[string]petKept{}
+	entries, _ := os.ReadDir(p.petDir)
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasPrefix(n, petKindPrefix) || !strings.HasSuffix(n, "-config.json") {
+			continue
+		}
+		var conf struct {
+			Pets []struct {
+				ID string `json:"id"`
+				petKept
+			} `json:"pets"`
+		}
+		if readJSONC(filepath.Join(p.petDir, n), &conf) == nil {
+			for _, pet := range conf.Pets {
+				out[pet.ID] = pet.petKept
+			}
+		}
+	}
+	return out
+}
+
 // petKindFiles renders one kind file per extra pet: the stock animation table (the skin maps every name to
-// its clips) and one instance. They line up beside the main pet, half a pet apart (the characters fill
-// about the middle half of their 640×360 frames), so they do not cover each other.
-func petKindFiles(plan []petAssign, look petMainLook, anims map[string]any, weights map[string]any) map[string][]byte {
+// its clips) and one instance, 260 wide unless the user resized it. New ones line up beside the main pet,
+// half a pet apart (the characters fill about the middle half of their 640×360 frames).
+func petKindFiles(plan []petAssign, look petMainLook, kept map[string]petKept, anims map[string]any, weights map[string]any) map[string][]byte {
 	files := map[string][]byte{}
 	slot := 0
 	for _, a := range plan {
@@ -407,14 +440,26 @@ func petKindFiles(plan []petAssign, look petMainLook, anims map[string]any, weig
 			continue
 		}
 		slot++
+		size := petDefaultSize // 用户 22:59「默认尺寸调小（参照线上旧桌宠 260）」
+		position := map[string]any{"corner": look.Corner, "marginX": look.MarginX + slot*size/2, "marginY": look.MarginY}
+		// The user may have resized or moved this pet (right-click 大小 → /pet-size writes this same file):
+		// keep that, only the rest of the file is bothouse's.
+		if keep, ok := kept[a.Pet]; ok {
+			if keep.Size > 0 {
+				size = keep.Size
+			}
+			if keep.Position != nil {
+				position = keep.Position
+			}
+		}
 		conf := map[string]any{
 			"_comment": "bothouse 生成（bothouse pet run，一个角色一只桌宠）；这只穿角色自己的形象，手改会被覆盖。",
 			"pets": []any{map[string]any{
 				// name is the role key without "bridge:": stable, so display names never rewrite the file.
-				"id": a.Pet, "name": strings.TrimPrefix(a.Role, "bridge:"), "size": look.Size,
+				"id": a.Pet, "name": strings.TrimPrefix(a.Role, "bridge:"), "size": size,
 				"balanceEnabled": false, "whisperEnabled": true, "workStatusEnabled": true, "fixedEnabled": false,
 				"display":  "desktop",
-				"position": map[string]any{"corner": look.Corner, "marginX": look.MarginX + slot*look.Size/2, "marginY": look.MarginY},
+				"position": position,
 			}},
 			"animations":       anims,
 			"animationWeights": weights,
@@ -568,7 +613,7 @@ func (l *petLayout) once(live bool) {
 			plan[i].Pet = "main"
 		}
 	}
-	changed, err := petWriteKinds(l.paths, petKindFiles(plan, readPetMainLook(l.paths), conf.Animations, conf.AnimationWeights))
+	changed, err := petWriteKinds(l.paths, petKindFiles(plan, readPetMainLook(l.paths), readPetKept(l.paths), conf.Animations, conf.AnimationWeights))
 	if err != nil {
 		r.logf("write pet kinds: %v", err)
 	}

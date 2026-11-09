@@ -106,10 +106,14 @@ func TestPetPlanAndKindFiles(t *testing.T) {
 	if want := "bridge:cjiang=main/,bridge:deep=bh-bridge-deep/mine,bridge:gge=bh-bridge-gge/"; strings.Join(got, ",") != want {
 		t.Fatalf("got %s\nwant %s", strings.Join(got, ","), want)
 	}
-	files := petKindFiles(plan, petMainLook{Size: 260, Corner: "top-right", MarginX: 24, MarginY: 100}, map[string]any{"idle": []string{"x"}}, map[string]any{})
-	if len(files) != 2 || !strings.Contains(string(files["bh-bridge-gge-config.json"]), `"marginX": 284`) ||
-		!strings.Contains(string(files["bh-bridge-deep-config.json"]), `"id": "bh-bridge-deep"`) {
-		t.Fatalf("kind files / stagger: %v", files)
+	look := petMainLook{Size: 462, Corner: "top-right", MarginX: 24, MarginY: 100}
+	kept := map[string]petKept{"bh-bridge-gge": {Size: 360}}
+	files := petKindFiles(plan, look, kept, map[string]any{"idle": []string{"x"}}, map[string]any{})
+	deep, gge := string(files["bh-bridge-deep-config.json"]), string(files["bh-bridge-gge-config.json"])
+	// New pets are 260 (not main's 462) and staggered; a size the user picked survives the rewrite.
+	if len(files) != 2 || !strings.Contains(deep, `"size": 260`) || !strings.Contains(deep, `"marginX": 154`) ||
+		!strings.Contains(gge, `"size": 360`) || !strings.Contains(gge, `"marginX": 284`) {
+		t.Fatalf("kind files / size / stagger:\n%s\n%s", deep, gge)
 	}
 }
 
