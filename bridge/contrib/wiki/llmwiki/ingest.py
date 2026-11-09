@@ -18,7 +18,7 @@
 Progress is a byte offset per session (ingested, reviewed), so a resumed session only has its new tail done.
 Model passes edit a git worktree (.ingest-work), never the wiki's own working tree. Each pass is followed by
 acceptance checks (bin/lint.py and more); violations get one fix round, otherwise the worktree is reset and
-the batch retried on a later run (up to MAX_FAILS). Accepted commits are cherry-picked onto the wiki (one that
+the batch retried on a later run (MAX_FAILS triggers an alert, never a read offset). Accepted commits are cherry-picked onto the wiki (one that
 conflicts with commits made there meanwhile is merged by the model in the same pass, see merge_newer) and pushed.
 Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); the Mac's nightly review covers them.
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
@@ -235,7 +235,7 @@ IDLE_MIN = 30
 MAX_CHARS = 240_000  # per claude -p call; whole sessions are batched up to this, only oversized ones are split
 AGENT_PY = Path(os.environ.get("WIKI_AGENT_PYTHON", sys.executable)).expanduser()
 API_DAILY_USD = float(os.environ.get("WIKI_API_DAILY_USD", 0))
-MAX_FAILS = 6  # real failures (quota rejections don't count); runs are hourly, so ~6 h of failing
+MAX_FAILS = 6  # 来源：existing failure threshold; now alerts while retaining unread work, quota refusals don't count
 # Engine per pass: claude | agy (Antigravity CLI, Google login) | gemini (dead relay, kept) | codex (ChatGPT subscription).
 # Engines: haiku | sonnet | opus | claude (= WIKI_CLAUDE_MODEL) | codex (luna, ChatGPT subscription) | agy | gemini |
 # dsh (DeepSeek Harness, `dsh --profile headless`, the user's own DSH login/models; a machine with only DSH still runs
@@ -1994,7 +1994,9 @@ def run(a, engines=None):
             household_unreadable(f"ingest {p.stem}", e)
             continue
         it.update(id=p.stem, path=p, date=time.strftime("%Y-%m-%d", time.localtime(p.stat().st_mtime)))
-        if it["prompts"] == 0:  # nothing the user said: just mark it read
+        # Record-boundary slices may contain only an assistant/tool tail. Its
+        # source still needs acceptance; only a truly empty extraction is read.
+        if not it["text"].strip() and not it.get("_chunk"):
             db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
             continue
         items.append(it)
@@ -2393,7 +2395,7 @@ def ingest_batches(db, items, engines, pending=False):
         text = "".join(piece for _, piece in batch)
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
-        skipped = 0
+        retained = 0
         res, quota_hit, CRASHED = False, False, ""
         REJECT_REASONS.clear()
         cands = candidates_note(text)
@@ -2426,17 +2428,16 @@ def ingest_batches(db, items, engines, pending=False):
             for it in {it["id"]: it for it, _ in batch}.values():
                 n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
                 db.execute("insert or replace into fails values (?,?)", (it["id"], n))
-                if n >= MAX_FAILS and len(session_chunk(it)) <= MAX_CHARS:
-                    db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
-                    log(f"SKIPPED {it['id'][:8]} after {n} failed runs")
-                    skipped += 1
+                if n >= MAX_FAILS:
+                    log(f"RETAINED {it['id'][:8]} after {n} failed runs")
+                    retained += 1
         if crashed:  # once a day per error type (alert); the batch is a counted failure above, the run goes on
             alert(db, ["crash:" + crashed.split(":")[0]], f"wiki 自动整理脚本出错（{crashed[:200]}），{label} 记失败、"
                                                         f"已回滚，继续下一批。traceback 看 {LOG}（CRASHED 行）。")
-        if skipped:
+        if retained:
             why = f"最近的拒绝原因：{REJECT_REASONS[-1].splitlines()[0][:150]}。" if REJECT_REASONS else ""
-            alert(db, ["skipped"], f"wiki 自动整理放弃了 {skipped} 个会话（各连续失败 {MAX_FAILS} 次，不再重试）。{why}"
-                                 f"日志看 {LOG}（SKIPPED / REVERTED 行）。")
+            alert(db, ["retained"], f"wiki 自动整理保留了 {retained} 个待办（各连续失败至少 {MAX_FAILS} 次，未推进已读位置，下轮续办）。{why}"
+                                  f"日志看 {LOG}（RETAINED / REVERTED 行）。")
         if res or not quota_hit:  # a quota refusal says nothing about the reasons: streaks neither grow nor reset
             if res:  # a rejection the fix round repaired lost nothing: only batches that end up failing grow a streak
                 REJECT_REASONS.clear()

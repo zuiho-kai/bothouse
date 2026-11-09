@@ -20,6 +20,70 @@ import ingest as I
 
 
 class PendingRound(unittest.TestCase):
+    def test_mixed_record_tail_is_accepted_before_offset_advances(self):
+        path = ROOT / "mixed001.jsonl"
+        records = [
+            {"type": "user", "message": {"content": "request-marker"}},
+            {"type": "assistant", "message": {"content": "answer-marker " + "x" * 180}},
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "shell", "input": {"command": "tool-marker " + "y" * 180}}]}},
+        ]
+        path.write_text("".join(json.dumps(r) + "\n" for r in records))
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        args = argparse.Namespace(lint=False, nightly=False, pending=True, session=None)
+        accepted, rejected = [], []
+
+        def offset():
+            row = db.execute("SELECT offset FROM ingested").fetchone()
+            return row[0] if row else 0
+
+        def accept(_label, _prompt, **kw):
+            if "answer-marker" in kw["context"] and not rejected:
+                rejected.append(True)
+                return False
+            accepted.append(kw["context"])
+            return True
+
+        with patch.multiple(I, MAX_CHARS=300, WIKI=ROOT, WORK=ROOT, QUEUE=ROOT / "mixed-queue", LAST_ENGINE="fake"), \
+                patch.object(I, "state", return_value=db), \
+                patch.object(I, "ready", side_effect=lambda *_: [path] if offset() < path.stat().st_size else []), \
+                patch.object(I, "split_pass"), patch.object(I, "candidates_note", return_value=""), \
+                patch.object(I, "model_pass", accept), patch.object(I, "reject_streaks"), patch.object(I, "log"):
+            while offset() < path.stat().st_size:
+                before, failed = offset(), len(rejected)
+                I.run(args, engines=["fake"])
+                if len(rejected) > failed:
+                    self.assertEqual(offset(), before)
+            self.assertTrue(rejected, "assistant tail must reach acceptance rather than being marked read")
+            for marker in ("request-marker", "answer-marker", "tool-marker"):
+                self.assertEqual("".join(accepted).count(marker), 1, marker)
+
+    def test_failure_limit_retains_unaccepted_work_in_all_ingest_modes(self):
+        for pending in (True, False):
+            with self.subTest(pending=pending):
+                db = sqlite3.connect(":memory:")
+                db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                                 "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                                 "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                                 "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+                item = dict(id="retry001", end=1, path=ROOT / "retry.jsonl", title="t",
+                            cwd="/test", date="2026-11-10", text="USER: keep this")
+                with patch.multiple(I, MAX_FAILS=1, LAST_ENGINE="fake"), \
+                        patch.object(I, "candidates_note", return_value=""), patch.object(I, "alert"), \
+                        patch.object(I, "reject_streaks"), patch.object(I, "log"), \
+                        patch.object(I, "model_pass", return_value=False):
+                    I.ingest_batches(db, [item], ["fake"], pending=pending)
+                    self.assertFalse(db.execute("SELECT * FROM ingested").fetchall())
+                    self.assertEqual(db.execute("SELECT n FROM fails").fetchone(), (1,))
+                    with patch.object(I, "model_pass", return_value=True):
+                        I.ingest_batches(db, [item], ["fake"], pending=pending)
+                    self.assertEqual(db.execute("SELECT offset FROM ingested").fetchone(), (1,))
+                    self.assertFalse(db.execute("SELECT * FROM fails").fetchall())
+
     def test_main_releases_lock_and_leaves_new_hooks_for_next_round(self):
         root = Path(tempfile.mkdtemp(prefix="pending-entry-", dir=ROOT))
         queue, lock = root / "queue", root / "ingest.lock"
