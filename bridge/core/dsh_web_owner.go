@@ -214,6 +214,10 @@ func dshWebPIDOwnedPortCtx(ctx context.Context, pid int, port string) (bool, str
 	}
 	p, ok := dshWebProcessOf(ctx, pid)
 	if !ok {
+		if err := ctx.Err(); err != nil {
+			return false, fmt.Sprintf("the round ended before pid %d could be read (%s); it was left alone",
+				pid, err)
+		}
 		return false, fmt.Sprintf("the command line of pid %d cannot be read", pid)
 	}
 	if !p.isDSHHost() {
