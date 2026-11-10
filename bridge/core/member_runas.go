@@ -148,9 +148,11 @@ func memberGet(ctx context.Context, runAs, dir, cwd, name, dst string) (string, 
 	if dst == "" {
 		dst = name
 	}
-	cmd := memberSpawn(ctx, runAs, cwd, os.Environ(), "/bin/sh", "-c", `cat > "$1"`, "sh", dst)
+	// tee, not `sh -c 'cat > "$1"'`: under sudo -i the target's login shell expands `$` in the argv
+	// before the command runs, so a positional parameter arrives empty (found in the Linux e2e run).
+	cmd := memberSpawn(ctx, runAs, cwd, os.Environ(), "tee", "--", dst)
 	var errOut bytes.Buffer
-	cmd.Stdin, cmd.Stderr = f, &errOut
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = f, io.Discard, &errOut
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("写不了 %s：%s", dst, strings.TrimSpace(nonEmpty(errOut.String(), err.Error())))
 	}
