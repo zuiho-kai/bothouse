@@ -31,6 +31,8 @@ class ForwardRecipientTest(unittest.TestCase):
             cc_bin=lambda: "bothouse",
             team=lambda: {"subs": {"deep": {"name": "肥鱼"}}},
             name_of=lambda p: {"deep": "肥鱼"}.get(p, p),
+            project_of=lambda w: {"deep": "deep", "肥鱼": "deep", "cjiang": "cjiang", "C酱": "cjiang",
+                                  "gge": "gge", "G哥": "gge"}.get(w),
             LAST=types.SimpleNamespace(is_file=lambda: True, read_text=lambda **kw: json.dumps(self.record)),
         )
         self.board = types.SimpleNamespace(
@@ -158,6 +160,30 @@ class ForwardRecipientTest(unittest.TestCase):
         self.live["who"] = "工作区gge"
         cmd = self.forward()
         self.assertEqual(cmd[cmd.index("-p")+1], "gge")
+
+    def test_owner_project_suffix_names_the_lead_project(self):
+        # #631: 11-10 four forwards to the lead's own workspace1 were refused「当前任务负责人无法唯一
+        # 对应接收项目」with who=工作区1gge and no project in the record (gge is the lead, not a sub).
+        self.record.pop("project")
+        self.live["who"] = "工作区1gge"
+        cmd = self.forward()
+        self.assertEqual(cmd[cmd.index("-p")+1], "gge")
+        self.team.project.assert_not_called()
+
+    def test_owner_project_suffix_names_a_sub(self):
+        self.record.pop("project")
+        self.live["who"] = "工作区9肥鱼"
+        self.assertEqual(self.forward()[4], "deep")
+
+    def test_owner_named_in_subs_still_routes_without_record(self):
+        self.record.pop("project")
+        self.live["who"] = "工作区3C酱"
+        self.assertEqual(self.forward()[4], "cjiang")
+
+    def test_owner_written_as_lead_name_maps_to_lead_project(self):
+        self.record.pop("project")
+        self.live["who"] = "工作区1G哥"
+        self.assertEqual(self.forward()[4], "gge")
 
     def test_legacy_without_owner_never_falls_back_to_sender(self):
         with self.assertRaises(ValueError):

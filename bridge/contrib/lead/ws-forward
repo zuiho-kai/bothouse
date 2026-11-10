@@ -63,10 +63,15 @@ def recipient_project(last: dict, live):
             return recorded
         raise ValueError("ws-forward: 旧交接未记接收项目，任务板也无当前负责人；请先核归属再重新交接")
     owner = re.sub(r"^工作区\d*\s*", "", str(live.get("who") or "")).strip()
+    # 「工作区n + 项目名（或角色中文名）」直接认人：工作区1gge、工作区9肥鱼、工作区1G哥 都落到一个项目。
+    # 主角色在 config.toml 里自己的项目名只从团队表这側取，不从调用者 CC_PROJECT 取（转话的人可能就是她）。
+    named = _team.project_of(owner) if owner else None
     # The record binds otherwise-unmapped project ids (e.g. the configured lead);
     # the team's named subs resolve a later owner transfer without guessing.
     candidates = [recorded, *(_team.team().get("subs") or {})]
     matches = {p for p in candidates if p and owner in (p, _team.name_of(p))}
+    if named:
+        matches.add(named)
     if len(matches) == 1:
         return matches.pop()
     raise ValueError("ws-forward: 当前任务负责人无法唯一对应接收项目；请核任务板与交接归属，不转给调用者")

@@ -65,6 +65,8 @@ class LeadProjectRouting(unittest.TestCase):
         self.assertEqual(self.g._project_member("gge"), "")
         self.assertEqual(self.g._cc_projects()[0][0], "")
         self.assertEqual(self.g.lead.resolve("gge"), "")
+        # #631: the lead's own project name, for callers that must forward *to* the lead
+        self.assertEqual(self.g.lead.LEAD_PROJECT, "gge")
 
     def test_unknown_project_still_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
@@ -77,6 +79,7 @@ class LeadProjectRouting(unittest.TestCase):
             '[[projects]]\nname = "duplicate"\nteam_name = "Lead"\n')
         self.g.lead.configure(self.g._team)
         self.assertEqual(self.g.lead.member("gge"), "gge")
+        self.assertEqual(self.g.lead.LEAD_PROJECT, "")  # two projects claim the lead's name: stay unset
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/decide?bot=gge", {"content": "help"})
         self.assertEqual(caught.exception.code, 404)
