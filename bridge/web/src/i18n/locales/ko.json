@@ -616,5 +616,12 @@
     "presetPastYear": "최근 1년",
     "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
     "tokenBreakdown": "구성"
+  },
+  "navGroup": {
+    "main": "주요",
+    "collab": "협업",
+    "connect": "연결",
+    "extend": "확장",
+    "settings": "설정"
   }
 }

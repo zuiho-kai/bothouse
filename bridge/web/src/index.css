@@ -24,8 +24,9 @@
   --gray-950: 3 7 18;
 }
 .dark {
-  --color-accent: 66 255 156;
-  --color-accent-dim: 43 200 122;
+  /* #579: 霓虹绿 #42FF9C 在暗底上发刺；收到 #3DD68C（仍 ≥ 8:1 配黑字），整体更沉稳。 */
+  --color-accent: 61 214 140;
+  --color-accent-dim: 46 184 118;
   /* 暗底上的文字/链接强调色要更亮：填充绿在 #16171A 上只有 3.9:1。 */
   --color-accent-text: 74 222 128;
   /* 三级灰同上，114 114 108 在暗底 4.09:1，提亮到 6.0:1。 */
@@ -39,8 +40,10 @@
    hard-coded hex. */
 :root {
   /* 面：画布一档灰、卡片纯白，靠 1px 描边分层而不是阴影（§1 Vercel/magpie；应用界面房规同向）。 */
-  --ui-canvas: 250 250 250;
+  /* #579: 内容区纯白、侧栏低一档（chrome），与 DSH 外壳同一层次，嵌在 DSH 里不像两张纸拼起来。 */
+  --ui-canvas: 255 255 255;
   --ui-canvas-tint: 255 255 255;
+  --ui-chrome: 248 248 250;
   --ui-surface: 255 255 255;
   --ui-surface-raised: 255 255 255;
   --ui-surface-sunken: 246 247 249;
@@ -57,8 +60,9 @@
 }
 
 .dark {
-  --ui-canvas: 10 10 12;
+  --ui-canvas: 13 13 15;
   --ui-canvas-tint: 16 17 20;
+  --ui-chrome: 18 18 21;
   --ui-surface: 22 23 26;
   --ui-surface-raised: 28 29 33;
   --ui-surface-sunken: 15 16 19;
@@ -76,6 +80,7 @@
 .theme-yellow {
   --ui-canvas: 255 252 245;
   --ui-canvas-tint: 255 255 255;
+  --ui-chrome: 255 248 234;
   --ui-surface: 255 255 255;
   --ui-surface-raised: 255 252 245;
   --ui-surface-sunken: 255 244 217;
@@ -91,8 +96,9 @@
 :root {
   /* Radius ladder: control 8 / card 14 / panel 18 / pill 999, never mixed (§3). */
   --ui-radius-control: 8px;
-  --ui-radius-card: 14px;
-  --ui-radius-panel: 18px;
+  /* #579: 卡片 14 → 12、面板 18 → 16：控制台密度下大圆角显得软塌，与 DSH 卡片圆角同档。 */
+  --ui-radius-card: 12px;
+  --ui-radius-panel: 16px;
   --ui-radius-pill: 999px;
   /* Duration ladder: press 120ms, interaction 240ms, state 320ms, ambient 3000ms (§4). */
   --ui-dur-press: 120ms;
@@ -198,7 +204,10 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: rgb(var(--ui-canvas));
+  color: rgb(var(--ui-ink));
+  font-feature-settings: 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

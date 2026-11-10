@@ -9,6 +9,8 @@ import { THEME_ICONS } from '@/components/Theme/themeIcons';
 import { useAuthStore } from '@/store/auth';
 import { useLocation } from 'react-router-dom';
 import { wizardTexts } from '@/pages/Setup/texts';
+import { navKeyFor } from './navItems';
+import { BrandMark } from './Sidebar';
 
 const languages = [
   { code: 'en', label: 'EN' },
@@ -33,7 +35,9 @@ const iconBtn = cn(
 export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t, i18n } = useTranslation();
   const { theme, resolved, setTheme } = useThemeStore();
-  const isSetup = useLocation().pathname === '/setup';
+  const { pathname } = useLocation();
+  const isSetup = pathname === '/setup';
+  const pageKey = navKeyFor(pathname);
   const T = wizardTexts(i18n.language);
   const logout = useAuthStore((s) => s.logout);
   const [spinning, setSpinning] = useState(false);
@@ -74,15 +78,16 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     <header
       className={cn(
         // 顶部安全区由外壳统一让出（iPhone 刘海），加在原高之上；页面不用各自加
-        'ui-safe-bar relative z-20 flex shrink-0 items-center justify-end gap-1 px-4',
-        'border-b border-hairline bg-surface',
+        'ui-safe-bar relative z-20 flex shrink-0 items-center justify-end gap-1 px-3 sm:px-5',
+        // 顶栏与画布同色，只靠 1px 描边分开：内容区是一整张纸，不是两条色带
+        'border-b border-hairline bg-canvas/85 backdrop-blur supports-[backdrop-filter]:bg-canvas/70',
       )}
     >
       {!isSetup && (
         <button
           type="button"
           onClick={onMenuClick}
-          className={cn(iconBtn, 'mr-auto md:hidden')}
+          className={cn(iconBtn, 'md:hidden')}
           aria-label="Open navigation menu"
           aria-controls="mobile-navigation"
           data-testid="mobile-menu-button"
@@ -90,9 +95,14 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           <Menu size={20} />
         </button>
       )}
-      {isSetup && (
-        <span className="mr-auto text-base font-bold tracking-tight text-ink">
-          bothouse<span className="text-accent">.</span>
+      {isSetup ? (
+        <span className="mr-auto flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-ink">
+          <BrandMark />bothouse
+        </span>
+      ) : (
+        // 当前页名：侧栏收起或在手机上时，用户仍知道自己在哪一页
+        <span className="mr-auto min-w-0 truncate pl-1 text-sm font-medium text-ink md:invisible" data-testid="header-page-title">
+          {pageKey ? t(`nav.${pageKey}`) : ''}
         </span>
       )}
       <button type="button" onClick={handleRefresh} className={iconBtn} aria-label={t('common.refresh')}>

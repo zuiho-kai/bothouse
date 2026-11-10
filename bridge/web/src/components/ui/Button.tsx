@@ -23,18 +23,19 @@ const variants = {
   primary:
     'bg-accent text-white dark:text-black yellow:text-gray-900 shadow-ui-gloss-1 ' +
     'hover:bg-accent-dim hover:shadow-ui-gloss-2',
+  // #579: 次按钮 = 白底 + 1px 描边 + 顶光（与 DSH「新会话」按钮同一手法），不再是灰块
   secondary:
-    'bg-surface-sunken text-ink-soft shadow-ui-1 hover:bg-accent-wash hover:text-ink hover:shadow-ui-2',
-  danger: 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 shadow-ui-1',
+    'bg-surface text-ink border border-hairline shadow-ui-gloss-1 hover:border-hairline-strong hover:bg-surface-sunken',
+  danger: 'bg-surface text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/10',
   ghost:
     'text-ink-soft hover:bg-surface-sunken hover:text-ink focus-visible:bg-surface-sunken',
 };
 
 // Control radius is 8px for sm/md; lg steps to the card radius (14) so a big CTA reads as a card.
 const sizes = {
-  sm: 'px-3 py-1.5 text-xs rounded-control',
-  md: 'px-4 py-2 text-sm rounded-control',
-  lg: 'px-6 py-2.5 text-sm rounded-card',
+  sm: 'h-8 px-3 text-xs rounded-control',
+  md: 'h-9 px-3.5 text-sm rounded-control',
+  lg: 'h-11 px-5 text-sm rounded-control',
 };
 
 export function Button({

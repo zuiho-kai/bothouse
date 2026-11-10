@@ -707,5 +707,12 @@
     "projectScope": "A bridge project connects an agent and workspace to platforms. DSH members are managed separately.",
     "savedConfigNextTurn": "Saved configuration · applies before the next turn",
     "savedRoute": "Saved DSH route"
+  },
+  "navGroup": {
+    "main": "Workspace",
+    "collab": "Collaborate",
+    "connect": "Connections",
+    "extend": "Extensions",
+    "settings": "Settings"
   }
 }

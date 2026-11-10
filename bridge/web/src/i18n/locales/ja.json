@@ -639,5 +639,12 @@
     "presetPastYear": "過去1年",
     "presetPastYearHint": "既定の範囲：今日までの1年間（1回の照会は最大1年）",
     "tokenBreakdown": "内訳"
+  },
+  "navGroup": {
+    "main": "よく使う",
+    "collab": "コラボ",
+    "connect": "接続",
+    "extend": "拡張",
+    "settings": "設定"
   }
 }

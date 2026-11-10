@@ -633,5 +633,12 @@
     "presetPastYear": "近一年",
     "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
     "tokenBreakdown": "消耗結構"
+  },
+  "navGroup": {
+    "main": "常用",
+    "collab": "協作",
+    "connect": "接入",
+    "extend": "擴充",
+    "settings": "設定"
   }
 }

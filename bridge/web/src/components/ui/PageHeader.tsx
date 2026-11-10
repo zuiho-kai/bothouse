@@ -14,17 +14,14 @@ interface PageHeaderProps {
 // pages read as one product instead of seven screens (#98 U13).
 export function PageHeader({ title, description, icon: Icon, actions, className }: PageHeaderProps) {
   return (
-    <header className={cn('flex flex-wrap items-start justify-between gap-3', className)}>
-      <div className="flex items-start gap-3">
-        {Icon && (
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-surface-sunken ring-1 ring-hairline">
-            <Icon size={18} strokeWidth={1.5} className="text-ink-soft" />
-          </span>
-        )}
-        <div>
-          <h1 className="text-lg font-semibold leading-7 text-ink">{title}</h1>
-          {description && <p className="mt-0.5 text-sm text-ink-mute">{description}</p>}
-        </div>
+    <header className={cn('flex flex-wrap items-end justify-between gap-x-4 gap-y-3', className)}>
+      <div className="min-w-0">
+        {/* #579: 标题是页面的锚点：22px 紧字距，图标退成标题前的小记号，不再占一个灰盒子 */}
+        <h1 className="flex items-center gap-2 text-[22px] font-semibold leading-8 tracking-tight text-ink">
+          {Icon && <Icon size={20} strokeWidth={1.75} className="shrink-0 text-ink-mute" />}
+          {title}
+        </h1>
+        {description && <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-soft">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
@@ -43,7 +40,7 @@ interface SectionProps {
 // adds the label row — no second shadow stack, no second border.
 export function Section({ title, description, actions, children, className }: SectionProps) {
   return (
-    <section className={cn('rounded-card bg-surface p-5 ring-1 ring-hairline', className)}>
+    <section className={cn('rounded-card border border-hairline bg-surface p-5', className)}>
       {(title || actions) && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>

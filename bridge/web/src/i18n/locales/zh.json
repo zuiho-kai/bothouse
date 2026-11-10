@@ -707,5 +707,12 @@
     "projectScope": "桥接项目将 Agent 和工作区连接到平台；DSH 成员单独管理。",
     "savedConfigNextTurn": "已保存配置 · 下一轮前应用",
     "savedRoute": "已保存的 DSH 路由"
+  },
+  "navGroup": {
+    "main": "常用",
+    "collab": "协作",
+    "connect": "接入",
+    "extend": "扩展",
+    "settings": "设置"
   }
 }

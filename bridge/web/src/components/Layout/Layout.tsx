@@ -29,8 +29,9 @@ export default function Layout() {
       )}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
-        <main className="ui-safe-main flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 sm:p-6">
-          <div className="flex flex-1 flex-col">
+        <main className="ui-safe-main flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pt-5 sm:px-8 sm:pt-8">
+          {/* 内容限宽 1280 居中：宽屏上表格和卡片不被拉成细长条（与 DSH 主区同一阅读宽度） */}
+          <div className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col">
             <Outlet />
           </div>
           <Footer />

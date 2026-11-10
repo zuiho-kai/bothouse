@@ -169,10 +169,11 @@ export default function Dashboard() {
                   ratio={platformCount > 0 ? 1 : 0}
                   display={String(platformCount)}
                   label={t('dashboard.platforms')}
+                  showLabel={false}
                 />
-                <div className="text-xs text-ink-mute">
+                <div className="flex min-w-0 flex-wrap gap-1.5 text-xs text-ink-mute">
                   {platformCount > 0
-                    ? platformNames.join(' · ')
+                    ? platformNames.map(n => <Badge key={n}>{n}</Badge>)
                     : t('dashboard.noData')}
                 </div>
               </div>

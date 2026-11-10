@@ -616,5 +616,12 @@
     "presetPastYear": "Último año",
     "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
     "tokenBreakdown": "Desglose"
+  },
+  "navGroup": {
+    "main": "Principal",
+    "collab": "Colaboración",
+    "connect": "Conexiones",
+    "extend": "Extensiones",
+    "settings": "Ajustes"
   }
 }

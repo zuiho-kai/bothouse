@@ -36,8 +36,8 @@ interface StatCardProps {
 export function StatCard({ label, value, accent }: StatCardProps) {
   return (
     <Card>
-      <p className="text-[13px] font-medium text-ink-soft">{label}</p>
-      <p className={cn('mt-1 text-2xl font-semibold tabular-nums', accent ? 'text-accent-text' : 'text-ink')}>
+      <p className="text-xs font-medium text-ink-mute">{label}</p>
+      <p className={cn('mt-2 text-[26px] font-semibold leading-none tracking-tight tabular-nums', accent ? 'text-accent-text' : 'text-ink')}>
         {value}
       </p>
     </Card>
