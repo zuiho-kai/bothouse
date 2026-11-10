@@ -1,0 +1,7 @@
+- [agents](agents/README.md) — Agent 协作：何时拆多个 agent、委派合同、交接与审查安排
+- [debug](debug/README.md) — 调试：收敛原因、结论纪律、执行原则、审计枚举、复盘分流
+- [overview](overview/README.md) — general 总览与暂无正文的 environment、git 主题说明
+- [planning](planning/README.md) — 规划：实现与功能验证、mini spec、产品闭环
+- [quality](quality/README.md) — 质量专题：性能测试、Bug 定级、测试与 CI、文档验收
+- [remote](remote/README.md) — 远端任务：SSH、容器、Slurm、长跑、清理与已验证错题
+- [review](review/README.md) — 代码审查：通用设计审查规则 REV-*、独立审查执行合同与专项 guides

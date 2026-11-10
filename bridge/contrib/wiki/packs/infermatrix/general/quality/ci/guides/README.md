@@ -1,0 +1,6 @@
+# guides
+
+测试与 CI guides：先检查现有测试（两页）
+
+- [inspect-existing-tests-first-1](inspect-existing-tests-first-1.md) — 规则“先看现有代码，再谈方案”（1/2）：2026-04-21 反面教训、原则…
+- [inspect-existing-tests-first-2](inspect-existing-tests-first-2.md) — 规则“先看现有代码，再谈方案”（2/2）：2026-06-04 HunyuanImage3…
