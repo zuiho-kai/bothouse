@@ -484,7 +484,11 @@
     "logLevel": "ログレベル",
     "appearance": "外観",
     "theme": "テーマ",
-    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。"
+    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。",
+    "avatarStyle": "ロールのアバター",
+    "avatarStyleHint": "Web パネルと DSH プラグインの両方に反映され、すぐ保存されます。",
+    "avatarStyleBrand": "各社の公式アイコン",
+    "avatarStyleChibi": "擬人化アバター"
   },
   "globalProviders": {
     "title": "プロバイダー管理",

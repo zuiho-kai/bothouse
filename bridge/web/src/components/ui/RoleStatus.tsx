@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
-import { resolveRoleAvatar, type RoleAvatarMatchOptions } from '@/lib/avatarMap';
+import { resolveRoleAvatar, useAvatarStyle, type RoleAvatarMatchOptions } from '@/lib/avatarMap';
 
 export type RoleState = 'busy' | 'idle' | 'offline' | 'paused';
 
@@ -50,7 +50,8 @@ export interface RoleAvatarProps extends RoleAvatarMatchOptions {
 
 /** Avatar with the state dot on its corner (the same letter disc the library uses). */
 export function RoleAvatar({ name, state, size = 40, model, agentType, avatar, url, className }: RoleAvatarProps) {
-  const resolvedUrl = url ?? resolveRoleAvatar({ avatar, model, agentType, name });
+  const avatarStyle = useAvatarStyle();
+  const resolvedUrl = url ?? resolveRoleAvatar({ avatar, model, agentType, name }, avatarStyle);
   return (
     <span className={cn('relative inline-grid shrink-0', className)}>
       <LibraryAvatar url={resolvedUrl} name={name} size={size} className={cn(state === 'offline' && 'opacity-50 grayscale')} />

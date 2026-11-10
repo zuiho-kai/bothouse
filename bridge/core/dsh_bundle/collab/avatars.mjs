@@ -4,6 +4,9 @@
 import { readFileSync } from 'node:fs';
 
 export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok'];
+// #602: the vendors' own icons, the default set for members without an avatar (user 2026-11-10
+// 「默认是各家原本的图标，内置另一套娘化图标」); served beside the slugs above, see avatars/README.md.
+export const BRAND_AVATARS = ['brand-claude', 'brand-openai', 'brand-deepseek', 'brand-gemini', 'brand-grok', 'brand-minimax'];
 /** Longest avatar URL a cloud-web bot may announce (common browser URL limit; not from the user). */
 export const MAX_AVATAR_URL = 2048;
 
@@ -17,6 +20,6 @@ export function checkAvatar(value, { allowUrl = false } = {}) {
 
 /** PNG bytes of a built-in avatar, or undefined for an unknown slug. */
 export function avatarImage(slug) {
-  if (!AVATARS.includes(slug)) return undefined;
+  if (!AVATARS.includes(slug) && !BRAND_AVATARS.includes(slug)) return undefined;
   return readFileSync(new URL(`./avatars/${slug}.png`, import.meta.url));
 }

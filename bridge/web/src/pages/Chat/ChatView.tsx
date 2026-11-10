@@ -21,7 +21,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
-import { resolveRoleAvatar } from '@/lib/avatarMap';
+import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
 
 // ── Markdown renderers ───────────────────────────────────────
 
@@ -305,7 +305,8 @@ export default function ChatView() {
       }).catch(() => {});
     }
   }, [projectName]);
-  const avatarUrl = resolveRoleAvatar({ name: shown || projectName, agentType: projectMeta.agentType });
+  const avatarStyle = useAvatarStyle();
+  const avatarUrl = resolveRoleAvatar({ name: shown || projectName, agentType: projectMeta.agentType }, avatarStyle);
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);

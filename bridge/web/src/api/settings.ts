@@ -23,6 +23,8 @@ export interface GlobalSettings {
   review_complex_model?: string;
   /** read-only: the latest review whose tier model did not take effect (backend lacks it) */
   review_model_notice?: ReviewModelNotice;
+  /** built-in role avatar set: 'brand' (vendors' own icons, default) or 'chibi' (Q-style set) */
+  avatar_style?: 'brand' | 'chibi';
 }
 
 export interface ReviewModelNotice {

@@ -25,7 +25,7 @@ import { errorMessage } from '@/components/DSHNotice';
 import { usePageRefresh } from '@/lib/usePageRefresh';
 import { DSHMemberEditor } from './DSHMemberEditor';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
-import { resolveRoleAvatar } from '@/lib/avatarMap';
+import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
 
 function isServerMembersIntentNotice(notice: string): boolean {
   return (
@@ -40,6 +40,7 @@ const SKELETON_SEATS = 6;
 
 export default function RoleList() {
   const { t } = useTranslation();
+  const avatarStyle = useAvatarStyle();
   const [dsh, setDsh] = useState<{ status: 'running' | 'stopped' | 'error'; error?: string }>();
   const [roles, setRoles] = useState<RoleInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -394,7 +395,7 @@ export default function RoleList() {
       )}
       {extraMembers.length > 0 && <section className="space-y-3">
         <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wider text-ink-mute">{t('dshManage.otherMembers')}</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1"><div className="flex items-center gap-3"><LibraryAvatar url={resolveRoleAvatar({ name: m.name, agentType: m.cli ?? undefined, model: m.model?.model })} name={m.name} size={40} /><p className="font-semibold text-ink">{m.name}</p></div>{memberActions(m)}</article>)}</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1"><div className="flex items-center gap-3"><LibraryAvatar url={resolveRoleAvatar({ name: m.name, agentType: m.cli ?? undefined, model: m.model?.model }, avatarStyle)} name={m.name} size={40} /><p className="font-semibold text-ink">{m.name}</p></div>{memberActions(m)}</article>)}</div>
       </section>}
       {editor && <DSHMemberEditor member={editor === 'new' ? null : editor} onClose={() => setEditor(null)} onSaved={changed} />}
       <Modal open={!!deleteMember} onClose={() => setDeleteMember(null)} title={t('dshManage.delete')}>

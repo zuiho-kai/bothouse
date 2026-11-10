@@ -500,6 +500,10 @@
     "appearance": "外觀",
     "theme": "主題",
     "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。",
+    "avatarStyle": "角色頭像",
+    "avatarStyleHint": "網頁面板和 DSH 外掛一起換，點了就儲存。",
+    "avatarStyleBrand": "各家原圖示",
+    "avatarStyleChibi": "娘化頭像",
     "tokenUnit": "Token 用量單位",
     "tokenUnitHint": "設定 Token 用量的顯示單位（支援原數、百萬 M、十億 B），懸停可查看完整原數。只儲存在這個瀏覽器裡，不用按儲存。"
   },

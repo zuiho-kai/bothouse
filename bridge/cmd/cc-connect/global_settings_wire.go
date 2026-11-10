@@ -76,6 +76,9 @@ func wireGlobalSettings(srv *core.ManagementServer) {
 		if v, ok := updates["review_complex_model"].(string); ok {
 			u.ReviewComplexModel = &v
 		}
+		if v, ok := updates["avatar_style"].(string); ok {
+			u.AvatarStyle = &v
+		}
 		if err := config.SaveGlobalSettings(u); err != nil {
 			return err
 		}

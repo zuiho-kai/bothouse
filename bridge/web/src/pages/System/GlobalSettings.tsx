@@ -8,6 +8,7 @@ import { listRoles, type RoleInfo } from '@/api/roles';
 import { listModels } from '@/api/providers';
 import { cn } from '@/lib/utils';
 import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
+import AvatarStyleSettingCard from '@/components/Avatar/AvatarStyleSettingCard';
 import TokenUnitSettingCard from '@/components/Usage/TokenUnitSettingCard';
 
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
@@ -212,6 +213,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
     <div className="space-y-5">
       {!hideHeader && <PageHeader icon={Save} title={t('settings.title', '全局设置')} />}
       <ThemeSettingCard />
+      <AvatarStyleSettingCard />
       <TokenUnitSettingCard />
       {/* General */}
       <Card>
