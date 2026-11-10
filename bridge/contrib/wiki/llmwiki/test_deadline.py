@@ -116,6 +116,94 @@ else:
                         unrelated.kill()
                     unrelated.wait(timeout=3)
 
+    def test_dsh_shares_the_remaining_budget_and_reaps_its_tree(self):
+        """#1562 shape ①: the dsh stream used to run on its own 3600s timer, so the 90-minute window never reached it.
+        Its model child and that child's own child must both stop when the deadline cuts the call."""
+        root = Path(tempfile.mkdtemp(prefix="dsh-", dir=ROOT))
+        beat = root / "beat"
+        child = f"""import subprocess, sys, time
+# the grandchild keeps no pipe of its own (a shared stdout would hide the EOF) and stops by itself at 15s, so a
+# run that fails to reap it cannot hang the suite
+p = subprocess.Popen([sys.executable, "-c", {repr("import time\nend = time.monotonic() + 15\nwhile time.monotonic() < end: open(" + repr(str(root / "grandchild")) + ", 'a').write('x'); time.sleep(0.05)")}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+end = time.monotonic() + 15
+while time.monotonic() < end:
+    open({repr(str(beat))}, 'a').write('x')
+    time.sleep(0.05)
+"""
+        started = time.monotonic()
+        with patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 2.2), WIKI_STOP_AT=""):
+            r = I._dsh_stream([sys.executable, "-c", child], "task", timeout=3600)
+        self.assertEqual(r["rc"], 124)
+        self.assertLess(time.monotonic() - started, 4, "dsh ran past the job's deadline")
+        sizes = [(beat.stat().st_size, (root / "grandchild").stat().st_size)]
+        time.sleep(0.4)
+        self.assertEqual(sizes[0], (beat.stat().st_size, (root / "grandchild").stat().st_size),
+                         "dsh's model child or its grandchild outlived the deadline")
+
+    def test_expired_budget_does_not_start_dsh(self):
+        with patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() - 1), WIKI_STOP_AT=""), \
+                patch.object(I.subprocess, "Popen") as popen:
+            r = I._dsh_stream(["fake-dsh"], "task", timeout=3600)
+        self.assertEqual(r["rc"], 124)
+        popen.assert_not_called()
+
+    def test_dsh_without_deadline_keeps_its_own_call_timeout(self):
+        with patch.dict(os.environ, CC_JOB_DEADLINE="", WIKI_STOP_AT=""):
+            r = I._dsh_stream([sys.executable, "-c", "import sys; print('{\"type\": \"final\", \"text\": \"ok\"}')"],
+                              "task", timeout=30)
+        self.assertEqual(r["rc"], 0)
+        self.assertEqual(r["final"], "ok")
+
+    def test_no_deadline_falls_back_to_the_job_window_and_reaches_the_child(self):
+        """#1562 shape ②: the installed bridge passes no CC_JOB_DEADLINE, and two role-wiki runs then had no ceiling."""
+        root = Path(tempfile.mkdtemp(prefix="fallback-", dir=ROOT))
+        (root / "llmwiki").mkdir()
+        source = Path(__file__).resolve().parent
+        shutil.copy2(source.parent / "sub-wiki.py", root / "sub-wiki.py")
+        shutil.copy2(source / "budget.py", root / "llmwiki" / "budget.py")
+        role = root / "first"
+        (role / "bin").mkdir(parents=True)
+        (role / "bin" / "ingest.py").write_text(
+            "import os\nopen(os.environ['WIKI_DIR'] + '/deadline', 'w').write(os.environ.get('CC_JOB_DEADLINE', 'missing'))\n")
+        rows = f"{role.name} {role.name} {role}"
+        (root / "export.py").write_text("import sys\nif '--list' in sys.argv: print(" + repr(rows) + ")\n")
+        env = {k: v for k, v in os.environ.items() if k not in ("CC_JOB_DEADLINE", "WIKI_STOP_AT")}
+        env["WIKI_BOTS"] = ""
+        run = subprocess.run([sys.executable, "-I", str(root / "sub-wiki.py"), "pending"], env=env,
+                             capture_output=True, text=True, timeout=10)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        got = (root / "first" / "deadline").read_text()
+        self.assertNotEqual(got, "missing", "no CC_JOB_DEADLINE reached the role ingest")
+        self.assertNotEqual(got, "")
+        left = float(got) - time.time()
+        self.assertGreater(left, I.budget.FALLBACK_WINDOW - 60)
+        self.assertLessEqual(left, I.budget.FALLBACK_WINDOW + 1)
+
+    def test_fallback_keeps_a_real_deadline_and_an_explicit_unlimited_run(self):
+        for deadline in (str(time.time() + 60), ""):
+            with patch.dict(os.environ, CC_JOB_DEADLINE=deadline):
+                I.budget._fallback_end = None
+                self.assertIsNone(I.budget.window(5))
+                self.assertEqual(os.environ["CC_JOB_DEADLINE"], deadline)
+        I.budget._fallback_end = None
+
+    def test_run_that_ends_at_the_deadline_releases_the_lock(self):
+        """A run stopped by the job's window must leave .ingest.lock free for the next hourly job."""
+        root = Path(tempfile.mkdtemp(prefix="lock-", dir=ROOT))
+        lock = root / "lock"
+        real_lock = I.filelock.lock
+
+        def expire(a, engines=None):
+            os.environ["CC_JOB_DEADLINE"] = str(time.time() - 1)
+
+        with patch.multiple(I, LOCK=lock, QUEUE=root / "queue", MIRROR_TO=None, pull=lambda: None,
+                            prepare=lambda: None, push=lambda: None, run=expire), \
+                patch.object(sys, "argv", ["ingest.py", "--pending"]), \
+                patch.dict(os.environ, WIKI_STOP_AT="", CC_JOB_DEADLINE=str(time.time() + 5)):
+            I.main()
+            with open(lock, "w") as f:  # the same call the next job makes: would raise BlockingIOError
+                real_lock(f, False)
+
     def test_expired_budget_does_not_start_model(self):
         with patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() - 1)), \
                 patch.object(I.subprocess, "run") as run, patch.object(I.subprocess, "Popen") as popen:

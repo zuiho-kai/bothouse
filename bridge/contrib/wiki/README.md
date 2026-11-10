@@ -80,6 +80,10 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 预算耗尽不增加模型失败次数，不推进未接受内容的偏移或片段检查点；已接受的本地提交保留，未推送的下轮再同步。
 `WIKI_STOP_AT` 保持批次之间停止的软期限语义，不打断正在执行的一批；硬期限仍由调度器约束。
 这些运行环境由现有入口传递，无需另配定时任务或延长 90 分钟时限。
+升级前装的调度器不传 `CC_JOB_DEADLINE`：这时的角色 wiki 入口按该任务现有的外层时限自设一个兜底窗口
+（白天 `pending` 90 分钟，`nightly` / `lint` 30 分钟，与 jobs.json 里这三类任务的 `timeout_mins` 一致），
+写回 `CC_JOB_DEADLINE` 让整理子进程和每次模型调用共用同一个期限；调度器明确传空串（本身无时限的任务）
+仍保持无时限，`WIKI_STOP_AT` 的软停止语义也不变。
 
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。

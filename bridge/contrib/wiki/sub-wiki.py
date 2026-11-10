@@ -103,6 +103,8 @@ def detach(argv, env):
 
 def main(argv):
     mode = argv[1] if len(argv) > 1 else ""
+    if budget:  # 兜底：装了新版调度器才有 CC_JOB_DEADLINE；没传时按这两个任务现有的外层时限自设，见 budget.py
+        budget.window(budget.FALLBACK_NIGHT_WINDOW if mode in ("nightly", "lint") else None)
     if budget and budget.stopped():
         say("wiki deadline reached; pending work retained for next run")
         return 0
