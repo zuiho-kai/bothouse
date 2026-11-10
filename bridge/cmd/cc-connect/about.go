@@ -58,7 +58,7 @@ func aboutCommand(args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "bothouse version: %s\n\n", v)
 	fmt.Fprint(out, strings.TrimRight(doc, "\n")+"\n\n")
-	fmt.Fprint(out, aboutLocalSetup(cfg, cfgErr, path, os.Getenv("CC_PROJECT")))
+	fmt.Fprint(out, aboutLocalSetup(cfg, cfgErr, path, os.Getenv("CC_PROJECT"), strings.HasPrefix(strings.ToLower(lang), "zh")))
 	return nil
 }
 
@@ -93,56 +93,62 @@ func aboutDoc(lang string) (string, error) {
 }
 
 // aboutLocalSetup lists names and types only: never option values, which hold tokens.
-func aboutLocalSetup(cfg *config.Config, cfgErr error, path, self string) string {
+func aboutLocalSetup(cfg *config.Config, cfgErr error, path, self string, zh bool) string {
+	t := func(en, cn string) string {
+		if zh {
+			return cn
+		}
+		return en
+	}
 	var b strings.Builder
-	b.WriteString("## This machine's setup\n\n")
+	b.WriteString(t("## This machine's setup\n\n", "## 本机配置\n\n"))
 	if cfg == nil {
-		fmt.Fprintf(&b, "Config %s could not be read (%v); describe bothouse in general terms and say the local setup is unknown.\n", path, cfgErr)
+		fmt.Fprintf(&b, t("Config %s could not be read (%v); describe bothouse in general terms and say the local setup is unknown.\n", "配置 %s 读不了（%v）：按通用说明介绍 bothouse，并说明本机配置未知。\n"), path, cfgErr)
 		return b.String()
 	}
 	if len(cfg.Projects) == 0 {
-		b.WriteString("No roles are configured yet (the setup wizard has not been completed).\n")
+		b.WriteString(t("No roles are configured yet (the setup wizard has not been completed).\n", "还没有配置角色（安装向导没走完）。\n"))
 		return b.String()
 	}
-	fmt.Fprintf(&b, "%d role(s):\n", len(cfg.Projects))
+	fmt.Fprintf(&b, t("%d role(s):\n", "共 %d 个角色：\n"), len(cfg.Projects))
 	platforms := map[string]bool{}
 	for _, p := range cfg.Projects {
 		name := p.Name
 		if p.TeamName != "" && p.TeamName != p.Name {
-			name = fmt.Sprintf("%s (shown as %s)", p.Name, p.TeamName)
+			name = fmt.Sprintf(t("%s (shown as %s)", "%s（显示名 %s）"), p.Name, p.TeamName)
 		}
 		if self != "" && p.Name == self {
-			name += " — this is you"
+			name += t(" — this is you", " ——就是你")
 		}
 		agent := p.Agent.Type
 		if agent == "" {
-			agent = "unknown"
+			agent = t("unknown", "未知")
 		}
 		if m, ok := p.Agent.Options["model"].(string); ok && m != "" {
-			agent += ", model " + m
+			agent += t(", model ", "，模型 ") + m
 		}
 		var plats []string
 		for _, pc := range p.Platforms {
-			t := pc.Type
+			pt := pc.Type
 			if pc.Disabled {
-				t += " (disabled)"
+				pt += t(" (disabled)", "（已停用）")
 			} else {
 				platforms[pc.Type] = true
 			}
-			plats = append(plats, t)
+			plats = append(plats, pt)
 		}
 		if len(plats) == 0 {
-			plats = []string{"none"}
+			plats = []string{t("none", "无")}
 		}
-		fmt.Fprintf(&b, "- %s: CLI %s; platforms %s\n", name, agent, strings.Join(plats, ", "))
+		fmt.Fprintf(&b, t("- %s: CLI %s; platforms %s\n", "- %s：CLI %s；平台 %s\n"), name, agent, strings.Join(plats, ", "))
 	}
 	var all []string
-	for t := range platforms {
-		all = append(all, t)
+	for pt := range platforms {
+		all = append(all, pt)
 	}
 	sort.Strings(all)
 	if len(all) > 0 {
-		fmt.Fprintf(&b, "Connected platforms: %s\n", strings.Join(all, ", "))
+		fmt.Fprintf(&b, t("Connected platforms: %s\n", "已接平台：%s\n"), strings.Join(all, ", "))
 	}
 	return b.String()
 }

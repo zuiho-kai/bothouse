@@ -47,7 +47,7 @@ token = "SECRET-TOKEN-456"
 		t.Fatal(err)
 	}
 	s := out.String()
-	for _, want := range []string{"bothouse 是什么", "LobeHub", "2 role(s)", "longniang (shown as 龙娘): CLI codex, model gpt-x; platforms discord", "maomao — this is you", "Connected platforms: discord"} {
+	for _, want := range []string{"bothouse 是什么", "LobeHub", "共 2 个角色", "longniang（显示名 龙娘）：CLI codex，模型 gpt-x；平台 discord", "maomao ——就是你", "已接平台：discord"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("about output lacks %q:\n%s", want, s)
 		}
