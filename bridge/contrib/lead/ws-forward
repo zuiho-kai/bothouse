@@ -112,6 +112,10 @@ def reject_held_report(path: str, summary: str, nid=None):
         if not ids:
             return
         nid = max(ids)
+    seen = reject_held_report.__dict__.setdefault("seen", set())  # 先打回过的不再打一遍（#1405）
+    if nid in seen:
+        return
+    seen.add(nid)
     try:
         r = subprocess.run([_team.cc_bin() or "cc-connect", "report", "reject", "--id", str(nid), "--reason", summary],
                            capture_output=True, text=True, timeout=60)
@@ -122,6 +126,19 @@ def reject_held_report(path: str, summary: str, nid=None):
         print(f"ws-forward: #{nid} 的文字汇报已打回，不会贴给用户", file=sys.stderr)
     elif r.returncode != 3:  # 3：没有扣着的汇报
         print(f"ws-forward: 打回 #{nid} 的待验收汇报失败：{(r.stderr or r.stdout).strip()[:200]}", file=sys.stderr)
+
+
+def reject_first(nid, path, recs=()):
+    """主角色转话＝这件活的打回（#1405）：先落到桥上按任务号记的那一份，再去转话。
+    以前打回只挂在「转成功」的几条路后面，转不出去（同一交接交给了几个工作区、原工作区在做别的频道的活）
+    就直接退出，挂着的汇报 10 分钟后照贴「主角色未验收」（11-10 #1318 #1348 #1359）。"""
+    ids = {nid} if nid else set()
+    if not ids:
+        for r in recs:
+            ids |= task_ids(r)
+        if path:
+            ids |= {int(i["id"]) for i in board.items() if i.get("where") == path and str(i.get("id", "")).isdigit()}
+    return ids
 
 
 def other_chat_work(last: dict):
@@ -181,11 +198,17 @@ def main(argv):
         rec = tasks.get(path)
         alts = [k for k, v in tasks.items() if v.get("file") == path]
         if rec is not None and alts:  # 同一份交接交给了几个工作区：要写明是哪个
+            for i in reject_first(0, path, [rec, *[tasks[a] for a in alts]]):
+                reject_held_report(path, argv[0], i)
             sys.exit(f"ws-forward: {path} 交给了几个工作区，用 --notes 写明：{'；'.join([path, *alts])}")
         if rec is None:
+            for i in reject_first(0, path):
+                reject_held_report(path, argv[0], i)
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
         last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"], "chat": rec.get("chat") or "",
                 "project": rec.get("project") or "", "board": rec.get("board") or []}
+    for i in reject_first(nid, last.get("file"), [last]):
+        reject_held_report(last.get("file") or "", argv[0], i)
     done = find_done(last)
     if done:  # 已交回：工作区会话已清空、放回池子，话发过去没人接（用户 10-30「他那边不是返回了吗？为什么没感知」）
         # 交回的汇报还扣着等验收时，转话也算打回，否则 10 分钟后照贴（用户 11-09「为什么会超过10分钟」，#1261）
