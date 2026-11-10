@@ -1,9 +1,11 @@
 package core
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,7 +17,7 @@ func TestExitFilesForNamedReport(t *testing.T) {
 	if err := os.WriteFile(doc, []byte("# 审查报告\n两个 P2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	body := "[report] #36 背景：你让我检查 PR #565。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n我加的：无。\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 " + doc + "。\n"
+	body := "[report] #36 背景：你让我检查那个合并请求。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n我加的：无。\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 " + doc + "。\n"
 	files := exitFilesFor("discord:ws", body, nil, nil, false)
 	if len(files) != 1 || files[0].FileName != filepath.Base(doc) || !strings.Contains(string(files[0].Data), "两个 P2") {
 		t.Fatalf("named report not attached: %+v", files)
@@ -59,5 +61,57 @@ func TestExitFilesFromHandoff(t *testing.T) {
 	}
 	if p := reportDeliverableProblems("discord:ws", body, item); p != nil {
 		t.Fatalf("bounced though the bridge found the file: %v", p)
+	}
+}
+
+type exitFilePlatform struct {
+	exitImgPlatform
+	fmu   sync.Mutex
+	files []exitSent // rc, file name
+}
+
+func (p *exitFilePlatform) SendFile(_ context.Context, rc any, f FileAttachment) error {
+	p.fmu.Lock()
+	defer p.fmu.Unlock()
+	s, _ := rc.(string)
+	p.files = append(p.files, exitSent{s, f.FileName})
+	return nil
+}
+
+func (p *exitFilePlatform) filesTo(rc string) []string {
+	p.fmu.Lock()
+	defer p.fmu.Unlock()
+	var out []string
+	for _, s := range p.files {
+		if s.rc == rc {
+			out = append(out, s.text)
+		}
+	}
+	return out
+}
+
+// End to end through the exit forward (agentm #36): the report names its review report by
+// path and the workspace also sent a file; both reach the chat channel as attachments.
+func TestWorkspaceReportCarriesDocuments(t *testing.T) {
+	p := &exitFilePlatform{exitImgPlatform: exitImgPlatform{exitTestPlatform: exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}}}
+	as := &inputTestSession{events: make(chan Event, 32), prompts: make(chan string, 32), id: "t1"}
+	ag := &inputTestAgent{session: as, requested: make(chan string, 32)}
+	e := NewEngine("orange", ag, []Platform{p}, "", LangEnglish)
+	e.dataDir = t.TempDir()
+	e.SetWorkspaceParentResolver(mapParent{"ws1": "chat1"})
+	e.workspaceChatForTest = func(s string) bool { return strings.Contains(s, "ws1") }
+	t.Cleanup(func() { e.cancel(); _ = e.Stop() })
+	exitBoardItem(t, e, 36, "审查GR565")
+
+	doc := filepath.Join(t.TempDir(), "pr565-review-report-20261110.md")
+	if err := os.WriteFile(doc, []byte("# PR565 审查报告\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.noteWorkspaceFiles(exitWSKey, []FileAttachment{{MimeType: "text/csv", Data: []byte("a,b"), FileName: "bench.csv"}})
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #36 背景：你让我检查那个合并请求。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n我加的：无\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 "+doc+"。")
+	inputWait(t, func() bool { return len(p.filesTo("discord:chat1")) == 2 })
+	got := p.filesTo("discord:chat1")
+	if got[0] != "bench.csv" || got[1] != filepath.Base(doc) {
+		t.Fatalf("files = %v", got)
 	}
 }
