@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 5037a02f49002644a36f24ed38c08bff4c5de75980c85a1224a90a82b5c82109
+// dsh-client-source-sha256: 345289e73660cd01a945df633d41b443ab11a58a67952a974760070df3a474db
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -25015,6 +25015,71 @@ const en = {
 	replyDeleted: "Original message was deleted",
 	cancelReply: "Cancel reply"
 };
+// src/client/panel-hash.ts
+/** Shape the fragment may take: one sidebar key (`plugins`, `schedules`, `collab-desk`, …). */
+const PANEL_ID$1 = /^[A-Za-z0-9][A-Za-z0-9._~-]*$/;
+/** The main-panel id a fragment names; `null` for an empty or unrecognised one. */
+function panelIdFromHash(hash) {
+	const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+	return PANEL_ID$1.test(raw) ? raw : null;
+}
+/** The address of the current page with `id` as its fragment: query (the wizard token) untouched. */
+function addressFor(id) {
+	return `${location.pathname}${location.search}${id === null ? "" : `#${id}`}`;
+}
+/**
+* Mirror every later panel selection into the fragment; the returned function stops following.
+* Opening a panel writes `#<id>`, going back to the conversation clears it.
+* @param layout - `ctx.layout` (panel selection and its shared source).
+* @returns unsubscribe.
+*/
+function followPanelHash(layout) {
+	const source = layout.panelInfo;
+	let last = source.getSnapshot().activePanelId;
+	return source.subscribe(() => {
+		const next = source.getSnapshot().activePanelId;
+		if (next === last) return;
+		last = next;
+		if (addressFor(next) === `${location.pathname}${location.search}${location.hash}`) return;
+		history.replaceState(history.state, "", addressFor(next));
+	});
+}
+/** Whether a keyed `main` panel with this id is registered right now. */
+function hasMainPanel(slots, id) {
+	return slots.entriesOfSlot("main").some((entry) => entry.options.key === id);
+}
+/**
+* Open the panel the fragment names, once its package has registered it; the returned function
+* stops waiting. Panels register when their own browser half loads, which can be after this
+* plugin: `layout.selectPanel` throws for a main key that is not registered yet (see
+* bothouse-dsh-panel/client.js), so this waits for the registration instead of firing once.
+* @param layout - `ctx.layout`.
+* @param slots - `ctx.slots` (main-slot registry and its change subscription).
+* @param hash - the fragment to honour; defaults to the current address.
+* @returns unsubscribe from the pending restore.
+*/
+function restorePanelFromHash(layout, slots, hash = location.hash) {
+	const id = panelIdFromHash(hash);
+	if (id === null) return () => {};
+	if (hasMainPanel(slots, id)) {
+		layout.selectPanel(id);
+		return () => {};
+	}
+	if (layout.panelInfo.getSnapshot().activePanelId !== null) return () => {};
+	let stopWaiting = () => {};
+	let stopWatching = () => {};
+	const done = () => {
+		stopWaiting();
+		stopWatching();
+	};
+	stopWaiting = slots.subscribe("main", () => {
+		if (!hasMainPanel(slots, id)) return;
+		done();
+		if (layout.panelInfo.getSnapshot().activePanelId === null) layout.selectPanel(id);
+	});
+	stopWatching = layout.panelInfo.subscribe(done);
+	return done;
+}
 // src/client/index.ts
 const PANEL_ID = "channels";
 const REMOTE_PANEL_ID = "remote-channels";
@@ -25036,6 +25101,8 @@ function apply(ctx) {
 		zh,
 		en
 	}), "client-ui-discord: dictionaries");
+	ctx.effect(() => followPanelHash(ctx.layout), "client-ui-discord: panel hash");
+	ctx.effect(() => restorePanelFromHash(ctx.layout, ctx.slots), "client-ui-discord: panel hash restore");
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
@@ -25100,7 +25167,6 @@ function apply(ctx) {
 		};
 		bindPanel();
 		const unsubscribe = ctx.slots.subscribe("sidebar.settings", bindPanel);
-		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
 		return () => {
 			unsubscribe();
 			disposePanel?.();
