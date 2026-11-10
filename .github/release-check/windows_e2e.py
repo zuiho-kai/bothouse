@@ -172,6 +172,21 @@ class Bothouse:
         self.log.close()
 
 
+def sockets_on(base, why):
+    """Who holds sockets on the panel port when a request is reset (#1392): netstat rows and their processes."""
+    port = urllib.parse.urlsplit(base).port
+    print(f"diagnose: {why}; sockets on :{port}", flush=True)
+    if os.name != "nt":
+        return
+    rows = [l for l in subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True).stdout.splitlines()
+            if f":{port} " in l]
+    for l in rows:
+        print("  |", l.strip(), flush=True)
+    for pid in sorted({l.split()[-1] for l in rows if l.split()[-1].isdigit()} - {"0"}):
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
+        print(f"  pid {pid}:", out.strip()[:200], flush=True)
+
+
 class Panel:
     """The management server as the browser sees it: token login, then the /dsh cookie."""
 
@@ -190,6 +205,7 @@ class Panel:
         if auth:
             r.add_header("Authorization", "Bearer " + self.token)
         r.add_header("Origin", self.base)
+        t0 = time.time()
         try:
             with self.op.open(r, timeout=timeout) as resp:
                 b = resp.read()
@@ -197,6 +213,9 @@ class Panel:
         except urllib.error.HTTPError as e:
             b = e.read()
             return e.code, e.headers, (b if raw else b.decode("utf-8", "replace"))
+        except ConnectionResetError:
+            sockets_on(self.base, f"{method} {path} reset after {time.time() - t0:.1f}s")
+            raise
 
     def api(self, method, path, body=None, timeout=T_HTTP):
         code, _, text = self.req(method, "/api/v1" + path, body, timeout=timeout)
