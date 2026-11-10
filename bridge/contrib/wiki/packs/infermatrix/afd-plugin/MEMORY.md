@@ -1,0 +1,2 @@
+- [components](components/README.md) — AFD plugin 七个组件 owner：入口、架构与专项规则
+- [repo](repo/README.md) — AFD plugin 仓库级页面：知识入口、仓库架构、仓库规则、初始化与 E2E 门禁、上游 API 漂移
