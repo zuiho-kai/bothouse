@@ -201,6 +201,8 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			req.AtAll = true
 		case "--dm":
 			req.DM = true
+		case "--experience":
+			req.Experience = true
 		case "--to":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--to requires a user ID")
@@ -457,6 +459,7 @@ Options:
       --at-users <ids>     @ user IDs, comma-separated (DingTalk, QQ, QQBot)
       --at-all             @ everyone (platform permissions and limits apply)
       --reply-to <id>      Native quoted text reply to a message in this conversation (QQ)
+      --experience         Hand work to a personal agent: append related team lessons and ask for 【经验】 lines back
       --dm                 Send privately; without --to only to the project owner (first ID in admin_from) (Discord, QQ)
       --to <user id>       With --dm: send privately to this member of the server instead (Discord)
   -p, --project <name>     Target project (optional if only one project)

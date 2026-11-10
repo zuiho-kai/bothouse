@@ -477,6 +477,8 @@ type Engine struct {
 	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
 	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	experienceDir                string                          // team memory folder for personal agents' lessons (team_experience.go; "" = off)
+	personalAgents               []string                        // bot IDs of personal agents (team_experience.go)
 	lifePage                     string                          // life_page: "how she is now" file put before every turn (lifepage.go; "" = off)
 	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
@@ -3603,6 +3605,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.handleMessageRecall(p, msg)
 		return
 	}
+	e.collectExperience(msg)
 	if e.team != nil {
 		// The shared lead file can change without restarting any role. Refresh
 		// lead-only board/workspace services before handling the next message.
@@ -9645,6 +9648,9 @@ func (e *Engine) withSharedMemoryHint(prompt string, agent Agent, msg *Message, 
 	dir := workspaceDir
 	if dir == "" {
 		dir = e.commandWorkDir(agent, msg)
+	}
+	if hint := e.experienceHint(); hint != "" {
+		prompt += "\n\n" + hint
 	}
 	if hint := sharedMemoryHint(dir, msg.SessionKey); hint != "" {
 		return prompt + "\n\n" + hint
