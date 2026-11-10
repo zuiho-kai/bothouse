@@ -107,8 +107,8 @@ func (p *Platform) UnshelveTeamWorkspaceChannel(ctx context.Context, workspaceID
 const roleSettingsHint = "如果 bot 已在服务器，请到「服务器设置 → 身份组」里，给 bot 的身份组勾上缺的权限，重新点链接不会更新权限。"
 
 const (
-	permManageChannels = "管理频道 (Manage Channels)"
-	permPinMessages    = "置顶消息 (Pin Messages)"
+	permManageChannels = core.PermManageChannels
+	permPinMessages    = core.PermPinMessages
 )
 
 // missingPermissionErr turns Discord's bare 50013 Missing Permissions into an error that names
@@ -119,8 +119,17 @@ func (p *Platform) missingPermissionErr(err error, perm string) error {
 	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeMissingPermissions {
 		return err
 	}
-	return fmt.Errorf("Discord bot 缺「%s」权限。bot 还没进服务器的，打开这个链接邀请：%s ；%s频道单独设了权限的，还要去该频道设置里给 bot 放开这项权限。原始错误：%w",
-		perm, core.DiscordInviteURL(p.appID, p.guildID), roleSettingsHint, err)
+	// The hint is what the channel is told once (core permissionNotice): which permission, what it
+	// blocks, where to tick it.
+	return &core.MissingPermissionError{Perm: perm, Err: err, Hint: fmt.Sprintf(
+		"Discord bot 缺「%s」权限%s。%s频道单独设了权限的，还要去该频道设置 → 权限里给 bot 放开这项。bot 还没进服务器的，打开这个链接邀请：%s",
+		perm, permBlocks[perm], roleSettingsHint, core.DiscordInviteURL(p.appID, p.guildID))}
+}
+
+// permBlocks: what the missing permission stops, said with the hint.
+var permBlocks = map[string]string{
+	permManageChannels: "，建不了工作区频道",
+	permPinMessages:    "，任务板置顶不上（任务板照常更新，只是没钉在顶上）",
 }
 
 // workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so

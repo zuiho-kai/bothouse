@@ -13946,6 +13946,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 	}
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
+	e.noteWorkspaceFiles(sessionKey, files)
 	for _, file := range files {
 		if err := e.waitOutgoing(p); err != nil {
 			return err
@@ -14053,6 +14054,7 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		}
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
+	e.noteWorkspaceFiles(target.sessionKey, files)
 	for _, file := range files {
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err

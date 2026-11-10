@@ -29,9 +29,10 @@ const (
 // heldReportImages keeps the images a workspace sent with a held report until it is released
 // (in memory only: after a restart only the images the report names by path go out).
 var heldReportImages = struct {
-	mu sync.Mutex
-	m  map[string][]ImageAttachment
-}{m: map[string][]ImageAttachment{}}
+	mu    sync.Mutex
+	m     map[string][]ImageAttachment
+	files map[string][]FileAttachment // the files it sent (team_exit_files.go)
+}{m: map[string][]ImageAttachment{}, files: map[string][]FileAttachment{}}
 
 // holdReportForLead takes the place of postExitHeadline for a [report]: the record is kept
 // pending (Held) on the lead engine and the lead is woken to accept it. The board records the
@@ -66,6 +67,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 	}
 	heldReportImages.mu.Lock()
 	heldReportImages.m[rec.Key] = takeWorkspaceImages(sessionKey, boundTime(item))
+	heldReportImages.files[rec.Key] = takeWorkspaceFiles(sessionKey, boundTime(item), false)
 	heldReportImages.mu.Unlock()
 	e.markExitReported(hid) // one handoff, one report: a repair turn's copy is not held again
 	queued := false
@@ -217,6 +219,7 @@ func (e *Engine) rejectHeldReport(key, why string) bool {
 	e.teamExit.mu.Unlock()
 	heldReportImages.mu.Lock()
 	delete(heldReportImages.m, key)
+	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
 	slog.Info("report accept: lead sent the report back; not posted", "board_item", rec.Board, "workspace", rec.Workspace, "why", truncateStr(why, 200))
 	return true
@@ -277,10 +280,12 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 		return err
 	}
 	heldReportImages.mu.Lock()
-	imgs := heldReportImages.m[key]
+	imgs, files := heldReportImages.m[key], heldReportImages.files[key]
 	delete(heldReportImages.m, key)
+	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
 	e.postHeldImages(ctx, p, rc, imgs, cp.Body)
+	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	e.exitMarkPosted(exitKindReport, cp.Board, cp.Headline)
 	e.teamExit.mu.Lock()
 	if unchecked {

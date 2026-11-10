@@ -2421,6 +2421,9 @@ func TestAgentSystemPrompt_MentionsAttachmentSend(t *testing.T) {
 	if !strings.Contains(prompt, "bothouse send --tts") {
 		t.Fatalf("prompt missing tts send instructions: %q", prompt)
 	}
+	if !strings.Contains(prompt, "never give only the local path") {
+		t.Fatalf("prompt missing local-path rule (send the file or paste it): %q", prompt)
+	}
 	if !strings.Contains(prompt, "NO_REPLY") {
 		t.Fatalf("prompt missing silent reply guidance for voice tool: %q", prompt)
 	}

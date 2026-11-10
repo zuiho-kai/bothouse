@@ -215,6 +215,10 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 			if sc := scopeReportProblems(notes, body); sc != nil {
 				problems, legacy = append(problems, sc...), false
 			}
+			// a report that says it produced a document carries it: a file or a link (team_exit_files.go)
+			if dp := reportDeliverableProblems(sessionKey, body, item); dp != nil {
+				problems, legacy = append(problems, dp...), false
+			}
 		}
 		if kind == exitKindReport {
 			// a capability made for Claude Code only goes back unless it names why the others cannot have it
