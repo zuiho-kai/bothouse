@@ -30,7 +30,7 @@ const acceptBody = "[report] #46 背景：你让我修汇报。\n改好了，已
 
 func holdForTest(t *testing.T, e *Engine, p Platform, item *teamTaskBoardItem, doubt string) {
 	t.Helper()
-	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", acceptBody, exitWSKey, 46, "背景：你让我修汇报。\n改好了，已上线\n要你做的：没有。\n我加的：无", doubt, item)
+	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", acceptBody, exitWSKey, 46, "背景：你让我修汇报。\n改好了，已上线\n要你做的：没有。\n我加的：无", doubt, "", item)
 }
 
 func verdictCall(t *testing.T, e *Engine, board int, action, verdict string) *httptest.ResponseRecorder {
