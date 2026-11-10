@@ -32,14 +32,13 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-// #579 v2: the panel used to open on a sidebar of 19 equal rows. The five pages people live in
+// #579 v2: the panel used to open on a sidebar of 19 equal rows. The four pages people live in
 // are tabs in the top bar (and the phone's bottom bar); everything else sits one click away in
 // the "all features" launcher, grouped by what the owner is doing. Every route is still listed.
 export const primaryNav: NavItem[] = [
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
   { key: 'roles', path: '/roles', icon: Users },
   { key: 'chat', path: '/chat', icon: MessageSquare },
-  { key: 'sessions', path: '/sessions', icon: MessagesSquare },
   { key: 'usage', path: '/usage', icon: Activity },
 ];
 
@@ -48,6 +47,8 @@ export const navGroups: NavGroup[] = [
     key: 'collab',
     items: [
       { key: 'projects', path: '/projects', icon: FolderKanban },
+      // 会话: every underlying session record, a log for looking things up rather than a daily page
+      { key: 'sessions', path: '/sessions', icon: MessagesSquare },
       { key: 'cron', path: '/cron', icon: Clock },
       // 记忆论坛 (#1143): the memories roles get each turn, as ranked posts (gate GET /forum)
       { key: 'forum', path: '/forum', icon: Award },

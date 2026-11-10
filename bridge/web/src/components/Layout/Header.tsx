@@ -44,7 +44,7 @@ function useDismiss(open: boolean, close: () => void) {
 }
 
 /**
- * #579 v2 top bar: brand, the five everyday pages as tabs, an "all features" launcher for the
+ * #579 v2 top bar: brand, the four everyday pages as tabs, an "all features" launcher for the
  * rest, then the page tools. It replaces the old 19-row sidebar, so framed inside DSH (which has
  * its own sidebar) the panel no longer shows a second one.
  */

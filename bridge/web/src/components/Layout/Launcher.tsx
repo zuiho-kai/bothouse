@@ -3,21 +3,18 @@ import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import VersionBadge from './VersionBadge';
-import { navGroups, primaryNav } from './navItems';
+import { navGroups } from './navItems';
 
 const focusRing =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text focus-visible:ring-offset-2 focus-visible:ring-offset-surface';
 
 /**
  * "All features": every page that is not a top-bar tab, grouped. Desktop shows it as a popover
- * under the top bar, phones as a bottom sheet behind the "more" tab. `withPrimary` adds the tab
- * pages too (the phone's tab bar has no room for usage).
+ * under the top bar, phones as a bottom sheet behind the "more" tab.
  */
-export function Launcher({ onNavigate, withPrimary = false, className }: { onNavigate: () => void; withPrimary?: boolean; className?: string }) {
+export function Launcher({ onNavigate, className }: { onNavigate: () => void; className?: string }) {
   const { t } = useTranslation();
-  const groups = withPrimary
-    ? [{ key: 'main', items: primaryNav.filter((i) => i.key === 'usage') }, ...navGroups]
-    : navGroups;
+  const groups = navGroups;
   return (
     <div className={cn('flex flex-col', className)}>
       <NavLink

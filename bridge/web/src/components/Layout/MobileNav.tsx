@@ -7,16 +7,16 @@ import { useAuthStore } from '@/store/auth';
 import { primaryNav, navItemFor, isPrimary } from './navItems';
 import { Launcher } from './Launcher';
 
-const tabs = primaryNav.filter((i) => i.key !== 'usage');
+const tabs = primaryNav;
 
-/** Phone navigation: four tabs plus "more", which opens every other page as a bottom sheet. */
+/** Phone navigation: the four tabs plus "more", which opens every other page as a bottom sheet. */
 export default function MobileNav() {
   const { t } = useTranslation();
   const { pathname } = useLocation();
   const logout = useAuthStore((s) => s.logout);
   const [open, setOpen] = useState(false);
   const current = navItemFor(pathname);
-  const onMore = !!current && !isPrimary(current) || current?.key === 'usage';
+  const onMore = !!current && !isPrimary(current);
 
   useEffect(() => { setOpen(false); }, [pathname]);
   useEffect(() => {
@@ -72,7 +72,7 @@ export default function MobileNav() {
                 <X size={18} />
               </button>
             </div>
-            <Launcher onNavigate={() => setOpen(false)} withPrimary />
+            <Launcher onNavigate={() => setOpen(false)} />
             <button type="button" onClick={logout} className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-control border border-hairline text-sm font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400">
               <LogOut size={16} />{t('login.logout')}
             </button>
