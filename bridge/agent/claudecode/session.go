@@ -867,7 +867,10 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 	}
 	if isErr, _ := raw["is_api_error_message"].(bool); isErr {
 		errKind, _ := raw["error"].(string)
-		if _, quota := claudeQuotaExhausted(errKind, assistantText(msg)); quota {
+		// #1414: a classifier refusal is re-run on a fresh session by the engine;
+		// do not stream its text either.
+		_, quota := claudeQuotaExhausted(errKind, assistantText(msg))
+		if quota || strings.Contains(strings.ToLower(assistantText(msg)), "safeguards flagged this message") {
 			// The notice is not a reply: the turn-ending result carries the quota
 			// mark and the engine words it, so do not stream the raw text.
 			cs.armAPIErrorFallback(raw)

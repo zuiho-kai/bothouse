@@ -4,11 +4,12 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { cropRect } from '../src/client/avatar-upload.ts'
 import { MemberDialog } from '../src/client/MemberDialog.tsx'
 import { zh } from '../src/client/locales.ts'
+import { resetAvatarStyleForTest } from '../src/client/avatar-style.ts'
 
 const t = (key: keyof typeof zh, args?: Record<string, string>) => String(zh[key]).replace('{kb}', args?.kb ?? '')
 const list = async () => []
 const member = { id: 'coder', name: 'Coder', kind: 'dsh' as const, online: true, avatar: 'upload:coder.png' }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); resetAvatarStyleForTest(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('covers wide and tall sources without distortion and clamps zoom and translation', () => {
   expect(cropRect(800, 400, 0, 200, 0)).toEqual({ x: 200, y: 0, size: 400, scale: 0.64 })
@@ -19,7 +20,12 @@ it('covers wide and tall sources without distortion and clamps zoom and translat
 
 function setup(output = 'AQID') {
   const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ member }) })
-  vi.stubGlobal('fetch', fetcher)
+  vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {
+    if (path === 'collab/panel/api/v1/settings' && !init?.method) {
+      return Promise.resolve({ ok: true, json: async () => ({ data: { avatar_style: 'brand' } }) })
+    }
+    return fetcher(path, init)
+  })
   const drawImage = vi.fn()
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
   const encode = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(`data:image/png;base64,${output}`)
@@ -46,6 +52,7 @@ it.each(['image/jpeg', 'image/webp', 'image/png'])('accepts %s over 256KB and ex
   expect(encode).not.toHaveBeenCalled()
   fireEvent.keyDown(crop, { key: 'Enter' })
   await waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
+  expect(fetcher).toHaveBeenCalledWith('collab/api/members/coder/avatar', expect.objectContaining({ method: 'POST' }))
   expect(drawImage).toHaveBeenCalledWith(expect.anything(), 200, 0, 400, 400, 0, 0, 256, 256)
   expect(encode.mock.instances[0]).toMatchObject({ width: 256, height: 256 })
 })

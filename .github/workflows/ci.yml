@@ -164,6 +164,8 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/llmwiki/test_pending_round.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/wiki/llmwiki/test_deadline.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_global_hooks.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/tools/test_watchvid_adapters.py

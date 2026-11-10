@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { avatarSrc } from './avatars.ts'
 import { useCollabUrl } from './collab-url.ts'
+import { useAvatarStyle } from './avatar-style.ts'
 import css from './ChannelsPage.module.css'
 
 const PALETTE = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22']
@@ -15,7 +16,8 @@ function color(id: string): string {
 /** Member portrait, or a colored initial badge when there is none or the image fails to load. */
 export function Avatar({ id, name, avatar, avatarVersion, small, cli, model }: { id: string; name: string; avatar?: string; avatarVersion?: string; small?: boolean; cli?: string; model?: string }) {
   const url = useCollabUrl()
-  const base = avatarSrc({ avatar, name, cli, model, id }, url)
+  const style = useAvatarStyle()
+  const base = avatarSrc({ avatar, name, cli, model, id }, url, style)
   const src = base && avatar?.startsWith('upload:') && avatarVersion ? `${base}?v=${avatarVersion}` : base
   const [broken, setBroken] = useState<string | undefined>(undefined)
   return (
@@ -34,12 +36,13 @@ export function Avatar({ id, name, avatar, avatarVersion, small, cli, model }: {
 // 来源：#113 草图 v1，频道行与标题栏最多叠三个头像。
 export function AvatarStack({ members, max = 3, label }: { members: readonly { id: string; name: string; avatar?: string; avatarVersion?: string; cli?: string; model?: any }[]; max?: number; label?: string }) {
   const url = useCollabUrl()
+  const style = useAvatarStyle()
   if (members.length === 0) return null
   const shown = members.slice(0, max)
   return (
     <span className={css.avatarStack} title={label ?? members.map(m => m.name).join('、')} aria-hidden>
       {shown.map(m => {
-        const base = avatarSrc({ avatar: m.avatar, name: m.name, cli: (m as any).cli, model: typeof (m as any).model === 'string' ? (m as any).model : (m as any).model?.model, id: m.id }, url)
+        const base = avatarSrc({ avatar: m.avatar, name: m.name, cli: (m as any).cli, model: typeof (m as any).model === 'string' ? (m as any).model : (m as any).model?.model, id: m.id }, url, style)
         const src = base && m.avatar?.startsWith('upload:') && m.avatarVersion ? `${base}?v=${m.avatarVersion}` : base
         return <span key={m.id} className={css.stackDot} style={{ background: color(m.id), ...(src === undefined ? {} : { backgroundImage: `url("${src}")` }) }} />
       })}

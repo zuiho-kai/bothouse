@@ -74,6 +74,13 @@
 cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使用独立进程组，Windows 使用现有的
 `taskkill /T /F`。升级前已经脱离父进程的整理任务不会被新版自动接管，须先核对归属并保存现场再恢复。
 
+调度器把本次任务的原有绝对期限通过运行环境 `CC_JOB_DEADLINE` 传给 shell 子进程；没有时限的任务不继承旧期限。
+角色导出、整理模型与 Git 同步共用剩余预算，不从每个子步骤重新计时，不修改任务的 `timeout_mins`。
+整理在硬期限前预留现有的两秒子进程收尾等待；模型超时后先回收本次调用的后代，再走原有失败回滚。
+预算耗尽不增加模型失败次数，不推进未接受内容的偏移或片段检查点；已接受的本地提交保留，未推送的下轮再同步。
+`WIKI_STOP_AT` 保持批次之间停止的软期限语义，不打断正在执行的一批；硬期限仍由调度器约束。
+这些运行环境由现有入口传递，无需另配定时任务或延长 90 分钟时限。
+
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。
 模型引擎（haiku / sonnet / codex …）在向导里选，或在 config.json 的 `*_engine` 键改。

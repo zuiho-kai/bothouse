@@ -542,6 +542,10 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 				e.dropHeldReport(k, why)
 				continue
 			}
+			// The lead passed or rejected this task after the hold, whichever way the call came (#1405).
+			if e.settleFromTaskVerdict(k) {
+				continue
+			}
 			// No verdict from the lead in time: post it as written, marked unchecked (11-09). A
 			// progress report on a task waiting outside is not posted: the task comes back by itself
 			// and its final report goes to the lead again (#1378).

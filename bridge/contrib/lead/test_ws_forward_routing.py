@@ -39,7 +39,7 @@ class ForwardRecipientTest(unittest.TestCase):
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
         self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",
-                                                "task_ids", "find_live", "find_done", "main"}, dict(
+                                                "task_ids", "find_live", "find_done", "reject_first", "main"}, dict(
             _team=self.team, board=self.board, json=json, re=re, os=os,
             subprocess=types.SimpleNamespace(run=self.run),
             sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),
@@ -57,8 +57,9 @@ class ForwardRecipientTest(unittest.TestCase):
         # 11-09: a forward while the bridge holds this task's text [report] for the lead sends it back
         # (bothouse report reject) once the work reached the workspace.
         self.forward()
-        self.assertIn("timer", self.run.call_args_list[0].args[0])
-        first = self.run.call_args_list[1].args[0]
+        # #1405: the reject lands first; the timer that wakes the workspace follows
+        self.assertIn("timer", self.run.call_args_list[1].args[0])
+        first = self.run.call_args_list[0].args[0]
         self.assertEqual(first[:5], ["bothouse", "report", "reject", "--id", "362"])
         self.assertEqual(first[first.index("--reason")+1], "continue existing task")
 
@@ -88,7 +89,7 @@ class ForwardRecipientTest(unittest.TestCase):
         self.record["board"] = [1271]
         cmd = self.forward()
         self.assertEqual(cmd[cmd.index("-s")+1], "discord:ws3")
-        reject = self.run.call_args_list[1].args[0]
+        reject = self.run.call_args_list[0].args[0]
         self.assertEqual(reject[:5], ["bothouse", "report", "reject", "--id", "1271"])
         self.board.arm_guard.assert_called_once_with(1271)
 
@@ -106,8 +107,24 @@ class ForwardRecipientTest(unittest.TestCase):
             self.ns["main"](["CI 绿了，接着发版"])
         self.assertEqual(cm.exception.code, 0)
         cmds = [c.args[0] for c in self.run.call_args_list]
-        self.assertTrue(cmds[0][0].endswith("ws-handoff") and cmds[0][1:3] == ["--resume", "1376"], cmds[0])
-        self.assertEqual(cmds[1][:5], ["bothouse", "report", "reject", "--id", "1376"])
+        # #1405: the reject lands on the task first, before any forwarding step can fail
+        self.assertEqual(cmds[0][:5], ["bothouse", "report", "reject", "--id", "1376"])
+        self.assertTrue(cmds[1][0].endswith("ws-handoff") and cmds[1][1:3] == ["--resume", "1376"], cmds[1])
+
+    def test_not_forwarded_still_rejects_by_notes(self):
+        # #1405: 11-10 #1348 — the freed workspace was on another chat's #936, ws-forward --notes exited
+        # 「没转」 without rejecting and the held report went out 「主角色未验收」.
+        other = dict(id=936, where="/other.md", ws="discord:ws3", chat="discord:other")
+        self.record["board"] = [1348]
+        self.board.items = lambda: [other]
+        self.board.done_records = lambda: []
+        self.board.done_item = lambda p: None
+        self.board.paused_item = lambda p: None
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
+            self.ns["main"](["打回：误拦没上线"])
+        self.assertIn("没转", str(cm.exception))
+        cmds = [c.args[0] for c in self.run.call_args_list]
+        self.assertEqual([c[:5] for c in cmds], [["bothouse", "report", "reject", "--id", "1348"]])
 
     def test_cross_project_forward_keeps_recipient_and_workspace(self):
         cmd = self.forward()
@@ -128,7 +145,8 @@ class ForwardRecipientTest(unittest.TestCase):
         self.live["who"] = "工作区3未绑定成员"
         with self.assertRaises(SystemExit):
             self.forward()
-        self.run.assert_not_called()
+        # nothing goes to a workspace; the lead's words still count as the task's reject (#1405)
+        self.assertTrue(all(c.args[0][1:3] == ["report", "reject"] for c in self.run.call_args_list), self.run.call_args_list)
         self.board.append_forward.assert_not_called()
 
     def test_legacy_record_resolves_current_named_owner(self):

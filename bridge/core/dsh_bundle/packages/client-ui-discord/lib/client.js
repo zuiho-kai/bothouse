@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 5228c5c93d0c2cb5f22534536897b5f04ad32e249a1ce334768149fccd0a3a2a
+// dsh-client-source-sha256: 0dae018f21980115a8987a880c994fe82307bbb1aaf1d67b3742cbf6548371e1
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -19775,6 +19775,7 @@ function HighlightedMarkdown({ text, labels, members, className, inline, dataCar
 /**
 * Built-in member avatars served by the collab plugin at `collab/avatars/<slug>.png`:
 * the four B-version character portraits (Claude / GPT / DeepSeek / Gemini) + Grok + lanxi.
+* These are the slugs a member can pick for itself (MemberDialog).
 */
 const AVATARS = [
 	"orange",
@@ -19784,39 +19785,63 @@ const AVATARS = [
 	"lanxi",
 	"grok"
 ];
+const DEFAULT_AVATAR_STYLE = "brand";
+const AVATAR_SETS = {
+	brand: {
+		claude: "brand-claude",
+		gpt: "brand-openai",
+		deepseek: "brand-deepseek",
+		gemini: "brand-gemini",
+		grok: "brand-grok",
+		minimax: "brand-minimax"
+	},
+	chibi: {
+		claude: "orange",
+		gpt: "dragon",
+		deepseek: "whale",
+		gemini: "rainbow",
+		grok: "grok",
+		minimax: "lanxi"
+	}
+};
+/** Every image the plugin serves under collab/avatars/ (both sets). */
+const SERVED = [...AVATARS, ...Object.values(AVATAR_SETS.brand)];
+function normalizeAvatarStyle(v) {
+	return v === "chibi" ? "chibi" : DEFAULT_AVATAR_STYLE;
+}
 /**
-* Maps member role/model/cli/name to a built-in avatar slug:
-* - Claude -> orange
-* - GPT / Codex -> dragon
-* - DeepSeek -> whale
-* - Gemini -> rainbow
-* - Grok -> grok
+* Maps member role/model/cli/name to a built-in avatar slug in the given set (default brand):
+* Claude, GPT / Codex, DeepSeek, Gemini, Grok, MiniMax. A member's own built-in pick wins.
 */
-function matchAvatarSlug(opts) {
-	if (opts.avatar && AVATARS.includes(opts.avatar)) return opts.avatar;
+function matchAvatarSlug(opts, style = DEFAULT_AVATAR_STYLE) {
+	if (opts.avatar && SERVED.includes(opts.avatar)) return opts.avatar;
+	const family = matchFamily(opts);
+	return family === void 0 ? void 0 : AVATAR_SETS[style][family];
+}
+function matchFamily(opts) {
 	const model = (opts.model || "").toLowerCase();
 	const cli = (opts.cli || "").toLowerCase();
 	const name = (opts.name || opts.id || "").toLowerCase();
 	if (model) {
-		if (model.includes("claude") || model.includes("opus") || model.includes("sonnet") || model.includes("haiku")) return "orange";
-		if (model.includes("gpt") || model.includes("codex") || model.includes("o1") || model.includes("o3") || model.includes("o4") || model.includes("chatgpt")) return "dragon";
-		if (model.includes("deepseek") || model.includes("r1") || model.includes("v3")) return "whale";
-		if (model.includes("gemini")) return "rainbow";
+		if (model.includes("claude") || model.includes("opus") || model.includes("sonnet") || model.includes("haiku")) return "claude";
+		if (model.includes("gpt") || model.includes("codex") || model.includes("o1") || model.includes("o3") || model.includes("o4") || model.includes("chatgpt")) return "gpt";
+		if (model.includes("deepseek") || model.includes("r1") || model.includes("v3")) return "deepseek";
+		if (model.includes("gemini")) return "gemini";
 		if (model.includes("grok") || model.includes("xai")) return "grok";
 	}
 	if (cli) {
-		if (cli === "claude" || cli === "claudecode") return "orange";
-		if (cli === "codex") return "dragon";
-		if (cli === "deepseek" || cli === "dsh") return "whale";
-		if (cli === "gemini" || cli === "antigravity") return "rainbow";
+		if (cli === "claude" || cli === "claudecode") return "claude";
+		if (cli === "codex") return "gpt";
+		if (cli === "deepseek" || cli === "dsh") return "deepseek";
+		if (cli === "gemini" || cli === "antigravity") return "gemini";
 		if (cli === "grok") return "grok";
 	}
 	if (name) {
-		if (name === "橘" || name === "c酱" || name === "cjiang" || name === "claude") return "orange";
-		if (name === "龙娘" || name === "g哥" || name === "gge" || name === "codex" || name === "gpt") return "dragon";
-		if (name === "鲸鱼娘" || name === "肥鱼" || name === "deep" || name === "deepseek" || name === "dsh") return "whale";
-		if (name === "彩虹猫" || name === "大豆包" || name === "gjiang" || name === "gemini") return "rainbow";
-		if (name === "岚汐" || name === "lanxi" || name === "minimax") return "lanxi";
+		if (name === "橘" || name === "c酱" || name === "cjiang" || name === "claude") return "claude";
+		if (name === "龙娘" || name === "g哥" || name === "gge" || name === "codex" || name === "gpt") return "gpt";
+		if (name === "鲸鱼娘" || name === "肥鱼" || name === "deep" || name === "deepseek" || name === "dsh") return "deepseek";
+		if (name === "彩虹猫" || name === "大豆包" || name === "gjiang" || name === "gemini") return "gemini";
+		if (name === "岚汐" || name === "lanxi" || name === "minimax") return "minimax";
 		if (name === "grok" || name.includes("grok")) return "grok";
 	}
 }
@@ -19826,20 +19851,83 @@ function matchAvatarSlug(opts) {
 * @param url - #236 path mapper of the panel (a paired computer's panel reads its avatars).
 * @returns a URL relative to the document base, the absolute URL, or undefined for the initial badge.
 */
-function avatarSrc(avatar, url = (path) => path) {
+function avatarSrc(avatar, url = (path) => path, style = DEFAULT_AVATAR_STYLE) {
 	if (avatar === void 0 || avatar === "") return void 0;
 	if (typeof avatar === "string") {
 		if (/^upload:[a-z0-9-]+\.png$/.test(avatar)) return url(`collab/avatars/uploads/${avatar.slice(7)}`);
 		if (/^https?:\/\//.test(avatar)) return avatar;
-		if (AVATARS.includes(avatar)) return url(`collab/avatars/${avatar}.png`);
-		const matched = matchAvatarSlug({ name: avatar });
+		if (SERVED.includes(avatar)) return url(`collab/avatars/${avatar}.png`);
+		const matched = matchAvatarSlug({ name: avatar }, style);
 		return matched ? url(`collab/avatars/${matched}.png`) : void 0;
 	}
 	const a = avatar.avatar;
 	if (a && /^upload:[a-z0-9-]+\.png$/.test(a)) return url(`collab/avatars/uploads/${a.slice(7)}`);
 	if (a && /^https?:\/\//.test(a)) return a;
-	const slug = matchAvatarSlug(avatar);
+	const slug = matchAvatarSlug(avatar, style);
 	return slug ? url(`collab/avatars/${slug}.png`) : void 0;
+}
+// src/client/avatar-style.ts
+/**
+* Which built-in avatar set members without their own avatar show (#602). The value lives in the
+* bothouse config ([display] avatar_style), read through this DSH's panel forwarder
+* (dsh/collab/panel.mjs, `collab/panel/api/v1/settings`), so the channel page and the web panel
+* show the same set. No bothouse, not the owner, or any error: the default brand set.
+* The embedded panel announces a switch on the `bothouse-avatar-style` BroadcastChannel
+* (bridge/web/src/lib/avatarMap.ts), so the page follows without a reload.
+*/
+const AVATAR_STYLE_CHANNEL = "bothouse-avatar-style";
+const SETTINGS_PATH = "collab/panel/api/v1/settings";
+const targets = /* @__PURE__ */ new Map();
+function stateFor(url) {
+	const path = url(SETTINGS_PATH);
+	let state = targets.get(path);
+	if (!state) {
+		state = {
+			current: DEFAULT_AVATAR_STYLE,
+			started: false,
+			listeners: /* @__PURE__ */ new Set()
+		};
+		targets.set(path, state);
+	}
+	return state;
+}
+function setAvatarStyle(style, url = localCollabUrl) {
+	const state = stateFor(url);
+	if (style === state.current) return;
+	state.current = style;
+	for (const fn of state.listeners) fn();
+}
+/** Reads the stored set once and listens for switches from the panel. */
+function startAvatarStyle(fetchImpl = globalThis.fetch, url = localCollabUrl) {
+	const state = stateFor(url);
+	if (state.started) return;
+	state.started = true;
+	const path = url(SETTINGS_PATH);
+	const link = path.match(/(?:^|\/)collab\/remote\/([^/]+)\/panel\//)?.[1];
+	try {
+		const ch = new BroadcastChannel(link ? `${AVATAR_STYLE_CHANNEL}:${link}` : AVATAR_STYLE_CHANNEL);
+		state.channel = ch;
+		ch.onmessage = (e) => {
+			setAvatarStyle(normalizeAvatarStyle(e.data), url);
+		};
+	} catch (error) {}
+	if (typeof fetchImpl !== "function") return;
+	fetchImpl(path, { credentials: "same-origin" }).then((r) => r.ok ? r.json() : void 0).then((s) => {
+		if (s?.data !== void 0) setAvatarStyle(normalizeAvatarStyle(s.data.avatar_style), url);
+	}).catch((error) => {});
+}
+function useAvatarStyle() {
+	const url = useCollabUrl();
+	const state = stateFor(url);
+	(0, react.useEffect)(() => {
+		startAvatarStyle(globalThis.fetch, url);
+	}, [url]);
+	return (0, react.useSyncExternalStore)((fn) => {
+		state.listeners.add(fn);
+		return () => {
+			state.listeners.delete(fn);
+		};
+	}, () => state.current, () => state.current);
 }
 // src/client/Avatar.tsx
 /** Member portrait: a built-in or bot-announced image over a colored initial badge. */
@@ -19861,13 +19949,14 @@ function color(id) {
 /** Member portrait, or a colored initial badge when there is none or the image fails to load. */
 function Avatar({ id, name, avatar, avatarVersion, small, cli, model }) {
 	const url = useCollabUrl();
+	const style = useAvatarStyle();
 	const base = avatarSrc({
 		avatar,
 		name,
 		cli,
 		model,
 		id
-	}, url);
+	}, url, style);
 	const src = base && avatar?.startsWith("upload:") && avatarVersion ? `${base}?v=${avatarVersion}` : base;
 	const [broken, setBroken] = (0, react.useState)(void 0);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {

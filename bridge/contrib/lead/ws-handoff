@@ -1,7 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
 # 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force]
-#   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名、同目录撞活也放行（见 live_overlap）。
+#   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
 #   --confirmed：交接标了「类别：出图/改用户文档/定方向」时，用户看过「派活人自己定的」清单后才带（见 own_gate）。
 #   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
 #   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
@@ -66,7 +66,8 @@ def check_notes(text: str):
 
 def intent_gate(text: str):
     """交接对照产品意图卡，由小模型判断（../hooks/intent_judge.py，发问检查用同一个）：交接里留给用户定的事按用户定过的话
-    能推出来，或做法和用户定过的冲突，就退回并给出答案；真是方向、超时出错、找不到判断器都放行。
+    能推出来就退回给出答案；冲突必须有逐字用户原话，否则要求先问用户且不代答；同主题本轮新话优先于旧定案。
+    真是方向、超时出错、找不到判断器都放行。
     来源：用户 2026-10-31「我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」（#827）。"""
     here = Path(__file__).resolve().parent
     for d in (here.parent / "hooks", here.parent.parent / "hooks"):  # 仓库 contrib/hooks；安装后 ~/.bothouse/hooks
@@ -81,8 +82,11 @@ def intent_gate(text: str):
         return (f"交接里留给用户定的「{r['question']}」按用户定过的话能推出来：{r['answer']}（{r['basis'].rstrip('。')}）。"
                 "把这个答案写进交接，自己定，再交。判断器漏了事实就在交接里写明漏了什么再交。")
     if r["verdict"] == "conflict":
-        return (f"交接里的做法「{r['question']}」和用户定过的冲突：{r['basis'].rstrip('。')}。合定案的做法：{r['answer']}。"
-                "按定案改了再交；确要推翻定案，先问用户，把用户确认的原话写进交接再交。")
+        return (f"交接里的做法「{r['question']}」和用户原话冲突：{r['basis'].rstrip('。')}。"
+                f"请先核对两种读法：交接当前写法「{r['answer']}」；按引用原话的另一种读法。先问用户确认，把用户原话补进交接再交。")
+    if r["verdict"] == "ask":
+        return (f"交接里的做法「{r['question']}」有两种读法：{r['basis'].rstrip('。')}。"
+                "先问用户确认，把用户确认的原话写进交接再交；不要自行选择或改写成其中一种。")
     return None
 
 
@@ -218,66 +222,24 @@ def dup_error(it) -> str:
             f"要接着做用 ws-forward 转话；确实要再开一件，加 --force 重跑。")
 
 
-# 撞活：短名相同、或范围节里改的目录相同的进行中条目，以及命令里带这些目录的在跑 bgrun，都拒绝再交，--force 放行。
+# 撞活：短名相同的进行中条目拒绝再交，--force 放行。同目录那条 11-11 删了：近 7 天拦 4 次，对上的都是 notes/、lead/、~/work 这类公共目录，没有一次是同一件活。
 # 来源：2026-11-08 反思 a 类「派活脚本在接手前查任务板和 bgrun 里同名或同目录的在跑任务，有就拒绝并给出对方会话」
 # （#1240 补尾帧被两个会话同时做，互相覆盖脚本）。家目录和 ~/wiki 根太宽（人人都写 log.md），不算。
 RUNS = Path.home() / ".bothouse" / "runs"
-_PATH_RE = re.compile(r"(?:~|/Users/|/home/|/opt/|/srv/)[^\s`'\"，。；、）)」：]+")
-
-
-def scope_dirs(text: str) -> set:
-    """交接范围节里「改」行写到的路径所在目录（文件取上级、目录取本身），realpath。"""
-    text = "\n" + text
-    head = f"\n## {PRODUCT_SECS[2]}"
-    body = text.split(head, 1)[1].split("\n## ", 1)[0] if head in text else ""
-    wide = {os.path.realpath(os.path.expanduser(x)) for x in ("~", "~/wiki")}
-    out = set()
-    for ln in body.splitlines():
-        if "改" not in ln or "不改" in ln:
-            continue
-        for p in _PATH_RE.findall(ln):
-            p = os.path.realpath(os.path.expanduser(p.rstrip(".:,")))
-            d = p if os.path.isdir(p) else os.path.dirname(p)
-            if d and d not in wide and d != "/":
-                out.add(d)
-    return out
-
-
 def live_overlap(path: str, short_name: str, notes: str, runs: Path = RUNS):
     """撞活说明（一行一处）；没有返回空列表。同一份交接文件由 live_dup 管，这里跳过。"""
-    me, mine, hits = _real(path), scope_dirs(notes), []
+    me, hits = _real(path), []
     for it in board.items():
         if it.get("paused") or it.get("backlog") or not it.get("where") or _real(it["where"]) == me:
             continue
         who = it.get("who") or it.get("ws") or "—"
         if short_name and board.short(it) == short_name:
             hits.append(f"#{it['id']} 同名「{short_name}」（{who}，状态：{it.get('status') or '—'}，交接 {it['where']}）")
-            continue
-        try:
-            theirs = scope_dirs(Path(_real(it["where"])).read_text(encoding="utf-8"))
-        except OSError:
-            continue
-        same = sorted(mine & theirs)
-        if same:
-            hits.append(f"#{it['id']} 同目录 {same[0]}（{who}，状态：{it.get('status') or '—'}，交接 {it['where']}）")
-    for d in sorted(runs.glob("*/")) if runs.is_dir() else []:
-        if (d / "exit").exists():
-            continue
-        try:
-            pid = int((d / "pid").read_text().strip())
-            os.kill(pid, 0)
-            cmd = (d / "cmd").read_text(encoding="utf-8")
-        except (OSError, ValueError):
-            continue
-        cmd_x = cmd.replace("~", str(Path.home()))
-        same = sorted(x for x in mine if x in cmd_x)
-        if same:
-            hits.append(f"bgrun {d.name} 在跑（pid {pid}），命令里有 {same[0]}，日志 {d / 'log'}")
     return hits
 
 
 def overlap_error(hits) -> str:
-    return ("已有会话在做同名或同目录的活，没交出（2026-11-08 反思：两个会话同做一件、互相覆盖）：\n"
+    return ("已有会话在做同名的活，没交出（2026-11-08 反思：两个会话同做一件、互相覆盖）：\n"
             + "\n".join(f"- {h}" for h in hits)
             + "\n先找对方会话核对：是同一件就 ws-forward 转话给那个工作区；不是同一件、确定不会互相覆盖，加 --force 重跑。")
 

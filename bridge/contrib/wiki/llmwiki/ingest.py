@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
 import filelock  # exclusive file lock on Mac/Linux/Windows
+import budget  # the scheduler's deadline; WIKI_STOP_AT stays a between-batch stop
 import discord_said  # bridge-authoritative user words
 import daypack  # the day's objective record (cost, slow commands, promises) dream's 今日反思 reads
 import search  # page candidates for the ingest prompt
@@ -1419,7 +1420,7 @@ def engine_run(cmd, **kw):
     is reverted and not fingerprinted, the next run retries): code review 2026-10-18 found TimeoutExpired from codex()
     and claude() uncaught, crashing the whole run. 124: the exit status timeout(1) uses."""
     try:
-        return subprocess.run(cmd, **kw)
+        return budget.run(cmd, **kw)
     except subprocess.TimeoutExpired as e:
         return subprocess.CompletedProcess(cmd, 124, "", f"timeout after {e.timeout}s")
     except OSError as e:  # engine not installed (e.g. the Agent SDK venv missing): a failed call, the fallback runs
@@ -1543,19 +1544,76 @@ def dsh_env():
     return env
 
 
+def _dsh_stream(cmd, task, timeout=3600):
+    """Run `dsh --json`: the final message, plus each model step's usage added up (`status` step_end events)."""
+    import signal, threading
+    err = tempfile.TemporaryFile("w+")
+    r = dict(steps=0, input=0, cache=0, output=0, final="", rc=127, stderr="")
+    plain = []  # stdout that is no event (a wrapper echoing a number, an older dsh printing the answer): see below
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, cwd=WIKI, env=dsh_env(),
+                             text=True, start_new_session=True)
+    except OSError as e:  # dsh not installed: a failed call, like engine_run
+        r["stderr"] = f"{type(e).__name__}: {e}"
+        return r
+
+    def stop():  # the timeout: the whole process group, like the scheduler's cancel
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    timer = threading.Timer(timeout, stop)
+    timer.start()
+    try:
+        p.stdin.write(task)
+        p.stdin.close()
+        for line in p.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                plain.append(line.rstrip("\n"))
+                continue
+            # `18`, `"ok"` or `[]` parses as JSON but is no event: a wrapper may echo a number (test_rolewiki's fake-dsh
+            # prints len(stdin); this crashed the whole run on 2026-11-10's bridge-checks), an older dsh may print text
+            if not isinstance(ev, dict):
+                plain.append(line.rstrip("\n"))
+                continue
+            if ev.get("type") == "final":
+                r["final"] = ev.get("text") or ""
+            elif ev.get("type") == "status" and ev.get("phase") == "step_end":
+                u = ev.get("usage") or {}
+                r["steps"] += 1
+                r["input"] += u.get("inputTokens", 0)
+                r["cache"] += u.get("cacheReadTokens", 0)
+                r["output"] += u.get("outputTokens", 0)
+        p.wait()
+    finally:
+        timer.cancel()
+    if not r["final"] and plain:  # no final event: the answer is what was printed (an older dsh, a wrapper script)
+        r["final"] = "\n".join(plain)
+    r["rc"] = p.returncode
+    err.seek(0)
+    r["stderr"] = err.read()[-300:]
+    return r
+
+
 def dsh(instruction, stdin="", label="?", context=None):
-    """DeepSeek Harness, headless (`dsh --profile headless -`: the task from stdin, the final message on stdout). It
+    """DeepSeek Harness, headless (`dsh --profile headless --json -`: the task from stdin, run events on stdout). It
     runs under DSH's own sandbox, which lets it write only its working directory (the wiki) and the temp dirs; the
-    transcript leads the task like codex()."""
+    transcript leads the task like codex(). Each model step's usage goes to USAGE (#619: it was all zeros, so a day of
+    1.9 billion tokens went unseen)."""
     task = (CONTEXT.format(text=context) + "\n\n" if context else "") + instruction.replace(
         "at the end of your system prompt", "at the start of your input") + ("\n\n" + stdin if stdin else "")
-    cmd = [*CFG["dsh_cmd"], "--profile", "headless", *(["--patch", os.path.expanduser(CFG["dsh_patch"])] if CFG["dsh_patch"] else []), "-"]
-    r = engine_run(cmd, input=task, cwd=WIKI, capture_output=True, text=True, timeout=3600, env=dsh_env())
-    with open(USAGE, "a") as f:
-        f.write("\t".join(map(str, [time.strftime("%F %T"), label, "dsh", 1, 0, 0, 0, 0, 0, 0])) + "\n")
-    out = r.stdout.strip()
-    log(f"{label} dsh rc={r.returncode} out={len(out)} chars")
-    return r.returncode == 0 and bool(out), out or f"rc={r.returncode} {r.stderr[-300:]}", 0
+    cmd = [*CFG["dsh_cmd"], "--profile", "headless", *(["--patch", os.path.expanduser(CFG["dsh_patch"])] if CFG["dsh_patch"] else []),
+           "--json", "-"]
+    r = _dsh_stream(cmd, task)
+    with open(USAGE, "a") as f:  # real per-step counts (this row was all zeros before #619)
+        f.write("\t".join(map(str, [time.strftime("%F %T"), label, "dsh", r["steps"], r["input"], r["cache"], 0,
+                                    r["output"], 0, 0])) + "\n")
+    out = r["final"].strip()
+    log(f"{label} dsh rc={r['rc']} steps={r['steps']} in={r['input']} cache={r['cache']} out_tokens={r['output']} "
+        f"out={len(out)} chars")
+    return r["rc"] == 0 and bool(out), out or f"rc={r['rc']} {r['stderr']}", 0
 
 
 def claude(instruction, stdin="", label="?", context=None, model=None, api=False):
@@ -1692,6 +1750,9 @@ def model_pass(label, *a, **k):
     died after the model was paid, nothing counted a failure, and launchd re-ran the same batch every 30 minutes."""
     global CRASHED, LAST_REJECTED
     CRASHED = ""
+    if budget.exhausted():
+        LAST_REJECTED = False
+        return False
     try:
         return _model_pass(label, *a, **k)
     except Exception as e:  # noqa: BLE001 — Ctrl-C / SystemExit still end the run
@@ -1871,12 +1932,21 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
 def remote(*args):
     """git pull/push against origin (private GitHub repo). Proxy first, then direct; never fatal."""
     proxy = "http://127.0.0.1:7890"
+    error = ""
     for env in ({"https_proxy": proxy, "http_proxy": proxy}, {}):
-        r = subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, timeout=180,
+        try:
+            r = budget.run(["git", *args], cwd=REPO, capture_output=True, text=True, timeout=180,
                            env={**os.environ, **env})
+        except subprocess.TimeoutExpired:
+            if budget.exhausted():
+                log(f"git {args[0]} deferred: job deadline reached; local commits retained")
+                return False
+            error = "timeout"
+            continue
         if r.returncode == 0:
             return True
-    log(f"git {args[0]} FAILED (will retry next run): {r.stderr.strip()[-300:]}")
+        error = r.stderr.strip()[-300:]
+    log(f"git {args[0]} FAILED (will retry next run): {error}")
     return False
 
 
@@ -1956,14 +2026,15 @@ def take_queue():
     return ids
 
 
-def pending_extract(path, offset):
+def pending_extract(path, offset, limit=None):
     """Keep a pending round within the existing model batch size, at record boundaries.
 
     Same byte-offset approach as capped() in #1166, without adding a new limit.
     A single oversized record keeps its accepted-piece checkpoint in SQLite.
     """
+    limit = limit or MAX_CHARS
     it = extract(path, offset)
-    while len(it["text"]) > MAX_CHARS:
+    while len(it["text"]) > limit:
         # 来源：binary subdivision of the existing byte span, never a new size setting.
         cut = offset + (it["end"] - offset) // 2
         part = extract(path, offset, cut)
@@ -1997,7 +2068,9 @@ def run(a, engines=None):
             if partial:
                 it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
             else:
-                it = pending_extract(p, start) if pending else extract(p, start)
+                # a session whose batches failed n times retries 1/2^n as much (#619): halving, not the whole batch again
+                n = (db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0] if pending else 0
+                it = pending_extract(p, start, MAX_CHARS >> n if n else None) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
             continue
@@ -2011,11 +2084,19 @@ def run(a, engines=None):
     db.commit()
     if not items:
         return  # nothing new: no model call
+    if os.environ.get("WIKI_NEWEST_FIRST"):  # 用户 11-09 19:2x 选「先整理最近的」：补旧账时新会话先进 wiki
+        items.sort(key=lambda it: it["path"].stat().st_mtime, reverse=True)
     if pending:
         # One existing batch per cron round; SQLite offsets leave the rest ready.
         # Oversized single records resume from their accepted-piece checkpoint.
-        first = {it["id"] for it, _ in batches_of(items)[0]}
+        batch = batches_of(items)[0]
+        n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
+        if n and len(batch) > 1:  # failed before as a whole: retry 1/2^n of its sessions (#619)
+            batch = batch[:max(1, len(batch) >> n)]
+        first = {it["id"] for it, _ in batch}
         items = [it for it in items if it["id"] in first]
+    if budget.stopped():
+        return
     split_pass(db)
     ingest_batches(db, items, engines or [ENGINE, FALLBACK_ENGINE], pending=pending)
 
@@ -2398,6 +2479,9 @@ def ingest_batches(db, items, engines, pending=False):
     batches = batches_of(items)
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
+        if budget.stopped():
+            log("wiki deadline reached between batches; unread offsets and partial checkpoints retained")
+            break
         ids = list(dict.fromkeys(it["id"] for it, _ in batch))
         label = "ingest " + ", ".join(f"{i[:8]}" for i in ids)
         text = "".join(piece for _, piece in batch)
@@ -2430,6 +2514,10 @@ def ingest_batches(db, items, engines, pending=False):
                 db.execute("delete from fails where id=?", (it["id"],))
                 if LAST_ENGINE.startswith("codex"):  # luna/sol/astra wrote it: nothing for the nightly review to check
                     db.execute("insert or replace into reviewed values (?,?,?)", (it["id"], it["end"], time.time()))
+        elif budget.exhausted():
+            log(f"{label}: job deadline reached; checkpoint retained, not counted as a model failure")
+            db.commit()
+            break
         elif quota_hit:
             log(f"{label}: Claude quota refused — left for tonight, not counted as a failure")
         else:
@@ -4469,7 +4557,7 @@ def main():
             rc = make_room(a.make_room)
             push()
         sys.exit(rc)
-    while True:
+    while not budget.stopped():
         with open(LOCK, "w") as lk:
             try:
                 # scheduled night/week runs wait for a day run to finish; day runs never wait
@@ -4483,7 +4571,7 @@ def main():
             prepare()
             nightly(a) if a.nightly else run(a)
             push()
-            if MIRROR_TO:
+            if MIRROR_TO and not budget.exhausted():
                 mirror(state())
         # Pending is one round, including hooks queued while it ran. Their hints
         # and unread byte offsets remain for the next scheduled invocation.

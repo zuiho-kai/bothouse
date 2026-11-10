@@ -484,7 +484,11 @@
     "logLevel": "로그 레벨",
     "appearance": "모양",
     "theme": "테마",
-    "themeHint": "기본값은 밝은 옐로화이트입니다. 이 브라우저에만 저장되며 저장 버튼은 필요 없습니다."
+    "themeHint": "기본값은 밝은 옐로화이트입니다. 이 브라우저에만 저장되며 저장 버튼은 필요 없습니다.",
+    "avatarStyle": "역할 아바타",
+    "avatarStyleHint": "웹 패널과 DSH 플러그인에 함께 적용되며 바로 저장됩니다.",
+    "avatarStyleBrand": "각 사 공식 아이콘",
+    "avatarStyleChibi": "캐릭터 아바타"
   },
   "globalProviders": {
     "title": "제공업체",
