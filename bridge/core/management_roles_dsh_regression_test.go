@@ -221,7 +221,9 @@ func TestDSHPanelRecoversMalformedHostState(t *testing.T) {
 			if err := os.WriteFile(dshWebStatePath(), []byte(input), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(dshWebLogPath(DSHWeb{}), []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0600); err != nil {
+			// The heal reads the candidate list, not one fixed path (#261): the first candidate is
+			// the log the state file records, so the announcement has to go to the log it will read.
+			if err := os.WriteFile(dshWebLogPaths(DSHWeb{})[0], []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			m := NewManagementServer(0, "", nil)

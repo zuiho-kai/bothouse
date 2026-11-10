@@ -102,13 +102,13 @@ func TestDSHWebLogPathPrefersTheNewerDesktopLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	webLog := filepath.Join(dir, "dsh-web.log")
-	if got := dshWebLogPath(DSHWeb{}); got != webLog {
+	if got := dshWebLogPaths(DSHWeb{})[0]; got != webLog {
 		t.Fatalf("no logs: %s", got)
 	}
 	if err := os.WriteFile(dshDesktopLogPath(), []byte("dsh web: http://127.0.0.1:1/?token=x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := dshWebLogPath(DSHWeb{}); got != dshDesktopLogPath() {
+	if got := dshWebLogPaths(DSHWeb{})[0]; got != dshDesktopLogPath() {
 		t.Fatalf("only the desktop log: %s", got)
 	}
 	if err := os.WriteFile(webLog, nil, 0o600); err != nil {
@@ -118,7 +118,7 @@ func TestDSHWebLogPathPrefersTheNewerDesktopLog(t *testing.T) {
 	if err := os.Chtimes(dshDesktopLogPath(), old, old); err != nil {
 		t.Fatal(err)
 	}
-	if got := dshWebLogPath(DSHWeb{}); got != webLog {
+	if got := dshWebLogPaths(DSHWeb{})[0]; got != webLog {
 		t.Fatalf("newer dsh web log must win: %s", got)
 	}
 	if !isDSHDesktopHost(DSHWeb{Log: dshDesktopLogPath()}) || isDSHDesktopHost(DSHWeb{Log: webLog}) {
