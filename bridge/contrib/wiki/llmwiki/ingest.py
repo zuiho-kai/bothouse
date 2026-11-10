@@ -1875,6 +1875,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
 def remote(*args):
     """git pull/push against origin (private GitHub repo). Proxy first, then direct; never fatal."""
     proxy = "http://127.0.0.1:7890"
+    error = ""
     for env in ({"https_proxy": proxy, "http_proxy": proxy}, {}):
         try:
             r = budget.run(["git", *args], cwd=REPO, capture_output=True, text=True, timeout=180,
@@ -1883,10 +1884,12 @@ def remote(*args):
             if budget.exhausted():
                 log(f"git {args[0]} deferred: job deadline reached; local commits retained")
                 return False
+            error = "timeout"
             continue
         if r.returncode == 0:
             return True
-    log(f"git {args[0]} FAILED (will retry next run): {r.stderr.strip()[-300:]}")
+        error = r.stderr.strip()[-300:]
+    log(f"git {args[0]} FAILED (will retry next run): {error}")
     return False
 
 
