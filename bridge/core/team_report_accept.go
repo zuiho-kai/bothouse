@@ -51,7 +51,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		Key:      reportKey(p.Name(), parent, ws, exitKindReport, hid, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: exitKindReport, Body: body, Headline: hline, Board: hid,
-		Session: sessionKey, CreatedAt: time.Now(), Held: true,
+		Session: sessionKey, CreatedAt: time.Now(), Held: true, Doubt: doubt,
 	}
 	owner := e
 	if lead != nil {
@@ -169,7 +169,7 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	b.WriteString("\n给用户的四段（原文）：\n" + head + "\n")
 	b.WriteString("\n全文：\n" + truncateRelayMore(dataDir, "workspace-report", body, chatLeadWakeLimit) + "\n")
 	if doubt != "" {
-		b.WriteString("\n对题检查：有疑点——" + doubt + "\n")
+		b.WriteString("\n对题检查：有疑点——" + doubt + "\n" + doubtPassRule + "\n")
 	} else {
 		b.WriteString("\n对题检查：通过（只查了做的是不是用户点名的那件，不等于合格）。\n")
 	}

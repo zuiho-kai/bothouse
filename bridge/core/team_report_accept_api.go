@@ -65,6 +65,10 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "verdict is required for pass: item by item, which expectation is met and the evidence", http.StatusBadRequest)
 			return
 		}
+		if rec.Doubt != "" && !verdictQuotesUser(req.Verdict) {
+			http.Error(w, doubtPassRefusal(rec.Doubt), http.StatusConflict)
+			return
+		}
 		if err := owner.deliverHeldReport(rec.Key, req.Verdict, false); err != nil {
 			http.Error(w, "post failed: "+err.Error(), http.StatusBadGateway)
 			return
