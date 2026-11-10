@@ -332,6 +332,8 @@ func (s *appServerSession) connect() error {
 	}
 	cmd := exec.CommandContext(s.ctx, bin, args...)
 	cmd.Dir = s.workDir
+	prepareCmdForKill(cmd)
+	cmd.Cancel = func() error { return forceKillCmd(cmd) }
 	env := append([]string(nil), s.extraEnv...)
 	if s.codexHome != "" {
 		env = append(env, "CODEX_HOME="+s.codexHome)
@@ -1123,12 +1125,14 @@ func (s *appServerSession) Close() error {
 	s.cancel()
 
 	s.procMu.Lock()
+	if s.cmd != nil && s.cmd.Process != nil {
+		if err := forceKillCmd(s.cmd); err != nil {
+			slog.Warn("codex app-server: close process tree failed", "error", err)
+		}
+	}
 	if s.stdin != nil {
 		_ = s.stdin.Close()
 		s.stdin = nil
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
 	}
 	s.procMu.Unlock()
 
@@ -2064,12 +2068,14 @@ func (s *appServerSession) abortTransport() {
 	}
 
 	s.procMu.Lock()
+	if s.cmd != nil && s.cmd.Process != nil {
+		if err := forceKillCmd(s.cmd); err != nil {
+			slog.Warn("codex app-server: abort process tree failed", "error", err)
+		}
+	}
 	if s.stdin != nil {
 		_ = s.stdin.Close()
 		s.stdin = nil
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
 	}
 	s.procMu.Unlock()
 }
