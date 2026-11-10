@@ -1,6 +1,6 @@
 {
- "_comment": "bothouse fork：桌宠形象清单，见 src/host/skins.ts。builtin 随包（assets/roles/<id>/）：前五个是自家角色（按官方设定板生图），后面是按模型命名的形象（照鲸鱼娘那套高清 Q 版画风新设计）；绑定角色按 id 和 aliases 认，自家角色排前面先匹配。recommended 是别人家的开源形象，包里不带文件，用户点了才下载。default = 没选也没绑定角色时穿的。 同一角色两套：<id>-q 是照上游鲸鱼女仆画风的 Q 版（排前面，绑定角色默认用它）；<id> 是小人版（#1303），在「换形象」里可选。",
- "default": "maomao-q",
+ "_comment": "bothouse fork：桌宠形象清单，见 src/host/skins.ts。builtin 随包（assets/roles/<id>/）：前五个是自家角色（按官方设定板生图），后面是按模型命名的形象（照鲸鱼娘那套高清 Q 版画风新设计）；绑定角色按 id 和 aliases 认，自家角色排前面先匹配。recommended 是别人家的开源形象，包里不带文件，用户点了才下载。default = 没选也没绑定角色时穿的。 同一角色两套：<id>-q 是照上游鲸鱼女仆画风的 Q 版，在「换形象」里显式选择；<id> 是小人版（#1303），保留原有别名与默认解析。",
+ "default": "maomao",
  "builtin": [
   {
    "id": "maomao-q",
