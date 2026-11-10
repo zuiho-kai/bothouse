@@ -1,9 +1,10 @@
 // Built-in member avatars: the five original character portraits shipped with
 // CoNest (bridge/web/public/avatars, see avatars/README.md). The user kept these
 // and rejected newly drawn ones (2026-10-23: 「我还是保留原本那个」).
+// grok.png is the image the user supplied for Grok (2026-11-10: 「grok头像用这个」).
 import { readFileSync } from 'node:fs';
 
-export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'];
+export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok'];
 /** Longest avatar URL a cloud-web bot may announce (common browser URL limit; not from the user). */
 export const MAX_AVATAR_URL = 2048;
 
