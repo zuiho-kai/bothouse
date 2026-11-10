@@ -141,6 +141,13 @@ def _check(c, lines, lead, key="msg"):
     if t == "needs_if":  # 正文命中 trigger_re 时，正文还要命中 need_re（浏览器活要写标签页 id）
         text = text_of(lines)
         return c[key] if re.search(c["trigger_re"], text) and not re.search(c["need_re"], text) else None
+    if t == "forbid_if":  # 原话节命中 trigger_re（用户要照抄）时，指定几节不许出现 forbid_re（自己发挥）；11-09 用户「让你抄他，你又搞一坨屎创意」第 n 次
+        src = text_of([x for seg in _sections(lines, c["trigger_section"], lead) for x in seg])
+        dst = [x for n in c["sections"] for seg in _sections(lines, n, lead) for x in seg[1:]]
+        if re.search(c["trigger_re"], src):
+            hit = [x.strip() for x in dst if re.search(c["forbid_re"], x)]
+            return c[key].replace("{hit}", "；".join(hit[:3])) if hit else None
+        return None
     if t == "ref_local":  # 参考链接要有落地的本地图/视频（#1223，用户 11-08「整个参考信息全给他」）
         links, have, gone = ref_material(text_of(lines), c, lead)
         if not links:
@@ -149,10 +156,6 @@ def _check(c, lines, lead, key="msg"):
             return c["missing_msg"].replace("{items}", "、".join(gone))
         return None if have else c[key].replace("{links}", "、".join(links[:3]))
     raise RuntimeError(f"交接规则文件里有不认识的检查类型：{t}")
-
-
-def text_of(lines):
-    return "\n".join(lines)
 
 
 def ref_rule(rules=None):
@@ -193,6 +196,10 @@ def ref_material(text, c=None, lead=None):
             elif not p.exists():
                 gone.append(raw)
     return list(dict.fromkeys(links)), list(dict.fromkeys(have)), list(dict.fromkeys(gone))
+
+
+def text_of(lines):
+    return "\n".join(lines)
 
 
 def check(text, rules=None):

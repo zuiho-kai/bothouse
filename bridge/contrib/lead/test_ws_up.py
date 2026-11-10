@@ -30,7 +30,7 @@ class WsUpTest(unittest.TestCase):
         """ws-handoff 原样跑；桥（timer/workspace/send）是假脚本，不读平台 token、不走网络。"""
         drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
                "m = L('ws_handoff', sys.argv[1]).load_module(); m.main(sys.argv[2:])")
-        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args, "--short", "测试"], capture_output=True,
+        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args, "--short", ("测" + "".join(args[1:2]))[:10]], capture_output=True,
                               text=True, env={**self.env, "CC_SESSION_KEY": key})
 
     def timers(self):
@@ -234,7 +234,7 @@ class WsPoolTest(unittest.TestCase):
         return str(p)
 
     def handoff(self, notes, task, chat="test:100", force=False):
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", "测试",
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", ("测" + task)[:10],
                             *(["--force"] if force else [])], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)
