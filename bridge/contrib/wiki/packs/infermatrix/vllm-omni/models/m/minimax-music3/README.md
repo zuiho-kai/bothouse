@@ -1,0 +1,6 @@
+# minimax-music3
+
+2 项：minimax-music3-overview、minimax-music3-rules
+
+- [minimax-music3-overview](minimax-music3-overview.md) — MiniMax Music3 目录入口：知识树 owner models/minimax-music3 与…
+- [minimax-music3-rules](minimax-music3-rules.md) — MiniMax Music3 规则：MM3-1a composite checkpoint 的…

@@ -1,0 +1,6 @@
+# boogu-image
+
+2 项：boogu-image-overview、boogu-image-rules
+
+- [boogu-image-overview](boogu-image-overview.md) — Boogu Image 目录入口：owner models/boogu-image 对应上游 boogu_image 目录与…
+- [boogu-image-rules](boogu-image-rules.md) — Boogu-Image 规则 BOOGU-1a 至 BOOGU-1f：global revision 只补未显式声明的 stage 并传到六个…

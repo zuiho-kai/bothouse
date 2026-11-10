@@ -1,0 +1,6 @@
+# ming-flash-omni
+
+2 项：ming-flash-omni-architecture、ming-flash-omni-overview
+
+- [ming-flash-omni-architecture](ming-flash-omni-architecture.md) — Ming-flash-omni 架构：thinker（BailingMoeV2 MoE、M-RoPE…
+- [ming-flash-omni-overview](ming-flash-omni-overview.md) — Ming-flash-omni（BailingMM2，main @ 33dd9a5a 复核）目录入口：蚂蚁…

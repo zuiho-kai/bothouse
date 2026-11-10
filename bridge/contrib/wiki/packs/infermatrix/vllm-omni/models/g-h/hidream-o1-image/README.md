@@ -1,0 +1,6 @@
+# hidream-o1-image
+
+2 项：hidream-o1-image-overview、hidream-o1-image-rules
+
+- [hidream-o1-image-overview](hidream-o1-image-overview.md) — HiDream-O1 Image 入口：registry architecture key…
+- [hidream-o1-image-rules](hidream-o1-image-rules.md) — HiDream-O1 Image 规则 HIDREAMO1-1a：仅支持 BF16、单 prompt、单输出…

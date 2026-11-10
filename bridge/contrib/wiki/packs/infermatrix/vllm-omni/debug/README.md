@@ -1,0 +1,6 @@
+# debug
+
+2 项：guides/、debug-overview
+
+- [guides](guides/README.md) — 10 项：alignment-debug、conclusion-discipline-cases-1、conclusion-discipline-cases-2…
+- [debug-overview](debug-overview.md) — vLLM-Omni 调试目录入口：什么时候查（仓库专有 bug / crash / 行为异常，读完通用 general/debug/ 后在此做仓库特化路由）…

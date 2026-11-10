@@ -1,0 +1,6 @@
+# nemotron-voicechat
+
+2 项：nemotron-voicechat-overview、nemotron-voicechat-rules
+
+- [nemotron-voicechat-overview](nemotron-voicechat-overview.md) — NVIDIA Nemotron-Labs VoiceChat 目录入口：知识树 owner…
+- [nemotron-voicechat-rules](nemotron-voicechat-rules.md) — Nemotron VoiceChat 规则：NVC-1a 原生 duplex 80 ms frame-locked…

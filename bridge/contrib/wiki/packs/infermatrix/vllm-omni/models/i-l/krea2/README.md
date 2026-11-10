@@ -1,0 +1,6 @@
+# krea2
+
+2 项：krea2-overview、krea2-rules
+
+- [krea2-overview](krea2-overview.md) — Krea 2 目录入口（PR #4730）：vllm_omni/diffusion/models/krea2/ 的 pipeline_krea2.py 与…
+- [krea2-rules](krea2-rules.md) — Krea 2 规则 KREA-1a 至 KREA-2a（PR #4730）：text encoder 与 VAE 显式继承 od_config.dtype、读…

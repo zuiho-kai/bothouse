@@ -1,0 +1,6 @@
+# dots-tts
+
+2 项：dots-tts-overview、dots-tts-rules
+
+- [dots-tts-overview](dots-tts-overview.md) — dots.tts（checkpoint dots-studio/dots.tts-soar，约 1.7B 连续 AR TTS，48 kHz…
+- [dots-tts-rules](dots-tts-rules.md) — dots.tts 规则 DOTS-1a（weekly offline E2E scaffold 保留真实 prompt token…

@@ -1,0 +1,120 @@
+---
+name: serving-rules-1
+description: Serving 规则第 1 部分：SERV-0a / SERV-0b Direct review 导航，以及两张代码地图表——PR 描述信号 → 规则组 → 第一批 live 源码（request-contract、batch-chat、endpoint-capability、engine-lifecycle、streaming-format、media-ingress、artifact-readiness、metrics），审查组 → 触发条件 → 规则 ID
+metadata:
+  scope: 只收 Direct 代码快速入口与审查组总表；SERV-1a–1k 正文归 serving-rules-2，SERV-2d、2e、3a–3d、11a 与 duplex append gate 归 serving-rules-3，SERV-4a–4h、4l–4s 归 rules-request-input-1、rules-request-input-2，SERV-4i–4k 归 rules-batch-chat，SERV-5 / SERV-6 / SERV-8a / SERV-9a 的主体归 rules-engine-lifecycle-1、rules-engine-lifecycle-2，其余 SERV-5* / SERV-6* 散在 rules-abort-lifecycle、rules-app-assembly、rules-fault-isolation、rules-sleep-control、rules-duplex-orchestration、rules-session-lifecycle
+---
+# Serving 规则（1/3）
+
+## 关键事实
+
+- 拆分说明：本页是源页 `rules.md` 的第 1/3 部分；第 2 部分 [[serving-rules-2]]；第 3 部分 [[serving-rules-3]]
+- 源页：`knowledge/repos/vllm-omni/components/serving/rules.md`（InferMatrixCopilot@ecfb84d0）；type: rule；tags: vllm-omni, components, serving；created: 2026-07-20；updated: 2026-10-23
+- 来源（sources）：Issue #5369；PR #3576；PR #4583；PR #4718；PR #4834；PR #4905；PR #4912；PR #5085；PR #5157；PR #5374；PR #5670；PR #5682；PR #5713；PR #5732；PR #5746；PR #5752；PR #5843；PR #5957；PR #6008；PR #6138；PR #6202；Issue #5811；PR #6150；claude-workflow-starter-private@09dca46
+  - zuiho-kai/claude-workflow-starter@c217fc6；.pre-commit-config.yaml；vllm_omni/entrypoints/async_omni.py；vllm_omni/entrypoints/omni_base.py；vllm_omni/entrypoints/openai/api_server.py；vllm_omni/entrypoints/openai/diffusion_request_utils.py；vllm_omni/entrypoints/openai/serving_chat.py
+  - vllm_omni/entrypoints/openai/serving_speech.py；vllm_omni/entrypoints/openai/serving_video.py；vllm_omni/entrypoints/openai/video_api_utils.py；vllm_omni/entrypoints/openai/tts_adapters/；vllm_omni/engine/async_omni_engine.py；vllm_omni/engine/orchestrator.py
+  - vllm_omni/engine/stage_pool.py；vllm_omni/engine/cfg_companion_tracker.py；vllm_omni/metrics/prometheus.py；tests/dfx/reliability/test_reliability_qwen3_omni.py；tests/engine/test_orchestrator_error_handling.py；tests/entrypoints/test_async_omni.py
+  - tests/entrypoints/test_omni_entrypoints.py；tests/entrypoints/openai_api/test_api_server_guards.py；tests/entrypoints/openai_api/test_audex_serving_guards.py；tests/entrypoints/openai_api/test_omni_sleep_wakeup.py；tests/entrypoints/openai_api/test_serving_speech.py
+  - tests/entrypoints/openai_api/test_tts_detection.py；tests/entrypoints/openai_api/test_video_api_utils.py；tests/entrypoints/openai_api/test_video_server.py；tests/tools/test_check_tts_adapter.py；tools/pre_commit/check_tts_adapter.py；PR #4795；PR #4755；PR #3805；PR #5878；PR #6070
+  - PR #6122；PR #4499；PR #6050；PR #6329；PR #5999；PR #5445；PR #6288；PR #6622；PR #6499；PR #6529；PR #6776；recipes/MiniMaxAI/MiniMax-H3.md；PR #6824；PR #9282
+- 置信度（confidence）：high
+- 只有 `SERV-数字字母` 是可审计规则 ID。
+
+### Direct 代码快速入口
+
+- [SERV-0a] **SERV-0a — PR 描述先选代码地图。** Direct review 先按 title/body 声明的协议、请求字段或服务能力命中下表，再用 pinned changed files 校验真实 dispatcher 和范围；描述不能作为 finding 证据。
+- [SERV-0b] **SERV-0b — 复用同一份 serving 证据。** 第一次 Codex review 打开命中函数后，把 request 对象、caller 搜索、测试和 findings 追加到同一份证据包；不得让专项重新扫描整个 serving 树。
+- （以下为原表格，按行改写为条目）
+- PR 描述在做什么：`extra_body`、flattened/nested/canonical/legacy 输入、alias、`negative_prompt`、diffusion request extras
+  - 精确规则组：`request-contract`：`SERV-4a`–`4h`
+  - 第一批 live 源码：`vllm_omni/entrypoints/openai/diffusion_request_utils.py::{normalize_diffusion_request_args,apply_normalized_diffusion_request_extra_args}` → `serving_chat.py::{OmniOpenAIServingChat._preprocess_chat,OmniOpenAIServingChat.generate_diffusion_images}`
+- PR 描述在做什么：batched chat、fan-out/fan-in、sub-request ID、choice collapse、whole-batch error
+  - 精确规则组：`batch-chat-contract`：`SERV-4i`–`4k`
+  - 第一批 live 源码：`api_server.py::create_batch_chat_completion` → `batch_serving.py::OmniOpenAIServingChatBatch` → ordinary chat completion children
+- PR 描述在做什么：`chat_template_kwargs`、raw HTTP/SDK `extra_body`、text/audio modalities、choices、空音频
+  - 精确规则组：`chat-multimodal-contract`：`SERV-4c` + 命中模型规则
+  - 第一批 live 源码：upstream `ChatCompletionRequest` → `serving_chat.py::{OmniOpenAIServingChat._preprocess_chat,OmniOpenAIServingChat.chat_completion_full_generator,OmniOpenAIServingChat._create_text_choice,OmniOpenAIServingChat._create_audio_choice}`
+- PR 描述在做什么：endpoint restriction、route/app-state guard、capability、公开 400
+  - 精确规则组：`endpoint-capability`：`SERV-4c`, `SERV-4d`, `SERV-5d`, [[rules-app-assembly]]（SERV-5s；源锚点 #serv-5s-覆盖-upstream-http-route-前必须先移除同-methodpath-的旧-route）
+  - 第一批 live 源码：endpoint policy → `api_server.py::build_app` assembled app → public handler
+- PR 描述在做什么：pause/resume、sleep/wake、partial stage/tag、ACK、generation admission、abort cleanup acknowledgment 或 shutdown-time abort race
+  - 精确规则组：`engine-lifecycle`：`SERV-5a`；[[rules-sleep-control]]（sleep/wake ACK 与 admission）：`SERV-5b`, `SERV-5m`；[[rules-abort-lifecycle]]（SERV-5t；源锚点 #serv-5t-acknowledged-abort-在-shutdown-边界只忽略已识别的-transport-closure）
+  - 第一批 live 源码：`entrypoints/async_omni.py::{AsyncOmni.pause_generation,AsyncOmni.resume_generation,AsyncOmni.sleep,AsyncOmni.wake_up,AsyncOmni._abort}` → `engine/{async_engine_utils,stage_pool,orchestrator,async_omni_engine}.py` → AR EngineCore helper / diffusion worker RPC
+- PR 描述在做什么：stage/replica death、remote membership register/watch/detach、`EngineDeadError`、`StageUnavailableError`、health/readiness、eviction
+  - 精确规则组：`engine-lifecycle`：[[rules-fault-isolation]]（SERV-5f；源锚点 #serv-5f-stage-death-按-replica-隔离request-fatal-不等于-process-fatal）、[[rules-engine-lifecycle-2]]（SERV-5n；源锚点 #serv-5n-remote-replica-attachdetach-必须按本次-membership-generation-判定）
+  - 第一批 live 源码：`engine/membership_controller.py` register/watcher generation → `engine/stage_pool.py` live set → `engine/orchestrator.py` poll/dispatch/cleanup → `entrypoints/{omni_base,async_omni}.py` error transport
+- PR 描述在做什么：serving class/factory 重构、optional adapter、diffusion/no-TTS 实例、warmup
+  - 精确规则组：`engine-lifecycle`：`SERV-5c`
+  - 第一批 live 源码：`entrypoints/openai/serving_speech.py` 的所有 factory/`__new__` 路径 → `warmup`、voice upload/list、speech request caller
+- PR 描述在做什么：vLLM rebase、chat parser/renderer API moved or removed
+  - 精确规则组：`engine-lifecycle`
+  - 第一批 live 源码：target-release `vllm.parser.*` / renderer API → `serving_chat.py` / `api_server.py`; remove a compatibility fallback only after the pinned base image is the target release ^[PR #6606]
+- PR 描述在做什么：TTS model detection、`stage_keys`/`model_archs`、adapter priority/topology、legacy migration
+  - 精确规则组：`engine-lifecycle`：`SERV-5e`
+  - 第一批 live 源码：`tts_adapters/__init__.py::{iter_tts_detectors,detect_tts_model_type,all_tts_stage_keys,tts_entry_stage_archs}` → `serving_speech.py::_find_tts_stage`
+- PR 描述在做什么：request-level LoRA、AR-only/multistage、streaming input update、stage cardinality
+  - 精确规则组：`request-contract`：`SERV-4l`
+  - 第一批 live 源码：`serving_chat.py` LoRA resolve → `AsyncOmni.generate` → `AsyncOmniEngine._build_add_request_message` → stage-0 input processor
+- PR 描述在做什么：Stage-0 prompt transform、downstream original prompt、临时 artifact ownership/cleanup
+  - 精确规则组：`request-contract`：[[rules-request-input-2]]（SERV-4q；源锚点 #serv-4q-stage-0-prompt-transform-必须保留-downstream-原始视图并闭合临时-artifact-生命周期）
+  - 第一批 live 源码：`AsyncOmniEngine._build_add_request_message` → `StageSubmissionMessage.request_artifact_dirs` → `OrchestratorRequestState` terminal cleanup
+- PR 描述在做什么：caller sampling params、pipeline `sampling_constraints`、stage config runtime extraction
+  - 精确规则组：`request-contract`：`SERV-4o`
+  - 第一批 live 源码：`OmniBase.resolve_sampling_params_list` → `_get_sampling_constraints_list` → `_apply_sampling_constraints`
+- PR 描述在做什么：OpenAI integer bounds、msgpack overflow、request-local cleanup
+  - 精确规则组：`request-contract`：`SERV-4p`
+  - 第一批 live 源码：protocol request models → orchestrator stage dispatch → `_fail_request_client_error`
+- PR 描述在做什么：SSE/streaming speech、audio format、PCM/WAV、speed、首 chunk 前校验
+  - 精确规则组：`streaming-format`：`SERV-1a`, `SERV-1b`
+  - 第一批 live 源码：`vllm_omni/entrypoints/openai/protocol/audio.py::{OpenAICreateSpeechRequest.validate_streaming_constraints,StreamingSpeechSessionConfig.validate_streaming_constraints}` →
+    - `serving_speech.py::{OmniOpenAIServingSpeech._validate_speech_streaming_request,OmniOpenAIServingSpeech.create_speech}`
+- PR 描述在做什么：speech `sample_rate`、adapter capability、resample 与 stream header
+  - 精确规则组：[[rules-speech-output]]（SERV-9b；源锚点 #serv-9b-speech-sample_rate-必须由-adapter-capability-限定）
+  - 第一批 live 源码：protocol → TTS adapter capability → `serving_speech.py` / `audio_utils_mixin.py`
+- PR 描述在做什么：video reference 解码、mixed media、frame conversion/mux、bounded memory
+  - 精确规则组：`media-ingress`：`SERV-1c`–`1e`, `1k`
+  - 第一批 live 源码：`entrypoints/openai/video_api_utils.py` decode/coerce/encode helpers → video server callers
+- PR 描述在做什么：`ref_audio`、x-vector/ICL、content identity、artifact cache/readiness
+  - 精确规则组：`artifact-readiness`：`SERV-3a`–`3c`
+  - 第一批 live 源码：`serving_speech.py` reference resolve/decode/cache → adapter speaker cache → prefix salt
+- PR 描述在做什么：Prometheus、waiting/running gauge、replica stats、throttle、collector lifecycle、pipeline request gauge 或 image/diffusion metric emission
+  - 精确规则组：[[serving-rules-metrics]]（metrics-lifecycle rules）：`SERV-2a`, `SERV-2b`, `SERV-2e`, `SERV-2f`
+  - 第一批 live 源码：`vllm_omni/entrypoints/omni_base.py::{OmniBase._log_summary_and_cleanup,OmniBase._process_stage_metrics_message,_publish_request_gauges}` → `vllm_omni/metrics/prometheus.py::{OmniPrometheusMetrics.__init__,set_running,set_waiting}`
+- （以下为原表格，按行改写为条目）
+- 审查组：`core`
+  - 什么时候触发：每次 serving 审查
+  - 规则 ID：`SERV-4c`，见 [[rules-request-input-1]]、[[rules-request-input-2]]（请求输入合同）
+- 审查组：`streaming-format`
+  - 什么时候触发：SSE、audio streaming、format/default/capability
+  - 规则 ID：`SERV-1a`, `SERV-1b`
+- 审查组：`media-ingress`
+  - 什么时候触发：video reference、decoder registry/backend、mixed capability、bounded upload/conversion
+  - 规则 ID：`SERV-1c`–`1e`
+- 审查组：`metrics-lifecycle`
+  - 什么时候触发：metrics、gauge、replica、collector、pipeline request gauge 或 image/diffusion measurement boundary
+  - 规则 ID：[[serving-rules-metrics]]（SERV-2a–2f）
+- 审查组：`artifact-readiness`
+  - 什么时候触发：artifact/content cache、capability、ready/mark/discard
+  - 规则 ID：`SERV-3a`, `SERV-3b`, `SERV-3c`
+- 审查组：`chat-multimodal-contract`
+  - 什么时候触发：chat template kwargs、SDK flatten、text/audio response shape
+  - 规则 ID：`SERV-4c`（见 [[rules-request-input-1]]、[[rules-request-input-2]]（请求输入合同））+ 命中模型规则
+- 审查组：`endpoint-capability`
+  - 什么时候触发：endpoint restriction、route/app-state guard、公开 400
+  - 规则 ID：`SERV-4c`, `SERV-4d` 见 [[rules-request-input-1]]、[[rules-request-input-2]]（请求输入合同）；`SERV-5d` 见 engine lifecycle；`SERV-5s` 见 [[rules-app-assembly]]（app assembly）
+- 审查组：`engine-lifecycle`
+  - 什么时候触发：pause/resume、sleep/wake、partial stage/tag、ACK、generation admission、abort cleanup/shutdown race、streaming raw terminal、event-driven orchestration、factory 状态矩阵、TTS adapter detection、replica membership/fault isolation
+  - 规则 ID：`SERV-5a`、`SERV-5c`–`SERV-5e`、`SERV-5g`–`SERV-5r`（`SERV-5m` 见 [[rules-sleep-control]]（sleep control），其余见 [[rules-engine-lifecycle-1]]、[[rules-engine-lifecycle-2]]（engine 生命周期规则））、[[rules-abort-lifecycle]]（SERV-5t；源锚点 #serv-5t-acknowledged-abort-在-shutdown-边界只忽略已识别的-transport-closure），
+    - `SERV-5f`
+- 审查组：`full-duplex`
+  - 什么时候触发：duplex opt-in、stage prewarm/fence、async-chunk、CFG companion、stage-keyed segment lifecycle，adapter-owned deferred cognition/session cleanup，或 startup warmup/realtime admission
+  - 规则 ID：`SERV-6a`–`SERV-6f` 见 [[rules-engine-lifecycle-1]]、[[rules-engine-lifecycle-2]]（engine 生命周期规则）；`SERV-6g` 见 [[rules-duplex-orchestration]]（duplex 编排规则）；`SERV-6h`、`SERV-6i` 见 [[rules-session-lifecycle]]（session lifecycle）
+- 审查组：`request-contract`
+  - 什么时候触发：请求字段、来源、冲突、dispatcher、consumer view、stage sampling constraints、serialization bounds、transform artifact ownership
+  - 规则 ID：`SERV-4a`–`4h`, `SERV-4l`–`4q`，全部见 [[rules-request-input-1]]、[[rules-request-input-2]]（请求输入合同）
+- 审查组：`batch-chat-contract`
+  - 什么时候触发：frontend fan-out、identity、choice cardinality、error/cancellation
+  - 规则 ID：`SERV-4i`–`4k`，见 [[rules-batch-chat]]（batch chat rules）
+- 审查组：`author-routing`
+  - 什么时候触发：只供 Direct reviewer 导航，不作为 finding 规则
+  - 规则 ID：`SERV-0a`, `SERV-0b`

@@ -1,0 +1,6 @@
+# kandinsky6
+
+2 项：kandinsky6-overview、kandinsky6-rules
+
+- [kandinsky6-overview](kandinsky6-overview.md) — Kandinsky 6 目录入口（PR #8537）：vllm_omni/diffusion/models/kandinsky6/ 与…
+- [kandinsky6-rules](kandinsky6-rules.md) — Kandinsky 6 规则 K6-1a 至 K6-2c（PR #8537）：Hub 组件目录与 _adapt_k6_weight_name…

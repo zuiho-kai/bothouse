@@ -1,0 +1,6 @@
+# host-weight-runtime
+
+2 项：host-weight-runtime-overview、host-weight-runtime-rules
+
+- [host-weight-runtime-overview](host-weight-runtime-overview.md) — Host Weight Runtime 组件入口：源码入口 vllm_omni/host_weight…
+- [host-weight-runtime-rules](host-weight-runtime-rules.md) — Host Weight Runtime 规则 HWR-1a 至 HWR-1f、HWR-2a 至…

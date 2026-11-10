@@ -1,0 +1,6 @@
+# longcat-image
+
+2 项：longcat-image-overview、longcat-image-rules
+
+- [longcat-image-overview](longcat-image-overview.md) — LongCat-Image（Qwen2.5-VL 编码的 T2I 与 Edit，main @ 710024fa 复核…
+- [longcat-image-rules](longcat-image-rules.md) — LongCat-Image 规则 LONGCAT-1a：Edit 请求几何必须单一解析（显式 height/width 优先、按…

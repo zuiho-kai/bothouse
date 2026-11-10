@@ -1,0 +1,6 @@
+# sensenova-u1
+
+2 项：sensenova-u1-overview、sensenova-u1-rules
+
+- [sensenova-u1-overview](sensenova-u1-overview.md) — SenseNova-U1（统一 LLM 即编码器即去噪器、无 VAE）目录入口：SenseNovaU1Pipeline 在…
+- [sensenova-u1-rules](sensenova-u1-rules.md) — SenseNova-U1 规则：SENSENOVA-1a U1.5 distilled LoRA 启动期单文件单向融合（PR #6516）…

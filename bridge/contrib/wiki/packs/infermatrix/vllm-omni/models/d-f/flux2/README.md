@@ -1,0 +1,6 @@
+# flux2
+
+2 项：flux2-overview、flux2-rules
+
+- [flux2-overview](flux2-overview.md) — FLUX.2 入口：FLUX.2 diffusion pipeline 与 Mistral text encoder 接线的 owner 范围，主要路径…
+- [flux2-rules](flux2-rules.md) — FLUX.2 规则 FLUX2-1a…FLUX2-1d：Mistral text encoder FP8 保留 text_encoder 前缀、meta 初始化与…

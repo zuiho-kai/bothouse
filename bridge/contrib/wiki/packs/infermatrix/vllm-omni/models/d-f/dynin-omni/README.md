@@ -1,0 +1,6 @@
+# dynin-omni
+
+2 项：dynin-omni-architecture、dynin-omni-overview
+
+- [dynin-omni-architecture](dynin-omni-architecture.md) — Dynin-Omni 架构（main @ 5d44868e）：树内 stage 分发壳与远程代码装载机制、vLLM…
+- [dynin-omni-overview](dynin-omni-overview.md) — Dynin-Omni（snu-aidas，main @ 5d44868e）目录入口：pipeline key dynin_omni 的…

@@ -1,0 +1,6 @@
+# seedvr2
+
+2 项：seedvr2-overview、seedvr2-rules
+
+- [seedvr2-overview](seedvr2-overview.md) — SeedVR2 目录入口：diffusion/models/seedvr2/ 的 restoration pipeline、admission 与…
+- [seedvr2-rules](seedvr2-rules.md) — SeedVR2 restoration 规则：SEED-1a clip admission 按 padded 帧数与显存 profile（PR #8102）…

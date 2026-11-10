@@ -1,0 +1,6 @@
+# comfyui
+
+2 项：comfyui-overview、comfyui-rules
+
+- [comfyui-overview](comfyui-overview.md) — ComfyUI 目录入口：何时查 ComfyUI video node/client 的 mode 选择、reference 组合与…
+- [comfyui-rules](comfyui-rules.md) — ComfyUI 规则 COMFY-1a：video node/client 的 mode 与 multipart 字段必须共用当前服务端和 checkpoint…

@@ -1,0 +1,6 @@
+# voxtral-tts
+
+2 项：voxtral-tts-overview、voxtral-tts-rules
+
+- [voxtral-tts-overview](voxtral-tts-overview.md) — Voxtral TTS（Mistral 两 stage 流式 TTS，main @ 53afbf3a）目录入口：三个 AR…
+- [voxtral-tts-rules](voxtral-tts-rules.md) — Voxtral-TTS hot-path 规则：VOXTTS-1a variable-output full graph 与 inner…

@@ -1,0 +1,6 @@
+# flux2-klein
+
+2 项：flux2-klein-overview、flux2-klein-rules
+
+- [flux2-klein-overview](flux2-klein-overview.md) — FLUX.2-Klein 入口：Flux2KleinPipeline 独立家族目录 flux2_klein，文本编码用…
+- [flux2-klein-rules](flux2-klein-rules.md) — FLUX.2-Klein 规则 FLUXK-1a：final-layout HWR 用版本化 flux2-klein-dit contract…

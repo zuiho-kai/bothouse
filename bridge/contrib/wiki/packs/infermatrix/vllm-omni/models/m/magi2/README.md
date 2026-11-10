@@ -1,0 +1,6 @@
+# magi2
+
+2 项：magi2-overview、magi2-rules
+
+- [magi2-overview](magi2-overview.md) — MAGI-2 Preview 模型 owner 入口：本地 routed MoE、派生 weight cache、BF16 kernel/launch 与…
+- [magi2-rules](magi2-rules.md) — MAGI-2 BF16 routed MoE 规则：MAGI2-MOE-1a fused BF16 dispatch 的 eligibility（CUDA…

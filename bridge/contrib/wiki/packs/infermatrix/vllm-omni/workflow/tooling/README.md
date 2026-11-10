@@ -1,0 +1,6 @@
+# tooling
+
+2 项：tooling-overview、tooling-rules
+
+- [tooling-overview](tooling-overview.md) — vLLM-Omni apps 与 tooling 入口：本 owner 负责仓库内示例 app、外部 UI adapter（如 ComfyUI…
+- [tooling-rules](tooling-rules.md) — OMNI-TOOL-1a 至 3a：ComfyUI video node 的 frame/references task 路由与 multipart 字段（PR…

@@ -1,0 +1,6 @@
+# helios
+
+2 项：helios-overview、helios-rules
+
+- [helios-overview](helios-overview.md) — Helios 入口：HeliosPipeline 与 HeliosPyramidPipeline 映射同一个类，分块长视频（T2V / I2V /…
+- [helios-rules](helios-rules.md) — Helios cross-attention cache 规则 HELIOS-CACHE-1a：SourceTensorLRUCache 的 data_ptr…

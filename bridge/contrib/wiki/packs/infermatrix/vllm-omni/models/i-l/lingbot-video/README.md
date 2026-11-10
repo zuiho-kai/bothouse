@@ -1,0 +1,6 @@
+# lingbot-video
+
+2 项：lingbot-video-overview、lingbot-video-rules
+
+- [lingbot-video-overview](lingbot-video-overview.md) — LingBot-Video 目录入口（PR #5311）：LingBotVideoPipeline 同时服务 dense…
+- [lingbot-video-rules](lingbot-video-rules.md) — LingBot-Video 规则 LBV-1a 至 LBV-2b（PR #5311 #5976 #6049 #7037）：output…

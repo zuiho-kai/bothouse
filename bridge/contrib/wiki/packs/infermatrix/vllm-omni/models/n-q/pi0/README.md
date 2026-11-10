@@ -1,0 +1,6 @@
+# pi0
+
+2 项：pi0-overview、pi0-rules
+
+- [pi0-overview](pi0-overview.md) — Pi0（π0 VLA）目录入口：知识树 owner models/pi0、pipeline registry key 与 architecture key 均为…
+- [pi0-rules](pi0-rules.md) — Pi0 规则 PI0-1a：π0 的 camera slot 顺序与缺失图像 -1 填充、state 补零截断、PaliGemma 前缀与 action-expert…

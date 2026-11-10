@@ -1,0 +1,6 @@
+# lance
+
+2 项：lance-architecture、lance-overview
+
+- [lance-architecture](lance-architecture.md) — Lance 架构：lance_transformer.py 的 LanceBagel 与 Wan2.2 VAE 专有部分、继承 Bagel…
+- [lance-overview](lance-overview.md) — Lance（ByteDance，BAGEL 谱系统一模型，单 DIFFUSION stage 全模态）目录入口：LancePipeline 继承…

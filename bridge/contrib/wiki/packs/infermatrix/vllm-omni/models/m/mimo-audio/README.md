@@ -1,0 +1,6 @@
+# mimo-audio
+
+2 项：mimo-audio-architecture、mimo-audio-overview
+
+- [mimo-audio-architecture](mimo-audio-architecture.md) — MiMo-Audio 架构：stage 0 融合 thinker+talker 与 CUDA-graph 化 local…
+- [mimo-audio-overview](mimo-audio-overview.md) — MiMo-Audio 目录入口（main @ 5d44868e 复核）：融合 thinker+talker 单 AR stage…

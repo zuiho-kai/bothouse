@@ -1,0 +1,6 @@
+# gr00t
+
+2 项：gr00t-architecture、gr00t-overview
+
+- [gr00t-architecture](gr00t-architecture.md) — GR00T N1.7 架构：Gr00tN1d7Pipeline 读 robot_obs 返回 actions，Gr00tPolicy…
+- [gr00t-overview](gr00t-overview.md) — GR00T N1.7 入口：CamelCase pipeline key Gr00tN1d7、Gr00tN1d7Pipeline 单 diffusion…

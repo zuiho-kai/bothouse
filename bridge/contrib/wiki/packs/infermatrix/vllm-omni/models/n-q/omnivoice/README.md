@@ -1,0 +1,6 @@
+# omnivoice
+
+2 项：omnivoice-overview、omnivoice-rules
+
+- [omnivoice-overview](omnivoice-overview.md) — OmniVoice（离散扩散 TTS）目录入口：Qwen3 backbone 对 8 个 codebook 做 32 步迭代 unmask…
+- [omnivoice-rules](omnivoice-rules.md) — OmniVoice 规则：OMNIVOICE-1a 生成器热路径的 QKV/gate-up pack 顺序、partial shard 拒绝、Q/K…

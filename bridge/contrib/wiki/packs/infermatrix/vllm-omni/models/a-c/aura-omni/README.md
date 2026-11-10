@@ -1,0 +1,6 @@
+# aura-omni
+
+2 项：aura-omni-overview、aura-omni-rules
+
+- [aura-omni-overview](aura-omni-overview.md) — Aura-Omni（pipeline key aura_omni，ASR → AURA Thinker → Talker →…
+- [aura-omni-rules](aura-omni-rules.md) — Aura-Omni 规则 AURA-1a 至 AURA-1i 与 Direct 代码入口表（PR #7633）：四段组合管线与 async_chunk…

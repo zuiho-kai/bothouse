@@ -1,0 +1,6 @@
+# ming-omni-tts
+
+2 项：ming-omni-tts-overview、ming-omni-tts-rules
+
+- [ming-omni-tts-overview](ming-omni-tts-overview.md) — Ming-Omni-TTS 目录入口：ming_tts 注册 key、dense ming_tts.yaml 与 MoE…
+- [ming-omni-tts-rules](ming-omni-tts-rules.md) — Ming-Omni-TTS 规则 MING-1a 至 MING-4a：CFM graph 保持 eager 的 float32…

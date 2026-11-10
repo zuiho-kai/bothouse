@@ -1,0 +1,6 @@
+# z-image
+
+2 项：z-image-overview、z-image-rules
+
+- [z-image-overview](z-image-overview.md) — Z-Image（LLM 编码 flow-matching T2I）源码派生入口：ZImagePipeline 注册、单 stage…
+- [z-image-rules](z-image-rules.md) — Z-Image TeaCache 校准合同：ZIMAGE-1a（系数只用于 Z-Image-Turbo 已校准 checkpoint 与 input…

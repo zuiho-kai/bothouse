@@ -1,0 +1,6 @@
+# wan2-2
+
+2 项：wan2-2-architecture、wan2-2-overview
+
+- [wan2-2-architecture](wan2-2-architecture.md) — Wan 2.2 架构（main @ b98b7c85）：WanTransformer3DModel 的 TP 与 _sp_plan…
+- [wan2-2-overview](wan2-2-overview.md) — Wan 2.2 目录入口（main @ 5d44868e）：七个 registry 架构（T2V / I2V / VACE / S2V / 两个…

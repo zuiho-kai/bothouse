@@ -1,0 +1,6 @@
+# dreamzero
+
+2 项：dreamzero-architecture、dreamzero-overview
+
+- [dreamzero-architecture](dreamzero-architecture.md) — DreamZero 架构（main @ 5d44868e）：CausalWanModel（按块 AR、滑窗注意力、分页 KV…
+- [dreamzero-overview](dreamzero-overview.md) — DreamZero（DreamZero-DROID VLA 世界模型，main @ 5d44868e…

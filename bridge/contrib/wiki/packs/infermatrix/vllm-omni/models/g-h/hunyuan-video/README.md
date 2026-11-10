@@ -1,0 +1,6 @@
+# hunyuan-video
+
+2 项：hunyuan-video-architecture、hunyuan-video-overview
+
+- [hunyuan-video-architecture](hunyuan-video-architecture.md) — HunyuanVideo-1.5 架构：HunyuanVideo15Transformer3DModel…
+- [hunyuan-video-overview](hunyuan-video-overview.md) — HunyuanVideo-1.5（T2V/I2V，meanflow 旗标蒸馏）目录入口：model_type…
