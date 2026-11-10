@@ -6465,6 +6465,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), outputCtx, workspaceRenderer)
 	cp := newCompactProgressWriter(outputCtx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	cp.mirrorFor = e.taskThreadProgressContext(outputCtx, inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
+	if state.turnScheduled && !e.isTeamWorkspaceChat(sessionKey) {
+		cp.hideForScheduled()
+	}
 	state.mu.Unlock()
 
 	// maomao fork: this turn's row on the channel task board; the card's steps

@@ -1867,6 +1867,20 @@ def main(argv):
                 print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，已在聊天频道发 [ask] 请用户定；ws-handoff --resume 不再续做")
             else:
                 print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
+        elif cmd == "accepted" and len(argv) == 2:
+            # 主角色放行了交回的汇报（ws-pass，桥 team_report_accept_api.go）：那就是验收，当场收口。
+            # 不收口时任务留在「已交回待验收」，几小时后「没人验收」再叫主角色验一遍，它拿 GitHub
+            # 最新代码对旧报告，把已交付的活退回重做（agentm #35 11-10 07:16）。返工次数 = 退回轮数。
+            nid = int(argv[1].lstrip("#"))
+            hit = next((i for i in _read() if i["id"] == nid), None)
+            if hit is None:
+                print("不在板上（已收口），不用再收")
+            else:
+                rounds = hit.get("reject_reasons") or []
+                ended = done(nid, len(rounds), ("；".join(rounds)[:200] or None))
+                print("已验收收口" if ended else "不在板上（已收口），不用再收")
+                if ended:
+                    _park_done(ended)
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))

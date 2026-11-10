@@ -38,7 +38,7 @@ var heldReportImages = struct {
 // pending (Held) on the lead engine and the lead is woken to accept it. The board records the
 // handback and the workspace is freed as before. false: nothing was held (a duplicate, or no
 // lead could be asked and the unchecked copy went out instead) — the caller does nothing more.
-func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, bot, body, sessionKey string, hid int, hline, doubt string, item *teamTaskBoardItem) bool {
+func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, bot, body, sessionKey string, hid int, hline, doubt, check string, item *teamTaskBoardItem) bool {
 	if item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedBefore(hid) {
 		slog.Info("team exit: report for a task already done; not held again", "board_item", hid, "workspace", ws)
 		return false
@@ -76,7 +76,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		job := &TimerJob{
 			ID: GenerateTimerID(), Project: lead.name, SessionKey: p.Name() + ":" + parent,
 			ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent, ReplyBoard: hid,
-			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, e.workspaceTaskBackground(sessionKey, hid)),
+			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
 		if err := lead.timerScheduler.AddJob(job); err != nil {
@@ -158,7 +158,7 @@ func heldHeadlineText(name, hline string, unchecked bool) string {
 
 // leadAcceptPrompt is the lead's turn for a held report: the four parts as written, where the
 // handoff is, what the intent check said, and the two ways out.
-func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt, background string) string {
+func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt, check, background string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s 工作区 %s 的「%s」交回了 #%d 的 [report]。系统先交给你验收，没有贴进本频道，用户还没看到。\n", leadAcceptMark, wsLabel, bot, hid)
 	if notes != "" {
@@ -170,6 +170,9 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	head, _ := exitSplit(body)
 	b.WriteString("\n给用户的四段（原文）：\n" + head + "\n")
 	b.WriteString("\n全文：\n" + truncateRelayMore(dataDir, "workspace-report", body, chatLeadWakeLimit) + "\n")
+	if check != "" {
+		b.WriteString("\n系统核对没过（只给你看，用户看不到；按它判合格还是打回）：" + check + "\n")
+	}
 	if doubt != "" {
 		b.WriteString("\n对题检查：有疑点——" + doubt + "\n" + doubtPassRule + "\n")
 	} else {
