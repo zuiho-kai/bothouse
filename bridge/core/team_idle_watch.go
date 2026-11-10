@@ -300,13 +300,15 @@ func watchStale(h TeamHandoff, key string, items []teamTaskBoardItem, now time.T
 	return strings.TrimSpace(h.Owner) == "" || h.Board == 0 && handoffBoardID(key, h, items) == 0
 }
 
-// watchAnsweredInChat: a 【接】 turn in a chat channel that ran no tool, names no board item and
-// has no board item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」
-// and G哥「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an
-// escalation). A chat channel hands real work to a workspace, which is a tool call; a turn that
-// ran nothing has nothing in flight for a wake to continue.
-func watchAnsweredInChat(worked, inWorkspace, boardActive bool, boardID int) bool {
-	return !worked && !inWorkspace && !boardActive && boardID == 0
+// watchAnsweredInChat: a 【接】 turn in a chat channel that names no board item and has no board
+// item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」 and G哥
+// 「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an escalation).
+// A chat channel hands real work to a workspace with ws-handoff, and that work is watched there
+// under its board item; what was not handed off was answered in the chat. Running a tool does not
+// change that (#1407, 11-10 agentm: 鲸鱼娘 ran `bothouse model list` to answer 「在+模型名」, the
+// watch took the tool call for work in flight and woke her three times with 「还没交出去…交工作区」).
+func watchAnsweredInChat(inWorkspace, boardActive bool, boardID int) bool {
+	return !inWorkspace && !boardActive && boardID == 0
 }
 
 // watchBlankTitle: what is left of the first line after 【接】 cannot name the work: empty, or the
@@ -492,7 +494,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	// registration. Register unfinished work from this terminal event only.
 	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
 	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil &&
-		!watchAnsweredInChat(worked, inWorkspace, boardActive, boardID) {
+		!watchAnsweredInChat(inWorkspace, boardActive, boardID) {
 		if !boardActive && watchBlankTitle(title) {
 			title = e.i18n.T(MsgWatchUntitledAccept) // real work with a bare 【接】 is still watched (PR #1194 review)
 		}
