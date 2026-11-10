@@ -90,12 +90,10 @@ function sendNotice(res, status, reason, help) {
     + `@media (prefers-color-scheme:dark){:root{--c:#0d0d0f;--s:#16171a;--l:#2c2e34;--i:#eceef2;--m:#a5aab4;--a:#3dd68c}}`
     + `body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--c);color:var(--m);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}`
     + `main{box-sizing:border-box;width:min(520px,calc(100% - 32px));padding:24px;border:1px solid var(--l);border-radius:12px;background:var(--s)}`
-    + `.b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:7px;background:var(--a);color:#fff;font-weight:700;font-size:13px;margin-bottom:12px}`
-    + `@media (prefers-color-scheme:dark){.b{color:#000}}`
     + `h3{margin:0 0 8px;font-size:16px;font-weight:600;color:var(--i)}p{margin:0 0 8px}`
     + `button{margin-top:8px;font:inherit;font-weight:500;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--l);background:var(--s);color:var(--i);cursor:pointer}`
     + `button:hover{border-color:var(--m)}button:focus-visible{outline:2px solid var(--a);outline-offset:2px}</style>`
-    + `<main><span class="b" aria-hidden="true">b</span>`
+    + `<main>`
     + `<h3>打不开 bothouse 面板</h3>`
     + `<p>${escapeHTML(reason)}</p>`
     + (help ? `<p>${escapeHTML(help)}</p>` : '')

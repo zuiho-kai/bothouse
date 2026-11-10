@@ -8,7 +8,7 @@ import { THEME_ICONS } from '@/components/Theme/themeIcons';
 import { useAuthStore } from '@/store/auth';
 import { wizardTexts } from '@/pages/Setup/texts';
 import { navItemFor, navKeyFor, primaryNav, isPrimary } from './navItems';
-import { BrandMark, isFramed } from './Brand';
+import { isFramed } from './Brand';
 import { Launcher } from './Launcher';
 
 const languages = [
@@ -97,9 +97,11 @@ export default function Header() {
         'border-b border-hairline bg-canvas/80 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/70',
       )}
     >
-      <NavLink to="/" className={cn('mr-1 flex shrink-0 items-center gap-2.5 rounded-control pr-1 md:mr-3', ring)} aria-label="bothouse">
-        <BrandMark />
-        <span className={cn('text-[15px] font-semibold tracking-tight text-ink', framed ? 'hidden xl:inline' : 'hidden lg:inline')}>bothouse</span>
+      {/* The original wordmark, as before the redesign; phones had no brand in the bar and still don't. */}
+      <NavLink to="/" className={cn('mr-3 hidden shrink-0 items-center rounded-control px-1 sm:flex', ring)} aria-label="bothouse">
+        <span className="text-base font-bold tracking-tight text-ink">
+          bothouse<span className="text-accent">.</span>
+        </span>
       </NavLink>
 
       {isSetup ? (
