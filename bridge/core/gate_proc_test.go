@@ -102,8 +102,9 @@ func TestGateSupervisorStartsReloadsStops(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "gate", "gate.py")); err != nil {
 		t.Fatalf("scripts not released into <data_dir>/gate: %v", err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dataDir, "wiki_env.txt")); !strings.HasSuffix(string(b), "\n"+filepath.Join(dataDir, "wiki", "bots.json")) {
-		t.Fatalf("gate env GATE_WIKI / GATE_WIKI_BOTS = %q, want bots.json under <data_dir>/wiki", b)
+	// bots.json is where the wizard installed the programs (RoleWikiDir): the gate must read the same one.
+	if b, _ := os.ReadFile(filepath.Join(dataDir, "wiki_env.txt")); !strings.HasSuffix(string(b), "\n"+filepath.Join(RoleWikiDir(dataDir), "bots.json")) {
+		t.Fatalf("gate env GATE_WIKI / GATE_WIKI_BOTS = %q, want bots.json under %s", b, RoleWikiDir(dataDir))
 	}
 
 	g.Reload(true) // the gate reads gate-team.json / jev.json only at startup: restarted
@@ -252,7 +253,8 @@ func TestGateRunsForDSHRouteOnly(t *testing.T) {
 }
 
 // TestGateWikiEnv: /context searches the main wiki FindWiki names ($WIKI_DIR counts) plus the roles' wikis listed
-// in bots.json (the user's sub-wiki.py directory when set, else <data_dir>/wiki); a GATE_WIKI already set is kept.
+// in bots.json (the user's sub-wiki.py directory when set, else RoleWikiDir, where the wizard installs the programs);
+// a GATE_WIKI already set is kept.
 func TestGateWikiEnv(t *testing.T) {
 	data, mw, own := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("WIKI_DIR", mw)
@@ -261,7 +263,7 @@ func TestGateWikiEnv(t *testing.T) {
 	t.Setenv("GATE_PROFILE", "")
 	os.Unsetenv("GATE_PROFILE")
 	got := strings.Join(gateWikiEnv(data, ""), " ")
-	if want := "GATE_WIKI=" + mw + " GATE_PROFILE=" + gateProfilePage + " GATE_WIKI_BOTS=" + filepath.Join(data, "wiki", "bots.json"); got != want {
+	if want := "GATE_WIKI=" + mw + " GATE_PROFILE=" + gateProfilePage + " GATE_WIKI_BOTS=" + filepath.Join(RoleWikiDir(data), "bots.json"); got != want {
 		t.Fatalf("env = %q, want %q", got, want)
 	}
 	got = strings.Join(gateWikiEnv(data, own), " ")

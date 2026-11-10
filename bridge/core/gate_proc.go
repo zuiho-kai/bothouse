@@ -204,7 +204,7 @@ var (
 type GateSupervisor struct {
 	dataDir  string
 	dir      string // <data_dir>/gate
-	roleWiki string // the directory of the role wikis' bots.json (SetRoleWikiDir); "" = <data_dir>/wiki
+	roleWiki string // the directory of the role wikis' bots.json (SetRoleWikiDir); "" = RoleWikiDir(dataDir)
 
 	op       sync.Mutex // one step / stop at a time: a gate being stopped is never seen as someone else's
 	mu       sync.Mutex
@@ -241,8 +241,9 @@ func (g *GateSupervisor) SetRoleWikiDir(dir string) {
 }
 
 // gateWikiEnv: the wikis /context searches (contrib/gate/ctxsvc.py): GATE_WIKI = the main wiki (FindWiki, so
-// $WIKI_DIR counts), GATE_WIKI_BOTS = bots.json, whose entries name each role's own wiki. A GATE_WIKI already
-// in the environment (e.g. "off") is kept.
+// $WIKI_DIR counts), GATE_WIKI_BOTS = bots.json, whose entries name each role's own wiki. That file sits where the
+// wizard installed the programs (RoleWikiDir), which an isolated data dir keeps apart from the main wiki. A
+// GATE_WIKI already in the environment (e.g. "off") is kept.
 func gateWikiEnv(dataDir, roleWikiDir string) []string {
 	var env []string
 	if _, set := os.LookupEnv("GATE_WIKI"); !set {

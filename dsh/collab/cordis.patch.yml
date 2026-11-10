@@ -8,7 +8,9 @@
     - id: conest-collab
       name: conest-collab
       config:
-        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.BOTHOUSE_DATA_DIR ? process.getBuiltinModule('node:path').join(process.env.BOTHOUSE_DATA_DIR, 'conest-collab') : process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab'))
+        # No ?: here: "!!js (a ? b : c)" is a plain-scalar flow mapping to the YAML parser, so the whole patch
+        # failed to load and no role got imported (CI windows-e2e, 11-10). && / || parse as one scalar.
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || ((process.env.BOTHOUSE_DATA_DIR && process.getBuiltinModule('node:path').join(process.env.BOTHOUSE_DATA_DIR, 'conest-collab')) || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab'))
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
         leadFile: !!js process.env.CONEST_LEAD_FILE || ((process.env.BOTHOUSE_DATA_DIR || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.bothouse')) + '/lead.json')
         fallbackLead: !!js process.env.CONEST_FALLBACK_LEAD || ''
