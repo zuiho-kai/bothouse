@@ -71,9 +71,12 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .label .name{cursor:text}
 .label .many{color:#ffd166;font-weight:800;font-size:10px}
 .seat.clone .tasktag{background:#ffcf7a;font-size:10px;padding:1px 6px}
+/* 任务牌左头一块派活人颜色的小签：「橘 派」，不等事件也看得出谁派给谁 */
+.tasktag .from{display:inline-block;margin:-2px 6px -2px -7px;padding:2px 5px;font-weight:800;box-shadow:2px 0 0 #0b0910}
+.seat.clone .tasktag .from{margin:-1px 5px -1px -6px;padding:1px 4px}
 .label .name:hover{text-decoration:underline dotted}
 .label input.rename{width:9em;font:inherit;font-size:11px;font-weight:700;color:#fff;background:#0b0910;border:0;outline:1px solid #ffa53a;padding:0 3px;margin:0}
-.tasktag{max-width:200px;overflow:hidden;text-overflow:ellipsis;padding:2px 7px;background:#ffa53a;color:#241605;font-size:11px;font-weight:700;box-shadow:0 0 0 2px #0b0910;pointer-events:auto;animation:tagIn .25s steps(3)}
+.tasktag{max-width:260px;overflow:hidden;text-overflow:ellipsis;padding:2px 7px;background:#ffa53a;color:#241605;font-size:11px;font-weight:700;box-shadow:0 0 0 2px #0b0910;pointer-events:auto;animation:tagIn .25s steps(3)}
 .bubble{display:flex;gap:3px;padding:4px 6px;background:#e9f4ff;box-shadow:0 0 0 2px #0b0910}
 .bubble i{width:4px;height:4px;background:#2d5ea3;animation:dotp 1.2s steps(1) infinite}
 .bubble i:nth-child(2){animation-delay:.3s}.bubble i:nth-child(3){animation-delay:.6s}
@@ -362,7 +365,7 @@ function fxPush(name, item) { const arr = (P[name] = P[name] || []); arr.push(it
 const RES = 4, SPR = 1.25;
 const snap = (v) => Math.round(v * RES) / RES;
 const GW = PX.W / PX.T, GH = Math.ceil(PX.H / PX.T);
-const BEAM_COLOR = { assign: '#ffa53a', return: '#3ddc97', reject: '#ff5a5f', at: '#5fb0ff', pause: '#a3acb9' };
+const BEAM_COLOR = { replay: '#ffd8a0', assign: '#ffa53a', return: '#3ddc97', reject: '#ff5a5f', at: '#5fb0ff', pause: '#a3acb9' };
 const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const P = { agents: new Map(), desks: new Map(), stations: new Map(), beams: [], parts: [], grid: null, bg: null, bgKey: '', ctx: null, last: 0, poiUsed: new Map() };
 
@@ -407,6 +410,8 @@ const ART = {
   slipB: ['....tttt...', '.ddttttddd.', 'dkwwwwwwwd.', 'dkwnnnnnwd.', 'dwwwwwwwwd.', 'dwwwnnnnwd.', 'dwwwwwwwwd.', 'dwnnnnnnwd.', 'dswwwwwwwd.', 'dfsssssssd.', '.ffddddddd.', '...........'],
   ball: ['...dddddd...', '..dwwhwwsd..', '.dwhhwwsssd.', 'dwwhwssswwsd', 'dwwwsswwwhwd', 'dswwswwhhwsd', 'dsswwwhwwssd', '.dsswwwwsssd', '.dsssswsssd.', '..ddssssdd..', '....dddd....'],
   folder: ['dddddddddddddddd', 'dmmmmmmmmmmmmmmd', 'dwwwwwwwwwwwwwwd', 'dMMMMMMMMMMMMMMd'],
+  // 钉在接活人桌前的小信封，火漆是派活人的颜色
+  mail: ['dddddddddd', 'dfwwwwwwfd', 'dwfwwwwfwd', 'dwwfrrfwwd', 'dwwwrRwwwd', 'dwwwwwwwwd', 'dddddddddd'],
   lamp: ['.ddd.', 'dcHcd', 'dcccd', 'dCccd', '.ddd.', '..p..', '..p..', '.bbb.', 'bbbbb'],
 };
 // 任务色的亮、暗两档，给火漆高光、灯罩暗面用
@@ -833,16 +838,18 @@ function drawBeams(ctx, now, dt) {
     const lift = Math.min(70, 16 + dist * 0.3);
     const cx = (A.x + B.x) / 2, cy = Math.min(A.y, B.y) - lift;
     const at = s => ({ x: (1 - s) * (1 - s) * A.x + 2 * (1 - s) * s * cx + s * s * B.x, y: (1 - s) * (1 - s) * A.y + 2 * (1 - s) * s * cy + s * s * B.y });
-    const color = BEAM_COLOR[b.kind] || '#fff';
+    const color = b.color || BEAM_COLOR[b.kind] || '#fff';
+    // 重放（已在做的活每 5–10 秒再飞一次）整体淡一半、不发光、落地不炸，和新派活分得开
+    const faint = b.kind === 'replay' ? 0.55 : 1;
     // 拖尾：@ 是细虚点，其余是渐隐方块
-    const tail = b.kind === 'at' ? 14 : b.kind === 'assign' ? 28 : 18;
+    const tail = b.kind === 'at' ? 14 : b.kind === 'assign' ? 28 : b.kind === 'replay' ? 10 : 18;
     for (let i = tail; i >= 1; i--) {
       const s = e - i * (b.kind === 'assign' ? 0.012 : 0.018);
       if (s <= 0) continue;
       if (b.kind === 'at' && i % 2) continue;
       const p = at(s);
-      ctx.globalAlpha = (1 - i / tail) * 0.85;
-      const size = b.kind === 'at' ? 2 : i < tail / 3 ? 4 : i < tail * 2 / 3 ? 3 : 2;
+      ctx.globalAlpha = (1 - i / tail) * 0.85 * faint;
+      const size = b.kind === 'at' || b.kind === 'replay' ? 2 : i < tail / 3 ? 4 : i < tail * 2 / 3 ? 3 : 2;
       px(ctx, p.x - (size >> 1), p.y - (size >> 1), size, size, color);
     }
     ctx.globalAlpha = 1;
@@ -850,10 +857,14 @@ function drawBeams(ctx, now, dt) {
     if (b.kind === 'at') { px(ctx, p.x - 1, p.y - 1, 3, 3, '#e7f3ff'); ctx.globalAlpha = 0.35; px(ctx, p.x - 3, p.y - 3, 7, 7, color); ctx.globalAlpha = 1; }
     else {
       // 派活是信封，交回/打回是带对应颜色封口的信封；外面一圈淡光
-      ctx.globalAlpha = 0.3; px(ctx, p.x - 11, p.y - 8, 22, 17, color); ctx.globalAlpha = 1;
-      pix(ctx, ART.env, p.x - 9, p.y - 6, 1, ENV_PAL(color));
+      if (b.kind === 'replay') { ctx.globalAlpha = faint; pix(ctx, ART.env, p.x - 9, p.y - 6, 1, ENV_PAL(color)); ctx.globalAlpha = 1; }
+      else {
+        ctx.globalAlpha = 0.3; px(ctx, p.x - 11, p.y - 8, 22, 17, color); ctx.globalAlpha = 1;
+        pix(ctx, ART.env, p.x - 9, p.y - 6, 1, ENV_PAL(color));
+      }
     }
-    if (k >= 1) {
+    if (k >= 1 && b.kind === 'replay') { b.dead = true; ring(B.x, B.y, color); }
+    else if (k >= 1) {
       b.dead = true;
       burst(B.x, B.y, color, b.kind === 'at' ? 6 : 12);
       if (b.kind !== 'at') ring(B.x, B.y, color);
@@ -869,6 +880,45 @@ function drawBeams(ctx, now, dt) {
   }
   ctx.globalAlpha = 1;
   P.parts = P.parts.filter(p => p.life > 0);
+}
+
+// ── 谁派给谁：常驻的桌前信封 + 每 5–10 秒重放一次真实在做的活（用户 11-10「大部分时间很少有派活的时候 这时候怎么办」）──
+// 只用 S.active 里真实存在的派活关系，不造事件；没有在做的活就不飞。
+function dispatcherOf(rec, workerId) {
+  const f = rec && rec.from ? S.byId.get(rec.from) : null;
+  return f && f.id !== workerId ? f : null;
+}
+function replayTick(now) {
+  if (REDUCED || S.mode === 'replay' && !(S.replay && S.replay.playing)) return;
+  if (P.replayAt === undefined) P.replayAt = now + 2500;
+  if (now < P.replayAt) return;
+  P.replayAt = now + 5000 + Math.random() * 5000;
+  if (P.beams.some(b => b.kind === 'assign')) return;
+  const list = [];
+  for (const t of liveTasks()) {
+    if (t.rec.paused) continue;
+    const f = dispatcherOf(t.rec, t.memberId);
+    if (!f) continue;
+    const body = bodyRef(t.memberId, t.rec.id).id, a = P.agents.get(body);
+    if (!a || !P.agents.has(f.id) || body === f.id || a.hold || a.state === 'spawn' || a.state === 'gone') continue;
+    list.push({ from: f.id, to: body, color: styleOf(f).hair });
+  }
+  if (!list.length) return;
+  P.replayTurn = ((P.replayTurn ?? -1) + 1) % list.length;
+  const pick = list[P.replayTurn];
+  if (beam({ id: pick.from }, { id: pick.to }, 'replay')) P.beams[P.beams.length - 1].color = pick.color;
+}
+// 坐着干活的人桌前钉一封小信，火漆是派活人的颜色；派活信封还在飞（hold）时先不钉，落地才出现。
+function mailSpot(a) {
+  if (a.state !== 'sit' || a.hold) return null;
+  if (a.clone) { const s = P.stations.get(a.id); return s && s.up ? { x: s.x + 3, y: s.y - 43, z: s.y - 29.5 } : null; }
+  return a.desk ? { x: a.desk.x + 6, y: a.desk.y + 2, z: a.desk.y + 10.5 } : null;
+}
+function drawMail(ctx, a, spot) {
+  const rec = taskOfBody(a);
+  const f = rec && !rec.paused ? dispatcherOf(rec, a.clone ? a.owner : a.id) : null;
+  if (!f) return;
+  pix(ctx, ART.mail, spot.x, spot.y, 1, { d: '#6b4a33', f: '#e8d2a6', w: '#fff8ea', r: styleOf(f).hair, R: tone(styleOf(f).hair, 0.5) });
 }
 
 // ── 夜间：屋里暗下来，屏幕和台灯是光源 ──
@@ -1130,6 +1180,7 @@ function frame(now) {
     list.push({ y: s.y - 30, draw: () => drawStation(ctx, s, now, csit) });
     if (!csit) list.push({ y: s.y - 29, draw: () => drawFoldingChair(ctx, s.x, s.y) });
   }
+  for (const a of P.agents.values()) { const spot = mailSpot(a); if (spot) list.push({ y: spot.z, draw: () => drawMail(ctx, a, spot) }); }
   for (const a of P.agents.values()) {
     if (a.state === 'gone') continue;
     const m = S.byId.get(a.clone ? a.owner : a.id);
@@ -1176,6 +1227,7 @@ function frame(now) {
   list.sort((p, q2) => p.y - q2.y);
   for (const it of list) it.draw();
   drawLights(ctx, sky.night, now);
+  replayTick(now);
   drawBeams(ctx, now, dt);
   drawSlips(ctx, now);
   drawBalls(ctx, now, dt);
@@ -1353,8 +1405,8 @@ function syncClones(animate) {
       if (!node || !rec) continue;
       const tag = q('.tasktag', node);
       const text = `#${c.ord} ${rec.title || (rec.id ? '任务 ' + rec.id : '')}`.trim();
-      if (tag.textContent !== text) tag.textContent = text;
-      tag.title = `${displayName(m)} 的第 ${c.ord} 个小人 · ${rec.id ? '#' + rec.id + ' ' : ''}${rec.title || ''}`;
+      fillTag(tag, rec, text, m.id);
+      tag.title = `${routeOf(rec, m)}${displayName(m)} 的第 ${c.ord} 个小人 · ${rec.id ? '#' + rec.id + ' ' : ''}${rec.title || ''}`;
     }
   }
 }
@@ -1540,8 +1592,8 @@ function paintSeat(m) {
   const tag = q('.tasktag', node);
   if (rec) {
     tag.hidden = false;
-    tag.textContent = `#${rec.id || '?'} ${rec.title || ''}`.trim();
-    tag.title = `${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
+    fillTag(tag, rec, `#${rec.id || '?'} ${rec.title || ''}`.trim(), m.id);
+    tag.title = `${routeOf(rec, m)}${rec.title || ''}${rec.note ? ' · ' + rec.note : ''}`;
   } else { tag.hidden = true; tag.title = ''; }
   const statusText = !online ? '离线' : kind === 'work' ? '干活中' : thinking ? '思考中' : '摸鱼中';
   q('.status', node).textContent = statusText;
@@ -1555,6 +1607,25 @@ function paintSeat(m) {
   bubble.hidden = kind !== 'think';
   if (kind === 'think' && !bubble.children.length) for (let i = 0; i < 3; i++) bubble.append(el('i'));
   node.title = `${displayName(m)} · ${statusText}`;
+}
+// 任务牌：左头一块派活人颜色的小签「X 派」，后面是任务名；派活人就是自己或不知道时不挂签。
+function inkOn(hex) {
+  const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16);
+  return Number.isNaN(n) || (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 150 ? '#1a1220' : '#ffffff';
+}
+function routeOf(rec, worker) { const f = dispatcherOf(rec, worker.id); return f ? `${displayName(f)} 派给 ${displayName(worker)} · ` : ''; }
+function fillTag(tag, rec, text, workerId) {
+  const f = dispatcherOf(rec, workerId);
+  const key = (f ? f.id + '\u0001' + displayName(f) : '') + '\u0001' + text;
+  if (tag.dataset.k === key) return;
+  tag.dataset.k = key;
+  tag.replaceChildren();
+  if (f) {
+    const c = styleOf(f).hair, chip = el('span', 'from', `${displayName(f)} 派`);
+    chip.style.background = c; chip.style.color = inkOn(c);
+    tag.append(chip);
+  }
+  tag.append(document.createTextNode(text));
 }
 function paintAll(animate = false) {
   syncClones(animate && !REDUCED);
@@ -1606,7 +1677,7 @@ function beam(from, to, kind = 'assign') {
   if (!from || !to || from.id === to.id) return false;
   if (!P.agents.has(from.id) || !P.agents.has(to.id)) return false;
   // @ 是一颗细小光点沿虚线拖尾飞过；派活是一封小信，交回/打回是方块光球。
-  P.beams.push({ from: from.id, to: to.id, kind, t0: performance.now(), dur: kind === 'at' ? 800 : kind === 'assign' ? 1800 : 1000 });
+  P.beams.push({ from: from.id, to: to.id, kind, t0: performance.now(), dur: kind === 'at' ? 800 : kind === 'assign' ? 2200 : kind === 'replay' ? 2000 : 1000 });
   if (P.beams.length > FX_MAX.beams) P.beams.splice(0, P.beams.length - FX_MAX.beams);
   return true;
 }
