@@ -5,18 +5,15 @@
   {
    "id": "maomao-q",
    "name": "橘",
-   "aliases": [
-    "橘",
-    "cjiang",
-    "C酱"
-   ],
    "group": "自家角色"
   },
   {
    "id": "maomao",
    "name": "橘·小人版",
    "aliases": [
-    "橘"
+    "橘",
+    "cjiang",
+    "C酱"
    ],
    "group": "自家角色"
   },

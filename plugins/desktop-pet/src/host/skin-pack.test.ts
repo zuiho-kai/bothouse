@@ -102,6 +102,10 @@ describe('skins.json 角色别名', () => {
     assert.deepEqual(owner('大豆包'), ['caihongmao']);
   });
 
+  test('橘 仍只认小人版，新 Q 版形象要在「换形象」里手选', () => {
+    assert.deepEqual(owner('橘'), ['maomao']);
+  });
+
   test('同一别名只出现在一个形象里', () => {
     const seen = new Map<string, string>();
     for (const s of m.builtin) {
