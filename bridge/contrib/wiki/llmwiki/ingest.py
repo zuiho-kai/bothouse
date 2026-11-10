@@ -313,9 +313,10 @@ each starting with a `=== SESSION` header.
    One home per fact: grep the wiki first; if another page already owns the fact, update it there and link
    `[[name]]` — never restate it. If something was renamed, grep for the old name and update every hit.
    Keep conclusions, not process: result + reason + the few numbers that justify it.
-   When an entry gives the user's words or a decision (用户说/定/同意…), quote them verbatim in the entry — at least
-   four characters, or the whole sentence. Without such a quote, name who really said it or leave the claim out; the
-   script checks every new quote and every user claim against the session's USER lines and rejects the pass.
+   Every new fact or memory entry quotes the session's USER words verbatim — at least four characters after
+   removing punctuation and whitespace, or the whole message line. Source and date alone are insufficient.
+   What only the bot said is no evidence; leave unsupported facts out. Only a whole-line pointer may defer to
+   another page; adding a link to a fact does not exempt it. The script checks every new fact and rejects the pass.
    Rewrite 现状 to the current truth; delete facts the new content supersedes. A reversed decision leaves one
    line in 决策与踩坑 (曾以为 X → 因 Y 改为 Z, date). Date facts that can go stale (YYYY-MM-DD).
 3. Keep every README line and page `description:` in sync with the page body, and MEMORY.md with the READMEs
@@ -385,9 +386,9 @@ A3 事实清单每条都能在 wiki 里找到（跳过的写出 文件:行），
 A4 没有同一事实写在两页（对新写的路径/ID/端口 grep 自检）。
 A5 每个改过页面的 description: 和 README 行与正文一致。
 A6 没删掉仍然成立的事实。
-A7 本次写的每条「用户说/用户定/用户否决/用户原话/用户同意」都能对上 TRANSCRIPT 里一条 USER 或 USER→ 行（逐条回看那一行再判 pass）。
-   每一条把话或决定归给用户的记录，都带一句从那条 USER 行逐字摘出的原话（≥4 字，或整句）；找不到原话就把说话的人写对，
-   或不写成用户的决定（未答复的提议只进 log.md「- 未答复提议：X」）。归给用户的「」引文须逐字取自 USER 行。
+A7 每条新事实/记忆都带一句从 TRANSCRIPT 的 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
+   抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据，只记来源和时间不够。
+   没有原话依据就不写进正文（未答复的提议只进 log.md「- 未答复提议：X」）。只有整行纯指针可免引，事实后接链接不豁免。
    脚本会核对引文和归属，不符整次打回。
 
 ## 交付
@@ -442,8 +443,9 @@ A2 每个 sid8 都在 log.md 末尾新追加了一条 review 条目。
 A3 事实清单每条都在 wiki 里（写出 文件:行），或判定不记（写出理由）。
 A4 DAY WRITES 里的 + 行没有无依据的说法留下；改动只落在 DAY PAGES 和补漏写入处，每处改动都有 TRANSCRIPT 依据。
 A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样移到 log.md 的除外；脚本核对）。
-A6 本次写下或保留的每条「用户说/用户定/用户同意」都对得上一条 USER 或 USER→ 行；每一条把话或决定归给用户的记录都带一句
-   逐字摘出的原话（≥4 字或整句），找不到原话就把说话的人写对或不写成用户的决定；归给用户的「」引文须逐字取自 USER 行（脚本核对）。
+A6 本次每条新事实/记忆都带一句从 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
+   抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据。找不到原话就不写进正文。
+   只有整行纯指针可免引，事实后接链接不豁免；沿用或搬动的旧行不重查，归给用户的引文仍须逐字匹配（脚本核对）。
 A7 DAY DELETIONS 每行都处理过（恢复，或 TRANSCRIPT 写明它已不成立）。
 
 ## 交付
@@ -2575,18 +2577,11 @@ USER_SAYS = re.compile(r"(?<![需待等请让])用户(?!" + BOT_NAMES + r"|名|�
                        r"(?:(?:原话|说|答|回复?|问|定|要求|否决|指出|批评|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽|"
                        r"同意|答应|批准|认可|采纳|拍板|反对|拒绝)"
                        r"[^「」。；;，,]{0,8}[：:（(\s]*|[：:]\s*)$")
-# an entry that gives the user words or a decision, whether or not it quotes one: USER_SAYS is anchored to a quote after
-# the verb, so it cannot find the entries that need a quote (user 2026-11-09: 「记忆条目得带原话逐字依据，再核一遍，
-# 我现在只记来源和时间，太松」). 定/问/答 are dropped inside 决定/确定/问题/回答; 的/了/把/被 stop 用户的选择, 替用户答,
-# 用户 ssh 被拦 (data: the 177 added bullet lines with 用户 in the last 40 ingest commits of the three role wikis).
-CLAIM = re.compile(r"(?<![需待等请让替帮被由对给核引存看照按据未没不或部])用户(?!原|" + BOT_NAMES + r"|名|未|没|的|们|自己)"
-                   r"[^「」。；;，,：:的了把被\n]{0,60}?"
-                   r"(?:原话|说(?![明服法话])|答(?![案了])|(?<![撤返收])回复?|问(?![题])|(?<![未没不决确设规判认指约限固假位])定|要求|"
-                   r"否决|指出|批评|拒绝|同意|批准|抱怨|质疑|反对|交代|叮嘱|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽)")
 # a line whose whole point is that the words live on another page (「用户这条要求的原话与场景见 [[user-requests]]。」):
 # the quote is on that page, which is checked when it is written. A line that states the claim and happens to link a
 # page is not this, and neither is a pointer not at the end (appending one must not excuse a missing quote).
-PTR = re.compile(r"原话[^。；\n]{0,20}(?:见|详见)\s*`?(?:\[\[[^\]]+\]\]|[\w./-]+\.md)\s*[。.]?$")
+PTR = re.compile(r"\s*(?:[-*+]\s+)?(?:用户(?:这条要求的)?)?原话(?:与场景)?\s*(?:见|详见)\s*"
+                 r"(?:\[\[[^\]]+\]\]|`[\w./-]+\.md`|[\w./-]+\.md)\s*[。.]?\s*")
 # 石英 quality.py `_quote_ok`: a quote under 4 characters counts only as a whole message (or its last line, the bridge
 # puts a header above the user's text), or 「好」 would pass inside any sentence that holds it (source:
 # ~/wiki/refs/astrbot-plugin-shrink.md; idea only, no AGPL code copied)
@@ -2619,22 +2614,61 @@ def user_quotes(line):
     return out
 
 
+def page_additions(base):
+    """Added lines and their structural status, using their actual file and line position."""
+    files = git("diff", "--name-only", "--no-renames", "-z", base, "--", "*.md", ":!log.md").split("\0")
+    for f in filter(None, files):
+        path = WIKI / f
+        if not path.is_file():
+            continue
+        text = path.read_text()
+        front = re.match(r"---\n.*?\n---(?:\n|$)", text, re.S)
+        metadata = len(front.group().splitlines()) if front else 0
+        index = path.name == "README.md" or f == "MEMORY.md"
+        structural, fence = set(), None
+        for n, line in enumerate(text.splitlines()):
+            if n < metadata:
+                structural.add(n)
+                continue
+            mark = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+            if fence:
+                if mark and mark[1][0] == fence[0] and len(mark[1]) >= len(fence) and not mark[2].strip():
+                    fence = None
+                    structural.add(n)
+            elif mark:
+                fence = mark[1]
+                structural.add(n)
+            elif (re.match(r" {0,3}#{1,6}(?:[ \t]+|$)", line)
+                  or re.fullmatch(r" {0,3}(?:-[ \t]*){3,}", line)
+                  or index and re.fullmatch(r" {0,3}[-*+] +\[[^\]]+\]\([^()]+\.md\)[ \t]*", line)):
+                structural.add(n)
+        at = None
+        for line in git("diff", "--no-renames", "--unified=0", base, "--", f).splitlines():
+            hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+            if hunk:
+                at = int(hunk[1]) - 1
+            elif at is not None and line.startswith(("+", " ")):
+                if line.startswith("+"):
+                    yield line[1:], at in structural
+                at += 1
+
+
 def page_misquotes(sessions, base="HEAD"):
     """Quotes the pass's new page lines give to the user that none of `sessions` (transcript paths; plus any session
-    a line names by sid8) has on a USER/USER→ line, and user claims no such quote backs. A line already in the wiki
+    a line names by sid8) has on a USER/USER→ line, and new facts no such quote backs. A line already in the wiki
     at `base` is not new (a move)."""
     git("add", "-AN")
-    diff = git("diff", "--unified=0", base, "--", "*.md", ":!log.md")
+    added = list(page_additions(base))
     git("reset", "-q")
-    added = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
     old = lambda: wiki_text(base)
-    bad, claims = bad_quotes(added, old, sessions), claim_msgs(added, old, sessions)
+    bad = bad_quotes([line for line, _ in added], old, sessions)
+    claims = claim_msgs([line for line, structural in added if not structural], old, sessions)
     return "\n".join(e for e in (
         ("quotes given to the user (用户说/答/定「…」, 「…」（用户原话）) that no USER line of these sessions has: "
          + "; ".join(bad) + " — quote the user's words exactly, name who really said it, or drop the quote") if bad else "",
-        ("entries that give the user words or a decision without a quote from a USER/USER→ line of this pass's "
+        ("new facts without a quote from a USER/USER→ line of this pass's "
          "sessions: " + "; ".join(claims) + " — add the user's words verbatim (≥4 字, or the whole message), write "
-         "who really said it instead, or leave it out / keep it only in log.md's 未答复提议") if claims else "") if e)
+         "only facts supported by such a quote, or leave it out / keep it only in log.md's 未答复提议") if claims else "") if e)
 
 
 def heard(msgs):
@@ -2689,13 +2723,13 @@ def bad_quotes(added, old_text, sessions):
 
 
 def claim_msgs(added, old_text, sessions):
-    """page_misquotes on given lines: each line that gives the user words or a decision (CLAIM) needs one of its quotes
+    """page_misquotes on body lines (file structure already excluded): every new fact line needs one of its quotes
     to be the user's (quote_ok). A line already on the wiki at `old_text()` is a move; a pointer line (PTR) leaves the
     words to the page it names, checked when that page is written."""
     old = flat(old_text())
     bad, said, every = [], None, None
     for l in added:
-        if NOT_FACT.match(l) or not CLAIM.search(l) or PTR.search(l) or flat(l) in old:
+        if not l.strip() or PTR.fullmatch(l) or flat(l) in old:
             continue
         quotes = quotes_on(l)
         if not quotes:
@@ -2718,8 +2752,8 @@ def quote_ok(q, texts):
     frags = [flat(f) for f in re.split(r"…+|\.\.\.", q) if flat(f)]
     if not frags:
         return False
-    if len(q.strip()) < MIN_QUOTE:
-        return any(t == frags[0] for t in texts)
+    if sum(map(len, frags)) < MIN_QUOTE:
+        return any(t == "".join(frags) for t in texts)
     return any(in_order(frags, t) for t in texts)
 
 
