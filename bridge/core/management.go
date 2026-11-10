@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -474,6 +475,7 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 
 func (m *ManagementServer) wrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer drainRequestBody(r)
 		m.setCORS(w, r)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -486,6 +488,22 @@ func (m *ManagementServer) wrap(handler http.HandlerFunc) http.HandlerFunc {
 		handler(w, r)
 	}
 }
+
+// drainRequestBody reads what a handler left of a small request body before the response goes out.
+// A client that sends "Connection: close" (Python urllib does on every request) gets no draining from
+// net/http: the server closes the socket with the body still unread, the kernel answers with a TCP
+// RST, and Windows drops the response the client had not read yet — ConnectionResetError
+// [WinError 10054] on POST /setup/dsh/open, a handler that never reads its "{}" (windows-e2e,
+// runs 42794984764, 42799948850, 42804201043; #1392). Bodies past the cap are left to net/http.
+func drainRequestBody(r *http.Request) {
+	if r.Body == nil || r.Body == http.NoBody {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxDrainRequestBody))
+}
+
+// maxDrainRequestBody is net/http's own limit for draining an unread body (maxPostHandlerReadBytes).
+const maxDrainRequestBody = 256 << 10
 
 func (m *ManagementServer) authenticate(r *http.Request) bool {
 	if m.token == "" {
