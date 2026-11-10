@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   ALIVE_EVERY_MS, CODE_TTL_MS, MAX_ATTEMPTS, UNTIL_GRACE_MS, tempDuration, PairClient, PairError, PairHost, PairListener, REMOTE_OWNER, hostHandler, isTailnetAddress,
-  pairApiRoute, remoteProxyRoute, rewriteRemoteHTML, tailnetPeers,
+  pairApiRoute, remoteProxyRoute, rewriteRemoteHTML, tailnetPeers, PAIR_COOKIE,
 } from './pairing.mjs';
 
 const dir = () => mkdtempSync(join(tmpdir(), 'collab-pair-'));
@@ -483,4 +483,125 @@ test('pair/whoami answers the device itself and refuses a revoked credential', a
   assert.equal(gone.status, 401);
   assert.equal(gone.json.code, 'revoked');
   assert.equal(gone.headers['x-collab-pair'], 'revoked');
+});
+
+// #1327: a phone in the tailnet pairs in its browser with the same number and keeps a cookie.
+test('phone browser: number page → wrong-number count → cookie → pages and events → kick ends it', async t => {
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const route = (req, res) => {
+    if (req.url === '/collab') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end('<html><body><p>频道</p></body></html>'); }
+    if (req.url === '/collab/api/state') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"rooms":[1]}'); }
+    if (req.url === '/collab/api/events') { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.write(': connected\n\n'); }
+    res.writeHead(404); res.end();
+  };
+  const listener = new PairListener({ host, address: async () => '127.0.0.1', port: await freePort(),
+    handler: hostHandler({ host, name: 'mac-studio', route, allowLoopback: true, whois: async () => 'galaxy-s25-ultra' }) });
+  t.after(() => listener.close());
+  const { code } = host.newCode();
+  await listener.ensure();
+  const port = listener.port;
+  const html = { accept: 'text/html' };
+
+  // The number page, and pages without a cookie lead back to it.
+  const page = await get(port, '/', { headers: html });
+  assert.equal(page.status, 200);
+  assert.match(page.text, /inputmode="numeric"/);
+  assert.equal((await get(port, '/collab', { headers: html })).headers.location, '/');
+  assert.equal((await get(port, '/collab/api/state')).status, 401);
+
+  // Wrong numbers count down, same rule as between computers.
+  const wrong = code === '000000' ? '111111' : '000000';
+  const bad = await get(port, '/collab/pair/browser', { method: 'POST', body: { code: wrong } });
+  assert.equal(bad.status, 403);
+  assert.match(bad.json.error, new RegExp(`还能再试 ${MAX_ATTEMPTS - 1} 次`));
+  assert.equal(bad.headers['set-cookie'], undefined);
+
+  const ok = await get(port, '/collab/pair/browser', { method: 'POST', body: { code } });
+  assert.equal(ok.status, 200, ok.text);
+  const cookie = ok.headers['set-cookie'][0];
+  assert.match(cookie, new RegExp(`^${PAIR_COOKIE}=`));
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Strict/);
+  assert.doesNotMatch(cookie, /Secure/);
+  assert.doesNotMatch(cookie, /Max-Age/, 'temporary: browser-session cookie');
+  const jar = { cookie: cookie.split(';')[0] };
+
+  // The phone shows up as one device (whois names tailnet peers only; this test runs on loopback).
+  const [dev] = host.list();
+  assert.equal(host.list().length, 1);
+  assert.equal(dev.name, '手机浏览器');
+  assert.equal(dev.kind, 'browser');
+
+  assert.equal((await get(port, '/', { headers: { ...html, ...jar } })).headers.location, '/collab');
+  const channel = await get(port, '/collab', { headers: { ...html, ...jar } });
+  assert.equal(channel.status, 200);
+  assert.match(channel.text, /<p>频道<\/p><script>.*pair\/whoami.*<\/script><\/body>/s, 'kick watcher added before </body>');
+  assert.deepEqual((await get(port, '/collab/api/state', { headers: jar })).json, { rooms: [1] });
+  assert.equal((await get(port, '/collab/pair/whoami', { headers: jar })).status, 200);
+  // Pairing management stays on the host even with the cookie; a foreign origin cannot write.
+  assert.equal((await get(port, '/collab/api/pair/devices', { headers: jar })).status, 403);
+  assert.equal((await get(port, '/collab/api/rooms/1/messages', { method: 'POST', body: {}, headers: { ...jar, origin: 'http://evil.example' } })).status, 403);
+
+  // An open event stream ends the moment the phone is kicked; then 401 and the page says why.
+  const stream = await new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port, path: '/collab/api/events', headers: jar }, res => {
+      const s = { status: res.statusCode, closed: false };
+      res.on('data', () => {});
+      res.on('close', () => { s.closed = true; });
+      res.on('error', () => { s.closed = true; });
+      resolve(s);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(stream.status, 200);
+  assert.equal(host.revoke(dev.id), true);
+  const end = Date.now() + 2000;
+  while (!stream.closed && Date.now() < end) await new Promise(r => setTimeout(r, 10));
+  assert.equal(stream.closed, true);
+  assert.equal((await get(port, '/collab/api/state', { headers: jar })).status, 401);
+  assert.equal((await get(port, '/collab/pair/whoami', { headers: jar })).status, 401);
+  const after = await get(port, '/', { headers: { ...html, ...jar } });
+  assert.match(after.text, /已被那台电脑断开/);
+  assert.match(after.headers['set-cookie'][0], /Max-Age=0/);
+});
+
+test('phone browser: 5 wrong numbers void it; 「记住这台手机」 keeps the cookie and survives a restart', async t => {
+  const file = join(dir(), 'd.json');
+  const host = new PairHost({ file });
+  const handler = hostHandler({ host, name: 'h', route: (req, res) => { res.writeHead(200); res.end('ok'); }, allowLoopback: true, whois: async () => undefined });
+  const server = createServer(handler);
+  const port = await listen(server);
+  t.after(() => server.close());
+  let { code } = host.newCode();
+  const wrong = code === '000000' ? '111111' : '000000';
+  for (let i = 1; i < MAX_ATTEMPTS; i++) assert.equal((await get(port, '/collab/pair/browser', { method: 'POST', body: { code: wrong } })).status, 403);
+  const locked = await get(port, '/collab/pair/browser', { method: 'POST', body: { code: wrong } });
+  assert.equal(locked.status, 429);
+  assert.equal((await get(port, '/collab/pair/browser', { method: 'POST', body: { code } })).status, 410, 'the voided number no longer works');
+
+  ({ code } = host.newCode());
+  const ok = await get(port, '/collab/pair/browser', { method: 'POST', body: { code, remember: true } });
+  assert.match(ok.headers['set-cookie'][0], /Max-Age=\d+/);
+  assert.equal(ok.json.device.name, '手机浏览器');
+  const jar = { cookie: ok.headers['set-cookie'][0].split(';')[0] };
+  // A restarted host still knows the remembered phone.
+  const again = new PairHost({ file });
+  const s2 = createServer(hostHandler({ host: again, name: 'h', route: (req, res) => { res.writeHead(200); res.end('ok'); }, allowLoopback: true }));
+  const p2 = await listen(s2);
+  t.after(() => s2.close());
+  assert.equal((await get(p2, '/collab/x', { headers: jar })).status, 200);
+  assert.equal(again.list()[0].kind, 'browser');
+});
+
+test('phone browser: addresses outside the tailnet get 403, cookie or not', async t => {
+  const host = new PairHost({ file: join(dir(), 'd.json') });
+  const server = createServer(hostHandler({ host, name: 'h', route: () => {} }));
+  const port = await listen(server);
+  t.after(() => server.close());
+  const { token } = host.claim({ code: host.newCode().code, mode: 'remember', kind: 'browser' });
+  host.newCode();
+  assert.equal((await get(port, '/', { headers: { accept: 'text/html' } })).status, 403);
+  assert.equal((await get(port, '/collab/pair/browser', { method: 'POST', body: { code: '123456' } })).status, 403);
+  assert.equal((await get(port, '/collab', { headers: { cookie: `${PAIR_COOKIE}=${token}` } })).status, 403);
 });

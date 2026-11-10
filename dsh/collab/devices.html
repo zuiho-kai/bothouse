@@ -72,6 +72,7 @@
         <div class="code" id="codeText">------</div>
         <p class="center muted" id="codeLeft"></p>
         <p class="center muted">在另一台电脑点「连到另一台电脑」，选这台电脑，输入上面的数字。只能用一次。</p>
+        <p class="center muted" id="phoneUrl" hidden></p>
         <div class="center"><button id="cancelCode">不连了</button></div>
       </div>
       <p class="err" id="hostErr"></p>
@@ -194,7 +195,11 @@ function hideCode(note) {
 $('newCode').onclick = async () => {
   $('hostErr').textContent = '';
   $('newCode').disabled = true;
-  try { const r = await post('api/pair/code'); showCode(r.code, r.expires_at); }
+  try {
+    const r = await post('api/pair/code'); showCode(r.code, r.expires_at);
+    // #1327: a phone in the same tailnet opens this address in its browser and types the number there.
+    $('phoneUrl').hidden = !r.listening; $('phoneUrl').textContent = r.listening ? `手机：开着 Tailscale，用浏览器打开 http://${r.listening}/ 输入数字` : '';
+  }
   catch (e) { $('hostErr').textContent = e.message; }
   finally { $('newCode').disabled = false; }
 };
