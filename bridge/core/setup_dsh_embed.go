@@ -17,20 +17,35 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 //go:embed all:dsh_bundle
 var embeddedDSH embed.FS
 
+// embeddedDSHDir selects the install and refresh directory without migrating
+// a previous home installation. The startup caller passes an empty target too.
+func embeddedDSHDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home dir: %w", err)
+	}
+	if os.Getenv(ccconnect.DataDirEnv) != "" {
+		return filepath.Join(ccconnect.DataDir(home), "dsh"), nil
+	}
+	return filepath.Join(home, ".bothouse", "dsh"), nil
+}
+
 // ExtractEmbeddedDSH extracts the embedded DSH files into targetDir (default ~/.bothouse/dsh).
 // It respects os.UserHomeDir() so HOME overrides in tests or isolated environments work.
 func ExtractEmbeddedDSH(targetDir string) (string, error) {
 	if targetDir == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		targetDir, err = embeddedDSHDir()
 		if err != nil {
-			return "", fmt.Errorf("resolve user home dir: %w", err)
+			return "", err
 		}
-		targetDir = filepath.Join(home, ".bothouse", "dsh")
 	}
 
 	sub, err := fs.Sub(embeddedDSH, "dsh_bundle")
@@ -397,11 +412,11 @@ func keepIfExists(rel string) bool {
 // Returns true when files were refreshed.
 func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	if targetDir == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		targetDir, err = embeddedDSHDir()
 		if err != nil {
-			return false, fmt.Errorf("resolve user home dir: %w", err)
+			return false, err
 		}
-		targetDir = filepath.Join(home, ".bothouse", "dsh")
 	}
 	if _, err := os.Stat(filepath.Join(targetDir, "install.sh")); err != nil {
 		return false, nil // not installed yet; first install extracts everything

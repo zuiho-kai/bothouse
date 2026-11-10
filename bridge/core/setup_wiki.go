@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // WizardWiki: the model of each kind of wiki work ("" = leave as it is). Values are WikiEngines ids.
@@ -59,7 +61,7 @@ type WikiSetup struct {
 	Current  WizardWiki   `json:"current"`  // in effect now (config.json, else the defaults)
 }
 
-// FindWiki: $WIKI_DIR (the variable ingest.py reads), else ~/wiki, when it holds bin/ingest.py.
+// FindWiki: $WIKI_DIR, else <BOTHOUSE_DATA_DIR>/wiki or the legacy ~/wiki.
 func FindWiki() (string, bool) {
 	dir := os.Getenv("WIKI_DIR")
 	if dir == "" {
@@ -68,6 +70,9 @@ func FindWiki() (string, bool) {
 			return "", false
 		}
 		dir = filepath.Join(home, "wiki")
+		if os.Getenv(ccconnect.DataDirEnv) != "" {
+			dir = filepath.Join(ccconnect.DataDir(home), "wiki")
+		}
 	}
 	if !fileExists(filepath.Join(dir, "bin", "ingest.py")) {
 		return dir, false

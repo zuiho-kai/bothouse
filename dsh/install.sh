@@ -240,4 +240,9 @@ fs.writeFileSync(file, doc.toString());
 JS
 fi
 echo "== done; check with: dsh --profile $PROFILE --dump-config"
-echo "== channel data: ${CONEST_COLLAB_DATA:-$HOME/.conest-collab} (collab.sqlite3; set CONEST_COLLAB_DATA before starting dsh to change it)"
+CHANNEL_DATA="${CONEST_COLLAB_DATA:-$HOME/.conest-collab}"
+if [ -n "${BOTHOUSE_DATA_DIR:-}" ]; then
+  CHANNEL_DATA="${CONEST_COLLAB_DATA:-$BOTHOUSE_DATA_DIR/conest-collab}"
+  echo "== isolated data: $BOTHOUSE_DATA_DIR (existing home wiki, plugin and channel data stay in place; no migration)"
+fi
+echo "== channel data: $CHANNEL_DATA (collab.sqlite3; set CONEST_COLLAB_DATA before starting dsh to change it)"

@@ -78,12 +78,15 @@ func validDSHMemberName(name string) bool {
 	return dshMemberName.MatchString(name)
 }
 
-// collabDataDir mirrors dsh/collab/cordis.patch.yml: $CONEST_COLLAB_DATA, else ~/.conest-collab.
+// collabDataDir mirrors dsh/collab/cordis.patch.yml, including explicit overrides.
 func collabDataDir() string {
 	if d := os.Getenv("CONEST_COLLAB_DATA"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
+	if os.Getenv(ccconnect.DataDirEnv) != "" {
+		return filepath.Join(ccconnect.DataDir(home), "conest-collab")
+	}
 	return filepath.Join(home, ".conest-collab")
 }
 
@@ -539,7 +542,9 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if dataDir != "" {
 		// GATE_PORT: where the collab plugin asks the gate for each turn's wiki pages and task board
 		// (dsh/collab/gate-context.mjs), the port bothouse runs the gate on (gate_proc.go startLocked).
-		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
+		// Resolve before injecting BOTHOUSE_DATA_DIR: an unset parent must keep
+		// using ~/.conest-collab even though the child receives the bridge data dir.
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_COLLAB_DATA=" + collabDataDir(), "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
 		if fallback := dshFallbackLead(dataDir); fallback != "" {
 			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 		}

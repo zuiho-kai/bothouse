@@ -1,5 +1,6 @@
 # Bundle patch applied when this package is listed in a profile's dsh.profile.bundles.
-# Paths default to $CONEST_COLLAB_DATA / $CONEST_COLLAB_WORKSPACE, else ~/.conest-collab and the cwd.
+# Channel data defaults to <BOTHOUSE_DATA_DIR>/conest-collab when set, else ~/.conest-collab.
+# CONEST_COLLAB_DATA and CONEST_COLLAB_WORKSPACE keep their explicit overrides.
 # ~ is os.homedir(), not $HOME: Windows has no HOME, and 'undefined/.conest-collab' stops the plugin loading.
 # #1044: each bothouse page is its own row, so the DSH Plugins page switches it on and off.
 # Channels is on by default; team desk, bothouse panel and other computers start off.
@@ -7,7 +8,7 @@
     - id: conest-collab
       name: conest-collab
       config:
-        dataDir: !!js process.env.CONEST_COLLAB_DATA || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab')
+        dataDir: !!js process.env.CONEST_COLLAB_DATA || (process.env.BOTHOUSE_DATA_DIR ? process.getBuiltinModule('node:path').join(process.env.BOTHOUSE_DATA_DIR, 'conest-collab') : process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.conest-collab'))
         workspacePath: !!js process.env.CONEST_COLLAB_WORKSPACE || process.cwd()
         leadFile: !!js process.env.CONEST_LEAD_FILE || ((process.env.BOTHOUSE_DATA_DIR || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.bothouse')) + '/lead.json')
         fallbackLead: !!js process.env.CONEST_FALLBACK_LEAD || ''

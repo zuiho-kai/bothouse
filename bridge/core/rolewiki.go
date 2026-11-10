@@ -28,6 +28,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // RoleWikiFS holds bridge/contrib/wiki (and contrib/hooks/dshlog.py, which export.py reads DSH logs with), embedded by
@@ -45,7 +47,14 @@ type WizardMemoryIndexStore interface {
 }
 
 // RoleWikiDir is where the wizard installs the wiki programs.
-func RoleWikiDir(dataDir string) string { return filepath.Join(dataDir, "wiki") }
+func RoleWikiDir(dataDir string) string {
+	// #1497: the isolated main wiki owns <data>/wiki; installing programs there
+	// first would make setup_wiki.py refuse to create it. No old data is moved.
+	if os.Getenv(ccconnect.DataDirEnv) != "" {
+		return filepath.Join(dataDir, "wiki-programs")
+	}
+	return filepath.Join(dataDir, "wiki")
+}
 
 // InstallRoleWikiPrograms writes the embedded programs into RoleWikiDir (replacing older copies; bots.json and
 // transcripts are left alone).
