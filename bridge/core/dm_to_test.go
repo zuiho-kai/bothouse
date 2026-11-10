@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -110,5 +112,76 @@ func TestHandleSend_DMToWithoutMemberCheckRefused(t *testing.T) {
 	}
 	if rec := postSend(t, api, SendRequest{Project: "p", DM: true, DMTo: dmOwner, Message: "hi"}); rec.Code != http.StatusOK {
 		t.Fatalf("--to the owner must work: %s", rec.Body.String())
+	}
+}
+
+// refusingDMPlatform refuses every DM send (the person does not accept DMs from server members) and can
+// open a private thread instead.
+type refusingDMPlatform struct {
+	stubDMMemberPlatform
+	threadFor  []string
+	noThread   bool
+	threadSent []string
+}
+
+var errRefused = errors.New(`HTTP 403 Forbidden, {"message": "Cannot send messages to this user", "code": 50007}`)
+
+func (p *refusingDMPlatform) ReconstructReplyCtx(sessionKey string) (any, error) {
+	return sessionKey, nil
+}
+func (p *refusingDMPlatform) Send(_ context.Context, rctx any, content string) error {
+	if strings.HasPrefix(rctx.(string), "discord:dm-chan:") {
+		return errRefused
+	}
+	p.threadSent = append(p.threadSent, content)
+	return nil
+}
+func (p *refusingDMPlatform) IsDMRefused(err error) bool { return errors.Is(err, errRefused) }
+func (p *refusingDMPlatform) OpenPrivateThread(fromSession, userID, name string) (string, error) {
+	if p.noThread {
+		return "", errors.New("missing Create Private Threads")
+	}
+	p.threadFor = append(p.threadFor, fromSession+"|"+userID)
+	return "discord:private-thread", nil
+}
+
+func refusingFixture(noThread bool) (*refusingDMPlatform, *APIServer) {
+	p := &refusingDMPlatform{stubDMMemberPlatform: stubDMMemberPlatform{
+		stubDMPlatform: stubDMPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}},
+		members:        map[string]bool{dmOwner: true, dmMember: true}}, noThread: noThread}
+	e := NewEngine("p", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetAdminFrom(dmOwner)
+	return p, &APIServer{engines: map[string]*Engine{"p": e}}
+}
+
+// A refused DM goes to a private thread with the same person; nobody has to change a privacy setting.
+func TestHandleSend_DMRefusedFallsBackToPrivateThread(t *testing.T) {
+	p, api := refusingFixture(false)
+	rec := postSend(t, api, SendRequest{Project: "p", DM: true, DMTo: dmMember, FromSession: dmFrom, Message: "设备码 834B"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(p.threadFor) != 1 || p.threadFor[0] != dmFrom+"|"+dmMember {
+		t.Fatalf("private thread for %v", p.threadFor)
+	}
+	if len(p.threadSent) != 1 || p.threadSent[0] != "<@"+dmMember+"> 设备码 834B" {
+		t.Fatalf("thread got %v", p.threadSent)
+	}
+	if !strings.Contains(rec.Body.String(), "private thread") {
+		t.Fatalf("response should say where it went: %s", rec.Body.String())
+	}
+}
+
+func TestHandleSend_DMRefusedNoThreadExplains(t *testing.T) {
+	p, api := refusingFixture(true)
+	rec := postSend(t, api, SendRequest{Project: "p", DM: true, DMTo: dmMember, FromSession: dmFrom, Message: "x"})
+	if rec.Code == http.StatusOK || len(p.threadSent) != 0 {
+		t.Fatalf("must fail without sending: %d %v", rec.Code, p.threadSent)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"does not accept direct messages from server members", "Do not ask them to change their privacy settings", "Nothing was sent"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("error lacks %q: %s", want, body)
+		}
 	}
 }
