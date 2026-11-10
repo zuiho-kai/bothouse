@@ -17,8 +17,8 @@ import (
 // agentm #36 (11-10): the workspace wrote a review report, named its path in the report and
 // registered it as the task's output, yet the chat channel got only the text, because the exit
 // forward carried images alone; the user could not open a server path (「这个老是不发文件上去」).
-// Now the post also carries: the files the workspace sent with `bothouse send --file`, the local
-// documents the report names by path, and, when the report names none, the documents the handoff
+// Now the post also carries: the files the workspace sent with `bothouse send --file`, and, when
+// the report says it produced a document (see exitDocPaths), the local documents it names by path, when the report names none, the documents the handoff
 // file names that were written after the handoff was bound. A report that says it produced a
 // document but has no file and no link goes back to the workspace to add one.
 
@@ -134,8 +134,16 @@ func notesProducedDocs(where string, since time.Time) []string {
 }
 
 // exitDocPaths is where this exit's documents come from: the ones the body names, else the ones
-// its handoff produced.
+// its handoff produced — only when the part the user reads says a document was produced. #1404
+// (11-10): #1393 and #1399 cited the wiki pages they updated (guomo-magpie.md, deployment.md) as
+// records; both went to the user as attachments (「这没必要给我附件」「现在每个都带有点笨了」).
+// A document is attached when it is the deliverable (agentm #36: 「完成中文审查报告」), not
+// when the report only mentions a page it touched.
 func exitDocPaths(body string, item *teamTaskBoardItem) []string {
+	head, _ := exitSplit(body)
+	if !reportDocClaimRe.MatchString(head) {
+		return nil
+	}
 	if paths := namedDocPaths(body); len(paths) > 0 {
 		return paths
 	}
