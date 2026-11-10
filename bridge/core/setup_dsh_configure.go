@@ -79,15 +79,22 @@ func validDSHMemberName(name string) bool {
 }
 
 // collabDataDir mirrors dsh/collab/cordis.patch.yml, including explicit overrides.
+// ~/.bothouse and ~/.cc-connect are the bridge's own defaults, not an isolated directory: a parent
+// that leaves BOTHOUSE_DATA_DIR alone still hands the child that path (openDSHWeb), and the
+// previous release reads its roles from ~/.conest-collab, so the channel data stays there (no
+// migration). Only a data directory outside those two takes the channel data with it.
 func collabDataDir() string {
 	if d := os.Getenv("CONEST_COLLAB_DATA"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	if os.Getenv(ccconnect.DataDirEnv) != "" {
-		return filepath.Join(ccconnect.DataDir(home), "conest-collab")
+	data := ccconnect.DataDir(home)
+	for _, name := range []string{".bothouse", ".cc-connect"} {
+		if filepath.Clean(data) == filepath.Join(home, name) {
+			return filepath.Join(home, ".conest-collab")
+		}
 	}
-	return filepath.Join(home, ".conest-collab")
+	return filepath.Join(data, "conest-collab")
 }
 
 // dshMembersFile: what ConfigureDSH writes for the collab plugin (dsh/collab/roster.mjs reads it).

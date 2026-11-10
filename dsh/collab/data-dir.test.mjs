@@ -25,6 +25,17 @@ test('the patch is YAML and keeps dataDir a scalar expression', () => {
 test('channel data keeps the legacy default without BOTHOUSE_DATA_DIR', () => {
   assert.equal(resolve({}), join(homedir(), '.conest-collab'));
   assert.equal(resolve({ BOTHOUSE_DATA_DIR: '' }), join(homedir(), '.conest-collab'));
+  assert.equal(resolve({ BOTHOUSE_DATA_DIR: '   ' }), join(homedir(), '.conest-collab'));
+});
+
+// The bridge hands the child its own default (~/.bothouse, or ~/.cc-connect on an old install) even
+// when the person never set a data directory. Moving the channel data there would leave the
+// previous release reading roles from ~/.conest-collab while the plugin wrote elsewhere: the
+// Windows upgrade e2e waited 240s for the wizard roles on 11-10.
+test('the bridge default is not an isolated directory', () => {
+  for (const name of ['.bothouse', '.cc-connect']) {
+    assert.equal(resolve({ BOTHOUSE_DATA_DIR: join(homedir(), name) }), join(homedir(), '.conest-collab'), name);
+  }
 });
 
 test('channel data follows the isolated data directory', () => {

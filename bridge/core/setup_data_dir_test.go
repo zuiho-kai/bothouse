@@ -96,6 +96,27 @@ func TestSetupDataDirIsolation(t *testing.T) {
 	}
 }
 
+// The bridge hands its child BOTHOUSE_DATA_DIR even when the person never set one (openDSHWeb
+// falls back to the data directory). Those two defaults are not an isolated directory: moving the
+// channel data into them would leave the previous release reading roles from ~/.conest-collab while
+// the plugin wrote elsewhere, which is what the Windows upgrade e2e waited 240s on (11-10).
+func TestSetupDataDirBridgeDefaultIsNotIsolated(t *testing.T) {
+	for _, name := range []string{".bothouse", ".cc-connect"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			testutil.SetHome(t, home)
+			t.Setenv("BOTHOUSE_DATA_DIR", filepath.Join(home, name))
+			t.Setenv("CONEST_COLLAB_DATA", "")
+			if got, want := collabDataDir(), filepath.Join(home, ".conest-collab"); got != want {
+				t.Errorf("channel data = %q; want %q", got, want)
+			}
+			if env := dshDesktopEnv(""); !strings.Contains(strings.Join(env, "\n"), "CONEST_COLLAB_DATA="+filepath.Join(home, ".conest-collab")+"\n") {
+				t.Errorf("desktop environment = %v; want the legacy channel data", env)
+			}
+		})
+	}
+}
+
 func TestApplyWizardIsolatedMainWiki(t *testing.T) {
 	useRepoWiki(t)
 	noHardware(t)
