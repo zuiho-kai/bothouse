@@ -2589,6 +2589,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		shellCmd = exec.CommandContext(ctx, "sh", "-c", job.Exec)
 	}
 	shellCmd.Dir = workDir
+	ownScheduledShell(shellCmd)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -2757,6 +2758,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 
 	shellCmd := shellExecCommand(ctx, e.shell, e.shellFlag, e.shellProfile, job.Exec)
 	shellCmd.Dir = workDir
+	ownScheduledShell(shellCmd)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -10815,7 +10817,11 @@ func (e *Engine) formatShellTimeout(cmdLabel, output string, maxOutput int) stri
 
 func killAndWait(cmd *exec.Cmd, doneCh <-chan struct{}) {
 	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
+		if cmd.Cancel != nil {
+			_ = cmd.Cancel()
+		} else {
+			_ = cmd.Process.Kill()
+		}
 	}
 	<-doneCh
 }

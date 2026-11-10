@@ -1367,7 +1367,7 @@ class SplitFixes(DomainBase):
 
 
 class Alerts(Fake):
-    """User 2026-10-28 「理论上日志整理报错我要感知」: SKIPPED and a reason rejecting 3 batches in a row send one
+    """User 2026-10-28 「理论上日志整理报错我要感知」: retained failures and a reason rejecting 3 batches in a row send one
     plain-text `cc-connect send` (mocked here), once per reason a day."""
     LINT = "lint: tooling/README.md:12: link to missing page x.md"
 
@@ -1395,14 +1395,15 @@ class Alerts(Fake):
         I.ingest_batches(I.state(), [{"id": f"sess{self.n:04d}x", "end": 1, "path": "x.jsonl", "title": "t", "cwd": "/",
                                        "date": "2026-10-28", "text": "USER: hi"}], ["haiku"])
 
-    def test_skipped_sends_once_a_day(self):
+    def test_retained_failures_send_once_a_day(self):
         I.MAX_FAILS = 1
         self.batch(self.LINT)
         self.batch(self.LINT)
-        skipped = [c for c in self.sent if "放弃了 1 个会话" in c[-1]]
-        self.assertEqual(len(skipped), 1, self.sent)
-        self.assertEqual(skipped[0][:6], ["cc-connect", "send", "-p", "maomao", "-s", "discord:1"])
-        self.assertIn("link to missing page", skipped[0][-1])
+        retained = [c for c in self.sent if "保留了 1 个待办" in c[-1]]
+        self.assertEqual(len(retained), 1, self.sent)
+        self.assertEqual(retained[0][:6], ["cc-connect", "send", "-p", "maomao", "-s", "discord:1"])
+        self.assertIn("link to missing page", retained[0][-1])
+        self.assertEqual(I.state().execute("select count(*) from ingested").fetchone(), (0,))
 
     def test_same_reason_three_batches_sends_once(self):
         self.batch(self.LINT)

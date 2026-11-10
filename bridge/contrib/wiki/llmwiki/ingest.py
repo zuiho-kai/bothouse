@@ -1,8 +1,8 @@
 #!/usr/bin/env python3 -I
 """Distill new Claude Code session content into the LLM wiki (~/wiki, schema in ~/wiki/CLAUDE.md).
 
-  ingest.py --pending        day: Haiku ingests every idle session with new content (hourly LaunchAgent
-                             cron, see README; nothing new -> no model call)
+  ingest.py --pending        day: one existing-size batch of idle sessions with new content;
+                             unread tails resume next invocation (nothing new -> no model call)
   ingest.py --session ID     day: ingest one closed session now; if a run is going, queue it for that run
   ingest.py --hook           SessionEnd hook: reads the hook JSON on stdin, runs --session detached
   ingest.py --nightly        night (Mon–Sat 03:00): luna ingests leftovers, then reviews the
@@ -18,7 +18,7 @@
 Progress is a byte offset per session (ingested, reviewed), so a resumed session only has its new tail done.
 Model passes edit a git worktree (.ingest-work), never the wiki's own working tree. Each pass is followed by
 acceptance checks (bin/lint.py and more); violations get one fix round, otherwise the worktree is reset and
-the batch retried on a later run (up to MAX_FAILS). Accepted commits are cherry-picked onto the wiki (one that
+the batch retried on a later run (MAX_FAILS triggers an alert, never a read offset). Accepted commits are cherry-picked onto the wiki (one that
 conflicts with commits made there meanwhile is merged by the model in the same pass, see merge_newer) and pushed.
 Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); the Mac's nightly review covers them.
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
@@ -235,7 +235,7 @@ IDLE_MIN = 30
 MAX_CHARS = 240_000  # per claude -p call; whole sessions are batched up to this, only oversized ones are split
 AGENT_PY = Path(os.environ.get("WIKI_AGENT_PYTHON", sys.executable)).expanduser()
 API_DAILY_USD = float(os.environ.get("WIKI_API_DAILY_USD", 0))
-MAX_FAILS = 6  # real failures (quota rejections don't count); runs are hourly, so ~6 h of failing
+MAX_FAILS = 6  # 来源：existing failure threshold; now alerts while retaining unread work, quota refusals don't count
 # Engine per pass: claude | agy (Antigravity CLI, Google login) | gemini (dead relay, kept) | codex (ChatGPT subscription).
 # Engines: haiku | sonnet | opus | claude (= WIKI_CLAUDE_MODEL) | codex (luna, ChatGPT subscription) | agy | gemini |
 # dsh (DeepSeek Harness, `dsh --profile headless`, the user's own DSH login/models; a machine with only DSH still runs
@@ -794,6 +794,7 @@ def state():
     db.execute("create table if not exists ingested(id text primary key, offset int, at real)")
     db.execute("create table if not exists fails(id text primary key, n int)")
     db.execute("create table if not exists reviewed(id text primary key, offset int, at real)")
+    db.execute("create table if not exists pending_parts(id text primary key, end int, chunk text, part int)")
     db.execute("create table if not exists dreamed(id text primary key, offset int, at real)")
     # page → sha256 of its content after the last split/compress pass: unchanged since then → not offered again
     db.execute("create table if not exists restructured(page text primary key, sha text, at real)")
@@ -1953,6 +1954,26 @@ def take_queue():
     return ids
 
 
+def pending_extract(path, offset):
+    """Keep a pending round within the existing model batch size, at record boundaries.
+
+    Same byte-offset approach as capped() in #1166, without adding a new limit.
+    A single oversized record keeps its accepted-piece checkpoint in SQLite.
+    """
+    it = extract(path, offset)
+    while len(it["text"]) > MAX_CHARS:
+        # 来源：binary subdivision of the existing byte span, never a new size setting.
+        cut = offset + (it["end"] - offset) // 2
+        part = extract(path, offset, cut)
+        if part["end"] <= offset:
+            with open(path, "rb") as f:
+                f.seek(offset)
+                f.readline()
+                return extract(path, offset, f.tell())
+        it = part
+    return it
+
+
 def run(a, engines=None):
     global WIKI
     db = state()
@@ -1962,25 +1983,44 @@ def run(a, engines=None):
         dream(db, time.time() + NIGHT_BUDGET)
         return
     items = []
-    closed = take_queue() | ({a.session} if a.session else set())
+    # A bounded pending run must not consume closure hints for deferred sessions.
+    pending = getattr(a, "pending", False) and not a.nightly
+    closed = (set(QUEUE.read_text().split()) if pending and QUEUE.exists() else
+              set() if pending else take_queue()) | ({a.session} if a.session else set())
     for p in ready(db, None if closed else a.session, closed):
         row = db.execute("select offset from ingested where id=?", (p.stem,)).fetchone()
         start = row[0] if row and row[0] <= p.stat().st_size else 0
         try:
-            it = extract(p, start)
+            partial = db.execute("select end, chunk, part from pending_parts where id=?", (p.stem,)).fetchone()
+            if partial:
+                it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
+            else:
+                it = pending_extract(p, start) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
             continue
         it.update(id=p.stem, path=p, date=time.strftime("%Y-%m-%d", time.localtime(p.stat().st_mtime)))
-        if it["prompts"] == 0:  # nothing the user said: just mark it read
+        # Record-boundary slices may contain only an assistant/tool tail. Its
+        # source still needs acceptance; only a truly empty extraction is read.
+        if not it["text"].strip() and not it.get("_chunk"):
             db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
             continue
         items.append(it)
     db.commit()
     if not items:
         return  # nothing new: no model call
+    if pending:
+        # One existing batch per cron round; SQLite offsets leave the rest ready.
+        # Oversized single records resume from their accepted-piece checkpoint.
+        first = {it["id"] for it, _ in batches_of(items)[0]}
+        items = [it for it in items if it["id"] in first]
     split_pass(db)
-    ingest_batches(db, items, engines or [ENGINE, FALLBACK_ENGINE])
+    ingest_batches(db, items, engines or [ENGINE, FALLBACK_ENGINE], pending=pending)
+
+
+def session_chunk(it):
+    return it.get("_chunk") or (f"=== SESSION {it.get('head') or it['id'][:8]} | {it['title'] or '-'} | "
+                                f"{it['cwd']} | {it['date']} ===\n{it['text']}\n")
 
 
 def batches_of(items):
@@ -1989,12 +2029,13 @@ def batches_of(items):
     for it in items:
         # a Discord / cloud_web item is headed by its channel name, the one its citations carry (「MM-DD HH:MM #频道「…」」),
         # not 「discord:」 (id[:8]), which nothing can cite (派活 2026-10-23)
-        chunk = f"=== SESSION {it.get('head') or it['id'][:8]} | {it['title'] or '-'} | {it['cwd']} | {it['date']} ===\n{it['text']}\n"
+        chunk = session_chunk(it)
         if cur and size + len(chunk) > MAX_CHARS:  # a session never straddles two batches
             batches.append(cur)
             cur, size = [], 0
         if len(chunk) > MAX_CHARS:  # oversized: its own batches
-            batches += [[(it, chunk[i:i + MAX_CHARS])] for i in range(0, len(chunk), MAX_CHARS)]
+            batches += [[(it, chunk[i:i + MAX_CHARS])]
+                        for i in range(it.get("_part", 0) * MAX_CHARS, len(chunk), MAX_CHARS)]
             continue
         cur.append((it, chunk))
         size += len(chunk)
@@ -2350,15 +2391,17 @@ def remember(db, pages, res):
     db.commit()
 
 
-def ingest_batches(db, items, engines):
+def ingest_batches(db, items, engines, pending=False):
     global quota_hit, CRASHED
-    for batch in batches_of(items):
+    batches = batches_of(items)
+    remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
+    for batch in batches:
         ids = list(dict.fromkeys(it["id"] for it, _ in batch))
         label = "ingest " + ", ".join(f"{i[:8]}" for i in ids)
         text = "".join(piece for _, piece in batch)
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
-        skipped = 0
+        retained = 0
         res, quota_hit, CRASHED = False, False, ""
         REJECT_REASONS.clear()
         cands = candidates_note(text)
@@ -2374,6 +2417,13 @@ def ingest_batches(db, items, engines):
         crashed = CRASHED
         if res:
             for it in {it["id"]: it for it, _ in batch}.values():
+                remaining[it["id"]] -= 1
+                if remaining[it["id"]]:
+                    it["_part"] = it.get("_part", 0) + 1
+                    db.execute("insert or replace into pending_parts values (?,?,?,?)",
+                               (it["id"], it["end"], session_chunk(it), it["_part"]))
+                    continue  # only the final accepted piece advances the source byte offset
+                db.execute("delete from pending_parts where id=?", (it["id"],))
                 db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
                 db.execute("delete from fails where id=?", (it["id"],))
                 if LAST_ENGINE.startswith("codex"):  # luna/sol/astra wrote it: nothing for the nightly review to check
@@ -2384,22 +2434,23 @@ def ingest_batches(db, items, engines):
             for it in {it["id"]: it for it, _ in batch}.values():
                 n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
                 db.execute("insert or replace into fails values (?,?)", (it["id"], n))
-                if n >= MAX_FAILS:  # give up on this delta rather than paying for it every run
-                    db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
-                    log(f"SKIPPED {it['id'][:8]} after {n} failed runs")
-                    skipped += 1
+                if n >= MAX_FAILS:
+                    log(f"RETAINED {it['id'][:8]} after {n} failed runs")
+                    retained += 1
         if crashed:  # once a day per error type (alert); the batch is a counted failure above, the run goes on
             alert(db, ["crash:" + crashed.split(":")[0]], f"wiki 自动整理脚本出错（{crashed[:200]}），{label} 记失败、"
                                                         f"已回滚，继续下一批。traceback 看 {LOG}（CRASHED 行）。")
-        if skipped:
+        if retained:
             why = f"最近的拒绝原因：{REJECT_REASONS[-1].splitlines()[0][:150]}。" if REJECT_REASONS else ""
-            alert(db, ["skipped"], f"wiki 自动整理放弃了 {skipped} 个会话（各连续失败 {MAX_FAILS} 次，不再重试）。{why}"
-                                 f"日志看 {LOG}（SKIPPED / REVERTED 行）。")
+            alert(db, ["retained"], f"wiki 自动整理保留了 {retained} 个待办（各连续失败至少 {MAX_FAILS} 次，未推进已读位置，下轮续办）。{why}"
+                                  f"日志看 {LOG}（RETAINED / REVERTED 行）。")
         if res or not quota_hit:  # a quota refusal says nothing about the reasons: streaks neither grow nor reset
             if res:  # a rejection the fix round repaired lost nothing: only batches that end up failing grow a streak
                 REJECT_REASONS.clear()
             reject_streaks(db, len(ids))
         db.commit()
+        if pending or (not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch)):
+            return  # never skip ahead within an unfinished record
 
 
 def day_commits(sids, since):
@@ -4400,6 +4451,10 @@ def main():
             push()
             if MIRROR_TO:
                 mirror(state())
+        # Pending is one round, including hooks queued while it ran. Their hints
+        # and unread byte offsets remain for the next scheduled invocation.
+        if a.pending and not a.nightly:
+            return
         # sessions queued while we ran (or between our last check and the unlock): go again
         if not (QUEUE.exists() and QUEUE.read_text().strip()):
             return
