@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1600,8 +1601,35 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	rc := replyContext{channelID: parts[1]}
 	if len(parts) == 2 {
 		rc.threadID = parts[1]
+		if host := p.threadGoneHost(parts[1]); host != "" {
+			// The thread a task came from was deleted or locked: its report goes to the thread's
+			// text channel instead of failing (an archived thread reopens when the bot posts).
+			slog.Warn("discord: thread deleted or locked; replying in its text channel", "thread", parts[1], "channel", host)
+			return replyContext{channelID: host}, nil
+		}
 	}
 	return rc, nil
+}
+
+// threadGoneHost is the recorded text channel of a thread that worked as a chat channel for
+// workspaces, when that thread can no longer take a message (deleted or locked); "" otherwise.
+func (p *Platform) threadGoneHost(threadID string) string {
+	host := p.workspaceShelfStore().threadHost(threadID)
+	if host == "" || p.session == nil {
+		return ""
+	}
+	ch, err := p.session.Channel(threadID)
+	if err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound {
+			return host
+		}
+		return ""
+	}
+	if ch.ThreadMetadata != nil && ch.ThreadMetadata.Locked {
+		return host
+	}
+	return ""
 }
 
 // OpenDM opens (or reuses: Discord returns the existing one) the private channel between this bot

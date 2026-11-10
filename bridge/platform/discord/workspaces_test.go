@@ -26,6 +26,12 @@ func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		body = `{"id":"100","name":"主频道","type":0,"guild_id":"g1","parent_id":"catA"}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/403":
 		status, body = http.StatusForbidden, `{"code":50013,"message":"Missing Permissions"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/200":
+		body = `{"id":"200","name":"GPU 测试","type":11,"guild_id":"g1","parent_id":"100"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/201":
+		body = `{"id":"201","name":"锁了","type":11,"guild_id":"g1","parent_id":"100","thread_metadata":{"locked":true,"archived":true}}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/202":
+		status, body = http.StatusNotFound, `{"code":10003,"message":"Unknown Channel"}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/900":
 		body = `{"id":"900","type":1}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/guilds/g1/channels":
@@ -102,5 +108,51 @@ func TestTeamWorkspacePermanentErrors(t *testing.T) {
 	}
 	if workspaceErr(nil) != nil {
 		t.Fatal("nil error must stay nil")
+	}
+}
+
+// A thread (子区) works as a chat channel: the pool is beside its text channel, the thread stays
+// the chat, and once the thread is deleted or locked its reports go to that text channel.
+// 来源：2026-11-10 agentm #32「当前Discord子区不是guild text channel」。
+func TestTeamWorkspaceChannelsFromThread(t *testing.T) {
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := &workspaceREST{}
+	session.Client = &http.Client{Transport: rest}
+	p := &Platform{workspaceShelves: workspaceShelfStoreFor(t.TempDir())}
+	p.session = session
+	ctx := context.Background()
+
+	self, all, err := p.TeamGuildChannels(ctx, "200")
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if self.ID != "200" || self.ParentID != "catA" || len(all) != 2 || all[1].Name != "工作区1" {
+		t.Fatalf("self=%+v all=%+v, want the thread with its text channel's pool", self, all)
+	}
+	c, err := p.CreateTeamWorkspaceChannel(ctx, "200", "工作区2")
+	if err != nil || c.ID != "103" {
+		t.Fatalf("create beside thread = %+v %v", c, err)
+	}
+	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catA" {
+		t.Fatalf("create body = %v, want the text channel's category, not the text channel", rest.created)
+	}
+	rc, err := p.ReconstructReplyCtx("discord:200")
+	if err != nil || rc.(replyContext).channelID != "200" {
+		t.Fatalf("live thread reply ctx = %+v %v, want the thread", rc, err)
+	}
+	for _, gone := range []string{"201", "202"} {
+		if err := p.workspaceShelfStore().rememberThread("g1", gone, "100"); err != nil {
+			t.Fatal(err)
+		}
+		rc, err := p.ReconstructReplyCtx("discord:" + gone)
+		if err != nil || rc.(replyContext).channelID != "100" || rc.(replyContext).threadID != "" {
+			t.Fatalf("thread %s gone: reply ctx = %+v %v, want its text channel 100", gone, rc, err)
+		}
+	}
+	if h := p.workspaceShelfStore().threadHost("200"); h != "100" {
+		t.Fatalf("thread host not recorded: %q", h)
 	}
 }
