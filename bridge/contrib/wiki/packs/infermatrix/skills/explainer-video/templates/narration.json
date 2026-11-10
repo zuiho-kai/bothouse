@@ -1,0 +1,24 @@
+{
+  "voice": "en-US-AndrewNeural",
+  "rate": "+8%",
+  "output": "../demo.mp4",
+  "music": "",
+  "music_lufs": -30,
+  "scenes": [
+    {
+      "id": "s1_title",
+      "min_len": 5.0,
+      "lines": [
+        {"say": "Write the spoken line here. Spell numbers and acronyms the way they should sound.", "cap": "Write the on-screen caption here. It may contain <b>HTML</b>."}
+      ]
+    },
+    {
+      "id": "s2_points",
+      "min_len": 6.0,
+      "lines": [
+        {"say": "The second scene makes one claim.", "cap": "Scene two: one claim per scene."},
+        {"say": "A scene can have several lines.", "cap": "A scene can have several lines."}
+      ]
+    }
+  ]
+}

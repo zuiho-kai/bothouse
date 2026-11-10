@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Explainer video stage</title>
+<style>
+  :root {
+    --bg: #04060c; --panel: #0a0f1d; --panel2: #0d1426; --line: #1b2542; --line2: #2a3760;
+    --ink: #e9edf7; --muted: #7c87a5; --faint: #4a5576;
+    --cyan: #38d0ff; --violet: #a98bff; --green: #34d399; --red: #f87171; --amber: #fbbf24;
+    --sans: "Segoe UI", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: var(--bg); }
+  body { font-family: var(--sans); color: var(--ink); }
+  #stage { position: relative; width: 1280px; height: 720px; overflow: hidden; }
+  #bg { position: absolute; inset: 0; }
+  .scene { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+  .abs { position: absolute; }
+  .mono { font-family: var(--mono); }
+
+  /* HUD */
+  #hud { position: absolute; inset: 0; pointer-events: none; z-index: 20; font-family: var(--mono); font-size: 11px; letter-spacing: .14em; color: var(--muted); }
+  #hud .tl { position: absolute; left: 28px; top: 20px; }
+  #hud .tr { position: absolute; right: 28px; top: 20px; text-align: right; }
+  #hud .bl { position: absolute; left: 28px; bottom: 18px; }
+  #hud .br { position: absolute; right: 28px; bottom: 18px; }
+  #hud b { color: var(--ink); font-weight: 700; }
+  .rec { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); margin-right: 6px; vertical-align: 1px; }
+  #prog { position: absolute; left: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, var(--violet), var(--green)); }
+
+  /* captions */
+  #cap { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 21; max-width: 1040px;
+    padding: 8px 18px; border-radius: 6px; background: rgba(4, 6, 12, .72); font-size: 24px; font-weight: 600;
+    letter-spacing: .02em; text-align: center; white-space: nowrap; opacity: 0; }
+
+  #flash { position: absolute; inset: 0; z-index: 30; pointer-events: none; opacity: 0;
+    background: linear-gradient(180deg, transparent 0%, rgba(169,139,255,.18) 48%, rgba(52,211,153,.22) 50%, transparent 52%); }
+
+  /* shared components */
+  .win { position: absolute; border: 1px solid var(--line2); border-radius: 10px; background: rgba(10,15,29,.92); overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(56,208,255,.06), 0 18px 60px rgba(0,0,0,.55); }
+  .win .bar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+  .win .bar i { width: 9px; height: 9px; border-radius: 50%; background: #2a3354; }
+  .win .bar i:nth-child(1) { background: #ff5f57; } .win .bar i:nth-child(2) { background: #febc2e; } .win .bar i:nth-child(3) { background: #28c840; }
+  .win .bar span { margin-left: 8px; }
+  .code { font-family: var(--mono); font-size: 14px; line-height: 1.62; white-space: pre; padding: 12px 16px; }
+  .k { color: #c792ea; } .f { color: #82aaff; } .s { color: #c3e88d; } .c { color: #546e8a; } .n { color: #f78c6c; }
+  .add { color: var(--green); background: rgba(52,211,153,.09); }
+  .del { color: var(--red); background: rgba(248,113,113,.08); text-decoration: line-through; text-decoration-color: rgba(248,113,113,.5); }
+  .hl { background: rgba(251,191,36,.12); box-shadow: inset 3px 0 0 var(--amber); }
+  .caret { display: inline-block; width: 8px; height: 16px; background: var(--cyan); vertical-align: -3px; }
+
+  .kicker { font-family: var(--mono); font-size: 13px; letter-spacing: .2em; color: var(--cyan); }
+  .title { font-size: 34px; font-weight: 800; letter-spacing: .01em; }
+  .chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; font-family: var(--mono); letter-spacing: .04em; }
+  .chip.v { color: var(--violet); background: rgba(169,139,255,.14); border: 1px solid rgba(169,139,255,.4); }
+  .chip.c { color: var(--cyan); background: rgba(56,208,255,.1); border: 1px solid rgba(56,208,255,.35); }
+  .chip.g { color: var(--green); background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.4); }
+  .chip.a { color: var(--amber); background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.45); }
+  .chip.r { color: var(--red); background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.4); }
+  .note { font-size: 12px; color: var(--faint); font-family: var(--mono); letter-spacing: .04em; }
+  .grad { background: linear-gradient(90deg, var(--violet), var(--cyan) 55%, var(--green)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bg" width="1920" height="1080" style="width:1280px;height:720px"></canvas>
+  <div id="scenes"></div>
+  <div id="hud">
+    <div class="tl"><b>PROJECT</b> &nbsp;·&nbsp; TAGLINE</div>
+    <div class="tr"><span class="rec"></span><span id="tc">00:00:00</span></div>
+    <div class="bl" id="sceneidx">01 / 01</div>
+    <div class="br">TEAM</div>
+    <div id="prog"></div>
+  </div>
+  <div id="cap"></div>
+  <div id="flash"></div>
+</div>
+<script src="timeline.js"></script>
+<script src="core.js"></script>
+<!-- one script per scene, in any order; boot.js sorts by timeline -->
+<script src="scenes/s1_title.js"></script>
+<script src="scenes/s2_points.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>
