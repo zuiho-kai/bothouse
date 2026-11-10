@@ -1,0 +1,6 @@
+# attention
+
+Beam attention runtime：GPU/NPU beam attention 与 query/cache layout metadata
+
+- [attention-architecture](attention-architecture.md) — Beam attention runtime 架构：beam_attn_metadata / beam_attn_gpu…
+- [attention-overview](attention-overview.md) — Beam attention runtime 入口：GPU/NPU beam attention、metadata layouts…

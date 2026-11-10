@@ -1,0 +1,6 @@
+# beam-proc
+
+Rust BeamProc runtime：process、worker queues、beam decisions、CE 与 API-server 通信
+
+- [beam-proc-architecture](beam-proc-architecture.md) — Rust BeamProc runtime 架构：main.rs、io_worker.rs、beam_worker.rs…
+- [beam-proc-overview](beam-proc-overview.md) — Rust BeamProc runtime 入口：BeamProc process、worker queues、beam decisions…

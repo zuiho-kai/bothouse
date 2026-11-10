@@ -1,0 +1,6 @@
+# engine-core
+
+EngineCore beam scheduling：admission、beam state、scheduler replies、CE wire
+
+- [engine-core-architecture](engine-core-architecture.md) — EngineCore beam scheduling 架构：core.py、engine_core_patch.py…
+- [engine-core-overview](engine-core-overview.md) — EngineCore beam scheduling 入口：admission、beam state 与 cache…

@@ -1,0 +1,6 @@
+# packaging
+
+Native packaging and validation：install metadata、Rust builds、native artifacts
+
+- [packaging-architecture](packaging-architecture.md) — Native packaging and validation 架构：setup.py、pyproject.toml…
+- [packaging-overview](packaging-overview.md) — Native packaging and validation 入口：installation metadata、Rust builds…

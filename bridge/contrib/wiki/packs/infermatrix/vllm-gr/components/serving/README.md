@@ -1,0 +1,6 @@
+# serving
+
+OpenAI beam serving：beam request/response、BeamProc startup、metrics、cancellation
+
+- [serving-architecture](serving-architecture.md) — OpenAI beam serving 架构：serving_engine、serving_models…
+- [serving-overview](serving-overview.md) — OpenAI beam serving 入口：beam request/response handling、BeamProc startup…
