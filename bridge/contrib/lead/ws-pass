@@ -23,6 +23,7 @@ USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
          '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
          '       ws-pass [--notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报）')
 IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
+MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
 OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
 
 
@@ -210,6 +211,14 @@ def main(argv):
     bad = [p for p in shots if not os.path.isfile(p)]
     if bad:
         sys.exit(f"ws-pass: 附件不存在：{'、'.join(bad)}")
+    if "http://" in msg or "https://" in msg:
+        # 用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
+        docs = [p for p in shots if not p.lower().endswith(IMG + MEDIA)]
+        if docs:
+            print("ws-pass: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in docs), file=sys.stderr)
+            shots = [p for p in shots if p not in docs]
+            if not shots:
+                sys.exit("ws-pass: 附件都是文档、话里已有链接，不用发附件；只放行文字汇报就不带附件和话，只写 --verdict")
     if have or links:
         if not compare:
             sys.exit("ws-pass: 这件活的交接里有参考材料（" + "、".join((have + links)[:3]) + "），发给用户前要附一张「参考 | 成品」并排图："
