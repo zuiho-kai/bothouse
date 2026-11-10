@@ -33,7 +33,7 @@ type dshWebProcess struct {
 	// started with, "" when it sets none of them.
 	DataDir string
 	// EnvKnown: the environment could be read at all. Windows cannot read another process's
-	// environment without a PEB walk, so there only the command line decides.
+	// environment without a PEB walk, so a bridge record must corroborate the command line.
 	EnvKnown bool
 }
 
@@ -185,7 +185,7 @@ func dshWebPortOwnedNow(ctx context.Context, port string) (pid int, owned bool, 
 		return 0, false, "nothing says which process listens on port " + port +
 			" (no lsof, or no permission), so it cannot be shown to be this bridge's host"
 	}
-	if owned, why := dshWebPIDOwnedPortCtx(ctx, pid, port); !owned {
+	if owned, why := dshWebPIDOwnedCtx(ctx, pid); !owned {
 		return pid, false, fmt.Sprintf("on port %s: %s", port, why)
 	}
 	return pid, true, ""
@@ -202,13 +202,6 @@ func dshWebPIDOwned(pid int) (bool, string) {
 
 // dshWebPIDOwnedCtx is dshWebPIDOwned under ctx, for callers inside a round with a deadline.
 func dshWebPIDOwnedCtx(ctx context.Context, pid int) (bool, string) {
-	return dshWebPIDOwnedPortCtx(ctx, pid, "")
-}
-
-// dshWebPIDOwnedPortCtx is the check behind both forms. port is the address this caller is about to
-// adopt or serve, "" when it only has a pid: the caller reached the check because that port answered
-// its launch token, so a listener on it that is also a dsh web is our host.
-func dshWebPIDOwnedPortCtx(ctx context.Context, pid int, port string) (bool, string) {
 	if pid <= 0 {
 		return false, "no pid"
 	}
@@ -240,11 +233,11 @@ func dshWebPIDOwnedPortCtx(ctx context.Context, pid int, port string) (bool, str
 	}
 	// The environment is unreadable, so the profile above is necessary but not sufficient: every
 	// `dsh --profile web` on this machine carries it, including another bothouse's host and one the
-	// user started by hand. Claiming on that alone made this bridge stop a stranger's host
-	// (#1255 补正 缺口一). Demand a second fact this bridge itself wrote about this pid: a port it
+	// user started by hand. That alone cannot establish ownership (#1255 补正 缺口一).
+	// Demand a second fact this bridge itself wrote about this pid: a port it
 	// recorded together with that pid, or a port a test claimed as ours. Without one the pid is left
 	// alone — refusing costs a second instance, killing costs someone else's session.
-	if dshWebPIDOnOwnPort(ctx, pid, port) {
+	if dshWebPIDOnOwnPort(ctx, pid) {
 		return true, ""
 	}
 	if err := ctx.Err(); err != nil {
@@ -295,12 +288,10 @@ func dshWebOwnPorts(pid int) []string {
 // dshWebPIDOnOwnPort reports whether pid is the listener on a port dshWebOwnPorts names for it. Each
 // lookup is an lsof or a listener-table read, so the round's ctx bounds them: an expired round stops
 // the loop instead of paying one lookup per candidate (#1255 阻塞三 残余).
-func dshWebPIDOnOwnPort(ctx context.Context, pid int, port string) bool {
-	ports := dshWebOwnPorts(pid)
-	if port != "" {
-		ports = append([]string{port}, ports...)
-	}
-	for _, p := range ports {
+func dshWebPIDOnOwnPort(ctx context.Context, pid int) bool {
+	// A candidate port came from listener discovery, not a bridge record. Rechecking its PID
+	// would only repeat that discovery, even if the host accepted a launch token.
+	for _, p := range dshWebOwnPorts(pid) {
 		if ctx.Err() != nil {
 			return false
 		}

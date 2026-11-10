@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,92 @@ import (
 	"testing"
 	"time"
 )
+
+// A candidate's listener is evidence of liveness, not an independent bridge ownership record.
+func TestDSHWebPortOwnedUnknownEnvRequiresBridgeRecord(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("BOTHOUSE_DATA_DIR", t.TempDir())
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	if pidListeningOnPort(port) != os.Getpid() {
+		t.Skip("the platform cannot identify this listener")
+	}
+	old := dshWebProcLookup
+	t.Cleanup(func() { dshWebProcLookup = old })
+	dshWebProcLookup = func(context.Context, int) ([]string, map[string]string, bool, bool) {
+		return []string{"dsh", "--profile", "web"}, nil, false, true
+	}
+	if ports := dshWebOwnPorts(os.Getpid()); len(ports) != 0 {
+		t.Fatalf("expected no bridge records, got %v", ports)
+	}
+	if pid, owned, why := dshWebPortOwned(context.Background(), port); owned || pid != os.Getpid() {
+		t.Fatalf("candidate listener without a bridge record: pid=%d owned=%v why=%q", pid, owned, why)
+	} else if !strings.Contains(why, "no record of this bridge") {
+		t.Fatalf("refused for the wrong reason: %s", why)
+	}
+	t.Log("real listener, EnvKnown=false, no bridge record: refused")
+
+	// A port alone in state is still insufficient: the record must name this listener's pid.
+	url := "http://127.0.0.1:" + port + "/?token=launch#channels"
+	staleState(t, url, 0)
+	if _, owned, why := dshWebPortOwned(context.Background(), port); owned {
+		t.Fatalf("state without the listener pid was accepted: %s", why)
+	}
+	staleState(t, url, os.Getpid())
+	if pid, owned, why := dshWebPortOwned(context.Background(), port); !owned || pid != os.Getpid() {
+		t.Fatalf("recorded own listener refused: pid=%d owned=%v why=%q", pid, owned, why)
+	}
+	t.Log("same listener with matching bridge pid/port record: accepted")
+}
+
+// Exercise the panel route with a real HTTP listener; only the platform process metadata is stubbed.
+func TestDSHWebSelfHealUnknownEnvRequiresBridgeRecord(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	t.Setenv("BOTHOUSE_DATA_DIR", t.TempDir())
+	resetDSHWebHeal(t)
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	// Remove the fake's ownership shortcut so the real port/PID check is exercised.
+	dshWebPortClaims.Lock()
+	delete(dshWebPortClaims.m, port)
+	dshWebPortClaims.Unlock()
+	if pidListeningOnPort(port) != os.Getpid() {
+		t.Skip("the platform cannot identify this listener")
+	}
+	old := dshWebProcLookup
+	t.Cleanup(func() { dshWebProcLookup = old })
+	dshWebProcLookup = func(context.Context, int) ([]string, map[string]string, bool, bool) {
+		return []string{"dsh", "--profile", "web"}, nil, false, true
+	}
+	staleURL := fake.srv.URL + "/?token=stale#channels"
+	announcement := "dsh web: " + fake.srv.URL + "/?token=launch"
+	staleState(t, "http://127.0.0.1:1/?token=stale#channels", 0, announcement)
+	before := readStateRaw(t)
+	client := dshSignIn(t, panel, "secret")
+	if status := getState(t, client, panel.URL); status != http.StatusServiceUnavailable {
+		t.Fatalf("panel adopted unrecorded host: status=%d, want 503", status)
+	}
+	if after := readStateRaw(t); string(after) != string(before) {
+		t.Fatalf("unrecorded host rewrote bridge state: %s", after)
+	}
+	if fake.logins.Load() == 0 {
+		t.Fatal("the host never accepted its launch token; ownership was not exercised")
+	}
+	t.Log("GET /dsh/collab/api/state: unrecorded host refused with 503; state unchanged")
+
+	staleState(t, staleURL, os.Getpid(), announcement)
+	resetDSHWebHeal(t)
+	if status := getState(t, client, panel.URL); status != http.StatusOK {
+		t.Fatalf("panel refused recorded own host: status=%d, want 200", status)
+	}
+	t.Log("GET /dsh/collab/api/state: recorded own host adopted with 200")
+}
 
 // 缺口一：Windows 上环境永远读不到（dsh_web_proc_windows.go），所以「命令行里有 --profile web」是必要
 // 但不充分的条件——同一台机器上另一个 bothouse 的 dsh、用户自己手起的一个 dsh，都一样带着它。
