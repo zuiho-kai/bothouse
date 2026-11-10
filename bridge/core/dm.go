@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// DMMemberChecker is an optional interface for platforms that can tell whether userID belongs to the
+// server (guild) of the conversation fromSession, so `send --dm --to <id>` reaches only people in
+// that server. fromSession may be empty or a private chat; then any server the bot shares counts.
+type DMMemberChecker interface {
+	IsDMMember(fromSession, userID string) (bool, error)
+}
+
 // dmUser is the person `bothouse send --dm` writes to: the first explicit ID in
 // admin_from, i.e. the project owner already configured there. No new config key; "*"
 // names no one.
@@ -56,4 +63,65 @@ func (e *Engine) OpenDMSession() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("--dm: no platform in this project can open a private chat")
+}
+
+// normalizeDMTarget accepts a bare user ID or a mention written as <@id> / <@!id>.
+func normalizeDMTarget(to string) string {
+	to = strings.TrimSpace(to)
+	if strings.HasPrefix(to, "<@") && strings.HasSuffix(to, ">") {
+		to = strings.TrimPrefix(strings.TrimSuffix(to[2:], ">"), "!")
+	}
+	return strings.TrimSpace(to)
+}
+
+// OpenDMSessionFor is `send --dm [--to <id>]` sent from a tool running in fromSession.
+//
+// Without to it messages the owner (admin_from), as before — but when the turn running in fromSession
+// was started by a person who is not the owner, it refuses: the model usually means that person, and
+// silently writing to the owner is how other people's messages ended up in the owner's DMs (#1352).
+// With to it messages that user, who must be the owner or a member of the conversation's server; a
+// failure is returned as is and never redirected to someone else.
+func (e *Engine) OpenDMSessionFor(fromSession, to string) (string, error) {
+	to = normalizeDMTarget(to)
+	if to == "" {
+		if t, ok := e.callerTurnOf(fromSession); ok && t.kind == CallerHuman && !e.isDMOwner(t.userID) {
+			owner := e.dmUser()
+			return "", fmt.Errorf("--dm without --to goes only to the project owner (%s), but this turn was "+
+				"started by %s (%s), who is not the owner. Nothing was sent. To message that person privately "+
+				"use --dm --to %s; to message the owner on purpose use --dm --to %s", owner, t.userName, t.userID, t.userID, owner)
+		}
+		return e.OpenDMSession()
+	}
+	var opener DirectMessageOpener
+	var plat Platform
+	prefix := ""
+	if i := strings.Index(fromSession, ":"); i > 0 {
+		prefix = fromSession[:i]
+	}
+	for _, p := range e.platforms {
+		o, ok := p.(DirectMessageOpener)
+		if !ok {
+			continue
+		}
+		if opener == nil || (prefix != "" && p.Name() == prefix) {
+			opener, plat = o, p
+		}
+	}
+	if opener == nil {
+		return "", fmt.Errorf("--dm: no platform in this project can open a private chat")
+	}
+	if !e.isDMOwner(to) {
+		mc, ok := plat.(DMMemberChecker)
+		if !ok {
+			return "", fmt.Errorf("--dm --to: %s cannot check server membership, so it can only message the owner; nothing was sent", plat.Name())
+		}
+		member, err := mc.IsDMMember(fromSession, to)
+		if err != nil {
+			return "", fmt.Errorf("--dm --to %s: cannot check membership: %w; nothing was sent", to, err)
+		}
+		if !member {
+			return "", fmt.Errorf("--dm --to %s: not a member of this server; nothing was sent", to)
+		}
+	}
+	return opener.OpenDM(to)
 }

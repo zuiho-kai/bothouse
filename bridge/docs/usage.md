@@ -854,6 +854,7 @@ Notes:
 - Absolute paths are recommended so the command does not depend on the agent's current working directory.
 - With `attachment_send = "off"`, image/file send-back is blocked but ordinary text replies still work.
 - Each attachment is capped at **50 MiB** by default. Configure it with `max_attachment_size_mb` (MiB) in config.toml, or override that value with the `CC_MAX_ATTACHMENT_SIZE_MB` env var (same MiB unit; takes precedence when set), e.g. `CC_MAX_ATTACHMENT_SIZE_MB=100 bothouse send --file big.bin`.
+- `--dm` sends privately (Discord, QQ). Without `--to` it goes only to the project owner (first ID in admin_from), never to the person talking; when a turn was started by someone other than the owner, `--dm` without `--to` is refused. To message a member use `bothouse send --dm --to <user id> -m "…"`; only members of this server are accepted (membership can be checked on Discord only for now). If the member is not in the server or has DMs closed the command fails and nothing is sent to anyone else.
 
 ### Typical use cases
 
