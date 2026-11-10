@@ -61,6 +61,7 @@ type pendingReport struct {
 	// has not seen it. Only ws-pass (release), ws-forward (reject) or leadAcceptTimeout end it.
 	Held        bool      `json:"held,omitempty"`
 	Verdict     string    `json:"verdict,omitempty"` // the lead's item-by-item check, or why it went back
+	Doubt       string    `json:"doubt,omitempty"`   // the intent check's doubt; pass then needs the user's own words (team_report_doubt.go)
 	CreatedAt   time.Time `json:"created_at"`
 	DeliveredAt time.Time `json:"delivered_at,omitzero"`
 	Attempts    int       `json:"attempts,omitempty"`
