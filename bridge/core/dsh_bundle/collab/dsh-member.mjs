@@ -171,7 +171,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     mode = DEFAULT_DISPATCH_MODE;
   }
   const lines = messages.map(m => `【${m.name}】${quotePrefix(store?.quote?.(m))}${m.text}`);
-  const model = member.model === undefined ? '' : `你底层用的模型是 ${member.model.provider}/${member.model.model}。`;
+  const model = member.model === undefined ? '' : `你底层用的模型是 ${typeof member.model === 'string' ? member.model : `${member.model.provider}/${member.model.model}`}。`;
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
@@ -851,7 +851,7 @@ export class DshMembers {
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
       // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
       const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
-      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, model: member.model, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }

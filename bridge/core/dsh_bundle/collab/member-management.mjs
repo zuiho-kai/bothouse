@@ -12,7 +12,7 @@ function check(body, create = false) {
 function view(m, source = m.source) {
   return { id: m.id, name: m.name, source, can_edit: source === 'ui', can_delete: source === 'ui', persona: m.persona ?? '',
     cli: m.cli ?? null, model: m.model ?? null, cliConfig: m.cliConfig ?? null,
-    apply: { timing: 'next_turn', status: m.cliConfigManaged ? 'pending' : 'not_configured' } };
+    apply: { timing: 'next_turn', status: m.cliConfigManaged || (m.cli === 'claude' && m.model) ? 'pending' : 'not_configured' } };
 }
 export function managementMembers(roster, hub) {
   const rows = roster.store.members().map(rowToMember);
