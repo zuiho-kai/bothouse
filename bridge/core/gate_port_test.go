@@ -235,6 +235,12 @@ func TestDSHOpenMovesOffTakenGatePort(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake dsh is a shell script")
 	}
+	// Other core shards run in separate test processes. Keep the shared default port unavailable
+	// so their gate-start tests choose their own free ports instead of racing this one on 9930.
+	defaultPort, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(defaultGatePort)))
+	if err == nil {
+		defer defaultPort.Close()
+	}
 	dataDir := setupFakeGate(t, false)
 	taken := localGateAddr()
 	oldGateServer(t, taken)

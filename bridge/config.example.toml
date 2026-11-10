@@ -841,6 +841,21 @@ name = "my-backend"
 # gate_burst_window_ms = 300        # With gate_url: idle text coalescing, default 1500ms.
 #                                  # Shorter windows reduce waiting but split slower bursts.
 #                                  # 收消息合并等待；附件仍保留原有等待。<=0 使用默认值。
+# gate_sender_silence = true       # Merge one person's consecutive messages into one turn: each plain
+#                                  # idle message waits until that sender stops typing, then the batch is
+#                                  # judged and answered once. Only messages that @ nobody, carry no
+#                                  # attachment and are no command wait; an @ of this bot, an @ of another
+#                                  # role, a DM / one-to-one room, a command and a teammate bot keep their
+#                                  # old burst window. Needs gate_url (the wait is the gate's burst stage).
+#                                  # Default: on for a QQ project, off elsewhere.
+#                                  # 同一人连发合并成一次回：普通消息等到这个人停手才一起判、一起答。
+#                                  # 只对没 @ 人、没附件、不是命令的消息生效；@ 本 bot、@ 别的角色、私聊/单聊房间、
+#                                  # 命令、队友 bot 都按原来的等待。依赖 gate_url（这一等就在闸门的合并阶段）。
+#                                  # 默认：QQ 项目开，其他平台关。
+#                                  # 来源：石英 cneicy/astrbot_plugin_shrink 的 debounce（AGPL，只借思路）；
+#                                  # 用户 2026-11-09「同一个人连发几条合并成一次回」。
+# gate_sender_silence_ms = 1500     # 停手多久才算说完，默认 1500ms（同上，石英默认 1.5s）。
+# gate_sender_silence_max_ms = 6000 # 从这批第一条算起最多等多久，默认 6000ms，到点必起轮（石英上限 6s）。
 # reply_footer = false             # Master toggle for the per-turn reply footer (default: true / show)
 #                                   # 每条助手回复底部状态 footer 总开关（默认 true 显示）
 # show_context_indicator = false   # Hide the footer's first line: model · [effort ·] out/in/cw/cr · ctx % (default: true)

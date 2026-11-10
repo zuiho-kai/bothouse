@@ -46,6 +46,15 @@ const (
 // It only runs on a swap (idle over an hour with a big context, or a full context), before that turn.
 var sealDigestTimeout = 60 * time.Second // 实测最慢 26 s 的两倍余量
 
+// sealDigestLateTimeout: past sealDigestTimeout the turn goes on with the rule summary, and the call keeps
+// running this long in the background; minutes that arrive late are added to the stored full handoff
+// ([#id], sealLate). agentm 11-09/11-10: the cheap model there (deepseek-v4.1-flash behind
+// `claude --model haiku`) took 5–52 s on nine seals and was killed at 60 s on two (one long session, one of
+// 92 events), so the wait was the gateway's latency, not the input (capped at sealDigestMaxInput); a 16 000
+// 字 probe on the same box took 7 s. Holding the first reply longer is not the fix; not throwing the call
+// away is.
+var sealDigestLateTimeout = 5 * time.Minute
+
 // sealDigestFn writes the minutes; tests replace it. "" or an error means the rule summary is used.
 var sealDigestFn = cheapModelDigest
 
@@ -309,6 +318,10 @@ func sanitizeDigest(s string) string {
 		if strings.HasPrefix(u, "IMPORTANT") || strings.HasPrefix(u, "SYSTEM") || strings.HasPrefix(u, "INSTRUCTION") {
 			continue
 		}
+		// Claude Code's own notice on stdout for a gateway model id (agentm 11-10), not part of the minutes
+		if strings.HasPrefix(u, "[CLAUDE-CODE:") || strings.HasPrefix(u, "CLAUDE CODE DOESN'T RECOGNIZE THE MODEL") {
+			continue
+		}
 		l = strings.ReplaceAll(l, "**", "")
 		keep = append(keep, strings.Map(func(r rune) rune {
 			if r < 0x20 && r != '\t' {
@@ -418,9 +431,10 @@ func sealCut(s string, tokens int) string {
 
 // sealResult is what sealing the old context produced for the new one's handoff.
 type sealResult struct {
-	Digest  string   // minutes (model) or the rule summary ("" when the stream had nothing)
-	ByModel bool     // Digest came from the model
-	Memory  []string // rolling memory of the earlier contexts, newest first (the one just sealed excluded)
+	Digest  string                // minutes (model) or the rule summary ("" when the stream had nothing)
+	ByModel bool                  // Digest came from the model
+	Late    <-chan sealLateDigest // the model is still writing past sealDigestTimeout (nil otherwise)
+	Memory  []string              // rolling memory of the earlier contexts, newest first (the one just sealed excluded)
 	Events  int
 	Calls   int
 }
@@ -461,9 +475,23 @@ func (e *Engine) sealOldContext(sessionKey string, h *SessionHandoff) sealResult
 	}
 	res.Digest = rules
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), sealDigestTimeout)
-	out, err := sealDigestFn(ctx, sealDigestInput(rules, evs, h.Tail))
-	cancel()
+	done := make(chan sealLateDigest, 1)
+	input := sealDigestInput(rules, evs, h.Tail)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), sealDigestLateTimeout)
+		defer cancel()
+		out, err := sealDigestFn(ctx, input)
+		done <- sealLateDigest{Out: out, Err: err}
+	}()
+	var out string
+	var err error
+	select {
+	case r := <-done:
+		out, err = r.Out, r.Err
+	case <-time.After(sealDigestTimeout):
+		res.Late = done
+		err = fmt.Errorf("still writing after %s; the minutes go into the stored handoff when done", sealDigestTimeout)
+	}
 	if d := sanitizeDigest(out); err == nil && d != "" {
 		res.Digest, res.ByModel = d, true
 	} else {
@@ -493,4 +521,29 @@ func (e *Engine) emitToolDone(sessionKey string, ev Event, started time.Time) {
 		data["ms"] = time.Since(started).Milliseconds()
 	}
 	e.emitStreamEvent(sealStreamToolDone, sessionKey, "", data)
+}
+
+// sealLateDigest is the cheap model's answer.
+type sealLateDigest struct {
+	Out string
+	Err error
+}
+
+// sealLate waits for minutes still being written and adds them to the full handoff stored as cid, which the
+// new context was pointed to; a failure leaves the rule summary there.
+func sealLate(dataDir, cid, sessionKey string, late <-chan sealLateDigest, start time.Time) {
+	r := <-late
+	d := sanitizeDigest(r.Out)
+	if r.Err != nil || d == "" {
+		slog.Warn("session seal: late minutes failed; the rule summary stands", "session", sessionKey, "error", r.Err, "took", time.Since(start))
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(CtxStoreDir(dataDir), cid+".md"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		slog.Warn("session seal: late minutes not stored", "session", sessionKey, "ctx", cid, "error", err)
+		return
+	}
+	defer f.Close()
+	_, err = f.WriteString("\n## 上个会话的交接纪要（便宜模型迟到写成，可能有误）\n" + d + "\n")
+	slog.Info("session seal: late minutes stored", "session", sessionKey, "ctx", cid, "error", err, "took", time.Since(start))
 }

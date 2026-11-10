@@ -1,8 +1,8 @@
 #!/usr/bin/env python3 -I
 """Distill new Claude Code session content into the LLM wiki (~/wiki, schema in ~/wiki/CLAUDE.md).
 
-  ingest.py --pending        day: Haiku ingests every idle session with new content (hourly LaunchAgent
-                             cron, see README; nothing new -> no model call)
+  ingest.py --pending        day: one existing-size batch of idle sessions with new content;
+                             unread tails resume next invocation (nothing new -> no model call)
   ingest.py --session ID     day: ingest one closed session now; if a run is going, queue it for that run
   ingest.py --hook           SessionEnd hook: reads the hook JSON on stdin, runs --session detached
   ingest.py --nightly        night (Mon–Sat 03:00): luna ingests leftovers, then reviews the
@@ -18,7 +18,7 @@
 Progress is a byte offset per session (ingested, reviewed), so a resumed session only has its new tail done.
 Model passes edit a git worktree (.ingest-work), never the wiki's own working tree. Each pass is followed by
 acceptance checks (bin/lint.py and more); violations get one fix round, otherwise the worktree is reset and
-the batch retried on a later run (up to MAX_FAILS). Accepted commits are cherry-picked onto the wiki (one that
+the batch retried on a later run (MAX_FAILS triggers an alert, never a read offset). Accepted commits are cherry-picked onto the wiki (one that
 conflicts with commits made there meanwhile is merged by the model in the same pass, see merge_newer) and pushed.
 Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); the Mac's nightly review covers them.
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
@@ -235,7 +235,7 @@ IDLE_MIN = 30
 MAX_CHARS = 240_000  # per claude -p call; whole sessions are batched up to this, only oversized ones are split
 AGENT_PY = Path(os.environ.get("WIKI_AGENT_PYTHON", sys.executable)).expanduser()
 API_DAILY_USD = float(os.environ.get("WIKI_API_DAILY_USD", 0))
-MAX_FAILS = 6  # real failures (quota rejections don't count); runs are hourly, so ~6 h of failing
+MAX_FAILS = 6  # 来源：existing failure threshold; now alerts while retaining unread work, quota refusals don't count
 # Engine per pass: claude | agy (Antigravity CLI, Google login) | gemini (dead relay, kept) | codex (ChatGPT subscription).
 # Engines: haiku | sonnet | opus | claude (= WIKI_CLAUDE_MODEL) | codex (luna, ChatGPT subscription) | agy | gemini |
 # dsh (DeepSeek Harness, `dsh --profile headless`, the user's own DSH login/models; a machine with only DSH still runs
@@ -313,6 +313,10 @@ each starting with a `=== SESSION` header.
    One home per fact: grep the wiki first; if another page already owns the fact, update it there and link
    `[[name]]` — never restate it. If something was renamed, grep for the old name and update every hit.
    Keep conclusions, not process: result + reason + the few numbers that justify it.
+   Every new fact or memory entry quotes the session's USER words verbatim — at least four characters after
+   removing punctuation and whitespace, or the whole message line. Source and date alone are insufficient.
+   What only the bot said is no evidence; leave unsupported facts out. Only a whole-line pointer may defer to
+   another page; adding a link to a fact does not exempt it. The script checks every new fact and rejects the pass.
    Rewrite 现状 to the current truth; delete facts the new content supersedes. A reversed decision leaves one
    line in 决策与踩坑 (曾以为 X → 因 Y 改为 Z, date). Date facts that can go stale (YYYY-MM-DD).
 3. Keep every README line and page `description:` in sync with the page body, and MEMORY.md with the READMEs
@@ -382,8 +386,10 @@ A3 事实清单每条都能在 wiki 里找到（跳过的写出 文件:行），
 A4 没有同一事实写在两页（对新写的路径/ID/端口 grep 自检）。
 A5 每个改过页面的 description: 和 README 行与正文一致。
 A6 没删掉仍然成立的事实。
-A7 本次写的每条「用户说/用户定/用户否决/用户原话」都能对上 TRANSCRIPT 里一条 USER 或 USER→ 行（逐条回看那一行再判 pass）。
-   归给用户的「」引文须逐字取自 USER 行，脚本会核对，不符整次打回。
+A7 每条新事实/记忆都带一句从 TRANSCRIPT 的 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
+   抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据，只记来源和时间不够。
+   没有原话依据就不写进正文（未答复的提议只进 log.md「- 未答复提议：X」）。只有整行纯指针可免引，事实后接链接不豁免。
+   脚本会核对引文和归属，不符整次打回。
 
 ## 交付
 最后输出：每个改过的文件一行「<path>: <改了什么>」；每条因已存在而跳过的事实一行「跳过: <事实> → <文件:行>」；然后 A1–A7 各一行 pass/fail。"""
@@ -437,7 +443,9 @@ A2 每个 sid8 都在 log.md 末尾新追加了一条 review 条目。
 A3 事实清单每条都在 wiki 里（写出 文件:行），或判定不记（写出理由）。
 A4 DAY WRITES 里的 + 行没有无依据的说法留下；改动只落在 DAY PAGES 和补漏写入处，每处改动都有 TRANSCRIPT 依据。
 A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样移到 log.md 的除外；脚本核对）。
-A6 本次写下或保留的每条「用户说/用户定」都对得上一条 USER 或 USER→ 行；新写的归给用户的「」引文须逐字取自 USER 行（脚本核对）。
+A6 本次每条新事实/记忆都带一句从 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
+   抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据。找不到原话就不写进正文。
+   只有整行纯指针可免引，事实后接链接不豁免；沿用或搬动的旧行不重查，归给用户的引文仍须逐字匹配（脚本核对）。
 A7 DAY DELETIONS 每行都处理过（恢复，或 TRANSCRIPT 写明它已不成立）。
 
 ## 交付
@@ -788,6 +796,7 @@ def state():
     db.execute("create table if not exists ingested(id text primary key, offset int, at real)")
     db.execute("create table if not exists fails(id text primary key, n int)")
     db.execute("create table if not exists reviewed(id text primary key, offset int, at real)")
+    db.execute("create table if not exists pending_parts(id text primary key, end int, chunk text, part int)")
     db.execute("create table if not exists dreamed(id text primary key, offset int, at real)")
     # page → sha256 of its content after the last split/compress pass: unchanged since then → not offered again
     db.execute("create table if not exists restructured(page text primary key, sha text, at real)")
@@ -1947,6 +1956,26 @@ def take_queue():
     return ids
 
 
+def pending_extract(path, offset):
+    """Keep a pending round within the existing model batch size, at record boundaries.
+
+    Same byte-offset approach as capped() in #1166, without adding a new limit.
+    A single oversized record keeps its accepted-piece checkpoint in SQLite.
+    """
+    it = extract(path, offset)
+    while len(it["text"]) > MAX_CHARS:
+        # 来源：binary subdivision of the existing byte span, never a new size setting.
+        cut = offset + (it["end"] - offset) // 2
+        part = extract(path, offset, cut)
+        if part["end"] <= offset:
+            with open(path, "rb") as f:
+                f.seek(offset)
+                f.readline()
+                return extract(path, offset, f.tell())
+        it = part
+    return it
+
+
 def run(a, engines=None):
     global WIKI
     db = state()
@@ -1956,25 +1985,44 @@ def run(a, engines=None):
         dream(db, time.time() + NIGHT_BUDGET)
         return
     items = []
-    closed = take_queue() | ({a.session} if a.session else set())
+    # A bounded pending run must not consume closure hints for deferred sessions.
+    pending = getattr(a, "pending", False) and not a.nightly
+    closed = (set(QUEUE.read_text().split()) if pending and QUEUE.exists() else
+              set() if pending else take_queue()) | ({a.session} if a.session else set())
     for p in ready(db, None if closed else a.session, closed):
         row = db.execute("select offset from ingested where id=?", (p.stem,)).fetchone()
         start = row[0] if row and row[0] <= p.stat().st_size else 0
         try:
-            it = extract(p, start)
+            partial = db.execute("select end, chunk, part from pending_parts where id=?", (p.stem,)).fetchone()
+            if partial:
+                it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
+            else:
+                it = pending_extract(p, start) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
             continue
         it.update(id=p.stem, path=p, date=time.strftime("%Y-%m-%d", time.localtime(p.stat().st_mtime)))
-        if it["prompts"] == 0:  # nothing the user said: just mark it read
+        # Record-boundary slices may contain only an assistant/tool tail. Its
+        # source still needs acceptance; only a truly empty extraction is read.
+        if not it["text"].strip() and not it.get("_chunk"):
             db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
             continue
         items.append(it)
     db.commit()
     if not items:
         return  # nothing new: no model call
+    if pending:
+        # One existing batch per cron round; SQLite offsets leave the rest ready.
+        # Oversized single records resume from their accepted-piece checkpoint.
+        first = {it["id"] for it, _ in batches_of(items)[0]}
+        items = [it for it in items if it["id"] in first]
     split_pass(db)
-    ingest_batches(db, items, engines or [ENGINE, FALLBACK_ENGINE])
+    ingest_batches(db, items, engines or [ENGINE, FALLBACK_ENGINE], pending=pending)
+
+
+def session_chunk(it):
+    return it.get("_chunk") or (f"=== SESSION {it.get('head') or it['id'][:8]} | {it['title'] or '-'} | "
+                                f"{it['cwd']} | {it['date']} ===\n{it['text']}\n")
 
 
 def batches_of(items):
@@ -1983,12 +2031,13 @@ def batches_of(items):
     for it in items:
         # a Discord / cloud_web item is headed by its channel name, the one its citations carry (「MM-DD HH:MM #频道「…」」),
         # not 「discord:」 (id[:8]), which nothing can cite (派活 2026-10-23)
-        chunk = f"=== SESSION {it.get('head') or it['id'][:8]} | {it['title'] or '-'} | {it['cwd']} | {it['date']} ===\n{it['text']}\n"
+        chunk = session_chunk(it)
         if cur and size + len(chunk) > MAX_CHARS:  # a session never straddles two batches
             batches.append(cur)
             cur, size = [], 0
         if len(chunk) > MAX_CHARS:  # oversized: its own batches
-            batches += [[(it, chunk[i:i + MAX_CHARS])] for i in range(0, len(chunk), MAX_CHARS)]
+            batches += [[(it, chunk[i:i + MAX_CHARS])]
+                        for i in range(it.get("_part", 0) * MAX_CHARS, len(chunk), MAX_CHARS)]
             continue
         cur.append((it, chunk))
         size += len(chunk)
@@ -2344,15 +2393,17 @@ def remember(db, pages, res):
     db.commit()
 
 
-def ingest_batches(db, items, engines):
+def ingest_batches(db, items, engines, pending=False):
     global quota_hit, CRASHED
-    for batch in batches_of(items):
+    batches = batches_of(items)
+    remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
+    for batch in batches:
         ids = list(dict.fromkeys(it["id"] for it, _ in batch))
         label = "ingest " + ", ".join(f"{i[:8]}" for i in ids)
         text = "".join(piece for _, piece in batch)
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
-        skipped = 0
+        retained = 0
         res, quota_hit, CRASHED = False, False, ""
         REJECT_REASONS.clear()
         cands = candidates_note(text)
@@ -2368,6 +2419,13 @@ def ingest_batches(db, items, engines):
         crashed = CRASHED
         if res:
             for it in {it["id"]: it for it, _ in batch}.values():
+                remaining[it["id"]] -= 1
+                if remaining[it["id"]]:
+                    it["_part"] = it.get("_part", 0) + 1
+                    db.execute("insert or replace into pending_parts values (?,?,?,?)",
+                               (it["id"], it["end"], session_chunk(it), it["_part"]))
+                    continue  # only the final accepted piece advances the source byte offset
+                db.execute("delete from pending_parts where id=?", (it["id"],))
                 db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
                 db.execute("delete from fails where id=?", (it["id"],))
                 if LAST_ENGINE.startswith("codex"):  # luna/sol/astra wrote it: nothing for the nightly review to check
@@ -2378,22 +2436,23 @@ def ingest_batches(db, items, engines):
             for it in {it["id"]: it for it, _ in batch}.values():
                 n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
                 db.execute("insert or replace into fails values (?,?)", (it["id"], n))
-                if n >= MAX_FAILS:  # give up on this delta rather than paying for it every run
-                    db.execute("insert or replace into ingested values (?,?,?)", (it["id"], it["end"], time.time()))
-                    log(f"SKIPPED {it['id'][:8]} after {n} failed runs")
-                    skipped += 1
+                if n >= MAX_FAILS:
+                    log(f"RETAINED {it['id'][:8]} after {n} failed runs")
+                    retained += 1
         if crashed:  # once a day per error type (alert); the batch is a counted failure above, the run goes on
             alert(db, ["crash:" + crashed.split(":")[0]], f"wiki 自动整理脚本出错（{crashed[:200]}），{label} 记失败、"
                                                         f"已回滚，继续下一批。traceback 看 {LOG}（CRASHED 行）。")
-        if skipped:
+        if retained:
             why = f"最近的拒绝原因：{REJECT_REASONS[-1].splitlines()[0][:150]}。" if REJECT_REASONS else ""
-            alert(db, ["skipped"], f"wiki 自动整理放弃了 {skipped} 个会话（各连续失败 {MAX_FAILS} 次，不再重试）。{why}"
-                                 f"日志看 {LOG}（SKIPPED / REVERTED 行）。")
+            alert(db, ["retained"], f"wiki 自动整理保留了 {retained} 个待办（各连续失败至少 {MAX_FAILS} 次，未推进已读位置，下轮续办）。{why}"
+                                  f"日志看 {LOG}（RETAINED / REVERTED 行）。")
         if res or not quota_hit:  # a quota refusal says nothing about the reasons: streaks neither grow nor reset
             if res:  # a rejection the fix round repaired lost nothing: only batches that end up failing grow a streak
                 REJECT_REASONS.clear()
             reject_streaks(db, len(ids))
         db.commit()
+        if pending or (not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch)):
+            return  # never skip ahead within an unfinished record
 
 
 def day_commits(sids, since):
@@ -2513,37 +2572,132 @@ def review_check(shas):
 # who a quote on a page is given to: 用户答「没问题」, 用户 10-15 原话：「…」, 「…」（用户原话） are the user's. A quote not
 # right after 用户 + a speech verb is a label or someone else's (replay of 10-14..10-17 commits: 「用户否决：…写「凌晨三点半」」,
 # 「用户昵称一律改「家里人」」 are not speech); 需/待/等用户说「发版」 is a condition, not something said
-USER_SAYS = re.compile(r"(?<![需待等请让])用户(?![名未没])(?:(?!" + "|".join(map(re.escape, [*(n for ns in BOTS.values() for n in ns), "助手", "Claude", "队友"])) + r")[^「」。；;]){0,25}?"
-                       r"(?:(?:原话|说|答|回复?|问|定|要求|否决|指出|批评|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽)"
-                       r"[^「」。；;，,]{0,4}[：:（(\s]*|[：:]\s*)$")
+BOT_NAMES = "|".join(map(re.escape, [*(n for ns in BOTS.values() for n in ns), "助手", "Claude", "队友"]))
+USER_SAYS = re.compile(r"(?<![需待等请让])用户(?!" + BOT_NAMES + r"|名|未|没)[^「」。；;]{0,25}?"
+                       r"(?:(?:原话|说|答|回复?|问|定|要求|否决|指出|批评|嫌|骂|声称|表示|提出|强调|纠正|补充|追问|吐槽|"
+                       r"同意|答应|批准|认可|采纳|拍板|反对|拒绝)"
+                       r"[^「」。；;，,]{0,8}[：:（(\s]*|[：:]\s*)$")
+# a line whose whole point is that the words live on another page (「用户这条要求的原话与场景见 [[user-requests]]。」):
+# the quote is on that page, which is checked when it is written. A line that states the claim and happens to link a
+# page is not this, and neither is a pointer not at the end (appending one must not excuse a missing quote).
+PTR = re.compile(r"\s*(?:[-*+]\s+)?(?:用户(?:这条要求的)?)?原话(?:与场景)?\s*(?:见|详见)\s*"
+                 r"(?:\[\[[^\]]+\]\]|`[\w./-]+\.md`|[\w./-]+\.md)\s*[。.]?\s*")
+# 石英 quality.py `_quote_ok`: a quote under 4 characters counts only as a whole message (or its last line, the bridge
+# puts a header above the user's text), or 「好」 would pass inside any sentence that holds it (source:
+# ~/wiki/refs/astrbot-plugin-shrink.md; idea only, no AGPL code copied)
+MIN_QUOTE = 4
 # quotes are compared without whitespace and punctuation: the user types 「,」 where a page writes 「，」
 FLAT = re.compile(r"[\s，,。！!？?、：:；;“”\"'‘’（）()…~～]+|(?<!\d)\.|\.(?!\d)")  # 「v1.2」 ≠ 「v12」
 
 
+def flat(t):
+    """A text without whitespace or punctuation, lowercased: the user's 「,」 where a page writes 「，」 is the same words."""
+    return FLAT.sub("", t).lower()
+
+
+def quotes_on(line):
+    """Every 「…」 and “…” quote on a page line, whoever it is attributed to (pages quote the user both ways)."""
+    return [a or b for a, b in re.findall(r"「([^「」]+)」|“([^“”]+)”", line)]
+
+
 def user_quotes(line):
-    """The 「…」 quotes a page line attributes to the user."""
+    """The 「…」/“…” quotes a page line attributes to the user."""
     out, prev = [], False
-    for m in re.finditer(r"「([^「」]+)」", line):
+    for m in re.finditer(r"「([^「」]+)」|“([^“”]+)”", line):
         before = line[:m.start()]
-        ctx = before[max(before.rfind(c) for c in "」。；;") + 1:]
+        ctx = before[max(before.rfind(c) for c in "」。；;“”") + 1:]
         # 用户说「a」和「b」: a quote joined to a user quote by 和/、/， is the user's too
         prev = bool(USER_SAYS.search(ctx) or line[m.end():].startswith(("（用户原话", "(用户原话"))
                     or prev and re.fullmatch(r"[和与及或、，,\s]*", ctx))
         if prev:
-            out.append(m.group(1))
+            out.append(m.group(1) or m.group(2))
     return out
+
+
+def page_additions(base):
+    """Added lines and their structural status, using their actual file and line position."""
+    files = git("diff", "--name-only", "--no-renames", "-z", base, "--", "*.md", ":!log.md").split("\0")
+    for f in filter(None, files):
+        path = WIKI / f
+        if not path.is_file():
+            continue
+        text = path.read_text()
+        front = re.match(r"---\n.*?\n---(?:\n|$)", text, re.S)
+        metadata = len(front.group().splitlines()) if front else 0
+        index = path.name == "README.md" or f == "MEMORY.md"
+        structural, fence = set(), None
+        for n, line in enumerate(text.splitlines()):
+            if n < metadata:
+                structural.add(n)
+                continue
+            mark = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+            if fence:
+                if mark and mark[1][0] == fence[0] and len(mark[1]) >= len(fence) and not mark[2].strip():
+                    fence = None
+                    structural.add(n)
+            elif mark:
+                fence = mark[1]
+                structural.add(n)
+            elif (re.match(r" {0,3}#{1,6}(?:[ \t]+|$)", line)
+                  or re.fullmatch(r" {0,3}(?:-[ \t]*){3,}", line)
+                  or index and re.fullmatch(r" {0,3}[-*+] +\[[^\]]+\]\([^()]+\.md\)[ \t]*", line)):
+                structural.add(n)
+        at = None
+        for line in git("diff", "--no-renames", "--unified=0", base, "--", f).splitlines():
+            hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+            if hunk:
+                at = int(hunk[1]) - 1
+            elif at is not None and line.startswith(("+", " ")):
+                if line.startswith("+"):
+                    yield line[1:], at in structural
+                at += 1
 
 
 def page_misquotes(sessions, base="HEAD"):
     """Quotes the pass's new page lines give to the user that none of `sessions` (transcript paths; plus any session
-    a line names by sid8) has on a USER/USER→ line. A quote already in the wiki at `base` is not new (a move)."""
+    a line names by sid8) has on a USER/USER→ line, and new facts no such quote backs. A line already in the wiki
+    at `base` is not new (a move)."""
     git("add", "-AN")
-    diff = git("diff", "--unified=0", base, "--", "*.md", ":!log.md")
+    added = list(page_additions(base))
     git("reset", "-q")
-    added = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
-    bad = bad_quotes(added, lambda: wiki_text(base), sessions)
-    return ("quotes given to the user (用户说/答/定「…」, 「…」（用户原话）) that no USER line of these sessions has: "
-            + "; ".join(bad) + " — quote the user's words exactly, name who really said it, or drop the quote") if bad else ""
+    old = lambda: wiki_text(base)
+    bad = bad_quotes([line for line, _ in added], old, sessions)
+    claims = claim_msgs([line for line, structural in added if not structural], old, sessions)
+    return "\n".join(e for e in (
+        ("quotes given to the user (用户说/答/定「…」, 「…」（用户原话）) that no USER line of these sessions has: "
+         + "; ".join(bad) + " — quote the user's words exactly, name who really said it, or drop the quote") if bad else "",
+        ("new facts without a quote from a USER/USER→ line of this pass's "
+         "sessions: " + "; ".join(claims) + " — add the user's words verbatim (≥4 字, or the whole message), write "
+         "only facts supported by such a quote, or leave it out / keep it only in log.md's 未答复提议") if claims else "") if e)
+
+
+def heard(msgs):
+    """A message flattened, and again line by line: the bridge writes a sender/replying header above the user's text,
+    so a short quote is a whole line there rather than the whole message."""
+    return [t for m in msgs for t in dict.fromkeys((flat(m), *(flat(l) for l in m.splitlines() if l.strip()))) if t]
+
+
+def user_texts(p):
+    """The USER/USER→ lines of one session, normalized, one per message line; unreadable: none, so its quotes count
+    as misquotes."""
+    try:
+        if DISCORD_SOURCE and bridged(p):  # a bridged session's user words are Discord's, from the local midnight
+            # of its first turn (the message comes before the turn it starts) to its last
+            ts = [daypack.ts_of(e[3] if e[0] == "in" else e[2]) for e in events(p, 0)[0]
+                  if e[0] in ("in", "out") and (e[3] if e[0] == "in" else e[2])]
+            if not ts:
+                return []
+            # a day before its first turn: the message that started it may have waited behind a turn, across
+            # midnight too (the old local-midnight bound missed 23:59 → 00:00); one day is that bound's widest
+            lo = min(ts) - QUOTE_LEAD
+            return heard(m.text for m in discord_words(lo, max(ts) + 1))
+        return heard(dialog(p, 0)["said"])
+    except HouseholdError as e:
+        household_unreadable(f"quote check {p.stem}", e)
+        return []
+    except discord_said.Unavailable as e:  # unverifiable: its quotes count as misquotes
+        log(f"quote check {p.stem}: Discord history unavailable: {e}")
+        return []
 
 
 def bad_quotes(added, old_text, sessions):
@@ -2551,44 +2705,56 @@ def bad_quotes(added, old_text, sessions):
     quotes = [(l, q) for l in added for q in user_quotes(l)]
     if not quotes:
         return []
-    flat = lambda t: FLAT.sub("", t).lower()  # 「C 小心」 for the user's 「c小心」 is the same words
-    old = flat(old_text())
-    def said(p):  # one entry per USER/USER→ line; unreadable: none, so its quotes count as misquotes
-        try:
-            if DISCORD_SOURCE and bridged(p):  # a bridged session's user words are Discord's, from the local midnight
-                # of its first turn (the message comes before the turn it starts) to its last
-                ts = [daypack.ts_of(e[3] if e[0] == "in" else e[2]) for e in events(p, 0)[0]
-                      if e[0] in ("in", "out") and (e[3] if e[0] == "in" else e[2])]
-                if not ts:
-                    return []
-                # a day before its first turn: the message that started it may have waited behind a turn, across
-                # midnight too (the old local-midnight bound missed 23:59 → 00:00); one day is that bound's widest
-                lo = min(ts) - QUOTE_LEAD
-                return [flat(m.text) for m in discord_words(lo, max(ts) + 1)]
-            return [flat(t) for t in dialog(p, 0)["said"]]
-        except HouseholdError as e:
-            household_unreadable(f"quote check {p.stem}", e)
-            return []
-        except discord_said.Unavailable as e:  # unverifiable: its quotes count as misquotes
-            log(f"quote check {p.stem}: Discord history unavailable: {e}")
-            return []
-    heard = {str(p): said(p) for p in sessions}
+    old = flat(old_text())  # 「C 小心」 for the user's 「c小心」 is the same words
+    said = {str(p): user_texts(p) for p in sessions}
     every = None
     bad = []
     for line, q in quotes:
-        frags = [flat(f) for f in re.split(r"…+|\.\.\.", q) if flat(f)]
-        if not frags or flat(q) in old:
+        if flat(q) in old:
             continue
-        if any(in_order(frags, t) for ts in heard.values() for t in ts):
-            continue
+        texts = [t for ts in said.values() for t in ts]
         cited = re.findall(r"\b[0-9a-f]{8}\b", line)
         if cited:
             every = every or {sid[:8]: p for sid, p in transcripts(hosts=True).items()}
-            texts = [t for c in cited if c in every and str(every[c]) not in heard for t in said(every[c])]
-            if any(in_order(frags, t) for t in texts):
-                continue
-        bad.append(f"「{q}」")
+            texts += [t for c in cited if c in every and str(every[c]) not in said for t in user_texts(every[c])]
+        if not quote_ok(q, texts):
+            bad.append(f"「{q}」")
     return bad
+
+
+def claim_msgs(added, old_text, sessions):
+    """page_misquotes on body lines (file structure already excluded): every new fact line needs one of its quotes
+    to be the user's (quote_ok). A line already on the wiki at `old_text()` is a move; a pointer line (PTR) leaves the
+    words to the page it names, checked when that page is written."""
+    old = flat(old_text())
+    bad, said, every = [], None, None
+    for l in added:
+        if not l.strip() or PTR.fullmatch(l) or flat(l) in old:
+            continue
+        quotes = quotes_on(l)
+        if not quotes:
+            bad.append(f"{l.strip()[:100]}（没有引文）")
+            continue
+        said = said if said is not None else {str(p): user_texts(p) for p in sessions}
+        texts = [t for ts in said.values() for t in ts]
+        cited = re.findall(r"\b[0-9a-f]{8}\b", l)
+        if cited:
+            every = every or {sid[:8]: p for sid, p in transcripts(hosts=True).items()}
+            texts += [t for c in cited if c in every and str(every[c]) not in said for t in user_texts(every[c])]
+        if not any(quote_ok(q, texts) for q in quotes):
+            bad.append(f"{l.strip()[:100]}（引文「{quotes[0]}」不是这条会话里用户的话）")
+    return bad
+
+
+def quote_ok(q, texts):
+    """A quote is the user's words: ≥MIN_QUOTE characters in order in one USER line; shorter than that it counts only
+    as a whole line (heard() lists the message and each of its lines, so a header above the text does not block it)."""
+    frags = [flat(f) for f in re.split(r"…+|\.\.\.", q) if flat(f)]
+    if not frags:
+        return False
+    if sum(map(len, frags)) < MIN_QUOTE:
+        return any(t == "".join(frags) for t in texts)
+    return any(in_order(frags, t) for t in texts)
 
 
 def in_order(frags, text):
@@ -4319,6 +4485,10 @@ def main():
             push()
             if MIRROR_TO:
                 mirror(state())
+        # Pending is one round, including hooks queued while it ran. Their hints
+        # and unread byte offsets remain for the next scheduled invocation.
+        if a.pending and not a.nightly:
+            return
         # sessions queued while we ran (or between our last check and the unlock): go again
         if not (QUEUE.exists() and QUEUE.read_text().strip()):
             return

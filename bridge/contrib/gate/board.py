@@ -195,7 +195,7 @@ def fmt(i):
     bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
 
 
 def lines():
@@ -431,6 +431,13 @@ def _moves_ws(old_who, new_who):
     return not (old and old.group(1) == new.group(1))
 
 
+def _keeps_handoff(old, new):
+    """「分支/PR/路径」原来是交接文件、新给的不是文件（合并请求链接、分支名）：保留交接路径，新值记进 where_link。
+    11-10 #1347：路径栏被改成 PR 链接后，ws-pass 按交接找不到条目，主角色核完放不出去。"""
+    old, new = (old or "").strip(), (new or "").strip()
+    return bool(old) and new != old and os.path.isfile(old) and not os.path.isfile(os.path.expanduser(new))
+
+
 def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
     """same_ws：调用方已查明新「谁」指的就是条目眼下绑的工作区（main 里按桥的池子对过 id），不解绑。"""
     with _locked():
@@ -448,7 +455,10 @@ def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
             _back_to_chat(hit)
             tid = hit.pop("guard", None)  # 改派：撤兜底，交给新工作区时 ws-handoff 再挂
         if where:
-            hit["where"] = where
+            if _keeps_handoff(hit.get("where"), where):
+                hit["where_link"] = where  # 交接文件留在 where：ws-pass / ws-forward / 桥都按它找这件活（#1350）
+            else:
+                hit["where"] = where
         if who:
             hit["who"] = who
         if nxt:
@@ -576,6 +586,34 @@ def done_item(path):
     if any(i.get("where") == path for i in _read()):
         return None
     return next((r for r in reversed(_read("board-done.jsonl")) if r.get("where") == path and not r.get("auto_pruned")), None)
+
+
+def item_by_id(nid):
+    """编号 nid 的条目：先看板上（在做、交回待验收），再看 board-done.jsonl 最后一条；没有返回 None。
+    ws-pass / ws-forward --id 用（#1371：路径栏是分支、提交、PR 链接时按交接文件认不出这件活）。"""
+    try:
+        nid = int(nid)
+    except (TypeError, ValueError):
+        return None
+    return (next((i for i in _read() if i.get("id") == nid), None)
+            or next((r for r in reversed(_read("board-done.jsonl")) if r.get("id") == nid and not r.get("auto_pruned")), None))
+
+
+def ids_by_link(link):
+    """路径栏（where 或 where_link）就是 link 的条目编号，板上的在前、做完的在后（#1371）。"""
+    link = (link or "").strip().rstrip("/")
+    hit = lambda i: link and link in ((i.get("where") or "").strip().rstrip("/"), (i.get("where_link") or "").strip().rstrip("/"))
+    out = [i["id"] for i in _read() if hit(i)]
+    return out + [r["id"] for r in reversed(_read("board-done.jsonl")) if hit(r) and r["id"] not in out and not r.get("auto_pruned")]
+
+
+def handoff_of(it):
+    """条目的交接文件：where / where_link 里是本机文件的那个；都不是返回空串。"""
+    for k in ("where", "where_link"):
+        v = os.path.expanduser((it or {}).get(k) or "")
+        if v and "://" not in v and os.path.isfile(v):
+            return os.path.abspath(v)
+    return ""
 
 
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
@@ -828,7 +866,7 @@ def _guard_prompt(it, delay):
     return (f"兜底到点：#{it['id']}「{it.get('what', '')}」交给{where} {delay} 了，还没交回。"
             f"先看任务板 #{it['id']}：已经完成或暂停就什么都不说，只回 NO_REPLY。"
             f"还在做就查卡在哪（工作区最后的发言、看门催促、命令是不是挂住），"
-            f"要接着等就用 ws-forward --notes {it.get('where', '')} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add，然后只回 NO_REPLY。"
+            f"要接着等就用 ws-forward --id {it['id']} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add，然后只回 NO_REPLY。"
             # #1188：兜底是系统内部检查，不对用户汇报进度；只有卡住要用户拍板或动手时才说
             f"只有卡住、非用户拍板或动手不可时，才跟用户说一句要用户做什么，并写明这是兜底检查发现的、不是用户要求的。")
 
@@ -1530,7 +1568,7 @@ def _where_prs(i, repo=None):
     repo = repo or _repo()
     if not repo:
         return set()
-    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(i.get("where") or "")}
+    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(" ".join(filter(None, (i.get("where"), i.get("where_link")))))}
 
 
 def _idle_since(i, now):
@@ -1829,6 +1867,20 @@ def main(argv):
                 print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，已在聊天频道发 [ask] 请用户定；ws-handoff --resume 不再续做")
             else:
                 print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
+        elif cmd == "accepted" and len(argv) == 2:
+            # 主角色放行了交回的汇报（ws-pass，桥 team_report_accept_api.go）：那就是验收，当场收口。
+            # 不收口时任务留在「已交回待验收」，几小时后「没人验收」再叫主角色验一遍，它拿 GitHub
+            # 最新代码对旧报告，把已交付的活退回重做（agentm #35 11-10 07:16）。返工次数 = 退回轮数。
+            nid = int(argv[1].lstrip("#"))
+            hit = next((i for i in _read() if i["id"] == nid), None)
+            if hit is None:
+                print("不在板上（已收口），不用再收")
+            else:
+                rounds = hit.get("reject_reasons") or []
+                ended = done(nid, len(rounds), ("；".join(rounds)[:200] or None))
+                print("已验收收口" if ended else "不在板上（已收口），不用再收")
+                if ended:
+                    _park_done(ended)
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))

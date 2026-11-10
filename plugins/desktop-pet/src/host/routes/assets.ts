@@ -140,7 +140,7 @@ export async function handleAssetsRoutes(deps: PetRouteDeps, input: RouteInput):
   // bothouse fork：主条目穿「形象」（用户选的 / 绑定角色 / 默认，见 ../skins.ts）：同名动画优先，其余按意思
   // 归到八个状态动画。用户自己放的宠物包（pet/<素材根>-animation/）照上游只查自己的目录。
   const ownPack = extraAnimDir !== undefined && existsSync(extraAnimDir);
-  const skin = ownPack ? undefined : await skinAnimationFile(fileName);
+  const skin = ownPack ? undefined : await skinAnimationFile(fileName, petId);
   if (skin !== undefined) return { kind: 'file', file: skin, contentType: MIME['.webm'] ?? 'video/webm' };
 
   let file = findAnim(ext);

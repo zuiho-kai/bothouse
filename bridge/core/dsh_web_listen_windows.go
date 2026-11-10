@@ -3,6 +3,7 @@
 package core
 
 import (
+	"context"
 	"encoding/binary"
 	"strconv"
 	"unsafe"
@@ -59,6 +60,13 @@ func tcpListeners() []tcpListener {
 	}
 	return list
 }
+
+// dshWebListenersCtx: the same table read, shaped like the unix helper so the callers can share one
+// signature. The Windows call is a plain syscall and cannot hang, so ctx is not consulted.
+func dshWebListenersCtx(context.Context) []string { return dshWebListeners() }
+
+// pidListeningOnPortCtx: pidListeningOnPort, likewise a syscall with nothing to interrupt.
+func pidListeningOnPortCtx(_ context.Context, port string) int { return pidListeningOnPort(port) }
 
 // dshWebListeners: loopback (127.0.0.1) listening ports, as on unix.
 func dshWebListeners() []string {

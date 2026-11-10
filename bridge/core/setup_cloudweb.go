@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -442,7 +443,64 @@ var localHubUVArgs = []string{"run", "--no-project", "--python", ">=3.11",
 	"--with", "aiohttp==3.14.5", "--with", "cryptography==50.0.2", "python", "-m", "rh.hub"}
 
 // 来源：2026-10-21 本机实测，依赖已缓存时 6 秒能连；第一次要下载 Python 和依赖，留 90 秒（实现者定）。
+// #1499 之后它只是兜底：代理连不上时不再等满（见 localHubProxyFailure）。
 var localHubStartWait = 90 * time.Second
+
+// localHubNoProxy: hosts the hub's own start works on locally. 来源：issue #1499 实测（2026-11-10，Windows 11）：
+// 系统代理（WinINET ProxyServer=127.0.0.1:7897）指向一个没在监听的端口时，uv 拉 pypi 包走这条死代理，
+// 连满 90 秒才失败（os error 10061）；直连 pypi.org 是通的。NO_PROXY 同时也给 uv 缓存里的 Python 用。
+const localHubNoProxy = "127.0.0.1,localhost"
+
+// localHubNoProxyValue: the user's own NO_PROXY kept, with the local hosts added (a user who already
+// bypasses their intranet must not lose that when the hub starts).
+func localHubNoProxyValue() string {
+	seen := map[string]bool{}
+	var hosts []string
+	add := func(list string) {
+		for _, h := range strings.Split(list, ",") {
+			if h = strings.TrimSpace(h); h != "" && !seen[strings.ToLower(h)] {
+				seen[strings.ToLower(h)] = true
+				hosts = append(hosts, h)
+			}
+		}
+	}
+	for _, v := range []string{os.Getenv("NO_PROXY"), os.Getenv("no_proxy")} {
+		add(v)
+	}
+	add(localHubNoProxy)
+	return strings.Join(hosts, ",")
+}
+
+// localHubEnv is the env for the hub's uv: the tokens, UTF-8 output, and #1499's local bypass of the
+// system proxy (uv reads the Windows registry proxy when the env says nothing).
+func localHubEnv(dataDir, uv string, s *localHubState) []string {
+	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
+	noProxy := localHubNoProxyValue()
+	env := []string{"RH_HUB_TOKEN=" + s.WebToken, "RH_BOT_TOKEN=" + s.BotToken, "PYTHONIOENCODING=utf-8",
+		"NO_PROXY=" + noProxy, "no_proxy=" + noProxy}
+	if uv == ownUV(dataDir) {
+		// uvOwnEnv, only for the uv we downloaded：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是
+		// 装开发工具的桩）；Python 装在 <data_dir>/tools/python，和 gate 共用。用户自己的 uv 照旧用用户的 Python 和 uv.toml（镜像）。
+		env = append(uvOwnEnv(dataDir), env...)
+	}
+	return MergeEnv(os.Environ(), env)
+}
+
+// hubProxyHint matches the lines uv/aiohttp print when a proxy they were told to use is not there:
+// issue #1499's log had "tunnel error: failed to create underlying connection", "tcp connect error"
+// and Windows' "由于目标计算机积极拒绝，无法连接。 (os error 10061)". No bare "proxy": a hub that starts
+// fine must never be reported as a proxy failure.
+var hubProxyHintRE = regexp.MustCompile(`(?i)tunnel error|tcp connect error|os error 10061|actively refused|积极拒绝`)
+
+// localHubProxyFailure: a start that failed on a proxy is reported right away instead of after the whole
+// wait: the log already says the proxy is dead, and 90 more seconds tell the user nothing (#1499).
+func localHubProxyFailure(lang, logFile string) error {
+	return fmt.Errorf("%s %s", tr3(lang,
+		"自建平台起不来：系统代理连不上（uv 拉包时走到了代理上）。关掉系统代理，或把 127.0.0.1、localhost 加进代理的例外后重试。日志：",
+		"プラットフォームが起動しません：システムのプロキシに接続できません（uv の取得がプロキシ経由になっています）。システムプロキシを切るか、127.0.0.1 と localhost を例外に追加してから再試行してください。ログ：",
+		"The platform did not start: the system proxy cannot be reached (uv's downloads went through it). Turn the system proxy off, or add 127.0.0.1 and localhost to its exceptions, then retry. Log:"),
+		logFile+tailFile(logFile, 600))
+}
 
 // StartLocalHub starts the hub on 127.0.0.1 from the embedded source: tokens and port are kept
 // in <data_dir>/hub/hub.json (an earlier start's are reused), data in <data_dir>/hub/hub.sqlite3,
@@ -472,6 +530,8 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 			"uv（Python の実行ツール）のダウンロードに失敗しました。ネットワークを確認して「このマシンで起動」をもう一度押すか、uv を自分で入れてから「再検出」を押してください。元のエラー：",
 			"Downloading uv (a Python runner) failed: check the network and click \"Start on this machine\" again, or install uv yourself and click \"Detect again\". Original error:"), err)
 	}
+	// where this start begins to write hub.log (it is appended to, never truncated)
+	logStart := fileSizeOf(filepath.Join(localHubDir(dataDir), "hub.log"))
 	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		return LocalHubStatus{}, err
 	}
@@ -483,10 +543,17 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 	}
 	secs := strconv.Itoa(int(wait.Round(time.Second) / time.Second))
 	base, _ := cloudWebWSBase(localHubURL(s.Port))
+	logFile := filepath.Join(localHubDir(dataDir), "hub.log")
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 			return GetLocalHubStatus(ctx, dataDir, lang), nil
+		}
+		// #1499: the log already says the proxy is dead → report that instead of waiting out the clock.
+		// Only what this start appended: hub.log is never truncated, so an earlier run's proxy error
+		// must not fail a retry that is fine now.
+		if hubProxyHintRE.MatchString(sinceStart(logFile, logStart, 600)) {
+			return LocalHubStatus{LogFile: logFile}, localHubProxyFailure(lang, logFile)
 		}
 		select {
 		case <-ctx.Done():
@@ -494,7 +561,6 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		case <-time.After(500 * time.Millisecond): // 来源：实现者定，轮询间隔
 		}
 	}
-	logFile := filepath.Join(localHubDir(dataDir), "hub.log")
 	return LocalHubStatus{LogFile: logFile}, fmt.Errorf("%s %s", tr3(lang, "自建平台没在 "+secs+" 秒内起来，看日志：", "プラットフォームが "+secs+" 秒以内に起動しませんでした。ログ：",
 		"The platform did not come up within "+secs+" seconds; see the log:"), logFile+tailFile(logFile, 600))
 }
@@ -586,14 +652,7 @@ func startHubProcess(dataDir, uv string, s *localHubState) error {
 		"--db", filepath.Join(dir, "hub.sqlite3"))
 	cmd := exec.Command(uv, args...)
 	cmd.Dir = src
-	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
-	env := []string{"RH_HUB_TOKEN=" + s.WebToken, "RH_BOT_TOKEN=" + s.BotToken, "PYTHONIOENCODING=utf-8"}
-	if uv == ownUV(dataDir) {
-		// uvOwnEnv, only for the uv we downloaded：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是
-		// 装开发工具的桩）；Python 装在 <data_dir>/tools/python，和 gate 共用。用户自己的 uv 照旧用用户的 Python 和 uv.toml（镜像）。
-		env = append(uvOwnEnv(dataDir), env...)
-	}
-	cmd.Env = MergeEnv(os.Environ(), env)
+	cmd.Env = localHubEnv(dataDir, uv, s)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -664,6 +723,28 @@ func tailFile(path string, n int) string {
 		b = b[len(b)-n:]
 	}
 	return "\n" + string(b)
+}
+
+// fileSizeOf: where a file ends now, 0 when it does not exist yet (hub.log is appended to by every start).
+func fileSizeOf(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// sinceStart: the part of path written after offset, at most the last n bytes of it.
+func sinceStart(path string, offset int64, n int) string {
+	b, err := os.ReadFile(path)
+	if err != nil || int64(len(b)) <= offset {
+		return ""
+	}
+	b = b[offset:]
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return string(b)
 }
 
 // ── HTTP ──────────────────────────────────────────────────────
@@ -772,26 +853,27 @@ func WithTeam(persona, line string) string {
 // cloudWebTeamLine: who is on the team and how hand-offs work, for member self. The persona may be
 // shared with Discord (a reused Discord bot also joins the platform), so the line says it is about
 // the self-hosted platform. Names lose line breaks: one line under the marker (WithTeam).
+// The line is a roster only: who leads now and what the lead and the members each do come from the
+// bridge's duty layer (roleDutyLayer), so a lead switch needs no persona edit (user 2026-11-10).
 func cloudWebTeamLine(lang string, team []SetupTeamEntry, fallback, self string) string {
 	leadName := ""
-	var subs []string
+	var others []string
 	for _, t := range team {
 		if t.Project == fallback {
 			leadName = oneLine(t.Name)
-		} else {
-			subs = append(subs, oneLine(t.Name))
+		}
+		if t.Project != self {
+			others = append(others, oneLine(t.Name))
 		}
 	}
+	you, youJA, youEN := "", "", ""
 	if self == fallback {
-		return tr3(lang,
-			"在自建平台上，你是团队的主角色，队员有："+strings.Join(subs, "、")+"（都在同一个频道里）。要把活派给谁，就在频道里写「@名字」加上要做的事；她做完的最终回复会自动 @ 回你，你再汇总给提问的人。",
-			"自前プラットフォームでは、あなたはチームのリーダーです。メンバー："+strings.Join(subs, "、")+"（同じチャンネルにいます）。仕事を任せるときはチャンネルで「@名前」と書いて内容を伝えてください。終わった最終回答は自動であなたに @ が付いて返ってくるので、まとめて質問者に伝えてください。",
-			"On the self-hosted platform you are the primary role; members: "+strings.Join(subs, ", ")+" (all in the same channel). To hand work to one, write \"@name\" and the task in the channel; her final answer comes back to you with an @ automatically, then you sum up for whoever asked.")
+		you, youJA, youEN = "（就是你）", "（あなたです）", " (that is you)"
 	}
 	return tr3(lang,
-		"在自建平台上，你在一个团队里，主角色是「"+leadName+"」（都在同一个频道里）。主角色 @ 你派的活，做完后你的最终回复会自动 @ 回主角色；要找队友就在频道里写「@名字」。",
-		"自前プラットフォームでは、あなたはチームの一員で、リーダーは「"+leadName+"」です（同じチャンネルにいます）。リーダーが @ で任せた仕事の最終回答には自動でリーダーへの @ が付きます。仲間を呼ぶときはチャンネルで「@名前」と書いてください。",
-		"On the self-hosted platform your team's primary role is \""+leadName+"\" (all in the same channel). When the primary role @-s you with work, your final answer goes back to the primary role with an @ automatically; to call a teammate, write \"@name\" in the channel.")
+		"在自建平台上，你在一个团队里，队友有："+strings.Join(others, "、")+"（都在同一个频道里），按配置默认的主角色是「"+leadName+"」"+you+"。叫谁就在频道里写「@名字」加上要说的事；被 @ 派活的，做完后最终回复会自动 @ 回派活的人。谁当主角色、主角色和副手各自怎么干活，以桥每轮附上的团队职责层为准。",
+		"自前プラットフォームでは、あなたはチームの一員です。仲間："+strings.Join(others, "、")+"（同じチャンネルにいます）。設定上の既定のリーダーは「"+leadName+"」"+youJA+"です。呼ぶときはチャンネルで「@名前」と書いて内容を伝えてください。@ で任された仕事の最終回答には自動で依頼者への @ が付きます。誰がリーダーか、リーダーとメンバーがそれぞれどう動くかは、ブリッジが毎ターン付けるチームの役割層に従ってください。",
+		"On the self-hosted platform you are on a team; teammates: "+strings.Join(others, ", ")+" (all in the same channel); by configuration the default primary role is \""+leadName+"\""+youEN+". To call one, write \"@name\" and the message in the channel; when you are @-ed with work, your final answer goes back to whoever asked with an @ automatically. Who leads now, and how the primary role and the members each work, follow the team duty layer the bridge attaches each turn.")
 }
 
 // oneLine joins a name's lines with spaces.

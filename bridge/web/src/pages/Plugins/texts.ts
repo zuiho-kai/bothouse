@@ -46,6 +46,7 @@ export interface PluginTexts {
   stateOff: string
   stateMissing: string
   stateShipped: string
+  stateUninstalled: string
   statePlain: string
   errFilesMissing: string
   errInvalidJSON: string
@@ -86,6 +87,26 @@ export interface PluginTexts {
   copy: string
   copied: string
   switchFailed: string
+  /** 插件卸载 (#1377): the row button, its confirm dialog and the three refusals */
+  uninstall: string
+  uninstallTitle: (name: string) => string
+  uninstallBody: string
+  uninstallRestart: string
+  uninstallRowNote: string
+  uninstallConfirmLabel: string
+  uninstallConfirm: string
+  uninstalling: string
+  uninstalled: string
+  uninstallFailed: (why: string) => string
+  uninstallShipped: string
+  uninstallInUse: (who: string) => string
+  uninstallBase: string
+  confirmEmpty: string
+  confirmMismatch: string
+  uninstallKindNotInstalled: string
+  uninstallKindNotRemovable: string
+  uninstallKindTimeout: string
+  uninstallKindUnknown: string
 }
 
 const zh: PluginTexts = {
@@ -131,6 +152,7 @@ const zh: PluginTexts = {
   stateOff: '已停用',
   stateMissing: '文件缺失',
   stateShipped: 'DSH 自带',
+  stateUninstalled: '已卸载',
   statePlain: '不是插件包',
   errFilesMissing: '文件不在了，重装一次这个插件。',
   errInvalidJSON: '这个包的 package.json 坏了，重装一次。',
@@ -169,6 +191,25 @@ const zh: PluginTexts = {
   copy: '复制命令',
   copied: '已复制',
   switchFailed: '改启用状态失败',
+  uninstall: '卸载',
+  uninstallTitle: (name) => `卸载「${name}」？`,
+  uninstallBody: '这个包和它的依赖会从 profile 里移除，它带来的插件行随之消失。',
+  uninstallRestart: '卸完要重启 DSH 才生效。',
+  uninstallRowNote: '已卸载，重启 DSH 后生效。',
+  uninstallConfirmLabel: '输入包名确认',
+  uninstallConfirm: '卸载',
+  uninstalling: '正在卸载…',
+  uninstalled: '卸载完成，重启 DSH 后生效。',
+  uninstallFailed: (why) => `没卸成：${why}`,
+  uninstallShipped: '这一层随 DSH 一起安装，不能在这里卸载。',
+  uninstallInUse: (who) => `${who} 还在用它，先卸载 ${who}。`,
+  uninstallBase: 'dsh-base 是 DSH 的面板本体，卸掉就没有界面可用了。',
+  confirmEmpty: '先输入包名。',
+  confirmMismatch: '包名不对，再输一次。',
+  uninstallKindNotInstalled: '这份 profile 里没有这个包。',
+  uninstallKindNotRemovable: '这一层随 DSH 一起安装，不能在这里卸载。',
+  uninstallKindTimeout: '卸载超时了。先在终端跑一次 dsh plugin remove，再回来刷新看看。',
+  uninstallKindUnknown: '没卸成，DSH 没有说明原因。到 DSH 的插件页或终端里再试一次。',
 }
 
 const en: PluginTexts = {
@@ -214,6 +255,7 @@ const en: PluginTexts = {
   stateOff: 'Off',
   stateMissing: 'Files missing',
   stateShipped: 'Ships with DSH',
+  stateUninstalled: 'Removed',
   statePlain: 'Not a plugin',
   errFilesMissing: 'Its files are gone. Reinstall it.',
   errInvalidJSON: 'Its package.json is damaged. Reinstall it.',
@@ -252,6 +294,25 @@ const en: PluginTexts = {
   copy: 'Copy command',
   copied: 'Copied',
   switchFailed: 'Could not change the switch',
+  uninstall: 'Uninstall',
+  uninstallTitle: (name) => `Uninstall “${name}”?`,
+  uninstallBody: 'The package and its dependencies are removed from the profile; the rows it adds go with it.',
+  uninstallRestart: 'DSH picks this up after a restart.',
+  uninstallRowNote: 'Removed. Restart DSH for it to take effect.',
+  uninstallConfirmLabel: 'Type the package name to confirm',
+  uninstallConfirm: 'Uninstall',
+  uninstalling: 'Uninstalling…',
+  uninstalled: 'Removed. Restart DSH for it to take effect.',
+  uninstallFailed: (why) => `Uninstall failed: ${why}`,
+  uninstallShipped: 'This layer ships with DSH and cannot be removed here.',
+  uninstallInUse: (who) => `${who} still uses it; uninstall ${who} first.`,
+  uninstallBase: 'dsh-base is the DSH panel itself; removing it leaves no UI.',
+  confirmEmpty: 'Type the package name first.',
+  confirmMismatch: 'That is not the package name. Type it again.',
+  uninstallKindNotInstalled: 'This profile does not have that package.',
+  uninstallKindNotRemovable: 'This layer ships with DSH and cannot be removed here.',
+  uninstallKindTimeout: 'The uninstall timed out. Run dsh plugin remove in a terminal once, then refresh here.',
+  uninstallKindUnknown: 'The uninstall failed and DSH did not say why. Try again from DSH’s Plugins page or a terminal.',
 }
 
 const ja: PluginTexts = {
@@ -297,6 +358,7 @@ const ja: PluginTexts = {
   stateOff: '無効',
   stateMissing: 'ファイル欠落',
   stateShipped: 'DSH 同梱',
+  stateUninstalled: '削除済み',
   statePlain: 'プラグインではない',
   errFilesMissing: 'ファイルがありません。入れ直してください。',
   errInvalidJSON: 'package.json が壊れています。入れ直してください。',
@@ -335,6 +397,25 @@ const ja: PluginTexts = {
   copy: 'コマンドをコピー',
   copied: 'コピーしました',
   switchFailed: '有効・無効の切り替えに失敗しました',
+  uninstall: 'アンインストール',
+  uninstallTitle: (name) => `「${name}」をアンインストールしますか？`,
+  uninstallBody: 'このパッケージと依存関係が profile から外れ、この層が足していた行も消えます。',
+  uninstallRestart: 'DSH の再起動後に反映されます。',
+  uninstallRowNote: '削除しました。DSH を再起動すると反映されます。',
+  uninstallConfirmLabel: '確認のためパッケージ名を入力',
+  uninstallConfirm: 'アンインストール',
+  uninstalling: 'アンインストール中…',
+  uninstalled: '削除しました。DSH を再起動すると反映されます。',
+  uninstallFailed: (why) => `アンインストールできませんでした：${why}`,
+  uninstallShipped: 'この層は DSH に同梱されているため、ここでは削除できません。',
+  uninstallInUse: (who) => `${who} がまだ使っています。先に ${who} を削除してください。`,
+  uninstallBase: 'dsh-base は DSH のパネル本体なので削除できません。',
+  confirmEmpty: '先にパッケージ名を入力してください。',
+  confirmMismatch: 'パッケージ名が違います。もう一度入力してください。',
+  uninstallKindNotInstalled: 'この profile にそのパッケージはありません。',
+  uninstallKindNotRemovable: 'この層は DSH に同梱されているため、ここでは削除できません。',
+  uninstallKindTimeout: 'アンインストールがタイムアウトしました。端末で一度 dsh plugin remove を実行し、ここで更新してください。',
+  uninstallKindUnknown: '削除できませんでした。DSH が理由を示していません。DSH のプラグイン画面か端末でもう一度試してください。',
 }
 
 const TEXTS: Record<string, PluginTexts> = { zh, en, ja };
@@ -361,4 +442,15 @@ export function rowErrorText(T: PluginTexts, code?: string): string {
   if (code === 'files-missing') return T.errFilesMissing;
   if (code === 'invalid-json') return T.errInvalidJSON;
   return code || '';
+}
+/** The readable line for a failed uninstall, keyed by the kind the API sent (core/management_plugin_uninstall.go). */
+export function uninstallFailureText(T: PluginTexts, kind?: string, body?: { error?: string; in_use_by?: string[] }): string {
+  switch (kind) {
+    case 'not-installed': return T.uninstallKindNotInstalled;
+    case 'not-removable': return T.uninstallKindNotRemovable;
+    case 'confirm-mismatch': return T.confirmMismatch;
+    case 'timeout': return T.uninstallKindTimeout;
+    case 'in-use': return T.uninstallInUse((body?.in_use_by || []).join('、'));
+    default: return T.uninstallKindUnknown;
+  }
 }

@@ -10,6 +10,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -21,9 +23,13 @@ import (
 // right-click menu calls it instead of its own model, balance provider and todo file
 // (plugins/desktop-pet/src/host/bothouse.ts):
 //
-//	POST /chat    {"text"}  → the bound role runs one turn on it; answers {"ok","text"} with its reply
-//	GET  /whisper           → a line a bound role said lately
-//	GET  /balance           → {"rows": [...]} bothouse usage today / this month (/api/v1/usage/roles)
+//	POST /chat?pet=<id>    {"text"} → that pet's role runs one turn on it; answers {"ok","text"} with its reply
+//	GET  /whisper?pet=<id>          → a line that pet's role said lately
+//	GET  /balance                   → {"rows": [...]} bothouse usage today / this month, then per bound role
+//	                                  (/api/v1/usage/roles)
+//
+// One pet per bound role (#549): ?pet= picks the role (relay.roleOf); without it, or for a pet no role
+// owns, the first bound role answers as before.
 //	GET  /todos             → {"items": [{"id","text"}]} open team task board items (/api/v1/team/board)
 
 // petChatTimeout bounds one 对话 turn; a role that takes longer still answers in its chat.
@@ -32,13 +38,14 @@ const petChatTimeout = 5 * time.Minute
 // petTalk keeps what the API needs from the role event stream.
 type petTalk struct {
 	mu      sync.Mutex
-	session map[string]string // role_key → session it last spoke or worked in
-	recent  []string          // final lines of bound roles, newest last
+	session map[string]string   // role_key → session it last spoke or worked in
+	recent  []string            // final lines of bound roles, newest last
+	byRole  map[string][]string // role_key → its final lines, newest last
 	waiting map[string]chan string
 }
 
 func newPetTalk() *petTalk {
-	return &petTalk{session: map[string]string{}, waiting: map[string]chan string{}}
+	return &petTalk{session: map[string]string{}, waiting: map[string]chan string{}, byRole: map[string][]string{}}
 }
 
 func (t *petTalk) seen(role, session string) {
@@ -62,6 +69,11 @@ func (t *petTalk) spoke(role, session, text string) bool {
 	if len(t.recent) > 30 {
 		t.recent = t.recent[len(t.recent)-30:]
 	}
+	mine := append(t.byRole[role], text)
+	if len(mine) > 30 { // same window as recent
+		mine = mine[len(mine)-30:]
+	}
+	t.byRole[role] = mine
 	if ch, ok := t.waiting[role+"\x00"+session]; ok {
 		delete(t.waiting, role+"\x00"+session)
 		ch <- text
@@ -79,6 +91,7 @@ type petAPI struct {
 	http    *http.Client
 	wakeFn  func(project, session, text string) error // tests replace the socket call
 	chatMax time.Duration
+	packs   string // <data dir>/pets: where the plugin page downloads avatar packs (#609)
 }
 
 func newPetAPI(relay *petRelay, bridge, token, socket string) *petAPI {
@@ -133,10 +146,15 @@ func petAPIFail(w http.ResponseWriter, status int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": msg})
 }
 
-// chatTarget picks the bound role to talk to: the first (by key) whose session is known. DSH roles
-// (dsh:…) are skipped: a turn can only be started for a bothouse project.
-func (a *petAPI) chatTarget() (role, session, name string, err error) {
+// chatTarget picks the bound role to talk to: the role of the pet asked from (?pet=) when it has a known
+// session, else the first (by key) whose session is known. DSH roles (dsh:…) are skipped: a turn can only
+// be started for a bothouse project.
+func (a *petAPI) chatTarget(pet string) (role, session, name string, err error) {
 	r := a.relay
+	own := ""
+	if pet != "" {
+		own = r.roleOf(pet)
+	}
 	r.mu.Lock()
 	keys := make([]string, 0, len(r.bound))
 	for k := range r.bound {
@@ -154,12 +172,25 @@ func (a *petAPI) chatTarget() (role, session, name string, err error) {
 	t := r.talk
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if own != "" {
+		if s := t.session[own]; s != "" && !strings.HasPrefix(own, "dsh:") {
+			return own, s, names[own], nil
+		}
+		return "", "", "", fmt.Errorf("%s 这次启动后还没在哪个会话里说过话，先在聊天里跟它说一句", petNameOr(names[own], own))
+	}
 	for _, k := range keys {
 		if s := t.session[k]; s != "" && !strings.HasPrefix(k, "dsh:") {
 			return k, s, names[k], nil
 		}
 	}
 	return "", "", "", fmt.Errorf("绑定的角色这次启动后还没在哪个会话里说过话，先在聊天里跟它说一句")
+}
+
+func petNameOr(name, key string) string {
+	if name != "" {
+		return name
+	}
+	return key
 }
 
 func (a *petAPI) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +205,7 @@ func (a *petAPI) handleChat(w http.ResponseWriter, r *http.Request) {
 		petAPIFail(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	role, session, name, err := a.chatTarget()
+	role, session, name, err := a.chatTarget(r.URL.Query().Get("pet"))
 	if err != nil {
 		petAPIFail(w, http.StatusConflict, err.Error())
 		return
@@ -231,8 +262,15 @@ func (a *petAPI) wake(project, session, text string) error {
 
 func (a *petAPI) handleWhisper(w http.ResponseWriter, r *http.Request) {
 	t := a.relay.talk
+	role := ""
+	if pet := r.URL.Query().Get("pet"); pet != "" {
+		role = a.relay.roleOf(pet)
+	}
 	t.mu.Lock()
 	lines := append([]string(nil), t.recent...)
+	if role != "" {
+		lines = append([]string(nil), t.byRole[role]...)
+	}
 	t.mu.Unlock()
 	if len(lines) == 0 {
 		petAPIFail(w, http.StatusConflict, "绑定的角色这次启动后还没说过话")
@@ -316,7 +354,42 @@ func (a *petAPI) handleBalance(w http.ResponseWriter, r *http.Request) {
 		petAPIFail(w, http.StatusBadGateway, "读 bothouse 用量失败："+err.Error())
 		return
 	}
-	petAPIJSON(w, map[string]any{"rows": []string{petUsageLine("今天", today.Items), petUsageLine("本月", mon.Items)}})
+	rows := []string{petUsageLine("今天", today.Items), petUsageLine("本月", mon.Items)}
+	// Each pet is one role now: add every bound role's own line, so a pet's 查看余额 shows its role too.
+	rows = append(rows, a.roleUsageLines(today.Items)...)
+	petAPIJSON(w, map[string]any{"rows": rows})
+}
+
+// roleUsageLines gives each bound role's usage today. Usage rows name the project (bridge:<project> without
+// the prefix); DSH roles have no bothouse usage.
+func (a *petAPI) roleUsageLines(rows []petUsageRow) []string {
+	r := a.relay
+	r.mu.Lock()
+	keys := make([]string, 0, len(r.bound))
+	for k := range r.bound {
+		keys = append(keys, k)
+	}
+	names := map[string]string{}
+	for _, k := range keys {
+		names[k] = petNameOr(r.names[k], k)
+	}
+	r.mu.Unlock()
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		project, ok := strings.CutPrefix(k, "bridge:")
+		if !ok {
+			continue
+		}
+		var mine []petUsageRow
+		for _, row := range rows {
+			if row.Role == project || row.Role == k {
+				mine = append(mine, row)
+			}
+		}
+		out = append(out, petUsageLine(names[k]+" 今天", mine))
+	}
+	return out
 }
 
 func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
@@ -351,19 +424,48 @@ func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
 	petAPIJSON(w, map[string]any{"items": items})
 }
 
-// handleSkin tells the pet whose look to wear: the first bound role (by key, same order as chatTarget).
-// The pet maps it to its bundled assets/roles/<role>/; a role without assets keeps the upstream look.
+// handleSkin tells a pet whose look to wear. Without ?pet= (or for "main") it is the first bound role (by
+// key, same order as chatTarget and petPlan); with ?pet=<pet id> it is the role that pet belongs to (#549,
+// one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases).
+// #609: when that role picked an avatar pack on the plugin page and the pack is downloaded, packDir is its
+// folder and the pet wears it instead (plugins/desktop-pet/src/host/skin-pack.ts).
 func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
-	a.relay.mu.Lock()
-	keys := make([]string, 0, len(a.relay.bound))
-	for k := range a.relay.bound {
-		keys = append(keys, k)
-	}
-	a.relay.mu.Unlock()
-	sort.Strings(keys)
 	role := ""
-	if len(keys) > 0 {
-		role = strings.TrimPrefix(keys[0], "bridge:")
+	if pet := r.URL.Query().Get("pet"); pet != "" && pet != "main" {
+		role = a.relay.roleOf(pet)
+	} else {
+		a.relay.mu.Lock()
+		keys := make([]string, 0, len(a.relay.bound))
+		for k := range a.relay.bound {
+			keys = append(keys, k)
+		}
+		a.relay.mu.Unlock()
+		sort.Strings(keys)
+		if len(keys) > 0 {
+			role = keys[0]
+		}
 	}
-	petAPIJSON(w, map[string]any{"role": role})
+	a.relay.mu.Lock()
+	pack := a.relay.bound[role]
+	a.relay.mu.Unlock()
+	out := map[string]any{"role": strings.TrimPrefix(role, "bridge:")}
+	if dir := petPackDir(a.packs, pack); dir != "" {
+		out["pack"] = pack
+		out["packDir"] = dir
+	}
+	petAPIJSON(w, out)
+}
+
+// petPackDir is the downloaded avatar pack folder (<data dir>/pets/<pack>) when it holds a pack, else "".
+func petPackDir(root, pack string) string {
+	if root == "" || pack == "" || pack != filepath.Base(pack) || strings.HasPrefix(pack, ".") {
+		return ""
+	}
+	dir := filepath.Join(root, pack)
+	for _, f := range []string{"actions.json", "manifest.json"} {
+		if st, err := os.Stat(filepath.Join(dir, f)); err == nil && !st.IsDir() {
+			return dir
+		}
+	}
+	return ""
 }

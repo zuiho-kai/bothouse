@@ -285,7 +285,9 @@ func (m *ManagementServer) dshSummary(ctx context.Context) DSHSummary {
 					CreatedAt  float64 `json:"created_at"`
 				} `json:"messages"`
 			}
-			if c.get(ctx, "/api/rooms/"+ch.ID+"/messages?limit=1", &page) != nil {
+			// #610: the owner route. DSH answers /api/rooms/… (the bot-token history route) with 404
+			// for an owner session, which turned every channel into a read error on the overview.
+			if c.get(ctx, "/collab/api/rooms/"+ch.ID+"/messages?limit=1", &page) != nil {
 				ch.Error = "DSH channel messages could not be read"
 				return
 			}

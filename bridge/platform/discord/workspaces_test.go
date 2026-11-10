@@ -16,7 +16,8 @@ import (
 
 // workspaceREST fakes the three Discord endpoints the workspace channels use; no network.
 type workspaceREST struct {
-	created []map[string]any
+	created    []map[string]any
+	categories []map[string]any // 「工作区」 category creates
 }
 
 func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -26,6 +27,16 @@ func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		body = `{"id":"100","name":"主频道","type":0,"guild_id":"g1","parent_id":"catA"}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/403":
 		status, body = http.StatusForbidden, `{"code":50013,"message":"Missing Permissions"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/200":
+		body = `{"id":"200","name":"GPU 测试","type":11,"guild_id":"g1","parent_id":"100"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/201":
+		body = `{"id":"201","name":"锁了","type":11,"guild_id":"g1","parent_id":"100","thread_metadata":{"locked":true,"archived":true}}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/202":
+		status, body = http.StatusNotFound, `{"code":10003,"message":"Unknown Channel"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/300":
+		body = `{"id":"300","name":"讨论事项","type":15,"guild_id":"g1","parent_id":"catA"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/301":
+		body = `{"id":"301","name":"一个帖子","type":11,"guild_id":"g1","parent_id":"300"}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/900":
 		body = `{"id":"900","type":1}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/guilds/g1/channels":
@@ -36,8 +47,14 @@ func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
 	case req.Method == http.MethodPost && req.URL.Path == "/api/v9/guilds/g1/channels":
 		var m map[string]any
 		_ = json.NewDecoder(req.Body).Decode(&m)
+		if m["type"] == float64(discordgo.ChannelTypeGuildCategory) {
+			r.categories = append(r.categories, m)
+			body = `{"id":"catW","name":"` + m["name"].(string) + `","type":4}`
+			break
+		}
 		r.created = append(r.created, m)
-		body = `{"id":"103","name":"` + m["name"].(string) + `","type":0,"parent_id":"catA"}`
+		parent, _ := m["parent_id"].(string)
+		body = `{"id":"103","name":"` + m["name"].(string) + `","type":0,"parent_id":"` + parent + `"}`
 	default:
 		return nil, errors.New("unexpected request: " + req.Method + " " + req.URL.Path)
 	}
@@ -75,8 +92,16 @@ func TestTeamWorkspaceChannels(t *testing.T) {
 	if err != nil || c.ID != "103" || c.Name != "工作区2" {
 		t.Fatalf("create = %+v %v", c, err)
 	}
-	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catA" || rest.created[0]["type"] != float64(0) {
-		t.Fatalf("create body = %v, want same category, text type", rest.created)
+	// A new workspace goes into the 「工作区」 category (created here, the server has none), not
+	// beside the chat channel (user 2026-11-10: 「直接就工作区类别」).
+	if len(rest.categories) != 1 || rest.categories[0]["name"] != "工作区" {
+		t.Fatalf("category creates = %v, want 「工作区」", rest.categories)
+	}
+	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catW" || rest.created[0]["type"] != float64(0) {
+		t.Fatalf("create body = %v, want the 「工作区」 category, text type", rest.created)
+	}
+	if !c.Shelved {
+		t.Fatalf("new workspace = %+v, want Shelved (in the workspace category)", c)
 	}
 }
 
@@ -102,5 +127,88 @@ func TestTeamWorkspacePermanentErrors(t *testing.T) {
 	}
 	if workspaceErr(nil) != nil {
 		t.Fatal("nil error must stay nil")
+	}
+}
+
+// A thread (子区) works as a chat channel: the pool is beside its text channel, the thread stays
+// the chat, and once the thread is deleted or locked its reports go to that text channel.
+// 来源：2026-11-10 agentm #32「当前Discord子区不是guild text channel」。
+func TestTeamWorkspaceChannelsFromThread(t *testing.T) {
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := &workspaceREST{}
+	session.Client = &http.Client{Transport: rest}
+	p := &Platform{workspaceShelves: workspaceShelfStoreFor(t.TempDir())}
+	p.session = session
+	ctx := context.Background()
+
+	self, all, err := p.TeamGuildChannels(ctx, "200")
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if self.ID != "200" || self.ParentID != "catA" || len(all) != 2 || all[1].Name != "工作区1" {
+		t.Fatalf("self=%+v all=%+v, want the thread with its text channel's pool", self, all)
+	}
+	c, err := p.CreateTeamWorkspaceChannel(ctx, "200", "工作区2")
+	if err != nil || c.ID != "103" {
+		t.Fatalf("create beside thread = %+v %v", c, err)
+	}
+	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catW" {
+		t.Fatalf("create body = %v, want the 「工作区」 category, not the text channel", rest.created)
+	}
+	rc, err := p.ReconstructReplyCtx("discord:200")
+	if err != nil || rc.(replyContext).channelID != "200" {
+		t.Fatalf("live thread reply ctx = %+v %v, want the thread", rc, err)
+	}
+	for _, gone := range []string{"201", "202"} {
+		if err := p.workspaceShelfStore().rememberThread("g1", gone, "100"); err != nil {
+			t.Fatal(err)
+		}
+		rc, err := p.ReconstructReplyCtx("discord:" + gone)
+		if err != nil || rc.(replyContext).channelID != "100" || rc.(replyContext).threadID != "" {
+			t.Fatalf("thread %s gone: reply ctx = %+v %v, want its text channel 100", gone, rc, err)
+		}
+	}
+	if h := p.workspaceShelfStore().threadHost("200"); h != "100" {
+		t.Fatalf("thread host not recorded: %q", h)
+	}
+}
+
+// A forum post is a thread whose host is a forum channel; a DM uses the bot's team server pool.
+// 来源：2026-11-10 agentm 论坛帖子和私聊派活都报「not a guild text channel」，用户「私聊被拒绝了，不应该有这个问题」。
+func TestTeamWorkspaceChannelsFromForumPostAndDM(t *testing.T) {
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := &workspaceREST{}
+	session.Client = &http.Client{Transport: rest}
+	p := &Platform{workspaceShelves: workspaceShelfStoreFor(t.TempDir())}
+	p.session = session
+	ctx := context.Background()
+
+	if _, _, err := p.TeamGuildChannels(ctx, "900"); !errors.Is(err, core.ErrNotTeamChannel) {
+		t.Fatalf("DM without a known team server: %v, want ErrNotTeamChannel", err)
+	}
+	self, all, err := p.TeamGuildChannels(ctx, "301")
+	if err != nil || self.ID != "301" || self.ParentID != "catA" || len(all) != 2 {
+		t.Fatalf("forum post: self=%+v all=%+v err=%v, want the post with the forum category's pool", self, all, err)
+	}
+	if c, err := p.CreateTeamWorkspaceChannel(ctx, "301", "工作区2"); err != nil || c.ID != "103" {
+		t.Fatalf("create beside forum post = %+v %v", c, err)
+	}
+
+	p.guildID = "g1"
+	self, all, err = p.TeamGuildChannels(ctx, "900")
+	if err != nil || self.ID != "900" || self.ParentID != "catA" || len(all) != 2 {
+		t.Fatalf("DM: self=%+v all=%+v err=%v, want the DM with g1's pool", self, all, err)
+	}
+	if c, err := p.CreateTeamWorkspaceChannel(ctx, "900", "工作区3"); err != nil || c.ID != "103" {
+		t.Fatalf("create for DM = %+v %v", c, err)
+	}
+	if got := rest.created[len(rest.created)-1]["parent_id"]; got != "catW" {
+		t.Fatalf("DM workspace parent = %v, want catW (the 「工作区」 category)", got)
 	}
 }

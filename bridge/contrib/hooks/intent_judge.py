@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """该自己定还是该问：小模型对照「产品意图卡」和用户最近原话，判断一段草稿（要发给用户的问题，或要交给工作区的交接）。
-三选一：self = 按用户定过的话能推出答案，不该问（附答案和依据）；conflict = 与用户定过的冲突（附哪条和合定案的做法）；
-pass = 真是方向/花钱，或与定案无关，放行。
+四选一：self = 按用户定过的话能推出答案，不该问（附答案和依据）；reversible = 要用户批准或动手的事能撤回，该自己做
+（用户 2026-11-10：沙盒、测试、能撤回的直接干，真钱、发到外面、删东西、换方向才问）；conflict = 与用户定过的冲突（附哪条和合定案的做法）；
+pass = 真是方向/花钱/对外/删除，或与定案无关，放行。
 判断前先用草稿里的问题搜 ~/wiki（bin/search.py），命中的定案行一起喂给模型；回复里问「要不要开工/说一声做」这类授权题，
 用户最近的话或 wiki 里有「先给方案/先别做/没让你做/等我说做」就直接放行，不调模型（2026-11-02 事故）。超时、出错、没装 claude 一律 pass，不卡回复、不卡交接。
 来源：用户 2026-10-31「这个太笨了……我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」——
@@ -11,7 +12,7 @@ pass = 真是方向/花钱，或与定案无关，放行。
 意图卡：本文件同目录 intent-cards.txt 一行一个路径（# 开头是注释，~ 可用）；没有这个文件就只看用户原话。
 模型：Haiku（claude -p，无工具、不读设置、不挂 hook）；每次延迟和花费记到 ~/.bothouse/logs/intent-judge.tsv。
 命令行：intent_judge.py --file <交接文件>  → 打一行 JSON 结果（pass 时 exit 0，否则 exit 3）。"""
-import json, os, re, subprocess, sys, tempfile, time
+import json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -40,13 +41,14 @@ SYSTEM = """你是一个判断器。助手（产品经理）准备把一段话�
    - 草稿把问题交给用户，而按卡上的原则、用户原话或明显常识能推出答案 → self（哪怕选项里有一个和定案相反，只要合定案的那个就在选项里，也算 self）。
    - 草稿自己推荐的做法、交接里定下的做法违背卡上某条或用户原话（哪怕用户没直接说过这个问题），或者合定案的做法根本不在草稿里 → conflict。
    - 卡上没写的事不算冲突：卡只列用户定过的，没列的不等于被否定。
-   - 卡和原话都推不出来、用户没选过的路线（方向），或要花用户的钱、要用户本人动手/看成品才能定 → pass。
+   - 先问一句「这事能不能撤回」（用户 2026-11-10 定：沙盒、测试、能撤回的直接干；真钱、发到外面、删东西、换方向才问他）：要用户批准或动手的事能撤回、出错也能改回（测试目录、隔离环境、本机文件、自己的分支、能重装的设置、能再改的草稿）→ reversible，answer 写助手自己怎么做、怎么撤回。
+   - 卡和原话都推不出来、用户没选过的路线（方向），或要花真钱、发到外面（发帖、发版、给外人发消息）、删掉恢复不了的东西，或只有用户本人能做（扫码、验证码、付款、实物动手）、要用户看成品才能定 → pass。
    - 草稿里没有要用户拍板的事 → pass。
    - 草稿问的是「要不要开工/说一声做我就做/要我做吗」这类授权：用户定过「先给方案，等我说做」，这类只有用户能答 → pass，绝不判 self（不能替用户授权）。
 3. 拿不准就 pass。不要因为问题看起来重要就 pass；看能不能推出来。
 
 只输出一个 JSON 对象，不要别的字：
-{"verdict":"self|conflict|pass","question":"被判断的那个问题或做法，一句话","answer":"你推出的答案或合定案的做法（pass 时空）","basis":"依据：卡上哪条、wiki 哪条（文件:行）或用户哪天哪句原话（pass 时写为什么放行）"}"""
+{"verdict":"self|reversible|conflict|pass","question":"被判断的那个问题或做法，一句话","answer":"你推出的答案或合定案的做法（pass 时空）","basis":"依据：卡上哪条、wiki 哪条（文件:行）或用户哪天哪句原话（pass 时写为什么放行）"}"""
 
 
 def load_cards():
@@ -101,6 +103,31 @@ def go_ask_pass(draft, user_msgs):
     return None
 
 
+def _cc_bin():
+    for c in (os.environ.get("CC_BIN"), shutil.which("bothouse"), shutil.which("cc-connect"),
+              "/Applications/Bothouse.app/Contents/MacOS/bothouse"):
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return ""
+
+
+def self_route(text):
+    """「要你做的」或请求口气的行让用户放文件、跑命令、改设置 → 退回理由（让它换路），否则 None。
+    规则只有一份，在桥里（team-exit-rules.json self_route），经 `bothouse report check --self-route` 调；
+    找不到命令、命令太旧（不认这个开关）或出错一律放行。用户 2026-11-10「你自己搞，你忘了我跟你说的事情了么」。"""
+    b = _cc_bin()
+    if not b or not text.strip():
+        return None
+    try:
+        p = subprocess.run([b, "report", "check", "--self-route", "-"], input=text, capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    if p.returncode != 1:
+        return None
+    why = [l[2:].strip() for l in p.stdout.splitlines() if l.startswith("- ")]
+    return "；".join(why) or None
+
+
 def _log(kind, verdict, ms, cost, q):
     try:
         LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +162,7 @@ def judge(draft, user_msgs=(), kind="reply"):
         res["cost"] = round(d.get("total_cost_usd") or 0, 5)
         txt = (d.get("result") or "").strip()
         j = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
-        if j.get("verdict") in ("self", "conflict", "pass"):
+        if j.get("verdict") in ("self", "reversible", "conflict", "pass"):
             res.update({k: str(j.get(k, "")) for k in ("verdict", "question", "answer", "basis")})
     except Exception as e:  # 超时、没装 claude、输出不是 JSON：放行
         res["basis"] = f"判断器出错，放行：{type(e).__name__}"

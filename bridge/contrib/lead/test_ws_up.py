@@ -14,7 +14,9 @@ class WsUpTest(unittest.TestCase):
         bindir.mkdir()
         self.calls = self.tmp / "calls.jsonl"
         fake = bindir / "cc-connect"
+        # report check（ws-up --ask 的换路检查）不记进 calls：只记发出去的命令
         fake.write_text(f"#!{sys.executable}\nimport json,sys\n"
+                        "if sys.argv[1:3] == ['report', 'check']: sys.exit(0)\n"
                         f"open({str(self.calls)!r},'a').write(json.dumps(sys.argv[1:])+'\\n')\nprint('timer-1')\n")
         fake.chmod(0o755)
         self.env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(self.tmp), "GATE_SETUP_DIR": str(self.setup),
@@ -30,7 +32,7 @@ class WsUpTest(unittest.TestCase):
         """ws-handoff 原样跑；桥（timer/workspace/send）是假脚本，不读平台 token、不走网络。"""
         drv = ("import sys; from importlib.machinery import SourceFileLoader as L; "
                "m = L('ws_handoff', sys.argv[1]).load_module(); m.main(sys.argv[2:])")
-        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args, "--short", "测试"], capture_output=True,
+        return subprocess.run([sys.executable, "-I", "-c", drv, str(HERE / "ws-handoff"), *args, "--short", ("测" + "".join(args[1:2]))[:10]], capture_output=True,
                               text=True, env={**self.env, "CC_SESSION_KEY": key})
 
     def timers(self):
@@ -89,6 +91,19 @@ class WsUpTest(unittest.TestCase):
         argv = self.timers()[0]
         self.assertIn("【工作区要问用户】选哪个？", argv[argv.index("--prompt") + 1])
         self.assertEqual(argv[argv.index("--desc") + 1], "工作区提问")
+
+    def test_ask_handing_user_a_command_goes_back(self):
+        """11-10 #1359：提问让用户在终端跑 sudo，桥的同一份规则（report check --self-route）判退回，不交出去。"""
+        fake = Path(self.env["CC_BIN"])
+        fake.write_text(f"#!{sys.executable}\nimport json,sys\n"
+                        "if sys.argv[1:4] == ['report', 'check', '--self-route']:\n"
+                        "    sys.stdin.read(); print('不通过，桥会退回：'); print('- 「要你做的」让用户自己动手（终端），先换路'); sys.exit(1)\n"
+                        f"open({str(self.calls)!r},'a').write(json.dumps(sys.argv[1:])+'\\n')\nprint('timer-1')\n")
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        r = self.run_tool("ws-up", "要你做的：在本机终端跑一次 sudo zsh x.sh", "--ask", key="test:900")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("换路", r.stderr)
+        self.assertEqual(self.timers(), [])
 
     def test_multiple_chats_needs_notes(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"},
@@ -234,7 +249,7 @@ class WsPoolTest(unittest.TestCase):
         return str(p)
 
     def handoff(self, notes, task, chat="test:100", force=False):
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", "测试",
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", ("测" + task)[:10],
                             *(["--force"] if force else [])], capture_output=True, text=True,
                            env={**self.env, "CC_SESSION_KEY": chat})
         self.assertEqual(r.returncode, 0, r.stderr)

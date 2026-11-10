@@ -40,6 +40,13 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 			env = append(env, "GATE_SETUP_DIR="+e.dataDir, "BOTHOUSE_DATA_DIR="+e.dataDir,
 				"LEAD_GATE_URL=http://"+localGateAddr()+"/lead")
 			path = append(path, lead)
+			// After the user's copy: the bridge's own copy of the same tools, written by this
+			// binary (leadRuntimeDir), so a command added after the install (ws-pass) is still
+			// found while a local edit of an installed one keeps winning.
+			// 来源：2026-11-10 agentm 主角色验收 #29 时 ws-pass 不在 collaboration/lead，验收没法放行。
+			if rt := filepath.Join(e.dataDir, "collaboration", "runtime", "lead"); dirExists(rt) {
+				path = append(path, rt)
+			}
 		}
 	}
 	if exePath, err := os.Executable(); err == nil {

@@ -213,6 +213,9 @@ func (s *memStore) ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite
 		if w.DisplayName != "" {
 			p.DisplayName = w.DisplayName
 		}
+		if w.MemberWorkspaces != nil {
+			p.MemberWorkspaces = w.MemberWorkspaces
+		}
 		if w.AdminFrom != "" {
 			p.AdminFrom = w.AdminFrom
 		}
@@ -1680,11 +1683,13 @@ func TestApplyWizardAddressedMode(t *testing.T) {
 		if p.Options["group_reply_all"] != false {
 			t.Errorf("%s still answers unaddressed messages: %v", name, p.Options)
 		}
-		if p.GateURL != nil && str(p.GateURL) != "" {
-			t.Errorf("%s requires a gate: %q", name, str(p.GateURL))
+		// #1318: addressed keeps the gate for every turn's context (wiki, lessons, 懂你 page, task board);
+		// with no jev only the @-mentioned role answers, and an @ still answers while the gate is down (fallbackFor)
+		if p.GateURL == nil || str(p.GateURL) == "" {
+			t.Errorf("%s has no gate: turn context (懂你 page, lessons) would never be pushed", name)
 		}
 	}
-	if res.GateStatus != GateStatusOff {
+	if res.GateStatus == GateStatusOff {
 		t.Errorf("gate status: %s", res.GateStatus)
 	}
 	for _, w := range res.Warnings {

@@ -775,10 +775,19 @@ def _line_id(x):
     return "L" + hashlib.sha1(_bare(x).encode()).hexdigest()[:12]
 
 
+# 懂你画像不折（#1318）：它要管这一轮怎么说话，折成标题角色不会去取（11-10 隔离实测：新手阿博问「什么是数据库索引」，
+# 只收到「【懂你 阿博】— 全文 9 行」，回了一句话，和只要结论的阿丽一样）。一页约 20 行，同一版一个会话只推一次（only_new）。
+PROFILE_HEAD = "【懂你 "
+# 任务板也不折（#1372）：它是本频道在做什么、做到哪的现状，折成「本频道的事和等用户的事（全文 4 行）」角色不会去取。
+# 11-10 agentm：用户问「性能分析完成了吗」「GPU 任务挂上去了吗」，板上 #41 写着「已启动 GPU3/6」，主角色看不到，
+# 在频道里跑 4–8 步登服务器重查，答「还不能确认」。板子只列本频道和等用户的条目，别处只计数，本来就短。
+NO_FOLD_HEADS = (PROFILE_HEAD, "【任务板 ")
+
+
 def as_doc(w):
     """整块正文的条 → 目录条（带 doc/name/cid，only_new 用来逐行比对）；有 rows 的、短的原样返回。"""
     desc = w.get("desc", "")
-    if "rows" in w or len(desc) <= INLINE_CHARS:
+    if "rows" in w or len(desc) <= INLINE_CHARS or str(w.get("path", "")).startswith(NO_FOLD_HEADS):
         return w
     cid = hashlib.sha1((w.get("path", "") + "\0" + desc).encode()).hexdigest()[:8]
     stash(cid, lambda: f"{w.get('path', '')}\n{desc}\n")

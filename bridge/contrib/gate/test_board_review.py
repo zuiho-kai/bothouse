@@ -33,6 +33,25 @@ class HandbackReview(unittest.TestCase):
         self.assertEqual(path.read_text(), "")
         self.assertTrue(json.loads((Path(tmp) / "board-done.jsonl").read_text())["review_accepted_at"])
 
+    def test_lead_pass_closes_with_reject_rounds(self):
+        # agentm #35 11-10: the lead passed the report (ws-pass) but the item stayed 「已交回待验收」;
+        # the review nudge reopened it four hours later. `board accepted` is what the bridge runs on pass.
+        tmp = tempfile.mkdtemp()
+        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "lead", "CC_SESSION_KEY": "room:chat"}
+        path = Path(tmp) / "board.jsonl"
+        path.write_text(json.dumps({"id": 35, "what": "review", "chat": "room:chat", "ws": "room:work", "dispatcher": "lead",
+                                    "returned_at": "2026-11-10T03:21:00+00:00", "reject_reasons": ["head 变了"]}) + "\n")
+        def cli(*args):
+            p = subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args], env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            return p.stdout
+        self.assertIn("已验收收口", cli("accepted", "35"))
+        self.assertEqual(path.read_text(), "")
+        rec = json.loads((Path(tmp) / "board-done.jsonl").read_text())
+        self.assertTrue(rec["review_accepted_at"])
+        self.assertEqual((rec["rework"], rec["rework_why"]), (1, "head 变了"))
+        self.assertIn("不用再收", cli("accepted", "35"))  # already closed: no error
+
     def test_report_reject_rebind_and_accept(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}

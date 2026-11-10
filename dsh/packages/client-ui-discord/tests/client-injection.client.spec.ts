@@ -2,6 +2,7 @@
 import { expect, it, vi } from 'vitest'
 import * as channelSource from '../src/client/channel-source.ts'
 import { apply, type ChannelsInjected } from '../src/client/index.ts'
+import { fakePanelInfo } from './helpers/fake-panel-info.ts'
 
 vi.mock('../src/client/ChannelsIcon.tsx', () => ({ ChannelsIcon: () => null }))
 
@@ -27,7 +28,7 @@ it.each([true, false])('injects channel actions and uses the settings shell when
         return () => {}
       },
     },
-    layout: { selectPanel: vi.fn() },
+    layout: { selectPanel: vi.fn(), panelInfo: fakePanelInfo() },
   }
   try {
     apply(ctx as unknown as Parameters<typeof apply>[0])

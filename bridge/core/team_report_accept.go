@@ -29,15 +29,16 @@ const (
 // heldReportImages keeps the images a workspace sent with a held report until it is released
 // (in memory only: after a restart only the images the report names by path go out).
 var heldReportImages = struct {
-	mu sync.Mutex
-	m  map[string][]ImageAttachment
-}{m: map[string][]ImageAttachment{}}
+	mu    sync.Mutex
+	m     map[string][]ImageAttachment
+	files map[string][]FileAttachment // the files it sent (team_exit_files.go)
+}{m: map[string][]ImageAttachment{}, files: map[string][]FileAttachment{}}
 
 // holdReportForLead takes the place of postExitHeadline for a [report]: the record is kept
 // pending (Held) on the lead engine and the lead is woken to accept it. The board records the
 // handback and the workspace is freed as before. false: nothing was held (a duplicate, or no
 // lead could be asked and the unchecked copy went out instead) — the caller does nothing more.
-func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, bot, body, sessionKey string, hid int, hline, doubt string, item *teamTaskBoardItem) bool {
+func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, bot, body, sessionKey string, hid int, hline, doubt, check string, item *teamTaskBoardItem) bool {
 	if item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedBefore(hid) {
 		slog.Info("team exit: report for a task already done; not held again", "board_item", hid, "workspace", ws)
 		return false
@@ -47,11 +48,13 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		return false
 	}
 	lead := e.reportLead(p.Name())
+	_, after, waiting := waitExternalOf(body)
 	rec := &pendingReport{
 		Key:      reportKey(p.Name(), parent, ws, exitKindReport, hid, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: exitKindReport, Body: body, Headline: hline, Board: hid,
-		Session: sessionKey, CreatedAt: time.Now(), Held: true,
+		Session: sessionKey, CreatedAt: time.Now(), Held: true, Doubt: doubt,
+		Waiting: waiting, HeldBound: item.Bound, HeldDone: item.DoneAt != "" && item.AutoPruned == "",
 	}
 	owner := e
 	if lead != nil {
@@ -66,6 +69,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 	}
 	heldReportImages.mu.Lock()
 	heldReportImages.m[rec.Key] = takeWorkspaceImages(sessionKey, boundTime(item))
+	heldReportImages.files[rec.Key] = takeWorkspaceFiles(sessionKey, boundTime(item), false)
 	heldReportImages.mu.Unlock()
 	e.markExitReported(hid) // one handoff, one report: a repair turn's copy is not held again
 	queued := false
@@ -74,7 +78,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		job := &TimerJob{
 			ID: GenerateTimerID(), Project: lead.name, SessionKey: p.Name() + ":" + parent,
 			ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent, ReplyBoard: hid,
-			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, e.workspaceTaskBackground(sessionKey, hid)),
+			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid), waitAfter(waiting, after)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
 		if err := lead.timerScheduler.AddJob(job); err != nil {
@@ -156,7 +160,15 @@ func heldHeadlineText(name, hline string, unchecked bool) string {
 
 // leadAcceptPrompt is the lead's turn for a held report: the four parts as written, where the
 // handoff is, what the intent check said, and the two ways out.
-func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt, background string) string {
+// waitAfter: how long a waiting task stays parked; 0 for a report that is not waiting outside.
+func waitAfter(waiting bool, after time.Duration) time.Duration {
+	if !waiting {
+		return 0
+	}
+	return after
+}
+
+func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt, check, background string, waitFor time.Duration) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s 工作区 %s 的「%s」交回了 #%d 的 [report]。系统先交给你验收，没有贴进本频道，用户还没看到。\n", leadAcceptMark, wsLabel, bot, hid)
 	if notes != "" {
@@ -168,17 +180,35 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	head, _ := exitSplit(body)
 	b.WriteString("\n给用户的四段（原文）：\n" + head + "\n")
 	b.WriteString("\n全文：\n" + truncateRelayMore(dataDir, "workspace-report", body, chatLeadWakeLimit) + "\n")
+	if check != "" {
+		b.WriteString("\n系统核对没过（只给你看，用户看不到；按它判合格还是打回）：" + check + "\n")
+	}
 	if doubt != "" {
-		b.WriteString("\n对题检查：有疑点——" + doubt + "\n")
+		b.WriteString("\n对题检查：有疑点——" + doubt + "\n" + doubtPassRule + "\n")
 	} else {
 		b.WriteString("\n对题检查：通过（只查了做的是不是用户点名的那件，不等于合格）。\n")
 	}
+	// 按任务号指明这件活：路径栏是交接文件还是 PR/分支/提交链接都认得出（#1371；#1350 只盖了 PR 链接、
+	// 不带 --notes 时本频道交出去好几件就认不出）。没有编号的旧记录才退回 --notes <交接文件>。
 	notesArg := ""
-	if notes != "" {
+	if hid > 0 {
+		notesArg = fmt.Sprintf(" --id %d", hid)
+	} else if notes != "" && !strings.Contains(notes, "://") {
 		notesArg = " --notes " + notes
 	}
+	if waitFor > 0 {
+		// progress on a task blocked outside: the work is not finished and does not need to be; the
+		// lead judges whether what it says is true (#1378: read as a final report, it was left unjudged)
+		fmt.Fprintf(&b, "\n这是中间进度：工作区写了「等外部」，活已暂停、工作区已放回，约 %d 分钟后系统自动交工作区接着做。"+
+			"只看它说的进度是不是属实，没做完不算不合格。\n"+
+			"- 属实：ws-pass%s --verdict \"逐条：哪条属实、证据是什么\"，系统照原文贴给用户，活不关、到点照常接着做。\n"+
+			"- 不属实或要现在接着做：ws-forward%s \"要补什么\"，汇报不贴，系统找空工作区接着做。\n"+
+			"改派、重新交接或关掉这件活，这份汇报自动撤销。%d 分钟内没定，这份中间进度不贴，等活做完的汇报再验。验收完回 NO_REPLY 或一句你怎么定的。\n",
+			int(waitFor/time.Minute), notesArg, notesArg, int(leadAcceptTimeout/time.Minute))
+		return b.String()
+	}
 	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了（能自己查的去查：日志、提交、线上）。二选一：\n"+
-		"- 合格：ws-pass%s --verdict \"逐条：哪条做到、证据是什么\"（不带附件就是只放行文字），系统照原文贴给用户。\n"+
+		"- 合格：ws-pass%s --verdict \"逐条：哪条做到、证据是什么\"（不带附件就是只放行文字；带附件放行时这份文字一并放行，不用再跑一次），系统照原文贴给用户。\n"+
 		"- 不合格：ws-forward%s \"打回：哪条没做到、要补什么\"，汇报不贴，活回到工作区返工。\n"+
 		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。不要自己转述或重贴这份汇报；验收完回 NO_REPLY 或一句你怎么定的。\n",
 		notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
@@ -205,20 +235,97 @@ func (e *Engine) heldReportFor(hid int) *pendingReport {
 
 // rejectHeldReport ends a held report without posting it (the lead sent the work back).
 func (e *Engine) rejectHeldReport(key, why string) bool {
+	return e.endHeldReport(key, "打回："+why)
+}
+
+// heldWaitExpired: the verdict of a progress report (等外部) the lead did not judge in time.
+const heldWaitExpired = "中间进度（等外部）主角色没在时限内验，不贴；活到点接着做，做完的汇报再验"
+
+// dropHeldReport ends a held report without posting it because nothing is left to accept (#1378).
+func (e *Engine) dropHeldReport(key, why string) bool {
+	return e.endHeldReport(key, "撤销："+why)
+}
+
+// heldReportWaiting: the held record key is a progress report on a task waiting outside.
+func (e *Engine) heldReportWaiting(key string) bool {
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	rec := e.loadReportsLocked()[key]
+	return rec != nil && rec.Waiting
+}
+
+// heldReportSuperseded says why a held report has nothing left to accept, or "": its board item
+// was closed after the hold (board done), bound to a workspace again (ws-handoff --resume), or
+// the same handoff notes went to a newer item (a fresh ws-handoff). #1378: the lead closed #1376
+// and handed its notes on as #1377, and the held report still went out 「主角色未验收」 10 minutes later.
+func (e *Engine) heldReportSuperseded(key string) string {
+	e.teamExit.mu.Lock()
+	rec := e.loadReportsLocked()[key]
+	var cp pendingReport
+	if rec != nil {
+		cp = *rec
+	}
+	e.teamExit.mu.Unlock()
+	if rec == nil || cp.Board <= 0 {
+		return ""
+	}
+	item := e.boardItemByID(cp.Board)
+	if item == nil {
+		return ""
+	}
+	if item.DoneAt != "" && item.AutoPruned == "" && !cp.HeldDone && !returnedThisBind(item) {
+		return fmt.Sprintf("#%d 在任务板上已结束（%s）", cp.Board, item.DoneAt)
+	}
+	if cp.HeldBound != "" && item.Bound != "" && item.Bound != cp.HeldBound {
+		return fmt.Sprintf("#%d 已重新交给工作区接着做", cp.Board)
+	}
+	where := strings.TrimSpace(item.Where)
+	if where == "" || strings.Contains(where, "://") {
+		return ""
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return ""
+	}
+	for _, it := range readTeamTaskBoard(dir) {
+		if it.ID == cp.Board || strings.TrimSpace(it.Where) != where {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339Nano, it.Bound); err == nil && t.After(cp.CreatedAt) {
+			return fmt.Sprintf("同一份交接已由 #%d 接着做", it.ID)
+		}
+	}
+	return ""
+}
+
+// returnedThisBind: the item was closed by this handback itself (board returned stamps returned_at
+// and moves it to board-done.jsonl right after the hold), not by the lead or a new handoff. #1382:
+// #1377's normal final report was withdrawn 11 s after the hold as 「已结束」 and ws-pass found nothing.
+func returnedThisBind(item *teamTaskBoardItem) bool {
+	if item.ReturnedAt.IsZero() {
+		return false
+	}
+	bound, err := time.Parse(time.RFC3339Nano, item.Bound)
+	return err != nil || !item.ReturnedAt.Before(bound)
+}
+
+// endHeldReport ends a held report unposted with verdict.
+func (e *Engine) endHeldReport(key, verdict string) bool {
 	e.teamExit.mu.Lock()
 	rec := e.loadReportsLocked()[key]
 	if rec == nil || !rec.Held || rec.delivered() || rec.sending {
 		e.teamExit.mu.Unlock()
 		return false
 	}
-	rec.Verdict = "打回：" + why
+	rec.Verdict = verdict
 	rec.DeliveredAt = time.Now()
 	e.saveReportsLocked()
 	e.teamExit.mu.Unlock()
 	heldReportImages.mu.Lock()
 	delete(heldReportImages.m, key)
+	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
-	slog.Info("report accept: lead sent the report back; not posted", "board_item", rec.Board, "workspace", rec.Workspace, "why", truncateStr(why, 200))
+	slog.Info("report accept: held report ended; not posted", "board_item", rec.Board, "workspace", rec.Workspace, "verdict", truncateStr(verdict, 200))
 	return true
 }
 
@@ -277,10 +384,12 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 		return err
 	}
 	heldReportImages.mu.Lock()
-	imgs := heldReportImages.m[key]
+	imgs, files := heldReportImages.m[key], heldReportImages.files[key]
 	delete(heldReportImages.m, key)
+	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
 	e.postHeldImages(ctx, p, rc, imgs, cp.Body)
+	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	e.exitMarkPosted(exitKindReport, cp.Board, cp.Headline)
 	e.teamExit.mu.Lock()
 	if unchecked {

@@ -17,6 +17,9 @@ import (
 type workspaceShelfGuild struct {
 	Category string          `json:"category"`
 	Channels map[string]bool `json:"channels"`
+	// Threads: thread (子区) id → the text channel it lives under, recorded when a thread worked
+	// as a chat channel for workspaces, so its reports have somewhere to go once it is gone.
+	Threads map[string]string `json:"threads,omitempty"`
 }
 
 type workspaceShelfStore struct {
@@ -59,6 +62,17 @@ func (p *Platform) workspaceShelfStore() *workspaceShelfStore {
 	return p.workspaceShelves
 }
 
+// guildIDs lists the servers with recorded workspaces.
+func (s *workspaceShelfStore) guildIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (s *workspaceShelfStore) guild(id string) (workspaceShelfGuild, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -88,6 +102,45 @@ func (s *workspaceShelfStore) remember(guild, category, channel string) error {
 		g.Channels = map[string]bool{}
 	}
 	g.Channels[channel] = true
+	return s.saveLocked(next, guild, g)
+}
+
+// rememberThread records the text channel a thread lives under (see workspaceShelfGuild.Threads).
+func (s *workspaceShelfStore) rememberThread(guild, thread, host string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loadErr != nil {
+		return s.loadErr
+	}
+	g := s.guilds[guild]
+	if g.Threads[thread] == host {
+		return nil
+	}
+	next := maps.Clone(s.guilds)
+	if next == nil {
+		next = map[string]workspaceShelfGuild{}
+	}
+	g.Threads = maps.Clone(g.Threads)
+	if g.Threads == nil {
+		g.Threads = map[string]string{}
+	}
+	g.Threads[thread] = host
+	return s.saveLocked(next, guild, g)
+}
+
+// threadHost is the recorded text channel of thread ("" = not recorded).
+func (s *workspaceShelfStore) threadHost(thread string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, g := range s.guilds {
+		if h := g.Threads[thread]; h != "" {
+			return h
+		}
+	}
+	return ""
+}
+
+func (s *workspaceShelfStore) saveLocked(next map[string]workspaceShelfGuild, guild string, g workspaceShelfGuild) error {
 	next[guild] = g
 	if s.path != "" {
 		raw, err := json.Marshal(next)

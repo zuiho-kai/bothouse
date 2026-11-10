@@ -239,6 +239,20 @@ func (e *Engine) noteCallerTurn(session, platform, userID, userName, channelKey 
 	e.callerMu.Unlock()
 }
 
+// callerTurnOf returns who started the turn running in session now, if one is recorded and fresh.
+func (e *Engine) callerTurnOf(session string) (callerTurn, bool) {
+	if session == "" {
+		return callerTurn{}, false
+	}
+	e.callerMu.Lock()
+	t, ok := e.callerTurns[session]
+	e.callerMu.Unlock()
+	if !ok || time.Since(t.at) > callerTurnMaxAge {
+		return callerTurn{}, false
+	}
+	return t, true
+}
+
 // endCallerTurn forgets the session's sender once its turn (and its queue) has finished: a tool run
 // later, outside any turn, gets no token.
 func (e *Engine) endCallerTurn(session string) {

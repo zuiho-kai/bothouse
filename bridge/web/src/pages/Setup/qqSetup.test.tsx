@@ -121,6 +121,9 @@ describe('QQ in the setup wizard', () => {
     expect(saved.dry_run).toBeFalsy();
     expect(saved.gate).toBeUndefined();
     expect(saved.roles).toHaveLength(1);
+    // #552: a new role sends the CLI shown on the review line (Codex, the last card picked);
+    // only a reused QQ role stays quiet so the saved CLI is not overwritten
+    expect(saved.roles[0].agent_type).toBe('codex');
   });
 });
 
@@ -144,6 +147,21 @@ it.each([false, true])('reuses an existing QQ role and only changes CLI when sel
   expect(role.agent_type).toBe(changeCLI ? 'codex' : undefined);
   expect(role.reply_language).toBeUndefined();
   expect(role.edit_persona).toBeUndefined();
+});
+
+it('sends the preselected CLI for a new QQ role even when no card was touched', async () => {
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => root!.render(<MemoryRouter initialEntries={['/setup?add=1&platform=qq']}><SetupWizard /></MemoryRouter>));
+  await act(async () => button(T.next).click());
+  await input('[data-testid="qq-allow-from"]', '12345');
+  await click('[data-testid="qq-test-btn"]');
+  await act(async () => button(T.next).click());
+  await act(async () => button(T.next).click());
+  await act(async () => button(T.next).click());
+  await act(async () => button(T.save).click());
+  // #552: the role is new, so the CLI the wizard shows as selected (first logged-in CLI) must travel;
+  // the backend would otherwise apply its own default and the review line could name another CLI
+  expect(sent.reqs[sent.reqs.length - 1].roles[0].agent_type).toBe('codex');
 });
 
 it('clears the saved token only through the explicit control', async () => {

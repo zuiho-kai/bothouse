@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
 import { NS } from '../src/client/locales.ts'
+import { fakePanelInfo } from './helpers/fake-panel-info.ts'
 import upstream from './helpers/upstream-slots.json' with { type: 'json' }
 
 vi.mock('../src/client/ChannelsIcon.tsx', () => ({ ChannelsIcon: () => null }))
@@ -47,7 +48,7 @@ it('source: every child slot the channel plugin declares is its own', () => {
         return () => {}
       },
     },
-    layout: { selectPanel: vi.fn() },
+    layout: { selectPanel: vi.fn(), panelInfo: fakePanelInfo() },
   }
   try {
     apply(ctx as unknown as Parameters<typeof apply>[0])

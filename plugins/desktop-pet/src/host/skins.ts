@@ -18,6 +18,7 @@ import { PACKAGE_ROOT } from './paths.ts';
 import { resolveAsset, resolveExisting } from './http.ts';
 import { isValidPetId } from './config/constants.ts';
 import { bothouse } from './bothouse.ts';
+import { packAnimationFile } from './skin-pack.ts';
 
 interface SkinInfo {
   id: string;
@@ -101,16 +102,21 @@ function skinForRole(role: string): string | undefined {
   return undefined;
 }
 
-/** 当前该穿的形象目录：用户选的 → 绑定角色 → 清单默认。 */
-export async function resolveSkin(): Promise<string | undefined> {
-  let dir = skinDir(chosenSkin());
+/**
+ * 当前该穿的形象目录：用户选的 → 绑定角色 → 清单默认。
+ * bothouse fork（#549，一个角色一只桌宠）：root 是宠物的素材根（main 或 bothouse 写的 `pet/<id>-config.json` 前缀）。
+ * main 照旧（右键选的形象只管 main）；别的宠物按自己的角色认内置形象。
+ */
+export async function resolveSkin(root = 'main'): Promise<string | undefined> {
+  const main = root === 'main';
+  let dir = main ? skinDir(chosenSkin()) : undefined;
   if (dir === undefined) {
-    const role = await bothouse()?.skinRole();
+    const role = await bothouse()?.skinRole(main ? undefined : root);
     const id = role ? skinForRole(role) : undefined;
     dir = id ? skinDir(id) : undefined;
   }
   dir ??= skinDir(manifest().default);
-  currentDir = dir;
+  if (main) currentDir = dir;
   return dir;
 }
 
@@ -155,9 +161,24 @@ export function stateForAnimation(name: string): string {
   return 'idle';
 }
 
-/** 动画文件：同名优先（整套上游动画的推荐形象），其次按意思归的状态，最后 idle。 */
-export async function skinAnimationFile(fileName: string): Promise<string | undefined> {
-  const dir = await resolveSkin();
+/**
+ * 角色选的形象包（#609）：插件页给角色选了形象包且已下载时，这只桌宠穿它（WebP 精灵图按需转成透明视频，
+ * 见 ./skin-pack.ts）。main 上用户在右键菜单手选过形象就仍以手选为准。
+ */
+async function packFile(fileName: string, root: string): Promise<string | undefined> {
+  if (!userRoot) return undefined;
+  if (root === 'main' && skinDir(chosenSkin()) !== undefined) return undefined;
+  const packDir = (await bothouse()?.skinLook(root === 'main' ? undefined : root))?.packDir;
+  if (!packDir) return undefined;
+  const base = fileName.replace(/\.(webm|mov)$/i, '');
+  return packAnimationFile(packDir, base, join(userRoot, 'skin-packs'), stateForAnimation);
+}
+
+/** 动画文件：角色选的形象包优先（#609）；其次同名（整套上游动画的推荐形象），再按意思归的状态，最后 idle。 */
+export async function skinAnimationFile(fileName: string, root = 'main'): Promise<string | undefined> {
+  const fromPack = await packFile(fileName, root);
+  if (fromPack !== undefined) return fromPack;
+  const dir = await resolveSkin(root);
   if (dir === undefined) return undefined;
   const base = fileName.replace(/\.(webm|mov)$/i, '');
   return (
@@ -176,11 +197,13 @@ export async function listSkins(): Promise<{
 }> {
   const m = manifest();
   const dir = await resolveSkin();
-  const current = dir ? dir.split(/[\\/]/).pop() ?? '' : '';
+  const current = dir ? (dir.split(/[\\/]/).pop() ?? '') : '';
   return {
     chosen: chosenSkin(),
     current,
-    builtin: m.builtin.filter((s) => skinDir(s.id) !== undefined).map((s) => ({ id: s.id, name: s.name, group: s.group ?? '' })),
+    builtin: m.builtin
+      .filter((s) => skinDir(s.id) !== undefined)
+      .map((s) => ({ id: s.id, name: s.name, group: s.group ?? '' })),
     recommended: m.recommended.map((r) => ({
       id: r.id,
       name: r.name,

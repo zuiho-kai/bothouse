@@ -266,6 +266,10 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	if cfg.Management.Enabled == nil || !*cfg.Management.Enabled {
 		return fmt.Errorf("the web admin is off; run `bothouse web` once to switch it on")
 	}
+	// `pet start` creates it; make sure a direct `pet run` (and its state file) works too.
+	if err := os.MkdirAll(paths.dir, 0o755); err != nil {
+		return err
+	}
 	argv, err := findPet(paths)
 	if err != nil {
 		return err
@@ -278,8 +282,16 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	defer cancel()
 	pet := newDshPetClient(port)
 	relay := newPetRelay(pet)
+	// One pet per bound role (#549): lay the pets out before the window opens, so it starts with them.
+	layout := newPetLayout(newPetLayoutPaths(cfg.DataDir, petBundledRoot(argv)), relay, pet)
+	if bound, err := fetchPetBindings(&http.Client{Timeout: 5 * time.Second}, managementURL(cfg), cfg.Management.Token); err == nil {
+		relay.bound = bound
+		layout.once(false)
+	}
+	go layout.run(ctx.Done())
 	// The pet's menu (对话 / 查看余额 / 待办事项 / 碎碎念 / 打开 AI 设置) calls back into bothouse (pet_api.go).
 	api := newPetAPI(relay, managementURL(cfg), cfg.Management.Token, resolveSocketPath(cfg.DataDir))
+	api.packs = filepath.Join(cfg.DataDir, "pets")
 	apiURL, err := api.serve(ctx)
 	if err != nil {
 		return err
@@ -326,6 +338,14 @@ func petRun(cfg *config.Config, paths petPaths) error {
 		return fmt.Errorf("desktop pet exited: %v", err)
 	}
 	return nil
+}
+
+// petBundledRoot is the pet package directory behind the command findPet returned (…/lib/standalone.js).
+func petBundledRoot(argv []string) string {
+	if len(argv) < 2 {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(argv[len(argv)-1]))
 }
 
 // ---- dsh-pet HTTP client (contract: dsh-pet API.md / openapi.yaml) ----
@@ -408,30 +428,6 @@ func newDshPetClient(port int) *dshPetClient {
 	return &dshPetClient{base: fmt.Sprintf("http://127.0.0.1:%d/dsh-pet-7340", port), port: port, http: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// petID picks the pet to talk over: "main" (dsh-pet's default pet) when present, else the first one.
-func (c *dshPetClient) petID() string {
-	resp, err := c.http.Get(c.base + "/state")
-	if err != nil {
-		return "main"
-	}
-	defer resp.Body.Close()
-	var st struct {
-		Pets map[string]json.RawMessage `json:"pets"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&st) != nil || len(st.Pets) == 0 {
-		return "main"
-	}
-	if _, ok := st.Pets["main"]; ok {
-		return "main"
-	}
-	ids := make([]string, 0, len(st.Pets))
-	for id := range st.Pets {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids[0]
-}
-
 // petWorkState maps a bothouse role status to a dsh-pet work-status tier ("" = idle → clear the slot).
 func petWorkState(status string) string {
 	switch status {
@@ -447,38 +443,48 @@ func petWorkState(status string) string {
 	return ""
 }
 
-// petStatusOrder is role-events.md's merge order for one role open in several places,
-// "error > working > thinking > celebrate > idle", reused to merge several bound roles into one pet.
-var petStatusOrder = []string{"idle", "celebrate", "thinking", "working", "error"}
-
-func petRank(status string) int {
-	for i, s := range petStatusOrder {
-		if s == status {
-			return i
-		}
-	}
-	return 0
-}
-
 // ---- relay: bothouse role events → dsh-pet ----
 
 type petRelay struct {
-	pet *dshPetClient
+	pet    *dshPetClient
+	layout *petLayout // nil in tests: every role talks to "main"
 
 	mu     sync.Mutex
-	bound  map[string]bool   // role_key → bound to dsh-pet and enabled
-	status map[string]string // role_key → merged role status
-	names  map[string]string // role_key → display name
-	sent   string            // last work-status sent ("" = cleared)
-	talk   *petTalk          // sessions, recent lines and pending 对话 of the bound roles (pet_api.go)
+	bound  map[string]string    // role_key → avatar pack ("" = none) of the roles bound to dsh-pet and enabled
+	status map[string]string    // role_key → role status
+	names  map[string]string    // role_key → display name
+	assign map[string]petAssign // role_key → its pet (one role, one pet, #549)
+	sent   map[string]string    // pet id → last work-status sent ("" = cleared)
+	talk   *petTalk             // sessions, recent lines and pending 对话 of the bound roles (pet_api.go)
 	logf   func(string, ...any)
-	// out replaces the HTTP calls in tests: kind is a work-status tier, "" (clear) or "speech".
-	out func(kind, text string)
+	// out replaces the HTTP calls in tests: pet is the pet id, kind a work-status tier, "" (clear) or "speech".
+	out func(pet, kind, text string)
 }
 
 func newPetRelay(pet *dshPetClient) *petRelay {
-	return &petRelay{pet: pet, bound: map[string]bool{}, status: map[string]string{}, names: map[string]string{}, talk: newPetTalk(),
+	return &petRelay{pet: pet, bound: map[string]string{}, status: map[string]string{}, names: map[string]string{},
+		assign: map[string]petAssign{}, sent: map[string]string{}, talk: newPetTalk(),
 		logf: func(f string, a ...any) { fmt.Printf("[pet] "+f+"\n", a...) }}
+}
+
+// petOf returns the pet a role drives ("main" until the layout has run).
+func (r *petRelay) petOf(role string) string {
+	if a, ok := r.assign[role]; ok {
+		return a.Pet
+	}
+	return "main"
+}
+
+// roleOf returns the bound role behind a pet id ("" when none).
+func (r *petRelay) roleOf(pet string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for role, a := range r.assign {
+		if a.Pet == pet {
+			return role
+		}
+	}
+	return ""
 }
 
 type petRole struct {
@@ -498,8 +504,9 @@ type petEvent struct {
 }
 
 type petBinding struct {
-	PluginID string `json:"plugin_id"`
-	Enabled  bool   `json:"enabled"`
+	PluginID   string `json:"plugin_id"`
+	Enabled    bool   `json:"enabled"`
+	AvatarPack string `json:"avatar_pack"`
 }
 
 func (r *petRelay) follow(ctx context.Context, bridge, token string) {
@@ -526,17 +533,24 @@ func (r *petRelay) pollBindings(ctx context.Context, bridge, token string) {
 			r.logf("role bindings: %v", err)
 		} else {
 			keys := make([]string, 0, len(bound))
-			for k := range bound {
+			for k, pack := range bound {
+				if pack != "" {
+					k += "=" + pack
+				}
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
-			if s := strings.Join(keys, ","); s != last {
-				last = s
+			s := strings.Join(keys, ",")
+			if s != last {
 				r.logf("roles driving the pet: [%s]", s)
 			}
 			r.mu.Lock()
 			r.bound = bound
 			r.mu.Unlock()
+			if s != last && r.layout != nil {
+				r.layout.request()
+			}
+			last = s
 			r.apply()
 		}
 		select {
@@ -547,7 +561,7 @@ func (r *petRelay) pollBindings(ctx context.Context, bridge, token string) {
 	}
 }
 
-func fetchPetBindings(c *http.Client, bridge, token string) (map[string]bool, error) {
+func fetchPetBindings(c *http.Client, bridge, token string) (map[string]string, error) {
 	req, _ := http.NewRequest("GET", bridge+"/api/v1/plugins/role-bindings", nil)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -571,13 +585,14 @@ func fetchPetBindings(c *http.Client, bridge, token string) (map[string]bool, er
 	return petBoundRoles(body.Data.Bindings), nil
 }
 
-// petBoundRoles keeps the roles that turned the dsh-pet plugin on; no fallback for unbound roles.
-func petBoundRoles(bindings map[string][]petBinding) map[string]bool {
-	out := map[string]bool{}
+// petBoundRoles keeps the roles that turned the dsh-pet plugin on, with the avatar pack each picked;
+// no fallback for unbound roles.
+func petBoundRoles(bindings map[string][]petBinding) map[string]string {
+	out := map[string]string{}
 	for role, list := range bindings {
 		for _, b := range list {
 			if b.Enabled && b.PluginID == petPluginID {
-				out[role] = true
+				out[role] = strings.TrimSpace(b.AvatarPack)
 			}
 		}
 	}
@@ -657,7 +672,7 @@ func (r *petRelay) handle(kind string, data []byte) {
 		ev.Type = kind
 	}
 	r.mu.Lock()
-	bound := r.bound[ev.RoleKey]
+	_, bound := r.bound[ev.RoleKey]
 	r.names[ev.RoleKey] = petRoleName(ev.Role)
 	if ev.Role.Status != "" {
 		r.status[ev.RoleKey] = ev.Role.Status
@@ -676,12 +691,15 @@ func (r *petRelay) handle(kind string, data []byte) {
 		if !ev.Draft && strings.TrimSpace(ev.Text) != "" {
 			// A reply to the pet's 对话 goes back in the chat panel, which bubbles it itself.
 			if !r.talk.spoke(ev.RoleKey, ev.SessionKey, ev.Text) {
-				r.say(ev.Text)
+				r.say(ev.RoleKey, ev.Text)
 			}
 		}
 	case "celebrate", "error":
-		// One-off: play it even though the merged role status may already be back to idle.
-		r.send(petWorkState(ev.Type), petRoleName(ev.Role))
+		// One-off: play it even though the role status may already be back to idle.
+		r.mu.Lock()
+		pet := r.petOf(ev.RoleKey)
+		r.mu.Unlock()
+		r.send(pet, petWorkState(ev.Type), petRoleName(ev.Role))
 	default:
 		r.apply()
 	}
@@ -697,69 +715,98 @@ func petRoleName(role petRole) string {
 	return role.RoleKey
 }
 
-// apply sends the merged status of all bound roles to the pet.
+// apply sends every bound role's status to its own pet.
 func (r *petRelay) apply() {
+	type one struct{ pet, state, name string }
 	r.mu.Lock()
-	best, who := "idle", ""
-	keys := make([]string, 0, len(r.bound))
-	for k := range r.bound {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if s := r.status[k]; petRank(s) > petRank(best) {
-			best, who = s, r.names[k]
-		}
+	var list []one
+	for role := range r.bound {
+		list = append(list, one{r.petOf(role), petWorkState(r.status[role]), r.names[role]})
 	}
 	r.mu.Unlock()
-	r.send(petWorkState(best), who)
+	sort.Slice(list, func(i, j int) bool { return list[i].pet < list[j].pet })
+	for _, o := range list {
+		r.send(o.pet, o.state, o.name)
+	}
 }
 
-func (r *petRelay) send(state, task string) {
+func (r *petRelay) send(pet, state, task string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if state == r.sent && state != "success" && state != "error" {
+	// A pet with no entry has not been sent anything yet (start, or after resend): its slot may still hold
+	// another role's state, so even idle is sent. "" means idle was sent.
+	sent, ok := r.sent[pet]
+	if ok && state == sent && state != "success" && state != "error" {
 		return
 	}
-	// success / error are terminal tiers: dsh-pet plays them once and drops the bubble by itself
+	// success / error are one-offs: the pet plays them once and drops the bubble by itself
 	// (README「工作状态联动」), so going idle after them must not cut them off.
-	if state == "" && (r.sent == "success" || r.sent == "error") {
+	if ok && state == "" && (sent == "success" || sent == "error") {
 		return
 	}
-	r.sent = state
-	r.emit(state, task)
+	r.sent[pet] = state
+	r.emit(pet, state, task)
 }
 
-// emit must be called with r.mu held.
-func (r *petRelay) emit(state, task string) {
+// emit must be called with r.mu held. ?pet= writes that pet's own work-status slot (bothouse fork of
+// dsh-pet, src/host/routes/state.ts), so the pets of different roles move on their own.
+func (r *petRelay) emit(pet, state, task string) {
 	if r.out != nil {
-		r.out(state, task)
+		r.out(pet, state, task)
 		return
 	}
 	var err error
+	q := "/work-status?pet=" + url.QueryEscape(pet)
 	if state == "" {
-		err = r.pet.do("DELETE", "/work-status", nil)
+		err = r.pet.do("DELETE", q, nil)
 	} else {
-		err = r.pet.do("POST", "/work-status", map[string]any{"state": state, "task": task})
+		err = r.pet.do("POST", q, map[string]any{"state": state, "task": task})
 	}
 	if err != nil {
-		r.logf("work-status %q: %v", state, err)
-		r.sent = "?" // not delivered: the next apply sends it again
+		r.logf("work-status %s %q: %v", pet, state, err)
+		r.sent[pet] = "?" // not delivered: the next apply sends it again
 	} else {
-		r.logf("work-status → %q (%s)", state, task)
+		r.logf("work-status %s → %q (%s)", pet, state, task)
 	}
 }
 
-func (r *petRelay) say(text string) {
+// resend forgets what was sent and repeats every pet's state (after the bindings changed or the pets were
+// rebuilt). The host keeps each pet's work-status slot across a rebuild, so a pet that took over another
+// role starts from a clear, and a pet whose role went away (down to none bound) is cleared too.
+func (r *petRelay) resend() {
+	r.mu.Lock()
+	before := r.sent
+	r.sent = map[string]string{}
+	r.mu.Unlock()
+	r.apply()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var gone []string
+	for pet := range before {
+		if _, ok := r.sent[pet]; !ok {
+			gone = append(gone, pet)
+		}
+	}
+	sort.Strings(gone)
+	for _, pet := range gone {
+		r.sent[pet] = ""
+		r.emit(pet, "", "")
+	}
+}
+
+func (r *petRelay) say(role, text string) {
 	text = strings.TrimSpace(text)
+	r.mu.Lock()
+	pet := r.petOf(role)
+	r.mu.Unlock()
 	if r.out != nil {
-		r.out("speech", text)
+		r.out(pet, "speech", text)
 		return
 	}
 	// No lock: without one, /broadcast behaves as before (openapi.yaml /lock「无锁时…行为与改造前逐字一致」).
-	if err := r.pet.do("POST", "/broadcast?pet="+url.QueryEscape(r.pet.petID()), map[string]any{"text": text}); err != nil {
-		r.logf("broadcast: %v", err)
+	if err := r.pet.do("POST", "/broadcast?pet="+url.QueryEscape(pet), map[string]any{"text": text}); err != nil {
+		r.logf("broadcast %s: %v", pet, err)
 	} else {
-		r.logf("bubble: %s", text)
+		r.logf("bubble %s: %s", pet, text)
 	}
 }

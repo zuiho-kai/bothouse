@@ -87,9 +87,10 @@ type TurnCtxSent struct {
 	// already pushed per (key, bot, epoch) and returns only new entries. A new context gets a new
 	// epoch because TurnCtx is dropped with it (11-03: the gate alone decides what was pushed).
 	Epoch          string          `json:"epoch,omitempty"`
-	ReferenceSince time.Time       `json:"-"`              // deliberately unknown after a bridge restart
-	ReferenceIDs   map[string]bool `json:"-"`              // agent output sent by this context only
-	Team           string          `json:"team,omitempty"` // teammate status key (without elapsed times)
+	ReferenceSince time.Time       `json:"-"`                // deliberately unknown after a bridge restart
+	ReferenceIDs   map[string]bool `json:"-"`                // agent output sent by this context only
+	Team           string          `json:"team,omitempty"`   // teammate status key (without elapsed times)
+	Member         string          `json:"member,omitempty"` // member-workspace note this context got (member_workspace.go)
 	// LeadHandoff is the switch record this agent context already received, and
 	// LeadHandoffAt is the time of its last update block (#274). Both are reset
 	// with the rest of TurnCtx when the agent context is replaced.

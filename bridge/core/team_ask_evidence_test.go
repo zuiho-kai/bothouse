@@ -20,14 +20,13 @@ func TestWorkspaceAskWithoutEvidenceGoesBack(t *testing.T) {
 		if !strings.Contains(prompt, "系统退回了你的 [ask]") {
 			t.Fatalf("bounce turn = %q", prompt)
 		}
-		inputWait(t, func() bool { return len(p.sentTo(exitWSKey)) >= 2 })
-		ws := p.sentTo(exitWSKey)
-		if len(ws) != 2 || ws[0] != reply || !strings.HasPrefix(ws[1], exitPrefix) {
+		// The reason goes to the bot only; the channel shows no 「📬 … 没有转给用户」 (#1347).
+		if ws := p.sentTo(exitWSKey); len(ws) != 1 || ws[0] != reply {
 			t.Fatalf("workspace = %q", ws)
 		}
 		for _, w := range want {
-			if !strings.Contains(ws[1], w) || !strings.Contains(prompt, w) {
-				t.Fatalf("bounce %q / %q lacks %q", ws[1], prompt, w)
+			if !strings.Contains(prompt, w) {
+				t.Fatalf("bounce %q lacks %q", prompt, w)
 			}
 		}
 		if got := p.sentTo("discord:chat1"); len(got) != 0 {
@@ -128,5 +127,28 @@ func TestAskBounceResetByPlainReply(t *testing.T) {
 	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n又问")
 	if n := count(); n != 1 {
 		t.Fatalf("third bad ask would not wake: bounces = %d", n)
+	}
+}
+
+// A [report] or [ask] whose 「要你做的」 hands the user a command to run or a file to place goes back
+// for another route, a report too (user 11-10 「你自己搞，你忘了我跟你说的事情了么」).
+func TestWorkspaceExitSelfRouteGoesBack(t *testing.T) {
+	for _, reply := range []string{
+		"[report] #7 背景：你让我做这件事。\n代码写完了\n要你做的：在本机终端跑一次 sudo zsh setup.sh，输一次密码。\n我加的：无",
+		"[ask] #7 背景：你让我做这件事。\n只差真测\n要你做的：在本机终端跑一次 sudo zsh setup.sh，输一次密码。\n我加的：无\n自验：单测过\n类别：权限确认",
+	} {
+		e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
+		exitBoardItem(t, e, 7, "成员隔离")
+		exitSay(e, p, exitWSKey, "ws1", "开工")
+		inputPrompt(t, a)
+		inputDone(a, reply)
+		prompt := inputPrompt(t, a)
+		if !strings.Contains(prompt, "系统退回了你的") || !strings.Contains(prompt, "换路") || !strings.Contains(prompt, "终端") {
+			t.Fatalf("bounce turn = %q", prompt)
+		}
+		if got := p.sentTo("discord:chat1"); len(got) != 0 {
+			t.Fatalf("hand-off reached the chat channel: %q", got)
+		}
+		inputDone(a, "好，换路")
 	}
 }

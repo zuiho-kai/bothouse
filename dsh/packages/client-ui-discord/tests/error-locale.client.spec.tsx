@@ -78,6 +78,21 @@ describe('service refusals in the panel language', () => {
     }
   })
 
+  it('#1445 words a too-long refusal from the code and quotes the cap in characters', () => {
+    for (const language of ['zh', 'en'] as const) {
+      const t = translate(language)
+      // The service sentence is English and names the number, but the panel must not splice it.
+      const tooLong = new ServiceError(400, 'message exceeds 131072 characters', 'too-long')
+      expect(errorText(tooLong, t, 'send', '', { textChars: 131072 }))
+        .toBe(t('messageTooLarge', { limit: t('charCount', { count: 131072 }) }))
+      // Without a reported cap the panel falls back to the store's MAX_TEXT, never to the sentence.
+      expect(errorText(tooLong, t, 'other')).toBe(t('messageTooLarge', { limit: t('charCount', { count: 131072 }) }))
+      // A send failure with an unmapped code keeps its own verb.
+      expect(errorText(new ServiceError(500, 'connection reset', 'unavailable'), t, 'send'))
+        .toBe(t('sendFailed', { message: 'connection reset' }))
+    }
+  })
+
   it('shows the Chinese line in the Chinese settings dialog and the English one in English', async () => {
     for (const language of ['zh', 'en'] as const) {
       cleanup()

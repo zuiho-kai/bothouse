@@ -67,6 +67,18 @@ func TestTeamSummary(t *testing.T) {
 
 // Busy only counts in the channel the work goes to: a teammate busy in another channel or a DM
 // is still listed, marked as not blocking work here.
+func TestTeamSummaryListsIdleTeammate(t *testing.T) {
+	dir := t.TempDir()
+	e := newTestEngine()
+	e.name = "tju"
+	e.team = &teamState{dir: dir, name: "小橘", inject: true, seen: map[string]*teamSession{}}
+	writeTeamFile(t, dir, teamFile{Project: "tlong", Name: "小龙", Updated: time.Now(), Mention: "<@42>"})
+	got, _ := e.teamSummary("discord:111:727")
+	if !strings.Contains(got, "小龙：空着，可以派活（@ 用 <@42>）") {
+		t.Errorf("idle teammate missing:\n%s", got)
+	}
+}
+
 func TestTeamSummaryBusyElsewhereDoesNotBlock(t *testing.T) {
 	dir := t.TempDir()
 	e := newTestEngine()

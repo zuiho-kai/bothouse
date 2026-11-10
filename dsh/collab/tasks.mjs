@@ -666,6 +666,7 @@ export class Tasks {
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
+    if (this.hub.teamExit?.consumeRejected(msg.id)) return undefined;
     const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
     // Watch posts arrive as the lead. Ignore them before verdicts, stances, hand-backs or implicit reviews.
     if (msg.author === lead?.id && isWatchNotice(msg.text, this.hub.routableIn(msg.room_id))) return undefined;

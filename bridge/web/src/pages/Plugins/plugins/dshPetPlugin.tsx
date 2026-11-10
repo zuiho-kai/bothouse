@@ -5,8 +5,6 @@ import {
   ImageOff,
   Activity,
   ChevronDown,
-  Download,
-  ExternalLink,
   CheckCircle2,
   Sparkles,
   Boxes,
@@ -23,6 +21,7 @@ import {
 import { PetPlayer, type PetAction } from '../pets/PetPlayer';
 import { withBase } from '@/lib/basePath';
 import api from '@/api/client';
+import { PetPackSources } from './PetPackSources';
 
 export type PetPackFormat = 'webp-sprite' | 'webm' | '';
 
@@ -61,12 +60,6 @@ export interface PetAssetPack {
 }
 
 export const PET_ADAPTER_ID = 'dsh-pet';
-
-// 来源：用户指定的两种形象包上游；这里只提供链接，不声明本机已装。
-const SOURCES = [
-  { id: 'webp-source', name: 'WebP 精灵图来源', repo: 'https://github.com/hunmer/aboutme-pets' },
-  { id: 'webm-source', name: '透明 WebM 来源', repo: 'https://github.com/PC2005-cloud/dsh-pet' },
-];
 
 const STATE_LABELS: Record<RoleEventType, string> = {
   idle: '待机中', working: '干活中', thinking: '思考中',
@@ -448,7 +441,7 @@ function RolePetCard({
   );
 }
 
-function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onRoleBindingChange, bindingsDisabled }: PluginRenderProps) {
+function DshPetPluginView({ events, roles, petPacks = [], petShowcase = [], onPetPacksChanged, roleBindings = {}, onRoleBindingChange, bindingsDisabled }: PluginRenderProps) {
   const [displayMode, setDisplayMode] = useState<'single' | 'all'>('single');
   const availablePacks = useMemo(() => Object.fromEntries(petPacks.map(inst => [inst.id, {
     ...inst, installed: true, repo: '', description: `本机形象包，包含 ${inst.actionCount} 个动作。`,
@@ -471,7 +464,6 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
   };
   const currentPack = currentRole ? getPackForRole(currentRole) : null;
   const installedPacks = Object.values(availablePacks);
-  const uninstalledPacks = SOURCES;
 
   return (
     <div className="space-y-6" data-testid="dsh-pet-plugin-view">
@@ -613,7 +605,7 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
               <span>形象包适配管理与来源仓库</span>
             </h4>
             <p className="text-xs text-ink-mute">
-              严格区分本地已安装包与外部来源仓库，未装包提供去作者仓库下载链接，不作镜像转发。
+              开源形象包点了才从作者仓库下载，校验通过后可在插件页给角色选用。
             </p>
           </div>
           <Badge variant="outline" className="text-[11px] self-start sm:self-auto">
@@ -668,61 +660,7 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
           </div>
         </div>
 
-        {/* Group B: 来源仓库（未安装）形象包 */}
-        <div className="space-y-3 pt-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-ink">
-            <Download size={14} className="text-amber-500" />
-            <span>来源仓库形象包 ({uninstalledPacks.length})</span>
-            <span className="text-[11px] text-ink-mute font-normal">—— 未装入本机，仅展示来源，请前往原作者仓库下载</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {uninstalledPacks.map((pack) => (
-              <div
-                key={pack.id}
-                data-testid={`remote-pack-${pack.id}`}
-                className="rounded-xl border border-hairline bg-surface-sunken/40 p-3.5 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-1 pb-2 border-b border-hairline">
-                    <div>
-                      <span className="font-semibold text-ink text-xs">{pack.name}</span>
-                      <div className="mt-1 flex items-center gap-1">
-                        <Badge variant="outline" className="text-[9px] text-amber-600 border-amber-500/30">
-                          未安装 (仅来源仓库)
-                        </Badge>
-                      </div>
-                    </div>
-
-                  </div>
-
-                  <p className="text-[11px] text-ink-soft mt-2">前往来源仓库选择形象包并安装到本机。</p>
-
-                  <div className="mt-2.5 space-y-1 text-[11px] text-ink-mute bg-surface rounded p-2 ring-1 ring-hairline">
-                    <p>仅提供来源链接，不代表本机已安装。</p>
-                  </div>
-                </div>
-
-                <div className="mt-3 pt-2 border-t border-hairline">
-                  <a
-                    href={pack.repo}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-testid={`download-link-${pack.id}`}
-                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline bg-surface px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-surface-hover hover:text-accent transition-colors"
-                  >
-                    <Download size={12} />
-                    <span>去作者仓库下载</span>
-                    <ExternalLink size={10} className="text-ink-mute" />
-                  </a>
-                  <p className="mt-1 text-[10px] text-center text-ink-mute">
-                    不从 bothouse 转发或镜像
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PetPackSources showcase={petShowcase} onChanged={onPetPacksChanged} disabled={bindingsDisabled} />
       </div>
 
       {/* 5. Plugin Footer Specification */}
@@ -732,7 +670,7 @@ function DshPetPluginView({ events, roles, petPacks = [], roleBindings = {}, onR
           <span>形象包适配规范说明</span>
         </div>
         <p className="text-[11px] leading-relaxed">
-          bothouse 仅提供前端形象包适配器（支持透明 WebM 与 hunmer/aboutme-pets 透明 WebP 精灵图规范）。所有素材均由用户本机自行安装或前往原作者仓库下载，仓库内不内置任何第三方素材文件；未安装的包请参阅来源仓库链接下载使用。
+          bothouse 仅提供前端形象包适配器（支持透明 WebM 与 hunmer/aboutme-pets 透明 WebP 精灵图规范）。所有素材均由用户本机自行安装或前往原作者仓库下载，仓库内不内置任何第三方素材文件；未安装的包可在上面从作者仓库按需下载并校验，使用限制见各卡片的许可说明。
         </p>
       </div>
     </div>

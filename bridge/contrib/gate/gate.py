@@ -329,9 +329,8 @@ def _cc_projects():
 def _project_member(project):
     """cc-connect 的 project 名 → 成员 key：subs 的 key 就是 project 名（gate_url 的 ?bot=）；
     主角色的 project 名在团队文件 lead 的 aliases 里（安装向导写 gate-team.json 时放进去的，core/setup_wizard.go）。"""
-    if project in SUBS:
-        return project
-    return "" if project in LEAD_NAMES else None
+    k = lead.member(project)
+    return k if k == "" or k in SUBS else None
 
 
 def _discord_opts():
@@ -845,7 +844,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
-        bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
+        bot = lead.member(urllib.parse.parse_qs(url.query).get("bot", [""])[0])
         if url.path == "/lead":  # 主角色自己来问 / 自己来当（用户 2026-10-21：「每个角色都可以去选择当主，他自己有个功能接口过去搞」）
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             action = (req.get("action") or "get").strip()

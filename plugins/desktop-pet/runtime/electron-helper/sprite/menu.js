@@ -7,6 +7,14 @@
  */
 'use strict';
 
+// bothouse fork（#549）：右键「大小」的三档。中档 260 来自用户 22:59「默认尺寸调小（参照线上旧桌宠 260）」；
+// 小、大两档按中档的约 0.75 倍、1.4 倍取整（都在上游默认 462 以内）。
+const PET_SIZES = [
+  ['小', 200],
+  ['中', 260],
+  ['大', 360],
+];
+
 // 菜单首项文案随宿主形态变：桌面应用唤起主窗口，独立模式打开本机 AI 设置页，web 宿主打开站点。
 const OPEN_LABEL = { desktop: '打开软件', standalone: '打开 AI 设置', web: '打开网站' };
 
@@ -61,6 +69,15 @@ Object.assign(PetSprite.prototype, {
       // 与浏览器端注入同一份子菜单，两端文案与取值不会漂移。不就地开关窗：窗口是进程启动时按
       // DSH_PET_PETS 一次性建的，就地增删既改不了磁盘配置也改不了窗口数量。
       S.displayMenuBranch(),
+      // bothouse fork（#549）：每只自己的大小，写回这只所在的配置层（POST /pet-size），由宿主重载生效。
+      {
+        label: '大小',
+        children: PET_SIZES.map(([label, size]) => ({
+          label: (this.pet.size === size ? '✓ ' : '　') + label + '（' + size + '）',
+          action: 'set-size',
+          size,
+        })),
+      },
       // 重载配置：请宿主重启桌面 Helper，全部窗口按最新配置重建。维护动作，排在回到初始位置之前。
       { label: '重载配置', action: 'reload' },
       { label: '回到初始位置', action: 'home' },
@@ -151,6 +168,10 @@ Object.assign(PetSprite.prototype, {
     }
     if (leaf.action === 'skin-install') {
       this.installSkin(leaf.skin, leaf.label); // bothouse fork：装推荐形象
+      return;
+    }
+    if (leaf.action === 'set-size') {
+      this.setPetSize(leaf.size); // bothouse fork：改这只宠物的大小
       return;
     }
     if (leaf.action === 'set-display') {
@@ -485,6 +506,16 @@ Object.assign(PetSprite.prototype, {
   // 「显示位置」菜单：改这一只宠物的 display，写它自己的配置，再由宿主重载生效。取值直接来自菜单项，
   // 渲染端不做推导（当前状态以配置为准）。不就地开关窗：窗口是进程启动时按 DSH_PET_PETS 一次性建的。
   // 与 reloadDesktop 同一处境：选「仅网页/都不」时本进程会在重载中被换掉，故不 await、不重试。
+  /** bothouse fork（#549）：改这只宠物的大小，宿主写回配置并重建窗口。 */
+  setPetSize(size) {
+    if (!size) return;
+    fetch(BASE + '/pet-size', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: this.pet.id, size }),
+    }).catch((e) => console.warn('[dsh-pet] 改大小失败', e));
+  },
+
   setPetDisplay(display) {
     if (!display) return;
     fetch(BASE + '/pet-display', {

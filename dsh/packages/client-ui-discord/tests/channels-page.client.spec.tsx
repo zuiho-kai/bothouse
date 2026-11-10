@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChannelsPage, type ChannelsPageProps } from '../src/client/ChannelsPage.tsx'
-import { createChannelSource, type ChannelSnapshot, type ChannelTransport } from '../src/client/channel-source.ts'
+import { ServiceError, createChannelSource, type ChannelSnapshot, type ChannelTransport } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from '../src/client/ChannelsPage.module.css'
@@ -638,6 +638,63 @@ describe('channels page', () => {
     expect(input.value).toBe('')
   })
 
+  it('#1445 blocks a plain text over the service character cap before any request is sent', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    // The service compares text.length against MAX_TEXT (collab/store.mjs:8); 131072 「超」字 is
+    // ~400 KB, well under the 8 MiB byte budget, so only a character check refuses it here.
+    fireEvent.change(input, { target: { value: '超'.repeat(131_072 + 1) } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toBe('消息太长：一条消息不能超过 131072 字符')
+    expect(input.value.length).toBe(131_072 + 1)
+  })
+
+  it('#1445 sends a 20000-character message as usual', async () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const text = '字'.repeat(20_000)
+    fireEvent.change(input, { target: { value: text } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).toHaveBeenCalledExactlyOnceWith(text, undefined, undefined, 1)
+    await act(async () => {})
+  })
+
+  it('#1445 words a service `too-long` refusal in Chinese instead of its English sentence', async () => {
+    const send = vi.fn(async () => { throw new ServiceError(400, 'message exceeds 131072 characters', 'too-long') })
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'hello' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(screen.getByRole('alert').textContent).toBe('消息太长：一条消息不能超过 131072 字符')
+    expect(screen.getByRole('alert').textContent).not.toContain('message exceeds')
+    // The draft stays, so the person can shorten it rather than retype it.
+    expect(input.value).toBe('hello')
+  })
+
+  it('#1445 words the same refusal on the slash-command send path', async () => {
+    const send = vi.fn(async () => { throw new ServiceError(400, 'message exceeds 131072 characters', 'too-long') })
+    render(<ChannelsPage {...props({ ...ready, thinking: {} }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/status' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    // sendCommand posts the addressed line directly, without a room id (dsh/packages/client-ui-discord/src/client/ChannelsPage.tsx).
+    expect(send).toHaveBeenCalledExactlyOnceWith('@橘 /status')
+    expect(screen.getByRole('alert').textContent).toBe('消息太长：一条消息不能超过 131072 字符')
+  })
+
+  it('#1445 quotes the cap the service reported, not a hard-coded one', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props({ ...ready, thinking: {}, maxTextChars: 64 }, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '字'.repeat(65) } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toBe('消息太长：一条消息不能超过 64 字符')
+  })
+
   it('does not send on the Enter that confirms an iOS/Safari IME composition (keyCode 229)', () => {
     const send = vi.fn(() => Promise.resolve())
     render(<ChannelsPage {...props(ready, send)} />)
@@ -880,7 +937,7 @@ describe('channels page', () => {
     fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
     fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000deepseek-v4.1-flash' } })
     fireEvent.change(screen.getByLabelText(zh.memberPersona), { target: { value: '写代码' } })
-    expect(dialog.querySelectorAll('[role="radiogroup"][aria-labelledby="member-avatar-label"] [role="radio"]')).toHaveLength(6)
+    expect(dialog.querySelectorAll('[role="radiogroup"][aria-labelledby="member-avatar-label"] [role="radio"]')).toHaveLength(7)
     fireEvent.click(dialog.querySelector('[role="radio"][title="whale"]') as Element)
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()

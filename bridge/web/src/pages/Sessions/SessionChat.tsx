@@ -131,7 +131,7 @@ function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void 
         {el.buttons?.map((btn: any, j: number) => (
           <button key={j} onClick={() => onAction(btn.value)} className={cn(
             'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-            btn.btn_type === 'primary' ? 'bg-accent text-black hover:bg-accent-dim' :
+            btn.btn_type === 'primary' ? 'bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim' :
             btn.btn_type === 'danger' ? 'bg-red-500 text-white hover:bg-red-600' :
             'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700',
           )}>
@@ -145,7 +145,7 @@ function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void 
     return (
       <div className="flex items-center justify-between">
         <span className="text-sm text-gray-700 dark:text-gray-300">{el.text}</span>
-        <button onClick={() => onAction(el.btn_value)} className="px-2.5 py-1 rounded-lg text-xs font-medium bg-accent text-black hover:bg-accent-dim">
+        <button onClick={() => onAction(el.btn_value)} className="px-2.5 py-1 rounded-lg text-xs font-medium bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim">
           {el.btn_text}
         </button>
       </div>
@@ -185,7 +185,7 @@ function ButtonsBlock({ content, buttons, onAction }: { content: string; buttons
       {buttons.map((row, i) => (
         <div key={i} className="flex flex-wrap gap-2">
           {row.map((btn, j) => (
-            <button key={j} onClick={() => onAction(btn.data)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-black hover:bg-accent-dim transition-colors">
+            <button key={j} onClick={() => onAction(btn.data)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim transition-colors">
               {btn.text}
             </button>
           ))}
@@ -491,7 +491,7 @@ export default function SessionChat() {
               <div className={cn(
                 'group/msg relative rounded-2xl px-5 py-3.5 text-sm',
                 isUser
-                  ? 'max-w-[70%] bg-accent text-black rounded-br-md'
+                  ? 'max-w-[70%] bg-accent text-white dark:text-black yellow:text-gray-900 rounded-br-md'
                   : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md',
                 msg.streaming && 'animate-pulse-subtle',
               )}>
@@ -557,7 +557,7 @@ export default function SessionChat() {
             <button
               onClick={handleSend}
               disabled={sending || !input.trim()}
-              className="px-4 py-3 rounded-xl bg-accent text-black hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center gap-2"
+              className="px-4 py-3 rounded-xl bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center gap-2"
             >
               {sending ? (
                 <Loader2 size={18} className="animate-spin" />

@@ -465,6 +465,9 @@ type Engine struct {
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
 	callerMu                     sync.Mutex                      // guards callerTurns (caller_identity.go)
+	memberWSMu                   sync.Mutex                      // guards memberWS / memberWSSave (member_workspace.go)
+	memberWS                     bool                            // member_workspaces: personal dirs + own GitHub auth per person
+	memberWSSave                 func(on bool) error             // persists `bothouse member enable|disable`
 	callerTurns                  map[string]callerTurn           // session → sender of the turn running now
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)
@@ -472,8 +475,11 @@ type Engine struct {
 	team                         *teamState                      // maomao fork: team status board (nil = off)
 	displayName                  atomic.Pointer[string]          // team_name from config ("" / nil = the project name); see DisplayName
 	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	teamWSGatherFailed           sync.Map                        // workspace channel ID → not movable into the workspace category this run (gatherTeamWorkspaces)
 	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	experienceDir                string                          // team memory folder for personal agents' lessons (team_experience.go; "" = off)
+	personalAgents               []string                        // bot IDs of personal agents (team_experience.go)
 	lifePage                     string                          // life_page: "how she is now" file put before every turn (lifepage.go; "" = off)
 	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
@@ -807,7 +813,16 @@ type interactiveState struct {
 	// currentTurnUserMessageTimeMs is the UserMessageTimeMs for the in-flight
 	// foreground turn (including a queued turn after EventResult).
 	currentTurnUserMessageTimeMs int64
+	// turnStartedAt is when the running turn began, for the queue receipt's "current
+	// task has been running %s" (#545: a message that waited behind an 8m22s turn got
+	// the plain "will process after the current task" line and read as lost).
+	// Guarded by mu; zero until a turn starts.
+	turnStartedAt time.Time
 }
+
+// markTurnStartLocked records the start of the turn that owns currentMessageID. Caller
+// holds state.mu.
+func (s *interactiveState) markTurnStartLocked() { s.turnStartedAt = time.Now() }
 
 // latestUserMessageWatermarkLocked returns the highest UserMessageTimeMs among
 // completed turns, the in-flight turn, and queued messages for this session.
@@ -2589,6 +2604,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		shellCmd = exec.CommandContext(ctx, "sh", "-c", job.Exec)
 	}
 	shellCmd.Dir = workDir
+	ownScheduledShell(shellCmd)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -2757,6 +2773,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 
 	shellCmd := shellExecCommand(ctx, e.shell, e.shellFlag, e.shellProfile, job.Exec)
 	shellCmd.Dir = workDir
+	ownScheduledShell(shellCmd)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -3589,6 +3606,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.handleMessageRecall(p, msg)
 		return
 	}
+	e.collectExperience(msg)
 	if e.team != nil {
 		// The shared lead file can change without restarting any role. Refresh
 		// lead-only board/workspace services before handling the next message.
@@ -4165,18 +4183,40 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 
+	// #545: age of the running turn at enqueue time, not this message's wait.
+	// Message waiting time requires correlating enqueue and processing timestamps.
+	turnElapsed := time.Duration(0)
+	if !state.turnStartedAt.IsZero() {
+		turnElapsed = time.Since(state.turnStartedAt).Round(time.Second)
+	}
 	slog.Info("message queued for busy session",
 		"session", msg.SessionKey,
 		"user", msg.UserName,
 		"queue_depth", queueDepth,
+		"turn_elapsed", turnElapsed,
+		"mentioned", msg.Mentioned,
 	)
 	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
 		// Cron/timer/heartbeat turns have no human waiting; the receipt is channel noise (11-02 restart burst).
 		if !e.skipQueuedNotice.Load() && msg.timerJobID == "" && scheduledFrom == nil && !scheduledTurnUser(msg.UserID) {
-			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgMessageQueued))
+			e.replyToAuthorizedMessage(p, msg, e.queueReceiptText(state, queueDepth))
 		}
 	}
 	return queueAccepted
+}
+
+// queueReceiptText renders the receipt for a message queued behind a running turn.
+// Always include status and the consequences of /stop: an early arrival may wait
+// behind a long turn with no later message to trigger an updated receipt (#882).
+// Caller holds state.mu (turnStartedAt is guarded by it).
+func (e *Engine) queueReceiptText(state *interactiveState, depth int) string {
+	base := e.i18n.T(MsgMessageQueued)
+	elapsed := e.i18n.T(MsgMessageQueuedAgeUnknown)
+	if !state.turnStartedAt.IsZero() {
+		// 来源: #545 返工要求秒级入队也显示时长；沿用 Go duration 的秒精度。
+		elapsed = time.Since(state.turnStartedAt).Truncate(time.Second).String()
+	}
+	return base + "\n" + e.i18n.Tf(MsgMessageQueuedWaiting, elapsed, depth)
 }
 
 // queueForBusySession queues msg behind the turn running on session (see
@@ -4894,6 +4934,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.injectedReplyCtxs = nil
 	state.currentMessageID = msg.MessageID
 	state.currentTurnUserMessageTimeMs = msg.UserMessageTimeMs
+	state.markTurnStartLocked()
 	state.mu.Unlock()
 	state.lastEventAt.Store(time.Now().UnixNano())
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
@@ -6305,6 +6346,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
+		state.markTurnStartLocked()
 		state.mu.Unlock()
 	}
 
@@ -6424,6 +6466,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), outputCtx, workspaceRenderer)
 	cp := newCompactProgressWriter(outputCtx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	cp.mirrorFor = e.taskThreadProgressContext(outputCtx, inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
+	if state.turnScheduled && !e.isTeamWorkspaceChat(sessionKey) {
+		cp.hideForScheduled()
+	}
 	state.mu.Unlock()
 
 	// maomao fork: this turn's row on the channel task board; the card's steps
@@ -7944,6 +7989,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.currentMessageID = queued.messageID
 				state.fromVoice = queued.fromVoice
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+				state.markTurnStartLocked()
 				state.turnDesc = queued.boardDesc // maomao fork: channel task board
 				state.turnScheduled = scheduledTurnUser(queued.userID)
 				state.currentJobID = queued.timerJobID
@@ -8629,6 +8675,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentMessageID = queued.messageID
 		state.fromVoice = queued.fromVoice
 		state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+		state.markTurnStartLocked()
 		state.turnDesc = queued.boardDesc // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(queued.userID)
 		state.mu.Unlock()
@@ -9605,6 +9652,9 @@ func (e *Engine) withSharedMemoryHint(prompt string, agent Agent, msg *Message, 
 	dir := workspaceDir
 	if dir == "" {
 		dir = e.commandWorkDir(agent, msg)
+	}
+	if hint := e.experienceHint(); hint != "" {
+		prompt += "\n\n" + hint
 	}
 	if hint := sharedMemoryHint(dir, msg.SessionKey); hint != "" {
 		return prompt + "\n\n" + hint
@@ -10815,7 +10865,11 @@ func (e *Engine) formatShellTimeout(cmdLabel, output string, maxOutput int) stri
 
 func killAndWait(cmd *exec.Cmd, doneCh <-chan struct{}) {
 	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
+		if cmd.Cancel != nil {
+			_ = cmd.Cancel()
+		} else {
+			_ = cmd.Process.Kill()
+		}
 	}
 	<-doneCh
 }
@@ -13905,6 +13959,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 	}
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
+	e.noteWorkspaceFiles(sessionKey, files)
 	for _, file := range files {
 		if err := e.waitOutgoing(p); err != nil {
 			return err
@@ -14012,6 +14067,7 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		}
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
+	e.noteWorkspaceFiles(target.sessionKey, files)
 	for _, file := range files {
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err

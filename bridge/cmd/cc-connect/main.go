@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/chenhg5/cc-connect/agent/antigravityhook"
 	"io"
 	"log/slog"
 	"os"
@@ -219,6 +220,8 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"wake":         runWake,
 	"progress":     runProgress,
 	"identity":     runIdentity,
+	"member":       runMember,
+	"about":        runAbout,
 	"guard":        runGuard,
 	"task":         runTask,
 	"handoff":      runHandoff,
@@ -266,6 +269,10 @@ func runMain() {
 	// this internal command before update checks, logging, or normal CLI setup.
 	if len(os.Args) > 1 && os.Args[1] == "_agy-permission-hook" {
 		runAntigravityPermissionHook()
+		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == antigravityhook.InboxHookArg {
+		_ = antigravityhook.RunInboxHook(os.Args[2], os.Stdin, os.Stdout, os.Getenv(antigravityhook.EnvInbox))
 		return
 	}
 
@@ -381,6 +388,11 @@ func runMain() {
 	}
 
 	config.ConfigPath = configPath
+	// Roles inherit this env: `bothouse about` reads the same config the bridge runs with,
+	// wherever --config put it (doctor already reads CC_CONFIG_PATH).
+	if abs, err := filepath.Abs(configPath); err == nil {
+		_ = os.Setenv("CC_CONFIG_PATH", abs)
+	}
 	slog.Info("config loaded", "path", configPath)
 
 	if len(cfg.Projects) == 0 {
@@ -445,6 +457,12 @@ func runMain() {
 	// the self-hosted platform the setup wizard started on this machine (<data_dir>/hub/hub.json):
 	// start it again if it is not running (after a reboot); the cloud_web bots reconnect on their own
 	core.UpdateStateDir = cfg.DataDir
+	// After an upgrade, installed hook scripts follow this version too (they were only written by setup hooks on).
+	if refreshed, err := core.RefreshAgentHookScripts(cfg.DataDir, version); err != nil {
+		slog.Warn("hook scripts refresh failed", "dir", core.AgentHooksDir(cfg.DataDir), "error", err)
+	} else if refreshed {
+		slog.Info("hook scripts refreshed", "version", version)
+	}
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
@@ -1345,15 +1363,19 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
+	engine.SetGateSenderSilence(proj.GateSenderSilenceEnabled(), proj.GateSenderSilenceMs, proj.GateSenderSilenceMax)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
 	engine.SetFallbackModels(proj.FallbackModels)
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
 	engine.SetLifePage(proj.LifePage)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
+	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
@@ -1867,6 +1889,7 @@ Commands:
                      (-m <text> | --stdin, -p <project>, -s <session>)
 
   identity           Signed caller identity of the current turn
+  about              What bothouse is, how it compares, and this machine's roles/platforms
     token / show     Fetch this turn's signed token (who started the turn)
     pubkey           Print the bridge public key for guard hosts
 
@@ -2087,15 +2110,19 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
+	engine.SetGateSenderSilence(proj.GateSenderSilenceEnabled(), proj.GateSenderSilenceMs, proj.GateSenderSilenceMax)
 	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
 	engine.SetFallbackModels(proj.FallbackModels)
 	engine.SetTeam(projectTeamStatus(cfg.DataDir, *proj))
 	engine.SetChannelBoard(proj.ChannelBoard)
 	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
 	engine.SetLifePage(proj.LifePage)
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
+	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)

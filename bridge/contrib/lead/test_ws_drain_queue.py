@@ -33,6 +33,19 @@ class DrainQueue(unittest.TestCase):
         self.assertEqual(lead_chat("room:w2"), "room:main")    # 空着的工作区 → 最近一件交接的频道
         self.assertEqual(lead_chat("room:main"), "room:main")  # 聊天频道原样
 
+    def test_notes_chat_wins_over_running_chat(self):
+        # #1346：交接「原话出处」写的聊天频道和跑命令的不同 → 按交接的记；没写、相同、在工作区里跑 → 原样
+        self.state.write_text(json.dumps({"parents": {"room:main": [{"id": "w1", "name": "工作区1"}]}, "handoffs": {}}))
+        nc = self.mod["notes_chat"]
+        src = "## 原话出处（程序附）\n- 聊天频道：room:mv\n- 时间窗：x\n"
+        self.assertEqual(nc("# t\n" + src, "room:main"), "room:mv")
+        self.assertEqual(nc("# t\n", "room:main"), "room:main")
+        self.assertEqual(nc("# t\n" + src.replace("room:mv", "room:main"), "room:main"), "room:main")
+        self.assertEqual(nc("# t\n" + src, "room:w1"), "room:w1")       # 工作区里跑：交给 lead_chat
+        self.assertEqual(nc("# t\n" + src.replace("room:mv", "room:w1"), "room:main"), "room:main")  # 写的是工作区
+        self.assertEqual(nc("# t\n" + src.replace("room:mv", "feishu:x"), "room:main"), "room:main")  # 跨平台
+        self.assertEqual(nc("- 聊天频道：room:mv\n", "room:main"), "room:main")  # 不在原话出处节里不算
+
     def test_failed_item_keeps_place_and_does_not_block_rest(self):
         self.queue.write_text(json.dumps([
             {"nid": 1, "path": "a", "task": "坏的", "chat": "room:w2"},

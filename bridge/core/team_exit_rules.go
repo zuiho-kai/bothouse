@@ -66,11 +66,30 @@ type teamExitRulesDoc struct {
 		Sep       string `json:"sep"`
 		Missing   string `json:"missing"`
 	} `json:"scope"`
+	Entry struct {
+		LabelRe     string `json:"label_re"`
+		PathRe      string `json:"path_re"`
+		FileRe      string `json:"file_re"`
+		URLRe       string `json:"url_re"`
+		Missing     string `json:"missing"`
+		MissingFile string `json:"missing_file"`
+	} `json:"entry"`
 	Generic struct {
 		CCOnlyRe string `json:"cc_only_re"`
 		SourceRe string `json:"source_re"`
 		Msg      string `json:"msg"`
 	} `json:"generic"`
+	SelfRoute struct {
+		TodoRe     string `json:"todo_re"`
+		EndRe      string `json:"end_re"`
+		NoneRe     string `json:"none_re"`
+		AskLineRe  string `json:"ask_line_re"`
+		HandRe     string `json:"hand_re"`
+		MineRe     string `json:"mine_re"`
+		NegRe      string `json:"neg_re"`
+		OnlyUserRe string `json:"only_user_re"`
+		Msg        string `json:"msg"`
+	} `json:"self_route"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
 		URLRe   string `json:"url_re"`
@@ -78,6 +97,12 @@ type teamExitRulesDoc struct {
 		Line    string `json:"line"`
 		Table   string `json:"table"`
 	} `json:"jargon"`
+	Length struct {
+		MaxSentences int      `json:"max_sentences"`
+		EndRe        string   `json:"end_re"`
+		Parts        []string `json:"parts"`
+		Msg          string   `json:"msg"`
+	} `json:"length"`
 }
 
 type teamExitRules struct {
@@ -87,6 +112,9 @@ type teamExitRules struct {
 	artNotes, artCompare, artImage                                                     *regexp.Regexp
 	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
 	ccOnly, ccSource                                                                   *regexp.Regexp
+	entryLabel, entryPath, entryFile, entryURL                                         *regexp.Regexp
+	srTodo, srEnd, srNone, srAskLine, srHand, srMine, srNeg, srOnlyUser                *regexp.Regexp
+	sentenceEnd                                                                        *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -119,6 +147,13 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
 		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
 		{&r.ccOnly, r.Generic.CCOnlyRe}, {&r.ccSource, r.Generic.SourceRe},
+		{&r.entryLabel, r.Entry.LabelRe}, {&r.entryPath, r.Entry.PathRe}, {&r.entryFile, r.Entry.FileRe},
+		{&r.entryURL, r.Entry.URLRe},
+		{&r.srTodo, r.SelfRoute.TodoRe}, {&r.srEnd, r.SelfRoute.EndRe}, {&r.srNone, r.SelfRoute.NoneRe},
+		{&r.srAskLine, r.SelfRoute.AskLineRe},
+		{&r.srHand, r.SelfRoute.HandRe}, {&r.srMine, r.SelfRoute.MineRe},
+		{&r.srNeg, r.SelfRoute.NegRe}, {&r.srOnlyUser, r.SelfRoute.OnlyUserRe},
+		{&r.sentenceEnd, r.Length.EndRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -308,6 +343,53 @@ func summaryProblems(summary string) []string {
 	return problems
 }
 
+// lengthProblems: a part for the user over the sentence limit (user 11-10「为什么回复那么长」「把这个太长也
+// 处理一下」: a 6–7 sentence 背景/做了什么 reached the chat channel as written). It goes back to be
+// rewritten, never cut. Parts: line 0 背景; then 做了什么 up to the 「要你做的：」 match; 要你做的 up to the
+// 「我加的：」 line; 我加的 to the end.
+func lengthProblems(summary string) []string {
+	max := exitRules.Length.MaxSentences
+	if max <= 0 || len(exitRules.Length.Parts) < 4 {
+		return nil
+	}
+	texts := make([]string, 4)
+	part := 0
+	for i, l := range strings.Split(summary, "\n") {
+		if i > 0 && part == 0 {
+			part = 1
+		}
+		if part < 2 {
+			if loc := exitRules.todo.FindStringIndex(l); loc != nil {
+				texts[part] += " " + l[:loc[0]]
+				part, l = 2, l[loc[0]:]
+			}
+		}
+		if part < 3 && exitRules.added.MatchString(l) {
+			part = 3
+		}
+		texts[part] += " " + l
+	}
+	var problems []string
+	for i, t := range texts {
+		if n := sentenceCount(t); n > max {
+			problems = append(problems, strings.NewReplacer("{part}", exitRules.Length.Parts[i],
+				"{n}", strconv.Itoa(n), "{max}", strconv.Itoa(max)).Replace(exitRules.Length.Msg))
+		}
+	}
+	return problems
+}
+
+// sentenceCount: sentences in s, split at sentence ends; a tail with no end counts as one.
+func sentenceCount(s string) int {
+	n := 0
+	for _, seg := range exitRules.sentenceEnd.Split(s, -1) {
+		if strings.TrimSpace(seg) != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // askEvidenceProblems lists what an [ask] body lacks; nil means it may go to the user.
 func askEvidenceProblems(body string) []string {
 	var problems []string
@@ -408,6 +490,66 @@ func scopeChangeItems(notes string) []scopeItem {
 	return items
 }
 
+// entryReportProblems: a [report] must carry evidence that the work was walked through where the
+// user actually uses it (user 11-10 「都做」 on 「交回前必须在你实际用的入口走一遍并带证据，没有就交不出去」).
+// The evidence is on a 「入口自验：」 line or the lines right after it (up to a blank line, a fenced
+// block that opens there runs to its close): a screenshot / recording / deliverable path (local
+// ones must exist), a link, or command output in a ``` block. A bare 「已验」 is not evidence. A
+// report waiting on something outside (「等外部：」) has not delivered yet and is not checked.
+func entryReportProblems(body string, exists func(string) bool) []string {
+	if _, _, waiting := waitExternalOf(body); waiting {
+		return nil
+	}
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	found := false
+	var missing []string
+	for i := 0; i < len(lines); i++ {
+		loc := exitRules.entryLabel.FindStringIndex(lines[i])
+		if loc == nil {
+			continue
+		}
+		block := []string{lines[i][loc[1]:]}
+		fence := false
+		for j := i + 1; j < len(lines); j++ {
+			t := strings.TrimSpace(lines[j])
+			if strings.HasPrefix(t, "```") {
+				if fence {
+					found = true // a closed fenced block: command output pasted as evidence
+				}
+				fence = !fence
+				continue
+			}
+			if !fence && (t == "" || exitRules.entryLabel.MatchString(lines[j])) {
+				break
+			}
+			block = append(block, lines[j])
+		}
+		for _, ln := range block {
+			if exitRules.entryURL.MatchString(ln) {
+				found = true
+			}
+			for _, p := range exitRules.entryPath.FindAllString(exitRules.entryURL.ReplaceAllString(ln, " "), -1) {
+				p = strings.TrimRight(p, ".:：。")
+				if !exitRules.entryFile.MatchString(p) {
+					continue
+				}
+				if exists(p) {
+					found = true
+				} else {
+					missing = append(missing, p)
+				}
+			}
+		}
+	}
+	if len(missing) > 0 {
+		return []string{strings.ReplaceAll(exitRules.Entry.MissingFile, "{path}", missing[0])}
+	}
+	if !found {
+		return []string{exitRules.Entry.Missing}
+	}
+	return nil
+}
+
 // genericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for
 // Claude Code only (只给/只装/只做/仅 Claude Code or cc) goes back unless the same line gives a
 // 「来源：」 for why another CLI cannot have it (task #875: bothouse capabilities must work on every CLI).
@@ -423,6 +565,72 @@ func genericReportProblems(body string) []string {
 		}
 	}
 	return nil
+}
+
+// SelfRouteProblems: the 「要你做的」 part of an [ask]/[report] (or a reply to the user) hands the user
+// work the agent could do itself: put a file somewhere, run a command, change a setting (user 11-10
+// 「你自己搞，你忘了我跟你说的事情了么」; the plan he approved: what can be undone, the agent does; only
+// real money, publishing, deleting and a change of direction go to him). The reason names the hit
+// and the other routes to try. Things only the user can do (scan a code, a verification code,
+// paying, hands on hardware) pass. nil: nothing to send back.
+func SelfRouteProblems(body string) []string {
+	if hit := selfRouteHit(body); hit != "" {
+		return []string{strings.ReplaceAll(exitRules.SelfRoute.Msg, "{hit}", hit)}
+	}
+	return nil
+}
+
+// selfRouteHit: the first hand-off phrase in the 「要你做的」 part, "" when there is none. Text with
+// no 「要你做的」 at all (a plain reply in a chat channel) is read line by line: a line that asks
+// something of the reader (「请把……」「你先……」) is checked the same way.
+func selfRouteHit(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	if exitRules.srTodo.FindStringIndex(body) == nil {
+		for _, ln := range strings.Split(body, "\n") {
+			if exitRules.srAskLine.MatchString(ln) {
+				if hit := handHit(ln); hit != "" {
+					return hit
+				}
+			}
+		}
+		return ""
+	}
+	for {
+		loc := exitRules.srTodo.FindStringIndex(body)
+		if loc == nil {
+			return ""
+		}
+		body = body[loc[1]:]
+		first, more, _ := strings.Cut(body, "\n")
+		if exitRules.srNone.MatchString(first) {
+			continue
+		}
+		part := []string{first}
+		for _, ln := range strings.Split(more, "\n") {
+			if exitRules.srEnd.MatchString(ln) {
+				break
+			}
+			part = append(part, ln)
+		}
+		if hit := handHit(strings.Join(part, "\n")); hit != "" {
+			return hit
+		}
+	}
+}
+
+// handHit: the hand-off phrase in s, "" when s has none or names something only the user can do. A
+// phrase after 「我就/我再/我来……」 is the agent's own next step, not the user's (11-07 「回「发」我就合主干……
+// 再实装一次」); one right after 「不用/无需/别」 is negated (10-31 「接上就生效，不用再重启」).
+func handHit(s string) string {
+	if exitRules.srOnlyUser.MatchString(s) {
+		return ""
+	}
+	for _, loc := range exitRules.srHand.FindAllStringIndex(s, -1) {
+		if pre := s[:loc[0]]; !exitRules.srMine.MatchString(pre) && !exitRules.srNeg.MatchString(pre) {
+			return strings.TrimSpace(s[loc[0]:loc[1]])
+		}
+	}
+	return ""
 }
 
 // jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
@@ -479,7 +687,7 @@ func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 	} else if v.ID, v.Line, hp = exitHeadline(body); hp == nil && !known(v.ID) {
 		hp = []string{strings.ReplaceAll(exitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
 	} else if hp == nil {
-		hp = append(summaryProblems(v.Line), jargonProblems(v.Line)...)
+		hp = append(append(summaryProblems(v.Line), jargonProblems(v.Line)...), lengthProblems(v.Line)...)
 	}
 	// Format goes back only while bounces still wake the bot; after that the chat lead rewrites it
 	// (user 10-30: not posted as written any more). A missing [ask] self-check always goes back.

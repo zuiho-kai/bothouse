@@ -66,6 +66,20 @@ export const MAX_MESSAGE_BODY = 8 * 1024 * 1024
 /** #197: fallback when the service does not report its cap (`max_upload_bytes`); matches collab's DEFAULT_MAX_UPLOAD_BYTES. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
+/**
+ * #1445: fallback text cap when the service does not report `max_text_chars`.
+ * 来源：dsh/collab/store.mjs:8 `MAX_TEXT = 128 * 1024`，同一数值也由 `/collab/api/state` 的
+ * `max_text_chars` 回传；这份抄写只覆盖还没有该字段的旧宿主。
+ */
+export const DEFAULT_MAX_TEXT_CHARS = 128 * 1024
+
+/**
+ * #1445: whether the typed text alone exceeds the service's character cap. The service compares
+ * `text.length` against MAX_TEXT (collab/store.mjs), so this must count characters too — a byte
+ * count would let 131072 Chinese characters (about 400 KB) through to a `too-long` refusal.
+ */
+export const textTooLarge = (text: string, maxChars: number): boolean => text.length > maxChars
+
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 export const messageTooLarge = (text: string, attachments: readonly OutgoingAttachment[]): boolean =>
   new TextEncoder().encode(JSON.stringify({ text, client_key: randomUUID(), reply_to: Number.MAX_SAFE_INTEGER, attachments })).length > MAX_MESSAGE_BODY
@@ -339,6 +353,8 @@ export interface ChannelSnapshot {
   readonly unread?: Readonly<Record<string, number>>
   /** #197: one attachment's cap in bytes, as the service reports it (composer checks before sending). */
   readonly maxUploadBytes?: number
+  /** #1445: the service's message-text cap in characters (`max_text_chars`), read back from `/collab/api/state`. */
+  readonly maxTextChars?: number
 }
 
 /** Actions the panel can take; each returns once the service answered. */
@@ -438,7 +454,7 @@ type ServiceEvent =
 
 const INITIAL: ChannelSnapshot = {
   phase: 'idle', error: undefined, rooms: [], roomId: undefined, members: [], thinking: {}, messages: [], leadId: null, tasks: [], taskChat: undefined,
-  hasMoreOlder: false, outbox: [], maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
+  hasMoreOlder: false, outbox: [], maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES, maxTextChars: DEFAULT_MAX_TEXT_CHARS,
 }
 
 /** Position of message `id` in rows ascending by id, or -1. */
@@ -524,8 +540,12 @@ export class ServiceError extends Error {
   }
 }
 
-/** Which field a failure came from, so one service code can be worded for it (#268). */
-export type ErrorPlace = 'room' | 'member' | 'other'
+/**
+ * Which field a failure came from, so one service code can be worded for it (#268).
+ * `send` is the composer's own send failure: its fallback keeps the `发送失败` line, while the
+ * codes it can word itself (a `too-long` text, #1445) replace that line instead.
+ */
+export type ErrorPlace = 'room' | 'member' | 'send' | 'other'
 
 /** 工作区<n> is how a workspace is addressed, so the store refuses that shape for a chat channel (collab/store.mjs WORKSPACE_PREFIX). */
 const WORKSPACE_NAME = /^工作区\d+$/
@@ -546,6 +566,12 @@ function memberNameRefused(name: string): boolean {
   return name.length > MEMBER_NAME_MAX || /[@<>\r\n\t]/.test(name) || (/\s/.test(name) && !MEMBER_NAME_SPACED.test(name))
 }
 
+/** #1445: the caps a failed action can quote back, so the panel names the limit the service enforces. */
+export interface ErrorLimits {
+  /** Characters one message may hold; `/collab/api/state` publishes it as `max_text_chars`. */
+  readonly textChars?: number
+}
+
 /**
  * #268: the collab service answers a refusal with `code` plus an English sentence, and the panel
  * used to show that sentence as-is. Word the failures a person can act on from the `code` alone —
@@ -554,13 +580,17 @@ function memberNameRefused(name: string): boolean {
  * @param t - the panel's dictionary, so an English UI stays English.
  * @param place - the field being edited when the action failed.
  * @param typed - the name the person typed, for the copy that names it.
+ * @param limits - the caps the panel knows about, for the copy that quotes one back (#1445).
  * @returns one line to show under the form.
  */
-export function errorText(error: unknown, t: TranslateNS<typeof NS>, place: ErrorPlace = 'other', typed = ''): string {
+export function errorText(error: unknown, t: TranslateNS<typeof NS>, place: ErrorPlace = 'other', typed = '', limits: ErrorLimits = {}): string {
   const message = error instanceof Error ? error.message : String(error)
   // Only the service's own refusals carry an English sentence into the panel; anything else
   // (a local check, a thrown string) already reads the way this panel meant it to.
   if (!(error instanceof ServiceError)) return message
+  // #1445: the store refuses text over MAX_TEXT characters (`too-long`) — word the cap instead of
+  // its English sentence. The cap holds for an edit as much as for a send, so no `place` here.
+  if (error.code === 'too-long') return t('messageTooLarge', { limit: t('charCount', { count: limits.textChars ?? DEFAULT_MAX_TEXT_CHARS }) })
   const code = error.code
   // A channel name reaches the store with a leading # already dropped (collab/plugin.mjs), while a
   // member name is only trimmed (collab/roster.mjs), so word the name each one actually answered for.
@@ -574,7 +604,8 @@ export function errorText(error: unknown, t: TranslateNS<typeof NS>, place: Erro
   // field, so only word it when the typed name itself breaks the rule the service states — an
   // `invalid` about something else (a model that is not available) falls through to the sentence.
   if (code === 'invalid' && place === 'member' && memberNameRefused(name)) return t('memberNameInvalid')
-  return t('actionFailed', { message })
+  // A send failure keeps its own verb; anything else keeps the generic line.
+  return place === 'send' ? t('sendFailed', { message }) : t('actionFailed', { message })
 }
 
 function json(method: string, body: unknown): RequestInit {
@@ -634,6 +665,8 @@ export function createChannelSource(transport: ChannelTransport): {
   /** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
   /** #197: how big one attachment may be, as the service reported it (state) or the collab default. */
   let uploadLimit = DEFAULT_MAX_UPLOAD_BYTES
+  /** #1445: how many characters one message may hold, as `/collab/api/state` reported it (`max_text_chars`). */
+  let textLimit = DEFAULT_MAX_TEXT_CHARS
   let outbox: OutboxMessage[] = []
   /**
    * Page-back request in flight per room, tagged with the ticket and the epoch
@@ -831,11 +864,12 @@ export function createChannelSource(transport: ChannelTransport): {
     const previous = snapshot
     const current = (): boolean => lifetime === owner && pending === read && !read.controller.signal.aborted
     try {
-      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null; max_upload_bytes?: number }>(
+      const state = await request<{ rooms: ChannelRoom[]; members: ChannelMember[]; thinking: Record<string, string[]>; queued?: Record<string, Record<string, number[]>>; lead_id?: string | null; effective_lead_id?: string | null; max_upload_bytes?: number; max_text_chars?: number }>(
         'collab/api/state', { signal: read.controller.signal },
       )
       if (!current()) return
       if (Number.isSafeInteger(state.max_upload_bytes) && (state.max_upload_bytes ?? 0) > 0) uploadLimit = state.max_upload_bytes as number
+      if (Number.isSafeInteger(state.max_text_chars) && (state.max_text_chars ?? 0) > 0) textLimit = state.max_text_chars as number
       // #112: reopening the panel starts from `previous` empty, so fall back to the
       // channel this browser had open, then to the service's first channel.
       const remembered = previous.roomId === undefined ? rememberedRoom() : undefined
@@ -915,6 +949,7 @@ export function createChannelSource(transport: ChannelTransport): {
         members: state.members, thinking: state.thinking, queued: state.queued ?? {}, messages: rows, hasMoreOlder, hasMoreNewer,
         leadId: state.lead_id ?? null, effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
         maxUploadBytes: uploadLimit,
+        maxTextChars: textLimit,
         tasks: keepBoard ? previous.tasks : [], taskChat: keepBoard ? previous.taskChat : undefined,
         outbox: outbox.filter(entry => entry.roomId === roomId),
       }

@@ -24,6 +24,15 @@ const BACKGROUND = new RegExp(RULES.summary.background_re);
 const TODO = new RegExp(RULES.summary.todo_re);
 const DETAIL = new RegExp(RULES.summary.detail_re);
 const ADDED = new RegExp(RULES.summary.added_re);
+const SENTENCE_END = new RegExp(RULES.length.end_re);
+const SR_TODO = new RegExp(RULES.self_route.todo_re);
+const SR_END = new RegExp(RULES.self_route.end_re);
+const SR_NONE = new RegExp(RULES.self_route.none_re);
+const SR_ASK_LINE = new RegExp(RULES.self_route.ask_line_re);
+const SR_HAND = new RegExp(RULES.self_route.hand_re);
+const SR_MINE = new RegExp(RULES.self_route.mine_re);
+const SR_NEG = new RegExp(RULES.self_route.neg_re);
+const SR_ONLY_USER = new RegExp(RULES.self_route.only_user_re);
 // Consecutive bounces that still wake the asking member; later ones are only posted.
 const BOUNCE_WAKE_LIMIT = RULES.bounce.wake_limit;
 
@@ -44,6 +53,45 @@ export function askEvidenceProblems(body) {
   if (!category) problems.push(RULES.ask.missing_category);
   if (check && category && NO_CHECK.test(check) && !EXEMPT.test(category)) problems.push(RULES.ask.no_check_not_exempt);
   return problems;
+}
+
+function handHit(text) {
+  if (SR_ONLY_USER.test(text)) return '';
+  for (const hand of text.matchAll(new RegExp(RULES.self_route.hand_re, 'g'))) {
+    const before = text.slice(0, hand.index);
+    if (!SR_MINE.test(before) && !SR_NEG.test(before)) return hand[0].trim();
+  }
+  return '';
+}
+
+/** What the 「要你做的」 part asks the user to do that DSH could do itself (Go: SelfRouteProblems). */
+export function selfRouteProblems(body) {
+  body = String(body ?? '').replaceAll('\r\n', '\n');
+  if (!SR_TODO.test(body)) {
+    for (const line of body.split('\n')) {
+      if (SR_ASK_LINE.test(line)) {
+        const hit = handHit(line);
+        if (hit) return [RULES.self_route.msg.replaceAll('{hit}', hit)];
+      }
+    }
+    return [];
+  }
+  let rest = body;
+  while (true) {
+    const todo = SR_TODO.exec(rest);
+    if (!todo) return [];
+    rest = rest.slice(todo.index + todo[0].length);
+    const [first, ...more] = rest.split('\n');
+    if (!SR_NONE.test(first)) {
+      const part = [first];
+      for (const line of more) {
+        if (SR_END.test(line)) break;
+        part.push(line);
+      }
+      const hit = handHit(part.join('\n'));
+      if (hit) return [RULES.self_route.msg.replaceAll('{hit}', hit)];
+    }
+  }
 }
 
 /** { id, line, problems } of a marked body's first line; line is the part for the user (Go: exitHeadline). */
@@ -100,6 +148,29 @@ export function summaryProblems(summary) {
   return problems;
 }
 
+/** A part for the user over the sentence limit; goes back to be rewritten, never cut (Go: lengthProblems). */
+export function lengthProblems(summary) {
+  const max = RULES.length.max_sentences;
+  if (!(max > 0) || RULES.length.parts.length < 4) return [];
+  const texts = ['', '', '', ''];
+  let part = 0;
+  String(summary).split('\n').forEach((l, i) => {
+    if (i > 0 && part === 0) part = 1;
+    if (part < 2) {
+      const m = TODO.exec(l);
+      if (m) { texts[part] += ' ' + l.slice(0, m.index); part = 2; l = l.slice(m.index); }
+    }
+    if (part < 3 && ADDED.test(l)) part = 3;
+    texts[part] += ' ' + l;
+  });
+  const problems = [];
+  texts.forEach((t, i) => {
+    const n = t.split(SENTENCE_END).filter(x => x.trim()).length;
+    if (n > max) problems.push(RULES.length.msg.replaceAll('{part}', RULES.length.parts[i]).replaceAll('{n}', String(n)).replaceAll('{max}', String(max)));
+  });
+  return problems;
+}
+
 /** The part for the user names numbers, workspaces, branches, paths or identifiers, or has a table (Go: jargonProblems). */
 export function jargonProblems(line) {
   const problems = [];
@@ -122,10 +193,16 @@ export function exitBounceText(kind, problems) {
  * rewrites it; DSH posts it without the headline).
  */
 export function judgeExit(kind, body, { known, bounces = 0 }) {
-  const problems = kind === 'ask' ? askEvidenceProblems(body) : [];
+  const askProblems = kind === 'ask' ? askEvidenceProblems(body) : [];
+  const routeProblems = selfRouteProblems(body);
+  const problems = [...askProblems];
   let { id, line, problems: hp } = exitHeadline(body);
   if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
-  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line)];
+  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line), ...lengthProblems(line)];
+  if (routeProblems.length) {
+    if (bounces >= BOUNCE_WAKE_LIMIT && !askProblems.length) return { id, line, problems: [], legacy: true, check: routeProblems };
+    problems.push(...routeProblems);
+  }
   // Format goes back only while bounces still wake the member; after that the chat lead rewrites it.
   if (hp.length && !problems.length && bounces >= BOUNCE_WAKE_LIMIT) return { id, line, problems, legacy: true };
   return { id, line, problems: [...problems, ...hp], legacy: false };
@@ -187,7 +264,14 @@ export class TeamExit {
       member_id TEXT NOT NULL, forwarded_id INTEGER UNIQUE, source_id INTEGER UNIQUE,
       answer_source_id INTEGER UNIQUE, answered INTEGER NOT NULL DEFAULT 0)`);
     this.bounces = new Map(); // `${room}:${member}` -> consecutive [ask] bounces
+    this.rejectedMessages = new Set();
     hub.onMessage(msg => this.onMessage(msg));
+  }
+
+  consumeRejected(msgId) {
+    if (!this.rejectedMessages.has(msgId)) return false;
+    this.rejectedMessages.delete(msgId);
+    return true;
   }
 
   /** Post why the [ask] stayed in the workspace and wake its author to fix it. */
@@ -238,9 +322,13 @@ export class TeamExit {
     if (mark) {
       const bounces = this.bounces.get(`${room.id}:${msg.author}`) ?? 0;
       const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces });
-      if (v.problems.length) return this.bounce(room, msg, v.problems, mark.kind);
+      if (v.problems.length) {
+        if (selfRouteProblems(mark.body).length) this.rejectedMessages.add(msg.id);
+        return this.bounce(room, msg, v.problems, mark.kind);
+      }
       // Once bounces stop waking the member, a reply still without a headline goes out as before.
       if (!v.legacy) headline = { ...v, task: this.hub.tasks?.task?.(v.id) };
+      if (v.check) mark.body = `${exitBounceText(mark.kind, v.check)}\n\n${mark.body}`;
     }
     // Any reply without a bounced [ask] ends the run of bounces.
     this.bounces.delete(`${room.id}:${msg.author}`);
@@ -324,4 +412,5 @@ export class TeamExit {
     if (headline && !headline.problems.length) headline.task = this.hub.tasks?.task?.(headline.id);
     return this.forward(room, msg, body, undefined, headline?.task ? headline : undefined);
   }
+
 }

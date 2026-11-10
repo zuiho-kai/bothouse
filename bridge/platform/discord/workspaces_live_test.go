@@ -1,8 +1,8 @@
 package discord
 
-// Live check of the idle category against a real Discord server (opt-in, not run in CI): it makes
-// a throwaway text channel, moves it into 「空闲工作区」 through the two calls core makes, moves it
-// back, and deletes it again.
+// Live check of the workspace category against a real Discord server (opt-in, not run in CI): it
+// makes a throwaway text channel, moves it into 「工作区」 through the call core makes, checks the
+// listing, and deletes it again.
 //
 //	BOTHOUSE_DISCORD_LIVE=1 BOTHOUSE_DISCORD_TOKEN=... BOTHOUSE_DISCORD_PROXY=http://127.0.0.1:7897 \
 //	  BOTHOUSE_DISCORD_GUILD=... BOTHOUSE_DISCORD_BESIDE=... \
@@ -76,24 +76,13 @@ func TestLiveIdleCategory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !shelfOf(all, tmp.ID) {
-		t.Fatalf("after shelve: %s is not in the idle category", tmp.ID)
+		t.Fatalf("after shelve: %s is not in the workspace category", tmp.ID)
 	}
 	t.Logf("shelved: %s category %q Shelved=%v", tmp.ID, parentOfChannel(all, tmp.ID), shelfOf(all, tmp.ID))
 	if self.Shelved {
 		t.Fatalf("the chat channel %s itself is marked shelved", self.ID)
 	}
 
-	if err := p.UnshelveTeamWorkspaceChannel(ctx, tmp.ID, beside); err != nil {
-		t.Fatalf("unshelve: %v", err)
-	}
-	if _, all, err = p.TeamGuildChannels(ctx, beside); err != nil {
-		t.Fatal(err)
-	}
-	if shelfOf(all, tmp.ID) || parentOfChannel(all, tmp.ID) != chat.ParentID {
-		t.Fatalf("after unshelve: %s category %q Shelved=%v, want %q and not shelved",
-			tmp.ID, parentOfChannel(all, tmp.ID), shelfOf(all, tmp.ID), chat.ParentID)
-	}
-	t.Logf("unshelved: %s back in category %q", tmp.ID, chat.ParentID)
 }
 
 func shelfOf(all []core.TeamChannel, id string) bool {

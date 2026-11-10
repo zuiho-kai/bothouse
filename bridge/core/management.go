@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -316,17 +317,21 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
 
-	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
+	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off, remove
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
 	mux.HandleFunc(prefix+"/plugins/role-bindings", m.wrap(m.handleRoleBindings))
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
+	// 插件卸载 (#1377): 锁内直接调 DSH 的 runProfilePnpm（不是会自己抢同一把锁的 `dsh plugin remove`），
+	// 卸载前三道前置检查（内置层、link 层、被依赖）
+	mux.HandleFunc(prefix+"/plugins/uninstall", m.wrap(m.handlePluginsUninstall))
 	// 插件配置 (#150 ②a): 一份插件自己的 config，读出来改完存回 profile 的 patch
 	mux.HandleFunc(prefix+"/plugins/config", m.wrap(m.handlePluginsConfig))
 	// 形象包适配 (#416): 读本机形象包与素材文件
 	mux.HandleFunc(prefix+"/plugins/pets", m.wrap(m.handlePetPacks))
 	mux.HandleFunc(prefix+"/plugins/pets/asset", m.wrap(m.handlePetAsset))
+	mux.HandleFunc(prefix+"/plugins/pets/fetch", m.wrap(m.handlePetFetch))
 
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))
@@ -470,6 +475,7 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 
 func (m *ManagementServer) wrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer drainRequestBody(r)
 		m.setCORS(w, r)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -482,6 +488,22 @@ func (m *ManagementServer) wrap(handler http.HandlerFunc) http.HandlerFunc {
 		handler(w, r)
 	}
 }
+
+// drainRequestBody reads what a handler left of a small request body before the response goes out.
+// A client that sends "Connection: close" (Python urllib does on every request) gets no draining from
+// net/http: the server closes the socket with the body still unread, the kernel answers with a TCP
+// RST, and Windows drops the response the client had not read yet — ConnectionResetError
+// [WinError 10054] on POST /setup/dsh/open, a handler that never reads its "{}" (windows-e2e,
+// runs 42794984764, 42799948850, 42804201043; #1392). Bodies past the cap are left to net/http.
+func drainRequestBody(r *http.Request) {
+	if r.Body == nil || r.Body == http.NoBody {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxDrainRequestBody))
+}
+
+// maxDrainRequestBody is net/http's own limit for draining an unread body (maxPostHandlerReadBytes).
+const maxDrainRequestBody = 256 << 10
 
 func (m *ManagementServer) authenticate(r *http.Request) bool {
 	if m.token == "" {

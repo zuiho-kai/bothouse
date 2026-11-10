@@ -125,7 +125,7 @@ test('派活去重只限同一次派活，交回/打回后可再次画光', () =
   model.forgetDispatch('21', set);
   assert.equal(set.size, 0, 'return/reject clears only this task keys');
   assert.equal(model.dispatchAllowed('21', 'jingyu', set), true, 're-dispatch after return draws again');
-  assert.equal((html.match(/forgetDispatch\(id, S\.dispatched\)/g) ?? []).length, 3, 'returned/rejected/paused-done end the cycle');
+  assert.equal((html.match(/forgetDispatch\(id, S\.dispatched\)/g) ?? []).length, 4, 'returned/rejected/paused/done end the cycle');
 });
 
 test('preview server: page, state and replay window', async () => {
