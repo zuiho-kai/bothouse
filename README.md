@@ -136,6 +136,36 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 | **Manage it from your phone** | A built-in web dashboard shows who is busy and how much quota is used, lets you edit personas, open a project and add a note to work that is already running. |
 | **Draw a picture when you ask for one** | Optional and off by default: point `[image_gen]` at an OpenAI-compatible image service and the dashboard's image-generation page draws one picture into a local file. It never posts it for you — `bothouse send --image` is a separate, deliberate step. |
 
+<a id="team-mode"></a>
+
+### Team mode: the lead hands out the work, workspaces get it done
+
+One role in each chat channel is the **lead**. You talk to it; it splits the work and hands it to other models — Codex writes the code, DeepSeek polishes the text, Gemini digs up the references — and you collect the results in chat.
+
+- **Big jobs go to a workspace.** Anything longer than about ten minutes, or that needs code changes and tests, goes to its own workspace channel with a handoff that carries your original words, the scope and what "done" looks like. Chat never stalls; one workspace, one job, and finished workspaces go back to the pool.
+- **Task board.** Every job gets a number. The board shows who owns it, where it stands and what is waiting on you; pause, resume or finish it in one command.
+- **Hand-backs are checked.** A workspace reports back in four short parts — background, what was done, what you need to do, what it added beyond your words — plus proof from the place you actually use. `bothouse report check` sends back any report that skips an item in scope or comes without evidence.
+- **Nothing stalls quietly.** The bridge looks at dispatched work every ten minutes: progress keeps it going, silence nudges the owner and pauses the job.
+- **You are asked only for decisions.** A workspace that needs your call posts an `[ask]` to chat and frees itself; your answer is routed back to a free workspace that picks up where it left off.
+
+<a id="desk"></a>
+
+### Team desk: watch the team at work
+
+The team desk is a pixel office for your crew. Every member is a little character: idle ones wander between the window, whiteboard and coffee machine; whoever is working sits at a desk facing you, with the task tag above their head. A dispatch flies over as an envelope, progress notes float back to the lead's desk, finished work stacks up there waiting for review, rejected work comes back as a crumpled paper ball, and a paused member raises a hand. Even when nothing is moving you can see who handed what to whom. Every frame is a real event — a quiet team means a quiet office — and any past window can be replayed at 1×/4×/16×.
+
+<p align="center"><img src="docs/assets/readme/shot-desk.png" width="800" alt="Team desk: a pixel office where five AI roles sit at desks with task tags, next to a live feed of dispatches, hand-backs and rejections"></p>
+
+In DSH, switch on **Team desk** under Plugins → bothouse; it appears in the sidebar and works on a phone too. See [Team desk](dsh/collab/desk/README.md).
+
+<a id="pairing"></a>
+
+### Remote pairing: run your team from another computer or your phone
+
+Open **Other computers** in the DSH sidebar and generate a code: six digits. Type them on another computer's DSH, or open the address shown in your phone's browser — no app to install — and you are in: channels, team desk and panel, sending messages and handing out work as if you were at home. Choose a temporary connection or remember the device; the home computer lists every connected device and can kick one off, which drops it on the spot. It only listens on your Tailscale network: codes are single-use, expire after five minutes and die after five wrong tries.
+
+<p align="center"><img src="docs/assets/readme/shot-pairing.png" width="720" alt="Left: the home computer shows a six-digit code. Right: the phone browser enters the same code to connect"></p>
+
 <a id="team"></a>
 
 Per-channel model and reasoning: use `/model` and `/reasoning` in the channel you are talking in. Selections stay with that channel and survive restarts and `/new`. See [model and reasoning](docs/model-and-reasoning.md).
@@ -158,7 +188,7 @@ Bring every teammate's Claude Code, Codex, Gemini and DeepSeek into one team gro
 
 - **Shared experience:** the team shares one memory. A nightly review checks against the original messages and records progress, corrections and lessons, so the next day every teammate's AI follows them. People new to AI get the setup the experts tuned.
 - **Knows each person:** it remembers each person's standards and habits separately, and answers each sender their own way.
-- **Splits the work itself:** say it once and the AIs divide the work; every handoff carries your original words, and a fresh AI checks the result.
+- **Splits the work itself:** say it once and the AIs divide the work; every handoff carries your original words, and a fresh AI checks the result. Within one group this is live today — see [Team mode](#team-mode).
 
 ### Hardware: give a role a body
 
