@@ -331,6 +331,7 @@ func (s *appServerSession) connect() error {
 		bin = "codex"
 	}
 	cmd := exec.CommandContext(s.ctx, bin, args...)
+	prepareAppServerCmd(cmd)
 	cmd.Dir = s.workDir
 	env := append([]string(nil), s.extraEnv...)
 	if s.codexHome != "" {
