@@ -2,15 +2,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
-  MessageSquare, ChevronRight, Sparkles, AlertTriangle, CheckCircle2, ArrowUpRight, WifiOff, Radio,
+  ChevronRight, Sparkles, AlertTriangle, CheckCircle2, ArrowUpRight, WifiOff, Radio,
 } from 'lucide-react';
 import { Badge, EmptyState, LoadingState, Bars, RoleAvatar, StatePill, roleState, type RoleState } from '@/components/ui';
 import { listRoles, type RoleInfo } from '@/api/roles';
 import { backendLabel } from '@/lib/roleIdentity';
 import { cn } from '@/lib/utils';
 import { getStatus, type SystemStatus } from '@/api/status';
-import { listProjects, shownName, shownNames, type ProjectSummary } from '@/api/projects';
-import { listSessions, type Session } from '@/api/sessions';
+import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { connectedSources, dshStatus, getDSHSummary, type DSHSummary } from '@/api/dsh';
 import { errorMessage } from '@/components/DSHNotice';
 import { dshChannelsUrl } from '@/lib/collabPages';
@@ -28,11 +27,9 @@ export default function Dashboard() {
   const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [recentSessions, setRecentSessions] = useState<(Session & { project: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   // DSH's own members and channels (only DSH, no bridge project: the counts would read 0 otherwise)
-  const [sessionError, setSessionError] = useState('');
   const [dshError, setDshError] = useState('');
   const [dsh, setDsh] = useState<DSHSummary | null>(null);
   // #579 v2: the overview answers "who is busy, on what, and is anything wrong", so it reads roles too
@@ -50,18 +47,6 @@ export default function Dashboard() {
       const r = result[1];
       const projs = p.projects || [];
 
-      const sessResults = await Promise.allSettled(
-        projs.map(proj => listSessions(proj.name).then(r => ({ project: proj.name, sessions: r.sessions || [] })))
-      );
-      const allSessions: (Session & { project: string })[] = [];
-      for (const r of sessResults) {
-        if (r.status === 'fulfilled') {
-          for (const sess of r.value.sessions) {
-            allSessions.push({ ...sess, project: r.value.project });
-          }
-        }
-      }
-      allSessions.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
       if (request !== requestId.current) return;
       setDshError(d.status === 'rejected' ? errorMessage(d.reason) : '');
       setStatus(s);
@@ -71,8 +56,6 @@ export default function Dashboard() {
         setRoles(dshOnlyRows(all, all.filter((x) => x.source !== 'dsh').map((x) => x.name)));
       } else setRoles(null);
       setProjects(projs);
-      setSessionError(sessResults.filter((r) => r.status === 'rejected').map((r) => errorMessage(r.reason)).join('; '));
-      setRecentSessions(allSessions.slice(0, MAX_ITEMS));
     } catch (e: any) {
       if (request === requestId.current) setError(e.message);
     } finally {
@@ -117,12 +100,10 @@ export default function Dashboard() {
     <button type="button" onClick={() => openDsh()} disabled={dshWait !== null} data-testid="dashboard-open-dsh" className={btn}>
       {dshWait === null ? t('dshManage.openDsh', '打开 DSH') : `${t('dshManage.openDsh', '打开 DSH')}… ${dshWait}s`}</button>
   );
-  // Recent sessions: bridge sessions and DSH channels together, newest first.
-  const recentItems = [
-    ...recentSessions.map((sess) => ({ kind: 'bridge' as const, at: sess.updated_at, sess })),
-    ...dshChannels.map((ch) => ({ kind: 'dsh' as const, at: ch.updated_at, ch })),
-  ]
-    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+  // Per-role conversations live on 对话 (/chat); the overview no longer repeats them. DSH channels
+  // are not on that page, so they keep a short list here, newest first.
+  const recentChannels = [...dshChannels]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, MAX_ITEMS);
 
   // Who is doing what: roles from /roles, plus DSH members that /roles did not list (busy first).
@@ -151,7 +132,6 @@ export default function Dashboard() {
   type Issue = { key: string; text: string; tone: 'warn' | 'mute'; action?: React.ReactNode };
   const issues: Issue[] = [];
   if (error && status) issues.push({ key: 'err', text: error, tone: 'warn' });
-  if (sessionError) issues.push({ key: 'sess', text: sessionError, tone: 'warn' });
   const dshState = dshError ? 'error' : dsh ? dshStatus(dsh) : undefined;
   if (dshState === 'error') issues.push({ key: 'dsh', text: `${t('dsh.readError', 'DSH 读取失败')}${dshError || dsh?.error ? `: ${dshError || dsh?.error}` : ''}`, tone: 'warn' });
   if (dshState === 'stopped') issues.push({ key: 'dsh', text: t('dsh.stopped', 'DSH 未运行'), tone: 'mute', action: dshSetUp ? openDshButton : undefined });
@@ -268,59 +248,33 @@ export default function Dashboard() {
               )}
             </section>
 
-            {projectRows.length > 0 && (
-              <section>
-                {cardHead(t('dashboard.projectSessions', '各项目会话数'), '/projects')}
-                <div className="rounded-card bg-surface p-5 shadow-ui-1">
-                  <Bars data={projectRows.slice(0, 6)} labelWidth={96} />
-                </div>
-              </section>
-            )}
           </div>
 
           <aside className="min-w-0 space-y-6">
-            <section>
-              {cardHead(t('dsh.recentConversations', '最近会话和频道'), '/chat')}
-              {recentItems.length === 0 ? (
-                <div className="rounded-card bg-surface p-6 shadow-ui-1">
-                  <EmptyState message={t('sessions.noSessions')} icon={MessageSquare} className="py-6" />
-                </div>
-              ) : (
+            {recentChannels.length > 0 && (
+              <section>
+                {cardHead(t('dsh.channels', 'DSH 频道'))}
                 <ul className="divide-y divide-hairline overflow-hidden rounded-card bg-surface shadow-ui-1" role="list">
-                  {recentItems.map((item) => {
-                    const isDsh = item.kind === 'dsh';
-                    // the role/project is what people recognise; the session id is only a tag
-                    const title = isDsh ? `#${item.ch.name}` : shownNames(projects)(item.sess.project);
-                    const tag = isDsh ? 'DSH' : (item.sess.name || item.sess.id);
-                    const preview = isDsh
-                      ? (item.ch.error ? `${t('dsh.messagesError', '消息读取失败')}: ${item.ch.error}` : item.ch.last_message ? `${item.ch.last_message.name}：${item.ch.last_message.content.slice(0, 80)}` : '')
-                      : (item.sess.last_message?.content.slice(0, 80) ?? '');
-                    const live = !isDsh && item.sess.active;
-                    const inner = (
-                      <>
-                        <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-[10px]', isDsh ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300' : 'bg-accent-wash text-accent-text')}>
-                          {isDsh ? <Radio size={16} /> : <MessageSquare size={16} />}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-medium text-ink">{title}</span>
-                            {live && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />}
-                            <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-mute" title={formatTime(item.at)}>{ago(item.at)}</span>
-                          </div>
-                          <p className="mt-0.5 truncate text-xs text-ink-mute"><span className="text-ink-soft">{tag}</span>{preview && ` · ${preview}`}</p>
-                        </div>
-                      </>
-                    );
-                    const cls = 'flex items-center gap-3 px-4 py-3 transition-colors duration-base hover:bg-surface-sunken/60';
+                  {recentChannels.map((ch) => {
+                    const preview = ch.error ? `${t('dsh.messagesError', '消息读取失败')}: ${ch.error}` : ch.last_message ? `${ch.last_message.name}：${ch.last_message.content.slice(0, 80)}` : '';
                     return (
-                      <li key={isDsh ? `dsh-${item.ch.id}` : `${item.sess.project}-${item.sess.id}`}>
-                        {isDsh ? <a href={dshUrl} onClick={openDsh} className={cls}>{inner}</a> : <Link to={`/chat/${item.sess.project}`} className={cls}>{inner}</Link>}
+                      <li key={`dsh-${ch.id}`}>
+                        <a href={dshUrl} onClick={openDsh} className="flex items-center gap-3 px-4 py-3 transition-colors duration-base hover:bg-surface-sunken/60">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-300"><Radio size={16} /></span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm font-medium text-ink">#{ch.name}</span>
+                              <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-mute" title={formatTime(ch.updated_at)}>{ago(ch.updated_at)}</span>
+                            </div>
+                            {preview && <p className="mt-0.5 truncate text-xs text-ink-mute">{preview}</p>}
+                          </div>
+                        </a>
                       </li>
                     );
                   })}
                 </ul>
-              )}
-            </section>
+              </section>
+            )}
 
             <section>
               {cardHead(t('dashboard.platforms'))}
@@ -331,6 +285,15 @@ export default function Dashboard() {
                 <p className="mt-3 text-xs leading-5 text-ink-mute">{t('dshManage.projectScope')}</p>
               </div>
             </section>
+
+            {projectRows.length > 0 && (
+              <section>
+                {cardHead(t('dashboard.projectSessions', '各项目会话数'), '/projects')}
+                <div className="rounded-card bg-surface p-5 shadow-ui-1">
+                  <Bars data={projectRows.slice(0, 6)} labelWidth={96} />
+                </div>
+              </section>
+            )}
 
             <Link
               to="/wiki-galaxy"
