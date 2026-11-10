@@ -275,6 +275,25 @@ def lead_chat(chat: str) -> str:
     return chat
 
 
+def notes_chat(notes: str, chat: str) -> str:
+    """交接文件「原话出处」节已写「聊天频道：<平台>:<id>」、和跑命令的频道不同，就按交接写的记这件活的聊天频道：
+    claim、任务板 chat、汇报、[ask]、兜底定时器都回那里。跑命令的是工作区（lead_chat 会换成 owner）、没写、写的就是
+    本频道时原样返回。来源：11-10 #1342 笨蛋英文 X 版的活从 1562131004234276945 交出，📬 贴进了那里（#1346，
+    用户「这个不是这个频道工作，但怎么往这个频道塞」）。"""
+    at = notes.find(f"## {SOURCE}")
+    m = re.search(r"^- 聊天频道：(\S+:\S+)\s*$", notes[at:] if at >= 0 else "", re.M)
+    if not m or not chat or ":" not in chat:
+        return chat
+    want = m.group(1)
+    if want == chat or want.split(":", 1)[0] != chat.split(":", 1)[0] or lead_chat(chat) != chat:
+        return chat
+    if lead_chat(want) != want:  # 交接里写的是个工作区：不改投
+        return chat
+    print(f"ws-handoff: 交接文件写的聊天频道是 {want}，不是跑命令的 {chat}；这件活记到 {want}，汇报、[ask]、兜底定时器都回那里",
+          file=sys.stderr)
+    return want
+
+
 def pick_pool(chat: str, task: str = "", preferred: str = ""):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
     没有空的、池子又满 MAX_WS 个时返回 None（排队）。
@@ -679,7 +698,7 @@ def main(argv):
     # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，出错跳过，都不拦交活
     if _recall.append_to(path):
         print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
-    chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
     if append_source(path, chat):
         print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
