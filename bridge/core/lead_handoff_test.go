@@ -521,3 +521,27 @@ func TestLeadHandoffDeltaKeepsTaskOutsideTop12(t *testing.T) {
 		t.Fatalf("delta dropped the 13th task's result:\n%s", delta)
 	}
 }
+
+// agentm 2026-11-10: the config gave the target its team status but the bridge was not restarted,
+// so the running target had none; switching to it left the team with no primary role and the
+// workspaces read as off. The switch is refused and the lead stays.
+func TestHandoffTargetWithoutTeamStatusKeepsLead(t *testing.T) {
+	dir := t.TempDir()
+	writeHandoffLead(t, dir, "lead-a", "Lead A", "")
+	a := handoffTestEngine(t, dir, "lead-a", "Lead A", &namedTestAgent{name: "codex"})
+	a.SetTeam(filepath.Join(dir, "team"), "Lead A", true)
+	bare := handoffTestEngine(t, dir, "bare", "Bare", &namedTestAgent{name: "claudecode"})
+	if a.team == nil || bare.team != nil {
+		t.Fatalf("setup: from team=%v target team=%v", a.team != nil, bare.team != nil)
+	}
+	s := newHandoffTestAPI(dir, map[string]*Engine{"lead-a": a, "bare": bare})
+	req := httptest.NewRequest(http.MethodPost, "/handoff/switch", strings.NewReader(`{"project":"lead-a","to":"bare"}`))
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "重启") {
+		t.Fatalf("switch to a role without team status should be refused: %d %s", rec.Code, rec.Body)
+	}
+	if sel, _ := readLeadSelectionFull(dir); sel.Lead != "lead-a" {
+		t.Fatalf("refused switch changed the lead: %+v", sel)
+	}
+}
