@@ -4,8 +4,13 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,4 +98,46 @@ func TestOpenDSHWebReadsTheLaunchdLogWhenTheStateFileRecordsTheDefault(t *testin
 
 	web, err := openDSHWeb(context.Background(), t.TempDir())
 	w.assertAdopted(t, web, err, "rotated", launchdLog)
+}
+
+// 面板「打开 DSH」的真实入口：POST /api/v1/setup/dsh/open（管理口，Bearer token）。
+func TestPanelOpenEntryAdoptsTheLaunchdHost(t *testing.T) {
+	w := newOpenTakeoverWorld(t)
+	w.fake.launch.Store("rotated")
+	w.writeLog(t, w.defaultLog(), "dsh web: http://127.0.0.1:1/?token=stale")
+	launchdLog := filepath.Join(t.TempDir(), "cc-maomao", "releases", "bothouse-develop-x", "dsh-web.log")
+	w.writeLog(t, launchdLog, "dsh web: https://mac-mini.example.ts.net/?token=rotated")
+	writeLaunchdPlist(t, launchdPlist(launchdLog, launchdLog))
+	w.writeState(t, DSHWeb{URL: "http://127.0.0.1:1/?token=stale#channels", Log: w.defaultLog()})
+
+	m := NewManagementServer(0, "panel-token", nil)
+	panel := httptest.NewServer(m.buildHandler(http.NewServeMux()))
+	defer panel.Close()
+	req, err := http.NewRequest(http.MethodPost, panel.URL+"/api/v1/setup/dsh/open", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer panel-token")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := panel.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	t.Logf("HTTP %d %s", res.StatusCode, body)
+	var resp struct {
+		OK   bool   `json:"ok"`
+		Data DSHWeb `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("body is not the panel envelope: %v (%s)", err, body)
+	}
+	web := resp.Data
+	if res.StatusCode != http.StatusOK || web.Starting || !strings.Contains(web.URL, ":"+w.port+"/?token=rotated") {
+		t.Fatalf("panel open = %s, want the running launchd host adopted", body)
+	}
+	if _, statErr := os.Stat(w.marker); statErr == nil {
+		t.Fatal("a second dsh web was started")
+	}
 }
