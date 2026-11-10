@@ -222,6 +222,8 @@ func TestSelfRouteProblems(t *testing.T) {
 		"[ask] #9 背景：x\n做了什么：y\n要你做的：在个人设置里生成令牌私信发我。我存进本机文件，接上就生效，不用再重启。\n我加的：无",
 		// 11-10 13:53 real direction ask: 「装法上」 is a noun
 		"[ask] #8 背景：x\n做了什么：y\n要你做的：二选一。A：照现在这样。B：做系统层面的拦截。我把成员命令也接到这种装法上。我推荐 B。\n我加的：无",
+		// 11-10 #1364 real [report]: the scope line the skeleton makes it echo quotes 「要你做的」 — a quote, not the section
+		"[report] #1364 背景：x\n做了什么：y\n要你做的：没有\n我加的：无\n细节：\n交接范围逐项：\n- 改：汇报和提问里「要你做的」出现让用户放文件、跑命令、改设置这类话，程序打回让它自己找路 —— 上一棒已做",
 	}
 	for _, s := range pass {
 		if p := SelfRouteProblems(s); p != nil {
