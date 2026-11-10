@@ -66,6 +66,14 @@ type teamExitRulesDoc struct {
 		Sep       string `json:"sep"`
 		Missing   string `json:"missing"`
 	} `json:"scope"`
+	Entry struct {
+		LabelRe     string `json:"label_re"`
+		PathRe      string `json:"path_re"`
+		FileRe      string `json:"file_re"`
+		URLRe       string `json:"url_re"`
+		Missing     string `json:"missing"`
+		MissingFile string `json:"missing_file"`
+	} `json:"entry"`
 	Generic struct {
 		CCOnlyRe string `json:"cc_only_re"`
 		SourceRe string `json:"source_re"`
@@ -98,6 +106,7 @@ type teamExitRules struct {
 	artNotes, artCompare, artImage                                                     *regexp.Regexp
 	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
 	ccOnly, ccSource                                                                   *regexp.Regexp
+	entryLabel, entryPath, entryFile, entryURL                                         *regexp.Regexp
 	srTodo, srEnd, srNone, srAskLine, srHand, srMine, srNeg, srOnlyUser                *regexp.Regexp
 }
 
@@ -131,6 +140,8 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
 		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
 		{&r.ccOnly, r.Generic.CCOnlyRe}, {&r.ccSource, r.Generic.SourceRe},
+		{&r.entryLabel, r.Entry.LabelRe}, {&r.entryPath, r.Entry.PathRe}, {&r.entryFile, r.Entry.FileRe},
+		{&r.entryURL, r.Entry.URLRe},
 		{&r.srTodo, r.SelfRoute.TodoRe}, {&r.srEnd, r.SelfRoute.EndRe}, {&r.srNone, r.SelfRoute.NoneRe},
 		{&r.srAskLine, r.SelfRoute.AskLineRe},
 		{&r.srHand, r.SelfRoute.HandRe}, {&r.srMine, r.SelfRoute.MineRe},
@@ -422,6 +433,66 @@ func scopeChangeItems(notes string) []scopeItem {
 		items = append(items, scopeItem{Text: strings.TrimSpace(m[2]), Key: key})
 	}
 	return items
+}
+
+// entryReportProblems: a [report] must carry evidence that the work was walked through where the
+// user actually uses it (user 11-10 「都做」 on 「交回前必须在你实际用的入口走一遍并带证据，没有就交不出去」).
+// The evidence is on a 「入口自验：」 line or the lines right after it (up to a blank line, a fenced
+// block that opens there runs to its close): a screenshot / recording / deliverable path (local
+// ones must exist), a link, or command output in a ``` block. A bare 「已验」 is not evidence. A
+// report waiting on something outside (「等外部：」) has not delivered yet and is not checked.
+func entryReportProblems(body string, exists func(string) bool) []string {
+	if _, _, waiting := waitExternalOf(body); waiting {
+		return nil
+	}
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	found := false
+	var missing []string
+	for i := 0; i < len(lines); i++ {
+		loc := exitRules.entryLabel.FindStringIndex(lines[i])
+		if loc == nil {
+			continue
+		}
+		block := []string{lines[i][loc[1]:]}
+		fence := false
+		for j := i + 1; j < len(lines); j++ {
+			t := strings.TrimSpace(lines[j])
+			if strings.HasPrefix(t, "```") {
+				if fence {
+					found = true // a closed fenced block: command output pasted as evidence
+				}
+				fence = !fence
+				continue
+			}
+			if !fence && (t == "" || exitRules.entryLabel.MatchString(lines[j])) {
+				break
+			}
+			block = append(block, lines[j])
+		}
+		for _, ln := range block {
+			if exitRules.entryURL.MatchString(ln) {
+				found = true
+			}
+			for _, p := range exitRules.entryPath.FindAllString(exitRules.entryURL.ReplaceAllString(ln, " "), -1) {
+				p = strings.TrimRight(p, ".:：。")
+				if !exitRules.entryFile.MatchString(p) {
+					continue
+				}
+				if exists(p) {
+					found = true
+				} else {
+					missing = append(missing, p)
+				}
+			}
+		}
+	}
+	if len(missing) > 0 {
+		return []string{strings.ReplaceAll(exitRules.Entry.MissingFile, "{path}", missing[0])}
+	}
+	if !found {
+		return []string{exitRules.Entry.Missing}
+	}
+	return nil
 }
 
 // genericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for

@@ -225,6 +225,10 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 			if g := genericReportProblems(body); g != nil {
 				problems, legacy = append(problems, g...), false
 			}
+			// walked through where the user uses it, with a screenshot, file, link or command output
+			if en := entryReportProblems(body, localFileExists); en != nil {
+				problems, legacy = append(problems, en...), false
+			}
 		}
 		// 「要你做的」hands the user a file to place, a command to run, a setting to change: it goes back
 		// for another route, a [report] too (user 11-10 「你自己搞」; team_exit_rules.go SelfRouteProblems)
