@@ -83,13 +83,22 @@ const escapeHTML = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': 
  */
 function sendNotice(res, status, reason, help) {
   res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  // #579: same look as the panel itself (bridge/web/src/index.css --ui-*): white canvas, 12px card
+  // with a 1px hairline, ink ramp, and the same values again for dark mode.
   res.end(`<!doctype html><meta charset="utf-8"><title>bothouse</title><meta name="color-scheme" content="light dark">`
-    + `<body style="font:14px/1.6 system-ui;padding:24px;max-width:560px;color:#666">`
-    + `<h3 style="margin:0 0 8px;font-size:16px;color:inherit">打不开 bothouse 面板</h3>`
-    + `<p style="margin:0 0 8px">${escapeHTML(reason)}</p>`
-    + (help ? `<p style="margin:0 0 16px">${escapeHTML(help)}</p>` : '')
-    + `<button type="button" onclick="location.reload()" style="font:inherit;padding:4px 14px;border-radius:6px;border:1px solid #bbb;background:transparent;color:inherit;cursor:pointer">重试</button>`
-    + `</body>`);
+    + `<style>:root{--c:#fff;--s:#fff;--l:#e6e9ef;--i:#17181b;--m:#5a5a55;--a:#16a34a}`
+    + `@media (prefers-color-scheme:dark){:root{--c:#0d0d0f;--s:#16171a;--l:#2c2e34;--i:#eceef2;--m:#a5aab4;--a:#3dd68c}}`
+    + `body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--c);color:var(--m);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}`
+    + `main{box-sizing:border-box;width:min(520px,calc(100% - 32px));padding:24px;border:1px solid var(--l);border-radius:12px;background:var(--s)}`
+    + `h3{margin:0 0 8px;font-size:16px;font-weight:600;color:var(--i)}p{margin:0 0 8px}`
+    + `button{margin-top:8px;font:inherit;font-weight:500;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--l);background:var(--s);color:var(--i);cursor:pointer}`
+    + `button:hover{border-color:var(--m)}button:focus-visible{outline:2px solid var(--a);outline-offset:2px}</style>`
+    + `<main>`
+    + `<h3>打不开 bothouse 面板</h3>`
+    + `<p>${escapeHTML(reason)}</p>`
+    + (help ? `<p>${escapeHTML(help)}</p>` : '')
+    + `<button type="button" onclick="location.reload()">重试</button>`
+    + `</main>`);
 }
 
 /**
