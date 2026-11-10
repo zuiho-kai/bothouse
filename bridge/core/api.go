@@ -47,6 +47,10 @@ type APIServer struct {
 	// identity.sock (identity_api.go): caller tokens for roles under another system account
 	identityLn  net.Listener
 	identitySrv *http.Server
+	// member.sock (member_socket.go): /member for roles under another system account, gated by peer uid
+	// plus a caller token; api.sock stays 0600 and keeps full control of the bridge.
+	memberLn  net.Listener
+	memberSrv *http.Server
 }
 
 // SendRequest is the JSON body for POST /send.
@@ -244,6 +248,7 @@ func (s *APIServer) Start() {
 	s.followStop = make(chan struct{})
 	go s.runLeadFollow(s.followStop)
 	s.startIdentitySocket()
+	s.startMemberSocket()
 	s.server = &http.Server{Handler: s.mux, ConnContext: withPeerConn}
 	go func() {
 		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
@@ -263,6 +268,7 @@ func (s *APIServer) Stop() {
 		}
 	}
 	s.stopIdentitySocket()
+	s.stopMemberSocket()
 	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
 		slog.Debug("api server remove socket failed", "error", err)
 	}
