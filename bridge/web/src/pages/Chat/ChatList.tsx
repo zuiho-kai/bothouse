@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { MessageSquare, ChevronRight, Search } from 'lucide-react';
 import { EmptyState } from '@/components/ui';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
+import { resolveRoleAvatar } from '@/lib/avatarMap';
 import { backendLabel } from '@/lib/roleIdentity';
 import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
@@ -123,7 +124,7 @@ export default function ChatList() {
                   className="group flex min-h-[72px] min-w-0 items-center gap-3.5 px-4 py-3.5 transition-colors duration-base hover:bg-surface-sunken/60 focus-visible:bg-surface-sunken focus-visible:outline-none sm:px-5"
                 >
                   <span className="relative shrink-0">
-                    <LibraryAvatar name={name} size={48} />
+                    <LibraryAvatar url={resolveRoleAvatar({ name, agentType: project.agent_type })} name={name} size={48} />
                     {hasLive && <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-surface p-[2px]"><span className="block h-2.5 w-2.5 rounded-full bg-emerald-500" /></span>}
                   </span>
                   <div className="min-w-0 flex-1">
