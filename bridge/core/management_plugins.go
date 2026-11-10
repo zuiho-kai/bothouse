@@ -416,10 +416,53 @@ func installedPlugin(state DSHPluginsState, before map[string]string, spec plugi
 			added = append(added, p)
 		}
 	}
-	if spec.Kind != pluginKindRegistry && len(added) == 1 {
+	if spec.Kind == pluginKindRegistry {
+		return DSHPlugin{}, false
+	}
+	if len(added) == 1 {
 		return added[0], true
 	}
+	// A reinstall of an installed plugin changes no dependency, and DSH may have stored the spec in
+	// another spelling (#656). Accept only an entry whose recorded source names the same source, and
+	// only when exactly one does; otherwise the run stays unconfirmed.
+	want := normalizePluginSource(spec.Raw)
+	var match []DSHPlugin
+	for _, p := range state.Plugins {
+		if normalizePluginSource(p.Source) == want {
+			match = append(match, p)
+		}
+	}
+	if len(match) == 1 {
+		return match[0], true
+	}
 	return DSHPlugin{}, false
+}
+
+// pluginGitHubURL is a GitHub https URL pnpm rewrites to the `github:` shorthand.
+var pluginGitHubURL = regexp.MustCompile(`^(?:git\+)?https://github\.com/([^/#]+)/([^/#]+?)(?:\.git)?/?(#.*)?$`)
+
+// normalizePluginSource maps a typed spec and the form DSH writes into package.json onto one string,
+// for the rewrites DSH actually makes. 来源：#656 实测 dsh 0.2.1-rc.5 / pnpm 12.16.1：
+// `/abs/dir` → `link:/abs/dir`；`/abs/x.tgz` → `file:/abs/x.tgz`；`file:`、`git+file://`、`github:` 原样；
+// `https://github.com/o/r[.git]`、`git+https://github.com/o/r.git` → `github:o/r`，`#ref` 保留。
+// Anything else is compared as written, so an unmeasured spelling stays unconfirmed rather than guessed.
+func normalizePluginSource(source string) string {
+	s := strings.TrimSpace(source)
+	if m := pluginGitHubURL.FindStringSubmatch(s); m != nil {
+		return "github:" + m[1] + "/" + m[2] + m[3]
+	}
+	path := s
+	for _, prefix := range []string{"link:", "file:"} {
+		if strings.HasPrefix(path, prefix) {
+			path = strings.TrimPrefix(path, prefix)
+			break
+		}
+	}
+	if pluginPathSpec(path) {
+		// Only absolute paths: a relative one depends on the directory DSH resolved it from.
+		return "path:" + filepath.ToSlash(filepath.Clean(path))
+	}
+	return s
 }
 
 // classifyPluginFailure turns a failed pnpm run into one of the kinds the page has text for.

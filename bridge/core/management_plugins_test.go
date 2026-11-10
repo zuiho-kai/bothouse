@@ -512,3 +512,71 @@ func TestPluginsInstallSaysWhenThePackageIsNotAPlugin(t *testing.T) {
 		})
 	}
 }
+
+// TestInstalledPluginReinstallOfSameSource: reinstalling a valid plugin leaves package.json unchanged,
+// so no dependency is added or changed, and DSH (pnpm) records some specs in another spelling than the
+// one typed. Measured with dsh 0.2.1-rc.5 / pnpm 12.16.1 (#656): `/abs/dir` is stored as `link:/abs/dir`,
+// `/abs/x.tgz` as `file:/abs/x.tgz`, `https://github.com/o/r.git` and `git+https://github.com/o/r.git`
+// as `github:o/r`. Those reinstalls must still be recognised; anything not matching exactly one entry
+// must stay unconfirmed.
+func TestInstalledPluginReinstallOfSameSource(t *testing.T) {
+	bundle := func(name, source string) DSHPlugin { return DSHPlugin{Name: name, Source: source, Layer: true} }
+	state := DSHPluginsState{Plugins: []DSHPlugin{
+		bundle("dir-plugin", "link:/opt/plugins/dir-plugin"),
+		bundle("tgz-plugin", "file:/opt/plugins/tgz-plugin-1.0.0.tgz"),
+		bundle("gh-plugin", "github:owner/gh-plugin"),
+		bundle("filedir-plugin", "file:/opt/plugins/filedir"),
+		bundle("other", "1.2.3"),
+	}}
+	before := map[string]string{}
+	for _, p := range state.Plugins {
+		before[p.Name] = p.Source
+	}
+	for _, tc := range []struct {
+		raw, want string
+	}{
+		// same spelling as recorded (already worked before #656; must keep working)
+		{"github:owner/gh-plugin", "gh-plugin"},
+		{"file:/opt/plugins/filedir", "filedir-plugin"},
+		// different spelling, same source
+		{"/opt/plugins/dir-plugin", "dir-plugin"},
+		{"/opt/plugins/dir-plugin/", "dir-plugin"},
+		{"/opt/plugins/tgz-plugin-1.0.0.tgz", "tgz-plugin"},
+		{"https://github.com/owner/gh-plugin.git", "gh-plugin"},
+		{"git+https://github.com/owner/gh-plugin.git", "gh-plugin"},
+		{"https://github.com/owner/gh-plugin", "gh-plugin"},
+		// no match: still unconfirmed, never guessed
+		{"/opt/plugins/elsewhere", ""},
+		{"https://github.com/owner/gh-plugin.git#v2", ""},
+		{"https://gitlab.com/owner/gh-plugin.git", ""},
+	} {
+		spec, err := parsePluginSpec(tc.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.raw, err)
+		}
+		p, ok := installedPlugin(state, before, spec)
+		if tc.want == "" {
+			if ok {
+				t.Errorf("%s: matched %s, want unconfirmed", tc.raw, p.Name)
+			}
+			continue
+		}
+		if !ok || p.Name != tc.want {
+			t.Errorf("%s: got %q ok=%v, want %s", tc.raw, p.Name, ok, tc.want)
+		}
+	}
+}
+
+// TestInstalledPluginSourceFallbackNeedsUniqueMatch: two entries naming the same source cannot tell
+// which one the run touched, so the result stays unconfirmed.
+func TestInstalledPluginSourceFallbackNeedsUniqueMatch(t *testing.T) {
+	state := DSHPluginsState{Plugins: []DSHPlugin{
+		{Name: "a", Source: "link:/opt/p", Layer: true},
+		{Name: "b", Source: "file:/opt/p", Layer: true},
+	}}
+	before := map[string]string{"a": "link:/opt/p", "b": "file:/opt/p"}
+	spec, _ := parsePluginSpec("/opt/p")
+	if p, ok := installedPlugin(state, before, spec); ok {
+		t.Fatalf("matched %s, want unconfirmed for an ambiguous source", p.Name)
+	}
+}
