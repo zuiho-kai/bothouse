@@ -772,26 +772,27 @@ func WithTeam(persona, line string) string {
 // cloudWebTeamLine: who is on the team and how hand-offs work, for member self. The persona may be
 // shared with Discord (a reused Discord bot also joins the platform), so the line says it is about
 // the self-hosted platform. Names lose line breaks: one line under the marker (WithTeam).
+// The line is a roster only: who leads now and what the lead and the members each do come from the
+// bridge's duty layer (roleDutyLayer), so a lead switch needs no persona edit (user 2026-11-10).
 func cloudWebTeamLine(lang string, team []SetupTeamEntry, fallback, self string) string {
 	leadName := ""
-	var subs []string
+	var others []string
 	for _, t := range team {
 		if t.Project == fallback {
 			leadName = oneLine(t.Name)
-		} else {
-			subs = append(subs, oneLine(t.Name))
+		}
+		if t.Project != self {
+			others = append(others, oneLine(t.Name))
 		}
 	}
+	you, youJA, youEN := "", "", ""
 	if self == fallback {
-		return tr3(lang,
-			"在自建平台上，你是团队的主角色，队员有："+strings.Join(subs, "、")+"（都在同一个频道里）。要把活派给谁，就在频道里写「@名字」加上要做的事；她做完的最终回复会自动 @ 回你，你再汇总给提问的人。",
-			"自前プラットフォームでは、あなたはチームのリーダーです。メンバー："+strings.Join(subs, "、")+"（同じチャンネルにいます）。仕事を任せるときはチャンネルで「@名前」と書いて内容を伝えてください。終わった最終回答は自動であなたに @ が付いて返ってくるので、まとめて質問者に伝えてください。",
-			"On the self-hosted platform you are the primary role; members: "+strings.Join(subs, ", ")+" (all in the same channel). To hand work to one, write \"@name\" and the task in the channel; her final answer comes back to you with an @ automatically, then you sum up for whoever asked.")
+		you, youJA, youEN = "（就是你）", "（あなたです）", " (that is you)"
 	}
 	return tr3(lang,
-		"在自建平台上，你在一个团队里，主角色是「"+leadName+"」（都在同一个频道里）。主角色 @ 你派的活，做完后你的最终回复会自动 @ 回主角色；要找队友就在频道里写「@名字」。",
-		"自前プラットフォームでは、あなたはチームの一員で、リーダーは「"+leadName+"」です（同じチャンネルにいます）。リーダーが @ で任せた仕事の最終回答には自動でリーダーへの @ が付きます。仲間を呼ぶときはチャンネルで「@名前」と書いてください。",
-		"On the self-hosted platform your team's primary role is \""+leadName+"\" (all in the same channel). When the primary role @-s you with work, your final answer goes back to the primary role with an @ automatically; to call a teammate, write \"@name\" in the channel.")
+		"在自建平台上，你在一个团队里，队友有："+strings.Join(others, "、")+"（都在同一个频道里），按配置默认的主角色是「"+leadName+"」"+you+"。叫谁就在频道里写「@名字」加上要说的事；被 @ 派活的，做完后最终回复会自动 @ 回派活的人。谁当主角色、主角色和副手各自怎么干活，以桥每轮附上的团队职责层为准。",
+		"自前プラットフォームでは、あなたはチームの一員です。仲間："+strings.Join(others, "、")+"（同じチャンネルにいます）。設定上の既定のリーダーは「"+leadName+"」"+youJA+"です。呼ぶときはチャンネルで「@名前」と書いて内容を伝えてください。@ で任された仕事の最終回答には自動で依頼者への @ が付きます。誰がリーダーか、リーダーとメンバーがそれぞれどう動くかは、ブリッジが毎ターン付けるチームの役割層に従ってください。",
+		"On the self-hosted platform you are on a team; teammates: "+strings.Join(others, ", ")+" (all in the same channel); by configuration the default primary role is \""+leadName+"\""+youEN+". To call one, write \"@name\" and the message in the channel; when you are @-ed with work, your final answer goes back to whoever asked with an @ automatically. Who leads now, and how the primary role and the members each work, follow the team duty layer the bridge attaches each turn.")
 }
 
 // oneLine joins a name's lines with spaces.
