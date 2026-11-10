@@ -353,6 +353,9 @@ function avatarSpec(m) {
 // 画面全在一块 384×216 的低分辨率画布上，CSS 放大成像素风；名字、任务、气泡是叠在上面的 DOM。
 // 只有真实事件改变角色状态：空闲的人在屋里溜达摸鱼，派活/思考时走回工位坐下干活。
 const PX = { W: 384, H: 216, T: 8 };
+// 动效对象上限：超了丢最旧的；播完即删，不累积（用户 11-10「不要消耗过度的内存资源」）。
+const FX_MAX = { beams: 24, parts: 240, slips: 12, balls: 8, boardDone: 5 };
+function fxPush(name, item) { const arr = (P[name] = P[name] || []); arr.push(item); if (arr.length > FX_MAX[name]) arr.splice(0, arr.length - FX_MAX[name]); }
 // 画布实际是 RES 倍分辨率；内置角色精灵按 SPR 倍画，RES×SPR 是整数，最近邻放大不糊。
 const RES = 2, SPR = 1.5;
 const snap = (v) => Math.round(v * RES) / RES;
@@ -774,7 +777,7 @@ function headOf(id) {
   return { x: a.x, y: a.y - 30 };
 }
 function burst(x, y, color, n = 10) {
-  for (let i = 0; i < n; i++) { const ang = Math.PI * 2 * i / n + Math.random() * 0.4; const sp = 18 + Math.random() * 26; P.parts.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 10, life: 0.7, max: 0.7, color }); }
+  for (let i = 0; i < n; i++) { const ang = Math.PI * 2 * i / n + Math.random() * 0.4; const sp = 18 + Math.random() * 26; fxPush('parts', { x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 10, life: 0.7, max: 0.7, color }); }
 }
 function drawBeams(ctx, now, dt) {
   for (const b of P.beams) {
@@ -871,7 +874,7 @@ function boardDone(memberId, taskId) {
   const i = liveTasks().findIndex(x => x.key === key && x.memberId === memberId);
   const rec = S.active.get(memberId)?.get(key), m = S.byId.get(memberId);
   if (i < 0 || !rec || !m) return;
-  (P.boardDone = P.boardDone || []).push({ row: i, color: styleOf(m).hair, w: barWidth(rec, simNow()), t0: performance.now() });
+  fxPush('boardDone', { row: i, color: styleOf(m).hair, w: barWidth(rec, simNow()), t0: performance.now() });
 }
 function barWidth(rec, now) { const min = Math.max(0, (now - (rec.t ?? now)) / 60000); return Math.round(4 + Math.min(56, min / 120 * 56)); }
 function drawTaskBoard(ctx, now) {
@@ -946,7 +949,7 @@ function slipFrom(memberId) {
   rec.seen = simNow();
   const body = bodyRef(memberId, rec.id || null).id;
   if (body === S.lead) { P.lampPing = { key, t0: now }; return; }
-  (P.slips = P.slips || []).push({ from: body, key, t0: now, dur: 1600, seed: Math.random() * 6 });
+  fxPush('slips', { from: body, key, t0: now, dur: 1600, seed: Math.random() * 6 });
 }
 function drawSlips(ctx, now) {
   const L = lampSlots();
@@ -968,7 +971,7 @@ function drawSlips(ctx, now) {
 function throwBall(from, to, text) {
   const A = from && P.agents.has(from.id) ? from.id : null;
   if (!A || !P.agents.has(to.id) || A === to.id) { flashSeat(to.id, 'flash-bad'); deskPop(to.id, text, 'bad'); const g = P.agents.get(to.id); if (g) g.react = { kind: 'reject', t0: performance.now() }; return; }
-  (P.balls = P.balls || []).push({ from: A, to: to.id, t0: performance.now(), dur: 900, text, hit: null });
+  fxPush('balls', { from: A, to: to.id, t0: performance.now(), dur: 900, text, hit: null });
 }
 function drawBall(ctx, x, y, r) {
   const f = Math.floor(r) % 2;
@@ -1042,7 +1045,7 @@ function faceGlow(ctx, x, y, mode, t, seed) {
 function frame(now) {
   requestAnimationFrame(frame);
   const ctx = P.ctx;
-  if (!ctx) return;
+  if (!ctx || document.hidden) return;
   const dt = Math.min(0.1, (now - (P.last || now)) / 1000);
   P.last = now;
   const wall = Date.now();
@@ -1270,7 +1273,7 @@ function syncClones(animate) {
 function puff(x, y) {
   for (let i = 0; i < 14; i++) {
     const ang = Math.PI * 2 * i / 14 + Math.random() * 0.3, sp = 10 + Math.random() * 16;
-    P.parts.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6 - 14, life: 0.55, max: 0.55, color: i % 3 ? '#f4f0fa' : '#c9c1dc' });
+    fxPush('parts', { x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6 - 14, life: 0.55, max: 0.55, color: i % 3 ? '#f4f0fa' : '#c9c1dc' });
   }
 }
 function updateClone(a, dt) {
@@ -1516,6 +1519,7 @@ function beam(from, to, kind = 'assign') {
   if (!P.agents.has(from.id) || !P.agents.has(to.id)) return false;
   // @ 是一颗细小光点沿虚线拖尾飞过；派活是一封小信，交回/打回是方块光球。
   P.beams.push({ from: from.id, to: to.id, kind, t0: performance.now(), dur: kind === 'at' ? 800 : kind === 'assign' ? 1800 : 1000 });
+  if (P.beams.length > FX_MAX.beams) P.beams.splice(0, P.beams.length - FX_MAX.beams);
   return true;
 }
 
@@ -1553,6 +1557,13 @@ function startOffice() {
   if (typeof ResizeObserver === 'function') new ResizeObserver(fitStage).observe($('stagewrap'));
   $('stage').addEventListener('mousemove', onStageHover);
   $('stage').addEventListener('mouseleave', () => { P.hoverKey = null; });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    P.beams = []; P.parts = []; P.slips = []; P.balls = []; P.boardDone = [];
+    for (const a of P.agents.values()) a.hold = false;
+    P.last = 0;
+    paintAll(false);
+  });
   const cv = $('office');
   P.ctx = cv.getContext('2d');
   P.ctx.imageSmoothingEnabled = false;
@@ -1664,7 +1675,7 @@ function applyTask(ev, animate = true, quiet = false) {
   const header = id ? `#${id} ${title}`.trim() : title;
 
   if (id) {
-    if (kind === 'returned') { const w = to || (findActive(id) ? S.byId.get(findActive(id).memberId) : null); S.review.set(id, { color: w ? styleOf(w).hair : '#c9ced6', t: ms }); }
+    if (kind === 'returned') { const w = to || (findActive(id) ? S.byId.get(findActive(id).memberId) : null); S.review.set(id, { color: w ? styleOf(w).hair : '#c9ced6', t: ms }); while (S.review.size > 50) S.review.delete(S.review.keys().next().value); }
     else S.review.delete(id);
   }
   if (kind === 'created' || kind === 'assigned') {
@@ -1762,6 +1773,8 @@ function applyMessage(ev, animate = true) {
 }
 
 function applyEvent(ev, animate = true) {
+  // 页面在后台时只改状态不排动效，回前台按状态重建，不补播积压动画
+  if (animate && document.hidden) animate = false;
   if (!ev || typeof ev !== 'object') return;
   if (ev.type === 'task') applyTask(ev, animate);
   else if (ev.type === 'thinking') applyThinking(ev);
