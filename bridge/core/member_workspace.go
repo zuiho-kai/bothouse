@@ -380,7 +380,10 @@ func (e *Engine) memberOp(ctx context.Context, req MemberRequest) (MemberRespons
 		return e.memberSwitch(t, req.Op == "enable")
 	}
 	if !e.MemberWorkspacesOn() {
-		return fail(http.StatusConflict, "这个项目没开成员个人目录（member_workspaces）。主人说要开时，在他发起的那一轮里跑 `bothouse member enable`。")
+		if e.isDMOwner(t.userID) {
+			return fail(http.StatusConflict, "这个项目没开桥自带的成员个人目录（member_workspaces）。他要开就在这一轮跑 `bothouse member enable`。")
+		}
+		return fail(http.StatusConflict, "这个项目没开桥自带的成员个人目录（member_workspaces）。照实答：角色说明里另有成员目录做法的，按那个告诉他目录在哪；没有就说这里没给他单独建目录。不要让他去找谁开开关。")
 	}
 	dir, created, err := ensureMemberDir(e.dataDir, t.platform, t.userID, t.userName)
 	if err != nil {
@@ -502,7 +505,7 @@ func shellQuoteHelper(p string) string {
 // the user agrees to the recommendation, then it takes effect; nobody else can turn it on.
 func (e *Engine) memberSwitch(t callerTurn, on bool) (MemberResponse, int) {
 	if !e.isDMOwner(t.userID) { // explicit admin_from only: "*" would let anyone turn it on
-		return MemberResponse{Text: "只有主人（admin_from 里的人）发起的那一轮能开关成员个人目录", Exit: 1}, http.StatusForbidden
+		return MemberResponse{Text: "只有管理员（admin_from 里的人）发起的那一轮能开关成员个人目录", Exit: 1}, http.StatusForbidden
 	}
 	e.memberWSMu.Lock()
 	save := e.memberWSSave
@@ -725,13 +728,13 @@ func (e *Engine) sendMemberPrivately(t callerTurn, session, text string) (string
 
 const memberNoteOn = "（成员个人目录，系统附上，不用回应）这里开了成员个人目录：每个真人一个自己的目录，GitHub 只用发话人自己的授权。" +
 	"替人做 GitHub 上的事用 `bothouse member gh …` / `bothouse member git …`：桥按这一轮真实发话人取他本人的授权，他没授权就拒绝；" +
-	"不用共享的 gh 登录或令牌，不读别人的目录。他问自己的目录或授权：`bothouse member status`。" +
+	"不用共享的 gh 登录或令牌，不读别人的目录。目录是自动建的，不用谁开；他问自己的目录在哪、怎么建或授权没有：跑 `bothouse member status`，照输出告诉他路径和授权状态。" +
 	"他还没授权、又要做 GitHub 的事：先问他要不要配，他本人同意才跑 `bothouse member login`（设备码桥直接发给他本人，你不转述）。" +
 	"他要撤销：`bothouse member logout`。"
 
 const memberNoteOffer = "（推荐，系统附上，不用回应）用户说要搞团队、拉几个人一起用时，顺带推荐开「成员个人目录」：每个进群的人有自己的目录，" +
 	"GitHub 各用各的授权，别人那一轮用不了。照实说：角色和桥同一个系统账号时（默认装法），直接读文件拦不住，" +
-	"要给角色配 run_as_user 换一个系统账号跑才是真隔离。只有主人点头，才在他发起的那一轮跑 `bothouse member enable`；不点头就不开，也不再提。" +
+	"要给角色配 run_as_user 换一个系统账号跑才是真隔离。只有部署这个团队的人（admin_from 里的人）点头，才在他发起的那一轮跑 `bothouse member enable`；不点头就不开，也不再提。" +
 	"没说要搞团队就不提。"
 
 // memberBlock: once per agent context, how member workspaces work here (on), or the recommendation
