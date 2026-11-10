@@ -116,6 +116,16 @@ func (s *APIServer) handleHandoffSwitch(w http.ResponseWriter, r *http.Request) 
 		inputHTTPError(w, http.StatusConflict, errors.New(reason))
 		return
 	}
+	if target.team == nil && fromEngine != nil && fromEngine.team != nil {
+		// agentm 2026-11-10: lead.json named a project the running bridge had no team status for
+		// (config edited, bridge not restarted); the old lead stepped down, nobody stepped up, and
+		// the workspaces read as off until the next restart. A team with no status board at all
+		// (both sides without team status) still switches as before.
+		reason := fmt.Sprintf("目标 bot %q 在当前运行的桥里不是团队成员（没有团队状态），切过去团队会没有主角色；改了团队配置先重启桥再切。", req.To)
+		recordLeadHandoffFailure(s.dataDir, from, fromName, req.To, target.DisplayName(), reason)
+		inputHTTPError(w, http.StatusConflict, errors.New(reason))
+		return
+	}
 	toName := target.DisplayName()
 	at := time.Now().UTC()
 	if err := writeLeadSelectionFile(s.dataDir, req.To, toName, at); err != nil {
