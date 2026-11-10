@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { RoleInfo } from '@/api/roles';
 import type { RoleEventType, RoleSessionState } from './roleAggregation';
 import type { RoleBindings, RolePluginBinding } from '@/api/roleBindings';
-import type { InstalledPetPack } from '@/api/pets';
+import type { InstalledPetPack, PetShowcasePack } from '@/api/pets';
 
 export type { RoleEventType, RoleSessionState } from './roleAggregation';
 export { aggregateRoleStatus, getBusySessionCount, getDeduplicatedSpeech, getRoleKey, STATE_PRIORITY } from './roleAggregation';
@@ -54,6 +54,8 @@ export interface PluginRenderProps {
   isSimulated: boolean;
   roleBindings?: RoleBindings;
   petPacks?: InstalledPetPack[];
+  petShowcase?: PetShowcasePack[];
+  onPetPacksChanged?: () => void;
   bindingsDisabled?: boolean;
   onRoleBindingChange?: (roleKey: string, pluginId: string, binding: Partial<RolePluginBinding> | null) => void;
   onEmitEvent?: (event: RoleEvent) => void;

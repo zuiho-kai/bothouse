@@ -23,3 +23,21 @@ dsh-pet 透明 WebM 包可用 `main-config.jsonc`、`assets/config.jsonc`、`dsh
 - 内存（Mac 实测，整棵进程树 RSS：`pet run` + node 宿主 + Electron 主进程与各 helper）：1 只约 500 MB，3 只约 770 MB。几只共用一个 Electron 和一个宿主，每多一只多一个窗口渲染进程，约 130–140 MB。
 - 每只穿自己角色的形象：桌宠取动画时带上这只的素材根问 `/skin?pet=<id>`，按角色认内置形象（`assets/roles/skins.json` 的 aliases，见 plugins/desktop-pet/BOTHOUSE.md「形象」）：C酱（cjiang）＝橘、肥鱼（deep）＝鲸鱼娘、G哥（gge）＝龙娘。右键「换形象」选的只管 main。
 - 表情图（碎碎念配图）仍只给 main 跟形象走，其余几只用默认表情图。
+
+## 开源展示包与按需下载
+
+- 插件页「开源形象包」列出 hunmer/aboutme-pets 的 dsh1、claude、gpt、gemini 四包（`bridge/core/pet_showcase.json`：来源仓库、固定提交、每个文件的 sha256）。点「从作者仓库下载到本机」才按固定提交从 raw.githubusercontent.com 下载、逐个校验，全对才放进 `pets/<包>`；bothouse 仓库和发布页都不带素材。下载失败在卡片上写原因，不影响默认形象。
+- `POST /api/v1/plugins/pets/fetch {"pack":"dsh1"}` 后台下载，进度在 `GET /api/v1/plugins/pets` 的 `showcase[].fetch`。
+
+### 四个展示包的许可（2026-11-09 按固定提交核对）
+
+| 包 | 出处 | 作者写明的许可 |
+| --- | --- | --- |
+| dsh1（蓝毛小女仆·新动作包） | aboutme-pets `pets/dsh1`，形象出自 PC2005-cloud/dsh-pet | 包内 NOTICE.txt：「素材: 禁止商用；二创在公开渠道须署名上述上游仓库」；LICENSE-code/assets.txt 是上游代码的 MIT 原文。上游 dsh-pet README：形象为社区二创「大肥鱼」，非 DeepSeek 官方，形象授权 CC BY-NC-SA 4.0 |
+| claude / gpt / gemini | aboutme-pets `pets/<包>`，作者用 AI 生成（pets.json 描述「2026-11 Claude/GPT/Gemini 生成批次」） | 包目录里没有 LICENSE/NOTICE；aboutme-pets 仓库本身没有 LICENSE 文件；每个动作的 JSON 写着 `"License": "Non-commercial; attribution required. See NOTICE.txt and SOURCE-upstream.txt."`，但所指的两个文件在这三个包里不存在 |
+
+本项目按这些说明仅提供个人非商用的按需下载入口，不把缺少许可文件解释为获得了再分发授权。素材不会打入仓库或安装包；商用或再分发前应先向作者取得相应授权。
+
+下载完成后可在插件页选择并预览。桌面每角色一只的内置形象与布局沿用现有实现；本轮不引入形象包导入或精灵图转桌面视频。
+
+更新清单：在上游仓库固定提交的 checkout 上运行 `python3 scripts/gen-pet-showcase.py <上游仓库根目录> bridge/core/pet_showcase.json`；脚本会核对 checkout 提交，避免把其他版本的哈希写成固定来源。
