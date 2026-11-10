@@ -39,7 +39,8 @@ export interface WizardWiki { daily?: string; night?: string; split?: string }
 export interface WizardRole {
   name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
-  provider?: { vendor: string; base_url?: string; api_key?: string; model?: string };
+  // #1498: DSH only — the output cap written into llm-deepseek (omitted = the server's own default)
+  provider?: { vendor: string; base_url?: string; api_key?: string; model?: string; max_tokens?: number };
   /** library persona slug / avatar slug; omitted = keep what setup state has, "" = clear */
   persona_preset?: string; avatar?: string;
 }
