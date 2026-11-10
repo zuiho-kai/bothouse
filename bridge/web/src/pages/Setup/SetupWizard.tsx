@@ -172,6 +172,14 @@ export default function SetupWizard() {
   }, [platform, state]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the CLI step tells you to log in from a terminal: look again on reaching it and on coming back to the page
+  useEffect(() => {
+    if (step !== 2) return;
+    const recheck = () => { getCLIs().then((r) => setClis(r.clis)).catch(() => {}); };
+    recheck();
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
+  }, [step]);
 
   // default CLI: first installed one that is logged in, else first supported
   const defaultAgent = useMemo(() => {

@@ -25,18 +25,18 @@ function createBridge({ isBridge, prefix, origin, token }) {
   let bridgeCallbackUrl = '';
 
   /** 渲染端请求 → 宿主（请求行带回调 URL）；返回宿主应答（{status, contentType?, body?, file?}），超时抛错 */
-  function bridgeRequest(method, url, body) {
+  function bridgeRequest(method, url, body, timeoutMs = 45000) {
     return new Promise((resolve, reject) => {
       const id = ++bridgeSeq;
       bridgePending.set(id, { resolve, reject });
       process.stdout.write(prefix + JSON.stringify({ id, method, url, body, cb: bridgeCallbackUrl }) + '\n');
-      // 宿主若长期不应答（进程退出/宿主动作挂起）不无限挂起：45s 兜底（LLM 生成最长 30-60s）
+      // 宿主若长期不应答（进程退出/宿主动作挂起）不无限挂起：默认 45s 兜底（LLM 生成最长 30-60s）
       setTimeout(() => {
         const p = bridgePending.get(id);
         if (!p) return;
         bridgePending.delete(id);
         p.reject(new Error('bridge request timeout'));
-      }, 45000).unref?.();
+      }, timeoutMs).unref?.();
     });
   }
 
@@ -94,7 +94,9 @@ function createBridge({ isBridge, prefix, origin, token }) {
     if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
       body = await request.text();
     }
-    const resp = await bridgeRequest(method, url.pathname + url.search, body);
+    // 装推荐形象要从作者仓库逐个下文件（宿主每个文件限 120s），常要一两分钟：45s 会先报「没装上」，宿主其实还在装
+    const timeoutMs = url.pathname.endsWith('/skins/install') ? 15 * 60000 : undefined;
+    const resp = await bridgeRequest(method, url.pathname + url.search, body, timeoutMs);
     const headers = { 'access-control-allow-origin': '*' }; // 渲染端页面是 file:// 源，scheme 跨源需 CORS
     if (resp.contentType) headers['content-type'] = resp.contentType;
     if (resp.file) {
