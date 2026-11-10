@@ -3,6 +3,8 @@ package discord
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -85,6 +87,7 @@ type Platform struct {
 	liveMu                     sync.RWMutex      // guards allowBots, teamLead, groupReplyAllGuilds/Channels and shareSessionInChannel, which ReloadOptions swaps while running
 	allowBots                  string            // maomao fork: bot user IDs whose @-mentions of this bot are accepted
 	allowBotsFile              *allowBotsFile    // maomao fork: more allowed bot/webhook IDs, one per line; see allow_bots_file.go
+	testWebhookPeople          map[string]bool   // test only (test_webhook_people): these webhooks post as people, one per display name; off by default
 	teamLead                   string            // maomao fork: bot ID of the primary role; a reply to its @ is routed back to it (lead_return.go)
 	botName                    string            // maomao fork: this bot's username, for self-mention marking and name calls (mentions.go)
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
@@ -138,6 +141,14 @@ func New(opts map[string]any) (core.Platform, error) {
 	allowFrom, _ := opts["allow_from"].(string)
 	allowBots, _ := opts["allow_bots"].(string)
 	allowBotsFilePath, _ := opts["allow_bots_file"].(string)
+	testWebhookPeople := map[string]bool{}
+	if v, _ := opts["test_webhook_people"].(string); v != "" {
+		for _, id := range strings.Split(v, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				testWebhookPeople[id] = true
+			}
+		}
+	}
 	teamLead, _ := opts["team_lead_bot"].(string)
 	core.CheckAllowFrom("discord", allowFrom)
 	approvers, err := parsePermissionApprovers(opts["permission_approvers"])
@@ -213,6 +224,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		permissionApprovers:        approvers,
 		allowBots:                  allowBots,
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
+		testWebhookPeople:          testWebhookPeople,
 		teamLead:                   teamLead,
 		guildID:                    guildID,
 		allowGuilds:                parseAllowGuilds(opts),
@@ -806,6 +818,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if !p.guildAllowed(m.GuildID) {
 		return
 	}
+	asTestPerson(m, p.testWebhookPeople)
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
 	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
 	fromBot := m.Author.Bot
@@ -2136,6 +2149,21 @@ func (p *Platform) holdBotMessage(s *discordgo.Session, m *discordgo.MessageCrea
 // teamPlatforms: botID → *Platform for every bot in this process (maomao fork), so a bot can
 // turn a plain "@name" of a teammate into a real mention (linkTeamMentions).
 var teamPlatforms sync.Map
+
+// asTestPerson turns a message from a webhook listed in test_webhook_people into a person's
+// message: each display name becomes its own sender ("wh<webhook>-<name>"). Test servers have
+// one webhook and no second human account; this lets two "people" talk there. Never on by default.
+// The id is "wh<webhook>-<first 8 hex of sha1(name)>".
+func asTestPerson(m *discordgo.MessageCreate, hooks map[string]bool) {
+	if m == nil || m.Author == nil || m.WebhookID == "" || !hooks[m.WebhookID] {
+		return
+	}
+	u := *m.Author
+	u.Bot = false
+	sum := sha1.Sum([]byte(strings.TrimSpace(u.Username))) // names may be Chinese; person keys keep only [A-Za-z0-9._-]
+	u.ID = "wh" + m.WebhookID + "-" + hex.EncodeToString(sum[:4])
+	m.Author = &u
+}
 
 // isBotNotice reports cc-connect's own status lines (queue notices, session/errors, insert
 // acks) that carry nothing a teammate should read.
