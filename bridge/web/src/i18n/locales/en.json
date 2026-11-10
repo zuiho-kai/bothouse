@@ -95,7 +95,8 @@
     "clientUiNote": "Provided by DSH; the panel cannot switch it."
   },
   "roles": {
-    "title": "Role management"
+    "title": "Role management",
+    "all": "All"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -105,7 +106,21 @@
     "projects": "Projects",
     "bridgeAdapters": "Bridge adapters",
     "noData": "No data available",
-    "recentSessions": "Recent sessions"
+    "recentSessions": "Recent sessions",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "Projects",
@@ -401,7 +416,10 @@
     "slashHint": "Press / to see available commands",
     "inputPlaceholder": "Type a message or press / for commands...",
     "commands": "Commands",
-    "defaultSession": "Web Session"
+    "defaultSession": "Web Session",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You"
   },
   "cmd": {
     "search": "Search commands...",
@@ -714,5 +732,10 @@
     "connect": "Connections",
     "extend": "Extensions",
     "settings": "Settings"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

@@ -7,59 +7,23 @@ import {
   Bot,
   Layers,
   Gauge,
+  Plus,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
 } from 'lucide-react';
-import { Button, EmptyState, Modal, Badge } from '@/components/ui';
+import { Button, EmptyState, Modal, Badge, RoleAvatar, StatePill, roleState, ROLE_STATE_LABEL, type RoleState } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { listRoles, restartRole, setRolePaused, type RoleInfo } from '@/api/roles';
 import { DSHNotice } from '@/components/DSHNotice';
-import { roleLabel } from '@/lib/roleIdentity';
+import { backendLabel } from '@/lib/roleIdentity';
 import { dshMemberId, dshOnlyRows } from '@/lib/dshMerge';
 import { shownName } from '@/api/projects';
 import { deleteDSHMember, listDSHMembers, type DSHManagedMember } from '@/api/dsh';
 import { errorMessage } from '@/components/DSHNotice';
 import { usePageRefresh } from '@/lib/usePageRefresh';
 import { DSHMemberEditor } from './DSHMemberEditor';
-
-/** 角色四态：在忙 / 空闲 / 不在线 / 已暂停。
- *  房规（taste-skill app-screens §9.2）：一屏只留一个强调色家族，颜色给数据不给 chrome；
- *  所以只有「在忙」（这一屏真正要看的数据）吃 accent，暂停和掉线是状态不是警报，走 ink 灰阶。 */
-type RoleTone = { label: string; dot: string; pill: string; ring: string };
-
-function roleStateOf(role: RoleInfo): RoleTone {
-  if (role.paused) {
-    return {
-      label: '已暂停',
-      dot: 'bg-ink-mute',
-      pill: 'text-ink-soft border-hairline-strong',
-      ring: 'border-hairline',
-    };
-  }
-  if (!role.online) {
-    return {
-      label: '不在线',
-      dot: 'bg-transparent border border-ink-mute',
-      pill: 'text-ink-mute border-hairline',
-      ring: 'border-hairline',
-    };
-  }
-  if (role.busy) {
-    return {
-      label: '在忙',
-      dot: 'bg-accent',
-      pill: 'text-accent bg-accent-wash border-accent/25',
-      ring: 'border-hairline',
-    };
-  }
-  return {
-    label: '空闲',
-    dot: 'bg-ink-soft',
-    pill: 'text-ink-soft bg-surface-sunken border-hairline',
-    ring: 'border-hairline',
-  };
-}
+import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 
 function isServerMembersIntentNotice(notice: string): boolean {
   return (
@@ -85,6 +49,8 @@ export default function RoleList() {
   const [editor, setEditor] = useState<DSHManagedMember | 'new' | null>(null);
   const [deleteMember, setDeleteMember] = useState<DSHManagedMember | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // #579 v2: filter by state; 'all' keeps the old full grid
+  const [filter, setFilter] = useState<RoleState | 'all'>('all');
   const requestId = useRef(0);
   const loaded = useRef(false);
 
@@ -118,7 +84,7 @@ export default function RoleList() {
     catch (e) { setError(errorMessage(e)); }
     finally { setDeleting(false); }
   };
-  const memberActions = (member?: DSHManagedMember) => member ? <div className="mt-4 space-y-2 border-t border-hairline pt-3">
+  const memberActions = (member?: DSHManagedMember) => member ? <div className="mt-auto space-y-2 border-t border-hairline pt-3">
     <p className="text-xs text-ink-mute">{t('dshManage.source')}: {member.source} · {t(`dshManage.apply_${member.apply.status}`)}{member.apply.error ? `: ${member.apply.error}` : ''}</p>
     {member.source === 'ui' && (member.can_edit || member.can_delete) && member.cli === 'codex' && (member.cliConfig?.model || member.cliConfig?.reasoningEffort) && <div className="space-y-1 text-xs text-ink-soft">
       <p className="text-ink-mute">{t('dshManage.savedConfigNextTurn')}</p>
@@ -134,7 +100,7 @@ export default function RoleList() {
       {member.can_edit && <Button variant="secondary" size="sm" onClick={() => setEditor(member)}>{t('dshManage.edit')}</Button>}
       {member.can_delete && <Button variant="secondary" size="sm" onClick={() => setDeleteMember(member)}>{t('dshManage.delete')}</Button>}
     </div> : <p className="text-xs text-ink-mute">{t('dshManage.readOnly')}</p>}
-  </div> : <p className="mt-4 border-t border-hairline pt-3 text-xs text-ink-mute">{t('dshManage.unavailable')}</p>;
+  </div> : <p className="mt-auto border-t border-hairline pt-3 text-xs text-ink-mute">{t('dshManage.unavailable')}</p>;
 
   const handleRestart = async (name: string) => {
     try {
@@ -178,125 +144,133 @@ export default function RoleList() {
   );
 
   const extraMembers = members.filter(m => !roles.some(r => r.source === 'dsh' ? dshMemberId(r.name) === m.id : r.name === m.id));
+  const shownRoles = filter === 'all' ? roles : roles.filter((r) => roleState(r) === filter);
+  const filters: { key: RoleState | 'all'; n: number }[] = [
+    { key: 'all', n: roles.length },
+    { key: 'busy', n: counts.busy },
+    { key: 'idle', n: counts.idle },
+    { key: 'offline', n: counts.offline },
+    ...(counts.paused > 0 ? [{ key: 'paused' as const, n: counts.paused }] : []),
+  ];
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-ink">{t('roles.title', '角色管理')}</h1>
-          <p className="mt-1 text-sm text-ink-soft">
+          <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{t('roles.title', '角色管理')}</h1>
+          <p className="mt-1.5 text-sm text-ink-soft">
             {t('roles.subtitle', '查看每个角色的在线状态、当前工作、模型并进行控制')}
           </p>
-          {roles.length > 0 && (
-            <p className="mt-2 text-xs text-ink-mute tabular-nums">
-              {counts.busy} 个在忙 · {counts.idle} 个空闲 · {counts.offline} 个不在线
-              {counts.paused > 0 ? ` · ${counts.paused} 个已暂停` : ''}
-            </p>
-          )}
         </div>
-        <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => setEditor('new')}>{t('dshManage.add')}</Button><Button
-          variant="secondary"
-          size="sm"
-          onClick={fetchRoles}
-          disabled={loading}
-          className="gap-2 self-start"
-        >
-          <RotateCw size={14} className={cn(loading && 'animate-spin motion-reduce:animate-none')} />
-          {t('common.refresh', '刷新')}
-        </Button></div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setEditor('new')} className="gap-1.5"><Plus size={14} />{t('dshManage.add')}</Button>
+          <Button variant="secondary" size="sm" onClick={fetchRoles} disabled={loading} className="gap-2 self-start">
+            <RotateCw size={14} className={cn(loading && 'animate-spin motion-reduce:animate-none')} />
+            {t('common.refresh', '刷新')}
+          </Button>
+        </div>
       </header>
+
+      {roles.length > 0 && (
+        // 这一屏的「一个发现」：谁在忙、谁掉线，做成可点的筛选，而不是埋在标题下的一行小字。
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="tablist" aria-label={t('roles.title', '角色管理')}>
+          {filters.map(({ key, n }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={filter === key}
+              onClick={() => setFilter(key)}
+              className={cn(
+                'flex h-9 shrink-0 items-center gap-2 rounded-pill px-3.5 text-[13px] font-medium transition-colors duration-base',
+                filter === key ? 'bg-ink text-canvas' : 'bg-surface text-ink-soft shadow-ui-1 hover:text-ink',
+              )}
+            >
+              {key === 'all' ? t('roles.all', '全部') : ROLE_STATE_LABEL[key]}
+              <span className={cn('tabular-nums', filter === key ? 'opacity-70' : 'text-ink-mute')}>{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <DSHNotice status={dsh?.status} error={dsh?.error} />
       {/* DSH 没在跑或读不到时，上面那条已经把原因说清了，成员管理这里不再重复同一句话（#226）。 */}
       {memberError && dsh?.status === 'running' && <p role="alert" className="text-sm text-red-600">{t('dshManage.rosterError')}: {memberError}</p>}
       {msg && (
-        <div className="flex items-center gap-2 rounded-control border border-hairline bg-surface-sunken px-3 py-2 text-sm text-ink">
-          <CheckCircle2 size={15} className="shrink-0 text-accent" />
+        <div className="flex items-center gap-2 rounded-card bg-surface px-4 py-2.5 text-sm text-ink shadow-ui-1">
+          <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span className="min-w-0">{msg}</span>
         </div>
       )}
 
       {error && (
-        <div className="flex items-center gap-2 rounded-control border border-red-500/25 bg-red-500/[0.06] px-3 py-2 text-sm text-red-700 dark:text-red-400">
+        <div className="flex items-center gap-2 rounded-card border border-red-500/25 bg-red-500/[0.06] px-4 py-2.5 text-sm text-red-700 dark:text-red-400">
           <AlertCircle size={15} className="shrink-0" />
           <span className="min-w-0">{error}</span>
         </div>
       )}
 
       {loading && roles.length === 0 ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3" aria-hidden>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-hidden>
           {Array.from({ length: SKELETON_SEATS }).map((_, i) => (
-            <div key={i} className="h-[188px] rounded-card bg-surface-sunken border border-hairline" />
+            <div key={i} className="h-[220px] animate-pulse rounded-card bg-surface shadow-ui-1" />
           ))}
         </div>
       ) : roles.length === 0 ? (
-        <div className="rounded-card bg-surface p-8 border border-hairline">
+        <div className="rounded-card bg-surface p-8 shadow-ui-1">
           <EmptyState icon={Bot} message={t('roles.noRoles', '暂无角色配置')} />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {roles.map((role) => {
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {shownRoles.map((role) => {
             const isRestarting = !!actionLoading[`restart-${role.name}`];
             const isPausing = !!actionLoading[`pause-${role.name}`];
             const shown = shownName(role);
-            const state = roleStateOf(role);
+            const state = roleState(role);
+            const busy = state === 'busy';
 
             return (
               <article
                 key={role.name}
                 className={cn(
-                  'flex flex-col rounded-card bg-surface p-5 border',
-                  'transition-colors duration-state ease-ui-standard',
-                  state.ring,
+                  'group/card flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1',
+                  'transition-shadow duration-state ease-ui-standard hover:shadow-ui-2',
+                  busy && 'ring-1 ring-accent/30',
                 )}
               >
-                {/* 名字 + 标识 + 状态词。不做首字母彩块或描边方托：每个对象都带同一枚装饰，正是被点名的模板痕迹。 */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-semibold text-ink">
-                      {roleLabel(shown, role.agent_type)}
-                    </p>
+                {/* 头像 + 名字 + 状态：一眼认人 */}
+                <div className="flex items-start gap-3">
+                  <RoleAvatar name={shown} state={state} size={44} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-semibold leading-6 text-ink">{shown}</p>
                     <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-mute">
-                      <Bot size={11} className="shrink-0" />
-                      <span className="truncate">{role.agent_type}</span>
+                      <span className="truncate">{backendLabel(role.agent_type)}</span>
                       {shown !== role.name && role.source !== 'dsh' && (
-                        // 标识符（不是正文），mono 是它的正确排法
-                        <span className="hidden truncate font-mono sm:inline">{role.name}</span>
+                        <span className="hidden truncate font-mono sm:inline">· {role.name}</span>
                       )}
                     </p>
                   </div>
-                  <span
-                    className={cn(
-                      'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium border',
-                      state.pill,
-                    )}
-                  >
-                    <span className={cn('h-1.5 w-1.5 rounded-full', state.dot)} />
-                    {state.label}
-                  </span>
+                  <StatePill state={state} />
                 </div>
 
-                {/* 三个字段按 dl 排，行线是真实字段分隔，不是装饰 */}
-                <dl className="mt-4 divide-y divide-hairline">
-                  <div className="flex items-baseline justify-between gap-3 py-2">
-                    <dt className="shrink-0 text-xs text-ink-mute">当前在忙</dt>
-                    <dd
-                      className={cn(
-                        'min-w-0 truncate text-right text-[13px] font-medium',
-                        role.online && role.busy ? 'text-ink' : 'text-ink-soft',
-                      )}
-                    >
-                      {role.current_task || '—'}
-                    </dd>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3 py-2">
-                    <dt className="shrink-0 text-xs text-ink-mute">当前模型</dt>
-                    <dd className="min-w-0 truncate text-right font-mono text-xs text-ink-soft">
+                {/* 当前在做的事：卡片的主角 */}
+                <div className={cn('rounded-[12px] px-3.5 py-3', busy ? 'bg-accent-wash' : 'bg-surface-sunken')}>
+                  <p className={cn('text-[11px] font-semibold uppercase tracking-wider', busy ? 'text-accent-text' : 'text-ink-mute')}>{busy ? '正在做' : '当前'}</p>
+                  <p className={cn('mt-1 line-clamp-2 text-sm leading-5', busy ? 'font-medium text-ink' : 'text-ink-mute')}>
+                    {role.current_task || (state === 'idle' ? '空闲，等新消息' : state === 'paused' ? '已暂停' : '—')}
+                  </p>
+                </div>
+
+                {/* 型号和平台降成一行小字；行线是真实字段分隔，不是装饰 */}
+                <dl className="space-y-1.5 text-xs">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="shrink-0 text-ink-mute">当前模型</dt>
+                    <dd className="min-w-0 truncate text-right font-mono text-[11px] text-ink-soft">
                       {role.model || t('dsh.unknownModel', '未知')}
                     </dd>
                   </div>
-                  <div className="flex items-start justify-between gap-3 py-2">
-                    <dt className="shrink-0 text-xs text-ink-mute">连接平台</dt>
-                    <dd className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-right text-xs text-ink-soft">
+                  <div className="flex items-start justify-between gap-3">
+                    <dt className="shrink-0 text-ink-mute">连接平台</dt>
+                    <dd className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-right text-ink-soft">
                       {role.platforms && role.platforms.length > 0 ? (
                         role.platforms.map((p) => {
                           const notice = p.notice;
@@ -311,7 +285,7 @@ export default function RoleList() {
 
                           return (
                             <span key={p.name} className="inline-flex items-center gap-1.5">
-                              <span className={cn('h-1 w-1 rounded-full', p.ready ? 'bg-accent' : 'bg-ink-mute')} />
+                              <span className={cn('h-1.5 w-1.5 rounded-full', p.ready ? 'bg-emerald-500' : 'bg-ink-mute')} />
                               <span>{p.name}</span>
                               {isIntentNotice && (
                                 <span className="group relative inline-flex items-center">
@@ -321,16 +295,15 @@ export default function RoleList() {
                                     aria-label={`${t('roles.membersIntentOff', '未开成员事件')}: ${description}`}
                                   >
                                     <Badge
-                                      variant="default"
-                                      className="cursor-help px-1.5 py-0 text-[10px] font-normal text-ink-mute transition-colors duration-base group-hover:bg-surface-raised group-hover:text-ink"
+                                      variant="warning"
+                                      className="cursor-help px-1.5 py-0 text-[10px] font-normal"
                                     >
-                                      <span className="h-1 w-1 rounded-full bg-amber-500/70" />
                                       {t('roles.membersIntentOff', '未开成员事件')}
                                     </Badge>
                                   </button>
                                   <div
                                     role="tooltip"
-                                    className="pointer-events-none absolute bottom-full right-0 z-50 mb-1.5 hidden w-72 max-w-[calc(100vw-3rem)] flex-col rounded-control border border-hairline bg-surface p-3 text-left text-xs leading-relaxed text-ink shadow-ui-2 transition-all duration-base before:absolute before:inset-x-0 before:-bottom-2 before:h-2 group-hover:pointer-events-auto group-hover:flex group-focus-within:pointer-events-auto group-focus-within:flex"
+                                    className="pointer-events-none absolute bottom-full right-0 z-50 mb-1.5 hidden w-72 max-w-[calc(100vw-3rem)] flex-col rounded-card border border-hairline bg-surface p-3 text-left text-xs leading-relaxed text-ink shadow-ui-2 transition-all duration-base before:absolute before:inset-x-0 before:-bottom-2 before:h-2 group-hover:pointer-events-auto group-hover:flex group-focus-within:pointer-events-auto group-focus-within:flex"
                                   >
                                     <p className="select-text whitespace-normal text-ink-soft">{description}</p>
                                     {fixUrl && (
@@ -338,7 +311,7 @@ export default function RoleList() {
                                         href={fixUrl}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="mt-2.5 inline-flex items-center gap-1 font-medium text-accent hover:underline select-text"
+                                        className="mt-2.5 inline-flex items-center gap-1 font-medium text-accent-text hover:underline select-text"
                                       >
                                         <span>{t('roles.openDeveloperPortal', '打开 Discord 开发者后台')}</span>
                                         <ExternalLink size={12} className="shrink-0" />
@@ -356,8 +329,8 @@ export default function RoleList() {
                     </dd>
                   </div>
                   {role.quota?.windows && role.quota.windows.length > 0 && (
-                    <div className="py-2" data-testid={`role-quota-${role.name}`}>
-                      <dt className="flex items-center justify-between text-xs text-ink-mute">
+                    <div className="pt-1.5" data-testid={`role-quota-${role.name}`}>
+                      <dt className="flex items-center justify-between text-ink-mute">
                         <span className="flex items-center gap-1.5">
                           <Gauge size={12} className="shrink-0" />
                           模型额度：
@@ -376,8 +349,8 @@ export default function RoleList() {
                                   剩 {remaining}% <span className="text-ink-mute">/ 已用 {used}%</span>
                                 </span>
                               </div>
-                              <div className="h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
-                                <div className="h-full rounded-full bg-accent" style={{ width: `${remaining}%` }} />
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                                <div className={cn('h-full rounded-full', remaining < 20 ? 'bg-amber-500' : 'bg-accent')} style={{ width: `${remaining}%` }} />
                               </div>
                             </div>
                           );
@@ -390,7 +363,7 @@ export default function RoleList() {
                 {role.platforms
                   ?.filter((p) => p.notice && !isServerMembersIntentNotice(p.notice))
                   .map((p) => (
-                    <p key={'notice-' + p.name} className="mt-2 text-xs leading-relaxed text-amber-600">
+                    <p key={'notice-' + p.name} className="-mt-1 rounded-control bg-amber-500/[0.08] px-3 py-2 text-xs leading-relaxed text-amber-600">
                       {p.notice}
                     </p>
                   ))}
@@ -398,11 +371,11 @@ export default function RoleList() {
                 {role.source === 'dsh' ? (
                   memberActions(members.find(m => m.id === dshMemberId(role.name)))
                 ) : (
-                <div className="mt-4 flex items-center gap-2 border-t border-hairline pt-3">
+                <div className="mt-auto flex items-center justify-end gap-1 border-t border-hairline pt-3">
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
-                    className="flex-1 gap-1.5"
+                    className="gap-1.5"
                     onClick={() => handleTogglePause(role)}
                     disabled={isPausing}
                   >
@@ -410,9 +383,9 @@ export default function RoleList() {
                     {role.paused ? '恢复' : '暂停'}
                   </Button>
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
-                    className="flex-1 gap-1.5"
+                    className="gap-1.5"
                     onClick={() => handleRestart(role.name)}
                     disabled={isRestarting}
                   >
@@ -427,8 +400,8 @@ export default function RoleList() {
         </div>
       )}
       {extraMembers.length > 0 && <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-ink">{t('dshManage.otherMembers')}</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="rounded-card border border-hairline bg-surface p-5"><p className="font-semibold">{m.name}</p>{memberActions(m)}</article>)}</div>
+        <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wider text-ink-mute">{t('dshManage.otherMembers')}</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1"><div className="flex items-center gap-3"><LibraryAvatar name={m.name} size={40} /><p className="font-semibold text-ink">{m.name}</p></div>{memberActions(m)}</article>)}</div>
       </section>}
       {editor && <DSHMemberEditor member={editor === 'new' ? null : editor} onClose={() => setEditor(null)} onSaved={changed} />}
       <Modal open={!!deleteMember} onClose={() => setDeleteMember(null)} title={t('dshManage.delete')}>

@@ -92,7 +92,8 @@
     "clientUiNote": "DSH が提供するもので、このパネルからは切り替えられません。"
   },
   "roles": {
-    "title": "ロール管理"
+    "title": "ロール管理",
+    "all": "All"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -102,7 +103,21 @@
     "projects": "プロジェクト",
     "bridgeAdapters": "ブリッジアダプター",
     "noData": "データがありません",
-    "recentSessions": "最近のセッション"
+    "recentSessions": "最近のセッション",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "プロジェクト",
@@ -395,7 +410,10 @@
     "slashHint": "/ を押して利用可能なコマンドを表示",
     "inputPlaceholder": "メッセージを入力、または / でコマンド...",
     "commands": "コマンド",
-    "defaultSession": "Web セッション"
+    "defaultSession": "Web セッション",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You"
   },
   "cmd": {
     "search": "コマンドを検索...",
@@ -646,5 +664,10 @@
     "connect": "接続",
     "extend": "拡張",
     "settings": "設定"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

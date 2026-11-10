@@ -126,6 +126,14 @@ export default function Dashboard() {
     .slice(0, MAX_ITEMS);
 
   // Who is doing what: roles from /roles, plus DSH members that /roles did not list (busy first).
+  const ago = (iso: string) => {
+    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (!(mins >= 0)) return '';
+    if (mins < 1) return t('sessions.justNow');
+    if (mins < 60) return `${mins}m`;
+    if (mins < 1440) return `${Math.floor(mins / 60)}h`;
+    return `${Math.floor(mins / 1440)}d`;
+  };
   type LiveRow = { key: string; name: string; sub: string; state: RoleState; task: string; model: string; href?: string };
   const order: Record<RoleState, number> = { busy: 0, idle: 1, paused: 2, offline: 3 };
   const liveRows: LiveRow[] = [
@@ -160,9 +168,9 @@ export default function Dashboard() {
   const warnCount = issues.filter((i) => i.tone === 'warn').length;
 
   const metric = (label: string, value: string | number, testid?: string) => (
-    <div className="min-w-0 rounded-card bg-surface px-4 py-3 shadow-ui-1" data-testid={testid}>
-      <span className="block truncate text-xs text-ink-mute">{label}</span>
-      <span className="mt-1 block truncate text-xl font-semibold tabular-nums tracking-tight text-ink">{value}</span>
+    <div className="min-w-0 rounded-card bg-surface px-3 py-2.5 shadow-ui-1 sm:px-4 sm:py-3" data-testid={testid}>
+      <span className="block truncate text-[11px] text-ink-mute sm:text-xs">{label}</span>
+      <span className="mt-1 block truncate text-lg font-semibold tabular-nums tracking-tight text-ink sm:text-xl">{value}</span>
     </div>
   );
   const cardHead = (title: string, to?: string, extra?: React.ReactNode) => (
@@ -192,7 +200,7 @@ export default function Dashboard() {
             {warnCount > 0 ? t('dashboard.needsLook', { count: warnCount, defaultValue: '{{count}} 件事需要看一下' }) : t('dashboard.allGood', '一切正常')}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[460px]">
+        <div className="grid grid-cols-4 gap-2 lg:w-[460px]">
           {metric(t('nav.roles'), liveRows.length)}
           {metric(t('dashboard.platforms'), platformCount)}
           {metric(t('dashboard.projects'), status?.projects_count ?? 0)}
@@ -281,8 +289,9 @@ export default function Dashboard() {
                 <ul className="divide-y divide-hairline overflow-hidden rounded-card bg-surface shadow-ui-1" role="list">
                   {recentItems.map((item) => {
                     const isDsh = item.kind === 'dsh';
-                    const title = isDsh ? `#${item.ch.name}` : (item.sess.name || item.sess.id);
-                    const tag = isDsh ? 'DSH' : shownNames(projects)(item.sess.project);
+                    // the role/project is what people recognise; the session id is only a tag
+                    const title = isDsh ? `#${item.ch.name}` : shownNames(projects)(item.sess.project);
+                    const tag = isDsh ? 'DSH' : (item.sess.name || item.sess.id);
                     const preview = isDsh
                       ? (item.ch.error ? `${t('dsh.messagesError', '消息读取失败')}: ${item.ch.error}` : item.ch.last_message ? `${item.ch.last_message.name}：${item.ch.last_message.content.slice(0, 80)}` : '')
                       : (item.sess.last_message?.content.slice(0, 80) ?? '');
@@ -296,7 +305,7 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-medium text-ink">{title}</span>
                             {live && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />}
-                            <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-mute">{formatTime(item.at)}</span>
+                            <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-mute" title={formatTime(item.at)}>{ago(item.at)}</span>
                           </div>
                           <p className="mt-0.5 truncate text-xs text-ink-mute"><span className="text-ink-soft">{tag}</span>{preview && ` · ${preview}`}</p>
                         </div>

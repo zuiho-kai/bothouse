@@ -92,7 +92,8 @@
     "clientUiNote": "DSH가 제공하며 패널에서 켜고 끌 수 없습니다."
   },
   "roles": {
-    "title": "역할 관리"
+    "title": "역할 관리",
+    "all": "All"
   },
   "dashboard": {
     "title": "대시보드",
@@ -102,7 +103,21 @@
     "projects": "프로젝트",
     "bridgeAdapters": "브리지 어댑터",
     "noData": "데이터가 없습니다",
-    "recentSessions": "최근 세션"
+    "recentSessions": "최근 세션",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "프로젝트",
@@ -395,7 +410,10 @@
     "slashHint": "/를 눌러 사용 가능한 명령어를 확인하세요",
     "inputPlaceholder": "메시지를 입력하거나 /로 명령어를 사용하세요...",
     "commands": "명령어",
-    "defaultSession": "웹 세션"
+    "defaultSession": "웹 세션",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You"
   },
   "cmd": {
     "search": "명령어 검색...",
@@ -623,5 +641,10 @@
     "connect": "연결",
     "extend": "확장",
     "settings": "설정"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

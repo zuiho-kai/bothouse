@@ -25,10 +25,10 @@ const variants = {
     'hover:bg-accent-dim hover:shadow-ui-gloss-2',
   // #579: 次按钮 = 白底 + 1px 描边 + 顶光（与 DSH「新会话」按钮同一手法），不再是灰块
   secondary:
-    'bg-surface text-ink border border-hairline shadow-ui-gloss-1 hover:border-hairline-strong hover:bg-surface-sunken',
+    'bg-surface text-ink shadow-ui-1 hover:bg-surface-sunken',
   danger: 'bg-surface text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/10',
   ghost:
-    'text-ink-soft hover:bg-surface-sunken hover:text-ink focus-visible:bg-surface-sunken',
+    'text-ink-soft hover:bg-ink/[0.05] hover:text-ink focus-visible:bg-surface-sunken dark:hover:bg-white/[0.06]',
 };
 
 // Control radius is 8px for sm/md; lg steps to the card radius (14) so a big CTA reads as a card.

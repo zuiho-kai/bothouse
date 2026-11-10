@@ -92,7 +92,8 @@
     "clientUiNote": "Lo proporciona DSH; el panel no puede activarlo ni desactivarlo."
   },
   "roles": {
-    "title": "Gestión de roles"
+    "title": "Gestión de roles",
+    "all": "All"
   },
   "dashboard": {
     "title": "Panel",
@@ -102,7 +103,21 @@
     "projects": "Proyectos",
     "bridgeAdapters": "Adaptadores de puente",
     "noData": "No hay datos disponibles",
-    "recentSessions": "Sesiones recientes"
+    "recentSessions": "Sesiones recientes",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "Proyectos",
@@ -395,7 +410,10 @@
     "slashHint": "Presiona / para ver los comandos disponibles",
     "inputPlaceholder": "Escribe un mensaje o presiona / para comandos...",
     "commands": "Comandos",
-    "defaultSession": "Sesión Web"
+    "defaultSession": "Sesión Web",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You"
   },
   "cmd": {
     "search": "Buscar comandos...",
@@ -623,5 +641,10 @@
     "connect": "Conexiones",
     "extend": "Extensiones",
     "settings": "Ajustes"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }
