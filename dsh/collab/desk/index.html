@@ -1280,16 +1280,29 @@ function declutter(now) {
     const r = st.getBoundingClientRect();
     if (!r.width) continue;
     const dy = +node.dataset.dy || 0;
-    items.push({ node, fixed: !node.classList.contains('roam'), l: r.left, r: r.right, t: r.top + dy, b: r.bottom + dy });
+    // 优先级：本人坐在工位的牌子 0，坐着的分身 1，走动的 2；同级从左到右摆
+    const rank = !node.classList.contains('roam') ? (node.classList.contains('clone') ? 1 : 0) : 2;
+    items.push({ node, rank, l: r.left, r: r.right, t: r.top + dy, b: r.bottom + dy });
   }
-  items.sort((a, b) => (b.fixed - a.fixed) || (b.b - a.b));
+  items.sort((a, b) => (a.rank - b.rank) || (a.l - b.l));
   const placed = [];
+  const hitAt = (it, dy) => placed.find(p => it.l < p.r && p.l < it.r && it.t - dy < p.b && p.t < it.b - dy);
+  // 上排牌子互相盖住（11-10 #1396 返工）：谁都可以挪，往上、往下各试 6 步，取挪得最少且不压别人的位置。
   for (const it of items) {
     let dy = 0;
-    if (!it.fixed) for (let g = 0; g < 6; g++) {
-      const hit = placed.find(p => it.l < p.r && p.l < it.r && it.t - dy < p.b && p.t < it.b - dy);
-      if (!hit) break;
-      dy = Math.ceil(it.b - hit.t + 2);
+    if (hitAt(it, 0)) {
+      const cands = [];
+      for (const dir of [1, -1]) {
+        let d = 0;
+        for (let g = 0; g < 6; g++) {
+          const hit = hitAt(it, d);
+          if (!hit) { cands.push(d); break; }
+          d = dir > 0 ? Math.ceil(it.b - hit.t + 2) : -Math.ceil(hit.b - it.t + 2);
+        }
+      }
+      const top = $('stage').getBoundingClientRect().top;
+      const ok = cands.filter(d => it.t - d >= top - 4);
+      dy = (ok.length ? ok : cands).sort((x, y) => Math.abs(x) - Math.abs(y))[0] ?? 0;
     }
     placed.push({ l: it.l, r: it.r, t: it.t - dy, b: it.b - dy });
     if ((+it.node.dataset.dy || 0) !== dy) { it.node.dataset.dy = dy; it.node.style.transform = dy ? `translateY(${-dy}px)` : ''; }
