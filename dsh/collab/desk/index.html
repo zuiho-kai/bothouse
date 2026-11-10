@@ -16,7 +16,7 @@ button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
 /* 像素边框：不用圆角，用四向硬阴影拼出缺角方框 */
 .pxbox{background:var(--panel);box-shadow:0 calc(-1*var(--px)) 0 0 var(--ink),0 var(--px) 0 0 var(--ink),calc(-1*var(--px)) 0 0 0 var(--ink),var(--px) 0 0 0 var(--ink),0 calc(var(--px)*2) 0 0 #00000055}
-.app{max-width:1720px;margin:0 auto;min-height:100dvh;padding:14px 18px 10px;display:flex;flex-direction:column;gap:14px}
+.app{margin:0 auto;height:100dvh;box-sizing:border-box;padding:14px 18px 10px;display:flex;flex-direction:column;gap:14px}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:4px 2px}
 .brand{display:flex;align-items:center;gap:14px;min-width:0}
 .mark{width:36px;height:36px;flex:0 0 auto;background:
@@ -50,13 +50,14 @@ button{cursor:pointer}
 .progress{flex:1 1 90px;min-width:80px;max-width:240px;accent-color:#ffa53a;height:4px}
 .vclock{font:700 12px ui-monospace,Menlo,monospace;color:var(--gold);min-width:44px;text-align:right}
 .stats{margin-left:auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted);white-space:nowrap}
-main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
-.stagewrap{padding:6px;background:#0b0910;box-shadow:0 6px 0 #00000055}
-.stage{position:relative;width:100%;aspect-ratio:384/216;overflow:hidden;background:#2a2035;isolation:isolate}
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:stretch}
+.stagewrap{min-width:0;min-height:0;height:100%;display:flex;align-items:flex-start;justify-content:center;}
+.stagebox{padding:6px;background:#0b0910;box-shadow:0 6px 0 #00000055}
+.stage{position:relative;width:var(--sw,100%);height:var(--sh,auto);aspect-ratio:384/216;overflow:hidden;background:#2a2035;isolation:isolate}
 #office{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges}
 .seats{position:absolute;inset:0;pointer-events:none;z-index:2}
 .seat{position:absolute;left:0;top:0;width:0;height:0}
-.stack{position:absolute;left:0;bottom:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;white-space:nowrap}
+.stack{position:absolute;left:0;bottom:0;transform:translateX(-50%) scale(var(--k,1));transform-origin:50% 100%;display:flex;flex-direction:column;align-items:center;gap:4px;white-space:nowrap}
 .label{display:flex;align-items:center;gap:5px;padding:2px 7px;background:#1b1626e6;color:#fff;font-size:11px;font-weight:700;line-height:1.35;box-shadow:0 -2px 0 #0b0910,0 2px 0 #0b0910,-2px 0 0 #0b0910,2px 0 0 #0b0910;pointer-events:auto}
 .label .dot{width:6px;height:6px;background:#3ddc97;box-shadow:0 0 6px #3ddc97}
 .label .status{color:var(--muted);font-weight:400;font-size:10px}
@@ -75,13 +76,13 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .bubble i{width:4px;height:4px;background:#2d5ea3;animation:dotp 1.2s steps(1) infinite}
 .bubble i:nth-child(2){animation-delay:.3s}.bubble i:nth-child(3){animation-delay:.6s}
 .emote{padding:1px 6px;background:#fff8e6;color:#3a2a10;font-size:11px;box-shadow:0 0 0 2px #0b0910;animation:bob 1.4s steps(2) infinite}
-.pop{position:absolute;left:0;bottom:56px;transform:translateX(-50%);padding:3px 8px;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 0 0 2px #0b0910;animation:popUp 1.9s steps(12) forwards;z-index:3}
+.pop{position:absolute;left:0;bottom:calc(56px*var(--k,1));transform:translateX(-50%);padding:3px 8px;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 0 0 2px #0b0910;animation:popUp 1.9s steps(12) forwards;z-index:3}
 .pop.good{background:#3ddc97;color:#06281a}.pop.bad{background:#ff5a5f;color:#2a0507}.pop.info{background:#a3acb9;color:#111}.pop.warn{background:#ffd166;color:#3a2a10;font-size:16px;padding:1px 8px}
 @keyframes popUp{0%{opacity:0;transform:translate(-50%,8px)}12%{opacity:1;transform:translate(-50%,0)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-14px)}}
 @keyframes dotp{0%{opacity:.25}50%{opacity:1}}
 @keyframes bob{0%{transform:translateY(0)}50%{transform:translateY(-2px)}}
 @keyframes tagIn{from{transform:scale(.6)}to{transform:scale(1)}}
-.side{padding:12px;display:flex;flex-direction:column;min-height:0;max-height:calc((100vw - 380px) * 216 / 384)}
+.side{padding:12px;display:flex;flex-direction:column;min-height:0;max-height:100%;box-sizing:border-box}
 .side h2{margin:0 0 10px;font-size:12px;letter-spacing:3px;color:#ffe9b8;display:flex;justify-content:space-between;align-items:center;text-shadow:2px 2px 0 #0b0910}
 .count{font:11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:0}
 .log{list-style:none;margin:0;padding:0;overflow:auto;flex:1;display:flex;flex-direction:column;gap:6px;min-height:60px}
@@ -109,9 +110,9 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);max-width:min(560px,92vw);padding:9px 14px;background:#231d30;color:#f3ecff;font-size:12px;box-shadow:0 0 0 3px #0b0910,0 10px 32px #000a;z-index:90}
 .empty{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:14px;letter-spacing:2px;pointer-events:none;text-shadow:2px 2px 0 #0b0910;z-index:3}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
-@media (max-width:1180px){main{grid-template-columns:minmax(0,1fr)}.side{max-height:360px}}
+@media (max-width:1180px){.app{height:auto;min-height:100dvh}main{grid-template-columns:minmax(0,1fr)}.stagewrap{height:auto}.side{max-height:360px}}
 @media (max-width:900px){.replaybar{flex:1 1 100%;order:3}.field input[type=datetime-local]{width:150px}}
-@media (max-width:760px){.app{padding:10px 8px}.sub{display:none}.label{font-size:9px;padding:1px 4px}.label .status{display:none}.tasktag{font-size:9px;max-width:110px}.emote{font-size:9px}.clock{font-size:13px}}
+@media (max-width:760px){.app{padding:10px 8px}.sub{display:none}.label .status{display:none}.clock{font-size:13px}}
 @media (max-width:420px){.topright .clock{display:none}.brand h1{font-size:16px}}
 </style>
 </head>
@@ -136,13 +137,13 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
   <div class="stats" id="stats">在线 0/0 · 进行中 0</div>
 </section>
 <main>
-  <div class="stagewrap">
+  <div class="stagewrap" id="stagewrap"><div class="stagebox">
   <section class="stage" id="stage">
-    <canvas id="office" width="384" height="216" aria-label="像素办公室"></canvas>
+    <canvas id="office" width="768" height="432" aria-label="像素办公室"></canvas>
     <div class="seats" id="seats"></div>
     <div class="empty" id="empty" hidden>还没有成员接入，等 member 事件</div>
   </section>
-  </div>
+  </div></div>
   <aside class="side pxbox">
     <h2>实况 <span class="count" id="eventCount">0</span></h2>
     <ol class="log" id="eventLog"></ol>
@@ -351,6 +352,9 @@ function avatarSpec(m) {
 // 画面全在一块 384×216 的低分辨率画布上，CSS 放大成像素风；名字、任务、气泡是叠在上面的 DOM。
 // 只有真实事件改变角色状态：空闲的人在屋里溜达摸鱼，派活/思考时走回工位坐下干活。
 const PX = { W: 384, H: 216, T: 8 };
+// 画布实际是 RES 倍分辨率；内置角色精灵按 SPR 倍画，RES×SPR 是整数，最近邻放大不糊。
+const RES = 2, SPR = 1.5;
+const snap = (v) => Math.round(v * RES) / RES;
 const GW = PX.W / PX.T, GH = Math.ceil(PX.H / PX.T);
 const BEAM_COLOR = { assign: '#ffa53a', return: '#3ddc97', reject: '#ff5a5f', at: '#5fb0ff', pause: '#a3acb9' };
 const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -402,31 +406,32 @@ function spriteOf(m) {
   return keys.includes('grok') ? SPRITES.grok : undefined;
 }
 function drawSprite(ctx, sp, cx, footY, view, legs, opts) {
+  const crown = (top) => { const c0 = Math.round(cx) - 4, cy = top - 4; px(ctx, c0, cy + 2, 8, 2, '#ffcf3f'); px(ctx, c0, cy, 2, 2, '#ffcf3f'); px(ctx, c0 + 6, cy, 2, 2, '#ffcf3f'); px(ctx, c0 + 3, cy - 1, 2, 3, '#ffcf3f'); px(ctx, c0 + 3, cy + 2, 2, 1, '#ff5a5f'); };
   if (opts.seat && sp.sit) {
     const ss = sp.sit;
     if (!ss.img.complete || !ss.img.naturalWidth) return false;
-    const x = Math.round(cx - ss.w / 2), y = Math.round(footY - ss.h);
-    ctx.drawImage(ss.img, (opts.typeFrame | 0) % ss.n * ss.w, 0, ss.w, ss.h, x, y, ss.w, ss.h);
-    if (opts.crown) { const c0 = Math.round(cx) - 4, cy = y - 4; px(ctx, c0, cy + 2, 8, 2, '#ffcf3f'); px(ctx, c0, cy, 2, 2, '#ffcf3f'); px(ctx, c0 + 6, cy, 2, 2, '#ffcf3f'); px(ctx, c0 + 3, cy - 1, 2, 3, '#ffcf3f'); px(ctx, c0 + 3, cy + 2, 2, 1, '#ff5a5f'); }
+    const w = ss.w * SPR, h = ss.h * SPR, x = snap(cx - w / 2), y = snap(footY - h);
+    ctx.drawImage(ss.img, (opts.typeFrame | 0) % ss.n * ss.w, 0, ss.w, ss.h, x, y, w, h);
+    if (opts.crown) crown(Math.round(y));
     return true;
   }
   if (!sp.img.complete || !sp.img.naturalWidth) return false;
   const row = view === 'back' ? 2 : view === 'front' ? 0 : 1;
   const col = legs === 'walkA' ? 1 : legs === 'walkB' ? 3 : 0;
-  const x = Math.round(cx - sp.w / 2), y = Math.round(footY - sp.h);
+  const w = sp.w * SPR, h = sp.h * SPR, x = snap(cx - w / 2), y = snap(footY - h);
   ctx.save();
-  ctx.fillStyle = 'rgba(20,12,30,.28)'; ctx.fillRect(Math.round(cx - 7), Math.round(footY - 1), 14, 2);
-  if (view === 'left') { ctx.translate(x + sp.w, y); ctx.scale(-1, 1); ctx.drawImage(sp.img, (row * 4 + col) * sp.w, 0, sp.w, sp.h, 0, 0, sp.w, sp.h); }
-  else ctx.drawImage(sp.img, (row * 4 + col) * sp.w, 0, sp.w, sp.h, x, y, sp.w, sp.h);
+  ctx.fillStyle = 'rgba(20,12,30,.28)'; ctx.fillRect(Math.round(cx - 10), Math.round(footY - 1), 20, 2);
+  if (view === 'left') { ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(sp.img, (row * 4 + col) * sp.w, 0, sp.w, sp.h, 0, 0, w, h); }
+  else ctx.drawImage(sp.img, (row * 4 + col) * sp.w, 0, sp.w, sp.h, x, y, w, h);
   ctx.restore();
-  if (opts.crown) { const cy = y - 4, c0 = Math.round(cx) - 4; px(ctx, c0, cy + 2, 8, 2, '#ffcf3f'); px(ctx, c0, cy, 2, 2, '#ffcf3f'); px(ctx, c0 + 6, cy, 2, 2, '#ffcf3f'); px(ctx, c0 + 3, cy - 1, 2, 3, '#ffcf3f'); px(ctx, c0 + 3, cy + 2, 2, 1, '#ff5a5f'); }
+  if (opts.crown) crown(Math.round(y));
   return true;
 }
 
 function drawChar(ctx, cx, footY, st, view, legs, opts = {}) {
   if (opts.sprite && drawSprite(ctx, opts.sprite, cx, footY, view, legs, opts)) return;
   const ox0 = Math.round(cx - 12), oy0 = Math.round(footY - 34);
-  ctx.save(); ctx.setTransform(2, 0, 0, 2, ox0, oy0);
+  ctx.save(); ctx.transform(2, 0, 0, 2, ox0, oy0);
   const ox = 0, oy = 0;
   const flip = view === 'left';
   const rows = (view === 'back' ? T_BACK : view === 'front' ? T_FRONT : T_SIDE).concat(LEGS[legs] || LEGS.stand);
@@ -867,6 +872,7 @@ function frame(now) {
   const sky = skyFor(hour);
   const key = `${hour}`;
   if (P.bgKey !== key || !P.bg) { P.bg = buildBackground(sky); P.bgKey = key; }
+  ctx.setTransform(RES, 0, 0, RES, 0, 0);
   ctx.drawImage(P.bg, 0, 0);
   drawClock(ctx, wall);
   for (const a of [...P.agents.values()]) if (a.clone) updateClone(a, dt); else updateAgent(a, dt);
@@ -918,7 +924,7 @@ function frame(now) {
         else { ctx.globalAlpha = 1 - k; const r = 6 + Math.round(k * 8); px(ctx, a.x - r, footY, r * 2, 1, a.flash.color); px(ctx, a.x - r + 2, footY - 2, 1, 1, a.flash.color); px(ctx, a.x + r - 3, footY - 2, 1, 1, a.flash.color); ctx.globalAlpha = 1; }
       }
       drawChar(ctx, a.x + xOff, footY + yOff, st, view, legs, { crown: S.lead === a.id, blink, sprite: sp, seat: seated, typeFrame });
-      if (seated && (a.mode === 'work' || a.mode === 'think')) faceGlow(ctx, a.x + xOff, footY + yOff - (sp && sp.sit ? sp.sit.h - 9 : 22), a.mode, now, a.bob);
+      if (seated && (a.mode === 'work' || a.mode === 'think')) faceGlow(ctx, a.x + xOff, footY + yOff - (sp && sp.sit ? (sp.sit.h - 9) * SPR : 22), a.mode, now, a.bob);
       if (a.clone && (a.state === 'walk' || a.state === 'handin')) drawCarry(ctx, a, footY + yOff);
     } });
   }
@@ -936,8 +942,8 @@ function placeOverlays(now) {
     if (!a) continue;
     const sitting = a.state === 'sit' || a.state === 'gone';
     const x = sitting ? a.desk.x : a.x;
-    const y = sitting ? a.desk.y - 32 : a.y - 38;
-    const l = (x / PX.W * 100).toFixed(2) + '%', t = (y / PX.H * 100).toFixed(2) + '%';
+    const y = sitting ? a.desk.y - 42 : a.y - 58;
+    const l = (x / PX.W * 100).toFixed(2) + '%', t = (Math.max(14, y) / PX.H * 100).toFixed(2) + '%';
     if (node.style.left !== l) node.style.left = l;
     if (node.style.top !== t) node.style.top = t;
     const emo = q('.emote', node);
@@ -949,7 +955,7 @@ function placeOverlays(now) {
     const a = P.agents.get(key);
     if (!a) continue;
     node.hidden = a.state === 'spawn';
-    const y = a.state === 'sit' ? a.y - 72 : a.y - 42;
+    const y = a.state === 'sit' ? a.y - 80 : a.y - 60;
     const l = (a.x / PX.W * 100).toFixed(2) + '%', t = (y / PX.H * 100).toFixed(2) + '%';
     if (node.style.left !== l) node.style.left = l;
     if (node.style.top !== t) node.style.top = t;
@@ -1336,7 +1342,24 @@ function deskPop(memberId, text, kind = 'info') {
   setTimeout(() => pop.remove(), 1900);
 }
 
+// 画面按窗口宽高都放得下来定大小（保持 16:9）；名牌、任务牌跟着画面一起缩放。
+function fitStage() {
+  const wrap = $('stagewrap'), stage = $('stage');
+  if (!wrap || !stage) return;
+  const box = wrap.firstElementChild, pad = box ? box.offsetWidth - box.clientWidth + 12 : 12;
+  const availW = wrap.clientWidth - pad;
+  const stacked = matchMedia('(max-width:1180px)').matches;
+  const availH = stacked ? innerHeight - wrap.getBoundingClientRect().top - scrollY - pad - 8 : wrap.clientHeight - pad;
+  let w = Math.max(240, Math.min(availW, availH * PX.W / PX.H));
+  w = Math.floor(w);
+  stage.style.setProperty('--sw', w + 'px');
+  stage.style.setProperty('--sh', Math.round(w * PX.H / PX.W) + 'px');
+  stage.style.setProperty('--k', Math.min(2.2, Math.max(0.9, w / 1000)).toFixed(3));
+}
 function startOffice() {
+  fitStage();
+  addEventListener('resize', fitStage);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(fitStage).observe($('stagewrap'));
   const cv = $('office');
   P.ctx = cv.getContext('2d');
   P.ctx.imageSmoothingEnabled = false;
