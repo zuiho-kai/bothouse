@@ -195,7 +195,7 @@ def fmt(i):
     bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
 
 
 def lines():
@@ -431,6 +431,13 @@ def _moves_ws(old_who, new_who):
     return not (old and old.group(1) == new.group(1))
 
 
+def _keeps_handoff(old, new):
+    """「分支/PR/路径」原来是交接文件、新给的不是文件（合并请求链接、分支名）：保留交接路径，新值记进 where_link。
+    11-10 #1347：路径栏被改成 PR 链接后，ws-pass 按交接找不到条目，主角色核完放不出去。"""
+    old, new = (old or "").strip(), (new or "").strip()
+    return bool(old) and new != old and os.path.isfile(old) and not os.path.isfile(os.path.expanduser(new))
+
+
 def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
     """same_ws：调用方已查明新「谁」指的就是条目眼下绑的工作区（main 里按桥的池子对过 id），不解绑。"""
     with _locked():
@@ -448,7 +455,10 @@ def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
             _back_to_chat(hit)
             tid = hit.pop("guard", None)  # 改派：撤兜底，交给新工作区时 ws-handoff 再挂
         if where:
-            hit["where"] = where
+            if _keeps_handoff(hit.get("where"), where):
+                hit["where_link"] = where  # 交接文件留在 where：ws-pass / ws-forward / 桥都按它找这件活（#1350）
+            else:
+                hit["where"] = where
         if who:
             hit["who"] = who
         if nxt:
@@ -1530,7 +1540,7 @@ def _where_prs(i, repo=None):
     repo = repo or _repo()
     if not repo:
         return set()
-    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(i.get("where") or "")}
+    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(" ".join(filter(None, (i.get("where"), i.get("where_link")))))}
 
 
 def _idle_since(i, now):

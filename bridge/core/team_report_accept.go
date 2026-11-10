@@ -174,7 +174,7 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 		b.WriteString("\n对题检查：通过（只查了做的是不是用户点名的那件，不等于合格）。\n")
 	}
 	notesArg := ""
-	if notes != "" {
+	if notes != "" && !strings.Contains(notes, "://") { // 路径栏是 PR 链接的旧条目：不给 --notes <链接>，ws-pass 认不出（#1350）
 		notesArg = " --notes " + notes
 	}
 	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了（能自己查的去查：日志、提交、线上）。二选一：\n"+
