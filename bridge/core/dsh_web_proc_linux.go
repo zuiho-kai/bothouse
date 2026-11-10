@@ -3,6 +3,7 @@
 package core
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -12,8 +13,8 @@ import (
 // argv with no exec path in front; environ is NUL-separated KEY=VALUE. Both are unreadable for
 // another user's process (hidepid, a container, a kernel that hides it) and then ok is false, so the
 // caller refuses rather than guesses.
-func dshWebProcLookupNow(pid int) (argv []string, env map[string]string, envKnown, ok bool) {
-	if pid <= 0 {
+func dshWebProcLookupNow(ctx context.Context, pid int) (argv []string, env map[string]string, envKnown, ok bool) {
+	if pid <= 0 || ctx.Err() != nil {
 		return nil, nil, false, false
 	}
 	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")

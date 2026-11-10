@@ -170,11 +170,11 @@ func fakeOwnDSHHost(t *testing.T, bin string, args ...string) *exec.Cmd {
 	env := map[string]string{ccconnect.DataDirEnv: dir}
 	pid := cmd.Process.Pid
 	old := dshWebProcLookup
-	dshWebProcLookup = func(p int) ([]string, map[string]string, bool, bool) {
+	dshWebProcLookup = func(ctx context.Context, p int) ([]string, map[string]string, bool, bool) {
 		if p == pid {
 			return argv, env, true, true
 		}
-		return old(p)
+		return old(ctx, p)
 	}
 	t.Cleanup(func() { dshWebProcLookup = old })
 	return cmd

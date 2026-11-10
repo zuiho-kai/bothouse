@@ -14,6 +14,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,8 +64,8 @@ func (p dshWebProcess) isDSHHost() bool {
 
 // dshWebProcessOf reads pid's command line and environment; ok is false when the platform cannot (a
 // process of another user, a kernel that hides it, a pid that just exited).
-func dshWebProcessOf(pid int) (dshWebProcess, bool) {
-	argv, env, envKnown, ok := dshWebProcLookup(pid)
+func dshWebProcessOf(ctx context.Context, pid int) (dshWebProcess, bool) {
+	argv, env, envKnown, ok := dshWebProcLookup(ctx, pid)
 	if !ok || len(argv) == 0 {
 		return dshWebProcess{}, false
 	}
@@ -128,6 +129,8 @@ func dshWebOwnDataDirs() []string {
 }
 
 // dshWebProcLookup reads pid's argv, environment and whether the environment was readable at all.
+// ctx bounds the read: on Windows it is one PowerShell call, cut at min(ctx, dshWebProcLookupTimeout),
+// so a round that has spent its budget no longer pays that call once per candidate (#1255 阻塞三 残余).
 // Replaceable in tests, which describe a process instead of starting one.
 var dshWebProcLookup = dshWebProcLookupNow
 
@@ -182,7 +185,7 @@ func dshWebPortOwnedNow(ctx context.Context, port string) (pid int, owned bool, 
 		return 0, false, "nothing says which process listens on port " + port +
 			" (no lsof, or no permission), so it cannot be shown to be this bridge's host"
 	}
-	if owned, why := dshWebPIDOwned(pid); !owned {
+	if owned, why := dshWebPIDOwnedPortCtx(ctx, pid, port); !owned {
 		return pid, false, fmt.Sprintf("on port %s: %s", port, why)
 	}
 	return pid, true, ""
@@ -191,12 +194,25 @@ func dshWebPortOwnedNow(ctx context.Context, port string) (pid int, owned bool, 
 // dshWebPIDOwned answers whether pid is this bridge's own DSH host, with the reason when it is not.
 // Both the adoption check above and openDSHWeb's "stop the host I am replacing" go through it: a pid
 // in a state file or in lsof's answer is a hint, not proof, and a reused pid is exactly how a stray
-// process got killed (#1255 阻塞二).
+// process got killed (#1255 阻塞二). This form belongs to a caller with no round to bound, which keeps
+// the platform lookup's own 2s cap; a caller inside a round passes its ctx to the *Ctx form.
 func dshWebPIDOwned(pid int) (bool, string) {
+	return dshWebPIDOwnedCtx(context.Background(), pid)
+}
+
+// dshWebPIDOwnedCtx is dshWebPIDOwned under ctx, for callers inside a round with a deadline.
+func dshWebPIDOwnedCtx(ctx context.Context, pid int) (bool, string) {
+	return dshWebPIDOwnedPortCtx(ctx, pid, "")
+}
+
+// dshWebPIDOwnedPortCtx is the check behind both forms. port is the address this caller is about to
+// adopt or serve, "" when it only has a pid: the caller reached the check because that port answered
+// its launch token, so a listener on it that is also a dsh web is our host.
+func dshWebPIDOwnedPortCtx(ctx context.Context, pid int, port string) (bool, string) {
 	if pid <= 0 {
 		return false, "no pid"
 	}
-	p, ok := dshWebProcessOf(pid)
+	p, ok := dshWebProcessOf(ctx, pid)
 	if !ok {
 		return false, fmt.Sprintf("the command line of pid %d cannot be read", pid)
 	}
@@ -204,8 +220,7 @@ func dshWebPIDOwned(pid int) (bool, string) {
 		return false, fmt.Sprintf("pid %d is not a dsh host (no web/desktop profile in its command line)", pid)
 	}
 	// Compare the data directories when both are known. An empty one means the environment could not
-	// be read at all (Windows) or the process reveals nothing: then the profile above is all the
-	// evidence there is, and refusing would break the real host on such a machine.
+	// be read at all (Windows) or the process reveals nothing; that is the branch below.
 	if p.EnvKnown && p.DataDir != "" {
 		ours := dshWebOwnDataDirs()
 		if len(ours) == 0 {
@@ -219,5 +234,75 @@ func dshWebPIDOwned(pid int) (bool, string) {
 		return false, fmt.Sprintf("pid %d runs on another data directory (%s, ours: %s)",
 			pid, p.DataDir, strings.Join(ours, ", "))
 	}
-	return true, ""
+	// The environment is unreadable, so the profile above is necessary but not sufficient: every
+	// `dsh --profile web` on this machine carries it, including another bothouse's host and one the
+	// user started by hand. Claiming on that alone made this bridge stop a stranger's host
+	// (#1255 补正 缺口一). Demand a second fact this bridge itself wrote about this pid: a port it
+	// recorded together with that pid, or a port a test claimed as ours. Without one the pid is left
+	// alone — refusing costs a second instance, killing costs someone else's session.
+	if dshWebPIDOnOwnPort(ctx, pid, port) {
+		return true, ""
+	}
+	if err := ctx.Err(); err != nil {
+		return false, fmt.Sprintf("the round ended before pid %d could be checked (%s); it was left alone",
+			pid, err)
+	}
+	return false, fmt.Sprintf("pid %d runs a dsh web but its environment cannot be read and no record of "+
+		"this bridge names it, so it cannot be shown to be this bridge's host", pid)
+}
+
+// dshWebOwnPorts lists the ports this bridge recorded together with this very pid: a port a test
+// claimed as ours, the address dsh-web.json records with this pid, the address a launch we are still
+// waiting for announces in its own log (dsh-web.starting.json). Every entry pairs the pid with a port
+// this process wrote itself, so a pid the state file merely remembers — or one that got the number
+// reused — is not covered by someone else's announcement.
+func dshWebOwnPorts(pid int) []string {
+	ports := make([]string, 0, 4)
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		for _, c := range ports {
+			if c == p {
+				return
+			}
+		}
+		ports = append(ports, p)
+	}
+	dshWebPortClaims.RLock()
+	for p, ours := range dshWebPortClaims.m {
+		if ours {
+			add(p)
+		}
+	}
+	dshWebPortClaims.RUnlock()
+	if web, u, ok := readDSHWebState(); ok && web.PID == pid {
+		add(u.Port())
+	}
+	if b, err := os.ReadFile(dshWebStartingPath()); err == nil {
+		var l dshWebLaunch
+		if json.Unmarshal(b, &l) == nil && l.PID == pid {
+			add(statePort(lastDSHWebURLFrom(l.Log, l.Offset)))
+		}
+	}
+	return ports
+}
+
+// dshWebPIDOnOwnPort reports whether pid is the listener on a port dshWebOwnPorts names for it. Each
+// lookup is an lsof or a listener-table read, so the round's ctx bounds them: an expired round stops
+// the loop instead of paying one lookup per candidate (#1255 阻塞三 残余).
+func dshWebPIDOnOwnPort(ctx context.Context, pid int, port string) bool {
+	ports := dshWebOwnPorts(pid)
+	if port != "" {
+		ports = append([]string{port}, ports...)
+	}
+	for _, p := range ports {
+		if ctx.Err() != nil {
+			return false
+		}
+		if pidListeningOnPortCtx(ctx, p) == pid {
+			return true
+		}
+	}
+	return false
 }

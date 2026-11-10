@@ -10,21 +10,22 @@ import (
 	"time"
 )
 
-// dshWebProcLookupTimeout bounds one PowerShell call. The caller's round has its own deadline, but a
-// PowerShell that never returns must not outlive it: the check runs once per candidate.
+// dshWebProcLookupTimeout bounds one PowerShell call. It is the cap for a caller with no round of its
+// own; a caller inside a round passes its ctx, and the call is cut at whichever comes first, so N
+// candidates past the round's deadline no longer cost N×2s (#1255 阻塞三 残余).
 // 来源：与本文件里 lsof 那类探活同一量级（setup_dsh_configure.go 记录的实测 0.1–0.3s），PowerShell
 // 冷启动再慢也在这个数量级；2s 只留余量，不是新拍的数字。
 var dshWebProcLookupTimeout = 2 * time.Second
 
 // dshWebProcLookupNow reads pid's command line through CIM. Windows does not let one process read
-// another's environment without a PEB walk, so envKnown is false and dsh_web_owner.go falls back to
-// the command line alone — which still carries the profile, the part that says whose host it is.
+// another's environment without a PEB walk, so envKnown is false and dsh_web_owner.go does not use
+// the command line as proof on its own: it asks for a record this bridge wrote instead.
 // 来源：Win32 docs — Win32_Process.CommandLine 是唯一不注入代码就能拿到的完整命令行。
-func dshWebProcLookupNow(pid int) (argv []string, env map[string]string, envKnown, ok bool) {
+func dshWebProcLookupNow(ctx context.Context, pid int) (argv []string, env map[string]string, envKnown, ok bool) {
 	if pid <= 0 {
 		return nil, nil, false, false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), dshWebProcLookupTimeout)
+	ctx, cancel := context.WithTimeout(ctx, dshWebProcLookupTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"(Get-CimInstance Win32_Process -Filter \"ProcessId="+strconv.Itoa(pid)+"\").CommandLine").Output()
