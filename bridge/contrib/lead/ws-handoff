@@ -66,7 +66,8 @@ def check_notes(text: str):
 
 def intent_gate(text: str):
     """交接对照产品意图卡，由小模型判断（../hooks/intent_judge.py，发问检查用同一个）：交接里留给用户定的事按用户定过的话
-    能推出来，或做法和用户定过的冲突，就退回并给出答案；真是方向、超时出错、找不到判断器都放行。
+    能推出来就退回给出答案；冲突必须有逐字用户原话，否则要求先问用户且不代答；同主题本轮新话优先于旧定案。
+    真是方向、超时出错、找不到判断器都放行。
     来源：用户 2026-10-31「我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」（#827）。"""
     here = Path(__file__).resolve().parent
     for d in (here.parent / "hooks", here.parent.parent / "hooks"):  # 仓库 contrib/hooks；安装后 ~/.bothouse/hooks
@@ -81,8 +82,11 @@ def intent_gate(text: str):
         return (f"交接里留给用户定的「{r['question']}」按用户定过的话能推出来：{r['answer']}（{r['basis'].rstrip('。')}）。"
                 "把这个答案写进交接，自己定，再交。判断器漏了事实就在交接里写明漏了什么再交。")
     if r["verdict"] == "conflict":
-        return (f"交接里的做法「{r['question']}」和用户定过的冲突：{r['basis'].rstrip('。')}。合定案的做法：{r['answer']}。"
-                "按定案改了再交；确要推翻定案，先问用户，把用户确认的原话写进交接再交。")
+        return (f"交接里的做法「{r['question']}」和用户原话冲突：{r['basis'].rstrip('。')}。"
+                f"请先核对两种读法：交接当前写法「{r['answer']}」；按引用原话的另一种读法。先问用户确认，把用户原话补进交接再交。")
+    if r["verdict"] == "ask":
+        return (f"交接里的做法「{r['question']}」有两种读法：{r['basis'].rstrip('。')}。"
+                "先问用户确认，把用户确认的原话写进交接再交；不要自行选择或改写成其中一种。")
     return None
 
 
