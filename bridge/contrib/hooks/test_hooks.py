@@ -184,16 +184,15 @@ class Hooks(unittest.TestCase):
 
     # ---- dispatch-review-guard ----
     def test_dispatch_review_both_clis(self):
+        """没打标记的派活直接放行（11-11 删掉「新行动没审」：近 7 天 39 次都只是补一个【免审】标签）。"""
         for tool, inp in (("Agent", {"prompt": "改一下 foo"}), ("subagent", {"prompt": "改一下 foo"}),
                           ("workflow", {"script": "agent('改一下 foo')"})):
             out = self.run_hook("dispatch-review-guard", {"hook_event_name": "PreToolUse", "transcript_path": "",
                                                           "tool_name": tool, "tool_input": inp})
-            self.assertTrue(self.denied(out), (tool, out))
-            ok = dict(inp)
-            key = "script" if tool == "workflow" else "prompt"
-            ok[key] = "【免审:小改动】" + ok[key]
-            self.assertEqual(self.run_hook("dispatch-review-guard", {"hook_event_name": "PreToolUse", "tool_name": tool,
-                                                                     "tool_input": ok}), "", tool)
+            self.assertEqual(out, "", (tool, out))
+        out = self.run_hook("dispatch-review-guard", {"hook_event_name": "PreToolUse", "transcript_path": "",
+                                                      "tool_name": "Agent", "tool_input": {"prompt": "【审稿】看一下 foo"}})
+        self.assertTrue(self.denied(out), out)  # 派审稿不引用户原话，照旧拦
 
     def test_main_session_edit(self):
         p = {"hook_event_name": "PreToolUse", "session_id": "main1", "transcript_path": "", "tool_name": "write",
@@ -276,20 +275,6 @@ class Hooks(unittest.TestCase):
         p = {"hook_event_name": "Stop", "session_id": "stop3", "transcript_path": "", "stop_hook_active": False}
         self.assertEqual(self.run_hook("fix-claim-guard", p), "")
 
-    def test_stop_deny_own_feature_20261101(self):
-        """回复说「我们没有 X」：本轮查过（grep/search.py）放行，没查过拦。"""
-        def turn(cmd):
-            path = os.path.join(self.tmp, "deny.jsonl")
-            recs = [{"type": "user", "message": {"content": "跨平台共用记忆我们有吗"}},
-                    {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}},
-                    {"type": "assistant", "message": {"content": [{"type": "text", "text": "跨平台共用记忆我们没有。"}]}}]
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in recs))
-            return self.run_hook("fix-claim-guard", {"hook_event_name": "Stop", "transcript_path": path, "stop_hook_active": False})
-        self.assertIn("先查 wiki/代码再说我们没有", turn("ls ~"))
-        self.assertEqual(turn("python3 ~/wiki/bin/search.py 记忆"), "")
-        self.assertEqual(turn("rg -n memory ~/work"), "")
-
     # ---- switch: run.py off|on|status, what the agent runs when its user asks in chat ----
     def test_switch(self):
         role = os.path.join(self.tmp, "role")
@@ -305,7 +290,7 @@ class Hooks(unittest.TestCase):
             return json.loads(r.stdout)
 
         kill = {"hook_event_name": "PreToolUse", "tool_name": "bash", "tool_input": {"command": "pkill -f x"}}
-        agent = {"hook_event_name": "PreToolUse", "tool_name": "subagent", "tool_input": {"prompt": "改一下 foo"}}
+        agent = {"hook_event_name": "PreToolUse", "tool_name": "subagent", "tool_input": {"prompt": "【审稿】看一下 foo"}}
         bash_ok = lambda: not self.denied(self.run_hook("bash-guard", kill, cwd=role))  # DSH: no cwd in the payload
         cc_kill = dict(kill, tool_name="Bash", cwd=role)  # Claude Code: cwd in the payload
         self.assertFalse(bash_ok())

@@ -63,10 +63,6 @@ def reason(r):
         return (f"这事能撤回，按用户 11-10 定的规矩自己做，不问用户：「{r['question']}」→ {r['answer']}（{r['basis'].rstrip('。')}）。"
                 "沙盒、测试、能撤回的直接干；只有真钱、发到外面、删东西、换方向才问他。删掉这个问题，自己做完再报结果。"
                 "要是判断器漏了什么（这步其实撤不回），就照常发问，写明为什么撤不回。")
-    if r["verdict"] == "self":
-        return (f"这个问题按用户定过的话能推出来，不该问用户：「{r['question']}」→ {r['answer']}（{r['basis'].rstrip('。')}）。"
-                "删掉这个问题，照这个答案定、照做，回复写「我决定 X，因为 Y」。"
-                "要是判断器不知道某个事实、它推错了，就照常发问，但写明它漏了什么。")
     return (f"这条和用户定过的冲突：「{r['question']}」违背 {r['basis'].rstrip('。')}。合定案的做法：{r['answer']}。"
             "按定案改，不要拿冲突的选项去问用户；确实要推翻定案，才问用户，并引用那条原话。")
 
@@ -90,7 +86,7 @@ def main():
     if not maybe_asking(text):
         return
     r = intent_judge.judge(text, users, kind="reply")
-    if r["verdict"] in ("self", "reversible", "conflict"):
+    if r["verdict"] in ("reversible", "conflict"):
         print(json.dumps({"decision": "block", "reason": reason(r)}, ensure_ascii=False))
 
 

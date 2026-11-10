@@ -77,12 +77,12 @@ bothouse setup hooks status --global memory
 | codemap-fill | SubagentStop（Gemini 用 AfterTool） | 子 agent 交付里「地图要补的条目」一节追加到对应地图末尾（去重，跳过「无…」） | 不拦；出错只写 stderr |
 | ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
 | param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
-| dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 派活没写【已审:…】；主会话直接改代码 | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
+| dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 【审稿】没引用户原话、【已审:…】指的文件不对；主会话直接改代码（没打标记的派活放行） | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
 | fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
-| eta_guard（bash-guard、fix-claim-guard 调用） | PreToolUse（Bash）、Stop | 回复或 ws-*/later/board/bothouse progress·send·relay·timer·task 命令里报了长于 15 分钟的预计时间、跨天时间，或挂了长于 15 分钟的 `timer add --delay/--at`、`later`，同句没有实测依据或外部等待原因 | 同句写「按实测：N 块 × M 分钟 ÷ P 并行」或等什么（等你/CI/下载）；每轮只拦一次 |
-| check-first-guard（fix-claim-guard 调用） | Stop | 回复断言我们自家现状（有/没有/缺/早就有）或建议加/学什么，小模型看本轮查过的命令判没覆盖 | 先查仓库、wiki、配置、日志或远端再说，查不了写「没核」；每轮只拦一次，模型超时放行；拦下记进 intent-judge.tsv（kind=check-first） |
+| eta_guard（bash-guard 调用） | PreToolUse（Bash） | ws-*/later/board/bothouse progress·send·relay·timer·task 命令里报了长于 15 分钟的预计时间、跨天时间，或挂了长于 15 分钟的 `timer add --delay/--at`、`later`，同句没有实测依据或外部等待原因 | 同句写「按实测：N 块 × M 分钟 ÷ P 并行」或等什么（等你/CI/下载）；每轮只拦一次 |
+| check-first-guard（fix-claim-guard 调用） | Stop | 回复断言我们自家现状（有/没有/缺/早就有）或建议加/学什么，小模型看最近查过的命令（含前几轮）判没覆盖 | 先查仓库、wiki、配置、日志或远端再说，查不了写「没核」；每轮只拦一次，模型超时放行；拦下记进 intent-judge.tsv（kind=check-first） |
 | promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
-| choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：能推出答案、或与用户定过的冲突 | 拦回并给出答案或指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断 |
+| choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：与用户定过的冲突（「能推出答案就不许问」这条 11-11 删了，它和交接出口的「先问用户」互相打架） | 拦回并指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断 |
 | wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
 | subagent-ctx-hook | PreToolUse（所有工具） | 子 agent 上下文到 15 万 token 后还在调工具 | 不放行：拒绝理由里要求写交接（做到哪、文件在哪、下一步）后收工；主会话不管 |
 
