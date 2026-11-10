@@ -105,11 +105,14 @@ func readDSHWebState() (web DSHWeb, u *url.URL, ok bool) {
 }
 
 // dshWebLogPaths lists where the announcement for this state file can be, in the order to try: the
-// path it recorded, the dsh-web.log of the directories beside the recorded one (newest first), then
-// the default next to the state file (openDSHWeb writes `dsh-web.log` there). The sibling scan is
-// what covers a release update: it moves the launchd log into a new directory and leaves the state
-// file on the old one (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 2 条). Nothing here is
-// trusted — the token check still decides.
+// path it recorded, the dsh-web.log of the directories beside the recorded one (newest first), the
+// launchd job's own stdout/stderr log when this machine supervises the host with launchd
+// (dsh_web_launchd.go), then the default next to the state file (openDSHWeb writes `dsh-web.log`
+// there). The sibling scan is what covers a release update: it moves the launchd log into a new
+// directory and leaves the state file on the old one (2026-11-05 现场,
+// notes/dsh-bughunt2-B-185-bugs.md 第 2 条); the plist is what covers a state file whose recorded
+// log is the default one while launchd keeps writing somewhere else entirely (#1394). Nothing here
+// is trusted — the token check still decides.
 func dshWebLogPaths(web DSHWeb) []string {
 	paths := make([]string, 0, 4)
 	seen := make(map[string]bool)
@@ -151,6 +154,9 @@ func dshWebLogPaths(web DSHWeb) []string {
 				add(s.path)
 			}
 		}
+	}
+	for _, p := range dshWebLaunchdLogPaths() {
+		add(p)
 	}
 	// The newer of our own dsh web's log and the desktop app's (setup_dsh_desktop.go): a machine on
 	// the desktop route has no dsh web, and its panel should still reach the app's host.
