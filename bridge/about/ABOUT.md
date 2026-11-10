@@ -22,7 +22,8 @@ bothouse is a team coordination layer that runs on your own computer: it puts th
 - **Everyone remembers the same thing**: all roles read and write one Markdown wiki (built on the open-source llm-wiki), with Git history; each turn only gets titles and line numbers of relevant pages; the panel's "memory forum" scores and ranks memories.
 - **Nightly review**: progress is recorded when a session ends or idles; at night it is checked against the original messages; corrections that keep coming back become candidate rules that take effect only after a person approves.
 - **Long jobs stay on track**: hand-offs carry the user's own words; a fresh-context AI accepts the work; "fixed" needs evidence, "later" needs a timer; guards block dangerous commands.
-- **Manage from your phone**: a built-in web panel shows who is busy and quota use, edits personas, switches models and lets you add to a running job; model and reasoning level are kept per channel.
+- **Manage from your phone**: a built-in web panel shows who is busy and quota use, edits personas, switches models and lets you add to a running job; model and reasoning level are kept per channel. A phone without DSH can join over Tailscale by entering a 6-digit pairing code in its browser.
+- **Desktop pet**: each bound role can have its own desktop pet in its own skin, which shows that role's status and bubbles and opens a chat with it.
 - **Hardware**: bothouse-iot connects ESP32 round-screen boards as a role's body.
 
 ## Compared with other projects: different focus
