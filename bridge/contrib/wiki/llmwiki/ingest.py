@@ -1543,19 +1543,75 @@ def dsh_env():
     return env
 
 
+# 来源：#619 隔离实测（肥鱼 S1 样本）：开头告诉模型 40 步预算、读够再整页写，token 从 582 万降到 384 万、无修正轮；
+# 40 取自线上肥鱼整理会话调用次数的 p75（46）附近。硬截断（到 40 步停掉再续会话收尾）实测收尾不完成、整批撤回，不采用。
+DSH_STEP_BUDGET = 40
+DSH_BUDGET_NOTE = ("【步数预算】这次最多 {n} 步（每次回复算一步，一步里可以并排调用多个工具）。先一次读够要用的页面，"
+                   "再把每个页面的改动合在一次 write 或一次 edit 里写完；log.md 记录在最后一并追加，跑一次 lint 确认。"
+                   "别一处一处小改、别反复重读同一页。\n\n")
+
+
+def _dsh_stream(cmd, task, timeout=3600):
+    """Run `dsh --json`: the final message, plus each model step's usage added up (`status` step_end events)."""
+    import signal, threading
+    err = tempfile.TemporaryFile("w+")
+    r = dict(steps=0, input=0, cache=0, output=0, final="", rc=127, stderr="")
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, cwd=WIKI, env=dsh_env(),
+                             text=True, start_new_session=True)
+    except OSError as e:  # dsh not installed: a failed call, like engine_run
+        r["stderr"] = f"{type(e).__name__}: {e}"
+        return r
+
+    def stop():  # the timeout: the whole process group, like the scheduler's cancel
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    timer = threading.Timer(timeout, stop)
+    timer.start()
+    try:
+        p.stdin.write(task)
+        p.stdin.close()
+        for line in p.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if ev.get("type") == "final":
+                r["final"] = ev.get("text") or ""
+            elif ev.get("type") == "status" and ev.get("phase") == "step_end":
+                u = ev.get("usage") or {}
+                r["steps"] += 1
+                r["input"] += u.get("inputTokens", 0)
+                r["cache"] += u.get("cacheReadTokens", 0)
+                r["output"] += u.get("outputTokens", 0)
+        p.wait()
+    finally:
+        timer.cancel()
+    r["rc"] = p.returncode
+    err.seek(0)
+    r["stderr"] = err.read()[-300:]
+    return r
+
+
 def dsh(instruction, stdin="", label="?", context=None):
-    """DeepSeek Harness, headless (`dsh --profile headless -`: the task from stdin, the final message on stdout). It
+    """DeepSeek Harness, headless (`dsh --profile headless --json -`: the task from stdin, run events on stdout). It
     runs under DSH's own sandbox, which lets it write only its working directory (the wiki) and the temp dirs; the
-    transcript leads the task like codex()."""
-    task = (CONTEXT.format(text=context) + "\n\n" if context else "") + instruction.replace(
-        "at the end of your system prompt", "at the start of your input") + ("\n\n" + stdin if stdin else "")
-    cmd = [*CFG["dsh_cmd"], "--profile", "headless", *(["--patch", os.path.expanduser(CFG["dsh_patch"])] if CFG["dsh_patch"] else []), "-"]
-    r = engine_run(cmd, input=task, cwd=WIKI, capture_output=True, text=True, timeout=3600, env=dsh_env())
-    with open(USAGE, "a") as f:
-        f.write("\t".join(map(str, [time.strftime("%F %T"), label, "dsh", 1, 0, 0, 0, 0, 0, 0])) + "\n")
-    out = r.stdout.strip()
-    log(f"{label} dsh rc={r.returncode} out={len(out)} chars")
-    return r.returncode == 0 and bool(out), out or f"rc={r.returncode} {r.stderr[-300:]}", 0
+    transcript leads the task like codex(). The task opens with a step budget (DSH_STEP_BUDGET): each step resends
+    the whole context, so a pass that edits a page line by line cost tens of millions of tokens (#619)."""
+    task = DSH_BUDGET_NOTE.format(n=DSH_STEP_BUDGET) + (CONTEXT.format(text=context) + "\n\n" if context else "") + \
+        instruction.replace("at the end of your system prompt", "at the start of your input") + ("\n\n" + stdin if stdin else "")
+    cmd = [*CFG["dsh_cmd"], "--profile", "headless", *(["--patch", os.path.expanduser(CFG["dsh_patch"])] if CFG["dsh_patch"] else []),
+           "--json", "-"]
+    r = _dsh_stream(cmd, task)
+    with open(USAGE, "a") as f:  # real per-step counts (this row was all zeros before #619)
+        f.write("\t".join(map(str, [time.strftime("%F %T"), label, "dsh", r["steps"], r["input"], r["cache"], 0,
+                                    r["output"], 0, 0])) + "\n")
+    out = r["final"].strip()
+    log(f"{label} dsh rc={r['rc']} steps={r['steps']} in={r['input']} cache={r['cache']} out_tokens={r['output']} "
+        f"out={len(out)} chars")
+    return r["rc"] == 0 and bool(out), out or f"rc={r['rc']} {r['stderr']}", 0
 
 
 def claude(instruction, stdin="", label="?", context=None, model=None, api=False):
@@ -1956,14 +2012,15 @@ def take_queue():
     return ids
 
 
-def pending_extract(path, offset):
+def pending_extract(path, offset, limit=None):
     """Keep a pending round within the existing model batch size, at record boundaries.
 
     Same byte-offset approach as capped() in #1166, without adding a new limit.
     A single oversized record keeps its accepted-piece checkpoint in SQLite.
     """
+    limit = limit or MAX_CHARS
     it = extract(path, offset)
-    while len(it["text"]) > MAX_CHARS:
+    while len(it["text"]) > limit:
         # 来源：binary subdivision of the existing byte span, never a new size setting.
         cut = offset + (it["end"] - offset) // 2
         part = extract(path, offset, cut)
@@ -1997,7 +2054,9 @@ def run(a, engines=None):
             if partial:
                 it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
             else:
-                it = pending_extract(p, start) if pending else extract(p, start)
+                # a session whose batches failed n times retries 1/2^n as much (#619): halving, not the whole batch again
+                n = (db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0] if pending else 0
+                it = pending_extract(p, start, MAX_CHARS >> n if n else None) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
             continue
@@ -2011,10 +2070,16 @@ def run(a, engines=None):
     db.commit()
     if not items:
         return  # nothing new: no model call
+    if os.environ.get("WIKI_NEWEST_FIRST"):  # 用户 11-09 19:2x 选「先整理最近的」：补旧账时新会话先进 wiki
+        items.sort(key=lambda it: it["path"].stat().st_mtime, reverse=True)
     if pending:
         # One existing batch per cron round; SQLite offsets leave the rest ready.
         # Oversized single records resume from their accepted-piece checkpoint.
-        first = {it["id"] for it, _ in batches_of(items)[0]}
+        batch = batches_of(items)[0]
+        n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
+        if n and len(batch) > 1:  # failed before as a whole: retry 1/2^n of its sessions (#619)
+            batch = batch[:max(1, len(batch) >> n)]
+        first = {it["id"] for it, _ in batch}
         items = [it for it in items if it["id"] in first]
     split_pass(db)
     ingest_batches(db, items, engines or [ENGINE, FALLBACK_ENGINE], pending=pending)
