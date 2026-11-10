@@ -38,7 +38,7 @@ interface RoleDraft {
   agent_type: string;
   agentTouched?: boolean; // QQ: only an explicit CLI selection may replace an existing role's agent
   useProvider: boolean;
-  provider: { vendor: string; base_url: string; api_key: string; model: string };
+  provider: { vendor: string; base_url: string; api_key: string; model: string; max_tokens: string };
   persona: string;
   // library picks: undefined = not touched (the server keeps what it has); '' = cleared
   personaSlug?: string;
@@ -124,7 +124,7 @@ export default function SetupWizard() {
   const addPlatformMode = addMode && (searchParams.get('pick') === 'platform' || !!platformParam);
   const newRole = useCallback((): RoleDraft => ({
     nameCustomized: false, keepPersonaName: true, key: keySeq++, token: '', agent_type: '', useProvider: false,
-    provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '' }, persona: '', reply_language: sysReply,
+    provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '', max_tokens: '' }, persona: '', reply_language: sysReply,
   }), [sysReply]);
   const [roles, setRoles] = useState<RoleDraft[]>(() => [newRole()]);
   // the language picker sets the reply language of every role not picked by hand
@@ -391,7 +391,7 @@ export default function SetupWizard() {
   const allowFromValue = allowFrom ?? '*';
 
   // ── request ──
-  const buildRequest = (maskSecrets = false): WizardRequest => {
+  const buildRequest = (maskSecrets = false, connectionTest = false): WizardRequest => {
     if (platform === 'dsh') throw new Error('This platform uses its own setup form');
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
@@ -403,13 +403,18 @@ export default function SetupWizard() {
           name: platform !== 'cloud_web' && !r.nameCustomized ? undefined : nameOf(r),
           name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName,
         } : {}),
-        agent_type: platform === 'qq' && !r.agentTouched ? undefined : r.agent_type,
+        // QQ: the connection test runs before we know whether this NapCat is already
+        // configured, so it stays quiet about the CLI for every role; a real submit omits it only
+        // for a reused role, and a new role sends the CLI the review step shows (#552)
+        agent_type: platform === 'qq' && (connectionTest || (r.reuse_project && !r.agentTouched)) ? undefined : r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
         ...(r.avatar !== undefined ? { avatar: r.avatar } : {}),
         ...(r.useProvider ? { provider: { vendor: r.provider.vendor, base_url: r.provider.base_url || undefined,
-          api_key: mask(r.provider.api_key, '<API_KEY>'), model: r.provider.model || undefined } } : {}),
+          api_key: mask(r.provider.api_key, '<API_KEY>'), model: r.provider.model || undefined,
+          // #1498: only DSH has an output cap the wizard writes (llm-deepseek maxTokens); empty = the server default
+          ...(r.agent_type === 'dsh' && Number(r.provider.max_tokens) > 0 ? { max_tokens: Math.floor(Number(r.provider.max_tokens)) } : {}) } } : {}),
       })),
       // 自建平台: by display name (unique there) — a re-run reuses an existing member of the same name,
       // so the project name guessed here (projectNames) can differ from the one the server plans
@@ -697,7 +702,7 @@ export default function SetupWizard() {
                   const key = qqKey;
                   setQQTest({ running: true, key });
                   try {
-                    const r = await applyWizard({ ...buildRequest(), dry_run: true });
+                    const r = await applyWizard({ ...buildRequest(false, true), dry_run: true });
                     if (latestQQKey.current !== key) {
                       setQQTest({ running: false });
                       return;
@@ -882,7 +887,14 @@ export default function SetupWizard() {
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
                         <Input label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, model: e.target.value.trim() } })} />
+                        {/* #1498: DSH sends its own 256000 when the overlay has no maxTokens, and relays answer 503 */}
+                        {isDSH && <Input inputMode="numeric" label={T.maxTokens} placeholder="128000" value={r.provider.max_tokens}
+                          data-testid={`provider-max-tokens-${idx}`}
+                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, max_tokens: e.target.value.replace(/[^0-9]/g, '') } })} />}
                       </div>
+                      {isDSH && <p className="text-xs text-gray-500" data-testid={`provider-max-tokens-hint-${idx}`}>{T.maxTokensHint}</p>}
+                      {/* DSH's thinking is a two-value setting (dsh-llm-deepseek config: enabled | disabled): say so before the first 400 */}
+                      {isDSH && <p className="text-xs text-gray-500" data-testid={`dsh-no-adaptive-${idx}`}>{T.dshNoAdaptive}</p>}
                       {via && <p className="text-xs text-gray-500"><Badge variant={via === 'native' ? 'success' : 'info'}>{via === 'native' ? T.native : T.convert}</Badge> {via === 'native' ? T.viaNative : T.viaConvert}</p>}
                       {vendor?.signup_url && <a className="text-xs text-accent inline-flex items-center gap-0.5" href={vendor.signup_url} target="_blank" rel="noreferrer">{vendor.signup_url}<ExternalLink size={10} /></a>}
                     </div>

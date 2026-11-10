@@ -78,6 +78,7 @@ type progressPlatform struct {
 
 type Platform struct {
 	workspaceShelves           *workspaceShelfStore
+	legacyGathered             sync.Map                          // guild ID → its 「空闲工作区」 channels were moved once this run (workspaces.go)
 	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
 	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
 	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead

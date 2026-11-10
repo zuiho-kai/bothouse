@@ -58,12 +58,14 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
     edit_persona     true = also overwrite the persona of a reused bot (otherwise its file is left as is)
     reply_language   this role's reply language (default: language). For a bot that is already set up it
                      changes only the reply-language line of its persona file
-    provider         {"vendor", "api_key", "base_url", "model"}: a third-party API instead of the CLI's own
-                     login (vendors and native/converted: "setup matrix")
+    provider         {"vendor", "api_key", "base_url", "model", "max_tokens"}: a third-party API instead of the
+                     CLI's own login (vendors and native/converted: "setup matrix")
                      dsh: DeepSeek official = {"vendor":"deepseek","api_key"}; a relay = {"vendor":"custom",
                      "base_url" (its Anthropic endpoint), "api_key", "model"}. api_key is required. Without
                      provider, DSH's own setup must have a key (DEEPSEEK_API_KEY, or the one its llm-deepseek
-                     apiKeyEnv names; that setup is copied into the role) or the apply is refused
+                     apiKeyEnv names; that setup is copied into the role) or the apply is refused.
+                     max_tokens (dsh only): the output cap written as llm-deepseek maxTokens. Omitted = 128000
+                     (2^17); DSH's own default is 256000, which relays that cap lower answer with 503
   fallback_role      project that answers when no one is addressed (default: first role); cloud_web: the
                      role's display name works too
   gate               {"enabled": true, "mode": "addressed"}: group replies only when addressed,

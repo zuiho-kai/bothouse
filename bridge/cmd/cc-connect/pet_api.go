@@ -10,6 +10,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -89,6 +91,7 @@ type petAPI struct {
 	http    *http.Client
 	wakeFn  func(project, session, text string) error // tests replace the socket call
 	chatMax time.Duration
+	packs   string // <data dir>/pets: where the plugin page downloads avatar packs (#609)
 }
 
 func newPetAPI(relay *petRelay, bridge, token, socket string) *petAPI {
@@ -424,6 +427,8 @@ func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
 // handleSkin tells a pet whose look to wear. Without ?pet= (or for "main") it is the first bound role (by
 // key, same order as chatTarget and petPlan); with ?pet=<pet id> it is the role that pet belongs to (#549,
 // one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases).
+// #609: when that role picked an avatar pack on the plugin page and the pack is downloaded, packDir is its
+// folder and the pet wears it instead (plugins/desktop-pet/src/host/skin-pack.ts).
 func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 	role := ""
 	if pet := r.URL.Query().Get("pet"); pet != "" && pet != "main" {
@@ -440,5 +445,27 @@ func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 			role = keys[0]
 		}
 	}
-	petAPIJSON(w, map[string]any{"role": strings.TrimPrefix(role, "bridge:")})
+	a.relay.mu.Lock()
+	pack := a.relay.bound[role]
+	a.relay.mu.Unlock()
+	out := map[string]any{"role": strings.TrimPrefix(role, "bridge:")}
+	if dir := petPackDir(a.packs, pack); dir != "" {
+		out["pack"] = pack
+		out["packDir"] = dir
+	}
+	petAPIJSON(w, out)
+}
+
+// petPackDir is the downloaded avatar pack folder (<data dir>/pets/<pack>) when it holds a pack, else "".
+func petPackDir(root, pack string) string {
+	if root == "" || pack == "" || pack != filepath.Base(pack) || strings.HasPrefix(pack, ".") {
+		return ""
+	}
+	dir := filepath.Join(root, pack)
+	for _, f := range []string{"actions.json", "manifest.json"} {
+		if st, err := os.Stat(filepath.Join(dir, f)); err == nil && !st.IsDir() {
+			return dir
+		}
+	}
+	return ""
 }

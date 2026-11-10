@@ -130,6 +130,9 @@ type WizardProvider struct {
 	BaseURL string `json:"base_url,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
 	Model   string `json:"model,omitempty"`
+	// MaxTokens: the output cap written into DSH's llm-deepseek (0 = the wizard's own default, dshDefaultMaxTokens).
+	// Only DSH uses it: the other CLIs take their token limits from their own settings.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 type WizardJev struct {
@@ -2368,6 +2371,9 @@ func validateWizardProvider(p WizardProvider) error {
 	}
 	if v.Model == "" && strings.TrimSpace(p.Model) == "" {
 		return fmt.Errorf("%s: model is required", p.Vendor)
+	}
+	if p.MaxTokens < 0 {
+		return fmt.Errorf("%s: max_tokens must be positive", p.Vendor)
 	}
 	return nil
 }

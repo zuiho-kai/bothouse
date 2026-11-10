@@ -38,7 +38,9 @@
    "id": "caihongmao",
    "name": "彩虹猫",
    "aliases": [
-    "彩虹猫"
+    "彩虹猫",
+    "大豆包",
+    "gjiang"
    ],
    "group": "自家角色"
   },
@@ -82,8 +84,7 @@
    "id": "gemini",
    "name": "Gemini",
    "aliases": [
-    "Gemini",
-    "gjiang"
+    "Gemini"
    ],
    "group": "模型"
   },

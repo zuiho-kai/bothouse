@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -442,7 +443,64 @@ var localHubUVArgs = []string{"run", "--no-project", "--python", ">=3.11",
 	"--with", "aiohttp==3.14.5", "--with", "cryptography==50.0.2", "python", "-m", "rh.hub"}
 
 // 来源：2026-10-21 本机实测，依赖已缓存时 6 秒能连；第一次要下载 Python 和依赖，留 90 秒（实现者定）。
+// #1499 之后它只是兜底：代理连不上时不再等满（见 localHubProxyFailure）。
 var localHubStartWait = 90 * time.Second
+
+// localHubNoProxy: hosts the hub's own start works on locally. 来源：issue #1499 实测（2026-11-10，Windows 11）：
+// 系统代理（WinINET ProxyServer=127.0.0.1:7897）指向一个没在监听的端口时，uv 拉 pypi 包走这条死代理，
+// 连满 90 秒才失败（os error 10061）；直连 pypi.org 是通的。NO_PROXY 同时也给 uv 缓存里的 Python 用。
+const localHubNoProxy = "127.0.0.1,localhost"
+
+// localHubNoProxyValue: the user's own NO_PROXY kept, with the local hosts added (a user who already
+// bypasses their intranet must not lose that when the hub starts).
+func localHubNoProxyValue() string {
+	seen := map[string]bool{}
+	var hosts []string
+	add := func(list string) {
+		for _, h := range strings.Split(list, ",") {
+			if h = strings.TrimSpace(h); h != "" && !seen[strings.ToLower(h)] {
+				seen[strings.ToLower(h)] = true
+				hosts = append(hosts, h)
+			}
+		}
+	}
+	for _, v := range []string{os.Getenv("NO_PROXY"), os.Getenv("no_proxy")} {
+		add(v)
+	}
+	add(localHubNoProxy)
+	return strings.Join(hosts, ",")
+}
+
+// localHubEnv is the env for the hub's uv: the tokens, UTF-8 output, and #1499's local bypass of the
+// system proxy (uv reads the Windows registry proxy when the env says nothing).
+func localHubEnv(dataDir, uv string, s *localHubState) []string {
+	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
+	noProxy := localHubNoProxyValue()
+	env := []string{"RH_HUB_TOKEN=" + s.WebToken, "RH_BOT_TOKEN=" + s.BotToken, "PYTHONIOENCODING=utf-8",
+		"NO_PROXY=" + noProxy, "no_proxy=" + noProxy}
+	if uv == ownUV(dataDir) {
+		// uvOwnEnv, only for the uv we downloaded：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是
+		// 装开发工具的桩）；Python 装在 <data_dir>/tools/python，和 gate 共用。用户自己的 uv 照旧用用户的 Python 和 uv.toml（镜像）。
+		env = append(uvOwnEnv(dataDir), env...)
+	}
+	return MergeEnv(os.Environ(), env)
+}
+
+// hubProxyHint matches the lines uv/aiohttp print when a proxy they were told to use is not there:
+// issue #1499's log had "tunnel error: failed to create underlying connection", "tcp connect error"
+// and Windows' "由于目标计算机积极拒绝，无法连接。 (os error 10061)". No bare "proxy": a hub that starts
+// fine must never be reported as a proxy failure.
+var hubProxyHintRE = regexp.MustCompile(`(?i)tunnel error|tcp connect error|os error 10061|actively refused|积极拒绝`)
+
+// localHubProxyFailure: a start that failed on a proxy is reported right away instead of after the whole
+// wait: the log already says the proxy is dead, and 90 more seconds tell the user nothing (#1499).
+func localHubProxyFailure(lang, logFile string) error {
+	return fmt.Errorf("%s %s", tr3(lang,
+		"自建平台起不来：系统代理连不上（uv 拉包时走到了代理上）。关掉系统代理，或把 127.0.0.1、localhost 加进代理的例外后重试。日志：",
+		"プラットフォームが起動しません：システムのプロキシに接続できません（uv の取得がプロキシ経由になっています）。システムプロキシを切るか、127.0.0.1 と localhost を例外に追加してから再試行してください。ログ：",
+		"The platform did not start: the system proxy cannot be reached (uv's downloads went through it). Turn the system proxy off, or add 127.0.0.1 and localhost to its exceptions, then retry. Log:"),
+		logFile+tailFile(logFile, 600))
+}
 
 // StartLocalHub starts the hub on 127.0.0.1 from the embedded source: tokens and port are kept
 // in <data_dir>/hub/hub.json (an earlier start's are reused), data in <data_dir>/hub/hub.sqlite3,
@@ -472,6 +530,8 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 			"uv（Python の実行ツール）のダウンロードに失敗しました。ネットワークを確認して「このマシンで起動」をもう一度押すか、uv を自分で入れてから「再検出」を押してください。元のエラー：",
 			"Downloading uv (a Python runner) failed: check the network and click \"Start on this machine\" again, or install uv yourself and click \"Detect again\". Original error:"), err)
 	}
+	// where this start begins to write hub.log (it is appended to, never truncated)
+	logStart := fileSizeOf(filepath.Join(localHubDir(dataDir), "hub.log"))
 	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		return LocalHubStatus{}, err
 	}
@@ -483,10 +543,17 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 	}
 	secs := strconv.Itoa(int(wait.Round(time.Second) / time.Second))
 	base, _ := cloudWebWSBase(localHubURL(s.Port))
+	logFile := filepath.Join(localHubDir(dataDir), "hub.log")
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 			return GetLocalHubStatus(ctx, dataDir, lang), nil
+		}
+		// #1499: the log already says the proxy is dead → report that instead of waiting out the clock.
+		// Only what this start appended: hub.log is never truncated, so an earlier run's proxy error
+		// must not fail a retry that is fine now.
+		if hubProxyHintRE.MatchString(sinceStart(logFile, logStart, 600)) {
+			return LocalHubStatus{LogFile: logFile}, localHubProxyFailure(lang, logFile)
 		}
 		select {
 		case <-ctx.Done():
@@ -494,7 +561,6 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		case <-time.After(500 * time.Millisecond): // 来源：实现者定，轮询间隔
 		}
 	}
-	logFile := filepath.Join(localHubDir(dataDir), "hub.log")
 	return LocalHubStatus{LogFile: logFile}, fmt.Errorf("%s %s", tr3(lang, "自建平台没在 "+secs+" 秒内起来，看日志：", "プラットフォームが "+secs+" 秒以内に起動しませんでした。ログ：",
 		"The platform did not come up within "+secs+" seconds; see the log:"), logFile+tailFile(logFile, 600))
 }
@@ -586,14 +652,7 @@ func startHubProcess(dataDir, uv string, s *localHubState) error {
 		"--db", filepath.Join(dir, "hub.sqlite3"))
 	cmd := exec.Command(uv, args...)
 	cmd.Dir = src
-	// PYTHONIOENCODING：stdout 接到日志文件时 Windows 的 Python 默认按 cp1252 写，hub 打印中文启动行就崩（PR #5 Windows 实测）
-	env := []string{"RH_HUB_TOKEN=" + s.WebToken, "RH_BOT_TOKEN=" + s.BotToken, "PYTHONIOENCODING=utf-8"}
-	if uv == ownUV(dataDir) {
-		// uvOwnEnv, only for the uv we downloaded：only-managed，uv 不去跑 PATH 上的 /usr/bin/python3（干净 Mac 上是
-		// 装开发工具的桩）；Python 装在 <data_dir>/tools/python，和 gate 共用。用户自己的 uv 照旧用用户的 Python 和 uv.toml（镜像）。
-		env = append(uvOwnEnv(dataDir), env...)
-	}
-	cmd.Env = MergeEnv(os.Environ(), env)
+	cmd.Env = localHubEnv(dataDir, uv, s)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -664,6 +723,28 @@ func tailFile(path string, n int) string {
 		b = b[len(b)-n:]
 	}
 	return "\n" + string(b)
+}
+
+// fileSizeOf: where a file ends now, 0 when it does not exist yet (hub.log is appended to by every start).
+func fileSizeOf(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// sinceStart: the part of path written after offset, at most the last n bytes of it.
+func sinceStart(path string, offset int64, n int) string {
+	b, err := os.ReadFile(path)
+	if err != nil || int64(len(b)) <= offset {
+		return ""
+	}
+	b = b[offset:]
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return string(b)
 }
 
 // ── HTTP ──────────────────────────────────────────────────────

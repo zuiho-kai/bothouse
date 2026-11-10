@@ -125,6 +125,19 @@ jobs:
         working-directory: bridge
         run: |
           set -euo pipefail
+          # #1496: `go build` records vcs.modified from `git status`. stampOrder
+          # (core/setup_dsh_embed.go) only consults that flag when the installed stamp equals the
+          # running one — i.e. a rebuild of a tag that is already out — and then it keeps the
+          # installed DSH plugin with a WARN, because it cannot prove the plugin on disk is this
+          # code. Releases must not be that build. Two things keep the tree clean: the artifacts
+          # directory ../dist is ignored (root .gitignore), and this check stops the release if the
+          # generation steps have dirtied anything else, rather than shipping a binary whose
+          # same-version refresh silently does nothing.
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain >&2
+            echo "::error::work tree is dirty before go build; the release binary would record vcs.modified=true, so re-cutting this tag would never refresh the DSH plugin (#1496)"
+            exit 1
+          fi
           mkdir -p ../dist
           commit=$(git rev-parse --short HEAD)
           built=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -145,12 +158,22 @@ jobs:
               cgo=1
               cpu=$arch; [ "$arch" != amd64 ] || cpu=x86_64
               cc="clang -arch $cpu"
-            elif [ "$os" = windows ]; then
-              ldflags="$ldflags -H=windowsgui"
             fi
+            # No -H=windowsgui on windows (#1495): that made the PE subsystem GUI (2), so the
+            # process got no console and a subcommand typed in PowerShell printed nothing —
+            # `bothouse --version | Out-String` only worked because that path had a pipe to hang
+            # stdout on. The default console subsystem (3) hands the binary the caller's console.
+            # The tray entry point hides the console window Windows allocates on double-click
+            # (cmd/cc-connect/tray_windows.go, hideOwnConsoleWindow).
             CGO_ENABLED=$cgo CC="$cc" GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
               -ldflags "$ldflags" \
               -o "$binary" ./cmd/cc-connect
+            # Read back what the build recorded: vcs.modified=true means a same-version refresh
+            # of this binary keeps the installed DSH plugin (#1496, see the check above).
+            if go version -m "$binary" | grep -q 'vcs.modified=true'; then
+              echo "::error::$binary was built from a dirty tree; re-cutting this tag would never refresh the DSH plugin (#1496)"
+              exit 1
+            fi
             case "$os" in
               windows)
                 cp "$binary" ../dist/bothouse-windows.exe
@@ -273,11 +296,21 @@ jobs:
           $want = ((Get-Content dist/SHA256SUMS | Where-Object { $_ -match " $([regex]::Escape($asset))$" }) -split ' ')[0]
           $got = (Get-FileHash -Algorithm SHA256 "dist/$asset").Hash.ToLower()
           if ($want -ne $got) { throw "checksum mismatch: $want vs $got" }
-          # -H=windowsgui binary: PowerShell leaves $LASTEXITCODE unset, so check output instead.
-          $ver = ./dist/bothouse-windows.exe --version | Out-String
-          if ($ver -notmatch 'bothouse v') { throw "--version output: $ver" }
-          $help = ./dist/bothouse-windows.exe setup --help | Out-String
-          if ($help -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
+          # #1495: with a GUI-subsystem exe (2) the process got no console, so typing
+          # `bothouse --version` in PowerShell printed nothing; only a capture like `| Out-String`
+          # worked, because the pipe gave stdout somewhere to go. Assert what ships is the console
+          # subsystem (3), which hands the binary the console it was started from.
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path "dist/$asset"))
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ([BitConverter]::ToUInt16($bytes, $pe) -ne 0x4550) { throw "not a PE file" }
+          $subsystem = [BitConverter]::ToUInt16($bytes, $pe + 24 + 68)
+          if ($subsystem -ne 3) { throw "PE subsystem $subsystem, want 3 (console)" }
+          $ver = ./dist/bothouse-windows.exe --version
+          if (($ver -join "`n") -notmatch 'bothouse v') { throw "--version output: $ver" }
+          if ($LASTEXITCODE -ne 0) { throw "--version exit code $LASTEXITCODE" }
+          $help = ./dist/bothouse-windows.exe setup --help
+          if (($help -join "`n") -notmatch 'setup apply') { throw "setup --help has no 'setup apply'" }
+          if ($LASTEXITCODE -ne 0) { throw "setup --help exit code $LASTEXITCODE" }
 
   publish:
     needs: [build, smoke-windows]
