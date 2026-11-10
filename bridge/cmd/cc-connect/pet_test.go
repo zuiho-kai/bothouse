@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -159,5 +163,48 @@ func TestPetPlanAndKindFiles(t *testing.T) {
 	if len(files) != 2 || !strings.Contains(deep, `"size": 260`) || !strings.Contains(deep, `"marginX": 154`) ||
 		!strings.Contains(gge, `"size": 360`) || !strings.Contains(gge, `"marginX": 284`) {
 		t.Fatalf("kind files / size / stagger:\n%s\n%s", deep, gge)
+	}
+}
+
+// #609: /skin hands each pet its role's downloaded avatar pack; a role without one, or with a pack that is
+// not on disk, gets only its role (the pet then falls back to its built-in skin).
+func TestPetSkinReportsDownloadedPack(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "dsh1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dsh1", "actions.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := newPetRelay(nil)
+	r.bound = petBoundRoles(map[string][]petBinding{
+		"bridge:cj":     {{PluginID: "dsh-pet", Enabled: true}},
+		"bridge:deep":   {{PluginID: "dsh-pet", Enabled: true, AvatarPack: "dsh1"}},
+		"bridge:gjiang": {{PluginID: "dsh-pet", Enabled: true, AvatarPack: "gemini"}},
+	})
+	for _, a := range petPlan([]string{"bridge:cj", "bridge:deep", "bridge:gjiang"}) {
+		r.assign[a.Role] = a
+	}
+	a := &petAPI{relay: r, packs: root}
+	get := func(q string) map[string]any {
+		w := httptest.NewRecorder()
+		a.handleSkin(w, httptest.NewRequest("GET", "/skin"+q, nil))
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := get("?pet=bh-bridge-deep"); got["role"] != "deep" || got["pack"] != "dsh1" || got["packDir"] != filepath.Join(root, "dsh1") {
+		t.Fatalf("deep: %v", got)
+	}
+	if got := get("?pet=bh-bridge-gjiang"); got["role"] != "gjiang" || got["pack"] != nil || got["packDir"] != nil {
+		t.Fatalf("gemini not downloaded must not be reported: %v", got)
+	}
+	if got := get(""); got["role"] != "cj" || got["packDir"] != nil {
+		t.Fatalf("main: %v", got)
+	}
+	if petPackDir(root, "../dsh1") != "" || petPackDir(root, ".") != "" {
+		t.Fatal("pack name must not leave the pets folder")
 	}
 }
