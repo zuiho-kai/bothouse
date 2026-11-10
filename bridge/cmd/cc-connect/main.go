@@ -450,6 +450,12 @@ func runMain() {
 	// the self-hosted platform the setup wizard started on this machine (<data_dir>/hub/hub.json):
 	// start it again if it is not running (after a reboot); the cloud_web bots reconnect on their own
 	core.UpdateStateDir = cfg.DataDir
+	// After an upgrade, installed hook scripts follow this version too (they were only written by setup hooks on).
+	if refreshed, err := core.RefreshAgentHookScripts(cfg.DataDir, version); err != nil {
+		slog.Warn("hook scripts refresh failed", "dir", core.AgentHooksDir(cfg.DataDir), "error", err)
+	} else if refreshed {
+		slog.Info("hook scripts refreshed", "version", version)
+	}
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
