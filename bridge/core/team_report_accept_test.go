@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +32,7 @@ const acceptBody = "[report] #46 背景：你让我修汇报。\n改好了，已
 
 func holdForTest(t *testing.T, e *Engine, p Platform, item *teamTaskBoardItem, doubt string) {
 	t.Helper()
-	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", acceptBody, exitWSKey, 46, "背景：你让我修汇报。\n改好了，已上线\n要你做的：没有。\n我加的：无", doubt, item)
+	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", acceptBody, exitWSKey, 46, "背景：你让我修汇报。\n改好了，已上线\n要你做的：没有。\n我加的：无", doubt, "", item)
 }
 
 func verdictCall(t *testing.T, e *Engine, board int, action, verdict string) *httptest.ResponseRecorder {
@@ -58,7 +60,7 @@ func TestHeldReportGoesToLeadFirst(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("lead wakes = %d", len(jobs))
 	}
-	for _, want := range []string{leadAcceptMark, "改好了，已上线", "/tmp/notes-46.md", "对题检查：有疑点——测的是另一个入口", "ws-pass --notes /tmp/notes-46.md --verdict", "ws-forward --notes /tmp/notes-46.md", leadUncheckedMark} {
+	for _, want := range []string{leadAcceptMark, "改好了，已上线", "/tmp/notes-46.md", "对题检查：有疑点——测的是另一个入口", "ws-pass --id 46 --verdict", "ws-forward --id 46", leadUncheckedMark} {
 		if !strings.Contains(jobs[0].Prompt, want) {
 			t.Fatalf("lead prompt misses %q:\n%s", want, jobs[0].Prompt)
 		}
@@ -156,5 +158,30 @@ func TestHeldReportWithoutLeadPostsUnchecked(t *testing.T) {
 	got := p.sentTo("discord:chat1")
 	if len(got) != 1 || !strings.Contains(got[0], leadUncheckedMark) {
 		t.Fatalf("no-lead post = %q", got)
+	}
+}
+
+// The lead's pass is the acceptance: the board item closes with it (agentm #35 11-10: left
+// 「已交回待验收」, the review nudge four hours later had the lead reopen work the user already had).
+func TestHeldReportPassClosesBoardItem(t *testing.T) {
+	e, p, _, item := heldFixture(t)
+	if e.dataDir == "" {
+		e.dataDir = t.TempDir()
+	}
+	log := filepath.Join(t.TempDir(), "board-args")
+	bin := filepath.Join(e.dataDir, "collaboration", "lead", "board")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	holdForTest(t, e, p, item, "")
+	if w := verdictCall(t, e, 46, "pass", "逐条：修汇报做到了，线上日志有 report posted"); w.Code != http.StatusOK {
+		t.Fatalf("pass = %d %s", w.Code, w.Body)
+	}
+	got, _ := os.ReadFile(log)
+	if !strings.Contains(string(got), "accepted 46") {
+		t.Fatalf("pass did not close the board item; board calls:\n%s", got)
 	}
 }

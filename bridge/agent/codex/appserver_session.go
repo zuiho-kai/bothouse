@@ -208,6 +208,8 @@ type appServerSession struct {
 	baseInstructions string
 	// bin is the codex CLI to start (the adapter's resolved cmd); "" = "codex".
 	bin string
+	// spawnOpts: run_as_user isolation (#1367).
+	spawnOpts core.SpawnOptions
 
 	events chan core.Event
 
@@ -257,8 +259,14 @@ const (
 )
 
 func newAppServerSession(ctx context.Context, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
+	return newAppServerSessionAs(ctx, core.SpawnOptions{}, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider, extraEnv, codexHome, permissionProfile, systemPrompt, appendPrompt, baseInstructions)
+}
+
+// newAppServerSessionAs is newAppServerSession with run_as_user isolation (#1367).
+func newAppServerSessionAs(ctx context.Context, spawnOpts core.SpawnOptions, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	s := &appServerSession{
+		spawnOpts:         spawnOpts,
 		url:               url,
 		bin:               bin,
 		workDir:           workDir,
@@ -330,14 +338,13 @@ func (s *appServerSession) connect() error {
 	if bin == "" {
 		bin = "codex"
 	}
-	cmd := exec.CommandContext(s.ctx, bin, args...)
-	cmd.Dir = s.workDir
 	env := append([]string(nil), s.extraEnv...)
 	if s.codexHome != "" {
 		env = append(env, "CODEX_HOME="+s.codexHome)
 	}
-	if len(env) > 0 {
-		cmd.Env = core.MergeEnv(os.Environ(), env)
+	cmd, err := codexCommand(s.ctx, s.spawnOpts, bin, s.workDir, env, args...)
+	if err != nil {
+		return fmt.Errorf("codex app-server: %w", err)
 	}
 
 	stdin, err := cmd.StdinPipe()

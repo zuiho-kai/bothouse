@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
+import { resolveRoleAvatar, type RoleAvatarMatchOptions } from '@/lib/avatarMap';
 
 export type RoleState = 'busy' | 'idle' | 'offline' | 'paused';
 
@@ -39,11 +40,20 @@ export function StatePill({ state, className }: { state: RoleState; className?: 
   );
 }
 
+export interface RoleAvatarProps extends RoleAvatarMatchOptions {
+  name: string;
+  state: RoleState;
+  size?: number;
+  url?: string;
+  className?: string;
+}
+
 /** Avatar with the state dot on its corner (the same letter disc the library uses). */
-export function RoleAvatar({ name, state, size = 40 }: { name: string; state: RoleState; size?: number }) {
+export function RoleAvatar({ name, state, size = 40, model, agentType, avatar, url, className }: RoleAvatarProps) {
+  const resolvedUrl = url ?? resolveRoleAvatar({ avatar, model, agentType, name });
   return (
-    <span className="relative inline-grid shrink-0">
-      <LibraryAvatar name={name} size={size} className={cn(state === 'offline' && 'opacity-50 grayscale')} />
+    <span className={cn('relative inline-grid shrink-0', className)}>
+      <LibraryAvatar url={resolvedUrl} name={name} size={size} className={cn(state === 'offline' && 'opacity-50 grayscale')} />
       <span className="absolute -bottom-0.5 -right-0.5 grid place-items-center rounded-full bg-surface p-[2px]">
         <StateDot state={state} className="h-2.5 w-2.5" />
       </span>

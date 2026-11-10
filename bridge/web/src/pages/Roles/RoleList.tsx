@@ -19,11 +19,13 @@ import { DSHNotice } from '@/components/DSHNotice';
 import { backendLabel } from '@/lib/roleIdentity';
 import { dshMemberId, dshOnlyRows } from '@/lib/dshMerge';
 import { shownName } from '@/api/projects';
+import { withBase } from '@/lib/basePath';
 import { deleteDSHMember, listDSHMembers, type DSHManagedMember } from '@/api/dsh';
 import { errorMessage } from '@/components/DSHNotice';
 import { usePageRefresh } from '@/lib/usePageRefresh';
 import { DSHMemberEditor } from './DSHMemberEditor';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
+import { resolveRoleAvatar } from '@/lib/avatarMap';
 
 function isServerMembersIntentNotice(notice: string): boolean {
   return (
@@ -241,7 +243,7 @@ export default function RoleList() {
                 <div className="flex flex-1 flex-col gap-4 p-5">
                   {/* 头像 + 名字 + 状态，操作缩成右上角两个图标 */}
                   <div className="flex items-start gap-3.5">
-                    <RoleAvatar name={shown} state={state} size={48} />
+                    <RoleAvatar name={shown} state={state} size={48} model={role.model} agentType={role.agent_type} />
                     <div className="min-w-0 flex-1 pt-0.5">
                       <div className="flex items-center gap-2">
                         <p className="truncate text-[17px] font-semibold leading-6 tracking-tight text-ink">{shown}</p>
@@ -392,7 +394,7 @@ export default function RoleList() {
       )}
       {extraMembers.length > 0 && <section className="space-y-3">
         <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wider text-ink-mute">{t('dshManage.otherMembers')}</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1"><div className="flex items-center gap-3"><LibraryAvatar name={m.name} size={40} /><p className="font-semibold text-ink">{m.name}</p></div>{memberActions(m)}</article>)}</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{extraMembers.map(m => <article key={m.id} className="flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1"><div className="flex items-center gap-3"><LibraryAvatar url={resolveRoleAvatar({ name: m.name, agentType: m.cli ?? undefined, model: m.model?.model })} name={m.name} size={40} /><p className="font-semibold text-ink">{m.name}</p></div>{memberActions(m)}</article>)}</div>
       </section>}
       {editor && <DSHMemberEditor member={editor === 'new' ? null : editor} onClose={() => setEditor(null)} onSaved={changed} />}
       <Modal open={!!deleteMember} onClose={() => setDeleteMember(null)} title={t('dshManage.delete')}>

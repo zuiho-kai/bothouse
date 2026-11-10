@@ -48,9 +48,12 @@ func TestWorkspaceReportWithGapsGoesOnWithNote(t *testing.T) {
 		inputDone(a, c.reply)
 		inputWait(t, func() bool { return e.heldReportFor(c.id) != nil })
 		held := e.heldReportFor(c.id)
-		if !strings.Contains(held.Headline+held.Body, "系统核对：") {
-			t.Fatalf("#%d held without the check note: %+v", c.id, held)
+		// what the check found goes to the lead only: the user-facing parts stay as written
+		// (agentm #33 11-10: the lead's pass posted 「（系统核对：…）」 to an outside user)
+		if strings.Contains(held.Headline+held.Body, "系统核对") {
+			t.Fatalf("#%d check note leaked into the user's parts: %+v", c.id, held)
 		}
+
 		select {
 		case pr := <-a.session.prompts:
 			t.Fatalf("#%d got a repair turn: %q", c.id, pr)
@@ -62,5 +65,17 @@ func TestWorkspaceReportWithGapsGoesOnWithNote(t *testing.T) {
 		if n := e.exitBounceCount(exitWSKey); n != 0 {
 			t.Fatalf("#%d bounces = %d", c.id, n)
 		}
+	}
+}
+
+// The check's findings reach the acceptor: the lead's prompt names them, the user's parts do not.
+func TestLeadAcceptPromptCarriesCheck(t *testing.T) {
+	check := exitBounceNote([]string{"交接里这几项交回没提到：使用授权人 yangji"})
+	got := leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "[report] #33 背景：x\n做了\n要你做的：没有\n我加的：无", 33, "", "", check, "")
+	if !strings.Contains(got, "系统核对没过") || !strings.Contains(got, "使用授权人 yangji") {
+		t.Fatalf("lead prompt lacks the check:\n%s", got)
+	}
+	if strings.Contains(leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "b", 1, "", "", "", ""), "系统核对没过") {
+		t.Fatal("no check, yet the prompt says one failed")
 	}
 }

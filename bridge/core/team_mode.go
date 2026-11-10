@@ -93,7 +93,7 @@ func (e *Engine) SetTeamModeRulesEnabled(on bool) { e.skipTeamModeRules.Store(!o
 // delivery must carry them (teamRulesOnce).
 func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
 	e.checkRulesContext(session, agent)
-	return prefixRules(e.contextRules(teamModeRulesFor(e.DispatchMode()), session, agent), prompt)
+	return prefixRules(e.contextRules(e.withRoleDuty(teamModeRulesFor(e.DispatchMode()), ""), session, agent), prompt)
 }
 
 // contextRules is what goes once per agent context (teamRulesOnce): the team-mode rules unless

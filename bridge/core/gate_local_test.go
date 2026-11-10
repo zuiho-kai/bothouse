@@ -119,7 +119,7 @@ func TestLocalGate_NotInjectedFallsThroughToUpstream(t *testing.T) {
 			if e.applyGate(p, msg, s, "k") {
 				t.Fatal("must continue down the upstream path (normal turn or busy queue)")
 			}
-			if msg.Content != before {
+			if msg.Content != withLatestMark(before) { // #1375: only the latest mark is added
 				t.Fatalf("content rewritten: %q", msg.Content)
 			}
 			running.mu.Lock()

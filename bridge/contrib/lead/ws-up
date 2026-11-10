@@ -9,7 +9,7 @@
 #   老格式（没有 tasks）只认顶层 channel/chat。
 #   叫醒的身份是调用者自己的 CC_PROJECT（即正在当主的那位，见 _team.py），平台/频道 ID 都不写死。
 #   Discord 工作区里另发一条看得见的短消息（不 @ 任何人），发不出只警告。
-import json, os, shutil, subprocess, sys
+import json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
@@ -69,6 +69,20 @@ def pick_chat(last: dict, cur: str, notes=None):
 
 def cc_bin() -> str:
     return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
+
+
+def self_route(text: str) -> str:
+    """提问的「要你做的」让用户放文件、跑命令、改设置 → 退回理由，否则空串。规则只有一份，在桥里
+    （team-exit-rules.json self_route，桥转发 [ask]/[report] 时查同一份）；命令太旧、出错一律放行。
+    用户 2026-11-10「你自己搞，你忘了我跟你说的事情了么」（#1359 ws-up --ask 让他在终端跑 sudo）。"""
+    try:
+        p = subprocess.run([cc_bin(), "report", "check", "--self-route", "-"], input=text,
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return ""
+    if p.returncode != 1:
+        return ""
+    return "；".join(l[2:].strip() for l in p.stdout.splitlines() if l.startswith("- "))
 
 
 def user_words(notes: str, limit: int = 1500) -> str:
@@ -161,6 +175,10 @@ def main(argv):
             rest.append(a)
     if len(rest) != 1 or not rest[0].strip() or rest[0].startswith("-"):
         sys.exit(f"用法：{USAGE}（正文不能为空或以 - 开头）")
+    if ask:
+        why = self_route(rest[0])
+        if why:
+            sys.exit(f"ws-up: 这条提问没有交出去。{why}")
     # DSH 会删名字带 KEY 的环境变量，退回 DSH 入口导出的 CC_SESSION（同 later）
     key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     last = load_last()
@@ -178,6 +196,14 @@ def main(argv):
         say(key, f"🧪 测试活，未报回聊天频道：{rest[0][:300]}", _team.project())
         print(f"ws-up: 测试活（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
+    if files and re.search(r"https?://", rest[0]):
+        # 用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
+        media = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
+        pairs = [files[i:i + 2] for i in range(0, len(files), 2)]
+        dropped = [p for _, p in pairs if not p.lower().endswith(media)]
+        files = [x for f, p in pairs if p.lower().endswith(media) for x in (f, p)]
+        if dropped:
+            print("ws-up: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in dropped), file=sys.stderr)
     if files:
         # 附件直接发到这件活的来源聊天频道（pick_chat 按交接记录定，不按工作区眼下挂着的频道），发不出就不上报
         a = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", chat, *files, "--message", rest[0][:300]],

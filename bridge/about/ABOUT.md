@@ -15,7 +15,7 @@ bothouse is a team coordination layer that runs on your own computer: it puts th
 
 ## What it does
 
-- **Your own small AI team**: each role has its own name, persona, session and avatar; pick a role pack and it is ready.
+- **Your own small AI team**: each role has its own name, persona, session and avatar; pick a role pack and it is ready. The persona only sets character; what a role does in the team (lead, workspace, helper) comes from a standard duty layer the bridge adds by its place in the config.
 - **In the chat apps you already use**: Discord is fully supported (multiple roles, @, hand-off and hand-back, teammate status, slash commands); Feishu with one role; QQ official bots by manual setup; DSH desktop/web channel page is experimental.
 - **Chat stays free, big jobs go elsewhere**: the lead keeps talking; work expected to take over 10 minutes goes to a "workspace" channel and comes back when done, asking a person only when a decision is needed. A task board tracks who does what, one thread per job.
 - **Speak when called**: the lead answers by default; others reply when @-mentioned or named; a small dispatch model decides who takes unaddressed messages.
@@ -23,6 +23,7 @@ bothouse is a team coordination layer that runs on your own computer: it puts th
 - **Nightly review**: progress is recorded when a session ends or idles; at night it is checked against the original messages; corrections that keep coming back become candidate rules that take effect only after a person approves.
 - **Long jobs stay on track**: hand-offs carry the user's own words; a fresh-context AI accepts the work; "fixed" needs evidence, "later" needs a timer; guards block dangerous commands.
 - **Each member's own directory and GitHub login**: once on, everyone who joins gets a directory and authorizes GitHub with their own device code; GitHub work done for them uses only their authorization; when the role runs as another OS user, the system stops one member's job reading another member's directory or credentials. Recommended when you build a team, on only after the owner agrees.
+- **Personal agents join the team**: a teammate can run their own bothouse with their own CLI and quota; the lead sends them related team lessons with a job, and the lessons they send back go into the shared memory.
 - **Manage from your phone**: a built-in web panel shows who is busy and quota use, edits personas, switches models and lets you add to a running job; model and reasoning level are kept per channel. A phone without DSH can join over Tailscale by entering a 6-digit pairing code in its browser.
 - **Desktop pet**: each bound role can have its own desktop pet in its own skin, which shows that role's status and bubbles and opens a chat with it.
 - **Hardware**: bothouse-iot connects ESP32 round-screen boards as a role's body.

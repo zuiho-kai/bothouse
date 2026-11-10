@@ -308,8 +308,9 @@ func reportCheckCommand(args []string, stdin io.Reader, out, errOut io.Writer) i
 	fs := flag.NewFlagSet("report check", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	notesPath := fs.String("notes", "", "handoff file of the task (its 「## 范围」 改 items must be in the draft)")
+	selfRoute := fs.Bool("self-route", false, "only check that 「要你做的」 does not hand the user a file to place, a command to run or a setting to change (ws-up --ask, choice-ask-guard)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: bothouse report check --notes <交接文件> [<草稿文件>|-]\n  交回前核对 [report]/[ask] 草稿，规则和桥转发时一样；不给文件就从标准输入读草稿")
+		fmt.Fprintln(fs.Output(), "usage: bothouse report check [--self-route] --notes <交接文件> [<草稿文件>|-]\n  交回前核对 [report]/[ask] 草稿，规则和桥转发时一样；不给文件就从标准输入读草稿")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -330,7 +331,12 @@ func reportCheckCommand(args []string, stdin io.Reader, out, errOut io.Writer) i
 		fmt.Fprintln(errOut, err)
 		return 2
 	}
-	problems := core.ReportPreflight(string(draft), notes)
+	var problems []string
+	if *selfRoute {
+		problems = core.SelfRouteProblems(string(draft))
+	} else {
+		problems = core.ReportPreflight(string(draft), notes)
+	}
 	if len(problems) == 0 {
 		fmt.Fprintln(out, "OK：桥会转发这条")
 		return 0

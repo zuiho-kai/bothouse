@@ -84,6 +84,8 @@ type SendRequest struct {
 	// SessionFromEnv: the CLI filled SessionKey from its own session (no -s). A workspace's
 	// images/files then go to the chat channel that owns the workspace (sendTargetForAttachments).
 	SessionFromEnv bool `json:"session_from_env,omitempty"`
+	// Experience: append the related team lessons and the hand-back rule (team_experience.go).
+	Experience bool `json:"experience,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -350,6 +352,14 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.SessionKey = key
+	}
+	if req.Experience {
+		msg, err := engine.WithExperience(req.Message)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Message = msg
 	}
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey = engine.sendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)

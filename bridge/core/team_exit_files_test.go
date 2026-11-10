@@ -115,3 +115,33 @@ func TestWorkspaceReportCarriesDocuments(t *testing.T) {
 		t.Fatalf("files = %v", got)
 	}
 }
+
+// User 11-10 「附件除非是没有对应的链接才给我，否则不用给我」: a report that links its release page
+// carries no documents; pictures, sound and video still go; with no link the document goes.
+func TestExitFilesSkipDocsWhenLinked(t *testing.T) {
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "about-en.txt")
+	os.WriteFile(doc, []byte("about"), 0o600)
+	head := "[report] #3 背景：发版。\n新版已发出。\n要你做的：没有\n我加的：无\n细节：说明 " + doc + "\n"
+	kept := []FileAttachment{
+		{FileName: "shot.png", MimeType: "image/png", Data: []byte("png")},
+		{FileName: "demo.mp4", MimeType: "video/mp4", Data: []byte("mp4")},
+		{FileName: "voice.ogg", MimeType: "audio/ogg", Data: []byte("ogg")},
+		{FileName: "notes.pdf", MimeType: "application/pdf", Data: []byte("pdf")},
+	}
+	linked := head + "发版页 https://github.com/zuiho-kai/bothouse/releases/tag/v0.1.63\n"
+	got := map[string]bool{}
+	for _, f := range exitFilesFor("discord:ws", linked, nil, kept, false) {
+		got[f.FileName] = true
+	}
+	if got["about-en.txt"] || got["notes.pdf"] || !got["shot.png"] || !got["demo.mp4"] || !got["voice.ogg"] || len(got) != 3 {
+		t.Fatalf("linked report: want media only, got %v", got)
+	}
+	got = map[string]bool{}
+	for _, f := range exitFilesFor("discord:ws", head, nil, kept, false) {
+		got[f.FileName] = true
+	}
+	if !got["about-en.txt"] || !got["notes.pdf"] || len(got) != 5 {
+		t.Fatalf("report without a link: want every file, got %v", got)
+	}
+}

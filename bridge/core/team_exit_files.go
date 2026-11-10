@@ -157,9 +157,13 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 			all = append(all, f)
 		}
 	}
+	linked := exitURLRe.MatchString(body)
 	seen := map[string]bool{}
 	var out []FileAttachment
 	for _, f := range all {
+		if linked && !isMediaFile(f) {
+			continue // the report links the page this document is on; the user reads it there
+		}
 		k := f.FileName + "\x00" + strconv.Itoa(len(f.Data))
 		if seen[k] {
 			continue
@@ -171,6 +175,17 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 		}
 	}
 	return out
+}
+
+// isMediaFile: pictures, sound and video go to the user even when the report has links (they look
+// at screenshots and samples); documents (text, pdf, office, html…) do not. User 11-10: 「附件除非是没有
+// 对应的链接才给我，否则不用给我」 — a report with a release page, PR or web link carries no documents.
+func isMediaFile(f FileAttachment) bool {
+	mt := strings.ToLower(f.MimeType)
+	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.FileName))); ext != "" {
+		mt = strings.ToLower(ext)
+	}
+	return strings.HasPrefix(mt, "image/") || strings.HasPrefix(mt, "audio/") || strings.HasPrefix(mt, "video/")
 }
 
 // postExitFiles posts files in the chat channel after the exit's text. Best effort.

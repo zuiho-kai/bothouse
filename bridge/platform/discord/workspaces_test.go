@@ -32,6 +32,10 @@ func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		body = `{"id":"201","name":"锁了","type":11,"guild_id":"g1","parent_id":"100","thread_metadata":{"locked":true,"archived":true}}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/202":
 		status, body = http.StatusNotFound, `{"code":10003,"message":"Unknown Channel"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/300":
+		body = `{"id":"300","name":"讨论事项","type":15,"guild_id":"g1","parent_id":"catA"}`
+	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/301":
+		body = `{"id":"301","name":"一个帖子","type":11,"guild_id":"g1","parent_id":"300"}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/channels/900":
 		body = `{"id":"900","type":1}`
 	case req.Method == http.MethodGet && req.URL.Path == "/api/v9/guilds/g1/channels":
@@ -154,5 +158,42 @@ func TestTeamWorkspaceChannelsFromThread(t *testing.T) {
 	}
 	if h := p.workspaceShelfStore().threadHost("200"); h != "100" {
 		t.Fatalf("thread host not recorded: %q", h)
+	}
+}
+
+// A forum post is a thread whose host is a forum channel; a DM uses the bot's team server pool.
+// 来源：2026-11-10 agentm 论坛帖子和私聊派活都报「not a guild text channel」，用户「私聊被拒绝了，不应该有这个问题」。
+func TestTeamWorkspaceChannelsFromForumPostAndDM(t *testing.T) {
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := &workspaceREST{}
+	session.Client = &http.Client{Transport: rest}
+	p := &Platform{workspaceShelves: workspaceShelfStoreFor(t.TempDir())}
+	p.session = session
+	ctx := context.Background()
+
+	if _, _, err := p.TeamGuildChannels(ctx, "900"); !errors.Is(err, core.ErrNotTeamChannel) {
+		t.Fatalf("DM without a known team server: %v, want ErrNotTeamChannel", err)
+	}
+	self, all, err := p.TeamGuildChannels(ctx, "301")
+	if err != nil || self.ID != "301" || self.ParentID != "catA" || len(all) != 2 {
+		t.Fatalf("forum post: self=%+v all=%+v err=%v, want the post with the forum category's pool", self, all, err)
+	}
+	if c, err := p.CreateTeamWorkspaceChannel(ctx, "301", "工作区2"); err != nil || c.ID != "103" {
+		t.Fatalf("create beside forum post = %+v %v", c, err)
+	}
+
+	p.guildID = "g1"
+	self, all, err = p.TeamGuildChannels(ctx, "900")
+	if err != nil || self.ID != "900" || self.ParentID != "catA" || len(all) != 2 {
+		t.Fatalf("DM: self=%+v all=%+v err=%v, want the DM with g1's pool", self, all, err)
+	}
+	if c, err := p.CreateTeamWorkspaceChannel(ctx, "900", "工作区3"); err != nil || c.ID != "103" {
+		t.Fatalf("create for DM = %+v %v", c, err)
+	}
+	if got := rest.created[len(rest.created)-1]["parent_id"]; got != "catA" {
+		t.Fatalf("DM workspace parent = %v, want catA", got)
 	}
 }

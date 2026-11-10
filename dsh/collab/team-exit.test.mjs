@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { readFileSync } from 'node:fs';
-import { TeamExit, RULES, jargonProblems, exitMark, askEvidenceProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
+import { TeamExit, RULES, jargonProblems, lengthProblems, exitMark, askEvidenceProblems, selfRouteProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
 
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -17,7 +17,7 @@ function setup() {
   hub.tasks = { wakers: [(id, m) => { woken.push([id, m.id]); return true; }], task: id => (id === 1 ? { id: 1, title: '修 CI' } : undefined) };
   const exit = new TeamExit(hub);
   const ws = store.createWorkspace(1);
-  const say = async text => { hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text }); await tick(); };
+  const say = async text => { const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text }); await tick(); return message; };
   const chat = () => store.page(1, undefined, 50).filter(m => m.author_kind === 'system');
   const back = () => store.page(ws.id, undefined, 50).filter(m => m.author_kind === 'system');
   return { hub, exit, ws, say, chat, back, woken };
@@ -58,6 +58,43 @@ test('shared cases: which task a reply is about', () => {
 
 test('shared cases: bounce text', () => {
   for (const c of CASES.bounce) assert.equal(exitBounceText(c.kind, c.problems), c.want);
+});
+
+test('self-route check rejects sudo asks and reports, while payment asks pass', async () => {
+  const { exit, say, chat, back } = setup();
+  const sudoAsk = '[ask] #1 背景：你让我做隔离验收。\n选择好了。\n要你做的：请在本机终端跑这一句 sudo。\n我加的：无\n自验：没有运行\n类别：验收';
+  const ask = await say(sudoAsk);
+  assert.equal(chat().length, 0);
+  assert.match(back().at(-1).text, /先换路/);
+  assert.equal(exit.consumeRejected(ask.id), true, 'a rejected ask cannot proceed through task handling');
+
+  await say('[report] #1 背景：你让我完成验收。\n已完成。\n要你做的：请在终端运行 sudo。\n我加的：无');
+  assert.equal(chat().length, 0, 'the report does not reach the chat channel');
+  assert.match(back().at(-1).text, /先换路/);
+
+  await say('[ask] #1 背景：你让我确认设备下单。\n选好了。\n自验：无需\n类别：花钱\n要你做的：请确认付款 ¥320 下单打板。\n我加的：无');
+  assert.equal(back().length, 2, 'the payment ask is not bounced');
+  assert.equal(chat().length, 1, 'the payment ask reaches the chat channel');
+});
+
+test('self-route helper uses the existing rule text and ignores user-only actions', () => {
+  const problem = selfRouteProblems('[report]\n要你做的：在本机终端跑一次 sudo');
+  assert.equal(problem.length, 1);
+  assert.match(problem[0], /「要你做的」把能自己做的事/);
+  assert.deepEqual(selfRouteProblems('[ask]\n要你做的：确认付款 ¥320 下单打板'), []);
+});
+
+test('self-route report is forwarded with its check note after the repair wake limit', async () => {
+  const { say, chat, back } = setup();
+  const report = '[report] #1 背景：你让我完成验收。\n已完成。\n要你做的：请在终端运行 sudo。\n我加的：无';
+  await say(report);
+  await say(report);
+  assert.equal(chat().length, 0);
+  await say(report);
+  assert.equal(back().length, 2);
+  assert.equal(chat().length, 1);
+  assert.match(chat()[0].text, /先换路/);
+  assert.match(chat()[0].text, /请在终端运行 sudo/);
 });
 
 for (const [name, text, want] of [
@@ -140,4 +177,12 @@ test('jargon permits product names and complete links', () => {
 });
 test('jargon still rejects internal identifiers outside links', () => {
   for (const text of ['fooBar', '~/x/y', '#123', 'https://discord.gg/ok 后面 fooBar']) assert.equal(jargonProblems(text).length, 1);
+});
+
+test('a part over two sentences goes back, never cut (11-10「为什么回复那么长」)', () => {
+  const long = '背景：一。二。三。\n做了。上线了。\n要你做的：没有。\n我加的：无';
+  const p = lengthProblems(long);
+  assert.equal(p.length, 1);
+  assert.ok(p[0].includes('「背景」那段写了 3 句'));
+  assert.deepEqual(lengthProblems('背景：修汇报。\n改好了。已上线。要你做的：没有。\n我加的：无'), []);
 });

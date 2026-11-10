@@ -197,8 +197,8 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	var hid int
 	var hline string
 	var item *teamTaskBoardItem
-	var doubt string
-	legacy := false
+	var doubt, check string
+	legacy, selfRoute := false, false
 	if ok {
 		v := judgeExit(kind, body, false, func(id int) bool {
 			item = e.boardItemByID(id)
@@ -225,6 +225,15 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 			if g := genericReportProblems(body); g != nil {
 				problems, legacy = append(problems, g...), false
 			}
+			// walked through where the user uses it, with a screenshot, file, link or command output
+			if en := entryReportProblems(body, localFileExists); en != nil {
+				problems, legacy = append(problems, en...), false
+			}
+		}
+		// 「要你做的」hands the user a file to place, a command to run, a setting to change: it goes back
+		// for another route, a [report] too (user 11-10 「你自己搞」; team_exit_rules.go SelfRouteProblems)
+		if sr := SelfRouteProblems(body); sr != nil {
+			problems, legacy, selfRoute = append(problems, sr...), false, true
 		}
 		_, _, waiting := waitExternalOf(body)
 		if kind == exitKindReport && item != nil && problems == nil && waiting {
@@ -285,33 +294,29 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		// acceptance like any report. agentm 11-09/10 (#1347): 15 report bounces, the repair turns
 		// mostly answered 「已补全」 without the marker, so the result was dropped and the user
 		// waited hours for it. Only an [ask] still bounces, since it would wait on the user.
-		if kind != exitKindReport && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
+		// A report hands the user work it could do itself: that one still goes back once for another
+		// route (bounceWorkspaceExit forwards it with the note past wake_limit or on a timer turn).
+		if (kind != exitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
 			return ""
 		}
 		// No repair turn will come: forward it as is, with what the check found, so the user
 		// still gets the answer and sees the gap.
 		// the intent check's fail goes first, on its own line (user 11-07 交接: 「在 report 前加一行」)
-		lead := intentFailLine(problems)
+		// What the check found is for whoever accepts the report, not for the user: since 11-09 the
+		// lead accepts every report (holdReportForLead), so it goes into the lead's prompt and the
+		// log, never into the four parts. Joined into the headline, the lead's pass posted it to an
+		// outside user as written (agentm #33 11-10 「（系统核对：…）」).
 		note := ""
 		if rest := withoutIntent(problems); rest != nil {
 			note = exitBounceNote(rest)
 		}
-		if item != nil && strings.TrimSpace(hline) != "" {
-			hline, legacy = joinIntentLines(lead, hline, note), false
-		} else {
-			body, legacy = joinIntentLines(lead, body, note), true
-		}
+		check = joinIntentLines(intentFailLine(problems), note)
+		legacy = item == nil || strings.TrimSpace(hline) == ""
+		slog.Info("team exit: report goes on with what the check found; for the acceptor only", "board_item", hid, "check", check)
 		problems = nil
 		e.clearAskBounces(sessionKey)
 	}
-	if doubt != "" {
-		// a doubt never blocks: it goes with the report as one line
-		if item != nil && strings.TrimSpace(hline) != "" {
-			hline = hline + "\n" + intentDoubtPrefix + doubt
-		} else {
-			body = body + "\n\n" + intentDoubtPrefix + doubt
-		}
-	}
+	// a doubt never blocks; like the check above it is for the acceptor (the lead's prompt), not the user
 	if item != nil && item.isTest() {
 		// test work: the answer stays in the workspace and the log, the task still closes or yields
 		// as usual (core/test_noise.go)
@@ -336,7 +341,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); !bound {
 			// The lead accepts a text report before the user sees it (user 11-09, team_report_accept.go).
 			// A proactive task's turn keeps the old direct post: its authority cannot ride a lead timer.
-			e.holdReportForLead(ctx, p, parent, ws, bot, body, sessionKey, hid, hline, doubt, item)
+			e.holdReportForLead(ctx, p, parent, ws, bot, body, sessionKey, hid, hline, doubt, check, item)
 			return ""
 		}
 	}

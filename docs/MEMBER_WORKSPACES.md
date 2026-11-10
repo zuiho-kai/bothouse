@@ -20,7 +20,8 @@
 
 - 用谁的凭据由桥定，不由模型定：`bothouse member` 不接受「替谁」这种参数，桥按发起人身份（[CALLER_IDENTITY.md](CALLER_IDENTITY.md)）查这一轮是谁发起的。队友 bot、定时任务、交接叫醒、本地输入发起的轮次一律拒绝。所以经这条路，甲那一轮用不了乙的授权。
 - 文件层面要看部署：
-  - 角色换一个系统账号跑（项目的 agent 配 `run_as_user`，目前只有 Claude Code 支持）：成员目录归桥的账号、权限 0700，角色进程打不开，是操作系统内核拦的。`bothouse member gh|git` 也用角色的系统账号跑，只多带这一轮发话人自己的令牌（`GH_TOKEN`），所以借这两条命令去读别人的文件同样被内核拒绝。角色读不到成员的 `files/`，替他存取文件改走桥：`bothouse member put <文件> [名字]`（按角色自己的权限读文件放进去）、`bothouse member get <名字> [存到哪]`、`bothouse member ls`。
+  - 角色换一个系统账号跑（项目配 `run_as_user`；Claude Code 和 Codex 支持，两家都在 Linux 一次性容器里实测过，macOS 上没实测）：成员目录归桥的账号、权限 0700，角色进程打不开，是操作系统内核拦的。**但 `run_as_user` 下 `bothouse member` 的子命令现在都不可用**（`status`、`login`、`gh`、`git`、`put`、`get`、`ls` 全在内），别把它们当成这个模式下的用法。两处断点：桥的 `api.sock` 是 0600、只有桥的账号能连（`bridge/core/api.go` 建完 socket 就 `os.Chmod(…, 0o600)`，`bridge/core/identity_api.go` 把 0600 当设计前提）；角色进程的环境里也没有 `CC_PROJECT`/`CC_SESSION_KEY`/`CC_DATA_DIR`，`FilterEnvForSpawn` 按只留 `LANG`/`LC_*`/`TERM` 的白名单过滤后，CLI 直接以 `member: CC_SESSION_KEY not set` 退出（`bridge/core/runas.go` 的 `DefaultEnvAllowlist`）。所以这个模式下角色读不到成员的 `files/`，替他存取文件只能由桥自己做，不要让模型去跑 `member put`/`get`/`ls`。打通要另做一件：给 `/member` 加调用者校验之后才谈得上放开 socket，只改权限会造出跨成员冒用。
+  - Codex 换账号跑时用的是角色账号自己的 `~/.codex`（登录、配置都在那里）；配了 `codex_home` 的话，那个目录要角色账号读写得了。桥这边列历史会话、读用量时看的是桥账号的目录，可能看不到角色账号下的会话，按会话 id 接着聊不受影响。
   - 剩下的口子：同一个角色账号上同时跑着两个成员的活时，`member gh|git` 运行那几秒里令牌在那个进程的环境里，同账号的另一个进程理论上读得到。要堵这一条得每个成员一个系统账号，现在没做。
   - 角色和桥同一个系统账号（默认装法）：这不算隔离。目录对角色进程是可读的，能拦住的只是「经正常命令拿别人的凭据」，拦不住一个绕开命令、直接去读文件的角色；那一层只靠给角色的规矩。要真隔离，开 `run_as_user`。
 - 凭据不进日志、事件记录和聊天：桥日志只记成员 id、操作和退出码。

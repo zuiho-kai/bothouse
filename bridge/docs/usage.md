@@ -433,7 +433,8 @@ name = "claude-sandboxed"
 run_as_user = "partseeker-coder"
 
 # Optional: extend the default env var allowlist that crosses the sudo
-# boundary. The defaults (PATH, LANG, LC_*, TERM) are always included.
+# boundary. The defaults (LANG, LC_*, TERM) are always included; PATH is
+# not — `sudo -i` builds it from the target user's own login profile.
 # Only list vars the target user cannot reasonably set in their own
 # shell profile. Secrets belong in the target user's ~/.claude/settings.json
 # env block, NOT here.

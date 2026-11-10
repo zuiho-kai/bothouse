@@ -937,7 +937,7 @@ describe('channels page', () => {
     fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
     fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000deepseek-v4.1-flash' } })
     fireEvent.change(screen.getByLabelText(zh.memberPersona), { target: { value: '写代码' } })
-    expect(dialog.querySelectorAll('[role="radiogroup"][aria-labelledby="member-avatar-label"] [role="radio"]')).toHaveLength(6)
+    expect(dialog.querySelectorAll('[role="radiogroup"][aria-labelledby="member-avatar-label"] [role="radio"]')).toHaveLength(7)
     fireEvent.click(dialog.querySelector('[role="radio"][title="whale"]') as Element)
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()

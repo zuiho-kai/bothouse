@@ -53,7 +53,9 @@ type Agent struct {
 	sessionModel      string // per-session override from [projects.session_models]; "" = default
 	sessionInstr      string // per-session base-instructions file from [projects.session_instructions]; "" = built-in
 	sessionInstrText  string // that file's text, read at config load
-	mu                sync.RWMutex
+	// spawnOpts: run_as_user isolation (#1367); zero value = start codex as the bridge user.
+	spawnOpts core.SpawnOptions
+	mu        sync.RWMutex
 }
 
 func New(opts map[string]any) (core.Agent, error) {
@@ -75,13 +77,18 @@ func New(opts map[string]any) (core.Agent, error) {
 	appServerURL = normalizeAppServerURL(appServerURL)
 
 	cmd, cliExtraArgs := core.ParseCmdOpts(opts, "codex")
+	spawnOpts := spawnOptsFromOpts(opts)
 
-	// Not on PATH: also try the common install dirs and start the absolute path found there.
-	resolved, err := core.ResolveCLI(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("codex: %q CLI not found in PATH, install with: npm install -g @openai/codex", cmd)
+	// Under run_as_user the target user's PATH decides which codex runs (sudo -i), so skip the
+	// bridge-side lookup; a missing CLI there fails loudly at spawn.
+	if !spawnOpts.IsolationMode() {
+		// Not on PATH: also try the common install dirs and start the absolute path found there.
+		resolved, err := core.ResolveCLI(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("codex: %q CLI not found in PATH, install with: npm install -g @openai/codex", cmd)
+		}
+		cmd = resolved
 	}
-	cmd = resolved
 
 	// Parse project-level env from opts["env"] (set via [projects.agent.options.env] in config.toml).
 	// Stored separately from runtime sessionEnv so SetSessionEnv calls cannot overwrite it.
@@ -115,6 +122,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		cliExtraArgs:      cliExtraArgs,
 		configEnv:         configEnv,
 		activeIdx:         -1,
+		spawnOpts:         spawnOpts,
 	}, nil
 }
 
@@ -525,6 +533,7 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 	cliBin := a.cmd
 	cliExtraArgs := a.cliExtraArgs
 	workDir := a.workDir
+	spawnOpts := a.spawnOpts
 	// Order matters for MergeEnv override semantics (later wins):
 	//   1. configEnv — static env from [projects.agent.options.env]
 	//   2. providerEnv — per-provider keys (OPENAI_API_KEY etc.)
@@ -571,7 +580,7 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 	}
 
 	if backend == "app_server" && !forceExec {
-		return newAppServerSession(ctx, cliBin, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, extraEnv, codexHome, permissionProfile, systemPrompt, appendPrompt, instrText)
+		return newAppServerSessionAs(ctx, spawnOpts, cliBin, appServerURL, workDir, model, reasoningEffort, mode, sessionID, baseURL, provName, extraEnv, codexHome, permissionProfile, systemPrompt, appendPrompt, instrText)
 	}
 	if codexHome != "" {
 		extraEnv = append(extraEnv, "CODEX_HOME="+codexHome)
@@ -579,6 +588,7 @@ func (a *Agent) startSessionWith(ctx context.Context, sessionID string, forceExe
 
 	cs, err := newCodexSession(ctx, cliBin, cliExtraArgs, workDir, model, reasoningEffort, mode, sessionID, baseURL, extraEnv, provName, systemPrompt, appendPrompt)
 	if err == nil {
+		cs.spawnOpts = spawnOpts
 		cs.instructionsFile = instrFile
 		if forceExec {
 			cs.compactInstructions = instrText
@@ -630,6 +640,23 @@ func (a *Agent) GetMode() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.mode
+}
+
+// GetRunAsUser / GetRunAsEnv let the engine copy run_as_user to per-workspace agents
+// (core.Engine.getOrCreateWorkspaceAgent) and report isolation; same contract as claudecode.
+func (a *Agent) GetRunAsUser() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.spawnOpts.RunAsUser
+}
+
+func (a *Agent) GetRunAsEnv() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if len(a.spawnOpts.EnvAllowlist) == 0 {
+		return nil
+	}
+	return append([]string(nil), a.spawnOpts.EnvAllowlist...)
 }
 
 func (a *Agent) WorkspaceAgentOptions() map[string]any {

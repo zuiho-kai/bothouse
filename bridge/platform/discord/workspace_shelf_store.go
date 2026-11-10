@@ -62,6 +62,17 @@ func (p *Platform) workspaceShelfStore() *workspaceShelfStore {
 	return p.workspaceShelves
 }
 
+// guildIDs lists the servers with recorded workspaces.
+func (s *workspaceShelfStore) guildIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (s *workspaceShelfStore) guild(id string) (workspaceShelfGuild, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

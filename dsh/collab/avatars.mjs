@@ -3,7 +3,7 @@
 // and rejected newly drawn ones (2026-10-23: 「我还是保留原本那个」).
 import { readFileSync } from 'node:fs';
 
-export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'];
+export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok'];
 /** Longest avatar URL a cloud-web bot may announce (common browser URL limit; not from the user). */
 export const MAX_AVATAR_URL = 2048;
 
