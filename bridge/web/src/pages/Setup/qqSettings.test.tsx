@@ -79,6 +79,24 @@ it('keeps edits on save failure and clears a stored token only when explicitly s
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
 
+it('keeps the pending-restart state when a later save fails', async () => {
+  // 复现：先存一次要重启的改动，再改一处并保存失败。失败那次没写盘，前一次的改动
+  // 仍然只在磁盘上、没有生效，所以面板不能因为这次失败就退回「已连接」。
+  mocks.save.mockReset()
+    .mockResolvedValueOnce({ restart_required: true, changed: ['ws_url'] })
+    .mockRejectedValueOnce(new Error('disk full'));
+  await render(<QQSettingsPanel project="qq-role" platforms={[{ type: 'qq', connected: true }]} />);
+  await fill('fields.wsUrl', 'ws://localhost:3002');
+  await click('common.save');
+  expect(host.querySelector('[data-qq-state]')?.getAttribute('data-qq-state')).toBe('restart');
+
+  await fill('qq.saveImagesDir', '/tmp/shots');
+  await click('common.save');
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('disk full');
+  expect(host.querySelector('[data-qq-saved]')).toBeNull();
+  expect(host.querySelector('[data-qq-state]')?.getAttribute('data-qq-state')).toBe('restart');
+});
+
 it('shows every switch the adapter honors, keeps allow_from read-only, and sends all of them', async () => {
   await render(<QQSettingsPanel project="qq-role" />);
   // allow_from is display-only: no input carries it.
