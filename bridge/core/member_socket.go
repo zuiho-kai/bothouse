@@ -80,6 +80,14 @@ func callerTokenFromRequest(r *http.Request) string {
 // session req.Session, and returns the signed claims when a token was the way in (nil for the bridge's
 // own account, whose turn record is trusted as before).
 func (s *APIServer) memberPeerCaller(r *http.Request, e *Engine, req MemberRequest) (*CallerClaims, error) {
+	if !memberSocketSupported {
+		// No peer credentials on this platform (update_peer_uid_other.go), so the kernel cannot say who is
+		// calling: member.sock is never started (startMemberSocket) and /member is reachable only through
+		// api.sock, which is 0600 and open to the bridge's own account alone. That caller is the bridge
+		// itself, exactly as before the caller check existed; trust it as the bridge account and grant
+		// nothing beyond what holding api.sock already gives it.
+		return nil, nil
+	}
 	if peerIsBridgeAccount(r) {
 		// The bridge's own account already holds api.sock; nothing new is granted here.
 		return nil, nil

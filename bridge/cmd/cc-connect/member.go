@@ -103,6 +103,13 @@ const memberCallTimeout = 20 * time.Minute
 func memberPost(project, session string, body []byte) (*http.Response, string, error) {
 	dataDir := identityDataDir("")
 	sock := core.MemberSocketPath(dataDir)
+	// Platforms without peer credentials never start member.sock (core/member_socket_unsupported.go), and
+	// there dialing a socket that does not exist is not a "file not found" error the transport below can
+	// recognise (Windows reports ENETDOWN), so pick the socket up front: no member.sock on disk means this
+	// bridge only has api.sock, which the bridge's own account can open.
+	if _, err := os.Stat(sock); err != nil {
+		sock = resolveSocketPath("")
+	}
 	tok, _, fetchErr := fetchCallerToken("", project, session)
 	tokErr := ""
 	if fetchErr != nil {

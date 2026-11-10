@@ -150,6 +150,38 @@ func TestMemberSocketBridgeAccountUnchanged(t *testing.T) {
 	}
 }
 
+// A platform without peer credentials (Windows) has no member.sock at all: `bothouse member` falls back
+// to api.sock, 0600, open to the bridge's own account alone. The caller check must not lock that caller
+// out — before #618 the very same request answered 200, and after it answered 403 (#634).
+func TestMemberWithoutPeerCredentialsStaysBridgeAccount(t *testing.T) {
+	fakeGH(t)
+	s, e := memberAPI(t)
+	authorize(t, e, "u-alice")
+	e.noteCallerTurn("discord:c1", "discord", "u-alice", "alice", "c1", false, false, false)
+
+	old := memberSocketSupported
+	t.Cleanup(func() { memberSocketSupported = old })
+	memberSocketSupported = false
+	// What unixPeerUID returns there (update_peer_uid_other.go): the kernel cannot name the peer.
+	withPeerUID(t, 0, false)
+
+	// The bridge's own account on api.sock: allowed, and it still runs as the turn's own person.
+	w, out := memberCall(s, MemberRequest{Project: "lead", Session: "discord:c1", Op: "status"}, "")
+	if w.Code != 200 || out.Exit != 0 || !strings.Contains(out.Text, "alice 的个人目录") {
+		t.Fatalf("no peer credentials, bridge account: %d %+v", w.Code, out)
+	}
+	// The rest of the check is not skipped: a turn that is not a real person is still refused.
+	e.noteCallerTurn("discord:c1", "discord", "u-alice", "alice", "c1", true, false, false)
+	if w, out := memberCall(s, MemberRequest{Project: "lead", Session: "discord:c1", Op: "status"}, ""); w.Code != 403 || out.Exit == 0 {
+		t.Fatalf("no peer credentials, bot turn: %d %+v", w.Code, out)
+	}
+	// Neither is the session check: no turn for this session at all is an error, not a pass.
+	e.noteCallerTurn("discord:c1", "discord", "u-alice", "alice", "c1", false, false, false)
+	if w, out := memberCall(s, MemberRequest{Project: "lead", Session: "discord:c2", Op: "status"}, ""); w.Code != 403 || out.Exit == 0 {
+		t.Fatalf("no peer credentials, unknown session: %d %+v", w.Code, out)
+	}
+}
+
 // Over a real socket the server learns the peer's uid from the kernel, so the uid check is not just a
 // hook for tests.
 func TestSocketPeerUID_RealSocket(t *testing.T) {
