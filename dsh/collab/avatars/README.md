@@ -24,7 +24,7 @@ Settings → Role avatars (bothouse config `[display] avatar_style = "brand" | "
 - License: MIT, Copyright © 2023 LobeHub (the collection). The logos themselves are trademarks of
   their owners; they are used here only to identify the model a role runs on.
 - Processing: logo scaled only (no recolor, no distortion), centred on a white disc, 256×256 RGBA,
-  rendered at 4× and downsampled. Script: `bridge/web/scripts/make_brand_avatars.py <icons-static-png>/light <out-dir>` (needs Pillow).
+  rendered at 4× and downsampled. Script: `bridge/contrib/tools/make_brand_avatars.py <icons-static-png>/light <out-dir>` (needs Pillow).
 - Files:
   - `brand-claude.png`: Claude (`claude-color.png`)
   - `brand-openai.png`: GPT / Codex (`openai.png`)
