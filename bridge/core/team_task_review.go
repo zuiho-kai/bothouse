@@ -463,6 +463,19 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	if len(pool) > 0 {
 		return pool[0], true
 	}
+	// Nobody but the author can reply here (a one-role team: the lead dispatched the task to its
+	// own workspace): the author reviews in a fresh side session, a clean context apart from the
+	// workspace that did the work, instead of the handback waiting forever.
+	// 来源：2026-11-10 agentm 只有龙娘一个角色，#15 #26 #27 #29 #35 交回后一直「已交回待验收」。
+	for _, x := range w.engines() {
+		if x.timerScheduler == nil || skip[x.name] || !taskReviewAuthor(it, x) || x.reviewCooling(chat) {
+			continue
+		}
+		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
+			continue
+		}
+		return x, true
+	}
 	return nil, false
 }
 

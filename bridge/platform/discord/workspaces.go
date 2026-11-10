@@ -140,8 +140,19 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
+	thread := ch
+	if ch, err = threadHost(api, ch, options...); err != nil {
+		return core.TeamChannel{}, nil, err
+	}
 	if ch.Type != discordgo.ChannelTypeGuildText || ch.GuildID == "" {
 		return core.TeamChannel{}, nil, fmt.Errorf("discord: channel %s: %w", channelID, core.ErrNotTeamChannel)
+	}
+	if thread != ch {
+		// Remember where the thread lives, so a report still reaches its text channel after
+		// the thread is deleted or locked (ReconstructReplyCtx).
+		if err := p.workspaceShelfStore().rememberThread(ch.GuildID, thread.ID, ch.ID); err != nil {
+			slog.Warn("discord: cannot record the thread's text channel", "thread", thread.ID, "error", err)
+		}
 	}
 	list, err := api.GuildChannels(ch.GuildID, options...)
 	if err != nil {
@@ -171,7 +182,21 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 			all = append(all, core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved(c)})
 		}
 	}
+	if thread != ch {
+		// A thread (子区) works as a chat channel: its workspaces are the pool beside its text
+		// channel, and the reports come back to the thread itself, where the user asked.
+		// 来源：2026-11-10 agentm #32 「当前Discord子区不是guild text channel」，子区派的 GPU 测试没人接。
+		return core.TeamChannel{ID: thread.ID, Name: thread.Name, ParentID: ch.ParentID}, all, nil
+	}
 	return core.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID, Shelved: shelved(ch)}, all, nil
+}
+
+// threadHost returns the text channel a thread lives under, ch itself when it is not a thread.
+func threadHost(api workspaceAPI, ch *discordgo.Channel, options ...discordgo.RequestOption) (*discordgo.Channel, error) {
+	if ch == nil || !isThreadChannelType(ch.Type) || ch.ParentID == "" {
+		return ch, nil
+	}
+	return api.Channel(ch.ParentID, options...)
 }
 
 // idleCategory returns the ID of the guild's idle category ("" when it has none).
@@ -253,6 +278,9 @@ func missingPermission(err error) bool {
 // unshelveWorkspaceChannel moves workspaceID into the category of besideChannelID.
 func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID string, options ...discordgo.RequestOption) error {
 	beside, err := api.Channel(besideChannelID, options...)
+	if err == nil {
+		beside, err = threadHost(api, beside, options...)
+	}
 	if err != nil {
 		return err
 	}
@@ -274,6 +302,9 @@ func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID str
 
 func createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {
 	ch, err := api.Channel(besideChannelID, options...)
+	if err == nil {
+		ch, err = threadHost(api, ch, options...) // beside a thread = beside its text channel
+	}
 	if err != nil {
 		return core.TeamChannel{}, err
 	}
