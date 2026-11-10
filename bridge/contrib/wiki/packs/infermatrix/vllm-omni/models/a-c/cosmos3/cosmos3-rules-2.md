@@ -2,7 +2,7 @@
 name: cosmos3-rules-2
 description: "Cosmos3 规则第 2 部分：COSMOS-6a final prompt 仅 rank zero 以 DEBUG 记录、COSMOS-6b multi-chunk transfer 同步分布式 VAE overlap（PR #6920）、COSMOS-1c Distilled 加载前拒绝 CFG parallel、COSMOS-7a 共享 HF metadata 的拓扑只经 deploy pipeline 选择、COSMOS-8a 采样状态 FP32 与 transformer dtype 分开、VLLM-OMNI-PR5712-COSMOS3-VIDEO-TRANSPORT uint8 视频直通、VLLM-OMNI-PR9304-EDGE-PP-OWNERSHIP Edge 权重校验的 PP 归属"
 metadata:
-  scope: 只收 COSMOS-6a 起的后半规则；Direct 代码入口表与 COSMOS-1a 至 COSMOS-5b 归 cosmos3-rules-1
+  scope: 收 COSMOS-6a 起的后半规则，另含 COSMOS-1c；Direct 代码入口表与 COSMOS-1a 至 COSMOS-5b（COSMOS-1c 除外）归 cosmos3-rules-1
 ---
 # Cosmos3 规则（2/2）
 

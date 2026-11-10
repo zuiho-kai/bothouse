@@ -2,7 +2,7 @@
 name: model-adaptation-guardrails-2
 description: Model Adaptation PR Guardrails 第 5–9 节：验证三层（latest-head / historical / pending）与 PR body 措辞、public docs 性能数字 provenance、full diff review gate 与输出格式、interactive reviewer loop 协议、pre-push 13 项 checklist
 metadata:
-  scope: 只收验证分层、docs 数字、full diff review、interactive reviewer loop 与 pre-push checklist；触发、mini-spec、checkpoint、entrypoint 与 request parsing 归 model-adaptation-guardrails-1、model-adaptation-guardrails-2，PR body 证据写法归 pr-body-model-evidence，审查入口归 review-guides-overview
+  scope: 只收验证分层、docs 数字、full diff review、interactive reviewer loop 与 pre-push checklist；触发、mini-spec、checkpoint、entrypoint 与 request parsing 归 model-adaptation-guardrails-1，PR body 证据写法归 pr-body-model-evidence，审查入口归 review-guides-overview
 ---
 # Model Adaptation PR Guardrails（2/2）
 

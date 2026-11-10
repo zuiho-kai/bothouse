@@ -32,7 +32,7 @@ metadata:
   - 禁止：让只接受 2D key-validity mask 的 backend（FlashAttention masked-varlen 断言 `attention_mask must be 2D`）在 kernel wrapper 深处 assert 崩溃并把 HTTP 500 暴露给请求；为自动选择加静默回退的同时放过显式选择或 paged KV 场景；把 capability 位写成与平台判定脱钩的常量使路由分支变成死代码；对 2D mask 或 capability=True 的 backend 多余改道。
   - 验收：mock-backend 单测覆盖六条路径：自动选择+不支持 → 恰好一次 `sdpa_fallback` 且 backend forward 未被调用；显式选择、paged KV、无 fallback → `NotImplementedError` 且两个 forward 均未被调用；2D mask 与 capability=True → 走原 backend 不改道；
     - 并 monkeypatch `current_omni_platform.is_npu` 断言 `FlashAttentionBackend.supports_dense_4d_mask() is is_npu`，防止 capability 与平台分派脱钩。^[PR #9248]
-  - 退役记录：kb:rule status=retired since=v0.30.0 retired_at=v0.30.0 reason=superseded evidence="PR #9302 merged to main on 2026-10-23 (merge_commit 8e2a7c1).Its layer.py diff guards the #9248 dense 4D mask check in Attention._run_local_attention with `not spans_take_precedence`,
+  - 退役记录：kb:rule status=retired since=v0.30.0 retired_at=v0.30.0 reason=superseded evidence="PR #9302 merged to main on 2026-10-23 (merge_commit 8e2a7c1). Its layer.py diff guards the #9248 dense 4D mask check in Attention._run_local_attention with `not spans_take_precedence`,
     - where spans_take_precedence requires `attn_metadata.full_attn_spans is not None` (an existence check, not a non-empty check) plus `getattr(self.attn_backend, 'supports_piecewise_spans', False)`.
     - Calls carrying both a 4D attn_mask and full_attn_spans (HunyuanImage3 dense prompt-KV) reach piecewise backends again instead of raising NotImplementedError under explicit FLASH_ATTN on XPU or being silently diverted to SDPA under automatic selection, restoring the #9123 behavior;
     - all other cases keep #9248 behavior.

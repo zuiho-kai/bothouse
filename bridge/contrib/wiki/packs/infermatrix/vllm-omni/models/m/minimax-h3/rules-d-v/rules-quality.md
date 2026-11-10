@@ -2,7 +2,7 @@
 name: rules-quality
 description: "MiniMax H3 质量验证：MMH3-4a2 official-reference accuracy oracle 的 checkpoint 与 asset 必须 pin immutable revision/digest，video 做视觉相似度、audio 必须比较内容或质量而非仅 codec metadata（PR #5709）"
 metadata:
-  scope: 只收 official-reference accuracy test 的 oracle 规则；L2/L3 部署证据归 rules-deployment-1、rules-deployment-2，ComfyUI 与 VAE 确定性归 rules-comfyui-audio、rules-audio-vae-determinism
+  scope: 只收 official-reference accuracy test 的 oracle 规则；部署证据归 rules-deployment-1、rules-deployment-2，ComfyUI 与 VAE 确定性归 rules-comfyui-audio、rules-audio-vae-determinism
 ---
 # MiniMax H3 质量验证规则
 

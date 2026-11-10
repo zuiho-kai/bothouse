@@ -1,6 +1,6 @@
 ---
 name: benchmark-results-overview
-description: vLLM-Omni 历史性能结果对照表：2025-04-17 AR benchmark 与 2026-06-09 至 06-12 HunyuanImage3 AR graph online 系列（总览、trace、timestep patch、no-profiler、tail gap、PR 证据口径）各页入口
+description: vLLM-Omni 历史性能结果对照表：2025-04-17 AR benchmark 与 2026-06-09 至 06-12 AR graph online 系列（总览、trace、timestep patch、no-profiler、tail gap、PR 证据口径）各页入口
 metadata:
   scope: 只收 benchmark/results 源索引页的日期和测试到结果页对照表；各轮数字和结论归 ar-2025-04-17、ar-graph-online-2026-06-09-overview 等表中所列结果页；profiling 错题归 benchmark-incidents-overview
 ---

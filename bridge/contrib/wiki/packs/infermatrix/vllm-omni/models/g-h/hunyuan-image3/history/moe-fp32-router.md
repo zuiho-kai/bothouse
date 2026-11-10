@@ -2,7 +2,7 @@
 name: moe-fp32-router
 description: HunyuanImage3 MoE router 须 fp32 的调查记录（2026-04-30，commit 0413c2c2）：HF 的 fp32 gate 与 autocast 关闭区、vLLM HunYuanSparseMoeBlock 默认 bf16 topk_softmax 导致 top-k 翻位、HunyuanImage3SparseMoeBlock 子类与 _patch_moe_blocks 的修法、IT2I 输出 741 增至 811 chars 的验证与通用化经验
 metadata:
-  scope: 只收 fp32 router 这一处根因、修法、验证与可推广的接 HF 模型检查项；对齐交付总清单与不可修架构差异归 alignment-inventory，sampler 不可对齐论述归 hf-omni-alignment-method-1、hf-omni-alignment-method-2
+  scope: 只收 fp32 router 这一处根因、修法、验证与可推广的接 HF 模型检查项；对齐交付总清单与不可修架构差异归 alignment-inventory-1，sampler 不可对齐论述归 hf-omni-alignment-method-1、hf-omni-alignment-method-2
 ---
 ## 关键事实
 

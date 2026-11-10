@@ -2,7 +2,7 @@
 name: model-executor-rules-3
 description: "Model Executor 规则（3/3）：async Omni output materialization 的 EXEC-4d（GPU/NPU AR runner duplex hook，PR #6346）、EXEC-5a（snapshot、live drain 与 fallback，PR #5610）、EXEC-5b（NPU KV connector finalize 按 PP 所有权，PR #6096）；stage 并行度与设备容量一起验收及首次根因报告四项；EXEC-14a（typed PretrainedConfig，PR #5877）、EXEC-15a（common/ming，PR #6119）、EXEC-0c（generation capture/replay 的 preprocess 输入路径，PR #5452）、EXEC-16a（GroupNorm 融合算子，PR #6306）"
 metadata:
-  scope: 只收“Async Omni output materialization”与“Stage 并行度和设备容量必须一起验收”两节及其后的 EXEC-14a、EXEC-15a、EXEC-0c、EXEC-16a；路由表见 model-executor-rules-1，EXEC-3a 至 EXEC-4e 见 model-executor-rules-2，架构职责锚点归 model-executor-architecture
+  scope: 只收“Async Omni output materialization”与“Stage 并行度和设备容量必须一起验收”两节（含 EXEC-4d、EXEC-5a、EXEC-5b）及其后的 EXEC-14a、EXEC-15a、EXEC-0c、EXEC-16a；路由表见 model-executor-rules-1，EXEC-3a 至 EXEC-4c 与 EXEC-4e 见 model-executor-rules-2，架构职责锚点归 model-executor-architecture
 ---
 # Model Executor 规则（3/3）
 

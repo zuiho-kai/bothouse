@@ -1,6 +1,6 @@
 ---
 name: rules-l4-k8s
-description: "CUDA L4 Kubernetes CI 规则 OMNI-CI-1e：l4_1..4 按卡数投影到 l4-k8s preset（selector vllm.ci/gpu-pool=l4x4、每卡 10 CPU/40Gi memory/24Gi shm）、infra retry 退出码范围、ready/nightly/weekly 的 cards 切分（PR #6890）"
+description: "CUDA L4 Kubernetes CI 规则 OMNI-CI-1e：l4_1..4 按卡数投影到 l4-k8s preset（selector vllm.ci/gpu-pool=l4x4、N GPU 配 10N CPU、40N Gi memory、24N Gi shm）、infra retry 退出码范围、ready/nightly/weekly 的 cards 切分（PR #6890）"
 metadata:
   scope: 只收 CUDA L4 队列的 Kubernetes preset、资源投影与 retry 规则；MIRROR_HW preset 推导与硬件 marker 归 ci-rules-2，HF_TOKEN alias 归 ci-rules-3，AMD lane 归 rules-amd
 ---

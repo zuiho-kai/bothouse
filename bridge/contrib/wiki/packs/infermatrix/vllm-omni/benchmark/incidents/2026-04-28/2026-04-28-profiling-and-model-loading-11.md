@@ -1,6 +1,6 @@
 ---
 name: 2026-04-28-profiling-and-model-loading-11
-description: 2026-04-28 错题：HF HunyuanImage3 的 apply_rotary_pos_emb 在 position_ids=None 时广播把 key 扩到 22800，SDPA 报 key.size(1) 与 value.size(1) 不等
+description: 2026-04-28 错题：HF 模型的 apply_rotary_pos_emb 在 position_ids=None 时广播把 key 扩到 22800，SDPA 报 key.size(1) 与 value.size(1) 不等
 metadata:
   scope: 只收 2026-04-28 AR decode CFG unconditional 路径 RoPE 广播导致 SDPA 报错这一起事故及 cos/sin 截断解法；修完后出现的 2D attention_mask 报错归 2026-04-28-profiling-and-model-loading-12
 ---

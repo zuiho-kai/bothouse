@@ -2,7 +2,7 @@
 name: bidirectional-attention
 description: HunyuanImage3 双向注意力分析（2026-04-09）：上游对图像 token 用 full attention、vllm-omni 全 causal；一行修复是把 hunyuan_image_3_moe 加进 vllm 上游 MM_PREFIX_LM_MODELS，is_mm_prefix_lm 只是对 joint_full 细粒度的近似
 metadata:
-  scope: 只收图像 token 双向注意力的差异、MM_PREFIX_LM_MODELS 一行修法与其近似局限；AR 侧 prompt 与 stage 转移的对齐归 alignment-inventory
+  scope: 只收图像 token 双向注意力的差异、MM_PREFIX_LM_MODELS 一行修法与其近似局限；AR 侧 prompt 与 stage 转移的对齐归 alignment-inventory-2
 ---
 ## 关键事实
 

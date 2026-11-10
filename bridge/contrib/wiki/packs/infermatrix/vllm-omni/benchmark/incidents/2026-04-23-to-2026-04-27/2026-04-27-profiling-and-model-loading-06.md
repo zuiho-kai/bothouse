@@ -1,6 +1,6 @@
 ---
 name: 2026-04-27-profiling-and-model-loading-06
-description: 2026-04-27 错题：HF 官方 HunyuanImage3 pipeline 在 L20X 云实例上 generate_image() 报 HunyuanStaticCache 无 layers 属性，transformers 4.50.0 与 5.6.2 都不兼容
+description: 2026-04-27 错题：HF 官方 pipeline 在 L20X 云实例上 generate_image() 报 HunyuanStaticCache 无 layers 属性，transformers 4.50.0 与 5.6.2 都不兼容
 metadata:
   scope: 只收 2026-04-27 HF 官方 baseline 因 trust_remote_code 代码与 transformers 版本夹缝跑不通这一起事故的症状、根因、尝试和结论；Siglip2VisionModel 的 5.x 属性变化归 2026-04-27-profiling-and-model-loading-05
 ---

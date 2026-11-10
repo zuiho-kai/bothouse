@@ -18,7 +18,7 @@ metadata:
 
 ### MiniCPM-o 4.5 full-payload regression coverage
 
-- PR #6730 had reverted the two PR #5464 CPU assertions after CI failure.PR #6745 reports re-landing them after Buildkite build 14300 passed: with `async_chunk=False`, deployment merge selects Talker’s `tts2code2wav_full_payload`;
+- PR #6730 had reverted the two PR #5464 CPU assertions after CI failure. PR #6745 reports re-landing them after Buildkite build 14300 passed: with `async_chunk=False`, deployment merge selects Talker’s `tts2code2wav_full_payload`;
   - and a terminal `pooling_output=None` full payload returns an empty terminal packet (`code_flat_numel=0`, `left_context_size=0`, `last_chunk=True`, and `finished=True`) rather than `None`, releasing the downstream consumer wait gate.
 - This commit modifies only those two tests. It refreshes regression coverage for existing behavior; it does not itself change runtime, offline-inference, online-serving, or transport implementation. ^[PR #5464] ^[PR #6730] ^[PR #6745]
 
@@ -39,7 +39,7 @@ metadata:
 
 - The full-model CUDA quality test shares one `common_kwargs` mapping between its fused BF16 baseline and transformer-FP8 candidate: `enforce_eager=True`, `tensor_parallel_size=2`, `text_encoder_tp_size=2`, and VAE tiling.
   - On the exact two-card H100-80GB scope, encoder TP is required for the fused BF16 baseline to initialize; without it, rank 0 retains the full colocated text encoder and can OOM before the FP8 comparison begins.
-- This restores a CI test topology/resource setting only.The author reported one local two-B300 run at the stated H100-marked selection, but no completed H100-80GB Buildkite result is recorded here; therefore it does not establish an H100 pass, a result on other hardware, a broader memory bound,
+- This restores a CI test topology/resource setting only. The author reported one local two-B300 run at the stated H100-marked selection, but no completed H100-80GB Buildkite result is recorded here; therefore it does not establish an H100 pass, a result on other hardware, a broader memory bound,
   - or a runtime/quantization implementation change. ^[PR #6742 / issue #6735]
 
 ### MiniMax-H3 H100_2 merge matrix

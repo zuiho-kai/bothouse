@@ -2,7 +2,7 @@
 name: ci-progress
 description: HunyuanImage-3.0-Instruct GEBench CI 接入进展快照：分支 feat/hunyuan-image3-accuracy-ci（HEAD cec2f36b）的 commit 链、关键文件、hk01dgx036 远端环境、已解决的五个环境问题、server 启动后 hang 在 weight load 前的阻塞点、下次排查方向与 pytest 命令
 metadata:
-  scope: 只收这次 GEBench CI 接入卡在 server hang 时的进展快照；接入全过程的踩坑归档归 legacy-error-summary，对齐交付归 alignment-inventory
+  scope: 只收这次 GEBench CI 接入卡在 server hang 时的进展快照；接入全过程的踩坑归档归 legacy-error-summary，对齐交付归 alignment-inventory-1、alignment-inventory-2
 ---
 # HunyuanImage-3.0-Instruct GEBench CI: 当前进展
 
