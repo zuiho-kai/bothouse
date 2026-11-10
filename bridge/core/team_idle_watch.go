@@ -700,10 +700,14 @@ func (e *Engine) sendIdleWake(a idleAssignment, h TeamHandoff) bool {
 	// A bot's own post cannot wake it, and a post mentioning itself only adds
 	// noise: the sole bot wakes locally. When another bot posts the mention,
 	// the platform supplies the normal user turn.
+	msg := MsgWatchResume
+	if _, inWorkspace := e.WorkspaceParent(a.key); !inWorkspace {
+		msg = MsgWatchChatHandoff // a chat channel's work goes to a workspace, not finished in the chat
+	}
 	if sender == e {
-		e.wakeWatchRole(a.key, sender.i18n.Tf(MsgWatchResume, h.Title), h.Title)
+		e.wakeWatchRole(a.key, sender.i18n.Tf(msg, h.Title), h.Title)
 	} else {
-		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
+		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(msg, h.Title))
 		if err := w.send(p, a.key, text); err != nil {
 			slog.Warn("idle watch: wake post failed", "error", err)
 		}
