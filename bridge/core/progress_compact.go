@@ -224,6 +224,10 @@ func inferLegacyEntryKind(entry string) ProgressCardEntryKind {
 // compactProgressWriter coalesces intermediate progress (thinking/tool-use)
 // into one editable message for platforms that support message updates.
 type compactProgressWriter struct {
+	// hidden: a scheduled turn in a chat channel (no user waiting): steps go nowhere, no card
+	// is posted (hideForScheduled).
+	hidden bool
+
 	ctx       context.Context
 	platform  Platform
 	replyCtx  any
@@ -428,6 +432,9 @@ func (w *compactProgressWriter) AppendEvent(kind ProgressCardEntryKind, text str
 // the caller must not send its raw fallback, not necessarily that delivery
 // succeeded: a card transport failure must not widen tool visibility to chat.
 func (w *compactProgressWriter) AppendStructured(item ProgressCardEntry, fallback string) bool {
+	if w != nil && w.hidden {
+		return true // swallowed: neither a card nor the raw fallback line
+	}
 	if m := w.mirrorWriter(); m != nil {
 		m.AppendStructured(item, fallback)
 	}
@@ -592,6 +599,9 @@ func (w *compactProgressWriter) push() bool {
 // moving instead of the card stopping at "🔧 Agent". Any earlier wait line is
 // removed first, wherever other steps have pushed it.
 func (w *compactProgressWriter) ShowSubAgentWait(text string) bool {
+	if w.hidden {
+		return true
+	}
 	if w.mirror != nil {
 		w.mirror.ShowSubAgentWait(text)
 	}
@@ -650,7 +660,20 @@ func (w *compactProgressWriter) removeWaitLine() {
 
 // Finalize updates card progress state (running/completed/failed) without
 // appending a new progress entry.
+// hideForScheduled: a cron/timer turn in a chat channel has no user waiting on it (#1188), so it
+// shows no progress card. Opened and only retracted at its NO_REPLY, the card of the lead's
+// acceptance turn showed an outside user 「Codex·处理中 第 26 步」 for two minutes (agentm 11-10
+// 15:39). A workspace's turns keep theirs: the user watches the work there.
+func (w *compactProgressWriter) hideForScheduled() {
+	if w != nil {
+		w.hidden = true
+	}
+}
+
 func (w *compactProgressWriter) Finalize(state ProgressCardState) bool {
+	if w.hidden {
+		return false
+	}
 	if w.mirror != nil {
 		ok := w.mirror.Finalize(state)
 		if w.moved {
