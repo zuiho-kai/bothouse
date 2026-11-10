@@ -86,8 +86,11 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 仍保持无时限，`WIKI_STOP_AT` 的软停止语义也不变。
 等 wiki 的 `.ingest.lock` 也用同一份剩余预算（`export.py` 的 `lock_or_busy`）：白天 `--no-wait` 只问一次，
 夜里 `nightly` / `lint` 反复试到预算用完为止，到点这一轮返回失败（结果里 `busy` 和 `failed`，日志写一行），
-不再一直阻塞到调度器杀掉；这时还没读写任何东西，会话偏移和 `pending_parts` 保持原样，下一次触发接着做。
-旁边的 `llmwiki` 还是旧版、没有 `budget.py` 时，这段等待按上面夜间任务的 30 分钟兜底，仍然有上限。
+抢锁前和抢到后都检查期限，最后一次等待不超过实际剩余时间；等锁到点时还没读写任何东西，
+会话偏移和 `pending_parts` 保持原样，下一次触发接着做。父层 `budget.run` 若先超时，完成子树回收后
+也按导出失败返回，不把预算超时异常传入 `main()`；夜间入口仍沿用原来的退出码 0，失败原因在日志里。
+旁边的 `llmwiki` 还是旧版、没有 `budget.py` 时，也优先使用 `CC_JOB_DEADLINE` 的绝对期限，空串仍为不限时；
+只有变量缺失才按上面夜间任务的 30 分钟初始化一次，并写回环境给本轮所有角色共用，不为每把锁重新计时。
 
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。

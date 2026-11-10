@@ -63,7 +63,15 @@ def run_one(rows, b, *args):
 def export(*args):
     with open(LOG, "a") as f:
         runner = budget.run if budget else subprocess.run
-        return runner([PY, "-X", "utf8", "-I", str(HERE / "export.py"), *args], stdout=f, stderr=f).returncode
+        try:
+            return runner([PY, "-X", "utf8", "-I", str(HERE / "export.py"), *args], stdout=f, stderr=f).returncode
+        except subprocess.TimeoutExpired:
+            if not budget or not budget.exhausted():
+                raise
+            # Parent and exporter share the same deadline. If the parent wins, budget.run has already reaped
+            # its child tree. Return the same failure as the child's lock timeout, without throwing into main.
+            say("export deadline reached; unread work retained for next run")
+            return 1
 
 
 # 钩子的最小环境：cc-connect 的环境带着 secrets.env 的全部变量，和主角色 ingest.py --hook 一样只留这些

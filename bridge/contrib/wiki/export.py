@@ -49,8 +49,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "llmwiki"))
 import filelock  # noqa: E402  (fcntl on Mac/Linux, msvcrt on Windows)
 try:
     import budget  # noqa: E402  the job's deadline: ingest.py and sub-wiki.py read the same one, below the export
-except ImportError:  # an older llmwiki copied beside this export.py (the installed copies of 11-11): the wait still has
-    budget = None    # a ceiling of its own, below (NIGHT_WINDOW), so the lock bug is fixed before the runtime updates
+except ImportError:  # older installed llmwiki: still honor the scheduler's absolute deadline (including unlimited)
+    budget = None
 
 HOME = Path.home()
 OUT = Path(os.environ.get("WIKI_TRANSCRIPTS") or Path(__file__).resolve().parent / "transcripts").expanduser()
@@ -722,10 +722,21 @@ def sources(bot):
 
 # 来源：budget.py 的 FALLBACK_NIGHT_WINDOW —— jobs.json 的 daf7d694/cf68c6a3 没写 timeout_mins，即
 # bridge/core/cron.go defaultCronJobTimeout 的 30 分钟。只在旁边的 llmwiki 还是旧版、没有 budget.py 时用它兜底；
-# 有 budget 时一律用调度器给这一轮剩下的预算。
+# 有 budget 时复用它的常量和 window；旧版也只在缺变量时初始化本轮一次，不覆盖显式不限时。
 NIGHT_WINDOW = 30 * 60
 # 来源：沿用 llmwiki/filelock.py 在 Windows 上等锁的轮询间隔（0.2 秒），同一节奏，Mac/Linux 也用它分段等。
 LOCK_POLL = 0.2
+
+
+def lock_remaining():
+    """One deadline for the round, including old installations without budget.py. Empty means unlimited."""
+    if budget:
+        budget.window(budget.FALLBACK_NIGHT_WINDOW)
+        return budget.remaining()
+    if "CC_JOB_DEADLINE" not in os.environ:
+        os.environ["CC_JOB_DEADLINE"] = str(time.time() + NIGHT_WINDOW)
+    deadline = os.environ["CC_JOB_DEADLINE"]
+    return float(deadline) - time.time() if deadline else None
 
 
 def lock_or_busy(lock, wait):
@@ -735,22 +746,27 @@ def lock_or_busy(lock, wait):
     with no round of work done. Either way nothing was read or written: offsets and PENDING rows stay as they were."""
     if not wait:
         try:
-            filelock.lock(lock, False)
+            if lock:
+                filelock.lock(lock, False)
             return True
         except BlockingIOError:
             return False
-    # 没有 budget.py（旧 llmwiki）时 remaining() 无从问起，按夜间任务现有的外层时限兜底：能用 wait=True 的
-    # 只有 nightly / lint 两处。
-    left = budget.remaining() if budget else None
-    end = time.time() + (left if left is not None else NIGHT_WINDOW)
     while True:
+        left = lock_remaining()
+        if left is not None and left <= 0:
+            return None
         try:
-            filelock.lock(lock, False)
-            return True
+            if lock:
+                filelock.lock(lock, False)
+            # Even a nonblocking acquisition can return after the deadline (scheduling delay). The caller closes
+            # the handle before returning a failure; no state or transcript has been read yet.
+            left = lock_remaining()
+            return None if left is not None and left <= 0 else True
         except BlockingIOError:
-            if time.time() >= end:  # an overshoot of one poll at most; budget.py's two-second cleanup covers it
+            left = lock_remaining()
+            if left is not None and left <= 0:
                 return None
-            time.sleep(LOCK_POLL)
+            time.sleep(min(LOCK_POLL, left) if left is not None else LOCK_POLL)
 
 
 def export(bot, out=OUT, wiki=None, wait=True):
@@ -763,7 +779,7 @@ def export(bot, out=OUT, wiki=None, wait=True):
     n = {"codex": 0, "agy": 0, "claude": 0, "dsh": 0, "diary": 0, "written": 0, "empty": 0, "failed": 0}
     lock = open(wiki / ".ingest.lock", "w") if wiki and wiki.is_dir() else None
     try:
-        took = lock_or_busy(lock, wait) if lock else True
+        took = lock_or_busy(lock, wait)
         if took is not True:
             # an ingest run holds the lock (day runs ask once) or outlasted this job's budget (nightly / lint): this
             # bot's new sessions wait for the next run. Nothing was read or written yet, so no offset and no PENDING
