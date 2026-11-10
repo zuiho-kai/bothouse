@@ -37,7 +37,8 @@ func embeddedDSHDir() (string, error) {
 	return filepath.Join(home, ".bothouse", "dsh"), nil
 }
 
-// ExtractEmbeddedDSH extracts the embedded DSH files into targetDir (default ~/.bothouse/dsh).
+// ExtractEmbeddedDSH extracts into targetDir, defaulting to <BOTHOUSE_DATA_DIR>/dsh
+// when set, otherwise ~/.bothouse/dsh.
 // It respects os.UserHomeDir() so HOME overrides in tests or isolated environments work.
 func ExtractEmbeddedDSH(targetDir string) (string, error) {
 	if targetDir == "" {

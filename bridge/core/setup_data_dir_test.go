@@ -47,6 +47,10 @@ func TestSetupDataDirIsolation(t *testing.T) {
 			if got := collabDataDir(); got != collab {
 				t.Errorf("channel data = %q; want %q", got, collab)
 			}
+			// The desktop child receives BOTHOUSE_DATA_DIR even for a legacy parent.
+			if env := dshDesktopEnv(data); !strings.Contains(strings.Join(env, "\n"), "CONEST_COLLAB_DATA="+collab+"\n") {
+				t.Errorf("desktop environment = %v; want parent's channel data %q", env, collab)
+			}
 			got, err := ExtractEmbeddedDSH("")
 			if err != nil || got != filepath.Join(dsh, "install.sh") {
 				t.Errorf("embedded plugin = %q, %v; want %q", got, err, dsh)

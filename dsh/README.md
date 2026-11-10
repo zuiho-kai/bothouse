@@ -4,6 +4,8 @@
 
 ## 目录与用法
 
+设置 `BOTHOUSE_DATA_DIR` 时，向导的主 wiki、内置插件、频道数据分别默认放在该目录下的 `wiki`、`dsh`、`conest-collab`；wiki 程序另放 `wiki-programs`，避免与主 wiki 模板冲突。未设置时仍用原来的 `~/wiki`、`~/.bothouse/dsh`、`~/.conest-collab`。显式的 `WIKI_DIR`、`BOTHOUSE_DSH_DIR`、`CONEST_COLLAB_DATA` 仍优先，旧目录不会自动迁移或删除。
+
 这里不放 DSH 源码，只放 CoNest 自己的部分（做法同 FlyBot 对 DS Bot 的处理）：
 
 | 路径 | 内容 |
