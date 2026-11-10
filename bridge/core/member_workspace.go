@@ -593,9 +593,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 // ── device-code login ─────────────────────────────────────────────
 
 // memberLogin starts `gh auth login` for this person in the background: the one-time code goes to
-// them in a private message (or, when the platform refuses the DM, to the channel of their turn with
-// an @ — the code only links a GitHub account to *their* directory, so seeing it gives nobody access
-// to anything of theirs). When GitHub confirms, github.md records the login and they are told.
+// them in a private message; if the platform refuses the DM, it goes to a private thread under the
+// channel of their turn (dmFallbackThread, only them and the server's thread managers). If neither
+// works the login is cancelled and the code is posted nowhere — it is never sent to a public channel.
+// When GitHub confirms, github.md records the login and they are told.
 func (e *Engine) memberLogin(t callerTurn, session, dir string) (MemberResponse, int) {
 	gh, err := findGH()
 	if err != nil {
