@@ -158,7 +158,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading || !token.trim()}
-              className="w-full py-2.5 rounded-xl bg-accent text-black font-semibold text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2.5 rounded-xl bg-accent text-white dark:text-black yellow:text-gray-900 font-semibold text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">

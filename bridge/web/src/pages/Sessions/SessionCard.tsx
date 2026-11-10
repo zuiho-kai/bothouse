@@ -4,6 +4,7 @@ import { Bot, Check, ChevronRight, MessageSquareText, User } from 'lucide-react'
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { relativeTime, type FlatSession } from './sessionListModel';
+import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 
 interface SessionItemProps {
   session: FlatSession;
@@ -94,20 +95,27 @@ export function SessionCard({ session, projectLabel, selected, onToggleSelect, o
       data-entrance=""
       data-selected={selected || undefined}
       className={cn(
-        'group/session relative flex h-full flex-col rounded-card border border-hairline bg-surface p-4',
-        'transition-[border-color,transform] duration-state ease-ui-standard',
-        'hover:-translate-y-0.5 hover:border-hairline-strong',
+        'group/session relative flex h-full flex-col rounded-card bg-surface p-4 shadow-ui-1',
+        'transition-[box-shadow,transform] duration-state ease-ui-standard',
+        'hover:-translate-y-0.5 hover:shadow-ui-2 motion-reduce:hover:translate-y-0',
         selected && 'ring-2 ring-accent-text'
       )}
     >
       <div className="mb-2 flex items-center gap-2">
-        <SelectBox
-          selected={selected}
-          label={`${t('sessions.select', '选择')} ${session.name}`}
-          onToggle={() => onToggleSelect(sessionKey(session))}
-        />
+        {/* 角色头像占住选择框的位置；悬停或已选时换成选择框 */}
+        <span className="relative -ml-2 grid h-11 w-11 shrink-0 place-items-center">
+          <span className={cn('transition-opacity duration-base', selected ? 'opacity-0' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0')} aria-hidden>
+            <LibraryAvatar name={projectLabel} size={28} />
+          </span>
+          <SelectBox
+            selected={selected}
+            label={`${t('sessions.select', '选择')} ${session.name}`}
+            onToggle={() => onToggleSelect(sessionKey(session))}
+            className="absolute inset-0"
+          />
+        </span>
         <LiveDot live={session.live} />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-mute">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-soft">
           {projectLabel}
         </span>
         <span className="shrink-0 text-[13px] tabular-nums text-ink-mute">{updated}</span>

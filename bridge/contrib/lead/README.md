@@ -43,7 +43,8 @@
 
 - `iso-check before | after <目录> [--owner <名>]`：测前拍线上环境快照并新建 `/tmp/iso.*` 隔离目录；
   测完对比快照、删掉目录。按会话登记（会话键 `--owner` > `CC_SESSION_KEY` > `CC_SESSION` > `CLAUDE_CODE_SESSION_ID`），
-  after 必须给目录，只删本会话登记过的。快照看数据目录（`BOTHOUSE_DATA_DIR`、`~/.bothouse`、`~/.cc-connect`）和其中的
+  after 必须给目录，只删本会话登记过的。before 另写 `$ISO_DIR/env.sh`：起测试桥或脚本前先 source，清掉从本桥继承、指向线上的
+  `CC_*`/`BOTHOUSE_*`/`GATE_*`/`BOARD_*`/`DSH_*`/`CONEST_*` 变量，`HOME` 换成 `$ISO_DIR/home`。快照看数据目录（`BOTHOUSE_DATA_DIR`、`~/.bothouse`、`~/.cc-connect`）和其中的
   `run/api.sock`、`CONEST_COLLAB_DATA`/`~/.conest-collab`、管理端口（`ISO_CHECK_PORTS`，缺省 9820）、桥程序文件
   （`CC_BIN`、PATH 上的 bothouse/cc-connect）。记录目录 `ISO_CHECK_STATE`（缺省 `/tmp/iso-check.d`）。
 - `iso-check before` 还按工作区号分端口段（42000+N×100 起 100 个，写进 `$ISO_DIR/ports.env`，含 jiuwen 前端/WEB/网关/AgentServer），起测试实例前 source 它；`ISO_PORT_SLOT` 可指定段号（测试用）。

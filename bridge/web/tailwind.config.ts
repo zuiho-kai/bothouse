@@ -34,6 +34,8 @@ export default {
         'surface-raised': 'rgb(var(--ui-surface-raised) / <alpha-value>)',
         'surface-sunken': 'rgb(var(--ui-surface-sunken) / <alpha-value>)',
         canvas: 'rgb(var(--ui-canvas) / <alpha-value>)',
+        // #579: 侧栏等外壳底色，比内容区低一档
+        chrome: 'rgb(var(--ui-chrome) / <alpha-value>)',
         'canvas-tint': 'rgb(var(--ui-canvas-tint) / <alpha-value>)',
         hairline: 'rgb(var(--ui-hairline) / <alpha-value>)',
         'hairline-strong': 'rgb(var(--ui-hairline-strong) / <alpha-value>)',
@@ -48,6 +50,9 @@ export default {
         control: 'var(--ui-radius-control)',
         card: 'var(--ui-radius-card)',
         panel: 'var(--ui-radius-panel)',
+        // #579: rounded-pill is used by badges and progress bars but was never mapped, so they
+        // rendered square.
+        pill: 'var(--ui-radius-pill)',
       },
       // Elevation ladder (index.css --ui-shadow-*): ring + near shadow, then 12/40 far shadow,
       // then five same-direction micro shadows (§3, §5).
