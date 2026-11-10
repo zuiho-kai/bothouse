@@ -1543,14 +1543,6 @@ def dsh_env():
     return env
 
 
-# 来源：#619 隔离实测（肥鱼 S1 样本）：开头告诉模型 40 步预算、读够再整页写，token 从 582 万降到 384 万、无修正轮；
-# 40 取自线上肥鱼整理会话调用次数的 p75（46）附近。硬截断（到 40 步停掉再续会话收尾）实测收尾不完成、整批撤回，不采用。
-DSH_STEP_BUDGET = 40
-DSH_BUDGET_NOTE = ("【步数预算】这次最多 {n} 步（每次回复算一步，一步里可以并排调用多个工具）。先一次读够要用的页面，"
-                   "再把每个页面的改动合在一次 write 或一次 edit 里写完；log.md 记录在最后一并追加，跑一次 lint 确认。"
-                   "别一处一处小改、别反复重读同一页。\n\n")
-
-
 def _dsh_stream(cmd, task, timeout=3600):
     """Run `dsh --json`: the final message, plus each model step's usage added up (`status` step_end events)."""
     import signal, threading
@@ -1598,10 +1590,10 @@ def _dsh_stream(cmd, task, timeout=3600):
 def dsh(instruction, stdin="", label="?", context=None):
     """DeepSeek Harness, headless (`dsh --profile headless --json -`: the task from stdin, run events on stdout). It
     runs under DSH's own sandbox, which lets it write only its working directory (the wiki) and the temp dirs; the
-    transcript leads the task like codex(). The task opens with a step budget (DSH_STEP_BUDGET): each step resends
-    the whole context, so a pass that edits a page line by line cost tens of millions of tokens (#619)."""
-    task = DSH_BUDGET_NOTE.format(n=DSH_STEP_BUDGET) + (CONTEXT.format(text=context) + "\n\n" if context else "") + \
-        instruction.replace("at the end of your system prompt", "at the start of your input") + ("\n\n" + stdin if stdin else "")
+    transcript leads the task like codex(). Each model step's usage goes to USAGE (#619: it was all zeros, so a day of
+    1.9 billion tokens went unseen)."""
+    task = (CONTEXT.format(text=context) + "\n\n" if context else "") + instruction.replace(
+        "at the end of your system prompt", "at the start of your input") + ("\n\n" + stdin if stdin else "")
     cmd = [*CFG["dsh_cmd"], "--profile", "headless", *(["--patch", os.path.expanduser(CFG["dsh_patch"])] if CFG["dsh_patch"] else []),
            "--json", "-"]
     r = _dsh_stream(cmd, task)

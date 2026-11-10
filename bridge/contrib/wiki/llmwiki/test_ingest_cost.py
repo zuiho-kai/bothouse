@@ -1,4 +1,4 @@
-"""#619 token savings: dsh usage accounting + step budget, failure-driven halving, newest first. No model calls."""
+"""#619 token savings: dsh usage accounting, failure-driven halving, newest first. No model calls."""
 import argparse
 import json
 import os
@@ -47,7 +47,7 @@ def session(name, text, mtime):
 
 
 class DshUsage(unittest.TestCase):
-    def test_usage_is_summed_from_step_events_and_budget_leads_the_task(self):
+    def test_usage_is_summed_from_step_events(self):
         fake = ROOT / "fake-dsh"
         fake.write_text(FAKE_DSH)
         fake.chmod(0o700)
@@ -60,7 +60,7 @@ class DshUsage(unittest.TestCase):
         row = usage.read_text().strip().split("\t")
         self.assertEqual(row[3:8], ["3", "300", "3000", "0", "30"])  # steps, input, cache_read, cache_write, output
         task = (ROOT / "fake-dsh.task").read_text()
-        self.assertTrue(task.startswith("【步数预算】这次最多 40 步"))
+        self.assertTrue(task.startswith(I.CONTEXT.format(text="transcript")))
 
     def test_missing_dsh_is_a_failed_call(self):
         cfg = dict(I.CFG, dsh_cmd=[str(ROOT / "no-such-dsh")], dsh_patch="")
