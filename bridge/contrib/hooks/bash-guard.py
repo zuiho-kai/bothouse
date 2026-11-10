@@ -17,6 +17,10 @@
 9. 仅 DSH，聊天频道主会话（不在工作区、不是子 agent、不是外出或定时轮）：真人派来的这一轮已执行 CHAT_STEPS_MAX 步工具，
    还没跑过 ws-handoff / ws-up / bothouse send|progress|task，再来只读查询就拦：先在群里回一句，大活写交接交工作区或 @ 队友。
    出处：用户 2026-11-05 看隔壁 DSH 主角色接三项需求后闷头翻 9 分钟不回话（「他妈现在搞7分钟」「出现什么问题你就去修它…变成我们的产品能力」）。
+9b. Codex 版规则 9（agentm 11-10 实录：真人在聊天频道派活，GPT 先读 README、翻 ws-handoff 源码、开任务卡，第 13 步才交，
+   5 分 18 秒；用户「为什么gpt 没有去工作区做，他妈全在频道里面做」）：团队模式下（有 team_workspaces.json）聊天频道主会话，
+   真人派来的这一轮已执行 CODEX_CHAT_STEPS 步、还没跑过 ws-handoff/ws-up/ws-forward/bothouse task，再跑别的命令就拦，
+   只放行交活要用的（写 notes/ 交接、ws-*、board、bothouse send/ctx、doc-ok）。轮次从 Codex 会话记录读（codex-compat 转好的 transcript）。
 8. 仅 DSH 提速（本轮的工具调用来自 dsh-cc-compat.py 加的 dsh_turn）：同一轮第二次轮询同一对象拦；
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
@@ -269,6 +273,18 @@ CHAT_MSG = ("这是聊天频道，真人派来的这一轮你已经跑了 {n} �
             "预计超过 10 分钟或要改代码、跑命令的活，现在就写交接（用户原话、总目标、范围）跑 `ws-handoff <交接文件> \"<任务>\"` 交工作区，"
             "或 @ 合适的队友派出去，然后结束本轮、在群里一句话说清派给了谁；小活就别再查了，直接回答。"
             "（规则 9；用户 2026-11-05「他妈现在搞7分钟」）")
+CODEX_CHAT_STEPS = 4  # 小活「一两步自己做」；agentm 11-10 那轮第 4 步时还在读 ws-handoff 源码
+# 命令开头的位置（行首、;&|( 之后、Codex 脚本里 cmd:"…" 的引号后；引号里的文件参数不算），文件参数里的 ws-handoff（sed … ws-handoff）不算
+_CMD_AT = r"(?:^|[;&|(`]\s*|\n\s*|cmd:\s*[\"'`]\s*)(?:[\w.~/-]*/)?"
+CODEX_HANDED = re.compile(_CMD_AT + r"(?:ws-handoff|ws-up|ws-forward)\b|" + _CMD_AT + r"bothouse\s+task\b", re.M)
+# 交活本身要用的命令：写交接（notes/ 下）、交接校验、任务板、发一句话、取上下文
+CODEX_CHAT_ALLOW = re.compile(_CMD_AT + r"(?:ws-handoff|ws-up|ws-forward|board)\b|doc-ok\.py"
+                              r"|" + _CMD_AT + r"bothouse\s+(?:send|ctx|task)\b|(?:^|[\s'\"=(/])notes/[^\s'\"]*\.md", re.M)
+CODEX_CHAT_MSG = ("这是聊天频道，真人派来的这一轮你已经跑了 {n} 步还没交工作区。大活第一步就交：在 notes/ 写交接"
+                  "（用户原话、总目标、范围），跑 `ws-handoff <交接文件> \"<任务>\" --short <短名>`；任务板上已有的活用 "
+                  "`ws-handoff --resume <编号> \"<补充>\"` 接着交。交之前不读 README、脚本源码，不先开任务卡、不先看队友，"
+                  "ws-handoff 会自己开卡、挑工作区。只是问进度或小问题，就别再跑命令，按任务板和交接里写的直接回答，没现场核过就写「没核」。"
+                  "（规则 9b；用户 2026-11-10「为什么gpt 没有去工作区做，他妈全在频道里面做」）")
 RO_TOOLS = {"read", "grep", "glob"}  # DSH 自己的只读工具：一步只调它一个也算单步查询
 LOOP_PROGS = {"for", "while", "until", "select", "case"}
 PREFIX = {"env", "time", "command", "nice", "exec", "sudo", "do", "then", "else", "elif", "if", "!"}
@@ -513,6 +529,74 @@ def check_chat_turn(cmd, turn, done):
     deny(CHAT_MSG.format(n=len(steps)) + f"\n被拦的命令：{cmd.strip()[:200]}")
 
 
+def _real_user_text(e):
+    """codex-compat 转好的 transcript 里真人这一轮的消息（Stop hook 塞回的 <hook_prompt> 不算新一轮）。"""
+    if e.get("type") != "user":
+        return None
+    c = (e.get("message") or {}).get("content")
+    t = c if isinstance(c, str) else "\n".join(b.get("text", "") for b in c or [] if isinstance(b, dict) and b.get("type") == "text")
+    t = t.strip()
+    if not t or t.startswith("<hook_prompt") or t.startswith("# AGENTS.md instructions"):
+        return None
+    return t
+
+
+def transcript_turn(path):
+    """本轮（最后一条真人消息之后）的工具调用，一次调用算一步；读不出来返回 None。"""
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except (OSError, TypeError):
+        return None
+    steps, user = [], None
+    for line in reversed(lines):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        user = _real_user_text(e)
+        if user is not None:
+            break
+        c = (e.get("message") or {}).get("content")
+        if e.get("type") == "assistant" and isinstance(c, list):
+            for b in c:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    steps.append(str((b.get("input") or {}).get("command") or json.dumps(b.get("input") or {}, ensure_ascii=False)))
+    if user is None:
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dcc", os.path.join(os.path.dirname(os.path.abspath(__file__)), "dsh-cc-compat.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return {"auto": m.is_auto(user) or m.is_outing(user), "steps": list(reversed(steps))}
+
+
+def _team_chat():
+    """团队模式（数据目录有 team_workspaces.json）下的聊天频道会话；判断不了当不是，不拦。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "drg", os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch-review-guard.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return os.path.isfile(os.path.join(m._data_dir(), "team_workspaces.json")) and not m.in_workspace()
+    except Exception:
+        return False
+
+
+def check_codex_chat(cmd, path):
+    """规则 9b：Codex 在聊天频道收到真人派的活，CODEX_CHAT_STEPS 步内没交工作区，就只放行交活要用的命令。"""
+    if CODEX_HANDED.search(cmd) or CODEX_CHAT_ALLOW.search(cmd):
+        return
+    turn = transcript_turn(path)
+    if not turn or turn["auto"] or len(turn["steps"]) < CODEX_CHAT_STEPS:
+        return
+    if any(CODEX_HANDED.search(c) for c in turn["steps"]):
+        return
+    if not _team_chat():
+        return
+    deny(CODEX_CHAT_MSG.format(n=len(turn["steps"])) + f"\n被拦的命令：{cmd.strip()[:200]}")
+
+
 def check_speed(cmd, turn, cid):
     """规则 8a 的 gh run 轮询、8b 的串行只读和重复命令。"""
     prior, cur = split_turn(turn, cid)
@@ -570,6 +654,8 @@ def main():
             check_job_poll(str(inp.get("job_id") or ""), turn, d.get("tool_use_id"))
         return
     cmd = inp.get("command", "")
+    if d.get("hook_cli") == "codex" and not d.get("agent_id"):
+        check_codex_chat(cmd, d.get("transcript_path"))
     if not d.get("agent_id") and plan_gate.bash_blocked(cmd):
         asked = plan_gate.pending(d.get("transcript_path"))
         if asked:
