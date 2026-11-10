@@ -66,6 +66,7 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .seat.offline .label{opacity:.55}.seat.offline .label .dot{background:#6c7380;box-shadow:none}
 .seat.lead .label{background:#3a2a10e6;color:#ffe08a}
 .seat.walking .label{opacity:.82}
+.seat.roam .label{padding:1px 5px;font-size:10px}.seat.roam .label .status{display:none}.seat.roam:hover .label .status{display:inline}.seat.roam:hover{z-index:5}
 .seat.hold .tasktag{display:none}
 .label .name{cursor:text}
 .label .many{color:#ffd166;font-weight:800;font-size:10px}
@@ -354,7 +355,7 @@ function avatarSpec(m) {
 // 只有真实事件改变角色状态：空闲的人在屋里溜达摸鱼，派活/思考时走回工位坐下干活。
 const PX = { W: 384, H: 216, T: 8 };
 // 动效对象上限：超了丢最旧的；播完即删，不累积（用户 11-10「不要消耗过度的内存资源」）。
-const FX_MAX = { beams: 24, parts: 240, slips: 12, balls: 8, boardDone: 5 };
+const FX_MAX = { beams: 24, parts: 240, slips: 12, balls: 8, boardDone: 5, rings: 16 };
 function fxPush(name, item) { const arr = (P[name] = P[name] || []); arr.push(item); if (arr.length > FX_MAX[name]) arr.splice(0, arr.length - FX_MAX[name]); }
 // 画布实际是 RES 倍分辨率；内置角色精灵按 SPR 倍画，RES×SPR 是整数，最近邻放大不糊。
 const RES = 2, SPR = 1.5;
@@ -392,6 +393,31 @@ const LEGS = {
 };
 
 function px(ctx, x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
+// 小道具像素图：每个字符一格，按 s 倍整数放大；'.' 透明。道具要有人头一半左右大，整屏一眼看得出在传什么。
+function pix(ctx, rows, x, y, s, pal, flip) {
+  x = Math.round(x); y = Math.round(y);
+  for (let r = 0; r < rows.length; r++) { const row = rows[r], n = row.length; for (let c = 0; c < n; c++) { const k = row[flip ? n - 1 - c : c]; if (k !== '.') px(ctx, x + c * s, y + r * s, s, s, pal[k]); } }
+}
+const ART = {
+  env: ['oooooooo', 'occwwcco', 'owwccwwo', 'owwwwwwo', 'owwwwwwo', 'oooooooo'],
+  slipA: ['oooooo', 'owwwwo', 'ogggwo', 'owggwo', 'oooooo'],
+  slipB: ['.oooo.', 'owwwwo', 'oggwwo', 'oooooo'],
+  ball: ['.oooo.', 'owwhwo', 'owgwwo', 'owwwgo', 'ogwwwo', '.oooo.'],
+};
+// 落点闪光：一圈方框往外扩，0.35 秒消失
+function ring(x, y, color) { fxPush('rings', { x, y, color, t0: performance.now() }); }
+function drawRings(ctx, now) {
+  P.rings = (P.rings || []).filter(r => {
+    const k = (now - r.t0) / 350;
+    if (k >= 1) return false;
+    const d = Math.round(4 + k * 12), w = d * 2;
+    ctx.globalAlpha = 1 - k;
+    px(ctx, r.x - d, r.y - d, w, 2, r.color); px(ctx, r.x - d, r.y + d - 2, w, 2, r.color);
+    px(ctx, r.x - d, r.y - d, 2, w, r.color); px(ctx, r.x + d - 2, r.y - d, 2, w, r.color);
+    ctx.globalAlpha = 1;
+    return true;
+  });
+}
 
 // 五个内置角色的像素精灵：中转站 gpt image 按官方设定板生成，切成 12 帧横条内嵌在页面里（正面/侧面朝右/背面各 4 帧：站、迈步、站、迈步）。
 const SPRITE_DATA = (() => { try { return JSON.parse($('spriteData').textContent) ?? {}; } catch { return {}; } })();
@@ -798,18 +824,21 @@ function drawBeams(ctx, now, dt) {
       if (b.kind === 'at' && i % 2) continue;
       const p = at(s);
       ctx.globalAlpha = (1 - i / tail) * 0.85;
-      const size = b.kind === 'at' ? 1 : i < tail / 3 ? 2 : 1;
-      px(ctx, p.x, p.y, size, size, color);
+      const size = b.kind === 'at' ? 2 : i < tail / 3 ? 4 : i < tail * 2 / 3 ? 3 : 2;
+      px(ctx, p.x - (size >> 1), p.y - (size >> 1), size, size, color);
     }
     ctx.globalAlpha = 1;
     const p = at(e);
-    if (b.kind === 'assign') { px(ctx, p.x - 3, p.y - 2, 7, 5, color); px(ctx, p.x - 2, p.y - 1, 5, 3, '#fff7e6'); px(ctx, p.x - 1, p.y, 1, 1, color); px(ctx, p.x + 1, p.y, 1, 1, color); px(ctx, p.x, p.y + 1, 1, 1, color); }
-    else if (b.kind === 'at') { px(ctx, p.x - 1, p.y - 1, 2, 2, '#e7f3ff'); }
-    else { px(ctx, p.x - 2, p.y - 2, 5, 5, color); px(ctx, p.x - 1, p.y - 1, 3, 3, '#ffffff'); }
-    ctx.globalAlpha = 0.35; px(ctx, p.x - 4, p.y - 4, 9, 9, color); ctx.globalAlpha = 1;
+    if (b.kind === 'at') { px(ctx, p.x - 1, p.y - 1, 3, 3, '#e7f3ff'); ctx.globalAlpha = 0.35; px(ctx, p.x - 3, p.y - 3, 7, 7, color); ctx.globalAlpha = 1; }
+    else {
+      // 派活是信封，交回/打回是带对应颜色封口的信封；外面一圈淡光
+      ctx.globalAlpha = 0.3; px(ctx, p.x - 10, p.y - 8, 20, 16, color); ctx.globalAlpha = 1;
+      pix(ctx, ART.env, p.x - 8, p.y - 6, 2, { o: '#0b0910', w: '#fff7e6', c: color });
+    }
     if (k >= 1) {
       b.dead = true;
       burst(B.x, B.y, color, b.kind === 'at' ? 6 : 12);
+      if (b.kind !== 'at') ring(B.x, B.y, color);
       const ag = P.agents.get(b.to);
       if (ag) { ag.react = { kind: b.kind, t0: now }; ag.hold = false; }
       if (b.kind === 'assign') deskPop(b.to, '！', 'warn');
@@ -818,7 +847,7 @@ function drawBeams(ctx, now, dt) {
   P.beams = P.beams.filter(b => !b.dead);
   for (const p of P.parts) {
     p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt;
-    ctx.globalAlpha = Math.max(0, p.life / p.max); px(ctx, p.x, p.y, 2, 2, p.color);
+    ctx.globalAlpha = Math.max(0, p.life / p.max); px(ctx, p.x, p.y, 3, 3, p.color);
   }
   ctx.globalAlpha = 1;
   P.parts = P.parts.filter(p => p.life > 0);
@@ -901,29 +930,32 @@ function lampSlots() {
   const lead = S.lead && P.agents.get(S.lead);
   if (!lead || !lead.desk) return null;
   const { x, y } = lead.desk;
-  // 灯嵌在桌子正面板上，名牌左右各 2 行 × 3 盏
-  return { x, y, lamp: (i) => { const j = i % 6; return { x: (i < 6 ? x - 16 : x + 9) + (j % 3) * 3, y: y + 3 + Math.floor(j / 3) * 3 }; } };
+  // 灯柱立在桌子前面的地上排成一排，一件在跑的活一根，最多 12 根
+  return { x, y, lamp: (i, n) => ({ x: x - n * 2 + i * 4, y: y + 11 }) };
 }
 const LAMP_MAX = 12;
 function drawLamps(ctx, now) {
   const L = lampSlots();
   if (!L) return;
-  px(ctx, L.x - 17, L.y + 2, 10, 7, '#3a2a1c'); px(ctx, L.x + 8, L.y + 2, 10, 7, '#3a2a1c');
   const at = simNow();
   // 交回待验收的文件在桌面左边叠成一摞，一件一层，最多 8 层，多的不再加高
   [...S.review.values()].slice(-8).forEach((f, i) => {
-    const fy = L.y - 7 - i * 2;
-    px(ctx, L.x - 17, fy, 9, 2, '#f8f4ea'); px(ctx, L.x - 17, fy + 1, 9, 1, '#d8d0bf'); px(ctx, L.x - 17, fy, 2, 2, f.color);
+    const fx = L.x - 19, fy = L.y - 8 - i * 3;
+    px(ctx, fx, fy, 14, 4, '#0b0910'); px(ctx, fx + 1, fy + 1, 12, 2, '#f8f4ea'); px(ctx, fx + 1, fy + 2, 12, 1, '#d8d0bf'); px(ctx, fx + 1, fy + 1, 3, 2, f.color);
   });
-  liveTasks().slice(0, LAMP_MAX).forEach((t, i) => {
-    const p = L.lamp(i);
+  const lit = liveTasks().slice(0, LAMP_MAX), n = lit.length;
+  if (n) { const b0 = L.lamp(0, n); px(ctx, b0.x - 2, b0.y + 7, n * 4 + 3, 2, '#0b0910'); px(ctx, b0.x - 1, b0.y + 7, n * 4 + 1, 1, '#555b66'); }
+  lit.forEach((t, i) => {
+    const p = L.lamp(i, n);
     const stale = at - (t.rec.seen ?? t.rec.t ?? at) > STALE_MS;
     const hot = P.hoverKey === t.key;
-    if (hot) px(ctx, p.x - 1, p.y - 1, 4, 4, '#ffffff');
-    if (P.lampPing && P.lampPing.key === t.key && now - P.lampPing.t0 < 700) { ctx.globalAlpha = 0.6; px(ctx, p.x - 2, p.y - 2, 6, 6, '#fff7c2'); ctx.globalAlpha = 1; }
-    if (t.rec.paused) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 400) % 2 ? '#ff5a5f' : '#8a1f24');
-    else if (stale) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326');
-    else { px(ctx, p.x, p.y, 2, 2, t.color); px(ctx, p.x, p.y, 1, 1, '#ffffff'); }
+    // 一根灯柱：灯头 3×4、灯杆 1×3，外面黑描边
+    const c = t.rec.paused ? (Math.floor(now / 400) % 2 ? '#ff5a5f' : '#8a1f24') : stale ? (Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326') : t.color;
+    if (hot) px(ctx, p.x - 2, p.y - 2, 7, 8, '#ffffff');
+    if (P.lampPing && P.lampPing.key === t.key && now - P.lampPing.t0 < 700) { ctx.globalAlpha = 0.6; px(ctx, p.x - 3, p.y - 3, 9, 9, '#fff7c2'); ctx.globalAlpha = 1; }
+    px(ctx, p.x - 1, p.y - 1, 5, 6, '#0b0910'); px(ctx, p.x, p.y, 3, 4, c); px(ctx, p.x, p.y, 1, 1, '#ffffff');
+    px(ctx, p.x + 1, p.y + 5, 1, 2, '#555b66');
+    if (!t.rec.paused && !stale) { ctx.globalAlpha = 0.25; px(ctx, p.x - 2, p.y - 2, 7, 7, c); ctx.globalAlpha = 1; }
     P.lamps.push({ key: t.key, memberId: t.memberId, rec: t.rec, x: p.x, y: p.y, color: t.color });
   });
 }
@@ -959,11 +991,14 @@ function drawSlips(ctx, now) {
     const k = Math.min(1, (now - sl.t0) / sl.dur);
     const bx = L.x - 13, by = L.y - 8;
     const e = k * k * (3 - 2 * k), lift = 22;
-    const x = A.x + (bx - A.x) * e + Math.sin(k * 9 + sl.seed) * 3 * (1 - k);
-    const y = A.y + (by - A.y) * e - Math.sin(Math.PI * k) * lift;
+    const at = (kk) => { const ee = kk * kk * (3 - 2 * kk); return { x: A.x + (bx - A.x) * ee + Math.sin(kk * 9 + sl.seed) * 3 * (1 - kk), y: A.y + (by - A.y) * ee - Math.sin(Math.PI * kk) * lift }; };
+    const { x, y } = at(k);
+    // 拖尾：往回取 5 个时刻的位置画渐隐方块，不存历史
+    for (let i = 5; i >= 1; i--) { const kk = k - i * 0.035; if (kk <= 0) continue; const q2 = at(kk); ctx.globalAlpha = (1 - i / 6) * 0.7; px(ctx, q2.x - 2, q2.y - 2, 4, 4, '#fffdf4'); }
+    ctx.globalAlpha = 1;
     const flip = Math.floor(now / 160 + sl.seed) % 2;
-    px(ctx, x - 3, y - 2, 7, flip ? 5 : 4, '#0b0910'); px(ctx, x - 2, y - 1, 5, flip ? 3 : 2, '#fffdf4'); px(ctx, x - 1, y, 3, 1, '#9aa3ad');
-    if (k >= 1) { P.lampPing = { key: sl.key, t0: now }; return false; }
+    pix(ctx, flip ? ART.slipB : ART.slipA, x - 6, y - 5, 2, { o: '#0b0910', w: '#fffdf4', g: '#9aa3ad' });
+    if (k >= 1) { P.lampPing = { key: sl.key, t0: now }; ring(bx, by, '#fff7c2'); return false; }
     return true;
   });
 }
@@ -974,9 +1009,7 @@ function throwBall(from, to, text) {
   fxPush('balls', { from: A, to: to.id, t0: performance.now(), dur: 900, text, hit: null });
 }
 function drawBall(ctx, x, y, r) {
-  const f = Math.floor(r) % 2;
-  px(ctx, x - 2, y - 2, 5, 5, '#0b0910'); px(ctx, x - 1, y - 2, 3, 5, '#0b0910');
-  px(ctx, x - 1, y - 1, 3, 3, '#f4f1e8'); px(ctx, x - 2, y - 1 + f, 1, 2, '#e6e0d0'); px(ctx, x + 2, y - f, 1, 2, '#e6e0d0'); px(ctx, x - 1 + f, y - 2, 2, 1, '#ffffff'); px(ctx, x, y, 1, 1, '#b9b2a0');
+  pix(ctx, ART.ball, x - 6, y - 6, 2, { o: '#0b0910', w: '#f4f1e8', h: '#ffffff', g: '#b9b2a0' }, Math.floor(r) % 2);
 }
 function drawBalls(ctx, now, dt) {
   P.balls = (P.balls || []).filter(b => {
@@ -990,11 +1023,14 @@ function drawBalls(ctx, now, dt) {
     const k = Math.min(1, (now - b.t0) / b.dur);
     const ax = A.x + 6, ay = A.y + 4, bx = B.x, by = B.y - 4;
     const lift = Math.min(60, 18 + Math.hypot(bx - ax, by - ay) * 0.35);
-    const x = ax + (bx - ax) * k, y = ay + (by - ay) * k - Math.sin(Math.PI * k) * lift;
+    const pos = (kk) => ({ x: ax + (bx - ax) * kk, y: ay + (by - ay) * kk - Math.sin(Math.PI * kk) * lift });
+    for (let i = 4; i >= 1; i--) { const kk = k - i * 0.05; if (kk <= 0) continue; const q2 = pos(kk); ctx.globalAlpha = (1 - i / 5) * 0.6; px(ctx, q2.x - 2, q2.y - 2, 4, 4, '#ff8787'); }
+    ctx.globalAlpha = 1;
+    const { x, y } = pos(k);
     drawBall(ctx, x, y, now / 60);
     if (k >= 1) {
       b.hit = { x: bx, y: by, vx: (bx >= ax ? 1 : -1) * 34, vy: -60, life: 0.8 };
-      burst(bx, by, '#ff5a5f', 6);
+      burst(bx, by, '#ff5a5f', 10); ring(bx, by, '#ff5a5f');
       const g = P.agents.get(b.to); if (g) g.react = { kind: 'reject', t0: now };
       flashSeat(b.to, 'flash-bad'); deskPop(b.to, b.text, 'bad');
     }
@@ -1021,7 +1057,7 @@ function onStageHover(e) {
   const stage = $('stage'), r = stage.getBoundingClientRect();
   const lx = (e.clientX - r.left) / r.width * PX.W, ly = (e.clientY - r.top) / r.height * PX.H;
   let key = null;
-  for (const l of P.lamps || []) if (lx >= l.x - 1 && lx <= l.x + 3 && ly >= l.y - 1 && ly <= l.y + 3) key = l.key;
+  for (const l of P.lamps || []) if (lx >= l.x - 1 && lx <= l.x + 4 && ly >= l.y - 1 && ly <= l.y + 8) key = l.key;
   if (!key) {
     const seat = e.target.closest && e.target.closest('.seat');
     const tag = e.target.closest && e.target.closest('.tasktag');
@@ -1122,6 +1158,7 @@ function frame(now) {
   drawBeams(ctx, now, dt);
   drawSlips(ctx, now);
   drawBalls(ctx, now, dt);
+  drawRings(ctx, now);
   drawHoverLink(ctx, now);
   placeOverlays(now);
 }
@@ -1141,6 +1178,7 @@ function placeOverlays(now) {
     const want = a.state === 'stay' && a.poi ? EMOTE[a.poi.act] || '' : (a.state === 'sit' && a.mode === 'idle' ? 'z z' : '');
     if (emo.textContent !== want) { emo.textContent = want; emo.hidden = !want; }
     node.classList.toggle('walking', a.state === 'walk');
+    node.classList.toggle('roam', !sitting);
     node.classList.toggle('hold', !!a.hold);
   }
   for (const [key, node] of S.cloneNodes ?? []) {
@@ -1152,7 +1190,36 @@ function placeOverlays(now) {
     if (node.style.left !== l) node.style.left = l;
     if (node.style.top !== t) node.style.top = t;
     node.classList.toggle('walking', a.state === 'walk');
+    node.classList.toggle('roam', a.state !== 'sit');
     node.classList.toggle('hold', !!a.hold);
+  }
+  declutter(now);
+}
+// 名牌避让：坐着的不动，走动的名牌缩成小标；和已摆好的名牌叠上就往上挪，最多挪 6 次。每 120ms 算一次。
+function declutter(now) {
+  if (now - (P.declT || 0) < 120) return;
+  P.declT = now;
+  const items = [];
+  for (const map of [S.seatNodes, S.cloneNodes]) for (const node of (map ?? new Map()).values()) {
+    if (node.hidden) continue;
+    const st = node.firstElementChild;
+    if (!st) continue;
+    const r = st.getBoundingClientRect();
+    if (!r.width) continue;
+    const dy = +node.dataset.dy || 0;
+    items.push({ node, fixed: !node.classList.contains('roam'), l: r.left, r: r.right, t: r.top + dy, b: r.bottom + dy });
+  }
+  items.sort((a, b) => (b.fixed - a.fixed) || (b.b - a.b));
+  const placed = [];
+  for (const it of items) {
+    let dy = 0;
+    if (!it.fixed) for (let g = 0; g < 6; g++) {
+      const hit = placed.find(p => it.l < p.r && p.l < it.r && it.t - dy < p.b && p.t < it.b - dy);
+      if (!hit) break;
+      dy = Math.ceil(it.b - hit.t + 2);
+    }
+    placed.push({ l: it.l, r: it.r, t: it.t - dy, b: it.b - dy });
+    if ((+it.node.dataset.dy || 0) !== dy) { it.node.dataset.dy = dy; it.node.style.transform = dy ? `translateY(${-dy}px)` : ''; }
   }
 }
 
@@ -1342,9 +1409,9 @@ function drawCarry(ctx, a, footY) {
     px(ctx, cx - 1, cy, 3, 18, '#5c6b86'); px(ctx, cx - 1, cy, 3, 1, '#8a9ab8'); px(ctx, cx + 2 * side, cy + 4, 1, 12, '#7c8798');
   } else if (a.carry === 'file') {
     // 抱着交回的文件
-    const cx = Math.round(a.x - 4), cy = Math.round(footY - 20);
-    px(ctx, cx, cy, 9, 7, '#f4e3c3'); px(ctx, cx, cy, 9, 1, '#ffa53a');
-    px(ctx, cx + 2, cy + 2, 5, 1, '#8b6a45'); px(ctx, cx + 2, cy + 4, 4, 1, '#8b6a45');
+    const cx = Math.round(a.x - 7), cy = Math.round(footY - 24);
+    px(ctx, cx - 1, cy - 1, 15, 12, '#0b0910'); px(ctx, cx, cy, 13, 10, '#f4e3c3'); px(ctx, cx, cy, 13, 2, '#ffa53a');
+    px(ctx, cx + 2, cy + 4, 9, 1, '#8b6a45'); px(ctx, cx + 2, cy + 6, 7, 1, '#8b6a45'); px(ctx, cx + 9, cy + 6, 3, 3, '#3ddc97');
   }
 }
 
