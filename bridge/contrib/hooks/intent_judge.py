@@ -39,7 +39,9 @@ SYSTEM = """你是一个判断器。助手（产品经理）准备把一段话�
 1. 找出草稿里交给用户拍板的问题、选项，或者交接里定下的做法。只是陈述、反问自己、引用别人的话、问队友的，不算。
 2. 对照「产品意图卡」「wiki 里用户定过的」和「用户最近的话」：
    - 草稿把问题交给用户，而按卡上的原则、用户原话或明显常识能推出答案 → self（哪怕选项里有一个和定案相反，只要合定案的那个就在选项里，也算 self）。
-   - 草稿自己推荐的做法、交接里定下的做法违背卡上某条或用户原话（哪怕用户没直接说过这个问题），或者合定案的做法根本不在草稿里 → conflict。
+   - 只有用户原话逐字明确说出答案，且原话与草稿是同一件事时，才能判 conflict；basis 必须写日期并逐字引用那句话。
+   - 先按时间顺序核对用户原话：交接「用户原话」里的本轮新话若明确涉及同一件事，优先于更早的 wiki 定案；它可能消除旧冲突，也可能形成新定案。
+   - 若存在两种合理读法，或无法从用户原话直接得到答案，输出 ask：列出两种读法，不选择、不推荐「合定案的做法」，要求先问用户并把确认原话补进交接。
    - 卡上没写的事不算冲突：卡只列用户定过的，没列的不等于被否定。
    - 先问一句「这事能不能撤回」（用户 2026-11-10 定：沙盒、测试、能撤回的直接干；真钱、发到外面、删东西、换方向才问他）：要用户批准或动手的事能撤回、出错也能改回（测试目录、隔离环境、本机文件、自己的分支、能重装的设置、能再改的草稿）→ reversible，answer 写助手自己怎么做、怎么撤回。
    - 卡和原话都推不出来、用户没选过的路线（方向），或要花真钱、发到外面（发帖、发版、给外人发消息）、删掉恢复不了的东西，或只有用户本人能做（扫码、验证码、付款、实物动手）、要用户看成品才能定 → pass。
@@ -48,7 +50,7 @@ SYSTEM = """你是一个判断器。助手（产品经理）准备把一段话�
 3. 拿不准就 pass。不要因为问题看起来重要就 pass；看能不能推出来。
 
 只输出一个 JSON 对象，不要别的字：
-{"verdict":"self|reversible|conflict|pass","question":"被判断的那个问题或做法，一句话","answer":"你推出的答案或合定案的做法（pass 时空）","basis":"依据：卡上哪条、wiki 哪条（文件:行）或用户哪天哪句原话（pass 时写为什么放行）"}"""
+{"verdict":"self|reversible|conflict|ask|pass","question":"被判断的那个问题或做法，一句话","answer":"self/reversible/conflict 的答案；ask/pass 时空","basis":"conflict 时必须写日期并逐字引用用户原话；ask 时列两种读法并说明要先问用户"}"""
 
 
 def load_cards():
@@ -137,6 +139,18 @@ def _log(kind, verdict, ms, cost, q):
         pass
 
 
+def _validate_conflict(r, draft, user_msgs):
+    """A conflict needs a verbatim citation from current user wording in the handoff or turn."""
+    if r["verdict"] != "conflict":
+        return r
+    quote = re.search(r"[「『\"]([^」』\"]+)[」』\"]", r["basis"])
+    original_section = re.search(r"(?ims)^#{1,6}\s*用户原话\s*$([\s\S]*?)(?=^#{1,6}\s|\Z)", draft)
+    evidence = "\n".join([*(str(m) for m in user_msgs), original_section.group(1) if original_section else ""])
+    if not quote or quote.group(1) not in evidence:
+        r.update(verdict="ask", answer="", basis=f"无法在本轮用户原话中逐字核对冲突依据；{r['basis']}。请先问用户，确认后把原话补进交接。")
+    return r
+
+
 def judge(draft, user_msgs=(), kind="reply"):
     """返回 dict(verdict, question, answer, basis, ms, cost)；出任何错都返回 verdict=pass。"""
     t0 = time.time()
@@ -162,8 +176,9 @@ def judge(draft, user_msgs=(), kind="reply"):
         res["cost"] = round(d.get("total_cost_usd") or 0, 5)
         txt = (d.get("result") or "").strip()
         j = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
-        if j.get("verdict") in ("self", "reversible", "conflict", "pass"):
+        if j.get("verdict") in ("self", "reversible", "conflict", "ask", "pass"):
             res.update({k: str(j.get(k, "")) for k in ("verdict", "question", "answer", "basis")})
+            _validate_conflict(res, draft, user_msgs)
     except Exception as e:  # 超时、没装 claude、输出不是 JSON：放行
         res["basis"] = f"判断器出错，放行：{type(e).__name__}"
     res["ms"] = int((time.time() - t0) * 1000)
