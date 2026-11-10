@@ -130,6 +130,7 @@ func (e *Engine) OnPlatformEvent(p Platform, ev PlatformEvent) {
 		UserID: ev.UserID, UserName: who, GuildID: ev.GuildID, GuildName: ev.GuildName,
 		ChannelID: ev.ChannelID, ChannelName: ev.ChannelName, Extra: data,
 	})
+	e.onMemberPlatformEvent(p, ev)
 	slog.Debug("platform event", "project", e.name, "event", ev.Name, "guild", ev.GuildID, "channel", ev.ChannelID, "user", ev.UserID)
 }
 

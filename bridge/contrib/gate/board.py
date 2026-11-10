@@ -195,7 +195,7 @@ def fmt(i):
     bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
 
 
 def lines():
@@ -431,6 +431,13 @@ def _moves_ws(old_who, new_who):
     return not (old and old.group(1) == new.group(1))
 
 
+def _keeps_handoff(old, new):
+    """「分支/PR/路径」原来是交接文件、新给的不是文件（合并请求链接、分支名）：保留交接路径，新值记进 where_link。
+    11-10 #1347：路径栏被改成 PR 链接后，ws-pass 按交接找不到条目，主角色核完放不出去。"""
+    old, new = (old or "").strip(), (new or "").strip()
+    return bool(old) and new != old and os.path.isfile(old) and not os.path.isfile(os.path.expanduser(new))
+
+
 def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
     """same_ws：调用方已查明新「谁」指的就是条目眼下绑的工作区（main 里按桥的池子对过 id），不解绑。"""
     with _locked():
@@ -448,7 +455,10 @@ def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
             _back_to_chat(hit)
             tid = hit.pop("guard", None)  # 改派：撤兜底，交给新工作区时 ws-handoff 再挂
         if where:
-            hit["where"] = where
+            if _keeps_handoff(hit.get("where"), where):
+                hit["where_link"] = where  # 交接文件留在 where：ws-pass / ws-forward / 桥都按它找这件活（#1350）
+            else:
+                hit["where"] = where
         if who:
             hit["who"] = who
         if nxt:
@@ -565,12 +575,45 @@ def paused_item(path):
     return next((i for i in _read() if (i.get("paused") or i.get("backlog")) and i.get("where") == path), None)
 
 
+def done_records():
+    """board-done.jsonl 里全部做完的记录（旧到新）。ws-forward 按交接记下的编号查这件活交回没有。"""
+    return _read("board-done.jsonl")
+
+
 def done_item(path):
     """交接文件 path 对应的活已交回：板上没有它的条目，board-done.jsonl 里有它做完的记录（自动收起的暂停不算），返回最后一条；否则 None。
     ws-forward 用它拦下往已交回的活转话（工作区交回后会话已清空，话发过去没人接）。"""
     if any(i.get("where") == path for i in _read()):
         return None
     return next((r for r in reversed(_read("board-done.jsonl")) if r.get("where") == path and not r.get("auto_pruned")), None)
+
+
+def item_by_id(nid):
+    """编号 nid 的条目：先看板上（在做、交回待验收），再看 board-done.jsonl 最后一条；没有返回 None。
+    ws-pass / ws-forward --id 用（#1371：路径栏是分支、提交、PR 链接时按交接文件认不出这件活）。"""
+    try:
+        nid = int(nid)
+    except (TypeError, ValueError):
+        return None
+    return (next((i for i in _read() if i.get("id") == nid), None)
+            or next((r for r in reversed(_read("board-done.jsonl")) if r.get("id") == nid and not r.get("auto_pruned")), None))
+
+
+def ids_by_link(link):
+    """路径栏（where 或 where_link）就是 link 的条目编号，板上的在前、做完的在后（#1371）。"""
+    link = (link or "").strip().rstrip("/")
+    hit = lambda i: link and link in ((i.get("where") or "").strip().rstrip("/"), (i.get("where_link") or "").strip().rstrip("/"))
+    out = [i["id"] for i in _read() if hit(i)]
+    return out + [r["id"] for r in reversed(_read("board-done.jsonl")) if hit(r) and r["id"] not in out and not r.get("auto_pruned")]
+
+
+def handoff_of(it):
+    """条目的交接文件：where / where_link 里是本机文件的那个；都不是返回空串。"""
+    for k in ("where", "where_link"):
+        v = os.path.expanduser((it or {}).get(k) or "")
+        if v and "://" not in v and os.path.isfile(v):
+            return os.path.abspath(v)
+    return ""
 
 
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
@@ -583,6 +626,8 @@ def pause(nid, why=None):
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
+        hit.pop("pause_req", None)
+        hit.pop("pause_req_at", None)
         for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
             hit.pop(k, None)  # 暂停比待办更急：从待办挪出来，进团队板的「暂停」块
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
@@ -599,6 +644,53 @@ def pause(nid, why=None):
         event(nid, "paused", hit, why)
     _del_timer(tid)
     return {**hit, "ws": ws} if ws else hit
+
+
+WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀（core/team_wait_external.go waitExternalWhy，两边改要一起改）
+
+
+def wait_external(nid, why, minutes):
+    """外部条件卡住：照 ask 暂停（放回工作区、撤兜底），原因写「等外部：<why>」，wait_until 记到点时刻（epoch）。"""
+    hit = pause(nid, WAIT_EXT + (why or "外部条件"))
+    if not hit:
+        return hit
+    until = int(time.time()) + minutes * 60
+    with _locked():
+        cur = _read()
+        it = next((i for i in cur if i["id"] == nid), None)
+        if it is not None:
+            it["wait_until"] = until
+            it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
+            _write(cur)
+    hit["wait_until"] = until
+    if os.path.isfile(hit.get("where") or ""):
+        append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，"
+                                     f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
+    return hit
+
+
+def _in_own_workspace(it):
+    """这一轮就跑在条目绑定的工作区里（CC_SESSION_KEY 的频道 = it["ws"] 的频道）。"""
+    here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+    return bool(here) and bool(it.get("ws")) and here == it["ws"].split(":")[1:2]
+
+
+def self_pause(nid, why=None):
+    """工作区在自己那一轮里 board pause 自己：不暂停、不放回，只记 pause_req（停手原因）和时刻，返回条目；
+    不是这种情况返回 None，照常 pause。桥看到 pause_req 就要这一轮交 [report]（core workspace_report.go）。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or hit.get("paused") or not _in_own_workspace(hit):
+            return None
+        hit["pause_req"] = why or "工作区自己停手"
+        hit["pause_req_at"] = _bound_now()
+        hit["at"] = _now()
+        _write(cur)
+        event(nid, "pause_req", hit, why)
+    if os.path.isfile(hit.get("where") or ""):
+        append_forward(hit["where"], f"{_now()} 工作区自己停手（#{nid}）{'：' + why if why else ''}。这一轮交 [report] 说做到哪。")
+    return hit
 
 
 def _ws_key(it):
@@ -774,7 +866,7 @@ def _guard_prompt(it, delay):
     return (f"兜底到点：#{it['id']}「{it.get('what', '')}」交给{where} {delay} 了，还没交回。"
             f"先看任务板 #{it['id']}：已经完成或暂停就什么都不说，只回 NO_REPLY。"
             f"还在做就查卡在哪（工作区最后的发言、看门催促、命令是不是挂住），"
-            f"要接着等就用 ws-forward --notes {it.get('where', '')} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add，然后只回 NO_REPLY。"
+            f"要接着等就用 ws-forward --id {it['id']} \"<要它做的>\" 催一下（会重挂兜底），不自己 timer add，然后只回 NO_REPLY。"
             # #1188：兜底是系统内部检查，不对用户汇报进度；只有卡住要用户拍板或动手时才说
             f"只有卡住、非用户拍板或动手不可时，才跟用户说一句要用户做什么，并写明这是兜底检查发现的、不是用户要求的。")
 
@@ -1079,6 +1171,8 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
         hit["returned_at"] = datetime.fromisoformat(re.sub(r"\.\d+", lambda m: m[0][:7].ljust(7, "0"), at).replace("Z", "+00:00")).isoformat() if at else _bound_now()
         hit["reviewer"] = hit.get("dispatcher") or reviewer
         hit.pop("review_rejected", None)  # A new handback supersedes the earlier rejection.
+        hit.pop("pause_req", None)  # 停手的那一轮交回了
+        hit.pop("pause_req_at", None)
         hit["status"], hit["at"] = "已交回待验收", _now()
         if hit.get("chat"):
             hit["sk"] = hit["chat"]
@@ -1474,7 +1568,7 @@ def _where_prs(i, repo=None):
     repo = repo or _repo()
     if not repo:
         return set()
-    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(i.get("where") or "")}
+    return {int(next(g for g in m if g)) for m in _pr_ref_re(repo).findall(" ".join(filter(None, (i.get("where"), i.get("where_link")))))}
 
 
 def _idle_since(i, now):
@@ -1773,6 +1867,20 @@ def main(argv):
                 print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，已在聊天频道发 [ask] 请用户定；ws-handoff --resume 不再续做")
             else:
                 print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
+        elif cmd == "accepted" and len(argv) == 2:
+            # 主角色放行了交回的汇报（ws-pass，桥 team_report_accept_api.go）：那就是验收，当场收口。
+            # 不收口时任务留在「已交回待验收」，几小时后「没人验收」再叫主角色验一遍，它拿 GitHub
+            # 最新代码对旧报告，把已交付的活退回重做（agentm #35 11-10 07:16）。返工次数 = 退回轮数。
+            nid = int(argv[1].lstrip("#"))
+            hit = next((i for i in _read() if i["id"] == nid), None)
+            if hit is None:
+                print("不在板上（已收口），不用再收")
+            else:
+                rounds = hit.get("reject_reasons") or []
+                ended = done(nid, len(rounds), ("；".join(rounds)[:200] or None))
+                print("已验收收口" if ended else "不在板上（已收口），不用再收")
+                if ended:
+                    _park_done(ended)
         elif cmd == "done" and 2 <= len(argv) <= 4:
             # 返工次数必填、>0 时原因必填：不填就没法统计哪条规矩起了作用（board rework 汇总里的「未填」）
             nid = int(argv[1].lstrip("#"))
@@ -1826,6 +1934,14 @@ def main(argv):
                 sys.exit(1)
         elif cmd == "pause" and 2 <= len(argv) <= 3:
             nid = int(argv[1].lstrip("#"))
+            req = self_pause(nid, argv[2] if len(argv) > 2 else None)
+            if req:
+                # 工作区在自己那一轮里 pause 自己：当场放回会清会话、把这一轮连同要写的 [report] 一起掐掉，
+                # 暂停的条目又会让桥把交回扣在工作区（agentm #26，11-09）。改成记一笔「要停手」，不放回：
+                # 这一轮照常写 [report] 交回，桥收到后放回工作区；没写，桥叫它补交，补不上就把最后一段话转给主角色。
+                print(f"已记停手（#{nid}）：工作区里不自己暂停。这一轮最后一条回复第一行写 [report] #{nid}，"
+                      "说做到哪、卡在哪、要谁定；交回后桥自动放回工作区。")
+                return
             hit = pause(nid, argv[2] if len(argv) > 2 else None)
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
@@ -1834,9 +1950,7 @@ def main(argv):
                 append_forward(hit["where"], f"{_now()} 已暂停（#{nid}）{'：' + hit['pause_why'] if hit.get('pause_why') else ''}。"
                                              "停手，不要再起后台命令，正在跑的停掉；上面更早的「接着做」作废，等主频道恢复再做。")
             schedule_prune_check(hit)
-            # 在那个工作区里自己 pause 的不打断（会把正在跑 board 的这一轮掐掉）
-            here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
-            freed = park_workspace(hit, stop=(here != (hit.get("ws") or "").split(":")[1:2]))
+            freed = park_workspace(hit, stop=True)  # 在那个工作区里自己 pause 的已在上面改成记停手
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "ask" and len(argv) == 2:
@@ -1849,6 +1963,18 @@ def main(argv):
             print("已记等你")
             if os.path.isfile(hit.get("where") or ""):
                 append_forward(hit["where"], f"{_now()} 已提问、等用户答复（#{nid}）：工作区已放回，答复到了会另交一个空工作区接着做。")
+            freed = park_workspace(hit)
+            if freed is not None:
+                print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+        elif cmd == "wait" and len(argv) == 4:
+            # 工作区 [report] 写了「等外部：…」（桥调，core/team_wait_external.go）：外部条件卡住（没空卡、等 CI、等对方），
+            # 条目记「等外部」并带 wait_until，工作区放回池子、撤兜底；看门不再叫醒，到点桥 ws-handoff --resume 接着做
+            # （用户 11-09「没卡导致不断重复跑」→「修」）。
+            nid, minutes = int(argv[1].lstrip("#")), max(1, int(argv[3]))
+            hit = wait_external(nid, argv[2].strip(), minutes)
+            if not hit:
+                sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            print(f"已记等外部，{minutes} 分钟后接着做")
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")

@@ -153,7 +153,27 @@ def check(d):
     r = ask_model(reply, user, [b for b in tools if is_lookup(b)])
     verdict = "block" if r["verdict"] == "unchecked" else "pass"
     intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
-    return REASON.format(claim=r["claim"].strip("「」")) if verdict == "block" else None
+    if verdict != "block":
+        return None
+    return (REASON_CHAT if _team_chat() else REASON).format(claim=r["claim"].strip("「」"))
+
+
+# 团队聊天频道里不现场去查：agentm 11-10 15:18 用户问「性能分析完成了吗」，它按任务板答了一句，被本检查要求「上远端看」，
+# 就在聊天频道里起了远端核查（第 8 步、1 分半）。聊天频道只按任务板、交接和工作区回报说，要现场核就交工作区。
+REASON_CHAT = ("这是聊天频道，不在这里现场查。这句在说我们自家现状：「{claim}」。按任务板、交接文件和工作区最近回报能对上的就照说，"
+               "并写明「据工作区某时回报」；对不上或要上远端、跑命令才能确认的，写「没现场核」，要核就用 ws-forward 交给负责的工作区查。")
+
+
+def _team_chat():
+    """同 bash-guard._team_chat：团队模式下的聊天频道会话；判断不了当不是。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("drg", os.path.join(HERE, "dispatch-review-guard.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return os.path.isfile(os.path.join(m._data_dir(), "team_workspaces.json")) and not m.in_workspace()
+    except Exception:
+        return False
 
 
 def main():

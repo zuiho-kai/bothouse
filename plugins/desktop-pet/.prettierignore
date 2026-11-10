@@ -1,0 +1,11 @@
+lib
+node_modules
+assets
+runtime/electron-helper/shared-core.js
+cordis.patch.yml
+package-lock.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+# 打包产物与一次性冒烟原型：都是生成物，不参与格式检查
+dist-app
+.smoke-app

@@ -57,7 +57,9 @@ func TestApplyWizardDSHRelay(t *testing.T) {
 		t.Fatalf("project = %+v", p)
 	}
 	b, _ := os.ReadFile(DSHPatchPath(data, "whale"))
-	for _, want := range []string{"- id: llm-deepseek\n  config:\n    baseURL: \"https://relay.example\"\n    apiKeyEnv: " + DSHKeyEnv + "\n    models:\n      - id: \"deepseek-v4.1-flash\"\n        inputModalities: [text, image]\n",
+	// #1498: no max_tokens in the request → the overlay still caps the output (DSH's own default 256000 is
+	// what relays answer with 503), see dshDefaultMaxTokens.
+	for _, want := range []string{"- id: llm-deepseek\n  config:\n    baseURL: \"https://relay.example\"\n    apiKeyEnv: " + DSHKeyEnv + "\n    maxTokens: 128000\n    models:\n      - id: \"deepseek-v4.1-flash\"\n        inputModalities: [text, image]\n",
 		"- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: \"deepseek-v4.1-flash\"\n",
 		"- id: acp\n  config:\n    provider: deepseek-official\n    model: \"deepseek-v4.1-flash\"\n"} {
 		if !strings.Contains(string(b), want) {
@@ -78,6 +80,38 @@ func TestApplyWizardDSHRelay(t *testing.T) {
 		dshWizardReq(&WizardProvider{Vendor: "custom", BaseURL: "https://relay.example", APIKey: "sk-relay"}))
 	if res.Saved || !strings.Contains(res.Error, "model") {
 		t.Fatalf("no model: %+v", res)
+	}
+}
+
+// #1498: the output cap typed in the wizard is what the overlay writes, and a negative one is refused.
+func TestApplyWizardDSHMaxTokens(t *testing.T) {
+	useRepoHooks(t)
+	noHardware(t)
+	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
+	dsh, _, _ := fakeDSH(t)
+	t.Setenv("DSH_HOME", t.TempDir())
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	dshTestBridge(t)
+	clis := []LocalCLI{{AgentType: "dsh", Path: dsh, InPath: true, Supported: true, Login: "not_logged_in"}}
+	data := t.TempDir()
+	res := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: data, CLIs: clis},
+		dshWizardReq(&WizardProvider{Vendor: "custom", BaseURL: "https://relay.example", APIKey: "sk-relay",
+			Model: "claude-fable-5-1", MaxTokens: 64000}))
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	b, _ := os.ReadFile(DSHPatchPath(data, "whale"))
+	if !strings.Contains(string(b), "    apiKeyEnv: "+DSHKeyEnv+"\n    maxTokens: 64000\n") {
+		t.Fatalf("overlay does not carry the typed cap:\n%s", b)
+	}
+	if strings.Contains(string(b), "maxTokens: 128000") || strings.Contains(string(b), "maxTokens: 256000") {
+		t.Fatalf("the typed cap must win over the wizard default:\n%s", b)
+	}
+	res = ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: clis},
+		dshWizardReq(&WizardProvider{Vendor: "custom", BaseURL: "https://relay.example", APIKey: "sk-relay",
+			Model: "m", MaxTokens: -1}))
+	if res.Saved || !strings.Contains(res.Error, "max_tokens") {
+		t.Fatalf("negative cap: %+v", res)
 	}
 }
 

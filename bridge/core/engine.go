@@ -465,6 +465,9 @@ type Engine struct {
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
 	callerMu                     sync.Mutex                      // guards callerTurns (caller_identity.go)
+	memberWSMu                   sync.Mutex                      // guards memberWS / memberWSSave (member_workspace.go)
+	memberWS                     bool                            // member_workspaces: personal dirs + own GitHub auth per person
+	memberWSSave                 func(on bool) error             // persists `bothouse member enable|disable`
 	callerTurns                  map[string]callerTurn           // session → sender of the turn running now
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)
@@ -472,8 +475,11 @@ type Engine struct {
 	team                         *teamState                      // maomao fork: team status board (nil = off)
 	displayName                  atomic.Pointer[string]          // team_name from config ("" / nil = the project name); see DisplayName
 	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	teamWSGatherFailed           sync.Map                        // workspace channel ID → not movable into the workspace category this run (gatherTeamWorkspaces)
 	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
+	experienceDir                string                          // team memory folder for personal agents' lessons (team_experience.go; "" = off)
+	personalAgents               []string                        // bot IDs of personal agents (team_experience.go)
 	lifePage                     string                          // life_page: "how she is now" file put before every turn (lifepage.go; "" = off)
 	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
@@ -588,6 +594,7 @@ type Engine struct {
 
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
+	roleEvents        atomic.Pointer[roleEventBroker]
 	interactiveStates map[string]*interactiveState // key = sessionKey
 	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
@@ -806,7 +813,16 @@ type interactiveState struct {
 	// currentTurnUserMessageTimeMs is the UserMessageTimeMs for the in-flight
 	// foreground turn (including a queued turn after EventResult).
 	currentTurnUserMessageTimeMs int64
+	// turnStartedAt is when the running turn began, for the queue receipt's "current
+	// task has been running %s" (#545: a message that waited behind an 8m22s turn got
+	// the plain "will process after the current task" line and read as lost).
+	// Guarded by mu; zero until a turn starts.
+	turnStartedAt time.Time
 }
+
+// markTurnStartLocked records the start of the turn that owns currentMessageID. Caller
+// holds state.mu.
+func (s *interactiveState) markTurnStartLocked() { s.turnStartedAt = time.Now() }
 
 // latestUserMessageWatermarkLocked returns the highest UserMessageTimeMs among
 // completed turns, the in-flight turn, and queued messages for this session.
@@ -2588,6 +2604,8 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 		shellCmd = exec.CommandContext(ctx, "sh", "-c", job.Exec)
 	}
 	shellCmd.Dir = workDir
+	ownScheduledShell(shellCmd)
+	scheduledShellDeadline(shellCmd, ctx)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -2756,6 +2774,8 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 
 	shellCmd := shellExecCommand(ctx, e.shell, e.shellFlag, e.shellProfile, job.Exec)
 	shellCmd.Dir = workDir
+	ownScheduledShell(shellCmd)
+	scheduledShellDeadline(shellCmd, ctx)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -3588,6 +3608,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.handleMessageRecall(p, msg)
 		return
 	}
+	e.collectExperience(msg)
 	if e.team != nil {
 		// The shared lead file can change without restarting any role. Refresh
 		// lead-only board/workspace services before handling the next message.
@@ -4164,18 +4185,40 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		"queue_depth", queueDepth,
 	)
 
+	// #545: age of the running turn at enqueue time, not this message's wait.
+	// Message waiting time requires correlating enqueue and processing timestamps.
+	turnElapsed := time.Duration(0)
+	if !state.turnStartedAt.IsZero() {
+		turnElapsed = time.Since(state.turnStartedAt).Round(time.Second)
+	}
 	slog.Info("message queued for busy session",
 		"session", msg.SessionKey,
 		"user", msg.UserName,
 		"queue_depth", queueDepth,
+		"turn_elapsed", turnElapsed,
+		"mentioned", msg.Mentioned,
 	)
 	if !msg.abortFront { // the abort says "⏹ 已打断" instead (abortForQueuedFront)
 		// Cron/timer/heartbeat turns have no human waiting; the receipt is channel noise (11-02 restart burst).
 		if !e.skipQueuedNotice.Load() && msg.timerJobID == "" && scheduledFrom == nil && !scheduledTurnUser(msg.UserID) {
-			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgMessageQueued))
+			e.replyToAuthorizedMessage(p, msg, e.queueReceiptText(state, queueDepth))
 		}
 	}
 	return queueAccepted
+}
+
+// queueReceiptText renders the receipt for a message queued behind a running turn.
+// Always include status and the consequences of /stop: an early arrival may wait
+// behind a long turn with no later message to trigger an updated receipt (#882).
+// Caller holds state.mu (turnStartedAt is guarded by it).
+func (e *Engine) queueReceiptText(state *interactiveState, depth int) string {
+	base := e.i18n.T(MsgMessageQueued)
+	elapsed := e.i18n.T(MsgMessageQueuedAgeUnknown)
+	if !state.turnStartedAt.IsZero() {
+		// 来源: #545 返工要求秒级入队也显示时长；沿用 Go duration 的秒精度。
+		elapsed = time.Since(state.turnStartedAt).Truncate(time.Second).String()
+	}
+	return base + "\n" + e.i18n.Tf(MsgMessageQueuedWaiting, elapsed, depth)
 }
 
 // queueForBusySession queues msg behind the turn running on session (see
@@ -4851,6 +4894,15 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		agentOverride = agent
 	}
 	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, ccSessionKey, msg.inputTurn)
+	// #1421: messages that queued between this turn being accepted and its
+	// journal entry existing had nothing to attach to. enqueueForBusySession
+	// syncs through j.Active(interactiveKey), which is empty until
+	// journalTurnBegin above, and the drain-time sync (#1399) only runs when
+	// the queue is consumed — a shutdown in this window kept the messages in
+	// memory, logged them as kept, and wrote none of them to disk, so the
+	// restart resumed the turn without them. Now that the entry exists, attach
+	// whatever arrived first.
+	e.journalSyncQueued(state, interactiveKey)
 	if msg.inputTurn != nil {
 		state.mu.Lock()
 		state.localInputOnly = msg.inputTurn
@@ -4884,6 +4936,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.injectedReplyCtxs = nil
 	state.currentMessageID = msg.MessageID
 	state.currentTurnUserMessageTimeMs = msg.UserMessageTimeMs
+	state.markTurnStartLocked()
 	state.mu.Unlock()
 	state.lastEventAt.Store(time.Now().UnixNano())
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
@@ -6041,6 +6094,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				session.ResetTurnCtx() // maomao fork
 			}
 			e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
+			e.observeRoleAgentEvent(sessionKey, event, textParts)
 			switch event.Type {
 			case EventText:
 				if event.Content != "" {
@@ -6294,6 +6348,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	if msgID != "" {
 		state.mu.Lock()
 		state.currentMessageID = msgID
+		state.markTurnStartLocked()
 		state.mu.Unlock()
 	}
 
@@ -6413,6 +6468,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), outputCtx, workspaceRenderer)
 	cp := newCompactProgressWriter(outputCtx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	cp.mirrorFor = e.taskThreadProgressContext(outputCtx, inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
+	if state.turnScheduled && !e.isTeamWorkspaceChat(sessionKey) {
+		cp.hideForScheduled()
+	}
 	state.mu.Unlock()
 
 	// maomao fork: this turn's row on the channel task board; the card's steps
@@ -6646,6 +6704,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 
 		e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
+		e.observeRoleAgentEvent(sessionKey, event, textParts)
 
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
@@ -7898,6 +7957,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Check for queued messages — if present, continue the event loop
 			// for the next turn instead of returning.
 			state.mu.Lock()
+			if e.isStoppingForJournal() {
+				// #1368: shutdown owns the current journal entry. Leave even
+				// stale queued messages untouched for restart recovery.
+				state.mu.Unlock()
+				return
+			}
 			droppedStale := 0
 			var staleDescs []string // maomao fork: channel task board
 			e.refreshQueuedTaskReviewsLocked(state)
@@ -7926,6 +7991,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.currentMessageID = queued.messageID
 				state.fromVoice = queued.fromVoice
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+				state.markTurnStartLocked()
 				state.turnDesc = queued.boardDesc // maomao fork: channel task board
 				state.turnScheduled = scheduledTurnUser(queued.userID)
 				state.currentJobID = queued.timerJobID
@@ -8533,6 +8599,16 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		if e.isStoppingForJournal() {
+			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
+			// turn after Stop has begun; the journal already holds its queue.
+			if n := len(state.pendingMessages); n > 0 {
+				slog.Info("queued messages kept for resume after shutdown", "count", n)
+			}
+			session.Unlock()
+			state.mu.Unlock()
+			return true
+		}
 		if state.stopped && state.resetHandoff {
 			// A gate abort had to close the process. This worker still owns the
 			// conversation lock: move unsent messages to the replacement state
@@ -8601,6 +8677,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentMessageID = queued.messageID
 		state.fromVoice = queued.fromVoice
 		state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+		state.markTurnStartLocked()
 		state.turnDesc = queued.boardDesc // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(queued.userID)
 		state.mu.Unlock()
@@ -9578,6 +9655,9 @@ func (e *Engine) withSharedMemoryHint(prompt string, agent Agent, msg *Message, 
 	if dir == "" {
 		dir = e.commandWorkDir(agent, msg)
 	}
+	if hint := e.experienceHint(); hint != "" {
+		prompt += "\n\n" + hint
+	}
 	if hint := sharedMemoryHint(dir, msg.SessionKey); hint != "" {
 		return prompt + "\n\n" + hint
 	}
@@ -9899,7 +9979,25 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 
 	if session != nil {
 		if reporter, ok := session.(UsageReporter); ok && usageReporterAvailable(session) {
+			// The footer may run after a queued provider switch. Attribute this
+			// existing session read to its creation scope, just like terminal events.
+			var scope quotaScope
+			if adapter, ok := agent.(SessionScopedUsageCapability); ok && adapter.UsageScopedToSession() {
+				e.interactiveMu.Lock()
+				for _, state := range e.interactiveStates {
+					if state.agentSession == session {
+						scope = state.quotaScope
+						break
+					}
+				}
+				e.interactiveMu.Unlock()
+			}
+			// An untracked session has no proven creation scope; its footer
+			// still works, but do not assign its report to the current account.
 			if report, err := reporter.GetUsage(ctx); err == nil {
+				if scope.Provider != "" {
+					e.cacheRoleQuotaReport(agent, replyFooterModel(session, agent), scope, report)
+				}
 				e.observeQuotaUsageFor(report, "", e.quotaScopeFor(agent, replyFooterModel(session, agent)))
 				if text := formatReplyFooterUsage(report, e.i18n); text != "" {
 					return text, true
@@ -10044,6 +10142,9 @@ func (e *Engine) cacheRoleQuotaReport(agent Agent, model string, scope quotaScop
 	if report == nil || report.ObservedAt.IsZero() || (report.QuotaGroup != "" && report.QuotaGroup != scope.Group) {
 		return
 	}
+	if report.AccountID != "" && report.AccountID != scope.Account {
+		return // The credential used by a delayed read must match its captured scope.
+	}
 	snapshot := *report
 	snapshot.Buckets = nil
 	for _, bucket := range report.Buckets {
@@ -10082,20 +10183,42 @@ func (e *Engine) CachedQuotaReport(_ AgentSession, model string) *UsageReport {
 	if ent == nil || ent.report == nil || ent.reportScope != scope.key() || ent.reportAt.IsZero() || time.Since(ent.reportAt) >= replyFooterUsageMaxAge {
 		return nil
 	}
-	// A reported reset supersedes a cached percentage, even before the normal
-	// footer cache lifetime expires. Never turn an old zero into an invented 100%.
+	// Sparse updates retain independently observed windows. A newer primary
+	// must not extend an untouched weekly window or its relative reset.
+	snapshot := *ent.report
+	snapshot.Buckets = nil
+	now := time.Now()
 	for _, bucket := range ent.report.Buckets {
+		windows := make([]UsageWindow, 0, len(bucket.Windows))
 		for _, window := range bucket.Windows {
+			observed := window.ObservedAt
+			if observed.IsZero() {
+				observed = ent.reportAt
+			}
+			if now.Sub(observed) >= replyFooterUsageMaxAge {
+				continue
+			}
 			reset := time.Unix(window.ResetAtUnix, 0)
 			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
-				reset = ent.reportAt.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
+				reset = observed.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
 			}
-			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(time.Now()) {
-				return nil
+			if (window.ResetAtUnix > 0 || window.ResetAfterSeconds > 0) && !reset.After(now) {
+				if window.ObservedAt.IsZero() {
+					return nil // Preserve reset behavior for adapters without per-window observations.
+				}
+				continue
 			}
+			windows = append(windows, window)
+		}
+		bucket.Windows = windows
+		if len(windows) > 0 {
+			snapshot.Buckets = append(snapshot.Buckets, bucket)
 		}
 	}
-	return ent.report
+	if len(snapshot.Buckets) == 0 {
+		return nil
+	}
+	return &snapshot
 }
 
 // replyFooterCachedQuotaText formats the quota a session already holds
@@ -10744,7 +10867,11 @@ func (e *Engine) formatShellTimeout(cmdLabel, output string, maxOutput int) stri
 
 func killAndWait(cmd *exec.Cmd, doneCh <-chan struct{}) {
 	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
+		if cmd.Cancel != nil {
+			_ = cmd.Cancel()
+		} else {
+			_ = cmd.Process.Kill()
+		}
 	}
 	<-doneCh
 }
@@ -13834,6 +13961,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 	}
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
+	e.noteWorkspaceFiles(sessionKey, files)
 	for _, file := range files {
 		if err := e.waitOutgoing(p); err != nil {
 			return err
@@ -13941,6 +14069,7 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		}
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
+	e.noteWorkspaceFiles(target.sessionKey, files)
 	for _, file := range files {
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err
@@ -18635,7 +18764,13 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 		return "", err
 	}
 	session := sessions.GetOrCreateActive(relaySessionKey)
-	finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	// The team's work key is the relay's role-event session key: the snapshot
+	// counts this one work item by that key, so its events must name it too.
+	teamKey, finishTeamWork := e.teamBeginRelay(sourceSessionKey)
+	roleEventKey := relaySessionKey
+	if teamKey != "" {
+		roleEventKey = teamKey
+	}
 	teamOutcome := teamWorkUnconfirmed
 	draining := false
 	defer func() {
@@ -18753,7 +18888,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 			// Only the wait timed out. The drain now owns both outstanding
 			// Send completion and events; team work stays busy until it ends.
 			draining = true
-			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
+			go e.drainRelaySession(turnScope, context.WithoutCancel(ctx), agent, agentSession, session, sessions, agent.Name(), relaySessionKey, roleEventKey, finishTeamWork, events, sendDone, resultReceived, response, textParts, stop, nudge, completion)
 			if quiet {
 				return strings.Join(textParts, ""), &relayDrainingError{ctx.Err()}
 			}
@@ -18794,6 +18929,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				continue
 			}
 			e.observeQuotaEventFor(event, sourceSessionKey, agentSession, turnScope)
+			e.observeRoleAgentEvent(roleEventKey, event, textParts)
 			if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // the relay context lost its per-turn blocks (rules, wiki)
 			}
@@ -18935,7 +19071,7 @@ var relayDrainSafety = 10 * time.Minute
 // auto-approves any permission requests, and then closes the session. A 10-minute
 // safety timeout prevents the goroutine from leaking if the agent hangs; task
 // relays leave that to the ten-minute watch (stop and nudge).
-func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
+func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, agent Agent, agentSession AgentSession, session *Session, sessions *SessionManager, agentName, relaySessionKey, roleEventKey string, finishTeamWork func(teamWorkOutcome), events <-chan Event, sendDone <-chan error, resultReceived bool, response string, textParts []string, stop <-chan struct{}, nudge <-chan string, completion []func(string, error)) {
 	teamOutcome := teamWorkUnconfirmed
 	completionErr := fmt.Errorf("relay: background execution ended without a confirmed result")
 	defer func() {
@@ -18999,6 +19135,7 @@ func (e *Engine) drainRelaySession(turnScope quotaScope, ctx context.Context, ag
 				sessions.Save()
 			}
 			e.observeQuotaEventFor(ev, relaySessionKey, agentSession, turnScope)
+			e.observeRoleAgentEvent(roleEventKey, ev, textParts)
 			if c, _ := ev.Metadata[MetaContextCompacted].(bool); c {
 				session.ResetTurnCtx() // as in handleTrackedRelay
 			}

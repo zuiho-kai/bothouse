@@ -59,7 +59,7 @@ func (m *ManagementServer) imageGenStatus(w http.ResponseWriter) {
 		"can_draw":    true,
 		"provider":    cfg.Provider,
 		"model":       cfg.Model,
-		"base_url":    cfg.BaseURL,
+		"base_url":    redactURLSecrets(cfg.BaseURL),
 		"out_dir":     m.imageGen.OutDir(),
 		"api_key_set": strings.TrimSpace(cfg.APIKey) != "",
 	}

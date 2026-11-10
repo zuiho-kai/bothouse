@@ -4,11 +4,11 @@
 # 用法：
 #   ws-pass [--notes <交接>] --stitch <成品图>...        拼一张「参考 | 成品」并排图，只打印路径，不发送；打开看过再决定
 #   ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"   发到这件活的来源聊天频道
-#   ws-pass [--notes <交接>] --verdict "<逐条对照>"     不带附件：放行桥扣下的文字 [report]，原文照贴给用户（11-09
+#   ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"     不带附件：放行桥扣下的文字 [report]，原文照贴给用户（11-09
 #     用户「我都说工作群返回你要看一眼，结果你他妈就图片跟视频，你看一眼文字你不看」；桥 core/team_report_accept.go）。
 #   封面/宣传活（交接提到封面、宣传片、B 站、投稿）：--stitch 顺带出手机大小缩略图并打印 bili-playbook 规则，发送要加 --cover-checked。
 #   交接里有参考材料（参考链接或 ~/work/ref/ 下的图/视频）时必须带 --compare，没有就拦。不合格用 ws-forward 打回。
-#   哪件活：--notes 指定；不给时按 ws-handoff-last.json 里来源是当前聊天频道（CC_SESSION_KEY）的活，只有一件才自动认。
+#   哪件活：--id <任务板编号> 指定（验收提示给的就是它）；也可 --notes <交接文件>，或路径栏里的 PR/分支/提交链接（#1371）；不给时按 ws-handoff-last.json 里来源是当前聊天频道（CC_SESSION_KEY）的活，只有一件才自动认。
 import json, os, shutil, subprocess, sys, time
 from pathlib import Path
 
@@ -21,8 +21,9 @@ import board  # noqa: E402
 
 USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
          '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
-         '       ws-pass [--notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报）')
+         '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报）')
 IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
+MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
 OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
 
 
@@ -34,22 +35,43 @@ def ffmpeg() -> str:
     return shutil.which("ffmpeg") or str(Path.home() / ".local" / "bin" / "ffmpeg")
 
 
-def find_task(key: str, notes):
-    """返回 (交接文件, 记录)；没有对应交接返回 ("", {})；拿不准就退出列出可选项。"""
+def by_id(tasks: dict, nid: int):
+    """任务号 nid 对应的 (交接文件, 记录)：先找 ws-handoff 记下这个编号的交接，再用任务板条目里是本机文件的那一栏（#1371）。"""
+    if not board.item_by_id(nid) and not any(nid in (v.get("board") or []) for v in tasks.values()):
+        sys.exit(f"ws-pass: 任务板上没有 #{nid}（板上和已完成记录都查过）")
+    for k, v in tasks.items():
+        if nid in [int(x) for x in (v.get("board") or []) if str(x).isdigit()]:
+            return k, v
+    path = board.handoff_of(board.item_by_id(nid))
+    return path, (tasks.get(path) or next((v for v in tasks.values() if path and v.get("file") == path), {}))
+
+
+def find_task(key: str, notes, nid: int = 0):
+    """返回 (交接文件, 记录, 任务号)；没有对应交接返回 ("", {}, 0)；拿不准就退出列出可选项。
+    任务号：--id 给的，或 --notes 给的是链接（PR、分支、提交）时按任务板路径栏认出来的（#1371）。"""
     try:
         last = json.loads(_team.LAST.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         last = {}
     tasks = {k: v for k, v in (last.get("tasks") or {}).items() if isinstance(v, dict)}
+    if not nid and notes and "://" in notes:  # 路径栏里的链接：不当成相对路径（#1371 现场把它拼成了 roles/maomao/https:/…）
+        ids = board.ids_by_link(notes)
+        if not ids:
+            sys.exit(f"ws-pass: 任务板上没有路径栏是这个链接的活（{notes}），用 --id <任务号> 写明是哪件")
+        if len(set(ids)) > 1:
+            sys.exit(f"ws-pass: 路径栏是这个链接的活有好几件（{'、'.join('#' + str(i) for i in ids)}），用 --id <任务号> 写明是哪件")
+        nid = ids[0]
+    if nid:
+        return (*by_id(tasks, nid), nid)
     if notes:
         path = os.path.abspath(os.path.expanduser(notes))
         rec = tasks.get(path) or next((v for v in tasks.values() if v.get("file") == path), {})
-        return path, rec
+        return path, rec, 0
     mine = {k: v for k, v in tasks.items() if v.get("chat") == key}
     if len(mine) > 1:
-        sys.exit("ws-pass: 本频道交出去的活有好几件，用 --notes 写明是哪件：" + "；".join(
-            f"--notes {k}（{v.get('task') or ''}）" for k, v in mine.items()))
-    return next(iter(mine.items()), ("", {}))
+        sys.exit("ws-pass: 本频道交出去的活有好几件，用 --id <任务号> 写明是哪件：" + "；".join(
+            f"--id {'/'.join(str(x) for x in v.get('board') or []) or '?'} 或 --notes {k}（{v.get('task') or ''}）" for k, v in mine.items()))
+    return (*next(iter(mine.items()), ("", {})), 0)
 
 
 def refs_of(notes: str):
@@ -138,23 +160,26 @@ def thumbs(shots: list) -> Path:
 def board_id(rec, path):
     """这件活在任务板上的编号（交回待验收的条目还在板上；做完的在 board-done.jsonl）；没有返回 0。"""
     files = {f for f in (rec.get("file"), path) if f}
-    rows = [i for i in board.items() if i.get("where") in files]
+    hit = lambda i: i.get("where") in files or i.get("where_link") in files  # where_link：路径栏改成 PR 链接后的旧提示也认
+    rows = [i for i in board.items() if hit(i)]
+    if not rows:  # 路径栏已改成链接、交接文件不在任务板上：用 ws-handoff 记下的编号（#1371）
+        rows = [i for i in board.items() if i.get("id") in [int(x) for x in (rec.get("board") or []) if str(x).isdigit()]]
     if not rows:
         try:
-            rows = [i for i in board._read("board-done.jsonl") if i.get("where") in files]
+            rows = [i for i in board._read("board-done.jsonl") if hit(i)]
         except Exception:
             rows = []
     return max((int(i["id"]) for i in rows if str(i.get("id", "")).isdigit()), default=0)
 
 
-def pass_text(rec, path, verdict):
+def pass_text(rec, path, verdict, nid=0):
     """放行桥扣下的文字 [report]：桥照原文贴 📬 到聊天频道，挂在任务板编号上。"""
     if len(verdict.strip()) < 15:
         sys.exit("ws-pass: 放行文字汇报要写 --verdict \"逐条对用户原话/总目标/验收：哪条做到、证据是什么\"；"
                  "没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
-    nid = board_id(rec, path)
+    nid = nid or board_id(rec, path)
     if not nid:
-        sys.exit(f"ws-pass: 任务板上找不到这份交接的条目（{rec.get('file') or path or '未指定交接'}），用 --notes 写明是哪件")
+        sys.exit(f"ws-pass: 任务板上找不到这份交接的条目（{rec.get('file') or path or '未指定交接'}），用 --id <任务号> 写明是哪件")
     r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict],
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
@@ -162,13 +187,33 @@ def pass_text(rec, path, verdict):
     print(f"ws-pass: #{nid} 的文字汇报已放行，桥已贴到聊天频道", file=sys.stderr)
 
 
+def close_text(rec, path, verdict, nid=0):
+    """带附件放行时，同一件活挂在桥上的文字 [report] 一并放行，用同一句 --verdict（#1402）。
+    11-10 #1395、#1398：附件放行了，文字汇报没人放，10 分钟后照原文贴出标「主角色未验收」，用户收到两遍，
+    原话「为什么这会老有卡你的地方 为什么」。先放文字再发附件：文字放不行（如疑点要引用户原话）就整条不发，
+    免得附件发出去、重跑时再发一遍。桥上没有挂着的（已用 --verdict 放行过，或还没交回）照常只发附件。"""
+    nid = nid or board_id(rec, path)
+    if not nid:
+        return
+    r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode == 0:
+        print(f"ws-pass: #{nid} 挂着的文字汇报一并放行，桥已照原文贴出", file=sys.stderr)
+    elif r.returncode != 3:  # 3：桥上没有这件活等验收的文字汇报
+        sys.exit(f"ws-pass: #{nid} 挂着的文字汇报放行失败，附件也没发（改好 --verdict 重跑即可）：{(r.stderr or r.stdout).strip()}")
+
+
 def main(argv):
     if not argv or any(a in ("-h", "--help") for a in argv):
         print(f"用法：{USAGE}")
         return
     notes, compare, do_stitch, cover_ok, verdict, rest, it = None, None, False, False, "", [], iter(argv)
+    nid = 0
     for a in it:
-        if a == "--notes":
+        if a == "--id":
+            v = (next(it, "") or "").lstrip("#")
+            nid = int(v) if v.isdigit() else sys.exit(f"用法：{USAGE}（--id 后面要跟任务板编号）")
+        elif a == "--notes":
             notes = next(it, "") or sys.exit(f"用法：{USAGE}（--notes 后面要跟交接文件）")
         elif a == "--compare":
             compare = next(it, "") or sys.exit(f"用法：{USAGE}（--compare 后面要跟并排图）")
@@ -181,7 +226,7 @@ def main(argv):
         else:
             rest.append(a)
     key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
-    path, rec = find_task(key, notes)
+    path, rec, nid = find_task(key, notes, nid)
     links, have = refs_of(rec.get("file") or path)
     if do_stitch:
         shots = [os.path.abspath(os.path.expanduser(p)) for p in rest]
@@ -201,7 +246,7 @@ def main(argv):
                   + cover_rules() + "\n全对再发，发时加 --cover-checked；照抄参考构图不算对。", file=sys.stderr)
         return
     if not rest:
-        pass_text(rec, path, verdict)
+        pass_text(rec, path, verdict, nid)
         return
     if len(rest) < 2 or not rest[-1].strip() or rest[-1].startswith("-"):
         sys.exit(f"用法：{USAGE}（至少一个附件，最后一个参数是给用户的话；只放行文字汇报就不带附件和话，只写 --verdict）")
@@ -209,6 +254,14 @@ def main(argv):
     bad = [p for p in shots if not os.path.isfile(p)]
     if bad:
         sys.exit(f"ws-pass: 附件不存在：{'、'.join(bad)}")
+    if "http://" in msg or "https://" in msg:
+        # 用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
+        docs = [p for p in shots if not p.lower().endswith(IMG + MEDIA)]
+        if docs:
+            print("ws-pass: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in docs), file=sys.stderr)
+            shots = [p for p in shots if p not in docs]
+            if not shots:
+                sys.exit("ws-pass: 附件都是文档、话里已有链接，不用发附件；只放行文字汇报就不带附件和话，只写 --verdict")
     if have or links:
         if not compare:
             sys.exit("ws-pass: 这件活的交接里有参考材料（" + "、".join((have + links)[:3]) + "），发给用户前要附一张「参考 | 成品」并排图："
@@ -229,6 +282,7 @@ def main(argv):
     if board.is_test(rec.get("task") or ""):
         print(f"ws-pass: 测试活（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
         return
+    close_text(rec, path, verdict, nid)
     args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
     for p in shots:
         args += ["--image" if p.lower().endswith(IMG) else "--file", p]

@@ -12,16 +12,59 @@
     "restartRequested": "Перезапуск запрошен. Вернитесь к ролям после запуска службы.",
     "settingsTitle": "Подключение и функции QQ",
     "settingsHint": "Изменения применяются после перезапуска. Сохранение не подтверждает соединение.",
+    "stateRestart": "Нужен перезапуск",
+    "stateRestartHint": "QQ есть в конфигурации, но этот процесс его не запускает: либо ещё не было перезапуска, либо этот пункт отключён. Перезапустите мост, чтобы попытаться подключиться.",
+    "stateOffline": "Перезапущен, нет связи",
+    "stateOfflineHint": "Мост запустил QQ, но OneBot не подключён. Проверьте ws_url, запущен ли NapCat и верен ли токен.",
+    "stateConnected": "Подключено",
+    "stateConnectedHint": "QQ подключён к OneBot и может отправлять и получать сообщения.",
     "httpURL": "HTTP-адрес OneBot (необязательно)",
     "keepToken": "Оставьте пустым, чтобы сохранить токен",
     "clearToken": "Очистить сохранённый токен",
     "sharedHint": "При включении группа использует общий диалог. Личная память не изолируется.",
+    "connection": "Подключение",
+    "groupBehavior": "Поведение в группах",
+    "contentSection": "Содержимое и безопасность",
+    "socialSection": "说说 и аватар",
+    "socialHint": "Оба действуют от имени этого аккаунта QQ и выключены, пока не включить их здесь.",
+    "allowFromReadonly": "Меняется в управлении доступом платформ проекта, не здесь.",
+    "splitBubbles": "Разбивать ответы по пустым строкам",
+    "splitBubblesHint": "По одному сообщению на абзац, разделённый пустой строкой. Ответы с блоком кода остаются одним сообщением; при сбое остальные не отправляются.",
+    "allowGroupsWith": "Разрешить других в группах с этими пользователями (необязательно)",
+    "allowGroupsWithPlaceholder": "ID QQ через запятую",
+    "allowGroupsWithHint": "Если задано, другие участники группы, где есть один из этих пользователей, допускаются. Личные чаты по-прежнему следуют списку разрешённых. Включайте только в доверенных группах: команды вроде /stop и /new тоже подчиняются этому.",
+    "commandAllowFrom": "Кто может отправлять команды с косой чертой (необязательно)",
+    "commandAllowFromPlaceholder": "ID QQ через запятую; пусто — по умолчанию",
+    "commandAllowFromHint": "Действует в группах и личных чатах для стандартных, своих и неизвестных команд. Обычный чат по-прежнему следует списку разрешённых; прав администратора не даёт.",
+    "saveImagesDir": "Куда сохранять полученные изображения (необязательно)",
+    "saveImagesDirPlaceholder": "/путь/к/изображениям",
+    "saveImagesDirHint": "Сохраняет исходные байты, включая GIF. Каталог обслуживаете вы; автоматической очистки нет.",
+    "allowQzone": "Читать, публиковать, заменять и удалять 说说 этого аккаунта",
+    "allowQzoneHint": "Использует расширение 说说 NapCat, а не спецификацию OneBot 11. Каждая запись спрашивает подтверждение, автоматической публикации по расписанию нет.",
+    "allowAvatar": "Менять аватар этого аккаунта",
+    "allowAvatarHint": "Использует set_qq_avatar NapCat. Аватар виден везде; перед сменой спрашивает подтверждение.",
     "unavailable": "Недоступно в этой версии",
     "capabilities": {
       "qq_voice_out": "Голосовые ответы недоступны.",
       "qq_command_allow_from": "Отдельного списка команд нет. Действуют настройки администраторов проекта.",
       "memory_import": "Для импорта памяти нужно уточнить источник и формат."
     }
+  },
+  "qqbot": {
+    "title": "Официальный QQ-бот",
+    "hint": "Официальный QQ Bot API (AppID + AppSecret). Это отдельный вход, не NapCat / OneBot выше; изменения применяются после перезапуска.",
+    "credentials": "Учётные данные",
+    "appIDSet": "AppID сохранён",
+    "stored": "Сохранено (не показывается)",
+    "missing": "Не сохранено",
+    "appIDReadonly": "AppID здесь не показывается и не меняется; если он изменился, добавьте нового бота.",
+    "keepSecret": "Оставьте пустым, чтобы сохранить secret",
+    "secretHint": "Secret не показывается даже замаскированным. Пустое поле сохраняет прежнее значение.",
+    "behavior": "Поведение",
+    "sandboxHint": "Песочница использует sandbox API и не общается с реальными пользователями QQ.",
+    "markdown": "Markdown-сообщения",
+    "markdownHint": "Нужно разрешение бота в консоли QQ Bot; без него сообщения уходят обычным текстом.",
+    "sharedHint": "При включении группа использует общий диалог. Личная память не изолируется."
   },
   "nav": {
     "addPlatform": "Добавить платформу",
@@ -41,7 +84,16 @@
     "wikiGalaxy": "Галактика wiki",
     "forum": "Форум памяти",
     "plugins": "Плагины",
-    "gate": "Шлюз"
+    "gate": "Шлюз",
+    "pet": "Питомец"
+  },
+  "plugins": {
+    "stateClientUi": "Клиентский UI-пакет",
+    "clientUiNote": "Предоставляется DSH; панель не может его отключить."
+  },
+  "roles": {
+    "title": "Управление ролями",
+    "all": "All"
   },
   "dashboard": {
     "title": "Панель",
@@ -51,7 +103,21 @@
     "projects": "Проекты",
     "bridgeAdapters": "Адаптеры моста",
     "noData": "Нет данных",
-    "recentSessions": "Недавние сессии"
+    "recentSessions": "Недавние сессии",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "Проекты",
@@ -325,7 +391,12 @@
     "slashHint": "Нажмите / для списка команд",
     "inputPlaceholder": "Введите сообщение или нажмите / для команд…",
     "commands": "Команды",
-    "defaultSession": "Веб-сессия"
+    "defaultSession": "Веб-сессия",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You",
+    "sessionCount": "Сессий: {{count}}",
+    "empty": "Сообщений пока нет"
   },
   "cmd": {
     "search": "Поиск команд…",
@@ -394,7 +465,11 @@
     "logLevel": "Уровень логов",
     "appearance": "Оформление",
     "theme": "Тема",
-    "themeHint": "По умолчанию — жёлто-белая. Сохраняется только в этом браузере, кнопку «Сохранить» нажимать не нужно."
+    "themeHint": "По умолчанию — жёлто-белая. Сохраняется только в этом браузере, кнопку «Сохранить» нажимать не нужно.",
+    "avatarStyle": "Аватары ролей",
+    "avatarStyleHint": "Меняется и в веб-панели, и в плагине DSH; сохраняется сразу.",
+    "avatarStyleBrand": "Значки производителей",
+    "avatarStyleChibi": "Чиби-набор"
   },
   "globalProviders": {
     "title": "Провайдеры",
@@ -546,5 +621,17 @@
     "presetPastYear": "Последний год",
     "presetPastYearHint": "Диапазон по умолчанию: год до сегодняшнего дня (запрос охватывает не более года)",
     "tokenBreakdown": "Структура"
+  },
+  "navGroup": {
+    "main": "Основное",
+    "collab": "Совместная работа",
+    "connect": "Подключения",
+    "extend": "Расширения",
+    "settings": "Настройки"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

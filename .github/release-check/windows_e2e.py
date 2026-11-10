@@ -172,6 +172,21 @@ class Bothouse:
         self.log.close()
 
 
+def sockets_on(base, why):
+    """Who holds sockets on the panel port when a request is reset (#1392): netstat rows and their processes."""
+    port = urllib.parse.urlsplit(base).port
+    print(f"diagnose: {why}; sockets on :{port}", flush=True)
+    if os.name != "nt":
+        return
+    rows = [l for l in subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True).stdout.splitlines()
+            if f":{port} " in l]
+    for l in rows:
+        print("  |", l.strip(), flush=True)
+    for pid in sorted({l.split()[-1] for l in rows if l.split()[-1].isdigit()} - {"0"}):
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
+        print(f"  pid {pid}:", out.strip()[:200], flush=True)
+
+
 class Panel:
     """The management server as the browser sees it: token login, then the /dsh cookie."""
 
@@ -179,6 +194,7 @@ class Panel:
         self.base = f"http://localhost:{port}"
         self.token = token
         self.dsh_log = ""
+        self.released = False  # the previous release (--old, before the upgrade), not the build under test
         self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def req(self, method, path, body=None, auth=True, timeout=T_HTTP, raw=False):
@@ -189,6 +205,7 @@ class Panel:
         if auth:
             r.add_header("Authorization", "Bearer " + self.token)
         r.add_header("Origin", self.base)
+        t0 = time.time()
         try:
             with self.op.open(r, timeout=timeout) as resp:
                 b = resp.read()
@@ -196,6 +213,9 @@ class Panel:
         except urllib.error.HTTPError as e:
             b = e.read()
             return e.code, e.headers, (b if raw else b.decode("utf-8", "replace"))
+        except ConnectionResetError:
+            sockets_on(self.base, f"{method} {path} reset after {time.time() - t0:.1f}s")
+            raise
 
     def api(self, method, path, body=None, timeout=T_HTTP):
         code, _, text = self.req(method, "/api/v1" + path, body, timeout=timeout)
@@ -272,12 +292,16 @@ def open_dsh(p, label):
     """POST /setup/dsh/open the way the wizard does (DSHSetup.tsx open): ask again every second while it
     answers starting:true (since v0.1.51 it does not wait for a cold dsh web)."""
     end = time.time() + T_OPEN
-    web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    # A release before the #1392 fix never reads this "{}"; urllib's "Connection: close" then ends in a
+    # TCP RST that Windows answers by dropping the reply (WinError 10054). The browser keeps the
+    # connection alive, so its users never see it: send that release no body, as nothing reads it.
+    body = None if p.released else {}
+    web = p.api("POST", "/setup/dsh/open", body, timeout=T_OPEN)
     while web.get("starting"):
         if time.time() > end:
             fail(f"{label}: dsh web still starting after {T_OPEN}s: {web.get('log_tail', '')[:300]}")
         time.sleep(1)  # the wizard's own interval (DSHSetup.tsx)
-        web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+        web = p.api("POST", "/setup/dsh/open", body, timeout=T_OPEN)
     p.dsh_log = web.get("log") or p.dsh_log
     return web
 
@@ -406,6 +430,7 @@ bh, p = start(1)
 try:
     install(p)
     if args.old:
+        p.released = True
         configure_and_open(p, "previous release")
         names1, _ = roster(p, "previous release")
     else:

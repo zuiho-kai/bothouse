@@ -229,6 +229,10 @@ type DisplayConfig struct {
 	ShowContextIndicator *bool   `toml:"show_context_indicator"` // whether [ctx: ~N%] suffix is shown; default true
 	ReplyFooter          *bool   `toml:"reply_footer"`           // whether Codex-like footer is shown; default true
 	HideAgentFooter      *bool   `toml:"hide_agent_footer"`      // strip agent-emitted model/token footer lines; default false
+	// AvatarStyle: which built-in role avatar set the web panel and DSH plugin show.
+	// "brand" (default, each vendor's own icon) or "chibi" (the built-in Q-style set);
+	// user 2026-11-10 「默认是各家原本的图标，内置另一套娘化图标」.
+	AvatarStyle string `toml:"avatar_style,omitempty"`
 }
 
 // StreamPreviewConfig controls real-time streaming preview in IM.
@@ -325,7 +329,7 @@ type SpeechConfig struct {
 // TTSConfig configures text-to-speech output (mirrors SpeechConfig style).
 type TTSConfig struct {
 	Enabled      bool                      `toml:"enabled"`
-	Provider     string                    `toml:"provider"`      // "qwen" | "openai" | "minimax" | "mimo" | "espeak" | "pico" | "edge"
+	Provider     string                    `toml:"provider"`      // "qwen" | "openai" | "minimax" | "mimo" | "espeak" | "pico" | "edge" | "local"
 	Voice        string                    `toml:"voice"`         // default voice name (for edge: "zh-CN-XiaoxiaoNeural"; for pico: "zh-CN"; for espeak: "zh"; for mimo: "mimo_default" / "冰糖" / "Mia" …)
 	VoiceID      string                    `toml:"voice_id"`      // alias for voice; useful for MiniMax voice IDs
 	Speed        float64                   `toml:"speed"`         // optional speaking speed multiplier; 0 = provider default
@@ -354,6 +358,13 @@ type TTSConfig struct {
 		BaseURL string `toml:"base_url"`
 		Model   string `toml:"model"`
 	} `toml:"mimo"`
+	// Local is a self-hosted voice-clone service (e.g. ~/ai-voice role_tts_server.py
+	// running IndexTTS 2.0): POST {base_url}/audio/speech {"input","voice"} → mp3.
+	// voice names a reference clip on the server, so set it per project under [tts.agents.<name>].
+	Local struct {
+		BaseURL        string `toml:"base_url"`        // default http://127.0.0.1:8790/v1
+		TimeoutSeconds int    `toml:"timeout_seconds"` // default 180
+	} `toml:"local"`
 }
 
 // TTSAgentConfig overrides global [tts] synthesis parameters for one project.
@@ -600,6 +611,16 @@ type ProjectConfig struct {
 	// GateBurstWindowMs controls idle text coalescing; <= 0 keeps 1500ms.
 	// Attachment bursts retain the default delays.
 	GateBurstWindowMs int `toml:"gate_burst_window_ms,omitempty"`
+	// GateSenderSilence holds one person's ordinary idle messages until that person stops typing
+	// for GateSenderSilenceMs (default 1500ms), at most GateSenderSilenceMaxMs from the first one
+	// (default 6000ms), so three lines in a row become one turn. Only plain typed messages from
+	// one person, not @-ing this bot or a teammate and not a DM, are held. nil = on for a QQ
+	// project, off elsewhere (user 2026-11-09 asked for it in QQ).
+	// Defaults follow 石英 (cneicy/astrbot_plugin_shrink, AGPL, idea only) and user 2026-11-09
+	// 「同一个人连发几条合并成一次回」.
+	GateSenderSilence    *bool `toml:"gate_sender_silence,omitempty"`
+	GateSenderSilenceMs  int   `toml:"gate_sender_silence_ms,omitempty"`
+	GateSenderSilenceMax int   `toml:"gate_sender_silence_max_ms,omitempty"`
 	// GateFallback is the action used when the gate errors or times out (default "reply";
 	// sub agents that only speak when @-ed should use "context").
 	GateFallback string `toml:"gate_fallback,omitempty"`
@@ -638,6 +659,11 @@ type ProjectConfig struct {
 	// MemoryIndex (maomao fork): the bot's own wiki MEMORY.md, put before the first turn of every fresh agent
 	// context (Claude Code loads its auto-memory itself; Codex/Antigravity bots need this). Empty disables it.
 	MemoryIndex string `toml:"memory_index,omitempty"`
+	// TeamExperienceDir: folder in the team wiki where personal agents' 【经验】 lines are filed, one page
+	// each, and searched when the lead hands them work (core/team_experience.go). Empty disables it.
+	TeamExperienceDir string `toml:"team_experience_dir,omitempty"`
+	// PersonalAgents: bot user IDs of teammates' own agents (own computer, own quota) in the team server.
+	PersonalAgents []string `toml:"personal_agents,omitempty"`
 	// LifePage: a file saying how the role is now (pocket, home, promises, work at hand), put before every turn
 	// sent to the agent, cron included; the agent edits it in place. Created from a template when missing.
 	// Empty disables it.
@@ -654,6 +680,11 @@ type ProjectConfig struct {
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
 	// 「默认给我们频道建立工作区1」); set team_workspaces = false to opt out. Ignored on non-lead projects.
 	TeamWorkspaces *bool `toml:"team_workspaces,omitempty"`
+	// MemberWorkspaces (#1355): every real person who joins gets a personal directory and may authorize
+	// GitHub with their own device code; gh / git run through `bothouse member` with the credentials of
+	// whoever started the turn (core/member_workspace.go). Off unless the owner agreed to it (wizard
+	// team page or `bothouse member enable`).
+	MemberWorkspaces *bool `toml:"member_workspaces,omitempty"`
 	// DispatchMode (team mode C): how this project's bot hands out work — "solo" (only its own
 	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
 	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
@@ -785,12 +816,33 @@ func (p ProjectConfig) InjectSenderEnabled() bool {
 	return false
 }
 
+// MemberWorkspacesEnabled reports member_workspaces (default off).
+func (p ProjectConfig) MemberWorkspacesEnabled() bool {
+	return p.MemberWorkspaces != nil && *p.MemberWorkspaces
+}
+
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }
 
 func (p ProjectConfig) GateLocalEnabled() bool {
 	return p.GateLocal == nil || *p.GateLocal
+}
+
+// GateSenderSilenceEnabled reports whether one person's consecutive idle messages are merged
+// into one turn after they fall quiet (gate_sender_silence). Unset = on for a QQ project (user
+// 2026-11-09 asked for it there: people type several short lines in a row) and off elsewhere (the
+// wait adds latency to every plain message and no other channel asked for it).
+func (p ProjectConfig) GateSenderSilenceEnabled() bool {
+	if p.GateSenderSilence != nil {
+		return *p.GateSenderSilence
+	}
+	for _, pc := range p.ActivePlatforms() {
+		if pc.Type == "qq" {
+			return true
+		}
+	}
+	return false
 }
 
 type AgentConfig struct {
@@ -3717,6 +3769,7 @@ type ProjectSettingsUpdate struct {
 	ReplyFooter          *bool
 	InjectSender         *bool
 	PlatformAllowFrom    map[string]string
+	MemberWorkspaces     *bool
 }
 
 // SaveProjectSettings persists project-level settings and the global language to config.toml.
@@ -3745,6 +3798,10 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 		}
 		proj := &cfg.Projects[i]
 		oldName := proj.TeamName
+		if update.MemberWorkspaces != nil {
+			v := *update.MemberWorkspaces
+			proj.MemberWorkspaces = &v
+		}
 		if update.DisplayName != nil {
 			proj.TeamName = strings.TrimSpace(*update.DisplayName)
 		}
@@ -4107,7 +4164,11 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 }
 
 func writeRawConfig(content string) error {
-	content = formatTOML(content)
+	return writeConfigText(formatTOML(content))
+}
+
+// writeConfigText atomically persists exact bytes, without formatting the file.
+func writeConfigText(content string) error {
 	dir := filepath.Dir(ConfigPath)
 	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
@@ -4198,6 +4259,7 @@ func GetGlobalSettings() map[string]any {
 		result["max_turn_time_mins"] = 0
 	}
 	// Display
+	result["avatar_style"] = NormalizeAvatarStyle(cfg.Display.AvatarStyle)
 	if cfg.Display.ThinkingMessages != nil {
 		result["thinking_messages"] = *cfg.Display.ThinkingMessages
 	} else {
@@ -4294,6 +4356,21 @@ type GlobalSettingsUpdate struct {
 	ReviewComplexRole  *string `json:"review_complex_role"`
 	ReviewSimpleModel  *string `json:"review_simple_model"`
 	ReviewComplexModel *string `json:"review_complex_model"`
+	AvatarStyle        *string `json:"avatar_style"`
+}
+
+// Avatar sets for Display.AvatarStyle.
+const (
+	AvatarStyleBrand = "brand" // each vendor's own icon (default)
+	AvatarStyleChibi = "chibi" // built-in Q-style set
+)
+
+// NormalizeAvatarStyle maps an empty or unknown value to the default brand set.
+func NormalizeAvatarStyle(v string) string {
+	if strings.TrimSpace(v) == AvatarStyleChibi {
+		return AvatarStyleChibi
+	}
+	return AvatarStyleBrand
 }
 
 // SaveGlobalSettings persists global settings to config.toml.
@@ -4361,6 +4438,13 @@ func SaveGlobalSettings(u GlobalSettingsUpdate) error {
 	}
 	if u.ReviewComplexModel != nil {
 		cfg.TeamReview.ComplexModel = strings.TrimSpace(*u.ReviewComplexModel)
+	}
+	if u.AvatarStyle != nil {
+		v := strings.TrimSpace(*u.AvatarStyle)
+		if v != AvatarStyleBrand && v != AvatarStyleChibi {
+			return fmt.Errorf("avatar_style must be %q or %q", AvatarStyleBrand, AvatarStyleChibi)
+		}
+		cfg.Display.AvatarStyle = v
 	}
 	return saveConfig(cfg)
 }

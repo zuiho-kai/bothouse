@@ -75,6 +75,40 @@ func (e *Engine) watchOwns(p Platform, owner string) bool {
 	return ok && watchOwnerID(m.SelfMention()) == watchOwnerID(owner)
 }
 
+// watchOwnerIsPerson: owner is a person, not a bot (a claim that named the user who asked for
+// the task). The watch talks only to the roles working a task: a person is never mentioned to
+// hand back or carry on, and their posts are not the task's progress. A person is an admin_from
+// id, or an author whose posts in chat (or the workspace) are not a bot's; a role of this bridge
+// and an id never seen there count as bots (the mention stays as before).
+func (e *Engine) watchOwnerIsPerson(plat, chat, owner string) bool {
+	id := watchOwnerID(owner)
+	if id == "" || e.watchTarget(plat+":", owner) != nil {
+		return false
+	}
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, a := range strings.Split(af, ",") {
+		if strings.TrimSpace(a) == id {
+			return true
+		}
+	}
+	r, ok := e.lookupReadyPlatform(plat).(ChannelHistoryReader)
+	if !ok {
+		return false
+	}
+	msgs, err := r.ChannelHistory(teamChannelID(chat), "", watchHistoryLimit)
+	if err != nil {
+		return false
+	}
+	for _, m := range msgs {
+		if m.AuthorID == id {
+			return !m.IsBot
+		}
+	}
+	return false
+}
+
 func (e *Engine) watchTarget(key, owner string) *Engine {
 	plat, _, _ := strings.Cut(key, ":")
 	for _, x := range e.watchEngines() {
@@ -266,13 +300,15 @@ func watchStale(h TeamHandoff, key string, items []teamTaskBoardItem, now time.T
 	return strings.TrimSpace(h.Owner) == "" || h.Board == 0 && handoffBoardID(key, h, items) == 0
 }
 
-// watchAnsweredInChat: a 【接】 turn in a chat channel that ran no tool, names no board item and
-// has no board item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」
-// and G哥「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an
-// escalation). A chat channel hands real work to a workspace, which is a tool call; a turn that
-// ran nothing has nothing in flight for a wake to continue.
-func watchAnsweredInChat(worked, inWorkspace, boardActive bool, boardID int) bool {
-	return !worked && !inWorkspace && !boardActive && boardID == 0
+// watchAnsweredInChat: a 【接】 turn in a chat channel that names no board item and has no board
+// item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」 and G哥
+// 「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an escalation).
+// A chat channel hands real work to a workspace with ws-handoff, and that work is watched there
+// under its board item; what was not handed off was answered in the chat. Running a tool does not
+// change that (#1407, 11-10 agentm: 鲸鱼娘 ran `bothouse model list` to answer 「在+模型名」, the
+// watch took the tool call for work in flight and woke her three times with 「还没交出去…交工作区」).
+func watchAnsweredInChat(inWorkspace, boardActive bool, boardID int) bool {
+	return !inWorkspace && !boardActive && boardID == 0
 }
 
 // watchBlankTitle: what is left of the first line after 【接】 cannot name the work: empty, or the
@@ -288,13 +324,28 @@ func (e *Engine) exitHeadlineBounced(key, body string) bool {
 	return id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit
 }
 
+// watchBoardClosedWords: the closing words a board status may start with, the same set as
+// board.py's CLOSED_RE (#497, user 2026-10-28 定过这五个词).
+var watchBoardClosedWords = []string{"已验收", "验收通过", "已收口", "已完成", "已结束"}
+
+// watchBoardClosedDone: board.py's CLOSED_RE also takes "done" but only as a whole word
+// (\bdone\b), case-insensitively.
+var watchBoardClosedDone = regexp.MustCompile(`(?i)^done\b`)
+
+// watchBoardClosed: whether a board item is really finished. It must *start* with a closing word
+// after leading spaces — the same prefix anchored test as board.py's CLOSED_RE (#497), not a
+// substring anywhere in the status. 2026-11-09 the substring test read 「在做：脱敏实现…已完成，
+// PR 已开」 as closed twice: the idle watch stopped watching and reconcileTeamWorkspaces freed the
+// workspace at 15:07:04, killing the session (signal:killed at 15:07:05) while the author was
+// still working. Statuses such as 「交回待验收」 or 「等待用户拍板」 never start with these words.
 func watchBoardClosed(it teamTaskBoardItem) bool {
-	for _, status := range []string{"已验收", "验收通过", "已收口", "已完成", "已结束"} {
-		if strings.Contains(it.Status, status) {
+	status := strings.TrimSpace(it.Status)
+	for _, word := range watchBoardClosedWords {
+		if strings.HasPrefix(status, word) {
 			return true
 		}
 	}
-	return false
+	return watchBoardClosedDone.MatchString(status)
 }
 
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
@@ -443,7 +494,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	// registration. Register unfinished work from this terminal event only.
 	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
 	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil &&
-		!watchAnsweredInChat(worked, inWorkspace, boardActive, boardID) {
+		!watchAnsweredInChat(inWorkspace, boardActive, boardID) {
 		if !boardActive && watchBlankTitle(title) {
 			title = e.i18n.T(MsgWatchUntitledAccept) // real work with a bare 【接】 is still watched (PR #1194 review)
 		}
@@ -651,10 +702,14 @@ func (e *Engine) sendIdleWake(a idleAssignment, h TeamHandoff) bool {
 	// A bot's own post cannot wake it, and a post mentioning itself only adds
 	// noise: the sole bot wakes locally. When another bot posts the mention,
 	// the platform supplies the normal user turn.
+	msg := MsgWatchResume
+	if _, inWorkspace := e.WorkspaceParent(a.key); !inWorkspace {
+		msg = MsgWatchChatHandoff // a chat channel's work goes to a workspace, not finished in the chat
+	}
 	if sender == e {
-		e.wakeWatchRole(a.key, sender.i18n.Tf(MsgWatchResume, h.Title), h.Title)
+		e.wakeWatchRole(a.key, sender.i18n.Tf(msg, h.Title), h.Title)
 	} else {
-		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(MsgWatchResume, h.Title))
+		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(msg, h.Title))
 		if err := w.send(p, a.key, text); err != nil {
 			slog.Warn("idle watch: wake post failed", "error", err)
 		}
@@ -684,8 +739,8 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		return
 	}
 	who := watchMention(plat, h.Owner)
-	if sender.watchOwns(p, h.Owner) {
-		who = sender.DisplayName() // a lone bot does not mention itself
+	if sender.watchOwns(p, h.Owner) || e.watchOwnerIsPerson(plat, h.Chat, h.Owner) {
+		who = sender.DisplayName() // a lone bot does not mention itself; a person is never mentioned
 	} else if msg == MsgWatchFailEscalate {
 		// Naming, not mentioning: a mention would start one more failing turn.
 		if t := e.watchTarget(key, h.Owner); t != nil {

@@ -43,9 +43,9 @@ func TestDSHPanelExportContract(t *testing.T) {
 			}
 			w.WriteHeader(code)
 			fmt.Fprint(w, state)
-		case "/api/rooms/42/messages":
+		case "/collab/api/rooms/42/messages":
 			fmt.Fprint(w, `{"messages":[{"author_kind":"user","name":"User","text":" hello ","created_at":1700000000}]}`)
-		case "/api/rooms/43/messages":
+		case "/collab/api/rooms/43/messages":
 			if partial {
 				http.Error(w, "secret launch", 403)
 			} else {
@@ -221,7 +221,9 @@ func TestDSHPanelRecoversMalformedHostState(t *testing.T) {
 			if err := os.WriteFile(dshWebStatePath(), []byte(input), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(dshWebLogPath(DSHWeb{}), []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0600); err != nil {
+			// The heal reads the candidate list, not one fixed path (#261): the first candidate is
+			// the log the state file records, so the announcement has to go to the log it will read.
+			if err := os.WriteFile(dshWebLogPaths(DSHWeb{})[0], []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			m := NewManagementServer(0, "", nil)

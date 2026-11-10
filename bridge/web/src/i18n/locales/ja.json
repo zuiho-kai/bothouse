@@ -12,16 +12,59 @@
     "restartRequested": "再起動を要求しました。起動後にロール一覧に戻ってください。",
     "settingsTitle": "QQ 接続と機能",
     "settingsHint": "変更は再起動後に反映されます。設定の保存は接続確認ではありません。",
+    "stateRestart": "再起動待ち",
+    "stateRestartHint": "設定には QQ がありますが、このプロセスは起動していません。まだ再起動していないか、この項目が無効になっている可能性があります。再起動すると接続を試みます。",
+    "stateOffline": "再起動済み・未接続",
+    "stateOfflineHint": "QQ は起動しましたが OneBot に接続できていません。ws_url、NapCat の稼働、トークンを確認してください。",
+    "stateConnected": "接続済み",
+    "stateConnectedHint": "QQ は OneBot に接続済みで、送受信できます。",
     "httpURL": "OneBot HTTP URL（任意）",
     "keepToken": "空欄で保存済みトークンを保持",
     "clearToken": "保存済みトークンを消去",
     "sharedHint": "有効にするとグループ全員が会話を共有します。個人の記憶は分離されません。",
+    "connection": "接続",
+    "groupBehavior": "グループの動作",
+    "contentSection": "内容と安全性",
+    "socialSection": "説説とアバター",
+    "socialHint": "どちらもこの QQ アカウント本人として作用します。ここで有効にしない限り無効です。",
+    "allowFromReadonly": "プロジェクトのプラットフォームアクセス制御で変更します。ここは読み取り専用です。",
+    "splitBubbles": "空行で複数のメッセージに分割",
+    "splitBubblesHint": "空行で区切った段落ごとに1通ずつ送ります。コードフェンスを含む返信は1通のままです。途中で失敗すると以降は送られません。",
+    "allowGroupsWith": "これらのユーザーがいるグループを許可（任意）",
+    "allowGroupsWithPlaceholder": "QQ ID、カンマ区切り",
+    "allowGroupsWithHint": "設定すると、指定ユーザーがいるグループの他のメンバーも通します。個人チャットは上の許可ユーザーに従います。信頼できるグループでのみ有効にしてください。/stop や /new などの通常コマンドもこれに従います。",
+    "commandAllowFrom": "スラッシュコマンドを送れる人（任意）",
+    "commandAllowFromPlaceholder": "QQ ID、カンマ区切り。空欄なら既定のまま",
+    "commandAllowFromHint": "グループと個人チャットの両方で、標準・カスタム・未知のコマンドに適用されます。通常の会話は許可ユーザーに従い、管理者権限は付与しません。",
+    "saveImagesDir": "受信画像の保存先（任意）",
+    "saveImagesDirPlaceholder": "/path/to/received-images",
+    "saveImagesDirHint": "GIF を含む元のバイト列を保存します。このディレクトリは利用者が管理し、自動削除はありません。",
+    "allowQzone": "このアカウント自身の説説の閲覧・投稿・置換・削除を許可",
+    "allowQzoneHint": "OneBot 11 仕様ではなく NapCat の拡張を使います。書き込みのたびに確認し、定期的な自動投稿はしません。",
+    "allowAvatar": "このアカウント自身のアバター変更を許可",
+    "allowAvatarHint": "NapCat の set_qq_avatar を使います。アバターはどこでも見えるため、変更前に確認します。",
     "unavailable": "このバージョンでは利用不可",
     "capabilities": {
       "qq_voice_out": "音声返信は利用できません。",
       "qq_command_allow_from": "個別のコマンド許可リストは利用できません。プロジェクトの管理者設定が適用されます。",
       "memory_import": "記憶のインポートは、ソースと形式の確認待ちです。"
     }
+  },
+  "qqbot": {
+    "title": "QQ 公式ボット",
+    "hint": "QQ 公式 Bot API（AppID + AppSecret）。上の NapCat / OneBot とは別の入口です。変更は再起動後に反映されます。",
+    "credentials": "認証情報",
+    "appIDSet": "AppID は保存済み",
+    "stored": "保存済み（表示しません）",
+    "missing": "未保存",
+    "appIDReadonly": "AppID はここでは表示も変更もしません。変わったら Bot を追加し直してください。",
+    "keepSecret": "空欄で保存済み Secret を保持",
+    "secretHint": "Secret はマスクも含めて一切表示しません。空欄は保存済みの値を保持します。",
+    "behavior": "動作",
+    "sandboxHint": "サンドボックスはサンドボックス API に接続し、実際の QQ ユーザーとは話しません。",
+    "markdown": "Markdown メッセージ",
+    "markdownHint": "QQ ボット管理画面でこの Bot に権限が必要です。無い場合はプレーンテキストで届きます。",
+    "sharedHint": "有効にするとグループ全員が 1 つの会話を共有します。個人の記憶は分離されません。"
   },
   "nav": {
     "addPlatform": "プラットフォーム追加",
@@ -41,7 +84,16 @@
     "wikiGalaxy": "Wiki ギャラクシー",
     "forum": "記憶フォーラム",
     "plugins": "プラグイン",
-    "gate": "ゲート"
+    "gate": "ゲート",
+    "pet": "デスクトップペット"
+  },
+  "plugins": {
+    "stateClientUi": "クライアント UI パッケージ",
+    "clientUiNote": "DSH が提供するもので、このパネルからは切り替えられません。"
+  },
+  "roles": {
+    "title": "ロール管理",
+    "all": "All"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -51,7 +103,21 @@
     "projects": "プロジェクト",
     "bridgeAdapters": "ブリッジアダプター",
     "noData": "データがありません",
-    "recentSessions": "最近のセッション"
+    "recentSessions": "最近のセッション",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "プロジェクト",
@@ -344,7 +410,12 @@
     "slashHint": "/ を押して利用可能なコマンドを表示",
     "inputPlaceholder": "メッセージを入力、または / でコマンド...",
     "commands": "コマンド",
-    "defaultSession": "Web セッション"
+    "defaultSession": "Web セッション",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You",
+    "sessionCount": "{{count}} 件のセッション",
+    "empty": "まだメッセージはありません"
   },
   "cmd": {
     "search": "コマンドを検索...",
@@ -413,7 +484,11 @@
     "logLevel": "ログレベル",
     "appearance": "外観",
     "theme": "テーマ",
-    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。"
+    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。",
+    "avatarStyle": "ロールのアバター",
+    "avatarStyleHint": "Web パネルと DSH プラグインの両方に反映され、すぐ保存されます。",
+    "avatarStyleBrand": "各社の公式アイコン",
+    "avatarStyleChibi": "擬人化アバター"
   },
   "globalProviders": {
     "title": "プロバイダー管理",
@@ -588,5 +663,17 @@
     "presetPastYear": "過去1年",
     "presetPastYearHint": "既定の範囲：今日までの1年間（1回の照会は最大1年）",
     "tokenBreakdown": "内訳"
+  },
+  "navGroup": {
+    "main": "よく使う",
+    "collab": "コラボ",
+    "connect": "接続",
+    "extend": "拡張",
+    "settings": "設定"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

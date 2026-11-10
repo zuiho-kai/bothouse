@@ -470,7 +470,7 @@ class Quotes(Fake):
     def test_bad_quotes(self):
         s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
         o = self.root / "-Users-zuiho" / "bbbbbbbb-2.jsonl"
-        jsonl(s, [claude("要不要这样"), user("可以，以后关闭这种傻逼审核，默认开"), user("都做，ABCD 全改，c小心")])
+        jsonl(s, [claude("要不要这样"), user("可以，以后关闭这种傻逼审核，默认开"), user("都做，ABCD 全改，c小心"), user("c小心")])
         jsonl(o, [user("早先说过的话")])
         old = lambda: "页面里已有「旧引文」"
         bad = I.bad_quotes(["用户说「以后关闭这种傻逼审核，默认开」", "用户：「C 小心」",  # exact / case+space
@@ -503,6 +503,114 @@ class Quotes(Fake):
         self.assertIn("removed line(s)", I.LOG.read_text())  # the pywebview line: logged, not rejected
         self.page("tooling/a.md", "- 用户说「就这样定了」\n- 正式包是 `pywebview`（0.2.8.beta1）。")
         self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+
+    def test_claim_needs_users_quote(self):
+        """Every new fact carries a quote the user really said (2026-11-09:
+        「记忆条目得带原话逐字依据，再核一遍，我现在只记来源和时间，太松」)."""
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2，换头像不用等代办"), claude("好，那就改成两个"), user("好")])
+        (self.w / "tooling" / "README.md").write_text("- [a](a.md) — x\n")
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+
+        def check(body):
+            self.page("tooling/a.md", body)
+            try:
+                return I.page_checks("ingest aaaaaaaa", [s])
+            finally:
+                self.page("tooling/a.md", "- 旧行")
+
+        self.assertEqual(check("- 用户要求头像限额改成 2，换头像不用等代办：「头像限额改成 2，换头像不用等代办」\n"), "")
+        self.assertIn("没有引文", check("- 头像限额是 2，换头像不用等代办（来源：会话 aaaaaaaa）。\n"))
+        self.assertIn("没有引文", check("- 用户要求头像限额改成 2，换头像不用等代办。\n"))  # source+time only
+        self.assertIn("不是这条会话里用户的话",
+                      check("- 用户要求头像限额改成 2：「头像限额改成 3，换头像不用等代办」\n"))  # one char changed
+        self.assertIn("不是这条会话里用户的话", check("- 用户说「好，那就改成两个」\n"))  # the bot's words
+        self.assertIn("没有引文", check("- 用户同意把头像限额降到 2（G哥提，用户同意按此修）。\n"))
+        self.assertEqual(check("- 用户这条要求的原话与场景见 [[user-requests]]。\n"), "")  # pointer to the words
+        self.assertEqual(check("- 用户说「好」（用户原话），限额两个。\n"), "")  # 「好」is the whole message
+
+    def test_every_fact_needs_quote(self):
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2，换头像不用等代办"), claude("好，那就改成两个")])
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        for line in ("- 头像限额是 2（来源：会话 aaaaaaaa）。",
+                     "- 头像限额是 2，依据：「好，那就改成两个」。",
+                     "- 头像限额是 2，依据：「头像限额改成 3」。"):
+            with self.subTest(line=line):
+                self.page("tooling/a.md", line)
+                self.assertTrue(I.page_checks("ingest aaaaaaaa", [s]))
+        self.page("tooling/a.md", "- 头像限额是 2，依据：「头像限额改成 2」。")
+        self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+
+    def test_pointer_must_be_whole_line(self):
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2")])
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        for line in ("- 用户要求头像限额为 2，原话见 [[user-requests]]。",
+                     "- 头像限额为 2，原话见 [[user-requests]]。",
+                     "- 原话说明头像限额为 2，见 [[user-requests]]。"):
+            with self.subTest(line=line):
+                self.page("tooling/a.md", line)
+                self.assertIn("没有引文", I.page_checks("ingest aaaaaaaa", [s]))
+        for line in ("- 原话见 [[user-requests]]。", "- 用户这条要求的原话与场景见 [[user-requests]]。"):
+            with self.subTest(pointer=line):
+                self.page("tooling/a.md", line)
+                self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+
+    def test_quote_length_uses_normalized_words(self):
+        for q in ("好！！！", "好 ， ！", "c 小心！", "好…呀"):
+            with self.subTest(quote=q):
+                self.assertFalse(I.quote_ok(q, I.heard(["好吧c小心呀"])))
+        self.assertFalse(I.quote_ok("好…呀", I.heard(["好"])))
+        self.assertFalse(I.quote_ok("…！！！", I.heard(["好"])))
+        self.assertTrue(I.quote_ok("好！！！", I.heard(["发送人：某人\n好"])))
+        self.assertTrue(I.quote_ok("c 小心！", I.heard(["c小心"])))
+        self.assertTrue(I.quote_ok("头像…两个", I.heard(["头像限额改成两个"])))
+
+    def test_body_key_value_requires_quote(self):
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2")])
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        for body in ("限额: 2", "limit: 2", "---\n限额: 2\n---"):
+            with self.subTest(body=body):
+                self.page("tooling/a.md", body)
+                self.assertIn("没有引文", I.page_checks("ingest aaaaaaaa", [s]))
+        self.page("tooling/a.md", "限额: 2，依据：「头像限额改成 2」。")
+        self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+
+    def test_index_link_with_fact_requires_quote(self):
+        s = self.root / "-Users-zuiho" / "aaaaaaaa-1.jsonl"
+        jsonl(s, [user("头像限额改成 2")])
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        for path in ("tooling/a.md", "tooling/README.md", "MEMORY.md"):
+            with self.subTest(path=path):
+                p = self.w / path
+                before = p.read_text() if p.exists() else ""
+                p.write_text(before + "\n- [配置](config.md)：头像限额已改为2。\n")
+                self.assertIn("没有引文", I.page_checks("ingest aaaaaaaa", [s]))
+                p.write_text(before + "\n- [配置](config.md)：头像限额已改为2，依据：「头像限额改成 2」。\n")
+                self.assertEqual(I.page_checks("ingest aaaaaaaa", [s]), "")
+                p.write_text(before)
+
+    def test_structural_exemptions_use_file_context(self):
+        self.page("tooling/a.md", "- 旧行")
+        self.commit("base")
+        self.page("tooling/a.md", "# 配置\n## 限额\n- 旧行")
+        p = self.w / "tooling/a.md"
+        p.write_text(p.read_text().replace("description: d", "description: 配置索引"))
+        (self.w / "tooling/README.md").write_text("# 目录\n- [配置](a.md)\n")
+        with (self.w / "MEMORY.md").open("a") as f:
+            f.write("- [配置](tooling/a.md)\n")
+        self.assertEqual(I.page_checks("ingest", []), "")
+        for body in ("#限额改为2", "- [配置](config.md)", "```markdown\n# 限额改为2\n```"):
+            with self.subTest(body=body):
+                self.page("tooling/a.md", body)
+                self.assertIn("没有引文", I.page_checks("ingest", []))
 
     def test_lost_lines(self):
         gone = I.lost_lines(["- 正式包是 PyInstaller + `pywebview`（0.2.8.beta1）", "- 端口 8080 改了", "- 全是中文"],
@@ -1341,7 +1449,7 @@ class SplitFixes(DomainBase):
 
 
 class Alerts(Fake):
-    """User 2026-10-28 「理论上日志整理报错我要感知」: SKIPPED and a reason rejecting 3 batches in a row send one
+    """User 2026-10-28 「理论上日志整理报错我要感知」: retained failures and a reason rejecting 3 batches in a row send one
     plain-text `cc-connect send` (mocked here), once per reason a day."""
     LINT = "lint: tooling/README.md:12: link to missing page x.md"
 
@@ -1369,14 +1477,15 @@ class Alerts(Fake):
         I.ingest_batches(I.state(), [{"id": f"sess{self.n:04d}x", "end": 1, "path": "x.jsonl", "title": "t", "cwd": "/",
                                        "date": "2026-10-28", "text": "USER: hi"}], ["haiku"])
 
-    def test_skipped_sends_once_a_day(self):
+    def test_retained_failures_send_once_a_day(self):
         I.MAX_FAILS = 1
         self.batch(self.LINT)
         self.batch(self.LINT)
-        skipped = [c for c in self.sent if "放弃了 1 个会话" in c[-1]]
-        self.assertEqual(len(skipped), 1, self.sent)
-        self.assertEqual(skipped[0][:6], ["cc-connect", "send", "-p", "maomao", "-s", "discord:1"])
-        self.assertIn("link to missing page", skipped[0][-1])
+        retained = [c for c in self.sent if "保留了 1 个待办" in c[-1]]
+        self.assertEqual(len(retained), 1, self.sent)
+        self.assertEqual(retained[0][:6], ["cc-connect", "send", "-p", "maomao", "-s", "discord:1"])
+        self.assertIn("link to missing page", retained[0][-1])
+        self.assertEqual(I.state().execute("select count(*) from ingested").fetchone(), (0,))
 
     def test_same_reason_three_batches_sends_once(self):
         self.batch(self.LINT)

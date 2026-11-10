@@ -27,6 +27,47 @@ gate_burst_window_ms = 300
 	}
 }
 
+// gate_sender_silence defaults on for a QQ project (user 2026-11-09 asked for it there) and off
+// elsewhere; its two windows decode as written, and leaving them out keeps the 1.5s / 6s defaults
+// in core.
+func TestProjectGateSenderSilenceDecode(t *testing.T) {
+	var cfg Config
+	_, err := toml.Decode(`
+[[projects]]
+name = "quiet"
+[[projects]]
+name = "im"
+gate_sender_silence = true
+gate_sender_silence_ms = 800
+gate_sender_silence_max_ms = 4000
+[[projects]]
+name = "qqgpt"
+[[projects.platforms]]
+type = "qq"
+[[projects]]
+name = "qq-off"
+gate_sender_silence = false
+[[projects.platforms]]
+type = "qq"
+`, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Projects[0].GateSenderSilenceEnabled() {
+		t.Fatal("gate_sender_silence must be off for a non-QQ project that does not set it")
+	}
+	im := cfg.Projects[1]
+	if !im.GateSenderSilenceEnabled() || im.GateSenderSilenceMs != 800 || im.GateSenderSilenceMax != 4000 {
+		t.Fatalf("decoded = %+v", im)
+	}
+	if !cfg.Projects[2].GateSenderSilenceEnabled() {
+		t.Fatal("a QQ project should merge bursts by default")
+	}
+	if cfg.Projects[3].GateSenderSilenceEnabled() {
+		t.Fatal("gate_sender_silence = false must turn it off for a QQ project too")
+	}
+}
+
 func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name    string

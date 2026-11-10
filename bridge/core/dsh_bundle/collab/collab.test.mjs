@@ -1692,7 +1692,7 @@ test('team rules: a prompt carries only the room mode section (PR #138 review 4,
   const mixed = promptText(room, member, []);
   for (const text of [solo, team, mixed]) {
     assert.match(text, /\[团队模式规矩/);
-    assert.match(text, /只做一件活，满 4 个就排队/);
+    assert.match(text, /只做一件活，没空的就新开/);
     assert.match(text, /拿不准的设定，不要自己定：在工作区用 \[ask\] 转到聊天频道问用户/);
     assert.match(text, /主角色拿不准也一样/);
     assert.match(text, /写的人不验收自己的活/);
@@ -1945,7 +1945,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
 
 test('avatars: members pick one of the five built-in avatars; it survives reload and reaches memberView', async () => {
   const { AVATARS, avatarImage } = await import('./avatars.mjs');
-  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi']);
+  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok']);
   for (const slug of AVATARS) assert.equal(avatarImage(slug).subarray(1, 4).toString(), 'PNG');
   assert.equal(avatarImage('../plugin'), undefined);
   const hub = makeHub();
@@ -2001,11 +2001,24 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
   await tick();
   assert.deepEqual([seen, planned], [[], []], 'drafts and edits reach no agent');
   assert.deepEqual(pushed.map(e => e.message?.text), ['半句', '半句话'], 'browsers see the draft and its edit');
+  // #1355: one message keeps its id for life; `draft` says whether it has settled and
+  // `revision` moves with the stored text, so a consumer replaces one bubble instead of
+  // appending a new one per streaming edit.
+  assert.deepEqual(pushed.map(e => [e.message.id, e.message.draft === true]), [[d.id, true], [d.id, true]], 'draft frames keep one id and stay marked as drafts');
+  const [draftRev, editRev] = pushed.map(e => e.message.revision);
+  assert.equal(typeof draftRev, 'number');
+  assert.ok(editRev >= draftRev, 'an edit never moves revision backwards');
   const row = hub.commit(d.id, 'role', 'ju', '整句话 @鲸鱼娘', true);
   assert.equal(row.id, d.id);
   assert.equal(row.text, '整句话 @鲸鱼娘');
   assert.equal(row.from_turn, 1);
   assert.equal(row.draft, 0);
+  const committed = pushed.at(-1).message;
+  assert.equal(pushed.length, 3, 'the commit is forwarded too');
+  assert.equal(committed.id, d.id);
+  assert.equal('draft' in committed, false, 'a committed reply is no longer a draft');
+  assert.ok(committed.revision >= editRev, 'the commit moves revision on');
+  assert.notEqual(committed.text, pushed[1].message.text);
   await tick();
   assert.deepEqual([seen, planned], [['整句话 @鲸鱼娘'], ['整句话 @鲸鱼娘']]);
   store.close();

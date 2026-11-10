@@ -53,7 +53,8 @@ type WizardRequest struct {
 	// defaults to routing through the primary role (core/gate_proc.go).
 	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
-	// Not given = the owner of each bot's Discord application (looked up with the token).
+	// Not given = "*" when a server is picked (allow_guilds pins the bots to it), else the owner of
+	// each bot's Discord application (looked up with the token).
 	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
 	AllowFrom *string `json:"allow_from,omitempty"`
 	// Wiki: the models of the memory wiki's work (core/setup_wiki.go); nil or "" = keep. With a wiki
@@ -63,7 +64,11 @@ type WizardRequest struct {
 	// settings (core/global_hooks.go), so terminal sessions get them. nil = keep; off by default.
 	GlobalMemory *bool `json:"global_memory,omitempty"`
 	GlobalGuards *bool `json:"global_guards,omitempty"`
-	DryRun       bool  `json:"dry_run,omitempty"`
+	// MemberWorkspaces: a team's roles give every person who joins a personal directory and their own
+	// GitHub authorization (member_workspaces, core/member_workspace.go). The team page recommends it,
+	// unchecked; only a team (two or more roles) gets it. nil = leave.
+	MemberWorkspaces *bool `json:"member_workspaces,omitempty"`
+	DryRun           bool  `json:"dry_run,omitempty"`
 	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
@@ -83,9 +88,16 @@ type WizardGate struct {
 	Mode    string `json:"mode,omitempty"`
 }
 
+// gateOn: the local gate runs. "addressed" keeps it on too (#1318): the gate is not only who answers but every
+// turn's context — the wiki, lessons, each sender's 懂你 page, the task board (gate.go withTurnBlocksRef). With
+// no jev its /decide answers 503 and only the @-mentioned role answers (noModelFallback), which is what
+// "addressed" means; group_reply_all=false keeps unaddressed messages out at the platform. The panel's
+// addressed mode already kept the gate (gate_settings.go); only the wizard turned it off.
 func (r WizardRequest) gateOn() bool {
-	return r.Gate == nil || r.Gate.Enabled && r.Gate.Mode != "addressed"
+	return r.Gate == nil || r.Gate.Enabled
 }
+
+func (r WizardRequest) addressed() bool { return r.Gate != nil && r.Gate.Mode == "addressed" }
 
 type WizardFeishu struct {
 	AppID        string `json:"app_id"`
@@ -118,6 +130,9 @@ type WizardProvider struct {
 	BaseURL string `json:"base_url,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
 	Model   string `json:"model,omitempty"`
+	// MaxTokens: the output cap written into DSH's llm-deepseek (0 = the wizard's own default, dshDefaultMaxTokens).
+	// Only DSH uses it: the other CLIs take their token limits from their own settings.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 type WizardJev struct {
@@ -223,6 +238,8 @@ type WizardProjectWrite struct {
 	AdminFrom string
 	// AllPlatformsOfType: Options go into every platform of PlatformType, none is created (gate page).
 	AllPlatformsOfType bool
+	// MemberWorkspaces: member_workspaces (#1355); nil = leave.
+	MemberWorkspaces *bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -867,6 +884,17 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				"qq: allow_from needs your own QQ number (comma-separated for several); * lets anyone command the bot")))
 		}
 		req.QQ.AllowFrom = a
+		// http_url is optional (file sending); a wrong one would only fail at start, so it is
+		// checked here the way the QQ panel checks it (#710 件 5).
+		if req.QQ.HTTPURL = strings.TrimSpace(req.QQ.HTTPURL); req.QQ.HTTPURL != "" {
+			u, err := url.Parse(req.QQ.HTTPURL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fail("qq", errors.New(tr3(req.Language,
+					"qq：http_url 要填 http:// 或 https:// 开头的地址（不用文件发送就留空）",
+					"qq：http_url は http:// または https:// で始まる必要があります（ファイル送信を使わないなら空欄）",
+					"qq: http_url must start with http:// or https:// (leave it empty if file sending is not used)")))
+			}
+		}
 	}
 	// cloud_web: the platform's address and bot token; empty ones come from the hub this wizard started
 	cwBase, cwToken := "", ""
@@ -1001,7 +1029,22 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			res.Roles = append(res.Roles, rr)
 		} else if isQQ {
 			// the same connection the bot makes: a wrong address or token writes nothing
-			t := TestQQ(ctx, req.QQ.WSURL, req.QQ.Token, req.Language)
+			token := req.QQ.Token
+			if req.QQ.ClearToken {
+				token = ""
+			} else if token == "" {
+				project := r.ReuseProject
+				if project == "" {
+					project = sameQQAccount(snap, req.QQ.WSURL, nil)
+				}
+				raw, _ := snap.projectPlatform(project, "qq")["token"].(string)
+				var missing, empty string
+				token, missing, empty = expandEnvRefs(raw)
+				if missing != "" || empty != "" {
+					return fail(step+" qq", errors.New("saved NapCat token environment variable is missing or empty"))
+				}
+			}
+			t := TestQQ(ctx, req.QQ.WSURL, token, req.Language)
 			if t.Code != "ok" {
 				r := fail(step+" qq", errors.New(t.Message+"; "+t.Fix))
 				r.QQ = &t
@@ -1094,20 +1137,24 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 	}
 
-	// allow_from: what the user gave, else the bots' owners. Nothing known (owner lookup failed,
-	// or an empty value given) fails closed: an empty allow_from would let anyone in the server
-	// command this computer, so the bots get AllowFromUnset (matches no one) and a blocking warning.
+	// allow_from: what the user gave. Not given on Discord with a server picked: "*", everyone in
+	// that server (allow_guilds below pins the bots to it), so a team channel answers its other
+	// members too, not only the owner; the owners still get admin_from. No server known: the bots'
+	// owners. Nothing known (owner lookup failed, or an empty value given) fails closed: the bots
+	// get AllowFromUnset (matches no one) and a blocking warning.
 	allowFrom := strings.Join(owners, ",")
 	req.botOwners = allowFrom
 	if req.AllowFrom != nil {
 		allowFrom = strings.Join(csvSet(*req.AllowFrom), ",")
+	} else if req.Platform == "discord" && guildID != "" {
+		allowFrom = "*"
 	}
 	if req.Platform == "discord" {
 		res.AllowFrom = allowFrom
 		if allowFrom == "" {
 			allowFrom = AllowFromUnset
 		}
-		if allowFrom == "*" { // the user's explicit choice: allowed, but say what it means
+		if allowFrom == "*" { // allowed, but say what it means and how to narrow it
 			res.Warnings = append(res.Warnings, warnAllowFromEveryone(req.Language))
 		}
 	}
@@ -1830,7 +1877,15 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 
 	for _, r := range pl.roles {
 		pw := WizardProjectWrite{Name: r.project, AgentType: r.AgentType, PlatformType: req.Platform, Options: map[string]any{}}
+		if req.MemberWorkspaces != nil && len(pl.team) > 1 {
+			pw.MemberWorkspaces = req.MemberWorkspaces
+		}
 		ex, exists := s.project(r.project)
+		// A QQ connection-only rerun must not fill in defaults in the existing agent table.
+		keepQQAgent := req.Platform == "qq" && r.reused && r.agentAsked == ""
+		if keepQQAgent {
+			pw.AgentType = ""
+		}
 		if !r.reused {
 			pw.WorkDir = r.workDir
 			pw.NameCustomized = r.NameCustomized
@@ -1838,7 +1893,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				pw.DisplayName = r.Name
 			}
 		}
-		if r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
+		if !keepQQAgent && r.agentCmd != "" && (!exists || ex.AgentCmd == "") {
 			pw.AgentCmd = r.agentCmd
 		}
 		if r.Provider != nil && r.AgentType != "dsh" { // DSH has no cc-connect provider: dshRoleLaunch + the role's overlay
@@ -1927,10 +1982,22 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 		} else if req.Platform == "qq" {
 			q := req.QQ
-			// token always written: "" removes an old one, so what was tested is what is saved
-			pw.Options["ws_url"], pw.Options["allow_from"], pw.Options["token"] = q.WSURL, q.AllowFrom, q.Token
+			pw.Options["ws_url"], pw.Options["allow_from"] = q.WSURL, q.AllowFrom
+			// Match the QQ settings panel: blank keeps the stored token, including environment references.
+			if q.ClearToken {
+				pw.Options["token"] = ""
+			} else if q.Token != "" {
+				pw.Options["token"] = q.Token
+			}
+			// http_url is optional and the wizard does not test it: an empty field leaves the value
+			// saved from the panel alone (#710 件 5).
 			if q.HTTPURL != "" {
 				pw.Options["http_url"] = q.HTTPURL
+			}
+			// share_session_in_channel: only "on" is written, so rerunning the wizard never turns a
+			// group's shared session off behind the owner's back (see WizardQQ).
+			if q.ShareSessionInChannel != nil && *q.ShareSessionInChannel {
+				pw.Options["share_session_in_channel"] = true
 			}
 		} else {
 			f := req.Feishu
@@ -2304,6 +2371,9 @@ func validateWizardProvider(p WizardProvider) error {
 	}
 	if v.Model == "" && strings.TrimSpace(p.Model) == "" {
 		return fmt.Errorf("%s: model is required", p.Vendor)
+	}
+	if p.MaxTokens < 0 {
+		return fmt.Errorf("%s: max_tokens must be positive", p.Vendor)
 	}
 	return nil
 }

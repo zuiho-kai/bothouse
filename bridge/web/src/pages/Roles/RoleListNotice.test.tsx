@@ -101,23 +101,18 @@ describe('RoleList platform notice badge', () => {
     await render(<RoleList />);
 
     // 1. Should not have the expanded amber text
-    const amberNotice = container.querySelector('p.text-amber-600');
+    const amberNotice = container.querySelector('[data-testid="role-platform-notice"]');
     expect(amberNotice).toBeNull();
 
     // 2. Should render the compact badge inside the platform line next to discord
-    const platformDd = container.querySelector('dd.flex');
+    const platformDd = container.querySelector('[data-testid="role-platforms"]');
     expect(platformDd).toBeTruthy();
     const badge = platformDd?.querySelector('button');
     expect(badge).toBeTruthy();
     expect(badge?.textContent).toContain('未开成员事件');
 
-    // Should not render extra notice block outside dl
-    const cardArticle = container.querySelector('article');
-    const dl = cardArticle?.querySelector('dl');
-    const elementsAfterDl = dl?.nextElementSibling;
-    // Next sibling should be action buttons (or nothing if dsh), not a notice
-    expect(elementsAfterDl?.querySelector('p.text-amber-600')).toBeFalsy();
-    expect(elementsAfterDl?.textContent).not.toContain('未开成员事件');
+    // Should not render an extra notice block for the members-intent case
+    expect(container.querySelectorAll('[data-testid="role-platform-notice"]').length).toBe(0);
 
     // 3. Should have a tooltip with description and developer portal link
     const tooltip = container.querySelector('[role="tooltip"]');
@@ -166,7 +161,7 @@ describe('RoleList platform notice badge', () => {
     await render(<RoleList />);
 
     // 1. Amber notice must be present
-    const amberNotice = container.querySelector('p.text-amber-600');
+    const amberNotice = container.querySelector('[data-testid="role-platform-notice"]');
     expect(amberNotice).toBeTruthy();
     expect(amberNotice?.textContent).toContain('Message Content Intent');
 
@@ -203,7 +198,7 @@ describe('RoleList platform notice badge', () => {
 
     await render(<RoleList />);
 
-    expect(container.querySelector('p.text-amber-600')).toBeNull();
+    expect(container.querySelector('[data-testid="role-platform-notice"]')).toBeNull();
     expect(container.querySelector('[role="tooltip"]')).toBeNull();
     const badge = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('未开成员事件')

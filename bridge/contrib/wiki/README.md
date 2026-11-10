@@ -67,6 +67,20 @@
    cc-connect cron add $S --cron "30 5 * * *" --exec "GATE_DEFAULT_BOT=<主角色项目> GATE_WIKI=~/wiki python3 -I ~/.bothouse/gate/score_night.py" --desc "记忆论坛夜间结算"
    ```
 
+`--pending` 每次只整理一个现有大小的批次，剩余会话和运行中收到的关闭提示留到下一次触发；
+超长单条记录按已验收片段续办，全部片段通过后才推进会话字节偏移。LOSSLESS 等验收照常执行。
+切段后的助手／工具内容也必须验收；所有整理入口达到既有失败次数时只告警、保留待办，不再跳过内容。
+持续失败的首批会留待重试和处理告警，不能靠伪造已读位置让队列前进。
+cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使用独立进程组，Windows 使用现有的
+`taskkill /T /F`。升级前已经脱离父进程的整理任务不会被新版自动接管，须先核对归属并保存现场再恢复。
+
+调度器把本次任务的原有绝对期限通过运行环境 `CC_JOB_DEADLINE` 传给 shell 子进程；没有时限的任务不继承旧期限。
+角色导出、整理模型与 Git 同步共用剩余预算，不从每个子步骤重新计时，不修改任务的 `timeout_mins`。
+整理在硬期限前预留现有的两秒子进程收尾等待；模型超时后先回收本次调用的后代，再走原有失败回滚。
+预算耗尽不增加模型失败次数，不推进未接受内容的偏移或片段检查点；已接受的本地提交保留，未推送的下轮再同步。
+`WIKI_STOP_AT` 保持批次之间停止的软期限语义，不打断正在执行的一批；硬期限仍由调度器约束。
+这些运行环境由现有入口传递，无需另配定时任务或延长 90 分钟时限。
+
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。
 模型引擎（haiku / sonnet / codex …）在向导里选，或在 config.json 的 `*_engine` 键改。

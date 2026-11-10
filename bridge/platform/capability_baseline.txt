@@ -2,7 +2,6 @@
 # 接上一个就删一行；新缺口不许加在这里，接上或在 CAPABILITIES.md 写不支持原因。
 AgentReplyMarker feishu
 AsyncRecoverablePlatform feishu
-AudioSender discord
 BoardRemover feishu
 CardNavigable discord
 CardRefresher discord

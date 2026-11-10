@@ -287,6 +287,8 @@ export const zh = {
   removeAttachment: '移除附件',
   attachmentsTooLarge: '附件太大：一条消息合计不能超过 {limit}',
   messageTooLarge: '消息太长：一条消息不能超过 {limit}',
+  /** #1445: the text cap counts characters, so the number reads with its unit in the panel language. */
+  charCount: '{count} 字符',
   attachmentTooLarge: '「{name}」{size}，超过单个文件上限 {limit}',
   attachmentUploading: '上传中',
   attachmentQueued: '等待上传',
@@ -667,6 +669,7 @@ export const en: Record<keyof typeof zh, string> = {
   removeAttachment: 'Remove attachment',
   attachmentsTooLarge: 'Attachments too large: one message can carry at most {limit} in total',
   messageTooLarge: 'Message too long: one message can hold at most {limit}',
+  charCount: '{count} characters',
   attachmentTooLarge: '"{name}" is {size}, over the per-file limit of {limit}',
   attachmentUploading: 'Uploading',
   attachmentQueued: 'Waiting to upload',

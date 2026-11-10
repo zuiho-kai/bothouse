@@ -96,7 +96,7 @@ function ElementRenderer({ el, onAction }: { el: any; onAction?: (v: string) => 
             className={cn(
               'px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150',
               btn.btn_type === 'primary'
-                ? 'bg-accent text-black hover:bg-accent-dim shadow-sm'
+                ? 'bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim shadow-sm'
                 : btn.btn_type === 'danger'
                 ? 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700',
@@ -213,7 +213,7 @@ export default function CommandResultPanel({ result, onClose, onCardAction }: Pr
                     <button
                       key={j}
                       onClick={() => onCardAction?.(btn.data)}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-accent text-black hover:bg-accent-dim shadow-sm transition-all duration-150"
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim shadow-sm transition-all duration-150"
                     >
                       {btn.text}
                     </button>

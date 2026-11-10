@@ -162,6 +162,10 @@ jobs:
         if: ${{ !cancelled() }}
       - run: python3 -I contrib/wiki/test_rolewiki.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/wiki/llmwiki/test_pending_round.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/wiki/llmwiki/test_deadline.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_global_hooks.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/tools/test_watchvid_adapters.py
@@ -179,6 +183,8 @@ jobs:
       - run: python3 -I contrib/gate/test_gate_context.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_addressee.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_gate_lead_project.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_lead_playbook.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
@@ -323,7 +329,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Windows Go tests
-        run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*)$' ./core ./cmd/cc-connect
+        run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
       - name: gate Windows compat
         if: ${{ !cancelled() }}
         run: python -I contrib/gate/test_windows_compat.py

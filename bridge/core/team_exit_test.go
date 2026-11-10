@@ -89,7 +89,7 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", false)
 	exitSay(e, p, exitWSKey, "ws1", "开始")
 	prompt := inputPrompt(t, a)
-	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "预计超过 10 分钟", "谁接活谁这一轮写交接（副手被直接点名也一样）", "跑 `ws-handoff <交接文件> \"<任务>\"`", "不算开子 agent", "/collab/api/rooms/{聊天频道 id}/workspaces", "只做一件活，满 4 个就排队", "多步骤的活先开公开任务卡", "同团队同平台成员", "在新频道默认可派", "团队外成员才请用户发", "`/bind <队友项目名>`", "机器人自己发的 /bind 不生效", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "[ask]", "[report]", "参照的现成实现", "「无（新建）」", "写明底分支", "改公共接口的那份先合", "每 10 分钟前推一次半成品分支", "「自验：」", "「类别：」", "方向、花钱、需要用户看的成品、权限确认", "在发布包上验", "审过的 PR 当场合", "整点只做发版、重启和真实入口验证", "真实配置的副本（去掉密钥）", "回到改前配置"} {
+	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "预计超过 10 分钟", "谁接活谁这一轮写交接（副手被直接点名也一样）", "跑 `ws-handoff <交接文件> \"<任务>\"`", "不算开子 agent", "/collab/api/rooms/{聊天频道 id}/workspaces", "只做一件活，没空的就新开", "多步骤自己做的活先开公开任务卡", "同团队同平台成员", "在新频道默认可派", "团队外成员才请用户发", "`/bind <队友项目名>`", "机器人自己发的 /bind 不生效", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "[ask]", "[report]", "参照的现成实现", "「无（新建）」", "写明底分支", "改公共接口的那份先合", "每 10 分钟前推一次半成品分支", "「自验：」", "「类别：」", "方向、花钱、需要用户看的成品、权限确认", "在发布包上验", "审过的 PR 当场合", "整点只做发版、重启和真实入口验证", "真实配置的副本（去掉密钥）", "回到改前配置"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("team rules missing %q in %q", want, prompt)
 		}
@@ -178,7 +178,7 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
 	inputWait(t, func() bool { return e.heldReportFor(7) != nil })
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("held report reached the chat before the lead passed it: %q", got)

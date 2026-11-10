@@ -314,7 +314,7 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 	writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, What: "verify", Chat: "room:main", WS: "room:ws1", Dispatcher: "lead"})
 	e.markExitReported(46)
 	// No installed scripts: the delivered final report must still end the execution session.
-	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46)
+	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46, "")
 	if e.sessions.ActiveSessionID("room:ws1") == old.ID {
 		t.Fatal("board write failure kept the old workspace session")
 	}
@@ -552,5 +552,34 @@ func TestTaskReviewRelayTrustedBinding(t *testing.T) {
 				t.Fatal("fresh review still blocked by old rejection")
 			}
 		})
+	}
+}
+
+// A one-role team: the lead dispatched to its own workspace (Who 「工作区1kimi」), so the only role
+// is the author. It still reviews, in a fresh side session, instead of the handback waiting forever.
+// 来源：2026-11-10 agentm #15 #26 #27 #29 #35 一直「已交回待验收」。
+func TestTaskReviewOneRoleTeamAuthorReviewsInSideSession(t *testing.T) {
+	e := NewEngine("kimi", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetTeam(t.TempDir(), "kimi", true)
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := NewTimerScheduler(store)
+	defer ts.Stop()
+	e.SetTimerScheduler(ts)
+	now := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
+	it := teamTaskBoardItem{ID: 29, What: "review PR", Who: "工作区1kimi", Chat: "room:main", Reviewer: "kimi", Dispatcher: "kimi", ReturnedAt: now}
+	writeReviewBoard(t, e, it)
+	w := newHandoffWatch(e)
+	w.engines = func() []*Engine { return []*Engine{e} }
+	w.reconcileTaskReviews(now, false)
+	jobs := store.List()
+	if len(jobs) != 1 || jobs[0].Project != "kimi" || jobs[0].SessionKey != "room:main" {
+		t.Fatalf("one-role team: want one review for the lead, got %+v", jobs)
+	}
+	if !jobs[0].UsesNewSessionPerRun() {
+		t.Fatal("the author must review in a fresh side session, not the session that dispatched the work")
 	}
 }

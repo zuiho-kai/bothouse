@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/chenhg5/cc-connect/agent/antigravityhook"
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -37,6 +38,7 @@ type antigravitySession struct {
 	alive            atomic.Bool
 	permissionBridge *agyPermissionBridge
 	cachedUsage      func() *core.UsageReport // account quota view from the Agent (maomao fork)
+	inbox            *antigravityhook.Inbox   // mid-turn input (#1317, midturn.go); nil = off
 
 	// maomao fork: the agy process of the running turn, so CancelTurn can stop
 	// just that turn (one process per turn) and keep the conversation.
@@ -188,6 +190,7 @@ func (as *antigravitySession) launch(t agyTurn) error {
 		}
 	}()
 
+	as.openInbox()
 	slog.Debug("antigravitySession: launching", "resume", isResume, "retry", t.retried, "args", core.RedactArgs(args))
 	cmd := exec.CommandContext(ctx, as.cmd, args...)
 	cmd.WaitDelay = 1 * time.Second
@@ -537,6 +540,12 @@ func (as *antigravitySession) Alive() bool {
 func (as *antigravitySession) Close() error {
 	as.alive.Store(false)
 	as.cancel()
+	if as.inbox != nil {
+		if n := as.inbox.Pending(); n > 0 {
+			slog.Warn("antigravity: session closed with undelivered mid-turn messages", "count", n)
+		}
+		_ = as.inbox.Remove()
+	}
 	if as.permissionBridge != nil {
 		as.permissionBridge.Close()
 	}
@@ -567,6 +576,18 @@ func (s *antigravitySession) CachedUsage() *core.UsageReport {
 }
 
 func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
+	fullPrompt, saved := as.attachRefs(prompt, images, files)
+	fullPrompt = taskLifecycleInstructions + fullPrompt
+	// A model pinned in cmd cannot be switched from the bridge; do not tell the
+	// model it can.
+	if !hasModelFlag(as.extraArgs) {
+		fullPrompt = core.PrependModelSwitchInstructions(fullPrompt)
+	}
+	return fullPrompt, saved
+}
+
+// attachRefs saves images and files into the workspace and appends their paths to prompt.
+func (as *antigravitySession) attachRefs(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
 	// Save images and files into the workspace
 	attachDir := filepath.Join(as.workDir, ".cc-connect", "attachments")
 	if (len(images) > 0 || len(files) > 0) && os.MkdirAll(attachDir, 0o755) != nil {
@@ -616,12 +637,6 @@ func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAt
 			fullPrompt = "Please analyze the attached file(s)."
 		}
 		fullPrompt += "\n\n[Attached files saved at: " + strings.Join(fileRefs, ", ") + "]"
-	}
-	fullPrompt = taskLifecycleInstructions + fullPrompt
-	// A model pinned in cmd cannot be switched from the bridge; do not tell the
-	// model it can.
-	if !hasModelFlag(as.extraArgs) {
-		fullPrompt = core.PrependModelSwitchInstructions(fullPrompt)
 	}
 	return fullPrompt, append(imageRefs, fileRefs...)
 }

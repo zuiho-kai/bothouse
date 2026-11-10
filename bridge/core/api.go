@@ -76,9 +76,16 @@ type SendRequest struct {
 	// DM (maomao fork): send to the private chat with the user in admin_from instead of
 	// SessionKey; the server opens or reuses that chat first.
 	DM bool `json:"dm,omitempty"`
+	// DMTo (with DM): the user to message instead of the owner (#1352); must be in the server.
+	DMTo string `json:"dm_to,omitempty"`
+	// FromSession (with DM): the caller's own session (CC_SESSION_KEY), used to see who started the
+	// running turn and which server it is in. Not a send target.
+	FromSession string `json:"from_session,omitempty"`
 	// SessionFromEnv: the CLI filled SessionKey from its own session (no -s). A workspace's
 	// images/files then go to the chat channel that owns the workspace (sendTargetForAttachments).
 	SessionFromEnv bool `json:"session_from_env,omitempty"`
+	// Experience: append the related team lessons and the hand-back rule (team_experience.go).
+	Experience bool `json:"experience,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -130,6 +137,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
+	s.mux.HandleFunc("/member", s.handleMember) // `bothouse member`: personal dirs and own GitHub auth (member_workspace.go)
 	s.mux.HandleFunc("/wake", s.handleWake) // run one turn from a hook/script (api_wake.go)
 	s.mux.HandleFunc("/stop-blocked", s.handleStopBlocked) // a Stop hook blocked a reply draft (api_stop_draft.go)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
@@ -328,17 +336,30 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "native reply requires text and an explicit conversation without cwd or dm", http.StatusBadRequest)
 		return
 	}
+	dmUserID, dmNote := "", ""
 	if req.DM {
 		if workDir != "" {
 			http.Error(w, "--dm cannot be combined with --cwd", http.StatusBadRequest)
 			return
 		}
-		key, err := engine.OpenDMSession()
+		key, user, err := engine.OpenDMSessionFor(req.FromSession, req.DMTo)
+		dmUserID = user
+		if err != nil && engine.isDMRefused(err) {
+			key, err, dmNote = "", nil, "refused-at-open"
+		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		req.SessionKey = key
+	}
+	if req.Experience {
+		msg, err := engine.WithExperience(req.Message)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Message = msg
 	}
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey = engine.sendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
@@ -354,7 +375,28 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			apiJSON(w, http.StatusAccepted, d)
 			return
 		}
-		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID}); err != nil {
+		var err error
+		if dmNote == "refused-at-open" {
+			err, dmNote = errDMRefusedAtOpen, ""
+		} else {
+			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID})
+		}
+		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
+			// #1352: the person does not accept DMs from server members. Same person, no settings change:
+			// a private thread in the conversation's channel that only they (and moderators) can see.
+			key, _, terr := engine.dmFallbackThread(req.FromSession, dmUserID)
+			if terr != nil {
+				http.Error(w, fmt.Sprintf("--dm: %s does not accept direct messages from server members (Discord refused the DM), "+
+					"and a private thread could not be opened either (%v). Nothing was sent. Do not ask them to change their privacy settings; "+
+					"tell them in the chat that the private message could not be delivered, without the private content, "+
+					"and let them do the private step themselves (for example run the login in their own terminal).", dmUserID, terr), http.StatusBadRequest)
+				return
+			}
+			req.SessionKey = key
+			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{})
+			dmNote = "The DM was refused (this person does not accept DMs from server members), so it was sent in a private thread only they and server moderators can see."
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -381,8 +423,15 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if dmNote != "" {
+		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "note": dmNote})
+		return
+	}
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// errDMRefusedAtOpen: the platform refused even opening the DM channel (Discord 50007 on create).
+var errDMRefusedAtOpen = errors.New("the DM was refused")
 
 func (s *APIServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()

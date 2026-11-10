@@ -59,6 +59,79 @@ func TestPluginSpecRefusesWhatRegistryCannotName(t *testing.T) {
 	}
 }
 
+// #1431: a local path is read the same on every host. The panel runs on Mac, Linux and Windows, and
+// the person typing `C:\…` means a path there even though this build can be tested anywhere; so the
+// table below asserts Windows shapes on a Mac run too, with no runtime.GOOS branch.
+func TestPluginSpecReadsWindowsPathsOnEveryHost(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec string
+		want string // pluginKindPath or pluginKindRegistry
+	}{
+		{"posixAbsolute", "/abs/mac", pluginKindPath},
+		{"windowsBackslash", `C:\abs\win`, pluginKindPath},
+		{"windowsForwardSlash", "C:/abs/win", pluginKindPath},
+		{"uncShare", `\\srv\share\x`, pluginKindPath},
+		{"registryName", "bothouse-dsh", pluginKindRegistry},
+		{"scopedRegistryName", "@scope/name", pluginKindRegistry},
+		{"linkPrefix", "link:C:/abs/win", pluginKindPath},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parsePluginSpec(tc.spec)
+			if err != nil {
+				t.Fatalf("parse %q: %v", tc.spec, err)
+			}
+			if got.Kind != tc.want {
+				t.Fatalf("parse %q kind = %q, want %q", tc.spec, got.Kind, tc.want)
+			}
+			if got.Raw != tc.spec {
+				t.Fatalf("parse %q kept raw %q", tc.spec, got.Raw)
+			}
+		})
+	}
+}
+
+// #1431: a refusal must point at the right thing. A spec that looks like a path but was not read as an
+// absolute one says so; a spec that is simply not a package name still says that.
+func TestPluginSpecRefusalNamesWhatItSaw(t *testing.T) {
+	pathish := []string{`C:relative\win`, "C:relative", "C:", "setup/x"}
+	for _, spec := range pathish {
+		_, err := parsePluginSpec(spec)
+		if err == nil {
+			t.Fatalf("parse %q = accepted, want a refusal", spec)
+		}
+		if !strings.Contains(err.Error(), "本地路径") {
+			t.Fatalf("parse %q error %q, want it to say the spec looks like a local path", spec, err)
+		}
+	}
+	for _, spec := range []string{"Demo-Bundle", ".hidden", "@scope", "demo bundle"} {
+		_, err := parsePluginSpec(spec)
+		if err == nil {
+			t.Fatalf("parse %q = accepted, want a refusal", spec)
+		}
+		if strings.Contains(err.Error(), "本地路径") {
+			t.Fatalf("parse %q error %q, want the package-name refusal (it is not a path)", spec, err)
+		}
+	}
+}
+
+// #1431: the route must classify a Windows path as a non-registry source, not as a bad package name.
+// The page's install box and the inspect endpoint both go through parsePluginSpec, so this pins the
+// answer the person actually sees: either "turn on allow_non_registry", or an install attempt.
+func TestPluginsInstallReadsWindowsPathAsNonRegistry(t *testing.T) {
+	writePluginsProfile(t)
+	_, ts, _ := testManagementServer(t, "tok")
+	for _, spec := range []string{`C:\Users\ASUS\plugins\x`, "C:/Users/ASUS/plugins/x", `\\srv\share\x`} {
+		r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": spec})
+		if r.OK || !strings.Contains(r.Error, "allow_non_registry") {
+			t.Fatalf("%q: ok=%v error=%q, want the non-registry switch named", spec, r.OK, r.Error)
+		}
+		if strings.Contains(r.Error, "包名只能是") {
+			t.Fatalf("%q: error=%q, still reads a Windows path as a package name", spec, r.Error)
+		}
+	}
+}
+
 func TestPluginsInstallRefusesNonRegistryByDefault(t *testing.T) {
 	writePluginsProfile(t)
 	_, ts, _ := testManagementServer(t, "tok")
@@ -76,9 +149,66 @@ func TestPluginsInstallAllowsNonRegistryWhenSwitchedOn(t *testing.T) {
 	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
 	t.Setenv("PATH", t.TempDir()) // no dsh: the spec passes parsing and stops at the real check
 	noAppDSH(t)
-	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "git+https://host/x"})
+	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{
+		"spec": "git+https://host/x", "confirm_source": pluginNonRegistryConfirm,
+	})
 	if r.OK || !strings.Contains(r.Error, "npm i -g @deepseek-ai/dsh") {
 		t.Fatalf("ok=%v error=%q, want it to get past the source check", r.OK, r.Error)
+	}
+}
+
+// TestPluginsInstallNonRegistryNeedsTheConfirmation pins the second confirmation as a backend rule,
+// not a page decoration: with allow_non_registry on, an API call that skips the page's checkbox must
+// still be refused. Before this, `curl` with the token could install a git URL the person never
+// acknowledged; the page's tick was never part of the request.
+func TestPluginsInstallNonRegistryNeedsTheConfirmation(t *testing.T) {
+	writePluginsProfile(t)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
+	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "git+https://host/x"})
+	if r.OK || !strings.Contains(r.Error, "确认") {
+		t.Fatalf("ok=%v error=%q, want a 400 naming the missing confirmation", r.OK, r.Error)
+	}
+}
+
+// TestPluginsInstallNonRegistryRejectsAVagueConfirmation: true/1/"1"/"yes" are what an API call
+// sends when it is guessing, and accepting any truthy value would put the one-click path back.
+func TestPluginsInstallNonRegistryRejectsAVagueConfirmation(t *testing.T) {
+	writePluginsProfile(t)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
+	for _, confirm := range []string{"", "yes", "true", "1"} {
+		r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{
+			"spec": "git+https://host/x", "confirm_source": confirm,
+		})
+		if r.OK || !strings.Contains(r.Error, "确认") {
+			t.Fatalf("confirm_source=%q: ok=%v error=%q, want a refusal", confirm, r.OK, r.Error)
+		}
+	}
+	// A JSON boolean is refused one step earlier, by the decoder (the field is a string): also a 400,
+	// just not the wording above.
+	if r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{
+		"spec": "git+https://host/x", "confirm_source": true,
+	}); r.OK {
+		t.Fatalf("confirm_source=true: ok=%v, want a refusal", r.OK)
+	}
+}
+
+// TestPluginsInstallRegistryIgnoresTheConfirmation: a registry name is the default path and must
+// keep working exactly as before, with no extra field in the request.
+func TestPluginsInstallRegistryIgnoresTheConfirmation(t *testing.T) {
+	writePluginsProfile(t)
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+	t.Setenv("PATH", t.TempDir())
+	noAppDSH(t)
+	r := mgmtPost(t, ts.URL+"/api/v1/plugins/install", "tok", map[string]any{"spec": "demo-bundle"})
+	if r.OK || !strings.Contains(r.Error, "npm i -g @deepseek-ai/dsh") {
+		t.Fatalf("ok=%v error=%q, want a registry install to pass the source check", r.OK, r.Error)
 	}
 }
 

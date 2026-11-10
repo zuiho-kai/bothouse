@@ -39,7 +39,8 @@ export interface WizardWiki { daily?: string; night?: string; split?: string }
 export interface WizardRole {
   name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
-  provider?: { vendor: string; base_url?: string; api_key?: string; model?: string };
+  // #1498: DSH only — the output cap written into llm-deepseek (omitted = the server's own default)
+  provider?: { vendor: string; base_url?: string; api_key?: string; model?: string; max_tokens?: number };
   /** library persona slug / avatar slug; omitted = keep what setup state has, "" = clear */
   persona_preset?: string; avatar?: string;
 }
@@ -49,8 +50,10 @@ export interface WizardRequest {
   feishu?: { app_id: string; app_secret: string; platform_type?: string; owner_open_id?: string; chat_id?: string };
   /** 自建平台: empty url/token = the hub this wizard started on this machine (filled in server-side) */
   cloud_web?: { url?: string; token?: string };
-  /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *) */
-  qq?: { ws_url: string; token?: string; allow_from: string };
+  /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *).
+   * http_url = file sending, optional; share_session_in_channel is only sent when ticked, so a
+   * rerun leaves an existing value as it is (#710 件 5). */
+  qq?: { ws_url: string; token?: string; clear_token?: boolean; allow_from: string; http_url?: string; share_session_in_channel?: boolean };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
   gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
@@ -58,6 +61,8 @@ export interface WizardRequest {
   wiki?: WizardWiki;
   /** also install the memory / guard hooks into ~/.claude (terminal Claude Code); omitted = keep */
   global_memory?: boolean; global_guards?: boolean;
+  /** a team: every person who joins gets a personal directory and their own GitHub authorization (core/member_workspace.go) */
+  member_workspaces?: boolean;
   dry_run?: boolean;
   append_only?: boolean; // the panel's add-role entry: only new roles, a taken name is refused
 }

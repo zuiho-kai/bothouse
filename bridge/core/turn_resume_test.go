@@ -846,3 +846,79 @@ func TestTurnResume_StrayScanLeavesCodex_RealProcess(t *testing.T) {
 		t.Fatal("start-up scan reaped an unmarked codex exec")
 	}
 }
+
+// #1327 follow-up: the entry puts "[Message IDs: ...]" and the native quoted
+// replies instructions ahead of the text; the resume summary and the resume
+// title must still open with what the person said.
+func TestTurnResume_SummarySkipsEntryPrefix(t *testing.T) {
+	const prefix = "[Message IDs: current=1021]"
+	for _, tc := range []struct {
+		name, content, want string
+	}{
+		{
+			name:    "message_ids",
+			content: prefix + "\n帮我订一下周五晚上的酒店",
+			want:    "帮我订一下周五晚上的酒店",
+		},
+		{
+			name:    "native_quoted_replies",
+			content: "[Message IDs: current=1021 reply_to=1017]\n" + nativeQuotedReplyInstructions + "\n\n请你把行程整理成一张表",
+			want:    "请你把行程整理成一张表",
+		},
+		{
+			name:    "both_blocks_and_voice_mark",
+			content: voiceNoteMark + "\n[Message IDs: current=1021]\n" + nativeQuotedReplyInstructions + "\n\n出门记得带伞",
+			want:    "出门记得带伞",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestEngine()
+			defer e.cancel()
+			e.SetDataDir(t.TempDir())
+			en, err := e.turnJournalStore().Begin(TurnJournalEntry{Project: "test", SessionKey: "test:resume", InteractiveKey: "test:resume", LastUserMessage: tc.content})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Both call sites read the same summary: the prompt's first line and
+			// the timer job's title.
+			prompt := buildTurnResumePrompt(en, false)
+			first, _, _ := strings.Cut(prompt, "\n")
+			if want := "（桥重启打断了这一轮）重启前在做：" + tc.want; first != want {
+				t.Errorf("prompt first line = %q, want %q", first, want)
+			}
+			delivered := false
+			e.turnResumeHooks = turnResumeHooks{
+				ready:  func(TurnJournalEntry) error { return nil },
+				reap:   func(TurnJournalEntry) error { return nil },
+				notify: func(TurnJournalEntry, string) error { return nil },
+				deliver: func(_ TurnJournalEntry, job *TimerJob) error {
+					delivered = true
+					if want := "续做：" + tc.want; job.Description != want {
+						t.Errorf("title = %q, want %q", job.Description, want)
+					}
+					return nil
+				},
+			}
+			e.deliverTurnResume(en)
+			if !delivered {
+				t.Fatal("resume was not delivered")
+			}
+			if !strings.Contains(buildTurnResumePrompt(en, true), "原消息全文：\n"+tc.content) {
+				t.Error("original message must keep the entry prefixes verbatim")
+			}
+		})
+	}
+}
+
+// A message that held nothing but the entry prefixes must not flatten to an
+// empty summary: fall back to the folded original instead.
+func TestTurnResume_SummaryKeepsPrefixOnlyMessage(t *testing.T) {
+	content := "[Message IDs: current=1043]\n" + nativeQuotedReplyInstructions + "\n"
+	got := turnResumeMessageSummary(content)
+	if got == "" {
+		t.Fatal("summary of a prefix-only message must not be empty")
+	}
+	if want := turnResumeOneLine(content, turnResumeSummaryRunes); got != want {
+		t.Errorf("summary = %q, want the folded original %q", got, want)
+	}
+}

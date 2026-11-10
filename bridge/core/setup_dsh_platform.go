@@ -39,7 +39,7 @@ type DSHStatus struct {
 	OpenCommand     string `json:"open_command"` // run this to open the DSH web page
 	InstallScript   string `json:"install_script,omitempty"`
 	Log             string `json:"log,omitempty"`    // install.sh output (install only)
-	HasDeepSeekKey  bool   `json:"has_deepseek_key"` // a DeepSeek key is stored or exported (wizard can leave the field empty)
+	HasDeepSeekKey  bool   `json:"has_deepseek_key"` // legacy name: an existing model login/key lets the wizard leave the key empty
 	// DeepSeek Harness Desktop (setup_dsh_desktop.go), the wizard's default route
 	DesktopApp             string `json:"desktop_app,omitempty"`          // the installed app, "" when none
 	DesktopProfileReady    bool   `json:"desktop_profile_ready"`          // opened once: its profile exists
@@ -267,7 +267,7 @@ func bashScriptArg(goos, script string) string {
 func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
+	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript(), HasDeepSeekKey: dshHasUsableModel()}
 	st.DesktopApp = dshDesktopApp()
 	st.DesktopDownloadURL = dshDesktopDownloadURLFor(runtime.GOOS, runtime.GOARCH)
 	if st.DesktopApp != "" {
@@ -291,7 +291,6 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 		return st
 	}
 	st.Found = true
-	st.HasDeepSeekKey = dshHasDeepSeekKey()
 	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
 	}

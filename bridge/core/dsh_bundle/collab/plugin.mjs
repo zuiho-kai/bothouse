@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Store, CollabError, publicMessage } from './store.mjs';
+import { Store, CollabError, MAX_TEXT, publicMessage } from './store.mjs';
 import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock.mjs';
 import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
@@ -350,7 +350,10 @@ export async function apply(ctx, rawConfig) {
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
         queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])),
-        max_upload_bytes: config.maxUploadBytes });
+        max_upload_bytes: config.maxUploadBytes,
+        // #1445: the text cap in the unit the store compares (characters), so the panel checks a
+        // typed message against the same number instead of keeping a second copy of it.
+        max_text_chars: MAX_TEXT });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {

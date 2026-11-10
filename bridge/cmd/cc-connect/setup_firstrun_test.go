@@ -203,7 +203,8 @@ func TestSetupApplyDryRunWritesNothing(t *testing.T) {
 		OK, DryRun, Saved bool
 		AllowFrom         string `json:"allow_from"`
 	}
-	if jerr := json.Unmarshal(out, &res); jerr != nil || !res.OK || res.Saved || res.AllowFrom != "777" {
+	// 281e81d4 (#1476): a picked server defaults allow_from to "*"; the owner keeps admin_from.
+	if jerr := json.Unmarshal(out, &res); jerr != nil || !res.OK || res.Saved || res.AllowFrom != "*" {
 		t.Fatalf("result %s (%v)", out, jerr)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
@@ -240,7 +241,8 @@ func TestSetupApplyIntentOffExitsNonZero(t *testing.T) {
 		t.Fatalf("result %s", out)
 	}
 	b, _ := os.ReadFile(cfg)
-	if !strings.Contains(string(b), `allow_from = "777"`) || !strings.Contains(string(b), "[management]") {
+	// 281e81d4 (#1476): saved config follows the same "*" default for a picked server.
+	if !strings.Contains(string(b), `allow_from = "*"`) || !strings.Contains(string(b), "[management]") {
 		t.Fatalf("config:\n%s", b)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,8 @@ type WizardProjectOptions struct {
 	// AllPlatformsOfType: Options go into every platform of PlatformType the project has, and none
 	// is created (the panel's gate page: a bot may sit in several cloud_web channels).
 	AllPlatformsOfType bool
+	// MemberWorkspaces: member_workspaces (nil = leave)
+	MemberWorkspaces *bool
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -121,9 +124,49 @@ func ApplyWizardProjects(plan func([]WizardProjectSnapshot) ([]WizardProjectOpti
 			return "", err
 		}
 	}
+	// #1407: a connection-only rerun on an existing QQ role must leave the agent
+	// table byte-for-byte intact. Reuse the panel's targeted TOML editor instead
+	// of re-encoding the document. Other platforms and explicit agent edits keep
+	// the existing wizard save path.
+	text := string(raw)
+	patchQQ := false
+	if len(list) == 1 {
+		o := list[0]
+		idx := projectIndex(cfg, o.Name)
+		if idx >= 0 && o.PlatformType == "qq" && reflect.DeepEqual(o, WizardProjectOptions{Name: o.Name, PlatformType: "qq", Options: o.Options}) {
+			for _, platform := range cfg.Projects[idx].Platforms {
+				if platform.Type != "qq" {
+					continue
+				}
+				patchQQ = true
+				for key, value := range o.Options {
+					if reflect.DeepEqual(platform.Options[key], value) {
+						continue
+					}
+					text, err = patchPlatformOption(text, o.Name, "qq", key, value)
+					if err != nil {
+						return "", fmt.Errorf("patch wizard QQ option %s: %w", key, err)
+					}
+				}
+				break
+			}
+		}
+	}
+	if patchQQ {
+		var patched map[string]any
+		if err := toml.Unmarshal([]byte(text), &patched); err != nil {
+			return "", fmt.Errorf("parse patched wizard config: %w", err)
+		}
+		if !reflect.DeepEqual(patched, doc) {
+			return "", fmt.Errorf("QQ wizard could not be patched without changing other config fields")
+		}
+	}
 	backup = backupPath(ConfigPath, time.Now())
 	if err := atomicWrite(backup, raw, 0o600); err != nil {
 		return "", fmt.Errorf("backup config: %w", err)
+	}
+	if patchQQ {
+		return backup, writeConfigText(text)
 	}
 	return backup, saveConfig(doc)
 }
@@ -333,6 +376,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 	}
 	if o.NameCustomized != nil {
 		p["name_customized"] = *o.NameCustomized
+	}
+	if o.MemberWorkspaces != nil {
+		p["member_workspaces"] = *o.MemberWorkspaces
 	}
 	if o.DisplayName != "" {
 		p["team_name"] = o.DisplayName

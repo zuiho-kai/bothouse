@@ -173,10 +173,13 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 		// A part that is itself a re-queued batch already carries its own per-part marks
 		// (voiceMarked); wrapping it again would call its typed parts speech.
 		mark := p.fromVoice && !p.voiceMarked
+		// #1375: each part came through applyGate with its own latest mark; the batch marks the
+		// one to answer above, so a part's own mark would call every part the latest.
+		content := strings.TrimPrefix(p.content, latestMark+"\n")
 		if i == 0 {
-			b.WriteString(withVoiceNote(p.content, mark))
+			b.WriteString(withVoiceNote(content, mark))
 		} else {
-			b.WriteString(withVoiceNote(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}), mark))
+			b.WriteString(withVoiceNote(bufferedText(&Message{Content: content, AmbientChat: p.ambientChat}), mark))
 		}
 		b.WriteString("\n")
 	}
@@ -310,11 +313,18 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 		} else {
 			fmt.Fprintf(&b, "[%d]\n", i+1)
 		}
+		// A re-queued batch already marks its own voice parts; never wrap its
+		// typed parts or let the last part decide whether earlier parts are marked.
+		mark := p.fromVoice && !p.voiceMarked
+		// #1375: each part came through applyGate with its own latest mark; the batch marks the
+		// one to answer above, so a part's own mark would call every part the latest.
+		content := strings.TrimPrefix(p.content, latestMark+"\n")
 		if i == 0 {
-			b.WriteString(p.content)
+			b.WriteString(withVoiceNote(content, mark))
 		} else {
-			b.WriteString(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}))
+			b.WriteString(withVoiceNote(bufferedText(&Message{Content: content, AmbientChat: p.ambientChat}), mark))
 		}
+		out.voiceMarked = out.voiceMarked || p.fromVoice || p.voiceMarked
 		b.WriteString("\n")
 	}
 	out.content = strings.TrimRight(b.String(), "\n")

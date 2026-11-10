@@ -65,15 +65,16 @@ var googleClientSecretLen = len("GOCSPX-") + googleClientSecretBody
 // quotaState caches the last quota report and the in-memory access token.
 // The zero value is ready to use.
 type quotaState struct {
-	mu         sync.Mutex
-	report     *core.UsageReport
-	cacheModel string
-	inflight   chan struct{}
-	lastErr    error
-	token      string
-	tokenExp   time.Time
-	secret     string
-	binSecret  map[string][]string // binary path -> client secret candidates
+	mu           sync.Mutex
+	report       *core.UsageReport
+	cacheModel   string
+	inflight     chan struct{}
+	lastErr      error
+	token        string
+	tokenExp     time.Time
+	tokenAccount string
+	secret       string
+	binSecret    map[string][]string // binary path -> client secret candidates
 
 	// test hooks
 	httpClient *http.Client
@@ -111,6 +112,7 @@ func (a *Agent) cloudUsage(ctx context.Context, model string) (*core.UsageReport
 	}
 
 	q := &a.cloudQuota
+	account := cloudQuotaAccount(q.homeDir)
 	q.mu.Lock()
 	done := q.inflight
 	if done == nil {
@@ -118,7 +120,7 @@ func (a *Agent) cloudUsage(ctx context.Context, model string) (*core.UsageReport
 		q.inflight = done
 		go q.refresh(cmd, model, done)
 	}
-	if q.report != nil && q.cacheModel == model {
+	if q.report != nil && q.cacheModel == model && q.report.AccountID == account {
 		// Warm cache: answer now, the refresh above lands for the next call,
 		// so a reply never waits on the network once we have a snapshot.
 		cached := cloneReport(q.report)
@@ -133,12 +135,13 @@ func (a *Agent) cloudUsage(ctx context.Context, model string) (*core.UsageReport
 	case <-ctx.Done():
 	}
 
+	account = cloudQuotaAccount(q.homeDir)
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.report != nil && q.cacheModel == model {
+	if q.report != nil && q.cacheModel == model && q.report.AccountID == account {
 		return cloneReport(q.report), nil
 	}
-	if q.lastErr == nil && ctx.Err() == nil && q.cacheModel != model {
+	if q.lastErr == nil && ctx.Err() == nil && (q.cacheModel != model || q.report == nil || q.report.AccountID != account) {
 		q.mu.Unlock()
 		r, err := a.cloudUsage(ctx, model)
 		q.mu.Lock()
@@ -195,7 +198,12 @@ func (q *quotaState) fetch(ctx context.Context, cmd, model string) (*core.UsageR
 		return nil, errors.New("antigravity: empty project id")
 	}
 
-	token, err := q.accessToken(ctx, filepath.Join(cliDir, "antigravity-oauth-token"), cmd)
+	raw, err := os.ReadFile(filepath.Join(cliDir, "antigravity-oauth-token"))
+	if err != nil {
+		return nil, fmt.Errorf("antigravity: read token file: %w", err)
+	}
+	account := quotaTokenAccount(raw, cliDir)
+	token, err := q.accessToken(ctx, raw, account, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +224,7 @@ func (q *quotaState) fetch(ctx context.Context, cmd, model string) (*core.UsageR
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		if resp.StatusCode == http.StatusUnauthorized {
-			q.setToken("", time.Time{})
+			q.setToken("", time.Time{}, account)
 		}
 		return nil, fmt.Errorf("antigravity: quota status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
@@ -225,6 +233,7 @@ func (q *quotaState) fetch(ctx context.Context, cmd, model string) (*core.UsageR
 		return nil, fmt.Errorf("antigravity: decode quota: %w", err)
 	}
 	report := mapQuotaSummary(payload, model, q.clock())
+	report.AccountID = account
 	if len(report.Buckets) == 0 {
 		return nil, errors.New("antigravity: quota response has no buckets")
 	}
@@ -367,10 +376,10 @@ func modelFromArgs(args []string) string {
 
 // accessToken returns a usable access token: the one in the token file if it
 // has not expired, otherwise a fresh one from the refresh token (memory only).
-func (q *quotaState) accessToken(ctx context.Context, tokenPath, cmd string) (string, error) {
+func (q *quotaState) accessToken(ctx context.Context, raw []byte, account, cmd string) (string, error) {
 	now := q.clock()
 	q.mu.Lock()
-	if q.token != "" && now.Add(time.Minute).Before(q.tokenExp) {
+	if q.tokenAccount == account && q.token != "" && now.Add(time.Minute).Before(q.tokenExp) {
 		t := q.token
 		q.mu.Unlock()
 		return t, nil
@@ -378,10 +387,6 @@ func (q *quotaState) accessToken(ctx context.Context, tokenPath, cmd string) (st
 	known := q.secret
 	q.mu.Unlock()
 
-	raw, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return "", fmt.Errorf("antigravity: read token file: %w", err)
-	}
 	var file struct {
 		Token struct {
 			AccessToken  string `json:"access_token"`
@@ -394,7 +399,7 @@ func (q *quotaState) accessToken(ctx context.Context, tokenPath, cmd string) (st
 		return "", fmt.Errorf("antigravity: parse token file: %w", err)
 	}
 	if exp, err := time.Parse(time.RFC3339Nano, file.Token.Expiry); err == nil && file.Token.AccessToken != "" && now.Add(time.Minute).Before(exp) {
-		q.setToken(file.Token.AccessToken, exp)
+		q.setToken(file.Token.AccessToken, exp, account)
 		return file.Token.AccessToken, nil
 	}
 	if file.Token.RefreshToken == "" {
@@ -435,16 +440,17 @@ func (q *quotaState) accessToken(ctx context.Context, tokenPath, cmd string) (st
 		q.mu.Lock()
 		q.secret = secret
 		q.mu.Unlock()
-		q.setToken(tok, exp)
+		q.setToken(tok, exp, account)
 		return tok, nil
 	}
 	return "", lastErr
 }
 
-func (q *quotaState) setToken(tok string, exp time.Time) {
+func (q *quotaState) setToken(tok string, exp time.Time, account string) {
 	q.mu.Lock()
 	q.token = tok
 	q.tokenExp = exp
+	q.tokenAccount = account
 	q.mu.Unlock()
 }
 

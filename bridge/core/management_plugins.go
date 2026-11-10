@@ -50,6 +50,10 @@ type DSHPlugin struct {
 	// Layer: the package declares dsh.bundle, so selecting it adds a profile layer. A dependency
 	// without it is installed but never loaded as a plugin (DSH prints a warning for those).
 	Layer bool `json:"layer"`
+	// ClientOnly: the package declares dsh.client but no dsh.bundle (the Discord shell the install
+	// script puts into this profile is one). DSH renders it as a client UI, so it is neither a
+	// profile layer nor a plain dependency: the page gives it its own label and no switch (#1376).
+	ClientOnly bool `json:"client_only"`
 	// Enabled: the profile selects this bundle (package.json dsh.profile.bundles).
 	Enabled bool `json:"enabled"`
 	// Shipped: the package resolves from the DSH installation rather than this profile. Those are
@@ -215,6 +219,11 @@ func listDSHPlugins() DSHPluginsState {
 				Bundle struct {
 					Patch dshBundlePatch `json:"patch"`
 				} `json:"bundle"`
+				// Client is the client UI block (`dsh.client.inject` / `dsh.client.platform`). Its
+				// presence, without a bundle patch, is what makes this a client UI package (#1376).
+				Client struct {
+					Platform string `json:"platform"`
+				} `json:"client"`
 			} `json:"dsh"`
 		}
 		raw, err := os.ReadFile(filepath.Join(pkgDir, "package.json"))
@@ -228,6 +237,9 @@ func listDSHPlugins() DSHPluginsState {
 			}
 			p.Version, p.Description = pkg.Version, pkg.Description
 			p.Layer = len(pkg.DSH.Bundle.Patch) > 0
+			// 来源：安装脚本装进 profile 的 client-ui 包（bridge/core/dsh_bundle/packages/*/package.json，
+			// dsh.client.inject + dsh.client.platform，无 dsh.bundle）；#1376 把它们跟纯依赖分开。
+			p.ClientOnly = !p.Layer && pkg.DSH.Client.Platform != ""
 			if p.Layer {
 				rows, err := bundleRows(pkgDir, pkg.DSH.Bundle.Patch, disabled)
 				if err != nil {
@@ -285,6 +297,9 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	var req struct {
 		Spec string `json:"spec"`
+		// ConfirmSource is the page's non-registry checkbox, sent back verbatim: with the switch on,
+		// an API call alone must not be enough, or the checkbox would be page decoration.
+		ConfirmSource string `json:"confirm_source"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -296,6 +311,10 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	if parsed.Kind != pluginKindRegistry && !m.pluginPolicy().AllowNonRegistry {
 		mgmtError(w, http.StatusForbidden, "这个来源不是 npm registry："+nonRegistryHint)
+		return
+	}
+	if parsed.Kind != pluginKindRegistry && req.ConfirmSource != pluginNonRegistryConfirm {
+		mgmtError(w, http.StatusBadRequest, nonRegistryConfirmHint)
 		return
 	}
 	dshBin, err := LookDSH()
@@ -353,6 +372,10 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 		"error": pluginFailureDetail(tail.String()),
 		"kind":  kind,
 		"log":   tailLines(tail.String(), 40),
+		// DSH prints the exact remedy for a version rejection on its own; the page shows it and
+		// stops there. Bothouse never runs it: approving a mismatch is DSH's own exact-version
+		// decision, and this panel only relays what DSH said (#460).
+		"allow_version": pluginAllowVersionCommand(tail.String()),
 	})
 }
 
@@ -385,6 +408,22 @@ func classifyPluginFailure(log string, timedOut bool) string {
 		}
 	}
 	return "unknown"
+}
+
+// pluginAllowVersionCommand returns DSH's own "to accept the risk, run: …" line, if the run printed
+// one. DSH prints it only for a version rejection, naming the exact package@version, the exact DSH
+// runtime and `--accept-risk`; the page relays that sentence instead of spelling a command itself,
+// so a later DSH wording change cannot leave this panel telling people to run something wrong.
+// 来源：dsh lib/plugin-BiveYA7h.js:95 "dsh: to accept the risk, run: dsh plugin --profile … allow-version … --accept-risk"。
+func pluginAllowVersionCommand(log string) string {
+	const prefix = "dsh: to accept the risk, run: "
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 // pluginFailureDetail is the one line worth showing next to the readable message: pnpm's own error
@@ -590,6 +629,16 @@ func walkJSONPath(dec *json.Decoder, path []string) (int, int, error) {
 // nonRegistryHint is the one sentence both the refusal and the page use, so the person learns the
 // switch's name once.
 const nonRegistryHint = "只有 npm registry 上的包默认能装。要装 git 仓库、tarball 或本地路径，先在 config.toml 里加 [plugins] allow_non_registry = true，装的时候这里会再问你一次。"
+
+// pluginNonRegistryConfirm is the exact value the page sends after the person ticks the
+// non-registry box. A literal rather than true/1: a truthy value would be sent by anything that can
+// set an extra JSON field, which is the one-click path the confirm step exists to close.
+const pluginNonRegistryConfirm = "non-registry"
+
+// nonRegistryConfirmHint refuses a non-registry install that skipped the page's acknowledgement.
+// Wording follows nonRegistryAck in bridge/web/src/pages/Plugins/texts.ts, so the page's checkbox
+// and this error name the same sentence.
+const nonRegistryConfirmHint = "其它来源需要先在这个页面上显式确认：勾选「我知道这个地址是什么，继续」后再装。"
 
 // SetPluginInstallPolicy wires the install switch to config.toml (cmd/cc-connect).
 func (m *ManagementServer) SetPluginInstallPolicy(fn func() PluginInstallPolicy) {

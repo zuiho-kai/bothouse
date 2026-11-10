@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // fakeSlowDSH puts a `dsh` on PATH that prints a log line, sleeps, then prints its address (or exits).
@@ -104,4 +107,75 @@ func TestOpenDSHWebFailsWhenItExits(t *testing.T) {
 	if _, err := os.Stat(dshWebStartingPath()); !os.IsNotExist(err) {
 		t.Fatalf("starting file left behind: %v", err)
 	}
+}
+
+// A failed open must not wipe the log: its previous announcement is what takeOverOrphanDSHWeb reads
+// when a `dsh web` from an earlier start is still running, and what the panel shows as the last line
+// when the new one dies (O_TRUNC used to erase both — 2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 3 条).
+func TestOpenDSHWebKeepsThePreviousAnnouncementInTheLog(t *testing.T) {
+	fakeSlowDSH(t, "sleep 2\necho 'dsh web: http://127.0.0.1:9/?token=t'\nexec sleep 60\n")
+	logPath := filepath.Join(filepath.Dir(dshWebStatePath()), "dsh-web.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prev := "dsh web: http://127.0.0.1:45999/?token=previous\n"
+	if err := os.WriteFile(logPath, []byte(prev), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := openDSHWeb(context.Background(), t.TempDir())
+	if err != nil || !w.Starting {
+		t.Fatalf("want starting, got %+v %v", w, err)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "token=previous") {
+		t.Fatalf("the previous announcement was truncated: %q", b)
+	}
+}
+
+// fakeOwnDSHHost starts a stand-in for this bridge's own dsh web and describes it the way a real one
+// looks: `--profile web` in the command line and this bridge's data directory in the environment.
+//
+// The description comes from dshWebProcLookup, not from the process itself: a `dsh` wrapper script
+// that execs another binary replaces its own image with it, so the kernel then reports the target's
+// argv (`/bin/sleep 60`) and the pid no longer looks like a dsh host at all. That is a property of
+// `exec`, not of the wait: it happens a few hundred milliseconds after Start, which is why the tests
+// that used the wrapper passed or failed depending on how fast they read the command line. Replacing
+// the lookup is the pattern TestDSHWebPortOwnedRefusesAnotherDataDir already uses: only this pid gets
+// described, every other pid keeps the real answer, and the process itself is real enough to stop.
+func fakeOwnDSHHost(t *testing.T, bin string, args ...string) *exec.Cmd {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sleep")
+	}
+	if _, err := os.Stat(bin); err != nil {
+		t.Skip("no "+bin+":", err)
+	}
+	cmd := exec.Command(bin, args...)
+	if err := cmd.Start(); err != nil {
+		t.Skip("cannot start the stand-in host:", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	dir := dshWebOwnDataDir()
+	if dir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = ccconnect.DataDir(home)
+		}
+	}
+	argv := append([]string{"node", "/opt/homebrew/bin/dsh", "--profile", DSHProfile}, args...)
+	env := map[string]string{ccconnect.DataDirEnv: dir}
+	pid := cmd.Process.Pid
+	old := dshWebProcLookup
+	dshWebProcLookup = func(p int) ([]string, map[string]string, bool, bool) {
+		if p == pid {
+			return argv, env, true, true
+		}
+		return old(p)
+	}
+	t.Cleanup(func() { dshWebProcLookup = old })
+	return cmd
 }

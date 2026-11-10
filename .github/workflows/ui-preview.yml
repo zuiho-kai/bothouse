@@ -8,10 +8,14 @@ name: UI preview
 # 安全：用 pull_request（不是 pull_request_target）。fork 来的 PR 在这个事件下只有只读
 # token、拿不到 secrets；跑 PR 代码的 shoot job 只有 contents: read。写评论的 comment
 # job 不 checkout、不执行 PR 代码，只读 shoot 产出的 pages.json，并且只对同仓库 PR 运行。
+#
+# 分支：#522 / #1411——前端单测只在这里跑，只挂在 main 上时改为 develop 的 PR 从不执行
+# vitest（PR #711 的 SetupWizard t() 漂移就是这样落到 develop 才红的）。develop 是日常
+# 集成分支，所以两边都要跑；本工作流没有预览部署，产物只有 artifact 和一条 PR 评论。
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'bridge/web/**'
       - '.github/ui-preview/**'

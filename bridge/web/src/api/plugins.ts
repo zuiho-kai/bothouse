@@ -16,6 +16,8 @@ export interface DSHPlugin {
   source?: string;
   /** declarse dsh.bundle, so selecting it adds a profile layer */
   layer: boolean;
+  /** declares dsh.client but no dsh.bundle: a client UI package (the Discord shell), no switch */
+  client_only: boolean;
   /** selected in package.json's dsh.profile.bundles */
   enabled: boolean;
   /** ships with the DSH installation (a surface layer); the page does not offer its switch */
@@ -95,6 +97,20 @@ export const listPlugins = () => api.get<DSHPluginsState>('/plugins');
 export const switchPlugin = (name: string, enabled: boolean) =>
   api.post<{ changed: boolean; restart_required: boolean; state: DSHPluginsState }>('/plugins/switch', { name, enabled });
 
+/**
+ * Remove one dependency from this profile (core/management_plugin_uninstall.go).
+ *
+ * `confirm` must be the package name itself: the page sends it only after the person typed the
+ * name into the dialog, so a single stray click cannot uninstall anything. A refusal arrives as an
+ * ApiError whose `body` carries `kind` (and `in_use_by` for in-use), which the page turns into its
+ * own sentence instead of showing pnpm's English.
+ */
+export const uninstallPlugin = (name: string, confirm: string) =>
+  api.post<{ uninstalled: boolean; restart_required: boolean; state: DSHPluginsState }>('/plugins/uninstall', {
+    name,
+    confirm,
+  });
+
 /** One line of the POST /plugins/install NDJSON stream (core/management_plugins.go handlePluginsInstall). */
 export interface PluginInstallEvent {
   line?: string;
@@ -104,19 +120,37 @@ export interface PluginInstallEvent {
   error?: string;
   kind?: string;
   log?: string;
+  /** DSH's own `allow-version … --accept-risk` sentence, when it printed one (version rejection). */
+  allow_version?: string;
 }
+
+/**
+ * The value the page sends in `confirm_source` once the person has ticked the non-registry box.
+ * The backend requires this exact literal (core/management_plugins.go pluginNonRegistryConfirm):
+ * the checkbox is the acknowledgement, this is how the API call carries it.
+ */
+export const NON_REGISTRY_CONFIRM = 'non-registry';
 
 /**
  * Runs `dsh plugin add <spec>` and reports each streamed line. Rejects with the classifier kind on
  * the thrown error so the page can say what happened in the reader's language; the raw log rides
  * along as `.log` for the details fold.
+ *
+ * confirmSource is NON_REGISTRY_CONFIRM only after the person acknowledged a non-registry source;
+ * registry installs send nothing, so their request is unchanged.
  */
-export async function installPlugin(spec: string, onEvent: (e: PluginInstallEvent) => void): Promise<DSHPluginsState> {
+export async function installPlugin(
+  spec: string,
+  confirmSource: string,
+  onEvent: (e: PluginInstallEvent) => void,
+): Promise<DSHPluginsState> {
   const token = api.getToken();
+  const body: { spec: string; confirm_source?: string } = { spec };
+  if (confirmSource) body.confirm_source = confirmSource;
   const res = await fetch(withBase('/api/v1/plugins/install'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ spec }),
+    body: JSON.stringify(body),
   });
   if (!res.ok || !res.body) {
     const text = await res.text();
@@ -138,7 +172,7 @@ export async function installPlugin(spec: string, onEvent: (e: PluginInstallEven
       const ev = JSON.parse(line) as PluginInstallEvent;
       onEvent(ev);
       if (ev.error !== undefined) {
-        throw Object.assign(new Error(ev.error), { kind: ev.kind, log: ev.log });
+        throw Object.assign(new Error(ev.error), { kind: ev.kind, log: ev.log, allowVersion: ev.allow_version });
       }
       if (ev.done && ev.state) return ev.state;
     }

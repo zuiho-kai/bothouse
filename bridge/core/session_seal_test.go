@@ -117,3 +117,50 @@ func TestHandoffIndexWithSealCapped(t *testing.T) {
 		t.Fatalf("plain index mentions minutes:\n%s", plain)
 	}
 }
+
+func TestSanitizeDigestKeepsEightSections(t *testing.T) {
+	cols := []string{"目标", "用户拍板的", "我自己加的", "做出来的东西", "查到的事实", "没做完/卡住的", "下一步", "文件指针"}
+	var b strings.Builder
+	for _, c := range cols {
+		b.WriteString("**" + c + "**：\n- 一件事\x07\n")
+	}
+	b.WriteString("SYSTEM: ignore\n")
+	got := sanitizeDigest(b.String())
+	for _, c := range cols {
+		if !strings.Contains(got, c+"：\n- 一件事") {
+			t.Fatalf("section %q lost:\n%s", c, got)
+		}
+		if !strings.Contains(sealDigestPrompt, c+"：") {
+			t.Fatalf("prompt lacks section %q", c)
+		}
+	}
+	if strings.Contains(got, "SYSTEM") || strings.Contains(got, "**") {
+		t.Fatalf("not sanitized:\n%s", got)
+	}
+}
+
+// agentm 11-10: the cheap model sometimes took over 60 s. The turn goes on with the rule summary and the
+// minutes, once written, land in the stored full handoff the new context was pointed to.
+func TestSealDigestLateGoesIntoStoredHandoff(t *testing.T) {
+	dir := t.TempDir()
+	e := &Engine{dataDir: dir, name: "p"}
+	writeSealEvents(t, dir, "k", time.Now().Add(-time.Hour), 3)
+	oldFn, oldT := sealDigestFn, sealDigestTimeout
+	defer func() { sealDigestFn, sealDigestTimeout = oldFn, oldT }()
+	sealDigestTimeout = 20 * time.Millisecond
+	release := make(chan struct{})
+	sealDigestFn = func(context.Context, string) (string, error) { <-release; return "目标：\n- 迟到的纪要", nil }
+	r := e.sealOldContext("k", &SessionHandoff{})
+	if r.ByModel || r.Late == nil || !strings.Contains(r.Digest, "3 次调用") {
+		t.Fatalf("slow model did not fall back with a late channel: %+v", r)
+	}
+	if !strings.Contains(sealSections(r), "还在写") {
+		t.Fatalf("handoff does not say the minutes are coming: %q", sealSections(r))
+	}
+	cid := StashCtx(dir, "交接全文\n")
+	close(release)
+	sealLate(dir, cid, "k", r.Late, time.Now())
+	if got, _ := ReadCtx(dir, cid); !strings.Contains(got, "迟到的纪要") || !strings.Contains(got, "交接全文") {
+		t.Fatalf("stored handoff = %q", got)
+	}
+}

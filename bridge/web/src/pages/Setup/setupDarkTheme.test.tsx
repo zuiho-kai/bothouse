@@ -133,7 +133,7 @@ async function renderHeader() {
   const root = createRoot(container);
   roots.push(root);
   await act(async () => {
-    root.render(<MemoryRouter initialEntries={['/setup']}><Header onMenuClick={() => {}} /></MemoryRouter>);
+    root.render(<MemoryRouter initialEntries={['/setup']}><Header /></MemoryRouter>);
   });
   return container;
 }

@@ -433,7 +433,8 @@ name = "claude-sandboxed"
 run_as_user = "partseeker-coder"
 
 # Optional: extend the default env var allowlist that crosses the sudo
-# boundary. The defaults (PATH, LANG, LC_*, TERM) are always included.
+# boundary. The defaults (LANG, LC_*, TERM) are always included; PATH is
+# not — `sudo -i` builds it from the target user's own login profile.
 # Only list vars the target user cannot reasonably set in their own
 # shell profile. Secrets belong in the target user's ~/.claude/settings.json
 # env block, NOT here.
@@ -854,6 +855,7 @@ Notes:
 - Absolute paths are recommended so the command does not depend on the agent's current working directory.
 - With `attachment_send = "off"`, image/file send-back is blocked but ordinary text replies still work.
 - Each attachment is capped at **50 MiB** by default. Configure it with `max_attachment_size_mb` (MiB) in config.toml, or override that value with the `CC_MAX_ATTACHMENT_SIZE_MB` env var (same MiB unit; takes precedence when set), e.g. `CC_MAX_ATTACHMENT_SIZE_MB=100 bothouse send --file big.bin`.
+- `--dm` sends privately (Discord, QQ). Without `--to` it goes only to the project owner (first ID in admin_from), never to the person talking; when a turn was started by someone other than the owner, `--dm` without `--to` is refused. To message a member use `bothouse send --dm --to <user id> -m "…"`; only members of this server are accepted (membership can be checked on Discord only for now). If the member is not in the server the command fails. If they do not accept DMs from server members, the message goes to a private thread in the current channel that only they (and moderators) can see, and the command output says so; only if that also fails does the command error out. It is never sent to anyone else, and nobody has to change privacy settings.
 
 ### Typical use cases
 

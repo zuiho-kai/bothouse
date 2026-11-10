@@ -147,6 +147,34 @@ func InstallAgentHookScripts(dataDir string) (string, error) {
 	return dir, err
 }
 
+// agentHooksVersionFile records which release last wrote the scripts in AgentHooksDir.
+const agentHooksVersionFile = ".bothouse-version"
+
+var releaseVersionRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+// RefreshAgentHookScripts brings already-installed hook scripts up to this binary after an upgrade.
+// The scripts were only written by `setup hooks on`, so an auto-update or a swapped binary kept
+// running the old guards forever (agentm 11-10: 11-06 guards under an 11-09 bridge). Runs only when
+// hooks are installed (run.py present), this is a release build (vX.Y.Z — dev and git-describe builds
+// keep whatever is on disk), and the stamp names a different version. Returns whether it rewrote.
+func RefreshAgentHookScripts(dataDir, version string) (bool, error) {
+	if AgentHookFS == nil || !releaseVersionRe.MatchString(version) {
+		return false, nil
+	}
+	dir := AgentHooksDir(dataDir)
+	if _, err := os.Stat(filepath.Join(dir, "run.py")); err != nil {
+		return false, nil // never installed: setup hooks on does the first install
+	}
+	stamp := filepath.Join(dir, agentHooksVersionFile)
+	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) == version {
+		return false, nil
+	}
+	if _, err := InstallAgentHookScripts(dataDir); err != nil {
+		return false, err
+	}
+	return true, AtomicWriteFile(stamp, []byte(version+"\n"), 0o644)
+}
+
 // FindPython returns the Python 3 the hooks run with: python3, else python (Windows), as an absolute path.
 func FindPython() (string, error) {
 	for _, name := range []string{"python3", "python"} {

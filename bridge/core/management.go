@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -37,14 +38,16 @@ type ProjectSettingsUpdate struct {
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
-	usageLedger   *UsageLedger
-	usageImporter *UsageImporter
-	port          int
-	host          string // "" = all interfaces
-	token         string
-	corsOrigins   []string
-	server        *http.Server
-	startedAt     time.Time
+	usageLedger    *UsageLedger
+	usageImporter  *UsageImporter
+	port           int
+	host           string // "" = all interfaces
+	token          string
+	corsOrigins    []string
+	server         *http.Server
+	startedAt      time.Time
+	roleEvents     *roleEventBroker
+	roleBindingsMu sync.Mutex
 
 	mu      sync.RWMutex
 	engines map[string]*Engine // project name → engine
@@ -69,11 +72,15 @@ type ManagementServer struct {
 	saveProviderRefs     func(projectName string, refs []string) error
 	getQQSettings        func(string) (*QQSettings, error)
 	saveQQSettings       func(string, QQSettingsUpdate) ([]string, error)
-	configFilePath       string
-	getGlobalSettings    func() map[string]any
-	saveGlobalSettings   func(map[string]any) error
-	getAutostart         func() (AutostartInfo, error)
-	setAutostart         func(bool) (AutostartInfo, error)
+	// Official QQ Bot (platform type "qqbot"), #710 件 5: its own panel, because
+	// the OneBot settings above and this one share no options.
+	getQQBotSettings   func(string) (*QQBotSettings, error)
+	saveQQBotSettings  func(string, QQBotSettingsUpdate) ([]string, error)
+	configFilePath     string
+	getGlobalSettings  func() map[string]any
+	saveGlobalSettings func(map[string]any) error
+	getAutostart       func() (AutostartInfo, error)
+	setAutostart       func(bool) (AutostartInfo, error)
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -106,6 +113,7 @@ func NewManagementServer(port int, token string, corsOrigins []string) *Manageme
 		corsOrigins: corsOrigins,
 		engines:     make(map[string]*Engine),
 		startedAt:   time.Now(),
+		roleEvents:  newRoleEventBroker(),
 	}
 }
 
@@ -116,6 +124,7 @@ func (m *ManagementServer) RegisterEngine(name string, e *Engine) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.engines[name] = e
+	e.roleEvents.Store(m.roleEvents)
 }
 
 func (m *ManagementServer) SetCronScheduler(cs *CronScheduler)           { m.cronScheduler = cs }
@@ -284,6 +293,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	prefix := "/api/v1"
 
 	mux.HandleFunc(prefix+"/usage/", m.wrap(m.handleUsage))
+	mux.HandleFunc(prefix+"/team/board", m.wrap(m.handleTeamBoard)) // desktop pet 待办 (management_team_board.go)
 
 	// System
 	mux.HandleFunc(prefix+"/version", m.handlePublicVersion)
@@ -307,13 +317,21 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
 
-	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off
+	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off, remove
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))
+	mux.HandleFunc(prefix+"/plugins/role-bindings", m.wrap(m.handleRoleBindings))
 	mux.HandleFunc(prefix+"/plugins/install", m.wrap(m.handlePluginsInstall))
 	mux.HandleFunc(prefix+"/plugins/inspect", m.wrap(m.handlePluginsInspect))
 	mux.HandleFunc(prefix+"/plugins/switch", m.wrap(m.handlePluginsSwitch))
+	// 插件卸载 (#1377): 锁内直接调 DSH 的 runProfilePnpm（不是会自己抢同一把锁的 `dsh plugin remove`），
+	// 卸载前三道前置检查（内置层、link 层、被依赖）
+	mux.HandleFunc(prefix+"/plugins/uninstall", m.wrap(m.handlePluginsUninstall))
 	// 插件配置 (#150 ②a): 一份插件自己的 config，读出来改完存回 profile 的 patch
 	mux.HandleFunc(prefix+"/plugins/config", m.wrap(m.handlePluginsConfig))
+	// 形象包适配 (#416): 读本机形象包与素材文件
+	mux.HandleFunc(prefix+"/plugins/pets", m.wrap(m.handlePetPacks))
+	mux.HandleFunc(prefix+"/plugins/pets/asset", m.wrap(m.handlePetAsset))
+	mux.HandleFunc(prefix+"/plugins/pets/fetch", m.wrap(m.handlePetFetch))
 
 	// Cron (global)
 	mux.HandleFunc(prefix+"/cron", m.wrap(m.handleCron))
@@ -370,6 +388,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Roles
 	mux.HandleFunc(prefix+"/roles", m.wrap(m.handleRoles))
+	mux.HandleFunc(prefix+"/roles/events", m.wrap(m.handleRoleEvents))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
 	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
 	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHMembersAPI))
@@ -456,6 +475,7 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 
 func (m *ManagementServer) wrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer drainRequestBody(r)
 		m.setCORS(w, r)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -468,6 +488,22 @@ func (m *ManagementServer) wrap(handler http.HandlerFunc) http.HandlerFunc {
 		handler(w, r)
 	}
 }
+
+// drainRequestBody reads what a handler left of a small request body before the response goes out.
+// A client that sends "Connection: close" (Python urllib does on every request) gets no draining from
+// net/http: the server closes the socket with the body still unread, the kernel answers with a TCP
+// RST, and Windows drops the response the client had not read yet — ConnectionResetError
+// [WinError 10054] on POST /setup/dsh/open, a handler that never reads its "{}" (windows-e2e,
+// runs 42794984764, 42799948850, 42804201043; #1392). Bodies past the cap are left to net/http.
+func drainRequestBody(r *http.Request) {
+	if r.Body == nil || r.Body == http.NoBody {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxDrainRequestBody))
+}
+
+// maxDrainRequestBody is net/http's own limit for draining an unread body (maxPostHandlerReadBytes).
+const maxDrainRequestBody = 256 << 10
 
 func (m *ManagementServer) authenticate(r *http.Request) bool {
 	if m.token == "" {
@@ -492,7 +528,7 @@ func (m *ManagementServer) setCORS(w http.ResponseWriter, r *http.Request) {
 	for _, o := range m.corsOrigins {
 		if o == "*" || o == origin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			break
@@ -703,9 +739,21 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Credentials never leave the machine in clear text: the panel shows this
+	// text as-is, so every token/secret/api_key value is masked here (#710 件3).
+	redacted, err := RedactConfigText(string(data))
+	if err != nil {
+		// Fail closed: a config that cannot be redacted and verified — including
+		// one that does not parse as TOML — is not served at all rather than
+		// served with secrets in it (#480).
+		slog.Error("management api: redact config failed", "error", err)
+		mgmtError(w, http.StatusInternalServerError, "redact config: "+err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(redacted))
 }
 
 func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.Request) {
@@ -813,6 +861,12 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		m.handleProjectQQ(w, r, projName, rest)
 		return
 	}
+	// "qqbot" is the official Bot (platform type "qqbot"), a separate platform
+	// from the OneBot bridge above; the two never share options (#710 件 5).
+	if sub == "qqbot" {
+		m.handleProjectQQBot(w, r, projName, rest)
+		return
+	}
 
 	m.mu.RLock()
 	engine, ok := m.engines[projName]
@@ -854,13 +908,25 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Request, name string, e *Engine) {
 	if r.Method == http.MethodGet {
-		platInfos := make([]map[string]any, len(e.platforms))
-		for i, p := range e.platforms {
-			platInfos[i] = map[string]any{
-				"type":      p.Name(),
-				"connected": true,
+		// connected is the runtime readiness bit (platformReady), not "this platform is written in
+		// config.toml": a platform whose Start failed, or an async one still reconnecting, is listed
+		// but not connected. Same map and same lock bridgeRoles reads (management_roles_devices.go),
+		// so the detail page and the roles page cannot disagree.
+		platInfos := make([]map[string]any, 0, len(e.platforms))
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			// The bridge transport is not a chat platform (handleStatus reports it under "bridge"),
+			// and it is attached after Engine.Start, so it never appears in platformReady. Listing it
+			// here would pin a permanent red pill on a transport that is in fact working.
+			if _, ok := p.(*BridgePlatform); ok {
+				continue
 			}
+			platInfos = append(platInfos, map[string]any{
+				"type":      p.Name(),
+				"connected": e.platformReady[p],
+			})
 		}
+		e.platformLifecycleMu.Unlock()
 
 		allSessions := e.sessions.AllSessions()
 		sessCount := len(allSessions)

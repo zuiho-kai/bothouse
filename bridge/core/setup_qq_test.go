@@ -78,8 +78,15 @@ func TestApplyWizardQQAddsPlatform(t *testing.T) {
 		return WizardRequest{Language: "zh", Platform: "qq", AppendOnly: true,
 			QQ: &WizardQQ{WSURL: ws, Token: token, AllowFrom: allow}, Roles: []WizardRole{{}}}
 	}
+	// #710 件 5: the two fields the wizard step did not send before
+	share := true
+	full := qq("12345, 67890", "napcat-secret")
+	full.QQ.HTTPURL = "http://127.0.0.1:3000"
+	full.QQ.ShareSessionInChannel = &share
 	// nothing is written when the owner is missing or the token is wrong
-	for _, req := range []WizardRequest{qq("", "napcat-secret"), qq("12345", "wrong"), qq("not-a-number", "napcat-secret")} {
+	badHTTP := qq("12345", "napcat-secret")
+	badHTTP.QQ.HTTPURL = "ftp://127.0.0.1"
+	for _, req := range []WizardRequest{qq("", "napcat-secret"), qq("12345", "wrong"), qq("not-a-number", "napcat-secret"), badHTTP} {
 		if res := ApplyWizard(context.Background(), env, req); res.Saved || res.OK {
 			t.Fatalf("bad request saved: %+v", res)
 		}
@@ -88,7 +95,7 @@ func TestApplyWizardQQAddsPlatform(t *testing.T) {
 		t.Fatalf("a failed QQ run wrote a project: %v", store.order)
 	}
 
-	res := ApplyWizard(context.Background(), env, qq("12345, 67890", "napcat-secret"))
+	res := ApplyWizard(context.Background(), env, full)
 	if !res.Saved || res.QQ == nil || res.QQ.UserID != "3889000001" {
 		t.Fatalf("qq: %+v", res)
 	}
@@ -103,6 +110,9 @@ func TestApplyWizardQQAddsPlatform(t *testing.T) {
 	}
 	if p.Options["ws_url"] != ws || p.Options["token"] != "napcat-secret" || p.Options["allow_from"] != "12345,67890" {
 		t.Fatalf("qq options = %v", p.Options)
+	}
+	if p.Options["http_url"] != "http://127.0.0.1:3000" || p.Options["share_session_in_channel"] != true {
+		t.Fatalf("http_url / share_session_in_channel not saved: %v", p.Options)
 	}
 	if p.DisplayName != "肥鱼" && p.Name != "肥鱼" {
 		t.Fatalf("qq role not named after the QQ nickname: %+v", p)
@@ -124,28 +134,34 @@ func TestApplyWizardQQAddsPlatform(t *testing.T) {
 		QQ: &WizardQQ{WSURL: ws, Token: "napcat-secret", AllowFrom: "12345"}, Roles: []WizardRole{{}}}); !res.Saved || len(store.order) != n {
 		t.Fatalf("second run on the same NapCat: saved=%v projects %d → %d", res.Saved, n, len(store.order))
 	}
+	// a rerun that leaves share_session out must not turn the group's shared session off
+	if p.Options["share_session_in_channel"] != true || p.Options["http_url"] != "http://127.0.0.1:3000" {
+		t.Fatalf("rerun dropped an unset field: %v", p.Options)
+	}
 }
 
-// Review of #813: a NapCat whose token was removed — the second run tests with no token and must
-// save no token, not keep the old one.
+// #1407: blank preserves a stored token; explicit clearing tests and saves without it.
 func TestApplyWizardQQClearingToken(t *testing.T) {
 	noHardware(t)
 	ws := fakeNapCat(t, "") // accepts any token
 	store := newMemStore()
 	env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}
-	run := func(token string) *WizardProjectWrite {
+	run := func(token string, clear bool) *WizardProjectWrite {
 		t.Helper()
 		res := ApplyWizard(context.Background(), env, WizardRequest{Language: "zh", Platform: "qq",
-			QQ: &WizardQQ{WSURL: ws, Token: token, AllowFrom: "12345"}, Roles: []WizardRole{{}}})
+			QQ: &WizardQQ{WSURL: ws, Token: token, ClearToken: clear, AllowFrom: "12345"}, Roles: []WizardRole{{}}})
 		if !res.Saved || len(store.order) != 1 {
 			t.Fatalf("token %q: saved=%v projects=%v %s", token, res.Saved, store.order, res.Error)
 		}
 		return store.projects[store.order[0]]
 	}
-	if p := run("old"); p.Options["token"] != "old" {
+	if p := run("old", false); p.Options["token"] != "old" {
 		t.Fatalf("first run token = %v", p.Options["token"])
 	}
-	if p := run(""); p.Options["token"] != nil && p.Options["token"] != "" {
+	if p := run("", false); p.Options["token"] != "old" {
+		t.Fatal("blank token did not preserve the stored credential")
+	}
+	if p := run("", true); p.Options["token"] != nil && p.Options["token"] != "" {
 		t.Fatalf("cleared token still saved: %v", p.Options["token"])
 	}
 }

@@ -76,8 +76,8 @@ func dshCollabNotMounted(ctx context.Context) string {
 	}
 	msg := head + "，可能没装好或启动时报了错"
 	if web, _, ok := readDSHWebState(); ok {
-		if logPath := dshWebLogPath(web); logPath != "" {
-			msg += "，日志见 " + logPath
+		if paths := dshWebLogPaths(web); len(paths) > 0 {
+			msg += "，日志见 " + paths[0]
 		}
 	}
 	return msg + "。"

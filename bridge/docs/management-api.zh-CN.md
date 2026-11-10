@@ -242,48 +242,30 @@ GET /api/v1/status?token=mgmt-secret
 
 #### GET /api/v1/config
 
-返回当前配置，敏感信息已脱敏。适用于调试和 UI 展示。
+返回当前配置文件的 TOML 文本，敏感信息已脱敏。面板「系统 → 配置」页把这段文本原样展示，所以注释、键顺序和格式都保留，只有凭证的值被替换。
 
 **查询参数：** 无
 
-**响应：**
+**响应：** `text/plain; charset=utf-8`，即配置文件原文，所有凭证类键的值替换为 `"***"`：
 
-```json
-{
-  "ok": true,
-  "data": {
-    "data_dir": "/home/user/.bothouse",
-    "language": "en",
-    "projects": [
-      {
-        "name": "my-backend",
-        "agent": {
-          "type": "claudecode",
-          "providers": [
-            {
-              "name": "anthropic",
-              "api_key": "***",
-              "base_url": "",
-              "model": "claude-sonnet-4-20250514"
-            }
-          ]
-        },
-        "platforms": [
-          {
-            "type": "feishu",
-            "options": {
-              "app_id": "***",
-              "app_secret": "***"
-            }
-          }
-        ]
-      }
-    ]
-  }
-}
+```toml
+[management]
+port = 51442
+token = "***"
+
+[feishu]
+app_id = "cli_xxxxxxxx"     # 不是密钥，原样返回
+app_secret = "***"
+
+[[projects.agent.providers]]
+name = "anthropic"
+api_key = "***"
+max_tokens = 8192           # token 计数不是密钥
 ```
 
-敏感信息（如 `api_key`、`token`、`app_secret`、`client_secret`）将被替换为 `"***"`。
+脱敏按键名判断，不区分大小写和分隔符，并递归进入表、数组和内联表（`env = { ANTHROPIC_API_KEY = "***", REGION = "us" }`）。键名包含 `secret`、`password`、`credential`、`api_key`、`private_key`、`access_key`，或以 `token`、`_aes_key`、`encrypt_key`、`_signing_key` 结尾的，一律替换为 `"***"`。只表示位置的 `token_endpoint`、`token_url`、`credentials_file`，以及 `max_tokens`、`min_tokens`、`max_context_tokens` 这类计数保持原值。
+
+文件读不到或脱敏失败时接口返回错误且不返回配置内容，失败不会泄露密钥。
 
 ---
 
@@ -357,6 +339,10 @@ GET /api/v1/status?token=mgmt-secret
 
 **响应：**
 
+`platforms[].connected` 是这个平台的运行期就绪状态，不是「config.toml 里写了」：
+起不来、或异步平台还在重连的，列出来但 `"connected": false`。bridge 传输在
+`GET /api/v1/status` 的 `bridge` 字段里，不在这里列。
+
 ```json
 {
   "ok": true,
@@ -423,6 +409,7 @@ GET /api/v1/status?token=mgmt-secret
 | `admin_from`         | string   | 特权命令用户 ID 列表（逗号分隔）；`"*"` 表示全部用户      |
 | `language`           | string   | 界面语言：`en`、`zh`、`zh-TW`、`ja`、`es`                 |
 | `disabled_commands`  | string[] | 要禁用的命令（如 `restart`、`upgrade`、`cron`）           |
+| `platform_allow_from`| object   | 按平台类型写 `allow_from`，如 `{"qq": "12345", "discord": "user1,user2"}`；键按平台 `type` 不区分大小写匹配。这是 `allow_from` 的**唯一写入者**：`PATCH /projects/{name}/qq/settings` 和 `qqbot` 面板传 `allow_from` 都会返回 `400`。传 `""` 表示清空该平台的允许名单 |
 
 **响应：**
 
@@ -440,6 +427,169 @@ GET /api/v1/status?token=mgmt-secret
   }
 }
 ```
+
+---
+
+#### GET /api/v1/projects/{name}/qq/settings
+
+读取项目已保存的 OneBot v11（`qq`）连接配置。访问令牌从不返回，`token_set`
+只表示有没有存。项目里没有 `qq` 平台时返回 `200` 且 `configured: false`。项目
+引擎没在跑也能读写这条接口。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "ws_url": "ws://127.0.0.1:3001",
+      "http_url": "http://127.0.0.1:3000",
+      "token_set": true,
+      "allow_from": "12345",
+      "share_session_in_channel": false,
+      "split_bubbles": false,
+      "allow_groups_with": "",
+      "command_allow_from": "",
+      "save_images_dir": "",
+      "allow_qzone": false,
+      "allow_avatar": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qq/settings
+
+保存局部更新：只改请求体里出现的字段，出现未知字段返回 `400`。字符串字段传
+`""` 表示从 `config.toml` 里删掉这个 key，这正是适配器读「没设置」的方式。布尔是
+三态：不传就不动，显式传 `false` 会写成 `false`。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ws_url` | string | OneBot 正向 WebSocket 地址；设置了就必须是 `ws://` 或 `wss://` |
+| `http_url` | string | 文件发送用的 OneBot HTTP API 地址；`""` 删除 |
+| `token` | string | 访问令牌；不传保留，`""` 删除 |
+| `share_session_in_channel` | boolean | 群成员共用一个会话 |
+| `split_bubbles` | boolean | 按空行拆成多条（`platform/qq`） |
+| `allow_groups_with` | string | 逗号分隔的 QQ 号：含这些人的群也放行 |
+| `command_allow_from` | string | 谁能发斜杠命令；`""` 保持默认 |
+| `save_images_dir` | string | 收到的图片另存到哪；`""` 停止另存 |
+| `allow_qzone` | boolean | 查/发/换/删这个号自己的说说（NapCat 扩展） |
+| `allow_avatar` | boolean | 换这个号自己的头像（NapCat 扩展） |
+
+`allow_from` **不能**从这里写：它只有一个写入者，即 `PATCH
+/api/v1/projects/{name}` 的 `platform_allow_from`。传了会返回 `400`，而不是
+悄悄什么都不做。
+
+**请求体：**
+
+```json
+{
+  "split_bubbles": true,
+  "allow_groups_with": "12345,67890",
+  "save_images_dir": "/path/to/received-images"
+}
+```
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qq settings saved",
+    "changed": ["split_bubbles", "allow_groups_with", "save_images_dir"],
+    "restart_required": true,
+    "settings": { "ws_url": "ws://127.0.0.1:3001", "split_bubbles": true }
+  }
+}
+```
+
+`changed` 只列真正和已存值不同的字段，`restart_required` 跟着它：没有变化时
+返回 `false`，也不会重写文件。平台在项目启动时读这些选项，所以改动重启后生效。
+
+错误：`404` 项目不存在，`400` 取值非法 / 没有 `qq` 平台 / 写了只读的
+`allow_from`，`503` 管理接口没接上配置读写回调。
+
+---
+
+#### GET /api/v1/projects/{name}/qqbot/settings
+
+读取项目已保存的 QQ 官方 Bot（`qqbot`）配置。**AppID 和 AppSecret 都不返回**，
+`app_id_set` / `app_secret_set` 只说有没有存过：面板既不重填也不显示，换 AppID
+就是重新添加一个 Bot。项目里没有 `qqbot` 平台时返回 `200` 且 `configured: false`；
+引擎没在跑也能读写。
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "configured": true,
+    "settings": {
+      "app_id_set": true,
+      "app_secret_set": true,
+      "sandbox": false,
+      "allow_from": "OPEN_ID_1",
+      "share_session_in_channel": false,
+      "markdown_support": false
+    }
+  }
+}
+```
+
+---
+
+#### PATCH /api/v1/projects/{name}/qqbot/settings
+
+保存局部更新：只改请求体里出现的字段，出现未知字段返回 `400`。布尔是三态：不传
+就不动，显式传 `false` 会写成 `false`。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `app_secret` | string | 换 AppSecret；**留空或省略都表示保留原值**，不会被当成「删除凭据」 |
+| `sandbox` | boolean | 连沙箱 API 而不是正式环境 |
+| `share_session_in_channel` | boolean | 群成员共用一个会话 |
+| `markdown_support` | boolean | 发 Markdown 消息（需要机器人在 QQ 后台有这个权限） |
+
+`app_id` 不能从这里改：它是 Bot 的身份，面板不回显也不编辑，换号请重新添加 Bot。
+`allow_from` 同样**不能**从这里写，只有 `PATCH /api/v1/projects/{name}` 的
+`platform_allow_from` 能写；传了返回 `400`。
+
+**请求体：**
+
+```json
+{
+  "sandbox": true,
+  "markdown_support": true
+}
+```
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "message": "qqbot settings saved",
+    "changed": ["sandbox", "markdown_support"],
+    "restart_required": true,
+    "settings": { "app_id_set": true, "sandbox": true, "markdown_support": true }
+  }
+}
+```
+
+`changed` 只列真正和已存值不同的字段；没有变化时 `restart_required` 是 `false`，
+也不重写文件。适配器在项目启动时读这些选项，所以改动重启后生效。
+
+错误：`404` 项目不存在，`400` 取值非法 / 没有 `qqbot` 平台 / 写了只读的
+`allow_from`，`503` 管理接口没接上配置读写回调；配置读写失败一律 `500` 且只回
+一句固定提示，细节进日志。
 
 ---
 
@@ -1335,7 +1485,11 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 ```
 
 `status` 是 `ready`、`not_configured` 或 `error`（带 `message`）；`api_key_set` 只说明有没有填密钥，
-密钥本身永不返回。
+密钥本身永不返回。`base_url` 照实给出端点（主机、路径、`size` 这类参数都保留），但写在里面的
+凭据换成 `***`：`https://user:sk-…@relay/v1` 回 `https://***@relay/v1`，`…?token=sk-…` 回
+`…?token=***`。`token`、`api_key`、`secret`、`password`、`signature` 一类参数名（含 `x-api-key`
+这种写法）都按凭据处理，别的参数不动。出错时（请求失败、服务商报错原文、下载图片失败）报错
+文字里的 URL 也先这样脱敏再返回。
 
 #### POST /api/v1/image-gen
 
@@ -1358,7 +1512,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 
 ### 5.10 Plugins（DSH profile）
 
-列出 DSH 那份 profile 里已有的插件，并提供两个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
+列出 DSH 那份 profile 里已有的插件，并提供三个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle、卸掉一个包（在一个 profile 锁里调 DSH 自己的 `runProfilePnpm` 跑 `pnpm remove`，理由见本节的卸载小节）。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
 
 两个写操作都要求管理 API 设了 token。没设时路由直接回 `403`：没认证的管理端口分不清谁是这台机器的主人。
 
@@ -1384,6 +1538,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
         "version": "0.2.1-rc.5",
         "description": "DSH base surface",
         "layer": true,
+        "client_only": false,
         "enabled": true,
         "shipped": true,
         "rows": [{"id": "web", "name": "@deepseek-ai/dsh-web", "disabled": false}]
@@ -1393,7 +1548,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 }
 ```
 
-`shipped` 表示这个 bundle 来自 DSH 安装本身而不是这份 profile：它们是面板自己的层，照样列出来，但页面不给开关。没有声明 `dsh.bundle` 的依赖 `layer: false`：装上了，但 DSH 不会把它当插件加载。
+`shipped` 表示这个 bundle 来自 DSH 安装本身而不是这份 profile：它们是面板自己的层，照样列出来，但页面不给开关。没有声明 `dsh.bundle` 的依赖 `layer: false`：装上了，但 DSH 不会把它当插件加载。`client_only`（#1376 新增）把两种非 layer 依赖分开：`true` 表示这个包声明了 `dsh.client`（至少读到 `platform`），即安装脚本装进 profile、由 DSH 渲染的客户端 UI 包（如 `@deepseek-ai/dsh-experimental-client-ui-discord`）；`false` 表示两段都没有，是纯依赖（如 `is-odd`）。它特意单列一个字段：`layer: false` 仍然只表示「不是 bundle」，`client_only` 不会把它变成 bundle。客户端 UI 包在这页没有开关——DSH 能不能关掉它不是这页要回答的事。
 
 #### GET /api/v1/plugins/inspect?spec=<包规格>
 
@@ -1442,6 +1597,15 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 
 失败时最后一行带 `error`（pnpm 原话）和 `kind`，页面翻成中文：`pnpm-missing`、`build-blocked`、`not-found`、`no-matching-version`、`disk-full`、`permission`、`integrity`、`network`、`timeout`、`unknown`。
 
+版本门禁拒绝是 `kind: "incompatible"`。这种失败 DSH 自己会打出确切的放行命令，最后一行同时带 `allow_version`（DSH 没打就是空串）：
+
+```
+{"error": "…", "kind": "incompatible", "log": "…",
+ "allow_version": "dsh plugin --profile web allow-version dsh-ops@0.5.2 --dsh-version 0.2.1-rc.5 --accept-risk"}
+```
+
+页面只把这句话显示出来，不会替你执行：放行是 DSH 自己的精确版本豁免，只对那个包的那个运行时版本有效，要不要承担命令里写的风险由人决定。
+
 #### POST /api/v1/plugins/switch
 
 ```json
@@ -1451,6 +1615,72 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 只改 profile `package.json` 里 `dsh.profile.bundles` 这一段，其余字节原样保留；用的是 DSH 和 `dsh plugin` 同一个 `package.json.lock`，改之前先写一份带时间戳的备份。不卸载任何东西，所以再开回来就恢复原状。profile 本来就是那个状态时 `changed: false`。
 
 `@deepseek-ai/dsh-base` 会被拒：它是面板本体，关掉就没有界面了。两个写操作都要重启 DSH 才生效，响应里 `restart_required: true`。
+
+#### POST /api/v1/plugins/uninstall
+
+```json
+{"name": "some-bundle", "confirm": "some-bundle"}
+```
+
+把这份 profile 的一个依赖卸掉。成功的响应：
+
+```json
+{"uninstalled": true, "restart_required": true, "state": {"…同 GET /api/v1/plugins…"}}
+```
+
+`uninstalled: true` 说的是**这次操作在 profile 里留下的结果**：服务端在放锁之前重读
+`package.json`，`dependencies` 里没有这个包、`dsh.profile.bundles` 里也没有它，才算卸掉了。
+`dsh plugin remove`（或它启动的 pnpm）退出码是 0 但 profile 还列着这个包时，回答的不是成功，
+而是 409 `unknown`：面板依据的是文件，不是子进程的自述。
+
+`name` 必须是 profile `dependencies` 里的精确包名，不接受 `name@version`、前缀或模糊匹配。
+`confirm` 必须**等于 `name`**：页面是让人在弹窗里把包名打一遍才发这个字段，服务端不接受
+`true` / `1` / 空。
+
+卸载和安装抢同一个 `package.json.lock`。这里的做法是**一个临界区**：服务端先拿到锁，然后在锁里
+依次做完 ① 下面那三道检查 ② 调 DSH 自己的 `runProfilePnpm` 跑 `pnpm remove`，由它的
+`reconcile()` 把该包从 `dsh.profile.bundles` 里摘掉 ③ 重读 profile 核对结果，最后才放锁。
+它**不是**一次 `dsh plugin --profile <profile> remove`：那条命令自己会去拿同一把锁，在桥已经
+持锁的情况下再起它，父子互相等锁，就是死锁。所以桥起的是一个内嵌脚本，脚本直接调
+`runProfilePnpm`（`dsh plugin` 在锁内用的正是这个函数），不碰锁。Unix 上 helper 使用独立于
+桥的进程组，超时杀该组；Windows 上先把 helper 纳入 Job，再喂入脚本，取消时复用
+`taskkill /T /F` 并终止 Job，确认其中活跃进程数归零后才放锁。即使 helper 已退出，Job 仍追踪
+pnpm 的后代。归零等待有上限（与卸载的 5 秒管道等待同量级）：超过上限仍不归零时返回错误并
+保留 profile 写锁。锁里记的是桥自己的 PID；桥 PID 消失仅使该锁满足已有机制的接管条件，
+不能证明旧 helper、pnpm 及其后代已经停止写入。恢复前须先确认这些进程均已退出且不再写
+profile，再按已有锁机制恢复；未确认时应保持停止写入并排查。单独重启桥不能保证安全恢复。
+
+检查（第 ① 步，都在锁里、都在起进程之前做完）：
+
+| 拦下的是 | HTTP | `kind` | 文案 |
+| --- | --- | --- | --- |
+| 内置层（`@deepseek-ai/dsh-base`） | 403 | `not-removable` | dsh-base 是 DSH 的面板本体，卸掉就没有界面可用了。 |
+| 从 DSH 安装目录 `link:` 进来的层（如 `@deepseek-ai/dsh-web-app`） | 403 | `not-removable` | 这一层随 DSH 一起安装，不能在这里卸载。 |
+| profile 里没有这个名字 | 404 | `not-installed` | 这份 profile 里没有这个包。 |
+| 还被别的包依赖 | 409 | `in-use` | 「A、B 还在用它，先卸载 A、B。」（响应另带 `in_use_by: ["A","B"]`） |
+| `confirm` 与 `name` 不一致 | 400 | `confirm-mismatch` | 包名不对，再输一次。 |
+
+被依赖时只拦、不连带卸。反向依赖扫的是 profile 的 `node_modules/<pkg>/package.json` 和
+`node_modules/@<scope>/<pkg>/package.json` 里的 `dependencies` / `peerDependencies` /
+`optionalDependencies`，不用 `pnpm why`：对 `link:` 包它会返回空，看不出谁在依赖。
+
+第 ②③ 步的结果按下面的表翻成页面上的那句话，**不把 pnpm 的英文原话交给页面**：
+
+| 发生了什么 | HTTP | `kind` |
+| --- | --- | --- |
+| pnpm 报 `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`（这个包其实不在依赖里） | 403 | `not-removable` |
+| 这份 profile 里还有上一次安装/卸载留下的进程没退（DSH 的运行记录还指着一个活着的进程） | 409 | `unknown` |
+| 这份 DSH 没带插件管理器（版本太旧或装不完整） | 409 | `unknown` |
+| 找不到 pnpm，或这台电脑没有能跑卸载的 Node | 409 | `unknown` |
+| 桥自己的超时到了，卸载进程树已清理完成 | 409 | `timeout` |
+| 命令说做完了，但 profile 里还列着它 | 409 | `unknown` |
+| 其他 | 409 | `unknown` |
+
+卸载要重启 DSH 才生效（DSH 只在启动时读 `dsh.profile.bundles`），所以成功的响应里
+`restart_required` 固定为 `true`。
+
+这次不做：回滚/撤销、批量卸载、清 pnpm 内容寻址 store、清 `.plugin-manager/logs`、清孤儿
+`cordis.patch.yml` 覆盖、卸完自动重启 DSH。
 
 #### GET /api/v1/plugins/config?id=<行 id>
 
@@ -1585,6 +1815,8 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
 | 1.1-draft  | 2026-11-08 | 换说说改为必须带 `accept_audience_change: true`：上游在 `secret` 缺失时会把 `is_private` 补成 `false`，单看这一行分不出「真的公开」和「没读到」，改宽可见范围这件事不再由缺省值决定 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
+| 1.2-draft  | 2026-11-09 | 新增 `POST /plugins/uninstall`：卸载 profile 的一个依赖，检查、`runProfilePnpm`、结果核对在同一个 profile 锁里做完（不调会自己抢锁的 `dsh plugin remove`），内置层 / 安装目录 link 进来的层 / 被别的包依赖三种情况直接拦住并给中文原因；`uninstalled: true` 以重读 profile 的结果为准，需重启生效 |
+| 1.2-draft  | 2026-11-09 | 生图状态与报错里的 `base_url` 脱敏：URL 里的用户信息（`https://…@relay`）和 `token` / `api_key` / `secret` 一类查询参数换成 `***`，端点本身照旧显示 |
 | 1.2-draft  | 2026-11-08 | 新增 `GET`/`POST /plugins/config`：读出单个插件行自己的配置（YAML 文本，标明是插件自带 / profile / HOME 哪一层设的），存进 profile 的 patch，整个读-改-写跑在 DSH 自己的锁上 |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |
 

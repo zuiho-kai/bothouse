@@ -95,7 +95,7 @@ export class Roster {
         continue;
       }
       try {
-        const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
+        const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok'].includes(m.avatar) ? m.avatar : undefined;
         const base = { name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) };
         // The wizard pins a DSH-model role to the route its key belongs to (#1173); a host without that model
         // still gets the role, on its default model.

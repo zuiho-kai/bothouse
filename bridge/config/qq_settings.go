@@ -3,11 +3,13 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	"github.com/chenhg5/cc-connect/core"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // QQSettingsUpdate is a partial update of a project's QQ (OneBot v11) platform
@@ -21,6 +23,16 @@ type QQSettingsUpdate struct {
 	// single writer, PATCH /projects/{name}'s platform_allow_from.
 	AllowFrom             *string
 	ShareSessionInChannel *bool
+
+	// The remaining switches already exist in the adapter (platform/qq/qq.go:153-206)
+	// and in config.example.toml:1884-1894, but had no way in from the panel. nil
+	// still means "leave it alone"; the string fields treat "" as "drop the key".
+	SplitBubbles     *bool
+	AllowGroupsWith  *string
+	CommandAllowFrom *string
+	SaveImagesDir    *string
+	AllowQzone       *bool
+	AllowAvatar      *bool
 }
 
 // QQSettings is the non-secret view of a project's QQ (OneBot v11) platform.
@@ -32,6 +44,12 @@ type QQSettings struct {
 	TokenSet              bool
 	AllowFrom             string
 	ShareSessionInChannel bool
+	SplitBubbles          bool
+	AllowGroupsWith       string
+	CommandAllowFrom      string
+	SaveImagesDir         string
+	AllowQzone            bool
+	AllowAvatar           bool
 }
 
 var (
@@ -83,6 +101,24 @@ func GetQQSettings(projectName string) (*QQSettings, error) {
 			if v, ok := plat.Options["share_session_in_channel"].(bool); ok {
 				out.ShareSessionInChannel = v
 			}
+			if v, ok := plat.Options["split_bubbles"].(bool); ok {
+				out.SplitBubbles = v
+			}
+			if v, ok := plat.Options["allow_groups_with"].(string); ok {
+				out.AllowGroupsWith = v
+			}
+			if v, ok := plat.Options["command_allow_from"].(string); ok {
+				out.CommandAllowFrom = v
+			}
+			if v, ok := plat.Options["save_images_dir"].(string); ok {
+				out.SaveImagesDir = v
+			}
+			if v, ok := plat.Options["allow_qzone"].(bool); ok {
+				out.AllowQzone = v
+			}
+			if v, ok := plat.Options["allow_avatar"].(bool); ok {
+				out.AllowAvatar = v
+			}
 			return out, nil
 		}
 		return out, nil
@@ -92,8 +128,7 @@ func GetQQSettings(projectName string) (*QQSettings, error) {
 
 // UpdateQQSettings applies a partial update to a project's first qq platform and
 // persists it. It returns the names of the fields that actually changed. The
-// whole file is read and written back, so unrelated project/platform fields are
-// preserved.
+// changed options are patched in the original text, preserving unrelated bytes.
 func UpdateQQSettings(projectName string, u QQSettingsUpdate) ([]string, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -185,10 +220,67 @@ func UpdateQQSettings(projectName string, u QQSettingsUpdate) ([]string, error) 
 			changed = append(changed, "share_session_in_channel")
 		}
 	}
+	if u.SplitBubbles != nil {
+		if cur, _ := target["split_bubbles"].(bool); cur != *u.SplitBubbles {
+			target["split_bubbles"] = *u.SplitBubbles
+			changed = append(changed, "split_bubbles")
+		}
+	}
+	if u.AllowQzone != nil {
+		if cur, _ := target["allow_qzone"].(bool); cur != *u.AllowQzone {
+			target["allow_qzone"] = *u.AllowQzone
+			changed = append(changed, "allow_qzone")
+		}
+	}
+	if u.AllowAvatar != nil {
+		if cur, _ := target["allow_avatar"].(bool); cur != *u.AllowAvatar {
+			target["allow_avatar"] = *u.AllowAvatar
+			changed = append(changed, "allow_avatar")
+		}
+	}
+	for _, s := range []struct {
+		key   string
+		value *string
+	}{
+		{"allow_groups_with", u.AllowGroupsWith},
+		{"command_allow_from", u.CommandAllowFrom},
+		{"save_images_dir", u.SaveImagesDir},
+	} {
+		if s.value == nil {
+			continue
+		}
+		v := strings.TrimSpace(*s.value)
+		if cur, _ := target[s.key].(string); cur != v {
+			// "" means "remove the key", the same convention http_url already
+			// uses: an absent key is what the adapter reads as "not set".
+			if v == "" {
+				delete(target, s.key)
+			} else {
+				target[s.key] = v
+			}
+			changed = append(changed, s.key)
+		}
+	}
 	if len(changed) == 0 {
 		return changed, nil
 	}
-	if err := saveConfig(cfg); err != nil {
+	raw := string(data)
+	for _, key := range changed {
+		raw, err = patchPlatformOption(raw, projectName, "qq", key, target[key])
+		if err != nil {
+			return nil, fmt.Errorf("patch qq option %s: %w", key, err)
+		}
+	}
+	// Validate the edited text against the intended update before committing any
+	// bytes. Unusual TOML layouts must never redirect a patch to another field.
+	var patched map[string]any
+	if err := toml.Unmarshal([]byte(raw), &patched); err != nil {
+		return nil, fmt.Errorf("parse patched config: %w", err)
+	}
+	if !reflect.DeepEqual(patched, cfg) {
+		return nil, fmt.Errorf("QQ settings could not be patched without changing other config fields")
+	}
+	if err := writeConfigText(raw); err != nil {
 		return nil, fmt.Errorf("save config: %w", err)
 	}
 	return changed, nil

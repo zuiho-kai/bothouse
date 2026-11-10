@@ -69,16 +69,17 @@ function loadApplyMessage() {
   assert.ok(end > start, 'applyMessage end found');
   const source = html.slice(start, end);
   assert.doesNotMatch(source, /\bdocument\.|\bwindow\./, 'applyMessage 不碰 DOM，才能这样测');
-  return new Function('S', 'resolveRef', 'beam', 'addLog', 'displayName', source + '\nreturn applyMessage;');
+  return new Function('S', 'resolveRef', 'beam', 'addLog', 'displayName', 'slipFrom', source + '\nreturn applyMessage;');
 }
 
 function harness(members = [{ id: 'deep', name: '肥鱼' }, { id: 'cjiang', name: 'C酱' }, { id: 'ayu', name: '阿柚' }, { id: 'ayuzi', name: '阿柚子' }]) {
   const beams = [];
   const logs = [];
+  const slips = [];
   const S = { byId: new Map(members.map(m => [m.id, m])), memberList: members, rosterFor: new Map() };
   const make = loadApplyMessage();
-  const applyMessage = make(S, ref => S.byId.get(ref), (a, b, kind) => beams.push([a.id, b.id, kind]), (...args) => logs.push(args), m => m.name);
-  return { beams, logs, apply: (message, animate = true) => applyMessage({ type: 'message', message }, animate) };
+  const applyMessage = make(S, ref => S.byId.get(ref), (a, b, kind) => beams.push([a.id, b.id, kind]), (...args) => logs.push(args), m => m.name, id => slips.push(id));
+  return { beams, logs, slips, apply: (message, animate = true) => applyMessage({ type: 'message', message }, animate) };
 }
 
 test('页面：回放给的 mentions 直接画细光，不依赖文本里还有没有 @', () => {

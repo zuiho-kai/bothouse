@@ -32,10 +32,34 @@ const USAGE_KEYS = [
   'usage.tokenBreakdown',
 ];
 
+// #1376: the plugins page's package-kind labels. They live in the locale files (the rest of that
+// page keeps its zh/en/ja table), so all seven must carry them or a user sees the key name.
+const PLUGIN_KEYS = ['plugins.stateClientUi', 'plugins.clientUiNote'];
+
 describe('locale files stay in step', () => {
   it.each(Object.keys(dicts))('%s has every usage quick-filter key', lang => {
     const keys = new Set(flatten(dicts[lang]));
     expect(USAGE_KEYS.filter(k => !keys.has(k))).toEqual([]);
+  });
+
+  it.each(Object.keys(dicts))('%s has every plugin package-kind key', lang => {
+    const keys = new Set(flatten(dicts[lang]));
+    expect(PLUGIN_KEYS.filter(k => !keys.has(k))).toEqual([]);
+  });
+
+  // QQ 面板的三种状态各有一句标题一句提示，少一种语言就会出现键名本身。
+  const QQ_STATE_KEYS = [
+    'qq.stateRestart',
+    'qq.stateRestartHint',
+    'qq.stateOffline',
+    'qq.stateOfflineHint',
+    'qq.stateConnected',
+    'qq.stateConnectedHint',
+  ];
+
+  it.each(Object.keys(dicts))('%s has every QQ connection-state key', lang => {
+    const keys = new Set(flatten(dicts[lang]));
+    expect(QQ_STATE_KEYS.filter(k => !keys.has(k))).toEqual([]);
   });
 
   it.each(Object.keys(dicts))('%s has no key that en.json does not have', lang => {

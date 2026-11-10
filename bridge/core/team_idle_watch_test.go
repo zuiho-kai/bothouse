@@ -35,23 +35,40 @@ func TestWatchChatAcceptAnsweredInTurnIsNotWatched(t *testing.T) {
 	}
 }
 
-// Work started in the turn (a tool ran) is still watched, titled from the first line.
-func TestWatchChatAcceptWithWorkIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】修登录页样式\n先看了 css，接下来改按钮", true, false, false, false, time.Time{})
-	got := scriptWatchesOf(e, "discord:chatA")
-	if len(got) != 1 || got[0].Title != "修登录页样式" {
-		t.Fatalf("accepted work with tool use must be watched by its title, got %+v", got)
+// #1407 (11-10 agentm): 橘 asked 鲸鱼娘 for 「在+模型名」; she ran one tool (`bothouse model list`) and
+// answered 「【接】在。\n我现在用的是 deepseek-v4.1-flash…」. The tool call was taken for work in flight
+// and the watch woke her with 「还没交出去…交工作区」 three times. In a chat channel a 【接】 with no
+// board item is answered there, tools or not; real work goes to a workspace and is watched there.
+func TestWatchChatAcceptWithToolsButNoBoardItemIsNotWatched(t *testing.T) {
+	for _, reply := range []string{
+		"【接】在。\n\n我现在用的是 deepseek-v4.1-flash（deepseek-official 提供），推理档 high；桥当前只报出这一个模型。",
+		"【接】修登录页样式\n先看了 css，接下来改按钮",
+		"【接】\n一个最基础的登录页…",
+		"【接】",
+	} {
+		e, _ := acceptFixture(t)
+		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, false, time.Time{})
+		if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 0 {
+			t.Fatalf("%q: a chat 【接】 with no board item must not be watched even with tool use, got %+v", reply, got)
+		}
 	}
 }
 
-// A first line that is only 【接】 (or 「-」) names nothing, yet a turn that ran a tool is real work:
-// it is still watched, under the fixed fallback title rather than the body (PR #1194 review).
+// A first line that is only 【接】 (or 「-」) names nothing; where such a turn is still watched (a
+// workspace), it gets the fixed fallback title rather than the body (PR #1194 review).
 func TestWatchAcceptBlankTitleWithWorkUsesFallbackTitle(t *testing.T) {
 	for _, reply := range []string{"【接】\n一个最基础的登录页…", "【接】 -\n答案", "【接】"} {
 		e, _ := acceptFixture(t)
-		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, false, time.Time{})
-		got := scriptWatchesOf(e, "discord:chatA")
+		teamWorkspaceStore.mu.Lock()
+		err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
+			"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
+		}, Version: teamWorkspaceStateVersion})
+		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.watchTurnEnded(e.platforms[0], "discord:ws1", reply, true, false, false, false, time.Time{})
+		got := scriptWatchesOf(e, "discord:ws1")
 		if want := e.i18n.T(MsgWatchUntitledAccept); len(got) != 1 || got[0].Title != want {
 			t.Fatalf("%q: a bare 【接】 with tool use must be watched as %q, got %+v", reply, want, got)
 		}
@@ -138,9 +155,19 @@ func TestWatchWorkspaceBoardItemWithoutAcceptIsWatched(t *testing.T) {
 // first line, stayed open, and woke her with 「接着做」 after an unrelated turn ten hours later.
 func TestWatchReportOnLaterLineEndsNumberlessWatch(t *testing.T) {
 	e, _ := acceptFixture(t)
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物", true, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 0 {
-		t.Fatalf("setup: the accepted work must be watched without a board number, got %+v", got)
+	// A numberless chat watch left by an older build (#1407 no longer registers one).
+	owner := e.name
+	if m, ok := e.platforms[0].(SelfMentioner); ok && m.SelfMention() != "" {
+		owner = m.SelfMention()
+	}
+	now := time.Now()
+	teamWorkspaceStore.mu.Lock()
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
+		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute),
+			Owner: owner, Title: "先核对任务状态和实际产物", Sender: e.name}}}})
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
 	}
 	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物\n[report] #1162 背景：核对搏仓第二版\n已核对报告和输出\n要你做的：没有\n我加的：无", true, false, false, false, time.Time{})
 	got := scriptWatchesOf(e, "discord:chatA")
@@ -383,5 +410,107 @@ func TestWatchTurnEnded_LiveStuckRowNotRevived(t *testing.T) {
 	live := idleWatchRows(t, e, key, false)[0].Idle
 	if !live.Reported || live.Wakes != 1 {
 		t.Fatalf("the stuck live row was revived by a turn that ran tools: %+v", live)
+	}
+}
+
+// #497 (11-09): the very row that got two sessions killed. Its status is work in progress that
+// happens to mention 「已完成」, and the old strings.Contains test read it as a finished item.
+const watchBoardWorkInProgress = "在做：脱敏实现+单测+隔离实例截图已完成，PR #1382 草稿已开，CI 跑完即交回"
+
+// 1/6 of #497 (the regression, red before the fix): a status that only *mentions* a closing word is
+// still work. This is what freed 工作区 and killed the author's session at 15:07 on 11-09.
+func TestWatchBoardClosedRegressionStatusMentionsClosing(t *testing.T) {
+	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: watchBoardWorkInProgress}) {
+		t.Fatalf("%q read as closed (want live work)", watchBoardWorkInProgress)
+	}
+	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "在做：等验收通过再合"}) {
+		t.Fatalf("「在做：等验收通过再合」 read as closed")
+	}
+}
+
+// 2/6 of #497: the plain closing status is still closed.
+func TestWatchBoardClosedBareClosingStatus(t *testing.T) {
+	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "已完成"}) {
+		t.Fatal("「已完成」 must read as closed")
+	}
+}
+
+// 3/6 of #497: board.py's `\s*` allows leading spaces; the bridge must trim them the same way.
+func TestWatchBoardClosedLeadingSpace(t *testing.T) {
+	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "  已完成（返工0）"}) {
+		t.Fatal("「  已完成（返工0）」 must read as closed")
+	}
+	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "\t已结束"}) {
+		t.Fatal("a tab-indented closing status must read as closed")
+	}
+}
+
+// 4/6 of #497: the other two acceptance words, still anchored at the start.
+func TestWatchBoardClosedAcceptanceWords(t *testing.T) {
+	for _, status := range []string{"已验收", "已收口", "验收通过", "已验收（返工 0，无人返工）"} {
+		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must read as closed", status)
+		}
+	}
+}
+
+// 5/6 of #497: board.py's CLOSED_RE is case-insensitive and takes "done" as a whole word only.
+func TestWatchBoardClosedDoneWord(t *testing.T) {
+	for _, status := range []string{"DONE", "done", "Done：收工", "  done"} {
+		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must read as closed", status)
+		}
+	}
+	for _, status := range []string{"donezo", "还没 done", "doing"} {
+		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must not read as closed (done needs a word boundary)", status)
+		}
+	}
+}
+
+// 6/6 of #497: a handback and a waiting item are not closed — 「已交回」 still needs acceptance
+// (board.py 的注释：只有明确完成/验收/收口才关闭).
+func TestWatchBoardClosedNotClosed(t *testing.T) {
+	for _, status := range []string{"交回待验收", "等待用户拍板", "已交回", "已交接", "在做：已开工", ""} {
+		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
+			t.Fatalf("%q must not read as closed", status)
+		}
+	}
+}
+
+// #497: reconcileTeamWorkspaces frees a workspace by looking only at the bound board item
+// (team_workspace_one.go:244). With the anchored test, the in-progress row above keeps it live;
+// before the fix the same row made the workspace stale and reset the session.
+func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		freed  bool
+	}{
+		{watchBoardWorkInProgress, false},
+		{"已完成", true},
+	} {
+		e, _, _ := exitFixture(t, nil)
+		e.SetTeam(t.TempDir(), "橘", true)
+		if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		writeReviewBoard(t, e, teamTaskBoardItem{ID: 497, What: "看门误判", Who: "工作区1橘",
+			Status: tc.status, WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"})
+		teamWorkspaceStore.mu.Lock()
+		path := teamWorkspacePath(e.dataDir)
+		st := loadTeamWorkspacesLocked(path)
+		st.Handoffs["discord:ws1"] = []TeamHandoff{{Chat: "discord:chatA", At: now.Add(-time.Hour),
+			Due: now.Add(time.Minute), Owner: e.name, Board: 497, Sender: e.name, Name: "工作区1"}}
+		err := saveTeamWorkspacesLocked(path, st)
+		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := newHandoffWatch(e)
+		freed := len(w.reconcileTeamWorkspaces(now)) > 0
+		if freed != tc.freed {
+			t.Fatalf("status %q: freed=%v, want %v", tc.status, freed, tc.freed)
+		}
 	}
 }

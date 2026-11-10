@@ -721,3 +721,68 @@ func (e *EdgeTTS) Synthesize(ctx context.Context, text string, opts TTSSynthesis
 
 	return audioData, "mp3", nil
 }
+
+// ──────────────────────────────────────────────────────────────
+// LocalTTS — self-hosted voice-clone service (IndexTTS 2.0 etc.)
+// ──────────────────────────────────────────────────────────────
+
+// LocalTTS calls a self-hosted voice-clone server that speaks in a role's own
+// voice. The server keeps the model loaded and maps Voice to a reference clip
+// it holds, e.g. ~/ai-voice/bin/role_tts_server.py (POST /v1/audio/speech).
+// No API key: the service is expected to listen on loopback.
+type LocalTTS struct {
+	BaseURL string
+	Client  *http.Client
+}
+
+// NewLocalTTS creates a LocalTTS. Empty baseURL means http://127.0.0.1:8790/v1;
+// timeout <= 0 means 180s (the first call after a restart includes model warm-up).
+func NewLocalTTS(baseURL string, timeout time.Duration, client *http.Client) *LocalTTS {
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:8790/v1"
+	}
+	if timeout <= 0 {
+		timeout = 180 * time.Second
+	}
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+	return &LocalTTS{BaseURL: baseURL, Client: client}
+}
+
+// Synthesize asks the local server to read text in opts.Voice and returns MP3 bytes.
+func (l *LocalTTS) Synthesize(ctx context.Context, text string, opts TTSSynthesisOpts) ([]byte, string, error) {
+	if strings.TrimSpace(opts.Voice) == "" {
+		return nil, "", fmt.Errorf("local tts: voice is empty; set [tts.agents.<project>].voice to a reference voice on the server")
+	}
+	reqBody := map[string]any{"input": text, "voice": opts.Voice}
+	if opts.Speed > 0 {
+		reqBody["speed"] = opts.Speed
+	}
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, "", fmt.Errorf("local tts: marshal request: %w", err)
+	}
+	url := strings.TrimRight(l.BaseURL, "/") + "/audio/speech"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, "", fmt.Errorf("local tts: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := l.Client.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("local tts: request %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("local tts: read audio: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("local tts %d: %s", resp.StatusCode, body)
+	}
+	if len(body) == 0 {
+		return nil, "", fmt.Errorf("local tts: empty audio")
+	}
+	return body, "mp3", nil
+}

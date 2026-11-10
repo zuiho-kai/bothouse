@@ -1,0 +1,11 @@
+# Applied by `dsh plugin add bothouse-role-journal`. Edit config in the panel: 插件 → 配置.
+- insert:
+    - id: bothouse-role-journal
+      name: bothouse-role-journal
+      config:
+        bridge: http://127.0.0.1:9820
+        token: ""
+        # where journal-YYYY-MM-DD.jsonl goes; empty = ~/.bothouse/plugins/bothouse-role-journal
+        dir: ""
+        # empty = every status; speech drafts are skipped, the settled reply is kept
+        statuses: []

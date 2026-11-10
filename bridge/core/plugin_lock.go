@@ -34,8 +34,12 @@ const (
 // errPluginLockBusy says another process holds the profile and did not let go in time.
 var errPluginLockBusy = errors.New("另一个程序正在改这份 profile")
 
+// errPluginLockRetain means a writer could not confirm its child tree has stopped. Its PID
+// record must stay in place: returning an error alone would let another writer enter that tree.
+var errPluginLockRetain = errors.New("profile 写锁保留")
+
 // withPluginProfileLock runs fn while holding the profile's package.json writer lock.
-func withPluginProfileLock(manifestPath string, fn func() error) error {
+func withPluginProfileLock(manifestPath string, fn func() error) (result error) {
 	lockPath := manifestPath + ".lock"
 	deadline := time.Now().Add(pluginLockWait)
 	delay := pluginLockRetryInitial
@@ -68,7 +72,11 @@ func withPluginProfileLock(manifestPath string, fn func() error) error {
 			}
 		}
 	}
-	defer func() { _ = os.Remove(lockPath) }()
+	defer func() {
+		if !errors.Is(result, errPluginLockRetain) {
+			_ = os.Remove(lockPath)
+		}
+	}()
 	return fn()
 }
 

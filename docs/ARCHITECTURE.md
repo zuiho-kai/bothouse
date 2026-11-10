@@ -1,5 +1,9 @@
 # bothouse 软件架构
 
+## 角色与插件
+
+管理 API 的角色 SSE 聚合桥接实际会话忙闲/智能体事件与 DSH 原生状态/事件流，角色键按来源隔离；连接先发快照，重连恢复当前状态。角色插件绑定独立存入数据目录 plugins/role-bindings.json，不改变 DSH 的全局插件加载和开关，不内置形象素材。字段、多会话规则及实测边界见 [角色事件接口](plugins/role-events.md)。
+
 ## 原生引用回复
 
 平台可选实现 `MessageReplySender`，由平台验证目标消息属于当前会话。`send --reply-to` 经既有 `/send` API 和 `Engine.SendToSessionWithOptions` 调用该能力；不支持时返回错误，普通发送不变。公共入站边界只向具有该能力的平台提供消息 ID 和使用说明，因此 DSH / ACP 等不加载系统提示的后端同样能发现命令。QQ 的 `get_msg` 补取位于适配层，保留原作者、正文和 `Message.Reference`；原文不可读时保留引用 ID 并明确标记缺失。核心不判断平台或模型名称。
@@ -68,7 +72,11 @@ DSH 自定义成员头像由 collab 的 owner 专用上传接口接收：浏览�
 
 core 通过接口使用后端能力；agent 与 platform 适配器不互相导入。模型会话归各后端所有，共享 wiki 保存有来源的记录，凭据与运行数据留在仓库之外。
 
+工作区平台可选实现 `TeamWorkspaceShelver`：所有工作区（空着的、在用的）放在平台自己的一个分类里，认领时不搬回。Discord 是「工作区」分类：新建直接建在里面，老的由 core 在列池子、认领、释放时挪进去，旧版「空闲工作区」分类首次列频道时清空并删除；`TeamChannel.Shelved` 保留共享池的复用与编号语义；搬动失败只记日志，其他平台沿用原流程。
+
 ## 团队与记忆
+
+QQ 独立手写记忆可经 [qq-memory-quote](../integrations/qq-memory-quote/README.md) 接入受控提交：现有 macOS 沙箱内的 DSH 及全部子进程对记忆只读，文件编辑器通过本地接口提交候选；沙箱外的服务读取 people_said 可信来源，按项目/会话/人物核对后原子发布。来源查询绑定会话 capability，不能用模型自报的作者或 user 角色代替真人身份。它约束新记忆写入，不替换现有记忆布局或读取/回复的场景隐私策略；未接入的启动器仍沿用旧行为。
 
 成员身份与模型后端分开：多个成员可以指向同一模型或同一种 CLI。DSH 频道的绑定键是「成员 ID × 频道 ID」；原生成员创建独立的内部 DSH Session，本机 CLI 按成员创建实例并按频道维护 ACP session。不会以模型名或 CLI 类型作为成员唯一键。
 
