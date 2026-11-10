@@ -15,7 +15,7 @@
 |---|---|---|
 | `general/` | 跨仓库通用的做法：代码审查、调试、远端任务、规划、agent 协作、测试与 CI、性能测试、Bug 定级、文档验收 | 主 wiki |
 | `afd-plugin/`、`jianghan-roleplay-data-pipeline/`、`vllm-gr/`、`vllm-omni/`、`jiuwenswarm/` | 各自仓库的规则、架构和踩坑记录（后续 PR 加入） | 负责该仓库的角色的 wiki |
-| `skills/` | 不依赖 InferMatrixCopilot 的几个 skill（后续 PR 加入） | 按 skill 的用法安装 |
+| `skills/` | 不依赖 InferMatrixCopilot 的 7 个 skill：`docstring-conventions`、`pr-review-breaking-changes`、`issue-answer-contract`、`code-quality-review`、`ci-debug-root-cause`、`model-adaptation-review`、`explainer-video`（后续 PR 加入） | 按 skill 的用法安装 |
 
 ## 怎么用
 
@@ -47,7 +47,7 @@ bothouse wiki page format. Content only; there is no ongoing sync, so the packs 
 
 - Packs: `general` (cross-repo practices, for the main wiki) is here now; five repo packs (`afd-plugin`,
   `jianghan-roleplay-data-pipeline`, `vllm-gr`, `vllm-omni`, `jiuwenswarm`, each for the wiki of a role working on that
-  repo) and `skills/` follow in later PRs.
+  repo) and `skills/` (seven skills that do not depend on InferMatrixCopilot) follow in later PRs.
 - Use: copy a pack's domain directories into the wiki root, append the pack's `MEMORY.md` entries to the wiki's own
   `MEMORY.md` (do not overwrite it; a wiki holds at most 8 domains), then run the wiki lint.
 - `MANIFEST.tsv` maps every source file to its target page(s) and rule IDs; it is a cross-check table and is not copied.
