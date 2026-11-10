@@ -178,7 +178,7 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
 	inputWait(t, func() bool { return e.heldReportFor(7) != nil })
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("held report reached the chat before the lead passed it: %q", got)

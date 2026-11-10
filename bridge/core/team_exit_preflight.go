@@ -27,6 +27,7 @@ func ReportPreflight(draft, notes string) []string {
 		problems = append(problems, artReportProblems(notes, body, localFileExists)...)
 		problems = append(problems, scopeReportProblems(notes, body)...)
 		problems = append(problems, genericReportProblems(body)...)
+		problems = append(problems, entryReportProblems(body, localFileExists)...)
 	}
 	var blanks []string
 	for _, ln := range strings.Split(draft, "\n") {
@@ -54,6 +55,7 @@ func ReportSkeleton(id int, notes string) string {
 	fmt.Fprintf(&b, "要你做的：%s：要用户拍板或只有用户能做的事；没有就写「没有」）\n", ReportBlank)
 	fmt.Fprintf(&b, "我加的：%s：用户原话里没有、自己加的设定；没有就写「无」）\n", ReportBlank)
 	b.WriteString("细节：\n")
+	fmt.Fprintf(&b, "入口自验：%s：用户实际用的入口和在那里走一遍的结果；下面紧跟截图/录屏/成品路径或链接，或 ``` 包住的命令输出）\n", ReportBlank)
 	if items := scopeChangeItems(notes); len(items) > 0 {
 		b.WriteString("交接范围逐项：\n")
 		for _, it := range items {
