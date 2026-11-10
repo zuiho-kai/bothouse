@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: cb3ce32729df34c8cedc7f4482668190601c917f9cfa7ae21e4ca06bb0e743ce
+// dsh-client-source-sha256: c0f3a0fce3fcf29515abf54f139ea5d5cf89ebe17593acbacc9b6a6657740af0
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -19900,7 +19900,7 @@ function startAvatarStyle(fetchImpl = globalThis.fetch) {
 	} catch (error) {}
 	if (typeof fetchImpl !== "function") return;
 	fetchImpl(SETTINGS_PATH, { credentials: "same-origin" }).then((r) => r.ok ? r.json() : void 0).then((s) => {
-		if (s !== void 0) setAvatarStyle(normalizeAvatarStyle(s.avatar_style));
+		if (s?.data !== void 0) setAvatarStyle(normalizeAvatarStyle(s.data.avatar_style));
 	}).catch((error) => {});
 }
 function useAvatarStyle() {

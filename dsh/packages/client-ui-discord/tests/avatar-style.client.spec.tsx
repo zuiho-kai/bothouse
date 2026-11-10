@@ -3,10 +3,10 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { avatarSrc, DEFAULT_AVATAR_STYLE, matchAvatarSlug } from '../src/client/avatars.ts'
-import { setAvatarStyle } from '../src/client/avatar-style.ts'
+import { avatarStyle, resetAvatarStyleForTest, setAvatarStyle, startAvatarStyle } from '../src/client/avatar-style.ts'
 import { Avatar } from '../src/client/Avatar.tsx'
 
-afterEach(() => { cleanup(); setAvatarStyle(DEFAULT_AVATAR_STYLE) })
+afterEach(() => { cleanup(); setAvatarStyle(DEFAULT_AVATAR_STYLE); resetAvatarStyleForTest() })
 
 it('defaults to the vendor icon set', () => {
   expect(DEFAULT_AVATAR_STYLE).toBe('brand')
@@ -35,4 +35,11 @@ it('switches every avatar when the set changes', () => {
   expect(container.querySelector('img')?.getAttribute('src')).toBe('collab/avatars/brand-claude.png')
   act(() => { setAvatarStyle('chibi') })
   expect(container.querySelector('img')?.getAttribute('src')).toBe('collab/avatars/orange.png')
+})
+
+it('reads the stored set from the bothouse settings answer', async () => {
+  const fetchImpl = (async () => new Response(JSON.stringify({ data: { avatar_style: 'chibi' } }), { status: 200 })) as unknown as typeof fetch
+  startAvatarStyle(fetchImpl)
+  await new Promise(r => setTimeout(r, 0))
+  expect(avatarStyle()).toBe('chibi')
 })

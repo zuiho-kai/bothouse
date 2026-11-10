@@ -22,6 +22,12 @@ export function setAvatarStyle(style: AvatarStyle): void {
   for (const fn of listeners) fn()
 }
 
+/** Tests only: forget the read so the next startAvatarStyle reads again. */
+export function resetAvatarStyleForTest(): void {
+  started = false
+  current = DEFAULT_AVATAR_STYLE
+}
+
 export function avatarStyle(): AvatarStyle {
   return current
 }
@@ -37,7 +43,8 @@ export function startAvatarStyle(fetchImpl: typeof fetch = globalThis.fetch): vo
   if (typeof fetchImpl !== 'function') return
   fetchImpl(SETTINGS_PATH, { credentials: 'same-origin' })
     .then(r => (r.ok ? r.json() : undefined))
-    .then((s: { avatar_style?: unknown } | undefined) => { if (s !== undefined) setAvatarStyle(normalizeAvatarStyle(s.avatar_style)) })
+    // The management API answers { data: { …settings } } (bridge/core/management.go mgmtJSON).
+    .then((s: { data?: { avatar_style?: unknown } } | undefined) => { if (s?.data !== undefined) setAvatarStyle(normalizeAvatarStyle(s.data.avatar_style)) })
     .catch((error: unknown) => { void error /* bothouse not reachable: keep the default set */ })
 }
 
