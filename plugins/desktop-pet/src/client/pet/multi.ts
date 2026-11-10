@@ -100,6 +100,10 @@ export function createPetMulti(
     // 工作状态：容器统一轮询 sections.workStatus，快照与 tick 驱动各宠物播档位动画。
     const [workStatus, setWorkStatus] = useState<WorkStatusSnapshot | null>(null);
     const [workStatusTick, setWorkStatusTick] = useState(0);
+    // bothouse fork：按宠物的工作状态（宿主 sections.workStatus.pets）。每只一个 tick，只在自己那份变了才前进，
+    // 否则一只换动作会让别的宠物把当前档位动画从头重播。
+    const petWorkRef = useRef<Record<string, { key: string; tick: number }>>({});
+    const globalWorkKeyRef = useRef('');
     // 说话：容器把 pets.<id>.say 按宠物分发给对应 PetCard。
 
     // 字体族写到 documentElement：对话窗与得分弹窗挂在 body 下，继承不到宠物根容器。
@@ -224,6 +228,16 @@ export function createPetMulti(
             const snap = readWorkStatus(leaf);
             if (snap) {
               setWorkStatus(snap);
+              for (const [id, slot] of Object.entries(snap.pets ?? {})) {
+                const key = String(slot.state) + '\u0000' + String(slot.task);
+                const prev = petWorkRef.current[id];
+                if (prev?.key !== key) petWorkRef.current[id] = { key, tick: (prev?.tick ?? 0) + 1 };
+              }
+              const globalKey = String(snap.state) + '\u0000' + String(snap.task) + '\u0000' + String(snap.sessionId);
+              const globalChanged = globalKey !== globalWorkKeyRef.current;
+              globalWorkKeyRef.current = globalKey;
+              // 只有按宠物的槽变了：setWorkStatus 已让各宠物按自己的 tick 重渲染，全局 tick 不动。
+              if (!globalChanged && snap.pets) return;
               setWorkStatusTick((t) => t + 1); // 任何变化都触发，含回到空闲。
               // 工作状态播报：与系统通知同级、同样只在网页端出声；不写 say 叶子。
               speakWorkStatus(snap);
@@ -349,6 +363,17 @@ export function createPetMulti(
       };
     }, [ready]);
 
+    /** bothouse fork：宠物有自己的槽就只跟自己的走（tick 也是自己的），否则照上游吃全局快照。 */
+    const petWorkProps = (
+      workOn: boolean,
+      id: string,
+    ): { workStatus: WorkStatusSnapshot | null; workStatusTick: number } => {
+      if (!workOn) return { workStatus: null, workStatusTick: 0 };
+      const own = workStatus?.pets?.[id];
+      if (own) return { workStatus: { state: own.state, task: own.task, sessionId: null }, workStatusTick: petWorkRef.current[id]?.tick ?? 0 };
+      return { workStatus, workStatusTick };
+    };
+
     return ready
       ? visiblePets.map((p) => {
           // 未启用工作状态联动：在分发处就断掉，下游（动画恢复、播完判定、气泡）不必各判一次。
@@ -360,8 +385,7 @@ export function createPetMulti(
             balanceTick,
             balanceNoticeTick,
             balanceManual,
-            workStatus: workOn ? workStatus : null,
-            workStatusTick: workOn ? workStatusTick : 0,
+            ...petWorkProps(workOn, p.id),
             onFocusSession: jumpToSession,
             say: sayRef.current[p.id],
             sayTick,

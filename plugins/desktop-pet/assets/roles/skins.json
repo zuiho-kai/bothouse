@@ -6,7 +6,9 @@
    "id": "maomao",
    "name": "橘",
    "aliases": [
-    "橘"
+    "橘",
+    "cjiang",
+    "C酱"
    ],
    "group": "自家角色"
   },
@@ -14,7 +16,9 @@
    "id": "longniang",
    "name": "龙娘",
    "aliases": [
-    "龙娘"
+    "龙娘",
+    "gge",
+    "G哥"
    ],
    "group": "自家角色"
   },
@@ -25,7 +29,8 @@
     "鲸鱼娘",
     "鲸鱼",
     "大肥鱼",
-    "肥鱼"
+    "肥鱼",
+    "deep"
    ],
    "group": "自家角色"
   },
@@ -49,9 +54,7 @@
    "id": "claude",
    "name": "Claude",
    "aliases": [
-    "Claude",
-    "cjiang",
-    "C酱"
+    "Claude"
    ],
    "group": "模型"
   },
@@ -62,9 +65,7 @@
     "GPT",
     "ChatGPT",
     "Codex",
-    "OpenAI",
-    "gge",
-    "G哥"
+    "OpenAI"
    ],
    "group": "模型"
   },
@@ -73,7 +74,6 @@
    "name": "DeepSeek",
    "aliases": [
     "DeepSeek",
-    "deep",
     "深度求索"
    ],
    "group": "模型"

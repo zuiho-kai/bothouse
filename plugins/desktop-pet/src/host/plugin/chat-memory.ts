@@ -240,7 +240,7 @@ export function createChatMemory(deps: ChatMemoryInput) {
     const bh = bothouse();
     // 「配图」菜单点了某张图（meme）：角色的这句话配上那张图，和上游「用这张图说一句」同一个意思。
     const result = bh
-      ? await bh.whisper().then((r) => (r.ok && meme ? { ...r, image: meme.name } : r))
+      ? await bh.whisper(petId).then((r) => (r.ok && meme ? { ...r, image: meme.name } : r))
       : await generateWhisper(ctx, {
           system,
           meme,
@@ -361,7 +361,7 @@ export function createChatMemory(deps: ChatMemoryInput) {
       // bothouse fork：对话交给绑定的角色回，不走桌宠自己的模型（见 ../bothouse.ts）。
       const bh = bothouse();
       const generated = bh
-        ? await bh.chat(text)
+        ? await bh.chat(text, petId)
         : await generateChat({
         ctx,
         system: patch?.system ?? system,
