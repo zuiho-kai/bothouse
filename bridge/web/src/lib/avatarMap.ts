@@ -42,7 +42,7 @@ export function resolveRoleAvatar(opts?: RoleAvatarMatchOptions | string): strin
     if (a.startsWith('http://') || a.startsWith('https://') || a.startsWith('data:') || a.startsWith('/')) {
       return a;
     }
-    if (a === 'orange' || a === 'dragon' || a === 'whale' || a === 'rainbow' || a === 'lanxi') {
+    if (a === 'orange' || a === 'dragon' || a === 'whale' || a === 'rainbow' || a === 'lanxi' || a === 'grok') {
       return withBase(`/avatars/${a}.png`);
     }
     return withBase(`/api/v1/library/avatar-image/${encodeURIComponent(a)}`);
@@ -52,12 +52,7 @@ export function resolveRoleAvatar(opts?: RoleAvatarMatchOptions | string): strin
   const agentType = (o.agentType || '').toLowerCase();
   const name = (o.name || '').toLowerCase();
 
-  // 2. Grok check: never borrow another's avatar
-  if (model.includes('grok') || agentType.includes('grok') || name.includes('grok')) {
-    return undefined;
-  }
-
-  // 3. Model family
+  // 2. Model family
   if (model) {
     if (model.includes('claude') || model.includes('opus') || model.includes('sonnet') || model.includes('haiku')) {
       return withBase('/avatars/orange.png');
@@ -71,9 +66,12 @@ export function resolveRoleAvatar(opts?: RoleAvatarMatchOptions | string): strin
     if (model.includes('gemini')) {
       return withBase('/avatars/rainbow.png');
     }
+    if (model.includes('grok') || model.includes('xai')) {
+      return withBase('/avatars/grok.png');
+    }
   }
 
-  // 4. Agent type / CLI
+  // 3. Agent type / CLI
   if (agentType) {
     if (agentType === 'claudecode' || agentType === 'claude') {
       return withBase('/avatars/orange.png');
@@ -87,9 +85,12 @@ export function resolveRoleAvatar(opts?: RoleAvatarMatchOptions | string): strin
     if (agentType === 'antigravity' || agentType === 'gemini') {
       return withBase('/avatars/rainbow.png');
     }
+    if (agentType === 'grok') {
+      return withBase('/avatars/grok.png');
+    }
   }
 
-  // 5. Persona identity / role name
+  // 4. Persona identity / role name
   if (name) {
     if (name === '橘' || name === 'c酱' || name === 'cjiang' || name === 'claude') {
       return withBase('/avatars/orange.png');
@@ -105,6 +106,9 @@ export function resolveRoleAvatar(opts?: RoleAvatarMatchOptions | string): strin
     }
     if (name === '岚汐' || name === 'lanxi' || name === 'minimax') {
       return withBase('/avatars/lanxi.png');
+    }
+    if (name === 'grok' || name.includes('grok')) {
+      return withBase('/avatars/grok.png');
     }
   }
 

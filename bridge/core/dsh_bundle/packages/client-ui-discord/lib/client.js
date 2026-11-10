@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 67834dc4683ead851f25c190ecdf26a27e77c92dc00c31f50033d29e805cd946
+// dsh-client-source-sha256: 5228c5c93d0c2cb5f22534536897b5f04ad32e249a1ce334768149fccd0a3a2a
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -19774,14 +19774,15 @@ function HighlightedMarkdown({ text, labels, members, className, inline, dataCar
 // src/client/avatars.ts
 /**
 * Built-in member avatars served by the collab plugin at `collab/avatars/<slug>.png`:
-* the four B-version character portraits (Claude / GPT / DeepSeek / Gemini) + lanxi.
+* the four B-version character portraits (Claude / GPT / DeepSeek / Gemini) + Grok + lanxi.
 */
 const AVATARS = [
 	"orange",
 	"whale",
 	"dragon",
 	"rainbow",
-	"lanxi"
+	"lanxi",
+	"grok"
 ];
 /**
 * Maps member role/model/cli/name to a built-in avatar slug:
@@ -19789,25 +19790,26 @@ const AVATARS = [
 * - GPT / Codex -> dragon
 * - DeepSeek -> whale
 * - Gemini -> rainbow
-* - Grok -> undefined (never borrow another's asset)
+* - Grok -> grok
 */
 function matchAvatarSlug(opts) {
 	if (opts.avatar && AVATARS.includes(opts.avatar)) return opts.avatar;
 	const model = (opts.model || "").toLowerCase();
 	const cli = (opts.cli || "").toLowerCase();
 	const name = (opts.name || opts.id || "").toLowerCase();
-	if (model.includes("grok") || cli.includes("grok") || name.includes("grok")) return;
 	if (model) {
 		if (model.includes("claude") || model.includes("opus") || model.includes("sonnet") || model.includes("haiku")) return "orange";
 		if (model.includes("gpt") || model.includes("codex") || model.includes("o1") || model.includes("o3") || model.includes("o4") || model.includes("chatgpt")) return "dragon";
 		if (model.includes("deepseek") || model.includes("r1") || model.includes("v3")) return "whale";
 		if (model.includes("gemini")) return "rainbow";
+		if (model.includes("grok") || model.includes("xai")) return "grok";
 	}
 	if (cli) {
 		if (cli === "claude" || cli === "claudecode") return "orange";
 		if (cli === "codex") return "dragon";
 		if (cli === "deepseek" || cli === "dsh") return "whale";
 		if (cli === "gemini" || cli === "antigravity") return "rainbow";
+		if (cli === "grok") return "grok";
 	}
 	if (name) {
 		if (name === "橘" || name === "c酱" || name === "cjiang" || name === "claude") return "orange";
@@ -19815,6 +19817,7 @@ function matchAvatarSlug(opts) {
 		if (name === "鲸鱼娘" || name === "肥鱼" || name === "deep" || name === "deepseek" || name === "dsh") return "whale";
 		if (name === "彩虹猫" || name === "大豆包" || name === "gjiang" || name === "gemini") return "rainbow";
 		if (name === "岚汐" || name === "lanxi" || name === "minimax") return "lanxi";
+		if (name === "grok" || name.includes("grok")) return "grok";
 	}
 }
 /**
