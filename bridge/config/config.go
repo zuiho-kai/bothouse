@@ -655,6 +655,11 @@ type ProjectConfig struct {
 	// MemoryIndex (maomao fork): the bot's own wiki MEMORY.md, put before the first turn of every fresh agent
 	// context (Claude Code loads its auto-memory itself; Codex/Antigravity bots need this). Empty disables it.
 	MemoryIndex string `toml:"memory_index,omitempty"`
+	// TeamExperienceDir: folder in the team wiki where personal agents' 【经验】 lines are filed, one page
+	// each, and searched when the lead hands them work (core/team_experience.go). Empty disables it.
+	TeamExperienceDir string `toml:"team_experience_dir,omitempty"`
+	// PersonalAgents: bot user IDs of teammates' own agents (own computer, own quota) in the team server.
+	PersonalAgents []string `toml:"personal_agents,omitempty"`
 	// LifePage: a file saying how the role is now (pocket, home, promises, work at hand), put before every turn
 	// sent to the agent, cron included; the agent edits it in place. Created from a template when missing.
 	// Empty disables it.
