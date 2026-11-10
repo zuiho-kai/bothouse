@@ -273,7 +273,7 @@ func (e *Engine) heldReportSuperseded(key string) string {
 	if item == nil {
 		return ""
 	}
-	if item.DoneAt != "" && item.AutoPruned == "" && !cp.HeldDone {
+	if item.DoneAt != "" && item.AutoPruned == "" && !cp.HeldDone && !returnedThisBind(item) {
 		return fmt.Sprintf("#%d 在任务板上已结束（%s）", cp.Board, item.DoneAt)
 	}
 	if cp.HeldBound != "" && item.Bound != "" && item.Bound != cp.HeldBound {
@@ -296,6 +296,17 @@ func (e *Engine) heldReportSuperseded(key string) string {
 		}
 	}
 	return ""
+}
+
+// returnedThisBind: the item was closed by this handback itself (board returned stamps returned_at
+// and moves it to board-done.jsonl right after the hold), not by the lead or a new handoff. #1382:
+// #1377's normal final report was withdrawn 11 s after the hold as 「已结束」 and ws-pass found nothing.
+func returnedThisBind(item *teamTaskBoardItem) bool {
+	if item.ReturnedAt.IsZero() {
+		return false
+	}
+	bound, err := time.Parse(time.RFC3339Nano, item.Bound)
+	return err != nil || !item.ReturnedAt.Before(bound)
 }
 
 // endHeldReport ends a held report unposted with verdict.

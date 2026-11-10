@@ -147,3 +147,33 @@ func TestHeldWaitingReportPassPosts(t *testing.T) {
 		t.Fatalf("passed post = %q", got)
 	}
 }
+
+// #1382: the handback itself (board returned) moves the item to board-done.jsonl with returned_at
+// just after the hold. That is no reason to withdraw: the lead can still ws-pass, and unjudged it
+// still posts unchecked.
+func TestHeldReportKeptWhenHandbackClosesItem(t *testing.T) {
+	e, p, _, item := heldFixture(t)
+	item.Bound = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	writeReviewBoard(t, e, *item)
+	holdForTest(t, e, p, item, "")
+	key := e.heldReportFor(46).Key
+	done := *item
+	done.DoneAt, done.Status, done.ReturnedAt = "11-10 18:32", "已完成", time.Now()
+	b, _ := json.Marshal(done)
+	writeReviewBoard(t, e)
+	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardDoneFile), append(b, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	e.recoverPendingReports(true)
+	if v := heldVerdict(e, key); v != "" {
+		t.Fatalf("handback's own close withdrew the report: %q", v)
+	}
+	if rec := e.heldReportFor(46); rec == nil || rec.delivered() {
+		t.Fatalf("report no longer awaiting the lead: %+v", rec)
+	}
+	expireHeld(t, e, key)
+	e.recoverPendingReports(true)
+	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], leadUncheckedMark) {
+		t.Fatalf("timeout post = %q", got)
+	}
+}
