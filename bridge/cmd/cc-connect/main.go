@@ -220,6 +220,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"wake":         runWake,
 	"progress":     runProgress,
 	"identity":     runIdentity,
+	"about":        runAbout,
 	"guard":        runGuard,
 	"task":         runTask,
 	"handoff":      runHandoff,
@@ -386,6 +387,11 @@ func runMain() {
 	}
 
 	config.ConfigPath = configPath
+	// Roles inherit this env: `bothouse about` reads the same config the bridge runs with,
+	// wherever --config put it (doctor already reads CC_CONFIG_PATH).
+	if abs, err := filepath.Abs(configPath); err == nil {
+		_ = os.Setenv("CC_CONFIG_PATH", abs)
+	}
 	slog.Info("config loaded", "path", configPath)
 
 	if len(cfg.Projects) == 0 {
@@ -1879,6 +1885,7 @@ Commands:
                      (-m <text> | --stdin, -p <project>, -s <session>)
 
   identity           Signed caller identity of the current turn
+  about              What bothouse is, how it compares, and this machine's roles/platforms
     token / show     Fetch this turn's signed token (who started the turn)
     pubkey           Print the bridge public key for guard hosts
 
