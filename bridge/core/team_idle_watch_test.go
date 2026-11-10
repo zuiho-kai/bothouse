@@ -35,23 +35,40 @@ func TestWatchChatAcceptAnsweredInTurnIsNotWatched(t *testing.T) {
 	}
 }
 
-// Work started in the turn (a tool ran) is still watched, titled from the first line.
-func TestWatchChatAcceptWithWorkIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】修登录页样式\n先看了 css，接下来改按钮", true, false, false, false, time.Time{})
-	got := scriptWatchesOf(e, "discord:chatA")
-	if len(got) != 1 || got[0].Title != "修登录页样式" {
-		t.Fatalf("accepted work with tool use must be watched by its title, got %+v", got)
+// #1407 (11-10 agentm): 橘 asked 鲸鱼娘 for 「在+模型名」; she ran one tool (`bothouse model list`) and
+// answered 「【接】在。\n我现在用的是 deepseek-v4.1-flash…」. The tool call was taken for work in flight
+// and the watch woke her with 「还没交出去…交工作区」 three times. In a chat channel a 【接】 with no
+// board item is answered there, tools or not; real work goes to a workspace and is watched there.
+func TestWatchChatAcceptWithToolsButNoBoardItemIsNotWatched(t *testing.T) {
+	for _, reply := range []string{
+		"【接】在。\n\n我现在用的是 deepseek-v4.1-flash（deepseek-official 提供），推理档 high；桥当前只报出这一个模型。",
+		"【接】修登录页样式\n先看了 css，接下来改按钮",
+		"【接】\n一个最基础的登录页…",
+		"【接】",
+	} {
+		e, _ := acceptFixture(t)
+		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, false, time.Time{})
+		if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 0 {
+			t.Fatalf("%q: a chat 【接】 with no board item must not be watched even with tool use, got %+v", reply, got)
+		}
 	}
 }
 
-// A first line that is only 【接】 (or 「-」) names nothing, yet a turn that ran a tool is real work:
-// it is still watched, under the fixed fallback title rather than the body (PR #1194 review).
+// A first line that is only 【接】 (or 「-」) names nothing; where such a turn is still watched (a
+// workspace), it gets the fixed fallback title rather than the body (PR #1194 review).
 func TestWatchAcceptBlankTitleWithWorkUsesFallbackTitle(t *testing.T) {
 	for _, reply := range []string{"【接】\n一个最基础的登录页…", "【接】 -\n答案", "【接】"} {
 		e, _ := acceptFixture(t)
-		e.watchTurnEnded(e.platforms[0], "discord:chatA", reply, true, false, false, false, time.Time{})
-		got := scriptWatchesOf(e, "discord:chatA")
+		teamWorkspaceStore.mu.Lock()
+		err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
+			"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
+		}, Version: teamWorkspaceStateVersion})
+		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.watchTurnEnded(e.platforms[0], "discord:ws1", reply, true, false, false, false, time.Time{})
+		got := scriptWatchesOf(e, "discord:ws1")
 		if want := e.i18n.T(MsgWatchUntitledAccept); len(got) != 1 || got[0].Title != want {
 			t.Fatalf("%q: a bare 【接】 with tool use must be watched as %q, got %+v", reply, want, got)
 		}
@@ -138,9 +155,19 @@ func TestWatchWorkspaceBoardItemWithoutAcceptIsWatched(t *testing.T) {
 // first line, stayed open, and woke her with 「接着做」 after an unrelated turn ten hours later.
 func TestWatchReportOnLaterLineEndsNumberlessWatch(t *testing.T) {
 	e, _ := acceptFixture(t)
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物", true, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 0 {
-		t.Fatalf("setup: the accepted work must be watched without a board number, got %+v", got)
+	// A numberless chat watch left by an older build (#1407 no longer registers one).
+	owner := e.name
+	if m, ok := e.platforms[0].(SelfMentioner); ok && m.SelfMention() != "" {
+		owner = m.SelfMention()
+	}
+	now := time.Now()
+	teamWorkspaceStore.mu.Lock()
+	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
+		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute),
+			Owner: owner, Title: "先核对任务状态和实际产物", Sender: e.name}}}})
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
 	}
 	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物\n[report] #1162 背景：核对搏仓第二版\n已核对报告和输出\n要你做的：没有\n我加的：无", true, false, false, false, time.Time{})
 	got := scriptWatchesOf(e, "discord:chatA")
