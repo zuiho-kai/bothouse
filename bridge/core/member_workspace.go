@@ -448,7 +448,7 @@ func shellQuoteHelper(p string) string {
 // memberSwitch: `bothouse member enable|disable`, only in a turn the owner (admin_from) started —
 // the user agrees to the recommendation, then it takes effect; nobody else can turn it on.
 func (e *Engine) memberSwitch(t callerTurn, on bool) (MemberResponse, int) {
-	if !e.isDMOwner(t.userID) && !e.isAdmin(t.userID) {
+	if !e.isDMOwner(t.userID) { // explicit admin_from only: "*" would let anyone turn it on
 		return MemberResponse{Text: "只有主人（admin_from 里的人）发起的那一轮能开关成员个人目录", Exit: 1}, http.StatusForbidden
 	}
 	e.memberWSMu.Lock()
@@ -637,24 +637,18 @@ func (e *Engine) runMemberLogin(t callerTurn, session, dir, gh string, codeCh ch
 	_, _ = e.sendMemberPrivately(t, session, "GitHub 授权好了，账号 "+nonEmpty(login, "（没查到账号名）")+"。以后你让我做 GitHub 上的事，只用你自己的这份授权。")
 }
 
-// sendMemberPrivately writes to the person themself: their private chat with this bot first; when
-// the platform cannot open or deliver it (Discord refuses DMs from server members by default for
-// many people), the channel of their turn with an @, never the owner's DM.
+// sendMemberPrivately writes to the person themself: their private chat with this bot through the
+// `send --dm --to` path (OpenDMSessionFor, #1352: only members of the server, failures returned as is);
+// when that cannot be opened or delivered (Discord refuses DMs from server members for many people), the
+// channel of their turn with an @ — never the owner's DM.
 func (e *Engine) sendMemberPrivately(t callerTurn, session, text string) (string, error) {
-	for _, p := range e.platforms {
-		if p.Name() != t.platform {
-			continue
-		}
-		if o, ok := p.(DirectMessageOpener); ok {
-			key, err := o.OpenDM(t.userID)
-			if err == nil {
-				if err = e.SendToSession(key, text); err == nil {
-					return "私信发给本人", nil
-				}
-			}
-			slog.Info("member workspace: private message refused, using the channel", "member", t.platform+"-"+t.userID, "error", err)
+	key, err := e.OpenDMSessionFor(session, t.userID)
+	if err == nil {
+		if err = e.SendToSession(key, text); err == nil {
+			return "私信发给本人", nil
 		}
 	}
+	slog.Info("member workspace: private message not delivered, using the channel", "member", t.platform+"-"+t.userID, "error", err)
 	if session == "" {
 		return "", errors.New("私信发不出去，也不知道他在哪个频道")
 	}
