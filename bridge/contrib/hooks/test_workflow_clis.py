@@ -120,6 +120,8 @@ class WorkflowCLIs(unittest.TestCase):
                    "tool_input": {"message": "【免审:调研】inspect routing"}}
         self.assertEqual(self.call("dispatch-review-guard", payload, "codex"), {})
         payload["tool_input"]["message"] = "implement routing without review"
+        self.assertEqual(self.call("dispatch-review-guard", payload, "codex"), {})  # 没打标记的派活放行（11-11）
+        payload["tool_input"]["message"] = "【审稿】look at routing"
         out = self.call("dispatch-review-guard", payload, "codex")
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 

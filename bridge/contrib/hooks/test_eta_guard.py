@@ -96,7 +96,8 @@ class AllCLIs(unittest.TestCase):
                 decision = out.get("decision") or out["hookSpecificOutput"]["permissionDecision"]
                 self.assertEqual(decision, "deny")
 
-    def test_reply_blocked_at_stop(self):
+    def test_reply_not_blocked_at_stop(self):
+        """回复正文里报时间不再拦（11-10 用户同意删 Stop 侧，11-11 同步进仓库）；挂定时的命令照旧查。"""
         reply = "工作区在跑，大约半小时后交回。"
         for cli, payload in [("", {"hook_event_name": "Stop", "last_assistant_message": reply}),
                              ("codex", {"hook_event_name": "Stop", "last_assistant_message": reply}),
@@ -104,7 +105,7 @@ class AllCLIs(unittest.TestCase):
                              ("", {"hook_event_name": "AfterAgent", "prompt": "进度？", "prompt_response": reply})]:
             with self.subTest(cli=cli, event=payload["hook_event_name"]):
                 code, out = self.call("fix-claim-guard", payload, cli)
-                self.assertIn(out.get("decision"), ("block", "deny"), out)
+                self.assertNotIn((out or {}).get("decision"), ("block", "deny"), out)
 
     def test_recurring_schedule_not_eta(self):
         import importlib.util, os

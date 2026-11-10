@@ -26,21 +26,21 @@ LOOK_TOOL = re.compile(r"^(Read|Grep|Glob|LS|Agent|Task|read_file|grep|glob|list
 MAX_LOOKS = 20  # 喂给模型的查现场调用条数（取最后这么多条）
 ONLY_OUTSIDE = re.compile(r"^(?:\s*(?:/tmp/\S*|https?://\S*))+\s*$")  # 只碰临时目录或外网，不算查自家
 
-SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断：这段话里有没有对「我们自己的系统」现状的断言或建议，而助手这一轮查过的东西没覆盖它。
+SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断：这段话里有没有对「我们自己的系统」现状的断言或建议，而助手最近查过的东西（这一轮和前几轮）没覆盖它。
 「我们自己的系统」= 用户和助手自己的桥/bothouse、仓库代码、wiki、配置、钩子、守卫、角色、服务器、容器、订阅、缓存、已有功能和流程。
 算断言：
 - 说我们有/没有/缺/早就有/已经做了/没做/只有/没订阅/没开/怎么运作 某样东西；
 - 建议我们加/学/改/补某样东西（「值得学」「建议加」「该做个」「我们缺一个」），这隐含「我们现在没有」。
 不算：只讲外部项目、别人怎么做，没拿来说我们有没有、该不该加；闲聊、情绪；转述用户刚说的话；
 明确说「没核实/还没查/待查」的推测；只汇报自己刚做的动作（「已发出」「已派给某某」「我改了 X」）。
-「本轮查过的」列出了这轮的工具调用。断言说的那样东西，要在这些调用里被读过、搜过、看过（目录、文件名、关键词对得上），才算覆盖。
+「最近查过的」列出了这一轮和前几轮的工具调用。断言说的那样东西，要在这些调用里被读过、搜过、看过（目录、文件名、关键词对得上），才算覆盖。
 查的是别的事（比如只核了另一件活的配置），断言却讲缓存、报告折叠、证据检查等别的东西 → 没覆盖。
 只看回复立论靠的主断言和主建议（结论、推荐、「值得学的几条」这类）；顺带提一句的旁枝、引用本对话前文的、说「规则/CLAUDE.md/人设/手册里写着什么」的（这些规则每轮都在助手上下文里）、讲助手刚交付的活本身的，不算。
 判断：有主断言且没覆盖 → unchecked；没有断言，或每条断言都被覆盖 → pass。拿不准就 pass。
 只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"第一条没覆盖的断言或建议原文，一句（pass 时空）"}"""
 
 REASON = ("先查我们现有的：仓库、wiki、配置，再说。这句在说我们自家现状或建议加东西：「{claim}」，"
-          "本轮没查过它说的那样东西（仓库、wiki、配置、日志或远端都没看）。先查（search.py 搜 wiki、grep 仓库、看配置和日志、上远端看），"
+          "最近几轮都没查过它说的那样东西（仓库、wiki、配置、日志或远端都没看）。先查（search.py 搜 wiki、grep 仓库、看配置和日志、上远端看），"
           "按查到的改写；查不了就在回复里写明「没核」。")
 
 
@@ -67,25 +67,29 @@ def turn(path):
         lines = open(path, encoding="utf-8").read().splitlines()
     except (OSError, TypeError):
         return None
-    texts, tools, user = [], [], ""
+    texts, tools, user, earlier = [], [], "", False
     for line in reversed(lines):
         try:
             e = json.loads(line)
         except ValueError:
             continue
         if _real_user(e):
-            user = _text((e.get("message") or {}).get("content"))
+            if not earlier:
+                user = _text((e.get("message") or {}).get("content"))
+            earlier = True  # 再往前只收查现场的调用：上一轮刚读过的东西，这一轮不用重查（11-11 误拦）
+            continue
+        if earlier and sum(1 for b in tools if is_lookup(b)) >= MAX_LOOKS:
             break
         c = (e.get("message") or {}).get("content")
         if e.get("type") == "assistant" and isinstance(c, list):
             for b in c:
                 if not isinstance(b, dict):
                     continue
-                if b.get("type") == "text":
+                if b.get("type") == "text" and not earlier:
                     texts.append(b.get("text", ""))
                 elif b.get("type") == "tool_use":
                     tools.append(b)
-    return "\n".join(reversed(texts)), tools, user
+    return "\n".join(reversed(texts)), list(reversed(tools)), user
 
 
 def is_lookup(b):
@@ -120,7 +124,7 @@ def ask_model(reply, user, looks):
     t0 = time.time()
     res = {"verdict": "pass", "claim": "", "ms": 0, "cost": 0}
     prompt = (f"## 用户这轮的话（末尾）\n{(user or '（没有）')[-600:]}\n\n"
-              f"## 本轮查过的（工具调用）\n" + ("\n".join(f"- {describe(b)}" for b in looks[-MAX_LOOKS:]) or "（一次都没查）") +
+              f"## 最近查过的（工具调用，含前几轮）\n" + ("\n".join(f"- {describe(b)}" for b in looks[-MAX_LOOKS:]) or "（一次都没查）") +
               f"\n\n## 要发给用户的回复\n{reply}")
     try:
         p = subprocess.run(
