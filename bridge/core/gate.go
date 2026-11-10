@@ -1024,6 +1024,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 		}
 	}()
 	add("reply_task", e.replyTaskBlock(session, ref))
+	add("outbound", session.takeOutboundContext())
 	add("lead_handoff", e.leadHandoffBlock(session, sessionKey))
 	add("handoff", e.handoffBlock(session, sessionKey))
 	add("memory", e.memoryBlock(session)) // before the handoff: the index, then what the old context did
