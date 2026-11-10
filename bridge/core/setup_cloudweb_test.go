@@ -801,3 +801,76 @@ func TestStartLocalHubUserUVKeepsEnv(t *testing.T) {
 		t.Errorf("hub env lacks RH_BOT_TOKEN")
 	}
 }
+
+// #1499: the hub's uv gets NO_PROXY/no_proxy for 127.0.0.1 and localhost, so a system proxy (Windows
+// WinINET, or HTTP(S)_PROXY in the env) cannot send the local hub's own start through it.
+func TestLocalHubEnvNoProxy(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:7897")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:7897")
+	// the test shell's own NO_PROXY (the sandbox sets one): cleared so the list is only what the hub adds
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
+	s := &localHubState{WebToken: "w", BotToken: "b"}
+	for _, uv := range []string{"", ownUV(dataDir)} { // the user's uv and the downloaded one alike
+		env := localHubEnv(dataDir, uv, s)
+		for _, want := range []string{"NO_PROXY=" + localHubNoProxy, "no_proxy=" + localHubNoProxy} {
+			n := 0
+			for _, e := range env {
+				if e == want {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Fatalf("uv %q: env has %q %d times:\n%v", uv, want, n, env)
+			}
+		}
+	}
+	if localHubNoProxy != "127.0.0.1,localhost" {
+		t.Fatalf("no-proxy list = %q", localHubNoProxy)
+	}
+	// a NO_PROXY the user already set is kept, the local hosts added once
+	t.Setenv("no_proxy", "10.0.0.0/8, 127.0.0.1")
+	if got := localHubNoProxyValue(); got != "10.0.0.0/8,127.0.0.1,localhost" {
+		t.Fatalf("merged NO_PROXY = %q", got)
+	}
+}
+
+// #1499: when the log already shows the proxy failing, the start reports that instead of waiting out
+// localHubStartWait (issue #1499: 90 seconds, then only "did not come up").
+func TestStartLocalHubFailsFastOnDeadProxy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake uv is a shell script")
+	}
+	noLocalHub(t)
+	dataDir, _ := stubPythonEnv(t)
+	oldFS, oldLook, oldWait := hubSourceFS, lookPath, localHubStartWait
+	hubSourceFS = fstest.MapFS{"rh/hub.py": &fstest.MapFile{Data: []byte("# hub")}}
+	localHubStartWait = 30 * time.Second // the wait this test must NOT use up
+	t.Cleanup(func() { hubSourceFS, lookPath, localHubStartWait = oldFS, oldLook, oldWait })
+	bin := t.TempDir()
+	userUV := filepath.Join(bin, "uv")
+	// what uv printed in #1499 (Windows zh-CN): written to the hub log, as uv's stderr goes there
+	script := "#!/bin/sh\n" +
+		"echo 'error: Failed to fetch: `https://pypi.org/simple/cryptography/`' >> ../hub.log\n" +
+		"echo '  Caused by: tcp connect error' >> ../hub.log\n" +
+		"echo '  Caused by: 由于目标计算机积极拒绝，无法连接。 (os error 10061)' >> ../hub.log\n"
+	if err := os.WriteFile(userUV, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lookPath = func(string) (string, bool, error) { return userUV, true, nil }
+	fetchUV = func(url string) ([]byte, error) { t.Errorf("downloaded %s", url); return nil, exec.ErrNotFound }
+
+	start := time.Now()
+	_, err := StartLocalHub(context.Background(), dataDir, "zh")
+	took := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "代理") {
+		t.Fatalf("want the proxy failure, got %v", err)
+	}
+	if took > 10*time.Second {
+		t.Fatalf("waited %s: the log said the proxy is dead, the wait must not run out", took)
+	}
+	if !strings.Contains(err.Error(), "os error 10061") {
+		t.Errorf("the log tail must come with it: %v", err)
+	}
+}
