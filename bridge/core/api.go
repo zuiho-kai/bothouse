@@ -76,6 +76,11 @@ type SendRequest struct {
 	// DM (maomao fork): send to the private chat with the user in admin_from instead of
 	// SessionKey; the server opens or reuses that chat first.
 	DM bool `json:"dm,omitempty"`
+	// DMTo (with DM): the user to message instead of the owner (#1352); must be in the server.
+	DMTo string `json:"dm_to,omitempty"`
+	// FromSession (with DM): the caller's own session (CC_SESSION_KEY), used to see who started the
+	// running turn and which server it is in. Not a send target.
+	FromSession string `json:"from_session,omitempty"`
 	// SessionFromEnv: the CLI filled SessionKey from its own session (no -s). A workspace's
 	// images/files then go to the chat channel that owns the workspace (sendTargetForAttachments).
 	SessionFromEnv bool `json:"session_from_env,omitempty"`
@@ -333,9 +338,9 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "--dm cannot be combined with --cwd", http.StatusBadRequest)
 			return
 		}
-		key, err := engine.OpenDMSession()
+		key, err := engine.OpenDMSessionFor(req.FromSession, req.DMTo)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		req.SessionKey = key

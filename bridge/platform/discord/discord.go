@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1622,6 +1623,53 @@ func (p *Platform) OpenDM(userID string) (string, error) {
 }
 
 var _ core.DirectMessageOpener = (*Platform)(nil)
+
+// IsDMMember reports whether userID is in the guild of the channel fromSession talks in (`send --dm
+// --to`, #1352). From a private chat (or no session) any guild the bot is in counts. One REST call per
+// guild (GET guild member), which needs no privileged intent.
+func (p *Platform) IsDMMember(fromSession, userID string) (bool, error) {
+	if p.session == nil {
+		return false, fmt.Errorf("discord: not connected")
+	}
+	if userID == "" {
+		return false, nil
+	}
+	var guilds []string
+	if parts := strings.SplitN(fromSession, ":", 3); len(parts) >= 2 && parts[0] == "discord" {
+		ch, err := p.session.State.Channel(parts[1])
+		if err != nil || ch == nil {
+			ch, err = p.session.Channel(parts[1])
+		}
+		if err == nil && ch != nil && ch.GuildID != "" {
+			guilds = []string{ch.GuildID}
+		}
+	}
+	if len(guilds) == 0 && p.session.State != nil {
+		p.session.State.RLock()
+		for _, g := range p.session.State.Guilds {
+			guilds = append(guilds, g.ID)
+		}
+		p.session.State.RUnlock()
+	}
+	var lastErr error
+	for _, g := range guilds {
+		m, err := p.session.GuildMember(g, userID)
+		if err == nil && m != nil {
+			return true, nil
+		}
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound {
+			continue
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return false, lastErr
+	}
+	return false, nil
+}
+
+var _ core.DMMemberChecker = (*Platform)(nil)
 
 func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (string, any, error) {
 	if !p.threadIsolation {
