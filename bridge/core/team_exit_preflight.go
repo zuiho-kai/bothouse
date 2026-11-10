@@ -29,6 +29,7 @@ func ReportPreflight(draft, notes string) []string {
 		problems = append(problems, genericReportProblems(body)...)
 		problems = append(problems, entryReportProblems(body, localFileExists)...)
 	}
+	problems = append(problems, SelfRouteProblems(body)...)
 	var blanks []string
 	for _, ln := range strings.Split(draft, "\n") {
 		if strings.Contains(ln, ReportBlank) {

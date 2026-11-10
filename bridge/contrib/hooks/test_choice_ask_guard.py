@@ -30,6 +30,32 @@ class ChoiceAskGuard(unittest.TestCase):
         env = dict(os.environ, PATH="/nonexistent", HOME=os.environ.get("TMPDIR", "/tmp"))
         self.assertEqual(run("要不要改口袋？请你定。", env=env), "")
 
+    def test_todo_line_triggers_judge(self):
+        self.assertTrue(cag.maybe_asking("【要你做的】看一下成片"))
+        for m in ("【要你做的】没有。", "要你做的：无", "要你做的：没有"):
+            self.assertFalse(cag.maybe_asking(m), m)
+
+    def test_self_route_blocks_without_model(self):
+        """11-10：回复让用户放文件、跑命令 → 桥的同一份规则（report check --self-route）判退回，不调模型，退回话带换路。"""
+        import tempfile
+        d = tempfile.mkdtemp()
+        fake = os.path.join(d, "bothouse")
+        with open(fake, "w") as f:
+            f.write(f"#!{sys.executable}\nimport sys\nt = sys.stdin.read()\n"
+                    "if '放进' in t: print('不通过'); print('- 「要你做的」让用户自己动手（放进），先换路'); sys.exit(1)\n")
+        os.chmod(fake, 0o755)
+        env = dict(os.environ, PATH="/nonexistent", CC_BIN=fake, HOME=d)
+        p = {"hook_event_name": "Stop", "stop_hook_active": False,
+             "last_assistant_message": "请把更新后的规则文件和 gate 放进 /tmp/iso.O9CP9P/home/.bothouse/collaboration/。"}
+        out = json.loads(subprocess.run([sys.executable, "-I", os.path.join(HERE, "choice-ask-guard.py")],
+                                        input=json.dumps(p), capture_output=True, text=True, env=env).stdout)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("换路", out["reason"])
+        # 引号里转述别人的话不算
+        p["last_assistant_message"] = "截图里它写了「请把文件放进去」，这类现在会被拦。"
+        self.assertEqual(subprocess.run([sys.executable, "-I", os.path.join(HERE, "choice-ask-guard.py")],
+                                        input=json.dumps(p), capture_output=True, text=True, env=env).stdout.strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()
