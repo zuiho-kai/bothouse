@@ -37,6 +37,8 @@ type WizardProjectOptions struct {
 	// AllPlatformsOfType: Options go into every platform of PlatformType the project has, and none
 	// is created (the panel's gate page: a bot may sit in several cloud_web channels).
 	AllPlatformsOfType bool
+	// MemberWorkspaces: member_workspaces (nil = leave)
+	MemberWorkspaces *bool
 }
 
 // UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
@@ -374,6 +376,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 	}
 	if o.NameCustomized != nil {
 		p["name_customized"] = *o.NameCustomized
+	}
+	if o.MemberWorkspaces != nil {
+		p["member_workspaces"] = *o.MemberWorkspaces
 	}
 	if o.DisplayName != "" {
 		p["team_name"] = o.DisplayName

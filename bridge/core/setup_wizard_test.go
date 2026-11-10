@@ -213,6 +213,9 @@ func (s *memStore) ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite
 		if w.DisplayName != "" {
 			p.DisplayName = w.DisplayName
 		}
+		if w.MemberWorkspaces != nil {
+			p.MemberWorkspaces = w.MemberWorkspaces
+		}
 		if w.AdminFrom != "" {
 			p.AdminFrom = w.AdminFrom
 		}

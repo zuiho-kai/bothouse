@@ -152,6 +152,7 @@ export default function SetupWizard() {
   const [wikiPick, setWikiPick] = useState<WizardWiki>({});
   const wikiInfo = state?.wiki;
   // the two "install globally" checkboxes: null = what the machine has now (off by default)
+  const [memberWS, setMemberWS] = useState(false); // #1355: recommended for a team, the user ticks it
   const [globalPick, setGlobalPick] = useState<{ memory: boolean | null; guards: boolean | null }>({ memory: null, guards: null });
   const globalMemory = globalPick.memory ?? !!state?.global_memory;
   const globalGuards = globalPick.guards ?? !!state?.global_guards;
@@ -439,6 +440,7 @@ export default function SetupWizard() {
     }
     req.global_memory = globalMemory;
     req.global_guards = globalGuards;
+    if (roles.length > 1 && memberWS) req.member_workspaces = true;
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     // the submitted request and the copyable AI command carry the same routing setting
     const gate = wizardGate(visibleSteps.includes(4), gateMode !== 'off', gateMode);
@@ -1051,6 +1053,13 @@ export default function SetupWizard() {
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={globalGuards} data-testid="global-guards"
                     onChange={(e) => setGlobalPick({ ...globalPick, guards: e.target.checked })} />{T.globalGuards}</label>
                 </div>
+                {roles.length > 1 && (
+                  <div className="space-y-1" data-testid="member-workspaces">
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={memberWS} data-testid="member-workspaces-check"
+                      onChange={(e) => setMemberWS(e.target.checked)} />{T.memberWS}</label>
+                    <p className="text-xs text-gray-500">{T.memberWSNote}</p>
+                  </div>
+                )}
                 {platform === 'discord' && (
                   <div className="space-y-1">
                     <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />
