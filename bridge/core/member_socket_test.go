@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -197,6 +198,11 @@ func TestSocketPeerUID_RealSocket(t *testing.T) {
 // The real `bothouse member` binary against a real bridge, on the bridge's own account: the entry point
 // a single-account install uses is unchanged (api.sock is open to it, and it now also has member.sock).
 // Opt-in because it builds the binary: BH_CLI_E2E=1 go test -run TestMemberCLIBinary ./core
+// testCLIWait bounds one real-CLI call in this file: 来源 — a local `member status` answers in
+// milliseconds, so anything near this is a hang, and the test should say so instead of timing out as a
+// whole (the first run of TestMemberCLIBinary sat for `go test`'s default 10 minutes).
+const testCLIWait = 60 * time.Second
+
 func TestMemberCLIBinary(t *testing.T) {
 	if os.Getenv("BH_CLI_E2E") == "" {
 		t.Skip("set BH_CLI_E2E=1 to build bothouse and drive the real CLI")
@@ -216,11 +222,21 @@ func TestMemberCLIBinary(t *testing.T) {
 		}
 	}
 	run := func(args ...string) (string, string, int) {
-		cmd := exec.Command(bin, args...)
+		// Bounded wait: a CLI that connects and then waits forever must fail here with the command and
+		// its output, not sit until `go test`'s 10-minute panic (that is how the first run of this test
+		// reported nothing useful). testCLIWait is far past a local `member status`, which answers at once.
+		ctx, cancel := context.WithTimeout(context.Background(), testCLIWait)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.Env = append(os.Environ(), "CC_PROJECT=lead", "CC_SESSION_KEY=discord:c1", "CC_DATA_DIR="+s.dataDir)
+		// WaitDelay keeps the timeout from leaving an orphan CLI holding the pipe.
+		cmd.WaitDelay = 5 * time.Second
 		var out, errOut strings.Builder
 		cmd.Stdout, cmd.Stderr = &out, &errOut
 		err := cmd.Run()
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("$ bothouse %s hung for %s (bridge did not answer)\n%s%s", strings.Join(args, " "), testCLIWait, out.String(), errOut.String())
+		}
 		code := 0
 		if err != nil {
 			code = 1
