@@ -115,6 +115,13 @@ const (
 // the permission and gives the re-invite link (same permissions as the wizard's invite), so the
 // user knows what to add. Other errors pass through unchanged; the original stays wrapped.
 func (p *Platform) missingPermissionErr(err error, perm string) error {
+	return p.missingPermissionErrIn(err, perm, "")
+}
+
+// missingPermissionErrIn is missingPermissionErr for an action in channelID: the invite link names the
+// server that channel is in. One bot serves several servers and the configured guild_id is only one of
+// them (agentm 11-10: the hint named agentm's server while the three channels were in another).
+func (p *Platform) missingPermissionErrIn(err error, perm, channelID string) error {
 	var rest *discordgo.RESTError
 	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeMissingPermissions {
 		return err
@@ -123,13 +130,29 @@ func (p *Platform) missingPermissionErr(err error, perm string) error {
 	// blocks, where to tick it.
 	return &core.MissingPermissionError{Perm: perm, Err: err, Hint: fmt.Sprintf(
 		"Discord bot 缺「%s」权限%s。%s频道单独设了权限的，还要去该频道设置 → 权限里给 bot 放开这项。bot 还没进服务器的，打开这个链接邀请：%s",
-		perm, permBlocks[perm], roleSettingsHint, core.DiscordInviteURL(p.appID, p.guildID))}
+		perm, permBlocks[perm], roleSettingsHint, core.DiscordInviteURL(p.appID, p.guildOfChannel(channelID)))}
+}
+
+// guildOfChannel is the server channelID is in (session state, then one REST lookup), else the
+// configured guild_id.
+func (p *Platform) guildOfChannel(channelID string) string {
+	if s := p.boardSession(); s != nil && channelID != "" {
+		if s.State != nil {
+			if ch, err := s.State.Channel(channelID); err == nil && ch != nil && ch.GuildID != "" {
+				return ch.GuildID
+			}
+		}
+		if ch, err := s.Channel(channelID); err == nil && ch != nil && ch.GuildID != "" {
+			return ch.GuildID
+		}
+	}
+	return p.guildID
 }
 
 // permBlocks: what the missing permission stops, said with the hint.
 var permBlocks = map[string]string{
 	permManageChannels: "，建不了工作区频道",
-	permPinMessages:    "，任务板置顶不上（任务板照常更新，只是没钉在顶上）",
+	permPinMessages:    "，任务板标注不上（任务板照常更新，只是没钉在频道顶上）",
 }
 
 // workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so

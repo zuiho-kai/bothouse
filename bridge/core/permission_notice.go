@@ -27,7 +27,7 @@ func (e *MissingPermissionError) Unwrap() error { return e.Err }
 // Permission names as told to the user (the platform's settings label, then the English name).
 const (
 	PermManageChannels = "管理频道 (Manage Channels)"
-	PermPinMessages    = "置顶消息 (Pin Messages)"
+	PermPinMessages    = "标注消息 (Pin Messages)" // Discord 中文界面里的名字（橘 11-10 看截图核过），不是「置顶消息」
 )
 
 var permissionNoticeMu sync.Mutex

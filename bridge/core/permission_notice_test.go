@@ -11,7 +11,7 @@ import (
 // once per permission; after the permission works again, losing it is told again.
 func TestPermissionNoticeOncePerChannel(t *testing.T) {
 	e, _, p := exitFixture(t, nil)
-	denied := &MissingPermissionError{Perm: PermPinMessages, Hint: "Discord bot 缺「置顶消息 (Pin Messages)」权限，任务板置顶不上。", Err: errors.New("50013")}
+	denied := &MissingPermissionError{Perm: PermPinMessages, Hint: "Discord bot 缺「标注消息 (Pin Messages)」权限，任务板置顶不上。", Err: errors.New("50013")}
 	wrapped := errors.Join(errors.New("discord: pin board"), denied)
 	ctx := context.Background()
 	if !e.permissionNotice(ctx, p, exitChatKey, wrapped) {
@@ -32,7 +32,7 @@ func TestPermissionNoticeOncePerChannel(t *testing.T) {
 	}
 	var told int
 	for _, s := range p.out {
-		if strings.Contains(s.text, "置顶消息") {
+		if strings.Contains(s.text, "标注消息") {
 			told++
 		}
 	}
