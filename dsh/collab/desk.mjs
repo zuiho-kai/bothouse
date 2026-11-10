@@ -138,6 +138,16 @@ export function deskActiveTasks({ boardDir }) {
   return [...last.values()].filter(entry => entry.kind === 'created' || entry.kind === 'assigned');
 }
 
+/** 暂停着的任务（最后一条是 paused，且在 24 小时内）：桌面页让那个小人举手、主角色那盏灯变红。 */
+export function deskPausedTasks({ boardDir, now = Date.now() } = {}) {
+  const last = new Map();
+  for (const entry of readBoardEvents(boardDir)) {
+    const id = String(entry.id ?? '').trim();
+    if (id && entry.kind) last.set(id, entry);
+  }
+  return [...last.values()].filter(entry => entry.kind === 'paused' && now - Date.parse(entry.ts) < 24 * 3600 * 1000);
+}
+
 /** 交回了、还没验收的任务（最后一条是 returned，且在 24 小时内）：桌面页在主角色桌上叠成一摞文件。 */
 export function deskReturnedTasks({ boardDir, now = Date.now() } = {}) {
   const last = new Map();
@@ -204,7 +214,7 @@ async function namesRoute(req, res, namesFile) {
 export function deskRoute(req, res, url, { store, boardDir, members = [], namesFile } = {}) {
   if (url.pathname.replace(/\/+$/, '') === '/collab/api/desk/names' && (req.method === 'GET' || req.method === 'PUT')) return namesRoute(req, res, namesFile);
   if (url.pathname.replace(/\/+$/, '') === '/collab/api/desk/state' && req.method === 'GET') {
-    sendJson(res, 200, { tasks: deskActiveTasks({ boardDir }), returned: deskReturnedTasks({ boardDir }) });
+    sendJson(res, 200, { tasks: deskActiveTasks({ boardDir }), returned: deskReturnedTasks({ boardDir }), paused: deskPausedTasks({ boardDir }) });
     return true;
   }
   if (url.pathname.replace(/\/+$/, '') !== '/collab/desk' && url.pathname.replace(/\/+$/, '') !== '/collab/api/desk/replay') return undefined;

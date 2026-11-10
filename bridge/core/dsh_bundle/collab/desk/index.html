@@ -918,7 +918,8 @@ function drawLamps(ctx, now) {
     const hot = P.hoverKey === t.key;
     if (hot) px(ctx, p.x - 1, p.y - 1, 4, 4, '#ffffff');
     if (P.lampPing && P.lampPing.key === t.key && now - P.lampPing.t0 < 700) { ctx.globalAlpha = 0.6; px(ctx, p.x - 2, p.y - 2, 6, 6, '#fff7c2'); ctx.globalAlpha = 1; }
-    if (stale) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326');
+    if (t.rec.paused) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 400) % 2 ? '#ff5a5f' : '#8a1f24');
+    else if (stale) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326');
     else { px(ctx, p.x, p.y, 2, 2, t.color); px(ctx, p.x, p.y, 1, 1, '#ffffff'); }
     P.lamps.push({ key: t.key, memberId: t.memberId, rec: t.rec, x: p.x, y: p.y, color: t.color });
   });
@@ -962,6 +963,56 @@ function drawSlips(ctx, now) {
     if (k >= 1) { P.lampPing = { key: sl.key, t0: now }; return false; }
     return true;
   });
+}
+// 打回：主角色把纸团扔回去，砸到小人头上弹开，小人抖一下继续干
+function throwBall(from, to, text) {
+  const A = from && P.agents.has(from.id) ? from.id : null;
+  if (!A || !P.agents.has(to.id) || A === to.id) { flashSeat(to.id, 'flash-bad'); deskPop(to.id, text, 'bad'); const g = P.agents.get(to.id); if (g) g.react = { kind: 'reject', t0: performance.now() }; return; }
+  (P.balls = P.balls || []).push({ from: A, to: to.id, t0: performance.now(), dur: 900, text, hit: null });
+}
+function drawBall(ctx, x, y, r) {
+  const f = Math.floor(r) % 2;
+  px(ctx, x - 2, y - 2, 5, 5, '#0b0910'); px(ctx, x - 1, y - 2, 3, 5, '#0b0910');
+  px(ctx, x - 1, y - 1, 3, 3, '#f4f1e8'); px(ctx, x - 2, y - 1 + f, 1, 2, '#e6e0d0'); px(ctx, x + 2, y - f, 1, 2, '#e6e0d0'); px(ctx, x - 1 + f, y - 2, 2, 1, '#ffffff'); px(ctx, x, y, 1, 1, '#b9b2a0');
+}
+function drawBalls(ctx, now, dt) {
+  P.balls = (P.balls || []).filter(b => {
+    if (b.hit) {
+      b.hit.vy += 140 * dt; b.hit.x += b.hit.vx * dt; b.hit.y += b.hit.vy * dt; b.hit.life -= dt;
+      ctx.globalAlpha = Math.max(0, Math.min(1, b.hit.life / 0.3)); drawBall(ctx, b.hit.x, b.hit.y, now / 60); ctx.globalAlpha = 1;
+      return b.hit.life > 0;
+    }
+    const A = headOf(b.from), B = headOf(b.to);
+    if (!A || !B) return false;
+    const k = Math.min(1, (now - b.t0) / b.dur);
+    const ax = A.x + 6, ay = A.y + 4, bx = B.x, by = B.y - 4;
+    const lift = Math.min(60, 18 + Math.hypot(bx - ax, by - ay) * 0.35);
+    const x = ax + (bx - ax) * k, y = ay + (by - ay) * k - Math.sin(Math.PI * k) * lift;
+    drawBall(ctx, x, y, now / 60);
+    if (k >= 1) {
+      b.hit = { x: bx, y: by, vx: (bx >= ax ? 1 : -1) * 34, vy: -60, life: 0.8 };
+      burst(bx, by, '#ff5a5f', 6);
+      const g = P.agents.get(b.to); if (g) g.react = { kind: 'reject', t0: now };
+      flashSeat(b.to, 'flash-bad'); deskPop(b.to, b.text, 'bad');
+    }
+    return true;
+  });
+}
+// 暂停的活：干它的小人举手、头上冒「?」；30 分钟没动静的只冒「?」
+function taskOfBody(a) {
+  const owner = a.clone ? a.owner : a.id;
+  return a.taskKey ? S.active.get(owner)?.get(a.taskKey) : null;
+}
+const QMARK = ['###', '..#', '.##', '...', '.#.'];
+function drawRaise(ctx, a, x, top, st, now, hand) {
+  if (hand) {
+    const wave = Math.floor(now / 350) % 2;
+    const hx = Math.round(x - 14);
+    px(ctx, hx, top + 4, 2, 12, st.skin || '#ffe0c8'); px(ctx, hx - 1 - wave, top, 4, 5, '#0b0910'); px(ctx, hx - wave, top + 1, 3, 3, st.skin || '#ffe0c8');
+  }
+  const bx = Math.round(x + 11), by = Math.round(top + 2 - (Math.floor(now / 500) % 2));
+  px(ctx, bx - 1, by - 1, 9, 9, '#0b0910'); px(ctx, bx, by, 7, 7, hand ? '#ffe3e3' : '#fff8e6');
+  QMARK.forEach((row, r) => [...row].forEach((c, i) => { if (c === '#') px(ctx, bx + 2 + i, by + 1 + r, 1, 1, hand ? '#c92a2a' : '#8a6d1f'); }));
 }
 function onStageHover(e) {
   const stage = $('stage'), r = stage.getBoundingClientRect();
@@ -1053,6 +1104,11 @@ function frame(now) {
         else { ctx.globalAlpha = 1 - k; const r = 6 + Math.round(k * 8); px(ctx, a.x - r, footY, r * 2, 1, a.flash.color); px(ctx, a.x - r + 2, footY - 2, 1, 1, a.flash.color); px(ctx, a.x + r - 3, footY - 2, 1, 1, a.flash.color); ctx.globalAlpha = 1; }
       }
       drawChar(ctx, a.x + xOff, footY + yOff, st, view, legs, { crown: S.lead === a.id, blink, sprite: sp, seat: seated, typeFrame });
+      const tr = taskOfBody(a);
+      if (tr && (tr.paused || simNow() - (tr.seen ?? tr.t ?? simNow()) > STALE_MS)) {
+        const h = sp ? (seated && sp.sit ? sp.sit.h : sp.h) * SPR : 34;
+        drawRaise(ctx, a, a.x + xOff, footY + yOff - h, st, now, !!tr.paused);
+      }
       if (seated && (a.mode === 'work' || a.mode === 'think')) faceGlow(ctx, a.x + xOff, footY + yOff - (sp && sp.sit ? (sp.sit.h - 9) * SPR : 22), a.mode, now, a.bob);
       if (a.clone && (a.state === 'walk' || a.state === 'handin')) drawCarry(ctx, a, footY + yOff);
     } });
@@ -1062,6 +1118,7 @@ function frame(now) {
   drawLights(ctx, sky.night, now);
   drawBeams(ctx, now, dt);
   drawSlips(ctx, now);
+  drawBalls(ctx, now, dt);
   drawHoverLink(ctx, now);
   placeOverlays(now);
 }
@@ -1547,7 +1604,7 @@ function workerAndDispatcher(rec, from, to) {
 
 // S.active：成员 id → (任务键 → 记录)。同一个人可以同时有几件活在跑，每件一个小人（本人 + 分身）。
 const taskKeyOf = (memberId, taskId) => taskId ? String(taskId) : `_${memberId}`;
-function activeCount() { let n = 0; for (const map of S.active.values()) n += map.size; return n; }
+function activeCount() { let n = 0; for (const map of S.active.values()) for (const rec of map.values()) if (!rec.paused) n++; return n; }
 function setTask(member, rec) {
   const key = taskKeyOf(member.id, rec.id);
   if (rec.id) for (const [memberId, map] of S.active) if (memberId !== member.id && map.delete(key) && !map.size) S.active.delete(memberId);
@@ -1637,21 +1694,26 @@ function applyTask(ev, animate = true, quiet = false) {
       // 打回 = 回去返工：这件重新算在跑，干它的小人（分身也一样）抖一下继续坐着干。
       if (worker) { setTask(worker, { id, title: title || rec?.title || '', note, from: dispatcher?.id ?? rec?.from ?? null, to: worker.id, t: rec?.t ?? ms, seen: ms }); paintAll(animate); }
       const body = worker ? bodyRef(worker.id, id) : null;
-      if (worker && dispatcher && animate) beam(dispatcher, body, 'reject');
-      if (worker && animate) { flashSeat(body.id, 'flash-bad'); deskPop(body.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
+      if (worker && animate) { const thrower = dispatcher || (S.lead ? { id: S.lead } : null); throwBall(thrower, body, `✕ 打回${note ? '：' + note : ''}`); }
       forgetDispatch(id, S.dispatched);
     }
-  } else if (kind === 'paused' || kind === 'done') {
+  } else if (kind === 'paused') {
+    const rec = findActive(id);
+    const { worker } = workerAndDispatcher(rec, from, to);
+    if (worker) {
+      setTask(worker, { id, title: title || rec?.title || '', note, from: rec?.from ?? from?.id ?? null, to: worker.id, t: rec?.t ?? ms, seen: ms, paused: true });
+      paintAll(animate);
+      if (animate) deskPop(bodyRef(worker.id, id).id, `暂停${note ? '：' + note : ''}`, 'info');
+    }
+    forgetDispatch(id, S.dispatched);
+  } else if (kind === 'done') {
     const { worker } = workerAndDispatcher(findActive(id), from, to);
     if (worker) {
       const body = bodyRef(worker.id, id);
       if (animate && kind === 'done') boardDone(worker.id, id);
       clearTask(worker.id, id);
       paintAll(animate);
-      if (animate) {
-        if (kind === 'done') { flashSeat(body.id, 'flash-good'); deskPop(body.id, '✓ 完成', 'good'); }
-        else deskPop(body.id, `暂停${note ? '：' + note : ''}`, 'info');
-      }
+      if (animate) { flashSeat(body.id, 'flash-good'); deskPop(body.id, '✓ 完成', 'good'); }
     }
     forgetDispatch(id, S.dispatched);
   }
@@ -1745,6 +1807,7 @@ async function loadDeskState() {
   const data = await api(ROOT + '/collab/api/desk/state');
   for (const ev of data.tasks ?? []) applyTask({ ...ev, type: 'task' }, false, true);
   for (const ev of data.returned ?? []) applyTask({ ...ev, type: 'task' }, false, true);
+  for (const ev of data.paused ?? []) applyTask({ ...ev, type: 'task' }, false, true);
 }
 
 function connectLive() {
@@ -1765,6 +1828,7 @@ function resetScene(clearLog = true) {
   S.active.clear();
   S.review.clear();
   P.slips = [];
+  P.balls = [];
   S.thinkingRooms.clear();
   S.thinking.clear();
   S.dispatched.clear();
