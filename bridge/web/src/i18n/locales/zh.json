@@ -503,6 +503,10 @@
     "appearance": "外观",
     "theme": "主题",
     "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。",
+    "avatarStyle": "角色头像",
+    "avatarStyleHint": "网页面板和 DSH 插件一起换，点了就保存。",
+    "avatarStyleBrand": "各家原图标",
+    "avatarStyleChibi": "娘化头像",
     "tokenUnit": "Token 用量单位",
     "tokenUnitHint": "设置 Token 用量的显示单位（支持原数、百万 M、十亿 B），悬停可查看完整原数。只保存在这个浏览器里，不用点保存。"
   },

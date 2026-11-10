@@ -484,7 +484,11 @@
     "logLevel": "Nivel de registro",
     "appearance": "Apariencia",
     "theme": "Tema",
-    "themeHint": "Por defecto, amarillo y blanco. Se guarda solo en este navegador; no hace falta pulsar Guardar."
+    "themeHint": "Por defecto, amarillo y blanco. Se guarda solo en este navegador; no hace falta pulsar Guardar.",
+    "avatarStyle": "Avatares de roles",
+    "avatarStyleHint": "Se aplica al panel web y al plugin DSH; se guarda al instante.",
+    "avatarStyleBrand": "Iconos de cada marca",
+    "avatarStyleChibi": "Set chibi"
   },
   "globalProviders": {
     "title": "Gestión de proveedores",

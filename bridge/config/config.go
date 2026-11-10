@@ -229,6 +229,10 @@ type DisplayConfig struct {
 	ShowContextIndicator *bool   `toml:"show_context_indicator"` // whether [ctx: ~N%] suffix is shown; default true
 	ReplyFooter          *bool   `toml:"reply_footer"`           // whether Codex-like footer is shown; default true
 	HideAgentFooter      *bool   `toml:"hide_agent_footer"`      // strip agent-emitted model/token footer lines; default false
+	// AvatarStyle: which built-in role avatar set the web panel and DSH plugin show.
+	// "brand" (default, each vendor's own icon) or "chibi" (the built-in Q-style set);
+	// user 2026-11-10 「默认是各家原本的图标，内置另一套娘化图标」.
+	AvatarStyle string `toml:"avatar_style,omitempty"`
 }
 
 // StreamPreviewConfig controls real-time streaming preview in IM.
@@ -4255,6 +4259,7 @@ func GetGlobalSettings() map[string]any {
 		result["max_turn_time_mins"] = 0
 	}
 	// Display
+	result["avatar_style"] = NormalizeAvatarStyle(cfg.Display.AvatarStyle)
 	if cfg.Display.ThinkingMessages != nil {
 		result["thinking_messages"] = *cfg.Display.ThinkingMessages
 	} else {
@@ -4351,6 +4356,21 @@ type GlobalSettingsUpdate struct {
 	ReviewComplexRole  *string `json:"review_complex_role"`
 	ReviewSimpleModel  *string `json:"review_simple_model"`
 	ReviewComplexModel *string `json:"review_complex_model"`
+	AvatarStyle        *string `json:"avatar_style"`
+}
+
+// Avatar sets for Display.AvatarStyle.
+const (
+	AvatarStyleBrand = "brand" // each vendor's own icon (default)
+	AvatarStyleChibi = "chibi" // built-in Q-style set
+)
+
+// NormalizeAvatarStyle maps an empty or unknown value to the default brand set.
+func NormalizeAvatarStyle(v string) string {
+	if strings.TrimSpace(v) == AvatarStyleChibi {
+		return AvatarStyleChibi
+	}
+	return AvatarStyleBrand
 }
 
 // SaveGlobalSettings persists global settings to config.toml.
@@ -4418,6 +4438,13 @@ func SaveGlobalSettings(u GlobalSettingsUpdate) error {
 	}
 	if u.ReviewComplexModel != nil {
 		cfg.TeamReview.ComplexModel = strings.TrimSpace(*u.ReviewComplexModel)
+	}
+	if u.AvatarStyle != nil {
+		v := strings.TrimSpace(*u.AvatarStyle)
+		if v != AvatarStyleBrand && v != AvatarStyleChibi {
+			return fmt.Errorf("avatar_style must be %q or %q", AvatarStyleBrand, AvatarStyleChibi)
+		}
+		cfg.Display.AvatarStyle = v
 	}
 	return saveConfig(cfg)
 }

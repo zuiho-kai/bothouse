@@ -503,6 +503,10 @@
     "appearance": "Appearance",
     "theme": "Theme",
     "themeHint": "Default is bright yellow-white. Saved in this browser only; no need to press Save.",
+    "avatarStyle": "Role avatars",
+    "avatarStyleHint": "Applies to the web panel and the DSH plugin; saved right away.",
+    "avatarStyleBrand": "Vendor icons",
+    "avatarStyleChibi": "Chibi set",
     "tokenUnit": "Token usage unit",
     "tokenUnitHint": "Set the token usage display unit (Raw, Million M, Billion B). Hover to view exact raw count. Saved in this browser only; no need to press Save."
   },

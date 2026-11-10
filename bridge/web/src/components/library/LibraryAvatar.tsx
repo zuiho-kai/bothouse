@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { resolveRoleAvatar } from '@/lib/avatarMap';
+import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
 
 const PALETTE = ['#5865f2', '#eb459e', '#3ba55c', '#faa61a', '#ed4245', '#00a8fc', '#9b59b6', '#e67e22']; // same badge colors as the DSH channel page
 const colorOf = (key: string) => { let h = 7; for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
@@ -8,7 +8,8 @@ const colorOf = (key: string) => { let h = 7; for (const c of key) h = (h * 31 +
 /** Round portrait; without a picture (or when it fails to load) a colored circle with the first letter. */
 export function LibraryAvatar({ url, name, size = 48, className }: { url?: string; name: string; size?: number; className?: string }) {
   const [broken, setBroken] = useState('');
-  const resolvedUrl = url ?? resolveRoleAvatar(name);
+  const avatarStyle = useAvatarStyle();
+  const resolvedUrl = url ?? resolveRoleAvatar(name, avatarStyle);
   const show = !!resolvedUrl && broken !== resolvedUrl;
   return (
     <span className={cn('relative inline-grid place-items-center shrink-0 rounded-full overflow-hidden text-white font-bold select-none', className)}
