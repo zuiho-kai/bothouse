@@ -71,6 +71,17 @@ type teamExitRulesDoc struct {
 		SourceRe string `json:"source_re"`
 		Msg      string `json:"msg"`
 	} `json:"generic"`
+	SelfRoute struct {
+		TodoRe     string `json:"todo_re"`
+		EndRe      string `json:"end_re"`
+		NoneRe     string `json:"none_re"`
+		AskLineRe  string `json:"ask_line_re"`
+		HandRe     string `json:"hand_re"`
+		MineRe     string `json:"mine_re"`
+		NegRe      string `json:"neg_re"`
+		OnlyUserRe string `json:"only_user_re"`
+		Msg        string `json:"msg"`
+	} `json:"self_route"`
 	Jargon struct {
 		LineRe  string `json:"line_re"`
 		URLRe   string `json:"url_re"`
@@ -87,6 +98,7 @@ type teamExitRules struct {
 	artNotes, artCompare, artImage                                                     *regexp.Regexp
 	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
 	ccOnly, ccSource                                                                   *regexp.Regexp
+	srTodo, srEnd, srNone, srAskLine, srHand, srMine, srNeg, srOnlyUser                *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -119,6 +131,10 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
 		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
 		{&r.ccOnly, r.Generic.CCOnlyRe}, {&r.ccSource, r.Generic.SourceRe},
+		{&r.srTodo, r.SelfRoute.TodoRe}, {&r.srEnd, r.SelfRoute.EndRe}, {&r.srNone, r.SelfRoute.NoneRe},
+		{&r.srAskLine, r.SelfRoute.AskLineRe},
+		{&r.srHand, r.SelfRoute.HandRe}, {&r.srMine, r.SelfRoute.MineRe},
+		{&r.srNeg, r.SelfRoute.NegRe}, {&r.srOnlyUser, r.SelfRoute.OnlyUserRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -423,6 +439,72 @@ func genericReportProblems(body string) []string {
 		}
 	}
 	return nil
+}
+
+// SelfRouteProblems: the 「要你做的」 part of an [ask]/[report] (or a reply to the user) hands the user
+// work the agent could do itself: put a file somewhere, run a command, change a setting (user 11-10
+// 「你自己搞，你忘了我跟你说的事情了么」; the plan he approved: what can be undone, the agent does; only
+// real money, publishing, deleting and a change of direction go to him). The reason names the hit
+// and the other routes to try. Things only the user can do (scan a code, a verification code,
+// paying, hands on hardware) pass. nil: nothing to send back.
+func SelfRouteProblems(body string) []string {
+	if hit := selfRouteHit(body); hit != "" {
+		return []string{strings.ReplaceAll(exitRules.SelfRoute.Msg, "{hit}", hit)}
+	}
+	return nil
+}
+
+// selfRouteHit: the first hand-off phrase in the 「要你做的」 part, "" when there is none. Text with
+// no 「要你做的」 at all (a plain reply in a chat channel) is read line by line: a line that asks
+// something of the reader (「请把……」「你先……」) is checked the same way.
+func selfRouteHit(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	if exitRules.srTodo.FindStringIndex(body) == nil {
+		for _, ln := range strings.Split(body, "\n") {
+			if exitRules.srAskLine.MatchString(ln) {
+				if hit := handHit(ln); hit != "" {
+					return hit
+				}
+			}
+		}
+		return ""
+	}
+	for {
+		loc := exitRules.srTodo.FindStringIndex(body)
+		if loc == nil {
+			return ""
+		}
+		body = body[loc[1]:]
+		first, more, _ := strings.Cut(body, "\n")
+		if exitRules.srNone.MatchString(first) {
+			continue
+		}
+		part := []string{first}
+		for _, ln := range strings.Split(more, "\n") {
+			if exitRules.srEnd.MatchString(ln) {
+				break
+			}
+			part = append(part, ln)
+		}
+		if hit := handHit(strings.Join(part, "\n")); hit != "" {
+			return hit
+		}
+	}
+}
+
+// handHit: the hand-off phrase in s, "" when s has none or names something only the user can do. A
+// phrase after 「我就/我再/我来……」 is the agent's own next step, not the user's (11-07 「回「发」我就合主干……
+// 再实装一次」); one right after 「不用/无需/别」 is negated (10-31 「接上就生效，不用再重启」).
+func handHit(s string) string {
+	if exitRules.srOnlyUser.MatchString(s) {
+		return ""
+	}
+	for _, loc := range exitRules.srHand.FindAllStringIndex(s, -1) {
+		if pre := s[:loc[0]]; !exitRules.srMine.MatchString(pre) && !exitRules.srNeg.MatchString(pre) {
+			return strings.TrimSpace(s[loc[0]:loc[1]])
+		}
+	}
+	return ""
 }
 
 // jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or

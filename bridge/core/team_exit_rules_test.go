@@ -188,3 +188,47 @@ func TestJargonStillRejectsInternalIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+// TestSelfRouteProblems replays the two hand-offs of 11-10 (a workspace asking the user to run sudo,
+// a test bridge asking him to place files) and asks that only-the-user and decision asks pass.
+func TestSelfRouteProblems(t *testing.T) {
+	back := []string{
+		// 11-10 14:18 #1359 ws-up --ask, verbatim (user: 「你自己搞，你忘了我跟你说的事情了么」)
+		"[ask] #1359 背景：成员隔离要做到系统拦截，代码已写完推上去，只差在本机真测一遍，这一步要你的管理员密码。\n做了什么：角色可以换一个单独的系统账号跑。\n要你做的：在本机终端跑一次 sudo zsh ~/.bothouse/roles/maomao/notes/runs/1359/setup-testuser.sh，输一次密码。跑完回我一句「好了」。\n我加的：新增三条命令。\n自验：本机单测过\n类别：权限确认",
+		// 11-10 13:2x test bridge reply in the e2e channel (screenshot), a plain reply
+		"请把更新后的规则文件和 gate 放进 /tmp/iso.O9CP9P/home/.bothouse/collaboration/。或者让我切到 iso.usWPPc 那份，我一收到确认就重交",
+		"[report] #1 背景：x\n做了什么：y\n要你做的：把新包拷到 /Applications 里替换一下\n我加的：无",
+		"【结论】改好了。\n【要你做的】在设置里打开辅助功能权限。",
+	}
+	for _, s := range back {
+		if p := SelfRouteProblems(s); p == nil {
+			t.Errorf("should go back: %q", s)
+		} else if !strings.Contains(p[0], "换路") || !strings.Contains(p[0], "自己") {
+			t.Errorf("reason must name another route: %q", p[0])
+		}
+	}
+	pass := []string{
+		"[report] #1 背景：x\n做了什么：已在本机跑过 sudo 以外的隔离测试\n要你做的：没有（命令我已跑完）\n我加的：无",
+		"[ask] #2 背景：x\n做了什么：y\n要你做的：手机上扫码登录一下 B 站，我好投稿\n我加的：无",
+		"[ask] #3 背景：x\n做了什么：y\n要你做的：确认付款 ¥320 下单打板\n我加的：无",
+		"[ask] #4 背景：x\n做了什么：y\n要你做的：定方向：A 继续修旧版，B 换新框架；我推荐 B\n我加的：无",
+		"[ask] #5 背景：x\n做了什么：y\n要你做的：同意发到 X 上吗\n我加的：无",
+		"[ask] #6 背景：x\n做了什么：y\n要你做的：删掉旧的三个分支和 2 TB 缓存，删了恢复不了，同意吗\n我加的：无",
+		"【结论】我已经在终端里跑过了，结果正常。\n【要你做的】没有。",
+		"我把文件放进测试目录了，重启后生效。",
+		// 11-07 real ask: the install after 「我就」 is the agent's own step
+		"[ask] #7 背景：x\n做了什么：y\n要你做的：看一眼发版说明，回「发」我就合主干、打标签、等出包，再实装一次插件核体积和耗时。\n我加的：无",
+		// 10-31 real ask: 「不用再重启」 is negated
+		"[ask] #9 背景：x\n做了什么：y\n要你做的：在个人设置里生成令牌私信发我。我存进本机文件，接上就生效，不用再重启。\n我加的：无",
+		// 11-10 13:53 real direction ask: 「装法上」 is a noun
+		"[ask] #8 背景：x\n做了什么：y\n要你做的：二选一。A：照现在这样。B：做系统层面的拦截。我把成员命令也接到这种装法上。我推荐 B。\n我加的：无",
+	}
+	for _, s := range pass {
+		if p := SelfRouteProblems(s); p != nil {
+			t.Errorf("should pass: %q → %v", s, p)
+		}
+	}
+	if p := ReportPreflight(back[0], ""); !strings.Contains(strings.Join(p, "；"), "换路") {
+		t.Errorf("preflight misses the self-route check: %v", p)
+	}
+}
