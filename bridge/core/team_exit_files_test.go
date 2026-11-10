@@ -122,7 +122,7 @@ func TestExitFilesSkipDocsWhenLinked(t *testing.T) {
 	dir := t.TempDir()
 	doc := filepath.Join(dir, "about-en.txt")
 	os.WriteFile(doc, []byte("about"), 0o600)
-	head := "[report] #3 背景：发版。\n新版已发出。\n要你做的：没有\n我加的：无\n细节：说明 " + doc + "\n"
+	head := "[report] #3 背景：发版。\n新版已发出，说明文档已写好。\n要你做的：没有\n我加的：无\n细节：说明 " + doc + "\n"
 	kept := []FileAttachment{
 		{FileName: "shot.png", MimeType: "image/png", Data: []byte("png")},
 		{FileName: "demo.mp4", MimeType: "video/mp4", Data: []byte("mp4")},
@@ -143,5 +143,33 @@ func TestExitFilesSkipDocsWhenLinked(t *testing.T) {
 	}
 	if !got["about-en.txt"] || !got["notes.pdf"] || len(got) != 5 {
 		t.Fatalf("report without a link: want every file, got %v", got)
+	}
+}
+
+// #1404: a report that only mentions the wiki page it updated attaches nothing; the same path in a
+// report whose user part says a document was produced is attached (agentm #36 stays).
+func TestExitFilesOnlyForDeliverableDocs(t *testing.T) {
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "deployment.md")
+	if err := os.WriteFile(doc, []byte("# agentm 部署\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notes := filepath.Join(dir, "handoff.md")
+	os.WriteFile(notes, []byte("## 检查点\n- 记录写到 "+doc+"\n"), 0o600)
+	item := &teamTaskBoardItem{Where: notes, Bound: time.Now().Add(-time.Hour).Format(time.RFC3339Nano)}
+	cited := "[report] #1399 背景：把鲸鱼娘拉过去。\n三件都上线了，鲸鱼娘回到 agentm。\n要你做的：没有\n我加的：无\n细节：\n- 部署记录更新在 " + doc + "\n"
+	if files := exitFilesFor("discord:ws", cited, item, nil, false); len(files) != 0 {
+		t.Fatalf("cited wiki page attached: %+v", files)
+	}
+	if files := exitFilesFor("discord:ws", "[report] #1399 背景：x\n三件都上线了。\n要你做的：没有\n我加的：无\n", item, nil, false); len(files) != 0 {
+		t.Fatalf("handoff-named page attached without a document claim: %+v", files)
+	}
+	made := "[report] #36 背景：审查 PR。\n写好了部署文档。\n要你做的：没有\n我加的：无\n细节：" + doc + "\n"
+	if files := exitFilesFor("discord:ws", made, item, nil, false); len(files) != 1 || files[0].FileName != "deployment.md" {
+		t.Fatalf("deliverable not attached: %+v", files)
+	}
+	sent := []FileAttachment{{FileName: "bench.csv", MimeType: "text/csv", Data: []byte("a,b")}}
+	if files := exitFilesFor("discord:ws", cited, item, sent, false); len(files) != 1 || files[0].FileName != "bench.csv" {
+		t.Fatalf("file the workspace sent was dropped: %+v", files)
 	}
 }
