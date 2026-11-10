@@ -86,8 +86,8 @@ func TestTaskCardRender(t *testing.T) {
 	if fieldMap["执行者"] != "大豆包" {
 		t.Errorf("executor = %q, want 大豆包", fieldMap["执行者"])
 	}
-	if fieldMap["当前状态"] != "已完成 · 主人已验收" {
-		t.Errorf("status = %q, want '已完成 · 主人已验收'", fieldMap["当前状态"])
+	if fieldMap["当前状态"] != "已完成 · 用户已验收" {
+		t.Errorf("status = %q, want '已完成 · 用户已验收'", fieldMap["当前状态"])
 	}
 	if fieldMap["结果摘要"] != "增加任务模型、持久化索引与讨论串留痕" {
 		t.Errorf("result_summary = %q", fieldMap["结果摘要"])

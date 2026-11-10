@@ -135,6 +135,8 @@ func TestMemberEnableOnlyByOwner(t *testing.T) {
 	}
 	if r, _ := e.memberOp(context.Background(), MemberRequest{Session: "discord:c1", Op: "status"}); r.Exit == 0 {
 		t.Fatalf("status with feature off: %+v", r)
+	} else if strings.Contains(r.Text, "主人") || strings.Contains(r.Text, "member enable") || !strings.Contains(r.Text, "不要让他去找谁开开关") {
+		t.Fatalf("member told to get a switch flipped: %q", r.Text)
 	}
 	e.noteCallerTurn("discord:c1", "discord", "u-owner", "owner", "c1", false, false, false)
 	if r, st := e.memberOp(context.Background(), MemberRequest{Session: "discord:c1", Op: "enable"}); st != 200 || !e.MemberWorkspacesOn() || len(saved) != 1 || !saved[0] {
