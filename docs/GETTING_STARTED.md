@@ -18,7 +18,7 @@ bothouse 是**核心 + 可选平台**：一个安装包里什么都有，但你�
 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
 - macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖入 Applications，首次打开请「右键→打开」（安装包未签名）。
-- Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。
+- Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。双击是托盘模式（不弹黑框）；要在 PowerShell 里用命令行子命令，直接 `.\bothouse-windows.exe --version`、`.\bothouse-windows.exe model list` 这样跑，输出就打在当前窗口里。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
 首次运行无配置时会自动在浏览器打开安装向导。也可用下面的命令行安装，命令都是 `bothouse`：

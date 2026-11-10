@@ -16,7 +16,11 @@ LDFLAGS := -s -w \
 # macOS systray requires Cocoa/cgo; other release targets remain pure Go.
 release_cgo = $(if $(filter darwin,$(1)),1,0)
 release_cc = $(if $(filter darwin,$(1)),clang -arch $(if $(filter amd64,$(2)),x86_64,$(2)),$(CC))
-release_ldflags = $(LDFLAGS) $(if $(filter windows,$(1)),-H=windowsgui,)
+# No -H=windowsgui for windows (#1495): it made the release exe a GUI-subsystem binary, which gets
+# no console, so `bothouse --version` and the other subcommands printed nothing from PowerShell.
+# Console subsystem (the default) keeps the CLI usable; the tray entry point hides the console
+# window Windows allocates for it (cmd/cc-connect/tray_windows.go: hideOwnConsoleWindow).
+release_ldflags = $(LDFLAGS)
 
 PLATFORMS := \
   linux/amd64 \
