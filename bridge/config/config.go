@@ -607,6 +607,16 @@ type ProjectConfig struct {
 	// GateBurstWindowMs controls idle text coalescing; <= 0 keeps 1500ms.
 	// Attachment bursts retain the default delays.
 	GateBurstWindowMs int `toml:"gate_burst_window_ms,omitempty"`
+	// GateSenderSilence holds one person's ordinary idle messages until that person stops typing
+	// for GateSenderSilenceMs (default 1500ms), at most GateSenderSilenceMaxMs from the first one
+	// (default 6000ms), so three lines in a row become one turn. Only plain typed messages from
+	// one person, not @-ing this bot or a teammate and not a DM, are held. nil = on for a QQ
+	// project, off elsewhere (user 2026-11-09 asked for it in QQ).
+	// Defaults follow 石英 (cneicy/astrbot_plugin_shrink, AGPL, idea only) and user 2026-11-09
+	// 「同一个人连发几条合并成一次回」.
+	GateSenderSilence    *bool `toml:"gate_sender_silence,omitempty"`
+	GateSenderSilenceMs  int   `toml:"gate_sender_silence_ms,omitempty"`
+	GateSenderSilenceMax int   `toml:"gate_sender_silence_max_ms,omitempty"`
 	// GateFallback is the action used when the gate errors or times out (default "reply";
 	// sub agents that only speak when @-ed should use "context").
 	GateFallback string `toml:"gate_fallback,omitempty"`
@@ -798,6 +808,22 @@ func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 
 func (p ProjectConfig) GateLocalEnabled() bool {
 	return p.GateLocal == nil || *p.GateLocal
+}
+
+// GateSenderSilenceEnabled reports whether one person's consecutive idle messages are merged
+// into one turn after they fall quiet (gate_sender_silence). Unset = on for a QQ project (user
+// 2026-11-09 asked for it there: people type several short lines in a row) and off elsewhere (the
+// wait adds latency to every plain message and no other channel asked for it).
+func (p ProjectConfig) GateSenderSilenceEnabled() bool {
+	if p.GateSenderSilence != nil {
+		return *p.GateSenderSilence
+	}
+	for _, pc := range p.ActivePlatforms() {
+		if pc.Type == "qq" {
+			return true
+		}
+	}
+	return false
 }
 
 type AgentConfig struct {
