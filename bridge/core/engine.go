@@ -475,6 +475,7 @@ type Engine struct {
 	team                         *teamState                      // maomao fork: team status board (nil = off)
 	displayName                  atomic.Pointer[string]          // team_name from config ("" / nil = the project name); see DisplayName
 	teamWS                       *teamWorkspaces                 // team mode D: Discord 工作区 channels (team_workspace.go; nil = off)
+	teamWSGatherFailed           sync.Map                        // workspace channel ID → not movable into the workspace category this run (gatherTeamWorkspaces)
 	board                        *channelBoardHub                // maomao fork: channel task board (channel_board.go); shared by the process
 	memoryIndex                  string                          // maomao fork: MEMORY.md for fresh contexts (memoryindex.go; "" = off)
 	experienceDir                string                          // team memory folder for personal agents' lessons (team_experience.go; "" = off)

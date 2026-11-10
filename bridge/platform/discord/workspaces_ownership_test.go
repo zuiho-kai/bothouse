@@ -32,8 +32,8 @@ func (r *ownershipREST) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if r.foreign && req.Method == http.MethodGet && req.URL.Path == "/api/v9/guilds/g1/channels" {
 		channels := []map[string]any{
-			{"id": "foreign", "name": idleCategoryName, "type": 4},
-			{"id": "catS", "name": idleCategoryName, "type": 4},
+			{"id": "foreign", "name": workspaceCategoryName, "type": 4},
+			{"id": "catS", "name": workspaceCategoryName, "type": 4},
 			{"id": "catA", "name": "活动", "type": 4},
 			{"id": "100", "name": "主频道", "type": 0, "parent_id": "catA"},
 			{"id": "101", "name": "工作区5", "type": 0, "parent_id": r.workspace},
@@ -183,8 +183,8 @@ func TestTeamWorkspaceForeignIdleChannelsNeverAdoptedOrMoved(t *testing.T) {
 	if len(r.foreignMoves) != 0 {
 		t.Errorf("foreign channels received PATCH: %v", r.foreignMoves)
 	}
-	if r.workspace != "catA" {
-		t.Errorf("own workspace not restored to activity category: %q", r.workspace)
+	if r.workspace != "catS" {
+		t.Errorf("own workspace left the 「工作区」 category on adoption: %q", r.workspace)
 	}
 	pool, err := e.TeamWorkspacePool("discord:100")
 	if err != nil {

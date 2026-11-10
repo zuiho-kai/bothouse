@@ -21,7 +21,9 @@ type shelfREST struct {
 	workspace  string           // the workspace channel's current parent
 	denyCreate bool             // the category create answers 403 / 50013
 	denyEdit   bool             // the channel PATCH answers 403 / 50013
-	hasShelf   bool             // the idle category exists even while the workspace is active
+	hasShelf   bool             // the 「工作区」 category exists even while the workspace is elsewhere
+	hasLegacy  bool             // the v0.1.62 「空闲工作区」 category catL exists
+	deleted    []string         // channels DELETEd, in order
 }
 
 func (r *shelfREST) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -39,8 +41,19 @@ func (r *shelfREST) RoundTrip(req *http.Request) (*http.Response, error) {
 			{"id":"catA","name":"分类","type":4}]`
 		if r.hasShelf || r.workspace == "catS" {
 			body = strings.Replace(body, `{"id":"catA","name":"分类","type":4}`,
-				`{"id":"catA","name":"分类","type":4},{"id":"catS","name":"空闲工作区","type":4}`, 1)
+				`{"id":"catA","name":"分类","type":4},{"id":"catS","name":"工作区","type":4}`, 1)
 		}
+		if r.hasLegacy {
+			body = strings.Replace(body, `{"id":"catA","name":"分类","type":4}`,
+				`{"id":"catA","name":"分类","type":4},{"id":"catL","name":"空闲工作区","type":4}`, 1)
+		}
+	case req.Method == http.MethodDelete && strings.HasPrefix(req.URL.Path, "/api/v9/channels/"):
+		id := strings.TrimPrefix(req.URL.Path, "/api/v9/channels/")
+		r.deleted = append(r.deleted, id)
+		if id == "catL" {
+			r.hasLegacy = false
+		}
+		body = `{"id":"` + id + `"}`
 	case req.Method == http.MethodPost && req.URL.Path == "/api/v9/guilds/g1/channels" && r.denyCreate:
 		status, body = http.StatusForbidden, `{"code":50013,"message":"Missing Permissions"}`
 	case req.Method == http.MethodPost && req.URL.Path == "/api/v9/guilds/g1/channels":
@@ -48,7 +61,7 @@ func (r *shelfREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		_ = json.NewDecoder(req.Body).Decode(&m)
 		r.created = append(r.created, m)
 		r.hasShelf = true
-		body = `{"id":"catS","name":"空闲工作区","type":4}`
+		body = `{"id":"catS","name":"工作区","type":4}`
 	case req.Method == http.MethodPatch && req.URL.Path == "/api/v9/channels/101" && r.denyEdit:
 		status, body = http.StatusForbidden, `{"code":50013,"message":"Missing Permissions"}`
 	case req.Method == http.MethodPatch && req.URL.Path == "/api/v9/channels/101":
@@ -80,10 +93,10 @@ func shelfPlatform(t *testing.T, rest *shelfREST) *Platform {
 	return p
 }
 
-// A free workspace moves into the idle category, which the platform creates the first time;
-// a claimed one moves back into the claiming chat channel's category. Discord's listing marks
-// a channel in the idle category Shelved, so core still counts it as a pool workspace.
-func TestShelveAndUnshelveTeamWorkspaceChannel(t *testing.T) {
+// A workspace moves into the 「工作区」 category, which the platform creates the first time, and
+// stays there. Discord's listing marks a channel there Shelved, so core counts it as a pool
+// workspace wherever the chat channel is.
+func TestShelveIntoWorkspaceCategory(t *testing.T) {
 	rest := &shelfREST{workspace: "catA"}
 	p := shelfPlatform(t, rest)
 	ctx := context.Background()
@@ -91,13 +104,13 @@ func TestShelveAndUnshelveTeamWorkspaceChannel(t *testing.T) {
 	if err := p.ShelveTeamWorkspaceChannel(ctx, "101"); err != nil {
 		t.Fatal(err)
 	}
-	if len(rest.created) != 1 || rest.created[0]["name"] != "空闲工作区" || rest.created[0]["type"] != float64(discordgo.ChannelTypeGuildCategory) {
-		t.Fatalf("created = %v, want the idle category", rest.created)
+	if len(rest.created) != 1 || rest.created[0]["name"] != "工作区" || rest.created[0]["type"] != float64(discordgo.ChannelTypeGuildCategory) {
+		t.Fatalf("created = %v, want the 「工作区」 category", rest.created)
 	}
 	if len(rest.patched) != 1 || rest.patched[0]["parent_id"] != "catS" {
 		t.Fatalf("patched = %v, want parent_id catS", rest.patched)
 	}
-	// Already idle: no second request.
+	// Already there: no second request.
 	if err := p.ShelveTeamWorkspaceChannel(ctx, "101"); err != nil {
 		t.Fatal(err)
 	}
@@ -120,48 +133,57 @@ func TestShelveAndUnshelveTeamWorkspaceChannel(t *testing.T) {
 			t.Fatalf("100 marked shelved: %+v", c)
 		}
 	}
-
-	if err := p.UnshelveTeamWorkspaceChannel(ctx, "101", "100"); err != nil {
-		t.Fatal(err)
-	}
-	if len(rest.patched) != 2 || rest.patched[1]["parent_id"] != "catA" {
-		t.Fatalf("patched = %v, want parent_id catA", rest.patched)
-	}
-	if self, _, _ := p.TeamGuildChannels(ctx, "101"); self.Shelved {
-		t.Fatalf("self = %+v, want not shelved after the move back", self)
-	}
 }
 
-// A chat channel with no category cannot be a move target: discordgo leaves an empty parent_id
-// out of the PATCH, so the workspace would silently stay in the idle category. It reports that
-// instead (core only logs it; the handoff goes on).
-func TestUnshelveTeamWorkspaceNoCategory(t *testing.T) {
-	rest := &shelfREST{workspace: "catS"}
+// A workspace v0.1.62 kept in 「空闲工作区」 moves into 「工作区」 on the first listing, and the
+// emptied 「空闲工作区」 category is deleted.
+func TestLegacyIdleCategoryGathered(t *testing.T) {
+	rest := &shelfREST{workspace: "catL", hasLegacy: true, hasShelf: true}
 	p := shelfPlatform(t, rest)
-	err := p.UnshelveTeamWorkspaceChannel(context.Background(), "101", "99")
-	if err == nil || !strings.Contains(err.Error(), "no category") {
-		t.Fatalf("unshelve beside a channel with no category = %v, want an error naming it", err)
+	p.workspaceShelves = workspaceShelfStoreFor(t.TempDir())
+	if err := p.workspaceShelves.remember("g1", "catL", "101"); err != nil {
+		t.Fatal(err)
 	}
-	if len(rest.patched) != 0 {
-		t.Fatalf("patched = %v, want no request", rest.patched)
+	_, all, err := p.TeamGuildChannels(context.Background(), "100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rest.workspace != "catS" || len(rest.patched) != 1 {
+		t.Fatalf("workspace in %q after listing (patched %v), want catS", rest.workspace, rest.patched)
+	}
+	if len(rest.deleted) != 1 || rest.deleted[0] != "catL" {
+		t.Fatalf("deleted = %v, want the empty 「空闲工作区」 catL", rest.deleted)
+	}
+	found := false
+	for _, c := range all {
+		if c.ID == "101" {
+			found = c.Shelved && c.ParentID == "catS"
+		}
+	}
+	if !found {
+		t.Fatalf("listing = %+v, want 101 Shelved in catS", all)
+	}
+	// Once per run: a second listing asks nothing more.
+	if _, _, err := p.TeamGuildChannels(context.Background(), "100"); err != nil || len(rest.patched) != 1 {
+		t.Fatalf("second listing moved again: %v %v", rest.patched, err)
 	}
 }
 
 // Discord grants 「管理频道」 per category on servers like the test one: the bot may create
-// workspaces in the chat channels' category yet neither create the idle category nor move a
+// workspaces in the chat channels' category yet neither create the 「工作区」 category nor move a
 // channel into it. Both errors say what to do once, in the user's terms.
 func TestShelveIdleCategoryPermissionHints(t *testing.T) {
 	rest := &shelfREST{workspace: "catA", denyCreate: true}
 	p := shelfPlatform(t, rest)
 	err := p.ShelveTeamWorkspaceChannel(context.Background(), "101")
-	if err == nil || !strings.Contains(err.Error(), "空闲工作区") || !strings.Contains(err.Error(), "管理频道") {
+	if err == nil || !strings.Contains(err.Error(), "「工作区」") || !strings.Contains(err.Error(), "管理频道") {
 		t.Fatalf("create refused: %v, want a hint naming the category and the permission", err)
 	}
 	if strings.Contains(err.Error(), "client_id=") {
 		t.Fatalf("the hint must not offer a re-invite link for a per-category permission: %v", err)
 	}
 
-	// The category exists but the workspace is still active, so the move is attempted.
+	// The category exists but the workspace is elsewhere, so the move is attempted.
 	rest = &shelfREST{workspace: "catA", hasShelf: true, denyEdit: true}
 	p = shelfPlatform(t, rest)
 	err = p.ShelveTeamWorkspaceChannel(context.Background(), "101")

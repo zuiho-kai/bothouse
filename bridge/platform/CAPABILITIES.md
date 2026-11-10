@@ -83,7 +83,7 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## TeamWorkspaceShelver
 
-工作区平台可选实现它：释放最后一个任务后异步收纳频道，认领或复用时取回（docs/ARCHITECTURE.md:71）。Discord 将空闲工作区挪入「空闲工作区」分类，并通过 TeamChannel.Shelved 保留共享池的复用与编号语义；搬动失败只记日志，其他平台沿用原流程。
+工作区平台可选实现它：把所有工作区放进平台自己的一个分类，空着的、在用的都放这里，不再按空闲/在用搬来搬去（docs/ARCHITECTURE.md:75）。Discord 新建工作区直接建在「工作区」分类里（没有就建），还在聊天频道旁边的老工作区由 core 在列池子、认领时挪进去，旧版「空闲工作区」分类里的在首次列频道时挪过去、空了就删；TeamChannel.Shelved 保留共享池的复用与编号语义；搬动失败只记日志，其他平台沿用原流程。
 
 - discord: 已接
 - feishu: 不支持：飞书的群组接口没有分类这个概念（platform/feishu/workspaces.go:76「Feishu has no categories: ParentID is empty」），工作区本身就是一个群，没有可挪的频道容器
