@@ -20,14 +20,13 @@ func TestWorkspaceAskWithoutEvidenceGoesBack(t *testing.T) {
 		if !strings.Contains(prompt, "系统退回了你的 [ask]") {
 			t.Fatalf("bounce turn = %q", prompt)
 		}
-		inputWait(t, func() bool { return len(p.sentTo(exitWSKey)) >= 2 })
-		ws := p.sentTo(exitWSKey)
-		if len(ws) != 2 || ws[0] != reply || !strings.HasPrefix(ws[1], exitPrefix) {
+		// The reason goes to the bot only; the channel shows no 「📬 … 没有转给用户」 (#1347).
+		if ws := p.sentTo(exitWSKey); len(ws) != 1 || ws[0] != reply {
 			t.Fatalf("workspace = %q", ws)
 		}
 		for _, w := range want {
-			if !strings.Contains(ws[1], w) || !strings.Contains(prompt, w) {
-				t.Fatalf("bounce %q / %q lacks %q", ws[1], prompt, w)
+			if !strings.Contains(prompt, w) {
+				t.Fatalf("bounce %q lacks %q", prompt, w)
 			}
 		}
 		if got := p.sentTo("discord:chat1"); len(got) != 0 {
