@@ -28,7 +28,7 @@ func TestTurnJournalQueuedAcceptKeepsInstructionsAcrossRestart(t *testing.T) {
 		t.Fatalf("entries: %+v", got)
 	}
 	prompt := buildTurnResumePrompt(got[0], false)
-	for _, want := range []string{leadAcceptMark, "ws-pass --notes " + notes, "ws-forward --notes " + notes, leadUncheckedMark} {
+	for _, want := range []string{leadAcceptMark, "ws-pass --id 1274", "ws-forward --id 1274", leadUncheckedMark} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("resume prompt lost %q", want)
 		}
