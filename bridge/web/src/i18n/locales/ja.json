@@ -413,7 +413,9 @@
     "defaultSession": "Web セッション",
     "subtitle": "One thread per role, most recent first",
     "search": "Find a role",
-    "you": "You"
+    "you": "You",
+    "sessionCount": "{{count}} 件のセッション",
+    "empty": "まだメッセージはありません"
   },
   "cmd": {
     "search": "コマンドを検索...",

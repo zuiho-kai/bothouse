@@ -20,6 +20,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
+import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 
 // ── Markdown renderers ───────────────────────────────────────
 
@@ -157,7 +158,7 @@ function CardElement({ el, onAction }: { el: any; onAction: (v: string) => void 
         {el.buttons?.map((btn: any, j: number) => (
           <button key={j} onClick={() => onAction(btn.value)} className={cn(
             'px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150',
-            btn.btn_type === 'primary' ? 'bg-accent text-black hover:bg-accent-dim shadow-sm' :
+            btn.btn_type === 'primary' ? 'bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim shadow-sm' :
             btn.btn_type === 'danger' ? 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20' :
             'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700',
           )}>
@@ -219,7 +220,7 @@ function ButtonsBlock({ content, buttons, onAction }: { content: string; buttons
       {buttons.map((row, i) => (
         <div key={i} className="flex flex-wrap gap-2">
           {row.map((btn, j) => (
-            <button key={j} onClick={() => onAction(btn.data)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-black hover:bg-accent-dim transition-colors">
+            <button key={j} onClick={() => onAction(btn.data)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-white dark:text-black yellow:text-gray-900 hover:bg-accent-dim transition-colors">
               {btn.text}
             </button>
           ))}
@@ -578,22 +579,23 @@ export default function ChatView() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] animate-fade-in">
+    <div className="mx-auto flex h-[calc(100dvh-8rem)] w-full max-w-4xl flex-col animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <Link to="/chat" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            <ArrowLeft size={18} className="text-gray-400" />
+      <div className="-mx-1 flex shrink-0 items-center justify-between rounded-card bg-surface px-3 py-2.5 shadow-ui-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link to="/chat" aria-label={t('common.back', '返回')} className="grid h-10 w-10 shrink-0 place-items-center rounded-control text-ink-mute transition-colors duration-base hover:bg-surface-sunken hover:text-ink">
+            <ArrowLeft size={18} />
           </Link>
-          <div>
+          <LibraryAvatar name={shown || projectName || ''} size={40} />
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{shown || projectName}</h2>
+              <h2 className="truncate text-base font-semibold tracking-tight text-ink">{shown || projectName}</h2>
               <StatusBadge status={bridgeStatus} />
             </div>
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-accent transition-colors mt-0.5"
+              className="mt-0.5 flex items-center gap-1 text-xs text-ink-mute transition-colors duration-base hover:text-accent-text"
             >
               <span>{userPickedSession && currentSession
                 ? (currentSession.name || currentSession.id.slice(0, 8))
@@ -605,14 +607,12 @@ export default function ChatView() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-5">
+      <div className="flex-1 space-y-5 overflow-y-auto px-1 py-6">
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
-              <Bot size={32} className="text-accent" />
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{t('chat.emptyHint')}</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t('chat.slashHint')}</p>
+            <div className="mb-4"><LibraryAvatar name={shown || projectName || ''} size={64} /></div>
+            <p className="mb-1 text-sm text-ink-soft">{t('chat.emptyHint')}</p>
+            <p className="text-xs text-ink-mute">{t('chat.slashHint')}</p>
           </div>
         )}
         {messages.map((msg) => {
@@ -621,15 +621,13 @@ export default function ChatView() {
           return (
             <div key={msg.id} className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}>
               {!isUser && (
-                <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
-                  <Bot size={16} className="text-accent" />
-                </div>
+                <div className="mt-0.5 shrink-0"><LibraryAvatar name={shown || projectName || ''} size={32} /></div>
               )}
               <div className={cn(
-                'group/msg relative rounded-2xl px-5 py-3.5 text-sm',
+                'group/msg relative min-w-0 rounded-[18px] px-4 py-3 text-sm leading-relaxed',
                 isUser
-                  ? 'max-w-[70%] bg-accent text-black rounded-br-md'
-                  : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
+                  ? 'max-w-[78%] rounded-br-md bg-accent-wash text-ink'
+                  : 'max-w-[85%] rounded-bl-md bg-surface text-ink shadow-ui-1',
                 msg.streaming && 'animate-pulse-subtle',
               )}>
                 {isEmpty ? (
@@ -654,24 +652,18 @@ export default function ChatView() {
                   <MsgCopyButton text={msg.content} />
                 )}
               </div>
-              {isUser && (
-                <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0 mt-1">
-                  <User size={16} className="text-gray-500" />
-                </div>
-              )}
+
             </div>
           );
         })}
         {typing && !messages.some(m => m.streaming) && (
           <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
-              <Bot size={16} className="text-accent" />
-            </div>
-            <div className="rounded-2xl px-5 py-3.5 text-sm bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 rounded-bl-md shadow-sm">
+            <div className="mt-0.5 shrink-0"><LibraryAvatar name={shown || projectName || ''} size={32} /></div>
+            <div className="rounded-[18px] rounded-bl-md bg-surface px-4 py-3.5 text-sm shadow-ui-1">
               <div className="flex gap-1.5">
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-2 h-2 bg-ink-mute rounded-full animate-bounce motion-reduce:animate-none" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-ink-mute rounded-full animate-bounce motion-reduce:animate-none" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-ink-mute rounded-full animate-bounce motion-reduce:animate-none" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>
@@ -680,9 +672,9 @@ export default function ChatView() {
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-200 dark:border-gray-800 pt-3 shrink-0">
+      <div className="shrink-0 pb-1 pt-2">
         {canSend ? (
-          <div className="relative flex items-end gap-2">
+          <div className="relative flex items-center gap-1.5 rounded-[18px] bg-surface p-1.5 shadow-ui-2 ring-1 ring-hairline focus-within:ring-accent/50">
             {/* Command palette trigger */}
             <div className="relative">
               <button
@@ -690,10 +682,10 @@ export default function ChatView() {
                 type="button"
                 onClick={() => setCmdOpen(!cmdOpen)}
                 className={cn(
-                  'p-3 rounded-xl transition-all duration-200',
+                  'grid h-10 w-10 place-items-center rounded-[12px] transition-colors duration-base',
                   cmdOpen
-                    ? 'bg-accent/15 text-accent ring-1 ring-accent/30'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06]',
+                    ? 'bg-accent-wash text-accent-text'
+                    : 'text-ink-mute hover:bg-surface-sunken hover:text-ink',
                 )}
                 title={t('chat.commands')}
               >
@@ -714,7 +706,7 @@ export default function ChatView() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t('chat.inputPlaceholder')}
-                className="w-full px-4 py-3 text-sm rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors placeholder:text-gray-400"
+                className="h-10 w-full bg-transparent px-2 text-sm text-ink placeholder:text-ink-mute focus:outline-none"
                 disabled={sending}
               />
             </div>
@@ -724,23 +716,24 @@ export default function ChatView() {
               type="button"
               onClick={handleSend}
               disabled={sending || !input.trim()}
-              className="p-3 rounded-xl bg-accent text-black hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center"
+              aria-label={t('chat.send', '发送')}
+              className="grid h-10 w-10 place-items-center rounded-[12px] bg-accent text-white shadow-ui-gloss-1 transition-colors duration-base hover:bg-accent-dim disabled:opacity-40 dark:text-black yellow:text-gray-900"
             >
               {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
         ) : !bridgeCfg ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
+          <div className="flex items-center gap-2 px-4 py-3 text-sm rounded-[14px] bg-amber-500/[0.08] text-amber-700 dark:text-amber-400">
             <WifiOff size={14} />
             <span>{t('sessions.bridgeNotAvailable')}</span>
           </div>
         ) : bridgeStatus === 'disconnected' || bridgeStatus === 'error' ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
+          <div className="flex items-center gap-2 px-4 py-3 text-sm rounded-[14px] bg-amber-500/[0.08] text-amber-700 dark:text-amber-400">
             <WifiOff size={14} />
             <span>{t('sessions.bridgeDisconnected')}</span>
           </div>
         ) : (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
+          <div className="flex items-center gap-2 px-4 py-3 text-sm rounded-[14px] bg-surface-sunken text-ink-mute">
             <Loader2 size={14} className="animate-spin" />
             <span>{t('sessions.bridgeConnecting')}</span>
           </div>

@@ -394,7 +394,9 @@
     "defaultSession": "Веб-сессия",
     "subtitle": "One thread per role, most recent first",
     "search": "Find a role",
-    "you": "You"
+    "you": "You",
+    "sessionCount": "Сессий: {{count}}",
+    "empty": "Сообщений пока нет"
   },
   "cmd": {
     "search": "Поиск команд…",

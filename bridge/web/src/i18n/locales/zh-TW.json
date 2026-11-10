@@ -416,7 +416,9 @@
     "defaultSession": "Web 對話",
     "subtitle": "每個角色一條對話，最近說過話的排在前面",
     "search": "找角色",
-    "you": "你"
+    "you": "你",
+    "sessionCount": "{{count}} 個會話",
+    "empty": "還沒說過話"
   },
   "cmd": {
     "search": "搜尋命令...",

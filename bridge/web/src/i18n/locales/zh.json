@@ -419,7 +419,9 @@
     "defaultSession": "Web 会话",
     "subtitle": "每个角色一条对话，最近说过话的排在前面",
     "search": "找角色",
-    "you": "你"
+    "you": "你",
+    "sessionCount": "{{count}} 个会话",
+    "empty": "还没说过话"
   },
   "cmd": {
     "search": "搜索命令...",

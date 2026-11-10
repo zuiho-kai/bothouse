@@ -413,7 +413,9 @@
     "defaultSession": "Sesión Web",
     "subtitle": "One thread per role, most recent first",
     "search": "Find a role",
-    "you": "You"
+    "you": "You",
+    "sessionCount": "{{count}} sesiones",
+    "empty": "Sin mensajes todavía"
   },
   "cmd": {
     "search": "Buscar comandos...",

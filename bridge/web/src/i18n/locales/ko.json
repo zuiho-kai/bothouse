@@ -413,7 +413,9 @@
     "defaultSession": "웹 세션",
     "subtitle": "One thread per role, most recent first",
     "search": "Find a role",
-    "you": "You"
+    "you": "You",
+    "sessionCount": "세션 {{count}}개",
+    "empty": "아직 메시지가 없습니다"
   },
   "cmd": {
     "search": "명령어 검색...",

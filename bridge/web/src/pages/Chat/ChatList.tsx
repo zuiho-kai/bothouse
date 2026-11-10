@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { MessageSquare, ChevronRight, Search } from 'lucide-react';
-import { EmptyState, Badge } from '@/components/ui';
+import { EmptyState } from '@/components/ui';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 import { backendLabel } from '@/lib/roleIdentity';
 import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
@@ -74,7 +74,7 @@ export default function ChatList() {
     : entries;
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="mx-auto w-full max-w-4xl animate-fade-in space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{t('nav.chat')}</h1>
@@ -120,10 +120,10 @@ export default function ChatList() {
               <li key={project.name}>
                 <Link
                   to={`/chat/${project.name}`}
-                  className="group flex min-w-0 items-center gap-3.5 px-4 py-3.5 transition-colors duration-base hover:bg-surface-sunken/60 focus-visible:bg-surface-sunken focus-visible:outline-none sm:px-5"
+                  className="group flex min-h-[72px] min-w-0 items-center gap-3.5 px-4 py-3.5 transition-colors duration-base hover:bg-surface-sunken/60 focus-visible:bg-surface-sunken focus-visible:outline-none sm:px-5"
                 >
                   <span className="relative shrink-0">
-                    <LibraryAvatar name={name} size={44} />
+                    <LibraryAvatar name={name} size={48} />
                     {hasLive && <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-surface p-[2px]"><span className="block h-2.5 w-2.5 rounded-full bg-emerald-500" /></span>}
                   </span>
                   <div className="min-w-0 flex-1">
@@ -138,13 +138,14 @@ export default function ChatList() {
                         {lastMsg.content.replace(/\n/g, ' ').slice(0, 160)}
                       </p>
                     ) : (
-                      <p className="mt-0.5 truncate text-sm italic text-ink-mute">{t('chat.noMessages')}</p>
+                      <p className="mt-0.5 truncate text-sm text-ink-mute">{t('chat.empty', t('chat.noMessages'))}</p>
                     )}
-                    <div className="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-ink-mute" data-testid="chat-card-footer">
-                      {project.platforms?.slice(0, 3).map((pl) => <Badge key={pl}>{pl}</Badge>)}
-                      {(project.platforms?.length ?? 0) > 3 && <Badge>+{project.platforms!.length - 3}</Badge>}
-                      <span className="shrink-0" data-testid="chat-card-count-time">{project.sessions_count} {t('chat.sessions', 'sessions')}</span>
-                    </div>
+                    <p className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px] text-ink-mute" data-testid="chat-card-footer">
+                      <span className="shrink-0 sm:hidden">{backendLabel(project.agent_type)}</span>
+                      <span className="shrink-0 sm:hidden" aria-hidden>·</span>
+                      <span className="shrink-0 tabular-nums" data-testid="chat-card-count-time">{t('chat.sessionCount', { count: project.sessions_count, defaultValue: `${project.sessions_count}` })}</span>
+                      {(project.platforms?.length ?? 0) > 0 && <><span aria-hidden>·</span><span className="truncate">{project.platforms!.join(' / ')}</span></>}
+                    </p>
                   </div>
                   <ChevronRight size={16} className="shrink-0 text-ink-mute opacity-0 transition-opacity duration-base group-hover:opacity-100" />
                 </Link>

@@ -84,7 +84,7 @@ export default function RoleList() {
     catch (e) { setError(errorMessage(e)); }
     finally { setDeleting(false); }
   };
-  const memberActions = (member?: DSHManagedMember) => member ? <div className="mt-auto space-y-2 border-t border-hairline pt-3">
+  const memberActions = (member?: DSHManagedMember) => member ? <div className="mt-auto space-y-2">
     <p className="text-xs text-ink-mute">{t('dshManage.source')}: {member.source} · {t(`dshManage.apply_${member.apply.status}`)}{member.apply.error ? `: ${member.apply.error}` : ''}</p>
     {member.source === 'ui' && (member.can_edit || member.can_delete) && member.cli === 'codex' && (member.cliConfig?.model || member.cliConfig?.reasoningEffort) && <div className="space-y-1 text-xs text-ink-soft">
       <p className="text-ink-mute">{t('dshManage.savedConfigNextTurn')}</p>
@@ -100,7 +100,7 @@ export default function RoleList() {
       {member.can_edit && <Button variant="secondary" size="sm" onClick={() => setEditor(member)}>{t('dshManage.edit')}</Button>}
       {member.can_delete && <Button variant="secondary" size="sm" onClick={() => setDeleteMember(member)}>{t('dshManage.delete')}</Button>}
     </div> : <p className="text-xs text-ink-mute">{t('dshManage.readOnly')}</p>}
-  </div> : <p className="mt-auto border-t border-hairline pt-3 text-xs text-ink-mute">{t('dshManage.unavailable')}</p>;
+  </div> : <p className="mt-auto text-xs text-ink-mute">{t('dshManage.unavailable')}</p>;
 
   const handleRestart = async (name: string) => {
     try {
@@ -232,168 +232,159 @@ export default function RoleList() {
               <article
                 key={role.name}
                 className={cn(
-                  'group/card flex flex-col gap-4 rounded-card bg-surface p-5 shadow-ui-1',
-                  'transition-shadow duration-state ease-ui-standard hover:shadow-ui-2',
-                  busy && 'ring-1 ring-accent/30',
+                  'group/card relative flex flex-col overflow-hidden rounded-card bg-surface shadow-ui-1',
+                  'transition-[box-shadow,transform] duration-state ease-ui-standard hover:-translate-y-px hover:shadow-ui-2 motion-reduce:hover:translate-y-0',
                 )}
               >
-                {/* 头像 + 名字 + 状态：一眼认人 */}
-                <div className="flex items-start gap-3">
-                  <RoleAvatar name={shown} state={state} size={44} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-semibold leading-6 text-ink">{shown}</p>
-                    <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-mute">
-                      <span className="truncate">{backendLabel(role.agent_type)}</span>
-                      {shown !== role.name && role.source !== 'dsh' && (
-                        <span className="hidden truncate font-mono sm:inline">· {role.name}</span>
-                      )}
+                {/* 在忙的卡片顶上一道强调色细条：扫一眼就分得出谁在干活 */}
+                {busy && <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-accent via-accent/70 to-accent/30" />}
+                <div className="flex flex-1 flex-col gap-4 p-5">
+                  {/* 头像 + 名字 + 状态，操作缩成右上角两个图标 */}
+                  <div className="flex items-start gap-3.5">
+                    <RoleAvatar name={shown} state={state} size={48} />
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-[17px] font-semibold leading-6 tracking-tight text-ink">{shown}</p>
+                        <StatePill state={state} />
+                      </div>
+                      {/* 型号和平台降级：后端 · 型号，一行小字 */}
+                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-mute" title={role.model || undefined}>
+                        <span className="shrink-0">{backendLabel(role.agent_type)}</span>
+                        <span aria-hidden>·</span>
+                        {role.model ? <span className="truncate font-mono text-[11px]">{role.model}</span> : <span className="truncate">当前模型{t('dsh.unknownModel', '未知')}</span>}
+                      </p>
+                    </div>
+                    {role.source !== 'dsh' && (
+                      <div className="-mr-1.5 -mt-1 flex shrink-0 items-center">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePause(role)}
+                          disabled={isPausing}
+                          title={role.paused ? '恢复' : '暂停'}
+                          aria-label={`${role.paused ? '恢复' : '暂停'} ${shown}`}
+                          className="grid h-9 w-9 place-items-center rounded-control text-ink-mute transition-colors duration-base hover:bg-surface-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+                        >
+                          {role.paused ? <Play size={16} /> : <Pause size={16} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRestart(role.name)}
+                          disabled={isRestarting}
+                          title="重启"
+                          aria-label={`重启 ${shown}`}
+                          className="grid h-9 w-9 place-items-center rounded-control text-ink-mute transition-colors duration-base hover:bg-surface-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+                        >
+                          <RotateCw size={16} className={cn(isRestarting && 'animate-spin motion-reduce:animate-none')} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 当前在做的事：卡片的主角；空闲时只留一行淡字，不占一个空盒子 */}
+                  {busy ? (
+                    <div className="rounded-[12px] bg-accent-wash px-4 py-3">
+                      <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-accent-text">
+                        <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60 motion-reduce:animate-none" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" /></span>
+                        正在做
+                      </p>
+                      <p className="mt-1.5 line-clamp-3 text-sm font-medium leading-[1.55] text-ink">{role.current_task || '—'}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-6 text-ink-mute">
+                      {role.current_task || (state === 'idle' ? '待命中，等新消息' : state === 'paused' ? '已暂停，恢复后继续接消息' : '离线')}
                     </p>
-                  </div>
-                  <StatePill state={state} />
-                </div>
+                  )}
 
-                {/* 当前在做的事：卡片的主角 */}
-                <div className={cn('rounded-[12px] px-3.5 py-3', busy ? 'bg-accent-wash' : 'bg-surface-sunken')}>
-                  <p className={cn('text-[11px] font-semibold uppercase tracking-wider', busy ? 'text-accent-text' : 'text-ink-mute')}>{busy ? '正在做' : '当前'}</p>
-                  <p className={cn('mt-1 line-clamp-2 text-sm leading-5', busy ? 'font-medium text-ink' : 'text-ink-mute')}>
-                    {role.current_task || (state === 'idle' ? '空闲，等新消息' : state === 'paused' ? '已暂停' : '—')}
-                  </p>
-                </div>
-
-                {/* 型号和平台降成一行小字；行线是真实字段分隔，不是装饰 */}
-                <dl className="space-y-1.5 text-xs">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <dt className="shrink-0 text-ink-mute">当前模型</dt>
-                    <dd className="min-w-0 truncate text-right font-mono text-[11px] text-ink-soft">
-                      {role.model || t('dsh.unknownModel', '未知')}
-                    </dd>
-                  </div>
-                  <div className="flex items-start justify-between gap-3">
-                    <dt className="shrink-0 text-ink-mute">连接平台</dt>
-                    <dd className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-right text-ink-soft">
-                      {role.platforms && role.platforms.length > 0 ? (
-                        role.platforms.map((p) => {
-                          const notice = p.notice;
-                          const isIntentNotice = notice ? isServerMembersIntentNotice(notice) : false;
-                          let fixUrl: string | null = null;
-                          let description = '';
-                          if (isIntentNotice && notice) {
-                            const urlMatch = notice.match(/https?:\/\/[^\s]+/);
-                            fixUrl = urlMatch ? urlMatch[0] : null;
-                            description = fixUrl ? notice.replace(fixUrl, '').trim() : notice;
-                          }
-
-                          return (
-                            <span key={p.name} className="inline-flex items-center gap-1.5">
-                              <span className={cn('h-1.5 w-1.5 rounded-full', p.ready ? 'bg-emerald-500' : 'bg-ink-mute')} />
-                              <span>{p.name}</span>
-                              {isIntentNotice && (
-                                <span className="group relative inline-flex items-center">
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center gap-1 rounded-pill text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-                                    aria-label={`${t('roles.membersIntentOff', '未开成员事件')}: ${description}`}
-                                  >
-                                    <Badge
-                                      variant="warning"
-                                      className="cursor-help px-1.5 py-0 text-[10px] font-normal"
-                                    >
-                                      {t('roles.membersIntentOff', '未开成员事件')}
-                                    </Badge>
-                                  </button>
-                                  <div
-                                    role="tooltip"
-                                    className="pointer-events-none absolute bottom-full right-0 z-50 mb-1.5 hidden w-72 max-w-[calc(100vw-3rem)] flex-col rounded-card border border-hairline bg-surface p-3 text-left text-xs leading-relaxed text-ink shadow-ui-2 transition-all duration-base before:absolute before:inset-x-0 before:-bottom-2 before:h-2 group-hover:pointer-events-auto group-hover:flex group-focus-within:pointer-events-auto group-focus-within:flex"
-                                  >
-                                    <p className="select-text whitespace-normal text-ink-soft">{description}</p>
-                                    {fixUrl && (
-                                      <a
-                                        href={fixUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="mt-2.5 inline-flex items-center gap-1 font-medium text-accent-text hover:underline select-text"
-                                      >
-                                        <span>{t('roles.openDeveloperPortal', '打开 Discord 开发者后台')}</span>
-                                        <ExternalLink size={12} className="shrink-0" />
-                                      </a>
-                                    )}
-                                  </div>
-                                </span>
-                              )}
-                            </span>
-                          );
-                        })
-                      ) : (
-                        <span className="text-ink-mute">无</span>
-                      )}
-                    </dd>
-                  </div>
                   {role.quota?.windows && role.quota.windows.length > 0 && (
-                    <div className="pt-1.5" data-testid={`role-quota-${role.name}`}>
-                      <dt className="flex items-center justify-between text-ink-mute">
-                        <span className="flex items-center gap-1.5">
-                          <Gauge size={12} className="shrink-0" />
-                          模型额度：
-                        </span>
-                        <span className="text-[10px]">（剩余口径）</span>
-                      </dt>
-                      <dd className="mt-1.5 space-y-1.5">
+                    <div className="space-y-2" data-testid={`role-quota-${role.name}`}>
+                      <p className="flex items-center gap-1.5 text-[11px] text-ink-mute">
+                        <Gauge size={12} className="shrink-0" />
+                        <span>模型额度：</span>
+                        <span className="ml-auto text-[10px]">剩余</span>
+                      </p>
+                      <div className="grid gap-x-4 gap-y-2" style={{ gridTemplateColumns: `repeat(${Math.min(role.quota.windows.length, 2)}, minmax(0, 1fr))` }}>
                         {role.quota.windows.map((w, idx) => {
                           const remaining = Math.max(0, Math.min(100, w.remaining_percent));
                           const used = Math.max(0, Math.min(100, w.used_percent));
                           return (
-                            <div key={w.name || idx} className="space-y-1" data-testid={`quota-window-${w.label || idx}`}>
+                            <div key={w.name || idx} className="space-y-1" data-testid={`quota-window-${w.label || idx}`} title={`已用 ${used}%`}>
                               <div className="flex items-baseline justify-between text-[11px]">
                                 <span className="text-ink-soft">{w.label || w.name}</span>
-                                <span className="font-mono text-[10px] text-ink-soft">
-                                  剩 {remaining}% <span className="text-ink-mute">/ 已用 {used}%</span>
-                                </span>
+                                <span className="font-mono text-[10px] tabular-nums text-ink-soft">剩 {remaining}%</span>
                               </div>
-                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                              <div className="h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
                                 <div className={cn('h-full rounded-full', remaining < 20 ? 'bg-amber-500' : 'bg-accent')} style={{ width: `${remaining}%` }} />
                               </div>
                             </div>
                           );
                         })}
-                      </dd>
+                      </div>
                     </div>
                   )}
-                </dl>
 
-                {role.platforms
-                  ?.filter((p) => p.notice && !isServerMembersIntentNotice(p.notice))
-                  .map((p) => (
-                    <p key={'notice-' + p.name} className="-mt-1 rounded-control bg-amber-500/[0.08] px-3 py-2 text-xs leading-relaxed text-amber-600">
-                      {p.notice}
-                    </p>
-                  ))}
+                  {role.platforms
+                    ?.filter((p) => p.notice && !isServerMembersIntentNotice(p.notice))
+                    .map((p) => (
+                      <p key={'notice-' + p.name} data-testid="role-platform-notice" className="rounded-control bg-amber-500/[0.08] px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                        {p.notice}
+                      </p>
+                    ))}
 
-                {role.source === 'dsh' ? (
-                  memberActions(members.find(m => m.id === dshMemberId(role.name)))
-                ) : (
-                <div className="mt-auto flex items-center justify-end gap-1 border-t border-hairline pt-3">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => handleTogglePause(role)}
-                    disabled={isPausing}
-                  >
-                    {role.paused ? <Play size={13} /> : <Pause size={13} />}
-                    {role.paused ? '恢复' : '暂停'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => handleRestart(role.name)}
-                    disabled={isRestarting}
-                  >
-                    <RotateCw size={13} className={cn(isRestarting && 'animate-spin motion-reduce:animate-none')} />
-                    重启
-                  </Button>
+                  {role.source === 'dsh' && memberActions(members.find(m => m.id === dshMemberId(role.name)))}
                 </div>
-                )}
+
+                {/* 底栏：连接平台，小圆点 + 名字 */}
+                <div data-testid="role-platforms" className="flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 border-t border-hairline bg-surface-sunken/40 px-5 py-2.5 text-[11px] text-ink-soft">
+                  {role.platforms && role.platforms.length > 0 ? (
+                    role.platforms.map((p) => {
+                      const notice = p.notice;
+                      const isIntentNotice = notice ? isServerMembersIntentNotice(notice) : false;
+                      let fixUrl: string | null = null;
+                      let description = '';
+                      if (isIntentNotice && notice) {
+                        const urlMatch = notice.match(/https?:\/\/[^\s]+/);
+                        fixUrl = urlMatch ? urlMatch[0] : null;
+                        description = fixUrl ? notice.replace(fixUrl, '').trim() : notice;
+                      }
+                      return (
+                        <span key={p.name} className="inline-flex items-center gap-1.5" title={p.ready ? '已连接' : '未连接'}>
+                          <span className={cn('h-1.5 w-1.5 rounded-full', p.ready ? 'bg-emerald-500' : 'bg-ink-mute/60')} />
+                          <span>{p.name}</span>
+                          {isIntentNotice && (
+                            <span className="group relative inline-flex items-center">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded-pill text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                                aria-label={`${t('roles.membersIntentOff', '未开成员事件')}: ${description}`}
+                              >
+                                <Badge variant="warning" className="cursor-help px-1.5 py-0 text-[10px] font-normal">
+                                  {t('roles.membersIntentOff', '未开成员事件')}
+                                </Badge>
+                              </button>
+                              <div
+                                role="tooltip"
+                                className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 hidden w-72 max-w-[calc(100vw-3rem)] flex-col rounded-card border border-hairline bg-surface p-3 text-left text-xs leading-relaxed text-ink shadow-ui-2 transition-all duration-base before:absolute before:inset-x-0 before:-bottom-2 before:h-2 group-hover:pointer-events-auto group-hover:flex group-focus-within:pointer-events-auto group-focus-within:flex"
+                              >
+                                <p className="select-text whitespace-normal text-ink-soft">{description}</p>
+                                {fixUrl && (
+                                  <a href={fixUrl} target="_blank" rel="noreferrer" className="mt-2.5 inline-flex items-center gap-1 font-medium text-accent-text hover:underline select-text">
+                                    <span>{t('roles.openDeveloperPortal', '打开 Discord 开发者后台')}</span>
+                                    <ExternalLink size={12} className="shrink-0" />
+                                  </a>
+                                )}
+                              </div>
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span className="text-ink-mute">未连接平台</span>
+                  )}
+                  {shown !== role.name && role.source !== 'dsh' && (
+                    <span className="ml-auto hidden truncate font-mono text-[10px] text-ink-mute sm:inline">{role.name}</span>
+                  )}
+                </div>
               </article>
             );
           })}
