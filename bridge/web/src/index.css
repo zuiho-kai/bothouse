@@ -5,11 +5,11 @@
 @tailwind utilities;
 
 :root {
-  --color-accent: 22 163 74;
-  --color-accent-dim: 21 128 61;
-  /* 文字用更深一档：填充绿 #16A34A 白底 3.16:1，12px 链接达不到 4.5:1；#15803D 是 4.7:1。 */
-  --color-accent-text: 21 128 61;
-  --color-accent-text-dim: 16 106 50;
+  /* #579 v2: 品牌色由控制台绿换成靛紫 #5B4FE9：白字其上 5.6:1，作文字在白底 5.6:1、在暖灰画布 5.2:1。 */
+  --color-accent: 91 79 233;
+  --color-accent-dim: 74 63 214;
+  --color-accent-text: 84 72 222;
+  --color-accent-text-dim: 70 58 200;
   /* Tailwind's default gray (tailwind.config.ts maps gray-* to these). */
   --gray-50: 249 250 251;
   --gray-100: 243 244 246;
@@ -24,11 +24,10 @@
   --gray-950: 3 7 18;
 }
 .dark {
-  /* #579: 霓虹绿 #42FF9C 在暗底上发刺；收到 #3DD68C（仍 ≥ 8:1 配黑字），整体更沉稳。 */
-  --color-accent: 61 214 140;
-  --color-accent-dim: 46 184 118;
-  /* 暗底上的文字/链接强调色要更亮：填充绿在 #16171A 上只有 3.9:1。 */
-  --color-accent-text: 74 222 128;
+  /* #579 v2: 暗色强调 #8B83FF：黑字其上 7.4:1；文字档 #A9A3FF 在 #141418 上 7.9:1。 */
+  --color-accent: 139 131 255;
+  --color-accent-dim: 120 112 245;
+  --color-accent-text: 169 163 255;
   /* 三级灰同上，114 114 108 在暗底 4.09:1，提亮到 6.0:1。 */
   --gray-400: 150 150 144;
 }
@@ -39,40 +38,38 @@
    tokens, so light is the default set and .dark is the second set — no component carries a
    hard-coded hex. */
 :root {
-  /* 面：画布一档灰、卡片纯白，靠 1px 描边分层而不是阴影（§1 Vercel/magpie；应用界面房规同向）。 */
-  /* #579: 内容区纯白、侧栏低一档（chrome），与 DSH 外壳同一层次，嵌在 DSH 里不像两张纸拼起来。 */
-  --ui-canvas: 255 255 255;
-  --ui-canvas-tint: 255 255 255;
-  --ui-chrome: 248 248 250;
+  /* #579 v2: 暖灰画布 #F6F6F3 + 纯白卡片：卡片靠底色差浮起，外壳（顶栏）与画布同色半透明。 */
+  --ui-canvas: 246 246 243;
+  --ui-canvas-tint: 250 250 248;
+  --ui-chrome: 246 246 243;
   --ui-surface: 255 255 255;
   --ui-surface-raised: 255 255 255;
-  --ui-surface-sunken: 246 247 249;
-  /* Text ramp #17181B / #5A5A55 / #9A9A94 (§0 ClawChat). */
-  --ui-ink: 23 24 27;
-  --ui-ink-soft: 90 90 85;
-  --ui-ink-mute: 112 111 106;   /* 4.7–5.0:1 on 白/暖白：三级色也要过 11–12px 的 4.5:1 */
-  /* Hairline #E6E9EF (§1). */
-  --ui-hairline: 230 233 239;
-  --ui-hairline-strong: 214 219 227;
-  /* wash/bokeh 跟随强调色相（品牌绿），否则绿按钮配靛蓝悬停会串色 */
-  --ui-accent-wash: 236 250 242;
-  --ui-bokeh: 22 163 74;
+  --ui-surface-sunken: 240 240 236;
+  /* 文字三档 #111113 / #4F4F57 / #6B6B73：三级色在暖灰画布上 4.9:1，过 12px 的 4.5:1。 */
+  --ui-ink: 17 17 19;
+  --ui-ink-soft: 79 79 87;
+  --ui-ink-mute: 107 107 115;
+  --ui-hairline: 230 230 226;
+  --ui-hairline-strong: 212 212 206;
+  --ui-accent-wash: 239 237 255;
+  --ui-bokeh: 91 79 233;
 }
 
 .dark {
-  --ui-canvas: 13 13 15;
-  --ui-canvas-tint: 16 17 20;
-  --ui-chrome: 18 18 21;
-  --ui-surface: 22 23 26;
-  --ui-surface-raised: 28 29 33;
-  --ui-surface-sunken: 15 16 19;
-  --ui-ink: 236 238 242;
-  --ui-ink-soft: 165 170 180;
-  --ui-ink-mute: 150 156 166;   /* 6.1–8.1:1 on 暗底 */
-  --ui-hairline: 44 46 52;
-  --ui-hairline-strong: 58 61 68;
-  --ui-accent-wash: 24 44 34;
-  --ui-bokeh: 43 200 122;
+  /* #579 v2: 近黑带一点冷调，卡片比画布高一档 */
+  --ui-canvas: 10 10 13;
+  --ui-canvas-tint: 14 14 18;
+  --ui-chrome: 10 10 13;
+  --ui-surface: 20 20 25;
+  --ui-surface-raised: 27 27 33;
+  --ui-surface-sunken: 15 15 19;
+  --ui-ink: 237 237 241;
+  --ui-ink-soft: 168 168 178;
+  --ui-ink-mute: 140 140 152;   /* 在 #141419 上 5.9:1 */
+  --ui-hairline: 37 37 45;
+  --ui-hairline-strong: 52 52 62;
+  --ui-accent-wash: 31 28 60;
+  --ui-bokeh: 139 131 255;
 }
 
 /* The yellow-white brand theme keeps its warmth but rides the same token names: warm paper
@@ -95,10 +92,10 @@
 
 :root {
   /* Radius ladder: control 8 / card 14 / panel 18 / pill 999, never mixed (§3). */
-  --ui-radius-control: 8px;
-  /* #579: 卡片 14 → 12、面板 18 → 16：控制台密度下大圆角显得软塌，与 DSH 卡片圆角同档。 */
-  --ui-radius-card: 12px;
-  --ui-radius-panel: 16px;
+  /* #579 v2: 圆角整体放大一档（控件 10 / 卡片 16 / 面板 20），白卡浮在暖灰上更像成品而不是表格。 */
+  --ui-radius-control: 10px;
+  --ui-radius-card: 16px;
+  --ui-radius-panel: 20px;
   --ui-radius-pill: 999px;
   /* Duration ladder: press 120ms, interaction 240ms, state 320ms, ambient 3000ms (§4). */
   --ui-dur-press: 120ms;
@@ -111,7 +108,7 @@
   /* Elevation: a 1px ring carries the edge, shadows only add depth.
      L1 hairline + near shadow; L2 magpie 0 1px 2px / 0 12px 40px -12px (§5);
      L3 five same-direction micro shadows, near-solid far-diffuse (§3 Linear). */
-  --ui-shadow-1: 0 0 0 1px rgb(var(--ui-hairline)), 0 1px 2px rgb(16 24 40 / 0.04);
+  --ui-shadow-1: 0 0 0 1px rgb(var(--ui-hairline)), 0 1px 2px rgb(16 16 24 / 0.04), 0 4px 12px -6px rgb(16 16 24 / 0.06);
   --ui-shadow-2:
     0 0 0 1px rgb(var(--ui-hairline)), 0 1px 2px rgb(0 0 0 / 0.04),
     0 12px 40px -12px rgb(0 0 0 / 0.18);
@@ -230,11 +227,11 @@ body {
   height: calc(3.5rem + env(safe-area-inset-top, 0px));
   padding-top: env(safe-area-inset-top, 0px);
 }
-/* 主内容滚动区底部：在原 p-4 / sm:p-6 之上再让出底部横条。 */
+/* 主内容滚动区底部：在原 p-4 / sm:p-6 之上再让出底部横条；手机上还要让出底部标签栏（4rem）。 */
 .ui-safe-main {
-  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .ui-safe-main {
     padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   }
@@ -339,4 +336,19 @@ html {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(128, 128, 128, 0.5);
+}
+
+/* #579 v2: 「在忙」的呼吸点：一圈向外扩散的环，减少动态效果时停在静止的实心点（全局规则已把动画压到 0.01ms）。 */
+@keyframes ui-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  80%, 100% { transform: scale(2.4); opacity: 0; }
+}
+.ui-live-dot { position: relative; }
+.ui-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: inherit;
+  animation: ui-ping 1.8s var(--ui-ease-out) infinite;
 }

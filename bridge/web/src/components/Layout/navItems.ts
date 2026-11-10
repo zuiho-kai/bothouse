@@ -17,6 +17,7 @@ import {
   Boxes,
   ShieldCheck,
   Award,
+  Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -31,19 +32,18 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-// The sidebar used to be one flat list of 19 rows; grouped by what the owner is doing (look,
-// work together, wire things up, extend, configure) it scans in one glance. Same routes as before.
+// #579 v2: the panel used to open on a sidebar of 19 equal rows. The five pages people live in
+// are tabs in the top bar (and the phone's bottom bar); everything else sits one click away in
+// the "all features" launcher, grouped by what the owner is doing. Every route is still listed.
+export const primaryNav: NavItem[] = [
+  { key: 'dashboard', path: '/', icon: LayoutDashboard },
+  { key: 'roles', path: '/roles', icon: Users },
+  { key: 'chat', path: '/chat', icon: MessageSquare },
+  { key: 'sessions', path: '/sessions', icon: MessagesSquare },
+  { key: 'usage', path: '/usage', icon: Activity },
+];
+
 export const navGroups: NavGroup[] = [
-  {
-    key: 'main',
-    items: [
-      { key: 'dashboard', path: '/', icon: LayoutDashboard },
-      { key: 'roles', path: '/roles', icon: Users },
-      { key: 'chat', path: '/chat', icon: MessageSquare },
-      { key: 'sessions', path: '/sessions', icon: MessagesSquare },
-      { key: 'usage', path: '/usage', icon: Activity },
-    ],
-  },
   {
     key: 'collab',
     items: [
@@ -52,6 +52,7 @@ export const navGroups: NavGroup[] = [
       // 记忆论坛 (#1143): the memories roles get each turn, as ranked posts (gate GET /forum)
       { key: 'forum', path: '/forum', icon: Award },
       { key: 'library', path: '/library', icon: Library },
+      { key: 'wikiGalaxy', path: '/wiki-galaxy', icon: Sparkles },
     ],
   },
   {
@@ -84,17 +85,25 @@ export const navGroups: NavGroup[] = [
   },
 ];
 
-/** Nav key of the page at `pathname` (longest matching route), for the header's page title. */
-export function navKeyFor(pathname: string): string | undefined {
-  if (pathname === '/') return 'dashboard';
-  if (pathname.startsWith('/wiki-galaxy')) return 'wikiGalaxy';
-  if (pathname.startsWith('/setup')) return 'addRole';
+const allItems: NavItem[] = [...primaryNav, ...navGroups.flatMap((g) => g.items)];
+
+/** Nav item of the page at `pathname` (longest matching route). */
+export function navItemFor(pathname: string): NavItem | undefined {
+  if (pathname === '/') return primaryNav[0];
   let best: NavItem | undefined;
-  for (const g of navGroups) {
-    for (const item of g.items) {
-      if (item.path === '/') continue;
-      if ((pathname === item.path || pathname.startsWith(`${item.path}/`)) && (!best || item.path.length > best.path.length)) best = item;
-    }
+  for (const item of allItems) {
+    if (item.path === '/') continue;
+    if ((pathname === item.path || pathname.startsWith(`${item.path}/`)) && (!best || item.path.length > best.path.length)) best = item;
   }
-  return best?.key;
+  return best;
+}
+
+/** Nav key of the page at `pathname`, for the header's page title. */
+export function navKeyFor(pathname: string): string | undefined {
+  if (pathname.startsWith('/setup')) return 'addRole';
+  return navItemFor(pathname)?.key;
+}
+
+export function isPrimary(item: NavItem | undefined): boolean {
+  return !!item && primaryNav.includes(item);
 }
