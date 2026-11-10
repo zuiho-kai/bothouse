@@ -277,7 +277,11 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		return ""
 	}
 	if problems != nil {
-		if e.bounceWorkspaceExit(ctx, p, rec, sessionKey, kind, problems) {
+		// A [report] is not sent back: it goes on with what the check found, to the lead's
+		// acceptance like any report. agentm 11-09/10 (#1347): 15 report bounces, the repair turns
+		// mostly answered 「已补全」 without the marker, so the result was dropped and the user
+		// waited hours for it. Only an [ask] still bounces, since it would wait on the user.
+		if kind != exitKindReport && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
 			return ""
 		}
 		// No repair turn will come: forward it as is, with what the check found, so the user
