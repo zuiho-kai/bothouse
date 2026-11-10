@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
@@ -96,6 +97,9 @@ func runMember(args []string) {
 // not have that. When the caller runs under another system account the bridge also wants a caller token
 // for the turn it claims to be in, so this fills in the one identity.sock just signed for this turn; the
 // bridge's own account does not need it (it already holds api.sock).
+// memberCallTimeout: see memberPost.
+const memberCallTimeout = 20 * time.Minute
+
 func memberPost(project, session string, body []byte) (*http.Response, string, error) {
 	dataDir := identityDataDir("")
 	sock := core.MemberSocketPath(dataDir)
@@ -106,7 +110,10 @@ func memberPost(project, session string, body []byte) (*http.Response, string, e
 		// with why not.
 		tok, tokErr = "", fetchErr.Error()
 	}
-	client := &http.Client{Transport: &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+	// memberCallTimeout: a little past the bridge's own longest member op (memberLoginTimeout, 15 min in
+	// core/member_workspace.go), so a live op never gets cut off here, while a bridge that accepts and
+	// then goes quiet ends in an error instead of a role turn that hangs forever.
+	client := &http.Client{Timeout: memberCallTimeout, Transport: &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 		c, err := net.Dial("unix", sock)
 		if err == nil || !errors.Is(err, fs.ErrNotExist) {
 			return c, err
