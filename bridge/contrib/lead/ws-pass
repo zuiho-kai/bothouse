@@ -138,10 +138,11 @@ def thumbs(shots: list) -> Path:
 def board_id(rec, path):
     """这件活在任务板上的编号（交回待验收的条目还在板上；做完的在 board-done.jsonl）；没有返回 0。"""
     files = {f for f in (rec.get("file"), path) if f}
-    rows = [i for i in board.items() if i.get("where") in files]
+    hit = lambda i: i.get("where") in files or i.get("where_link") in files  # where_link：路径栏改成 PR 链接后的旧提示也认
+    rows = [i for i in board.items() if hit(i)]
     if not rows:
         try:
-            rows = [i for i in board._read("board-done.jsonl") if i.get("where") in files]
+            rows = [i for i in board._read("board-done.jsonl") if hit(i)]
         except Exception:
             rows = []
     return max((int(i["id"]) for i in rows if str(i.get("id", "")).isdigit()), default=0)
