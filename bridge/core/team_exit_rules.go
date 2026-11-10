@@ -97,6 +97,12 @@ type teamExitRulesDoc struct {
 		Line    string `json:"line"`
 		Table   string `json:"table"`
 	} `json:"jargon"`
+	Length struct {
+		MaxSentences int      `json:"max_sentences"`
+		EndRe        string   `json:"end_re"`
+		Parts        []string `json:"parts"`
+		Msg          string   `json:"msg"`
+	} `json:"length"`
 }
 
 type teamExitRules struct {
@@ -108,6 +114,7 @@ type teamExitRules struct {
 	ccOnly, ccSource                                                                   *regexp.Regexp
 	entryLabel, entryPath, entryFile, entryURL                                         *regexp.Regexp
 	srTodo, srEnd, srNone, srAskLine, srHand, srMine, srNeg, srOnlyUser                *regexp.Regexp
+	sentenceEnd                                                                        *regexp.Regexp
 }
 
 // exitRules is read once from the embedded copy; a broken file fails every test that touches it.
@@ -146,6 +153,7 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.srAskLine, r.SelfRoute.AskLineRe},
 		{&r.srHand, r.SelfRoute.HandRe}, {&r.srMine, r.SelfRoute.MineRe},
 		{&r.srNeg, r.SelfRoute.NegRe}, {&r.srOnlyUser, r.SelfRoute.OnlyUserRe},
+		{&r.sentenceEnd, r.Length.EndRe},
 	} {
 		re, err := regexp.Compile(c.src)
 		if err != nil {
@@ -333,6 +341,53 @@ func summaryProblems(summary string) []string {
 		problems = append(problems, exitRules.Summary.MissingAdded)
 	}
 	return problems
+}
+
+// lengthProblems: a part for the user over the sentence limit (user 11-10「为什么回复那么长」「把这个太长也
+// 处理一下」: a 6–7 sentence 背景/做了什么 reached the chat channel as written). It goes back to be
+// rewritten, never cut. Parts: line 0 背景; then 做了什么 up to the 「要你做的：」 match; 要你做的 up to the
+// 「我加的：」 line; 我加的 to the end.
+func lengthProblems(summary string) []string {
+	max := exitRules.Length.MaxSentences
+	if max <= 0 || len(exitRules.Length.Parts) < 4 {
+		return nil
+	}
+	texts := make([]string, 4)
+	part := 0
+	for i, l := range strings.Split(summary, "\n") {
+		if i > 0 && part == 0 {
+			part = 1
+		}
+		if part < 2 {
+			if loc := exitRules.todo.FindStringIndex(l); loc != nil {
+				texts[part] += " " + l[:loc[0]]
+				part, l = 2, l[loc[0]:]
+			}
+		}
+		if part < 3 && exitRules.added.MatchString(l) {
+			part = 3
+		}
+		texts[part] += " " + l
+	}
+	var problems []string
+	for i, t := range texts {
+		if n := sentenceCount(t); n > max {
+			problems = append(problems, strings.NewReplacer("{part}", exitRules.Length.Parts[i],
+				"{n}", strconv.Itoa(n), "{max}", strconv.Itoa(max)).Replace(exitRules.Length.Msg))
+		}
+	}
+	return problems
+}
+
+// sentenceCount: sentences in s, split at sentence ends; a tail with no end counts as one.
+func sentenceCount(s string) int {
+	n := 0
+	for _, seg := range exitRules.sentenceEnd.Split(s, -1) {
+		if strings.TrimSpace(seg) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // askEvidenceProblems lists what an [ask] body lacks; nil means it may go to the user.
@@ -632,7 +687,7 @@ func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 	} else if v.ID, v.Line, hp = exitHeadline(body); hp == nil && !known(v.ID) {
 		hp = []string{strings.ReplaceAll(exitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
 	} else if hp == nil {
-		hp = append(summaryProblems(v.Line), jargonProblems(v.Line)...)
+		hp = append(append(summaryProblems(v.Line), jargonProblems(v.Line)...), lengthProblems(v.Line)...)
 	}
 	// Format goes back only while bounces still wake the bot; after that the chat lead rewrites it
 	// (user 10-30: not posted as written any more). A missing [ask] self-check always goes back.

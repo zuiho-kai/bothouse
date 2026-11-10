@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { readFileSync } from 'node:fs';
-import { TeamExit, RULES, jargonProblems, exitMark, askEvidenceProblems, selfRouteProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
+import { TeamExit, RULES, jargonProblems, lengthProblems, exitMark, askEvidenceProblems, selfRouteProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
 
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -177,4 +177,12 @@ test('jargon permits product names and complete links', () => {
 });
 test('jargon still rejects internal identifiers outside links', () => {
   for (const text of ['fooBar', '~/x/y', '#123', 'https://discord.gg/ok 后面 fooBar']) assert.equal(jargonProblems(text).length, 1);
+});
+
+test('a part over two sentences goes back, never cut (11-10「为什么回复那么长」)', () => {
+  const long = '背景：一。二。三。\n做了。上线了。\n要你做的：没有。\n我加的：无';
+  const p = lengthProblems(long);
+  assert.equal(p.length, 1);
+  assert.ok(p[0].includes('「背景」那段写了 3 句'));
+  assert.deepEqual(lengthProblems('背景：修汇报。\n改好了。已上线。要你做的：没有。\n我加的：无'), []);
 });
