@@ -1945,7 +1945,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
 
 test('avatars: members pick one of the five built-in avatars; it survives reload and reaches memberView', async () => {
   const { AVATARS, avatarImage } = await import('./avatars.mjs');
-  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi']);
+  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok']);
   for (const slug of AVATARS) assert.equal(avatarImage(slug).subarray(1, 4).toString(), 'PNG');
   assert.equal(avatarImage('../plugin'), undefined);
   const hub = makeHub();
