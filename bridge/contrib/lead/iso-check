@@ -81,6 +81,19 @@ PORTS
   echo "ISO_PORTS=$d/ports.env（工作区 $n 端口段 $b-$(( b + 99 ))：前端 $b、WEB $(( b + 10 ))、网关 $(( b + 11 ))、AgentServer $(( b + 20 ))；起测试实例前 source 它）"
   [[ -z $busy ]] || echo "iso-check: 警告：端口段 $b-$(( b + 99 )) 里已有监听：$busy。多半是本工作区上一个测试实例没停，先停掉再起新的。" >&2
 }
+# 写 env.sh：测试实例先 source 它，清掉从本桥继承、指向线上数据目录的变量，HOME 换进隔离目录。
+# 来源：2026-11-10 #1349 隔离桥的启动脚本只清了 CC_/BOTHOUSE_，继承了线上 GATE_SETUP_DIR，任务板写入全被
+# datadir 守卫拦下，任务表停在旧状态、和交回卡片对不上（#1357 查明）；同样的漏清 10 月已出过一次。
+write_env() {
+  local d=$1
+  cat > $d/env.sh <<ENV
+# iso-check：先 source 这个文件再起测试实例（桥、脚本都一样）。
+for v in \$(env | cut -d= -f1 | grep -E '^(CC_|BOTHOUSE_|GATE_|BOARD_|DSH_|CONEST_)'); do unset \$v; done
+mkdir -p $d/home
+export HOME=$d/home
+ENV
+  echo "ISO_ENV=$d/env.sh（起测试实例前 source 它：清掉指向线上的 CC_/BOTHOUSE_/GATE_/BOARD_/DSH_/CONEST_ 变量，HOME 换成 $d/home）"
+}
 cmd=$1; shift
 owner=${CC_SESSION_KEY:-${CC_SESSION:-$CLAUDE_CODE_SESSION_ID}}; args=()
 while (( $# )); do
@@ -98,6 +111,7 @@ case $cmd in
     mkdir -p $rec && snap > $rec/$b.before && printf '%s\n%s\n' "$owner" "$d" > $rec/$b.owner || { rmdir $d; die "写记录失败"; }
     cat $rec/$b.before
     write_ports $d $(ws_slot) || { rm -rf $d $rec/$b.before $rec/$b.owner; exit 2; }
+    write_env $d
     echo "ISO_DIR=${d}（本次测试的 HOME、数据目录、gocache、worktree 都建在它下面；跑 iso-check after $d 会删掉它）";;
   after)
     d=${args[1]}
