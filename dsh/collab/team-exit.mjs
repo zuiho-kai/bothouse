@@ -24,6 +24,7 @@ const BACKGROUND = new RegExp(RULES.summary.background_re);
 const TODO = new RegExp(RULES.summary.todo_re);
 const DETAIL = new RegExp(RULES.summary.detail_re);
 const ADDED = new RegExp(RULES.summary.added_re);
+const SENTENCE_END = new RegExp(RULES.length.end_re);
 const SR_TODO = new RegExp(RULES.self_route.todo_re);
 const SR_END = new RegExp(RULES.self_route.end_re);
 const SR_NONE = new RegExp(RULES.self_route.none_re);
@@ -147,6 +148,29 @@ export function summaryProblems(summary) {
   return problems;
 }
 
+/** A part for the user over the sentence limit; goes back to be rewritten, never cut (Go: lengthProblems). */
+export function lengthProblems(summary) {
+  const max = RULES.length.max_sentences;
+  if (!(max > 0) || RULES.length.parts.length < 4) return [];
+  const texts = ['', '', '', ''];
+  let part = 0;
+  String(summary).split('\n').forEach((l, i) => {
+    if (i > 0 && part === 0) part = 1;
+    if (part < 2) {
+      const m = TODO.exec(l);
+      if (m) { texts[part] += ' ' + l.slice(0, m.index); part = 2; l = l.slice(m.index); }
+    }
+    if (part < 3 && ADDED.test(l)) part = 3;
+    texts[part] += ' ' + l;
+  });
+  const problems = [];
+  texts.forEach((t, i) => {
+    const n = t.split(SENTENCE_END).filter(x => x.trim()).length;
+    if (n > max) problems.push(RULES.length.msg.replaceAll('{part}', RULES.length.parts[i]).replaceAll('{n}', String(n)).replaceAll('{max}', String(max)));
+  });
+  return problems;
+}
+
 /** The part for the user names numbers, workspaces, branches, paths or identifiers, or has a table (Go: jargonProblems). */
 export function jargonProblems(line) {
   const problems = [];
@@ -174,7 +198,7 @@ export function judgeExit(kind, body, { known, bounces = 0 }) {
   const problems = [...askProblems];
   let { id, line, problems: hp } = exitHeadline(body);
   if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
-  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line)];
+  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line), ...lengthProblems(line)];
   if (routeProblems.length) {
     if (bounces >= BOUNCE_WAKE_LIMIT && !askProblems.length) return { id, line, problems: [], legacy: true, check: routeProblems };
     problems.push(...routeProblems);
