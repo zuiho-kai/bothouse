@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -156,5 +158,30 @@ func TestHeldReportWithoutLeadPostsUnchecked(t *testing.T) {
 	got := p.sentTo("discord:chat1")
 	if len(got) != 1 || !strings.Contains(got[0], leadUncheckedMark) {
 		t.Fatalf("no-lead post = %q", got)
+	}
+}
+
+// The lead's pass is the acceptance: the board item closes with it (agentm #35 11-10: left
+// 「已交回待验收」, the review nudge four hours later had the lead reopen work the user already had).
+func TestHeldReportPassClosesBoardItem(t *testing.T) {
+	e, p, _, item := heldFixture(t)
+	if e.dataDir == "" {
+		e.dataDir = t.TempDir()
+	}
+	log := filepath.Join(t.TempDir(), "board-args")
+	bin := filepath.Join(e.dataDir, "collaboration", "lead", "board")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	holdForTest(t, e, p, item, "")
+	if w := verdictCall(t, e, 46, "pass", "逐条：修汇报做到了，线上日志有 report posted"); w.Code != http.StatusOK {
+		t.Fatalf("pass = %d %s", w.Code, w.Body)
+	}
+	got, _ := os.ReadFile(log)
+	if !strings.Contains(string(got), "accepted 46") {
+		t.Fatalf("pass did not close the board item; board calls:\n%s", got)
 	}
 }
