@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把本频道收到的结果摘要转给工作区里的主角色：插进最近一次 ws-handoff 的交接文件「## 转交结果」节末尾，再叫醒她（提示里直接带原文）。
-# 用法：ws-forward [--interrupt] [--notes <交接文件>] "<摘要>"
+# 用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"
+#   --id 按任务板编号认这件活（验收提示给的就是它）；--notes 也认路径栏里的 PR/分支/提交链接（#1371）。
 #   --notes 转给那份交接对应的工作区（ws-up 给聊天频道的提示里会带上）；不给就转给最近一次交接。
 #   --interrupt 用户改了要求：工作区正在跑就插进当前这一轮（timer --inject-if-busy），提示让它先停下按旧要求做的部分。
 #     桥在用户回复某件活的汇报时自动带上它（reply_task.go forwardReplyToWorkspace）。来源：用户 10-30 复盘，改需求没转进工作区。
@@ -135,19 +136,46 @@ def other_chat_work(last: dict):
     return None
 
 
+def by_id(last: dict, nid: int):
+    """任务号 nid 对应的转话目标：ws-handoff 记下这个编号的交接优先，没有（别的角色交的、旧记录）就用任务板条目本身（#1371）。"""
+    it = board.item_by_id(nid)
+    for k, v in (last.get("tasks") or {}).items():
+        if isinstance(v, dict) and v.get("channel") and nid in [int(x) for x in (v.get("board") or []) if str(x).isdigit()]:
+            return {"file": v.get("file") or k, "channel": v.get("ws_key") or v["channel"], "chat": v.get("chat") or "",
+                    "project": v.get("project") or "", "board": [nid]}
+    if not it:
+        sys.exit(f"ws-forward: 任务板上没有 #{nid}（板上和已完成记录都查过）")
+    return {"file": board.handoff_of(it), "channel": it.get("ws") or it.get("ws_was") or "",
+            "chat": it.get("chat") or "", "project": "", "board": [nid]}
+
+
 def main(argv):
-    notes, interrupt = None, False
-    if argv[:1] == ["--interrupt"]:
-        interrupt, argv = True, argv[1:]
-    if len(argv) == 3 and argv[0] == "--notes":
-        notes, argv = argv[1], argv[2:]
+    notes, interrupt, nid = None, False, 0
+    while argv[:1] and argv[0] in ("--interrupt", "--notes", "--id") and len(argv) > 1:
+        if argv[0] == "--interrupt":
+            interrupt, argv = True, argv[1:]
+        elif argv[0] == "--notes":
+            notes, argv = argv[1], argv[2:]
+        else:
+            v = argv[1].lstrip("#")
+            if not v.isdigit():
+                sys.exit("ws-forward: --id 后面要跟任务板编号")
+            nid, argv = int(v), argv[2:]
     # 摘要以「-」开头多半是想看用法（11-05 两次把 --help 当摘要转进了工作区），不转。
     if len(argv) != 1 or not argv[0].strip() or argv[0].lstrip().startswith("-"):
-        sys.exit('用法：ws-forward [--interrupt] [--notes <交接文件>] "<摘要>"')
+        sys.exit('用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"')
     if not _team.LAST.is_file():
         sys.exit(f"ws-forward: 还没跑过 ws-handoff（没有 {_team.LAST}）")
     last = json.loads(_team.LAST.read_text(encoding="utf-8"))
-    if notes:
+    if not nid and notes and "://" in notes:  # 路径栏里的链接：按任务板认，不拼成相对路径（#1371）
+        ids = board.ids_by_link(notes)
+        if len(set(ids)) != 1:
+            sys.exit(f"ws-forward: 路径栏是这个链接的活{'有好几件（' + '、'.join('#' + str(i) for i in ids) + '）' if ids else '在任务板上没有'}，"
+                     f"用 --id <任务号> 写明是哪件")
+        nid = ids[0]
+    if nid:
+        last = by_id(last, nid)
+    elif notes:
         path = os.path.abspath(os.path.expanduser(notes))
         tasks = {k: v for k, v in (last.get("tasks") or {}).items() if isinstance(v, dict) and v.get("channel")}
         rec = tasks.get(path)
@@ -194,6 +222,8 @@ def main(argv):
         project = recipient_project(last, live)
     except ValueError as exc:
         sys.exit(str(exc))
+    if nid and not last["file"]:  # 路径栏只有链接、也没有 ws-handoff 记录：转交结果没处写，工作区读不到（#1371）
+        sys.exit(f"ws-forward: #{nid} 在任务板上没有交接文件（路径栏只有链接），转不了话；用 board update {nid} <状态> <交接文件> 补上再转")
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     append_result(last["file"], argv[0], now)
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt, project), capture_output=True, text=True)

@@ -175,8 +175,12 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	} else {
 		b.WriteString("\n对题检查：通过（只查了做的是不是用户点名的那件，不等于合格）。\n")
 	}
+	// 按任务号指明这件活：路径栏是交接文件还是 PR/分支/提交链接都认得出（#1371；#1350 只盖了 PR 链接、
+	// 不带 --notes 时本频道交出去好几件就认不出）。没有编号的旧记录才退回 --notes <交接文件>。
 	notesArg := ""
-	if notes != "" && !strings.Contains(notes, "://") { // 路径栏是 PR 链接的旧条目：不给 --notes <链接>，ws-pass 认不出（#1350）
+	if hid > 0 {
+		notesArg = fmt.Sprintf(" --id %d", hid)
+	} else if notes != "" && !strings.Contains(notes, "://") {
 		notesArg = " --notes " + notes
 	}
 	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了（能自己查的去查：日志、提交、线上）。二选一：\n"+
