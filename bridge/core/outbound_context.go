@@ -24,7 +24,10 @@ func (e *Engine) recordExternalSend(p Platform, sessionKey, workDir, content, so
 	sessionKey, _, _ = strings.Cut(sessionKey, "#cron:")
 	sessionKey, _, _ = strings.Cut(sessionKey, "#timer:")
 	if i := strings.Index(sessionKey, ":"+p.Name()+":"); i >= 0 {
-		workDir, sessionKey = sessionKey[:i], sessionKey[i+1:]
+		if workDir == "" {
+			workDir = sessionKey[:i]
+		}
+		sessionKey = sessionKey[i+1:]
 	}
 	if workDir == "" {
 		workDir = e.sendWorkDirForSession(sessionKey)

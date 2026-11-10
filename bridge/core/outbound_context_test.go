@@ -190,7 +190,7 @@ func TestExternalSendContext_PersistenceAndFailedModelSend(t *testing.T) {
 }
 
 func TestExternalSendContext_WorkspaceRouting(t *testing.T) {
-	for _, route := range []string{"prefixed", "active-default", "workdir"} {
+	for _, route := range []string{"prefixed", "active-default", "active-override", "workdir"} {
 		t.Run(route, func(t *testing.T) {
 			e, p, _ := outboundFixture(t)
 			const key = "qq:616"
@@ -206,6 +206,10 @@ func TestExternalSendContext_WorkspaceRouting(t *testing.T) {
 			case "active-default":
 				e.interactiveStates[workDir+":"+key] = &interactiveState{platform: p, replyCtx: "ctx", workspaceDir: workDir}
 				err = e.SendToSession("", text)
+			case "active-override":
+				prefixed := t.TempDir() + ":" + key
+				e.interactiveStates[prefixed] = &interactiveState{platform: p, replyCtx: "ctx", workspaceDir: workDir}
+				err = e.SendToSession(prefixed, text)
 			case "workdir":
 				err = e.SendToSessionInWorkDir(key, text, nil, nil, workDir, nil, false)
 			}
