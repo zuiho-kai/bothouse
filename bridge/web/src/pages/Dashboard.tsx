@@ -297,12 +297,14 @@ export default function Dashboard() {
 
             <Link
               to="/wiki-galaxy"
-              className="group relative flex items-center gap-3 overflow-hidden rounded-card bg-gradient-to-br from-accent/90 to-accent-dim p-4 text-white shadow-ui-1 transition-transform duration-base hover:-translate-y-0.5 dark:text-black yellow:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text"
+              // base colour under the gradient: the light end of the gradient is only the fill accent at
+              // 90%, so the card keeps a solid accent backdrop and the gradient rides on top of it
+              className="group relative flex items-center gap-3 overflow-hidden rounded-card bg-accent bg-gradient-to-br from-accent/90 to-accent-dim p-4 text-white shadow-ui-1 transition-transform duration-base hover:-translate-y-0.5 dark:text-black yellow:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text"
             >
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white/20"><Sparkles size={19} /></span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">{t('wikiGalaxy.title')}</p>
-                <p className="mt-0.5 truncate text-xs opacity-85">{t('wikiGalaxy.subtitle')}</p>
+                <p className="mt-0.5 truncate text-xs">{t('wikiGalaxy.subtitle')}</p>
               </div>
               <ArrowUpRight size={16} className="shrink-0 opacity-80 transition-transform duration-base group-hover:translate-x-0.5" />
             </Link>
