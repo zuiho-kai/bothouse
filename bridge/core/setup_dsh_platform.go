@@ -302,7 +302,7 @@ func GetDSHStatusFor(ctx context.Context, target string, langs ...string) DSHSta
 		return st
 	}
 	st.Found = true
-	st.NativeModelConfigured = dshNativeModelConfigured(target, "") || dshHasUsableModel()
+	st.NativeModelConfigured = dshNativeSetupConfigured(target, "")
 	// #1387 made this the "existing model login/key lets the wizard leave the key empty" flag; this
 	// PR's key-presence read (including $DSH_HOME/.env) still counts, so both are ORed.
 	st.HasDeepSeekKey = dshHasUsableModel() || dshHasDeepSeekKey()

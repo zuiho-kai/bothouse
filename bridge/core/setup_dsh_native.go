@@ -18,12 +18,10 @@ func dshProfileDirFor(target string) string {
 	return filepath.Join(dshHome(), "profiles", DSHProfile)
 }
 
-// dshNativeModelConfigured checks the selected credential of the profile this route uses (target,
-// as in DSHConfigureRequest.Target), not network availability. Native collab members inherit
-// agent-default-model at runtime.
-func dshNativeModelConfigured(target, officialKey string) bool {
+// dshRouteConfig reads an entry's config from the layers the route uses, the later layer winning.
+func dshRouteConfig(target string) func(id string) *yaml.Node {
 	layers := []string{filepath.Join(dshProfileDirFor(target), "cordis.patch.yml"), filepath.Join(dshHome(), "cordis.patch.yml")}
-	config := func(id string) *yaml.Node {
+	return func(id string) *yaml.Node {
 		var selected *yaml.Node
 		for _, layer := range layers {
 			if c := dshPatchEntryConfig(layer, id); c != nil {
@@ -32,13 +30,36 @@ func dshNativeModelConfigured(target, officialKey string) bool {
 		}
 		return selected
 	}
+}
+
+// dshSelectedProvider is the provider agent-default-model selects for the route.
+func dshSelectedProvider(target string) string {
 	// Source: the Harness base profile selects deepseek-official by default.
-	provider := "deepseek-official"
-	if c := config("agent-default-model"); c != nil {
+	if c := dshRouteConfig(target)("agent-default-model"); c != nil {
 		if v := mapGet(c, "provider"); v != nil {
-			provider = v.Value
+			return v.Value
 		}
 	}
+	return "deepseek-official"
+}
+
+// dshNativeSetupConfigured is shared by status and save. Preserve #1387's account/llm-deepseek
+// compatibility check on the DeepSeek routes only: an explicitly selected gateway needs its own
+// credential (dsh-llm-pi-ai README, apiKeyEnv: missing references fail with MISSING_CREDENTIAL; #650).
+func dshNativeSetupConfigured(target, officialKey string) bool {
+	if dshNativeModelConfigured(target, officialKey) {
+		return true
+	}
+	provider := dshSelectedProvider(target)
+	return (provider == "deepseek-official" || provider == "deepseek-account") && dshHasUsableModel()
+}
+
+// dshNativeModelConfigured checks the selected credential of the profile this route uses (target,
+// as in DSHConfigureRequest.Target), not network availability. Native collab members inherit
+// agent-default-model at runtime.
+func dshNativeModelConfigured(target, officialKey string) bool {
+	config := dshRouteConfig(target)
+	provider := dshSelectedProvider(target)
 	if provider == "deepseek-account" {
 		// Source: deepseek-account-platform owns the default grant; its device
 		// identity is not a login. Presence does not prove token validity or quota.
