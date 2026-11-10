@@ -105,6 +105,7 @@ export default function Dashboard() {
   const recentChannels = [...dshChannels]
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, MAX_ITEMS);
+  const failedChannels = recentChannels.filter((ch) => ch.error).length;
 
   // Who is doing what: roles from /roles, plus DSH members that /roles did not list (busy first).
   const ago = (iso: string) => {
@@ -248,6 +249,15 @@ export default function Dashboard() {
               )}
             </section>
 
+            {/* #610: sessions per project sit under 正在发生 so the two columns end at similar heights */}
+            {projectRows.length > 0 && (
+              <section>
+                {cardHead(t('dashboard.projectSessions', '各项目会话数'), '/projects')}
+                <div className="rounded-card bg-surface p-5 shadow-ui-1">
+                  <Bars data={projectRows.slice(0, 6)} labelWidth={96} />
+                </div>
+              </section>
+            )}
           </div>
 
           <aside className="min-w-0 space-y-6">
@@ -256,7 +266,7 @@ export default function Dashboard() {
                 {cardHead(t('dsh.channels', 'DSH 频道'))}
                 <ul className="divide-y divide-hairline overflow-hidden rounded-card bg-surface shadow-ui-1" role="list">
                   {recentChannels.map((ch) => {
-                    const preview = ch.error ? `${t('dsh.messagesError', '消息读取失败')}: ${ch.error}` : ch.last_message ? `${ch.last_message.name}：${ch.last_message.content.slice(0, 80)}` : '';
+                    const preview = ch.last_message ? `${ch.last_message.name}：${ch.last_message.content.slice(0, 80)}` : ch.error ? '' : t('dsh.noMessages', '还没有消息');
                     return (
                       <li key={`dsh-${ch.id}`}>
                         <a href={dshUrl} onClick={openDsh} className="flex items-center gap-3 px-4 py-3 transition-colors duration-base hover:bg-surface-sunken/60">
@@ -273,6 +283,11 @@ export default function Dashboard() {
                     );
                   })}
                 </ul>
+                {failedChannels > 0 && (
+                  <p className="mt-2 px-1 text-xs text-ink-mute" data-testid="dashboard-dsh-read-error">
+                    {t('dsh.messagesErrorCount', { count: failedChannels, defaultValue: '{{count}} 个频道的消息暂时读不到' })}
+                  </p>
+                )}
               </section>
             )}
 
@@ -285,15 +300,6 @@ export default function Dashboard() {
                 <p className="mt-3 text-xs leading-5 text-ink-mute">{t('dshManage.projectScope')}</p>
               </div>
             </section>
-
-            {projectRows.length > 0 && (
-              <section>
-                {cardHead(t('dashboard.projectSessions', '各项目会话数'), '/projects')}
-                <div className="rounded-card bg-surface p-5 shadow-ui-1">
-                  <Bars data={projectRows.slice(0, 6)} labelWidth={96} />
-                </div>
-              </section>
-            )}
 
             <Link
               to="/wiki-galaxy"

@@ -677,6 +677,7 @@
     "running": "DSH is running",
     "members": "DSH members",
     "messagesError": "Failed to read messages",
+    "messagesErrorCount": "Messages could not be read in {{count}} channel(s)",
     "noMessages": "No messages yet",
     "recentConversations": "Recent sessions and channels",
     "unknownModel": "Unknown",

@@ -677,6 +677,7 @@
     "running": "DSH 正在运行",
     "members": "DSH 成员",
     "messagesError": "消息读取失败",
+    "messagesErrorCount": "{{count}} 个频道的消息暂时读不到",
     "noMessages": "还没有消息",
     "recentConversations": "最近会话和频道",
     "unknownModel": "未知",
