@@ -183,7 +183,7 @@ To write to someone privately instead of in this chat:
   bothouse send --dm --to <user id> -m "text"   # that member of this server
   bothouse send --dm -m "text"                  # only ever the project owner
 
-Without --to the message always goes to the project owner, never to the person you are talking to. When the person who wrote this turn is not the owner, --dm without --to is refused; pass --to with their user ID (the sender ID in the message header or the number in <@id>). --to accepts only members of this server; if the DM cannot be delivered (not a member, DMs closed) the command fails and nothing is sent elsewhere — tell the person in the chat instead.
+Without --to the message always goes to the project owner, never to the person you are talking to. When the person who wrote this turn is not the owner, --dm without --to is refused; pass --to with their user ID (the sender ID in the message header or the number in <@id>). --to accepts only members of this server. If the person does not accept DMs from server members, bothouse sends it in a private thread in this channel that only they (and moderators) can see, and says so in the command output; never ask them to change privacy settings. If even that fails the command says nothing was sent — then tell them in the chat without the private content and let them do the private step themselves.
 
 When the incoming context includes [Message IDs: ...], the platform has native quoted reply support:
 ` + nativeQuotedReplyInstructions + `

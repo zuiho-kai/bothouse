@@ -1698,6 +1698,56 @@ func (p *Platform) IsDMMember(fromSession, userID string) (bool, error) {
 
 var _ core.DMMemberChecker = (*Platform)(nil)
 
+// IsDMRefused: Discord answers 50007 "Cannot send messages to this user" (HTTP 403, or 400 on opening
+// the channel) when the person does not accept DMs from server members or has blocked the bot.
+func (p *Platform) IsDMRefused(err error) bool {
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeCannotSendMessagesToThisUser {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), `"code": 50007`)
+}
+
+// OpenPrivateThread opens a private thread in fromSession's guild channel (the parent channel when
+// fromSession is itself a thread), adds userID and returns the thread's session key. Only that person and
+// people with Manage Threads see it — the fallback for a refused `send --dm` (#1352).
+func (p *Platform) OpenPrivateThread(fromSession, userID, name string) (string, error) {
+	if p.session == nil {
+		return "", fmt.Errorf("discord: not connected")
+	}
+	parts := strings.SplitN(fromSession, ":", 3)
+	if len(parts) < 2 || parts[0] != "discord" {
+		return "", fmt.Errorf("the conversation is not a Discord channel")
+	}
+	ch, err := p.session.State.Channel(parts[1])
+	if err != nil || ch == nil {
+		ch, err = p.session.Channel(parts[1])
+	}
+	if err != nil || ch == nil {
+		return "", fmt.Errorf("discord: look up channel %s: %v", parts[1], err)
+	}
+	if ch.GuildID == "" {
+		return "", fmt.Errorf("the conversation is a private chat, not a server channel")
+	}
+	if ch.IsThread() && ch.ParentID != "" {
+		ch = &discordgo.Channel{ID: ch.ParentID, GuildID: ch.GuildID}
+	}
+	th, err := p.session.ThreadStartComplex(ch.ID, &discordgo.ThreadStart{
+		Name: name, Type: discordgo.ChannelTypeGuildPrivateThread, AutoArchiveDuration: 1440, Invitable: false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("discord: open private thread (the bot needs Create Private Threads here): %w", err)
+	}
+	if err := p.session.ThreadMemberAdd(th.ID, userID); err != nil {
+		_, _ = p.session.ChannelDelete(th.ID)
+		return "", fmt.Errorf("discord: add %s to private thread: %w", userID, err)
+	}
+	return "discord:" + th.ID, nil
+}
+
+var _ core.DMRefusalDetector = (*Platform)(nil)
+var _ core.PrivateThreadOpener = (*Platform)(nil)
+
 func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (string, any, error) {
 	if !p.threadIsolation {
 		return "", nil, core.ErrNotSupported

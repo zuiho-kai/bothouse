@@ -96,3 +96,19 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - discord: 已接
 - feishu: 不支持：飞书没接 DirectMessageOpener（platform/capability_baseline.txt 里的旧缺口），--dm 本身就开不了私聊，核成员没有用处
 - cloud-web: 不支持：网页聊天没有私聊（同样没接 DirectMessageOpener），--dm 在这里直接报错
+
+## DMRefusalDetector
+
+`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007。
+
+- discord: 已接
+- feishu: 不支持：飞书没接 DirectMessageOpener，--dm 开不了私聊，不会出现被拒收
+- cloud-web: 不支持：网页聊天没有私聊，--dm 直接报错
+
+## PrivateThreadOpener
+
+私信被拒收时的兜底：在当前频道开一个只有本人（和管理员）能看的私密子区发过去（#1352）。
+
+- discord: 已接
+- feishu: 不支持：飞书没接 DirectMessageOpener，用不到这个兜底
+- cloud-web: 不支持：网页聊天没有私聊，用不到这个兜底

@@ -333,12 +333,17 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "native reply requires text and an explicit conversation without cwd or dm", http.StatusBadRequest)
 		return
 	}
+	dmUserID, dmNote := "", ""
 	if req.DM {
 		if workDir != "" {
 			http.Error(w, "--dm cannot be combined with --cwd", http.StatusBadRequest)
 			return
 		}
-		key, err := engine.OpenDMSessionFor(req.FromSession, req.DMTo)
+		key, user, err := engine.OpenDMSessionFor(req.FromSession, req.DMTo)
+		dmUserID = user
+		if err != nil && engine.isDMRefused(err) {
+			key, err, dmNote = "", nil, "refused-at-open"
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -359,7 +364,28 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			apiJSON(w, http.StatusAccepted, d)
 			return
 		}
-		if err := engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID}); err != nil {
+		var err error
+		if dmNote == "refused-at-open" {
+			err, dmNote = errDMRefusedAtOpen, ""
+		} else {
+			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID})
+		}
+		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
+			// #1352: the person does not accept DMs from server members. Same person, no settings change:
+			// a private thread in the conversation's channel that only they (and moderators) can see.
+			key, _, terr := engine.dmFallbackThread(req.FromSession, dmUserID)
+			if terr != nil {
+				http.Error(w, fmt.Sprintf("--dm: %s does not accept direct messages from server members (Discord refused the DM), "+
+					"and a private thread could not be opened either (%v). Nothing was sent. Do not ask them to change their privacy settings; "+
+					"tell them in the chat that the private message could not be delivered, without the private content, "+
+					"and let them do the private step themselves (for example run the login in their own terminal).", dmUserID, terr), http.StatusBadRequest)
+				return
+			}
+			req.SessionKey = key
+			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{})
+			dmNote = "The DM was refused (this person does not accept DMs from server members), so it was sent in a private thread only they and server moderators can see."
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -386,8 +412,15 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if dmNote != "" {
+		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "note": dmNote})
+		return
+	}
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// errDMRefusedAtOpen: the platform refused even opening the DM channel (Discord 50007 on create).
+var errDMRefusedAtOpen = errors.New("the DM was refused")
 
 func (s *APIServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()

@@ -74,6 +74,13 @@ func runSend(args []string) {
 		os.Exit(1)
 	}
 
+	var ok struct {
+		Note string `json:"note"`
+	}
+	if json.Unmarshal(body, &ok) == nil && ok.Note != "" {
+		fmt.Println("Message sent. " + ok.Note)
+		return
+	}
 	fmt.Println("Message sent successfully.")
 }
 
