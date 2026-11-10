@@ -220,3 +220,29 @@ func TestMemberBlockOncePerContext(t *testing.T) {
 		t.Fatalf("usage note repeated: %q", got)
 	}
 }
+
+// #1355 rework: the device code goes to the person only — DM, or a private thread when the DM is
+// refused — and is never posted to the channel; a stranger to the server gets nothing.
+func TestMemberCodeOnlyToThePerson(t *testing.T) {
+	p, api := refusingFixture(false)
+	e := api.engines["p"]
+	turn := callerTurn{platform: "discord", userID: dmMember, kind: CallerHuman}
+	where, err := e.sendMemberPrivately(turn, dmFrom, "你的 GitHub 设备码：ABCD-1234")
+	if err != nil || !strings.Contains(where, "私密子话题") {
+		t.Fatalf("refused DM: %q %v", where, err)
+	}
+	if len(p.threadSent) != 1 || !strings.HasPrefix(p.threadSent[0], "<@"+dmMember+"> ") {
+		t.Fatalf("thread got %v", p.threadSent)
+	}
+
+	p2, api2 := refusingFixture(true) // no private thread possible either
+	if _, err := api2.engines["p"].sendMemberPrivately(turn, dmFrom, "ABCD-1234"); err == nil || len(p2.threadSent) != 0 {
+		t.Fatalf("must fail without sending anything: %v %v", err, p2.threadSent)
+	}
+
+	p3, api3 := refusingFixture(false)
+	stranger := callerTurn{platform: "discord", userID: dmStranger, kind: CallerHuman}
+	if _, err := api3.engines["p"].sendMemberPrivately(stranger, dmFrom, "ABCD-1234"); err == nil || len(p3.threadSent) != 0 || len(p3.threadFor) != 0 {
+		t.Fatalf("stranger: %v sent=%v threads=%v", err, p3.threadSent, p3.threadFor)
+	}
+}

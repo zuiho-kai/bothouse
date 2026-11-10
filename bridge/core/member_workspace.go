@@ -558,7 +558,8 @@ func (e *Engine) memberLogin(t callerTurn, session, dir string) (MemberResponse,
 	memberLogins.Unlock()
 
 	codeCh := make(chan string, 1)
-	go e.runMemberLogin(t, session, dir, gh, codeCh)
+	ctx, cancel := context.WithTimeout(context.Background(), memberLoginTimeout)
+	go e.runMemberLogin(ctx, cancel, t, session, dir, gh, codeCh)
 	select {
 	case code := <-codeCh:
 		if code == "" {
@@ -566,10 +567,13 @@ func (e *Engine) memberLogin(t callerTurn, session, dir string) (MemberResponse,
 		}
 		where, derr := e.sendMemberPrivately(t, session, memberLoginCodeText(code))
 		if derr != nil {
-			return MemberResponse{Text: "设备码没送到本人：" + derr.Error(), Exit: 1}, http.StatusBadGateway
+			cancel() // an undelivered code must not stay usable
+			return MemberResponse{Text: "设备码没送到本人，授权已取消，设备码没有发到任何别处：" + derr.Error() +
+				"。不要让他改隐私设置；在频道里告诉他私信没送到（不带设备码）。", Exit: 1}, http.StatusBadGateway
 		}
 		return MemberResponse{Text: "设备码已" + where + "，等他在 GitHub 页面输入；授权完成后桥会告诉他。不要在频道里重复设备码。"}, http.StatusOK
 	case <-time.After(30 * time.Second):
+		cancel()
 		return MemberResponse{Text: "gh 30 秒内没给出设备码，授权没开始", Exit: 1}, http.StatusGatewayTimeout
 	}
 }
@@ -579,14 +583,13 @@ func memberLoginCodeText(code string) string {
 		"授权只放在你自己的个人目录，只在你本人让我做事的时候用；不要把密码或令牌发给我。"
 }
 
-func (e *Engine) runMemberLogin(t callerTurn, session, dir, gh string, codeCh chan<- string) {
+func (e *Engine) runMemberLogin(ctx context.Context, cancel context.CancelFunc, t callerTurn, session, dir, gh string, codeCh chan<- string) {
 	id := t.platform + "-" + t.userID
 	defer func() {
 		memberLogins.Lock()
 		delete(memberLogins.running, id)
 		memberLogins.Unlock()
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), memberLoginTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, gh, "auth", "login", "--hostname", "github.com", "--git-protocol", "https",
 		"--web", "--skip-ssh-key", "--insecure-storage")
@@ -622,7 +625,9 @@ func (e *Engine) runMemberLogin(t callerTurn, session, dir, gh string, codeCh ch
 	give("")
 	if err != nil {
 		slog.Info("member workspace: login ended without authorization", "member", id, "error", err)
-		_, _ = e.sendMemberPrivately(t, session, "GitHub 授权没完成（设备码过期或被取消）。要重来就跟我说一声。")
+		if ctx.Err() != context.Canceled {
+			_, _ = e.sendMemberPrivately(t, session, "GitHub 授权没完成（设备码过期或被取消）。要重来就跟我说一声。")
+		}
 		return
 	}
 	login := ""
@@ -637,25 +642,29 @@ func (e *Engine) runMemberLogin(t callerTurn, session, dir, gh string, codeCh ch
 	_, _ = e.sendMemberPrivately(t, session, "GitHub 授权好了，账号 "+nonEmpty(login, "（没查到账号名）")+"。以后你让我做 GitHub 上的事，只用你自己的这份授权。")
 }
 
-// sendMemberPrivately writes to the person themself: their private chat with this bot through the
-// `send --dm --to` path (OpenDMSessionFor, #1352: only members of the server, failures returned as is);
-// when that cannot be opened or delivered (Discord refuses DMs from server members for many people), the
-// channel of their turn with an @ — never the owner's DM.
+// sendMemberPrivately writes to the person themself and nobody else: their private chat with this bot
+// through the `send --dm --to` path (OpenDMSessionFor, #1352); when Discord refuses the DM (they do not
+// take DMs from server members), a private thread in the channel of their turn with only them added
+// (dmFallbackThread, #1501). Anything else fails: the text is never posted where others can read it.
 func (e *Engine) sendMemberPrivately(t callerTurn, session, text string) (string, error) {
-	key, err := e.OpenDMSessionFor(session, t.userID)
+	key, _, err := e.OpenDMSessionFor(session, t.userID)
 	if err == nil {
 		if err = e.SendToSession(key, text); err == nil {
 			return "私信发给本人", nil
 		}
 	}
-	slog.Info("member workspace: private message not delivered, using the channel", "member", t.platform+"-"+t.userID, "error", err)
-	if session == "" {
-		return "", errors.New("私信发不出去，也不知道他在哪个频道")
+	if !e.isDMRefused(err) {
+		slog.Info("member workspace: private message not delivered", "member", t.platform+"-"+t.userID, "error", err)
+		return "", fmt.Errorf("私信发不出去（%v），什么也没发", err)
 	}
-	if err := e.SendToSessionWithAttachments(session, text, nil, nil, []string{t.userID}, false); err != nil {
-		return "", err
+	tkey, _, terr := e.dmFallbackThread(session, t.userID)
+	if terr != nil {
+		return "", fmt.Errorf("他不收服务器成员的私信，私密子话题也开不了（%v），什么也没发", terr)
 	}
-	return "在他说话的频道 @ 他发出（私信发不出去：他没开放服务器成员私信）", nil
+	if err := e.SendToSessionWithOptions(tkey, "<@"+t.userID+"> "+text, nil, nil, SendOptions{}); err != nil {
+		return "", fmt.Errorf("私密子话题发送失败（%v）", err)
+	}
+	return "发到只有他（和服务器管理员）看得到的私密子话题（他不收服务器成员的私信）", nil
 }
 
 // ── per-context note ─────────────────────────────────────────────
