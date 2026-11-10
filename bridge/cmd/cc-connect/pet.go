@@ -291,6 +291,7 @@ func petRun(cfg *config.Config, paths petPaths) error {
 	go layout.run(ctx.Done())
 	// The pet's menu (对话 / 查看余额 / 待办事项 / 碎碎念 / 打开 AI 设置) calls back into bothouse (pet_api.go).
 	api := newPetAPI(relay, managementURL(cfg), cfg.Management.Token, resolveSocketPath(cfg.DataDir))
+	api.packs = filepath.Join(cfg.DataDir, "pets")
 	apiURL, err := api.serve(ctx)
 	if err != nil {
 		return err

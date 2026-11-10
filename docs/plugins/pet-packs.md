@@ -23,6 +23,7 @@ dsh-pet 透明 WebM 包可用 `main-config.jsonc`、`assets/config.jsonc`、`dsh
 - 内存（Mac 实测，整棵进程树 RSS：`pet run` + node 宿主 + Electron 主进程与各 helper）：1 只约 500 MB，3 只约 770 MB。几只共用一个 Electron 和一个宿主，每多一只多一个窗口渲染进程，约 130–140 MB。
 - 每只穿自己角色的形象：桌宠取动画时带上这只的素材根问 `/skin?pet=<id>`，按角色认内置形象（`assets/roles/skins.json` 的 aliases，见 plugins/desktop-pet/BOTHOUSE.md「形象」）：C酱（cjiang）＝橘、肥鱼（deep）＝鲸鱼娘、G哥（gge）＝龙娘。右键「换形象」选的只管 main。
 - 表情图（碎碎念配图）仍只给 main 跟形象走，其余几只用默认表情图。
+- 选了形象包就穿形象包（#609）：插件页给角色选的形象包（绑定里的 `avatar_pack`，如 dsh1、claude、gpt、gemini）已下载到 `pets/<包>` 时，这只桌宠穿它，优先于内置形象；main 上右键手选过形象仍以手选为准。`/skin` 多回 `pack`、`packDir`。形象包是 WebP 精灵图，桌宠某段动画第一次要播时用本机 ffmpeg（`BOTHOUSE_FFMPEG` 可指定）切帧编成 VP9 透明 WebM，缓存在 `$DSH_HOME/dsh-pet/skin-packs/`，单段约 1 秒；没有 ffmpeg 或转换失败时退回内置形象。包里没有同名动画就按意思找同一状态的一段，再没有用待机。
 
 ## 开源展示包与按需下载
 

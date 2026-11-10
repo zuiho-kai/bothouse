@@ -29,6 +29,14 @@ export interface BothouseBackend {
   todos: BoardTodos;
   /** 外形：当前绑定桌宠的角色 key（没有绑定或取不到时 undefined），2 秒内缓存。 */
   skinRole(petId?: string): Promise<string | undefined>;
+  /** 外形：角色 key 加上它在插件页选的、已下载的形象包目录（#609；没有为 undefined），与 skinRole 同一份缓存。 */
+  skinLook(petId?: string): Promise<SkinLook>;
+}
+
+/** 一只桌宠该穿什么：角色，以及该角色选了且已下载的形象包目录。 */
+export interface SkinLook {
+  role?: string;
+  packDir?: string;
 }
 
 /** 与 TodoStore 同形（路由与提醒循环只用这几个方法）；写操作一律拒绝：任务板在 bothouse 里改。 */
@@ -77,28 +85,42 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
       if (!text) return { ok: false as const, reason: 'generate-error' as const, message: '角色没有说话' };
       return { ok: true, text };
     } catch (e) {
-      return { ok: false as const, reason: 'generate-error' as const, message: e instanceof Error ? e.message : String(e) };
+      return {
+        ok: false as const,
+        reason: 'generate-error' as const,
+        message: e instanceof Error ? e.message : String(e),
+      };
     }
   };
   const readOnly = (): never => {
     throw new Error('待办来自 bothouse 任务板，请在任务板里改');
   };
-  const skins = new Map<string, { at: number; value: string | undefined }>();
+  const skins = new Map<string, { at: number; value: SkinLook }>();
+  const skinLook = async (petId?: string): Promise<SkinLook> => {
+    const key = petId ?? '';
+    const hit = skins.get(key);
+    if (hit && Date.now() - hit.at < 2_000) return hit.value;
+    let value: SkinLook = hit?.value ?? {};
+    try {
+      // bothouse fork：?pet=<素材根> 问这只宠物的角色（一个角色一只桌宠，#549）；packDir 是它选的形象包（#609）。
+      const data = (await call('GET', '/skin' + petQuery(petId), undefined, 3_000)) as {
+        role?: unknown;
+        packDir?: unknown;
+      };
+      value = {
+        role: typeof data.role === 'string' && data.role ? data.role : undefined,
+        packDir: typeof data.packDir === 'string' && data.packDir ? data.packDir : undefined,
+      };
+    } catch {
+      // 取不到就沿用上一次
+    }
+    skins.set(key, { at: Date.now(), value });
+    return value;
+  };
   return {
+    skinLook,
     async skinRole(petId) {
-      const key = petId ?? '';
-      const hit = skins.get(key);
-      if (hit && Date.now() - hit.at < 2_000) return hit.value;
-      let value = hit?.value;
-      try {
-        // bothouse fork：?pet=<素材根> 问这只宠物的角色（一个角色一只桌宠，#549）。
-        const data = (await call('GET', '/skin' + petQuery(petId), undefined, 3_000)) as { role?: unknown };
-        value = typeof data.role === 'string' && data.role ? data.role : undefined;
-      } catch {
-        // 取不到就沿用上一次
-      }
-      skins.set(key, { at: Date.now(), value });
-      return value;
+      return (await skinLook(petId)).role;
     },
     // 角色跑一轮可能要几分钟：比默认超时宽得多，超时由 bothouse 那边先回。
     // ?pet=：一个角色一只桌宠时，bothouse 按宠物找它的角色（没有就照旧用第一个绑定角色）。
