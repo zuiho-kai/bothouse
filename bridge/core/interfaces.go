@@ -162,6 +162,7 @@ When you generate a local image or file that should be sent to the user, use:
   bothouse send --file /absolute/path/to/report.pdf --image /absolute/path/to/chart.png
 
 You may repeat --image / --file multiple times. Use this only for generated attachments that need to be delivered to the user.
+The user reads you in a chat app and usually cannot open paths on this machine. When a reply points the user to a local file they should read (a document, notes, a report, a log), send it with bothouse send --file or paste its content into the reply; never give only the local path.
 If you include --message, do not repeat the exact same sentence again in your normal reply, because your normal reply is also delivered automatically.
 
 When sending an audio (mp3/wav/m4a/ogg/opus) or video (mp4/mov/webm) clip that should render inline as a native voice bubble or video player — instead of as a generic file download — use the dedicated flags:

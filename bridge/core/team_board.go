@@ -406,11 +406,13 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			continue
 		}
 		platform, _, _ := strings.Cut(chat, ":")
-		poster, ok := e.platformForName(platform).(BoardPoster)
+		pf := e.platformForName(platform)
+		poster, ok := pf.(BoardPoster)
 		if !ok {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+		prevID := b.MessageID
 		id, err := poster.UpsertBoard(ctx, b.SessionKey, b.MessageID, content, live)
 		cancel()
 		// A successful send can be followed by a failed pin. Persist its ID
@@ -431,7 +433,13 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		}
 		if err != nil {
 			slog.Warn("team board: update failed", "chat", chat, "error", err)
+			// a missing permission (pin) is said once in that channel, in plain words
+			e.permissionNotice(e.ctx, pf, b.SessionKey, err)
 			continue
+		}
+		if id != "" && id != prevID {
+			// a new board was posted and pinned: the pin permission is there again
+			e.clearPermissionNotice(b.SessionKey, PermPinMessages)
 		}
 		b.MessageID, b.Content, b.Live = id, content, live
 		changed = true
