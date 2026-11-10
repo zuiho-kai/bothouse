@@ -4,6 +4,8 @@
 
 ## 目录与用法
 
+设置 BOTHOUSE_DATA_DIR 时，内置插件默认放在该目录下的 dsh，频道数据放在 conest-collab。未设置时仍用 ~/.bothouse/dsh 和 ~/.conest-collab。为兼容旧桥给子进程注入的默认值，BOTHOUSE_DATA_DIR 指向 ~/.bothouse 或 ~/.cc-connect 时，频道数据仍留在 ~/.conest-collab。显式的 BOTHOUSE_DSH_DIR、CONEST_COLLAB_DATA 保持优先；旧目录不会自动迁移或删除。
+
 这里不放 DSH 源码，只放 CoNest 自己的部分（做法同 FlyBot 对 DS Bot 的处理）：
 
 | 路径 | 内容 |

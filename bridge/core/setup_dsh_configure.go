@@ -78,13 +78,23 @@ func validDSHMemberName(name string) bool {
 	return dshMemberName.MatchString(name)
 }
 
-// collabDataDir mirrors dsh/collab/cordis.patch.yml: $CONEST_COLLAB_DATA, else ~/.conest-collab.
+// collabDataDir mirrors dsh/collab/cordis.patch.yml, including explicit overrides.
+// ~/.bothouse and ~/.cc-connect are the bridge's own defaults, not an isolated directory: a parent
+// that leaves BOTHOUSE_DATA_DIR alone still hands the child that path (openDSHWeb), and the
+// previous release reads its roles from ~/.conest-collab, so the channel data stays there (no
+// migration). Only a data directory outside those two takes the channel data with it.
 func collabDataDir() string {
 	if d := os.Getenv("CONEST_COLLAB_DATA"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".conest-collab")
+	data := ccconnect.DataDir(home)
+	for _, name := range []string{".bothouse", ".cc-connect"} {
+		if filepath.Clean(data) == filepath.Join(home, name) {
+			return filepath.Join(home, ".conest-collab")
+		}
+	}
+	return filepath.Join(data, "conest-collab")
 }
 
 // dshMembersFile: what ConfigureDSH writes for the collab plugin (dsh/collab/roster.mjs reads it).
@@ -539,7 +549,9 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if dataDir != "" {
 		// GATE_PORT: where the collab plugin asks the gate for each turn's wiki pages and task board
 		// (dsh/collab/gate-context.mjs), the port bothouse runs the gate on (gate_proc.go startLocked).
-		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
+		// Resolve before injecting BOTHOUSE_DATA_DIR: an unset parent must keep
+		// using ~/.conest-collab even though the child receives the bridge data dir.
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_COLLAB_DATA=" + collabDataDir(), "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
 		if fallback := dshFallbackLead(dataDir); fallback != "" {
 			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 		}

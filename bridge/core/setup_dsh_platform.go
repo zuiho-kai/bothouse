@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // DSHProfile is the profile install.sh installs into by default (dsh/install.sh PROFILE=web).
@@ -87,8 +89,8 @@ func FindDSHInstallScript() string {
 			dir = parent
 		}
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		if p := filepath.Join(home, ".bothouse", "dsh", "install.sh"); fileExists(p) {
+	if dir, err := embeddedDSHDir(); err == nil {
+		if p := filepath.Join(dir, "install.sh"); fileExists(p) {
 			return p
 		}
 	}
@@ -322,6 +324,9 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 		dir := filepath.Join(os.TempDir(), "bothouse-dsh-runtime")
 		if home, err := os.UserHomeDir(); err == nil {
 			dir = filepath.Join(home, ".bothouse", "dsh-runtime")
+			if os.Getenv(ccconnect.DataDirEnv) != "" {
+				dir = filepath.Join(ccconnect.DataDir(home), "dsh-runtime")
+			}
 		}
 		if p, ok := dshDesktopRuntimePath(app, dir); ok {
 			if nodeIssue == "" {
@@ -524,7 +529,7 @@ func dshNodeStatus(ctx context.Context, langs ...string) (string, string) {
 	return version, ""
 }
 
-// refreshHomeDSHBeforeInstall brings ~/.bothouse/dsh up to this program version before its
+// refreshHomeDSHBeforeInstall brings the selected embedded directory up to this program version before its
 // install.sh runs (#161 ③). Without it, `module add dsh` right after an upgrade ran the old
 // version's install.sh: only a server start refreshed that copy. Only when the script picked is
 // that copy (a repo checkout or BOTHOUSE_DSH_DIR is used as-is). A failed refresh keeps the old
@@ -533,11 +538,10 @@ func refreshHomeDSHBeforeInstall(script string, onLine func(string)) {
 	if script == "" || CurrentVersion == "" {
 		return
 	}
-	home, err := os.UserHomeDir()
+	dir, err := embeddedDSHDir()
 	if err != nil {
 		return
 	}
-	dir := filepath.Join(home, ".bothouse", "dsh")
 	if filepath.Clean(script) != filepath.Join(dir, "install.sh") {
 		return
 	}
