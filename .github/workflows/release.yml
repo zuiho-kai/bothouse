@@ -125,6 +125,19 @@ jobs:
         working-directory: bridge
         run: |
           set -euo pipefail
+          # #1496: `go build` records vcs.modified from `git status`. stampOrder
+          # (core/setup_dsh_embed.go) only consults that flag when the installed stamp equals the
+          # running one — i.e. a rebuild of a tag that is already out — and then it keeps the
+          # installed DSH plugin with a WARN, because it cannot prove the plugin on disk is this
+          # code. Releases must not be that build. Two things keep the tree clean: the artifacts
+          # directory ../dist is ignored (root .gitignore), and this check stops the release if the
+          # generation steps have dirtied anything else, rather than shipping a binary whose
+          # same-version refresh silently does nothing.
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain >&2
+            echo "::error::work tree is dirty before go build; the release binary would record vcs.modified=true, so re-cutting this tag would never refresh the DSH plugin (#1496)"
+            exit 1
+          fi
           mkdir -p ../dist
           commit=$(git rev-parse --short HEAD)
           built=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -151,6 +164,12 @@ jobs:
             CGO_ENABLED=$cgo CC="$cc" GOOS=$os GOARCH=$arch go build -trimpath -tags goolm \
               -ldflags "$ldflags" \
               -o "$binary" ./cmd/cc-connect
+            # Read back what the build recorded: vcs.modified=true means a same-version refresh
+            # of this binary keeps the installed DSH plugin (#1496, see the check above).
+            if go version -m "$binary" | grep -q 'vcs.modified=true'; then
+              echo "::error::$binary was built from a dirty tree; re-cutting this tag would never refresh the DSH plugin (#1496)"
+              exit 1
+            fi
             case "$os" in
               windows)
                 cp "$binary" ../dist/bothouse-windows.exe
