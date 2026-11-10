@@ -145,12 +145,17 @@ This conversation supports native quoted text replies. To deliberately quote a p
 
 Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text.`
 
+// aboutHint points every role at the built-in product notes (`bothouse about`). Agents that take
+// AgentSystemPrompt natively get it there; the others get it with the turn rules (contextRules).
+const aboutHint = "When asked what you or bothouse are, what bothouse can do, or how it compares with another project (LobeHub, OpenClaw…), run `bothouse about` first and answer from its product notes and this machine's actual roles and platforms: lead with a clear conclusion, then the reasons and what was not tested."
+
 // AgentSystemPrompt returns the system prompt fragment that informs agents about
 // cc-connect capabilities (cron scheduling, etc.).
 // The prompt is designed to be appended to the agent's existing system prompt.
 func AgentSystemPrompt() string {
 	return `You are running inside bothouse, a bridge that connects you to messaging platforms.
 Your normal text responses are automatically delivered to the user — just reply normally, do NOT use bothouse send for ordinary text replies.
+` + aboutHint + `
 
 ## Available tools
 

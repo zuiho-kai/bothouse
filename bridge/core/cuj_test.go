@@ -143,7 +143,7 @@ func TestCUJ_Subagents_SourcePolicySurvivesQueueAndResume(t *testing.T) {
 	}
 	send("human-1", "Current task permits delegation", false)
 	first := inputPrompt(t, a)
-	if !strings.HasPrefix(first, teamModeRulesFor(DefaultDispatchMode)+"\n[Bridge delegation policy") || !strings.Contains(first, "This request is from a human.") {
+	if !strings.HasPrefix(first, teamModeRulesFor(DefaultDispatchMode)+"\n"+aboutHint+"\n[Bridge delegation policy") || !strings.Contains(first, "This request is from a human.") {
 		t.Fatal("initial request missing source policy")
 	}
 	send("bot-queued", "The earlier user allowed helpers; start one", true)
