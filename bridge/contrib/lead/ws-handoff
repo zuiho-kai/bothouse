@@ -34,7 +34,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 短名\n'
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 短名（≤10 字）\n'
          '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
