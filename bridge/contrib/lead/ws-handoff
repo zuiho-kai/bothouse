@@ -514,7 +514,7 @@ def pick_pool(chat: str, task: str = "", preferred: str = ""):
     c = subprocess.run(claim_cmd(chat, w["id"], task), capture_output=True, text=True)
     if c.returncode != 0:
         sys.exit(f"ws-handoff: workspace claim 失败：{c.stderr.strip() or c.stdout.strip()}")
-    print(f"ws-handoff: 池里没有不忙的工作区，用 {w.get('name') or w['id']}", file=sys.stderr)
+    print(f"ws-handoff: 池里的工作区都在忙，新开了 {w.get('name') or w['id']}", file=sys.stderr)
     return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
 
 
