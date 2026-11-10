@@ -391,7 +391,7 @@ export default function SetupWizard() {
   const allowFromValue = allowFrom ?? '*';
 
   // ── request ──
-  const buildRequest = (maskSecrets = false): WizardRequest => {
+  const buildRequest = (maskSecrets = false, connectionTest = false): WizardRequest => {
     if (platform === 'dsh') throw new Error('This platform uses its own setup form');
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
@@ -403,7 +403,10 @@ export default function SetupWizard() {
           name: platform !== 'cloud_web' && !r.nameCustomized ? undefined : nameOf(r),
           name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName,
         } : {}),
-        agent_type: platform === 'qq' && !r.agentTouched ? undefined : r.agent_type,
+        // QQ: the connection test runs before we know whether this NapCat is already
+        // configured, so it stays quiet about the CLI for every role; a real submit omits it only
+        // for a reused role, and a new role sends the CLI the review step shows (#552)
+        agent_type: platform === 'qq' && (connectionTest || (r.reuse_project && !r.agentTouched)) ? undefined : r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
@@ -699,7 +702,7 @@ export default function SetupWizard() {
                   const key = qqKey;
                   setQQTest({ running: true, key });
                   try {
-                    const r = await applyWizard({ ...buildRequest(), dry_run: true });
+                    const r = await applyWizard({ ...buildRequest(false, true), dry_run: true });
                     if (latestQQKey.current !== key) {
                       setQQTest({ running: false });
                       return;
