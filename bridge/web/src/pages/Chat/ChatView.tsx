@@ -581,7 +581,7 @@ export default function ChatView() {
   return (
     <div className="mx-auto flex h-[calc(100dvh-8rem)] w-full max-w-4xl flex-col animate-fade-in">
       {/* Header */}
-      <div className="-mx-1 flex shrink-0 items-center justify-between rounded-card bg-surface px-3 py-2.5 shadow-ui-1">
+      <div className="-mx-1 mt-3 flex shrink-0 items-center justify-between rounded-card bg-surface px-3 py-2.5 shadow-ui-1">
         <div className="flex min-w-0 items-center gap-3">
           <Link to="/chat" aria-label={t('common.back', '返回')} className="grid h-10 w-10 shrink-0 place-items-center rounded-control text-ink-mute transition-colors duration-base hover:bg-surface-sunken hover:text-ink">
             <ArrowLeft size={18} />
