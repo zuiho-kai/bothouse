@@ -1575,10 +1575,14 @@ def _dsh_stream(cmd, task, timeout=3600):
             except ProcessLookupError:
                 return
             until = time.monotonic() + budget.CLEANUP_TIMEOUT  # 来源：budget.py 现有的两秒收尾等待，先礼后兵
-            while sig == signal.SIGTERM and p.poll() is None and time.monotonic() < until:
+            while time.monotonic() < until:
+                if sig == signal.SIGTERM and p.poll() is not None:
+                    break
+                if sig == signal.SIGKILL and not any(pgid == p.pid for _, _, pgid in budget.processes()):
+                    break  # the signal was sent; wait for descendants to actually release their files/locks
                 time.sleep(0.05)
     timer = threading.Timer(timeout, stop)
-    timer.daemon = True  # a run ends when the stream does, not when a finished kill loop's last sleep does
+    timer.daemon = True
     timer.start()
     try:
         p.stdin.write(task)
@@ -1605,6 +1609,7 @@ def _dsh_stream(cmd, task, timeout=3600):
         p.wait()
     finally:
         timer.cancel()
+        timer.join()  # cancel cannot stop an active callback: finish tree cleanup before the caller can roll back
     if not r["final"] and plain:  # no final event: the answer is what was printed (an older dsh, a wrapper script)
         r["final"] = "\n".join(plain)
     # 124 = the exit status timeout(1) uses, the same one engine_run reports: a killed call is a failed call, and the

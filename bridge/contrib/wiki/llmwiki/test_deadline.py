@@ -147,6 +147,106 @@ while time.monotonic() < end:
         self.assertEqual(r["rc"], 124)
         popen.assert_not_called()
 
+    @unittest.skipIf(os.name == "nt", "the dsh stream uses a POSIX process group")
+    def test_dsh_finishes_tree_cleanup_before_return_and_rollback(self):
+        """#648: EOF/parent exit must not let rollback race the timeout thread's SIGKILL."""
+        import json
+        import signal
+        import threading
+
+        root = Path(tempfile.mkdtemp(prefix="dsh-rollback-", dir=ROOT))
+        helper = root / "model.py"
+        helper.write_text('''import os, signal, subprocess, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import filelock
+root = Path(sys.argv[2])
+signal.alarm(15)  # bounded fake model even if the test fails
+if sys.argv[3:4] != ['child']:
+    sys.stdin.read()
+    (root / 'parent.pid').write_text(str(os.getpid()))
+    subprocess.Popen([sys.executable, __file__, sys.argv[1], sys.argv[2], 'child'],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    while not (root / 'ready').exists():
+        time.sleep(0.01)
+    while True:
+        time.sleep(0.01)
+else:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    with (root / 'model.lock').open('a') as lock:
+        filelock.lock(lock, False)
+        (root / 'ready').write_text(str(os.getpid()))
+        while True:
+            with (root / 'writes').open('a') as f:
+                f.write('x')
+            time.sleep(0.01)
+''')
+        real_stream, real_killpg, real_timer = I._dsh_stream, os.killpg, threading.Timer
+        release_cleanup = threading.Event()
+        timers, snapshots, thread_errors = [], {}, []
+
+        def timer(*args, **kw):
+            t = real_timer(*args, **kw)
+            timers.append(t)
+            return t
+
+        def killpg(pid, sig):
+            real_killpg(pid, sig)
+            if sig == signal.SIGTERM:
+                # Pin the reviewer's scheduling window: the parent exits while the timeout thread is paused.
+                release_cleanup.wait(0.2)
+
+        def snapshot(where):
+            with (root / "model.lock").open("a") as lock:
+                try:
+                    I.filelock.lock(lock, False)
+                    free = True
+                except BlockingIOError:
+                    free = False
+            snapshots[where] = dict(lock_free=free, cleanup_done=not timers[0].is_alive(),
+                                    writes=(root / "writes").stat().st_size)
+
+        def stream(*args, **kw):
+            result = real_stream(*args, **kw)
+            snapshots["rc"] = result["rc"]
+            snapshot("stream_return")  # no wait after return before checking the lock
+            return result
+
+        def rollback():
+            snapshot("rollback_start")  # actual _one_pass failure/rollback boundary
+
+        def run(args):
+            self.assertFalse(I._model_pass("timeout-reap", "task", engine="dsh"))
+
+        try:
+            with patch.multiple(I, WIKI=root, WORK=root, REPO=root, HOME=root, LOG=root / "ingest.log",
+                                USAGE=root / "usage.tsv", LOCK=root / ".ingest.lock", QUEUE=root / "queue",
+                                MIRROR_TO=None, pull=lambda: None, prepare=lambda: None, push=lambda: None,
+                                sync_work=lambda: None, discard=rollback, run=run, _dsh_stream=stream), \
+                    patch.dict(I.CFG, dsh_cmd=[sys.executable, str(helper), str(Path(I.__file__).parent), str(root)],
+                               dsh_patch=""), \
+                    patch.object(I, "dsh_env", return_value={"PATH": os.defpath}), \
+                    patch.object(threading, "Timer", side_effect=timer), patch.object(os, "killpg", side_effect=killpg), \
+                    patch.object(threading, "excepthook", side_effect=lambda args: thread_errors.append(str(args.exc_value))), \
+                    patch.object(sys, "argv", [str(Path(I.__file__)), "--pending"]), \
+                    patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 3), WIKI_STOP_AT="", WIKI_INGEST=""):
+                I.main()  # real ingest entry, dsh runner, stream and failed-pass path; no live data/model
+                snapshot("ingest_return")
+                with (root / ".ingest.lock").open("a") as lock:
+                    I.filelock.lock(lock, False)
+                snapshots["ingest_lock_free"] = True
+            print("DSH return/rollback boundary: " + json.dumps(snapshots, sort_keys=True), flush=True)
+            self.assertEqual(thread_errors, [], "timeout callback crashed instead of completing cleanup")
+            self.assertEqual(snapshots["rc"], 124)
+            for where in ("stream_return", "rollback_start", "ingest_return"):
+                self.assertTrue(snapshots[where]["cleanup_done"], where + ": timeout callback still running")
+                self.assertTrue(snapshots[where]["lock_free"], where + ": TERM-ignoring grandchild still holds lock")
+            self.assertEqual(snapshots["stream_return"]["writes"], snapshots["ingest_return"]["writes"])
+        finally:
+            release_cleanup.set()
+            for t in timers:
+                t.join()
+
     def test_dsh_without_deadline_keeps_its_own_call_timeout(self):
         with patch.dict(os.environ, CC_JOB_DEADLINE="", WIKI_STOP_AT=""):
             r = I._dsh_stream([sys.executable, "-c", "import sys; print('{\"type\": \"final\", \"text\": \"ok\"}')"],
