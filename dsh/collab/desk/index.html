@@ -66,6 +66,7 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;
 .seat.offline .label{opacity:.55}.seat.offline .label .dot{background:#6c7380;box-shadow:none}
 .seat.lead .label{background:#3a2a10e6;color:#ffe08a}
 .seat.walking .label{opacity:.82}
+.seat.hold .tasktag{display:none}
 .label .name{cursor:text}
 .label .many{color:#ffd166;font-weight:800;font-size:10px}
 .seat.clone .tasktag{background:#ffcf7a;font-size:10px;padding:1px 6px}
@@ -666,9 +667,7 @@ function buildBackground(sky) {
   // 窗、白板、钟位、标牌
   drawWindow(ctx, 22, 8, 56, 26, sky); drawWindow(ctx, 94, 8, 56, 26, sky);
   px(ctx, 174, 8, 72, 30, '#9aa3ad'); px(ctx, 176, 10, 68, 26, '#f7fbff');
-  const lines = [['#ff6b6b', 30], ['#4dabf7', 46], ['#51cf66', 22], ['#f59f00', 38]];
-  lines.forEach(([c2, w], i) => px(ctx, 180, 14 + i * 5, w, 2, c2));
-  px(ctx, 230, 30, 10, 3, '#ffd43b'); px(ctx, 176, 38, 68, 2, '#7d858f');
+  px(ctx, 176, 38, 68, 2, '#7d858f');
   return c;
 }
 function drawFurniture(ctx, f, t) {
@@ -780,7 +779,7 @@ function burst(x, y, color, n = 10) {
 function drawBeams(ctx, now, dt) {
   for (const b of P.beams) {
     const A = headOf(b.from), B = headOf(b.to);
-    if (!A || !B) { b.dead = true; continue; }
+    if (!A || !B) { b.dead = true; const g = P.agents.get(b.to); if (g) g.hold = false; continue; }
     const k = Math.min(1, (now - b.t0) / b.dur);
     const e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     const dist = Math.hypot(B.x - A.x, B.y - A.y);
@@ -789,9 +788,9 @@ function drawBeams(ctx, now, dt) {
     const at = s => ({ x: (1 - s) * (1 - s) * A.x + 2 * (1 - s) * s * cx + s * s * B.x, y: (1 - s) * (1 - s) * A.y + 2 * (1 - s) * s * cy + s * s * B.y });
     const color = BEAM_COLOR[b.kind] || '#fff';
     // 拖尾：@ 是细虚点，其余是渐隐方块
-    const tail = b.kind === 'at' ? 14 : 18;
+    const tail = b.kind === 'at' ? 14 : b.kind === 'assign' ? 28 : 18;
     for (let i = tail; i >= 1; i--) {
-      const s = e - i * 0.018;
+      const s = e - i * (b.kind === 'assign' ? 0.012 : 0.018);
       if (s <= 0) continue;
       if (b.kind === 'at' && i % 2) continue;
       const p = at(s);
@@ -809,7 +808,7 @@ function drawBeams(ctx, now, dt) {
       b.dead = true;
       burst(B.x, B.y, color, b.kind === 'at' ? 6 : 12);
       const ag = P.agents.get(b.to);
-      if (ag) ag.react = { kind: b.kind, t0: now };
+      if (ag) { ag.react = { kind: b.kind, t0: now }; ag.hold = false; }
       if (b.kind === 'assign') deskPop(b.to, '！', 'warn');
     }
   }
@@ -850,6 +849,97 @@ function drawLights(ctx, night, now) {
   ctx.globalCompositeOperation = 'source-over';
 }
 
+// ── 主角色是枢纽：白板上是真任务条，主角色桌旁一排指示灯（一件在跑的活一盏），悬停才连一根细虚线 ──
+function evMs(ev) {
+  if (Number.isFinite(ev._ms)) return ev._ms;
+  const v = ev.ts; const n = typeof v === 'number' ? (v < 1e12 ? v * 1000 : v) : Date.parse(v);
+  return Number.isFinite(n) ? n : Date.now();
+}
+function simNow() {
+  const r = S.replay;
+  if (S.mode === 'replay' && r && r.events.length) return r.events[Math.max(0, r.idx - 1)]._ms;
+  return Date.now();
+}
+const STALE_MS = 30 * 60 * 1000;
+function liveTasks() {
+  const out = [];
+  for (const [memberId, map] of S.active) for (const [key, rec] of map) { const m = S.byId.get(memberId); if (m) out.push({ key, memberId, rec, color: styleOf(m).hair }); }
+  return out.sort((a, b) => (a.rec.t ?? 0) - (b.rec.t ?? 0) || String(a.key).localeCompare(String(b.key)));
+}
+function boardDone(memberId, taskId) {
+  const key = taskKeyOf(memberId, taskId);
+  const i = liveTasks().findIndex(x => x.key === key && x.memberId === memberId);
+  const rec = S.active.get(memberId)?.get(key), m = S.byId.get(memberId);
+  if (i < 0 || !rec || !m) return;
+  (P.boardDone = P.boardDone || []).push({ row: i, color: styleOf(m).hair, w: barWidth(rec, simNow()), t0: performance.now() });
+}
+function barWidth(rec, now) { const min = Math.max(0, (now - (rec.t ?? now)) / 60000); return Math.round(4 + Math.min(56, min / 120 * 56)); }
+function drawTaskBoard(ctx, now) {
+  const tasks = liveTasks(), at = simNow(), rows = 5;
+  for (let i = 0; i < Math.min(rows, tasks.length); i++) {
+    const t = tasks[i], y = 13 + i * 5;
+    px(ctx, 179, y, 2, 2, t.color);
+    px(ctx, 183, y, barWidth(t.rec, at), 2, t.color);
+  }
+  if (tasks.length > rows) for (let i = 0; i < Math.min(6, tasks.length - rows); i++) px(ctx, 230 + i * 2, 34, 1, 1, '#7d858f');
+  P.boardDone = (P.boardDone || []).filter(d => {
+    const k = (now - d.t0) / 1600;
+    if (k >= 1 || d.row >= rows) return false;
+    const y = 13 + d.row * 5;
+    ctx.globalAlpha = 1 - k;
+    px(ctx, 183, y, d.w, 2, d.color);
+    const cx = 183 + d.w + 3; px(ctx, cx, y, 1, 1, '#2f9e44'); px(ctx, cx + 1, y + 1, 1, 1, '#2f9e44'); px(ctx, cx + 2, y, 1, 1, '#2f9e44'); px(ctx, cx + 3, y - 1, 1, 1, '#2f9e44'); px(ctx, cx + 4, y - 2, 1, 1, '#2f9e44');
+    ctx.globalAlpha = 1;
+    return true;
+  });
+}
+function lampSlots() {
+  const lead = S.lead && P.agents.get(S.lead);
+  if (!lead || !lead.desk) return null;
+  const { x, y } = lead.desk;
+  // 灯嵌在桌子正面板上，名牌左右各 2 行 × 3 盏
+  return { x, y, lamp: (i) => { const j = i % 6; return { x: (i < 6 ? x - 16 : x + 9) + (j % 3) * 3, y: y + 3 + Math.floor(j / 3) * 3 }; } };
+}
+const LAMP_MAX = 12;
+function drawLamps(ctx, now) {
+  const L = lampSlots();
+  P.lamps = [];
+  if (!L) return;
+  px(ctx, L.x - 17, L.y + 2, 10, 7, '#3a2a1c'); px(ctx, L.x + 8, L.y + 2, 10, 7, '#3a2a1c');
+  const at = simNow();
+  liveTasks().slice(0, LAMP_MAX).forEach((t, i) => {
+    const p = L.lamp(i);
+    const stale = at - (t.rec.seen ?? t.rec.t ?? at) > STALE_MS;
+    const hot = P.hoverKey === t.key;
+    if (hot) px(ctx, p.x - 1, p.y - 1, 4, 4, '#ffffff');
+    if (stale) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326');
+    else { px(ctx, p.x, p.y, 2, 2, t.color); px(ctx, p.x, p.y, 1, 1, '#ffffff'); }
+    P.lamps.push({ key: t.key, memberId: t.memberId, rec: t.rec, x: p.x, y: p.y, color: t.color });
+  });
+}
+function drawHoverLink(ctx, now) {
+  const lamp = (P.lamps || []).find(l => l.key === P.hoverKey);
+  if (!lamp) return;
+  const B = headOf(bodyRef(lamp.memberId, lamp.rec.id).id);
+  if (!B) return;
+  const ax = lamp.x, ay = lamp.y, n = Math.max(1, Math.round(Math.hypot(B.x - ax, B.y - ay)));
+  const off = Math.floor(now / 90);
+  for (let i = 0; i <= n; i++) if (((i + off) >> 1) % 2 === 0) px(ctx, ax + (B.x - ax) * i / n, ay + (B.y - ay) * i / n, 1, 1, i % 4 ? lamp.color : '#ffffff');
+}
+function onStageHover(e) {
+  const stage = $('stage'), r = stage.getBoundingClientRect();
+  const lx = (e.clientX - r.left) / r.width * PX.W, ly = (e.clientY - r.top) / r.height * PX.H;
+  let key = null;
+  for (const l of P.lamps || []) if (lx >= l.x - 1 && lx <= l.x + 3 && ly >= l.y - 1 && ly <= l.y + 3) key = l.key;
+  if (!key) {
+    const seat = e.target.closest && e.target.closest('.seat');
+    const tag = e.target.closest && e.target.closest('.tasktag');
+    const a = seat && tag ? P.agents.get(seat.dataset.id) : null;
+    if (a && a.taskKey) key = a.taskKey;
+  }
+  P.hoverKey = key;
+}
+
 function blinkOf(now, a) { return Math.floor((now / 1000 + a.bob) % 4.2 * 10) === 0; }
 // 屏幕的光照在脸上：干活时随代码颜色轻轻闪，想事情时是稳定的蓝光。
 function faceGlow(ctx, x, y, mode, t, seed) {
@@ -875,6 +965,7 @@ function frame(now) {
   ctx.setTransform(RES, 0, 0, RES, 0, 0);
   ctx.drawImage(P.bg, 0, 0);
   drawClock(ctx, wall);
+  drawTaskBoard(ctx, now);
   for (const a of [...P.agents.values()]) if (a.clone) updateClone(a, dt); else updateAgent(a, dt);
   // 按脚下的 y 排序画，近的盖住远的
   const list = [];
@@ -883,6 +974,7 @@ function frame(now) {
     const a = P.agents.get(d.id);
     list.push({ y: d.y + 10, draw: () => drawDesk(ctx, d, a, a ? a.mode : 'off', now) });
     if (!(a && a.state === 'sit')) list.push({ y: d.y + 12, draw: () => drawChairBack(ctx, d) });
+    if (d.id === S.lead) list.push({ y: d.y + 11, draw: () => drawLamps(ctx, now) });
   }
   for (const [key, s] of P.stations) {
     const c = P.agents.get(key);
@@ -932,6 +1024,7 @@ function frame(now) {
   for (const it of list) it.draw();
   drawLights(ctx, sky.night, now);
   drawBeams(ctx, now, dt);
+  drawHoverLink(ctx, now);
   placeOverlays(now);
 }
 
@@ -950,6 +1043,7 @@ function placeOverlays(now) {
     const want = a.state === 'stay' && a.poi ? EMOTE[a.poi.act] || '' : (a.state === 'sit' && a.mode === 'idle' ? 'z z' : '');
     if (emo.textContent !== want) { emo.textContent = want; emo.hidden = !want; }
     node.classList.toggle('walking', a.state === 'walk');
+    node.classList.toggle('hold', !!a.hold);
   }
   for (const [key, node] of S.cloneNodes ?? []) {
     const a = P.agents.get(key);
@@ -960,6 +1054,7 @@ function placeOverlays(now) {
     if (node.style.left !== l) node.style.left = l;
     if (node.style.top !== t) node.style.top = t;
     node.classList.toggle('walking', a.state === 'walk');
+    node.classList.toggle('hold', !!a.hold);
   }
 }
 
@@ -1322,10 +1417,11 @@ function setLead(id) {
 }
 
 function beam(from, to, kind = 'assign') {
-  if (!from || !to || from.id === to.id) return;
-  if (!P.agents.has(from.id) || !P.agents.has(to.id)) return;
+  if (!from || !to || from.id === to.id) return false;
+  if (!P.agents.has(from.id) || !P.agents.has(to.id)) return false;
   // @ 是一颗细小光点沿虚线拖尾飞过；派活是一封小信，交回/打回是方块光球。
-  P.beams.push({ from: from.id, to: to.id, kind, t0: performance.now(), dur: kind === 'at' ? 800 : 1000 });
+  P.beams.push({ from: from.id, to: to.id, kind, t0: performance.now(), dur: kind === 'at' ? 800 : kind === 'assign' ? 1800 : 1000 });
+  return true;
 }
 
 const FLASH = { 'flash-gold': '#ffa53a', 'flash-good': '#3ddc97', 'flash-bad': '#ff5a5f' };
@@ -1360,6 +1456,8 @@ function startOffice() {
   fitStage();
   addEventListener('resize', fitStage);
   if (typeof ResizeObserver === 'function') new ResizeObserver(fitStage).observe($('stagewrap'));
+  $('stage').addEventListener('mousemove', onStageHover);
+  $('stage').addEventListener('mouseleave', () => { P.hoverKey = null; });
   const cv = $('office');
   P.ctx = cv.getContext('2d');
   P.ctx.imageSmoothingEnabled = false;
@@ -1447,7 +1545,8 @@ function forgetDispatch(id, dispatched) {
 function dispatchBeamOnce(id, from, to) {
   if (!dispatchAllowed(id, to.id, S.dispatched)) return;
   S.dispatched.add(dispatchKey(id, to.id));
-  beam(from, bodyRef(to.id, id), 'assign');
+  const body = bodyRef(to.id, id);
+  if (beam(from, body, 'assign')) { const g = P.agents.get(body.id); if (g) g.hold = true; }
 }
 
 function applyTask(ev, animate = true, quiet = false) {
@@ -1462,6 +1561,7 @@ function applyTask(ev, animate = true, quiet = false) {
   const title = String(ev.title ?? '');
   const note = String(ev.note ?? '');
   const ts = ev.ts ?? Date.now();
+  const ms = evMs(ev);
   const fromName = from ? displayName(from) : (ev.from || '—');
   const toName = to ? displayName(to) : (ev.to || '—');
   const header = id ? `#${id} ${title}`.trim() : title;
@@ -1469,7 +1569,7 @@ function applyTask(ev, animate = true, quiet = false) {
   if (kind === 'created' || kind === 'assigned') {
     if (to) {
       const prev = findActive(id);
-      setTask(to, { id, title: title || prev?.title || '', note: note || prev?.note || '', from: from?.id ?? prev?.from ?? null, to: to.id });
+      setTask(to, { id, title: title || prev?.title || '', note: note || prev?.note || '', from: from?.id ?? prev?.from ?? null, to: to.id, t: prev?.t ?? ms, seen: ms });
       paintAll(animate);
       if (kind === 'created' && from && animate) dispatchBeamOnce(id, from, to);
       if (kind === 'assigned' && from && animate) dispatchBeamOnce(id, from, to);
@@ -1483,6 +1583,7 @@ function applyTask(ev, animate = true, quiet = false) {
       const body = worker ? bodyRef(worker.id, id) : null;
       if (worker && dispatcher && animate) beam(body, dispatcher, 'return');
       if (worker) {
+        if (animate) boardDone(worker.id, id);
         clearTask(worker.id, id);
         paintAll(animate);
         if (animate) { flashSeat(body.id, 'flash-good'); deskPop(body.id, '✓ 交回', 'good'); }
@@ -1490,7 +1591,7 @@ function applyTask(ev, animate = true, quiet = false) {
       forgetDispatch(id, S.dispatched);
     } else {
       // 打回 = 回去返工：这件重新算在跑，干它的小人（分身也一样）抖一下继续坐着干。
-      if (worker) { setTask(worker, { id, title: title || rec?.title || '', note, from: dispatcher?.id ?? rec?.from ?? null, to: worker.id }); paintAll(animate); }
+      if (worker) { setTask(worker, { id, title: title || rec?.title || '', note, from: dispatcher?.id ?? rec?.from ?? null, to: worker.id, t: rec?.t ?? ms, seen: ms }); paintAll(animate); }
       const body = worker ? bodyRef(worker.id, id) : null;
       if (worker && dispatcher && animate) beam(dispatcher, body, 'reject');
       if (worker && animate) { flashSeat(body.id, 'flash-bad'); deskPop(body.id, `✕ 打回${note ? '：' + note : ''}`, 'bad'); }
@@ -1500,6 +1601,7 @@ function applyTask(ev, animate = true, quiet = false) {
     const { worker } = workerAndDispatcher(findActive(id), from, to);
     if (worker) {
       const body = bodyRef(worker.id, id);
+      if (animate && kind === 'done') boardDone(worker.id, id);
       clearTask(worker.id, id);
       paintAll(animate);
       if (animate) {
