@@ -689,6 +689,7 @@ const (
 	MsgPublicEnded              MsgKey = "MsgPublicEnded"
 	MsgWatchResume              MsgKey = "watch_resume"
 	MsgWatchResumeNotes         MsgKey = "watch_resume_notes"
+	MsgWatchChatHandoff         MsgKey = "watch_chat_handoff"
 	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
@@ -1059,6 +1060,15 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "接著做 %s，做完再結束本輪，交回時第一行寫 [report]",
 		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
 		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
+	},
+	// Wake for work accepted in a chat channel: hand it to a workspace, do not finish it there.
+	// 来源：2026-11-10 agentm 子区、私聊交不出去后，看门发「接着做…做完再结束本轮」，GPT 就在聊天频道里做完整件审查。
+	MsgWatchChatHandoff: {
+		LangEnglish:            "%s has not been handed off yet. This is a chat channel: hand it to a workspace now with ws-handoff and end the turn; if ws-handoff fails, say in one line what blocks it and ask the user. Do not finish it here",
+		LangChinese:            "%s 还没交出去。这是聊天频道：现在跑 ws-handoff 交工作区，交出就结束本轮；交不出去就一句话说清卡在哪、问用户，不在聊天频道里接着做",
+		LangTraditionalChinese: "%s 還沒交出去。這是聊天頻道：現在跑 ws-handoff 交工作區，交出就結束本輪；交不出去就一句話說清卡在哪、問用戶，不在聊天頻道裡接著做",
+		LangJapanese:           "%s はまだワークスペースに渡されていません。ここはチャットチャンネルです。今すぐ ws-handoff で渡してターンを終えてください。渡せない場合は何が止めているかを一行で伝えてユーザーに確認し、ここで続けないでください",
+		LangSpanish:            "%s aún no se ha entregado. Esto es un canal de chat: entrégalo ahora a un espacio de trabajo con ws-handoff y termina el turno; si ws-handoff falla, di en una línea qué lo bloquea y pregunta al usuario. No lo termines aquí",
 	},
 	MsgWatchResumeNotes: {
 		LangEnglish:            "Handoff file: %s (read its last checkpoint first)",
