@@ -12,10 +12,11 @@ pass = 真是方向/花钱/对外/删除，或与定案无关，放行。
 意图卡：本文件同目录 intent-cards.txt 一行一个路径（# 开头是注释，~ 可用）；没有这个文件就只看用户原话。
 模型：Haiku（claude -p，无工具、不读设置、不挂 hook）；每次延迟和花费记到 ~/.bothouse/logs/intent-judge.tsv。
 命令行：intent_judge.py --file <交接文件>  → 打一行 JSON 结果（pass 时 exit 0，否则 exit 3）。"""
-import json, os, re, shutil, subprocess, sys, tempfile, time
+import json, os, re, runpy, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+CHANNEL_RECORDS = HERE.parent / "lead" / "chanlog"
 CARDS = HERE / "intent-cards.txt"
 LOG = Path.home() / ".bothouse" / "logs" / "intent-judge.tsv"
 MODEL = os.environ.get("INTENT_JUDGE_MODEL", "haiku")
@@ -139,15 +140,30 @@ def _log(kind, verdict, ms, cost, q):
         pass
 
 
-def _validate_conflict(r, draft, user_msgs):
-    """A conflict needs a verbatim citation from current user wording in the handoff or turn."""
+def _recorded_user_quote(date, quote, records=None):
+    """Verify dated evidence against an explicitly attributed user line in channel history."""
+    try:
+        records = records if records is not None else runpy.run_path(str(CHANNEL_RECORDS))["records"]()
+        date = date.strip()
+        for ts, speaker, text, _where, _src in records:
+            if not speaker.startswith("用户:") or not ts or quote not in text:
+                continue
+            day = str(ts)[:10]
+            if date == day or date == day[5:] or date.lstrip("0") == day[5:].lstrip("0"):
+                return True
+    except (OSError, KeyError, ValueError):
+        return False
+    return False
+
+
+def _validate_conflict(r, draft, user_msgs, records=None):
+    """A conflict needs dated, verbatim evidence from an attributed user history record."""
     if r["verdict"] != "conflict":
         return r
     quote = re.search(r"[「『\"]([^」』\"]+)[」』\"]", r["basis"])
-    original_section = re.search(r"(?ims)^#{1,6}\s*用户原话\s*$([\s\S]*?)(?=^#{1,6}\s|\Z)", draft)
-    evidence = "\n".join([*(str(m) for m in user_msgs), original_section.group(1) if original_section else ""])
-    if not quote or quote.group(1) not in evidence:
-        r.update(verdict="ask", answer="", basis=f"无法在本轮用户原话中逐字核对冲突依据；{r['basis']}。请先问用户，确认后把原话补进交接。")
+    date = re.search(r"(?<!\d)(?:20\d{2}-)?\d{1,2}-\d{1,2}(?!\d)", r["basis"])
+    if not quote or not date or not _recorded_user_quote(date.group(0), quote.group(1), records):
+        r.update(verdict="ask", answer="", basis=f"无法在带说话人和日期的频道记录中逐字核对冲突依据；{r['basis']}。请先问用户，确认后把原话补进交接。")
     return r
 
 
