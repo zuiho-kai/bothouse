@@ -999,6 +999,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	}
 	add("turn_ctx", e.turnContext(session, sessionKey, query, sender))
 	add("team", e.teamBlock(session, sessionKey))
+	add("member", e.memberBlock(session))
 	return content
 }
 

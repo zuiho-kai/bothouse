@@ -220,6 +220,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"wake":         runWake,
 	"progress":     runProgress,
 	"identity":     runIdentity,
+	"member":       runMember,
 	"guard":        runGuard,
 	"task":         runTask,
 	"handoff":      runHandoff,
@@ -1366,6 +1367,8 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
+	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
@@ -2109,6 +2112,8 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
+	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
 	engine.SetDispatchMode(proj.DispatchMode)
 	engine.SetVoiceDesk(proj.VoiceDesk)
 	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)

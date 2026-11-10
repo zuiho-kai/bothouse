@@ -135,6 +135,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
+	s.mux.HandleFunc("/member", s.handleMember) // `bothouse member`: personal dirs and own GitHub auth (member_workspace.go)
 	s.mux.HandleFunc("/wake", s.handleWake) // run one turn from a hook/script (api_wake.go)
 	s.mux.HandleFunc("/stop-blocked", s.handleStopBlocked) // a Stop hook blocked a reply draft (api_stop_draft.go)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)

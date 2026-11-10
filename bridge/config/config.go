@@ -671,6 +671,11 @@ type ProjectConfig struct {
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
 	// 「默认给我们频道建立工作区1」); set team_workspaces = false to opt out. Ignored on non-lead projects.
 	TeamWorkspaces *bool `toml:"team_workspaces,omitempty"`
+	// MemberWorkspaces (#1355): every real person who joins gets a personal directory and may authorize
+	// GitHub with their own device code; gh / git run through `bothouse member` with the credentials of
+	// whoever started the turn (core/member_workspace.go). Off unless the owner agreed to it (wizard
+	// team page or `bothouse member enable`).
+	MemberWorkspaces *bool `toml:"member_workspaces,omitempty"`
 	// DispatchMode (team mode C): how this project's bot hands out work — "solo" (only its own
 	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
 	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
@@ -800,6 +805,11 @@ func (p ProjectConfig) InjectSenderEnabled() bool {
 		}
 	}
 	return false
+}
+
+// MemberWorkspacesEnabled reports member_workspaces (default off).
+func (p ProjectConfig) MemberWorkspacesEnabled() bool {
+	return p.MemberWorkspaces != nil && *p.MemberWorkspaces
 }
 
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
@@ -3750,6 +3760,7 @@ type ProjectSettingsUpdate struct {
 	ReplyFooter          *bool
 	InjectSender         *bool
 	PlatformAllowFrom    map[string]string
+	MemberWorkspaces     *bool
 }
 
 // SaveProjectSettings persists project-level settings and the global language to config.toml.
@@ -3778,6 +3789,10 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 		}
 		proj := &cfg.Projects[i]
 		oldName := proj.TeamName
+		if update.MemberWorkspaces != nil {
+			v := *update.MemberWorkspaces
+			proj.MemberWorkspaces = &v
+		}
 		if update.DisplayName != nil {
 			proj.TeamName = strings.TrimSpace(*update.DisplayName)
 		}

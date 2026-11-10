@@ -96,7 +96,7 @@ func (configWizardStore) ApplyProjects(plan func(core.WizardSnapshot) ([]core.Wi
 			o := config.WizardProjectOptions{Name: w.Name, AgentType: w.AgentType, WorkDir: w.WorkDir, AgentCmd: w.AgentCmd,
 				AgentArgs: w.AgentArgs, AgentEnv: w.AgentEnv, AgentOptions: w.AgentOptions,
 				PlatformType: w.PlatformType, Options: w.Options, GateURL: w.GateURL, GateFallback: w.GateFallback,
-				OwnerOpenID: w.FeishuOwnerOpenID, DisplayName: w.DisplayName, NameCustomized: w.NameCustomized, AdminFrom: w.AdminFrom,
+				OwnerOpenID: w.FeishuOwnerOpenID, DisplayName: w.DisplayName, NameCustomized: w.NameCustomized, AdminFrom: w.AdminFrom, MemberWorkspaces: w.MemberWorkspaces,
 				AllPlatformsOfType: w.AllPlatformsOfType}
 			if w.Provider != nil {
 				p := config.ProviderConfig{Name: w.Provider.Name, APIKey: w.Provider.APIKey, BaseURL: w.Provider.BaseURL,

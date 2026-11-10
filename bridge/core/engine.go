@@ -465,6 +465,9 @@ type Engine struct {
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
 	callerMu                     sync.Mutex                      // guards callerTurns (caller_identity.go)
+	memberWSMu                   sync.Mutex                      // guards memberWS / memberWSSave (member_workspace.go)
+	memberWS                     bool                            // member_workspaces: personal dirs + own GitHub auth per person
+	memberWSSave                 func(on bool) error             // persists `bothouse member enable|disable`
 	callerTurns                  map[string]callerTurn           // session → sender of the turn running now
 	workspaceReports             map[string]*workspaceReportTurn // guarded by pendingResetMu
 	pendingReset                 map[string]bool                 // session new --after-turn (session_reset.go)

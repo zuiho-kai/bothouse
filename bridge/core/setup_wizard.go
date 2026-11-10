@@ -64,7 +64,11 @@ type WizardRequest struct {
 	// settings (core/global_hooks.go), so terminal sessions get them. nil = keep; off by default.
 	GlobalMemory *bool `json:"global_memory,omitempty"`
 	GlobalGuards *bool `json:"global_guards,omitempty"`
-	DryRun       bool  `json:"dry_run,omitempty"`
+	// MemberWorkspaces: a team's roles give every person who joins a personal directory and their own
+	// GitHub authorization (member_workspaces, core/member_workspace.go). The team page recommends it,
+	// unchecked; only a team (two or more roles) gets it. nil = leave.
+	MemberWorkspaces *bool `json:"member_workspaces,omitempty"`
+	DryRun           bool  `json:"dry_run,omitempty"`
 	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
@@ -231,6 +235,8 @@ type WizardProjectWrite struct {
 	AdminFrom string
 	// AllPlatformsOfType: Options go into every platform of PlatformType, none is created (gate page).
 	AllPlatformsOfType bool
+	// MemberWorkspaces: member_workspaces (#1355); nil = leave.
+	MemberWorkspaces *bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -1868,6 +1874,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 
 	for _, r := range pl.roles {
 		pw := WizardProjectWrite{Name: r.project, AgentType: r.AgentType, PlatformType: req.Platform, Options: map[string]any{}}
+		if req.MemberWorkspaces != nil && len(pl.team) > 1 {
+			pw.MemberWorkspaces = req.MemberWorkspaces
+		}
 		ex, exists := s.project(r.project)
 		// A QQ connection-only rerun must not fill in defaults in the existing agent table.
 		keepQQAgent := req.Platform == "qq" && r.reused && r.agentAsked == ""
