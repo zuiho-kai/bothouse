@@ -92,6 +92,7 @@ describe('skins.json 角色别名', () => {
   const m = JSON.parse(
     readFileSync(join(import.meta.dirname, '..', '..', 'assets', 'roles', 'skins.json'), 'utf8'),
   ) as {
+    default: string;
     builtin: { id: string; aliases?: string[] }[];
   };
   const owner = (alias: string): string[] =>
@@ -100,6 +101,14 @@ describe('skins.json 角色别名', () => {
   test('大豆包（gjiang）认彩虹猫，不再挂在 Gemini 模型形象下', () => {
     assert.deepEqual(owner('gjiang'), ['caihongmao']);
     assert.deepEqual(owner('大豆包'), ['caihongmao']);
+  });
+
+  test('橘 仍只认小人版，新 Q 版形象要在「换形象」里手选', () => {
+    assert.deepEqual(owner('橘'), ['maomao']);
+    assert.deepEqual(owner('cjiang'), ['maomao']);
+    assert.deepEqual(owner('C酱'), ['maomao']);
+    assert.equal(m.default, 'maomao');
+    assert.ok(m.builtin.some((s) => s.id === 'maomao-q'));
   });
 
   test('同一别名只出现在一个形象里', () => {
