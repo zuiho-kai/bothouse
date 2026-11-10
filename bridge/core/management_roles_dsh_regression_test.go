@@ -43,9 +43,9 @@ func TestDSHPanelExportContract(t *testing.T) {
 			}
 			w.WriteHeader(code)
 			fmt.Fprint(w, state)
-		case "/api/rooms/42/messages":
+		case "/collab/api/rooms/42/messages":
 			fmt.Fprint(w, `{"messages":[{"author_kind":"user","name":"User","text":" hello ","created_at":1700000000}]}`)
-		case "/api/rooms/43/messages":
+		case "/collab/api/rooms/43/messages":
 			if partial {
 				http.Error(w, "secret launch", 403)
 			} else {
