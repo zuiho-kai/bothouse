@@ -185,3 +185,29 @@ func TestHeldReportPassClosesBoardItem(t *testing.T) {
 		t.Fatalf("pass did not close the board item; board calls:\n%s", got)
 	}
 }
+
+// #1402: ws-pass with attachments passes the held text with the same verdict; the timeout after it
+// posts nothing more (11-10 #1395/#1398 went out 「主角色未验收」 after the attachments were passed).
+// Passing the text first and the attachments after: the second pass finds nothing, no repeat post.
+func TestHeldReportPassedNotPostedAgainAtTimeout(t *testing.T) {
+	e, p, store, item := heldFixture(t)
+	holdForTest(t, e, p, item, "")
+	key := e.heldReportFor(46).Key
+	if !strings.Contains(store.List()[0].Prompt, "带附件放行时这份文字一并放行") {
+		t.Fatalf("lead prompt does not say an attachment pass closes the text:\n%s", store.List()[0].Prompt)
+	}
+	if w := verdictCall(t, e, 46, "pass", "逐条：样片做到了，附件已看过并放行"); w.Code != http.StatusOK {
+		t.Fatalf("pass = %d %s", w.Code, w.Body)
+	}
+	e.teamExit.mu.Lock()
+	e.teamExit.reports[key].CreatedAt = time.Now().Add(-2 * leadAcceptTimeout)
+	e.teamExit.mu.Unlock()
+	e.recoverPendingReports(true)
+	if w := verdictCall(t, e, 46, "pass", "逐条：样片做到了，附件已看过并放行"); w.Code != http.StatusNotFound {
+		t.Fatalf("pass after pass = %d", w.Code)
+	}
+	got := p.sentTo("discord:chat1")
+	if len(got) != 1 || strings.Contains(got[0], leadUncheckedMark) {
+		t.Fatalf("posts after pass and timeout = %q", got)
+	}
+}
