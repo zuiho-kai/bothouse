@@ -176,6 +176,8 @@ const (
 	MsgPreviousProcessing        MsgKey = "previous_processing"
 	MsgQueueFull                 MsgKey = "queue_full"
 	MsgMessageQueued             MsgKey = "message_queued"
+	MsgMessageQueuedWaiting      MsgKey = "message_queued_waiting"
+	MsgMessageQueuedAgeUnknown   MsgKey = "message_queued_age_unknown"
 	MsgNoToolsAllowed            MsgKey = "no_tools_allowed"
 	MsgCurrentTools              MsgKey = "current_tools"
 	MsgCurrentSession            MsgKey = "current_session"
@@ -1342,6 +1344,22 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "📬 訊息已收到，將在目前任務完成後處理。",
 		LangJapanese:           "📬 メッセージを受信しました。現在のタスク完了後に処理します。",
 		LangSpanish:            "📬 Mensaje recibido — se procesará después de que termine la tarea actual.",
+	},
+	// #545: include status immediately, even for early arrivals. Args: running
+	// turn age (not message waiting time), pending message count (may be batched).
+	MsgMessageQueuedWaiting: {
+		LangEnglish:            "⏳ Current task runtime: %s; %d messages are queued (may be batched). Send /stop to stop the task. This may also clear queued messages; resend them if cleared.",
+		LangChinese:            "⏳ 当前任务运行时长：%s；队列有 %d 条待处理消息（可能合并处理）。可发 /stop 停止当前任务。停止可能清空排队消息；若被清空，请重新发送。",
+		LangTraditionalChinese: "⏳ 目前任務執行時間：%s；佇列有 %d 則待處理訊息（可能合併處理）。可傳 /stop 停止目前任務。停止可能清空排隊訊息；若被清空，請重新傳送。",
+		LangJapanese:           "⏳ 現在のタスク実行時間：%s。待機中のメッセージは %d 件です（まとめて処理する場合があります）。/stop でタスクを停止できます。待機中のメッセージも削除される場合があるため、削除されたら再送してください。",
+		LangSpanish:            "⏳ Tiempo de ejecución de la tarea actual: %s; hay %d mensajes en cola (pueden agruparse). Envía /stop para detenerla. Esto también puede vaciar la cola; si se vacía, vuelve a enviar los mensajes.",
+	},
+	MsgMessageQueuedAgeUnknown: {
+		LangEnglish:            "unknown",
+		LangChinese:            "未知",
+		LangTraditionalChinese: "未知",
+		LangJapanese:           "不明",
+		LangSpanish:            "desconocido",
 	},
 	MsgQueueFull: {
 		LangEnglish:            "📬 Message queue is full (%d pending). Please wait for current tasks to complete.",
