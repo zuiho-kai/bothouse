@@ -21,12 +21,17 @@ func startDesktopTray() bool {
 //
 // The release binary is a console-subsystem program (#1495), so that `bothouse --version` and the
 // other subcommands print into the terminal they were typed in; without a console subsystem the
-// process has no stdout there and the output is lost. The same subsystem makes Windows open a
-// console window when the exe is double-clicked, which the tray must not show.
+// process has no stdout there and the output is lost. The same subsystem makes Windows give the
+// process a console when the exe is double-clicked, and the tray must not show one.
 //
-// Only a console this process opened itself is hidden: GetConsoleProcessList returns every process
-// attached to the console, so more than one means it belongs to the terminal the user started
-// `bothouse` from — hiding that would take their own window away.
+// Detaching ends that console, which closes its window. ShowWindow on the window handle is not
+// enough on Windows 11: when Windows Terminal is the default terminal application the console's
+// window belongs to WindowsTerminal.exe, and hiding the console's own pseudo window leaves the
+// terminal window - the one a user actually sees - on screen (measured on the 3060 box, #1495).
+//
+// Only a console this process opened itself is detached: GetConsoleProcessList returns every
+// process attached to the console, so more than one means it belongs to the terminal the user
+// started `bothouse` from, and detaching must not take their window away.
 func hideOwnConsoleWindow() {
 	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
 	var procs [2]uint32 // one is all that distinguishes the two cases
@@ -35,11 +40,7 @@ func hideOwnConsoleWindow() {
 	if n != 1 {
 		return
 	}
-	hwnd, _, _ := kernel32.NewProc("GetConsoleWindow").Call()
-	if hwnd == 0 {
-		return
-	}
-	_, _, _ = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(hwnd, windows.SW_HIDE)
+	_, _, _ = kernel32.NewProc("FreeConsole").Call()
 }
 
 // A GUI-subsystem binary has no console at all, and Windows can hand a freshly started process
