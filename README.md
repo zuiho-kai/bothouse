@@ -154,8 +154,6 @@ One role in each chat channel is the **lead**. You talk to it; it splits the wor
 
 The team desk is a pixel office for your crew. Every member is a little character: idle ones wander between the window, whiteboard and coffee machine; whoever is working sits at a desk facing you, with the task tag above their head. A dispatch flies over as an envelope, progress notes float back to the lead's desk, finished work stacks up there waiting for review, rejected work comes back as a crumpled paper ball, and a paused member raises a hand. Even when nothing is moving you can see who handed what to whom. Every frame is a real event — a quiet team means a quiet office — and any past window can be replayed at 1×/4×/16×.
 
-<p align="center"><img src="docs/assets/readme/shot-desk.png" width="800" alt="Team desk: a pixel office where five AI roles sit at desks with task tags, next to a live feed of dispatches, hand-backs and rejections"></p>
-
 In DSH, switch on **Team desk** under Plugins → bothouse; it appears in the sidebar and works on a phone too. See [Team desk](dsh/collab/desk/README.md).
 
 <a id="pairing"></a>
@@ -164,7 +162,7 @@ In DSH, switch on **Team desk** under Plugins → bothouse; it appears in the si
 
 Open **Other computers** in the DSH sidebar and generate a code: six digits. Type them on another computer's DSH, or open the address shown in your phone's browser — no app to install — and you are in: channels, team desk and panel, sending messages and handing out work as if you were at home. Choose a temporary connection or remember the device; the home computer lists every connected device and can kick one off, which drops it on the spot. It only listens on your Tailscale network: codes are single-use, expire after five minutes and die after five wrong tries.
 
-<p align="center"><img src="docs/assets/readme/shot-pairing.png" width="720" alt="Left: the home computer shows a six-digit code. Right: the phone browser enters the same code to connect"></p>
+<p align="center"><img src="docs/assets/readme/shot-desk.png" width="400" alt="Team desk: a pixel office where five AI roles sit at desks with task tags, next to a live feed of dispatches, hand-backs and rejections"> <img src="docs/assets/readme/shot-pairing.png" width="400" alt="Left: the home computer shows a six-digit code. Right: the phone browser enters the same code to connect"></p>
 
 <a id="team"></a>
 
