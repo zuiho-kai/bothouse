@@ -994,12 +994,12 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	add("handoff", e.handoffBlock(session, sessionKey))
 	add("memory", e.memoryBlock(session)) // before the handoff: the index, then what the old context did
 	add("life_page", e.lifePageBlock())   // every turn, cron and timer included (lifepage.go)
+	add("member", e.memberBlock(session)) // once per context, with or without the gate (member_workspace.go)
 	if !turnCtx {
 		return content
 	}
 	add("turn_ctx", e.turnContext(session, sessionKey, query, sender))
 	add("team", e.teamBlock(session, sessionKey))
-	add("member", e.memberBlock(session))
 	return content
 }
 
