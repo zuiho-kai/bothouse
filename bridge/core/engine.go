@@ -1934,7 +1934,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	if job.IsShellJob() {
 		if check {
-			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, func(p Platform) error {
+			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, job.SessionKey, job.WorkDir, func(p Platform) error {
 				return e.executeCronShell(p, replyCtx, job)
 			})
 		}
@@ -2270,7 +2270,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 
 	if job.IsShellJob() {
 		if check {
-			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, func(p Platform) error {
+			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, job.SessionKey, job.WorkDir, func(p Platform) error {
 				return e.executeTimerShell(p, replyCtx, job)
 			})
 		}
@@ -13985,7 +13985,17 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			state.turnSentTexts = append(state.turnSentTexts, message)
 			state.mu.Unlock()
 		}
-		e.recordExternalSend(p, target.sessionKey, "", message, "脚本/API")
+		contextKey := sessionKey
+		if contextKey == "" {
+			contextKey = target.sessionKey
+		}
+		workDir := ""
+		if state != nil {
+			state.mu.Lock()
+			workDir = state.workspaceDir
+			state.mu.Unlock()
+		}
+		e.recordExternalSend(p, contextKey, workDir, message, "脚本/API")
 		// a workspace's own posts (ws-up stage results) also go into its task thread
 		e.postToTaskThread(p, sessionKey, message)
 	}

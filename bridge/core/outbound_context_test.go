@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -178,33 +179,81 @@ func TestExternalSendContext_PersistenceAndFailedModelSend(t *testing.T) {
 	if got := NewSessionManager(path).GetOrCreateActive("qq:p:616").takeOutboundContext(); got != "" {
 		t.Fatal("consumed pending text reappeared after restart")
 	}
+	e.appendExternalSend(reloaded, "qq:p:616", "retry-send", "脚本/API")
+	s.takeOutboundContext()
+	s.SettleHandoff(false)
+	// A capacity retry reuses the already-built prompt, without taking again.
+	s.SettleHandoff(true)
+	if s.takeOutboundContext() != "" {
+		t.Fatal("successful retry left already-delivered context pending")
+	}
+}
+
+func TestExternalSendContext_WorkspaceRouting(t *testing.T) {
+	for _, route := range []string{"prefixed", "active-default", "workdir"} {
+		t.Run(route, func(t *testing.T) {
+			e, p, _ := outboundFixture(t)
+			const key = "qq:616"
+			const text = "workspace-outbound-616"
+			workDir := t.TempDir()
+			e.workspacePool = newWorkspacePool(0)
+			ws := e.workspacePool.GetOrCreate(workDir)
+			ws.agent, ws.sessions = &outboundAgent{}, NewSessionManager("")
+			var err error
+			switch route {
+			case "prefixed":
+				err = e.SendToSession(workDir+":"+key, text)
+			case "active-default":
+				e.interactiveStates[workDir+":"+key] = &interactiveState{platform: p, replyCtx: "ctx", workspaceDir: workDir}
+				err = e.SendToSession("", text)
+			case "workdir":
+				err = e.SendToSessionInWorkDir(key, text, nil, nil, workDir, nil, false)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(ws.sessions.GetOrCreateActive(key).takeOutboundContext(), text) || e.sessions.GetOrCreateActive(key).takeOutboundContext() != "" {
+				t.Fatal("external context went to the wrong workspace")
+			}
+		})
+	}
 }
 
 func TestExternalSendContext_ScheduledOutputs(t *testing.T) {
-	for _, kind := range []string{"side", "cron-shell", "timer-shell", "mute"} {
+	for _, kind := range []string{"side", "cron-shell", "timer-shell", "mute", "check-success", "check-failure"} {
 		t.Run(kind, func(t *testing.T) {
 			e, p, as := outboundFixture(t)
 			const key = "qq:p:616"
 			const text = "scheduled-outbound-616"
 			as.script = []string{text}
+			command := "printf '" + text + "'"
+			if runtime.GOOS == "windows" {
+				command = "Write-Output '" + text + "'"
+			}
 			var err error
 			switch kind {
 			case "side":
 				err = e.ExecuteCronJob(&CronJob{ID: "616", SessionKey: key, Description: "daily notes", Prompt: "share notes", SessionMode: "new_per_run"})
 			case "cron-shell", "mute":
-				err = e.ExecuteCronJob(&CronJob{ID: "616", SessionKey: key, Description: "daily notes", Exec: "printf '" + text + "'", Mute: kind == "mute"})
+				err = e.ExecuteCronJob(&CronJob{ID: "616", SessionKey: key, Description: "daily notes", Exec: command, Mute: kind == "mute"})
 			case "timer-shell":
-				err = e.executeTimerShell(p, "ctx", &TimerJob{ID: "616", SessionKey: key, Exec: "printf '" + text + "'"})
+				err = e.executeTimerShell(p, "ctx", &TimerJob{ID: "616", SessionKey: key, Exec: command})
+			case "check-success", "check-failure":
+				cmd := command
+				if kind == "check-failure" {
+					cmd += "; exit 1"
+				}
+				err = e.ExecuteCronJob(&CronJob{ID: "616", SessionKey: key, Description: "daily self-check", Exec: cmd})
 			}
-			if err != nil {
-				t.Fatal(err)
+			if (err != nil) != (kind == "check-failure") {
+				t.Fatalf("unexpected scheduled job error: %v", err)
 			}
 			before := as.sends()
 			if err := e.ExecuteHeartbeat(key, "recall prior sends", true); err != nil {
 				t.Fatal(err)
 			}
 			got := as.sentPrompts()[before]
-			if strings.Contains(got, text) != (kind != "mute") {
+			if strings.Contains(got, text) != (kind != "mute" && kind != "check-success") {
 				t.Fatalf("scheduled text presence wrong for %s", kind)
 			}
 		})
