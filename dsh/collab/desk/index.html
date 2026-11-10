@@ -290,7 +290,7 @@ const DEMO_MEMBERS = [
 
 const S = {
   me: null, memberList: [], byId: new Map(), alias: new Map(), rosterFor: new Map(), names: {},
-  lead: null, active: new Map(), cloneNodes: new Map(), thinkingRooms: new Map(), thinking: new Set(), dispatched: new Set(),
+  lead: null, active: new Map(), review: new Map(), cloneNodes: new Map(), thinkingRooms: new Map(), thinking: new Set(), dispatched: new Set(),
   fixture: false, mode: 'live', eventCount: 0, logLimit: 80,
   replay: { events: [], idx: 0, timer: null, playing: false, speed: 4, loaded: false, auto: false },
 };
@@ -875,6 +875,7 @@ function boardDone(memberId, taskId) {
 }
 function barWidth(rec, now) { const min = Math.max(0, (now - (rec.t ?? now)) / 60000); return Math.round(4 + Math.min(56, min / 120 * 56)); }
 function drawTaskBoard(ctx, now) {
+  P.lamps = [];
   const tasks = liveTasks(), at = simNow(), rows = 5;
   for (let i = 0; i < Math.min(rows, tasks.length); i++) {
     const t = tasks[i], y = 13 + i * 5;
@@ -903,15 +904,20 @@ function lampSlots() {
 const LAMP_MAX = 12;
 function drawLamps(ctx, now) {
   const L = lampSlots();
-  P.lamps = [];
   if (!L) return;
   px(ctx, L.x - 17, L.y + 2, 10, 7, '#3a2a1c'); px(ctx, L.x + 8, L.y + 2, 10, 7, '#3a2a1c');
   const at = simNow();
+  // 交回待验收的文件在桌面左边叠成一摞，一件一层，最多 8 层，多的不再加高
+  [...S.review.values()].slice(-8).forEach((f, i) => {
+    const fy = L.y - 7 - i * 2;
+    px(ctx, L.x - 17, fy, 9, 2, '#f8f4ea'); px(ctx, L.x - 17, fy + 1, 9, 1, '#d8d0bf'); px(ctx, L.x - 17, fy, 2, 2, f.color);
+  });
   liveTasks().slice(0, LAMP_MAX).forEach((t, i) => {
     const p = L.lamp(i);
     const stale = at - (t.rec.seen ?? t.rec.t ?? at) > STALE_MS;
     const hot = P.hoverKey === t.key;
     if (hot) px(ctx, p.x - 1, p.y - 1, 4, 4, '#ffffff');
+    if (P.lampPing && P.lampPing.key === t.key && now - P.lampPing.t0 < 700) { ctx.globalAlpha = 0.6; px(ctx, p.x - 2, p.y - 2, 6, 6, '#fff7c2'); ctx.globalAlpha = 1; }
     if (stale) px(ctx, p.x, p.y, 2, 2, Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326');
     else { px(ctx, p.x, p.y, 2, 2, t.color); px(ctx, p.x, p.y, 1, 1, '#ffffff'); }
     P.lamps.push({ key: t.key, memberId: t.memberId, rec: t.rec, x: p.x, y: p.y, color: t.color });
@@ -925,6 +931,37 @@ function drawHoverLink(ctx, now) {
   const ax = lamp.x, ay = lamp.y, n = Math.max(1, Math.round(Math.hypot(B.x - ax, B.y - ay)));
   const off = Math.floor(now / 90);
   for (let i = 0; i <= n; i++) if (((i + off) >> 1) % 2 === 0) px(ctx, ax + (B.x - ax) * i / n, ay + (B.y - ay) * i / n, 1, 1, i % 4 ? lamp.color : '#ffffff');
+}
+function slipFrom(memberId) {
+  if (!S.lead || !P.agents.has(S.lead)) return;
+  const map = S.active.get(memberId);
+  if (!map || !map.size) return;
+  const now = performance.now();
+  P.slipLast = P.slipLast || new Map();
+  if (now - (P.slipLast.get(memberId) ?? -1e9) < 4000) return;
+  P.slipLast.set(memberId, now);
+  const keys = [...map.keys()], n = (P.slipTurn = (P.slipTurn || 0) + 1);
+  const key = keys[n % keys.length], rec = map.get(key);
+  rec.seen = simNow();
+  const body = bodyRef(memberId, rec.id || null).id;
+  if (body === S.lead) { P.lampPing = { key, t0: now }; return; }
+  (P.slips = P.slips || []).push({ from: body, key, t0: now, dur: 1600, seed: Math.random() * 6 });
+}
+function drawSlips(ctx, now) {
+  const L = lampSlots();
+  P.slips = (P.slips || []).filter(sl => {
+    const A = headOf(sl.from);
+    if (!A || !L) return false;
+    const k = Math.min(1, (now - sl.t0) / sl.dur);
+    const bx = L.x - 13, by = L.y - 8;
+    const e = k * k * (3 - 2 * k), lift = 22;
+    const x = A.x + (bx - A.x) * e + Math.sin(k * 9 + sl.seed) * 3 * (1 - k);
+    const y = A.y + (by - A.y) * e - Math.sin(Math.PI * k) * lift;
+    const flip = Math.floor(now / 160 + sl.seed) % 2;
+    px(ctx, x - 3, y - 2, 7, flip ? 5 : 4, '#0b0910'); px(ctx, x - 2, y - 1, 5, flip ? 3 : 2, '#fffdf4'); px(ctx, x - 1, y, 3, 1, '#9aa3ad');
+    if (k >= 1) { P.lampPing = { key: sl.key, t0: now }; return false; }
+    return true;
+  });
 }
 function onStageHover(e) {
   const stage = $('stage'), r = stage.getBoundingClientRect();
@@ -1024,6 +1061,7 @@ function frame(now) {
   for (const it of list) it.draw();
   drawLights(ctx, sky.night, now);
   drawBeams(ctx, now, dt);
+  drawSlips(ctx, now);
   drawHoverLink(ctx, now);
   placeOverlays(now);
 }
@@ -1484,8 +1522,10 @@ function setThinkingRooms(map) {
 function applyThinking(ev) {
   const room = String(ev.room_id ?? '');
   const set = new Set(Array.isArray(ev.members) ? ev.members : []);
+  const before = new Set(S.thinking);
   if (set.size) S.thinkingRooms.set(room, set); else S.thinkingRooms.delete(room);
   recomputeThinking();
+  for (const id of S.thinking) if (!before.has(id)) slipFrom(id);
   paintAll();
 }
 
@@ -1566,6 +1606,10 @@ function applyTask(ev, animate = true, quiet = false) {
   const toName = to ? displayName(to) : (ev.to || '—');
   const header = id ? `#${id} ${title}`.trim() : title;
 
+  if (id) {
+    if (kind === 'returned') { const w = to || (findActive(id) ? S.byId.get(findActive(id).memberId) : null); S.review.set(id, { color: w ? styleOf(w).hair : '#c9ced6', t: ms }); }
+    else S.review.delete(id);
+  }
   if (kind === 'created' || kind === 'assigned') {
     if (to) {
       const prev = findActive(id);
@@ -1647,6 +1691,8 @@ function applyMessage(ev, animate = true) {
       i += hit[0].length;
     }
   }
+  // 干活的人在频道里说话也算一次真实动静：飘一张进度纸条回主角色桌
+  if (animate) slipFrom(author.id);
   if (!targets.size) return;
   if (animate) for (const target of targets) beam(author, target, 'at');
   const ts = ev.ts ?? (message.created_at ? message.created_at * 1000 : Date.now());
@@ -1698,6 +1744,7 @@ async function loadState() {
 async function loadDeskState() {
   const data = await api(ROOT + '/collab/api/desk/state');
   for (const ev of data.tasks ?? []) applyTask({ ...ev, type: 'task' }, false, true);
+  for (const ev of data.returned ?? []) applyTask({ ...ev, type: 'task' }, false, true);
 }
 
 function connectLive() {
@@ -1716,6 +1763,8 @@ function connectLive() {
 function resetScene(clearLog = true) {
   stopReplayTimer();
   S.active.clear();
+  S.review.clear();
+  P.slips = [];
   S.thinkingRooms.clear();
   S.thinking.clear();
   S.dispatched.clear();
