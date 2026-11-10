@@ -59,9 +59,17 @@ type pendingReport struct {
 	Posted    bool   `json:"posted"` // the headline is already in the chat channel
 	// Held: a [report] waiting for the chat lead's acceptance (team_report_accept.go); the user
 	// has not seen it. Only ws-pass (release), ws-forward (reject) or leadAcceptTimeout end it.
-	Held        bool      `json:"held,omitempty"`
-	Verdict     string    `json:"verdict,omitempty"` // the lead's item-by-item check, or why it went back
-	Doubt       string    `json:"doubt,omitempty"`   // the intent check's doubt; pass then needs the user's own words (team_report_doubt.go)
+	Held    bool   `json:"held,omitempty"`
+	Verdict string `json:"verdict,omitempty"` // the lead's item-by-item check, or why it went back
+	Doubt   string `json:"doubt,omitempty"`   // the intent check's doubt; pass then needs the user's own words (team_report_doubt.go)
+	// Waiting: the held report says the task is blocked outside (「等外部：」, team_wait_external.go): progress,
+	// not the end. Its board item is parked and comes back by itself, so the lead's pass posts it without
+	// closing the item, and no verdict in time drops it instead of posting it unchecked (#1378).
+	Waiting bool `json:"waiting,omitempty"`
+	// HeldBound / HeldDone: the board item's bind time and whether it was already closed when the report
+	// was held. A later rebind, a newer handoff of the same notes or a close ends the hold (#1378).
+	HeldBound   string    `json:"held_bound,omitempty"`
+	HeldDone    bool      `json:"held_done,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	DeliveredAt time.Time `json:"delivered_at,omitzero"`
 	Attempts    int       `json:"attempts,omitempty"`
@@ -529,7 +537,18 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 		held := rec.Held
 		e.teamExit.mu.Unlock()
 		if held {
-			// No verdict from the lead in time: post it as written, marked unchecked (11-09).
+			// The lead closed the item, or the work went on in a new handoff: nothing is left to accept (#1378).
+			if why := e.heldReportSuperseded(k); why != "" {
+				e.dropHeldReport(k, why)
+				continue
+			}
+			// No verdict from the lead in time: post it as written, marked unchecked (11-09). A
+			// progress report on a task waiting outside is not posted: the task comes back by itself
+			// and its final report goes to the lead again (#1378).
+			if time.Since(createdAt) >= leadAcceptTimeout && e.heldReportWaiting(k) {
+				e.dropHeldReport(k, heldWaitExpired)
+				continue
+			}
 			if time.Since(createdAt) >= leadAcceptTimeout {
 				if err := e.deliverHeldReport(k, "", true); err != nil {
 					slog.Error("report accept: unchecked fallback post failed; record kept", "key", k, "error", err)

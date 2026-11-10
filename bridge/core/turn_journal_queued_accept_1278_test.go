@@ -11,7 +11,7 @@ import (
 func TestTurnJournalQueuedAcceptKeepsInstructionsAcrossRestart(t *testing.T) {
 	body := "[report] #1274 背景：做了，换了做法：没改 ParkTeamWorkspace，因为" + strings.Repeat("细", 3000)
 	notes := "/n/handoff-1274.md"
-	accept := leadAcceptPrompt(t.TempDir(), "<#1>", "橘", body, 1274, notes, "", "", "用户原话：……")
+	accept := leadAcceptPrompt(t.TempDir(), "<#1>", "橘", body, 1274, notes, "", "", "用户原话：……", 0)
 	if n := len([]rune(accept)); n <= turnJournalMaxUserMessage {
 		t.Fatalf("fixture too short to exercise the cut: %d runes", n)
 	}

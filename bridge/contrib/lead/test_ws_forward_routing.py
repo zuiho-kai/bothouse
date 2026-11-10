@@ -92,6 +92,23 @@ class ForwardRecipientTest(unittest.TestCase):
         self.assertEqual(reject[:5], ["bothouse", "report", "reject", "--id", "1271"])
         self.board.arm_guard.assert_called_once_with(1271)
 
+    def test_waiting_external_item_resumes_and_rejects_held_report(self):
+        # #1378: 11-10 #1376 was parked 「等外部」 (workspace freed, busy on another chat's #936); the lead's
+        # forward exited 「没转」 and the held progress report was posted 「主角色未验收」 10 minutes later.
+        parked = dict(id=1376, where=self.notes, chat="discord:chat", paused="11-10 17:37", pause_why="等外部：CI 排队")
+        other = dict(id=936, where="/other.md", ws="discord:ws3", chat="discord:other")
+        self.record["board"] = [1376]
+        self.board.items = lambda: [parked, other]
+        self.board.paused_item = lambda p: parked if p == self.notes else None
+        self.board.ASK_WHY, self.board.WAIT_EXT = "等待用户答复", "等外部："
+        self.ns["__file__"] = str(HERE / "ws-forward")
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
+            self.ns["main"](["CI 绿了，接着发版"])
+        self.assertEqual(cm.exception.code, 0)
+        cmds = [c.args[0] for c in self.run.call_args_list]
+        self.assertTrue(cmds[0][0].endswith("ws-handoff") and cmds[0][1:3] == ["--resume", "1376"], cmds[0])
+        self.assertEqual(cmds[1][:5], ["bothouse", "report", "reject", "--id", "1376"])
+
     def test_cross_project_forward_keeps_recipient_and_workspace(self):
         cmd = self.forward()
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")
