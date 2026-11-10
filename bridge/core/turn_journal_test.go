@@ -380,7 +380,7 @@ func TestTurnJournalPromptTooLongRerunSupersedesEntry(t *testing.T) {
 	e.handleMessage(p, &Message{SessionKey: key, Platform: "test", UserID: "u", UserName: "u", Content: "hello", ReplyCtx: "ctx"})
 	waitFor(t, "re-run sent", func() bool { sent, _, _ := a.snapshot(); return len(sent) == 2 })
 	got := e.TurnJournal().List()
-	if len(got) != 1 || got[0].LastUserMessage != "hello" || got[0].AgentSessionID != "s2" || got[0].InteractiveKey != key {
+	if len(got) != 1 || got[0].LastUserMessage != latestMark+"\nhello" || got[0].AgentSessionID != "s2" || got[0].InteractiveKey != key {
 		t.Fatalf("entries during re-run: %+v", got)
 	}
 	close(a.release)

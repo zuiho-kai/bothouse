@@ -3496,7 +3496,7 @@ func TestHandleMessage_AutoResetOnIdle_RotatesToNewSession(t *testing.T) {
 	if len(history) != 2 {
 		t.Fatalf("new session history len = %d, want 2", len(history))
 	}
-	if history[0].Role != "user" || history[0].Content != "hello after idle" {
+	if history[0].Role != "user" || history[0].Content != latestMark+"\nhello after idle" {
 		t.Fatalf("unexpected first history entry: %#v", history[0])
 	}
 	if history[1].Role != "assistant" || history[1].Content != "fresh reply" {
@@ -5957,7 +5957,7 @@ func TestHandleMessage_ExtraContentOnlyIsProcessed(t *testing.T) {
 
 	e.handleMessage(p, msg)
 
-	if msg.Content != "> quoted reply context" {
+	if msg.Content != latestMark+"\n> quoted reply context" {
 		t.Fatalf("Content = %q, want ExtraContent to become message content", msg.Content)
 	}
 }
