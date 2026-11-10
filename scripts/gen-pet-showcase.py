@@ -1,8 +1,11 @@
 # Generates bridge/core/pet_showcase.json from a checkout of hunmer/aboutme-pets at the pinned commit (#549).
-# Usage: python3 gen-pet-showcase.py <checkout of pets/ at COMMIT> <out.json> [pets.json of the same commit]
-import hashlib, json, os, sys
+# Usage: python3 gen-pet-showcase.py <repository checkout at COMMIT> <out.json> [pets.json of the same commit]
+import hashlib, json, os, subprocess, sys
 root, out = sys.argv[1], sys.argv[2]
 COMMIT = "cb205c271517336b500981a2cca050a1759bceaa"
+actual = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
+if actual != COMMIT:
+    raise SystemExit("Checkout must be at pinned commit " + COMMIT + "; got " + actual)
 cat_path = sys.argv[3] if len(sys.argv) > 3 else os.path.join(root, "pets.json")
 catalog = {p["manifest"].split("/")[1]: p for p in json.load(open(cat_path))["pets"]} if os.path.exists(cat_path) else {}
 META = {

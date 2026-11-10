@@ -26,10 +26,8 @@ dsh-pet 透明 WebM 包可用 `main-config.jsonc`、`assets/config.jsonc`、`dsh
 
 ## 开源展示包与按需下载
 
-
 - 插件页「开源形象包」列出 hunmer/aboutme-pets 的 dsh1、claude、gpt、gemini 四包（`bridge/core/pet_showcase.json`：来源仓库、固定提交、每个文件的 sha256）。点「从作者仓库下载到本机」才按固定提交从 raw.githubusercontent.com 下载、逐个校验，全对才放进 `pets/<包>`；bothouse 仓库和发布页都不带素材。下载失败在卡片上写原因，不影响默认形象。
 - `POST /api/v1/plugins/pets/fetch {"pack":"dsh1"}` 后台下载，进度在 `GET /api/v1/plugins/pets` 的 `showcase[].fetch`。
-
 
 ### 四个展示包的许可（2026-11-09 按固定提交核对）
 
@@ -41,3 +39,5 @@ dsh-pet 透明 WebM 包可用 `main-config.jsonc`、`assets/config.jsonc`、`dsh
 本项目按这些说明仅提供个人非商用的按需下载入口，不把缺少许可文件解释为获得了再分发授权。素材不会打入仓库或安装包；商用或再分发前应先向作者取得相应授权。
 
 下载完成后可在插件页选择并预览。桌面每角色一只的内置形象与布局沿用现有实现；本轮不引入形象包导入或精灵图转桌面视频。
+
+更新清单：在上游仓库固定提交的 checkout 上运行 `python3 scripts/gen-pet-showcase.py <上游仓库根目录> bridge/core/pet_showcase.json`；脚本会核对 checkout 提交，避免把其他版本的哈希写成固定来源。

@@ -6,12 +6,12 @@ import PluginHubPage from './PluginHubPage';
 import api from '@/api/client';
 import { listRoles } from '@/api/roles';
 import { listPlugins, switchPlugin } from '@/api/plugins';
-import { listInstalledPetPacks } from '@/api/pets';
+import { fetchShowcasePack, listInstalledPetPacks } from '@/api/pets';
 import { getRoleBindings, saveRoleBindings } from '@/api/roleBindings';
 import { subscribeRoleEvents, type RoleState } from '@/api/roleEvents';
 vi.mock('@/api/roles', () => ({ listRoles: vi.fn() }));
 vi.mock('@/api/plugins', () => ({ listPlugins: vi.fn(), switchPlugin: vi.fn() }));
-vi.mock('@/api/pets', () => ({ listInstalledPetPacks: vi.fn() }));
+vi.mock('@/api/pets', () => ({ listInstalledPetPacks: vi.fn(), fetchShowcasePack: vi.fn() }));
 vi.mock('@/api/roleBindings', () => ({ getRoleBindings: vi.fn(), saveRoleBindings: vi.fn() }));
 vi.mock('@/api/roleEvents', () => ({ subscribeRoleEvents: vi.fn() }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -50,6 +50,42 @@ async function select(id: string, value: string) {
   await act(async () => { const e = find(id) as HTMLSelectElement; e.value = value; e.dispatchEvent(new Event('change', { bubbles: true })); });
 }
 describe('plugin page backend integration', () => {
+  it('downloads only on click and makes the verified pack selectable after refresh', async () => {
+    const showcase = [{ id: 'dsh1', dir: 'pets/dsh1', name: '作者鲸鱼', description: '社区形象', forRole: 'DeepSeek',
+      license: '个人非商用；Non-commercial; attribution required', bytes: 1000000,
+      source: 'https://github.com/hunmer/aboutme-pets/tree/pinned/pets/dsh1', installed: false }];
+    vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs, showcase });
+    vi.mocked(fetchShowcasePack).mockResolvedValue({ state: 'downloading', done: 0, total: 1 });
+    await render();
+    expect(fetchShowcasePack).not.toHaveBeenCalled();
+    expect(find('showcase-pack-dsh1').textContent).toContain('个人非商用');
+    expect(find('pet-import-section')).toBeNull();
+    vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs,
+      installed: [...packs.installed, { ...packs.installed[0], id: 'dsh1', name: '作者鲸鱼' }],
+      showcase: [{ ...showcase[0], installed: true }] });
+    await click('showcase-download-dsh1');
+    expect(fetchShowcasePack).toHaveBeenCalledWith('dsh1');
+    expect((find('showcase-download-dsh1') as HTMLButtonElement).disabled).toBe(true);
+    expect(find('select-pack-bridge:deep').textContent).toContain('作者鲸鱼');
+    expect((find('select-pack-bridge:deep') as HTMLSelectElement).value).toBe('local-pack');
+    expect(saveRoleBindings).not.toHaveBeenCalled();
+  });
+  it('shows immediate and background download failures while keeping the current pack', async () => {
+    const showcase = [{ id: 'dsh1', dir: 'pets/dsh1', name: '作者鲸鱼', description: '', forRole: 'DeepSeek',
+      license: '个人非商用', bytes: 1000000, source: 'https://github.com/hunmer/aboutme-pets', installed: false }];
+    vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs, showcase });
+    vi.mocked(fetchShowcasePack).mockRejectedValue(new Error('HTTP 503'));
+    await render(); await click('showcase-download-dsh1');
+    expect(find('showcase-error-dsh1').textContent).toContain('HTTP 503');
+    vi.mocked(fetchShowcasePack).mockResolvedValue({ state: 'downloading', done: 0, total: 1 });
+    vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs,
+      showcase: [{ ...showcase[0], fetch: { state: 'failed', done: 1, total: 1, error: 'sha256 校验不对' } }] });
+    await click('showcase-download-dsh1');
+    expect(find('showcase-error-dsh1').textContent).toContain('sha256');
+    expect(find('showcase-error-dsh1').textContent).toContain('默认形象不受影响');
+    expect((find('select-pack-bridge:deep') as HTMLSelectElement).value).toBe('local-pack');
+    expect(saveRoleBindings).not.toHaveBeenCalled();
+  });
   it('never reintroduces stale manifest actions after receiving the authoritative table', async () => {
     vi.mocked(listInstalledPetPacks).mockResolvedValue({ ...packs, installed: [{ ...packs.installed[0],
       actions: [action('idle-from-actions')],
