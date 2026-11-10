@@ -339,12 +339,30 @@ function applySayLeaf(petId, leaf) {
 }
 
 /** 工作状态叶子 → 各宠物切档位动画 + 气泡（含回到空闲：state=null 用于收起常驻气泡） */
+// bothouse fork：按宠物的工作状态（宿主 sections.workStatus.pets，POST /work-status?pet=<id>）。
+// 有自己那份的宠物只跟自己的走，tick 也只在自己那份变了才前进；别的宠物照上游吃全局快照。
+const petWork = new Map(); // petId → { key, tick }
+let globalWorkKey = '';
+
 function applyWorkStatusLeaf(leaf) {
   const snap = S.toWorkStatus(leaf.data);
   if (!snap) return;
-  workTick++;
+  const pets = snap.pets || {};
+  for (const [id, slot] of Object.entries(pets)) {
+    const key = String(slot.state) + '\u0000' + String(slot.task);
+    const prev = petWork.get(id);
+    if (!prev || prev.key !== key) petWork.set(id, { key, tick: (prev ? prev.tick : 0) + 1 });
+  }
+  const gKey = String(snap.state) + '\u0000' + String(snap.task) + '\u0000' + String(snap.sessionId);
+  if (gKey !== globalWorkKey || !snap.pets) workTick++;
+  globalWorkKey = gKey;
   // 睡着不看不听：自动来源的工作状态整条跳过（动画与气泡都不更新），醒来后的下一次状态变化重新对齐
-  for (const s of sprites) if (!s.sleeping) s.onWorkTick(snap, workTick);
+  for (const s of sprites) {
+    if (s.sleeping) continue;
+    const own = pets[s.pet.id];
+    if (own) s.onWorkTick({ state: own.state, task: own.task, sessionId: null }, petWork.get(s.pet.id).tick);
+    else s.onWorkTick(snap, workTick);
+  }
 }
 
 /** 点播动画叶子 → 对应宠物播该动画。

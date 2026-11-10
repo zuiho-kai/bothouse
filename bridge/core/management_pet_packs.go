@@ -41,8 +41,9 @@ type PetPackInfo struct {
 }
 
 type PetPacksResponse struct {
-	Installed []PetPackInfo `json:"installed"`
-	BaseDir   string        `json:"baseDir"`
+	Installed []PetPackInfo      `json:"installed"`
+	BaseDir   string             `json:"baseDir"`
+	Showcase  []PetShowcaseEntry `json:"showcase"`
 }
 
 // The entry point selects DataDir (brand.go) and passes it through SetWizard.
@@ -333,7 +334,7 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 		mgmtError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	result := PetPacksResponse{Installed: []PetPackInfo{}, BaseDir: dir}
+	result := PetPacksResponse{Installed: []PetPackInfo{}, BaseDir: dir, Showcase: m.petShowcaseEntries(dir, nil)}
 	base, err := os.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		mgmtJSON(w, http.StatusOK, result)
@@ -353,6 +354,10 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 		if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
 			continue
 		}
+		// A staged download is not an installed pack.
+		if strings.HasSuffix(entry.Name(), ".part") {
+			continue
+		}
 		info := PetPackInfo{ID: entry.Name(), Name: entry.Name(), LocalPath: filepath.Join(dir, entry.Name()), Actions: []PetPackAction{}}
 		pack, err := base.OpenRoot(entry.Name())
 		if err == nil {
@@ -366,6 +371,11 @@ func (m *ManagementServer) handlePetPacks(w http.ResponseWriter, r *http.Request
 		}
 		result.Installed = append(result.Installed, info)
 	}
+	installed := map[string]bool{}
+	for _, p := range result.Installed {
+		installed[p.ID] = p.Error == ""
+	}
+	result.Showcase = m.petShowcaseEntries(dir, installed)
 	mgmtJSON(w, http.StatusOK, result)
 }
 

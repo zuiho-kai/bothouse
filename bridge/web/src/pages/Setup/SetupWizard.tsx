@@ -146,12 +146,13 @@ export default function SetupWizard() {
   const [saving, setSaving] = useState(false);
   const [restarted, setRestarted] = useState(false);
   const [copied, setCopied] = useState('');
-  // allow_from: defaults to the bots' owners (from the token check) until the user edits it
+  // allow_from: defaults to * (everyone in the picked server) until the user edits it
   const [allowFrom, setAllowFrom] = useState<string | null>(null);
   // memory wiki models: start from what is in effect; only the ones changed go into the request
   const [wikiPick, setWikiPick] = useState<WizardWiki>({});
   const wikiInfo = state?.wiki;
   // the two "install globally" checkboxes: null = what the machine has now (off by default)
+  const [memberWS, setMemberWS] = useState(false); // #1355: recommended for a team, the user ticks it
   const [globalPick, setGlobalPick] = useState<{ memory: boolean | null; guards: boolean | null }>({ memory: null, guards: null });
   const globalMemory = globalPick.memory ?? !!state?.global_memory;
   const globalGuards = globalPick.guards ?? !!state?.global_guards;
@@ -172,6 +173,14 @@ export default function SetupWizard() {
   }, [platform, state]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the CLI step tells you to log in from a terminal: look again on reaching it and on coming back to the page
+  useEffect(() => {
+    if (step !== 2) return;
+    const recheck = () => { getCLIs().then((r) => setClis(r.clis)).catch(() => {}); };
+    recheck();
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
+  }, [step]);
 
   // default CLI: first installed one that is logged in, else first supported
   const defaultAgent = useMemo(() => {
@@ -377,8 +386,9 @@ export default function SetupWizard() {
     }
   };
 
-  const ownerDefault = Array.from(new Set(roles.map((r) => r.info?.owner_id).filter(Boolean))).join(',');
-  const allowFromValue = allowFrom ?? ownerDefault;
+  // default: everyone in the picked server (the bots stay pinned to it), so a team channel answers
+  // its other members too; the owners still get admin_from on the server side
+  const allowFromValue = allowFrom ?? '*';
 
   // ── request ──
   const buildRequest = (maskSecrets = false): WizardRequest => {
@@ -430,6 +440,7 @@ export default function SetupWizard() {
     }
     req.global_memory = globalMemory;
     req.global_guards = globalGuards;
+    if (roles.length > 1 && memberWS) req.member_workspaces = true;
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     // the submitted request and the copyable AI command carry the same routing setting
     const gate = wizardGate(visibleSteps.includes(4), gateMode !== 'off', gateMode);
@@ -1042,6 +1053,13 @@ export default function SetupWizard() {
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={globalGuards} data-testid="global-guards"
                     onChange={(e) => setGlobalPick({ ...globalPick, guards: e.target.checked })} />{T.globalGuards}</label>
                 </div>
+                {roles.length > 1 && (
+                  <div className="space-y-1" data-testid="member-workspaces">
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={memberWS} data-testid="member-workspaces-check"
+                      onChange={(e) => setMemberWS(e.target.checked)} />{T.memberWS}</label>
+                    <p className="text-xs text-gray-500">{T.memberWSNote}</p>
+                  </div>
+                )}
                 {platform === 'discord' && (
                   <div className="space-y-1">
                     <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />

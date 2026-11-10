@@ -287,6 +287,57 @@ func TestDSHWebSelfHealCachesFailures(t *testing.T) {
 	}
 }
 
+// A release update moves the launchd log into a new directory and leaves the state file pointing at
+// the old one's log, so the announcement is in a file the state file does not name. The heal has to
+// find it there and record the log it actually read (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 2 条).
+func TestDSHWebSelfHealFindsTheAnnouncementInANewReleaseLog(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	panel := setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	home := os.Getenv("HOME")
+	oldDir := filepath.Join(home, "releases", "bothouse-develop-old-20261101-who")
+	newDir := filepath.Join(home, "releases", "bothouse-develop-new-20261105-who")
+	for _, d := range []string{oldDir, newDir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The old release's log is the one the state file names; it holds a dead host's announcement.
+	oldLog := filepath.Join(oldDir, "dsh-web.log")
+	if err := os.WriteFile(oldLog, []byte("dsh web: http://127.0.0.1:1/?token=dead\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newLog := filepath.Join(newDir, "dsh-web.log")
+	if err := os.WriteFile(newLog, []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	staleState(t, "http://127.0.0.1:"+port+"/?token=stale#channels", 0, "no announcement here")
+	// staleState wrote its own log in a temp dir; point the state file at the old release log.
+	web, _, ok := readDSHWebState()
+	if !ok {
+		t.Fatal("state file unreadable")
+	}
+	web.Log = oldLog
+	b, _ := json.Marshal(web)
+	if err := os.WriteFile(dshWebStatePath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s := getState(t, dshSignIn(t, panel, "secret"), panel.URL); s != http.StatusOK {
+		t.Fatalf("after self-heal: %d, want 200", s)
+	}
+	var got DSHWeb
+	if err := json.Unmarshal(readStateRaw(t), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Log != newLog {
+		t.Fatalf("state log = %q, want the release log it read (%q)", got.Log, newLog)
+	}
+	if !strings.HasPrefix(got.URL, "http://127.0.0.1:"+port+"/?token=launch") {
+		t.Fatalf("state url = %q, want the token from the new release log", got.URL)
+	}
+}
+
 func TestLastDSHWebURL(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {

@@ -419,7 +419,8 @@ func TestModuleAddDiscordCommandAgainstFakeAPI(t *testing.T) {
 		t.Fatalf("result %s (%v)", out, jerr)
 	}
 	raw, _ := os.ReadFile(path)
-	if !strings.Contains(string(raw), `type = "discord"`) || !strings.Contains(string(raw), `allow_from = "777"`) {
+	// 281e81d4 (#1476): --guild picks a server, so the wizard defaults allow_from to "*" there.
+	if !strings.Contains(string(raw), `type = "discord"`) || !strings.Contains(string(raw), `allow_from = "*"`) {
 		t.Fatalf("config:\n%s", raw)
 	}
 }

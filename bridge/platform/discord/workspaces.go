@@ -107,20 +107,52 @@ func (p *Platform) UnshelveTeamWorkspaceChannel(ctx context.Context, workspaceID
 const roleSettingsHint = "如果 bot 已在服务器，请到「服务器设置 → 身份组」里，给 bot 的身份组勾上缺的权限，重新点链接不会更新权限。"
 
 const (
-	permManageChannels = "管理频道 (Manage Channels)"
-	permPinMessages    = "置顶消息 (Pin Messages)"
+	permManageChannels = core.PermManageChannels
+	permPinMessages    = core.PermPinMessages
 )
 
 // missingPermissionErr turns Discord's bare 50013 Missing Permissions into an error that names
 // the permission and gives the re-invite link (same permissions as the wizard's invite), so the
 // user knows what to add. Other errors pass through unchanged; the original stays wrapped.
 func (p *Platform) missingPermissionErr(err error, perm string) error {
+	return p.missingPermissionErrIn(err, perm, "")
+}
+
+// missingPermissionErrIn is missingPermissionErr for an action in channelID: the invite link names the
+// server that channel is in. One bot serves several servers and the configured guild_id is only one of
+// them (agentm 11-10: the hint named agentm's server while the three channels were in another).
+func (p *Platform) missingPermissionErrIn(err error, perm, channelID string) error {
 	var rest *discordgo.RESTError
 	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeMissingPermissions {
 		return err
 	}
-	return fmt.Errorf("Discord bot 缺「%s」权限。bot 还没进服务器的，打开这个链接邀请：%s ；%s频道单独设了权限的，还要去该频道设置里给 bot 放开这项权限。原始错误：%w",
-		perm, core.DiscordInviteURL(p.appID, p.guildID), roleSettingsHint, err)
+	// The hint is what the channel is told once (core permissionNotice): which permission, what it
+	// blocks, where to tick it.
+	return &core.MissingPermissionError{Perm: perm, Err: err, Hint: fmt.Sprintf(
+		"Discord bot 缺「%s」权限%s。%s频道单独设了权限的，还要去该频道设置 → 权限里给 bot 放开这项。bot 还没进服务器的，打开这个链接邀请：%s",
+		perm, permBlocks[perm], roleSettingsHint, core.DiscordInviteURL(p.appID, p.guildOfChannel(channelID)))}
+}
+
+// guildOfChannel is the server channelID is in (session state, then one REST lookup), else the
+// configured guild_id.
+func (p *Platform) guildOfChannel(channelID string) string {
+	if s := p.boardSession(); s != nil && channelID != "" {
+		if s.State != nil {
+			if ch, err := s.State.Channel(channelID); err == nil && ch != nil && ch.GuildID != "" {
+				return ch.GuildID
+			}
+		}
+		if ch, err := s.Channel(channelID); err == nil && ch != nil && ch.GuildID != "" {
+			return ch.GuildID
+		}
+	}
+	return p.guildID
+}
+
+// permBlocks: what the missing permission stops, said with the hint.
+var permBlocks = map[string]string{
+	permManageChannels: "，建不了工作区频道",
+	permPinMessages:    "，任务板标注不上（任务板照常更新，只是没钉在频道顶上）",
 }
 
 // workspaceErr marks Discord 4xx other than 429 (no permission, channel gone) as permanent so
@@ -140,8 +172,19 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 	if err != nil {
 		return core.TeamChannel{}, nil, err
 	}
+	thread := ch
+	if ch, err = threadHost(api, ch, options...); err != nil {
+		return core.TeamChannel{}, nil, err
+	}
 	if ch.Type != discordgo.ChannelTypeGuildText || ch.GuildID == "" {
 		return core.TeamChannel{}, nil, fmt.Errorf("discord: channel %s: %w", channelID, core.ErrNotTeamChannel)
+	}
+	if thread != ch {
+		// Remember where the thread lives, so a report still reaches its text channel after
+		// the thread is deleted or locked (ReconstructReplyCtx).
+		if err := p.workspaceShelfStore().rememberThread(ch.GuildID, thread.ID, ch.ID); err != nil {
+			slog.Warn("discord: cannot record the thread's text channel", "thread", thread.ID, "error", err)
+		}
 	}
 	list, err := api.GuildChannels(ch.GuildID, options...)
 	if err != nil {
@@ -171,7 +214,21 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 			all = append(all, core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved(c)})
 		}
 	}
+	if thread != ch {
+		// A thread (子区) works as a chat channel: its workspaces are the pool beside its text
+		// channel, and the reports come back to the thread itself, where the user asked.
+		// 来源：2026-11-10 agentm #32 「当前Discord子区不是guild text channel」，子区派的 GPU 测试没人接。
+		return core.TeamChannel{ID: thread.ID, Name: thread.Name, ParentID: ch.ParentID}, all, nil
+	}
 	return core.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID, Shelved: shelved(ch)}, all, nil
+}
+
+// threadHost returns the text channel a thread lives under, ch itself when it is not a thread.
+func threadHost(api workspaceAPI, ch *discordgo.Channel, options ...discordgo.RequestOption) (*discordgo.Channel, error) {
+	if ch == nil || !isThreadChannelType(ch.Type) || ch.ParentID == "" {
+		return ch, nil
+	}
+	return api.Channel(ch.ParentID, options...)
 }
 
 // idleCategory returns the ID of the guild's idle category ("" when it has none).
@@ -253,6 +310,9 @@ func missingPermission(err error) bool {
 // unshelveWorkspaceChannel moves workspaceID into the category of besideChannelID.
 func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID string, options ...discordgo.RequestOption) error {
 	beside, err := api.Channel(besideChannelID, options...)
+	if err == nil {
+		beside, err = threadHost(api, beside, options...)
+	}
 	if err != nil {
 		return err
 	}
@@ -274,6 +334,9 @@ func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID str
 
 func createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {
 	ch, err := api.Channel(besideChannelID, options...)
+	if err == nil {
+		ch, err = threadHost(api, ch, options...) // beside a thread = beside its text channel
+	}
 	if err != nil {
 		return core.TeamChannel{}, err
 	}

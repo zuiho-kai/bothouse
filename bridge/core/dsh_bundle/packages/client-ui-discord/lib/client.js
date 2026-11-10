@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 5037a02f49002644a36f24ed38c08bff4c5de75980c85a1224a90a82b5c82109
+// dsh-client-source-sha256: f5b1b355fea92d3cfa21a9764dfa14f60d869ca0934ae716cbb13a4d1f6df57d
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -66,6 +66,18 @@ const attachmentUrl = (id) => `collab/api/attachments/${encodeURIComponent(id)}`
 const MAX_MESSAGE_BODY = 8388608;
 /** #197: fallback when the service does not report its cap (`max_upload_bytes`); matches collab's DEFAULT_MAX_UPLOAD_BYTES. */
 const DEFAULT_MAX_UPLOAD_BYTES = 1073741824;
+/**
+* #1445: fallback text cap when the service does not report `max_text_chars`.
+* 来源：dsh/collab/store.mjs:8 `MAX_TEXT = 128 * 1024`，同一数值也由 `/collab/api/state` 的
+* `max_text_chars` 回传；这份抄写只覆盖还没有该字段的旧宿主。
+*/
+const DEFAULT_MAX_TEXT_CHARS = 131072;
+/**
+* #1445: whether the typed text alone exceeds the service's character cap. The service compares
+* `text.length` against MAX_TEXT (collab/store.mjs), so this must count characters too — a byte
+* count would let 131072 Chinese characters (about 400 KB) through to a `too-long` refusal.
+*/
+const textTooLarge = (text, maxChars) => text.length > maxChars;
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.stringify({
 	text,
@@ -121,7 +133,8 @@ const INITIAL = {
 	taskChat: void 0,
 	hasMoreOlder: false,
 	outbox: [],
-	maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES
+	maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
+	maxTextChars: DEFAULT_MAX_TEXT_CHARS
 };
 /** Position of message `id` in rows ascending by id, or -1. */
 function indexOfId(rows, id) {
@@ -218,18 +231,20 @@ function memberNameRefused(name) {
 * @param t - the panel's dictionary, so an English UI stays English.
 * @param place - the field being edited when the action failed.
 * @param typed - the name the person typed, for the copy that names it.
+* @param limits - the caps the panel knows about, for the copy that quotes one back (#1445).
 * @returns one line to show under the form.
 */
-function errorText(error, t, place = "other", typed = "") {
+function errorText(error, t, place = "other", typed = "", limits = {}) {
 	const message = error instanceof Error ? error.message : String(error);
 	if (!(error instanceof ServiceError)) return message;
+	if (error.code === "too-long") return t("messageTooLarge", { limit: t("charCount", { count: limits.textChars ?? 131072 }) });
 	const code = error.code;
 	const name = place === "room" ? typed.trim().replace(/^#/, "") : typed.trim();
 	if (code === "conflict" && place === "room") return WORKSPACE_NAME.test(name) ? t("channelNameReserved", { name }) : t("channelNameTaken", { name });
 	if (code === "invalid" && place === "room") return t("channelNameInvalid");
 	if (code === "conflict" && place === "member") return t("memberNameTaken", { name });
 	if (code === "invalid" && place === "member" && memberNameRefused(name)) return t("memberNameInvalid");
-	return t("actionFailed", { message });
+	return place === "send" ? t("sendFailed", { message }) : t("actionFailed", { message });
 }
 function json(method, body) {
 	return {
@@ -303,6 +318,8 @@ function createChannelSource(transport) {
 	/** Unconfirmed messages for every room; the snapshot exposes the selected room's. */
 	/** #197: how big one attachment may be, as the service reported it (state) or the collab default. */
 	let uploadLimit = DEFAULT_MAX_UPLOAD_BYTES;
+	/** #1445: how many characters one message may hold, as `/collab/api/state` reported it (`max_text_chars`). */
+	let textLimit = DEFAULT_MAX_TEXT_CHARS;
 	let outbox = [];
 	/**
 	* Page-back request in flight per room, tagged with the ticket and the epoch
@@ -562,6 +579,7 @@ function createChannelSource(transport) {
 			const state = await request("collab/api/state", { signal: read.controller.signal });
 			if (!current()) return;
 			if (Number.isSafeInteger(state.max_upload_bytes) && (state.max_upload_bytes ?? 0) > 0) uploadLimit = state.max_upload_bytes;
+			if (Number.isSafeInteger(state.max_text_chars) && (state.max_text_chars ?? 0) > 0) textLimit = state.max_text_chars;
 			const remembered = previous.roomId === void 0 ? rememberedRoom() : void 0;
 			const roomId = state.rooms.some((r) => r.id === previous.roomId) ? previous.roomId : state.rooms.some((r) => r.id === remembered) ? remembered : state.rooms[0]?.id;
 			const rows = [];
@@ -631,6 +649,7 @@ function createChannelSource(transport) {
 				leadId: state.lead_id ?? null,
 				effectiveLeadId: state.effective_lead_id ?? state.lead_id ?? null,
 				maxUploadBytes: uploadLimit,
+				maxTextChars: textLimit,
 				tasks: keepBoard ? previous.tasks : [],
 				taskChat: keepBoard ? previous.taskChat : void 0,
 				outbox: outbox.filter((entry) => entry.roomId === roomId)
@@ -22329,6 +22348,10 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 		}));
 	};
 	const limit = state.maxUploadBytes ?? 1073741824;
+	/** #1445: the character cap the store enforces, read back from /state (MAX_TEXT there). */
+	const textLimit = state.maxTextChars ?? 131072;
+	/** #1445: a failure worded in the panel's language, quoting the caps this panel knows about. */
+	const failure = (error, place = "other", typed = "") => errorText(error, t, place, typed, { textChars: textLimit });
 	const attach = useComposerAttachments((picked) => {
 		const roomId = state.roomId;
 		if (roomId === void 0) return;
@@ -23045,7 +23068,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 		}, (error) => {
 			setErrors((previous) => ({
 				...previous,
-				[roomId]: t("sendFailed", { message: error instanceof Error ? error.message : String(error) })
+				[roomId]: failure(error, "send")
 			}));
 			return false;
 		});
@@ -23124,6 +23147,14 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 			}));
 			return;
 		}
+		const maxTextChars = state.maxTextChars ?? 131072;
+		if (textTooLarge(text, maxTextChars)) {
+			setErrors((previous) => ({
+				...previous,
+				[roomId]: t("messageTooLarge", { limit: t("charCount", { count: maxTextChars }) })
+			}));
+			return;
+		}
 		if (messageTooLarge(text, [])) {
 			setErrors((previous) => ({
 				...previous,
@@ -23175,7 +23206,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 			}).catch((error) => {
 				setErrors((previous) => ({
 					...previous,
-					[roomId]: t("sendFailed", { message: error instanceof Error ? error.message : String(error) })
+					[roomId]: failure(error, "send")
 				}));
 			});
 		};
@@ -24556,6 +24587,8 @@ const zh = {
 	removeAttachment: "移除附件",
 	attachmentsTooLarge: "附件太大：一条消息合计不能超过 {limit}",
 	messageTooLarge: "消息太长：一条消息不能超过 {limit}",
+	/** #1445: the text cap counts characters, so the number reads with its unit in the panel language. */
+	charCount: "{count} 字符",
 	attachmentTooLarge: "「{name}」{size}，超过单个文件上限 {limit}",
 	attachmentUploading: "上传中",
 	attachmentQueued: "等待上传",
@@ -24924,6 +24957,7 @@ const en = {
 	removeAttachment: "Remove attachment",
 	attachmentsTooLarge: "Attachments too large: one message can carry at most {limit} in total",
 	messageTooLarge: "Message too long: one message can hold at most {limit}",
+	charCount: "{count} characters",
 	attachmentTooLarge: "\"{name}\" is {size}, over the per-file limit of {limit}",
 	attachmentUploading: "Uploading",
 	attachmentQueued: "Waiting to upload",
@@ -25015,6 +25049,71 @@ const en = {
 	replyDeleted: "Original message was deleted",
 	cancelReply: "Cancel reply"
 };
+// src/client/panel-hash.ts
+/** Shape the fragment may take: one sidebar key (`plugins`, `schedules`, `collab-desk`, …). */
+const PANEL_ID$1 = /^[A-Za-z0-9][A-Za-z0-9._~-]*$/;
+/** The main-panel id a fragment names; `null` for an empty or unrecognised one. */
+function panelIdFromHash(hash) {
+	const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+	return PANEL_ID$1.test(raw) ? raw : null;
+}
+/** The address of the current page with `id` as its fragment: query (the wizard token) untouched. */
+function addressFor(id) {
+	return `${location.pathname}${location.search}${id === null ? "" : `#${id}`}`;
+}
+/**
+* Mirror every later panel selection into the fragment; the returned function stops following.
+* Opening a panel writes `#<id>`, going back to the conversation clears it.
+* @param layout - `ctx.layout` (panel selection and its shared source).
+* @returns unsubscribe.
+*/
+function followPanelHash(layout) {
+	const source = layout.panelInfo;
+	let last = source.getSnapshot().activePanelId;
+	return source.subscribe(() => {
+		const next = source.getSnapshot().activePanelId;
+		if (next === last) return;
+		last = next;
+		if (addressFor(next) === `${location.pathname}${location.search}${location.hash}`) return;
+		history.replaceState(history.state, "", addressFor(next));
+	});
+}
+/** Whether a keyed `main` panel with this id is registered right now. */
+function hasMainPanel(slots, id) {
+	return slots.entriesOfSlot("main").some((entry) => entry.options.key === id);
+}
+/**
+* Open the panel the fragment names, once its package has registered it; the returned function
+* stops waiting. Panels register when their own browser half loads, which can be after this
+* plugin: `layout.selectPanel` throws for a main key that is not registered yet (see
+* bothouse-dsh-panel/client.js), so this waits for the registration instead of firing once.
+* @param layout - `ctx.layout`.
+* @param slots - `ctx.slots` (main-slot registry and its change subscription).
+* @param hash - the fragment to honour; defaults to the current address.
+* @returns unsubscribe from the pending restore.
+*/
+function restorePanelFromHash(layout, slots, hash = location.hash) {
+	const id = panelIdFromHash(hash);
+	if (id === null) return () => {};
+	if (hasMainPanel(slots, id)) {
+		layout.selectPanel(id);
+		return () => {};
+	}
+	if (layout.panelInfo.getSnapshot().activePanelId !== null) return () => {};
+	let stopWaiting = () => {};
+	let stopWatching = () => {};
+	const done = () => {
+		stopWaiting();
+		stopWatching();
+	};
+	stopWaiting = slots.subscribe("main", () => {
+		if (!hasMainPanel(slots, id)) return;
+		done();
+		if (layout.panelInfo.getSnapshot().activePanelId === null) layout.selectPanel(id);
+	});
+	stopWatching = layout.panelInfo.subscribe(done);
+	return done;
+}
 // src/client/index.ts
 const PANEL_ID = "channels";
 const REMOTE_PANEL_ID = "remote-channels";
@@ -25036,6 +25135,8 @@ function apply(ctx) {
 		zh,
 		en
 	}), "client-ui-discord: dictionaries");
+	ctx.effect(() => followPanelHash(ctx.layout), "client-ui-discord: panel hash");
+	ctx.effect(() => restorePanelFromHash(ctx.layout, ctx.slots), "client-ui-discord: panel hash restore");
 	const t = ctx.locale.bind(NS);
 	const channels = createChannelSource(browserTransport());
 	ctx.effect(() => channels.dispose, "client-ui-discord: channel stream");
@@ -25100,7 +25201,6 @@ function apply(ctx) {
 		};
 		bindPanel();
 		const unsubscribe = ctx.slots.subscribe("sidebar.settings", bindPanel);
-		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
 		return () => {
 			unsubscribe();
 			disposePanel?.();

@@ -775,6 +775,7 @@ bothouse send --tts "你好"
 - 建议使用绝对路径，避免 Agent 当前工作目录变化导致找不到文件。
 - 如果设置了 `attachment_send = "off"`，图片/文件回传会被拒绝，但普通文本回复仍然正常。
 - 每个附件默认上限 **50 MiB**。可在 config.toml 用 `max_attachment_size_mb`（单位 MiB）调整，或用环境变量 `CC_MAX_ATTACHMENT_SIZE_MB` 覆盖该值（同样单位 MiB，设置后优先级更高），例如 `CC_MAX_ATTACHMENT_SIZE_MB=100 bothouse send --file big.bin`。
+- `--dm` 私信（Discord、QQ）：不带 `--to` 只发给项目主人（admin_from 里第一个 ID），不会发给正在说话的人；这一轮是别人（不是主人）发起的时候，不带 `--to` 的 `--dm` 会被拒绝。要私信某位成员用 `bothouse send --dm --to <用户 ID> -m "…"`，只能发给本服务器里的成员（目前只有 Discord 能核成员）；对方不在服务器时命令报错；对方不接收服务器成员私信时，改在当前频道开一个只有本人（和管理员）能看的私密子区发过去，命令输出会说明；连子区也开不了才报错，不改发给别人，也不要让对方去改隐私设置。
 
 ### 典型场景
 

@@ -51,6 +51,18 @@ def configure(team):
         if m.get("id"):
             ID[k] = str(m["id"])
         ALIASES[k] = list(dict.fromkeys([m["name"], *m.get("aliases", [])]))
+    # Legacy hand-written teams can omit the lead's project alias while config
+    # still sends ?bot=<project>. Recover only an unambiguous configured identity.
+    try:
+        import tomllib
+        cfg = tomllib.loads((_SETUP / "config.toml").read_text(encoding="utf-8"))
+    except (ImportError, OSError, ValueError):
+        cfg = {}
+    projects = [p["name"] for p in cfg.get("projects", [])
+                if p.get("name") and p.get("team_name") == NAME[""]
+                and p["name"] not in members]
+    if len(projects) == 1 and projects[0] not in ALIASES[""]:
+        ALIASES[""].append(projects[0])
     _build()
 
 
@@ -206,6 +218,8 @@ def member(bot):
     if bot.startswith("dsh:"):
         mid = bot[4:]
         return next((k for k in KEYS if k in DSH and ID.get(k) == mid), bot)
+    if bot not in KEYS and bot in ALIASES.get("", []):
+        return ""
     return bot
 
 

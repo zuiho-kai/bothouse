@@ -17,6 +17,7 @@ import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
 import { mappedTransport, remoteCollabUrl } from './collab-url.ts'
 import { RemoteChannelsPage, type RemoteChannelsInjected } from './RemoteChannelsPage.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
+import { followPanelHash, restorePanelFromHash } from './panel-hash.ts'
 import { bindHostTheme, type Scheme } from './scheme.ts'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
@@ -49,6 +50,9 @@ export const inject = ['slots', 'locale', 'layout']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'client-ui-discord: dictionaries')
+  // #1447: the address bar carries the open panel, and a load reopens it (panel-hash.ts).
+  ctx.effect(() => followPanelHash(ctx.layout), 'client-ui-discord: panel hash')
+  ctx.effect(() => restorePanelFromHash(ctx.layout, ctx.slots), 'client-ui-discord: panel hash restore')
   const t = ctx.locale.bind(NS)
   const channels = createChannelSource(browserTransport())
   ctx.effect(() => channels.dispose, 'client-ui-discord: channel stream')
@@ -107,9 +111,8 @@ export function apply(ctx: ClientContext): void {
     }
     bindPanel()
     const unsubscribe = ctx.slots.subscribe('sidebar.settings', bindPanel)
-    // Deep link: the setup wizard opens `…#channels` (bridge core/setup_dsh_configure.go dshChannelsHash).
-    // ctx.layout is the ui-layout service (`provide('layout')`), so it must be in `inject`.
-    if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID)
+    // The `#channels` deep link the setup wizard opens (bridge core/setup_dsh_configure.go
+    // dshChannelsHash) is restored by panel-hash.ts together with every other panel.
     return () => { unsubscribe(); disposePanel?.() }
   })
   // #236: 其他电脑 → 频道 opens the paired computer's channels in this same React page. One link at a

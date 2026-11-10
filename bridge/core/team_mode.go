@@ -92,11 +92,28 @@ func (e *Engine) SetTeamModeRulesEnabled(on bool) { e.skipTeamModeRules.Store(!o
 // withTeamModeRules prefixes the team-mode rules of the project's mode when this
 // delivery must carry them (teamRulesOnce).
 func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
-	if e.skipTeamModeRules.Load() {
-		return prompt
-	}
 	e.checkRulesContext(session, agent)
-	return prefixRules(e.teamRulesOnce(teamModeRulesFor(e.DispatchMode()), session, agent), prompt)
+	return prefixRules(e.contextRules(teamModeRulesFor(e.DispatchMode()), session, agent), prompt)
+}
+
+// contextRules is what goes once per agent context (teamRulesOnce): the team-mode rules unless
+// inject_team_rules is off, plus aboutHint for agents that do not take AgentSystemPrompt natively
+// (Codex, Gemini, DSH, Antigravity, ACP…), so every role knows to run `bothouse about`.
+func (e *Engine) contextRules(rules string, session *Session, agent Agent) string {
+	if e.skipTeamModeRules.Load() {
+		rules = ""
+	}
+	if _, native := agent.(SystemPromptSupporter); !native {
+		if rules == "" {
+			rules = aboutHint
+		} else {
+			rules += "\n" + aboutHint
+		}
+	}
+	if rules == "" {
+		return ""
+	}
+	return e.teamRulesOnce(rules, session, agent)
 }
 
 func prefixRules(rules, prompt string) string {

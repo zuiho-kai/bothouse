@@ -14,11 +14,11 @@ export function Card({ children, className, hover }: CardProps) {
     <div
       className={cn(
         'relative rounded-card p-5',
-        // 房规：静置卡片「边框或阴影，不可同时」；浮层才用阴影
-        'border border-hairline bg-surface',
+        // #579 v2: 白卡浮在暖灰画布上，用 1px 环 + 极浅投影（shadow-ui-1）代替单纯描边
+        'bg-surface shadow-ui-1',
         'transition-[box-shadow,transform,background-color] duration-state ease-ui-standard',
         hover &&
-          'cursor-pointer hover:-translate-y-0.5 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text',
+          'cursor-pointer hover:-translate-y-0.5 hover:shadow-ui-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text',
         className
       )}
     >
@@ -36,8 +36,8 @@ interface StatCardProps {
 export function StatCard({ label, value, accent }: StatCardProps) {
   return (
     <Card>
-      <p className="text-[13px] font-medium text-ink-soft">{label}</p>
-      <p className={cn('mt-1 text-2xl font-semibold tabular-nums', accent ? 'text-accent-text' : 'text-ink')}>
+      <p className="text-xs font-medium text-ink-mute">{label}</p>
+      <p className={cn('mt-2.5 text-[28px] font-semibold leading-none tracking-tight tabular-nums', accent ? 'text-accent-text' : 'text-ink')}>
         {value}
       </p>
     </Card>

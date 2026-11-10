@@ -412,7 +412,7 @@ func chatOf(key string) string {
 }
 
 // teamSummary describes what the other team members are doing, for a turn in sessionKey.
-// Empty when nobody is busy or recently done.
+// Idle teammates are listed as free, with how to @ them. Empty when there is no live teammate.
 func (e *Engine) teamSummary(sessionKey string) (string, string) {
 	t := e.team
 	if t == nil || !t.inject {
@@ -432,6 +432,18 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 		}
 		var f teamFile
 		if json.Unmarshal(raw, &f) != nil || now.Sub(f.Updated) > teamStaleAfter {
+			continue
+		}
+		if len(f.Sessions) == 0 {
+			// An idle teammate is listed too (#1329): a team made by the wizard has no roster in the
+			// lead's persona, so without this line the lead never learns who it can hand work to and
+			// splits everything into its own sub-agents.
+			line := f.Name + "：空着，可以派活"
+			if f.Mention != "" {
+				line += "（@ 用 " + f.Mention + "）"
+			}
+			lines = append(lines, line)
+			keys = append(keys, f.Name+"|idle")
 			continue
 		}
 		for _, s := range f.Sessions {

@@ -53,7 +53,8 @@ type WizardRequest struct {
 	// defaults to routing through the primary role (core/gate_proc.go).
 	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
-	// Not given = the owner of each bot's Discord application (looked up with the token).
+	// Not given = "*" when a server is picked (allow_guilds pins the bots to it), else the owner of
+	// each bot's Discord application (looked up with the token).
 	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
 	AllowFrom *string `json:"allow_from,omitempty"`
 	// Wiki: the models of the memory wiki's work (core/setup_wiki.go); nil or "" = keep. With a wiki
@@ -63,7 +64,11 @@ type WizardRequest struct {
 	// settings (core/global_hooks.go), so terminal sessions get them. nil = keep; off by default.
 	GlobalMemory *bool `json:"global_memory,omitempty"`
 	GlobalGuards *bool `json:"global_guards,omitempty"`
-	DryRun       bool  `json:"dry_run,omitempty"`
+	// MemberWorkspaces: a team's roles give every person who joins a personal directory and their own
+	// GitHub authorization (member_workspaces, core/member_workspace.go). The team page recommends it,
+	// unchecked; only a team (two or more roles) gets it. nil = leave.
+	MemberWorkspaces *bool `json:"member_workspaces,omitempty"`
+	DryRun           bool  `json:"dry_run,omitempty"`
 	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
@@ -230,6 +235,8 @@ type WizardProjectWrite struct {
 	AdminFrom string
 	// AllPlatformsOfType: Options go into every platform of PlatformType, none is created (gate page).
 	AllPlatformsOfType bool
+	// MemberWorkspaces: member_workspaces (#1355); nil = leave.
+	MemberWorkspaces *bool
 }
 
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
@@ -1127,20 +1134,24 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 	}
 
-	// allow_from: what the user gave, else the bots' owners. Nothing known (owner lookup failed,
-	// or an empty value given) fails closed: an empty allow_from would let anyone in the server
-	// command this computer, so the bots get AllowFromUnset (matches no one) and a blocking warning.
+	// allow_from: what the user gave. Not given on Discord with a server picked: "*", everyone in
+	// that server (allow_guilds below pins the bots to it), so a team channel answers its other
+	// members too, not only the owner; the owners still get admin_from. No server known: the bots'
+	// owners. Nothing known (owner lookup failed, or an empty value given) fails closed: the bots
+	// get AllowFromUnset (matches no one) and a blocking warning.
 	allowFrom := strings.Join(owners, ",")
 	req.botOwners = allowFrom
 	if req.AllowFrom != nil {
 		allowFrom = strings.Join(csvSet(*req.AllowFrom), ",")
+	} else if req.Platform == "discord" && guildID != "" {
+		allowFrom = "*"
 	}
 	if req.Platform == "discord" {
 		res.AllowFrom = allowFrom
 		if allowFrom == "" {
 			allowFrom = AllowFromUnset
 		}
-		if allowFrom == "*" { // the user's explicit choice: allowed, but say what it means
+		if allowFrom == "*" { // allowed, but say what it means and how to narrow it
 			res.Warnings = append(res.Warnings, warnAllowFromEveryone(req.Language))
 		}
 	}
@@ -1863,6 +1874,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 
 	for _, r := range pl.roles {
 		pw := WizardProjectWrite{Name: r.project, AgentType: r.AgentType, PlatformType: req.Platform, Options: map[string]any{}}
+		if req.MemberWorkspaces != nil && len(pl.team) > 1 {
+			pw.MemberWorkspaces = req.MemberWorkspaces
+		}
 		ex, exists := s.project(r.project)
 		// A QQ connection-only rerun must not fill in defaults in the existing agent table.
 		keepQQAgent := req.Platform == "qq" && r.reused && r.agentAsked == ""

@@ -109,6 +109,12 @@ func newProxyFakeDSH(t *testing.T) *proxyFakeDSH {
 			})
 		}
 	}))
+	if port := strings.TrimPrefix(f.srv.URL, "http://127.0.0.1:"); port != "" {
+		// The fake serves from this process, whose command line is not `dsh`: without a claim the
+		// ownership check (#1255) would see a stranger and refuse to adopt the fake anywhere. It is
+		// the same process the state file records, so it stands for a host of this bridge.
+		claimDSHWebPort(t, port, true)
+	}
 	t.Cleanup(func() {
 		select {
 		case <-f.release:

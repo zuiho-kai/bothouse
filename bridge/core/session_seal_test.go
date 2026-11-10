@@ -138,3 +138,29 @@ func TestSanitizeDigestKeepsEightSections(t *testing.T) {
 		t.Fatalf("not sanitized:\n%s", got)
 	}
 }
+
+// agentm 11-10: the cheap model sometimes took over 60 s. The turn goes on with the rule summary and the
+// minutes, once written, land in the stored full handoff the new context was pointed to.
+func TestSealDigestLateGoesIntoStoredHandoff(t *testing.T) {
+	dir := t.TempDir()
+	e := &Engine{dataDir: dir, name: "p"}
+	writeSealEvents(t, dir, "k", time.Now().Add(-time.Hour), 3)
+	oldFn, oldT := sealDigestFn, sealDigestTimeout
+	defer func() { sealDigestFn, sealDigestTimeout = oldFn, oldT }()
+	sealDigestTimeout = 20 * time.Millisecond
+	release := make(chan struct{})
+	sealDigestFn = func(context.Context, string) (string, error) { <-release; return "目标：\n- 迟到的纪要", nil }
+	r := e.sealOldContext("k", &SessionHandoff{})
+	if r.ByModel || r.Late == nil || !strings.Contains(r.Digest, "3 次调用") {
+		t.Fatalf("slow model did not fall back with a late channel: %+v", r)
+	}
+	if !strings.Contains(sealSections(r), "还在写") {
+		t.Fatalf("handoff does not say the minutes are coming: %q", sealSections(r))
+	}
+	cid := StashCtx(dir, "交接全文\n")
+	close(release)
+	sealLate(dir, cid, "k", r.Late, time.Now())
+	if got, _ := ReadCtx(dir, cid); !strings.Contains(got, "迟到的纪要") || !strings.Contains(got, "交接全文") {
+		t.Fatalf("stored handoff = %q", got)
+	}
+}

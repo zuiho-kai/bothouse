@@ -50,12 +50,17 @@ type gateState struct {
 	inject          bool          // agent folds mid-turn input into the running turn (claudecode only)
 	injectDyn       func() bool   // agent says per message whether it can (SupportsMidTurnInput: codex app-server, ACP steer)
 	textBurstWindow time.Duration // per-project idle text debounce; attachments keep the default
-	mu              sync.Mutex
-	buf             map[string][]string // interactiveKey → silent messages not yet delivered
-	bufVoice        map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
-	held            map[string]*heldMsg // interactiveKey → burst being collected (busy or idle)
-	released        map[*Message]bool   // bursts handed back to handleMessage by their timer
-	gbuf            map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
+	// Same-sender silent wait (gate_sender_silence): one person's ordinary messages are held until
+	// that person falls quiet for silenceFor, at most silenceMax from the burst's first message.
+	silence    bool
+	silenceFor time.Duration
+	silenceMax time.Duration
+	mu         sync.Mutex
+	buf        map[string][]string // interactiveKey → silent messages not yet delivered
+	bufVoice   map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
+	held       map[string]*heldMsg // holdKey → burst being collected (busy or idle)
+	released   map[*Message]bool   // bursts handed back to handleMessage by their timer
+	gbuf       map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
 }
 
 // Discord (and most IM clients) split "image + caption" into two messages, in either order,
@@ -68,6 +73,12 @@ const maxBuffered = 30
 const (
 	burstWindow    = 1500 * time.Millisecond
 	attachmentHold = 3 * time.Second
+	// senderSilence / senderSilenceMax follow 石英's defaults (cneicy/astrbot_plugin_shrink
+	// services/debounce.py: same sender silent 1.5s, at most 6s), see
+	// ~/wiki/refs/astrbot-plugin-shrink.md and user 2026-11-09「同一个人连发几条合并成一次回」.
+	// A project overrides them with gate_sender_silence_ms / gate_sender_silence_max_ms.
+	senderSilence    = 1500 * time.Millisecond // 来源：石英默认 1.5s（用户 2026-11-09 转来该插件）
+	senderSilenceMax = 6 * time.Second         // 来源：石英最长 6s（同上）
 )
 
 // holdWindow is how long an idle message is held for its burst: attachments without text wait
@@ -80,9 +91,79 @@ func (g *gateState) holdWindow(msg *Message) time.Duration {
 	return g.burstDelay(msg)
 }
 
+// silenceApplies reports whether msg opens/joins a same-sender silent wait. Only a plain typed
+// message from one person, addressed to nobody in particular, while this session is idle: an @ of
+// this bot, a message @-ing another role, a DM / one-to-one room, an attachment, a command and a
+// teammate bot all keep their existing timings (a busy turn keeps the short burst, so an @-ed
+// follow-up still gets in instead of waiting out the silence).
+func (g *gateState) silenceApplies(msg *Message, busy bool) bool {
+	if !g.silence || busy || msg.IsPermissionResponse {
+		return false
+	}
+	if msg.FromBot || msg.Mentioned || msg.AddressedOther || msg.Direct || msg.PrivateRoom {
+		return false
+	}
+	if personKey(msg) == "" || len(msg.Images) > 0 || len(msg.Files) > 0 || msg.Audio != nil {
+		return false
+	}
+	text := strings.TrimSpace(userTextOf(msg))
+	return text != "" && !strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "!")
+}
+
+// holdKey scopes a burst to its sender when the silent wait is on, so two people talking in one
+// session never get merged into one turn; every other case keeps the old per-session key. Called
+// with g.mu held: a message that is not plain itself (an @ of this bot, an attachment) still joins
+// this sender's silent burst already being collected, so it can't overtake that earlier text.
+//
+// A session-level burst (one opened by a message that does not wait for silence: an @ of this bot,
+// an attachment, a command) only takes in the person who opened it, or a message that itself does
+// not wait for silence. Another person's plain message opens its own batch instead: folded into
+// someone else's burst it would lose its own silent window and its own hard cap (#1484 follow-up).
+func (g *gateState) holdKey(interactiveKey string, msg *Message, busy bool) string {
+	sender := ""
+	if g.silence && !busy && !msg.FromBot {
+		sender = personKey(msg)
+	}
+	if sender == "" {
+		return interactiveKey
+	}
+	key := interactiveKey + "\x00" + sender
+	if g.held[key] != nil {
+		return key // this sender already has a silent batch: join it
+	}
+	if h := g.held[interactiveKey]; h != nil {
+		// A burst that does not wait for silence is already collecting.
+		if h.sender == sender || !g.silenceApplies(msg, busy) {
+			return interactiveKey
+		}
+		return key
+	}
+	if g.silenceApplies(msg, busy) {
+		return key
+	}
+	return interactiveKey
+}
+
+// holdFor is how long a silence burst waits after its newest message: the configured silence,
+// clamped to what is left of the hard cap measured from the burst's first message (石英: at most
+// 6s, so a person typing without pause still gets an answer).
+func (g *gateState) holdFor(h *heldMsg, now time.Time) time.Duration {
+	window := g.silenceFor
+	if left := g.silenceMax - now.Sub(h.firstAt); left < window {
+		window = left
+	}
+	if window < 0 {
+		window = 0
+	}
+	return window
+}
+
 type heldMsg struct {
-	msg   *Message
-	timer *time.Timer
+	msg     *Message
+	timer   *time.Timer
+	firstAt time.Time // start of a same-sender silent wait, for the hard cap
+	silence bool      // this burst waits for its sender to fall quiet (gate_sender_silence)
+	sender  string    // personKey of the message that opened this burst ("" = no person)
 }
 
 type gateRequest struct {
@@ -209,6 +290,25 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 	return g.textBurstWindow
 }
 
+// SetGateSenderSilence turns the same-sender silent wait on/off and sets its two windows.
+// Nonpositive values keep the defaults (1.5s, at most 6s, see senderSilence); a max below the
+// silence means every burst waits exactly max.
+func (e *Engine) SetGateSenderSilence(on bool, silenceMs, maxMs int) {
+	if e.gate == nil {
+		return
+	}
+	e.gate.silence = on
+	e.gate.silenceFor, e.gate.silenceMax = senderSilence, senderSilenceMax
+	if silenceMs > 0 {
+		e.gate.silenceFor = time.Duration(silenceMs) * time.Millisecond
+	}
+	if maxMs > 0 {
+		e.gate.silenceMax = time.Duration(maxMs) * time.Millisecond
+	}
+	slog.Info("gate sender silence", "on", e.gate.silence,
+		"silence_ms", e.gate.silenceFor.Milliseconds(), "max_ms", e.gate.silenceMax.Milliseconds())
+}
+
 // fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
 // still replies (being named directly needs no judgement); a message @-ing another bot is
 // that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
@@ -323,9 +423,10 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 
 	g.mu.Lock()
+	holdKey := g.holdKey(interactiveKey, msg, busy)
 	if g.released[msg] {
 		delete(g.released, msg) // the burst's timer handed it back: process normally
-	} else if h := g.held[interactiveKey]; h != nil {
+	} else if h := g.held[holdKey]; h != nil {
 		// Same burst: fold this message into the held one and wait a bit longer.
 		// Each part is kept as it was for the gate (issue #184: "@sub do X" then "@lead watch it"
 		// merged read as one message @-ing both), and the reply context keeps what any part says
@@ -355,7 +456,16 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
 		h.msg.SeenUpToID = msg.MessageID
-		h.timer.Reset(g.burstDelay(h.msg))
+		if h.silence && !g.silenceApplies(msg, busy) {
+			// An @, an attachment or a command joined the silent burst: answer it on the normal
+			// window instead of holding a message that now calls this bot until silence.
+			h.silence = false
+		}
+		if h.silence {
+			h.timer.Reset(g.holdFor(h, time.Now()))
+		} else {
+			h.timer.Reset(g.burstDelay(h.msg))
+		}
 		g.mu.Unlock()
 		return true
 	} else {
@@ -363,16 +473,25 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// held only while idle, a busy bot judged "@别人 看这个" and its image one by one, and the
 		// image alone — no text, no @ — was inserted into the lead's running turn (user 2026-10-23
 		// 「我都艾特你了，他还在判断」; ~1.5s extra wait accepted).
+		// A plain message from one person waits for that person to fall quiet instead
+		// (gate_sender_silence, see silenceApplies), so three lines in a row become one turn.
+		h := &heldMsg{msg: msg, firstAt: time.Now(), silence: g.silenceApplies(msg, busy), sender: personKey(msg)}
 		window := g.holdWindow(msg)
-		h := &heldMsg{msg: msg}
+		if h.silence {
+			window = g.holdFor(h, h.firstAt)
+		}
+		if h.silence {
+			slog.Info("gate: same-sender silent wait", "session", msg.SessionKey, "sender", personKey(msg),
+				"window_ms", window.Milliseconds(), "max_ms", g.silenceMax.Milliseconds())
+		}
 		h.timer = time.AfterFunc(window, func() {
 			g.mu.Lock()
-			delete(g.held, interactiveKey)
+			delete(g.held, holdKey)
 			g.released[h.msg] = true
 			g.mu.Unlock()
 			e.handleMessage(p, h.msg)
 		})
-		g.held[interactiveKey] = h
+		g.held[holdKey] = h
 		g.mu.Unlock()
 		return true
 	}
@@ -885,6 +1004,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	add("handoff", e.handoffBlock(session, sessionKey))
 	add("memory", e.memoryBlock(session)) // before the handoff: the index, then what the old context did
 	add("life_page", e.lifePageBlock())   // every turn, cron and timer included (lifepage.go)
+	add("member", e.memberBlock(session)) // once per context, with or without the gate (member_workspace.go)
 	if !turnCtx {
 		return content
 	}

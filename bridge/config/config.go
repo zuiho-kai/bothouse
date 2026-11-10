@@ -607,6 +607,16 @@ type ProjectConfig struct {
 	// GateBurstWindowMs controls idle text coalescing; <= 0 keeps 1500ms.
 	// Attachment bursts retain the default delays.
 	GateBurstWindowMs int `toml:"gate_burst_window_ms,omitempty"`
+	// GateSenderSilence holds one person's ordinary idle messages until that person stops typing
+	// for GateSenderSilenceMs (default 1500ms), at most GateSenderSilenceMaxMs from the first one
+	// (default 6000ms), so three lines in a row become one turn. Only plain typed messages from
+	// one person, not @-ing this bot or a teammate and not a DM, are held. nil = on for a QQ
+	// project, off elsewhere (user 2026-11-09 asked for it in QQ).
+	// Defaults follow 石英 (cneicy/astrbot_plugin_shrink, AGPL, idea only) and user 2026-11-09
+	// 「同一个人连发几条合并成一次回」.
+	GateSenderSilence    *bool `toml:"gate_sender_silence,omitempty"`
+	GateSenderSilenceMs  int   `toml:"gate_sender_silence_ms,omitempty"`
+	GateSenderSilenceMax int   `toml:"gate_sender_silence_max_ms,omitempty"`
 	// GateFallback is the action used when the gate errors or times out (default "reply";
 	// sub agents that only speak when @-ed should use "context").
 	GateFallback string `toml:"gate_fallback,omitempty"`
@@ -661,6 +671,11 @@ type ProjectConfig struct {
 	// to add 「工作区n+1」 (core/team_workspace.go). Default on for the lead (user 2026-10-24 00:50
 	// 「默认给我们频道建立工作区1」); set team_workspaces = false to opt out. Ignored on non-lead projects.
 	TeamWorkspaces *bool `toml:"team_workspaces,omitempty"`
+	// MemberWorkspaces (#1355): every real person who joins gets a personal directory and may authorize
+	// GitHub with their own device code; gh / git run through `bothouse member` with the credentials of
+	// whoever started the turn (core/member_workspace.go). Off unless the owner agreed to it (wizard
+	// team page or `bothouse member enable`).
+	MemberWorkspaces *bool `toml:"member_workspaces,omitempty"`
 	// DispatchMode (team mode C): how this project's bot hands out work — "solo" (only its own
 	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
 	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
@@ -792,12 +807,33 @@ func (p ProjectConfig) InjectSenderEnabled() bool {
 	return false
 }
 
+// MemberWorkspacesEnabled reports member_workspaces (default off).
+func (p ProjectConfig) MemberWorkspacesEnabled() bool {
+	return p.MemberWorkspaces != nil && *p.MemberWorkspaces
+}
+
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }
 
 func (p ProjectConfig) GateLocalEnabled() bool {
 	return p.GateLocal == nil || *p.GateLocal
+}
+
+// GateSenderSilenceEnabled reports whether one person's consecutive idle messages are merged
+// into one turn after they fall quiet (gate_sender_silence). Unset = on for a QQ project (user
+// 2026-11-09 asked for it there: people type several short lines in a row) and off elsewhere (the
+// wait adds latency to every plain message and no other channel asked for it).
+func (p ProjectConfig) GateSenderSilenceEnabled() bool {
+	if p.GateSenderSilence != nil {
+		return *p.GateSenderSilence
+	}
+	for _, pc := range p.ActivePlatforms() {
+		if pc.Type == "qq" {
+			return true
+		}
+	}
+	return false
 }
 
 type AgentConfig struct {
@@ -3724,6 +3760,7 @@ type ProjectSettingsUpdate struct {
 	ReplyFooter          *bool
 	InjectSender         *bool
 	PlatformAllowFrom    map[string]string
+	MemberWorkspaces     *bool
 }
 
 // SaveProjectSettings persists project-level settings and the global language to config.toml.
@@ -3752,6 +3789,10 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 		}
 		proj := &cfg.Projects[i]
 		oldName := proj.TeamName
+		if update.MemberWorkspaces != nil {
+			v := *update.MemberWorkspaces
+			proj.MemberWorkspaces = &v
+		}
 		if update.DisplayName != nil {
 			proj.TeamName = strings.TrimSpace(*update.DisplayName)
 		}

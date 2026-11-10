@@ -97,6 +97,20 @@ export const listPlugins = () => api.get<DSHPluginsState>('/plugins');
 export const switchPlugin = (name: string, enabled: boolean) =>
   api.post<{ changed: boolean; restart_required: boolean; state: DSHPluginsState }>('/plugins/switch', { name, enabled });
 
+/**
+ * Remove one dependency from this profile (core/management_plugin_uninstall.go).
+ *
+ * `confirm` must be the package name itself: the page sends it only after the person typed the
+ * name into the dialog, so a single stray click cannot uninstall anything. A refusal arrives as an
+ * ApiError whose `body` carries `kind` (and `in_use_by` for in-use), which the page turns into its
+ * own sentence instead of showing pnpm's English.
+ */
+export const uninstallPlugin = (name: string, confirm: string) =>
+  api.post<{ uninstalled: boolean; restart_required: boolean; state: DSHPluginsState }>('/plugins/uninstall', {
+    name,
+    confirm,
+  });
+
 /** One line of the POST /plugins/install NDJSON stream (core/management_plugins.go handlePluginsInstall). */
 export interface PluginInstallEvent {
   line?: string;

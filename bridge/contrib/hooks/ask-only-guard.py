@@ -5,7 +5,7 @@
 用户原话：payload 的 user_prompt（run.py 按 CLI 填：DSH 会话记录、Codex rollout、agy transcript），没有再读 transcript_path（Claude Code / Qoder 格式）。
 子 agent（payload 有 agent_id）是已派出的活，放行：它的 transcript_path 指向主会话的最新一句，不能拿来判。
 定时任务、别的 bot 触发的轮放行；读不到用户原话或判不准时放行；hook 自己出错时静默放行。
-例："修了么""什么进度"→ 拦；"做""可以""帮我改一下"→ 放行；"别改"→ 拦。"""
+例："修了么""什么进度"→ 拦；"做""可以""帮我改一下""你可以给我…吗？我想你开一个…"→ 放行；"别改"→ 拦。"""
 import json, os, re, sys
 
 AUTO = "This request is automated or from another bot"
@@ -13,13 +13,14 @@ AUTO = "This request is automated or from another bot"
 ANCHORS = ("（最新，回这条）", "（用户这条明确 @ 了你或回复了你", "[Current request and context]")
 TAIL = re.compile(r"\n*\(Images also saved locally:.*\Z", re.S)
 
-DO = r"做|改|修|搞|加|删|派|弄|跑|试|写|记|存|处理|安排|上线|发版|重启"
+DO = r"做|改|修|搞|加|删|派|弄|跑|试|写|记|存|处理|安排|上线|发版|重启|创建|开|建|干|配|设|装|发"
 # 先去掉不是叫做的用法：「没说做」「别改」「怎么做的」「修了没」「跑通了吗」
 NOT_DO = re.compile(
     r"(没|不|别|不要|没有)(说|让|叫)?(" + DO + r")"
     r"|(怎么|如何|咋)(" + DO + r")"
     r"|(" + DO + r")(好|完|通|掉|成)?(了)?(没有|没|么|吗|嘛|呢)")
-DO_WORD = re.compile(DO + r"|帮我|帮忙|(?<![过回出下上进失除])去|马上|赶紧|看一下|看看|查一下|反对")
+# 客气的请求也算叫做：「你可以给我…吗」「能不能帮我…」「我想你开一个…」（agentm 11-09 实例）
+DO_WORD = re.compile(DO + r"|帮我|帮忙|给我|我想你|我想让你|我要你|麻烦你|你可以|能不能帮|(?<![过回出下上进失除])去|马上|赶紧|看一下|看看|查一下|反对")
 AFFIRM = re.compile(r"^(可以|行|好|好的|ok|嗯|对|同意|批准|go|上|都做|就这样)[吧啊呀的了。！!～~\s]*$", re.I)
 STOP = re.compile(r"^\s*(不要|别|不用|先别|停)")
 ASK = re.compile(r"[？?]|吗|么|嘛|呢|什么|怎么|为什么|为啥|是不是|有没有|能不能|会不会|要不要|哪|多少|进度|状态|没$")

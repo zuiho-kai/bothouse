@@ -88,3 +88,27 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - discord: 已接
 - feishu: 不支持：飞书的群组接口没有分类这个概念（platform/feishu/workspaces.go:76「Feishu has no categories: ParentID is empty」），工作区本身就是一个群，没有可挪的频道容器
 - cloud-web: 不支持：网页频道的工作区是 gateway 的房间，整个共享池只有一个平铺的「分类」（platform/cloud-web/workspaces.go:98-99，ParentID 为空），没有可挪的频道容器
+
+## DMMemberChecker
+
+`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查。
+
+- discord: 已接
+- feishu: 不支持：飞书没接 DirectMessageOpener（platform/capability_baseline.txt 里的旧缺口），--dm 本身就开不了私聊，核成员没有用处
+- cloud-web: 不支持：网页聊天没有私聊（同样没接 DirectMessageOpener），--dm 在这里直接报错
+
+## DMRefusalDetector
+
+`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007。
+
+- discord: 已接
+- feishu: 不支持：飞书没接 DirectMessageOpener，--dm 开不了私聊，不会出现被拒收
+- cloud-web: 不支持：网页聊天没有私聊，--dm 直接报错
+
+## PrivateThreadOpener
+
+私信被拒收时的兜底：在当前频道开一个只有本人（和管理员）能看的私密子区发过去（#1352）。
+
+- discord: 已接
+- feishu: 不支持：飞书没接 DirectMessageOpener，用不到这个兜底
+- cloud-web: 不支持：网页聊天没有私聊，用不到这个兜底

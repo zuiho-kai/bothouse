@@ -1512,7 +1512,7 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 
 ### 5.10 Plugins（DSH profile）
 
-列出 DSH 那份 profile 里已有的插件，并提供两个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
+列出 DSH 那份 profile 里已有的插件，并提供三个真正要用的写操作：装一个包（`dsh plugin --profile <profile> add`，跟用户自己在终端敲的是同一条命令）、开关一个 bundle、卸掉一个包（在一个 profile 锁里调 DSH 自己的 `runProfilePnpm` 跑 `pnpm remove`，理由见本节的卸载小节）。这页是 profile 文件的窗口（`package.json` 的依赖 + `dsh.profile.bundles`），不是第二份注册表：DSH 自己的插件页读写的就是同一批文件，两边一致。
 
 两个写操作都要求管理 API 设了 token。没设时路由直接回 `403`：没认证的管理端口分不清谁是这台机器的主人。
 
@@ -1615,6 +1615,72 @@ native 那种列表形状也没有这个字段，整行就一个布尔。与其�
 只改 profile `package.json` 里 `dsh.profile.bundles` 这一段，其余字节原样保留；用的是 DSH 和 `dsh plugin` 同一个 `package.json.lock`，改之前先写一份带时间戳的备份。不卸载任何东西，所以再开回来就恢复原状。profile 本来就是那个状态时 `changed: false`。
 
 `@deepseek-ai/dsh-base` 会被拒：它是面板本体，关掉就没有界面了。两个写操作都要重启 DSH 才生效，响应里 `restart_required: true`。
+
+#### POST /api/v1/plugins/uninstall
+
+```json
+{"name": "some-bundle", "confirm": "some-bundle"}
+```
+
+把这份 profile 的一个依赖卸掉。成功的响应：
+
+```json
+{"uninstalled": true, "restart_required": true, "state": {"…同 GET /api/v1/plugins…"}}
+```
+
+`uninstalled: true` 说的是**这次操作在 profile 里留下的结果**：服务端在放锁之前重读
+`package.json`，`dependencies` 里没有这个包、`dsh.profile.bundles` 里也没有它，才算卸掉了。
+`dsh plugin remove`（或它启动的 pnpm）退出码是 0 但 profile 还列着这个包时，回答的不是成功，
+而是 409 `unknown`：面板依据的是文件，不是子进程的自述。
+
+`name` 必须是 profile `dependencies` 里的精确包名，不接受 `name@version`、前缀或模糊匹配。
+`confirm` 必须**等于 `name`**：页面是让人在弹窗里把包名打一遍才发这个字段，服务端不接受
+`true` / `1` / 空。
+
+卸载和安装抢同一个 `package.json.lock`。这里的做法是**一个临界区**：服务端先拿到锁，然后在锁里
+依次做完 ① 下面那三道检查 ② 调 DSH 自己的 `runProfilePnpm` 跑 `pnpm remove`，由它的
+`reconcile()` 把该包从 `dsh.profile.bundles` 里摘掉 ③ 重读 profile 核对结果，最后才放锁。
+它**不是**一次 `dsh plugin --profile <profile> remove`：那条命令自己会去拿同一把锁，在桥已经
+持锁的情况下再起它，父子互相等锁，就是死锁。所以桥起的是一个内嵌脚本，脚本直接调
+`runProfilePnpm`（`dsh plugin` 在锁内用的正是这个函数），不碰锁。Unix 上 helper 使用独立于
+桥的进程组，超时杀该组；Windows 上先把 helper 纳入 Job，再喂入脚本，取消时复用
+`taskkill /T /F` 并终止 Job，确认其中活跃进程数归零后才放锁。即使 helper 已退出，Job 仍追踪
+pnpm 的后代。归零等待有上限（与卸载的 5 秒管道等待同量级）：超过上限仍不归零时返回错误并
+保留 profile 写锁。锁里记的是桥自己的 PID；桥 PID 消失仅使该锁满足已有机制的接管条件，
+不能证明旧 helper、pnpm 及其后代已经停止写入。恢复前须先确认这些进程均已退出且不再写
+profile，再按已有锁机制恢复；未确认时应保持停止写入并排查。单独重启桥不能保证安全恢复。
+
+检查（第 ① 步，都在锁里、都在起进程之前做完）：
+
+| 拦下的是 | HTTP | `kind` | 文案 |
+| --- | --- | --- | --- |
+| 内置层（`@deepseek-ai/dsh-base`） | 403 | `not-removable` | dsh-base 是 DSH 的面板本体，卸掉就没有界面可用了。 |
+| 从 DSH 安装目录 `link:` 进来的层（如 `@deepseek-ai/dsh-web-app`） | 403 | `not-removable` | 这一层随 DSH 一起安装，不能在这里卸载。 |
+| profile 里没有这个名字 | 404 | `not-installed` | 这份 profile 里没有这个包。 |
+| 还被别的包依赖 | 409 | `in-use` | 「A、B 还在用它，先卸载 A、B。」（响应另带 `in_use_by: ["A","B"]`） |
+| `confirm` 与 `name` 不一致 | 400 | `confirm-mismatch` | 包名不对，再输一次。 |
+
+被依赖时只拦、不连带卸。反向依赖扫的是 profile 的 `node_modules/<pkg>/package.json` 和
+`node_modules/@<scope>/<pkg>/package.json` 里的 `dependencies` / `peerDependencies` /
+`optionalDependencies`，不用 `pnpm why`：对 `link:` 包它会返回空，看不出谁在依赖。
+
+第 ②③ 步的结果按下面的表翻成页面上的那句话，**不把 pnpm 的英文原话交给页面**：
+
+| 发生了什么 | HTTP | `kind` |
+| --- | --- | --- |
+| pnpm 报 `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`（这个包其实不在依赖里） | 403 | `not-removable` |
+| 这份 profile 里还有上一次安装/卸载留下的进程没退（DSH 的运行记录还指着一个活着的进程） | 409 | `unknown` |
+| 这份 DSH 没带插件管理器（版本太旧或装不完整） | 409 | `unknown` |
+| 找不到 pnpm，或这台电脑没有能跑卸载的 Node | 409 | `unknown` |
+| 桥自己的超时到了，卸载进程树已清理完成 | 409 | `timeout` |
+| 命令说做完了，但 profile 里还列着它 | 409 | `unknown` |
+| 其他 | 409 | `unknown` |
+
+卸载要重启 DSH 才生效（DSH 只在启动时读 `dsh.profile.bundles`），所以成功的响应里
+`restart_required` 固定为 `true`。
+
+这次不做：回滚/撤销、批量卸载、清 pnpm 内容寻址 store、清 `.plugin-manager/logs`、清孤儿
+`cordis.patch.yml` 覆盖、卸完自动重启 DSH。
 
 #### GET /api/v1/plugins/config?id=<行 id>
 
@@ -1749,6 +1815,7 @@ cors_origins = ["http://localhost:3000", "https://dashboard.example.com"]
 | 1.1-draft  | 2026-11-08 | 新增 `POST /projects/{name}/social/moment/replace`（换说说，先发新再删旧）与 `capabilities.replace_moment`；仅部分人可见的旧说说拒绝替换；`Moment` 增 `private_known`：读不到可见范围时也拒绝替换，不按公开处理 |
 | 1.1-draft  | 2026-11-08 | 换说说改为必须带 `accept_audience_change: true`：上游在 `secret` 缺失时会把 `is_private` 补成 `false`，单看这一行分不出「真的公开」和「没读到」，改宽可见范围这件事不再由缺省值决定 |
 | 1.2-draft  | 2026-11-05 | 新增可选的生图接口（`/image-gen`、`/image-gen/file/<name>`） |
+| 1.2-draft  | 2026-11-09 | 新增 `POST /plugins/uninstall`：卸载 profile 的一个依赖，检查、`runProfilePnpm`、结果核对在同一个 profile 锁里做完（不调会自己抢锁的 `dsh plugin remove`），内置层 / 安装目录 link 进来的层 / 被别的包依赖三种情况直接拦住并给中文原因；`uninstalled: true` 以重读 profile 的结果为准，需重启生效 |
 | 1.2-draft  | 2026-11-09 | 生图状态与报错里的 `base_url` 脱敏：URL 里的用户信息（`https://…@relay`）和 `token` / `api_key` / `secret` 一类查询参数换成 `***`，端点本身照旧显示 |
 | 1.2-draft  | 2026-11-08 | 新增 `GET`/`POST /plugins/config`：读出单个插件行自己的配置（YAML 文本，标明是插件自带 / profile / HOME 哪一层设的），存进 profile 的 patch，整个读-改-写跑在 DSH 自己的锁上 |
 | 1.2-draft  | 2026-11-05 | 新增插件管理页接口（`/plugins…`），写操作需要管理 token |

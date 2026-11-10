@@ -187,4 +187,44 @@ func TestSetDSHPatchConfigImageDimension(t *testing.T) {
 	}
 }
 
+// The launchd unit starts `dsh web` with --public-url, so its announcement carries the tailnet name
+// and no port at all. The old takeover only accepted a loopback announcement with a port, gave up,
+// started a second `dsh web`, and the plugin's instance lock refused it: the panel said 打不开
+// (2026-11-05 现场, notes/dsh-bughunt2-B-185-bugs.md 第 1 条). The port has to come from the recorded
+// address, with the token check still deciding.
+func TestTakeOverOrphanDSHWebFromAPublicURLAnnouncement(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	resetDSHWebHeal(t)
+	port := strings.TrimPrefix(fake.srv.URL, "http://127.0.0.1:")
+	if err := os.MkdirAll(filepath.Dir(dshWebStatePath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// No pid recorded, as after a release update: the state file only remembers the address.
+	b, _ := json.Marshal(DSHWeb{URL: "http://127.0.0.1:" + port + "/?token=launch#channels"})
+	if err := os.WriteFile(dshWebStatePath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "dsh-web.log")
+	if err := os.WriteFile(logPath, []byte("dsh web: https://mac-mini.example.ts.net/?token=launch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	web, ok, err := takeOverOrphanDSHWeb([]string{logPath}, 0)
+	if err != nil || !ok {
+		t.Fatalf("takeover = %+v %v, want the running host adopted", web, err)
+	}
+	if !strings.HasPrefix(web.URL, "http://127.0.0.1:"+port+"/?token=launch") || !strings.HasSuffix(web.URL, dshChannelsHash) {
+		t.Fatalf("adopted url = %q, want loopback with the announced token", web.URL)
+	}
+	var got DSHWeb
+	if err := json.Unmarshal(readStateRaw(t), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.URL != web.URL || got.PID <= 0 {
+		t.Fatalf("state file = %+v, want the adopted host with a pid", got)
+	}
+}
+
 func dshBoolPtr(v bool) *bool { return &v }

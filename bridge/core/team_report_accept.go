@@ -29,9 +29,10 @@ const (
 // heldReportImages keeps the images a workspace sent with a held report until it is released
 // (in memory only: after a restart only the images the report names by path go out).
 var heldReportImages = struct {
-	mu sync.Mutex
-	m  map[string][]ImageAttachment
-}{m: map[string][]ImageAttachment{}}
+	mu    sync.Mutex
+	m     map[string][]ImageAttachment
+	files map[string][]FileAttachment // the files it sent (team_exit_files.go)
+}{m: map[string][]ImageAttachment{}, files: map[string][]FileAttachment{}}
 
 // holdReportForLead takes the place of postExitHeadline for a [report]: the record is kept
 // pending (Held) on the lead engine and the lead is woken to accept it. The board records the
@@ -51,7 +52,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		Key:      reportKey(p.Name(), parent, ws, exitKindReport, hid, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: exitKindReport, Body: body, Headline: hline, Board: hid,
-		Session: sessionKey, CreatedAt: time.Now(), Held: true,
+		Session: sessionKey, CreatedAt: time.Now(), Held: true, Doubt: doubt,
 	}
 	owner := e
 	if lead != nil {
@@ -66,6 +67,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 	}
 	heldReportImages.mu.Lock()
 	heldReportImages.m[rec.Key] = takeWorkspaceImages(sessionKey, boundTime(item))
+	heldReportImages.files[rec.Key] = takeWorkspaceFiles(sessionKey, boundTime(item), false)
 	heldReportImages.mu.Unlock()
 	e.markExitReported(hid) // one handoff, one report: a repair turn's copy is not held again
 	queued := false
@@ -169,12 +171,12 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	b.WriteString("\n给用户的四段（原文）：\n" + head + "\n")
 	b.WriteString("\n全文：\n" + truncateRelayMore(dataDir, "workspace-report", body, chatLeadWakeLimit) + "\n")
 	if doubt != "" {
-		b.WriteString("\n对题检查：有疑点——" + doubt + "\n")
+		b.WriteString("\n对题检查：有疑点——" + doubt + "\n" + doubtPassRule + "\n")
 	} else {
 		b.WriteString("\n对题检查：通过（只查了做的是不是用户点名的那件，不等于合格）。\n")
 	}
 	notesArg := ""
-	if notes != "" {
+	if notes != "" && !strings.Contains(notes, "://") { // 路径栏是 PR 链接的旧条目：不给 --notes <链接>，ws-pass 认不出（#1350）
 		notesArg = " --notes " + notes
 	}
 	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了（能自己查的去查：日志、提交、线上）。二选一：\n"+
@@ -217,6 +219,7 @@ func (e *Engine) rejectHeldReport(key, why string) bool {
 	e.teamExit.mu.Unlock()
 	heldReportImages.mu.Lock()
 	delete(heldReportImages.m, key)
+	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
 	slog.Info("report accept: lead sent the report back; not posted", "board_item", rec.Board, "workspace", rec.Workspace, "why", truncateStr(why, 200))
 	return true
@@ -277,10 +280,12 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 		return err
 	}
 	heldReportImages.mu.Lock()
-	imgs := heldReportImages.m[key]
+	imgs, files := heldReportImages.m[key], heldReportImages.files[key]
 	delete(heldReportImages.m, key)
+	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
 	e.postHeldImages(ctx, p, rc, imgs, cp.Body)
+	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	e.exitMarkPosted(exitKindReport, cp.Board, cp.Headline)
 	e.teamExit.mu.Lock()
 	if unchecked {

@@ -60,6 +60,8 @@ export interface WizardRequest {
   wiki?: WizardWiki;
   /** also install the memory / guard hooks into ~/.claude (terminal Claude Code); omitted = keep */
   global_memory?: boolean; global_guards?: boolean;
+  /** a team: every person who joins gets a personal directory and their own GitHub authorization (core/member_workspace.go) */
+  member_workspaces?: boolean;
   dry_run?: boolean;
   append_only?: boolean; // the panel's add-role entry: only new roles, a taken name is refused
 }

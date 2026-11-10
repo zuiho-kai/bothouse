@@ -108,8 +108,13 @@ export async function handleStateRoutes(deps: PetRouteDeps, input: RouteInput): 
   // DELETE 清空回空闲（幂等）。只解决「外部程序把状态告诉桌宠」，不做多写者仲裁/租约/会话管理；
   // 外部槽与会话一起参与现有优先级（waiting > error > working > thinking > result > success）。
   if (rest === 'work-status') {
+    // bothouse fork：带 ?pet=<id> 时写那只宠物自己的槽（一个角色一只桌宠，各动各的）。
+    const petId = String(url.searchParams.get('pet') ?? '').trim();
     if (method === 'DELETE') {
-      if (workStatus.clear(EXTERNAL_WORK_SESSION)) publishWorkStatus();
+      if (petId) {
+        workStatus.setPet(petId, null);
+        publishWorkStatus();
+      } else if (workStatus.clear(EXTERNAL_WORK_SESSION)) publishWorkStatus();
       return { kind: 'text', status: 204, body: '' };
     }
     if (method !== 'POST') return methodNotAllowed();
@@ -141,6 +146,11 @@ export async function handleStateRoutes(deps: PetRouteDeps, input: RouteInput): 
       } else {
         return failResult('bad-request', 'invalid task');
       }
+    }
+    if (petId) {
+      const slot = workStatus.setPet(petId, state as HostWorkStatusState, task);
+      publishWorkStatus();
+      return okResult({ pet: petId, state: slot.state, task: slot.task });
     }
     workStatus.setState(EXTERNAL_WORK_SESSION, state as HostWorkStatusState, nextExternalWorkSeq());
     if (task !== undefined) workStatus.setTask(EXTERNAL_WORK_SESSION, task);

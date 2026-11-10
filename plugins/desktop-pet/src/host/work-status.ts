@@ -136,6 +136,12 @@ export interface WorkStatusSnapshot {
   ts: number; // 最近一次变化的时间戳（轮询侧据此检测变化）
 }
 
+/** bothouse fork：单只宠物的外部槽。 */
+export interface PetWorkSlot {
+  state: HostWorkStatusState | null;
+  task: string | null;
+}
+
 /** 每会话聚合条目。 */
 export interface SessionWorkEntry {
   /** 该会话当前档位。 */
@@ -188,10 +194,27 @@ export class WorkStatusStore {
   // ERR_MODULE_NOT_FOUND，整个 profile 起不来（scripts/prepack-check.js 第 8 项守着这条）。
   declare private readonly sessions: Map<string, SessionWorkEntry>;
   declare private readonly snap: WorkStatusSnapshot;
+  // bothouse fork：按宠物的外部槽（POST /work-status?pet=<id>）。一只宠物一份，最后写入者生效；
+  // 写过的宠物只跟自己这份走，不再吃全局快照（一个角色一只桌宠，各动各的）。
+  declare private readonly petSlots: Map<string, PetWorkSlot>;
 
   constructor() {
     this.sessions = new Map();
     this.snap = { state: null, task: null, sessionId: null, ts: 0 };
+    this.petSlots = new Map();
+  }
+
+  /** bothouse fork：写某只宠物自己的槽；state = null 是回空闲（条目保留，宠物继续只看自己的）。 */
+  setPet(petId: string, state: HostWorkStatusState | null, task?: string | null): PetWorkSlot {
+    const prev = this.petSlots.get(petId);
+    const next: PetWorkSlot = { state, task: task === undefined ? (state === null ? null : (prev?.task ?? null)) : task };
+    this.petSlots.set(petId, next);
+    return next;
+  }
+
+  /** bothouse fork：各宠物自己的槽（只读快照；没有写过的宠物不在里面）。 */
+  pets(): Record<string, PetWorkSlot> {
+    return Object.fromEntries(this.petSlots);
   }
 
   /** 该会话当前是否有活动条目（决定 todo/write 是否还值得更新它的文案）。 */

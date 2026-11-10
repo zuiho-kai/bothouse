@@ -124,9 +124,10 @@ func exitImagesFor(sessionKey, body string, item *teamTaskBoardItem) []ImageAtta
 	return out
 }
 
-// postExitImages posts this exit's images in the chat channel after its text. Best effort: the
-// text already went; a failed image is logged.
+// postExitImages posts this exit's images, then its documents (team_exit_files.go), in the chat
+// channel after its text. Best effort: the text already went; a failed one is logged.
 func (e *Engine) postExitImages(ctx context.Context, p Platform, rc any, sessionKey, body string, item *teamTaskBoardItem) {
+	defer func() { e.postExitFiles(ctx, p, rc, exitFilesFor(sessionKey, body, item, nil, true)) }()
 	images := exitImagesFor(sessionKey, body, item)
 	if len(images) == 0 {
 		return
