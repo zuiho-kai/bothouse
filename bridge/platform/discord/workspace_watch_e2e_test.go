@@ -64,6 +64,13 @@ func (r *guildREST) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		var m map[string]any
 		_ = json.NewDecoder(req.Body).Decode(&m)
+		if m["type"] == float64(discordgo.ChannelTypeGuildCategory) { // the 「工作区」 category
+			ch := map[string]any{"id": "catW", "name": m["name"], "type": 4}
+			r.channels = append(r.channels, ch)
+			b, _ := json.Marshal(ch)
+			body = string(b)
+			break
+		}
 		r.created = append(r.created, m)
 		ch := map[string]any{"id": "103", "name": m["name"], "type": 0, "parent_id": m["parent_id"]}
 		r.channels = append(r.channels, ch)
@@ -214,8 +221,8 @@ func TestDiscordWorkspaceWatchEndToEnd(t *testing.T) {
 		t.Fatalf("one channel created, got %v", rest.created)
 	}
 	c := rest.created[0]
-	if c["name"] != "工作区1" || c["type"] != float64(0) || c["parent_id"] != "catA" {
-		t.Fatalf("create body = %v, want 工作区1, text, same category", c)
+	if c["name"] != "工作区1" || c["type"] != float64(0) || c["parent_id"] != "catW" {
+		t.Fatalf("create body = %v, want 工作区1, text, in the 「工作区」 category", c)
 	}
 	if _, ok := c["permission_overwrites"]; ok {
 		t.Fatalf("create body sets its own permissions; the category's must be inherited: %v", c)

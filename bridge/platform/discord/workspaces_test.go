@@ -16,7 +16,8 @@ import (
 
 // workspaceREST fakes the three Discord endpoints the workspace channels use; no network.
 type workspaceREST struct {
-	created []map[string]any
+	created    []map[string]any
+	categories []map[string]any // 「工作区」 category creates
 }
 
 func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -46,8 +47,14 @@ func (r *workspaceREST) RoundTrip(req *http.Request) (*http.Response, error) {
 	case req.Method == http.MethodPost && req.URL.Path == "/api/v9/guilds/g1/channels":
 		var m map[string]any
 		_ = json.NewDecoder(req.Body).Decode(&m)
+		if m["type"] == float64(discordgo.ChannelTypeGuildCategory) {
+			r.categories = append(r.categories, m)
+			body = `{"id":"catW","name":"` + m["name"].(string) + `","type":4}`
+			break
+		}
 		r.created = append(r.created, m)
-		body = `{"id":"103","name":"` + m["name"].(string) + `","type":0,"parent_id":"catA"}`
+		parent, _ := m["parent_id"].(string)
+		body = `{"id":"103","name":"` + m["name"].(string) + `","type":0,"parent_id":"` + parent + `"}`
 	default:
 		return nil, errors.New("unexpected request: " + req.Method + " " + req.URL.Path)
 	}
@@ -85,8 +92,16 @@ func TestTeamWorkspaceChannels(t *testing.T) {
 	if err != nil || c.ID != "103" || c.Name != "工作区2" {
 		t.Fatalf("create = %+v %v", c, err)
 	}
-	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catA" || rest.created[0]["type"] != float64(0) {
-		t.Fatalf("create body = %v, want same category, text type", rest.created)
+	// A new workspace goes into the 「工作区」 category (created here, the server has none), not
+	// beside the chat channel (user 2026-11-10: 「直接就工作区类别」).
+	if len(rest.categories) != 1 || rest.categories[0]["name"] != "工作区" {
+		t.Fatalf("category creates = %v, want 「工作区」", rest.categories)
+	}
+	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catW" || rest.created[0]["type"] != float64(0) {
+		t.Fatalf("create body = %v, want the 「工作区」 category, text type", rest.created)
+	}
+	if !c.Shelved {
+		t.Fatalf("new workspace = %+v, want Shelved (in the workspace category)", c)
 	}
 }
 
@@ -140,8 +155,8 @@ func TestTeamWorkspaceChannelsFromThread(t *testing.T) {
 	if err != nil || c.ID != "103" {
 		t.Fatalf("create beside thread = %+v %v", c, err)
 	}
-	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catA" {
-		t.Fatalf("create body = %v, want the text channel's category, not the text channel", rest.created)
+	if len(rest.created) != 1 || rest.created[0]["parent_id"] != "catW" {
+		t.Fatalf("create body = %v, want the 「工作区」 category, not the text channel", rest.created)
 	}
 	rc, err := p.ReconstructReplyCtx("discord:200")
 	if err != nil || rc.(replyContext).channelID != "200" {
@@ -193,7 +208,7 @@ func TestTeamWorkspaceChannelsFromForumPostAndDM(t *testing.T) {
 	if c, err := p.CreateTeamWorkspaceChannel(ctx, "900", "工作区3"); err != nil || c.ID != "103" {
 		t.Fatalf("create for DM = %+v %v", c, err)
 	}
-	if got := rest.created[len(rest.created)-1]["parent_id"]; got != "catA" {
-		t.Fatalf("DM workspace parent = %v, want catA", got)
+	if got := rest.created[len(rest.created)-1]["parent_id"]; got != "catW" {
+		t.Fatalf("DM workspace parent = %v, want catW (the 「工作区」 category)", got)
 	}
 }
