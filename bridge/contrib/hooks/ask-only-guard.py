@@ -5,6 +5,8 @@
 用户原话：payload 的 user_prompt（run.py 按 CLI 填：DSH 会话记录、Codex rollout、agy transcript），没有再读 transcript_path（Claude Code / Qoder 格式）。
 子 agent（payload 有 agent_id）是已派出的活，放行：它的 transcript_path 指向主会话的最新一句，不能拿来判。
 定时任务、别的 bot 触发的轮放行；读不到用户原话或判不准时放行；hook 自己出错时静默放行。
+用户在一轮中途插进来的话，Claude Code 不记成 user 行，记成 attachment 行（queued_command）：也算用户最新一句。
+链接里的 ? 不算提问：判断前先去掉链接。
 例："修了么""什么进度"→ 拦；"做""可以""帮我改一下""你可以给我…吗？我想你开一个…"→ 放行；"别改"→ 拦。"""
 import json, os, re, sys
 
@@ -24,6 +26,9 @@ DO_WORD = re.compile(DO + r"|帮我|帮忙|给我|我想你|我想让你|我要�
 AFFIRM = re.compile(r"^(可以|行|好|好的|ok|嗯|对|同意|批准|go|上|都做|就这样)[吧啊呀的了。！!～~\s]*$", re.I)
 STOP = re.compile(r"^\s*(不要|别|不用|先别|停)")
 ASK = re.compile(r"[？?]|吗|么|嘛|呢|什么|怎么|为什么|为啥|是不是|有没有|能不能|会不会|要不要|哪|多少|进度|状态|没$")
+
+# 链接里的 ?token= 不是提问（11-11：一条全是订阅链接的消息被判成只在问）
+URL = re.compile(r"https?://[^\s\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]+", re.I)
 
 EDIT_REASON = "用户这条只在问，没让做。先回答，不改文件、不跑写操作；要改的话末尾问一句，等用户说做再改。"
 
@@ -62,6 +67,13 @@ def last_prompt(path):
             continue
         if not isinstance(e, dict):
             continue
+        # A message the user sent while the turn was running: Claude Code logs it as an attachment line,
+        # not as a user line (11-11: 「帮我记录一下…」 was skipped and the message before it was judged).
+        a = e.get("attachment")
+        if e.get("type") == "attachment" and isinstance(a, dict) and a.get("type") == "queued_command":
+            if a.get("commandMode") in (None, "prompt") and isinstance(a.get("prompt"), str) and a["prompt"].strip():
+                return a["prompt"]
+            continue
         c = (e.get("message") or {}).get("content")
         if e.get("type") == "user" and not e.get("isMeta"):
             if isinstance(c, str):
@@ -85,6 +97,7 @@ def user_words(t):
 
 
 def only_asking(words):
+    words = URL.sub(" ", words or "").strip()
     if not words:
         return False
     if STOP.search(words):
