@@ -80,6 +80,13 @@ func (e *Engine) MemberWorkspacesOn() bool {
 	return e.memberWS
 }
 
+// memberCanSave: the bridge wired `member enable` to config.toml, so recommending it can take effect.
+func (e *Engine) memberCanSave() bool {
+	e.memberWSMu.Lock()
+	defer e.memberWSMu.Unlock()
+	return e.memberWSSave != nil
+}
+
 // SetMemberWorkspacesSaver: how `bothouse member enable|disable` persists the switch (config.toml).
 func (e *Engine) SetMemberWorkspacesSaver(f func(on bool) error) {
 	e.memberWSMu.Lock()
@@ -689,7 +696,7 @@ func (e *Engine) memberBlock(session *Session) string {
 	switch {
 	case e.MemberWorkspacesOn():
 		note = memberNoteOn
-	case e.memberNoticeTarget():
+	case e.memberNoticeTarget() && e.memberCanSave():
 		note = memberNoteOffer
 	default:
 		return ""

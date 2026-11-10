@@ -206,6 +206,10 @@ func TestWizardMemberWorkspacesOnlyForTeamWhenTicked(t *testing.T) {
 func TestMemberBlockOncePerContext(t *testing.T) {
 	e := &Engine{name: "lead", dataDir: t.TempDir()}
 	s := &Session{}
+	if got := e.memberBlock(s); got != "" {
+		t.Fatalf("no config to save the switch to, yet recommended: %q", got)
+	}
+	e.SetMemberWorkspacesSaver(func(bool) error { return nil })
 	if got := e.memberBlock(s); got != memberNoteOffer {
 		t.Fatalf("off, no team: want the recommendation, got %q", got)
 	}
