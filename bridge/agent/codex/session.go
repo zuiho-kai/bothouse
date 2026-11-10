@@ -29,10 +29,11 @@ type codexSession struct {
 	model            string
 	effort           string
 	mode             string
-	baseURL          string   // provider base URL; passed as -c openai_base_url=<url>
-	modelProvider    string   // Codex model_provider name; passed as -c model_provider=<name>
-	cmd              string   // CLI binary, default "codex"
-	cliExtraArgs     []string // extra args from cmd, prepended before exec args
+	baseURL          string            // provider base URL; passed as -c openai_base_url=<url>
+	modelProvider    string            // Codex model_provider name; passed as -c model_provider=<name>
+	cmd              string            // CLI binary, default "codex"
+	spawnOpts        core.SpawnOptions // run_as_user isolation (#1367); zero = bridge user
+	cliExtraArgs     []string          // extra args from cmd, prepended before exec args
 	extraEnv         []string
 	promptPreamble   string
 	instructionsFile string // replaces built-in base instructions (-c model_instructions_file); "" = built-in
@@ -174,12 +175,11 @@ func (cs *codexSession) send(prompt string, messageID string, images []core.Imag
 
 	slog.Debug("codexSession: launching", "resume", isResume, "args", core.RedactArgs(args))
 
-	cmd := exec.CommandContext(cs.ctx, bin, args...)
-	cmd.Dir = cs.workDir
-	prepareCmdForKill(cmd)
-	if len(cs.extraEnv) > 0 {
-		cmd.Env = core.MergeEnv(os.Environ(), cs.extraEnv)
+	cmd, err := codexCommand(cs.ctx, cs.spawnOpts, bin, cs.workDir, cs.extraEnv, args...)
+	if err != nil {
+		return fmt.Errorf("codexSession: %w", err)
 	}
+	prepareCmdForKill(cmd)
 	cmd.Stdin = strings.NewReader(prompt)
 
 	stdout, err := cmd.StdoutPipe()
@@ -746,16 +746,19 @@ func codexToolSuccess(status string, exitCode *int) bool {
 }
 
 func loadCodexRuntimeConfig(ctx context.Context, bin string, extraArgs []string, workDir string, extraEnv []string) (string, string, error) {
+	return loadCodexRuntimeConfigAs(ctx, core.SpawnOptions{}, bin, extraArgs, workDir, extraEnv)
+}
+
+func loadCodexRuntimeConfigAs(ctx context.Context, spawnOpts core.SpawnOptions, bin string, extraArgs []string, workDir string, extraEnv []string) (string, string, error) {
 	if bin == "" {
 		bin = "codex"
 	}
 	args := append(append([]string(nil), extraArgs...), "app-server")
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = workDir
-	prepareCmdForKill(cmd)
-	if len(extraEnv) > 0 {
-		cmd.Env = core.MergeEnv(os.Environ(), extraEnv)
+	cmd, err := codexCommand(ctx, spawnOpts, bin, workDir, extraEnv, args...)
+	if err != nil {
+		return "", "", err
 	}
+	prepareCmdForKill(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -943,7 +946,7 @@ func (cs *codexSession) runtimeConfig() (string, string) {
 	ctx, cancel := context.WithTimeout(cs.ctx, codexRuntimeConfigTimeout)
 	defer cancel()
 
-	model, effort, err := loadCodexRuntimeConfig(ctx, cs.cmd, cs.cliExtraArgs, cs.workDir, cs.extraEnv)
+	model, effort, err := loadCodexRuntimeConfigAs(ctx, cs.spawnOpts, cs.cmd, cs.cliExtraArgs, cs.workDir, cs.extraEnv)
 	if err == nil {
 		cs.runtimeCfgModel = model
 		cs.runtimeCfgEffort = effort

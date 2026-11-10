@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -53,9 +51,10 @@ func (cs *codexSession) compactNative(ctx context.Context) error {
 			args = append(args, "-c", fmt.Sprintf("%s=%q", kv[0], kv[1]))
 		}
 	}
-	cmd := exec.CommandContext(ctx, cs.cmd, args...)
-	cmd.Dir = cs.workDir
-	cmd.Env = core.MergeEnv(os.Environ(), cs.extraEnv)
+	cmd, err := codexCommand(ctx, cs.spawnOpts, cs.cmd, cs.workDir, cs.extraEnv, args...)
+	if err != nil {
+		return err
+	}
 	// Never persist raw stderr: it can contain provider headers and conversation text.
 	cmd.Stderr = io.Discard
 	in, err := cmd.StdinPipe()
