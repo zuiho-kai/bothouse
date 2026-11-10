@@ -19,7 +19,7 @@ import ingest as I
 
 class Deadline(unittest.TestCase):
     def test_expired_budget_does_not_start_model(self):
-        with patch.dict(os.environ, WIKI_STOP_AT=str(time.time() - 1)), \
+        with patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() - 1)), \
                 patch.object(I.subprocess, "run") as run, patch.object(I.subprocess, "Popen") as popen:
             result = I.engine_run(["fake-model"], timeout=3600, capture_output=True, text=True)
         self.assertEqual(result.returncode, 124)
@@ -28,7 +28,7 @@ class Deadline(unittest.TestCase):
 
     def test_remaining_budget_caps_a_model_call(self):
         started = time.monotonic()
-        with patch.dict(os.environ, WIKI_STOP_AT=str(time.time() + 0.2)):
+        with patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 2.2)):
             result = I.engine_run([sys.executable, "-c", "import time; time.sleep(2)"],
                                   timeout=3, capture_output=True, text=True)
         self.assertEqual(result.returncode, 124)

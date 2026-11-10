@@ -20,6 +20,8 @@ SELF = Path(__file__).resolve()
 LOG = HERE / "sub-wiki.log"
 PY = os.environ.get("WIKI_PYTHON") or sys.executable
 MAIN_MARK = ".bothouse-main"  # setup_wiki.py: a main wiki (the lead's, when bots.json gives her that wiki)
+sys.path.insert(0, str(HERE / "llmwiki"))  # -I omits the script directory
+import budget
 
 
 def say(msg):
@@ -29,7 +31,7 @@ def say(msg):
 
 def bots():
     """bots.json（$WIKI_BOTS，默认本目录）→ [(bot, project, wiki 目录)]"""
-    out = subprocess.run([PY, "-X", "utf8", "-I", str(HERE / "export.py"), "--list"], capture_output=True, text=True).stdout
+    out = budget.run([PY, "-X", "utf8", "-I", str(HERE / "export.py"), "--list"], capture_output=True, text=True).stdout
     rows = []
     for line in out.splitlines():
         parts = line.split(None, 2)
@@ -45,6 +47,8 @@ def run_one(rows, b, *args):
     with open(Path(d) / ".ingest.log", "a") as err:
         # WIKI_DIR = this wiki: a teammate's shim sets it itself, but the lead's main wiki holds the full tool, whose
         # default is ~/wiki (wrong when the main wiki is at $WIKI_DIR; the hook's env has no WIKI_DIR at all)
+        # Ingest owns model cleanup/checkpoints. Do not race it with another
+        # timeout at this parent; the shell's hard cancellation remains the guard.
         rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err,
                             env=dict(os.environ, WIKI_DIR=str(d))).returncode
     if rc:
@@ -53,14 +57,14 @@ def run_one(rows, b, *args):
 
 def export(*args):
     with open(LOG, "a") as f:
-        return subprocess.run([PY, "-X", "utf8", "-I", str(HERE / "export.py"), *args], stdout=f, stderr=f).returncode
+        return budget.run([PY, "-X", "utf8", "-I", str(HERE / "export.py"), *args], stdout=f, stderr=f).returncode
 
 
 # 钩子的最小环境：cc-connect 的环境带着 secrets.env 的全部变量，和主角色 ingest.py --hook 一样只留这些
 POSIX_KEEP = ("USER", "LOGNAME", "TMPDIR", "LANG")
 WIN_KEEP = ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA",
             "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "TEMP", "TMP", "USERNAME", "PATH")
-PASS = ("WIKI_BOTS", "WIKI_TRANSCRIPTS", "WIKI_PYTHON")
+PASS = ("WIKI_BOTS", "WIKI_TRANSCRIPTS", "WIKI_PYTHON", "WIKI_STOP_AT", "CC_JOB_DEADLINE")
 
 
 def hook_env():
@@ -93,12 +97,17 @@ def detach(argv, env):
 
 def main(argv):
     mode = argv[1] if len(argv) > 1 else ""
+    if budget.stopped():
+        say("wiki deadline reached; pending work retained for next run")
+        return 0
     if mode in ("pending", "nightly", "lint"):
         rows = bots()
         say(f"start {mode}")
         if export(*(["--no-wait"] if mode == "pending" else [])):
             say("export failed (ingest still runs on what is there)")
         for b, _p, d in rows:
+            if budget.stopped():
+                break
             if (Path(d) / MAIN_MARK).exists():
                 continue  # the lead's main wiki: the same cron job runs it already (setup_wiki.go wikiExec)
             run_one(rows, b, "--" + mode)

@@ -2605,6 +2605,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	}
 	shellCmd.Dir = workDir
 	ownScheduledShell(shellCmd)
+	scheduledShellDeadline(shellCmd, ctx)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -2774,6 +2775,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	shellCmd := shellExecCommand(ctx, e.shell, e.shellFlag, e.shellProfile, job.Exec)
 	shellCmd.Dir = workDir
 	ownScheduledShell(shellCmd)
+	scheduledShellDeadline(shellCmd, ctx)
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
