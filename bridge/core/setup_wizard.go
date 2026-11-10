@@ -53,7 +53,8 @@ type WizardRequest struct {
 	// defaults to routing through the primary role (core/gate_proc.go).
 	Gate *WizardGate `json:"gate,omitempty"`
 	// AllowFrom: Discord user IDs (comma-separated) the bots take orders from; "*" = anyone in the server.
-	// Not given = the owner of each bot's Discord application (looked up with the token).
+	// Not given = "*" when a server is picked (allow_guilds pins the bots to it), else the owner of
+	// each bot's Discord application (looked up with the token).
 	// Written to new bots and to existing bots whose allow_from is still empty; a non-empty one is kept.
 	AllowFrom *string `json:"allow_from,omitempty"`
 	// Wiki: the models of the memory wiki's work (core/setup_wiki.go); nil or "" = keep. With a wiki
@@ -1127,20 +1128,24 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		}
 	}
 
-	// allow_from: what the user gave, else the bots' owners. Nothing known (owner lookup failed,
-	// or an empty value given) fails closed: an empty allow_from would let anyone in the server
-	// command this computer, so the bots get AllowFromUnset (matches no one) and a blocking warning.
+	// allow_from: what the user gave. Not given on Discord with a server picked: "*", everyone in
+	// that server (allow_guilds below pins the bots to it), so a team channel answers its other
+	// members too, not only the owner; the owners still get admin_from. No server known: the bots'
+	// owners. Nothing known (owner lookup failed, or an empty value given) fails closed: the bots
+	// get AllowFromUnset (matches no one) and a blocking warning.
 	allowFrom := strings.Join(owners, ",")
 	req.botOwners = allowFrom
 	if req.AllowFrom != nil {
 		allowFrom = strings.Join(csvSet(*req.AllowFrom), ",")
+	} else if req.Platform == "discord" && guildID != "" {
+		allowFrom = "*"
 	}
 	if req.Platform == "discord" {
 		res.AllowFrom = allowFrom
 		if allowFrom == "" {
 			allowFrom = AllowFromUnset
 		}
-		if allowFrom == "*" { // the user's explicit choice: allowed, but say what it means
+		if allowFrom == "*" { // allowed, but say what it means and how to narrow it
 			res.Warnings = append(res.Warnings, warnAllowFromEveryone(req.Language))
 		}
 	}
