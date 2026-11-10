@@ -4,7 +4,7 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Roster } from './roster.mjs';
 import { CliMember } from './cli-member.mjs';
-import { buildTeam } from './plugin.mjs';
+import { buildTeam, resolveConfig } from './plugin.mjs';
 import { managementMembers, managementUpdate } from './member-management.mjs';
 
 test('#1592 team-created Claude member keeps omitted fields and persists model edits', async t => {
@@ -18,9 +18,11 @@ test('#1592 team-created Claude member keeps omitted fields and persists model e
   const id = team.members[0].id;
   assert.equal(store.member(id).cli, 'claude');
   assert.equal(managementMembers(roster, hub).find(m => m.id === id).can_edit, true);
+  await roster.update(id, { permissionPreset: 'read-only', nameCustomized: true });
   const before = { ...store.member(id) };
   const changed = await managementUpdate(roster, id, { model: 'sonnet' });
   assert.equal(changed.model, 'sonnet');
+  assert.equal(changed.apply.status, 'pending');
   assert.deepEqual({ ...store.member(id), model: before.model }, before, 'other columns are unchanged');
   const kept = await roster.update(id, { persona: 'edited' });
   assert.equal(kept.model, 'sonnet', 'legacy PATCH also keeps omitted model and CLI');
@@ -33,6 +35,20 @@ test('#1592 team-created Claude member keeps omitted fields and persists model e
   for (const model of ['', '  ', 42, {}, { provider: 'p', model: 'm' }]) {
     await assert.rejects(managementUpdate(roster, id, { model }), /Claude model/);
   }
+  assert.equal(store.member(id).model, null, 'invalid edits never write');
+});
+
+test('#1592 Claude config seeds remain read-only and invalid team models write nothing', async t => {
+  const store = new Store(':memory:'); t.after(() => store.close()); store.ensureRoom(1, 'general');
+  const hub = new Hub(store, { warn() {}, info() {} });
+  const config = resolveConfig({ dataDir: '/tmp/unused', workspacePath: '/tmp', dshMembers: [{ id: 'seed', name: 'Seed', cli: 'claude', model: 'sonnet' }] }, {});
+  const roster = new Roster(hub, { putMember(m) { hub.setMember({ ...m, kind: 'dsh', online: true }); } });
+  roster.load(config.dshMembers);
+  assert.equal(hub.members.get('seed').model, 'sonnet');
+  await assert.rejects(managementUpdate(roster, 'seed', { model: 'opus' }), /read-only/);
+  const before = { rooms: store.rooms().length, members: store.members().length };
+  await assert.rejects(buildTeam({ channel: 'invalid', members: [{ name: 'Good', cli: 'claude' }, { name: 'Bad', cli: 'claude', model: { provider: 'p', model: 'm' } }] }, 'seed', { store, hub, roster }), /Claude model/);
+  assert.deepEqual({ rooms: store.rooms().length, members: store.members().length }, before);
 });
 
 function claude({ reject = false, loaded = false } = {}) {

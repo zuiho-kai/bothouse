@@ -226,7 +226,7 @@ export class CliMember {
     if (prevId && this.canLoad) {
       try {
         const loaded = await Promise.race([this.conn.loadSession({ sessionId: prevId, cwd: this.cwd, mcpServers: [] }), this.exited])
-        s = { sessionId: prevId, configOptions: loaded?.configOptions }
+        s = { sessionId: prevId, configOptions: loaded?.configOptions, defaultModel: loaded?.models?.currentModelId }
         this.sessions.set(room, s)
         return { ...s, resumed: true, lost: false }
       } catch (err) {
@@ -234,7 +234,7 @@ export class CliMember {
       }
     }
     const r = await Promise.race([this.conn.newSession({ cwd: this.cwd, mcpServers: [] }), this.exited])
-    s = { sessionId: r.sessionId, configOptions: r.configOptions }
+    s = { sessionId: r.sessionId, configOptions: r.configOptions, defaultModel: r.models?.currentModelId }
     this.sessions.set(room, s)
     return { ...s, resumed: false, lost: Boolean(prevId) }
   }
@@ -301,6 +301,18 @@ export class CliMember {
     }
   }
 
+  async _configureClaude(s, model) {
+    // Claude's ACP adapter exposes session/set_model, not Codex's config options.
+    // Remember its initial selection so clearing an override also affects a live session.
+    if (model == null && s.appliedModel === undefined) return
+    const target = model ?? s.defaultModel
+    if (!target) throw new Error('Claude default model is unavailable')
+    if (s.appliedModel === target) return
+    await Promise.race([this.conn.request('session/set_model', { sessionId: s.sessionId, modelId: target }), this.exited])
+    const stored = [...this.sessions.values()].find(x => x.sessionId === s.sessionId)
+    if (stored) stored.appliedModel = target
+  }
+
   /**
    * onText(textSoFar) 在每个公开文字分片到达时调用（#121）；onTool(update) 在每个工具调用开始/更新和每个思考分片到达时调用。
    * opts.resumeId：要续上的 sessionId；opts.onSession({ sessionId, resumed, lost })：会话就绪后、发提示词前调用。
@@ -314,9 +326,10 @@ export class CliMember {
     return run
   }
 
-  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [], onPermission, cliConfig, cliConfigManaged } = {}) {
+  async _ask(text, room, onText, onTool, { resumeId, onSession, attachments = [], onPermission, model, cliConfig, cliConfigManaged } = {}) {
     const s = await this._session(room, resumeId)
     if (this.cli === 'codex' && cliConfigManaged) await this._configure(s, cliConfig)
+    if (this.cli === 'claude') await this._configureClaude(s, model)
     await onSession?.({ sessionId: s.sessionId, resumed: s.resumed, lost: s.lost })
     // persona 每轮都拼：续上的或新开的会话都不会丢人设。
     const body = this.persona ? `${this.persona}\n\n${text}` : text
