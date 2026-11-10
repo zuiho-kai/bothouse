@@ -58,7 +58,7 @@ func TestHeldReportGoesToLeadFirst(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("lead wakes = %d", len(jobs))
 	}
-	for _, want := range []string{leadAcceptMark, "改好了，已上线", "/tmp/notes-46.md", "对题检查：有疑点——测的是另一个入口", "ws-pass --notes /tmp/notes-46.md --verdict", "ws-forward --notes /tmp/notes-46.md", leadUncheckedMark} {
+	for _, want := range []string{leadAcceptMark, "改好了，已上线", "/tmp/notes-46.md", "对题检查：有疑点——测的是另一个入口", "ws-pass --id 46 --verdict", "ws-forward --id 46", leadUncheckedMark} {
 		if !strings.Contains(jobs[0].Prompt, want) {
 			t.Fatalf("lead prompt misses %q:\n%s", want, jobs[0].Prompt)
 		}

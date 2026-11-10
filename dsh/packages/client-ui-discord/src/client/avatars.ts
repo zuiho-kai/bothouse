@@ -1,8 +1,8 @@
 /**
  * Built-in member avatars served by the collab plugin at `collab/avatars/<slug>.png`:
- * the four B-version character portraits (Claude / GPT / DeepSeek / Gemini) + lanxi.
+ * the four B-version character portraits (Claude / GPT / DeepSeek / Gemini) + Grok + lanxi.
  */
-export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'] as const
+export const AVATARS = ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok'] as const
 
 export interface AvatarOptions {
   avatar?: string
@@ -18,7 +18,7 @@ export interface AvatarOptions {
  * - GPT / Codex -> dragon
  * - DeepSeek -> whale
  * - Gemini -> rainbow
- * - Grok -> undefined (never borrow another's asset)
+ * - Grok -> grok
  */
 export function matchAvatarSlug(opts: AvatarOptions): string | undefined {
   if (opts.avatar && (AVATARS as readonly string[]).includes(opts.avatar as any)) {
@@ -28,17 +28,13 @@ export function matchAvatarSlug(opts: AvatarOptions): string | undefined {
   const cli = (opts.cli || '').toLowerCase()
   const name = (opts.name || opts.id || '').toLowerCase()
 
-  // Grok check
-  if (model.includes('grok') || cli.includes('grok') || name.includes('grok')) {
-    return undefined
-  }
-
   // Model family
   if (model) {
     if (model.includes('claude') || model.includes('opus') || model.includes('sonnet') || model.includes('haiku')) return 'orange'
     if (model.includes('gpt') || model.includes('codex') || model.includes('o1') || model.includes('o3') || model.includes('o4') || model.includes('chatgpt')) return 'dragon'
     if (model.includes('deepseek') || model.includes('r1') || model.includes('v3')) return 'whale'
     if (model.includes('gemini')) return 'rainbow'
+    if (model.includes('grok') || model.includes('xai')) return 'grok'
   }
 
   // CLI / agent type
@@ -47,6 +43,7 @@ export function matchAvatarSlug(opts: AvatarOptions): string | undefined {
     if (cli === 'codex') return 'dragon'
     if (cli === 'deepseek' || cli === 'dsh') return 'whale'
     if (cli === 'gemini' || cli === 'antigravity') return 'rainbow'
+    if (cli === 'grok') return 'grok'
   }
 
   // Role name / identity
@@ -56,6 +53,7 @@ export function matchAvatarSlug(opts: AvatarOptions): string | undefined {
     if (name === '鲸鱼娘' || name === '肥鱼' || name === 'deep' || name === 'deepseek' || name === 'dsh') return 'whale'
     if (name === '彩虹猫' || name === '大豆包' || name === 'gjiang' || name === 'gemini') return 'rainbow'
     if (name === '岚汐' || name === 'lanxi' || name === 'minimax') return 'lanxi'
+    if (name === 'grok' || name.includes('grok')) return 'grok'
   }
 
   return undefined
