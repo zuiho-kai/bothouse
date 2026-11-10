@@ -146,7 +146,7 @@ export default function SetupWizard() {
   const [saving, setSaving] = useState(false);
   const [restarted, setRestarted] = useState(false);
   const [copied, setCopied] = useState('');
-  // allow_from: defaults to the bots' owners (from the token check) until the user edits it
+  // allow_from: defaults to * (everyone in the picked server) until the user edits it
   const [allowFrom, setAllowFrom] = useState<string | null>(null);
   // memory wiki models: start from what is in effect; only the ones changed go into the request
   const [wikiPick, setWikiPick] = useState<WizardWiki>({});
@@ -377,8 +377,9 @@ export default function SetupWizard() {
     }
   };
 
-  const ownerDefault = Array.from(new Set(roles.map((r) => r.info?.owner_id).filter(Boolean))).join(',');
-  const allowFromValue = allowFrom ?? ownerDefault;
+  // default: everyone in the picked server (the bots stay pinned to it), so a team channel answers
+  // its other members too; the owners still get admin_from on the server side
+  const allowFromValue = allowFrom ?? '*';
 
   // ── request ──
   const buildRequest = (maskSecrets = false): WizardRequest => {

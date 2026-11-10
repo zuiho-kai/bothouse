@@ -53,7 +53,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
    也可以自己填三个框（Base URL、Key、模型），填一个能返回概率的模型。填完自动测一次（和 gate 一样问一道 A/B/C 选择题，看前 20 个候选里有没有选项字母），测的时候不写盘；
    能用就点下一步存下。不给概率或连不上就不存，失败原因后面会写该换成什么（本机地址连不上时给出启动命令，其他情况推荐换成上面的预设）；也可以「先跳过」。
    已经有能用的 jev 时框里预先填好，原样点下一步就是继续用它；新填的没通过时提示「仍在用旧的 …」，旧的不动。见下面「jev 和主角色」。
-7. **确认**：最后一页有一栏「谁能指挥这些机器人」（`allow_from`），默认填好了机器人的所有者，也就是建机器人的你；
+7. **确认**：最后一页有一栏「谁能指挥这些机器人」（`allow_from`），默认是 `*`：选中的这个服务器里的人都能找机器人干活，团队频道里队友说话它也会理；管理命令和私信仍只认建机器人的你。只想自己用就改成你的 Discord 用户 ID；
    想让别人也能用就加上他的 Discord 用户 ID，`*` = 服务器里所有人（机器人能在你电脑上跑命令，别随便放开）。已有机器人原来设了 `allow_from` 的不动。
 8. **保存**：写进本机配置。最后一页先列出还要你做的事，不做机器人不会回话：
    - Message Content Intent 没开，或者没查到开没开 → 点链接到开发者后台 Bot 页打开 / 确认；
@@ -95,7 +95,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
   （`message_content_intent_off`：去开发者后台打开 intent；`bot_not_in_guild`：打开 `url` / `invite_urls` 里的邀请链接；`agent_not_logged_in`：照 `fix` 登录这台机器上的 CLI；
   `discord_token_invalid`：重置 token），不做机器人不会回话；
   `next_steps` 写了怎么启动或重启。`ok` 为 false 时退出码是 1（存好了但还要你做事也是 1）。`gate_python_missing`（没找到 Python 3.12+）只是提示，不阻塞：分流照样生效，装好后 bothouse 自动起 gate。`gate_status` 是分流的状态（`off`、`running`、`starting`、`python_missing`、`python_too_old`、`jev_missing`），`gate_hint` 是给人看的一句话。多个机器人时分流默认开，请求里加 `"gate": {"enabled": false}` 才关。
-- `allow_from` 不写时，默认是每个机器人所属 Discord 应用的所有者（用 token 查）；写进新机器人，和原来 `allow_from` 为空的已有机器人，已有非空的不动。查不到所有者（Discord 应用接口没回）时不会放开：写成 `allow_from = "set-your-discord-user-id"`（谁都不听），返回阻塞的 `allow_from_unknown`，要用户给自己的 Discord 用户 ID 再跑一次。只有显式写 `"*"` 才是服务器里所有人（会附一条不阻断的 `allow_from_everyone` 提醒）。照提示带上真实 ID 重跑时，占位值会被换掉。
+- `allow_from` 不写时：给了服务器（`discord.guild_id`）就默认 `"*"`，即这个服务器里的人（`allow_guilds` 把机器人限在这个服务器），附一条不阻断的 `allow_from_everyone` 提醒，`admin_from` 仍是机器人所有者；没给服务器时默认是每个机器人所属 Discord 应用的所有者（用 token 查）；写进新机器人，和原来 `allow_from` 为空的已有机器人，已有非空的不动。没给服务器又查不到所有者（Discord 应用接口没回）时不会放开：写成 `allow_from = "set-your-discord-user-id"`（谁都不听），返回阻塞的 `allow_from_unknown`，要用户给自己的 Discord 用户 ID 再跑一次。照提示带上真实 ID 重跑时，占位值会被换掉。
 - `reuse_project` 的机器人保留原 project 名、CLI、work_dir、服务器；它的人设文件只有同时带了 `persona` 和 `"edit_persona": true` 才会改。
   新机器人的名字和配置里已有的项目撞了：是同一个机器人（bot ID 一样）就更新那个项目，不是就加 -2、-3。
   主角色可以用 `fallback_bot_id`（机器人 ID）指定，网页就这样传。
@@ -234,10 +234,10 @@ Codex 角色默认可能与桌面共用 `~/.codex`，所以平台聊天也会出
 
 ### A2. 拿 ID
 
-向导里服务器和频道是点选的，`allow_from` 默认就是你，一般用不到这一节。要手动填 ID 时（例如让 AI 跑 `setup apply`）：
+向导里服务器和频道是点选的，`allow_from` 默认是这个服务器里的人，一般用不到这一节。要手动填 ID 时（例如让 AI 跑 `setup apply`）：
 Discord 设置 → 高级 → 打开**开发者模式**。之后右键就能「复制 ID」（右键服务器图标 → 复制服务器 ID；右键频道 → 复制频道 ID）：
 
-- 你自己的用户 ID → `allow_from`（只听你的话；向导默认已填）。
+- 你自己的用户 ID → `allow_from`（只听你的话；向导默认是 `*`，只想自己用时填）。
 - 每个 bot 的用户 ID → 别的 bot 的 `allow_bots`、所有 bot 的 `team_lead_bot`（填主 bot 的）。
 - 服务器 ID、频道 ID → 角色小家的 `roles.toml`（下面「默认发言频道」）。
 
