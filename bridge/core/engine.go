@@ -727,6 +727,8 @@ type interactiveState struct {
 	turnErrored              bool           // maomao fork: last turn ended with an error event (not a success)
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
+	refused                  string         // #1414: last turn's classifier refusal (takeRefused)
+	refusedQueued            *queuedMessage // #1414: the chained queued message that turn was, if any
 	platform                 Platform
 	replyCtx                 any
 	injectedReplyCtxs        []*injectedReply // maomao fork: reply contexts of messages injected into the running turn (gate.go); guarded by mu
@@ -5153,6 +5155,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				return
 			}
 		}
+		// #1414: the upstream classifier refused the turn; re-run once on a fresh session.
+		if errMsg, q := state.takeRefused(); errMsg != "" {
+			retryP, retry := p, origMsg
+			if q != nil {
+				retryP, retry = q.platform, queuedToMessage(*q)
+			}
+			if e.retryFreshOnRefusal(retryP, retry, errMsg, state, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey) {
+				unlocked = true
+				return
+			}
+		}
 	}
 
 	// Guard against a narrow race: a message may have been queued between
@@ -7404,6 +7417,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				sp.discard()
 				return
 			}
+			// #1414: the upstream classifier refused the turn; re-run once on a fresh session.
+			if e.takeRefusalResult(state, input, event, chainedQueued) {
+				board.hold()
+				sp.discard()
+				return
+			}
 
 			// Mark clean exit so unsolicited reader preserves buffered events.
 			state.mu.Lock()
@@ -8774,6 +8793,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				rawQueued = *q
 			}
 			if e.retryFreshOnResumeError(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
+				return true
+			}
+		}
+		// #1414: a queued turn the upstream classifier refused.
+		if errMsg, q := state.takeRefused(); errMsg != "" {
+			if q != nil {
+				rawQueued = *q
+			}
+			if e.retryFreshOnRefusal(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
 				return true
 			}
 		}
