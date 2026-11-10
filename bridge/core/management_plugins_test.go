@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -431,5 +432,83 @@ func TestPluginAllowVersionCommandRelaysDSHOwnLine(t *testing.T) {
 		if got := pluginAllowVersionCommand(other); got != "" {
 			t.Fatalf("allow-version(%q) = %q, want empty", other, got)
 		}
+	}
+}
+
+// TestPluginsInstallSaysWhenThePackageIsNotAPlugin: DSH exits 0 for a package with neither
+// dsh.bundle nor dsh.client, so a bare "done" read as a working plugin (#460: dsh-plugin-catalog
+// and dsh-plugin-update). Exercise the HTTP stream consumed by the existing page: an error must
+// replace done, because the page does not consume extra status fields on successful events.
+func TestPluginsInstallSaysWhenThePackageIsNotAPlugin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake dsh is a shell script")
+	}
+	for _, tc := range []struct {
+		spec, pkg, body string
+		wantError       string
+	}{
+		{"catalog-only@1.0.0", "catalog-only", `{"name":"catalog-only","version":"1.0.0"}`, "不是可加载的插件"},
+		{"git+https://host/catalog-only.git", "catalog-only", `{"name":"catalog-only","version":"1.0.0"}`, "不是可加载的插件"},
+		{"https://host/catalog-only.tgz", "catalog-only", `{"name":"catalog-only"}`, "不是可加载的插件"},
+		{"file:./catalog-only", "catalog-only", `{"name":"catalog-only"}`, "不是可加载的插件"},
+		{"git+https://host/real.git", "real-bundle", `{"name":"real-bundle","version":"1.0.0","dsh":{"bundle":{"patch":["a.yaml"]}}}`, ""},
+		{"client-only@1.0.0", "client-only", `{"name":"client-only","dsh":{"client":{"platform":"web"}}}`, ""},
+		{"missing-package", "missing-package", "", "files-missing"},
+		{"broken-package", "broken-package", `{`, "invalid-json"},
+		{"no-result", "", "", "无法确认"},
+	} {
+		t.Run(tc.spec, func(t *testing.T) {
+			_, dir := writePluginsProfile(t)
+			bin := t.TempDir()
+			after := filepath.Join(bin, "after.json")
+			pj, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+			grown := strings.Replace(string(pj), `"plain-dep": "1.2.3"`, `"plain-dep": "1.2.3", "`+tc.pkg+`": "1.0.0"`, 1)
+			if tc.pkg == "" {
+				grown = string(pj)
+			}
+			if err := os.WriteFile(after, []byte(grown), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pkgDir := filepath.Join(dir, "node_modules", tc.pkg)
+			script := "#!/bin/sh\nset -e\n"
+			if tc.body != "" {
+				script += "mkdir -p '" + pkgDir + "'\nprintf '%s' '" + tc.body + "' > '" + pkgDir + "/package.json'\nprintf '%s' '- insert: []' > '" + pkgDir + "/a.yaml'\n"
+			}
+			script += "cp '" + after + "' '" + dir + "/package.json'\necho added\n"
+			if err := os.WriteFile(filepath.Join(bin, "dsh"), []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			mgmt, ts, _ := testManagementServer(t, "tok")
+			mgmt.SetPluginInstallPolicy(func() PluginInstallPolicy { return PluginInstallPolicy{AllowNonRegistry: true} })
+			raw, _ := json.Marshal(map[string]any{"spec": tc.spec, "confirm_source": pluginNonRegistryConfirm})
+			req, _ := http.NewRequest("POST", ts.URL+"/api/v1/plugins/install", strings.NewReader(string(raw)))
+			req.Header.Set("Authorization", "Bearer tok")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			var last map[string]any
+			dec := json.NewDecoder(resp.Body)
+			for dec.More() {
+				last = nil
+				if err := dec.Decode(&last); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.wantError != "" {
+				detail, _ := last["error"].(string)
+				if last["done"] == true || !strings.Contains(detail, tc.wantError) {
+					t.Fatalf("done=%v error=%q, want error containing %q without success", last["done"], detail, tc.wantError)
+				}
+				// An absent kind lets the existing page display this actionable detail directly.
+				if last["kind"] != nil {
+					t.Fatalf("kind=%v hides the result detail behind the generic failure text", last["kind"])
+				}
+			} else if last["done"] != true || last["error"] != nil {
+				t.Fatalf("last event = %v, want success for %s", last, tc.pkg)
+			}
+		})
 	}
 }

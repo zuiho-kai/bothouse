@@ -335,6 +335,13 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	// Non-registry specs are not package names. Record dependencies so the result can identify
+	// the package added or changed by DSH, without mistaking an unrelated bundle for success.
+	before := map[string]string{}
+	for _, p := range listDSHPlugins().Plugins {
+		before[p.Name] = p.Source
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), pluginInstallTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, dshBin, "plugin", "--profile", DSHProfile, "add", parsed.Raw)
@@ -364,7 +371,25 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 	}
 	waitErr := cmd.Wait()
 	if waitErr == nil {
-		send(map[string]any{"done": true, "state": m.pluginState()})
+		state := m.pluginState()
+		// Exit 0 only confirms the package command finished (#460). The existing page consumes
+		// error/done, so an extra warning field on done would still display a false success.
+		p, ok := installedPlugin(state, before, parsed)
+		var detail string
+		switch {
+		case !ok:
+			detail = "安装命令已结束，但无法确认对应的插件产物；请刷新插件列表核对，不能据此认定插件安装成功。"
+		case p.Error != "":
+			detail = fmt.Sprintf("安装命令已结束，但 %s 的插件文件无法读取：%s。请刷新插件列表核对。", p.Name, p.Error)
+		case !p.Layer && !p.ClientOnly:
+			detail = fmt.Sprintf("包 %s 已加入依赖，但不是可加载的插件：没有可识别的 DSH bundle 或客户端声明。包仍保留在 profile 中，可刷新列表查看或卸载。", p.Name)
+		}
+		if detail != "" {
+			// No classifier kind: the existing page displays error verbatim in this case.
+			send(map[string]any{"error": detail, "state": state})
+			return
+		}
+		send(map[string]any{"done": true, "state": state})
 		return
 	}
 	kind := classifyPluginFailure(tail.String(), errors.Is(ctx.Err(), context.DeadlineExceeded))
@@ -377,6 +402,24 @@ func (m *ManagementServer) handlePluginsInstall(w http.ResponseWriter, r *http.R
 		// decision, and this panel only relays what DSH said (#460).
 		"allow_version": pluginAllowVersionCommand(tail.String()),
 	})
+}
+
+// installedPlugin matches registry names directly. Non-registry installs must have a unique
+// matching source or changed dependency; ambiguous/unidentifiable results are not success.
+func installedPlugin(state DSHPluginsState, before map[string]string, spec pluginSpec) (DSHPlugin, bool) {
+	var added []DSHPlugin
+	for _, p := range state.Plugins {
+		if spec.Kind == pluginKindRegistry && p.Name == spec.Name {
+			return p, true
+		}
+		if previous, exists := before[p.Name]; !exists || previous != p.Source || p.Source == spec.Raw {
+			added = append(added, p)
+		}
+	}
+	if spec.Kind != pluginKindRegistry && len(added) == 1 {
+		return added[0], true
+	}
+	return DSHPlugin{}, false
 }
 
 // classifyPluginFailure turns a failed pnpm run into one of the kinds the page has text for.
