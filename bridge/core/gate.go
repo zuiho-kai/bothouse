@@ -114,6 +114,11 @@ func (g *gateState) silenceApplies(msg *Message, busy bool) bool {
 // session never get merged into one turn; every other case keeps the old per-session key. Called
 // with g.mu held: a message that is not plain itself (an @ of this bot, an attachment) still joins
 // this sender's silent burst already being collected, so it can't overtake that earlier text.
+//
+// A session-level burst (one opened by a message that does not wait for silence: an @ of this bot,
+// an attachment, a command) only takes in the person who opened it, or a message that itself does
+// not wait for silence. Another person's plain message opens its own batch instead: folded into
+// someone else's burst it would lose its own silent window and its own hard cap (#1484 follow-up).
 func (g *gateState) holdKey(interactiveKey string, msg *Message, busy bool) string {
 	sender := ""
 	if g.silence && !busy && !msg.FromBot {
@@ -126,8 +131,12 @@ func (g *gateState) holdKey(interactiveKey string, msg *Message, busy bool) stri
 	if g.held[key] != nil {
 		return key // this sender already has a silent batch: join it
 	}
-	if g.held[interactiveKey] != nil {
-		return interactiveKey // a burst that does not wait for silence is already collecting
+	if h := g.held[interactiveKey]; h != nil {
+		// A burst that does not wait for silence is already collecting.
+		if h.sender == sender || !g.silenceApplies(msg, busy) {
+			return interactiveKey
+		}
+		return key
 	}
 	if g.silenceApplies(msg, busy) {
 		return key
@@ -154,6 +163,7 @@ type heldMsg struct {
 	timer   *time.Timer
 	firstAt time.Time // start of a same-sender silent wait, for the hard cap
 	silence bool      // this burst waits for its sender to fall quiet (gate_sender_silence)
+	sender  string    // personKey of the message that opened this burst ("" = no person)
 }
 
 type gateRequest struct {
@@ -465,7 +475,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// 「我都艾特你了，他还在判断」; ~1.5s extra wait accepted).
 		// A plain message from one person waits for that person to fall quiet instead
 		// (gate_sender_silence, see silenceApplies), so three lines in a row become one turn.
-		h := &heldMsg{msg: msg, firstAt: time.Now(), silence: g.silenceApplies(msg, busy)}
+		h := &heldMsg{msg: msg, firstAt: time.Now(), silence: g.silenceApplies(msg, busy), sender: personKey(msg)}
 		window := g.holdWindow(msg)
 		if h.silence {
 			window = g.holdFor(h, h.firstAt)

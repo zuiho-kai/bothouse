@@ -340,3 +340,70 @@ func TestApplyGateSenderSilence_JoinsSessionBurstInFlight(t *testing.T) {
 		t.Fatalf("merged = %q", got)
 	}
 }
+
+// #1484 follow-up: a session-level burst must not swallow another person's plain message. A @-s
+// this bot (no silent wait, so the batch sits under the session key); B's ordinary message right
+// after must still open B's own silent batch with its own window, while A's next message keeps
+// joining A's batch (same person, original order).
+func TestApplyGateSenderSilence_OtherSenderNotSwallowedBySessionBurst(t *testing.T) {
+	srv, _ := silenceGate(t, "reply")
+	e := newTestEngine()
+	defer e.Stop()
+	e.SetGate(srv.URL, 2000, "reply")
+	e.SetGateSenderSilence(true, 60_000, 600_000)
+	e.SetGateBurstWindow(60_000)
+	p := &leadPlatform{}
+	s := &Session{}
+
+	mention := personMsg("test:room", "u1", "@bot 先看这个")
+	mention.Mentioned = true
+	e.applyGate(p, mention, s, "k") // A opens a session batch that does not wait for silence
+	if !e.applyGate(p, personMsg("test:room", "u2", "乙的普通消息"), s, "k") {
+		t.Fatal("B's plain message should be held in its own silent batch")
+	}
+
+	g := e.gate
+	g.mu.Lock()
+	aKey, bKey := "k", "k\x00test-u2"
+	sessionHeld, aHeld := g.held[aKey]
+	bh := g.held[bKey]
+	g.mu.Unlock()
+	if !aHeld || bh == nil {
+		t.Fatalf("held bursts = %v, want the session batch plus B's own sender key", heldKeyNames(g))
+	}
+	if bh.sender != "test-u2" || !bh.silence {
+		t.Fatalf("B batch sender=%q silence=%v, want test-u2 and its own silent window", bh.sender, bh.silence)
+	}
+	if got := strings.TrimSpace(bh.msg.Content); got != "乙的普通消息" {
+		t.Fatalf("B batch = %q, want only its own message", got)
+	}
+	if got := strings.TrimSpace(sessionHeld.msg.Content); got != "@bot 先看这个" {
+		t.Fatalf("A batch = %q, B's message must not be folded into it", got)
+	}
+
+	// A follows up: same person as the session batch, so it keeps joining that batch.
+	if !e.applyGate(p, personMsg("test:room", "u1", "补充一句"), s, "k") {
+		t.Fatal("A's plain follow-up should join A's own batch")
+	}
+	g.mu.Lock()
+	keys := len(g.held)
+	merged := g.held[aKey]
+	g.mu.Unlock()
+	if keys != 2 || merged == nil {
+		t.Fatalf("held bursts = %d, want the session batch and B's batch", keys)
+	}
+	if got := strings.TrimSpace(merged.msg.Content); got != "@bot 先看这个\n补充一句" {
+		t.Fatalf("A batch after follow-up = %q", got)
+	}
+}
+
+// heldKeyNames lists the gate's held burst keys for test failure messages.
+func heldKeyNames(g *gateState) []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	keys := make([]string, 0, len(g.held))
+	for k := range g.held {
+		keys = append(keys, k)
+	}
+	return keys
+}
