@@ -115,10 +115,10 @@ describe('plugin page backend integration', () => {
     expect((find('select-pack-bridge:deep') as HTMLSelectElement).disabled).toBe(true);
     expect(container.textContent).toContain('角色绑定读取失败'); expect(saveRoleBindings).not.toHaveBeenCalled();
   });
-  it('keeps an empty local catalog on failure and only offers repository links', async () => {
+  it('keeps an empty local catalog and shows the load error on failure', async () => {
     vi.mocked(listInstalledPetPacks).mockRejectedValue(new Error('offline')); await render();
     expect(container.textContent).toContain('本机形象包读取失败'); expect(container.textContent).toContain('本地已装形象包 (0)');
-    expect(container.querySelector('a[href="https://github.com/hunmer/aboutme-pets"]')).not.toBeNull();
+    expect(find('showcase-pack-dsh1')).toBeNull();
     expect(find('pet-player-sprite')).toBeNull();
   });
   it('uses aggregate role state when a single session becomes idle', async () => {
