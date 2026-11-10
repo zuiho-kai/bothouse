@@ -1548,6 +1548,7 @@ def _dsh_stream(cmd, task, timeout=3600):
     import signal, threading
     err = tempfile.TemporaryFile("w+")
     r = dict(steps=0, input=0, cache=0, output=0, final="", rc=127, stderr="")
+    plain = []  # stdout that is no event (a wrapper echoing a number, an older dsh printing the answer): see below
     try:
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, cwd=WIKI, env=dsh_env(),
                              text=True, start_new_session=True)
@@ -1569,6 +1570,12 @@ def _dsh_stream(cmd, task, timeout=3600):
             try:
                 ev = json.loads(line)
             except ValueError:
+                plain.append(line.rstrip("\n"))
+                continue
+            # `18`, `"ok"` or `[]` parses as JSON but is no event: a wrapper may echo a number (test_rolewiki's fake-dsh
+            # prints len(stdin); this crashed the whole run on 2026-11-10's bridge-checks), an older dsh may print text
+            if not isinstance(ev, dict):
+                plain.append(line.rstrip("\n"))
                 continue
             if ev.get("type") == "final":
                 r["final"] = ev.get("text") or ""
@@ -1581,6 +1588,8 @@ def _dsh_stream(cmd, task, timeout=3600):
         p.wait()
     finally:
         timer.cancel()
+    if not r["final"] and plain:  # no final event: the answer is what was printed (an older dsh, a wrapper script)
+        r["final"] = "\n".join(plain)
     r["rc"] = p.returncode
     err.seek(0)
     r["stderr"] = err.read()[-300:]

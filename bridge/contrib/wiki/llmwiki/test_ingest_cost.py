@@ -28,6 +28,19 @@ for i in range(3):
 print(json.dumps({"type": "final", "text": "done"}))
 '''
 
+# stdout lines that parse as JSON but are not events: `18` (test_rolewiki's fake-dsh prints len(stdin)), "ok", [1, 2].
+# The int one crashed `.get` in 2026-11-10's bridge-checks; all three must be skipped, not crash the run
+NOISY_DSH = r'''#!/usr/bin/env python3
+import sys, json
+sys.stdin.read()
+print(18)
+print(json.dumps("ok"))
+print(json.dumps([1, 2]))
+print(json.dumps({"type": "status", "phase": "step_end", "turn": 1, "step": 1,
+                  "usage": {"inputTokens": 100, "outputTokens": 10, "cacheReadTokens": 1000, "totalTokens": 1110}}))
+print(json.dumps({"type": "final", "text": "done"}))
+'''
+
 
 def db_with_fails(fails):
     db = sqlite3.connect(":memory:")
@@ -61,6 +74,19 @@ class DshUsage(unittest.TestCase):
         self.assertEqual(row[3:8], ["3", "300", "3000", "0", "30"])  # steps, input, cache_read, cache_write, output
         task = (ROOT / "fake-dsh.task").read_text()
         self.assertTrue(task.startswith(I.CONTEXT.format(text="transcript")))
+
+    def test_non_object_json_lines_are_skipped(self):
+        fake = ROOT / "noisy-dsh"
+        fake.write_text(NOISY_DSH)
+        fake.chmod(0o700)
+        usage = ROOT / "usage-noisy.tsv"
+        cfg = dict(I.CFG, dsh_cmd=[str(fake)], dsh_patch="")
+        with patch.multiple(I, CFG=cfg, USAGE=usage, WIKI=ROOT), patch.object(I, "log"):
+            ok, out, _ = I.dsh("do it")
+        self.assertTrue(ok)
+        self.assertEqual(out, "done")
+        row = usage.read_text().strip().split("\t")
+        self.assertEqual(row[3:8], ["1", "100", "1000", "0", "10"])
 
     def test_missing_dsh_is_a_failed_call(self):
         cfg = dict(I.CFG, dsh_cmd=[str(ROOT / "no-such-dsh")], dsh_patch="")
