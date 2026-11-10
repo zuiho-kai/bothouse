@@ -95,6 +95,30 @@ func (e *Engine) workspaceParent(channelID string) (string, bool) {
 	return parent, true
 }
 
+// itemChatParent: the board item's own chat wins over the workspace's current owner. A late
+// [report] for a task this workspace already left was sent to the owner of the task it moved on
+// to: 11-10 #1331 (笨蛋英文 X 版, chat 1563772957040443482) came back while 工作区4 was doing #1337
+// for 1562131004234276945, so its acceptance went to that chat's lead, who then handed the next
+// rounds (#1340, #1342) from there and their 📬 posts landed in the wrong channel (#1346, user 「这个
+// 不是这个频道工作，但怎么往这个频道塞」). Only a chat on the same platform that is not the
+// workspace itself is taken, and not another workspace (ws-handoff run inside a workspace records
+// that workspace as the chat; its lead is the owner); otherwise the owner stays.
+func (e *Engine) itemChatParent(platform, ws, parent string, hid int, item *teamTaskBoardItem) string {
+	if item == nil || item.ID != hid || item.Chat == "" {
+		return parent
+	}
+	plat, id, full := strings.Cut(item.Chat, ":")
+	if !full || plat != platform || id == "" || id == ws || id == parent {
+		return parent
+	}
+	if _, isWorkspace := e.workspaceParent(id); isWorkspace {
+		return parent
+	}
+	slog.Info("team exit: answer goes to the task's own chat, not the workspace's current owner",
+		"board_item", hid, "workspace", ws, "owner", parent, "parent", id)
+	return id
+}
+
 // workspaceOwner is the chat that owns workspace channelID right now.
 func (e *Engine) workspaceOwner(channelID string) (string, bool) {
 	e.teamExit.mu.Lock()
@@ -246,6 +270,7 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	if _, id, full := strings.Cut(parent, ":"); full {
 		parent = id
 	}
+	parent = e.itemChatParent(p.Name(), ws, parent, hid, item)
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
 		slog.Error("team exit: platform cannot rebuild a reply context", "platform", p.Name(), "workspace", ws)
