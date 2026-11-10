@@ -25,6 +25,9 @@ Commands:
   login             start their GitHub device-code login; the code goes to them privately
   gh <args...>      run gh with their authorization (e.g. bothouse member gh pr list -R o/r)
   git <args...>     run git with their GitHub authorization (push / clone private repos)
+  ls                list the files kept in their directory
+  put <file> [name] keep a file in their directory (read with your own permissions)
+  get <name> [dest] copy one of their files out to dest (default: same name here)
   logout            delete their local GitHub credentials
   enable | disable  turn member workspaces on / off (only in a turn the owner started)
 `
@@ -36,7 +39,7 @@ func runMember(args []string) {
 	}
 	op := args[0]
 	switch op {
-	case "status", "dir", "login", "gh", "git", "logout", "enable", "disable":
+	case "status", "dir", "login", "gh", "git", "logout", "enable", "disable", "put", "get", "ls":
 	default:
 		fmt.Fprintf(os.Stderr, "member: unknown command %q\n\n%s", op, memberUsage)
 		os.Exit(2)

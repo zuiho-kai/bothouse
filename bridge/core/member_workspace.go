@@ -319,7 +319,7 @@ func (e *Engine) memberLeft(p Platform, ev PlatformEvent) {
 type MemberRequest struct {
 	Project string   `json:"project"`
 	Session string   `json:"session"`
-	Op      string   `json:"op"` // status | dir | login | gh | git | logout | enable | disable
+	Op      string   `json:"op"` // status | dir | login | gh | git | logout | enable | disable | put | get | ls
 	Args    []string `json:"args,omitempty"`
 	Cwd     string   `json:"cwd,omitempty"`
 }
@@ -391,6 +391,9 @@ func (e *Engine) memberOp(ctx context.Context, req MemberRequest) (MemberRespons
 	case "status", "dir", "":
 		ok, login := memberAuthorized(dir)
 		text := fmt.Sprintf("%s 的个人目录：%s（文件放 %s）", who, dir, filepath.Join(dir, "files"))
+		if e.runAsUser() != "" {
+			text = fmt.Sprintf("%s 的个人目录在桥那边，你直接读不到；文件用 `bothouse member put|get|ls` 转交", who)
+		}
 		if created {
 			text += "，刚建好"
 		}
@@ -438,9 +441,52 @@ func (e *Engine) memberOp(ctx context.Context, req MemberRequest) (MemberRespons
 		}
 		cctx, cancel := context.WithTimeout(ctx, memberGHTimeout)
 		defer cancel()
-		out, errOut, code := runMemberCmd(cctx, dir, req.Cwd, bin, args, nil)
+		var out, errOut string
+		var code int
+		if ru := e.runAsUser(); ru != "" {
+			// role runs as another OS user: the command runs as that user too, with only this person's token
+			tok, err := memberToken(cctx, dir, gh)
+			if err != nil {
+				return fail(http.StatusConflict, "%s", err.Error())
+			}
+			out, errOut, code = runMemberCmdAs(cctx, ru, tok, req.Cwd, bin, args)
+		} else {
+			out, errOut, code = runMemberCmd(cctx, dir, req.Cwd, bin, args, nil)
+		}
 		slog.Info("member workspace: command", "project", e.name, "member", t.platform+"-"+t.userID, "op", req.Op, "exit", code)
 		return MemberResponse{Stdout: out, Stderr: errOut, Exit: code}, http.StatusOK
+	case "put":
+		src, name := "", ""
+		if len(req.Args) > 0 {
+			src = req.Args[0]
+		}
+		if len(req.Args) > 1 {
+			name = req.Args[1]
+		}
+		got, err := memberPut(ctx, e.runAsUser(), dir, req.Cwd, src, name)
+		if err != nil {
+			return fail(http.StatusBadRequest, "%s", err.Error())
+		}
+		return MemberResponse{Text: "已放进 " + who + " 的文件：" + got}, http.StatusOK
+	case "get":
+		if len(req.Args) == 0 {
+			return fail(http.StatusBadRequest, "用法：bothouse member get <名字> [存到哪]")
+		}
+		dst := ""
+		if len(req.Args) > 1 {
+			dst = req.Args[1]
+		}
+		got, err := memberGet(ctx, e.runAsUser(), dir, req.Cwd, req.Args[0], dst)
+		if err != nil {
+			return fail(http.StatusBadRequest, "%s", err.Error())
+		}
+		return MemberResponse{Text: "已取出到 " + got}, http.StatusOK
+	case "ls":
+		names := memberList(dir)
+		if len(names) == 0 {
+			return MemberResponse{Text: who + " 的文件里还没有东西"}, http.StatusOK
+		}
+		return MemberResponse{Text: strings.Join(names, "\n")}, http.StatusOK
 	}
 	return fail(http.StatusBadRequest, "不认识的操作 %q", req.Op)
 }
@@ -683,7 +729,8 @@ const memberNoteOn = "（成员个人目录，系统附上，不用回应）这�
 	"他要撤销：`bothouse member logout`。"
 
 const memberNoteOffer = "（推荐，系统附上，不用回应）用户说要搞团队、拉几个人一起用时，顺带推荐开「成员个人目录」：每个进群的人有自己的目录，" +
-	"GitHub 各用各的授权，别人那一轮用不了。只有主人点头，才在他发起的那一轮跑 `bothouse member enable`；不点头就不开，也不再提。" +
+	"GitHub 各用各的授权，别人那一轮用不了。照实说：角色和桥同一个系统账号时（默认装法），直接读文件拦不住，" +
+	"要给角色配 run_as_user 换一个系统账号跑才是真隔离。只有主人点头，才在他发起的那一轮跑 `bothouse member enable`；不点头就不开，也不再提。" +
 	"没说要搞团队就不提。"
 
 // memberBlock: once per agent context, how member workspaces work here (on), or the recommendation
@@ -714,5 +761,12 @@ func (e *Engine) memberBlock(session *Session) string {
 	if !send {
 		return ""
 	}
+	if note == memberNoteOn && e.runAsUser() != "" {
+		note += memberNoteRunAs
+	}
 	return note
 }
+
+const memberNoteRunAs = "这里角色用单独的系统账号跑，成员目录你直接读不到（系统拦）：替他存文件用 `bothouse member put <文件>`，" +
+	"取他的文件用 `bothouse member get <名字> [存到哪]`，看有哪些用 `bothouse member ls`。"
+
