@@ -71,11 +71,11 @@ func TestWorkspaceReportWithGapsGoesOnWithNote(t *testing.T) {
 // The check's findings reach the acceptor: the lead's prompt names them, the user's parts do not.
 func TestLeadAcceptPromptCarriesCheck(t *testing.T) {
 	check := exitBounceNote([]string{"交接里这几项交回没提到：使用授权人 yangji"})
-	got := leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "[report] #33 背景：x\n做了\n要你做的：没有\n我加的：无", 33, "", "", check, "")
+	got := leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "[report] #33 背景：x\n做了\n要你做的：没有\n我加的：无", 33, "", "", check, "", 0)
 	if !strings.Contains(got, "系统核对没过") || !strings.Contains(got, "使用授权人 yangji") {
 		t.Fatalf("lead prompt lacks the check:\n%s", got)
 	}
-	if strings.Contains(leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "b", 1, "", "", "", ""), "系统核对没过") {
+	if strings.Contains(leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "b", 1, "", "", "", "", 0), "系统核对没过") {
 		t.Fatal("no check, yet the prompt says one failed")
 	}
 }
