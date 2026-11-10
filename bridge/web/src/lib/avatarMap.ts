@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { withBase } from '@/lib/basePath';
+import { BASE_PATH, withBase } from '@/lib/basePath';
 import { getGlobalSettings, updateGlobalSettings } from '@/api/settings';
 
 export interface RoleAvatarMatchOptions {
@@ -52,7 +52,9 @@ export function normalizeAvatarStyle(v: unknown): AvatarStyle {
 /** Tells a DSH channel page in this origin (the panel embedded at /collab/panel/) to follow a switch. */
 function announceAvatarStyle(style: AvatarStyle) {
   try {
-    const ch = new BroadcastChannel('bothouse-avatar-style'); // dsh client-ui-discord avatar-style.ts
+    const link = BASE_PATH.match(/\/collab\/remote\/([^/]+)\/panel$/)?.[1];
+    const channel = link ? `bothouse-avatar-style:${link}` : 'bothouse-avatar-style';
+    const ch = new BroadcastChannel(channel); // dsh client-ui-discord avatar-style.ts
     ch.postMessage(style);
     ch.close();
   } catch {

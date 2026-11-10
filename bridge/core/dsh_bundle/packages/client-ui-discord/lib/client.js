@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: c0f3a0fce3fcf29515abf54f139ea5d5cf89ebe17593acbacc9b6a6657740af0
+// dsh-client-source-sha256: 0dae018f21980115a8987a880c994fe82307bbb1aaf1d67b3742cbf6548371e1
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -17198,8 +17198,8 @@ var ChannelsPage_module_default = {
 // src/client/scheme.ts
 const SCHEME_KEY = "dsh-channels-scheme";
 const DEFAULT_SCHEME = "light";
-const listeners$1 = /* @__PURE__ */ new Set();
-let current$1;
+const listeners = /* @__PURE__ */ new Set();
+let current;
 function readStored() {
 	try {
 		const raw = globalThis.localStorage?.getItem(SCHEME_KEY);
@@ -17210,43 +17210,43 @@ function readStored() {
 }
 let host;
 function notify() {
-	for (const fn of listeners$1) fn();
+	for (const fn of listeners) fn();
 }
 /** Follow the host theme from now on; the returned function lets go of it. */
 function bindHostTheme(next) {
 	host = next;
-	current$1 = next.scheme();
+	current = next.scheme();
 	notify();
 	const off = next.subscribe(() => {
 		if (host !== next) return;
-		current$1 = next.scheme();
+		current = next.scheme();
 		notify();
 	});
 	return () => {
 		off();
 		if (host !== next) return;
 		host = void 0;
-		current$1 = void 0;
+		current = void 0;
 		notify();
 	};
 }
 function getScheme() {
-	return current$1 ??= readStored();
+	return current ??= readStored();
 }
 function setScheme(next) {
-	current$1 = next;
+	current = next;
 	if (host !== void 0) try {
 		host.set(next);
 	} catch (error) {}
 	try {
 		globalThis.localStorage?.setItem(SCHEME_KEY, next);
 	} catch (error) {}
-	for (const fn of listeners$1) fn();
+	for (const fn of listeners) fn();
 }
 function subscribe(fn) {
-	listeners$1.add(fn);
+	listeners.add(fn);
 	return () => {
-		listeners$1.delete(fn);
+		listeners.delete(fn);
 	};
 }
 /** Current plugin scheme; put it on every plugin root as data-dc-scheme (page and body portals). */
@@ -19877,42 +19877,57 @@ function avatarSrc(avatar, url = (path) => path, style = DEFAULT_AVATAR_STYLE) {
 */
 const AVATAR_STYLE_CHANNEL = "bothouse-avatar-style";
 const SETTINGS_PATH = "collab/panel/api/v1/settings";
-let current = DEFAULT_AVATAR_STYLE;
-let started = false;
-const listeners = /* @__PURE__ */ new Set();
-function setAvatarStyle(style) {
-	if (style === current) return;
-	current = style;
-	for (const fn of listeners) fn();
+const targets = /* @__PURE__ */ new Map();
+function stateFor(url) {
+	const path = url(SETTINGS_PATH);
+	let state = targets.get(path);
+	if (!state) {
+		state = {
+			current: DEFAULT_AVATAR_STYLE,
+			started: false,
+			listeners: /* @__PURE__ */ new Set()
+		};
+		targets.set(path, state);
+	}
+	return state;
 }
-function avatarStyle() {
-	return current;
+function setAvatarStyle(style, url = localCollabUrl) {
+	const state = stateFor(url);
+	if (style === state.current) return;
+	state.current = style;
+	for (const fn of state.listeners) fn();
 }
 /** Reads the stored set once and listens for switches from the panel. */
-function startAvatarStyle(fetchImpl = globalThis.fetch) {
-	if (started) return;
-	started = true;
+function startAvatarStyle(fetchImpl = globalThis.fetch, url = localCollabUrl) {
+	const state = stateFor(url);
+	if (state.started) return;
+	state.started = true;
+	const path = url(SETTINGS_PATH);
+	const link = path.match(/(?:^|\/)collab\/remote\/([^/]+)\/panel\//)?.[1];
 	try {
-		const ch = new BroadcastChannel(AVATAR_STYLE_CHANNEL);
+		const ch = new BroadcastChannel(link ? `${AVATAR_STYLE_CHANNEL}:${link}` : AVATAR_STYLE_CHANNEL);
+		state.channel = ch;
 		ch.onmessage = (e) => {
-			setAvatarStyle(normalizeAvatarStyle(e.data));
+			setAvatarStyle(normalizeAvatarStyle(e.data), url);
 		};
 	} catch (error) {}
 	if (typeof fetchImpl !== "function") return;
-	fetchImpl(SETTINGS_PATH, { credentials: "same-origin" }).then((r) => r.ok ? r.json() : void 0).then((s) => {
-		if (s?.data !== void 0) setAvatarStyle(normalizeAvatarStyle(s.data.avatar_style));
+	fetchImpl(path, { credentials: "same-origin" }).then((r) => r.ok ? r.json() : void 0).then((s) => {
+		if (s?.data !== void 0) setAvatarStyle(normalizeAvatarStyle(s.data.avatar_style), url);
 	}).catch((error) => {});
 }
 function useAvatarStyle() {
+	const url = useCollabUrl();
+	const state = stateFor(url);
 	(0, react.useEffect)(() => {
-		startAvatarStyle();
-	}, []);
+		startAvatarStyle(globalThis.fetch, url);
+	}, [url]);
 	return (0, react.useSyncExternalStore)((fn) => {
-		listeners.add(fn);
+		state.listeners.add(fn);
 		return () => {
-			listeners.delete(fn);
+			state.listeners.delete(fn);
 		};
-	}, avatarStyle, avatarStyle);
+	}, () => state.current, () => state.current);
 }
 // src/client/Avatar.tsx
 /** Member portrait: a built-in or bot-announced image over a colored initial badge. */

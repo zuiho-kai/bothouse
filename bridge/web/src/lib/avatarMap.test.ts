@@ -1,4 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mount = vi.hoisted(() => ({ path: '' }));
+vi.mock('@/lib/basePath', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./basePath')>(),
+  get BASE_PATH() { return mount.path; },
+}));
 
 vi.mock('@/api/settings', () => ({
   getGlobalSettings: vi.fn(async () => ({ avatar_style: 'chibi' })),
@@ -10,7 +16,8 @@ import { updateGlobalSettings } from '@/api/settings';
 
 // Two sets, default the vendors' own icons (user 2026-11-10「默认是各家原本的图标，内置另一套娘化图标」).
 describe('role avatar sets', () => {
-  beforeEach(() => useAvatarStyleStore.setState({ style: DEFAULT_AVATAR_STYLE, loaded: false }));
+  beforeEach(() => { mount.path = ''; useAvatarStyleStore.setState({ style: DEFAULT_AVATAR_STYLE, loaded: false }); });
+  afterEach(() => vi.unstubAllGlobals());
 
   it('defaults to the vendor icon set', () => {
     expect(DEFAULT_AVATAR_STYLE).toBe('brand');
@@ -53,5 +60,17 @@ describe('role avatar sets', () => {
     await useAvatarStyleStore.getState().setStyle('brand');
     expect(updateGlobalSettings).toHaveBeenCalledWith({ avatar_style: 'brand' });
     expect(resolveRoleAvatar({ model: 'claude' })).toMatch(/brand-claude\.png$/);
+  });
+
+  it.each(['', '/collab/remote/12345678-1234-1234-1234-123456789abc/panel'])('announces switches only to the computer at %s', async (path) => {
+    mount.path = path;
+    const postMessage = vi.fn();
+    const close = vi.fn();
+    const channel = vi.fn(function () { return { postMessage, close }; });
+    vi.stubGlobal('BroadcastChannel', channel);
+    await useAvatarStyleStore.getState().setStyle('chibi');
+    expect(channel).toHaveBeenCalledWith(path ? 'bothouse-avatar-style:12345678-1234-1234-1234-123456789abc' : 'bothouse-avatar-style');
+    expect(postMessage).toHaveBeenCalledWith('chibi');
+    expect(close).toHaveBeenCalledOnce();
   });
 });
