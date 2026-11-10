@@ -1,0 +1,6 @@
+# shared
+
+2 项：symphony-orchestration-shared-contracts-01、symphony-orchestration-shared-overview
+
+- [symphony-orchestration-shared-contracts-01](symphony-orchestration-shared-contracts-01.md) — shared 源码接口与集成边界…
+- [symphony-orchestration-shared-overview](symphony-orchestration-shared-overview.md) — shared 目录导航：指向 shared…

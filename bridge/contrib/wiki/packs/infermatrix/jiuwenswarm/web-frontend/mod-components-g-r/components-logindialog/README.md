@@ -1,0 +1,6 @@
+# components-logindialog
+
+2 项：components-logindialog-contracts-01、components-logindialog-overview
+
+- [components-logindialog-contracts-01](components-logindialog-contracts-01.md) — components-logindialog 源码接口与集成边界…
+- [components-logindialog-overview](components-logindialog-overview.md) — components-logindialog 源码模块入口：说明源码接口记录是静态契约…

@@ -1,0 +1,6 @@
+# components-subagent
+
+2 项：components-subagent-contracts-01、components-subagent-overview
+
+- [components-subagent-contracts-01](components-subagent-contracts-01.md) — components-subagent 源码接口与集成边界…
+- [components-subagent-overview](components-subagent-overview.md) — components-subagent 源码模块入口：说明源码接口记录是静态契约，并链接…

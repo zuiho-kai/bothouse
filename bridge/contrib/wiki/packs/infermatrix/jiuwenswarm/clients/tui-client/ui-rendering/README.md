@@ -1,0 +1,6 @@
+# ui-rendering
+
+2 项：ui-rendering-contracts-01、ui-rendering-overview
+
+- [ui-rendering-contracts-01](ui-rendering-contracts-01.md) — tui-client ui-rendering 源码接口 01：src/ui/rendering/text.ts…
+- [ui-rendering-overview](ui-rendering-overview.md) — tui-client ui-rendering 模块入口：说明源码接口记录是静态契约，并链接 ui-rendering…

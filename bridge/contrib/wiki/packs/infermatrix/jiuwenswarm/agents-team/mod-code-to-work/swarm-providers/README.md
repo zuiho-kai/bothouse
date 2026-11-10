@@ -1,0 +1,6 @@
+# swarm-providers
+
+2 项：swarm-providers-contracts-01、swarm-providers-overview
+
+- [swarm-providers-contracts-01](swarm-providers-contracts-01.md) — swarm-providers 源码接口与集成边界 01：swarm/providers 下…
+- [swarm-providers-overview](swarm-providers-overview.md) — swarm-providers 源码模块入口：说明源码接口记录是静态契约，并链接 swarm-providers…

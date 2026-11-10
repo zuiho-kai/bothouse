@@ -1,0 +1,6 @@
+# runtime-gateway-adapter
+
+2 项：runtime-gateway-adapter-contracts-01、runtime-gateway-adapter-overview
+
+- [runtime-gateway-adapter-contracts-01](runtime-gateway-adapter-contracts-01.md) — runtime-gateway-adapter 源码接口与集成边界…
+- [runtime-gateway-adapter-overview](runtime-gateway-adapter-overview.md) — runtime-gateway-adapter 源码模块入口：链接…

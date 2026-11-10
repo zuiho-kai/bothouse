@@ -1,0 +1,6 @@
+# assets-settings
+
+2 项：assets-settings-contracts-01、assets-settings-overview
+
+- [assets-settings-contracts-01](assets-settings-contracts-01.md) — assets-settings 源码接口 01：assets/settings/index.ts 的…
+- [assets-settings-overview](assets-settings-overview.md) — assets-settings 源码模块入口：说明源码接口记录是静态契约，并链接 assets-settings…

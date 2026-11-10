@@ -1,0 +1,6 @@
+# components-fileicon
+
+2 项：components-fileicon-contracts-01、components-fileicon-overview
+
+- [components-fileicon-contracts-01](components-fileicon-contracts-01.md) — components-fileicon 源码接口与集成边界…
+- [components-fileicon-overview](components-fileicon-overview.md) — components-fileicon 源码模块入口：说明源码接口记录是静态契约，并链接…

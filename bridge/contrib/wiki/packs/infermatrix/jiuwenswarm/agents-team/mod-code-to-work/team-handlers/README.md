@@ -1,0 +1,6 @@
+# team-handlers
+
+2 项：team-handlers-contracts-01、team-handlers-overview
+
+- [team-handlers-contracts-01](team-handlers-contracts-01.md) — team-handlers 源码接口与集成边界 01：harness/team/handlers 的…
+- [team-handlers-overview](team-handlers-overview.md) — team-handlers 源码模块入口：说明源码接口记录是静态契约，并链接 team-handlers…

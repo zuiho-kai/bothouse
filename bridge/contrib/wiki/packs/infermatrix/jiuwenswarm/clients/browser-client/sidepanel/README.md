@@ -1,0 +1,6 @@
+# sidepanel
+
+2 项：sidepanel-contracts-01、sidepanel-overview
+
+- [sidepanel-contracts-01](sidepanel-contracts-01.md) — browser-client 前端源码接口与集成边界 01：sidepanel 目录 ChatBridge…
+- [sidepanel-overview](sidepanel-overview.md) — browser-client 前端 sidepanel 目录入口：说明源码接口记录的用途，并链接到 sidepanel 目录十一个文件…

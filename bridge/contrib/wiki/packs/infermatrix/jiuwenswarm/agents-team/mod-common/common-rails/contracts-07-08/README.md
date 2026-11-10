@@ -1,0 +1,6 @@
+# contracts-07-08
+
+2 项：source-contracts-07、source-contracts-08
+
+- [source-contracts-07](source-contracts-07.md) — common-rails 源码接口与集成边界 07：tool_permission_context.py…
+- [source-contracts-08](source-contracts-08.md) — common-rails 源码接口与集成边界 08：retrieval_context_processor.py…

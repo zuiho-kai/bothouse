@@ -1,0 +1,16 @@
+# tui-client
+
+12 项：core/、core-commands/、core-keybindings/、core-supervision/、core-utils/、features/、ui/、ui-components/、ui-rendering/、tui-client-contracts-01、tui-client-knowledge、tui-client-overview
+
+- [core](core/README.md) — 3 项：core-contracts-01、core-contracts-02、core-overview
+- [core-commands](core-commands/README.md) — 7 项：core-commands-contracts-01、core-commands-contracts-02…
+- [core-keybindings](core-keybindings/README.md) — 2 项：core-keybindings-contracts-01、core-keybindings-overview
+- [core-supervision](core-supervision/README.md) — 2 项：core-supervision-contracts-01、core-supervision-overview
+- [core-utils](core-utils/README.md) — 2 项：core-utils-contracts-01、core-utils-overview
+- [features](features/README.md) — 4 项：feature-autofix、feature-depth-autofix、feature-depth-tui、feature-tui
+- [ui](ui/README.md) — 2 项：ui-contracts-01、ui-overview
+- [ui-components](ui-components/README.md) — 3 项：ui-components-contracts-01、ui-components-contracts-02…
+- [ui-rendering](ui-rendering/README.md) — 2 项：ui-rendering-contracts-01、ui-rendering-overview
+- [tui-client-contracts-01](tui-client-contracts-01.md) — tui-client 源码接口 01：TUI 前端 src/app-state.ts…
+- [tui-client-knowledge](tui-client-knowledge.md) — CliPiAppState（app-state.ts）应用状态中枢：auto-recap 与 PR watch 后台能力、/btw…
+- [tui-client-overview](tui-client-overview.md) — tui-client 模块入口：目录列表、代码快速入口表（命中 autofix-pr.ts、autofix-pr.watch.ts…

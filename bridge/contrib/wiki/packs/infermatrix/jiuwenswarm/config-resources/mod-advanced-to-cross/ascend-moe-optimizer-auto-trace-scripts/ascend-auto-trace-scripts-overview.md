@@ -1,0 +1,17 @@
+---
+name: ascend-auto-trace-scripts-overview
+description: ascend-moe-optimizer-auto-trace-scripts 目录入口：ascend-moe-optimizer-auto-trace 技能脚本（TRACE_POINT 插桩、预处理、编译安全检查、trace 采集与校验）的源码接口与集成边界记录页导览
+metadata:
+  scope: 只收本目录入口说明与指向接口记录页的链接；逐文件接口记录归 ascend-auto-trace-scripts-contracts-01、ascend-auto-trace-scripts-contracts-02
+---
+# ascend-moe-optimizer-auto-trace-scripts
+
+## 现状
+
+- 理解本 owner 的源码职责、接口和集成边界时查这里。源码接口记录是静态契约；功能语义、配置和取舍沿功能页查证。通用审查方法不放在这里。
+- [[ascend-auto-trace-scripts-contracts-01]]（ascend-moe-optimizer-auto-trace-scripts 源码接口与集成边界 01）
+- [[ascend-auto-trace-scripts-contracts-02]]（ascend-moe-optimizer-auto-trace-scripts 源码接口与集成边界 02）
+
+## 关键事实
+
+- 源页：`knowledge/repos/jiuwenswarm/components/config-resources/ascend-moe-optimizer-auto-trace-scripts/_index.md`（InferMatrixCopilot@ecfb84d0）；type: index；tags: jiuwenswarm；created: 2026-10-01；updated: 2026-10-01

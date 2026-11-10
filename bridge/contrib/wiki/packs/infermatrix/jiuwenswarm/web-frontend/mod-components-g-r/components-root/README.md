@@ -1,0 +1,6 @@
+# components-root
+
+2 项：components-root-contracts-01、components-root-overview
+
+- [components-root-contracts-01](components-root-contracts-01.md) — components-root 源码接口与集成边界 01：web/frontend/src/compo…
+- [components-root-overview](components-root-overview.md) — components-root 源码模块入口：说明源码接口记录是静态契约，并链接 components-root 的…

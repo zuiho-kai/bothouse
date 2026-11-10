@@ -1,0 +1,6 @@
+# gateway-heartbeat
+
+2 项：gateway-heartbeat-contracts-01、gateway-heartbeat-overview
+
+- [gateway-heartbeat-contracts-01](gateway-heartbeat-contracts-01.md) — gateway-heartbeat 源码接口与集成边界 01：gateway/heartbea…
+- [gateway-heartbeat-overview](gateway-heartbeat-overview.md) — gateway-heartbeat 模块入口：说明源码接口记录是静态契约，并链接…

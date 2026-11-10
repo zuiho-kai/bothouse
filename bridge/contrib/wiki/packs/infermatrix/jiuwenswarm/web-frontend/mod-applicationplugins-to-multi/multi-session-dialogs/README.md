@@ -1,0 +1,6 @@
+# multi-session-dialogs
+
+2 项：multi-session-dialogs-contracts-01、multi-session-dialogs-overview
+
+- [multi-session-dialogs-contracts-01](multi-session-dialogs-contracts-01.md) — multi-session-dialogs 源码接口…
+- [multi-session-dialogs-overview](multi-session-dialogs-overview.md) — multi-session-dialogs 源码模块入口：说明源码接口记录是静态契约，并链接…

@@ -1,0 +1,6 @@
+# shared
+
+2 项：browser-client-shared-contracts-01、browser-client-shared-overview
+
+- [browser-client-shared-contracts-01](browser-client-shared-contracts-01.md) — browser-client 前端源码接口与集成边界 01：shared…
+- [browser-client-shared-overview](browser-client-shared-overview.md) — browser-client 前端 shared 目录入口：说明源码接口记录的用途，并链接到…

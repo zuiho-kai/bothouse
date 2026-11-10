@@ -1,0 +1,6 @@
+# channels-desktop
+
+2 项：channels-desktop-contracts-01、channels-desktop-overview
+
+- [channels-desktop-contracts-01](channels-desktop-contracts-01.md) — channels-desktop 源码接口与集成边界 01：channels/desktop/el…
+- [channels-desktop-overview](channels-desktop-overview.md) — channels-desktop 源码模块入口：说明源码接口记录是静态契约，并链接…

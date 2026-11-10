@@ -1,0 +1,6 @@
+# gateway-im-pipeline
+
+2 项：gateway-im-pipeline-contracts-01、gateway-im-pipeline-overview
+
+- [gateway-im-pipeline-contracts-01](gateway-im-pipeline-contracts-01.md) — gateway-im-pipeline 源码接口与集成边界…
+- [gateway-im-pipeline-overview](gateway-im-pipeline-overview.md) — gateway-im-pipeline 模块入口：说明源码接口记录是静态契约，并链接…

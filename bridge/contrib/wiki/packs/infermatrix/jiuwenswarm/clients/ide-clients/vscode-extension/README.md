@@ -1,0 +1,6 @@
+# vscode-extension
+
+2 项：vscode-extension-contracts-01、vscode-extension-overview
+
+- [vscode-extension-contracts-01](vscode-extension-contracts-01.md) — VS Code 扩展构建脚本源码接口与集成边界 01：vscode-extension/esbui…
+- [vscode-extension-overview](vscode-extension-overview.md) — ide-clients 下 vscode-extension 目录入口：说明源码接口记录是静态契约…

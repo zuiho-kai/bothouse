@@ -1,0 +1,6 @@
+# jiuwenswarm-gateway
+
+2 项：jiuwenswarm-gateway-contracts-01、jiuwenswarm-gateway-overview
+
+- [jiuwenswarm-gateway-contracts-01](jiuwenswarm-gateway-contracts-01.md) — jiuwenswarm-gateway 源码接口与集成边界…
+- [jiuwenswarm-gateway-overview](jiuwenswarm-gateway-overview.md) — protocols/jiuwenswarm-gateway 模块入口：说明源码接口记录是静态契约…

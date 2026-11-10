@@ -1,0 +1,6 @@
+# common-auto-memory
+
+2 项：common-auto-memory-contracts-01、common-auto-memory-overview
+
+- [common-auto-memory-contracts-01](common-auto-memory-contracts-01.md) — common-auto-memory 源码接口与集成边界 01：__init__.py…
+- [common-auto-memory-overview](common-auto-memory-overview.md) — common-auto-memory 源码 owner 入口：说明源码接口记录是静态契约…

@@ -1,0 +1,6 @@
+# shared-webview
+
+2 项：shared-webview-contracts-01、shared-webview-overview
+
+- [shared-webview-contracts-01](shared-webview-contracts-01.md) — shared-webview 源码接口与集成边界 01：swarm_map.html…
+- [shared-webview-overview](shared-webview-overview.md) — ide-clients 下 shared-webview 目录入口：说明源码接口记录是静态契约、功能语义沿功能页查证…

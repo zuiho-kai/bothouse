@@ -1,0 +1,6 @@
+# jiuwenswarm-common
+
+2 项：jiuwenswarm-common-contracts-01、jiuwenswarm-common-overview
+
+- [jiuwenswarm-common-contracts-01](jiuwenswarm-common-contracts-01.md) — jiuwenswarm-common 源码接口与集成边界 01：common/e2a 下…
+- [jiuwenswarm-common-overview](jiuwenswarm-common-overview.md) — protocols/jiuwenswarm-common 模块入口：说明源码接口记录是静态契约，并链接…

@@ -1,0 +1,6 @@
+# jetbrains-plugin
+
+2 项：jetbrains-plugin-contracts-01、jetbrains-plugin-overview
+
+- [jetbrains-plugin-contracts-01](jetbrains-plugin-contracts-01.md) — JetBrains 插件构建脚本源码接口与集成边界 01：jetbrains-plugin/gra…
+- [jetbrains-plugin-overview](jetbrains-plugin-overview.md) — ide-clients 下 jetbrains-plugin 目录入口：链接到 gradlew…

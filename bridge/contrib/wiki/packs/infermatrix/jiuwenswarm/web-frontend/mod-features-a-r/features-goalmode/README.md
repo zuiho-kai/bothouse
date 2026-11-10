@@ -1,0 +1,6 @@
+# features-goalmode
+
+2 项：features-goalmode-contracts-01、features-goalmode-overview
+
+- [features-goalmode-contracts-01](features-goalmode-contracts-01.md) — features-goalmode 源码接口 01：src/features/goalMode…
+- [features-goalmode-overview](features-goalmode-overview.md) — features-goalmode 源码模块入口：说明源码接口记录是静态契约（功能语义与取舍沿功能页查证）…

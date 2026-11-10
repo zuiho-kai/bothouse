@@ -1,0 +1,6 @@
+# assets-providers
+
+2 项：assets-providers-contracts-01、assets-providers-overview
+
+- [assets-providers-contracts-01](assets-providers-contracts-01.md) — assets-providers 源码接口 01：assets/providers/index.t…
+- [assets-providers-overview](assets-providers-overview.md) — assets-providers 源码模块入口：说明源码接口记录是静态契约，并链接…

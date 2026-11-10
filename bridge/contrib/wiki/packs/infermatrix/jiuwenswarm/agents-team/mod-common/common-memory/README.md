@@ -1,0 +1,6 @@
+# common-memory
+
+2 项：common-memory-contracts-01、common-memory-overview
+
+- [common-memory-contracts-01](common-memory-contracts-01.md) — common-memory 源码接口与集成边界 01：__init__.py、config.py…
+- [common-memory-overview](common-memory-overview.md) — common-memory 源码 owner 入口：memory 包的 config、dreaming、embeddings…

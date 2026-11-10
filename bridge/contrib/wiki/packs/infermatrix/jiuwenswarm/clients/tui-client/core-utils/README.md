@@ -1,0 +1,6 @@
+# core-utils
+
+2 项：core-utils-contracts-01、core-utils-overview
+
+- [core-utils-contracts-01](core-utils-contracts-01.md) — tui-client core-utils 源码接口 01：src/core/utils 下 editor.ts…
+- [core-utils-overview](core-utils-overview.md) — tui-client core-utils 模块入口：说明源码接口记录是静态契约，并链接 core-utils 的源码接口与集成边界…

@@ -1,0 +1,6 @@
+# applicationplugins
+
+2 项：applicationplugins-contracts-01、applicationplugins-overview
+
+- [applicationplugins-contracts-01](applicationplugins-contracts-01.md) — applicationplugins 源码接口 01：applicationPlugins…
+- [applicationplugins-overview](applicationplugins-overview.md) — applicationplugins 源码模块入口：说明源码接口记录是静态契约，并链接…

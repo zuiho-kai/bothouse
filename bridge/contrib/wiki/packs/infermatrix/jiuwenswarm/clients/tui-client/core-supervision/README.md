@@ -1,0 +1,6 @@
+# core-supervision
+
+2 项：core-supervision-contracts-01、core-supervision-overview
+
+- [core-supervision-contracts-01](core-supervision-contracts-01.md) — tui-client core-supervision 源码接口…
+- [core-supervision-overview](core-supervision-overview.md) — tui-client core-supervision 模块入口：说明源码接口记录是静态契约，并链接…

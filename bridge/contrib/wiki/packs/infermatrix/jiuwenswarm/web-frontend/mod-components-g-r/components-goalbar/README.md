@@ -1,0 +1,6 @@
+# components-goalbar
+
+2 项：components-goalbar-contracts-01、components-goalbar-overview
+
+- [components-goalbar-contracts-01](components-goalbar-contracts-01.md) — components-goalbar 源码接口与集成边界…
+- [components-goalbar-overview](components-goalbar-overview.md) — components-goalbar 源码模块入口：说明源码接口记录是静态契约，并链接…

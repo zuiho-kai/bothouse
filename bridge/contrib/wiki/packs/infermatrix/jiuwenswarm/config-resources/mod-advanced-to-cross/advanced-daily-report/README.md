@@ -1,0 +1,6 @@
+# advanced-daily-report
+
+2 项：advanced-daily-report-contracts-01、advanced-daily-report-overview
+
+- [advanced-daily-report-contracts-01](advanced-daily-report-contracts-01.md) — advanced-daily-report 源码接口记录…
+- [advanced-daily-report-overview](advanced-daily-report-overview.md) — advanced-daily-report 目录入口：说明源码接口记录是静态契约…

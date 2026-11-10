@@ -1,0 +1,6 @@
+# huawei-cloud-maas-setup-scripts
+
+2 项：huawei-cloud-maas-setup-scripts-contracts-01、huawei-cloud-maas-setup-scripts-overview
+
+- [huawei-cloud-maas-setup-scripts-contracts-01](huawei-cloud-maas-setup-scripts-contracts-01.md) — huawei-cloud-maas-s…
+- [huawei-cloud-maas-setup-scripts-overview](huawei-cloud-maas-setup-scripts-overview.md) — huawei-cloud-maas-setup-scr…

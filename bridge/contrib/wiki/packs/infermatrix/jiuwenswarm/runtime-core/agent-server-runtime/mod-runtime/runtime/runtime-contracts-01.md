@@ -1,0 +1,111 @@
+---
+name: runtime-contracts-01
+description: runtime 源码接口 01：jiuwenswarm/server/runtime 前十三个文件（agent_config_service、agent_manager、agent_warm_pool、extension_package_manager、opencode_zen、proactive_adapter、team_binding_store 等）的声明、方法入口与导入依赖
+metadata:
+  scope: 只收 jiuwenswarm/server/runtime 前十三个文件的接口记录；team_entity_store、tenant_agent_pool、tokenizer_service 归 runtime-contracts-02，目录入口归 runtime-overview
+---
+# runtime 源码接口与集成边界 01
+
+## 现状
+
+- 本页逐文件说明这一源码模块声明的接口、类型与依赖。记录来自静态源码声明，不证明控制流、配置生效、外部服务可用或测试通过；功能语义与设计取舍沿上级功能页继续阅读。
+- **`jiuwenswarm/server/runtime/agent_config_service.py`**
+- 源码对模块职责的说明：Agent 配置管理服务 — 管理内置和自定义 agent 定义的 CRUD 操作.。
+- `AgentDefinition` 定义类型边界。
+- `CreateAgentParams` 定义类型边界。
+- `UpdateAgentParams` 定义类型边界。
+- `AgentConfigService` 定义类型边界；方法入口：`__init__`, `list_agents`, `get_agent`, `create_agent`, `update_agent`, `delete_agent`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import logging`；`from dataclasses import dataclass, field`；`from pathlib import Path`。
+- 模块级配置或常量名称：`BUILTIN_AGENTS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/agent_config_service.py#L1-L539)。
+- **`jiuwenswarm/server/runtime/agent_manager.py`**
+- 源码对模块职责的说明：AgentManager - 管理 Agent 实例.。
+- 调用入口 `collapse_plan_sub_mode(mode, sub_mode)`；声明返回 `str`。
+- `AgentManager` 定义类型边界；方法入口：`__init__`, `set_heartbeat_service`, `has_smart_permission_lifecycle`, `schedule_permissions_reload`, `wait_for_permissions_ready`, `build_permissions_external_input_context`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`import json`；`import logging`。
+- 模块级配置或常量名称：`ACP_DEFAULT_CAPABILITIES`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/agent_manager.py#L1-L2234)。
+- **`jiuwenswarm/server/runtime/agent_warm_pool.py`**
+- 源码对模块职责的说明：Process-local pool of session-bound, ready-to-run DeepAgent instances.。
+- 调用入口 `prewarm_enabled_by_env()`；声明返回 `bool`。
+- `WarmKey` 定义类型边界；方法入口：`agent_mode`, `agent_sub_mode`。
+- `WarmRevision` 定义类型边界。
+- `WarmSlot` 定义类型边界。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`import hashlib`；`import json`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/agent_warm_pool.py#L1-L774)。
+- **`jiuwenswarm/server/runtime/extension_package_manager.py`**
+- 源码对模块职责的说明：Agent_template / plugin package manager (catalog + lifecycle).。
+- `AgentGroupPackageError` 继承 `ValueError`；方法入口：`__init__`。
+- 调用入口 `get_equipment_resources_agent_templates_dir()`；声明返回 `Path / None`。
+- 调用入口 `get_equipment_resources_agent_groups_dir()`；声明返回 `Path / None`。
+- 调用入口 `get_equipment_resources_plugin_packages_dir()`；声明返回 `Path / None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import base64`；`import io`；`import json`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/extension_package_manager.py#L1-L4152)。
+- **`jiuwenswarm/server/runtime/image_modality_warmup.py`**
+- 源码对模块职责的说明：Warm the process-wide image-modality probe cache.。
+- 异步入口 `warm_image_modality_cache(config_base, reason)`；声明返回 `None`。
+- 异步入口 `refresh_image_modality_cache(config_base, reason)`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`import logging`；`from typing import Any`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/image_modality_warmup.py#L1-L207)。
+- **`jiuwenswarm/server/runtime/model_compiler_adapter.py`**
+- 源码对模块职责的说明：Thin boundary from JiuwenSwarm resolved DTOs to agent-core's compiler.。
+- 调用入口 `compile_model_selection(resolved)`；声明返回 `tuple[Any, Any]`。
+- 调用入口 `build_model_from_selection(resolved)`；声明返回 `Any`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from typing import Any`；`from jiuwenswarm.common.model_errors import MODEL_RUNTIME_UNAVAILABLE, Mode`；`from jiuwenswarm.common.model_selection import ResolvedModel, ResolvedSelec`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/model_compiler_adapter.py#L1-L38)。
+- **`jiuwenswarm/server/runtime/model_routing_registry.py`**
+- 源码对模块职责的说明：Resolve stable business selections into Foundation compiler input DTOs.。
+- `ModelExecutionContext` 定义类型边界。
+- `ModelSelectionResolver` 定义类型边界；方法入口：`__init__`, `choose`, `resolve`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from dataclasses import dataclass`；`from typing import Callable`；`from jiuwenswarm.common.model_catalog import ModelCatalog`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/model_routing_registry.py#L1-L141)。
+- **`jiuwenswarm/server/runtime/no_host_fallback_jiuwenbox.py`**
+- 源码对模块职责的说明：JiuwenBox providers that honor one task-local no-host-fallback scope.。
+- `NoHostFallbackJiuwenBoxFSProvider` 继承 `_NoHostFallbackMixin, JiuwenBoxFSProvider`。
+- `NoHostFallbackJiuwenBoxShellProvider` 继承 `_NoHostFallbackMixin, JiuwenBoxShellProvider`。
+- `NoHostFallbackJiuwenBoxCodeProvider` 继承 `_NoHostFallbackMixin, JiuwenBoxCodeProvider`。
+- 调用入口 `install_no_host_fallback_jiuwenbox_providers()`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import sys`；`from collections.abc import AsyncIterator, Awaitable, Callable`；`from functools import wraps`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/no_host_fallback_jiuwenbox.py#L1-L138)。
+- **`jiuwenswarm/server/runtime/offline_session_cleanup.py`**
+- 源码对模块职责的说明：Runtime-owned cleanup for persisted Sessions while AgentServer is offline.。
+- 异步入口 `delete_offline_session(channel_id, session_id)`；声明返回 `SessionDeleteResult`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import logging`；`from jiuwenswarm.runtime.service import AgentRuntime`；`from jiuwenswarm.runtime.session_delete import SessionDeleteResult`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/offline_session_cleanup.py#L1-L50)。
+- **`jiuwenswarm/server/runtime/opencode_zen.py`**
+- 源码对模块职责的说明：Opencode Zen free models, fetched live at startup and held in memory only.。
+- 异步入口 `warm_zen_free_models(reason)`；声明返回 `None`。
+- 调用入口 `get_zen_free_model_entries()`；声明返回 `list[dict[str, Any]]`。
+- 调用入口 `get_zen_free_context_window()`；声明返回 `int`。
+- 调用入口 `get_zen_default_free_model_entry()`；声明返回 `dict[str, Any] / None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`import logging`；`import threading`。
+- 模块级配置或常量名称：`ZEN_API_BASE`, `ZEN_MODELS_URL`, `ZEN_ANON_API_KEY`, `ZEN_CLIENT_HEADERS`, `MODELS_DEV_URL`, `DEFAULT_FREE_MODEL_ID`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/opencode_zen.py#L1-L562)。
+- **`jiuwenswarm/server/runtime/proactive_adapter.py`**
+- 源码对模块职责的说明：ProactiveEngine 初始化与适配层。。
+- 调用入口 `resolve_proactive_adapter(agent)`；声明返回 `Any / None`。
+- `ProactiveTriggerRequest` 定义类型边界。
+- 调用入口 `build_proactive_agent()`。
+- 异步入口 `trigger_main_agent(server, request, agent_manager, push_transport)`；声明返回 `bool`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`import logging`；`import time`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/proactive_adapter.py#L1-L451)。
+- **`jiuwenswarm/server/runtime/sandbox_no_host_fallback.py`**
+- 源码对模块职责的说明：Task-local execution scope that forbids sandbox-to-host fallback.。
+- 调用入口 `no_host_fallback_required()`；声明返回 `bool`。
+- 调用入口 `require_no_host_fallback()`；声明返回 `None`。
+- 调用入口 `clear_no_host_fallback()`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from contextvars import ContextVar`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/sandbox_no_host_fallback.py#L1-L38)。
+- **`jiuwenswarm/server/runtime/team_binding_store.py`**
+- 源码对模块职责的说明：Persistent team entity bindings.。
+- `TeamBindingStoreError` 继承 `ValueError`；方法入口：`__init__`。
+- `TeamBinding` 定义类型边界；方法入口：`from_dict`, `to_dict`。
+- 调用入口 `validate_team_name(team_name)`；声明返回 `str`。
+- `TeamBindingStore` 定义类型边界；方法入口：`__init__`, `path`, `list`, `get`, `create`, `bind_session`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import json`；`import re`；`import threading`。
+- 模块级配置或常量名称：`TEAM_NAME_RE`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/server/runtime/team_binding_store.py#L1-L326)。
+
+## 关键事实
+
+- 源页：`knowledge/repos/jiuwenswarm/components/agent-server-runtime/runtime/source-contracts-01.md`（InferMatrixCopilot@ecfb84d0）；type: architecture；tags: jiuwenswarm；created: 2026-10-01；updated: 2026-10-01

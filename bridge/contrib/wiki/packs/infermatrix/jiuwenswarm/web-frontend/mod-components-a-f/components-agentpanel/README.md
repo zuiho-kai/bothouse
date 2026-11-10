@@ -1,0 +1,6 @@
+# components-agentpanel
+
+2 项：components-agentpanel-contracts-01、components-agentpanel-overview
+
+- [components-agentpanel-contracts-01](components-agentpanel-contracts-01.md) — components-agentpanel 源码接口…
+- [components-agentpanel-overview](components-agentpanel-overview.md) — components-agentpanel 源码模块入口：说明源码接口记录是静态契约，并链接…

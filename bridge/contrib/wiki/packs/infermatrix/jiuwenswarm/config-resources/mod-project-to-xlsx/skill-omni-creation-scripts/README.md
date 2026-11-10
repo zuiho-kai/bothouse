@@ -1,0 +1,6 @@
+# skill-omni-creation-scripts
+
+2 项：skill-omni-creation-scripts-contracts-01、skill-omni-creation-scripts-overview
+
+- [skill-omni-creation-scripts-contracts-01](skill-omni-creation-scripts-contracts-01.md) — skill-omni-creation-scripts…
+- [skill-omni-creation-scripts-overview](skill-omni-creation-scripts-overview.md) — skill-omni-creation-scripts…

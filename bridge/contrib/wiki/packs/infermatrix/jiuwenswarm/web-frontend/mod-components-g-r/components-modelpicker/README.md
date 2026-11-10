@@ -1,0 +1,6 @@
+# components-modelpicker
+
+2 项：components-modelpicker-contracts-01、components-modelpicker-overview
+
+- [components-modelpicker-contracts-01](components-modelpicker-contracts-01.md) — components-modelpicker 源码接口与集成边界…
+- [components-modelpicker-overview](components-modelpicker-overview.md) — components-modelpicker 源码模块入口：说明源码接口记录是静态契约…

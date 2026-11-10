@@ -1,0 +1,6 @@
+# components-teammemberavatar
+
+2 项：components-teammemberavatar-contracts-01、components-teammemberavatar-overview
+
+- [components-teammemberavatar-contracts-01](components-teammemberavatar-contracts-01.md) — components-teammemberavatar…
+- [components-teammemberavatar-overview](components-teammemberavatar-overview.md) — components-teammemberavatar…

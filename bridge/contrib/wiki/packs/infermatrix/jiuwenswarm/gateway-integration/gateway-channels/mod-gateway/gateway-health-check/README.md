@@ -1,0 +1,6 @@
+# gateway-health-check
+
+2 项：gateway-health-check-contracts-01、gateway-health-check-overview
+
+- [gateway-health-check-contracts-01](gateway-health-check-contracts-01.md) — gateway-health-check 源码接口与集成边界…
+- [gateway-health-check-overview](gateway-health-check-overview.md) — gateway-health-check 模块入口：说明源码接口记录是静态契约，并链接…

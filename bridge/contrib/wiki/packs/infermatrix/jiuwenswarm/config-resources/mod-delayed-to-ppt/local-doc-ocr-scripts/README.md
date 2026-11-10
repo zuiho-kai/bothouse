@@ -1,0 +1,6 @@
+# local-doc-ocr-scripts
+
+2 项：local-doc-ocr-scripts-contracts-01、local-doc-ocr-scripts-overview
+
+- [local-doc-ocr-scripts-contracts-01](local-doc-ocr-scripts-contracts-01.md) — local-doc-ocr-scripts 源码接口记录…
+- [local-doc-ocr-scripts-overview](local-doc-ocr-scripts-overview.md) — local-doc-ocr-scripts 目录入口：local-doc-ocr…

@@ -1,0 +1,6 @@
+# gateway-hooks
+
+2 项：gateway-hooks-contracts-01、gateway-hooks-overview
+
+- [gateway-hooks-contracts-01](gateway-hooks-contracts-01.md) — gateway-hooks 源码接口与集成边界 01：gateway/hooks/handler.py 中…
+- [gateway-hooks-overview](gateway-hooks-overview.md) — gateway-hooks 模块入口：说明源码接口记录是静态契约，并链接 gateway-hooks 源码接口与集成边界…

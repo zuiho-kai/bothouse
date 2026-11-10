@@ -1,0 +1,6 @@
+# components-switch
+
+2 项：components-switch-contracts-01、components-switch-overview
+
+- [components-switch-contracts-01](components-switch-contracts-01.md) — components-switch 源码接口与集成边界 01：web/frontend/src…
+- [components-switch-overview](components-switch-overview.md) — components-switch 源码模块入口：说明源码接口记录是静态契约，并链接…

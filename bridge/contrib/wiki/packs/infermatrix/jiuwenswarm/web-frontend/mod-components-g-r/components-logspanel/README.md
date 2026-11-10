@@ -1,0 +1,6 @@
+# components-logspanel
+
+2 项：components-logspanel-contracts-01、components-logspanel-overview
+
+- [components-logspanel-contracts-01](components-logspanel-contracts-01.md) — components-logspanel 源码接口与集成边界…
+- [components-logspanel-overview](components-logspanel-overview.md) — components-logspanel 源码模块入口：说明源码接口记录是静态契约，并链接…

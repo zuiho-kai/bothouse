@@ -1,0 +1,6 @@
+# core-keybindings
+
+2 项：core-keybindings-contracts-01、core-keybindings-overview
+
+- [core-keybindings-contracts-01](core-keybindings-contracts-01.md) — tui-client core-keybindings 源码接口…
+- [core-keybindings-overview](core-keybindings-overview.md) — tui-client core-keybindings 模块入口：说明源码接口记录是静态契约，并链接…

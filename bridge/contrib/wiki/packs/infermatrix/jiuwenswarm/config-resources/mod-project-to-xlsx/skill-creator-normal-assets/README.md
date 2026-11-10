@@ -1,0 +1,6 @@
+# skill-creator-normal-assets
+
+2 项：skill-creator-normal-assets-contracts-01、skill-creator-normal-assets-overview
+
+- [skill-creator-normal-assets-contracts-01](skill-creator-normal-assets-contracts-01.md) — skill-creator-normal-assets…
+- [skill-creator-normal-assets-overview](skill-creator-normal-assets-overview.md) — skill-creator-normal-assets…

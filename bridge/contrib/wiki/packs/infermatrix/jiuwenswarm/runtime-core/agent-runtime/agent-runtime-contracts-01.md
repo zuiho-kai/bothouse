@@ -1,0 +1,112 @@
+---
+name: agent-runtime-contracts-01
+description: agent-runtime 源码接口 01：jiuwenswarm/runtime 的 agent_definition、context、events、evolution、host_services、interaction、mcp_references、model_catalog、permission_catalog、plan、request、session_delete 与 __init__ 共十三个文件的声明与依赖
+metadata:
+  scope: 只收 jiuwenswarm/runtime 这十三个文件的接口记录；目录入口归 agent-runtime-overview
+---
+# agent-runtime 源码接口与集成边界 01
+
+## 现状
+
+- 本页逐文件说明这一源码模块声明的接口、类型与依赖。记录来自静态源码声明，不证明控制流、配置生效、外部服务可用或测试通过；功能语义与设计取舍沿上级功能页继续阅读。
+- **`jiuwenswarm/runtime/agent_definition.py`**
+- 源码对模块职责的说明：Transport-neutral contracts for one root Agent definition.。
+- `RuntimeAgentDefinitionErrorCode` 继承 `str, Enum`。
+- `RuntimeAgentDefinitionError` 继承 `ValueError`；方法入口：`__init__`。
+- `RuntimeAgentMode` 继承 `str, Enum`。
+- `RuntimeAgentDefinition` 定义类型边界；方法入口：`from_mapping`, `to_dict`, `fingerprint`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import hashlib`；`import json`；`import re`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/agent_definition.py#L1-L326)。
+- **`jiuwenswarm/runtime/context.py`**
+- 源码对模块职责的说明：Task-local access to the Runtime currently executing an agent request.。
+- `RuntimeExecutionContext` 定义类型边界。
+- 调用入口 `set_runtime_context(runtime, agent_manager)`；声明返回 `Token[RuntimeExecutionContext / None]`。
+- 调用入口 `reset_runtime_context(token)`；声明返回 `None`。
+- 调用入口 `get_runtime_context()`；声明返回 `RuntimeExecutionContext / None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from contextvars import ContextVar, Token`；`from dataclasses import dataclass`；`from typing import TYPE_CHECKING`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/context.py#L1-L70)。
+- **`jiuwenswarm/runtime/events.py`**
+- 源码对模块职责的说明：Transport-neutral events emitted by the shared Agent Runtime.。
+- `RuntimeEvent` 定义类型边界；方法入口：`event_type`, `to_dict`, `from_agent_message`, `control`, `error`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from dataclasses import asdict, dataclass`；`from typing import Any`。
+- 模块级配置或常量名称：`TERMINAL_ERROR_EVENT_TYPES`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/events.py#L1-L135)。
+- **`jiuwenswarm/runtime/evolution.py`**
+- 源码对模块职责的说明：Transport-neutral evolution approval payload predicates.。
+- 调用入口 `is_evolution_approval_request_id(request_id)`；声明返回 `bool`。
+- 调用入口 `is_evolution_approval_payload(payload)`；声明返回 `bool`。
+- 调用入口 `is_interrupt_evolution_approval_answer_payload(payload)`；声明返回 `bool`。
+- 调用入口 `ensure_regular_evolution_approval_metadata(payload)`；声明返回 `dict[str, Any]`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from typing import Any`。
+- 模块级配置或常量名称：`SKILL_EVOLUTION_APPROVAL_SCHEMA`, `SKILL_EVOLUTION_APPROVAL_SOURCE`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/evolution.py#L1-L79)。
+- **`jiuwenswarm/runtime/host_services.py`**
+- 源码对模块职责的说明：Optional host capabilities injected into the transport-neutral Runtime.。
+- 调用入口 `install_runtime_push_handler(handler)`；声明返回 `RuntimePushHandler / None`。
+- 调用入口 `restore_runtime_push_handler(handler, previous)`；声明返回 `None`。
+- 异步入口 `send_runtime_push(message)`；声明返回 `bool`。
+- `RuntimeHostPushTransport` 定义类型边界；方法入口：`send_push`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import inspect`；`import threading`；`from collections.abc import Awaitable, Callable`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/host_services.py#L1-L194)。
+- **`jiuwenswarm/runtime/interaction.py`**
+- 源码对模块职责的说明：Transport-neutral input for answering a Runtime interaction.。
+- `InteractionAnswerError` 继承 `ValueError`。
+- `InteractionAnswerInput` 定义类型边界；方法入口：`resumes_interrupted_turn`, `to_agent_request`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from collections.abc import Mapping, Sequence`；`from copy import deepcopy`；`from dataclasses import dataclass`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/interaction.py#L1-L204)。
+- **`jiuwenswarm/runtime/mcp_references.py`**
+- 源码对模块职责的说明：Read-only, transport-neutral validation of Runtime MCP references.。
+- `McpReferenceStatus` 继承 `str, Enum`。
+- `McpReferenceValidationError` 继承 `ValueError`。
+- `McpReferenceInventoryError` 继承 `RuntimeError`。
+- `McpReferenceValidationInput` 定义类型边界；方法入口：`from_iterable`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import re`；`from collections.abc import Callable, Iterable, Mapping`；`from dataclasses import dataclass`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/mcp_references.py#L1-L279)。
+- **`jiuwenswarm/runtime/model_catalog.py`**
+- 源码对模块职责的说明：Transport-neutral, credential-free Runtime model catalog contracts.。
+- `ModelCatalogError` 继承 `RuntimeError`；方法入口：`__init__`。
+- `RuntimeModelDescriptor` 定义类型边界；方法入口：`to_dict`。
+- `ModelCatalogResult` 定义类型边界；方法入口：`to_dict`。
+- `ModelSelectionResult` 定义类型边界。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from collections.abc import Iterable, Mapping, Sequence`；`from dataclasses import dataclass, replace`；`from typing import Any`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/model_catalog.py#L1-L271)。
+- **`jiuwenswarm/runtime/permission_catalog.py`**
+- 源码对模块职责的说明：Read-only, transport-neutral permission snapshot contracts.。
+- `PermissionCatalogError` 继承 `RuntimeError`；方法入口：`__init__`。
+- `PermissionSnapshotInput` 定义类型边界。
+- `PermissionToolSnapshot` 定义类型边界；方法入口：`to_dict`。
+- `PermissionRuleSnapshot` 定义类型边界；方法入口：`to_dict`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from collections.abc import Mapping`；`from dataclasses import dataclass`；`from typing import Any, Literal, cast`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/permission_catalog.py#L1-L295)。
+- **`jiuwenswarm/runtime/plan.py`**
+- 源码对模块职责的说明：Plan-mode orchestration shared by AgentServer and process-style CLI.。
+- `PlanStateResult` 定义类型边界。
+- `PlanModeController` 定义类型边界；方法入口：`__init__`, `sync_locks`, `exited_sessions`, `active_sessions`, `reset_session`, `should_sync`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`import inspect`；`import logging`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/plan.py#L1-L284)。
+- **`jiuwenswarm/runtime/request.py`**
+- 源码对模块职责的说明：Transport-independent request normalization for the shared Runtime.。
+- 调用入口 `resolve_request_project_dir(request, include_legacy_fallbacks)`；声明返回 `str / None`。
+- 调用入口 `sync_chat_request_metadata(request, project_dir, mode, explicit_mode_provided, user_id)`；声明返回 `str / None`。
+- 调用入口 `resolve_agent_request_mode(raw_mode, work_mode)`；声明返回 `tuple[str, str / None, str]`。
+- 调用入口 `resolve_request_runtime_mode(request, work_mode)`；声明返回 `ResolvedMode`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import datetime as dt`；`import logging`；`import os`。
+- 模块级配置或常量名称：`PREVIOUS_SESSION_MODE_KEY`, `CHAT_TURN_METHODS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/request.py#L1-L595)。
+- **`jiuwenswarm/runtime/session_delete.py`**
+- 源码对模块职责的说明：Permanent Session deletion contracts owned by :class:'AgentRuntime'.。
+- `SessionDeleteResult` 定义类型边界；方法入口：`failure`。
+- `TeamDeleteResult` 定义类型边界。
+- `TeamExecutionController` 继承 `Protocol`；方法入口：`quiesce_for_delete`, `dispose_after_resource_release`, `delete_aborted`, `delete_committed`。
+- `TeamDeletionInProgress` 继承 `RuntimeError`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`from dataclasses import dataclass`；`from typing import Protocol`。
+- 模块级配置或常量名称：`TEAM_DELETION_GATE`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/session_delete.py#L1-L146)。
+- **`jiuwenswarm/runtime/__init__.py`**
+- 源码对模块职责的说明：Lazy public surface for the transport-independent JiuwenSwarm Runtime.。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from importlib import import_module`；`from typing import TYPE_CHECKING, Any`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/runtime/__init__.py#L1-L36)。
+
+## 关键事实
+
+- 源页：`knowledge/repos/jiuwenswarm/components/agent-runtime/source-contracts-01.md`（InferMatrixCopilot@ecfb84d0）；type: architecture；tags: jiuwenswarm；created: 2026-10-01；updated: 2026-10-06

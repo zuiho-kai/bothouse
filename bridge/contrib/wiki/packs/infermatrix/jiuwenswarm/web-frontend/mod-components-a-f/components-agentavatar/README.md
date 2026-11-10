@@ -1,0 +1,6 @@
+# components-agentavatar
+
+2 项：components-agentavatar-contracts-01、components-agentavatar-overview
+
+- [components-agentavatar-contracts-01](components-agentavatar-contracts-01.md) — components-agentavatar 源码接口…
+- [components-agentavatar-overview](components-agentavatar-overview.md) — components-agentavatar 源码模块入口：说明源码接口记录是静态契约…

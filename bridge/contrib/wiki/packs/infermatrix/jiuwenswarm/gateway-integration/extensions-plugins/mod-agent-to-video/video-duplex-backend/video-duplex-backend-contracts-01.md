@@ -1,0 +1,112 @@
+---
+name: video-duplex-backend-contracts-01
+description: video-duplex-backend 源码接口与集成边界 01：backend 的 joyai_provider、qwen_omni_gateway、qwen_omni_tools、settings、task_adapter、video_files 与 tasks 子目录的 __init__、bridge、checkpoint、errors、execution、interactions、prompts 声明
+metadata:
+  scope: 只收 description 所列 backend 十三个文件的静态声明；tasks/server_adapter、tasks/service、tasks/store、video_live、video_search、video_voice 归 video-duplex-backend-contracts-02，入口说明归 video-duplex-backend-overview
+---
+# video-duplex-backend 源码接口与集成边界 01
+
+## 现状
+
+- 本页逐文件说明这一源码模块声明的接口、类型与依赖。记录来自静态源码声明，不证明控制流、配置生效、外部服务可用或测试通过；功能语义与设计取舍沿上级功能页继续阅读。
+- **`jiuwenswarm/extensions/video_duplex/backend/joyai_provider.py`**
+- 源码对模块职责的说明：JoyAI-specific video, action, ASR, and TTS protocol adapters.。
+- `JoyAIRateLimitError` 继承 `RuntimeError`。
+- 调用入口 `model_config()`；声明返回 `tuple[str, str, str]`。
+- 调用入口 `voice_config()`；声明返回 `tuple[str, str, str]`。
+- 调用入口 `uses_native_voice_channel(video_live_mode)`；声明返回 `bool`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`from array import array`；`import base64`。
+- 模块级配置或常量名称：`MAX_FRAME_CHARS`, `MAX_INSTRUCTION_CHARS`, `MAX_TOOL_CONTEXT_CHARS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/joyai_provider.py#L1-L464)。
+- **`jiuwenswarm/extensions/video_duplex/backend/qwen_omni_gateway.py`**
+- 源码对模块职责的说明：Authenticated WebSocket relay for Alibaba Cloud Qwen-Omni Realtime.。
+- `QwenOmniRealtimeConfig` 定义类型边界；方法入口：`from_environment`, `validate`, `upstream_with_model`。
+- 异步入口 `serve_qwen_omni_websocket(websocket)`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import asyncio`；`from dataclasses import dataclass`；`import json`。
+- 模块级配置或常量名称：`QWEN_OMNI_PROXY_PATH`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/qwen_omni_gateway.py#L1-L175)。
+- **`jiuwenswarm/extensions/video_duplex/backend/qwen_omni_tools.py`**
+- 源码对模块职责的说明：Qwen Omni Realtime tool definitions and request validation.。
+- `QwenOmniToolCall` 定义类型边界；方法入口：`query`。
+- 调用入口 `qwen_omni_tools()`；声明返回 `list[dict[str, Any]]`。
+- 调用入口 `parse_qwen_omni_tool_call(value)`；声明返回 `QwenOmniToolCall`。
+- 调用入口 `task_management_tools()`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from dataclasses import dataclass`；`import json`；`from typing import Any`。
+- 模块级配置或常量名称：`QWEN_OMNI_DELEGATE_TOOL_NAME`, `QWEN_OMNI_RESEARCH_TOOL_NAME`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/qwen_omni_tools.py#L1-L306)。
+- **`jiuwenswarm/extensions/video_duplex/backend/settings.py`**
+- 源码对模块职责的说明：Plugin-owned configuration persistence for the full-duplex application.。
+- 调用入口 `settings_payload(enabled)`；声明返回 `dict[str, Any]`。
+- 调用入口 `update_settings(values, clear_secrets)`；声明返回 `None`。
+- 调用入口 `reply_language()`；声明返回 `str`。
+- 调用入口 `set_enabled(enabled)`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import json`；`import os`；`from pathlib import Path`。
+- 模块级配置或常量名称：`SETTING_ENV_KEYS`, `SECRET_SETTINGS`, `ALLOWED_REPLY_LANGUAGES`, `DEFAULTS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/settings.py#L1-L170)。
+- **`jiuwenswarm/extensions/video_duplex/backend/task_adapter.py`**
+- 源码对模块职责的说明：Video RPC/presentation and Agent RPC adapters for the shared Host task service.。
+- 调用入口 `task_identity(ws, scope)`。
+- 异步入口 `task_agent_query(client, method, params, session, owner)`。
+- `AgentTaskExecutor` 定义类型边界；方法入口：`__init__`, `close`, `run`, `wait_settled`, `answer_input`, `answer`。
+- `VideoSearchManager` 定义类型边界；方法入口：`__init__`, `service`, `scope`, `authorized_scope`, `public`, `snapshot`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`import asyncio`；`import json`；`import logging`；`import time`。
+- 模块级配置或常量名称：`AGENT_QUERY_TIMEOUT`, `EVENT_SEND_TIMEOUT`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/task_adapter.py#L1-L753)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/__init__.py`**
+- 源码对模块职责的说明：Application task ownership; Agent execution remains in the existing runtime.。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from .service import TaskService`；`from .store import TaskStore`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/__init__.py#L1-L6)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/bridge.py`**
+- 源码对模块职责的说明：Gateway-owned checkpoint commands over the existing E2A push/ACK channel.。
+- `GatewayTaskEndpoint` 定义类型边界；方法入口：`__init__`, `binding`, `close`, `execute`。
+- `RemoteTaskEndpoint` 定义类型边界；方法入口：`__init__`, `call`。
+- 调用入口 `resolve_checkpoint_ack(request)`。
+- 异步入口 `handle_checkpoint_push(client, chunk, session_id)`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`import asyncio`；`import logging`；`import uuid`；`import weakref`。
+- 模块级配置或常量名称：`EVENT`, `ACK_TIMEOUT`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/bridge.py#L1-L168)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/checkpoint.py`**
+- 源码对模块职责的说明：Apply requirement changes to the exact root Agent model context.。
+- `TaskCheckpoint` 定义类型边界；方法入口：`__init__`, `check`, `before_model`, `after_model`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`import json`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/checkpoint.py#L1-L70)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/errors.py`**
+- 源码对模块职责的说明：Internal conflict types; human-readable wording is not a control protocol.。
+- `QueueVersionConflict` 继承 `ValueError`。
+- `TaskRevisionConflict` 继承 `ValueError`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/errors.py#L1-L9)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/execution.py`**
+- 源码对模块职责的说明：Bind Host requests and output leases, and observe native execution settlement.。
+- `TaskExecutionBinding` 继承 `TaskCheckpoint`；方法入口：`__init__`, `capture_execution`。
+- 异步入口 `bind_task_execution(request, adapter, inputs)`。
+- 异步入口 `bind_task_output(rail, request, stream)`。
+- 异步入口 `close_task_output(rail, request)`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`import asyncio`；`from contextlib import asynccontextmanager`；`import logging`；`from .checkpoint import TaskCheckpoint`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/execution.py#L1-L152)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/interactions.py`**
+- 源码对模块职责的说明：Validate observed information questions without granting approval authority.。
+- 调用入口 `information_question(payload)`。
+- 调用入口 `native_approval_question(payload)`。
+- 调用入口 `validate_native_approval_answers(interaction, answers)`。
+- 调用入口 `validate_answers(interaction, answers)`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from copy import deepcopy`。
+- 模块级配置或常量名称：`NATIVE_APPROVAL_SOURCES`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/interactions.py#L1-L108)。
+- **`jiuwenswarm/extensions/video_duplex/backend/tasks/prompts.py`**
+- 源码对模块职责的说明：Model-facing task instructions. User requirements and results are opaque data.。
+- 调用入口 `task_query_instructions(total, counts, unfinished, page_size, matched)`。
+- 调用入口 `task_receipt_followup(receipt)`。
+- 调用入口 `build_execution_prompt(question, query, visual_context, context_text, brief_protocol)`。
+- 调用入口 `build_brief_prompt(begin, end, language_rule)`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`import json`。
+- 模块级配置或常量名称：`JOYAI_TASK_INSTRUCTIONS`, `EMPTY_QUERY_INSTRUCTIONS`, `REORDER_INSTRUCTIONS`, `QUEUE_CONFLICT_INSTRUCTIONS`, `REVISION_CONFLICT_INSTRUCTIONS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/tasks/prompts.py#L1-L104)。
+- **`jiuwenswarm/extensions/video_duplex/backend/video_files.py`**
+- 源码对模块职责的说明：Preserve native Jiuwen file resources across the duplex event bridge.。
+- 调用入口 `normalize_file_items(value)`；声明返回 `list[dict[str, Any]]`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from typing import Any`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/extensions/video_duplex/backend/video_files.py#L1-L23)。
+
+## 关键事实
+
+- 源页：`knowledge/repos/jiuwenswarm/components/extensions-plugins/video-duplex-backend/source-contracts-01.md`（InferMatrixCopilot@ecfb84d0）；type: architecture；tags: jiuwenswarm；created: 2026-10-01；updated: 2026-10-01

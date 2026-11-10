@@ -1,0 +1,6 @@
+# delayed-restart-app
+
+2 项：delayed-restart-app-contracts-01、delayed-restart-app-overview
+
+- [delayed-restart-app-contracts-01](delayed-restart-app-contracts-01.md) — delayed-restart-app 源码接口记录…
+- [delayed-restart-app-overview](delayed-restart-app-overview.md) — delayed-restart-app 目录入口：说明源码接口记录是静态契约、功能语义沿功能页查证…

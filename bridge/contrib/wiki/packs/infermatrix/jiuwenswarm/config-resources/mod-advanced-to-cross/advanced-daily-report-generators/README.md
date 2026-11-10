@@ -1,0 +1,6 @@
+# advanced-daily-report-generators
+
+2 项：advanced-daily-report-generators-contracts-01、advanced-daily-report-generators-overview
+
+- [advanced-daily-report-generators-contracts-01](advanced-daily-report-generators-contracts-01.md) — advanced-daily-re…
+- [advanced-daily-report-generators-overview](advanced-daily-report-generators-overview.md) — advanced-daily-report-gen…

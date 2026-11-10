@@ -1,0 +1,6 @@
+# gateway-message-handler
+
+2 项：gateway-message-handler-contracts-01、gateway-message-handler-overview
+
+- [gateway-message-handler-contracts-01](gateway-message-handler-contracts-01.md) — gateway-message-handler 源码接口与集成边界…
+- [gateway-message-handler-overview](gateway-message-handler-overview.md) — gateway-message-handler 模块入口：说明源码接口记录是静态契约…

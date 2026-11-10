@@ -1,0 +1,6 @@
+# components-assetpublishdrawer
+
+2 项：components-assetpublishdrawer-contracts-01、components-assetpublishdrawer-overview
+
+- [components-assetpublishdrawer-contracts-01](components-assetpublishdrawer-contracts-01.md) — components-assetpublish…
+- [components-assetpublishdrawer-overview](components-assetpublishdrawer-overview.md) — components-assetpublishdrawer…

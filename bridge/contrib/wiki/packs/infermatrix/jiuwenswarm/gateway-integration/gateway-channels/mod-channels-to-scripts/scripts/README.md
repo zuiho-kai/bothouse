@@ -1,0 +1,6 @@
+# scripts
+
+2 项：gateway-channels-scripts-contracts-01、gateway-channels-scripts-overview
+
+- [gateway-channels-scripts-contracts-01](gateway-channels-scripts-contracts-01.md) — gateway-channels scripts…
+- [gateway-channels-scripts-overview](gateway-channels-scripts-overview.md) — gateway-channels 的 scripts…

@@ -1,0 +1,6 @@
+# advanced-daily-report-collectors
+
+2 项：advanced-daily-report-collectors-contracts-01、advanced-daily-report-collectors-overview
+
+- [advanced-daily-report-collectors-contracts-01](advanced-daily-report-collectors-contracts-01.md) — advanced-daily-re…
+- [advanced-daily-report-collectors-overview](advanced-daily-report-collectors-overview.md) — advanced-daily-report-col…

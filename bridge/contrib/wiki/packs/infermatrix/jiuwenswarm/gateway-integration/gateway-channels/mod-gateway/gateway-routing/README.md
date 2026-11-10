@@ -1,0 +1,6 @@
+# gateway-routing
+
+2 项：gateway-routing-contracts-01、gateway-routing-overview
+
+- [gateway-routing-contracts-01](gateway-routing-contracts-01.md) — gateway-routing 源码接口与集成边界 01：gateway/routing 下…
+- [gateway-routing-overview](gateway-routing-overview.md) — gateway-routing 模块入口：说明源码接口记录是静态契约，并链接 gateway-routing…

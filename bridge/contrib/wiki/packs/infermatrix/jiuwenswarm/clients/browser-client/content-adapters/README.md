@@ -1,0 +1,6 @@
+# content-adapters
+
+2 项：content-adapters-contracts-01、content-adapters-overview
+
+- [content-adapters-contracts-01](content-adapters-contracts-01.md) — content-adapters 源码接口与集成边界 01：arxiv.ts、github.ts…
+- [content-adapters-overview](content-adapters-overview.md) — browser-client 的 content-adapters 目录入口：说明源码接口记录是静态契约…

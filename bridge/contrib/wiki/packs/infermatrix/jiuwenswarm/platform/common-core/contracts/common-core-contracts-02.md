@@ -1,0 +1,111 @@
+---
+name: common-core-contracts-02
+description: common-core 源码接口与集成边界 02：common/ 下 kv_cache_affinity_config.py、media_capability_config.py、model_errors.py、model_migration.py、model_vendor_registry.py、openrouter_attribution.py、playwright_mcp_runtime.py、process_supervision.py、projectless_workspace.py、protocol_ids.py、reasoning_injector.py、runtime_log_filter.py、runtime_workspace.py 的逐文件静态声明记录与源码链接
+metadata:
+  scope: 只收这 13 个文件的静态声明记录；其余 common/ 文件的记录分在 common-core-contracts-01、common-core-contracts-02、common-core-contracts-03、common-core-contracts-04 的其他几页
+---
+# common-core 源码接口与集成边界 02
+
+## 现状
+
+- 本页逐文件说明这一源码模块声明的接口、类型与依赖。记录来自静态源码声明，不证明控制流、配置生效、外部服务可用或测试通过；功能语义与设计取舍沿上级功能页继续阅读。
+- **`jiuwenswarm/common/kv_cache_affinity_config.py`**
+- 源码对模块职责的说明：Canonical configuration and provider rules for KV cache affinity.。
+- 调用入口 `is_kv_cache_affinity_config(config_like)`；声明返回 `bool`。
+- 调用入口 `normalize_provider(provider)`；声明返回 `str`。
+- 调用入口 `has_kv_cache_affinity_capability(model_client_config, provider)`；声明返回 `bool`。
+- 调用入口 `model_provider(model)`；声明返回 `str`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import logging`；`import os`；`from typing import Any`。
+- 模块级配置或常量名称：`ASCEND_AFFINITY_PROVIDER`, `APPLICATION_KV_CACHE_CONFIG_KEY`, `KV_CACHE_AFFINITY_ENABLED_KEY`, `KVC_CONFIG_KEYS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/kv_cache_affinity_config.py#L1-L264)。
+- **`jiuwenswarm/common/media_capability_config.py`**
+- 源码对模块职责的说明：Startup migration for explicit multimodal capability switches.。
+- 调用入口 `migrate_media_capability_switches(env_path, environ, lock_timeout)`；声明返回 `dict[str, str]`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import os`；`import stat`；`from collections.abc import MutableMapping`。
+- 模块级配置或常量名称：`MEDIA_CAPABILITY_ENV_FIELDS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/media_capability_config.py#L1-L105)。
+- **`jiuwenswarm/common/model_errors.py`**
+- 源码对模块职责的说明：Stable model-selection error codes shared by runtime and RPC layers.。
+- `ModelSelectionError` 继承 `RuntimeError`；方法入口：`__init__`, `to_payload`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from typing import Any`。
+- 模块级配置或常量名称：`MODEL_SELECTION_NOT_FOUND`, `MODEL_SELECTION_DISABLED`, `MODEL_SELECTION_FORBIDDEN`, `MODEL_GROUP_INVALID`, `MODEL_GROUP_NO_AVAILABLE_ROUTE`, `MODEL_REQUEST_CONFIG_INVALID`, `MODEL_ROUTE_FAILED`, `MODEL_STREAM_INTERRUPTED`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/model_errors.py#L1-L30)。
+- **`jiuwenswarm/common/model_migration.py`**
+- 源码对模块职责的说明：One-time, idempotent migration from unambiguous model names to stable IDs.。
+- 调用入口 `migrate_legacy_model_selections()`；声明返回 `dict[str, int]`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import json`；`import os`；`import uuid`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/model_migration.py#L1-L79)。
+- **`jiuwenswarm/common/model_vendor_registry.py`**
+- 源码对模块职责的说明：Model vendor preset registry.。
+- `PlanKind` 继承 `str, Enum`。
+- `VendorPreset` 定义类型边界。
+- 调用入口 `get_presets_by_plan(plan)`；声明返回 `list[VendorPreset]`。
+- 调用入口 `get_preset(vendor_key, plan)`；声明返回 `VendorPreset / None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import logging`；`from dataclasses import dataclass`；`from enum import Enum`。
+- 模块级配置或常量名称：`ANTHROPIC_CLIENT_PROVIDER`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/model_vendor_registry.py#L1-L571)。
+- **`jiuwenswarm/common/openrouter_attribution.py`**
+- 调用入口 `is_openrouter_provider(provider)`；声明返回 `bool`。
+- 调用入口 `is_openrouter_client_config(mcc)`；声明返回 `bool`。
+- 调用入口 `inject_attribution_headers(mcc)`；声明返回 `dict[str, Any]`。
+- 调用入口 `inject_attribution_to_config(config)`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from typing import Any, Optional`。
+- 模块级配置或常量名称：`OPENROUTER_ATTRIBUTION_HEADERS`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/openrouter_attribution.py#L1-L86)。
+- **`jiuwenswarm/common/playwright_mcp_runtime.py`**
+- 源码对模块职责的说明：Resolve and safely materialize the bundled Playwright MCP runtime.。
+- `PlaywrightMcpRuntimeError` 继承 `RuntimeError`。
+- `PlaywrightMcpLaunch` 定义类型边界。
+- 调用入口 `parse_playwright_mcp_args(value)`；声明返回 `list[str]`。
+- 调用入口 `serialize_playwright_mcp_args(args)`；声明返回 `str`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import hashlib`；`import json`；`import logging`。
+- 模块级配置或常量名称：`PLAYWRIGHT_MCP_VERSION`, `MINIMUM_NODE_VERSION`, `PINNED_NPX_COMMAND`, `PINNED_NPX_ARGS`, `LEGACY_TEMPLATE_COMMAND`, `LEGACY_TEMPLATE_ARGS`, `MANIFEST_FILENAME`, `INTERNAL_SOURCE_ENV`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/playwright_mcp_runtime.py#L1-L411)。
+- **`jiuwenswarm/common/process_supervision.py`**
+- 源码对模块职责的说明：Supervise the AgentServer and Gateway children of ''jiuwenswarm.app''.。
+- 调用入口 `is_crash_exit(returncode)`；声明返回 `bool`。
+- 调用入口 `supervise(commands, popen_kwargs)`；声明返回 `int`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import contextlib`；`import json`；`import logging`。
+- 模块级配置或常量名称：`GATEWAY_RESTART_EXIT_CODE`, `CRASH_EXIT_CODE`, `SUPERVISOR_PID_ENV`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/process_supervision.py#L1-L306)。
+- **`jiuwenswarm/common/projectless_workspace.py`**
+- 源码对模块职责的说明：Cross-platform workspaces for Agent/Code requests without a project.。
+- `ProjectlessTaskWorkspace` 定义类型边界。
+- 调用入口 `get_projectless_tasks_dir()`；声明返回 `Path`。
+- 调用入口 `get_projectless_task_workspace(session_id, task_name)`；声明返回 `ProjectlessTaskWorkspace`。
+- 调用入口 `get_registered_projectless_task_root(session_id)`；声明返回 `Path / None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import datetime as _datetime`；`import json`；`import math`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/projectless_workspace.py#L1-L508)。
+- **`jiuwenswarm/common/protocol_ids.py`**
+- 源码对模块职责的说明：Validation for externally supplied protocol identifiers.。
+- `InvalidProtocolId` 继承 `ValueError`。
+- 调用入口 `validate_session_id(value)`；声明返回 `str`。
+- 调用入口 `is_valid_session_id(value)`；声明返回 `bool`。
+- 调用入口 `validate_workflow_run_id(value)`；声明返回 `str`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`import re`；`from typing import Any`。
+- 模块级配置或常量名称：`SESSION_ID_MAX_LEN`, `WORKFLOW_RUN_ID_MAX_LEN`；实际值与使用条件见源码。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/protocol_ids.py#L1-L67)。
+- **`jiuwenswarm/common/reasoning_injector.py`**
+- 调用入口 `core_has_context_window_field()`；声明返回 `bool`。
+- 调用入口 `inject_reasoning_params(model_client_config, model_config_obj)`；声明返回 `dict[str, Any]`。
+- 调用入口 `build_reasoning_model_request_kwargs(model_client_config, model_config_obj, model_name)`；声明返回 `dict[str, Any]`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from collections.abc import Mapping`；`from typing import Any`；`from jiuwenswarm.common.reasoning_config import normalize_reasoning_level, `。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/reasoning_injector.py#L1-L172)。
+- **`jiuwenswarm/common/runtime_log_filter.py`**
+- 源码对模块职责的说明：Bound repeated DB and browser-health diagnostics without filtering other errors.。
+- `RuntimeLogFilter` 继承 `logging.Filter`；方法入口：`__init__`, `filter`, `flush`。
+- 调用入口 `install_runtime_log_filter()`；声明返回 `None`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`import atexit`；`import logging`；`import threading`；`import time`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/runtime_log_filter.py#L1-L124)。
+- **`jiuwenswarm/common/runtime_workspace.py`**
+- 源码对模块职责的说明：Resolve internal and user-operable workspaces for single-agent modes.。
+- `RuntimeWorkspacePaths` 定义类型边界。
+- 调用入口 `resolve_runtime_workspace_paths(internal_workspace_dir, project_dir, workspace_dir, cwd, session_id, task_name, bind_request)`；声明返回 `RuntimeWorkspacePaths`。
+- 调用入口 `bind_session_runtime_workspace(internal_workspace_dir, project_dir, session_id)`；声明返回 `RuntimeWorkspacePaths`。
+- 调用入口 `resolve_bound_runtime_workspace_paths(binding, project_dir, workspace_dir, cwd)`；声明返回 `RuntimeWorkspacePaths`。
+- 集成依赖（导入声明，不等于全部运行时依赖）：`from __future__ import annotations`；`from dataclasses import dataclass, replace`；`from pathlib import Path`；`from jiuwenswarm.common.projectless_workspace import get_projectless_task_w`。
+- 源码依据：[完整声明与实现](https://github.com/openJiuwen-ai/jiuwenswarm/blob/f0a69728c96b5961d993449f1a901cbd2f4dac5b/jiuwenswarm/common/runtime_workspace.py#L1-L148)。
+
+## 关键事实
+
+- 源页：`knowledge/repos/jiuwenswarm/components/common-core/source-contracts-02.md`（InferMatrixCopilot@ecfb84d0）；type: architecture；tags: jiuwenswarm；created: 2026-10-01；updated: 2026-10-01
