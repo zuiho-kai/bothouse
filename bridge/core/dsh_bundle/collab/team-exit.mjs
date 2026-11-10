@@ -241,7 +241,6 @@ export class TeamExit {
       answer_source_id INTEGER UNIQUE, answered INTEGER NOT NULL DEFAULT 0)`);
     this.bounces = new Map(); // `${room}:${member}` -> consecutive [ask] bounces
     this.rejectedMessages = new Set();
-    this.validatedMessages = new Set();
     hub.onMessage(msg => this.onMessage(msg));
   }
 
@@ -304,7 +303,6 @@ export class TeamExit {
         return this.bounce(room, msg, v.problems, mark.kind);
       }
       // Once bounces stop waking the member, a reply still without a headline goes out as before.
-      this.validatedMessages.add(msg.id);
       if (!v.legacy) headline = { ...v, task: this.hub.tasks?.task?.(v.id) };
       if (v.check) mark.body = `${exitBounceText(mark.kind, v.check)}\n\n${mark.body}`;
     }
@@ -383,14 +381,6 @@ export class TeamExit {
     if (!room || msg.author_kind !== 'role' || msg.card != null) return undefined;
     const mark = exitMark(msg.text, this.markOpts(msg));
     if (mark?.kind === 'ask') return undefined;
-    if (mark?.kind === 'report' && !this.validatedMessages.has(msg.id)) {
-      const problems = selfRouteProblems(mark.body);
-      if (problems.length) {
-        this.rejectedMessages.add(msg.id);
-        this.bounce(this.workspaceOf(msg), msg, problems, mark.kind);
-        return undefined;
-      }
-    }
     const lines = String(msg.text).trim().split('\n');
     if (/^\s*(?:@\S+\s+)*【(接|问|退|升)】/.test(lines[0])) lines.shift();
     const body = mark?.body ?? (lines.join('\n').trim() || String(msg.text).trim());
@@ -399,7 +389,4 @@ export class TeamExit {
     return this.forward(room, msg, body, undefined, headline?.task ? headline : undefined);
   }
 
-  rejected(msgId) {
-    return this.rejectedMessages.has(msgId);
-  }
 }
