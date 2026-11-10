@@ -874,3 +874,40 @@ func TestStartLocalHubFailsFastOnDeadProxy(t *testing.T) {
 		t.Errorf("the log tail must come with it: %v", err)
 	}
 }
+
+// #1499: hub.log is appended to, never truncated. A proxy error an earlier start left there must not
+// turn a retry that is fine now into a proxy failure: only what this start writes counts.
+func TestStartLocalHubIgnoresOlderProxyErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake uv is a shell script")
+	}
+	noLocalHub(t)
+	dataDir, _ := stubPythonEnv(t)
+	oldFS, oldLook, oldWait := hubSourceFS, lookPath, localHubStartWait
+	hubSourceFS = fstest.MapFS{"rh/hub.py": &fstest.MapFile{Data: []byte("# hub")}}
+	localHubStartWait = time.Second // just long enough to see the new log stays clean
+	t.Cleanup(func() { hubSourceFS, lookPath, localHubStartWait = oldFS, oldLook, oldWait })
+	if err := os.MkdirAll(filepath.Join(dataDir, "hub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := "error: Failed to fetch: `https://pypi.org/simple/aiohttp/`\n  Caused by: tcp connect error\n"
+	if err := os.WriteFile(filepath.Join(dataDir, "hub", "hub.log"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	userUV := filepath.Join(bin, "uv")
+	// a uv that keeps downloading (no error): the old lines above are all the log holds
+	if err := os.WriteFile(userUV, []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lookPath = func(string) (string, bool, error) { return userUV, true, nil }
+	fetchUV = func(url string) ([]byte, error) { t.Errorf("downloaded %s", url); return nil, exec.ErrNotFound }
+
+	_, err := StartLocalHub(context.Background(), dataDir, "zh")
+	if err == nil || strings.Contains(err.Error(), "系统代理连不上") {
+		t.Fatalf("the older run's proxy error was used: %v", err)
+	}
+	if !strings.Contains(err.Error(), "没在 1 秒内起来") {
+		t.Fatalf("want the ordinary timeout, got %v", err)
+	}
+}

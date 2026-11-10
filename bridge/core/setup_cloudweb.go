@@ -530,6 +530,8 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 			"uv（Python の実行ツール）のダウンロードに失敗しました。ネットワークを確認して「このマシンで起動」をもう一度押すか、uv を自分で入れてから「再検出」を押してください。元のエラー：",
 			"Downloading uv (a Python runner) failed: check the network and click \"Start on this machine\" again, or install uv yourself and click \"Detect again\". Original error:"), err)
 	}
+	// where this start begins to write hub.log (it is appended to, never truncated)
+	logStart := fileSizeOf(filepath.Join(localHubDir(dataDir), "hub.log"))
 	if err := startHubProcess(dataDir, uv, &s); err != nil {
 		return LocalHubStatus{}, err
 	}
@@ -547,8 +549,10 @@ func StartLocalHub(ctx context.Context, dataDir, lang string) (LocalHubStatus, e
 		if code, _, err := cloudWebHandshake(ctx, base, s.BotToken); err == nil && code == http.StatusSwitchingProtocols {
 			return GetLocalHubStatus(ctx, dataDir, lang), nil
 		}
-		// #1499: the log already says the proxy is dead → report that instead of waiting out the clock
-		if hubProxyHintRE.MatchString(tailFile(logFile, 600)) {
+		// #1499: the log already says the proxy is dead → report that instead of waiting out the clock.
+		// Only what this start appended: hub.log is never truncated, so an earlier run's proxy error
+		// must not fail a retry that is fine now.
+		if hubProxyHintRE.MatchString(sinceStart(logFile, logStart, 600)) {
 			return LocalHubStatus{LogFile: logFile}, localHubProxyFailure(lang, logFile)
 		}
 		select {
@@ -719,6 +723,28 @@ func tailFile(path string, n int) string {
 		b = b[len(b)-n:]
 	}
 	return "\n" + string(b)
+}
+
+// fileSizeOf: where a file ends now, 0 when it does not exist yet (hub.log is appended to by every start).
+func fileSizeOf(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// sinceStart: the part of path written after offset, at most the last n bytes of it.
+func sinceStart(path string, offset int64, n int) string {
+	b, err := os.ReadFile(path)
+	if err != nil || int64(len(b)) <= offset {
+		return ""
+	}
+	b = b[offset:]
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return string(b)
 }
 
 // ── HTTP ──────────────────────────────────────────────────────
