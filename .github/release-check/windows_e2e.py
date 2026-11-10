@@ -179,6 +179,7 @@ class Panel:
         self.base = f"http://localhost:{port}"
         self.token = token
         self.dsh_log = ""
+        self.released = False  # the previous release (--old, before the upgrade), not the build under test
         self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
     def req(self, method, path, body=None, auth=True, timeout=T_HTTP, raw=False):
@@ -272,12 +273,16 @@ def open_dsh(p, label):
     """POST /setup/dsh/open the way the wizard does (DSHSetup.tsx open): ask again every second while it
     answers starting:true (since v0.1.51 it does not wait for a cold dsh web)."""
     end = time.time() + T_OPEN
-    web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+    # A release before the #1392 fix never reads this "{}"; urllib's "Connection: close" then ends in a
+    # TCP RST that Windows answers by dropping the reply (WinError 10054). The browser keeps the
+    # connection alive, so its users never see it: send that release no body, as nothing reads it.
+    body = None if p.released else {}
+    web = p.api("POST", "/setup/dsh/open", body, timeout=T_OPEN)
     while web.get("starting"):
         if time.time() > end:
             fail(f"{label}: dsh web still starting after {T_OPEN}s: {web.get('log_tail', '')[:300]}")
         time.sleep(1)  # the wizard's own interval (DSHSetup.tsx)
-        web = p.api("POST", "/setup/dsh/open", {}, timeout=T_OPEN)
+        web = p.api("POST", "/setup/dsh/open", body, timeout=T_OPEN)
     p.dsh_log = web.get("log") or p.dsh_log
     return web
 
@@ -406,6 +411,7 @@ bh, p = start(1)
 try:
     install(p)
     if args.old:
+        p.released = True
         configure_and_open(p, "previous release")
         names1, _ = roster(p, "previous release")
     else:
