@@ -398,12 +398,28 @@ function pix(ctx, rows, x, y, s, pal, flip) {
   x = Math.round(x); y = Math.round(y);
   for (let r = 0; r < rows.length; r++) { const row = rows[r], n = row.length; for (let c = 0; c < n; c++) { const k = row[flip ? n - 1 - c : c]; if (k !== '.') px(ctx, x + c * s, y + r * s, s, s, pal[k]); } }
 }
+// 道具按 1 倍画、格子多一倍，细节靠像素而不是粗黑框（用户 11-10「这玩意不会就是信封吧 能改改吗 精致一些」）。
+// 描边用暖棕不用纯黑；信封是背面：封口三角、两侧折边、底部暗面、尖上一枚任务色火漆。
 const ART = {
-  env: ['oooooooo', 'occwwcco', 'owwccwwo', 'owwwwwwo', 'owwwwwwo', 'oooooooo'],
-  slipA: ['oooooo', 'owwwwo', 'ogggwo', 'owggwo', 'oooooo'],
-  slipB: ['.oooo.', 'owwwwo', 'oggwwo', 'oooooo'],
-  ball: ['.oooo.', 'owwhwo', 'owgwwo', 'owwwgo', 'ogwwwo', '.oooo.'],
+  env: ['.dddddddddddddddd.', 'dlhhhhhhhhhhhhhhld', 'dwlfffffffffffflwd', 'dwwlfffffffffflwwd', 'dwwwlfffffffflwwwd', 'dwwwwlfffffflwwwwd', 'dwwwwwlfrrflwwwwwd', 'dwwwwwwrRrrwwwwwwd', 'dwwwwlwrrrqwlwwwwd', 'dwwwlwwwqqwwwlwwwd', 'dsslsssssssssslssd', 'dslsssssssssssslsd', '.dddddddddddddddd.'],
+  slipA: ['...tttt....', '.dddttttdd.', '.dwwwwwwwkd', '.dwnnnnnwkd', '.dwwwwwwwwd', '.dwnnnnwwwd', '.dwwwwwwwwd', '.dwnnnnnnwd', '.dwwwwwwwsd', '.dsssssssfd', '.dddddddff.', '...........'],
+  slipB: ['....tttt...', '.ddttttddd.', 'dkwwwwwwwd.', 'dkwnnnnnwd.', 'dwwwwwwwwd.', 'dwwwnnnnwd.', 'dwwwwwwwwd.', 'dwnnnnnnwd.', 'dswwwwwwwd.', 'dfsssssssd.', '.ffddddddd.', '...........'],
+  ball: ['...dddddd...', '..dwwhwwsd..', '.dwhhwwsssd.', 'dwwhwssswwsd', 'dwwwsswwwhwd', 'dswwswwhhwsd', 'dsswwwhwwssd', '.dsswwwwsssd', '.dsssswsssd.', '..ddssssdd..', '....dddd....'],
+  folder: ['dddddddddddddddd', 'dmmmmmmmmmmmmmmd', 'dwwwwwwwwwwwwwwd', 'dMMMMMMMMMMMMMMd'],
+  lamp: ['.ddd.', 'dcHcd', 'dcccd', 'dCccd', '.ddd.', '..p..', '..p..', '.bbb.', 'bbbbb'],
 };
+// 任务色的亮、暗两档，给火漆高光、灯罩暗面用
+function tone(hex, k) {
+  const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16);
+  if (Number.isNaN(n)) return hex;
+  const f = (v) => Math.max(0, Math.min(255, Math.round(k > 0 ? v + (255 - v) * k : v * (1 + k))));
+  return '#' + [n >> 16, (n >> 8) & 255, n & 255].map(v => f(v).toString(16).padStart(2, '0')).join('');
+}
+const ENV_PAL = (c) => ({ d: '#6b4a33', h: '#fffdf6', w: '#fbefd6', f: '#fff8ea', l: '#d9b98a', s: '#ead2a8', r: c, R: tone(c, 0.55), q: tone(c, -0.35) });
+const SLIP_PAL = (c) => ({ t: c, d: '#6b5a48', w: '#fffdf4', n: '#8d96a3', k: '#e2dccd', s: '#ece4d2', f: '#cfc5ae' });
+const BALL_PAL = { d: '#7a6f5c', w: '#f4f1e8', h: '#ffffff', s: '#cfc7b4' };
+const FOLDER_PAL = (c) => ({ t: c, d: '#6b4a33', m: '#e2b56c', w: '#fffaf0', M: '#c8964f' });
+const LAMP_PAL = (c) => ({ d: '#2b2f3a', c, H: '#ffffff', C: tone(c, -0.35), p: '#8a93a6', b: '#555b66' });
 // 落点闪光：一圈方框往外扩，0.35 秒消失
 function ring(x, y, color) { fxPush('rings', { x, y, color, t0: performance.now() }); }
 function drawRings(ctx, now) {
@@ -773,14 +789,15 @@ function drawDesk(ctx, d, a, mode, t) {
 // 有人坐在桌后：显示器背面朝我们（照空桌那种深色外壳），干活时屏幕的光从边上漏出来；键盘在她手底下。
 function drawDeskSeated(ctx, d, mode, t) {
   const { x, y } = d;
-  const mx = x - 19, my = y - 18;
+  // 坐着时桌上是矮的笔记本盖子，压在下巴以下、放在桌面左端：原来 16×12 的立式显示器挡住坐着的人左边四分之一张脸，
+  // 坐着的人看起来比站着的小一圈（用户 11-10「坐下工作的和站起来走动的大小不一样」，绘制倍数其实相同）。
+  const mx = x - 21, my = y - 13;
   if (mode === 'work' || mode === 'think') {
     const glow = mode === 'work' ? ['#7ee787', '#79c0ff', '#ffa657', '#d2a8ff'][(Math.floor(t / 260) + hashOf(d.id)) % 4] : '#5fb0ff';
-    px(ctx, mx - 1, my - 1, 18, 1, glow); px(ctx, mx + 16, my, 1, 12, glow);
+    px(ctx, mx - 1, my - 1, 16, 1, glow); px(ctx, mx + 14, my, 1, 7, glow);
   }
-  px(ctx, mx, my, 16, 12, '#2b2f3a'); px(ctx, mx + 1, my + 1, 14, 10, '#363c4a'); px(ctx, mx + 1, my + 1, 14, 1, '#454c5c');
-  px(ctx, mx + 7, my + 5, 2, 2, mode === 'off' ? '#4a5160' : '#8a93a6');
-  px(ctx, mx + 7, my + 12, 2, 2, '#2b2f3a'); px(ctx, mx + 5, my + 13, 6, 1, '#2b2f3a');
+  px(ctx, mx, my, 14, 8, '#2b2f3a'); px(ctx, mx + 1, my + 1, 12, 6, '#363c4a'); px(ctx, mx + 1, my + 1, 12, 1, '#454c5c');
+  px(ctx, mx + 6, my + 3, 2, 2, mode === 'off' ? '#4a5160' : '#8a93a6');
   px(ctx, x - 18, y - 5, 36, 7, '#d9a066'); px(ctx, x - 18, y - 5, 36, 1, '#f0bd84');
   px(ctx, x - 18, y + 2, 36, 7, '#a86f3e'); px(ctx, x - 18, y + 2, 36, 1, '#8a5a32');
   px(ctx, x - 17, y + 9, 3, 2, '#6b4429'); px(ctx, x + 14, y + 9, 3, 2, '#6b4429');
@@ -832,8 +849,8 @@ function drawBeams(ctx, now, dt) {
     if (b.kind === 'at') { px(ctx, p.x - 1, p.y - 1, 3, 3, '#e7f3ff'); ctx.globalAlpha = 0.35; px(ctx, p.x - 3, p.y - 3, 7, 7, color); ctx.globalAlpha = 1; }
     else {
       // 派活是信封，交回/打回是带对应颜色封口的信封；外面一圈淡光
-      ctx.globalAlpha = 0.3; px(ctx, p.x - 10, p.y - 8, 20, 16, color); ctx.globalAlpha = 1;
-      pix(ctx, ART.env, p.x - 8, p.y - 6, 2, { o: '#0b0910', w: '#fff7e6', c: color });
+      ctx.globalAlpha = 0.3; px(ctx, p.x - 11, p.y - 8, 22, 17, color); ctx.globalAlpha = 1;
+      pix(ctx, ART.env, p.x - 9, p.y - 6, 1, ENV_PAL(color));
     }
     if (k >= 1) {
       b.dead = true;
@@ -931,7 +948,7 @@ function lampSlots() {
   if (!lead || !lead.desk) return null;
   const { x, y } = lead.desk;
   // 灯柱立在桌子前面的地上排成一排，一件在跑的活一根，最多 12 根
-  return { x, y, lamp: (i, n) => ({ x: x - n * 2 + i * 4, y: y + 11 }) };
+  return { x, y, lamp: (i, n) => ({ x: x - n * 3 + i * 6, y: y + 11 }) };
 }
 const LAMP_MAX = 12;
 function drawLamps(ctx, now) {
@@ -940,22 +957,24 @@ function drawLamps(ctx, now) {
   const at = simNow();
   // 交回待验收的文件在桌面左边叠成一摞，一件一层，最多 8 层，多的不再加高
   [...S.review.values()].slice(-8).forEach((f, i) => {
-    const fx = L.x - 19, fy = L.y - 8 - i * 3;
-    px(ctx, fx, fy, 14, 4, '#0b0910'); px(ctx, fx + 1, fy + 1, 12, 2, '#f8f4ea'); px(ctx, fx + 1, fy + 2, 12, 1, '#d8d0bf'); px(ctx, fx + 1, fy + 1, 3, 2, f.color);
+    // 一层是一只牛皮纸文件夹：任务色标签、露出一条白纸
+    // 任务色标签从文件夹右侧伸出来，摞起来每层的颜色都露得出来
+    const fx = L.x - 20, fy = L.y - 8 - i * 4;
+    px(ctx, fx + 16, fy + 1, 2, 2, f.color);
+    pix(ctx, ART.folder, fx, fy, 1, FOLDER_PAL(f.color));
   });
   const lit = liveTasks().slice(0, LAMP_MAX), n = lit.length;
-  if (n) { const b0 = L.lamp(0, n); px(ctx, b0.x - 2, b0.y + 7, n * 4 + 3, 2, '#0b0910'); px(ctx, b0.x - 1, b0.y + 7, n * 4 + 1, 1, '#555b66'); }
+  if (n) { const b0 = L.lamp(0, n); px(ctx, b0.x - 3, b0.y + 8, n * 6 + 1, 1, '#3d4350'); }
   lit.forEach((t, i) => {
     const p = L.lamp(i, n);
     const stale = at - (t.rec.seen ?? t.rec.t ?? at) > STALE_MS;
     const hot = P.hoverKey === t.key;
-    // 一根灯柱：灯头 3×4、灯杆 1×3，外面黑描边
+    // 一盏小台灯：任务色玻璃灯罩带高光和暗面、金属杆、底座（5×9）
     const c = t.rec.paused ? (Math.floor(now / 400) % 2 ? '#ff5a5f' : '#8a1f24') : stale ? (Math.floor(now / 600) % 2 ? '#ffd43b' : '#5c5326') : t.color;
-    if (hot) px(ctx, p.x - 2, p.y - 2, 7, 8, '#ffffff');
+    if (hot) px(ctx, p.x - 2, p.y - 2, 7, 11, '#ffffff');
     if (P.lampPing && P.lampPing.key === t.key && now - P.lampPing.t0 < 700) { ctx.globalAlpha = 0.6; px(ctx, p.x - 3, p.y - 3, 9, 9, '#fff7c2'); ctx.globalAlpha = 1; }
-    px(ctx, p.x - 1, p.y - 1, 5, 6, '#0b0910'); px(ctx, p.x, p.y, 3, 4, c); px(ctx, p.x, p.y, 1, 1, '#ffffff');
-    px(ctx, p.x + 1, p.y + 5, 1, 2, '#555b66');
-    if (!t.rec.paused && !stale) { ctx.globalAlpha = 0.25; px(ctx, p.x - 2, p.y - 2, 7, 7, c); ctx.globalAlpha = 1; }
+    if (!t.rec.paused && !stale) { ctx.globalAlpha = 0.25; px(ctx, p.x - 3, p.y - 3, 9, 7, c); ctx.globalAlpha = 1; }
+    pix(ctx, ART.lamp, p.x - 1, p.y - 1, 1, LAMP_PAL(c));
     P.lamps.push({ key: t.key, memberId: t.memberId, rec: t.rec, x: p.x, y: p.y, color: t.color });
   });
 }
@@ -981,7 +1000,7 @@ function slipFrom(memberId) {
   rec.seen = simNow();
   const body = bodyRef(memberId, rec.id || null).id;
   if (body === S.lead) { P.lampPing = { key, t0: now }; return; }
-  fxPush('slips', { from: body, key, t0: now, dur: 1600, seed: Math.random() * 6 });
+  fxPush('slips', { from: body, key, t0: now, dur: 1600, seed: Math.random() * 6, color: colorOf(memberId) });
 }
 function drawSlips(ctx, now) {
   const L = lampSlots();
@@ -997,7 +1016,7 @@ function drawSlips(ctx, now) {
     for (let i = 5; i >= 1; i--) { const kk = k - i * 0.035; if (kk <= 0) continue; const q2 = at(kk); ctx.globalAlpha = (1 - i / 6) * 0.7; px(ctx, q2.x - 2, q2.y - 2, 4, 4, '#fffdf4'); }
     ctx.globalAlpha = 1;
     const flip = Math.floor(now / 160 + sl.seed) % 2;
-    pix(ctx, flip ? ART.slipB : ART.slipA, x - 6, y - 5, 2, { o: '#0b0910', w: '#fffdf4', g: '#9aa3ad' });
+    pix(ctx, flip ? ART.slipB : ART.slipA, x - 5, y - 6, 1, SLIP_PAL(sl.color || '#ffa53a'));
     if (k >= 1) { P.lampPing = { key: sl.key, t0: now }; ring(bx, by, '#fff7c2'); return false; }
     return true;
   });
@@ -1009,7 +1028,7 @@ function throwBall(from, to, text) {
   fxPush('balls', { from: A, to: to.id, t0: performance.now(), dur: 900, text, hit: null });
 }
 function drawBall(ctx, x, y, r) {
-  pix(ctx, ART.ball, x - 6, y - 6, 2, { o: '#0b0910', w: '#f4f1e8', h: '#ffffff', g: '#b9b2a0' }, Math.floor(r) % 2);
+  pix(ctx, ART.ball, x - 6, y - 5, 1, BALL_PAL, Math.floor(r) % 2);
 }
 function drawBalls(ctx, now, dt) {
   P.balls = (P.balls || []).filter(b => {
