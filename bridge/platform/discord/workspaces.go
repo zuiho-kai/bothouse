@@ -50,7 +50,7 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannel
 	if err != nil {
 		return core.TeamChannel{}, err
 	}
-	c, err := createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
+	c, err := p.createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
 	return c, workspaceErr(p.missingPermissionErr(err, permManageChannels))
 }
 
@@ -98,7 +98,7 @@ func (p *Platform) UnshelveTeamWorkspaceChannel(ctx context.Context, workspaceID
 	if err != nil {
 		return err
 	}
-	err = unshelveWorkspaceChannel(api, workspaceID, besideChannelID, discordgo.WithContext(ctx))
+	err = p.unshelveWorkspaceChannel(api, workspaceID, besideChannelID, discordgo.WithContext(ctx))
 	return workspaceErr(p.missingPermissionErr(err, permManageChannels))
 }
 
@@ -173,11 +173,19 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 		return core.TeamChannel{}, nil, err
 	}
 	thread := ch
-	if ch, err = threadHost(api, ch, options...); err != nil {
+	if ch, err = p.workspaceHost(api, ch, options...); err != nil {
 		return core.TeamChannel{}, nil, err
 	}
-	if ch.Type != discordgo.ChannelTypeGuildText || ch.GuildID == "" {
+	if !teamHostType(ch.Type) || ch.GuildID == "" {
 		return core.TeamChannel{}, nil, fmt.Errorf("discord: channel %s: %w", channelID, core.ErrNotTeamChannel)
+	}
+	if isDMChannelType(thread.Type) {
+		// A DM works as a chat channel too: its workspaces are the bot's pool in its team server,
+		// and the reports come back to the DM. 来源：2026-11-10 agentm leihui 私聊派活报
+		// 「workspace new 失败：not a guild text channel」，用户「私聊被拒绝了，不应该有这个问题」。
+		self := core.TeamChannel{ID: thread.ID, Name: "私聊", ParentID: ch.ParentID}
+		_, all, err := p.teamGuildChannels(api, ch.ID, options...)
+		return self, all, err
 	}
 	if thread != ch {
 		// Remember where the thread lives, so a report still reaches its text channel after
@@ -221,6 +229,68 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 		return core.TeamChannel{ID: thread.ID, Name: thread.Name, ParentID: ch.ParentID}, all, nil
 	}
 	return core.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID, Shelved: shelved(ch)}, all, nil
+}
+
+// teamHostType: channels a chat channel's workspaces are created beside. A forum (or media) channel
+// hosts the posts (threads) in it: 来源 2026-11-10 agentm 论坛「讨论事项」里的帖子派活交不出去。
+func teamHostType(t discordgo.ChannelType) bool {
+	return t == discordgo.ChannelTypeGuildText || t == discordgo.ChannelTypeGuildForum || t == discordgo.ChannelTypeGuildMedia
+}
+
+func isDMChannelType(t discordgo.ChannelType) bool {
+	return t == discordgo.ChannelTypeDM || t == discordgo.ChannelTypeGroupDM
+}
+
+// workspaceHost is the channel ch's workspaces sit beside: its text (or forum) channel for a thread,
+// a text channel in the bot's team server for a DM (dmHost), ch itself otherwise.
+func (p *Platform) workspaceHost(api workspaceAPI, ch *discordgo.Channel, options ...discordgo.RequestOption) (*discordgo.Channel, error) {
+	if ch != nil && isDMChannelType(ch.Type) {
+		return p.dmHost(api, options...)
+	}
+	return threadHost(api, ch, options...)
+}
+
+// dmHost picks the team server for a DM: the configured guild_id, else the one server the bot keeps
+// workspaces in (workspace shelf records). In it, the text channel of a workspace the bot owns and is
+// not idle (the pool's category), else the first text channel.
+func (p *Platform) dmHost(api workspaceAPI, options ...discordgo.RequestOption) (*discordgo.Channel, error) {
+	store := p.workspaceShelfStore()
+	guild := p.guildID
+	if guild == "" {
+		ids := store.guildIDs()
+		if len(ids) != 1 {
+			return nil, fmt.Errorf("discord: 私聊派活要知道用哪个服务器的工作区：配置里没写 guild_id，记录里有 %d 个服务器的工作区；"+
+				"在配置里写上 guild_id，或到服务器频道里派: %w", len(ids), core.ErrNotTeamChannel)
+		}
+		guild = ids[0]
+	}
+	list, err := api.GuildChannels(guild, options...)
+	if err != nil {
+		return nil, err
+	}
+	owned, _ := store.guild(guild)
+	var first *discordgo.Channel
+	for _, c := range list {
+		if c == nil || c.Type != discordgo.ChannelTypeGuildText {
+			continue
+		}
+		if owned.Channels[c.ID] && c.ParentID != owned.Category {
+			return withGuild(c, guild), nil
+		}
+		if first == nil {
+			first = c
+		}
+	}
+	if first == nil {
+		return nil, fmt.Errorf("discord: guild %s has no text channel: %w", guild, core.ErrNotTeamChannel)
+	}
+	return withGuild(first, guild), nil
+}
+
+func withGuild(c *discordgo.Channel, guild string) *discordgo.Channel {
+	cp := *c
+	cp.GuildID = guild
+	return &cp
 }
 
 // threadHost returns the text channel a thread lives under, ch itself when it is not a thread.
@@ -308,10 +378,10 @@ func missingPermission(err error) bool {
 }
 
 // unshelveWorkspaceChannel moves workspaceID into the category of besideChannelID.
-func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID string, options ...discordgo.RequestOption) error {
+func (p *Platform) unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID string, options ...discordgo.RequestOption) error {
 	beside, err := api.Channel(besideChannelID, options...)
 	if err == nil {
-		beside, err = threadHost(api, beside, options...)
+		beside, err = p.workspaceHost(api, beside, options...)
 	}
 	if err != nil {
 		return err
@@ -332,10 +402,10 @@ func unshelveWorkspaceChannel(api workspaceAPI, workspaceID, besideChannelID str
 	return workspacePermissionHint(err)
 }
 
-func createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {
+func (p *Platform) createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {
 	ch, err := api.Channel(besideChannelID, options...)
 	if err == nil {
-		ch, err = threadHost(api, ch, options...) // beside a thread = beside its text channel
+		ch, err = p.workspaceHost(api, ch, options...) // beside a thread = beside its text channel; a DM = in the team server
 	}
 	if err != nil {
 		return core.TeamChannel{}, err
