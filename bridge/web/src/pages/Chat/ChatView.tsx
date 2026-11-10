@@ -21,6 +21,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
+import { resolveRoleAvatar } from '@/lib/avatarMap';
 
 // ── Markdown renderers ───────────────────────────────────────
 
@@ -293,10 +294,18 @@ export default function ChatView() {
   const { t } = useTranslation();
   const { name: projectName } = useParams<{ name: string }>();
   const [shown, setShown] = useState('');
+  const [projectMeta, setProjectMeta] = useState<{ agentType?: string }>({});
   useEffect(() => {
     setShown('');
-    if (projectName) getProject(projectName).then((p) => setShown(shownName(p))).catch(() => {});
+    setProjectMeta({});
+    if (projectName) {
+      getProject(projectName).then((p) => {
+        setShown(shownName(p));
+        setProjectMeta({ agentType: p.agent_type });
+      }).catch(() => {});
+    }
   }, [projectName]);
+  const avatarUrl = resolveRoleAvatar({ name: shown || projectName, agentType: projectMeta.agentType });
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -586,7 +595,7 @@ export default function ChatView() {
           <Link to="/chat" aria-label={t('common.back', '返回')} className="grid h-10 w-10 shrink-0 place-items-center rounded-control text-ink-mute transition-colors duration-base hover:bg-surface-sunken hover:text-ink">
             <ArrowLeft size={18} />
           </Link>
-          <LibraryAvatar name={shown || projectName || ''} size={40} />
+          <LibraryAvatar url={avatarUrl} name={shown || projectName || ''} size={40} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-semibold tracking-tight text-ink">{shown || projectName}</h2>
@@ -610,7 +619,7 @@ export default function ChatView() {
       <div className="flex-1 space-y-5 overflow-y-auto px-1 py-6">
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="mb-4"><LibraryAvatar name={shown || projectName || ''} size={64} /></div>
+            <div className="mb-4"><LibraryAvatar url={avatarUrl} name={shown || projectName || ''} size={64} /></div>
             <p className="mb-1 text-sm text-ink-soft">{t('chat.emptyHint')}</p>
             <p className="text-xs text-ink-mute">{t('chat.slashHint')}</p>
           </div>
@@ -621,7 +630,7 @@ export default function ChatView() {
           return (
             <div key={msg.id} className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}>
               {!isUser && (
-                <div className="mt-0.5 shrink-0"><LibraryAvatar name={shown || projectName || ''} size={32} /></div>
+                <div className="mt-0.5 shrink-0"><LibraryAvatar url={avatarUrl} name={shown || projectName || ''} size={32} /></div>
               )}
               <div className={cn(
                 'group/msg relative min-w-0 rounded-[18px] px-4 py-3 text-sm leading-relaxed',
@@ -658,7 +667,7 @@ export default function ChatView() {
         })}
         {typing && !messages.some(m => m.streaming) && (
           <div className="flex gap-3 justify-start">
-            <div className="mt-0.5 shrink-0"><LibraryAvatar name={shown || projectName || ''} size={32} /></div>
+            <div className="mt-0.5 shrink-0"><LibraryAvatar url={avatarUrl} name={shown || projectName || ''} size={32} /></div>
             <div className="rounded-[18px] rounded-bl-md bg-surface px-4 py-3.5 text-sm shadow-ui-1">
               <div className="flex gap-1.5">
                 <span className="w-2 h-2 bg-ink-mute rounded-full animate-bounce motion-reduce:animate-none" style={{ animationDelay: '0ms' }} />

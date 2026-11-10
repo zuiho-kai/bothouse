@@ -115,16 +115,16 @@ export default function Dashboard() {
     if (mins < 1440) return `${Math.floor(mins / 60)}h`;
     return `${Math.floor(mins / 1440)}d`;
   };
-  type LiveRow = { key: string; name: string; sub: string; state: RoleState; task: string; model: string; href?: string };
+  type LiveRow = { key: string; name: string; sub: string; state: RoleState; task: string; model: string; agentType?: string; avatar?: string; href?: string };
   const order: Record<RoleState, number> = { busy: 0, idle: 1, paused: 2, offline: 3 };
   const liveRows: LiveRow[] = [
     ...(roles ?? []).map((r) => ({
       key: `r-${r.name}`, name: shownName(r) || r.name, sub: backendLabel(r.agent_type),
-      state: roleState(r), task: r.current_task, model: r.model,
+      state: roleState(r), task: r.current_task, model: r.model, agentType: r.agent_type,
     })),
     ...dshMembers
       .filter((m) => !(roles ?? []).some((r) => (shownName(r) || r.name) === (m.display_name || m.name)))
-      .map((m) => ({ key: `d-${m.name}`, name: m.display_name || m.name, sub: 'DSH', state: roleState(m), task: m.busy ? m.current_task : '', model: '', href: dshUrl })),
+      .map((m) => ({ key: `d-${m.name}`, name: m.display_name || m.name, sub: 'DSH', state: roleState(m), task: m.busy ? m.current_task : '', model: m.model || '', agentType: m.agent_type || 'dsh', href: dshUrl })),
   ].sort((a, b) => order[a.state] - order[b.state]);
   const tally = liveRows.reduce((acc, r) => { acc[r.state] += 1; return acc; }, { busy: 0, idle: 0, offline: 0, paused: 0 } as Record<RoleState, number>);
 
@@ -223,7 +223,7 @@ export default function Dashboard() {
                   {liveRows.map((r) => {
                     const inner = (
                       <>
-                        <RoleAvatar name={r.name} state={r.state} size={40} />
+                        <RoleAvatar name={r.name} state={r.state} size={40} model={r.model} agentType={r.agentType} avatar={r.avatar} />
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="truncate text-[15px] font-semibold text-ink">{r.name}</span>
