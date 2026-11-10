@@ -72,6 +72,18 @@ func TestRefusal_QueuedMessageRerun(t *testing.T) {
 	}
 }
 
+func TestRefusal_DetectedWithoutErrorFlag(t *testing.T) {
+	e := &Engine{}
+	st := &interactiveState{}
+	if !e.takeRefusalResult(st, nil, Event{Content: refusalText}, nil) || st.refused == "" {
+		t.Fatal("refusal text without is_error not taken")
+	}
+	st = &interactiveState{}
+	if e.takeRefusalResult(st, nil, Event{Content: "上游回了：" + refusalText}, nil) {
+		t.Fatal("a normal reply quoting the refusal must not be taken")
+	}
+}
+
 func TestIsSafeguardRefusal(t *testing.T) {
 	if !isSafeguardRefusal(refusalText) || isSafeguardRefusal("API Error: 400 bad request") {
 		t.Fatal("isSafeguardRefusal mismatch")

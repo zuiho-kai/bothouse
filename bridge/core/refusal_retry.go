@@ -25,7 +25,11 @@ func (e *Engine) takeRefusalResult(state *interactiveState, input *inputTurn, ev
 	if input != nil {
 		return false
 	}
-	if isErr, _ := event.Metadata[MetaResultIsError].(bool); !isErr || !isSafeguardRefusal(event.Content) {
+	// Claude Code's result for it is the API error text; whether it also carries
+	// is_error is not relied on, so the text must be the whole error notice.
+	isErr, _ := event.Metadata[MetaResultIsError].(bool)
+	text := strings.TrimSpace(event.Content)
+	if !isSafeguardRefusal(text) || (!isErr && !strings.HasPrefix(text, "API Error:")) {
 		return false
 	}
 	if e.isStoppingForJournal() {
