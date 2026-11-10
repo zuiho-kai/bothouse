@@ -153,8 +153,6 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 团队工作台是一间像素办公室。每个成员是一个小人：没活的在窗边、白板、咖啡机之间溜达，有活的回工位面朝你坐下，头上挂着任务牌。派活是一封飞过去的信，干活中的纸条飘回主角色桌，交回的文件在主角色桌上摞成一摞等验收，打回是一个纸团砸回去，暂停的人会举手。就算画面静止，也看得出谁把活派给了谁。每一个画面都是真实事件，没人干活办公室就安安静静；过去任意一段可以 1×/4×/16× 回放。
 
-<p align="center"><img src="docs/assets/readme/shot-desk.png" width="800" alt="团队工作台：像素办公室里五个 AI 角色坐在工位上，头上挂着任务牌，右侧是派活、交回、打回的实况"></p>
-
 在 DSH 里打开「插件 → bothouse」里的**团队工作台**，左栏就会出现，手机上也能看。见[团队工作台](dsh/collab/desk/README.md)。
 
 <a id="pairing"></a>
@@ -163,7 +161,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 在 DSH 左栏打开「其他电脑」，点「让别的电脑连我」，出来一串 6 位数字。在另一台电脑的 DSH 里输入，或者用手机浏览器打开页面上给的地址输入（手机不用装 App），就连上了：频道、工作台、面板都能看，能发消息、派活，跟坐在家里那台电脑前一样。可以选临时连接，也可以记住这台设备；家里那台列出所有已连的设备，点「踢掉」当场断开。只在你的 Tailscale 内网里开放：数字只能用一次，5 分钟过期，输错 5 次作废。
 
-<p align="center"><img src="docs/assets/readme/shot-pairing.png" width="720" alt="左边是家里那台电脑生成的 6 位数字，右边是手机浏览器输入同一串数字连接"></p>
+<p align="center"><img src="docs/assets/readme/shot-desk.png" width="400" alt="团队工作台：像素办公室里五个 AI 角色坐在工位上，头上挂着任务牌，右侧是派活、交回、打回的实况"> <img src="docs/assets/readme/shot-pairing.png" width="400" alt="左边是家里那台电脑生成的 6 位数字，右边是手机浏览器输入同一串数字连接"></p>
 
 <a id="team"></a>
 
