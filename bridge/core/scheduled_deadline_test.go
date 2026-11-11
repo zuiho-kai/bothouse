@@ -83,3 +83,31 @@ func TestScheduledShellDeadlineUsesEarlierParent(t *testing.T) {
 		t.Fatal("scheduled context extended its parent deadline")
 	}
 }
+
+func TestCronDataDirHelper(t *testing.T) {
+	path := os.Getenv("BOTHOUSE_CRON_ROOT_FILE")
+	if path == "" {
+		return
+	}
+	if err := os.WriteFile(path, []byte(os.Getenv("BOTHOUSE_DATA_DIR")), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCronShellUsesConfiguredDataDir(t *testing.T) {
+	e := newTestEngine()
+	defer e.cancel()
+	dir := t.TempDir()
+	e.dataDir = filepath.Join(dir, "custom data root")
+	path := filepath.Join(dir, "root.txt")
+	t.Setenv("BOTHOUSE_CRON_ROOT_FILE", path)
+	t.Setenv("BOTHOUSE_DATA_DIR", "stale-instance")
+	command := shellRun(os.Args[0], cmdQuote("-test.run=^TestCronDataDirHelper$"))
+	if err := e.executeCronShell(&stubPlatformEngine{n: "test"}, nil, &CronJob{Exec: command, WorkDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != e.dataDir {
+		t.Fatalf("cron data root %q, want %q (err=%v)", data, e.dataDir, err)
+	}
+}

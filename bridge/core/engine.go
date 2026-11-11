@@ -1740,6 +1740,18 @@ func (e *Engine) SetProjectStateStore(store *ProjectStateStore) {
 
 func (e *Engine) SetDataDir(dir string) {
 	e.dataDir = dir
+	if dir == "" {
+		return
+	}
+	managedSkillMu.Lock()
+	if state, err := readManagedSkillState(dir); err == nil {
+		if err := refreshManagedSkillView(dir, e.name, state); err != nil {
+			slog.Warn("refresh managed skill view", "project", e.name, "error", err)
+		}
+	}
+	managedSkillMu.Unlock()
+	dirs := e.skills.Dirs()
+	e.skills.SetDirs(append(dirs, ManagedSkillViewDir(dir, e.name)))
 }
 
 // RemoveCommand removes a custom command by name. Returns false if not found.
@@ -2787,6 +2799,10 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	shellCmd.Dir = workDir
 	ownScheduledShell(shellCmd)
 	scheduledShellDeadline(shellCmd, ctx)
+	if e.dataDir != "" {
+		// Shell jobs need the same authoritative storage root as interactive role sessions.
+		shellCmd.Env = append(shellCmd.Environ(), "BOTHOUSE_DATA_DIR="+e.dataDir)
+	}
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -18028,6 +18044,9 @@ func (e *Engine) executeSkill(p Platform, msg *Message, skill *Skill, args []str
 		"user", msg.UserName,
 		"workspace", workspaceDir,
 	)
+	if strings.Contains(filepath.ToSlash(skill.Source), "/skills/views/") {
+		recordManagedSkillUseFromView(skill.Source)
+	}
 
 	msg.Content = prompt
 	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)

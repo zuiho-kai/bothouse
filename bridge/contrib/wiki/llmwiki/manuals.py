@@ -23,6 +23,7 @@ dream() 跑完规则候选和今日反思后调 run()（ingest.py）；也能单
   指纹），搜到推送、用的人投票、低分沉底都走现成论坛；这一行以后不改，改了指纹就丢票。
 """
 import argparse, json, os, re, subprocess, sys, time
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -38,7 +39,27 @@ WIKI = Path(os.environ.get("MANUALS_WIKI", HOME / "wiki"))
 MAPS = Path(os.environ.get("MANUALS_MAPS", HOME / "work/codemaps"))
 INDEX = "tooling/agent-tools/wiki/auto-manuals.md"  # 论坛帖子所在页（相对 WIKI）
 STATE = Path(os.environ.get("MANUALS_STATE", HOME / ".local/state/wiki-manuals.json"))
-MODEL = os.environ.get("MANUALS_MODEL", "sonnet")  # 沿用 ingest.py MODELS["claude"] 默认
+PENDING = Path(os.environ["MANUALS_PENDING_DIR"]) if os.environ.get("MANUALS_PENDING_DIR") else None
+ROLE = os.environ.get("MANUALS_ROLE", "")
+
+
+def role_project(wiki, data_dir):
+    """Wiki markers store bot keys; bots.json owns the mapping to project IDs."""
+    role = os.environ.get("MANUALS_ROLE", "")
+    if role:
+        return role
+    marker = next((wiki / mark for mark in (".bothouse-role", ".bothouse-main")
+                   if (wiki / mark).exists()), None)
+    bot = marker.read_text().strip() if marker else ""
+    if not bot:
+        return ""  # Unmarked personal wikis retain their original personal skill scope.
+    bots_path = Path(os.environ.get("WIKI_BOTS") or Path(data_dir) / "wiki/bots.json").expanduser()
+    bots = json.loads(bots_path.read_text())
+    if bot not in bots:
+        raise ValueError(f"wiki bot {bot!r} is not configured in {bots_path}")
+    return bots[bot].get("project") or bot
+
+
 FIRST = 86400  # 首晚只看最近一天，沿用 ingest.py dream()（time.time() - 86400）
 MAX_CHARS = 240_000  # 一次调用的上下文上限，沿用 ingest.py MAX_CHARS
 MIN_SESSIONS = 2  # 交接总目标原话「同一套操作在 2 个以上会话里各自从头摸索」
@@ -48,6 +69,11 @@ MIN_STEPS = 2
 TMP = re.compile(r"(?<![\w~.$/-])/(?:private/)?tmp(?:/|\b)")
 WARN = re.compile(r"重启(?:就|会)?丢|会丢|失效|找不到|别用|不要用|不要依赖|别依赖|不可靠|临时目录")
 TIDY_TRIES = 2  # 合并校验不过，带上没过的原因再让模型改一次；还不过就留原文
+TOOL_KIND = {
+    "bash": "Bash", "exec": "Bash", "exec_command": "Bash", "run_command": "Bash", "terminal": "Bash", "shell": "Bash",
+    "glob": "Glob", "glob_tool": "Glob", "list_directory": "Glob", "find_files": "Glob",
+    "grep": "Grep", "grep_search": "Grep", "search_files": "Grep", "find_text": "Grep",
+}
 
 SEARCH = re.compile(r"(?:^|[;&|(]\s*|\s)(find|mdfind|which|whereis|locate|command -v|type -a|ls -d|ls -la?d?|rg -l|grep -r\w*|grep -\w*r\w*)\b"
                     r"|\bls\s[^;|&]*(?:\*|2>/dev/null)")
@@ -68,6 +94,7 @@ def log(msg):
 
 
 def is_search(tool, text):
+    tool = TOOL_KIND.get((tool or "").lower(), tool)
     if tool in ("Glob", "Grep"):
         return True
     t = text or ""
@@ -76,6 +103,7 @@ def is_search(tool, text):
 
 def targets(tool, text):
     """一条找东西的命令在找什么：-name 的参数、which/mdfind 的对象、路径里的通配段、grep -r 的词。小写、去通配。"""
+    tool = TOOL_KIND.get((tool or "").lower(), tool)
     t = text or ""
     out = set(NAME_ARG.findall(t))
     for m in re.finditer(r"\b(?:which|whereis|command -v|type -a|mdfind(?: -name)?)\s+['\"]?([\w.+-]+)", t):
@@ -106,17 +134,32 @@ def records(path, lo, hi):
     out = []
     with open(path, errors="ignore") as f:
         for n, line in enumerate(f, 1):
-            if '"tool"' not in line:
+            if '"tool"' not in line and '"tool_use"' not in line:
                 continue
             try:
                 d = json.loads(line)
             except ValueError:
                 continue
-            if d.get("kind") != "tool" or not d.get("ts"):
+            if d.get("kind") == "tool":
+                ts, calls = d.get("ts"), [(d.get("tool") or "", d.get("text") or "")]
+            elif d.get("type") == "assistant":
+                ts = d.get("timestamp")
+                calls = []
+                for item in (d.get("message") or {}).get("content", []):
+                    if isinstance(item, dict) and item.get("type") == "tool_use":
+                        args = item.get("input") or {}
+                        text = args.get("command") or args.get("file_path") or args.get("path") or args.get("url") or json.dumps(args, ensure_ascii=False)
+                        calls.append((item.get("name") or "tool", str(text)))
+            else:
                 continue
-            t = time.mktime(time.strptime(d["ts"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+            if not ts:
+                continue
+            try:
+                t = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            except (TypeError, ValueError):
+                continue
             if lo <= t < hi:
-                out.append((n, t, d.get("tool") or "", d.get("text") or ""))
+                out.extend((n, t, tool, text) for tool, text in calls)
     return out
 
 
@@ -190,6 +233,13 @@ def existing():
             desc = re.search(r"^description:\s*(.+)$", head, re.M)
             if name and name.group(1).strip() not in out:
                 out[name.group(1).strip()] = ((desc.group(1).strip() if desc else ""), f)
+    if PENDING and PENDING.is_dir():
+        for f in sorted(PENDING.glob("*.md")):
+            head = f.read_text(errors="ignore")
+            name = re.search(r"^name:\s*(.+)$", head, re.M)
+            desc = re.search(r"^description:\s*(.+)$", head, re.M)
+            if name and name.group(1).strip() == f.stem:
+                out[f.stem] = ((desc.group(1).strip() if desc else ""), f)
     return out
 
 
@@ -237,35 +287,36 @@ append 只能填上面「已有手册」里的 name，或本次回答里你另�
 
 
 def ask(prompt):
-    """一次纯文本调用（不给工具），回模型的 JSON。引擎同 ingest.py claude()：claude -p，走订阅额度。"""
-    cmd = ["claude", "-p", "--model", MODEL, "--no-session-persistence", "--strict-mcp-config", "--tools", "",
-           "--output-format", "json"]
-    r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, env={**os.environ, "WIKI_INGEST": "1"})
-    try:
-        res = json.loads(r.stdout).get("result", "")
-    except ValueError:
-        raise RuntimeError((r.stdout or r.stderr)[-300:])
-    i = res.find("{")
-    if i < 0:
-        raise ValueError(f"no JSON: {res[:200]}")
-    return json.JSONDecoder().raw_decode(res[i:])[0]
+    """Standalone calls use this wiki's configured dream runner and its shared job budget."""
+    import ingest
+    return ingest.profile_ask(prompt)
 
 
 def write_new(ans, day, g):
     name = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]", "", ans["name"].lower().replace("_", "-"))).strip("-")
     if not name:
         raise ValueError("empty name")
-    d = SKILLS / name
-    if d.exists():
-        raise ValueError(f"{name} exists")
+    if PENDING:
+        PENDING.mkdir(parents=True, exist_ok=True)
+        d = PENDING / f"{name}.md"
+        if d.exists() or (SKILLS / name / "SKILL.md").exists():
+            raise ValueError(f"{name} exists")
+    else:
+        d = SKILLS / name / "SKILL.md"
+        if d.exists():
+            raise ValueError(f"{name} exists")
     desc = " ".join(ans["description"].split())
-    d.mkdir(parents=True)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\n" + ans["body"].strip() +
-                                f"\n\n<!-- 夜里自动起草 {day}（~/wiki/bin/manuals.py），找的对象：{', '.join(sorted(g['targets']))} -->\n")
+    content = f"---\nname: {name}\ndescription: {desc}\n---\n" + ans["body"].strip() + \
+        f"\n\n<!-- 夜里自动起草 {day}（llmwiki manuals），找的对象：{', '.join(sorted(g['targets']))} -->\n"
+    if PENDING:
+        d.write_text(content)
+        return name, desc, d
+    d.parent.mkdir(parents=True)
+    d.write_text(content)
     for l in LINKS:
         if l.is_dir() and not (l / name).exists():
-            (l / name).symlink_to(d)
-    return name, desc, d / "SKILL.md"
+            (l / name).symlink_to(d.parent)
+    return name, desc, d
 
 
 def write_append(ans, day, have):
@@ -277,7 +328,13 @@ def write_append(ans, day, have):
     add = "\n".join(l for l in ans["add"].strip().splitlines() if not TMP.search(l) or WARN.search(l)).strip()
     if not add:
         raise ValueError("append only had temp-dir paths")
-    f.write_text(f.read_text().rstrip() + f"\n\n## 补充（{day}，自动）\n" + add + "\n")
+    text = f.read_text()
+    if PENDING:
+        PENDING.mkdir(parents=True, exist_ok=True)
+        f = PENDING / f"{name}.md"
+        if f.exists():
+            text = f.read_text()
+    f.write_text(text.rstrip() + f"\n\n## 补充（{day}，自动）\n" + add + "\n")
     return name
 
 
@@ -357,13 +414,13 @@ TIDY_PROMPT = """下面是一份给 AI 编码助手看的操作手册（skill）
 """
 
 
-def tidy(f, day):
+def tidy(f, day, ask_fn=None):
     """一份手册合成一份「起步/坑/出处」：校验过才写（旧文留 SKILL.md.bak-时间），不过保留原文。返回 True=改写了。"""
     old = f.read_text()
     head, body, notes = split_doc(old)
     retry = ""
     for _ in range(TIDY_TRIES):
-        ans = ask(TIDY_PROMPT.format(body=body, retry=retry))
+        ans = (ask_fn or ask)(TIDY_PROMPT.format(body=body, retry=retry))
         nb = (ans.get("body") or "").strip()
         why = check_tidy(old, nb)
         if not why:
@@ -383,18 +440,27 @@ def auto_names():
     return re.findall(r"^- 手册 ([a-z0-9-]+)（", page.read_text(), re.M) if page.exists() else []
 
 
-def tidy_all(day, names=None, deadline=None):
+def tidy_all(day, names=None, deadline=None, ask_fn=None):
     """收尾：自动手册里有补充节或临时路径不在坑里的，逐份合并。返回 [(动作, 名字)]。"""
     out = []
     for n in names or auto_names():
-        f = SKILLS / n / "SKILL.md"
+        have = existing()
+        if n not in have:
+            continue
+        f = have[n][1]
         if not f.exists() or not needs_tidy(f.read_text()):
             continue
         if deadline and time.time() > deadline:
             log("night budget used up, tidy of the rest waits for tomorrow")
             break
         try:
-            out.append(("tidy" if tidy(f, day) else "tidy-kept", n))
+            if PENDING:
+                PENDING.mkdir(parents=True, exist_ok=True)
+                draft = PENDING / f"{n}.md"
+                if not draft.exists():
+                    draft.write_text(f.read_text())
+                f = draft
+            out.append(("tidy" if tidy(f, day, ask_fn=ask_fn) else "tidy-kept", n))
         except Exception as e:  # noqa: BLE001 — 这份明晚再合
             log(f"tidy {n} FAILED: {type(e).__name__}: {e}")
             out.append(("tidy-kept", n))
@@ -423,14 +489,19 @@ def register(rows, day):
         log("index commit " + ("ok" if r.returncode == 0 else f"FAILED {(r.stderr or r.stdout)[-200:]}"))
 
 
-def run(since=None, until=None, dry=False, deadline=None):
+def run(since=None, until=None, dry=False, deadline=None, ask_fn=None, transcripts=None):
     """返回 [(动作, 名字或理由)]。since 不给 = 上次跑到的地方（首次：一天前）。"""
     hi = until or time.time()
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
     new_from = since or st.get("at") or hi - FIRST
     lo = new_from - FIRST  # 今晚新摸索的那次，和前一天里另一次配成一对也算重复
-    files = {s.id: s.path for s in sessionlog.sessions(None, hosts=True)
-             if s.path.stat().st_mtime >= lo and not str(s.path).startswith(("/tmp", "/private/tmp"))}
+    transcript_root = transcripts or (Path(os.environ["MANUALS_TRANSCRIPTS"]) if os.environ.get("MANUALS_TRANSCRIPTS") else None)
+    if transcript_root:
+        files = {p.stem: p for p in transcript_root.glob("**/*.jsonl")
+                 if p.stat().st_mtime >= lo and not str(p).startswith(("/tmp", "/private/tmp"))}
+    else:
+        files = {s.id: s.path for s in sessionlog.sessions(ROLE or None, hosts=True)
+                 if s.path.stat().st_mtime >= lo and not str(s.path).startswith(("/tmp", "/private/tmp"))}
     gs = candidates(files, lo, new_from, hi)
     log(f"{len(files)} sessions, {len(gs)} repeated-search groups")
     if dry:
@@ -459,7 +530,7 @@ def run(since=None, until=None, dry=False, deadline=None):
             parts.append(e)
         todo = todo[len(batch):]
         try:
-            res = ask(PROMPT.format(maps=mp, existing=ex, evidence="\n\n".join(parts)))
+            res = (ask_fn or ask)(PROMPT.format(maps=mp, existing=ex, evidence="\n\n".join(parts)))
             answers = res.get("groups") or []
         except Exception as e:  # noqa: BLE001 — 这一批明晚再试
             log(f"batch of {len(batch)} FAILED: {type(e).__name__}: {e}")
@@ -485,7 +556,7 @@ def run(since=None, until=None, dry=False, deadline=None):
         register(rows, day)
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps({"at": hi, "groups": sorted(seen)}, ensure_ascii=False))
-    done += tidy_all(day, deadline=deadline)  # 收尾：补充合进正文、临时路径清掉（用户 11-02）
+    done += tidy_all(day, deadline=deadline, ask_fn=ask_fn)  # 收尾：补充合进正文、临时路径清掉（用户 11-02）
     return done
 
 

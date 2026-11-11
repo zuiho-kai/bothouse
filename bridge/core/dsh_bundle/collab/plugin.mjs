@@ -17,6 +17,7 @@ import { Hub } from './hub.mjs';
 import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
 import { DshMembers } from './dsh-member.mjs';
+import { mountManagedSkills } from './managed-skills.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { Tasks, WORKING } from './tasks.mjs';
@@ -187,6 +188,10 @@ export async function apply(ctx, rawConfig) {
     clearLockOwner(lockPath);
   }, 'conest-collab: teardown');
 
+  // Only the owning host starts agents. A client sharing its host must not
+  // require the native skill provider; teardown also owns a failed import.
+  const skillFilesystem = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-skill-filesystem')).href);
+
   // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
   const collabExisted = existsSync(join(config.dataDir, 'collab.sqlite3'));
   // #445: the instance maxRelay stays the default for channels that never set their own cap.
@@ -206,7 +211,9 @@ export async function apply(ctx, rawConfig) {
   const gateway = r.gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
   const later = r.later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
   gateway.later = later;
-  const dsh = r.dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const dsh = r.dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember,
+    mountManagedSkills: (agentCtx, member) => mountManagedSkills(agentCtx, member, skillFilesystem),
+    workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
   const roster = new Roster(hub, dsh, ctx.llm, avatarUploads);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.

@@ -986,7 +986,9 @@ function fakeDsh() {
   };
   const createUserMessage = m => ({ ...m, role: 'user', id: `in-${++ids}` });
   const attach = (hub, list, options) => {
-    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet }, list, options);
+    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet,
+      mountManagedSkills: (agentCtx, member) => agentCtx.tools?.push(`skills:${member.id}`),
+    }, list, options);
     return members;
   };
   return { ctx, sessions, made, emit, turn, attach, restart, remove };
@@ -1285,6 +1287,7 @@ test('DSH member: after a restart the resumed Session gets its agent preset tool
   const agent = await askAgain(hub, dsh, '@DeepSeek 重启后 fa');
   assert.equal(agent, old, 'the same Session answers');
   assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
+  assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('skills:ds'), 'the role skill view is mounted on resume');
   assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
 });
 
@@ -1766,7 +1769,7 @@ test('DSH member: a configured model applies on every request; the default only 
   const run = async (member, hasHeader) => {
     let hook;
     let options;
-    members.setup({ on(_name, fn, opts) { hook = fn; options = opts; } }, member);
+    await members.setup({ on(_name, fn, opts) { hook = fn; options = opts; } }, member);
     assert.deepEqual(options, { prepend: member.model !== undefined }, 'a configured model wraps DSH model selection');
     return hook({ agent: { session: { requestHeader: () => (hasHeader ? {} : undefined) } } }, async () => ({ provider: 'old', model: 'old-model', reasoningEffort: 'high' }));
   };
@@ -1899,7 +1902,7 @@ test('a member edit reaches an already-hooked Session on its next request', asyn
   const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'coder', name: 'Coder', model: { provider: 'relay', model: 'm1' } }]);
   let hook;
-  members.setup({ on(_n, fn) { hook = fn; } }, members.config.get('coder'));
+  await members.setup({ on(_n, fn) { hook = fn; } }, members.config.get('coder'));
   const call = () => hook({ agent: { session: { requestHeader: () => ({}) } } }, async () => ({ provider: 'x', model: 'y' }));
   assert.deepEqual(await call(), { provider: 'relay', model: 'm1' });
   members.putMember({ id: 'coder', name: 'Coder', model: { provider: 'relay', model: 'm2' } });
