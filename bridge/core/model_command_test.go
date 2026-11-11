@@ -103,6 +103,10 @@ func TestModelAutoWithoutTiersClearsSavedPick(t *testing.T) {
 	if !r.OK {
 		t.Fatalf("auto without tiers = %+v", r)
 	}
+	// Dropped at once: a timer-started workspace turn (or a restart) never applies the queue.
+	if got := e.sessionModelFor("discord:ws2"); got != "" {
+		t.Fatalf("pick still saved before the next turn: %q", got)
+	}
 	e.applyPendingSwitch("discord:ws2")
 	if got := e.sessionModelFor("discord:ws2"); got != "" {
 		t.Fatalf("pick not dropped: %q", got)

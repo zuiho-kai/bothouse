@@ -105,6 +105,7 @@ func containsFold(list []string, s string) bool {
 type pendingModelSwitch struct {
 	model, effort string
 	auto          bool
+	dropped       bool // auto already deleted a saved pick: recycle the live process on apply
 }
 
 // ModelStatus is what `cc-connect model list` shows the agent.
@@ -199,8 +200,15 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 	agent, _ := e.sessionContextForKey(sessionKey)
 	if auto {
 		// auto also drops a hand-picked model saved for this session: without that the
-		// pick stays forever, and team workspaces skip the per-task route.
-		e.queueSwitch(sessionKey, pendingModelSwitch{auto: true})
+		// pick stays forever, and team workspaces skip the per-task route. Drop it now, not
+		// on the next user message: timer-started workspace turns never pass that point, and
+		// a queued switch does not survive a restart. The live process (if any) is recycled
+		// before its next turn.
+		dropped, err := e.clearSessionSelection(sessionKey)
+		if err != nil {
+			return ModelSwitchResult{Message: err.Error()}
+		}
+		e.queueSwitch(sessionKey, pendingModelSwitch{auto: true, dropped: dropped})
 		if e.tiers == nil {
 			return ModelSwitchResult{OK: true, Message: "from the next message the hand-picked model is dropped: back to this bot's default model (team workspaces: picked per task)"}
 		}
@@ -329,7 +337,7 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 			e.tiers.setManual(interactiveKey, manualTierHold)
 		}
 	}
-	if p.auto && !cleared {
+	if p.auto && !cleared && !p.dropped {
 		return nil
 	}
 	// Only the addressed live process is recycled; its saved native ID and
