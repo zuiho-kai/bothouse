@@ -6452,8 +6452,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		return err
 	}
 
+	var streamCard StreamingCard
 	var sentReplySegments []string // successful narration deliveries in this turn only
 	sendReplySegment := func(p Platform, replyCtx any, segment string) {
+		// A live streaming card already shows every word of this turn; a
+		// segment sent beside it repeats the same text as a second message
+		// (#703: DingTalk AI card, thinking/tool/permission flushes).
+		if streamCard != nil && !streamCard.Failed() {
+			return
+		}
 		if capability, ok := p.(RepeatedReplySuppressor); !ok || !capability.SuppressRepeatedReplyText() {
 			for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 				sendWorkspace(p, replyCtx, chunk)
@@ -6481,8 +6488,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		sentReplySegments = append(sentReplySegments, segment)
 	}
 
-	// Streaming card: aggregate entire turn into a single updatable card.
-	var streamCard StreamingCard
+	// Streaming card: aggregate entire turn into a single updatable card
+	// (declared with sendReplySegment above, which must not send beside it).
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
 	var cardThinkingText string        // latest thinking text
 	var cardAnswerText strings.Builder // accumulated answer text

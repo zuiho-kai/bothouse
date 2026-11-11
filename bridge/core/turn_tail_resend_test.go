@@ -1,7 +1,9 @@
 package core
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -53,4 +55,99 @@ func TestTurnTailNotResentAfterThinkingSegmentPlain(t *testing.T) {
 
 func TestTurnTailNotResentAfterThinkingSegmentChannelClosed(t *testing.T) {
 	assertTurnSentOnce(t, runTurnTailResend(t, &qq137RepeatPlatform{}, true))
+}
+
+// Preview platforms (Discord, Telegram, Slack, Google Chat, cloud-web, Feishu
+// outside rich-card mode): the thinking step freezes and detaches the first
+// preview, so "A" stays in the chat as its own message. The turn end must put
+// only "B" into the next preview, not "A+B".
+type turnTailPreviewPlatform struct {
+	stubPlatformEngine
+	msgs []string // every chat message, last content wins for previews
+}
+
+func (p *turnTailPreviewPlatform) Send(_ context.Context, _ any, s string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.msgs = append(p.msgs, s)
+	return nil
+}
+
+func (p *turnTailPreviewPlatform) SendPreviewStart(_ context.Context, _ any, s string) (any, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.msgs = append(p.msgs, s)
+	return len(p.msgs) - 1, nil
+}
+
+func (p *turnTailPreviewPlatform) UpdateMessage(_ context.Context, h any, s string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.msgs[h.(int)] = s
+	return nil
+}
+
+func (p *turnTailPreviewPlatform) getSent() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.msgs...)
+}
+
+func TestTurnTailNotResentAfterThinkingSegmentPreview(t *testing.T) {
+	p := &turnTailPreviewPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetDisplayConfig(DisplayCfg{Mode: "compact"})
+	// Flush every chunk so the first half really is on screen before the thinking step.
+	e.SetStreamPreviewCfg(StreamPreviewCfg{Enabled: true, MinDeltaChars: 1, MaxChars: 2000})
+	key := "test:turn-tail-resend-preview"
+	session := e.sessions.GetOrCreateActive(key)
+	a := &qq137FixtureSession{newControllableSession("turn-tail-resend-preview")}
+	state := &interactiveState{agentSession: a, platform: p, replyCtx: "ctx"}
+	e.interactiveStates[key] = state
+	a.events <- Event{Type: EventThinking, Content: "first thought"}
+	a.events <- Event{Type: EventText, Content: "我投「吃」一票，肚子不饱谈什么爱"}
+	a.events <- Event{Type: EventThinking, Content: "second thought"}
+	a.events <- Event{Type: EventText, Content: "这 AI 好有生存欲"}
+	a.events <- Event{Type: EventResult, Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+	sent := p.getSent()
+	if len(sent) < 2 {
+		t.Fatalf("want the first half kept as its own message, got %q", sent)
+	}
+	assertTurnSentOnce(t, sent)
+}
+
+// Streaming-card platforms (DingTalk AI card, Slack streaming) aggregate the
+// whole turn into one card; the card branch comes before the segment branch,
+// so the turn end finalizes the card with the full text once.
+type turnTailCard struct {
+	mu    sync.Mutex
+	final string
+}
+
+func (c *turnTailCard) Update(context.Context, string) error { return nil }
+func (c *turnTailCard) Finalize(_ context.Context, s string) error {
+	c.mu.Lock()
+	c.final = s
+	c.mu.Unlock()
+	return nil
+}
+func (c *turnTailCard) Failed() bool { return false }
+
+type turnTailCardPlatform struct {
+	stubPlatformEngine
+	card *turnTailCard
+}
+
+func (p *turnTailCardPlatform) CreateStreamingCard(context.Context, any) (StreamingCard, error) {
+	return p.card, nil
+}
+
+func TestTurnTailNotResentAfterThinkingSegmentStreamingCard(t *testing.T) {
+	p := &turnTailCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "dingtalk"}, card: &turnTailCard{}}
+	sent := runTurnTailResend(t, p, false)
+	p.card.mu.Lock()
+	final := p.card.final
+	p.card.mu.Unlock()
+	assertTurnSentOnce(t, append(sent, final))
 }
