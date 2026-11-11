@@ -446,6 +446,10 @@ func loadTeamWorkspacesLocked(path string) *teamWorkspaceState {
 	return st
 }
 
+// dropTeamWorkspaceCacheLocked forgets the cached state of path, so the next load reads the file:
+// the rollback of in-memory changes whose save failed. Caller holds teamWorkspaceStore.mu.
+func dropTeamWorkspaceCacheLocked(path string) { delete(teamWorkspaceStore.cache, path) }
+
 func saveTeamWorkspacesLocked(path string, st *teamWorkspaceState) error {
 	out, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
@@ -1400,14 +1404,17 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	if e.handoffWatchOn.Load() {
 		h.Due = now.Add(watchCheckAfter())
 	}
-	if board > 0 {
-		// The state record first: a refused transition leaves the handoff unrecorded.
-		if _, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: board, To: TeamTaskDispatched, WS: wk, Chat: chat, By: "claim"}, now); err != nil {
-			return fmt.Errorf("team workspace claim: %w", err)
-		}
-	}
 	st.Handoffs[wk] = append(st.Handoffs[wk], h)
-	return saveTeamWorkspacesLocked(path, st)
+	// The handoff and the task's dispatched state are saved together, or neither (a refused or
+	// failed transition drops the in-memory claim, ownership included).
+	ev := teamTaskEvent{}
+	if board > 0 {
+		ev = teamTaskEvent{ID: board, To: TeamTaskDispatched, WS: wk, Chat: chat, By: "claim"}
+	}
+	if err := commitTeamTaskAndWorkspacesLocked(e.dataDir, path, st, ev, now); err != nil {
+		return fmt.Errorf("team workspace claim: %w", err)
+	}
+	return nil
 }
 
 // releaseWorkspaceOnReset frees the workspace of sessionKey when the primary role's session there
@@ -1656,15 +1663,23 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 		teamWorkspaceStore.mu.Unlock()
 		return false, fmt.Errorf("team workspace park: %s: no task of %s in work there: %w", key, chat, ErrTeamWorkspaceNotOwned)
 	}
-	now := time.Now()
-	st.Handoffs[key][pick].Parked = now
+	// The task this handoff was claimed for moves to paused in the same commit as the handoff's
+	// Parked mark and the release below. Its state is read first: an unreadable task store
+	// refuses the park (nothing marked, nothing freed). A task no longer in work here (moved on,
+	// handed back) keeps its state; only the handoff is parked.
+	ev := teamTaskEvent{}
 	if id := st.Handoffs[key][pick].Board; id > 0 {
-		if t, ok := teamTaskInWorkOnLocked(e.dataDir, id, key); ok {
-			if _, terr := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: t.ID, To: TeamTaskPaused, By: "park", Why: why}, now); terr != nil {
-				slog.Warn("team workspace park: task state not moved to paused", "board", id, "error", terr)
-			}
+		_, inWork, terr := teamTaskInWorkOnLocked(e.dataDir, id, key)
+		if terr != nil {
+			teamWorkspaceStore.mu.Unlock()
+			return false, fmt.Errorf("team workspace park: %s: %w", key, terr)
+		}
+		if inWork {
+			ev = teamTaskEvent{ID: id, To: TeamTaskPaused, By: "park", Why: why}
 		}
 	}
+	now := time.Now()
+	st.Handoffs[key][pick].Parked = now
 	open := 0
 	for _, h := range st.Handoffs[key] {
 		if teamHandoffOpen(h) {
@@ -1683,7 +1698,7 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 			teamWorkspaceDropLocked(st, owner, wsID)
 		}
 	}
-	err = saveTeamWorkspacesLocked(path, st)
+	err = commitTeamTaskAndWorkspacesLocked(e.dataDir, path, st, ev, now)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		return false, fmt.Errorf("team workspace park: %s: save: %w", key, err)

@@ -102,7 +102,7 @@ func TestWatchParkStopsTheRunningTurn(t *testing.T) {
 	if cancels != 1 {
 		t.Fatalf("running turn cancelled %d times by the watch's park, want 1", cancels)
 	}
-	task, ok := e.TeamTask(677)
+	task, ok, _ := e.TeamTask(677)
 	if !ok || task.State != TeamTaskPaused || task.WS != "" || task.Why != "watch: no progress" {
 		t.Fatalf("task #677 = %+v, want paused by the watch, out of the workspace", task)
 	}
@@ -126,7 +126,7 @@ func TestSelfParkKeepsItsOwnTurn(t *testing.T) {
 	if running.cancels != 0 {
 		t.Fatal("a park from inside the turn stopped that turn")
 	}
-	if task, _ := e.TeamTask(5); task.State != TeamTaskPaused {
+	if task, _, _ := e.TeamTask(5); task.State != TeamTaskPaused {
 		t.Fatalf("task #5 = %+v, want paused", task)
 	}
 }
@@ -169,7 +169,7 @@ func TestProgressOfNextTaskDoesNotLandOnPausedRow(t *testing.T) {
 	if got := boardItemOf(t, boardDir, 677); got.ProgressAt != 0 {
 		t.Fatalf("#677 written: %+v", got)
 	}
-	if task, _ := e.TeamTask(679); task.State != TeamTaskWorking {
+	if task, _, _ := e.TeamTask(679); task.State != TeamTaskWorking {
 		t.Fatalf("task #679 = %+v, want working after its first progress", task)
 	}
 }
@@ -254,8 +254,8 @@ func TestTaskStateIsolatedInstanceWalk(t *testing.T) {
 		}
 		t.Fatalf("隔离实例：等不到%s", what)
 	}
-	waitFor("看门暂停 #677", func() bool { tk, _ := e.TeamTask(677); return tk.State == TeamTaskPaused })
-	tk, _ := e.TeamTask(677)
+	waitFor("看门暂停 #677", func() bool { tk, _, _ := e.TeamTask(677); return tk.State == TeamTaskPaused })
+	tk, _, _ := e.TeamTask(677)
 	running.mu.Lock()
 	cancels := running.cancels
 	running.mu.Unlock()

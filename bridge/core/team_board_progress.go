@@ -53,7 +53,12 @@ func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now t
 		return // claimed without a board item: nothing to write back
 	}
 	teamWorkspaceStore.mu.Lock()
-	t, inWork := teamTaskInWorkOnLocked(e.dataDir, id, key)
+	t, inWork, err := teamTaskInWorkOnLocked(e.dataDir, id, key)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Warn("team watch: task state unreadable; board progress not written", "board", id, "error", err)
+		return
+	}
 	if inWork && t.State == TeamTaskDispatched {
 		if _, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: id, To: TeamTaskWorking, By: "watch: progress"}, now); err != nil {
 			slog.Warn("team watch: task state not moved to working", "board", id, "error", err)
