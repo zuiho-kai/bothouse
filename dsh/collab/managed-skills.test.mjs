@@ -7,11 +7,57 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { mountManagedSkills } from './managed-skills.mjs';
 
+test('native managed skills mount from an agent scope without inherited skills injection', {
+  skip: !process.env.DSH_SKILL_TEST_ENTRY,
+}, async () => {
+  const require = createRequire(process.env.DSH_SKILL_TEST_ENTRY);
+  const load = name => import(pathToFileURL(require.resolve(`@deepseek-ai/${name}`)).href);
+  const [{ Context }, { SkillRegistry }, { createScope }, filesystem, toolPlugin] = await Promise.all([
+    load('cordis'), load('dsh-skill'), load('dsh-scope'),
+    load('dsh-skill-filesystem'), load('dsh-tool-skill'),
+  ]);
+  const root = mkdtempSync(join(process.env.DSH_SKILL_TEST_DIR ?? tmpdir(), 'bothouse-skills-inject-'));
+  const skill = join(root, 'skills', 'views', 'author', 'injection-probe');
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(join(skill, 'SKILL.md'), '---\nname: injection-probe\ndescription: Verify native plugin injection\n---\nINJECTION-RECEIPT');
+  const ctx = new Context();
+  const registry = await ctx.plugin(SkillRegistry);
+  const agent = { cwd: root };
+  let scope, tool;
+  toolPlugin.apply({
+    skills: ctx.skills,
+    tools: { register: value => { tool = value; } },
+    workingDirectory: { ensure: agent => agent.cwd },
+    on() {},
+  });
+  // Like DshMembers.setup: the owning plugin does not inject the skills service.
+  const fixture = ctx.plugin({
+    name: 'collab-context-fixture',
+    async apply(pluginCtx) {
+      scope = createScope(pluginCtx, agent);
+      await mountManagedSkills(scope.ctx, { id: 'author' }, filesystem, root);
+    },
+  });
+  try {
+    await fixture;
+    const result = await tool.execute({ name: 'injection-probe' }, {
+      agent, signal: new AbortController().signal,
+    });
+    assert.equal(result.provider, 'bothouse-managed');
+    assert.match(result.content, /INJECTION-RECEIPT/);
+  } finally {
+    await scope?.dispose();
+    await fixture.dispose();
+    await registry.dispose();
+  }
+});
+
 test('managed skills add only the selected role view without replacing default roots', () => {
   let received;
-  const context = {};
-  mountManagedSkills(context, { id: 'writer' }, { apply: (ctx, config) => { received = { ctx, config }; } }, '/isolated');
-  assert.equal(received.ctx, context);
+  const filesystem = {};
+  const context = { plugin: (plugin, config) => { received = { plugin, config }; } };
+  mountManagedSkills(context, { id: 'writer' }, filesystem, '/isolated');
+  assert.equal(received.plugin, filesystem);
   assert.deepEqual(received.config, {
     providerName: 'bothouse-managed', includeDefaultRoots: false,
     customSkillDirs: [join('/isolated', 'skills', 'views', 'writer')],
@@ -45,8 +91,8 @@ test('native DSH skill tool loads enabled role views in main and git workspaces 
   const pending = join(root, 'skills', 'pending', 'author');
   mkdirSync(pending, { recursive: true });
   writeFileSync(join(pending, 'pending-probe.md'), '---\nname: pending-probe\ndescription: Pending\n---\nDRAFT');
-  mountManagedSkills(authorScope.ctx, { id: 'author' }, filesystem, root);
-  mountManagedSkills(otherScope.ctx, { id: 'other' }, filesystem, root);
+  await mountManagedSkills(authorScope.ctx, { id: 'author' }, filesystem, root);
+  await mountManagedSkills(otherScope.ctx, { id: 'other' }, filesystem, root);
   const signal = new AbortController().signal;
   try {
     for (const cwd of [join(root, 'main'), join(root, 'worktree')]) {

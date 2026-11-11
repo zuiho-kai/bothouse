@@ -1769,7 +1769,7 @@ test('DSH member: a configured model applies on every request; the default only 
   const run = async (member, hasHeader) => {
     let hook;
     let options;
-    members.setup({ on(_name, fn, opts) { hook = fn; options = opts; } }, member);
+    await members.setup({ on(_name, fn, opts) { hook = fn; options = opts; } }, member);
     assert.deepEqual(options, { prepend: member.model !== undefined }, 'a configured model wraps DSH model selection');
     return hook({ agent: { session: { requestHeader: () => (hasHeader ? {} : undefined) } } }, async () => ({ provider: 'old', model: 'old-model', reasoningEffort: 'high' }));
   };
@@ -1902,7 +1902,7 @@ test('a member edit reaches an already-hooked Session on its next request', asyn
   const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'coder', name: 'Coder', model: { provider: 'relay', model: 'm1' } }]);
   let hook;
-  members.setup({ on(_n, fn) { hook = fn; } }, members.config.get('coder'));
+  await members.setup({ on(_n, fn) { hook = fn; } }, members.config.get('coder'));
   const call = () => hook({ agent: { session: { requestHeader: () => ({}) } } }, async () => ({ provider: 'x', model: 'y' }));
   assert.deepEqual(await call(), { provider: 'relay', model: 'm1' });
   members.putMember({ id: 'coder', name: 'Coder', model: { provider: 'relay', model: 'm2' } });
