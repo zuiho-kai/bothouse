@@ -166,10 +166,10 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 	if report != nil && report.QuotaGroup != "" {
 		scope.Group = report.QuotaGroup
 	}
-	if failed, _ := ev.Metadata[MetaResultIsError].(bool); ev.Type == EventResult && ev.Error == nil && !failed && !quotaError {
-		// The provider just answered under this scope: that is the evidence
-		// a recorded deadline only predicted. A usage report still at 100%
-		// below records the cooldown again.
+	if failed, _ := ev.Metadata[MetaResultIsError].(bool); ev.Type == EventResult && ev.Done && ev.Error == nil && !failed && !quotaError {
+		// Only a successful terminal result proves recovery. A context
+		// compaction result is intermediate, even without an error. A usage
+		// report still at 100% below records the cooldown again.
 		e.recoverQuotaFor(scope)
 	}
 	if marked {

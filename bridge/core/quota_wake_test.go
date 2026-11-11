@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,61 @@ func TestQuotaCoolingRetryStillExhaustedKeepsCooling(t *testing.T) {
 	e.quotaMu.Unlock()
 	if st.Until.IsZero() || st.ProbeStatus == "available" {
 		t.Fatalf("a quota error was taken as an answer: until=%v status=%q", st.Until, st.ProbeStatus)
+	}
+}
+
+// Review of #1637: Claude emits a nonterminal result during context compaction.
+// Only a successful terminal result proves that the retried turn succeeded; its
+// content can be empty when the answer was already sent in streaming events.
+func TestQuotaCompactionWaitsForSuccessfulTerminal(t *testing.T) {
+	initial := time.Now().Add(time.Hour).Truncate(time.Second)
+	retry := initial.Add(time.Hour)
+	for _, tc := range []struct {
+		name  string
+		event Event
+		want  time.Time
+	}{
+		{
+			name:  "success-empty-content",
+			event: Event{Type: EventResult, Done: true},
+		},
+		{
+			name: "quota-error-terminal",
+			event: Event{Type: EventResult, Done: true, Metadata: WithQuotaExhausted(
+				map[string]any{MetaResultIsError: true}, retry.Format(time.RFC3339))},
+			want: retry,
+		},
+		{
+			name:  "result-error-terminal",
+			event: Event{Type: EventResult, Done: true, Metadata: map[string]any{MetaResultIsError: true}},
+			want:  initial,
+		},
+		{
+			name:  "error-terminal",
+			event: Event{Type: EventResult, Done: true, Error: errors.New("turn failed")},
+			want:  initial,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, a := scopedQuotaFixture(t)
+			scope := e.quotaScopeFor(a, a.model)
+			e.recordQuotaFor(scope, initial, "discord:c1")
+			e.waitQuotaUpdates()
+
+			e.observeQuotaEventFor(Event{
+				Type: EventResult, Done: false, Content: "context compacted",
+				Metadata: map[string]any{MetaContextCompacted: true},
+			}, "discord:c1", nil, scope)
+			if got := e.quotaCoolingFor(scope); !got.Equal(initial) {
+				t.Fatalf("compaction cleared cooldown before turn success: got %v, want %v", got, initial)
+			}
+
+			e.observeQuotaEventFor(tc.event, "discord:c1", nil, scope)
+			e.waitQuotaUpdates()
+			if got := e.quotaCoolingFor(scope); !got.Equal(tc.want) {
+				t.Fatalf("terminal cooldown: got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
