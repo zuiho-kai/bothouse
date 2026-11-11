@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 0dae018f21980115a8987a880c994fe82307bbb1aaf1d67b3742cbf6548371e1
+// dsh-client-source-sha256: 75bc748f8074afd694854b8759f0d6d6561af33730f246bc2a6a81149c90fb83
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -20273,7 +20273,9 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 	const [personas, setPersonas] = (0, react.useState)([]);
 	const [personaSlug, setPersonaSlug] = (0, react.useState)("");
 	const [persona, setPersona] = (0, react.useState)(member?.persona ?? "");
-	const [modelKey, setModelKey] = (0, react.useState)(member?.model ? member.model.provider + SEP + member.model.model : "");
+	const nativeModel = member?.model && typeof member.model !== "string" ? member.model : void 0;
+	const [modelKey, setModelKey] = (0, react.useState)(nativeModel ? nativeModel.provider + SEP + nativeModel.model : "");
+	const [claudeModel, setClaudeModel] = (0, react.useState)(member?.cli === "claude" && typeof member.model === "string" ? member.model : "");
 	const [routes, setRoutes] = (0, react.useState)(void 0);
 	const [error, setError] = (0, react.useState)(void 0);
 	const [busy, setBusy] = (0, react.useState)(false);
@@ -20387,7 +20389,8 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 			avatar,
 			...pendingPng ? { avatarPng: pendingPng } : {},
 			cli,
-			permissionPreset: preset
+			permissionPreset: preset,
+			...cli === "claude" ? { model: claudeModel.trim() || null } : {}
 		} : {
 			name: name.trim(),
 			...identity,
@@ -20405,7 +20408,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 			setBusy(false);
 		});
 	};
-	const current = member?.model ? member.model.provider + SEP + member.model.model : void 0;
+	const current = nativeModel ? nativeModel.provider + SEP + nativeModel.model : void 0;
 	const listed = routes?.some((r) => r.models.some((m) => r.provider + SEP + m.id === current)) ?? false;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.dialogBackdrop,
@@ -20604,6 +20607,20 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 						})
 					})]
 				}),
+				type === "cli" && cli === "claude" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+					className: ChannelsPage_module_default.field,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberModel") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							className: ChannelsPage_module_default.fieldInput,
+							"aria-label": t("memberModel"),
+							value: claudeModel,
+							placeholder: t("memberClaudeModelDefault"),
+							onChange: (event) => setClaudeModel(event.target.value)
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberClaudeModelHint") })
+					]
+				}),
 				type === "cli" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 					className: ChannelsPage_module_default.field,
 					children: [
@@ -20637,9 +20654,9 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 								value: "",
 								children: routes === void 0 ? t("memberModelLoading") : t("memberModelDefault")
 							}),
-							current !== void 0 && !listed && member?.model && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+							current !== void 0 && !listed && nativeModel && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
 								value: current,
-								children: `${member.model.provider}/${member.model.model}`
+								children: `${nativeModel.provider}/${nativeModel.model}`
 							}),
 							routes?.map((route) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("optgroup", {
 								label: route.error === void 0 ? route.name : t("memberModelRouteError", {
@@ -22424,7 +22441,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
 						})]
 					}), m.kind === "dsh" && m.cli === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: ChannelsPage_module_default.memberModel,
-						children: m.model ? `${m.model.provider}/${m.model.model}` : t("defaultModel")
+						children: typeof m.model === "string" ? m.model : m.model ? `${m.model.provider}/${m.model.model}` : t("defaultModel")
 					})]
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -24772,6 +24789,8 @@ const zh = {
 	memberPersonaLibrary: "从人设库选择",
 	memberModel: "模型",
 	memberModelDefault: "跟随 DSH 默认模型",
+	memberClaudeModelDefault: "留空跟随 Claude CLI 默认模型",
+	memberClaudeModelHint: "填写 Claude 模型 ID 或别名，保存后下一轮生效。",
 	memberModelLoading: "正在读取可用模型…",
 	memberModelRouteError: "{route}（读取失败：{error}）",
 	memberType: "成员类型",
@@ -25141,6 +25160,8 @@ const en = {
 	memberPersonaLibrary: "Choose from persona library",
 	memberModel: "Model",
 	memberModelDefault: "Follow the DSH default model",
+	memberClaudeModelDefault: "Leave blank to follow the Claude CLI default",
+	memberClaudeModelHint: "Enter a Claude model ID or alias. Changes apply on the next turn.",
 	memberModelLoading: "Loading available models…",
 	memberModelRouteError: "{route} (could not list: {error})",
 	memberType: "Member type",
