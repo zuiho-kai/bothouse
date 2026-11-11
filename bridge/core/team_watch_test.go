@@ -548,13 +548,20 @@ func (p *historyTestPlatform) add(channelID string, m ChannelHistoryMessage) {
 // progress signals (workspaceProgress) and a fake clock (tick(now)).
 func progressFixture(t *testing.T, owner string) (*Engine, *historyTestPlatform, *handoffWatch, TeamHandoff) {
 	t.Helper()
+	return progressFixtureBoard(t, owner, 0)
+}
+
+// progressFixtureBoard is progressFixture with the handoff claimed for task-board item board
+// (#699: the claim names the item; the watch writes progress to exactly that one).
+func progressFixtureBoard(t *testing.T, owner string, board int) (*Engine, *historyTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
 	e, _, p := exitFixture(t, nil)
 	hp := &historyTestPlatform{exitTestPlatform: p}
 	e.platforms = []Platform{hp}
 	e.SetTeam(t.TempDir(), "橘", true)
 	e.markPlatformReady(hp)
 	e.handoffWatchOn.Store(true)
-	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", owner, "K5a"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", owner, "K5a", board); err != nil {
 		t.Fatal(err)
 	}
 	return e, hp, newHandoffWatch(e), handoffsOf(e, "discord:ws1")[0]

@@ -509,8 +509,8 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 
 // stillOwnsHandoff: false when the work of a held message has been handed to another role since
 // (the repeated-error reassign, the quota takeover) — re-delivering it would run the same work in
-// two places at once (#986 review 6.1). A message held without a watch (a plain chat turn) and a
-// watch that is simply gone are both re-delivered as before.
+// two places at once (#986 review 6.1) — or since paused or ended (#699). A message held without a
+// watch (a plain chat turn) and a watch that is simply gone are both re-delivered as before.
 func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
 	if ref.key == "" {
 		return true
@@ -520,9 +520,16 @@ func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
 	teamWorkspaceStore.mu.Unlock()
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[ref.key] {
-			if h.At.Equal(ref.at) && teamHandoffOpen(h) {
-				return h.Owner == "" || h.Owner == e.name || h.Owner == e.DisplayName()
+			if !h.At.Equal(ref.at) {
+				continue
 			}
+			// #699 (#698 ④): the task this message belonged to was paused or ended while it was
+			// held. Re-delivering it opened a turn of the paused #677 on the workspace's fresh
+			// session (11-11 15:43:13, is_resume=false); a resume hands the task off again.
+			if !teamHandoffOpen(h) {
+				return false
+			}
+			return h.Owner == "" || h.Owner == e.name || h.Owner == e.DisplayName()
 		}
 	}
 	return true

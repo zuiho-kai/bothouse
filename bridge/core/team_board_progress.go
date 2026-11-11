@@ -44,9 +44,24 @@ func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now t
 	if dir == "" {
 		return
 	}
-	id := handoffBoardID(key, h, readTeamTaskBoard(dir))
-	if id == 0 {
-		return // no board item for this workspace: nothing to write back
+	// #699: the item is the one this handoff was claimed for (h.Board, recorded by the claim), and
+	// only while that task's state says it is in work in this workspace. Guessing it from the
+	// workspace and the title (handoffBoardID) put #679's renewals on the paused #677 (11-11
+	// 16:05/16:15): the watch's park marked only the handoff, and #677's row still named 工作区3.
+	id := h.Board
+	if id <= 0 {
+		return // claimed without a board item: nothing to write back
+	}
+	teamWorkspaceStore.mu.Lock()
+	t, inWork := teamTaskInWorkOnLocked(e.dataDir, id, key)
+	if inWork && t.State == TeamTaskDispatched {
+		if _, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: id, To: TeamTaskWorking, By: "watch: progress"}, now); err != nil {
+			slog.Warn("team watch: task state not moved to working", "board", id, "error", err)
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	if !inWork {
+		return // paused, handed back or moved to another workspace: not this workspace's row any more
 	}
 	// lastStep stays empty when this renewal window had no tool call at all (the turn journal
 	// drops the entry when the turn ends, team_journal.go), and an empty step must not replace a

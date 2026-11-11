@@ -1222,6 +1222,15 @@ func (e *Engine) ClaimTeamWorkspace(channel, wsID, name string) error {
 // started on e, every claim is watched: its handoff gets a check time watchCheckAfter() from now
 // (team_watch.go); before that no check time is recorded.
 func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title string) error {
+	return e.ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title, 0)
+}
+
+// ClaimTeamWorkspaceTask is ClaimTeamWorkspaceFor for task-board item board (0: a claim without a
+// board item). The handoff records board, and the task's state record moves to dispatched in
+// this workspace in the same step (#699): the watch writes progress to exactly that item instead
+// of guessing the row from the workspace and the title (handoffBoardID put #679's renewals on the
+// paused #677, 11-11). A task the state does not allow to be dispatched (closed) is refused.
+func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title string, board int) error {
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
@@ -1387,9 +1396,15 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 	}
 	wk := plat + ":" + wsID
 	now := time.Now()
-	h := TeamHandoff{Chat: chat, At: now, Sender: e.name, Owner: taskOwner, Title: title, Name: w.Name}
+	h := TeamHandoff{Chat: chat, At: now, Sender: e.name, Owner: taskOwner, Title: title, Name: w.Name, Board: board}
 	if e.handoffWatchOn.Load() {
 		h.Due = now.Add(watchCheckAfter())
+	}
+	if board > 0 {
+		// The state record first: a refused transition leaves the handoff unrecorded.
+		if _, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: board, To: TeamTaskDispatched, WS: wk, Chat: chat, By: "claim"}, now); err != nil {
+			return fmt.Errorf("team workspace claim: %w", err)
+		}
 	}
 	st.Handoffs[wk] = append(st.Handoffs[wk], h)
 	return saveTeamWorkspacesLocked(path, st)
@@ -1581,9 +1596,27 @@ func (e *Engine) ParkTeamWorkspace(workspace string) (freed bool, err error) {
 // work → ErrTeamWorkspaceNotOwned and nothing changes. chat "" is the workspace pausing its own
 // task (`bothouse workspace park` inside it): the oldest handoff in work, as before.
 func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) (freed bool, err error) {
+	return e.ParkTeamWorkspaceWhy(workspace, chat, before, "workspace park", false)
+}
+
+// ParkTeamWorkspaceWhy is ParkTeamWorkspaceFor with the reason recorded on the task's state
+// (#699). A park is one transition with its effects in a fixed order: the handoff and the task's
+// state record are marked paused together (same lock), then — when that freed the workspace and
+// stop is set — every role's turn running there is stopped, and only then are the sessions reset
+// and the workspace given back for the next task. teamWorkspaceOpMu is held throughout, so no
+// claim can take the workspace between "freed" and "stopped".
+//
+// stop says who pauses: anyone outside the workspace's own turn (the user's board pause, the
+// watch) stops it; the turn pausing itself (ws-up --ask, a board pause typed inside the
+// workspace) does not, its reply is the [ask] that ends it. The watch is outside the turn but
+// parked with stop=false (team_watch.go:174 before #699), so on 11-11 15:42 the paused #677 kept
+// running in 工作区3 while the queue drain handed #679 to the same workspace (15:52).
+func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, why string, stop bool) (freed bool, err error) {
 	if e == nil || e.dataDir == "" || workspace == "" {
 		return false, errors.New("team workspace park: workspace is required")
 	}
+	teamWorkspaceOpMu.Lock()
+	defer teamWorkspaceOpMu.Unlock()
 	key := teamChatKey(workspace)
 	plat, _, _ := strings.Cut(key, ":")
 	wsID := teamChannelID(key)
@@ -1625,6 +1658,13 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 	}
 	now := time.Now()
 	st.Handoffs[key][pick].Parked = now
+	if id := st.Handoffs[key][pick].Board; id > 0 {
+		if t, ok := teamTaskInWorkOnLocked(e.dataDir, id, key); ok {
+			if _, terr := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: t.ID, To: TeamTaskPaused, By: "park", Why: why}, now); terr != nil {
+				slog.Warn("team workspace park: task state not moved to paused", "board", id, "error", terr)
+			}
+		}
+	}
 	open := 0
 	for _, h := range st.Handoffs[key] {
 		if teamHandoffOpen(h) {
@@ -1652,8 +1692,14 @@ func (e *Engine) ParkTeamWorkspaceFor(workspace, chat string, before time.Time) 
 		slog.Info("team workspace: task paused; other tasks keep the workspace", "workspace", key, "owner", owner, "open", open)
 		return false, nil
 	}
+	stopped := 0
+	if stop {
+		for _, x := range e.watchEngines() {
+			stopped += x.stopChannel(plat, key)
+		}
+	}
 	e.ResetTeamWorkspaceSessions(key)
-	slog.Info("team workspace: released, its tasks are paused", "workspace", key, "owner", owner)
+	slog.Info("team workspace: released, its tasks are paused", "workspace", key, "owner", owner, "stopped_turns", stopped, "why", why)
 	e.drainTeamWorkspaceQueue(owner)
 	if platformReleases {
 		go func() {

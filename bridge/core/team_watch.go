@@ -171,7 +171,7 @@ func (s *APIServer) startHandoffWatch() {
 		return // already running
 	}
 	w := newHandoffWatch(e)
-	w.park = func(key, chat string, at time.Time) (bool, error) { return s.parkAndReset(e, key, chat, at, false) }
+	w.park = s.watchPark(e)
 	w.resume = w.autoResume
 	w.engines = func() []*Engine {
 		s.mu.RLock()
@@ -192,6 +192,15 @@ func (s *APIServer) startHandoffWatch() {
 		w.run(ctx)
 	}()
 	slog.Info("team workspace watch started", "project", e.name, "check_after", watchCheckAfter())
+}
+
+// watchPark is the watch's park: the watch is outside the turn, so its park stops what still runs
+// in the workspace before giving it back (#699; 11-11 15:42 it passed stop=false and the paused
+// #677 kept running while #679 was handed to the same workspace, #698 ①).
+func (s *APIServer) watchPark(e *Engine) func(key, chat string, at time.Time) (bool, error) {
+	return func(key, chat string, at time.Time) (bool, error) {
+		return s.parkAndReset(e, key, chat, at, "watch: no progress", true)
+	}
 }
 
 // rewatchIfServing re-picks the watch engine after the engine set changed (hot load, removal);

@@ -339,10 +339,11 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
     return freed
 
 
-def claim_cmd(chat: str, wid: str, task: str):
+def claim_cmd(chat: str, wid: str, task: str, nid: int):
     """<桥> workspace claim：旗标写在工作区 id 前（Go flag 遇到第一个位置参数就停，写在后面的 --session-key/--title
-    会被丢掉）；--title 是任务简称，十分钟看门催促里用（cmd/cc-connect/workspace.go --title），同本机 ws-handoff bridge_claim。"""
-    return [cc_bin(), "workspace", "claim", "--session-key", chat, "--title", task[:60], str(wid)]
+    会被丢掉）；--title 是任务简称，十分钟看门催促里用（cmd/cc-connect/workspace.go --title），同本机 ws-handoff bridge_claim。
+    --board：任务板编号，桥按它记这件活的状态（#699：派出→在做→暂停），看门只写这一条，不再按工作区和标题猜是哪行。"""
+    return [cc_bin(), "workspace", "claim", "--session-key", chat, "--title", task[:60], "--board", str(nid), str(wid)]
 
 
 def _ws_state() -> dict:
@@ -465,7 +466,7 @@ def notes_chat(notes: str, chat: str) -> str:
     return want
 
 
-def pick_pool(chat: str, task: str = "", preferred: str = ""):
+def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
     没有空的、池子又满 MAX_WS 个时返回 None（排队）。
     claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
@@ -482,7 +483,7 @@ def pick_pool(chat: str, task: str = "", preferred: str = ""):
           and str(w.get("owner") or "") in ("", parent) and int(w.get("open") or 0) < BUSY]
     ok.sort(key=lambda w: (f"{plat}:{w['id']}" != preferred, int(w.get("open") or 0), num(w.get("name"))))
     for w in ok:
-        c = subprocess.run(claim_cmd(chat, w["id"], task), capture_output=True, text=True)
+        c = subprocess.run(claim_cmd(chat, w["id"], task, nid), capture_output=True, text=True)
         if c.returncode == 0:
             return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
         print(f"ws-handoff: {w.get('name')} 认领不了（{c.stderr.strip()}），换下一个", file=sys.stderr)
@@ -491,7 +492,7 @@ def pick_pool(chat: str, task: str = "", preferred: str = ""):
     w = (ws_cmd(chat, "new").get("workspace") or {})
     if not w.get("id"):
         sys.exit("ws-handoff: workspace new 没回工作区")
-    c = subprocess.run(claim_cmd(chat, w["id"], task), capture_output=True, text=True)
+    c = subprocess.run(claim_cmd(chat, w["id"], task, nid), capture_output=True, text=True)
     if c.returncode != 0:
         sys.exit(f"ws-handoff: workspace claim 失败：{c.stderr.strip() or c.stdout.strip()}")
     print(f"ws-handoff: 池里的工作区都在忙，新开了 {w.get('name') or w['id']}", file=sys.stderr)
@@ -795,7 +796,7 @@ GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
 def start(path, task, chat, nid, project, answer=None):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
-    picked = pick_pool(chat, task, previous.get("ws_was", "") if previous.get("review_rejected") else "")
+    picked = pick_pool(chat, task, nid, previous.get("ws_was", "") if previous.get("review_rejected") else "")
     if picked is None:
         return False
     ws, name, parent = picked
@@ -943,15 +944,21 @@ def main(argv):
     if append_plan_first(path):
         print(f"ws-handoff: 已附「{PLAN_FIRST}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
+    nid = None
     if _team.workspace():
         ws, name = fixed_channel(chat), "工作区"
     elif ":" not in chat:
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
         drain()  # 先排先接：池里有空位时先接队里的，新活不插队
-        picked = pick_pool(chat, task)
+        # 先上板拿编号再 claim：桥按编号记这件活的状态（#699），claim 不带编号看门就只能猜是哪一行
+        nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name)
+        try:
+            picked = pick_pool(chat, task, nid)
+        except SystemExit:
+            board.unadd(nid)  # 没交出去：撤掉刚上的板，不留一条没人做的排队
+            raise
         if picked is None:
-            nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name)
             with _queue() as q:
                 # lead：入队时就记下交活的聊天频道（工作区里交的活此时 owner 最准；drain 时工作区可能已空）
                 q.append({"nid": nid, "path": path, "task": task, "chat": chat, "lead": lead_chat(chat),
@@ -965,7 +972,11 @@ def main(argv):
     # 放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
-    nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name)
+    if nid is None:  # 固定工作区频道：不经桥的池子，不 claim
+        nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name)
+    else:
+        board.update(nid, "已交接", who=f"{name}{lead_name}")
+        board.rebind(nid, key, chat=chat)
     append_skeleton(path, nid)
     r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
     if r.returncode != 0:

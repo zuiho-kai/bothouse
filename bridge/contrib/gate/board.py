@@ -1275,13 +1275,17 @@ def _ask_rework_cap(it):
         print(f"board: #{nid} [ask] 没发出去（{e}），请转给用户：\n{text}", file=sys.stderr)
 
 
-def rebind(nid, ws):
-    """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。"""
+def rebind(nid, ws, chat=None):
+    """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。
+    chat：交活的聊天频道，同 add(ws=…, chat=…)；ws-handoff 先上板拿编号再 claim（#699）时由这里补上，pause 按它放工作区。"""
     with _locked():
         cur = _read()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is not None:
             hit["ws"] = hit["sk"] = ws
+            if chat and ":" in chat:
+                hit["chat"] = ":".join(chat.split(":", 2)[:2])
+                hit.pop("ch", None)  # 同 add：频道记工作区的，不记交活的聊天频道
             hit.pop("returned_at", None)
             hit.pop("reviewer", None)
             hit.pop("review_rejected", None)
