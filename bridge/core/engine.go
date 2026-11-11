@@ -7473,7 +7473,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// text over event.Content which only contains the last assistant segment.
 			// A Stop hook blocked the turn: the adapter already chose between the
 			// blocked draft and the rewrite, and textParts holds both (#1051).
-			if stopBlocked, _ := event.Metadata[MetaStopBlockedReply].(bool); stopBlocked && strings.TrimSpace(fullResponse) != "" {
+			stopBlocked, _ := event.Metadata[MetaStopBlockedReply].(bool)
+			if stopBlocked && strings.TrimSpace(fullResponse) != "" {
 				// keep event.Content
 			} else if len(textParts) > 0 && segmentStart == 0 && !e.display.ToolMessages {
 				fullResponse = strings.Join(textParts, "")
@@ -7821,10 +7822,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						return
 					}
 				}
-			} else if toolCount > 0 && segmentStart > 0 {
-				// When tool calls happened and prior text was already surfaced in segments,
-				// only send the unsent remainder. When tool progress is hidden, tool events don't surface
-				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
+			} else if segmentStart > 0 && !(stopBlocked && strings.TrimSpace(event.Content) != "") {
+				// textParts[:segmentStart] already reached the chat: every place that
+				// advances segmentStart has sent it as a segment, kept it as a detached
+				// preview, or put it in the progress card. The turn end owns only the
+				// rest. A thinking step flushes a segment without any tool call, so
+				// this must not depend on toolCount (#700: tools=0 turn re-sent both
+				// halves glued together). A Stop-hook rewrite is the adapter's chosen
+				// reply and keeps the normal flow (#1051).
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
 					unsent = finalReplyText(unsent)
@@ -8507,7 +8512,8 @@ channelClosed:
 			})
 		}
 
-		if toolCount > 0 && segmentStart > 0 {
+		// Same rule as the normal end: text before segmentStart already went out (#700).
+		if segmentStart > 0 {
 			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
