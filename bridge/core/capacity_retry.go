@@ -546,7 +546,7 @@ func (e *Engine) quotaCoolingUntilFor(scope quotaScope, msg string) (time.Time, 
 	if !ok {
 		return time.Time{}, false
 	}
-	e.recordQuotaFor(scope, time.Now().Add(d), "")
+	e.recordQuotaWindowFor(scope, time.Now().Add(d), "", "capacity_backoff")
 	return e.quotaCoolingFor(scope), true
 }
 

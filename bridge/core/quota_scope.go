@@ -283,6 +283,32 @@ func (e *Engine) extendDomainLocked(scope quotaScope, until time.Time) time.Time
 }
 
 func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session string) {
+	e.recordQuotaWindowFor(scope, until, session, "")
+}
+
+// quotaWindowLabel names the allowance a usage window measures, so the cooldown
+// log says whether a 5-hour or a weekly limit ran out (11-11 17:15 a role went
+// into a two-day cooldown and nobody could tell which window it came from).
+func quotaWindowLabel(w UsageWindow) string {
+	switch {
+	case w.WindowSeconds == 5*3600:
+		return "5h"
+	case w.WindowSeconds == 7*24*3600:
+		return "weekly"
+	case w.WindowSeconds > 0:
+		return (time.Duration(w.WindowSeconds) * time.Second).String()
+	case w.Name != "":
+		return w.Name
+	}
+	return "unknown"
+}
+
+// recordQuotaWindowFor is recordQuotaFor with the source of the deadline named:
+// which window (5h, weekly, …) or which signal (error text, capacity backoff).
+func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session, window string) {
+	if window == "" {
+		window = "unspecified"
+	}
 	if !until.After(time.Now()) {
 		return
 	}
@@ -304,6 +330,7 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		if !latest.After(time.Now()) {
 			return
 		}
+		prevUntil := e.quotaState.Until
 		e.quotaState.Scope = key
 		e.quotaState.Until = latest
 		e.quotaState.ProbeRound = 0
@@ -319,9 +346,13 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		// (this path) from a probe that could not measure anything ("unknown")
 		// or one that measured a reset ("available"). Only the transition is
 		// logged, so repeated exhaustion reports do not repeat the line.
-		if previous != e.quotaState.ProbeStatus {
+		// A later report that moves the deadline (a weekly window after a 5h one)
+		// is logged too, with the window that moved it.
+		if previous != e.quotaState.ProbeStatus || !prevUntil.Equal(latest) {
 			slog.Info("quota cooldown: provider reported exhaustion",
-				"project", e.name, "probe_status", e.quotaState.ProbeStatus, "cooling_until", e.quotaState.Until)
+				"project", e.name, "probe_status", e.quotaState.ProbeStatus,
+				"provider", scope.Provider, "account", scope.Account, "group", scope.Group,
+				"window", window, "reset_at", until, "cooling_until", e.quotaState.Until)
 		}
 	})
 }
