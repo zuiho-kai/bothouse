@@ -504,8 +504,13 @@ type UserQuestionOption struct {
 
 // Event represents a single piece of agent output streamed back to the engine.
 type Event struct {
-	Type                     EventType
-	Content                  string         // EventError may carry an answer, separate from Error; it is not a successful result.
+	Type    EventType
+	Content string // EventError may carry an answer, separate from Error; it is not a successful result.
+	// StreamedContentBytes is the byte length of Content's leading prefix already
+	// emitted as EventText in this turn. EventResult adapters set it for cumulative
+	// summaries; the remaining suffix is new text. Zero keeps Content as a
+	// standalone final answer/rewrite/error, or uses EventText when Content is empty.
+	StreamedContentBytes     int
 	ToolName                 string         // populated for EventToolUse, EventPermissionRequest
 	ToolInput                string         // human-readable summary of tool input
 	ToolInputRaw             map[string]any // raw tool input (for EventPermissionRequest, used in allow response)

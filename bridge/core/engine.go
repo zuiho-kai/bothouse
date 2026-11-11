@@ -6460,8 +6460,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		return err
 	}
 
+	var streamCard StreamingCard
 	var sentReplySegments []string // successful narration deliveries in this turn only
 	sendReplySegment := func(p Platform, replyCtx any, segment string) {
+		// A live streaming card already shows every word of this turn; a
+		// segment sent beside it repeats the same text as a second message
+		// (#703: DingTalk AI card, thinking/tool/permission flushes).
+		if streamCard != nil && !streamCard.Failed() {
+			return
+		}
 		if capability, ok := p.(RepeatedReplySuppressor); !ok || !capability.SuppressRepeatedReplyText() {
 			for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 				sendWorkspace(p, replyCtx, chunk)
@@ -6489,8 +6496,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		sentReplySegments = append(sentReplySegments, segment)
 	}
 
-	// Streaming card: aggregate entire turn into a single updatable card.
-	var streamCard StreamingCard
+	// Streaming card: aggregate entire turn into a single updatable card
+	// (declared with sendReplySegment above, which must not send beside it).
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
 	var cardThinkingText string        // latest thinking text
 	var cardAnswerText strings.Builder // accumulated answer text
@@ -6505,6 +6512,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), outputCtx, workspaceRenderer)
+	// A failed freeze has not delivered the segment. Stop this output turn
+	// before detaching its preview or recording the segment as sent.
+	freezePreview := func() bool {
+		if err := sp.freeze(); err != nil {
+			slog.Error("stream preview: committing segment failed", "session", sessionKey, "error", err)
+			state.mu.Lock()
+			state.eventsNeedResync = true
+			state.mu.Unlock()
+			input.finish(inputTurnResult{err: fmt.Errorf("preview segment delivery: %w", err)})
+			return false
+		}
+		return true
+	}
 	cp := newCompactProgressWriter(outputCtx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	cp.mirrorFor = e.taskThreadProgressContext(outputCtx, inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
 	if state.turnScheduled && !e.isTeamWorkspaceChat(sessionKey) {
@@ -6824,14 +6844,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When thinking messages are hidden, behavior depends on display mode:
 			//   quiet:   append separator to keep all text in one card
 			//   compact: freeze+detach to split text into separate cards
-			if !e.display.ThinkingMessages && len(textParts) > segmentStart {
+			if !e.display.ThinkingMessages && len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if e.display.Mode == "quiet" {
 					if sp.canPreview() && sp.appendSeparator("\n\n") {
 						textParts = append(textParts, "\n\n")
 					}
 				} else {
 					if sp.canPreview() {
-						sp.freeze()
+						if !freezePreview() {
+							return
+						}
 						sp.detachPreview()
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
@@ -6862,10 +6884,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							sendReplySegment(p, replyCtx, segment)
 						}
 					}
-					segmentStart = len(textParts)
-					silentHold = false
 				}
-				sp.freeze()
+				if !freezePreview() {
+					return
+				}
+				segmentStart = len(textParts)
+				silentHold = false
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
@@ -6929,14 +6953,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When tool messages are hidden, behavior depends on display mode:
 			//   quiet:   append separator to keep all text in one card
 			//   compact: freeze+detach to split text into separate cards
-			if !e.display.ToolMessages && len(textParts) > segmentStart {
+			if !e.display.ToolMessages && len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if e.display.Mode == "quiet" {
 					if sp.canPreview() && sp.appendSeparator("\n\n") {
 						textParts = append(textParts, "\n\n")
 					}
 				} else {
 					if sp.canPreview() {
-						sp.freeze()
+						if !freezePreview() {
+							return
+						}
 						sp.detachPreview()
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
@@ -7000,10 +7026,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							sendReplySegment(p, replyCtx, segment)
 						}
 					}
-					segmentStart = len(textParts)
-					silentHold = false
 				}
-				sp.freeze()
+				if !freezePreview() {
+					return
+				}
+				segmentStart = len(textParts)
+				silentHold = false
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
@@ -7292,19 +7320,24 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				continue
 			}
 
-			// Flush accumulated text segment before permission prompt
+			// A live card retains ownership of its text across the prompt; only
+			// detached previews/plain sends commit a separate segment here.
 			previewActive := sp.canPreview()
-			if len(textParts) > segmentStart {
+			if len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if !previewActive {
 					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
 						sendReplySegment(p, replyCtx, segment)
 					}
 				}
+			}
+			if !freezePreview() {
+				return
+			}
+			if streamCard == nil || streamCard.Failed() {
 				segmentStart = len(textParts)
 				silentHold = false
 			}
-			sp.freeze()
 			if previewActive {
 				sp.detachPreview() // keep frozen preview visible as permanent message
 			}
@@ -7472,26 +7505,32 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			state.clearStopDraft()
 
+			// A cumulative adapter identifies the bytes it already streamed. Only
+			// its new suffix enters the stream ledger; a standalone terminal answer
+			// still replaces the open draft. Do not infer ownership from text matches.
 			fullResponse := event.Content
+			if event.StreamedContentBytes > 0 {
+				if tail := event.Content[event.StreamedContentBytes:]; tail != "" {
+					textParts = append(textParts, tail)
+				}
+				fullResponse = ""
+			}
 			if e.display.HideAgentFooter {
 				fullResponse = stripAgentFooterLines(fullResponse)
 			}
-			// When tool progress is hidden, segmentStart stays 0 and textParts
-			// contains ALL text across tool boundaries. Prefer the full accumulated
-			// text over event.Content which only contains the last assistant segment.
-			// A Stop hook blocked the turn: the adapter already chose between the
-			// blocked draft and the rewrite, and textParts holds both (#1051).
-			if stopBlocked, _ := event.Metadata[MetaStopBlockedReply].(bool); stopBlocked && strings.TrimSpace(fullResponse) != "" {
-				// keep event.Content
-			} else if len(textParts) > 0 && segmentStart == 0 && !e.display.ToolMessages {
-				fullResponse = strings.Join(textParts, "")
-			} else if fullResponse == "" && len(textParts) > 0 {
+			// A nonempty terminal result owns the final reply, including an
+			// adapter-only error or Stop-hook rewrite. An empty or explicitly
+			// cumulative result uses the stream ledger. Display settings cannot choose the
+			// answer's source (#703: quiet mode discarded terminal-only text).
+			terminalReply := fullResponse != ""
+			if !terminalReply && len(textParts) > 0 {
 				fullResponse = strings.Join(textParts, "")
 			}
 			// The adapter marked an exhausted quota; say which bot/model ran out so
 			// other bots in the channel are not blamed.
 			if reset, ok := QuotaExhaustedReset(event); ok {
 				fullResponse = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
+				terminalReply = true
 			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
@@ -7829,10 +7868,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						return
 					}
 				}
-			} else if toolCount > 0 && segmentStart > 0 {
-				// When tool calls happened and prior text was already surfaced in segments,
-				// only send the unsent remainder. When tool progress is hidden, tool events don't surface
-				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
+			} else if segmentStart > 0 && !terminalReply {
+				// textParts[:segmentStart] already reached the chat: every place that
+				// advances segmentStart has sent it as a segment, kept it as a detached
+				// preview, or put it in the progress card. The turn end owns only the
+				// rest. A thinking step flushes a segment without any tool call, so
+				// this must not depend on toolCount (#700: tools=0 turn re-sent both
+				// halves glued together). A terminal reply uses the normal flow
+				// instead: it can contain text absent from textParts (#703).
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
 					unsent = finalReplyText(unsent)
@@ -8515,18 +8558,34 @@ channelClosed:
 			})
 		}
 
-		if toolCount > 0 && segmentStart > 0 {
-			sp.discard()
+		// The live card owns the entire streamed answer, including on EOF.
+		// It has not committed any detached segments; a failed finalization
+		// therefore leaves the complete text available for the ordinary send.
+		if streamCard != nil && !streamCard.Failed() {
+			finalContent := buildCardContent(cardThinkingText, cardToolCalls, fullResponse)
+			if err := authorizedOutput(outputCtx, func() error { return streamCard.Finalize(outputCtx, finalContent) }); err == nil {
+				return
+			} else {
+				slog.Error("streaming card finalize failed on channel close", "error", err)
+			}
+		}
+
+		// Same rule as the normal end: text before segmentStart already went out (#700).
+		if segmentStart > 0 {
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
 				unsent = closedFinalReplyText(unsent)
-				if unsent != "" {
+				if unsent == "" {
+					sp.discard()
+				} else if !sp.finish(unsent, "") {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
 							return
 						}
 					}
 				}
+			} else {
+				sp.discard()
 			}
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
