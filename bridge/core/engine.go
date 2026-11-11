@@ -5742,9 +5742,10 @@ func (e *Engine) cancelAgentSessionIdleClose(state *interactiveState) {
 	}
 }
 
-func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interactiveState) {
+// Reports whether a close was scheduled, not whether the process has exited.
+func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interactiveState) bool {
 	if state == nil {
-		return
+		return false
 	}
 	// A resumable process belongs to its turn; retain the saved conversation ID.
 	// Agents that cannot resume retain their configured idle timeout.
@@ -5753,7 +5754,7 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 	state.mu.Unlock()
 	timeout := time.Duration(e.agentSessionIdleTimeoutNanos.Load())
 	if !resumable && timeout <= 0 {
-		return
+		return false
 	}
 
 	e.cancelAgentSessionIdleClose(state)
@@ -5766,7 +5767,7 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
-		return
+		return false
 	}
 	if resumable {
 		// Same token protocol as the idle timer: a turn starting before the close runs
@@ -5774,11 +5775,38 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		state.agentSessionIdleToken = token
 		state.mu.Unlock()
 		go e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, 0)
-		return
+		return true
 	}
 	ctx, cancel := context.WithCancel(e.ctx)
 	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
 	state.mu.Unlock()
+	return true
+}
+
+// CloseIdleTeamWorkspaceAgents asks the same turn-lifetime policy to release idle
+// teammate processes after a workspace is returned. It preserves conversation IDs
+// and returns the number scheduled; actual shutdown is logged by the shared closer.
+func (e *Engine) CloseIdleTeamWorkspaceAgents(key string) int {
+	if e == nil || e.sessions == nil || !e.teamWorkspaceFree(key) {
+		return 0
+	}
+	n := 0
+	for _, k := range e.sessions.UserKeys() {
+		if chatOf(k) != key {
+			continue
+		}
+		if s := e.sessions.GetOrCreateActive(k); s != nil && s.Busy() {
+			continue
+		}
+		iKey := e.interactiveKeyForSessionKey(k)
+		e.interactiveMu.Lock()
+		state := e.interactiveStates[iKey]
+		e.interactiveMu.Unlock()
+		if e.scheduleAgentSessionIdleClose(iKey, state) {
+			n++
+		}
+	}
+	return n
 }
 
 // agentSessionResumable reports whether closing as now loses nothing: the agent can

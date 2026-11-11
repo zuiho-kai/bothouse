@@ -22,22 +22,23 @@ func TestCloseIdleTeamWorkspaceAgentsAfterRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fish := NewEngine("fish", &stubAgent{}, nil, "", LangEnglish)
+	backend := strictTurnLifetimeAgent{&turnLifetimeAgent{}}
+	fish := NewEngine("fish", backend, nil, "", LangEnglish)
 	t.Cleanup(fish.cancel)
 	fish.SetDataDir(dataDir)
 	s := fish.sessions.GetOrCreateActive(wsKey)
 	s.SetAgentSessionID("dsh-session-1", "acp")
 	agent := newControllableSession("dsh-session-1")
-	state := &interactiveState{agentSession: agent}
+	state := &interactiveState{agent: backend, agentSession: agent}
 	fish.interactiveMu.Lock()
 	fish.interactiveStates[wsKey] = state
 	fish.interactiveMu.Unlock()
 
-	// Owned workspace: nothing closes, not at turn end either (idle timeout off, as in production).
+	// The release scan only visits free workspaces. Normal turn-end closing is
+	// independent of workspace ownership and covered by the turn-lifetime tests.
 	if fish.teamWorkspaceFree(wsKey) {
 		t.Fatal("owned workspace reported free")
 	}
-	fish.scheduleAgentSessionIdleClose(wsKey, state)
 	if n := fish.CloseIdleTeamWorkspaceAgents(wsKey); n != 0 {
 		t.Fatalf("closed %d in an owned workspace... want 0", n)
 	}
@@ -97,13 +98,14 @@ func TestTurnEndInFreeWorkspaceClosesProcess(t *testing.T) {
 		t.Fatal("workspace not released")
 	}
 
-	fish := NewEngine("fish", &stubAgent{}, nil, "", LangEnglish)
+	backend := strictTurnLifetimeAgent{&turnLifetimeAgent{}}
+	fish := NewEngine("fish", backend, nil, "", LangEnglish)
 	t.Cleanup(fish.cancel)
 	fish.SetDataDir(dataDir)
 
 	bg := &bgTaskSession{controllableAgentSession: newControllableSession("b")}
 	bg.running = 1
-	bgState := &interactiveState{agentSession: bg}
+	bgState := &interactiveState{agent: backend, agentSession: bg}
 	fish.interactiveMu.Lock()
 	fish.interactiveStates[wsKey] = bgState
 	fish.interactiveMu.Unlock()
@@ -116,7 +118,7 @@ func TestTurnEndInFreeWorkspaceClosesProcess(t *testing.T) {
 	fish.cleanupInteractiveState(wsKey)
 
 	agent := newControllableSession("a")
-	state := &interactiveState{agentSession: agent}
+	state := &interactiveState{agent: backend, agentSession: agent}
 	fish.interactiveMu.Lock()
 	fish.interactiveStates[wsKey] = state
 	fish.interactiveMu.Unlock()

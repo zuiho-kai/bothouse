@@ -1422,8 +1422,8 @@ func (e *Engine) releaseWorkspaceOnReset(sessionKey string, lastActive time.Time
 				continue // its own session was just cleaned up by the reset
 			}
 			if n := x.CloseIdleTeamWorkspaceAgents(key); n > 0 {
-				slog.Info("team workspace: closed teammates' idle agent processes after release",
-					"workspace", key, "project", x.name, "closed", n)
+				slog.Info("team workspace: scheduled teammates' idle agent processes for release",
+					"workspace", key, "project", x.name, "scheduled", n)
 			}
 		}
 	}()
