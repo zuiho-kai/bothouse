@@ -251,39 +251,188 @@ def _shown(rel, root=None):
     return "~" + p[len(home):] if p.startswith(home + "/") else p
 
 
-def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False):
+# ---- 可信度标记 + 按频道项目排序 ----
+# 已被推翻的旧说法降到最后，没核过的推测标出来；同一频道主要在做的项目页往前，通用规矩页在非规则话题时往后。
+# 不新建存储和打分：频道→项目从推送日志现算（进程内缓存），标记只看 wiki 的「## 历史」节和行里的反转写法。
+OLD_HEADS = ("历史",)  # 页模板里被推翻的旧行原样挪进的节
+# 行里自己写着「曾以为/曾选 X → 因 Y 改为 Z」，或标了「过时」：都是已被推翻的旧说法
+OLD_LINE = re.compile(r"曾(?:以为|选|用|定|提)|→\s*因(?!此)|^\s*[-*]\s*过时[：:]")
+UNVER_LINE = re.compile(r"未核|没核|未验证|推测")  # 推测、没核过的：推出去时标【未核】，排序不动
+_SECS = {}  # (根, 页) → (mtime, [(行号, 节名)])：每页扫一遍分节，页改了重扫
+
+
+def _sections(rel, root=None):
+    """页里每行的所属节（「## 历史」这类二级标题），按行号排。"""
+    f = (root or WIKI) / rel
+    try:
+        at = f.stat().st_mtime
+    except OSError:
+        return []
+    k = (str(root or WIKI), rel)
+    c = _SECS.get(k)
+    if c and c[0] == at:
+        return c[1]
+    out, cur = [], ""
+    try:
+        for n, x in enumerate(f.read_text(encoding="utf-8", errors="ignore").split("\n"), 1):
+            if x.startswith("## "):
+                cur = re.sub(r"[（(].*", "", x[3:]).strip()
+            out.append((n, cur))
+    except OSError:
+        return []
+    _SECS[k] = (at, out)
+    return out
+
+
+def cred(rel, ln, line, root=None):
+    """这行的可信度标记：【旧】= 历史节里的、或写着「曾以为…→」/「过时」的旧说法；【未核】= 自己标了推测没核的。
+    旧说法推的时候排到最后（别的不够五条时才轮得到），未核只加标记、排序不动。"""
+    sec = ""
+    for n, s in _sections(rel, root):
+        if n > int(ln):
+            break
+        sec = s
+    old = sec in OLD_HEADS or bool(OLD_LINE.search(line))
+    return ("【旧】" if old else "") + ("【未核】" if UNVER_LINE.search(line) else "")
+
+
+GEN_PREFIXES = ("tooling/workflow/rules", "tooling/workflow/workflow/preferences")  # 通用规矩页（规则、做法、偏好）：哪个频道都推，代表不了项目
+PROF_TOP = 3  # 11-12 在 295 轮真实推送重放上实测：每频道取差异最大的 3 个目录，再往后只剩零星页
+PROF_MIN = 4  # 同上的重放实测：少于 4 次推送的目录不算频道项目，试 2/3 会随个案抖动
+_prof, _prof_at = {}, 0.0
+
+
+def _profiles():
+    """每个频道主要在做的页目录：从推送日志各频道的 refs 里算「这个频道比别的频道平均多推的目录」。
+    通用规矩页不算（每个频道都推）。只在内存里算，缓存 TTL 秒（日志每轮都在追加，按 mtime 会每轮重算）；出错就当没有。"""
+    global _prof, _prof_at
+    now = time.time()
+    if now - _prof_at < TTL:
+        return _prof
+    log = EXP / "push.jsonl"
+    if not log.exists():
+        return {}
+    by, glob, nch = {}, collections.Counter(), 0
+    try:
+        for ln in log.read_text(encoding="utf-8", errors="ignore").split("\n"):
+            if not ln.strip():
+                continue
+            r = json.loads(ln)
+            if not r.get("user") or str(r.get("key", "")).startswith("test:"):
+                continue
+            seen = set()
+            for ref in r.get("refs") or []:
+                d = ref.rsplit(":", 1)[0].rsplit("/", 1)[0]
+                if d not in seen:
+                    seen.add(d)
+                    glob[d] += 1
+            if r.get("key") not in by:
+                by[r["key"]] = collections.Counter()
+                nch += 1
+            by[r["key"]].update(seen)
+    except (OSError, ValueError):  # 日志读坏了不挡推页
+        return {}
+    out = {}
+    for key, c in by.items():
+        ex = sorted(((n - glob[d] / max(nch, 1), d) for d, n in c.items() if n >= PROF_MIN and not _generic(d)),
+                    reverse=True)
+        out[key] = tuple(d for e, d in ex[:PROF_TOP] if e > 0)
+    _prof, _prof_at = out, now
+    return out
+
+
+def _generic(rel):
+    """通用规矩页：目录等于 GEN_PREFIXES 或在它下面。"""
+    return any(rel == p or rel.startswith(p + "/") for p in GEN_PREFIXES)
+
+
+def _project(rel, prof):
+    """这一行所在的页目录是不是这个频道主要在做的项目（含子目录和上级目录）。"""
+    d = rel.rsplit("/", 1)[0]
+    return bool(prof) and any(d == p or d.startswith(p + "/") or p.startswith(d + "/") for p in prof)
+
+
+RULE_HINTS = ("规矩", "规则", "制度", "流程", "交接", "手册", "做法", "工作法", "汇报", "验收", "模板", "步骤", "教程")
+
+
+def _by_project(hits, prof, rule=False, focus=""):
+    """按项目重排：本频道项目的页在前；通用规矩页在非规则话题时排最后；同一档保持原来的（论坛分）顺序。"""
+    if not prof and rule:
+        return hits
+
+    ft = set(search.toks(focus)) if focus else set()
+
+    def rank(rel, line):
+        hit = bool(ft & set(search.toks(line)))  # 和这一句有没有共同词
+        gen = not rule and _generic(rel)
+        if prof and _project(rel, prof):
+            return 0  # 本项目页最前
+        if hit:
+            return 1  # 和这一句对得上的其次（规矩页也对得上就不压）
+        if gen:
+            return 3  # 既不对题又是通用规矩页的最后
+        return 2
+    return [h for _, h in sorted(enumerate(hits), key=lambda t: (rank(t[1][0], t[1][2]), t[0]))]
+
+
+def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", focus=""):
     """root 不给 = 主 wiki（hooks/wiki-context.py 终端会话就这样调）。skip = 开工套话的词：提示里已经带着的行不占名额。
-    prepared=True：text 已经是 query() 清过的（context() 的 tq 带前两轮，再清一次会把前几轮里的引用块当块尾切掉）。"""
+    prepared=True：text 已经是 query() 清过的（context() 的 tq 带前两轮，再清一次会把前几轮里的引用块当块尾切掉）。
+    key = 会话 key：按这个频道主要在做的项目给页排序（通用规矩页靠后）。"""
     root = root or WIKI
     if root is None or not root.is_dir():
         return []
     idx = _index(root)
     q = text if prepared else query(text)
-    pages = {}
+    pages, defer = {}, []
     if skip:  # 多取一些，跳掉的行由后面的补上（名额不放宽）
         hits = [h for h in idx.search(q, k=search.TOP * 3) if is_item(h[2]) and not in_prompt(h[2], skip)][:search.TOP]
     else:
-        hits = [h for h in idx.search(q) if is_item(h[2])]  # 前 10 行，去掉标题行
+        hits = [h for h in idx.search(q, k=search.TOP * (2 if key else 1)) if is_item(h[2])]  # 有频道时多取一倍候选：旧说法沉底后要有新的补位
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
+    if key and _same(root, WIKI):  # 按项目排序只对主 wiki（角色 wiki 是各角色自己的经验，不分项目）
+        hits = _by_project(hits, _profiles().get(key, ()), any(x in q for x in RULE_HINTS), focus)
     shown_th = set()
     for rel, ln, line in hits:  # 按首次出现排页
         th = _thread(rel, line, root)
         if th and th["tid"] in shown_th:
             continue  # 同一帖的别的楼已经推过标题和最高分楼
         if rel not in pages:
-            if len(pages) == k:
+            if len(pages) == k + 1:  # 多留一页：只有旧说法被沉底、前五条不够时才用它补位
                 continue
             pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
+        mark = cred(rel, ln, line, root)  # 【旧】/【未核】
         if th:
             shown_th.add(th["tid"])
-            rows = _thread_rows(th, rel, root, line)
+            rows = _thread_rows(th, rel, root, line, mark)
             if rows:
-                pages[rel]["rows"] += rows
+                for r in rows:  # 旧楼逐条排到最后，新的照常
+                    if "【旧】" in r["text"]:
+                        defer.append((rel, r))
+                    else:
+                        pages[rel]["rows"].append(r)
                 continue
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
-        pages[rel]["rows"].append(_row(rel, line, f"{ln}: {fold}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln))  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
-    return [_render(dict(it, path=_shown(rel, root))) for rel, it in pages.items()]
+        row = _row(rel, line, f"{ln}: {fold}{mark}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
+        if "【旧】" in mark:
+            defer.append((rel, row))
+        else:
+            pages[rel]["rows"].append(row)
+    pages = {rel: it for rel, it in pages.items() if it["rows"]}  # 命中全是旧说法的页，内容挪到最后那块去
+    if defer:  # 旧说法排在最后：接在最后一页后面；前五条被别的行占满时自然把它们挤掉
+        if not pages:
+            rel = defer[0][0]
+            pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
+        lastrel, last = next(reversed(pages.items()))
+        for rel, r in defer:
+            if rel != lastrel:  # 别的页的行写全路径，否则行号对不上那页
+                r = dict(r, text=f"{_shown(rel, root)}:{r['text']}")
+            last["rows"].append(r)
+    items = list(pages.items())
+    if len(items) > k and not defer:  # 没有旧说法要沉底：多留的那页不推
+        items = items[:k]
+    return [_render(dict(it, path=_shown(rel, root))) for rel, it in items]
 
 
 def _thread(rel, line, root):
@@ -316,7 +465,7 @@ def _content_toks(line):
     return {t for t in search.toks(_title(line)) if not FRAG_CH.search(t) and t not in COMMON}
 
 
-def _thread_rows(th, rel, root, hit=None):
+def _thread_rows(th, rel, root, hit=None, mark=""):
     """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
     别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
     floors = {f["id"]: f for f in th["floors"]}
@@ -342,7 +491,10 @@ def _thread_rows(th, rel, root, hit=None):
         u, d = FORUM.counts(f["id"])
         head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
         fold = FORUM.label(f["id"])
-        out.append(_row(file.as_posix(), line, f"{where}: {head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
+        fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
+        if "【旧】" in mark and "【旧】" not in fm:
+            fm = "【旧】" + fm
+        out.append(_row(file.as_posix(), line, f"{where}: {fm}{head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
                         root=Path("/"), ln=n))
     return out
 
@@ -359,15 +511,15 @@ def context(req):
     skip = set(search.toks(kickoff_boiler(text))) if kq else None  # 提示里已经带着的规矩这一轮不占名额
     tq = kq or turn_query(text, req.get("key") or "")  # 推页和经验用：这轮 + 前两轮作者的话（定案块仍只看这轮，它要判开工）
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
-    mine = match_wiki(tq, root=own, skip=skip, prepared=True) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
+    key = req.get("key") or ""
+    mine = match_wiki(tq, root=own, skip=skip, prepared=True, key=key, focus=query(text)) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
-    key = req.get("key") or ""
     dec = decision_items(text, key)
     out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender")) + board_items(key)
            + proposal_items(text, bot, key)
-           + with_lessons(match_wiki(tq, skip=skip, prepared=True), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+           + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text)), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req)  # 推过的条不再推（同一会话代号内）

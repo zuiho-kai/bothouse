@@ -308,5 +308,103 @@ class T(unittest.TestCase):
                     self.assertEqual(got, want)
 
 
+    def test_old_rows_marked_and_put_last(self):
+        # 历史节里的行、以及写着「曾选 X → 因 Y 改为 Z」的行是已被推翻的旧说法：前缀【旧】，排到最后
+        with tempfile.TemporaryDirectory() as d:
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
+            self.addCleanup(setattr, ctxsvc, "WIKI", self.old)
+            ctxsvc._SECS.clear()
+            old_forum = ctxsvc.FORUM
+            ctxsvc.FORUM = None
+            self.addCleanup(setattr, ctxsvc, "FORUM", old_forum)
+            p = Path(d) / "notes"
+            p.mkdir()
+            (p / "README.md").write_text("x", encoding="utf-8")
+            (p / "page.md").write_text(
+                "---\ndescription: 发版\n---\n# T\n## 现状\n"
+                + "".join(f"- 发版 release 流水线 做法{i}，写得长一点\n" for i in range(2))
+                + "## 历史\n- 曾选 发版 release 流水线 全量重跑 → 因 太慢 改为 只跑改动\n",
+                encoding="utf-8")
+            texts = [r["text"] for w in ctxsvc.match_wiki("发版 release 流水线", prepared=True) for r in w["rows"]]
+            self.assertIn("【旧】", texts[-1], texts)
+            self.assertFalse(any("【旧】" in t for t in texts[:-1]), texts)
+
+    def test_old_rows_dropped_when_turn_is_full(self):
+        # 前五条被别的行占满时旧说法不推（旧说法沉底的意义就在这）；不足五条时才补上
+        with tempfile.TemporaryDirectory() as d:
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
+            self.addCleanup(setattr, ctxsvc, "WIKI", self.old)
+            ctxsvc._SECS.clear()
+            old_forum = ctxsvc.FORUM
+            ctxsvc.FORUM = None
+            self.addCleanup(setattr, ctxsvc, "FORUM", old_forum)
+            p = Path(d) / "notes"
+            p.mkdir()
+            (p / "README.md").write_text("x", encoding="utf-8")
+            (p / "page.md").write_text(
+                "---\ndescription: 发版\n---\n# T\n## 现状\n"
+                + "".join(f"- 发版 release 流水线 做法{i}，写得长一点\n" for i in range(5))
+                + "## 历史\n- 曾选 发版 release 流水线 全量重跑 → 因 太慢 改为 只跑改动\n",
+                encoding="utf-8")
+            got = ctxsvc.context({"key": "discord:old-full", "bot": "", "text": "发版 release 流水线", "epoch": "e1"})
+            texts = [r["text"] for w in got["wiki"] if w.get("rows") for r in w["rows"]]
+            self.assertEqual(len(texts), ctxsvc.TURN_ROWS)
+            self.assertFalse(any("【旧】" in t for t in texts), texts)
+
+    def test_unverified_marked_in_place(self):
+        # 推测、没核过的只加【未核】，顺序不动
+        with tempfile.TemporaryDirectory() as d:
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
+            self.addCleanup(setattr, ctxsvc, "WIKI", self.old)
+            ctxsvc._SECS.clear()
+            old_forum = ctxsvc.FORUM
+            ctxsvc.FORUM = None
+            self.addCleanup(setattr, ctxsvc, "FORUM", old_forum)
+            p = Path(d) / "notes"
+            p.mkdir()
+            (p / "README.md").write_text("x", encoding="utf-8")
+            (p / "page.md").write_text("---\ndescription: 发版\n---\n# T\n## 现状\n- 发版 release 流程 推测还没核，写得长一点\n",
+                                       encoding="utf-8")
+            texts = [r["text"] for w in ctxsvc.match_wiki("发版 release 流程", prepared=True) for r in w["rows"]]
+            self.assertEqual(len(texts), 1, texts)
+            self.assertIn("【未核】", texts[0])
+            self.assertNotIn("【旧】", texts[0])
+
+    def test_channel_projects_before_generic_rules(self):
+        # 这个频道主要在做 proj/：项目页排在通用规矩页前；频道→项目只从推送日志算
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as e:
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
+            self.addCleanup(setattr, ctxsvc, "WIKI", self.old)
+            ctxsvc._SECS.clear()
+            old_forum, old_exp = ctxsvc.FORUM, ctxsvc.EXP
+            ctxsvc.FORUM = None
+            ctxsvc.EXP = Path(e)
+            ctxsvc._prof, ctxsvc._prof_at = {}, 0.0
+            for name, val in (("FORUM", old_forum), ("EXP", old_exp)):
+                self.addCleanup(setattr, ctxsvc, name, val)
+            self.addCleanup(setattr, ctxsvc, "_prof", {})
+            self.addCleanup(setattr, ctxsvc, "_prof_at", 0.0)
+            (Path(d) / "proj").mkdir()
+            (Path(d) / "tooling/workflow/rules").mkdir(parents=True)
+            for r in (Path(d) / "proj", Path(d) / "tooling/workflow/rules"):
+                (r / "README.md").write_text("x", encoding="utf-8")
+            (Path(d) / "proj/app.md").write_text("---\ndescription: 项目页\n---\n# T\n## 现状\n- 发版 release 流水线 项目做法，写得长一点\n",
+                                                 encoding="utf-8")
+            (Path(d) / "tooling/workflow/rules/rules.md").write_text(
+                "---\ndescription: 规矩页\n---\n# T\n## 现状\n- 发版 release 流水线 通用规矩，写得长一点\n",
+                encoding="utf-8")
+            with (Path(e) / "push.jsonl").open("w", encoding="utf-8") as f:
+                for _ in range(5):
+                    f.write(json.dumps({"key": "discord:proj", "user": True, "refs": ["proj/app.md:5#x"]}) + "\n")
+                f.write(json.dumps({"key": "discord:other", "user": True,
+                                    "refs": ["tooling/workflow/rules/rules.md:5#y"]}) + "\n")
+            self.assertEqual(ctxsvc._profiles().get("discord:proj"), ("proj",))
+            hits = [("tooling/workflow/rules/rules.md", 5, "- 发版 release 流水线 通用规矩"),
+                    ("proj/app.md", 5, "- 发版 release 流水线 项目做法")]
+            self.assertEqual(ctxsvc._by_project(hits, ("proj",))[0][0], "proj/app.md")
+            keyed = [w["path"] for w in ctxsvc.match_wiki("发版 release 流水线", prepared=True,
+                                                          key="discord:proj", focus="发版 release 流水线")]
+            self.assertTrue(keyed and keyed[0].endswith("app.md"), keyed)
+
 if __name__ == "__main__":
     unittest.main()
