@@ -151,3 +151,57 @@ func TestTurnTailNotResentAfterThinkingSegmentStreamingCard(t *testing.T) {
 	p.card.mu.Unlock()
 	assertTurnSentOnce(t, append(sent, final))
 }
+
+// #703: Result.Content can be the only source of the final answer/error
+// (Claude Code synthesizes an API-error result without an EventText).
+func TestTurnTailTerminalContent(t *testing.T) {
+	for _, mode := range []string{"compact", "quiet"} {
+		for _, kind := range []string{"plain", "preview", "card"} {
+			for _, result := range []string{"answer", "error", "stop-rewrite"} {
+				t.Run(mode+"/"+kind+"/"+result, func(t *testing.T) {
+					var p Platform = &stubPlatformEngine{n: "plain"}
+					if kind == "preview" {
+						p = &turnTailPreviewPlatform{stubPlatformEngine: stubPlatformEngine{n: "preview"}}
+					} else if kind == "card" {
+						p = &turnTailCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "card"}, card: &turnTailCard{}}
+					}
+					e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+					e.SetDisplayConfig(DisplayCfg{Mode: mode})
+					e.SetStreamPreviewCfg(StreamPreviewCfg{Enabled: true, MinDeltaChars: 1, MaxChars: 2000})
+					key := "test:terminal-content"
+					session := e.sessions.GetOrCreateActive(key)
+					a := &qq137FixtureSession{newControllableSession("terminal-content")}
+					state := &interactiveState{agentSession: a, platform: p, replyCtx: "ctx"}
+					e.interactiveStates[key] = state
+					a.events <- Event{Type: EventText, Content: "already streamed intro"}
+					a.events <- Event{Type: EventThinking, Content: "continue"}
+					if result != "error" {
+						a.events <- Event{Type: EventText, Content: "provisional tail"}
+					}
+					terminal := Event{Type: EventResult, Content: "terminal-only " + result, Done: true}
+					if result == "error" {
+						terminal.Metadata = map[string]any{MetaResultIsError: true}
+					} else if result == "stop-rewrite" {
+						terminal.Metadata = map[string]any{MetaStopBlockedReply: true}
+					}
+					a.events <- terminal
+					e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+					sent := p.(interface{ getSent() []string }).getSent()
+					if cp, ok := p.(*turnTailCardPlatform); ok {
+						if len(sent) != 0 {
+							t.Fatalf("card answer also sent as plain text: %q", sent)
+						}
+						sent = append(sent, cp.card.final)
+					}
+					out := strings.Join(sent, "\n")
+					if n := strings.Count(out, terminal.Content); n != 1 {
+						t.Fatalf("terminal content delivered %d times, want once: %q", n, sent)
+					}
+					if n := strings.Count(out, "already streamed intro"); n > 1 {
+						t.Fatalf("intro repeated %d times: %q", n, sent)
+					}
+				})
+			}
+		}
+	}
+}

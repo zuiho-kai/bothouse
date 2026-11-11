@@ -7475,23 +7475,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if e.display.HideAgentFooter {
 				fullResponse = stripAgentFooterLines(fullResponse)
 			}
-			// When tool progress is hidden, segmentStart stays 0 and textParts
-			// contains ALL text across tool boundaries. Prefer the full accumulated
-			// text over event.Content which only contains the last assistant segment.
-			// A Stop hook blocked the turn: the adapter already chose between the
-			// blocked draft and the rewrite, and textParts holds both (#1051).
-			stopBlocked, _ := event.Metadata[MetaStopBlockedReply].(bool)
-			if stopBlocked && strings.TrimSpace(fullResponse) != "" {
-				// keep event.Content
-			} else if len(textParts) > 0 && segmentStart == 0 && !e.display.ToolMessages {
-				fullResponse = strings.Join(textParts, "")
-			} else if fullResponse == "" && len(textParts) > 0 {
+			// A nonempty terminal result owns the final reply, including an
+			// adapter-only error or Stop-hook rewrite. Only an empty result asks
+			// us to assemble streamed text. Display settings cannot choose the
+			// answer's source (#703: quiet mode discarded terminal-only text).
+			terminalReply := fullResponse != ""
+			if !terminalReply && len(textParts) > 0 {
 				fullResponse = strings.Join(textParts, "")
 			}
 			// The adapter marked an exhausted quota; say which bot/model ran out so
 			// other bots in the channel are not blamed.
 			if reset, ok := QuotaExhaustedReset(event); ok {
 				fullResponse = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
+				terminalReply = true
 			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
@@ -7829,14 +7825,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						return
 					}
 				}
-			} else if segmentStart > 0 && !(stopBlocked && strings.TrimSpace(event.Content) != "") {
+			} else if segmentStart > 0 && !terminalReply {
 				// textParts[:segmentStart] already reached the chat: every place that
 				// advances segmentStart has sent it as a segment, kept it as a detached
 				// preview, or put it in the progress card. The turn end owns only the
 				// rest. A thinking step flushes a segment without any tool call, so
 				// this must not depend on toolCount (#700: tools=0 turn re-sent both
-				// halves glued together). A Stop-hook rewrite is the adapter's chosen
-				// reply and keeps the normal flow (#1051).
+				// halves glued together). A terminal reply uses the normal flow
+				// instead: it can contain text absent from textParts (#703).
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
 					unsent = finalReplyText(unsent)
