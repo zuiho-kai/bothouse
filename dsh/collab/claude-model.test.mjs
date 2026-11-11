@@ -22,6 +22,8 @@ test('#1592 team-created Claude member keeps omitted fields and persists model e
   const before = { ...store.member(id) };
   const changed = await managementUpdate(roster, id, { model: 'sonnet' });
   assert.equal(changed.model, 'sonnet');
+  assert.deepEqual(changed.cliConfig, { model: 'sonnet' });
+  assert.deepEqual(managementMembers(roster, hub).find(m => m.id === id).cliConfig, { model: 'sonnet' });
   assert.equal(changed.apply.status, 'pending');
   assert.deepEqual({ ...store.member(id), model: before.model }, before, 'other columns are unchanged');
   const kept = await roster.update(id, { persona: 'edited' });
@@ -31,7 +33,9 @@ test('#1592 team-created Claude member keeps omitted fields and persists model e
   assert.deepEqual(kept.rooms, [team.room.id]);
   roster.load([]);
   assert.equal(hub.members.get(id).model, 'sonnet', 'model survives roster reload');
-  assert.equal((await managementUpdate(roster, id, { model: null })).model, null);
+  const cleared = await managementUpdate(roster, id, { model: null });
+  assert.equal(cleared.model, null);
+  assert.equal(cleared.cliConfig, null);
   for (const model of ['', '  ', 42, {}, { provider: 'p', model: 'm' }]) {
     await assert.rejects(managementUpdate(roster, id, { model }), /Claude model/);
   }
