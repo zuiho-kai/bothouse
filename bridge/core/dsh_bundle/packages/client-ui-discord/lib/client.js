@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 75bc748f8074afd694854b8759f0d6d6561af33730f246bc2a6a81149c90fb83
+// dsh-client-source-sha256: 0a97b0aba61128a61144f8460b6fecba62ca9702bd9797314e616d1f392e27b2
 // dsh-style-sha256: 9ec6f9be158431d36e8c658f1b8def48515a0e80fe35ad14ccfa7202308bb0cd
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -20276,6 +20276,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 	const nativeModel = member?.model && typeof member.model !== "string" ? member.model : void 0;
 	const [modelKey, setModelKey] = (0, react.useState)(nativeModel ? nativeModel.provider + SEP + nativeModel.model : "");
 	const [claudeModel, setClaudeModel] = (0, react.useState)(member?.cli === "claude" && typeof member.model === "string" ? member.model : "");
+	const [claudeModelChanged, setClaudeModelChanged] = (0, react.useState)(false);
 	const [routes, setRoutes] = (0, react.useState)(void 0);
 	const [error, setError] = (0, react.useState)(void 0);
 	const [busy, setBusy] = (0, react.useState)(false);
@@ -20390,7 +20391,7 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 			...pendingPng ? { avatarPng: pendingPng } : {},
 			cli,
 			permissionPreset: preset,
-			...cli === "claude" ? { model: claudeModel.trim() || null } : {}
+			...cli === "claude" && (member?.cli !== "claude" || claudeModelChanged) ? { model: claudeModel.trim() || null } : {}
 		} : {
 			name: name.trim(),
 			...identity,
@@ -20616,7 +20617,10 @@ function MemberDialog({ member, members = NO_MEMBERS, listModels, listClis, list
 							"aria-label": t("memberModel"),
 							value: claudeModel,
 							placeholder: t("memberClaudeModelDefault"),
-							onChange: (event) => setClaudeModel(event.target.value)
+							onChange: (event) => {
+								setClaudeModel(event.target.value);
+								setClaudeModelChanged(true);
+							}
 						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("memberClaudeModelHint") })
 					]

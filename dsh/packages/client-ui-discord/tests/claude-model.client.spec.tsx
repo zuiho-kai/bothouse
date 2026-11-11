@@ -29,6 +29,16 @@ it('reopens the saved Claude model and clears it to the CLI default', async () =
   await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({ cli: 'claude', model: null })))
 })
 
+it('omits the saved Claude model when only another field changes', async () => {
+  const submit = vi.fn(async (_input: MemberInput) => {})
+  render(<MemberDialog member={{ ...member, model: 'sonnet' }} listModels={models} listClis={clis} onSubmit={submit} onClose={() => {}} t={t} />)
+  fireEvent.click(screen.getByText(zh.memberOptional))
+  fireEvent.change(screen.getByLabelText(zh.memberPersona), { target: { value: 'Edited persona' } })
+  fireEvent.click(screen.getByRole('button', { name: zh.save }))
+  await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({ cli: 'claude', persona: 'Edited persona' })))
+  expect(submit.mock.calls[0][0]).not.toHaveProperty('model')
+})
+
 it('includes the Claude model on creation but never sends it to another CLI', async () => {
   const submit = vi.fn(async (_input: MemberInput) => {})
   render(<MemberDialog member={undefined} listModels={models} listClis={clis} onSubmit={submit} onClose={() => {}} t={t} />)
