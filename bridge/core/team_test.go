@@ -478,16 +478,15 @@ func TestLeadSelectionForRemovedRoleFallsBackToConfiguredLead(t *testing.T) {
 	e := wizardTeamEngine(t, dir)
 	lead := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, true}
 	sub := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, false}
-	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
 	writeLeadSelection(t, dir, "removed")
 
 	e.name = "lead"
-	if e.suppressUnaddressedGroup(lead, msg) {
-		t.Fatal("selection names a removed role: the configured lead must answer")
+	if _, isLead := e.teamRole(lead); !isLead {
+		t.Fatal("selection names a removed role: the configured lead must be lead again")
 	}
 	e.name = "sub"
-	if !e.suppressUnaddressedGroup(sub, msg) {
-		t.Fatal("selection names a removed role: subs stay quiet as configured")
+	if _, isLead := e.teamRole(sub); isLead {
+		t.Fatal("selection names a removed role: subs stay subs as configured")
 	}
 
 	// Same with a team status board: the removed role has no status file there.
