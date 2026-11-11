@@ -112,12 +112,29 @@ func (e *Engine) leadCandidateKnown(name string) bool {
 // for a group message that has no explicit recipient. A configured gate owns
 // this decision when present, so this is deliberately only called by the
 // local no-gate path.
+//
+// A team without a routing model has nothing that can tell a message meant for the lead from
+// people talking among themselves, so no role starts a turn on a group message that does not
+// call it: the lead too answers only when @-ed, replied to or named at a line start (user
+// 2026-11-11「路由模型没开…理论上他不应该去接 除非被艾特」; agentm's lead had queued and
+// answered every message that @-ed another person). A one-to-one room and a workspace channel
+// keep the old routing: there the lead is the one being talked to.
 func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
-	if msg.FromBot || msg.Mentioned || msg.Direct {
+	if msg.FromBot || msg.Mentioned || msg.Direct || msg.PrivateRoom {
 		return false
 	}
 	configured, ok := p.(ConfiguredTeamLead)
 	hasLead := ok && configured.HasConfiguredTeamLead()
+	inTeam := hasLead
+	if e.team == nil {
+		_, self := p.(ConfiguredTeamLeadSelf)
+		inTeam = hasLead && self
+	}
+	if inTeam && !e.unaddressedGoesToLead(msg) {
+		slog.Info("team: no routing model, group message calls no one here; listening only",
+			"session", msg.SessionKey, "project", e.name, "addressed_other", msg.AddressedOther)
+		return true
+	}
 	if e.team == nil {
 		// A multi-role setup from the wizard names its lead in team_lead_bot on every
 		// member but may have no team status board; without a gate that setting alone
@@ -147,6 +164,20 @@ func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
 		return false
 	}
 	return !e.isTeamLead()
+}
+
+// unaddressedGoesToLead: a message that calls no one is still the lead's to answer only in a
+// workspace channel (its work, handed back and forth there without @).
+func (e *Engine) unaddressedGoesToLead(msg *Message) bool {
+	if msg.AddressedOther {
+		return false
+	}
+	ch := msg.ChannelID
+	if ch == "" {
+		ch = sessionChannel(msg.SessionKey)
+	}
+	_, ws := e.workspaceOwner(ch)
+	return ws
 }
 
 type teamSession struct {

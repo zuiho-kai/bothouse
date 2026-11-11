@@ -132,7 +132,8 @@ func TestWizardTeamLeadGetsBoard(t *testing.T) {
 
 // Turning team status on for a wizard team keeps the no-gate routing it had without it
 // (TestNoGateWizardTeamRoutesByConfiguredLead): the lead answers unaddressed messages, the subs
-// stay quiet, an addressed sub answers and the lead then stays quiet.
+// stay quiet, an addressed sub answers and the lead then stays quiet. Since 2026-11-11 the lead
+// too stays quiet on a message that calls no one: without a routing model only an @ starts a turn.
 func TestWizardTeamDefaultsKeepNoGateRouting(t *testing.T) {
 	dataDir := t.TempDir()
 	writeSetupState(t, dataDir, wizardTwoRoles)
@@ -141,8 +142,8 @@ func TestWizardTeamDefaultsKeepNoGateRouting(t *testing.T) {
 	leadP := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, true}
 	subP := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, false}
 	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
-	if lead.suppressUnaddressedGroup(leadP, msg) {
-		t.Fatal("lead must answer an unaddressed message")
+	if !lead.suppressUnaddressedGroup(leadP, msg) {
+		t.Fatal("without a routing model the lead must not answer a message that calls no one")
 	}
 	if !sub.suppressUnaddressedGroup(subP, msg) {
 		t.Fatal("sub must stay quiet on an unaddressed message")
