@@ -197,7 +197,7 @@ func TestDSHWebPortOwnedRefusesAnotherDataDir(t *testing.T) {
 	t.Cleanup(func() { dshWebProcLookup = old })
 	webArgv := []string{"node", "/opt/homebrew/bin/dsh", "--profile", "web"}
 
-	dshWebProcLookup = func(int) ([]string, map[string]string, bool, bool) {
+	dshWebProcLookup = func(context.Context, int) ([]string, map[string]string, bool, bool) {
 		return webArgv, map[string]string{"BOTHOUSE_DATA_DIR": filepath.Join(t.TempDir(), "other")}, true, true
 	}
 	if pid, owned, why := dshWebPortOwned(context.Background(), port); owned {
@@ -206,7 +206,7 @@ func TestDSHWebPortOwnedRefusesAnotherDataDir(t *testing.T) {
 		t.Fatalf("refused for the wrong reason: %s", why)
 	}
 
-	dshWebProcLookup = func(int) ([]string, map[string]string, bool, bool) {
+	dshWebProcLookup = func(context.Context, int) ([]string, map[string]string, bool, bool) {
 		return webArgv, map[string]string{"BOTHOUSE_DATA_DIR": own}, true, true
 	}
 	if pid, owned, why := dshWebPortOwned(context.Background(), port); !owned || pid != os.Getpid() {
@@ -214,7 +214,7 @@ func TestDSHWebPortOwnedRefusesAnotherDataDir(t *testing.T) {
 	}
 
 	// A dsh of another profile is never a web host, whatever its data dir.
-	dshWebProcLookup = func(int) ([]string, map[string]string, bool, bool) {
+	dshWebProcLookup = func(context.Context, int) ([]string, map[string]string, bool, bool) {
 		return []string{"node", "/opt/homebrew/bin/dsh", "--profile", "headless"},
 			map[string]string{"BOTHOUSE_DATA_DIR": own}, true, true
 	}
@@ -223,7 +223,7 @@ func TestDSHWebPortOwnedRefusesAnotherDataDir(t *testing.T) {
 	}
 
 	// Without a readable command line nothing is claimed.
-	dshWebProcLookup = func(int) ([]string, map[string]string, bool, bool) { return nil, nil, false, false }
+	dshWebProcLookup = func(context.Context, int) ([]string, map[string]string, bool, bool) { return nil, nil, false, false }
 	if _, owned, why := dshWebPortOwned(context.Background(), port); owned {
 		t.Fatalf("an unreadable process was accepted: %s", why)
 	}

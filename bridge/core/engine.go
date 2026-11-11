@@ -1934,7 +1934,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	if job.IsShellJob() {
 		if check {
-			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, func(p Platform) error {
+			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, job.SessionKey, job.WorkDir, func(p Platform) error {
 				return e.executeCronShell(p, replyCtx, job)
 			})
 		}
@@ -2270,7 +2270,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 
 	if job.IsShellJob() {
 		if check {
-			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, func(p Platform) error {
+			return e.runQuietOKShell(effectivePlatform, replyCtx, job.ID, job.Description, job.SessionKey, job.WorkDir, func(p Platform) error {
 				return e.executeTimerShell(p, replyCtx, job)
 			})
 		}
@@ -2652,7 +2652,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 
 	select {
 	case <-doneCh:
-		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel)
+		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir)
 	case <-ctx.Done():
 		killAndWait(shellCmd, doneCh)
 		mu.Lock()
@@ -2718,7 +2718,7 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	select {
 	case <-doneCh:
 		close(updateDone)
-		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, useUpdate, previewHandle)
+		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir, useUpdate, previewHandle)
 	case <-ctx.Done():
 		close(updateDone)
 		killAndWait(shellCmd, doneCh)
@@ -2827,7 +2827,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	// Wait briefly to see if the command finishes quickly
 	select {
 	case <-doneCh:
-		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel)
+		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir)
 	case <-ctx.Done():
 		killAndWait(shellCmd, doneCh)
 		mu.Lock()
@@ -2894,7 +2894,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	select {
 	case <-doneCh:
 		close(updateDone)
-		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, useUpdate, previewHandle)
+		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir, useUpdate, previewHandle)
 	case <-ctx.Done():
 		close(updateDone)
 		killAndWait(shellCmd, doneCh)
@@ -2914,7 +2914,7 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	}
 }
 
-func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sync.Mutex, buf *bytes.Buffer, cmdLabel string, opts ...any) error {
+func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sync.Mutex, buf *bytes.Buffer, cmdLabel, sessionKey, workDir string, opts ...any) error {
 	mu.Lock()
 	output := buf.String()
 	mu.Unlock()
@@ -2940,7 +2940,10 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 	if len(opts) >= 2 {
 		if useUpdate, ok := opts[0].(bool); ok && useUpdate {
 			if handle := opts[1]; handle != nil {
-				_ = updaterFor(p).UpdateMessage(e.ctx, handle, finalMsg)
+				if err := updaterFor(p).UpdateMessage(e.ctx, handle, finalMsg); err != nil {
+					return err
+				}
+				e.recordExternalSend(p, sessionKey, workDir, finalMsg, "定时脚本")
 				if !exitOK {
 					return fmt.Errorf("shell: exit code %d", cmd.ProcessState.ExitCode())
 				}
@@ -2949,7 +2952,12 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 		}
 	}
 
-	e.sendSystemNotice(p, replyCtx, finalMsg)
+	if !e.noticeKeptOut(p, replyCtx, finalMsg) {
+		if err := e.sendWithError(p, markSystemNotice(p, replyCtx), finalMsg); err != nil {
+			return err
+		}
+		e.recordExternalSend(p, sessionKey, workDir, finalMsg, "定时脚本")
+	}
 	if !exitOK {
 		return fmt.Errorf("shell: exit code %d", cmd.ProcessState.ExitCode())
 	}
@@ -6420,9 +6428,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// sendWorkspace* deliver the agent's own output (text, thinking, tool
 	// lines); maomao fork: the reply context is marked so backfill skips them.
 	sendWorkspace := func(p Platform, replyCtx any, content string) {
-		_ = authorizedOutput(outputCtx, func() error {
+		err := authorizedOutput(outputCtx, func() error {
 			return e.sendWithContextForWorkspace(outputCtx, p, markAgentReply(p, replyCtx, session), content, workspaceDir)
 		})
+		if err == nil && session.Side {
+			e.recordExternalSend(p, sessionKey, workspaceDir, content, "定时侧会话")
+		}
 	}
 	sendWorkspaceWithError := func(p Platform, replyCtx any, content string) error {
 		err := authorizedOutput(outputCtx, func() error {
@@ -6430,6 +6441,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		})
 		if err != nil {
 			input.finish(inputTurnResult{err: fmt.Errorf("reply delivery: %w", err)})
+		} else if session.Side {
+			e.recordExternalSend(p, sessionKey, workspaceDir, content, "定时侧会话")
 		}
 		return err
 	}
@@ -13899,9 +13912,13 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 	}
 
-	state, p, replyCtx, err := e.resolveOutboundSessionTarget(sessionKey, len(images) > 0 || len(files) > 0)
+	target, err := e.resolveSendTarget(sessionKey, len(images) > 0 || len(files) > 0)
 	if err != nil {
 		return err
+	}
+	state, p, replyCtx := target.state, target.platform, target.replyCtx
+	if p == nil {
+		return fmt.Errorf("no active session found (key=%q)", sessionKey)
 	}
 
 	if message == "" && len(images) == 0 && len(files) == 0 {
@@ -13968,6 +13985,17 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			state.turnSentTexts = append(state.turnSentTexts, message)
 			state.mu.Unlock()
 		}
+		contextKey := sessionKey
+		if contextKey == "" {
+			contextKey = target.sessionKey
+		}
+		workDir := ""
+		if state != nil {
+			state.mu.Lock()
+			workDir = state.workspaceDir
+			state.mu.Unlock()
+		}
+		e.recordExternalSend(p, contextKey, workDir, message, "脚本/API")
 		// a workspace's own posts (ws-up stage results) also go into its task thread
 		e.postToTaskThread(p, sessionKey, message)
 	}
@@ -14034,9 +14062,6 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		return err
 	}
 	session := sessions.NewSession(target.sessionKey, "send")
-	if message != "" {
-		session.AddHistory("assistant", message)
-	}
 	sessions.Save()
 	e.bindSendWorkDir(target.sessionKey, workDir)
 
@@ -14081,6 +14106,9 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 			target.state.turnSentTexts = append(target.state.turnSentTexts, message)
 			target.state.mu.Unlock()
 		}
+		session.AddHistory("assistant", message)
+		sessions.Save()
+		e.recordExternalSend(target.platform, target.sessionKey, workDir, message, "脚本/API")
 	}
 	for _, img := range images {
 		if err := e.waitOutgoing(target.platform); err != nil {

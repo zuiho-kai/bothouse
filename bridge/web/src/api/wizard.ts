@@ -131,7 +131,7 @@ export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
 
 export interface DSHStatus {
   found: boolean; version?: string; plugin_installed: boolean; profile: string;
-  open_command: string; log?: string; has_deepseek_key?: boolean;
+  open_command: string; log?: string; has_deepseek_key?: boolean; native_model_configured?: boolean;
   node_version?: string; pnpm_found?: boolean; dependency_error?: string;
   /** DeepSeek Harness Desktop (core/setup_dsh_desktop.go): the wizard's default route. */
   desktop_app?: string; desktop_profile_ready?: boolean; desktop_plugin_installed?: boolean;
@@ -139,7 +139,9 @@ export interface DSHStatus {
 }
 /** Where the roles live: the DeepSeek Harness Desktop window, or the DSH web page in a browser tab. */
 export type DSHTarget = 'desktop' | 'web';
-export const getDSHStatus = (lang = 'en') => api.get<DSHStatus>('/setup/dsh/status?lang=' + encodeURIComponent(lang));
+/** target picks whose profile `native_model_configured` describes: the desktop app or the DSH web page. */
+export const getDSHStatus = (lang = 'en', target?: DSHTarget) => api.get<DSHStatus>(
+  '/setup/dsh/status?lang=' + encodeURIComponent(lang) + (target ? '&target=' + encodeURIComponent(target) : ''));
 
 /** One line of the POST /setup/dsh/install NDJSON stream (core/setup_dsh_platform.go handleSetupDSHInstall). */
 export interface DSHInstallEvent { step?: string; line?: string; done?: boolean; status?: DSHStatus; error?: string; log?: string }
@@ -178,7 +180,7 @@ export async function installDSHPlugin(lang: string, onEvent: (e: DSHInstallEven
 }
 
 export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string; name_customized?: boolean }
-export const configureDSH = (body: { deepseek_api_key?: string; members: DSHMember[] }) =>
+export const configureDSH = (body: { deepseek_api_key?: string; target?: DSHTarget; members: DSHMember[] }) =>
   api.post<{ key_saved: boolean; members_file: string; members: number }>('/setup/dsh/configure', body);
 /** Opens (restarting when it must load new plugins or roles) DeepSeek Harness Desktop. */
 export const openDSHDesktop = (lang = 'en', restart = false) => api.post<{ app: string; pid?: number; restarted: boolean }>('/setup/dsh/open-desktop', { lang, restart });

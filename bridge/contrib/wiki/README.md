@@ -80,6 +80,17 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 预算耗尽不增加模型失败次数，不推进未接受内容的偏移或片段检查点；已接受的本地提交保留，未推送的下轮再同步。
 `WIKI_STOP_AT` 保持批次之间停止的软期限语义，不打断正在执行的一批；硬期限仍由调度器约束。
 这些运行环境由现有入口传递，无需另配定时任务或延长 90 分钟时限。
+升级前装的调度器不传 `CC_JOB_DEADLINE`：这时的角色 wiki 入口按该任务现有的外层时限自设一个兜底窗口
+（白天 `pending` 90 分钟，`nightly` / `lint` 30 分钟，与 jobs.json 里这三类任务的 `timeout_mins` 一致），
+写回 `CC_JOB_DEADLINE` 让整理子进程和每次模型调用共用同一个期限；调度器明确传空串（本身无时限的任务）
+仍保持无时限，`WIKI_STOP_AT` 的软停止语义也不变。
+等 wiki 的 `.ingest.lock` 也用同一份剩余预算（`export.py` 的 `lock_or_busy`）：白天 `--no-wait` 只问一次，
+夜里 `nightly` / `lint` 反复试到预算用完为止，到点这一轮返回失败（结果里 `busy` 和 `failed`，日志写一行），
+抢锁前和抢到后都检查期限，最后一次等待不超过实际剩余时间；等锁到点时还没读写任何东西，
+会话偏移和 `pending_parts` 保持原样，下一次触发接着做。父层 `budget.run` 若先超时，完成子树回收后
+也按导出失败返回，不把预算超时异常传入 `main()`；夜间入口仍沿用原来的退出码 0，失败原因在日志里。
+旁边的 `llmwiki` 还是旧版、没有 `budget.py` 时，也优先使用 `CC_JOB_DEADLINE` 的绝对期限，空串仍为不限时；
+只有变量缺失才按上面夜间任务的 30 分钟初始化一次，并写回环境给本轮所有角色共用，不为每把锁重新计时。
 
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。

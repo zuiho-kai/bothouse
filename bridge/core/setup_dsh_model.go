@@ -11,10 +11,10 @@ package core
 //     launch env, $DSH_HOME/.env) — or a DeepSeek account login.
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -116,21 +116,23 @@ func dshCredentials(dshHome string) (refs map[string]string, account bool) {
 	return refs, account
 }
 
-// dshDotenvHas: $DSH_HOME/.env sets name (DSH's last fallback for a key).
+// Source: Harness uses Node util.parseEnv: quotes preserve # and multiline values,
+// unquoted # starts a comment, dollar expressions stay literal, and the last assignment wins.
+var dshDotenvEntry = regexp.MustCompile("(?m)^[\t ]*(?:export[\t ]+)?([A-Za-z_][A-Za-z0-9_]*)[\t ]*=[\t ]*(?:\"([^\"]*)\"|'([^']*)'|`([^`]*)`|([^\r\n#]*))")
+
+// dshDotenvHas checks presence only, without loading values into the bridge environment.
 func dshDotenvHas(dshHome, name string) bool {
-	f, err := os.Open(filepath.Join(DSHHome(dshHome), ".env"))
+	b, err := os.ReadFile(filepath.Join(DSHHome(dshHome), ".env"))
 	if err != nil {
 		return false
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimPrefix(strings.TrimSpace(sc.Text()), "export ")
-		if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == name && strings.Trim(strings.TrimSpace(v), `"'`) != "" {
-			return true
+	present := false
+	for _, entry := range dshDotenvEntry.FindAllStringSubmatch(strings.ReplaceAll(string(b), "\r", ""), -1) {
+		if entry[1] == name {
+			present = entry[2] != "" || entry[3] != "" || entry[4] != "" || strings.TrimSpace(entry[5]) != ""
 		}
 	}
-	return false
+	return present
 }
 
 // dshModelSetup checks that a new DSH role will have a model and a key, before anything is written. It returns

@@ -27,6 +27,11 @@ export default function QQSettingsPanel({ project, platforms, restartSeq }: {
   const [clearToken, setClearToken] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState<'restart' | 'unchanged' | ''>('');
+  // "A save needs a restart" outlives the just-saved note: a later edit or a failed save
+  // does not write anything, so the change saved earlier is still only on disk. Only a
+  // restart (restartSeq) makes it live. #654: a failed save used to flip this back to
+  // "connected" and hide a restart that was still pending.
+  const [pendingRestart, setPendingRestart] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -40,7 +45,7 @@ export default function QQSettingsPanel({ project, platforms, restartSeq }: {
   }, [project]);
 
   useEffect(() => {
-    setData(null); setToken(''); setClearToken(false); setSaved('');
+    setData(null); setToken(''); setClearToken(false); setSaved(''); setPendingRestart(false);
     fetchData();
     // Other panels can save the same QQ entry (the project's access-control card);
     // without this the panel keeps showing what it read at mount (#710 件 1).
@@ -74,6 +79,7 @@ export default function QQSettingsPanel({ project, platforms, restartSeq }: {
         ...(clearToken ? { token: '' } : token ? { token } : {}),
       });
       setSaved(result.restart_required ? 'restart' : 'unchanged');
+      if (result.restart_required) setPendingRestart(true);
       setToken(''); setClearToken(false);
       if (result.settings) setData({ ...data, settings: result.settings });
     } catch (e) {
@@ -86,7 +92,7 @@ export default function QQSettingsPanel({ project, platforms, restartSeq }: {
   const state = qqConnectionState({
     configured: data?.configured ?? true,
     platforms,
-    pendingRestart: saved === 'restart',
+    pendingRestart,
   });
   const savedNote = saved === 'restart' ? t('qq.savedRestart') : saved === 'unchanged' ? t('common.saved') : '';
 

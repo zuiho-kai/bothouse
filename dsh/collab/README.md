@@ -115,6 +115,8 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /absolute/path/t
 - **模型变更即时生效**：写了 `model` 的成员每次请求都用它；在成员表单里改模型，已绑定的会话下一次请求就切换，并在会话日志里记一条 `model/selection`。
 - **重新开始对话**：在频道里发 `@成员名 /new`，只重置被点名成员在当前频道的会话，从该命令之后继续读取消息；其他成员、频道历史和 wiki 不因此清空。
 - 接口（都需要 DSH 登录）：`GET /collab/api/models`、`POST /collab/api/rooms`、`POST /collab/api/members`、`PATCH|DELETE /collab/api/members/{id}`。
+- Claude CLI 成员的 `model` 是 CLI 模型 ID 字符串（例如 `"sonnet"`），DSH 成员仍使用 `{ "provider": "...", "model": "..." }`。`PATCH /collab/api/members/{id}` 和 `/collab/api/panel/members/{id}` 都保留未传字段；`model: null` 清除覆盖，Claude 已有会话在下一轮恢复其初始默认模型。切换在发出下一轮提示词前应用，失败时停止该轮并报错，不默默沿用旧模型。配置文件成员仍只读。
+- 建团队接口的成员项可写 `{ "name": "Claude", "cli": "claude", "model": "sonnet" }`；省略 `model` 使用该 CLI 的默认模型，省略 `cli` 保留原有 DSH 成员行为。
 
 ## 接入 cc-connect 成员
 

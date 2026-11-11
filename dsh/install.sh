@@ -240,4 +240,16 @@ fs.writeFileSync(file, doc.toString());
 JS
 fi
 echo "== done; check with: dsh --profile $PROFILE --dump-config"
-echo "== channel data: ${CONEST_COLLAB_DATA:-$HOME/.conest-collab} (collab.sqlite3; set CONEST_COLLAB_DATA before starting dsh to change it)"
+CHANNEL_DATA="${CONEST_COLLAB_DATA:-$HOME/.conest-collab}"
+DATA_DIR="${BOTHOUSE_DATA_DIR:-}"
+case "$DATA_DIR" in "~"|"~/") DATA_DIR="$HOME" ;; "~/"*) DATA_DIR="$HOME/${DATA_DIR#\~/}" ;; esac
+while [ "${DATA_DIR%/}" != "$DATA_DIR" ]; do DATA_DIR="${DATA_DIR%/}"; done
+# Same rule as collabDataDir and the patch's dataDir: BOTHOUSE_DATA_DIR counts only when it is a real
+# data directory. ~/.bothouse and ~/.cc-connect are the bridge's own defaults (a parent that leaves the
+# variable alone still hands them to the child), and the previous release reads its roles from
+# ~/.conest-collab, so an upgrade must not move channel data out from under it.
+if [ -n "$DATA_DIR" ] && [ "$DATA_DIR" != "$HOME/.bothouse" ] && [ "$DATA_DIR" != "$HOME/.cc-connect" ]; then
+  CHANNEL_DATA="${CONEST_COLLAB_DATA:-$DATA_DIR/conest-collab}"
+  echo "== isolated data: $DATA_DIR (existing home wiki, plugin and channel data stay in place; no migration)"
+fi
+echo "== channel data: $CHANNEL_DATA (collab.sqlite3; set CONEST_COLLAB_DATA before starting dsh to change it)"

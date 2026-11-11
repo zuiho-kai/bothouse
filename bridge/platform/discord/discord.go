@@ -95,6 +95,7 @@ type Platform struct {
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
 	guildID                    string            // optional: instant guild registration, plus DM-only global commands
 	allowGuilds                map[string]bool   // allow_guilds: only these servers (and "dm") are served; see allow_guilds.go
+	dmDenyFrom                 map[string]bool   // dm_deny_from: DMs from these users are dropped; see dm_deny_from.go
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -230,6 +231,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		teamLead:                   teamLead,
 		guildID:                    guildID,
 		allowGuilds:                parseAllowGuilds(opts),
+		dmDenyFrom:                 parseDMDenyFrom(opts),
 		progressStyle:              progressStyle,
 		cardEntries:                cardEntries,
 		cardLineLen:                cardLineLen,
@@ -820,6 +822,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if !p.guildAllowed(m.GuildID) {
 		return
 	}
+	if p.dmDenied(m.GuildID, m.Author.ID) {
+		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
+		return
+	}
 	asTestPerson(m, p.testWebhookPeople)
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
 	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
@@ -1123,6 +1129,10 @@ func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.Interact
 		userName = i.User.Username
 	}
 
+	if p.dmDenied(i.GuildID, userID) {
+		slog.Info("discord: DM interaction skipped by dm_deny_from", "user", userID)
+		return
+	}
 	if !core.AllowList(p.allowFrom, userID) {
 		slog.Debug("discord: interaction from unauthorized user", "user", userID)
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

@@ -21,8 +21,15 @@
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
 10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。
-11. 报预计时间、挂定时（ws-*、later、board、bothouse progress/send/relay/timer/task）长于 15 分钟没写实测依据或外部等待 → 拦（eta_guard.py）。"""
-import ast, json, os, re, shlex, sys
+11. 报预计时间、挂定时（ws-*、later、board、bothouse progress/send/relay/timer/task）长于 15 分钟没写实测依据或外部等待 → 拦（eta_guard.py）。
+12. 不拦只改：主会话（非 DSH、非子 agent）前台的远程、装包下载、CI、编译测试命令 timeout 超过 5 分钟时压到 290 秒。
+13. 团队聊天频道不发测试：命令要往名单里的频道发东西就拦。名单 <钩子目录>/team-chat-channels.txt（或 HOOK_TEAM_CHANNELS），没有就不查。
+14. 合并前真实入口验证：gh pr merge、GitCode 合并类接口先问 merge-gate guard；没装 merge-gate 不查。
+15. 不拦只改：测试命令输出接 | tail/head/cut/sed/tee 时自动加 set -o pipefail；接 grep 的只提示。
+6 补：for … sleep … break … done、caffeinate -w 也算前台干等；perl alarm 包着的命令照里面的命令查。
+"""
+import ast, json, os, re, shlex, subprocess, sys
+HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 import eta_guard  # noqa: E402  预计/定时长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
@@ -136,6 +143,10 @@ WAIT_MSG = ("别前台干等：把命令放后台/推完就交付，附 run id �
             "（用户 2026-10-22「超过5分钟就是0缓存重写了」）。")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
 POLL_LOOP = re.compile(r"\b(until|while)\b.*?\bdo\b.*?\bsleep\b.*?\bdone\b", re.S)
+# 绕过上一条的两种（作者 11-03 复盘，慢命令 13 条 84 分钟）：for i in $(seq 1 38); do kill -0 …||break; sleep 8; done，
+# 以及 caffeinate -w <pid> 前台等进程结束。for 循环只在带 break 时算轮询（for … sleep 限速不算）。
+POLL_FOR = re.compile(r"\bfor\b.*?\bdo\b(?=.*?\bsleep\b)(?=.*?\bbreak\b).*?\bdone\b", re.S)
+PERL_ALARM = re.compile(r"perl\s+-e\s+(['\"])alarm[^'\"]*\1\s+\d+\s+")
 def interpreter_poll(program, source):
     """Inspect executable inline code, never shell-quoted data or string constants."""
     if re.fullmatch(r"python[\d.]*", program):
@@ -202,6 +213,7 @@ def check_wait(cmd, busy=None, dsh=False):
     """前台干等：gh run watch / gh … --watch / sleep ≥60 / until|while … sleep … done。
     DSH（dsh=True）任何前台 sleep 都拦；busy（本会话在跑的子 agent/后台任务）非空时提示里列出在跑的东西。"""
     cmd = HEREDOC.sub("", cmd)  # heredoc 正文是写进文件的内容，不是要执行的命令
+    cmd = PERL_ALARM.sub("", cmd)  # perl -e 'alarm shift; exec @ARGV' <秒> <命令…>：看被包的命令
     # shlex keeps the interpreter's quoted source in a single argument.
     try:
         lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()\n")
@@ -233,6 +245,8 @@ def check_wait(cmd, busy=None, dsh=False):
     shell = re.sub(r"(['\"])(?:\\.|(?!\1).)*?\1", " ", cmd, flags=re.S)
     if POLL_LOOP.search(shell):
         deny(WAIT_MSG + "\n被拦：until/while … sleep … done 轮询循环。")
+    if POLL_FOR.search(shell):
+        deny(WAIT_MSG + "\n被拦：for … sleep … break … done 轮询循环。")
     for t in commands:
         seg = shlex.join(t)
         if not t:
@@ -240,6 +254,8 @@ def check_wait(cmd, busy=None, dsh=False):
         prog = t[0].rsplit("/", 1)[-1]
         if prog == "gh" and (t[1:3] == ["run", "watch"] or any(a == "--watch" or a.startswith("--watch=") for a in t)):
             deny(WAIT_MSG + f"\n被拦的片段：{seg.strip()[:200]}")
+        if prog == "caffeinate" and "-w" in t:
+            deny(WAIT_MSG + f"\n被拦：caffeinate -w 前台等进程结束。被拦的片段：{seg.strip()[:200]}")
         if prog == "sleep" and busy:
             deny(BUSY_MSG.format(items="、".join(busy)) + f"\n被拦的片段：{seg.strip()[:200]}")
         if prog == "sleep" and dsh:
@@ -558,6 +574,100 @@ def check_speed(cmd, turn, cid):
 
 
 
+# ---- 规则 13：团队聊天频道不发测试（用户 2026-10-29「你不要污染我的团队服务器的常规频道啊」）----
+# 频道 id 一行一个（# 后是注释），文件 <钩子目录>/team-chat-channels.txt，或环境变量 HOOK_TEAM_CHANNELS 指的文件；没有这个文件不查。
+TEAM_CH_FILE = os.path.expanduser(os.environ.get("HOOK_TEAM_CHANNELS") or os.path.join(HERE, "team-chat-channels.txt"))
+
+
+def check_team_channels(cmd):
+    try:
+        ids = [l.split("#")[0].strip() for l in open(TEAM_CH_FILE, encoding="utf-8")]
+    except OSError:
+        return
+    ids = [i for i in ids if i]
+    if not re.search(r"\b(timer|cron)\s+add\b|\b(bothouse|cc-connect)\s+(send|relay)\b|\bPOST\b|\bDELETE\b|messages", cmd):
+        return
+    hit = [i for i in ids if i in cmd]
+    if hit and not re.search(r"\bDELETE\b", cmd):
+        deny("这条命令要往团队服务器的聊天频道发东西（" + "、".join(hit) + "）。测试、验收、回归一律放工作区频道或临时测试频道，"
+             f"不发聊天频道（名单 {TEAM_CH_FILE}）。没有放行标记：要往这些频道发东西，让那里的角色自己在频道里回话，或者先问用户。")
+
+
+# ---- 规则 14：合并前真实入口验证（作者 10-30 复盘第 4 条，用户「1-5都改」）----
+# gh pr merge、GitCode 合并类接口：PR 当前提交要在 merge-gate 登记过真实入口的截图或日志。判定全在 merge-gate guard 里；
+# 找不到 merge-gate（没装团队工具）不查。
+MERGE_CMD = re.compile(r"\bgh\s+pr\s+merge\b|api\.gitcode\.com/api/v5/repos/")
+
+
+def _merge_gate():
+    data = os.path.expanduser(os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or "~/.bothouse")
+    p = os.environ.get("HOOK_MERGE_GATE") or os.path.join(data, "collaboration", "lead", "merge-gate")
+    return p if os.path.exists(p) else ""
+
+
+def check_merge(cmd, cwd):
+    gate = MERGE_CMD.search(cmd) and _merge_gate()
+    if not gate:
+        return
+    try:
+        r = subprocess.run([gate, "guard", "--cmd", cmd] + (["--cwd", cwd] if cwd else []),
+                           capture_output=True, text=True, timeout=40)
+    except subprocess.TimeoutExpired:
+        deny("合并前要核对真实入口验证，merge-gate 40 秒没查完（多半是 GitCode/GitHub 接口慢）。稍后重试，查不到就不合。")
+    if r.returncode:
+        deny((r.stdout.strip() or r.stderr.strip()[-400:] or "merge-gate 拒绝") + f"\n被拦的命令：{cmd.strip()[:200]}")
+
+
+# ---- 规则 15：测试命令输出接 | tail/head/cut/sed/tee 时管道吞退出码（作者 11-02 复盘：`go test … | tail` 实际 2 个失败没看出来）----
+# 自动在前面加 `set -o pipefail;`（tail/head 自己总是 0，加了后退出码就是测试的）；接 grep 的只提示。
+TESTCMD = re.compile(r"\b(go\s+test|pytest|python3?\s+(-I\s+)?-m\s+(pytest|unittest)|(npm|pnpm|yarn)\s+(run\s+)?test|cargo\s+test|make\s+test|npx\s+(vitest|jest)|vitest\s+run|node\s+(\S+\s+)*--test|python3?\s+(-I\s+)?\S*test_\S+\.py)\b")
+TESTPIPE = re.compile(r"\|\s*(tail|head|cut|sed|tee)\b")
+TESTGREP = re.compile(r"\|\s*grep\b")
+TEST_MSG = ("这条测试命令的输出接了管道，退出码会被吞（有过 2 个失败被 tail 盖住）。已自动加 `set -o pipefail;`，"
+            "看退出码判断成败，不看 tail 出来的那几行。要过滤输出就把完整输出写进日志文件，另存退出码。")
+
+
+def pipefail_fix(inp):
+    cmd = inp.get("command", "")
+    if not TESTCMD.search(cmd) or re.search(r"pipefail|pipestatus|PIPESTATUS|testrun", cmd):
+        return None, None
+    if TESTPIPE.search(cmd):
+        return dict(inp, command="set -o pipefail; " + cmd), TEST_MSG
+    if TESTGREP.search(cmd):
+        return None, ("测试输出接了 grep：管道退出码是 grep 的，不是测试的，不能据此说测试过了。"
+                      "把完整输出写进日志文件、另存退出码，再 grep 日志。")
+    return None, None
+
+
+# ---- 规则 12：主会话前台长命令（作者 11-05 复盘：超 5 分钟的 7 条前台命令全是主会话远程安装、远程核查，自己设了 timeout 600000）----
+# 非 DSH、非子 agent（子 agent 归规则 10）的前台 Bash，timeout 超过 5 分钟且命令（去掉 heredoc 正文）是远程、装包下载、CI、
+# 编译测试这几类的，把 timeout 压到 290 秒（跑不完 Claude Code 自动转后台，主会话立刻拿回控制权）。不硬拦：回放 11-05 全天，
+# 这几类 110 条里真超 5 分钟的只有 7 条，硬拦多数是白重试。
+LONG_FG_MS = 300000  # 从发出到拿到结果超过 5 分钟算慢命令（作者 11-05 复盘）
+LONG_KIND = re.compile(r"(^|[\s;&|(\"'])(ssh|scp|rsync|npm|pnpm|yarn|pip3?|brew|curl|wget|pget|"
+                       r"git\s+(clone|fetch|pull|push)|gh\s+run|docker\s+(pull|push|build)|\S*deploy\S*\.sh|"
+                       r"(\S*/)?go\s+(test|install|build|clean)|(\S*/)?uv\s+cache|"
+                       r"npx\s+(vitest|jest|playwright)|vitest|jest|node\s+(\S+\s+)*--test|pytest|cargo\s+test|make\s+(test|check|e2e))\b")
+# perl alarm 自己给了超过 5 分钟的秒数，就是预期要跑那么久
+LONG_ALARM = re.compile(r"perl\s+-e\s+(['\"])alarm[^'\"]*\1\s+(\d+)\s")
+LONG_FG_MSG = ("这条前台命令设了超过 5 分钟的 timeout，又是安装、下载、CI、编译测试或远程操作，timeout 已压到 290 秒，跑不完会自动转后台。"
+               "下次一开始就后台起（run_in_background=true，套超时、输出写日志），结束这一轮，交回 pid 和日志路径，完成后看退出码；"
+               "编译、安装、验收拆成几条分开起。")
+
+
+def main_cap(inp, d):
+    """规则 12：返回压到 SUB_CAP_MS 的新 tool_input；不归这条返回 None。"""
+    if d.get("dsh") or d.get("agent_id") or inp.get("run_in_background"):
+        return None
+    if (inp.get("timeout") or 0) <= LONG_FG_MS:
+        return None
+    body = HEREDOC.sub("", inp.get("command", ""))
+    # 几条 perl alarm 串着跑按总和算
+    if not LONG_KIND.search(body) and sum(int(m.group(2)) for m in LONG_ALARM.finditer(body)) <= LONG_FG_MS // 1000:
+        return None
+    return dict(inp, timeout=SUB_CAP_MS)
+
+
 def main():
     d = json.load(sys.stdin)
     inp = d.get("tool_input") or {}
@@ -577,6 +687,8 @@ def main():
     eta = eta_guard.check_shell(cmd)
     if eta:
         deny(eta)
+    check_team_channels(cmd)
+    check_merge(cmd, d.get("cwd"))
     if (d.get("tool_input") or {}).get("run_in_background"):
         check_background(cmd)
     else:
@@ -615,12 +727,18 @@ def main():
             f"\n被拦的片段：{seg.strip()[:200]}"
         )
         deny(reason)
-    capped = sub_cap(inp, d)
-    if capped:  # 规则 10：只改 timeout，命令照常执行（别的规则已在上面查过）
+    fixed, test_msg = pipefail_fix(inp)
+    mcap = main_cap(fixed or inp, d)
+    capped = sub_cap(fixed or inp, d) or mcap or fixed
+    if capped:  # 规则 10/12：只改 timeout；规则 15：测试管道加 pipefail。命令照常执行（别的规则已在上面查过）
+        cap_msg = LONG_FG_MSG if mcap else SUB_CAP_MSG
+        msg = "\n".join(m for m in ((cap_msg if capped.get("timeout") != inp.get("timeout") else None), test_msg) if m)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
-                                                 "updatedInput": capped, "additionalContext": SUB_CAP_MSG}},
+                                                 "updatedInput": capped, "additionalContext": msg}},
                          ensure_ascii=False))
         sys.exit(0)
+    if test_msg:
+        hint(test_msg)
     if wiki_cat_pages(cmd, d.get("cwd")) >= WIKI_CAT_MIN:
         hint("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "
              "`bin/search.py <关键词>`）拿 路径:行号，再 `sed -n '<起>,<止>p' <页>` 只读命中段，不整页 cat 多页。")

@@ -655,14 +655,14 @@ export class Store {
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
-    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
+    this.q.seedMember.run(m.id, m.name, m.model?.provider ?? null, typeof m.model === 'string' ? m.model : m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, JSON.stringify(m.rooms ?? []), now);
   }
   addMember(m, now = Date.now() / 1000) {
-    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), now);
+    return this.q.addMember.get(m.id, m.name, m.model?.provider ?? null, typeof m.model === 'string' ? m.model : m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), now);
   }
   /** Edit a UI-created member; config members and removed ones are refused (undefined). */
   updateMember(id, m) {
-    return this.q.updateMember.get(m.name, m.model?.provider ?? null, m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), id);
+    return this.q.updateMember.get(m.name, m.model?.provider ?? null, typeof m.model === 'string' ? m.model : m.model?.model ?? null, m.cli ?? null, m.persona ?? '', m.avatar || null, m.permissionPreset ?? null, m.nameCustomized == null ? null : Number(m.nameCustomized), JSON.stringify(m.rooms ?? []), m.cliConfig ? JSON.stringify(m.cliConfig) : null, Number(Boolean(m.cliConfigManaged)), id);
   }
   removeMember(id) { return this.q.removeMember.get(id); }
   leadId(roomId) {

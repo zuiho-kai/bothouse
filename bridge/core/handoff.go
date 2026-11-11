@@ -864,6 +864,10 @@ func (s *Session) TakeHandoffFrom() (string, string) {
 func (s *Session) SettleHandoff(delivered bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if delivered && s.outboundTaken > 0 {
+		s.PendingOutbound = append([]ChannelHistoryMessage(nil), s.PendingOutbound[s.outboundTaken:]...)
+		s.outboundTaken = 0
+	}
 	if !delivered && s.handoffTaken[0] != "" && s.HandoffFrom == "" {
 		s.HandoffFrom, s.HandoffReason = s.handoffTaken[0], s.handoffTaken[1]
 	}
