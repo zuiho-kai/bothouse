@@ -54,9 +54,9 @@ and fixes when upgrading an older installation; copying a whole different ingest
 implementation is not a migration. Keep the existing nightly schedules.
 
 The role scheduler supplies `MANUALS_ROLE` using the project ID. A direct nightly
-run can resolve `.bothouse-role` or `.bothouse-main`; an unmarked wiki uses its
-configured assistant identity. Configure the identity deliberately when display
-names differ from project IDs. Transcript selection is the current wiki’s
+run can resolve `.bothouse-role` or `.bothouse-main`; an unmarked personal wiki
+retains the original personal skill paths and is not assigned to an invented role.
+Display names are not used as project IDs. Transcript selection is the current wiki’s
 configured transcript root, rather than a global scan.
 
 ## Verification
