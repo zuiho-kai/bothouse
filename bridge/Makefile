@@ -79,7 +79,7 @@ _TAGS_FLAG  := $(if $(_BUILD_TAGS),-tags '$(_BUILD_TAGS)',)
 
 PNPM ?= pnpm
 
-.PHONY: build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web hubsrc
+.PHONY: build build-noweb check-web-build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web hubsrc
 
 web:
 	cd web && $(PNPM) install --frozen-lockfile
@@ -97,11 +97,14 @@ hubsrc:
 	cp $(addprefix $(HUB_SRC)/,$(HUB_FILES)) $(HUB_DST)/
 	cp -R $(HUB_SRC)/static/. $(HUB_DST)/static/
 
-build: web hubsrc
+check-web-build:
+	$(if $(filter no_web,$(_BUILD_TAGS)),$(error Web builds cannot exclude web; use make build-noweb for an API-only binary))
+
+build: check-web-build web hubsrc
 	go build $(_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(APP) $(CMD)
 
 build-noweb:
-	go build $(_TAGS_FLAG) -tags 'no_web' -ldflags "$(LDFLAGS)" -o $(APP) $(CMD)
+	go build -tags '$(sort $(_BUILD_TAGS) no_web)' -ldflags "$(LDFLAGS)" -o $(APP)-noweb $(CMD)
 
 run: build
 	./$(APP)
@@ -170,7 +173,7 @@ test:
 lint:
 	golangci-lint run ./...
 
-release-all: web clean
+release-all: check-web-build web clean
 	@mkdir -p $(DIST)
 	@$(foreach platform,$(PLATFORMS), \
 		$(eval GOOS   := $(word 1,$(subst /, ,$(platform)))) \
@@ -192,7 +195,7 @@ release-all: web clean
 	@cd $(DIST) && sha256sum * > checksums.txt
 	@echo "Done. Binaries and archives in $(DIST)/"
 
-release:
+release: check-web-build
 	@if [ -z "$(TARGET)" ]; then \
 		echo "Usage: make release TARGET=linux/amd64"; \
 		echo "Available: $(PLATFORMS)"; \

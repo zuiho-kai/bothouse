@@ -442,6 +442,11 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 		}
 		assets := GetWebAssets()
 		if assets == nil {
+			if r.URL.Path == "/" || r.URL.Path == "/login" {
+				w.Header().Set("Cache-Control", "no-store")
+				http.Error(w, NewI18n(LangEnglish).T(MsgWebNotSupported), http.StatusServiceUnavailable)
+				return
+			}
 			apiMux.ServeHTTP(w, r)
 			return
 		}
