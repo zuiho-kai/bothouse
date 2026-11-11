@@ -686,12 +686,15 @@ type queuedMessage struct {
 	userMessageTimeMs int64  // Feishu create_time ms (optional); see Message.UserMessageTimeMs
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
-	turnCtxSender     string // #1160
-	fromBot           bool
-	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
-	direct            bool   // Message.Direct
-	overflow          bool   // context only: a full group queue gave its place away (queue_batch.go)
-	modeOverride      string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
+	// #739: a gate abort/redirect (Message.abortFront) is queued at the front, ahead of what it
+	// cancels; a batch that folds it in still answers it (queue_batch.go).
+	abortFront    bool
+	turnCtxSender string // #1160
+	fromBot       bool
+	mentioned     bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
+	direct        bool   // Message.Direct
+	overflow      bool   // context only: a full group queue gave its place away (queue_batch.go)
+	modeOverride  string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
 	// maomao fork: set for a queued cron/timer turn to its unmuted platform. When the turn starts
 	// it gets the same team note and channel backfill as a cron/timer turn run directly.
 	scheduledFrom Platform
@@ -4158,6 +4161,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		fromBot:             msg.FromBot,
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
+		abortFront:          msg.abortFront, // #739: the batch still answers this one
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.

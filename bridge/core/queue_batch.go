@@ -133,6 +133,14 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 	for reply > 0 && parts[reply].overflow {
 		reply--
 	}
+	// #739: an abort/redirect is queued at the front but is the person's latest word; the batch
+	// answers it rather than whatever queued behind the turn it cancels.
+	for i := range parts {
+		if parts[i].abortFront && !parts[i].overflow {
+			reply = i
+			break
+		}
+	}
 	// Attachments and the rest follow the parts in arrival order; who and what the reply goes to
 	// come from the reply part.
 	all := mergeQueued(parts)
@@ -289,9 +297,18 @@ func batchReference(parts []queuedMessage) *MessageReference {
 	return nil
 }
 
-// mergeQueued joins parts (oldest first) into one message that replies to the last one.
+// mergeQueued joins parts (oldest first) into one message. The reply goes to the last part,
+// except that an abort/redirect — queued at the front of pendingMessages but still the person's
+// latest word — takes the reply (#739).
 func mergeQueued(parts []queuedMessage) queuedMessage {
-	last := parts[len(parts)-1]
+	reply := len(parts) - 1
+	for i := range parts {
+		if parts[i].abortFront {
+			reply = i
+			break
+		}
+	}
+	last := parts[reply]
 	out := last
 	out.ambientChat = parts[0].ambientChat
 	out.reference = batchReference(parts)
@@ -312,6 +329,11 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 			fmt.Fprintf(&b, "[%d] %s\n", i+1, time.UnixMilli(p.userMessageTimeMs).Format("15:04:05"))
 		} else {
 			fmt.Fprintf(&b, "[%d]\n", i+1)
+		}
+		// #739: the answered part is not the last one (an abort/redirect), so say which it is;
+		// a plain burst needs no mark, it answers the last part.
+		if i == reply && reply != len(parts)-1 {
+			b.WriteString(latestMark + "\n")
 		}
 		// A re-queued batch already marks its own voice parts; never wrap its
 		// typed parts or let the last part decide whether earlier parts are marked.
