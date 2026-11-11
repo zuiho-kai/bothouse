@@ -559,7 +559,7 @@ esac
             owned.unlink()
             log.write_text("")
             board.main(["update", "1", "s", "", "工作区2主角色"])
-            self.assertIn("workspace claim 202 --session-key discord:100", log.read_text())
+            self.assertIn("workspace claim --session-key discord:100 --board 1 202", log.read_text())
             self.assertEqual(board.items()[0]["ws"], "discord:202")
             # 待接手不是工作区：不问桥
             log.write_text("")
