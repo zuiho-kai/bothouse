@@ -481,9 +481,12 @@ type capPendingEntry struct {
 }
 
 // capHandoffRef names the open handoff of a workspace at one moment (its key and start time).
+// unknown marks a ref taken while the workspace state could not be read: which task the message
+// belonged to is not known, so it is not the same as "no handoff" (a plain chat turn).
 type capHandoffRef struct {
-	key string
-	at  time.Time
+	key     string
+	at      time.Time
+	unknown bool
 }
 
 // capHandoffAt: the open handoff of workspace key now, if this engine owns it.
@@ -498,8 +501,8 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 	defer teamWorkspaceStore.mu.Unlock()
 	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	if err != nil {
-		slog.Error("capacity retry: workspace state unreadable; message held without a handoff", "key", key, "error", err)
-		return capHandoffRef{}
+		slog.Error("capacity retry: workspace state unreadable; the held message's task is unknown", "key", key, "error", err)
+		return capHandoffRef{key: key, unknown: true}
 	}
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[key] {
@@ -514,8 +517,13 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 // stillOwnsHandoff: false when the work of a held message has been handed to another role since
 // (the repeated-error reassign, the quota takeover) — re-delivering it would run the same work in
 // two places at once (#986 review 6.1) — or since paused or ended (#699). A message held without a
-// watch (a plain chat turn) and a watch that is simply gone are both re-delivered as before.
+// watch (a plain chat turn) and a watch that is simply gone are both re-delivered as before. A
+// message held while the state was unreadable belongs to an unknown task and is not re-delivered.
 func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
+	if ref.unknown {
+		slog.Error("capacity retry: held message's task was unknown when held; not re-delivered", "key", ref.key)
+		return false
+	}
 	if ref.key == "" {
 		return true
 	}

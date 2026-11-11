@@ -297,3 +297,44 @@ func TestTaskStateIsolatedInstanceWalk(t *testing.T) {
 	log, _ := os.ReadFile(filepath.Join(e.dataDir, teamTaskLogFile))
 	t.Logf("状态事件日志：\n%s", log)
 }
+
+// #699 incremental review ②: a message held while the workspace state could not be read belongs
+// to an unknown task. It used to get an empty ref, which stillOwnsHandoff treats as a plain chat
+// turn and re-delivers — the same path that re-opened the paused #677 (#698 ④). A plain chat turn
+// held while the state is readable is still re-delivered.
+func TestHeldMessageWithUnreadableStateIsNotRedelivered(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "", "#677", 677); err != nil {
+		t.Fatal(err)
+	}
+	restore := blockWorkspaceSave(t, e)
+	forgetTeamWorkspaceCache(e) // read from disk, as after a restart or a dropped cache
+	ref := e.capHandoffAt("discord:ws1:u1")
+	restore()
+	forgetTeamWorkspaceCache(e)
+	if !ref.unknown {
+		t.Fatalf("ref taken over unreadable state = %+v, want unknown", ref)
+	}
+	ran := 0
+	e.capMu.Lock()
+	e.capPending = append(e.capPending, capPendingEntry{redeliver: func() { ran++ }, handoff: ref})
+	e.capMu.Unlock()
+	e.flushCapacityPending()
+	if ran != 0 {
+		t.Fatalf("message of an unknown task re-delivered %d times", ran)
+	}
+
+	// Control: a plain chat turn (no handoff) held over readable state is re-delivered as before.
+	plain := e.capHandoffAt("discord:chatA:u1")
+	if plain.unknown || plain.key != "" {
+		t.Fatalf("plain chat ref = %+v, want empty", plain)
+	}
+	e.capMu.Lock()
+	e.capPending = append(e.capPending, capPendingEntry{redeliver: func() { ran++ }, handoff: plain})
+	e.capMu.Unlock()
+	e.flushCapacityPending()
+	if ran != 1 {
+		t.Fatalf("plain chat turn re-delivered %d times, want 1", ran)
+	}
+}
