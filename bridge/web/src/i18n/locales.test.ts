@@ -62,6 +62,12 @@ describe('locale files stay in step', () => {
     expect(QQ_STATE_KEYS.filter(k => !keys.has(k))).toEqual([]);
   });
 
+  // QQ 面板「保存了但没有改动」时显示 common.saved；这个键曾经七种语言全缺，
+  // 用户看到的是键名本身（2026-11-11 隔离实例走查发现，#710）。
+  it.each(Object.keys(dicts))('%s has common.saved for the QQ panel note', lang => {
+    expect(flatten(dicts[lang])).toContain('common.saved');
+  });
+
   it.each(Object.keys(dicts))('%s has no key that en.json does not have', lang => {
     const english = new Set(flatten(dicts.en));
     expect(flatten(dicts[lang]).filter(k => !english.has(k))).toEqual([]);

@@ -312,7 +312,8 @@
     "optional": "opcional",
     "confirmDelete": "¿Seguro que desea eliminar esto?",
     "close": "Cerrar",
-    "saving": "Guardando…"
+    "saving": "Guardando…",
+    "saved": "Guardado"
   },
   "setup": {
     "addPlatform": "Añadir plataforma",

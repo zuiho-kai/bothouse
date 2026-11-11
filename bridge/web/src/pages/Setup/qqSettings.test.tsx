@@ -64,6 +64,17 @@ it('preserves the saved token and sends an explicit false when disabling shared 
   expect(host.querySelector('[role="status"]')?.textContent).toBe('qq.savedRestart');
 });
 
+it('shows a saved note, not the key name, when a save changed nothing', async () => {
+  // 隔离实例走查里「保存但没改动」显示的是 common.saved 这个键名本身（#710）。
+  mocks.save.mockResolvedValueOnce({ restart_required: false, changed: [] });
+  await render(<QQSettingsPanel project="qq-role" platforms={[{ type: 'qq', connected: true }]} />);
+  await click('common.save');
+  const note = host.querySelector('[data-qq-saved]');
+  expect(note?.getAttribute('data-qq-saved')).toBe('unchanged');
+  expect(note?.textContent).toBe('common.saved');
+  expect(host.querySelector('[data-qq-state]')?.getAttribute('data-qq-state')).toBe('connected');
+});
+
 it('keeps edits on save failure and clears a stored token only when explicitly selected', async () => {
   mocks.save.mockRejectedValueOnce(new Error('disk full'));
   await render(<QQSettingsPanel project="qq-role" />);
