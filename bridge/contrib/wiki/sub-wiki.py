@@ -63,14 +63,22 @@ def run_one(rows, b, *args):
 def export(*args):
     with open(LOG, "a") as f:
         runner = budget.run if budget else subprocess.run
-        return runner([PY, "-X", "utf8", "-I", str(HERE / "export.py"), *args], stdout=f, stderr=f).returncode
+        try:
+            return runner([PY, "-X", "utf8", "-I", str(HERE / "export.py"), *args], stdout=f, stderr=f).returncode
+        except subprocess.TimeoutExpired:
+            if not budget or not budget.exhausted():
+                raise
+            # Parent and exporter share the same deadline. If the parent wins, budget.run has already reaped
+            # its child tree. Return the same failure as the child's lock timeout, without throwing into main.
+            say("export deadline reached; unread work retained for next run")
+            return 1
 
 
 # 钩子的最小环境：cc-connect 的环境带着 secrets.env 的全部变量，和主角色 ingest.py --hook 一样只留这些
 POSIX_KEEP = ("USER", "LOGNAME", "TMPDIR", "LANG")
 WIN_KEEP = ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA",
             "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "TEMP", "TMP", "USERNAME", "PATH")
-PASS = ("WIKI_BOTS", "WIKI_TRANSCRIPTS", "WIKI_PYTHON", "WIKI_STOP_AT", "CC_JOB_DEADLINE")
+PASS = ("WIKI_BOTS", "WIKI_TRANSCRIPTS", "WIKI_PYTHON", "WIKI_STOP_AT", "CC_JOB_DEADLINE", "CC_JOB_DEADLINE_FALLBACK")
 
 
 def hook_env():
@@ -103,6 +111,8 @@ def detach(argv, env):
 
 def main(argv):
     mode = argv[1] if len(argv) > 1 else ""
+    if budget:  # 兜底：装了新版调度器才有 CC_JOB_DEADLINE；没传时按这两个任务现有的外层时限自设，见 budget.py
+        budget.window(budget.FALLBACK_NIGHT_WINDOW if mode in ("nightly", "lint") else None)
     if budget and budget.stopped():
         say("wiki deadline reached; pending work retained for next run")
         return 0

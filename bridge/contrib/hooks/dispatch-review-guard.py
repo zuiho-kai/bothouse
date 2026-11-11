@@ -15,7 +15,7 @@
    subagent_type "researcher" 或 model 含 "sonnet"，否则拒绝（作者 2026-10-17「开销太大了」：调研用便宜的模型）。
    审稿和代码审查不受限。不设就不查（这条依赖该目录下定义了 researcher 子 agent）。
 已知局限：主会话用 Bash 改文件拦不住；主会话伪造审稿文件拦不住。"""
-import json, os, re, sys
+import datetime, json, os, re, subprocess, sys
 
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,13 +33,173 @@ RESEARCH_DIRS = [os.path.expanduser(x) for x in os.environ.get("HOOK_RESEARCHER_
 QUOTE = re.compile(r"「[^」]{4,}」|“[^”]{4,}”|\"[^\"]{4,}\"")
 
 
+# 派审稿先量改动：不到 30 行、又不碰高风险路径的小改动不派审，用脚本验（作者 2026-11-04 加）
+REVIEW_TASK = re.compile(r"审|复核|二审|\breview\b", re.IGNORECASE)
+PR_NUMBER = re.compile(r"\bPR\s*#?\s*(\d+)\b|\bpull request\s*#?\s*(\d+)\b|/pull/(\d+)\b", re.IGNORECASE)
+GITHUB_PR_URL = re.compile(r"https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/(\d+)", re.IGNORECASE)
+REPO_AND_PR = re.compile(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\s*(?:#|PR\s*#?)\s*(\d+)\b", re.IGNORECASE)
+BRANCH_NAME = re.compile(r"(?:分支(?:名)?|branch(?:\s+name)?)\s*[:：=]?\s*[`\"']?([A-Za-z0-9][A-Za-z0-9._/-]*)", re.IGNORECASE)
+RISKY_PATH = re.compile(
+    r"(?:^|/)(?:bridge|dsh|deploy(?:ment)?|release|production|prod|online|live|infra|billing|payment|pricing|budget|cost|spend|finance|financial|money|expenses?)(?:/|$)"
+    r"|(?:^|/)(?:线上|真钱|花钱|费用)(?:/|$)"
+    r"|(?:^|/)\.github/workflows(?:/|$)", re.IGNORECASE)
+REVIEW_SIZE_LOG = os.path.join(REVIEWS, "dispatch-review-size.log")  # 查不到改动量的派审记在这里
+REVIEW_SIZE_LIMIT = 30
+
+
 def deny(msg):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                              "permissionDecisionReason": msg}}, ensure_ascii=False))
     sys.exit(0)
 
 
-def check_agent(prompt):
+def review_target(text):
+    url = GITHUB_PR_URL.search(text)
+    repo_match = REPO_AND_PR.search(text)
+    repo = f"{url.group(1)}/{url.group(2)}" if url else (repo_match.group(1) if repo_match else None)
+    if url:
+        return {"kind": "pr", "value": url.group(3), "repo": repo}
+    pr = PR_NUMBER.search(text)
+    if pr:
+        number = next(group for group in pr.groups() if group)
+        return {"kind": "pr", "value": number, "repo": repo}
+    branch = BRANCH_NAME.search(text)
+    if branch:
+        return {"kind": "branch", "value": branch.group(1).rstrip(".,;:，。；：`\"'"), "repo": None}
+    return None
+
+
+def _gh_json(args, cwd, timeout):
+    try:
+        result = subprocess.run(["gh", *args], cwd=cwd or None, capture_output=True, text=True, timeout=timeout)
+        if result.returncode:
+            return None
+        return json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
+def _change_record(additions, deletions, files):
+    if not isinstance(additions, int) or not isinstance(deletions, int):
+        return None
+    paths = [f["path"] for f in files if isinstance(f, dict) and isinstance(f.get("path"), str)] if isinstance(files, list) else []
+    if not paths:
+        return None
+    return {"lines": additions + deletions, "paths": paths}
+
+
+def _pr_change_record_from_data(data):
+    if not isinstance(data, dict):
+        return None
+    files = data.get("files")
+    changed_files = data.get("changedFiles")
+    if isinstance(changed_files, int) and isinstance(files, list) and len(files) < changed_files:
+        return None
+    return _change_record(data.get("additions"), data.get("deletions"), files)
+
+
+def _pr_change_record(number, repo, cwd):
+    args = ["pr", "view", str(number)]
+    if repo:
+        args += ["--repo", repo]
+    data = _gh_json([*args, "--json", "additions,deletions,changedFiles,files"], cwd, 1.5)
+    return _pr_change_record_from_data(data)
+
+
+def _branch_pr_record(branch, repo, cwd):
+    args = ["pr", "list", "--head", branch, "--state", "all", "--limit", "10"]
+    if repo:
+        args += ["--repo", repo]
+    rows = _gh_json([*args, "--json", "headRefName,additions,deletions,changedFiles,files"], cwd, 1.2)
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict) and row.get("headRefName") == branch:
+                record = _pr_change_record_from_data(row)
+                if record:
+                    return record
+    return None
+
+
+def _git_branch_record(branch, cwd):
+    def git(args):
+        try:
+            result = subprocess.run(["git", *args], cwd=cwd or None, capture_output=True, text=True, timeout=0.35)
+            return result.stdout.strip() if result.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    target = next((ref for ref in (branch, f"origin/{branch}") if git(["rev-parse", "--verify", f"{ref}^{{commit}}"])), None)
+    if not target:
+        return None
+    bases = ["refs/remotes/origin/HEAD", "origin/main", "origin/develop", "main", "develop"]
+    base = next((ref for ref in bases if git(["rev-parse", "--verify", f"{ref}^{{commit}}"])), None)
+    if not base:
+        return None
+    output = git(["diff", "--numstat", f"{base}...{target}"])
+    if output is None or not output:
+        return None
+    total = 0
+    paths = []
+    for line in output.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 3 or not fields[0].isdigit() or not fields[1].isdigit():
+            return None
+        total += int(fields[0]) + int(fields[1])
+        paths.append("\t".join(fields[2:]))
+    return {"lines": total, "paths": paths} if paths else None
+
+
+def get_review_diff(target, cwd):
+    if target["kind"] == "pr":
+        return _pr_change_record(target["value"], target.get("repo"), cwd)
+    return _branch_pr_record(target["value"], target.get("repo"), cwd) or _git_branch_record(target["value"], cwd)
+
+
+def log_unavailable_review_diff(target):
+    label = f"{target['kind']}:{target['value']}"
+    label = re.sub(r"[^A-Za-z0-9_.:/-]", "_", label)[:160]
+    line = f"{datetime.datetime.now().astimezone().isoformat(timespec='seconds')} diff_unavailable target={label}\n"
+    try:
+        os.makedirs(os.path.dirname(REVIEW_SIZE_LOG), exist_ok=True)
+        with open(REVIEW_SIZE_LOG, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
+
+
+def review_size_denial(description, prompt, cwd):
+    text = f"{description or ''}\n{prompt or ''}"
+    if not REVIEW_TASK.search(text):
+        return None
+    target = review_target(text)
+    if not target:
+        return None
+    change = get_review_diff(target, cwd)
+    if not change or not change.get("paths"):
+        log_unavailable_review_diff(target)
+        return None
+    if change["lines"] < REVIEW_SIZE_LIMIT and not any(RISKY_PATH.search(path) for path in change["paths"]):
+        return "小改动用脚本验"
+    return None
+
+
+# 子 agent 不干等：用户 2026-10-22「下次这种等检查的直接finish回来…超过5分钟就是0缓存重写了」，
+# 2026-10-28 复犯后「不符合预期，超过5分钟缓存」（派活写了「用后台命令盯 .ingest.log，等下一轮 ingest 真跑」）。
+# 只认明确的“盯/等后续/监视直到”；引号里的引用先去掉，「不干等」「不要等」「等待由我查」不拦。宁可少拦。
+QUOTED = re.compile(r"「[^」]*」|“[^”]*”")
+WAIT_TASK = re.compile(
+    r"(?<![不别])盯"                                   # 用后台命令盯、盯 xxx.log
+    r"|下一轮.{0,12}(?:真跑|开始|跑完|之?后)"           # 等下一轮 ingest 真跑、下一轮开始后贴日志
+    r"|(?<![不别要干])等.{0,6}(?:跑完|结束|完成)(?:再|后)"  # 等它跑完再报
+    r"|监视.{0,20}直到")                                # 监视…直到
+
+
+def check_agent(prompt, description="", cwd=""):
+    if WAIT_TASK.search(QUOTED.sub("", prompt or "")):
+        deny("子 agent 不干等：只让它把命令后台跑起来就交付（附 run id/日志路径），等待由主会话查；或依赖已有告警。")
+    size_reason = review_size_denial(description, prompt, cwd)
+    if size_reason:
+        deny(size_reason)
     head = re.sub(r"^(?:【代码地图】[^\n]*\n)+", "", prompt.lstrip())
     if head.startswith("【审稿】"):
         if not QUOTE.search(prompt):
@@ -134,7 +294,7 @@ def check_call(d):
                 deny(plan_gate.message(asked))
     if tool in ("Agent", "Task"):
         check_bot_model(d.get("cwd", ""), inp)
-        check_agent(inp.get("prompt") or inp.get("message") or "")
+        check_agent(inp.get("prompt") or inp.get("message") or "", inp.get("description") or "", d.get("cwd") or "")
     elif tool in ("Edit", "Write", "MultiEdit", "NotebookEdit") and not d.get("agent_id"):
         p = os.path.realpath(os.path.expanduser(inp.get("file_path") or inp.get("notebook_path") or ""))
         # notes/ 是方案和交接稿（ws-handoff 必需），按会话 cwd 算，不是代码改动

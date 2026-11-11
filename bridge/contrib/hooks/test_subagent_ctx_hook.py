@@ -93,5 +93,45 @@ class T(unittest.TestCase):
                 self.assertEqual(r.stdout.strip(), "")
 
 
+
+def mk_timed(age_s, agent_type=None, tool="Read", path=""):
+    """A Claude Code subagent whose activation started age_s seconds ago."""
+    import datetime
+    root = tempfile.mkdtemp()
+    sub = os.path.join(root, "sess", "subagents")
+    os.makedirs(sub)
+    ts = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age_s)).isoformat()
+    with open(os.path.join(sub, "agent-a1.jsonl"), "w") as f:
+        f.write(json.dumps({"type": "user", "timestamp": ts, "message": {"role": "user", "content": "go"}}) + "\n")
+    d = {"hook_event_name": "PreToolUse", "agent_id": "a1", "transcript_path": os.path.join(root, "sess.jsonl"),
+         "tool_name": tool, "tool_input": {"file_path": path} if path else {}}
+    if agent_type:
+        d["agent_type"] = agent_type
+    return d
+
+
+class TimeLimit(unittest.TestCase):
+    def test_under_30_minutes_passes(self):
+        self.assertIsNone(h.check(mk_timed(29 * 60)))
+
+    def test_over_30_minutes_denied(self):
+        out = h.check(mk_timed(31 * 60))
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("30 分钟", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_long_task_gets_60_minutes(self):
+        self.assertIsNone(h.check(mk_timed(45 * 60, "long-task")))
+        self.assertIn("60 分钟", h.check(mk_timed(61 * 60, "long-task"))["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_handoff_note_still_written(self):
+        self.assertIsNone(h.check(mk_timed(31 * 60, tool="Write", path="/x/notes/handoff.md")))
+        self.assertIsNotNone(h.check(mk_timed(31 * 60, tool="Write", path="/x/src/a.go")))
+
+    def test_main_session_untouched(self):
+        d = mk_timed(90 * 60)
+        del d["agent_id"]
+        self.assertIsNone(h.check(d))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

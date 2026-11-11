@@ -235,7 +235,9 @@ class Hooks(unittest.TestCase):
             {"type": "user/message", "time": 1792587556287, "data": {"source": {"kind": "user"},
                                                                     "content": [{"type": "text", "text": "登录报错了，修一下"}]}},
             {"type": "assistant/message", "time": 1792587561461, "data": {"message": {"role": "assistant", "content": [
-                {"type": "tool-call", "id": "c1", "name": "bash", "arguments": "{\"command\": \"ls\"}"}]}}},
+                # two files changed: a turn that touched one small file (or none) needs no entry table
+                {"type": "tool-call", "id": "c1", "name": "bash",
+                 "arguments": "{\"command\": \"sed -i '' s/a/b/ src/a.go; sed -i '' s/a/b/ src/b.go\"}"}]}}},
             {"type": "tool/result", "time": 1792587561497, "data": {"message": {"toolCallId": "c1", "isError": False,
                                                                                "content": [{"type": "text", "text": "a"}]}}},
             {"type": "assistant/message", "time": 1792587562000, "data": {"message": {"role": "assistant", "content": [
@@ -561,7 +563,7 @@ class Hooks(unittest.TestCase):
             {"step_index": 0, "type": "USER_INPUT", "created_at": "2026-10-23T01:26:14Z",
              "content": "<USER_REQUEST>\n登录报错了，修一下\n</USER_REQUEST>\n<ADDITIONAL_METADATA>x</ADDITIONAL_METADATA>"},
             {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "2026-10-23T01:26:15Z",
-             "tool_calls": [{"name": "run_command", "args": {"CommandLine": "ls"}}]},
+             "tool_calls": [{"name": "run_command", "args": {"CommandLine": "sed -i '' s/a/b/ src/a.go; sed -i '' s/a/b/ src/b.go"}}]},
             {"step_index": 2, "type": "PLANNER_RESPONSE", "created_at": "2026-10-23T01:26:16Z", "content": "已修复，登录正常了。"},
         ]
         with open(tr, "w", encoding="utf-8") as f:

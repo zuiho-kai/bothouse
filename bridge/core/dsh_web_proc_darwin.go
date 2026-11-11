@@ -3,6 +3,7 @@
 package core
 
 import (
+	"context"
 	"encoding/binary"
 	"strings"
 
@@ -16,8 +17,8 @@ import (
 // follows them — pid 70798 (`node …/dsh --profile web`) at [2..8], pid 74131 (the desktop host,
 // five empty padding tokens) at [6..13]. Anything else (another user's process, a kernel that hides
 // it) answers ok=false and the caller refuses rather than guesses.
-func dshWebProcLookupNow(pid int) (argv []string, env map[string]string, envKnown, ok bool) {
-	if pid <= 0 {
+func dshWebProcLookupNow(ctx context.Context, pid int) (argv []string, env map[string]string, envKnown, ok bool) {
+	if pid <= 0 || ctx.Err() != nil {
 		return nil, nil, false, false
 	}
 	raw, err := unix.SysctlRaw("kern.procargs2", pid)

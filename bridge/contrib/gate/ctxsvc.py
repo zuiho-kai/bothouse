@@ -136,6 +136,57 @@ def turn_query(text, key=""):
     return out
 
 
+# ---- 开工那一轮按活本身匹配（#1436，用户 11-11「不是说推过的不会再推了……为什么还有这问题」）----
+# 开工提示（ws-handoff 叫醒语）大半是固定的工作区规矩，拿它整段去搜，每次开工都命中同一批规矩行（11-08 起 244 次开工，
+# 最常见 5 条占全部推送 56%）。开工那一轮改用：提示里的任务那句 + 它点名的交接文件的标题、「用户原话」「总目标」两节；
+# 交接没有这两节就用交接开头。提示里已经写着的规矩（行的词大半出现在提示的套话里）这一轮不占推送名额，票和分不动。
+_KICK_TASK = re.compile(r"(?:从主频道接手一整块大活|工作区接手)[：:]\s*(.+?)(?:。\s*先读交接|\n|$)")
+_KICK_FILE = re.compile(r"先读交接\s*((?:~|/)[^\s`'\"（）()「」]*?\.md)")
+KICK_SECTIONS = ("用户原话", "总目标")
+KICK_CHARS = 1500  # 交接里取的字数：用户原话 + 总目标一般 600–1200 字，再长就是转述了
+KICK_DUP = 0.7  # 一行的词有这么多出现在开工套话里，就算「提示里已经带着」（离线 #1436 回放定，见 notes/memfix1436）
+
+
+def _kick_file(q):
+    m = _KICK_FILE.search(q)
+    f = Path(m.group(1)).expanduser() if m else None
+    return f if f and f.is_file() else None
+
+
+def kickoff_query(text):
+    """开工那一轮（提示点名了存在的交接文件）→ 检索用的查询：任务那句 + 交接的标题、用户原话、总目标；不是开工返回 None。"""
+    q = query(text)
+    f = _kick_file(q)
+    if f is None:
+        return None
+    m = _KICK_TASK.search(q)
+    parts = [m.group(1).strip()] if m else []
+    try:
+        body = f.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        body = ""
+    t = re.search(r"^# (.+)$", body, re.M)
+    if t:
+        parts.append(t.group(1).strip())
+    secs = [s.group(1).strip() for h in KICK_SECTIONS
+            for s in [re.search(rf"^## {h}[^\n]*\n(.*?)(?=^## |\Z)", body, re.S | re.M)] if s]
+    parts += secs or [body[:KICK_CHARS]]
+    return "\n".join(parts)[:KICK_CHARS * 2]
+
+
+def kickoff_boiler(text):
+    """开工提示里的套话：提示去掉任务那句。用来认「提示里已经带着的规矩」。"""
+    q = query(text)
+    m = _KICK_TASK.search(q)
+    return q.replace(m.group(1), " ") if m else q
+
+
+def in_prompt(line, boiler_toks):
+    """这行的词大半已经出现在开工套话里 → 提示里已经带着，这一轮不推。"""
+    t = set(search.toks(_title(line)))
+    return bool(t) and len(t & boiler_toks) / len(t) >= KICK_DUP
+
+
 def _same(a, b):
     """两个目录是不是同一个库（按真实路径：bots.json 里主角色的 wiki 可以直接指向主 wiki，或经软链接）。"""
     return b is not None and os.path.realpath(a) == os.path.realpath(b)
@@ -148,14 +199,17 @@ def _shown(rel, root=None):
     return "~" + p[len(home):] if p.startswith(home + "/") else p
 
 
-def match_wiki(text, k=TOP_PAGES, root=None):
-    """root 不给 = 主 wiki（hooks/wiki-context.py 终端会话就这样调）。"""
+def match_wiki(text, k=TOP_PAGES, root=None, skip=None):
+    """root 不给 = 主 wiki（hooks/wiki-context.py 终端会话就这样调）。skip = 开工套话的词：提示里已经带着的行不占名额。"""
     root = root or WIKI
     if root is None or not root.is_dir():
         return []
     idx = _index(root)
     pages = {}
-    hits = [h for h in idx.search(query(text)) if is_item(h[2])]  # 前 10 行，去掉标题行
+    if skip:  # 多取一些，跳掉的行由后面的补上（名额不放宽）
+        hits = [h for h in idx.search(query(text), k=search.TOP * 3) if is_item(h[2]) and not in_prompt(h[2], skip)][:search.TOP]
+    else:
+        hits = [h for h in idx.search(query(text)) if is_item(h[2])]  # 前 10 行，去掉标题行
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
     shown_th = set()
@@ -230,16 +284,19 @@ def context(req):
     pb = lead.playbook(bot) if lead else None  # 当主的才有：主角色工作手册（lead.playbook）
     dm = lead.dept_manager(bot, ws_task(req.get("key") or "")) if lead else None  # 工作区里有活才有：部门经理做法
     text = req.get("text") or ""
-    tq = turn_query(text, req.get("key") or "")  # 推页和经验用：这轮 + 前两轮作者的话（定案块仍只看这轮，它要判开工）
+    kq = kickoff_query(text)  # 开工那一轮：拿活本身（任务那句 + 交接的用户原话、总目标）去搜，不拿开工套话
+    skip = set(search.toks(kickoff_boiler(text))) if kq else None  # 提示里已经带着的规矩这一轮不占名额
+    tq = kq or turn_query(text, req.get("key") or "")  # 推页和经验用：这轮 + 前两轮作者的话（定案块仍只看这轮，它要判开工）
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
-    mine = match_wiki(tq, root=own) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
+    mine = match_wiki(tq, root=own, skip=skip) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     key = req.get("key") or ""
     dec = decision_items(text, key)
     out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender")) + board_items(key)
-           + with_lessons(match_wiki(tq), tq) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+           + proposal_items(text, bot, key)
+           + with_lessons(match_wiki(tq, skip=skip), tq, skip) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req)  # 推过的条不再推（同一会话代号内）
@@ -351,7 +408,9 @@ def decisions(text, root=None):
     root = root or WIKI
     if root is None or not root.is_dir():
         return [], []
-    q = _task_text(text)
+    kq = kickoff_query(text)  # 开工那一轮：活本身，不拿开工套话（#1436）；别的派活照旧读点名的交接
+    q = kq or _task_text(text)
+    skip = set(search.toks(kickoff_boiler(text))) if kq else None
     idx, d = _index(root), _decisions(root)
     pages = []
     for rel, _, _ in idx.search(q):
@@ -366,7 +425,7 @@ def decisions(text, root=None):
     for hit in d.search(q):
         if hit not in out:
             out.append(hit)
-    out = [h for h in out if is_item(h[2])]  # 段内的 ### 小标题不当定案
+    out = [h for h in out if is_item(h[2]) and not (skip and in_prompt(h[2], skip))]  # 段内的 ### 小标题不当定案；提示里已经带着的规矩不占名额
     out = FORUM.rerank(out) if FORUM else out  # 低分折叠沉底，不移除（forum_scores.py）
     return pages, out
 
@@ -543,7 +602,7 @@ def lessons(root=None):
 LESSON_MIN_TOKENS = 2  # 命中门槛：和这句话至少共享 2 个词（离线试：闲聊 0 个，「嘉立创下单参数」2 个、「交板子前查什么」4 个）
 
 
-def lesson_hits(text):
+def lesson_hits(text, skip=None):
     """按这轮话题挑经验：不固定取论坛分最高前三，
     和这句话共享词够多才算命中，命中的按共享词 idf 和排，再按论坛分（lessons() 的顺序）取前 LESSON_TOP。"""
     if WIKI is None:
@@ -554,16 +613,18 @@ def lesson_hits(text):
     idf = _index(WIKI).idf
     hits = []
     for i, e in enumerate(lessons()):
+        if skip and in_prompt(e[2], skip):
+            continue
         sh = q & set(search.toks(e[2]))
         if len(sh) >= LESSON_MIN_TOKENS:
             hits.append((-sum(idf.get(t, 0) for t in sh), i, e))
     return [e for _, _, e in sorted(hits)[:LESSON_TOP]]
 
 
-def with_lessons(pages, text):
+def with_lessons(pages, text, skip=None):
     """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。"""
     try:
-        hits = lesson_hits(text)
+        hits = lesson_hits(text, skip)
     except Exception:  # 教训表读坏了不挡推页
         return pages
     for rel, n, ln, k, d in hits:
@@ -575,6 +636,41 @@ def with_lessons(pages, text):
             page["rows"].append(_row(rel, ln, row, ln=n))
             _render(page)
     return pages
+
+
+def _existing_mod():
+    """开工清单程序（~/.bothouse/collaboration/lead/_existing.py，ws-handoff 交活时用的同一份）；没装就 None。"""
+    import importlib.util
+    here = Path(__file__).resolve().parent
+    for f in (EXP.parent / "collaboration/lead/_existing.py", here.parent / "collaboration/lead/_existing.py",
+              here.parent / "lead/_existing.py", Path.home() / ".bothouse/collaboration/lead/_existing.py"):
+        if f.exists():
+            try:
+                spec = importlib.util.spec_from_file_location("_existing", f)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod if hasattr(mod, "proposal_listing") else None
+            except Exception:  # 读坏了不挡推页
+                return None
+    return None
+
+
+def proposal_items(text, bot="", key=""):
+    """主角色在聊天频道、用户这句在要方案或要加/改机制（#1436，用户 11-11「对我们整个系统这个边界能力……不清晰」）：
+    附「手里现成的」——系统自带能力和做过的同类活（_existing.proposal_listing），平时不附；工作区里不附（开工时交接已带）。
+    每行一个编号，同一会话推过的行 PUSH_GAP 轮内不重推；不算 wiki 命中条数。"""
+    if EXISTING is None or not exp_is_user(text) or ws_task(key) is not None:
+        return []
+    if lead is not None and lead.member(bot) != lead.current():
+        return []
+    try:
+        rows = EXISTING.proposal_listing(query(text))
+    except Exception:  # 清单出错只少这一块
+        return []
+    if not rows:
+        return []
+    return [_render({"path": "【手里现成的（提方案前）】", "head": rows[0], "sep": "\n",
+                     "rows": [{"id": "txt:" + hashlib.sha1(r.encode()).hexdigest()[:16], "text": r, "group": ""} for r in rows[1:]]})]
 
 
 def ws_task(key=""):
@@ -646,6 +742,7 @@ def _forum():
 
 
 FORUM = _forum()
+EXISTING = _existing_mod()
 EXP_INIT = 2  # ExpeL §4.2「initial importance count of two」
 
 

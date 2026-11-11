@@ -4,6 +4,8 @@
 
 ## 目录与用法
 
+设置 BOTHOUSE_DATA_DIR 时，内置插件默认放在该目录下的 dsh，频道数据放在 conest-collab。未设置时仍用 ~/.bothouse/dsh 和 ~/.conest-collab。为兼容旧桥给子进程注入的默认值，BOTHOUSE_DATA_DIR 指向 ~/.bothouse 或 ~/.cc-connect 时，频道数据仍留在 ~/.conest-collab。显式的 BOTHOUSE_DSH_DIR、CONEST_COLLAB_DATA 保持优先；旧目录不会自动迁移或删除。
+
 这里不放 DSH 源码，只放 CoNest 自己的部分（做法同 FlyBot 对 DS Bot 的处理）：
 
 | 路径 | 内容 |
@@ -96,6 +98,16 @@ python3 -I dsh/scripts/reload-dsh.py snapshot  # 保留的旧步骤，现在什�
 - **`CUTOVER_RELEASE_HOLD=1` 只是状态标记，不授权强切**（#555 返工收紧）：它表示板上已经把在跑的活标成「为发布暂停」，重启后那些活会从停点续、不计失败；但它**不再**让脚本跳过空闲门禁，只把 `release_hold: true` 记进回执。真要不等空闲立刻切，另给 `--force=<谁>`。原实现（#410）里它单独就能切，和「除非显式 force 否则不切」对不上，所以按后者收紧；要恢复旧语义，得先拿到明确授权再改代码，不要靠设这个环境变量绕过。
 
 一句话：没有开关就没有强切；「等到超时」只产出 `stopped_busy`，不产出切换。
+
+## 向导配置原生成员
+
+管理面板的 DSH 向导默认创建一个原生角色；本机已安装或已登录的 CLI 留作手动选项，检测 CLI 失败也不会阻断原生配置。新增角色同样默认使用原生运行时，不会沿用上一位角色选择的 CLI。
+
+原生成员不写 `model` 字段，因此沿用 DSH 宿主当前选择的模型（`agent-default-model`），不把任何角色钉在某条路线上。官方 API 默认路径可复用启动环境变量、`$DSH_HOME/.credentials.yaml` 的 `refs.DEEPSEEK_API_KEY` 或 `$DSH_HOME/.env` 中的 Key；已有 `llm-pi-ai` 网关则检测所选路由的 `apiKeyEnv`，选择账号模型时检测其账号登录记录，不要求另填官方 Key。向导不切换已有模型，只有提交新 Key 时才更新凭据文件。
+
+`GET /setup/dsh/status` 的 `has_deepseek_key` 仍只表示官方 API Key 是否存在；新增 `native_model_configured` 表示当前原生模型的对应凭据已配置。它按向导所选路线读对应 profile：DeepSeek Harness Desktop 读 `profiles/desktop`，DSH web 读 `profiles/web`，两者都会再叠加 `$DSH_HOME` 根层的补丁；`?target=desktop|web` 指定路线，不传按 web。二者都不证明联网、令牌有效性或额度，账号记录不冒充 API Key。最终凭据优先级由 DSH 决定。
+
+向导通过既有 `POST /setup/dsh/configure` 写入角色导入文件，插件启动时沿用现有导入逻辑；`members` 省略 `cli` 表示 DSH 原生成员。配置保存成功仅表示导入已准备，不代表角色全部导入或模型已真实回复。
 
 ## 目标
 

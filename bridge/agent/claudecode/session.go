@@ -121,6 +121,9 @@ type claudeSession struct {
 	// non-success result then ends it with an EventError (core only logs it).
 	interrupting atomic.Bool
 	interruptSeq atomic.Int64
+	// Control requests this session sent and waits for the answer of, by request_id
+	// (chan map[string]any); see handleControlResponse.
+	controlWaiters sync.Map
 }
 
 // StartupWarning implements core.StartupWarner. Returns a non-empty string
@@ -644,6 +647,8 @@ func (cs *claudeSession) handleReadLoopLine(line string) {
 		cs.handleResult(raw)
 	case "control_request":
 		cs.handleControlRequest(raw)
+	case "control_response":
+		cs.handleControlResponse(raw)
 	case "control_cancel_request":
 		requestID, _ := raw["request_id"].(string)
 		slog.Debug("claudeSession: permission cancelled", "request_id", requestID)

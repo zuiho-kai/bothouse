@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Tests of the per-role wiki pieces the setup wizard uses: export.py kinds (claudecode, dsh default home, a type with
-no reader = diary only), the on/off switch and --list, setup_wiki.py from the plain template (main and role wiki).
+no reader = diary only), the on/off switch and --list, setup_wiki.py from the plain template (main and role wiki), and
+the nightly export's wait for the ingest lock (it must stop at the job's deadline instead of blocking forever).
 Run: python3 -I bridge/contrib/wiki/test_rolewiki.py"""
-import json, os, re, subprocess, sys, tempfile, time, unittest
+import json, os, re, sqlite3, subprocess, sys, tempfile, time, unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -239,6 +240,15 @@ class SubWikiPy(unittest.TestCase):
         subprocess.run(["/bin/sh", str(self.dir / "sub-wiki.sh"), "lint"], env=self.env, check=True, timeout=30)
         self.assertEqual(self.got(), ["juzi --lint", "whale --lint"])
 
+    def test_export_failure_is_reported_and_ingest_still_runs(self):
+        """export.py returns 1 (the nightly gave up waiting for the ingest lock): the run is reported in sub-wiki.log
+        and each bot's ingest still runs on what is already there — no traceback, no bot skipped."""
+        lines = "\n".join(f"{b} proj-{b} {self.tmp / 'wikis' / b}" for b in ("juzi", "whale"))
+        (self.dir / "export.py").write_text(
+            "import sys\nif '--list' in sys.argv: print(" + repr(lines) + ")\nelse: sys.exit(1)\n")
+        self.assertEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
+        self.assertIn("export failed (ingest still runs on what is there)", (self.dir / "sub-wiki.log").read_text())
+
 
 class FileLock(unittest.TestCase):
     """llmwiki/filelock.py: an exclusive lock a second opener cannot take (fcntl on Mac/Linux, msvcrt on Windows)."""
@@ -267,6 +277,114 @@ class FileLock(unittest.TestCase):
             time.sleep(1)
         waited = float(p.communicate(timeout=30)[0])
         self.assertGreater(waited, 0.5)
+
+
+class ExportLockWait(unittest.TestCase):
+    """export.py's wait for the wiki's ingest lock (#659). Nightly used to block on it with no ceiling: one stuck
+    ingest run held the whole 30-minute job and the scheduler killed it with no round of work done. The wait now ends
+    at the job's own deadline: the export returns a failure instead of blocking, and leaves the offsets alone."""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.home = self.tmp / "home"
+        self.wd = self.home / "roles" / "whale"
+        self.wd.mkdir(parents=True)
+        (self.wd / "diary.md").write_text("2026-10-22 10:00 今天学会了一个新梗\n")
+        self.wiki = self.tmp / "wikis" / "whale"
+        self.wiki.mkdir(parents=True)
+        bots = self.tmp / "bots.json"
+        bots.write_text(json.dumps({"whale": {"name": "whale", "project": "whale", "kind": "gemini",
+                                             "workdir": str(self.wd), "wiki": str(self.wiki)}}))
+        db = sqlite3.connect(self.wiki / ".ingest.sqlite")
+        db.execute("create table ingested(id text primary key, offset int, at real)")
+        db.execute("create table pending_parts(id text primary key, end int, chunk text, part int)")
+        db.execute("insert into ingested values ('abcd1234-keep', 42, 0)")
+        db.execute("insert into pending_parts values ('abcd1234-keep', 900, 'half', 1)")
+        db.commit()
+        db.close()
+        self.env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home), WIKI_BOTS=str(bots),
+                        WIKI_TRANSCRIPTS=str(self.tmp / "tr"), WIKI_DIR=str(self.wiki))
+        for k in ("CC_JOB_DEADLINE", "WIKI_STOP_AT", "WIKI_INGEST"):
+            self.env.pop(k, None)
+
+    def hold(self, seconds):
+        """Another process holding the ingest lock for `seconds` (an ingest run that will not let go)."""
+        code = ("import sys, time; sys.path.insert(0, sys.argv[1]); import filelock\n"
+                "f = open(sys.argv[2], 'w'); filelock.lock(f); print('locked', flush=True); time.sleep(float(sys.argv[3]))")
+        p = subprocess.Popen([sys.executable, "-X", "utf8", "-I", "-c", code, str(HERE / "llmwiki"), str(self.wiki / ".ingest.lock"),
+                              str(seconds)], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(p.stdout.close)
+        self.addCleanup(p.wait, 30)
+        self.addCleanup(p.kill)
+        self.assertEqual(p.stdout.readline().strip(), "locked")
+        return p
+
+    def state(self):
+        db = sqlite3.connect(self.wiki / ".ingest.sqlite")
+        try:
+            return (db.execute("select id, offset from ingested").fetchall(),
+                    db.execute("select id, end, chunk, part from pending_parts").fetchall())
+        finally:
+            db.close()
+
+    def test_nightly_stops_waiting_at_the_job_deadline(self):
+        """The 03:00 case: an old ingest run holds the lock, the job has 3 seconds left. Export gives up there and
+        fails the round instead of blocking until the scheduler kills it; offsets and pending parts stay untouched."""
+        before = self.state()
+        self.hold(60)  # outlives this test: the lock never becomes free
+        env = dict(self.env, CC_JOB_DEADLINE=f"{time.time() + 3:.3f}")
+        t = time.time()
+        p = subprocess.run([sys.executable, "-X", "utf8", "-I", str(HERE / "export.py"), "whale"], env=env,
+                           capture_output=True, text=True, timeout=60)
+        waited = time.time() - t
+        self.assertLess(waited, 15, "export.py should stop at the deadline, not at this test's timeout")
+        self.assertEqual(p.returncode, 1)  # the round failed: sub-wiki.py says so and runs ingest on what is there
+        self.assertIn("'busy': 1", p.stdout)
+        self.assertIn("'failed': 1", p.stdout)
+        self.assertIn("ingest lock still held at the job deadline", p.stderr)
+        self.assertFalse((self.tmp / "tr" / "whale" / "diary").exists())  # nothing exported
+        self.assertEqual(self.state(), before)
+
+    def test_nightly_with_enough_budget_still_waits_and_exports(self):
+        """Unchanged behaviour when the lock frees in time: the wait succeeds and the run exports as before."""
+        self.hold(1)
+        env = dict(self.env, CC_JOB_DEADLINE=f"{time.time() + 120:.3f}")
+        p = subprocess.run([sys.executable, "-X", "utf8", "-I", str(HERE / "export.py"), "whale"], env=env,
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("'written': 1", p.stdout)
+        self.assertNotIn("busy", p.stdout)
+        self.assertIn("今天学会了一个新梗", next((self.tmp / "tr" / "whale" / "diary").glob("*.jsonl")).read_text())
+
+    def test_day_run_does_not_wait(self):
+        """--no-wait (the day runs, incl. the hook) keeps asking once: no budget spent, no failure counted."""
+        self.hold(60)
+        env = dict(self.env, CC_JOB_DEADLINE=f"{time.time() + 600:.3f}")
+        t = time.time()
+        p = subprocess.run([sys.executable, "-X", "utf8", "-I", str(HERE / "export.py"), "--no-wait", "whale"], env=env,
+                           capture_output=True, text=True, timeout=60)
+        self.assertLess(time.time() - t, 10)
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("'busy': 1", p.stdout)
+        self.assertNotIn("'failed': 1", p.stdout)
+
+    def test_old_llmwiki_without_budget_still_stops(self):
+        """The copy the wizard installed before #648/#1562 has no llmwiki/budget.py: export.py must still cap the wait
+        (its own NIGHT_WINDOW, the 30 minutes the nightly job already had) instead of failing at import."""
+        old = self.tmp / "oldwiki"
+        (old / "llmwiki").mkdir(parents=True)
+        (old / "llmwiki" / "filelock.py").write_bytes((HERE / "llmwiki" / "filelock.py").read_bytes())
+        (old / "export.py").write_bytes((HERE / "export.py").read_bytes())
+        self.hold(60)
+        probe = ("import sys, time; sys.path.insert(0, sys.argv[1]); import export\n"
+                 "export.NIGHT_WINDOW = 2\n"  # the real one is 30 min; same code path, a test-sized value
+                 "f = open(sys.argv[2], 'w'); t = time.time()\n"
+                 "r = export.lock_or_busy(f, True)\n"
+                 "print(export.budget, r, round(time.time() - t, 1))")
+        p = subprocess.run([sys.executable, "-X", "utf8", "-I", "-c", probe, str(old), str(self.wiki / ".ingest.lock")],
+                           env=self.env, capture_output=True, text=True, timeout=60)
+        budget_seen, result, waited = p.stdout.split()
+        self.assertEqual((budget_seen, result), ("None", "None"), p.stderr)  # no budget.py, gave up at its own cap
+        self.assertLess(float(waited), 10)  # NIGHT_WINDOW=2s plus at most one poll, not the holder's 60s
 
 
 if __name__ == "__main__":

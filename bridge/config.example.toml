@@ -1466,6 +1466,8 @@ app_secret = "your-feishu-app-secret"
 #                   # 只服务列出的服务器（逗号分隔），其余服务器的消息和命令一律不收。私聊默认照回，写 "-dm" 才关；
 #                   # 同一 token 跑在多台机器上时，除一台外都写 "-dm"，免得一条私聊回两次。
 #                   # 可选：设置后 slash 命令秒级生效（仅该服务器）
+# dm_deny_from = "" # Optional: comma-separated user IDs whose DMs this instance skips (server messages still served).
+#                   # 不接这些人的私聊（逗号分隔用户 ID），他们在服务器里说话照常回；同一 token 多台机器时让某人的私聊只由一台回。
 # group_reply_all = false  # If true, respond to ALL guild messages without @mention / 设为 true 群聊无需 @ 也响应
 # group_reply_all_guilds = ""  # Comma-separated guild IDs where group_reply_all is active (overrides group_reply_all)
 #                              # e.g. "123456789012345678,987654321098765432"; takes precedence over group_reply_all
