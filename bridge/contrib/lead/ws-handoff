@@ -66,28 +66,46 @@ def check_notes(text: str):
 
 def intent_gate(text: str):
     """交接对照产品意图卡，由小模型判断（../hooks/intent_judge.py，发问检查用同一个）：交接里留给用户定的事按用户定过的话
-    能推出来就退回给出答案；冲突必须有逐字用户原话，否则要求先问用户且不代答；同主题本轮新话优先于旧定案。
-    真是方向、超时出错、找不到判断器都放行。
-    来源：用户 2026-10-31「我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」（#827）。"""
+    能推出来就退回给出答案；冲突必须有逐字用户原话；同主题本轮新话优先于旧定案。
+    有两种读法（ask）时只有方向和花钱两类退回让问用户；别的由主角色自己定：放行，并返回一行记进交接（append_own）。
+    真是方向、超时出错、找不到判断器都放行。返回（退回文字或 None，要记进交接的那行或 None）。
+    来源：用户 2026-10-31「我不想什么事情都要我说，你自己思考」「有没有更好的办法，更智能的办法」（#827）；
+    2026-11-11「为什么还要我回复，你让我决定的，不是跟你理解然后去做的是一样的吗」（#1437，同一份交接被 ask 连拦三次）。"""
     here = Path(__file__).resolve().parent
     for d in (here.parent / "hooks", here.parent.parent / "hooks"):  # 仓库 contrib/hooks；安装后 ~/.bothouse/hooks
         if (d / "intent_judge.py").is_file():
             break
     else:
-        return None
+        return None, None
     sys.path.insert(0, str(d))
     import intent_judge  # noqa: E402
     r = intent_judge.judge(text, kind="handoff")
     if r["verdict"] == "self":
         return (f"交接里留给用户定的「{r['question']}」按用户定过的话能推出来：{r['answer']}（{r['basis'].rstrip('。')}）。"
-                "把这个答案写进交接，自己定，再交。判断器漏了事实就在交接里写明漏了什么再交。")
+                "把这个答案写进交接，自己定，再交。判断器漏了事实就在交接里写明漏了什么再交。"), None
     if r["verdict"] == "conflict":
         return (f"交接里的做法「{r['question']}」和用户原话冲突：{r['basis'].rstrip('。')}。"
-                f"请先核对两种读法：交接当前写法「{r['answer']}」；按引用原话的另一种读法。先问用户确认，把用户原话补进交接再交。")
+                f"请先核对两种读法：交接当前写法「{r['answer']}」；按引用原话的另一种读法。先问用户确认，把用户原话补进交接再交。"), None
     if r["verdict"] == "ask":
-        return (f"交接里的做法「{r['question']}」有两种读法：{r['basis'].rstrip('。')}。"
-                "先问用户确认，把用户确认的原话写进交接再交；不要自行选择或改写成其中一种。")
-    return None
+        if intent_judge.needs_user(r):
+            what = "换方向" if r["kind"] == "direction" else "花钱"
+            return (f"交接里的做法「{r['question']}」有两种读法，而且是{what}的事：{r['basis'].rstrip('。')}。"
+                    "先问用户确认，把用户确认的原话写进交接再交；不要自行选择或改写成其中一种。"), None
+        return None, f"这处主角色自己定了：{r['question'].rstrip('。')}（检查看出两种读法：{r['basis'].rstrip('。')}。不是方向也不是花钱，照交接写的做）"
+    return None, None
+
+
+OWN = "主角色自己定的（程序附）"
+
+
+def append_own(path, line):
+    """把 intent_gate 放行时的那一行记进交接的「主角色自己定的（程序附）」节：工作区看得到这处有过两种读法、主角色选了哪种。
+    重交时整节换新，不叠加。"""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    text = re.sub(rf"(?ms)^## {re.escape(OWN)}\n.*?(?=^## |\Z)", "", text).rstrip("\n")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(f"{text}\n\n## {OWN}\n- {line}\n")
 
 
 # 产品活（用户原话、总目标、范围提到产品、bothouse、做成产品能力）的范围节要写覆盖哪些 CLI：点名 Claude Code 以外的
@@ -895,7 +913,7 @@ def main(argv):
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
-    err = intent_gate(notes)
+    err, own = intent_gate(notes)
     if err:
         sys.exit(f"ws-handoff: {err}")
     err = object_gate(notes)
@@ -913,6 +931,9 @@ def main(argv):
     hits = [] if force else live_overlap(path, given_short, notes)
     if hits:
         sys.exit(f"ws-handoff: {overlap_error(hits)}")
+    if own:  # 几道检查都过了才记，退回重交不留半截
+        append_own(path, own)
+        print(f"ws-handoff: 有一处两种读法不是方向也不是花钱，按交接写的放行，已附「{OWN}」", file=sys.stderr)
     # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，出错跳过，都不拦交活
     if _recall.append_to(path):
         print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)

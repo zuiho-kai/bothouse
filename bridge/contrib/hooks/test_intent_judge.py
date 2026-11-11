@@ -47,5 +47,45 @@ class ConflictEvidenceTests(unittest.TestCase):
         self.assertIs(intent_judge._validate_conflict(result, "", ()), result)
 
 
+class AskKindTests(unittest.TestCase):
+    """ask 只有方向和花钱两类要问用户（#1437）。"""
+
+    def test_direction_and_money_need_user(self):
+        for kind in ("direction", "money"):
+            self.assertTrue(intent_judge.needs_user({"verdict": "ask", "kind": kind}))
+
+    def test_other_ask_is_own_call(self):
+        for kind in ("other", "", "技术细节"):
+            self.assertFalse(intent_judge.needs_user({"verdict": "ask", "kind": kind}))
+        self.assertFalse(intent_judge.needs_user({"verdict": "ask"}))
+
+    def test_non_ask_never_needs_user(self):
+        self.assertFalse(intent_judge.needs_user({"verdict": "pass", "kind": "direction"}))
+
+    def test_downgraded_conflict_keeps_kind(self):
+        result = {"verdict": "conflict", "kind": "direction", "question": "人物换法", "answer": "换新长相",
+                  "basis": "用户 11-10：「人物必须换成新长相」"}
+        checked = intent_judge._validate_conflict(result, "## 用户原话\n- 用户 11-11：「把人物换一下」\n", ())
+        self.assertEqual((checked["verdict"], checked["kind"]), ("ask", "direction"))
+        self.assertTrue(intent_judge.needs_user(checked))
+
+
+class PromptSplitTests(unittest.TestCase):
+    """新的 ask 规则只进交接出口；回复出口（choice-ask-guard）的提示词不带。"""
+
+    def test_reply_prompt_keeps_old_ask_rule(self):
+        self.assertIn(intent_judge.ASK_REPLY, intent_judge.SYSTEM_REPLY)
+        self.assertNotIn("direction", intent_judge.SYSTEM_REPLY)
+        self.assertNotIn('"kind"', intent_judge.SYSTEM_REPLY)
+
+    def test_handoff_prompt_limits_ask(self):
+        self.assertIn("只有 direction 和 money 才输出 ask", intent_judge.SYSTEM_HANDOFF)
+        self.assertIn('"kind"', intent_judge.SYSTEM_HANDOFF)
+
+    def test_no_placeholder_left(self):
+        for text in (intent_judge.SYSTEM_REPLY, intent_judge.SYSTEM_HANDOFF):
+            self.assertNotIn("@@", text)
+
+
 if __name__ == "__main__":
     unittest.main()

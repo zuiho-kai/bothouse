@@ -82,7 +82,7 @@ bothouse setup hooks status --global memory
 | eta_guard（bash-guard 调用） | PreToolUse（Bash） | ws-*/later/board/bothouse progress·send·relay·timer·task 命令里报了长于 15 分钟的预计时间、跨天时间，或挂了长于 15 分钟的 `timer add --delay/--at`、`later`，同句没有实测依据或外部等待原因 | 同句写「按实测：N 块 × M 分钟 ÷ P 并行」或等什么（等你/CI/下载）；每轮只拦一次 |
 | check-first-guard（fix-claim-guard 调用） | Stop | 回复断言我们自家现状（有/没有/缺/早就有）或建议加/学什么，小模型看最近查过的命令（含前几轮）判没覆盖 | 先查仓库、wiki、配置、日志或远端再说，查不了写「没核」；每轮只拦一次，模型超时放行；拦下记进 intent-judge.tsv（kind=check-first） |
 | promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
-| choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：与用户定过的冲突（「能推出答案就不许问」这条 11-11 删了，它和交接出口的「先问用户」互相打架） | 拦回并指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断 |
+| choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：与用户定过的冲突（「能推出答案就不许问」这条 11-11 删了，它和交接出口的「先问用户」互相打架） | 拦回并指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断，但「两种读法」那条用交接专用的写法：只有换方向和花钱才退回让问用户，别的放行并在交接里记一行「这处主角色自己定了」 |
 | wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
 | subagent-ctx-hook | PreToolUse（所有工具） | 子 agent 上下文到 15 万 token 后还在调工具 | 不放行：拒绝理由里要求写交接（做到哪、文件在哪、下一步）后收工；主会话不管 |
 
