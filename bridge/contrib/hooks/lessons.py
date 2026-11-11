@@ -25,20 +25,36 @@ _QUOTE = re.compile(r"(\d\d-\d\d)(?=\s)|\b([0-9a-f]{8})(?=[：:]?「)|「([^」]
 _COUNT = re.compile(r"(\d+) 次")
 
 
-def _lessons_page(root):
+def _lessons_pages(root):
+    """教训表主页和它拆出的子页（#1447）：ingest 的 split_pass 把主页挪进同名目录 <名>/<名>.md、
+    条目搬进旁边的子页后，只读主页会一条都读不到。主页在前，子页按文件名。"""
     found = sorted(p for p in Path(root).glob("**/" + LESSONS_GLOB)
                    if not any(x.startswith(".") for x in p.relative_to(root).parts))
-    return found[0] if found else None
+    if not found:
+        return []
+    main = found[0]
+    sub = main.parent if main.parent.name == main.stem else main.with_suffix("")
+    subs = (sorted(p for p in sub.glob("**/*.md")
+                   if p != main and not any(x.startswith(".") for x in p.relative_to(sub).parts))
+            if sub.is_dir() else [])
+    return [main] + subs
 
 
 def lessons(root=None):
     """教训表里的条目：「关键事实」下带「N 次」的顶层 bullet（连同它的子 bullet）。
-    返回 [{rule, n, quotes:[(MM-DD, sid8, 原话)], open, text}]，按页面顺序。"""
+    返回 [{rule, n, quotes:[(MM-DD, sid8, 原话)], open, text}]，按页面顺序（主页在前，子页按名）。"""
     if root is None and WIKI is None:
         return []
-    page = _lessons_page(root or WIKI)
-    if not page:
+    pages = _lessons_pages(root or WIKI)
+    if not pages:
         return []
+    out = []
+    for page in pages:
+        out.extend(_lessons_in(page))
+    return [e for e in out if e["quotes"]]  # 没有原话的是说明行（如计次口径），不是规则条目
+
+
+def _lessons_in(page):
     out, cur, sec = [], None, ""
     for line in page.read_text(errors="ignore").split("\n"):
         if line.startswith("## "):
@@ -64,7 +80,7 @@ def lessons(root=None):
                 elif sid and md:  # 规则名的「…」前面没有 sid8，不算原话
                     cur["quotes"].append((md, sid, m.group(3)))
             cur["open"] = cur["open"] or "未答复" in line
-    return [e for e in out if e["quotes"]]  # 没有原话的是说明行（如计次口径），不是规则条目
+    return out
 
 
 def _one(e):
