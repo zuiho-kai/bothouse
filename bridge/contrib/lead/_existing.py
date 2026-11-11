@@ -190,6 +190,46 @@ def listing(notes, task="", self_where="", before=None, records=None, skill_dirs
     return ["开工先看这些现成的（程序按任务名和原话找的），能用就接着用，不要从头重做："] + lines
 
 
+# ---- 主角色提方案前（#1436，用户 11-11「感觉你对我们整个系统这个边界能力，还有它稀有功能不清晰，都说一开始就说没有记忆」）----
+# 主角色在聊天频道要加东西、改机制时，同一份清单也给它：系统自带的能力（`bothouse about`「能做什么」节，产品说明本身）
+# + 做过的同类活和现成做法（同 listing）。只在用户这句是在要方案、要加或改机制时列（PROPOSAL），平时不列。
+PROPOSAL = re.compile(r"架构|机制|方案|怎么搞|怎么弄|怎么设计|设计一|加个|加一个|新做|新增|做一套|搞一套|重构|改革|改造|下一代|能力边界|有没有现成")
+ABOUT_TTL = 3600  # 产品说明随发版才变，一小时重读一次够
+_about = [0.0, []]
+
+
+def about_caps(cmd=None):
+    """`bothouse about`「能做什么」节 → ["能力名：一句话", …]（粗体标题 + 第一句）；跑不了返回 []。"""
+    import subprocess  # noqa: PLC0415
+    if time.time() - _about[0] < ABOUT_TTL and _about[1]:
+        return _about[1]
+    exe = (cmd or os.environ.get("BOTHOUSE_CTX_CMD") or "bothouse ctx").split()[0]
+    try:
+        out = subprocess.run([exe, "about"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    body = _sections(out, ("能做什么",))
+    caps = []
+    for ln in body.splitlines():
+        m = re.match(r"^- \*\*(.+?)\*\*[：:]\s*(.+)$", ln.strip())
+        if m:
+            caps.append(f"{m.group(1)}：{m.group(2)}")
+    _about[:] = [time.time(), caps]
+    return caps
+
+
+def proposal_listing(text, records=None, cmd=None):
+    """用户这句在要方案、要加或改机制 → 提方案前要看的现成东西（系统自带能力 + 做过的同类活 + 现成做法），一行一样；否则 []。"""
+    if not PROPOSAL.search(text or ""):
+        return []
+    rows = [f"- 系统自带：{c}" for c in about_caps(cmd)]
+    rows += [r for r in listing("", text, records=records)[1:] if not r.startswith("- 定案：")]
+    if not rows:
+        return []
+    return ["你要加东西、改机制：先对一遍系统里现成有的（下面是自带能力和做过的同类活），提方案只写现成的哪样不够、差在哪；"
+            "别把现成的说成要新做"] + rows
+
+
 def _board_records():
     """任务板上做完的和进行中的活（../gate/board.py）。读不到返回 []。"""
     try:
