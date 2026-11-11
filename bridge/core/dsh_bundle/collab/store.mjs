@@ -717,11 +717,15 @@ export class Store {
     return idle.length;
   }
 
-  /** Rooms for clients: each carries kind, parent_id and its open task count. */
+  /**
+   * Rooms for clients: each carries kind, parent_id and its open task count. A paused task is
+   * not in work (activeTasks, team_workspace list): counting it kept the sidebar's 进行中 badge
+   * on for tasks the watch had already parked (#1606).
+   */
   roomsView() {
     this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
-      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
+      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') AND paused_at IS NULL GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
     const hidden = new Set(this.q.hiddenDms.all().map(r => r.id));
     return this.rooms().filter(r => !hidden.has(r.id))
       .map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));

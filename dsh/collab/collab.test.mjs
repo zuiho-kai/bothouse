@@ -2115,6 +2115,25 @@ function cliMembers(hub, ask) {
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
 
+test('#1606 CLI member: an adapter error reports the provider words, clears busy and reaches quota cooling', async () => {
+  const hub = makeHub();
+  const seen = [];
+  hub.quota = { cooling: () => false, observe: (id, room, event) => seen.push(event) };
+  // What codex-acp 2.2.2 rejects session/prompt with on a used-up quota (RequestError.internalError + createTurnErrorData).
+  const members = cliMembers(hub, async () => {
+    throw Object.assign(new Error('Internal error'), { code: -32603, data: { message: "You've hit your usage limit.", codexErrorInfo: 'usageLimitExceeded' } });
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 干活' });
+  await settle();
+  const notice = hub.store.page(1, undefined, 10).filter(m => m.author_kind === 'system').map(m => m.text);
+  assert.equal(notice.length, 1);
+  assert.match(notice[0], /额度用完了.*hit your usage limit/);
+  assert.doesNotMatch(notice[0], /Internal error|检查配置/);
+  assert.match(String(seen.at(-1)?.error), /hit your usage limit/, 'quota cooling sees the provider words');
+  assert.equal([...hub.thinking.values()].some(s => s.has('cc')), false);
+  await members.close(); hub.store.close();
+});
+
 test('CLI channel directory: Later retains the bound directory until /new', async () => {
   const hub = makeHub(); const fake = fakeDsh(); const paths = [];
   const dsh = new DshMembers(hub, { ctx: fake.ctx, createUserMessage: m => m, workspacePath: '/w', logger: quiet,
@@ -2638,6 +2657,19 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   assert.deepEqual(counts(), [0, 0]);
   assert.deepEqual(latest(), [0, 0]);
   assert.equal(events.length, 6);
+  tasks.close(); hub.store.close();
+});
+
+test('#1606 tasks: a paused task leaves the sidebar 进行中 count, as in team_workspace list', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const events = [];
+  hub.subscribe(e => { if (e.type === 'rooms') events.push(e.rooms); });
+  const task = tasks.assign({ roomId: ws.id, title: 'stuck upstream', owner: 'ds', actor: 'lead' });
+  assert.deepEqual(hub.store.roomsView().map(r => r.active), [0, 1]);
+  assert.ok(tasks.pauseTask(task.id));
+  assert.deepEqual(hub.store.roomsView().map(r => r.active), [0, 0]);
+  assert.deepEqual(events.at(-1).map(r => r.active), [0, 0], 'clients get the lower count without reload');
   tasks.close(); hub.store.close();
 });
 
