@@ -961,7 +961,8 @@ def reoccupy(it, ws):
     if not cc or not chat or not ws:
         return None
     try:
-        p = subprocess.run([cc, "workspace", "claim", ws.split(":", 1)[-1], "--session-key", chat],
+        # --board：桥按编号把这件活记回「派出」（#699），看门恢复后只写这一条的进展
+        p = subprocess.run([cc, "workspace", "claim", "--session-key", chat, "--board", str(it["id"]), ws.split(":", 1)[-1]],
                            capture_output=True, text=True, timeout=WS_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as e:
         return f"问不到桥这个工作区眼下归谁（{e}）"
