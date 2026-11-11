@@ -41,8 +41,7 @@ SYSTEM = """你是一个判断器。助手（产品经理）准备把一段话�
    - 草稿把问题交给用户，而按卡上的原则、用户原话或明显常识能推出答案 → self（哪怕选项里有一个和定案相反，只要合定案的那个就在选项里，也算 self）。
    - 只有用户原话逐字明确说出答案，且原话与草稿是同一件事时，才能判 conflict；basis 必须写日期并逐字引用那句话。
    - 先按时间顺序核对用户原话：交接「用户原话」里的本轮新话若明确涉及同一件事，优先于更早的 wiki 定案；它可能消除旧冲突，也可能形成新定案。
-   - 若存在两种合理读法，或无法从用户原话直接得到答案，输出 ask：列出两种读法，不选择、不推荐「合定案的做法」，要求先问用户并把确认原话补进交接。
-   - 卡上没写的事不算冲突：卡只列用户定过的，没列的不等于被否定。
+@@ASK@@   - 卡上没写的事不算冲突：卡只列用户定过的，没列的不等于被否定。
    - 先问一句「这事能不能撤回」（用户 2026-11-10 定：沙盒、测试、能撤回的直接干；真钱、发到外面、删东西、换方向才问他）：要用户批准或动手的事能撤回、出错也能改回（测试目录、隔离环境、本机文件、自己的分支、能重装的设置、能再改的草稿）→ reversible，answer 写助手自己怎么做、怎么撤回。
    - 卡和原话都推不出来、用户没选过的路线（方向），或要花真钱、发到外面（发帖、发版、给外人发消息）、删掉恢复不了的东西，或只有用户本人能做（扫码、验证码、付款、实物动手）、要用户看成品才能定 → pass。
    - 草稿里没有要用户拍板的事 → pass。
@@ -50,7 +49,34 @@ SYSTEM = """你是一个判断器。助手（产品经理）准备把一段话�
 3. 拿不准就 pass。不要因为问题看起来重要就 pass；看能不能推出来。
 
 只输出一个 JSON 对象，不要别的字：
-{"verdict":"self|reversible|conflict|ask|pass","question":"被判断的那个问题或做法，一句话","answer":"self/reversible/conflict 的答案；ask/pass 时空","basis":"conflict 时必须写日期并逐字引用用户原话；ask 时列两种读法并说明要先问用户"}"""
+{"verdict":"self|reversible|conflict|ask|pass",@@KIND@@"question":"被判断的那个问题或做法，一句话","answer":"self/reversible/conflict 的答案；ask/pass 时空","basis":"conflict 时必须写日期并逐字引用用户原话；ask 时列两种读法并说明要先问用户"}"""
+
+# 两种读法怎么判：回复出口（choice-ask-guard）用原来那条，一个字不动；交接出口（ws-handoff）只有方向和花钱才 ask。
+# 分开的原因：2026-11-11 把新规则放进共用提示词回放，回复出口对「用户已回过的事又问一遍」从拦变成不拦。
+ASK_REPLY = """   - 若存在两种合理读法，或无法从用户原话直接得到答案，输出 ask：列出两种读法，不选择、不推荐「合定案的做法」，要求先问用户并把确认原话补进交接。
+"""
+ASK_HANDOFF = """   - 若存在两种合理读法，或无法从用户原话直接得到答案：先定 kind。direction = 两种读法通向不同路线，其中一种是用户没选过的方向，或换掉了用户点名的东西（产品、对象、平台、目标）；money = 其中一种读法要花真钱或超预算；其余（技术细节、失败兜底、步骤先后、怎么验收、内部流程、措辞）都是 other。
+     只有 direction 和 money 才输出 ask：列出两种读法，不选择、不推荐「合定案的做法」。other 是助手有权自己定的事 → pass（用户定过：只有方向和超预算的钱问他）。
+   - 先核对总目标和范围：拿交接的「总目标」「范围」对「用户原话」里用户点名的东西和他同意的那件事。交接把它换成了别的（换产品、换对象、换平台、不做用户同意的那件而做另一件）→ 这是换方向：原话逐字说了就 conflict，否则 ask，kind 都写 direction。这一条优先于下面四种。
+   - 下面四种不算「两种读法」，不输出 ask：
+     a. 用户的「可以/好/做/行/没问题」是回复助手某一条的（原话里标了「回这条」，或紧跟在助手那条后面）：就是同意助手那条说的事；同一句里后面的话是另外追加的事。
+     b. 交接「用户原话」里用户已经回过这个问题，包括「照你的理解做」「为什么还要我回复」这类话：那个问题已经定了，按助手当时说的理解做。它只管被问的那件事，不等于交接里别的改动也获批。
+     c. 把方案交给主角色或派活的人看、主角色验收、队友互审：这是团队内部步骤，不是向用户加一道确认。
+     d. 写在「我加的」节里并带理由的设定：由另一道检查管，这里不判。
+"""
+KIND_FIELD = '''"kind":"direction|money|other（这件事属于哪一类；conflict 和 ask 必填）",'''
+SYSTEM_REPLY = SYSTEM.replace("@@ASK@@", ASK_REPLY).replace("@@KIND@@", "")
+SYSTEM_HANDOFF = SYSTEM.replace("@@ASK@@", ASK_HANDOFF).replace("@@KIND@@", KIND_FIELD)
+
+# ask 只留给这两类（用户定：只有方向和超预算的钱问他）；其余两种读法由助手自己定。
+# 来源：2026-11-11 同一份交接被 ask 连拦三次（用户已回过的「可以」、交主角色看方案的内部步骤、写在「我加的」里的兜底），
+# 主角色回头去问，用户「为什么还要我回复，你让我决定的，不是跟你理解然后去做的是一样的吗」。
+ASK_KINDS = ("direction", "money")
+
+
+def needs_user(r):
+    """ask 是不是真要问用户：只有方向和花钱两类。调用方（ws-handoff）按它决定退回还是放行并记一行。"""
+    return r.get("verdict") == "ask" and r.get("kind") in ASK_KINDS
 
 
 def load_cards():
@@ -147,14 +173,14 @@ def _validate_conflict(r, draft, user_msgs):
     original_section = re.search(r"(?ims)^#{1,6}\s*用户原话\s*$([\s\S]*?)(?=^#{1,6}\s|\Z)", draft)
     evidence = "\n".join([*(str(m) for m in user_msgs), original_section.group(1) if original_section else ""])
     if not quote or quote.group(1) not in evidence:
-        r.update(verdict="ask", answer="", basis=f"无法在本轮用户原话中逐字核对冲突依据；{r['basis']}。请先问用户，确认后把原话补进交接。")
+        r.update(verdict="ask", answer="", basis=f"无法在本轮用户原话中逐字核对冲突依据；{r['basis']}")
     return r
 
 
 def judge(draft, user_msgs=(), kind="reply"):
     """返回 dict(verdict, question, answer, basis, ms, cost)；出任何错都返回 verdict=pass。"""
     t0 = time.time()
-    res = {"verdict": "pass", "question": "", "answer": "", "basis": "", "ms": 0, "cost": 0}
+    res = {"verdict": "pass", "kind": "", "question": "", "answer": "", "basis": "", "ms": 0, "cost": 0}
     if kind == "reply":
         why = go_ask_pass(draft, user_msgs)
         if why:
@@ -170,7 +196,8 @@ def judge(draft, user_msgs=(), kind="reply"):
     try:
         p = subprocess.run(
             ["claude", "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
-             "--no-session-persistence", "--system-prompt", SYSTEM, "--output-format", "json"],
+             "--no-session-persistence", "--system-prompt", SYSTEM_HANDOFF if kind == "handoff" else SYSTEM_REPLY,
+             "--output-format", "json"],
             input=prompt, capture_output=True, text=True, timeout=TIMEOUT, cwd=tempfile.gettempdir())
         d = json.loads(p.stdout)
         res["cost"] = round(d.get("total_cost_usd") or 0, 5)
@@ -178,6 +205,8 @@ def judge(draft, user_msgs=(), kind="reply"):
         j = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
         if j.get("verdict") in ("self", "reversible", "conflict", "ask", "pass"):
             res.update({k: str(j.get(k, "")) for k in ("verdict", "question", "answer", "basis")})
+            k = str(j.get("kind", "")).strip().lower()
+            res["kind"] = k if k in ASK_KINDS else "other"
             _validate_conflict(res, draft, user_msgs)
     except Exception as e:  # 超时、没装 claude、输出不是 JSON：放行
         res["basis"] = f"判断器出错，放行：{type(e).__name__}"
