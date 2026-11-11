@@ -244,3 +244,83 @@ func TestTurnTailFailedCardRetainsUnsentText(t *testing.T) {
 	p := &turnTailFailingCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "card"}}
 	assertTurnSentOnce(t, runTurnTailResend(t, p, false))
 }
+
+// #709 / #708: iFlow reports the entire EventText stream again at its terminal
+// boundary, optionally followed by a tool-result fallback that was not streamed.
+func TestTurnTailCumulativeTerminal(t *testing.T) {
+	for _, kind := range []string{"plain", "preview", "card"} {
+		for _, fallback := range []string{"", "terminal-only tool fallback"} {
+			t.Run(kind+"/"+fallback, func(t *testing.T) {
+				var p Platform = &stubPlatformEngine{n: "plain"}
+				if kind == "preview" {
+					p = &turnTailPreviewPlatform{stubPlatformEngine: stubPlatformEngine{n: "telegram"}}
+				} else if kind == "card" {
+					p = &turnTailCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "card"}, card: &turnTailCard{}}
+				}
+				e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+				e.SetDisplayConfig(DisplayCfg{Mode: "compact"})
+				cfg := DefaultStreamPreviewCfg()
+				cfg.IntervalMs, cfg.MinDeltaChars = 0, 1
+				e.SetStreamPreviewCfg(cfg)
+				key := "test:cumulative-terminal"
+				session := e.sessions.GetOrCreateActive(key)
+				a := &qq137FixtureSession{newControllableSession("cumulative-terminal")}
+				state := &interactiveState{agentSession: a, platform: p, replyCtx: "ctx"}
+				e.interactiveStates[key] = state
+				first, last := "已发前段甲", "未发尾段乙"
+				a.events <- Event{Type: EventText, Content: first}
+				a.events <- Event{Type: EventToolUse, ToolName: "read"}
+				a.events <- Event{Type: EventText, Content: last}
+				a.events <- Event{Type: EventResult, Content: first + last + fallback,
+					StreamedContentBytes: len(first + last), Done: true}
+				e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+				sent := p.(interface{ getSent() []string }).getSent()
+				if cp, ok := p.(*turnTailCardPlatform); ok {
+					sent = append(sent, cp.card.final)
+				}
+				for _, text := range []string{first, last, fallback} {
+					if text != "" && strings.Count(strings.Join(sent, ""), text) != 1 {
+						t.Fatalf("%q must be delivered once: %q", text, sent)
+					}
+				}
+			})
+		}
+	}
+}
+
+// MaxChars limits the changing preview, not a permanent message. Both a normal
+// terminal and EOF must retain the part beyond the preview's display limit.
+func TestTurnTailFrozenPreviewRetainsOverflow(t *testing.T) {
+	for _, closeOnly := range []bool{false, true} {
+		t.Run(map[bool]string{false: "result", true: "eof"}[closeOnly], func(t *testing.T) {
+			p := &turnTailPreviewPlatform{stubPlatformEngine: stubPlatformEngine{n: "telegram"}}
+			e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+			e.SetDisplayConfig(DisplayCfg{Mode: "compact"})
+			cfg := DefaultStreamPreviewCfg()
+			cfg.IntervalMs, cfg.MinDeltaChars = 0, 1
+			e.SetStreamPreviewCfg(cfg)
+			key := "test:frozen-overflow"
+			session := e.sessions.GetOrCreateActive(key)
+			a := &qq137FixtureSession{newControllableSession("frozen-overflow")}
+			state := &interactiveState{agentSession: a, platform: p, replyCtx: "ctx"}
+			e.interactiveStates[key] = state
+			first := strings.Repeat("甲", cfg.MaxChars) + "尾标"
+			a.events <- Event{Type: EventText, Content: first}
+			a.events <- Event{Type: EventThinking, Content: "continue"}
+			a.events <- Event{Type: EventText, Content: "乙段"}
+			if closeOnly {
+				close(a.events)
+			} else {
+				a.events <- Event{Type: EventResult, Done: true}
+			}
+			e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+			sent := p.getSent()
+			if len(sent) == 0 || sent[0] != first {
+				t.Fatal("the frozen preview did not deliver the complete first segment (尾标 missing)")
+			}
+			if n := strings.Count(strings.Join(sent, ""), "乙段"); n != 1 {
+				t.Fatalf("tail delivered %d times, want once", n)
+			}
+		})
+	}
+}
