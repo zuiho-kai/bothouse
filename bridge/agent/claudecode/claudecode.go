@@ -55,9 +55,12 @@ type Agent struct {
 
 	appendSystemPrompt string // Custom text appended to the system prompt (keeps Claude's default)
 
-	providerProxy  *core.ProviderProxy // local proxy for third-party providers
-	proxyLocalURL  string              // local URL of the proxy
-	platformPrompt string              // platform-specific formatting instructions
+	providerProxy *core.ProviderProxy // local proxy for third-party providers
+	proxyLocalURL string              // local URL of the proxy
+	// sessionProxies: one system-fold proxy per session provider base URL (team
+	// workspace on a local model), kept for the agent's lifetime.
+	sessionProxies map[string]sessionProxy
+	platformPrompt string // platform-specific formatting instructions
 
 	// ccDataDir is injected by the cc-connect host (see buildAgentOptions
 	// in cmd/cc-connect/main.go). It locates the global directory where
@@ -542,7 +545,7 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, voice
 	// its provider proxy are untouched.
 	if settings, ok := core.SessionSettingsFromContext(ctx); ok && settings.Provider != "" {
 		if env, pm, found := sessionProviderEnv(a.providers, settings.Provider); found {
-			extraEnv = core.MergeEnv(extraEnv, env)
+			extraEnv = core.MergeEnv(extraEnv, a.foldSessionProviderEnvLocked(env))
 			activeProviderName = settings.Provider
 			if pm != "" {
 				model = pm
@@ -1310,6 +1313,42 @@ func sessionProviderEnv(providers []core.ProviderConfig, name string) (env []str
 		return env, raw.Model, true
 	}
 	return nil, "", false
+}
+
+type sessionProxy struct {
+	proxy *core.ProviderProxy
+	url   string
+}
+
+// foldSessionProviderEnvLocked points a session provider's ANTHROPIC_BASE_URL
+// at a local proxy that folds mid-conversation system turns (local Qwen and
+// similar templates only accept a system message first). On any failure the
+// env is returned unchanged.
+func (a *Agent) foldSessionProviderEnvLocked(env []string) []string {
+	const key = "ANTHROPIC_BASE_URL="
+	for i, kv := range env {
+		if !strings.HasPrefix(kv, key) {
+			continue
+		}
+		target := strings.TrimPrefix(kv, key)
+		sp, ok := a.sessionProxies[target]
+		if !ok {
+			proxy, local, err := core.NewSystemFoldProxy(target)
+			if err != nil {
+				slog.Warn("claudecode: session provider proxy failed, using the endpoint directly", "error", err)
+				return env
+			}
+			if a.sessionProxies == nil {
+				a.sessionProxies = map[string]sessionProxy{}
+			}
+			sp = sessionProxy{proxy: proxy, url: local}
+			a.sessionProxies[target] = sp
+		}
+		out := append([]string{}, env...)
+		out[i] = key + sp.url
+		return out
+	}
+	return env
 }
 
 func (a *Agent) runtimeEnvLocked() []string {
