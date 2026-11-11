@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 899aaa2ecfd35b976f1616391109148e4def23632c5bf4a8fad40fa022827b09
+// dsh-client-source-sha256: 0422573b6484267a6264fca4ea5cd0c8a122c2f506b7b3dec84abc5360ae825c
 // dsh-style-sha256: c923082850fb4c4b880db7d0ef16dc9c7325ecced74b85c4db26cbcaadfaad7f
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18675,8 +18675,8 @@ function ProgressCard({ lines, t, onOpen, folded, onToggle }) {
 }
 // src/client/StepChips.tsx
 /**
-* Step chips under a run strip (#125, the owner's 11:53 sample v1): one chip per tool step with
-* its outcome; a click shows that step's call and output, a failed step is marked red. Data comes
+* Step chips under a run strip: one chip per tool name with its call count and outcome;
+* a click shows every call and output, a failed step is marked red. Data comes
 * from the progress card's `chips` (dsh/collab/cloudweb.mjs stepChips); older cards without it
 * keep the plain step lines.
 */
@@ -18698,27 +18698,33 @@ const LABEL = {
 	running: "stepRunning",
 	unknown: "stepUnknown"
 };
-/** 用户 2026-11-04：brief 连续 bash 显示真实次数；失败和在途状态不能被成功覆盖。 */
-function groupBash(chips) {
+/** 用户 2026-11-11：同一轮所有同名工具显示 ×N；沿用失败 > 在途 > 未知 > 成功。 */
+function groupTools(chips) {
 	const groups = [];
+	const byTool = /* @__PURE__ */ new Map();
 	for (const chip of chips) {
-		const previous = groups.at(-1);
-		if (chip.tool.toLowerCase() === "bash" && previous?.tool.toLowerCase() === "bash") {
+		const key = chip.tool.toLowerCase();
+		const previous = byTool.get(key);
+		if (previous) {
 			previous.steps.push(chip);
 			const states = [previous.state, chip.state];
 			previous.state = states.includes("failed") ? "failed" : states.includes("running") ? "running" : states.includes("unknown") ? "unknown" : "ok";
-		} else groups.push({
-			tool: chip.tool,
-			state: chip.state,
-			steps: [chip]
-		});
+		} else {
+			const group = {
+				tool: chip.tool,
+				state: chip.state,
+				steps: [chip]
+			};
+			groups.push(group);
+			if (key) byTool.set(key, group);
+		}
 	}
 	return groups;
 }
 /** Older cards have only brief text; recognize the producer's tool lines, leave other prose intact. */
 function compactBrief(brief) {
-	return groupBash(brief.split("\n").map((line) => {
-		const match = /^(✅|❌|🔧) (bash)(?: · (成功|失败|进行中))?$/i.exec(line);
+	return groupTools(brief.split("\n").map((line) => {
+		const match = /^(✅|❌|🔧) (.+?)(?: · (成功|失败|进行中))?$/.exec(line);
 		const state = match?.[1] === "❌" ? "failed" : match?.[1] === "✅" ? "ok" : match?.[3] === "进行中" ? "running" : "unknown";
 		return {
 			tool: match?.[2] ?? "",
@@ -18744,7 +18750,7 @@ function compactBrief(brief) {
 }
 function StepChips({ chips: given, runState, t }) {
 	const [open, setOpen] = (0, react.useState)();
-	const groups = groupBash(runState === "running" ? given : given.map((c) => c.state === "running" ? {
+	const groups = groupTools(runState === "running" ? given : given.map((c) => c.state === "running" ? {
 		...c,
 		state: "unknown"
 	} : c));
