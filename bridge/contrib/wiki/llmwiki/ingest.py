@@ -2978,15 +2978,21 @@ def nightly(a):
                 os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
     if data_dir:
         import manuals
-        cfg = load_config(REPO)
+        role = os.environ.get("MANUALS_ROLE", "")
+        if not role:
+            marker = next((REPO / mark for mark in (".bothouse-role", ".bothouse-main")
+                           if (REPO / mark).exists()), None)
+            role = marker.read_text().strip() if marker else CFG["assistant"]
+        if not role or Path(role).name != role or role in (".", ".."):
+            raise ValueError("nightly skills require a valid role project id")
         data_dir = Path(data_dir)
         manuals.WIKI = REPO
-        manuals.STATE = data_dir / "skills" / "manuals-state" / f"{cfg['assistant']}.json"
+        manuals.STATE = data_dir / "skills" / "manuals-state" / f"{role}.json"
         manuals.SKILLS = data_dir / "skills" / "library"
         manuals.LINKS = []
-        manuals.PENDING = data_dir / "skills" / "pending" / cfg["assistant"]
-        manuals.ROLE = cfg["assistant"]
-        manuals.run(deadline=deadline)
+        manuals.PENDING = data_dir / "skills" / "pending" / role
+        manuals.ROLE = role
+        manuals.run(deadline=deadline, ask_fn=profile_ask, transcripts=ROOT)
     review(state(), deadline)
 
 

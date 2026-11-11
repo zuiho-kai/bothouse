@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -24,8 +24,10 @@ test('native DSH skill tool loads enabled role views in main and git workspaces 
 }, async () => {
   const require = createRequire(process.env.DSH_SKILL_TEST_ENTRY);
   const load = name => import(pathToFileURL(require.resolve(`@deepseek-ai/${name}`)).href);
+  const skillRequire = createRequire(require.resolve('@deepseek-ai/dsh-skill'));
   const [{ Context }, { SkillRegistry }, { createScope }, filesystem, toolPlugin] = await Promise.all([
-    load('cordis'), load('dsh-skill'), load('dsh-scope'), load('dsh-skill-filesystem'), load('dsh-tool-skill'),
+    load('cordis'), load('dsh-skill'), import(pathToFileURL(skillRequire.resolve('@deepseek-ai/dsh-scope')).href),
+    load('dsh-skill-filesystem'), load('dsh-tool-skill'),
   ]);
   const root = mkdtempSync(join(tmpdir(), 'bothouse-skills-'));
   const ctx = new Context();
@@ -63,11 +65,10 @@ test('native DSH skill tool loads enabled role views in main and git workspaces 
       assert.equal(result.provider, 'bothouse-managed');
       assert.match(result.content, /RECEIPT-1287/);
       await assert.rejects(tool.execute({ name: 'receipt-probe' }, { agent: other, signal }), /unknown/);
-      rmSync(skill, { recursive: true });
+      renameSync(skill, join(root, `retired-${cwd.endsWith('worktree') ? 'worktree' : 'main'}`));
       await assert.rejects(tool.execute({ name: 'receipt-probe' }, { agent: author, signal }));
     }
   } finally {
     await authorScope.dispose(); await otherScope.dispose();
-    rmSync(root, { recursive: true, force: true });
   }
 });

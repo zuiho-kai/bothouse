@@ -241,6 +241,8 @@ Proactive follow-up has explicit `off`, `observe`, and `auto` policies. Observat
 
 Task-bound result text can use the send command with task, revision and delivery ID to persist before sending. Each fragment has its own receipt; ambiguous sends remain visible as unknown instead of being blindly retried. See [task text delivery](docs/TASK_TEXT_DELIVERY.md) for usage and platform boundaries.
 
+The management website's Skills page manages approved skills and per-role pending drafts. Nightly wiki processing uses the configured dream engine to draft reusable instructions; additions and revisions stay pending until approval. Approved skills are enabled per role. Bridge skill commands work through the shared registry, while DSH members also receive their role view through the native skill loader. Other CLIs' native discovery is not configured by this integration. Existing global skills remain global. See [role-owned skills](docs/implementation/role-skills.md) for storage, installation and coverage.
+
 You say one thing from your phone, computer or browser → the **lead** in the chat channel (the AI you talk to by default) takes it → big work goes to a **workspace**: @coder and @writer in Workspace 1, @researcher in Workspace 2 → they hand it back.
 
 Chat keeps going the whole time; members take the work on and hand it back, and only decisions that need you come back to chat.

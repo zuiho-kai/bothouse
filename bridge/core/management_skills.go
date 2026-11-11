@@ -243,6 +243,45 @@ func (m *ManagementServer) handleManagedSkill(w http.ResponseWriter, r *http.Req
 		return
 	}
 	switch parts[1] {
+	case "pending":
+		project := r.URL.Query().Get("project")
+		if project == "" || project == "." || project == ".." || filepath.Base(project) != project {
+			mgmtError(w, http.StatusBadRequest, "invalid project")
+			return
+		}
+		path := filepath.Join(managedSkillsDir(m.wizardDataDir), "pending", project, name+".md")
+		body, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				mgmtError(w, http.StatusNotFound, "pending skill not found")
+			} else {
+				mgmtError(w, http.StatusInternalServerError, "read pending skill: "+err.Error())
+			}
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			mgmtJSON(w, http.StatusOK, managedSkill{managedSkillRecord: managedSkillRecord{Name: name, Owner: project}, Body: string(body)})
+		case http.MethodPut:
+			var req managedSkillEditRequest
+			if !decodeSkillJSON(w, r, &req) {
+				return
+			}
+			record, err := writeManagedSkill(m.wizardDataDir, project, name, project, req.Body, false)
+			if err != nil {
+				mgmtError(w, http.StatusBadRequest, "edit pending skill: "+err.Error())
+				return
+			}
+			mgmtJSON(w, http.StatusOK, record)
+		case http.MethodDelete:
+			if err := archiveManagedSkillPath(m.wizardDataDir, path); err != nil {
+				mgmtError(w, http.StatusInternalServerError, "discard pending skill: "+err.Error())
+				return
+			}
+			mgmtJSON(w, http.StatusOK, map[string]any{"deleted": name})
+		default:
+			mgmtError(w, http.StatusMethodNotAllowed, "GET, PUT or DELETE only")
+		}
 	case "approve":
 		if r.Method != http.MethodPost {
 			mgmtError(w, http.StatusMethodNotAllowed, "POST only")

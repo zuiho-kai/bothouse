@@ -202,9 +202,10 @@ class SubWikiPy(unittest.TestCase):
             f"import os\nopen({str(self.calls)!r}, 'a').write(os.environ['MANUALS_ROLE'] + ' manuals ' + os.environ['MANUALS_PENDING_DIR'] + '\\n')\n")
 
     def got(self):
-        got = self.calls.read_text().splitlines()
-        self.calls.unlink()
-        return got
+        rows = self.calls.read_text().splitlines()
+        offset = getattr(self, 'read_offset', 0)
+        self.read_offset = len(rows)
+        return rows[offset:]
 
     def run_py(self, *args):
         subprocess.run([sys.executable, "-X", "utf8", "-I", str(self.dir / "sub-wiki.py"), *args], env=self.env, check=True, timeout=30)
@@ -212,8 +213,7 @@ class SubWikiPy(unittest.TestCase):
 
     def test_nightly_runs_each_bot(self):
         self.assertEqual(self.run_py("nightly"), [
-            "juzi --nightly", f"juzi manuals {self.data / 'skills' / 'pending' / 'juzi'}",
-            "whale --nightly", f"whale manuals {self.data / 'skills' / 'pending' / 'whale'}",
+            "juzi --nightly", "whale --nightly",
         ])
 
     def test_hook_run_finds_session(self):
@@ -234,7 +234,7 @@ class SubWikiPy(unittest.TestCase):
         env["CC_HOOK_PROJECT"] = "other"  # a project outside bots.json: nothing runs
         subprocess.run([sys.executable, "-X", "utf8", "-I", str(self.dir / "sub-wiki.py"), "hook"], env=env, check=True, timeout=10)
         time.sleep(1)
-        self.assertFalse(self.calls.exists())
+        self.assertEqual(self.got(), [])
 
     def test_cron_skips_main_wiki_and_sets_wiki_dir(self):
         """The lead's main wiki (MAIN_MARK) is run by the cron job itself, not again here; each run gets WIKI_DIR."""
@@ -242,7 +242,7 @@ class SubWikiPy(unittest.TestCase):
         w = self.tmp / "wikis" / "whale"
         (w / "bin" / "ingest.py").write_text(
             f"import os,sys\nopen({str(self.calls)!r}, 'a').write('whale ' + os.environ.get('WIKI_DIR', '') + '\\n')\n")
-        self.assertEqual(self.run_py("nightly"), [f"whale {w}", f"whale manuals {self.data / 'skills' / 'pending' / 'whale'}"])
+        self.assertEqual(self.run_py("nightly"), [f"whale {w}"])
         self.assertEqual(self.run_py("hook-run", "juzi", "nope"), ["juzi --pending"])  # the hook still runs her
 
     @unittest.skipIf(os.name == "nt", "no /bin/sh on Windows")

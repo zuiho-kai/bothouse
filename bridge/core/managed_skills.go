@@ -163,7 +163,7 @@ func approvePendingSkill(dataDir, project, name string) (managedSkillRecord, err
 	if err != nil {
 		return managedSkillRecord{}, err
 	}
-	if err := os.Remove(pending); err != nil {
+	if err := archiveManagedSkillPath(dataDir, pending); err != nil {
 		return managedSkillRecord{}, err
 	}
 	return record, nil
@@ -209,11 +209,11 @@ func deleteManagedSkill(dataDir, name string) error {
 		return os.ErrNotExist
 	}
 	for project := range record.Enabled {
-		if err := os.RemoveAll(filepath.Join(ManagedSkillViewDir(dataDir, project), name)); err != nil {
+		if err := archiveManagedSkillPath(dataDir, filepath.Join(ManagedSkillViewDir(dataDir, project), name)); err != nil {
 			return err
 		}
 	}
-	if err := os.RemoveAll(filepath.Join(managedSkillsDir(dataDir), "library", name)); err != nil {
+	if err := archiveManagedSkillPath(dataDir, filepath.Join(managedSkillsDir(dataDir), "library", name)); err != nil {
 		return err
 	}
 	delete(state.Skills, name)
@@ -228,7 +228,7 @@ func refreshManagedSkillView(dataDir, project string, state managedSkillState) e
 	for name, skill := range state.Skills {
 		dst := filepath.Join(root, name)
 		if !skill.Enabled[project] {
-			if err := os.RemoveAll(dst); err != nil {
+			if err := archiveManagedSkillPath(dataDir, dst); err != nil {
 				return err
 			}
 			continue
@@ -237,15 +237,33 @@ func refreshManagedSkillView(dataDir, project string, state managedSkillState) e
 		if _, err := os.Stat(filepath.Join(src, "SKILL.md")); err != nil {
 			return fmt.Errorf("managed skill %s: %w", name, err)
 		}
-		if err := replaceManagedSkillView(dst, src); err != nil {
+		if err := replaceManagedSkillView(dataDir, dst, src); err != nil {
 			return fmt.Errorf("publish skill %s for %s: %w", name, project, err)
 		}
 	}
 	return nil
 }
 
-func replaceManagedSkillView(dst, src string) error {
-	if err := os.RemoveAll(dst); err != nil {
+// Retired bundles stay outside discovery roots so updating or disabling a view never deletes user data.
+func archiveManagedSkillPath(dataDir, path string) error {
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	root := filepath.Join(managedSkillsDir(dataDir), "archive")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp(root, filepath.Base(path)+"-")
+	if err != nil {
+		return err
+	}
+	return os.Rename(path, filepath.Join(dir, filepath.Base(path)))
+}
+
+func replaceManagedSkillView(dataDir, dst, src string) error {
+	if err := archiveManagedSkillPath(dataDir, dst); err != nil {
 		return err
 	}
 	return copySkillBundle(src, dst)

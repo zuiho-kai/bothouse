@@ -67,6 +67,11 @@ export const fetchSkillPresets = () =>
   api.get<SkillPresetsResponse>('/skills/presets');
 
 export const getManagedSkill = (name: string) => api.get<ManagedSkill>(`/skills/managed/${encodeURIComponent(name)}`);
+const pendingSkillURL = (name: string, project: string) =>
+  `/skills/managed/${encodeURIComponent(name)}/pending?project=${encodeURIComponent(project)}`;
+export const getPendingSkill = (name: string, project: string) => api.get<ManagedSkill>(pendingSkillURL(name, project));
+export const editPendingSkill = (name: string, project: string, body: string) => api.put(pendingSkillURL(name, project), { body });
+export const deletePendingSkill = (name: string, project: string) => api.delete(pendingSkillURL(name, project));
 export const editManagedSkill = (name: string, body: string) => api.put(`/skills/managed/${encodeURIComponent(name)}`, { body });
 export const deleteManagedSkill = (name: string) => api.delete(`/skills/managed/${encodeURIComponent(name)}`);
 export const setManagedSkillEnabled = (name: string, project: string, enabled: boolean) =>

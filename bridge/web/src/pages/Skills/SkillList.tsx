@@ -7,6 +7,7 @@ import { Card, Badge, Button, EmptyState, Modal, Textarea } from '@/components/u
 import {
   listSkills, fetchSkillPresets, getManagedSkill, editManagedSkill, deleteManagedSkill,
   setManagedSkillEnabled, approveManagedSkill, installSkillPreset,
+  getPendingSkill, editPendingSkill, deletePendingSkill,
   type ProjectSkills, type SkillPreset, type ManagedSkill,
 } from '@/api/skills';
 import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
@@ -262,15 +263,11 @@ function LocalSkills({
                 {managed.map(skill => <ManagedSkillCard key={skill.name} skill={skill} project={activeProject} refresh={refresh} t={t} />)}
               </section>
             )}
-            {pending.length > 0 && (
+            {pending.some(skill => skill.owner === activeProject) && (
               <section className="mt-6 space-y-2" aria-label={t('skills.pending', '待确认')}>
                 <h3 className="text-sm font-semibold text-ink">{t('skills.pending', '待确认')}</h3>
-                {pending.map(skill => (
-                  <Card key={skill.name} className="!py-3 flex items-center gap-3">
-                    <div className="min-w-0 flex-1"><p className="text-sm font-medium">{skill.name}</p><p className="text-xs text-ink-soft">{skill.description}</p></div>
-                    <Badge variant="warning">{t('skills.awaiting', '待确认')}</Badge>
-                    <Button size="sm" onClick={async () => { await approveManagedSkill(skill.name, activeProject); refresh(); }}><Check size={14} />{t('skills.approve', '确认生效')}</Button>
-                  </Card>
+                {pending.filter(skill => skill.owner === activeProject).map(skill => (
+                  <ManagedSkillCard key={`${skill.owner}/${skill.name}`} skill={skill} project={skill.owner!} pending refresh={refresh} t={t} />
                 ))}
               </section>
             )}
@@ -281,8 +278,8 @@ function LocalSkills({
   );
 }
 
-function ManagedSkillCard({ skill, project, refresh, t }: {
-  skill: ManagedSkill; project: string; refresh: () => void; t: (k: string, fallback?: string) => string;
+function ManagedSkillCard({ skill, project, pending = false, refresh, t }: {
+  skill: ManagedSkill; project: string; pending?: boolean; refresh: () => void; t: (k: string, fallback?: string) => string;
 }) {
   const [body, setBody] = useState('');
   const [open, setOpen] = useState(false);
@@ -290,14 +287,18 @@ function ManagedSkillCard({ skill, project, refresh, t }: {
   const [busy, setBusy] = useState(false);
   const useCount = skill.uses?.[project];
   const loadBody = async () => {
-    const data = await getManagedSkill(skill.name);
+    const data = pending ? await getPendingSkill(skill.name, project) : await getManagedSkill(skill.name);
     setBody(data.body || '');
     setEditing(false);
     setOpen(true);
   };
   const save = async () => {
     setBusy(true);
-    try { await editManagedSkill(skill.name, body); setOpen(false); refresh(); }
+    try {
+      if (pending) await editPendingSkill(skill.name, project, body);
+      else await editManagedSkill(skill.name, body);
+      setOpen(false); refresh();
+    }
     catch (e) { window.alert(String(e)); }
     setBusy(false);
   };
@@ -306,14 +307,26 @@ function ManagedSkillCard({ skill, project, refresh, t }: {
       <div className="flex flex-wrap items-start gap-3">
         <Puzzle size={15} className="mt-1 shrink-0 text-ink-mute" />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-medium">{skill.name}</h4>{skill.learned && <Badge variant="success">{t('skills.learned', '自己学会的')}</Badge>}</div>
+          <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-medium">{skill.name}</h4>{pending ? <Badge variant="warning">{t('skills.awaiting', '待确认')}</Badge> : skill.learned && <Badge variant="success">{t('skills.learned', '自己学会的')}</Badge>}</div>
           {skill.description && <p className="mt-1 text-[13px] text-ink-soft">{skill.description}</p>}
-          <p className="mt-1 text-xs text-ink-mute">{t('skills.uses', '使用次数')}: {useCount == null ? t('skills.unknown', '无法统计') : useCount}</p>
+          {!pending && <p className="mt-1 text-xs text-ink-mute">{t('skills.uses', '使用次数')}: {useCount == null ? t('skills.unknown', '无法统计') : useCount}</p>}
         </div>
-        <label className="inline-flex items-center gap-2 text-xs text-ink-soft"><input type="checkbox" checked={skill.enabled?.[project] === true} onChange={async e => { setBusy(true); await setManagedSkillEnabled(skill.name, project, e.target.checked); setBusy(false); refresh(); }} disabled={busy} />{t('skills.enabled', '启用')}</label>
+        {pending ? <Button size="sm" disabled={busy} onClick={async () => {
+          setBusy(true);
+          try { await approveManagedSkill(skill.name, project); refresh(); }
+          catch (e) { window.alert(String(e)); }
+          finally { setBusy(false); }
+        }}><Check size={14} />{t('skills.approve', '确认生效')}</Button> :
+          <label className="inline-flex items-center gap-2 text-xs text-ink-soft"><input type="checkbox" checked={skill.enabled?.[project] === true} onChange={async e => { setBusy(true); try { await setManagedSkillEnabled(skill.name, project, e.target.checked); refresh(); } catch (e) { window.alert(String(e)); } finally { setBusy(false); } }} disabled={busy} />{t('skills.enabled', '启用')}</label>}
         <Button size="sm" className="!p-2" variant="ghost" title={t('skills.view', '查看正文')} aria-label={t('skills.view', '查看正文')} onClick={loadBody}><Eye size={15} /></Button>
         <Button size="sm" className="!p-2" variant="ghost" title={t('skills.edit', '编辑')} aria-label={t('skills.edit', '编辑')} onClick={async () => { await loadBody(); setEditing(true); }}><Pencil size={15} /></Button>
-        <Button size="sm" className="!p-2" variant="ghost" title={t('skills.delete', '删除')} aria-label={t('skills.delete', '删除')} onClick={async () => { if (window.confirm(t('skills.deleteConfirm', `删除 ${skill.name}？`))) { await deleteManagedSkill(skill.name); refresh(); } }}><Trash2 size={15} /></Button>
+        <Button size="sm" className="!p-2" variant="ghost" title={t('skills.delete', '删除')} aria-label={t('skills.delete', '删除')} onClick={async () => { if (window.confirm(t('skills.deleteConfirm', `删除 ${skill.name}？`))) {
+          try {
+            if (pending) await deletePendingSkill(skill.name, project);
+            else await deleteManagedSkill(skill.name);
+            refresh();
+          } catch (e) { window.alert(String(e)); }
+        } }}><Trash2 size={15} /></Button>
       </div>
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? t('skills.edit', '编辑技能') : skill.name} className="max-w-3xl">
         {editing ? <Textarea aria-label={t('skills.body', '正文')} rows={22} value={body} onChange={e => setBody(e.target.value)} /> : <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap text-sm text-ink-soft">{body}</pre>}

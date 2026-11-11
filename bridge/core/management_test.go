@@ -2187,6 +2187,34 @@ func TestDownloadSkillBundleRejectsUntrustedSource(t *testing.T) {
 	}
 }
 
+func TestMgmt_PendingSkillReviewKeepsPublishedBody(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	dataDir := t.TempDir()
+	mgmt.SetWizard(newMemStore(), dataDir)
+	if _, err := writeManagedSkill(dataDir, "writer", "guide", "writer", "Published body.", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeManagedSkill(dataDir, "writer", "guide", "writer", "Draft body.", false); err != nil {
+		t.Fatal(err)
+	}
+	base := ts.URL + "/api/v1/skills/managed/guide/pending?project=writer"
+	read := mgmtGet(t, base, "tok")
+	if !read.OK || !bytes.Contains(read.Data, []byte("Draft body.")) {
+		t.Fatalf("pending body unavailable before approval: ok=%v data=%s error=%s", read.OK, read.Data, read.Error)
+	}
+	if changed := mgmtPut(t, base, "tok", map[string]string{"body": "Reviewed draft."}); !changed.OK {
+		t.Fatalf("edit draft: %s", changed.Error)
+	}
+	active := mgmtGet(t, ts.URL+"/api/v1/skills/managed/guide", "tok")
+	if !active.OK || !bytes.Contains(active.Data, []byte("Published body.")) {
+		t.Fatalf("editing pending revision changed published skill: %+v", active)
+	}
+	other := mgmtGet(t, ts.URL+"/api/v1/skills/managed/guide/pending?project=reader", "tok")
+	if other.OK {
+		t.Fatal("draft appeared under another role")
+	}
+}
+
 func TestMgmt_ManagedSkillWriteLifecycle(t *testing.T) {
 	mgmt, ts, _ := testManagementServer(t, "tok")
 	dataDir := t.TempDir()
