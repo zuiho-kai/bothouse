@@ -115,3 +115,32 @@ func TestRelayToolEcho_WatchStopCarriesTextOnly(t *testing.T) {
 		t.Fatalf("watch stop = %q, %v", got.resp, got.err)
 	}
 }
+
+// The 2026-11-11 14:04 shape end to end: default (full) visibility, the target
+// ran tools and ended with an empty result. The group post must carry no echo.
+func TestRelayToolEcho_GroupPostThroughRelayManager(t *testing.T) {
+	sourcePlatform := &relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
+	targetPlatform := &relayVisibilityPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
+	sourceEngine := NewEngine("source", &stubAgent{}, []Platform{sourcePlatform}, "", LangEnglish)
+	targetSession := newControllableSession("target-session")
+	targetEngine := NewEngine("target", &controllableAgent{nextSession: targetSession}, []Platform{targetPlatform}, "", LangEnglish)
+	t.Cleanup(sourceEngine.cancel)
+	t.Cleanup(targetEngine.cancel)
+	rm := NewRelayManager("")
+	rm.Bind("feishu", "chat-1", map[string]string{"source": "source-bot", "target": "deep"})
+	rm.RegisterEngine("source", sourceEngine)
+	rm.RegisterEngine("target", targetEngine)
+
+	targetSession.events <- Event{Type: EventToolResult, ToolName: "bash", Content: "secret tool output"}
+	targetSession.events <- Event{Type: EventResult, Done: true}
+	result, err := rm.Send(context.Background(), RelayRequest{From: "source", To: "target", SessionKey: "feishu:chat-1:user-1", Message: "please ask target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoToolEcho(t, result.Response)
+	posted := targetPlatform.getSent()
+	if len(posted) != 1 || posted[0] != "[deep] (empty response)" {
+		t.Fatalf("group post = %#v", posted)
+	}
+	t.Logf("group post: %q", posted[0])
+}
