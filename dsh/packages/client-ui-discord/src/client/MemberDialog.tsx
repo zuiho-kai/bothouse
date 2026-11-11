@@ -65,7 +65,10 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
   const [personas, setPersonas] = useState<readonly MemberPersona[]>([])
   const [personaSlug, setPersonaSlug] = useState('')
   const [persona, setPersona] = useState(member?.persona ?? '')
-  const [modelKey, setModelKey] = useState(member?.model ? member.model.provider + SEP + member.model.model : '')
+  const nativeModel = member?.model && typeof member.model !== 'string' ? member.model : undefined
+  const [modelKey, setModelKey] = useState(nativeModel ? nativeModel.provider + SEP + nativeModel.model : '')
+  const [claudeModel, setClaudeModel] = useState(member?.cli === 'claude' && typeof member.model === 'string' ? member.model : '')
+  const [claudeModelChanged, setClaudeModelChanged] = useState(false)
   const [routes, setRoutes] = useState<readonly ModelRoute[] | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -149,14 +152,14 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     setError(undefined)
     const identity = nameCustomized === undefined ? {} : { nameCustomized }
     const input: MemberInput = type === 'cli'
-      ? { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), cli, permissionPreset: preset }
+      ? { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), cli, permissionPreset: preset, ...(cli === 'claude' && (member?.cli !== 'claude' || claudeModelChanged) ? { model: claudeModel.trim() || null } : {}) }
       : { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
       setError(errorText(reason, t, 'member', input.name))
     }).finally(() => { setBusy(false) })
   }
 
-  const current = member?.model ? member.model.provider + SEP + member.model.model : undefined
+  const current = nativeModel ? nativeModel.provider + SEP + nativeModel.model : undefined
   const listed = routes?.some(r => r.models.some(m => r.provider + SEP + m.id === current)) ?? false
 
   return (
@@ -249,6 +252,11 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
             </span>
           </div>
         )}
+        {type === 'cli' && cli === 'claude' && <label className={css.field}>
+          <span>{t('memberModel')}</span>
+          <input className={css.fieldInput} aria-label={t('memberModel')} value={claudeModel} placeholder={t('memberClaudeModelDefault')} onChange={event => { setClaudeModel(event.target.value); setClaudeModelChanged(true) }} />
+          <span>{t('memberClaudeModelHint')}</span>
+        </label>}
         {type === 'cli' && (
           <label className={css.field}>
             <span>{t('memberPermission')}</span>
@@ -262,8 +270,8 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
           <span>{t('memberModel')}</span>
           <select className={css.fieldInput} value={modelKey} disabled={routes === undefined} onChange={(event) => { setModelKey(event.target.value) }}>
             <option value="">{routes === undefined ? t('memberModelLoading') : t('memberModelDefault')}</option>
-            {current !== undefined && !listed && member?.model && (
-              <option value={current}>{`${member.model.provider}/${member.model.model}`}</option>
+            {current !== undefined && !listed && nativeModel && (
+              <option value={current}>{`${nativeModel.provider}/${nativeModel.model}`}</option>
             )}
             {routes?.map(route => (
               <optgroup key={route.provider} label={route.error === undefined ? route.name : t('memberModelRouteError', { route: route.name, error: route.error })}>
