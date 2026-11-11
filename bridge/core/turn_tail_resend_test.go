@@ -324,3 +324,36 @@ func TestTurnTailFrozenPreviewRetainsOverflow(t *testing.T) {
 		})
 	}
 }
+
+type turnTailFreezeErrorPlatform struct {
+	turnTailPreviewPlatform
+}
+
+func (p *turnTailFreezeErrorPlatform) UpdateMessage(context.Context, any, string) error {
+	return errors.New("preview commit rejected")
+}
+
+func TestTurnTailFrozenPreviewDeliveryErrorStopsTurn(t *testing.T) {
+	p := &turnTailFreezeErrorPlatform{turnTailPreviewPlatform{stubPlatformEngine: stubPlatformEngine{n: "preview"}}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetDisplayConfig(DisplayCfg{Mode: "compact"})
+	cfg := DefaultStreamPreviewCfg()
+	cfg.IntervalMs, cfg.MinDeltaChars = 0, 1
+	e.SetStreamPreviewCfg(cfg)
+	key := "test:freeze-error"
+	session := e.sessions.GetOrCreateActive(key)
+	a := &qq137FixtureSession{newControllableSession("freeze-error")}
+	state := &interactiveState{agentSession: a, platform: p, replyCtx: "ctx"}
+	e.interactiveStates[key] = state
+	a.events <- Event{Type: EventText, Content: strings.Repeat("甲", cfg.MaxChars) + "尾标"}
+	a.events <- Event{Type: EventThinking, Content: "continue"}
+	a.events <- Event{Type: EventText, Content: "乙段"}
+	a.events <- Event{Type: EventResult, Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+	if !state.eventsNeedResync || len(a.events) != 2 {
+		t.Fatal("failed segment commit must stop before consuming the remaining turn")
+	}
+	if sent := p.getSent(); len(sent) != 1 || strings.Contains(sent[0], "乙段") {
+		t.Fatalf("failed preview was detached and the turn continued: %q", sent)
+	}
+}

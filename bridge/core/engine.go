@@ -6504,6 +6504,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), outputCtx, workspaceRenderer)
+	// A failed freeze has not delivered the segment. Stop this output turn
+	// before detaching its preview or recording the segment as sent.
+	freezePreview := func() bool {
+		if err := sp.freeze(); err != nil {
+			slog.Error("stream preview: committing segment failed", "session", sessionKey, "error", err)
+			state.mu.Lock()
+			state.eventsNeedResync = true
+			state.mu.Unlock()
+			input.finish(inputTurnResult{err: fmt.Errorf("preview segment delivery: %w", err)})
+			return false
+		}
+		return true
+	}
 	cp := newCompactProgressWriter(outputCtx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	cp.mirrorFor = e.taskThreadProgressContext(outputCtx, inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
 	if state.turnScheduled && !e.isTeamWorkspaceChat(sessionKey) {
@@ -6830,7 +6843,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				} else {
 					if sp.canPreview() {
-						sp.freeze()
+						if !freezePreview() {
+							return
+						}
 						sp.detachPreview()
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
@@ -6861,10 +6876,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							sendReplySegment(p, replyCtx, segment)
 						}
 					}
-					segmentStart = len(textParts)
-					silentHold = false
 				}
-				sp.freeze()
+				if !freezePreview() {
+					return
+				}
+				segmentStart = len(textParts)
+				silentHold = false
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
@@ -6935,7 +6952,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				} else {
 					if sp.canPreview() {
-						sp.freeze()
+						if !freezePreview() {
+							return
+						}
 						sp.detachPreview()
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
@@ -6999,10 +7018,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							sendReplySegment(p, replyCtx, segment)
 						}
 					}
-					segmentStart = len(textParts)
-					silentHold = false
 				}
-				sp.freeze()
+				if !freezePreview() {
+					return
+				}
+				segmentStart = len(textParts)
+				silentHold = false
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
@@ -7301,10 +7322,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						sendReplySegment(p, replyCtx, segment)
 					}
 				}
+			}
+			if !freezePreview() {
+				return
+			}
+			if streamCard == nil || streamCard.Failed() {
 				segmentStart = len(textParts)
 				silentHold = false
 			}
-			sp.freeze()
 			if previewActive {
 				sp.detachPreview() // keep frozen preview visible as permanent message
 			}
@@ -7472,13 +7497,22 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			state.clearStopDraft()
 
+			// A cumulative adapter identifies the bytes it already streamed. Only
+			// its new suffix enters the stream ledger; a standalone terminal answer
+			// still replaces the open draft. Do not infer ownership from text matches.
 			fullResponse := event.Content
+			if event.StreamedContentBytes > 0 {
+				if tail := event.Content[event.StreamedContentBytes:]; tail != "" {
+					textParts = append(textParts, tail)
+				}
+				fullResponse = ""
+			}
 			if e.display.HideAgentFooter {
 				fullResponse = stripAgentFooterLines(fullResponse)
 			}
 			// A nonempty terminal result owns the final reply, including an
-			// adapter-only error or Stop-hook rewrite. Only an empty result asks
-			// us to assemble streamed text. Display settings cannot choose the
+			// adapter-only error or Stop-hook rewrite. An empty or explicitly
+			// cumulative result uses the stream ledger. Display settings cannot choose the
 			// answer's source (#703: quiet mode discarded terminal-only text).
 			terminalReply := fullResponse != ""
 			if !terminalReply && len(textParts) > 0 {
@@ -8530,17 +8564,20 @@ channelClosed:
 
 		// Same rule as the normal end: text before segmentStart already went out (#700).
 		if segmentStart > 0 {
-			sp.discard()
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
 				unsent = closedFinalReplyText(unsent)
-				if unsent != "" {
+				if unsent == "" {
+					sp.discard()
+				} else if !sp.finish(unsent, "") {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
 							return
 						}
 					}
 				}
+			} else {
+				sp.discard()
 			}
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
