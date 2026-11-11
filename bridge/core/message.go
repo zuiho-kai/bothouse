@@ -558,6 +558,11 @@ const MetaLastReply = "last_reply"
 // so that it names the bot and model.
 const MetaQuotaExhausted = "quota_exhausted"
 
+// MetaTurnCostUSD carries what one turn cost in USD (Metadata key, float64) on a
+// turn-ending EventResult, when the agent reports it (Claude: total_cost_usd).
+// The workspace route log adds it up per task (maomao fork, #1448).
+const MetaTurnCostUSD = "turn_cost_usd"
+
 // WithQuotaExhausted returns meta with the quota-exhausted mark set.
 func WithQuotaExhausted(meta map[string]any, reset string) map[string]any {
 	if meta == nil {

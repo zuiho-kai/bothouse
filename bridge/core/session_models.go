@@ -130,7 +130,9 @@ func (e *Engine) sessionSettingsFor(sessionKey string) SessionSettings {
 	case model != "":
 		settings.Model = model
 	case ws.provider != "" && e.isTeamWorkspaceChat(sessionKey):
-		settings.Provider, settings.Model = ws.provider, ws.model
+		if e.workspaceRouteFor(sessionKey, ws.model).cheap { // #1448: split or direct, per task
+			settings.Provider, settings.Model = ws.provider, ws.model
+		}
 	}
 	return settings
 }
