@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 )
 
@@ -78,72 +77,21 @@ var teamTaskAllowed = map[TeamTaskState][]TeamTaskState{
 // ErrTeamTaskTransition: the event does not apply to the task's current state.
 var ErrTeamTaskTransition = fmt.Errorf("team task: transition not allowed")
 
-const (
-	teamTaskFileName = "team_tasks.json"
-	teamTaskLogFile  = "team_task_events.jsonl"
-)
+const teamTaskLogFile = "team_task_events.jsonl"
 
-func teamTaskPath(dataDir string) string { return filepath.Join(dataDir, teamTaskFileName) }
+// The task records live in team_workspaces.json (teamWorkspaceState.Tasks), next to the handoffs
+// and workspace ownership they move with: a claim (dispatched + handoff + owner) and a park
+// (paused + Parked mark + release) are one atomic write of that file, so no failure and no crash
+// can leave one changed without the other (#715 review of #1632: two files written in turn had no
+// common commit point). Reading that file is strict (loadTeamWorkspacesLocked): only a missing
+// file is empty, an unreadable or unparsable one is an error and is never written over.
 
-// teamTaskFile is the store as read from disk: the records, plus the raw bytes and whether the
-// file existed, so a two-store commit can put the file back exactly as it was.
-type teamTaskFile struct {
-	tasks   map[int]TeamTask
-	raw     []byte
-	existed bool
-}
-
-// loadTeamTasksLocked reads the task records; caller holds teamWorkspaceStore.mu (the same lock as
-// the workspace handoffs, so a park changes both in one step). Only a file that does not exist yet
-// is an empty store. Any other read error and a file that does not parse are returned: read as
-// empty, the next transition would save one record over every task the file held (#1632 review).
-// The file is left as it is for a person to look at.
-func loadTeamTasksLocked(dataDir string) (teamTaskFile, error) {
-	f := teamTaskFile{tasks: map[int]TeamTask{}}
-	data, err := os.ReadFile(teamTaskPath(dataDir))
-	if os.IsNotExist(err) {
-		return f, nil
+// teamTasksOfLocked returns the task records of st, creating the map on first use.
+func teamTasksOfLocked(st *teamWorkspaceState) map[int]TeamTask {
+	if st.Tasks == nil {
+		st.Tasks = map[int]TeamTask{}
 	}
-	if err != nil {
-		return f, fmt.Errorf("team task: read %s: %w", teamTaskPath(dataDir), err)
-	}
-	var list []TeamTask
-	if err := json.Unmarshal(data, &list); err != nil {
-		return f, fmt.Errorf("team task: %s does not parse, left untouched: %w", teamTaskPath(dataDir), err)
-	}
-	f.raw, f.existed = data, true
-	for _, t := range list {
-		f.tasks[t.ID] = t
-	}
-	return f, nil
-}
-
-func saveTeamTasksLocked(dataDir string, tasks map[int]TeamTask) error {
-	list := make([]TeamTask, 0, len(tasks))
-	for _, t := range tasks {
-		list = append(list, t)
-	}
-	sortTeamTasks(list)
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	return AtomicWriteFile(teamTaskPath(dataDir), data, 0o644)
-}
-
-// restoreTeamTasksLocked puts the file back as f read it (removes it when there was none).
-func restoreTeamTasksLocked(dataDir string, f teamTaskFile) error {
-	if !f.existed {
-		if err := os.Remove(teamTaskPath(dataDir)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	return AtomicWriteFile(teamTaskPath(dataDir), f.raw, 0o644)
-}
-
-func sortTeamTasks(list []TeamTask) {
-	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+	return st.Tasks
 }
 
 // planTeamTaskTransition applies ev to tasks in memory (nothing written) and returns the record
@@ -178,67 +126,42 @@ func planTeamTaskTransition(tasks map[int]TeamTask, ev teamTaskEvent, now time.T
 	return cur, next, nil
 }
 
-// transitionTeamTaskLocked applies ev to the task store alone (a transition with no workspace
-// change, e.g. dispatched → working). Caller holds teamWorkspaceStore.mu. On any error nothing is
-// written. Each applied transition appends one line to the event log.
+// transitionTeamTaskLocked applies ev with no workspace change (e.g. dispatched → working).
+// Caller holds teamWorkspaceStore.mu. On any error nothing is written.
 func transitionTeamTaskLocked(dataDir string, ev teamTaskEvent, now time.Time) (TeamTask, error) {
 	if dataDir == "" {
 		return TeamTask{}, fmt.Errorf("team task: data dir is required")
 	}
-	f, err := loadTeamTasksLocked(dataDir)
+	path := teamWorkspacePath(dataDir)
+	st, err := loadTeamWorkspacesLocked(path)
 	if err != nil {
 		return TeamTask{}, err
 	}
-	cur, next, err := planTeamTaskTransition(f.tasks, ev, now)
-	if err != nil {
+	cur := st.Tasks[ev.ID]
+	if err := commitTeamTaskAndWorkspacesLocked(dataDir, path, st, ev, now); err != nil {
 		return cur, err
 	}
-	if err := saveTeamTasksLocked(dataDir, f.tasks); err != nil {
-		return cur, fmt.Errorf("team task #%d: save: %w", ev.ID, err)
-	}
-	logTeamTaskTransition(dataDir, cur, next)
-	return next, nil
+	return st.Tasks[ev.ID], nil
 }
 
-// commitTeamTaskAndWorkspacesLocked saves a task transition and the workspace state st (already
-// changed in memory by the caller: the claim's handoff, the park's Parked mark and release) as one
-// step. Caller holds teamWorkspaceStore.mu. The two live in two files, so the commit is ordered:
-// the task file first, then the workspace file; when the workspace save fails the task file is put
-// back as it was. On any failure the cached workspace state is dropped, so the next read comes from
-// disk and the caller's in-memory changes are gone too. Either both stores change or neither does,
-// and the caller returns the error — no "logged, then released anyway" (#1632 review: park
-// warned on a failed transition and still freed the workspace; claim saved dispatched and could
-// then fail to save the handoff). ev.ID 0: no task record, only the workspace file is saved.
+// commitTeamTaskAndWorkspacesLocked applies task transition ev to st (whose workspace records the
+// caller has already changed in memory: the claim's handoff, the park's Parked mark and release)
+// and saves st in one write. Caller holds teamWorkspaceStore.mu. On any failure nothing is
+// written and the cached state is put back to the file, so the caller's in-memory changes are
+// gone too; the caller returns the error (#1632 review: park warned on a failed transition and
+// still freed the workspace). ev.ID 0: no task record, only the workspace records are saved.
+// Each applied transition appends one line to the event log after the commit.
 func commitTeamTaskAndWorkspacesLocked(dataDir, path string, st *teamWorkspaceState, ev teamTaskEvent, now time.Time) error {
 	if ev.ID <= 0 {
-		if err := saveTeamWorkspacesLocked(path, st); err != nil {
-			dropTeamWorkspaceCacheLocked(path)
-			return err
-		}
-		return nil
+		return saveTeamWorkspacesLocked(path, st)
 	}
-	f, err := loadTeamTasksLocked(dataDir)
+	cur, next, err := planTeamTaskTransition(teamTasksOfLocked(st), ev, now)
 	if err != nil {
-		dropTeamWorkspaceCacheLocked(path)
+		teamWorkspaceRollbackLocked(path)
 		return err
-	}
-	cur, next, err := planTeamTaskTransition(f.tasks, ev, now)
-	if err != nil {
-		dropTeamWorkspaceCacheLocked(path)
-		return err
-	}
-	if err := saveTeamTasksLocked(dataDir, f.tasks); err != nil {
-		dropTeamWorkspaceCacheLocked(path)
-		return fmt.Errorf("team task #%d: save: %w", ev.ID, err)
 	}
 	if err := saveTeamWorkspacesLocked(path, st); err != nil {
-		dropTeamWorkspaceCacheLocked(path)
-		if rerr := restoreTeamTasksLocked(dataDir, f); rerr != nil {
-			slog.Error("team task: workspace save failed and the task file could not be put back",
-				"board", ev.ID, "state", string(next.State), "error", err, "restore_error", rerr)
-			return fmt.Errorf("team task #%d: workspace save: %w; task file left at %s, restore: %v", ev.ID, err, next.State, rerr)
-		}
-		return fmt.Errorf("team task #%d: workspace save (task state put back): %w", ev.ID, err)
+		return fmt.Errorf("team task #%d: save: %w", ev.ID, err)
 	}
 	logTeamTaskTransition(dataDir, cur, next)
 	return nil
@@ -275,21 +198,21 @@ func (e *Engine) TeamTask(id int) (TeamTask, bool, error) {
 	}
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	f, err := loadTeamTasksLocked(e.dataDir)
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	if err != nil {
 		return TeamTask{}, false, err
 	}
-	t, ok := f.tasks[id]
+	t, ok := st.Tasks[id]
 	return t, ok, nil
 }
 
 // teamTaskInWorkOnLocked: whether task id is dispatched/working in workspace key. Caller holds
 // teamWorkspaceStore.mu.
 func teamTaskInWorkOnLocked(dataDir string, id int, key string) (TeamTask, bool, error) {
-	f, err := loadTeamTasksLocked(dataDir)
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(dataDir))
 	if err != nil {
 		return TeamTask{}, false, err
 	}
-	t, ok := f.tasks[id]
+	t, ok := st.Tasks[id]
 	return t, ok && teamTaskInWork(t.State) && t.WS == teamChatKey(key), nil
 }

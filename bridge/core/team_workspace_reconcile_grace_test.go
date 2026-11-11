@@ -24,7 +24,7 @@ func reconcileGraceFixture(t *testing.T, status string, progress, boardAt time.T
 	// The handoff is old: only the board item's own activity may keep the workspace.
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st := testLoadTeamWorkspacesLocked(path)
 	for i := range st.Handoffs["discord:ws1"] {
 		st.Handoffs["discord:ws1"][i].At = now.Add(-3 * time.Hour)
 		st.Handoffs["discord:ws1"][i].Due = time.Time{}

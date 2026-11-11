@@ -221,6 +221,9 @@ type teamWorkspaceState struct {
 	// workspace now). 0 = written before; migrated on load (teamWorkspaceMigrateOwners).
 	Version       int                      `json:"version,omitempty"`
 	ScriptWatches map[string][]TeamHandoff `json:"script_watches,omitempty"`
+	// Tasks: task-board id → the task's state record (#699, team_task_state.go). Kept in this
+	// file so a claim or a park changes a task's state and its workspace records in one write.
+	Tasks map[int]TeamTask `json:"tasks,omitempty"`
 }
 
 const teamWorkspaceStateVersion = 3
@@ -409,9 +412,14 @@ func newTeamWorkspaces() *teamWorkspaces {
 }
 
 // teamWorkspaceStore serializes every read/write of the state files of this process.
+// cache[path] is always the state as last read from or written to disk (committed[path], its
+// bytes; nil: there was no file). A save that fails puts the cache back to that state, so a
+// failed write never leaves in memory what the file does not hold, and never makes the next
+// read go back to a disk that may not read (#715 review of #1632).
 var teamWorkspaceStore struct {
-	mu    sync.Mutex
-	cache map[string]*teamWorkspaceState // path → state
+	mu        sync.Mutex
+	cache     map[string]*teamWorkspaceState // path → state
+	committed map[string][]byte              // path → bytes of the cached state on disk
 }
 
 func teamWorkspacePath(dataDir string) string {
@@ -419,46 +427,97 @@ func teamWorkspacePath(dataDir string) string {
 }
 
 // loadTeamWorkspacesLocked returns the cached state for path; caller holds teamWorkspaceStore.mu.
-func loadTeamWorkspacesLocked(path string) *teamWorkspaceState {
+// Only a file that does not exist is an empty state. A file that cannot be read or does not
+// parse is an error and nothing is cached: read as empty, every workspace would look free and
+// the next save would write that over the records the file holds. The file is left as it is.
+func loadTeamWorkspacesLocked(path string) (*teamWorkspaceState, error) {
 	if st := teamWorkspaceStore.cache[path]; st != nil {
-		return st
+		return st, nil
 	}
-	st := &teamWorkspaceState{Parents: map[string][]TeamWorkspace{}, Version: teamWorkspaceStateVersion}
-	if raw, err := os.ReadFile(path); err == nil {
-		st.Version = 0
-		if err := json.Unmarshal(raw, st); err != nil {
-			slog.Warn("team workspace: bad state file", "path", path, "error", err)
-		}
-		if st.Parents == nil {
-			st.Parents = map[string][]TeamWorkspace{}
-		}
-		if teamWorkspaceMigrateOwners(st) {
-			slog.Info("team workspace: state upgraded to single owner; finished workspaces are free", "path", path)
-			if err := saveTeamWorkspacesLocked(path, st); err != nil {
-				slog.Warn("team workspace: save upgraded state", "path", path, "error", err)
-			}
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("team workspace: read %s: %w", path, err)
+	}
+	if err != nil {
+		raw = nil
+	}
+	st, migrated, err := parseTeamWorkspaceState(raw)
+	if err != nil {
+		return nil, fmt.Errorf("team workspace: %s does not parse, left untouched: %w", path, err)
+	}
+	teamWorkspaceCacheLocked(path, st, raw)
+	if migrated {
+		slog.Info("team workspace: state upgraded to single owner; finished workspaces are free", "path", path)
+		if err := saveTeamWorkspacesLocked(path, st); err != nil {
+			slog.Warn("team workspace: save upgraded state", "path", path, "error", err)
+			// The save put the cache back to the file as read; use that.
+			return teamWorkspaceStore.cache[path], nil
 		}
 	}
-	if teamWorkspaceStore.cache == nil {
-		teamWorkspaceStore.cache = map[string]*teamWorkspaceState{}
-	}
-	teamWorkspaceStore.cache[path] = st
-	return st
+	return st, nil
 }
 
-// dropTeamWorkspaceCacheLocked forgets the cached state of path, so the next load reads the file:
-// the rollback of in-memory changes whose save failed. Caller holds teamWorkspaceStore.mu.
-func dropTeamWorkspaceCacheLocked(path string) { delete(teamWorkspaceStore.cache, path) }
+// parseTeamWorkspaceState decodes a state file (nil: no file yet) and applies the format
+// migrations in memory; migrated reports whether they changed it.
+func parseTeamWorkspaceState(raw []byte) (st *teamWorkspaceState, migrated bool, err error) {
+	st = &teamWorkspaceState{Parents: map[string][]TeamWorkspace{}, Version: teamWorkspaceStateVersion}
+	if raw == nil {
+		return st, false, nil
+	}
+	st.Version = 0
+	if err := json.Unmarshal(raw, st); err != nil {
+		return nil, false, err
+	}
+	if st.Parents == nil {
+		st.Parents = map[string][]TeamWorkspace{}
+	}
+	return st, teamWorkspaceMigrateOwners(st), nil
+}
 
+func teamWorkspaceCacheLocked(path string, st *teamWorkspaceState, raw []byte) {
+	if teamWorkspaceStore.cache == nil {
+		teamWorkspaceStore.cache = map[string]*teamWorkspaceState{}
+		teamWorkspaceStore.committed = map[string][]byte{}
+	}
+	teamWorkspaceStore.cache[path] = st
+	teamWorkspaceStore.committed[path] = raw
+}
+
+// saveTeamWorkspacesLocked writes st as the state of path in one atomic file write: that write
+// is the commit point of every change made under one hold of teamWorkspaceStore.mu (workspace
+// records and task states alike). On failure the file is unchanged and the cache is put back to
+// it, dropping the caller's in-memory changes; the caller returns the error.
 func saveTeamWorkspacesLocked(path string, st *teamWorkspaceState) error {
 	out, err := json.MarshalIndent(st, "", "  ")
+	if err == nil {
+		if err = os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+			err = AtomicWriteFile(path, out, 0o600)
+		}
+	}
 	if err != nil {
+		teamWorkspaceRollbackLocked(path)
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	teamWorkspaceCacheLocked(path, st, out)
+	return nil
+}
+
+// teamWorkspaceRollbackLocked puts the cache of path back to the state last read or written.
+// Those bytes parsed when they were cached, so this does not fail; with nothing cached the next
+// load reads the file.
+func teamWorkspaceRollbackLocked(path string) {
+	raw, ok := teamWorkspaceStore.committed[path]
+	if !ok {
+		delete(teamWorkspaceStore.cache, path)
+		return
 	}
-	return AtomicWriteFile(path, out, 0o600)
+	st, _, err := parseTeamWorkspaceState(raw)
+	if err != nil {
+		delete(teamWorkspaceStore.cache, path)
+		delete(teamWorkspaceStore.committed, path)
+		return
+	}
+	teamWorkspaceStore.cache[path] = st
 }
 
 // teamChatKey normalizes "<platform>:123", "<platform>:123:user" to "<platform>:123" and a
@@ -487,7 +546,11 @@ func (e *Engine) WorkspaceParent(channelID string) (parentID string, ok bool) {
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		slog.Error("team workspace: state unreadable; owner unknown", "channel", key, "error", err)
+		return "", false
+	}
 	plat, _, _ := strings.Cut(key, ":")
 	id := teamChannelID(key)
 	workspaces := workspaceChannelKeysLocked(st)
@@ -538,7 +601,11 @@ func (e *Engine) WorkspaceLastChat(channelID string) (parentID string, ok bool) 
 	key := teamChatKey(channelID)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "channel", key, "error", err)
+		return "", false
+	}
 	hs := st.Handoffs[key]
 	// Never answer with another workspace channel: its [report] would land where the user does
 	// not read it. teamWorkspaceMigrateDirtyChats repairs those records; this guards a state
@@ -569,7 +636,11 @@ func (e *Engine) TeamWorkspacesOf(channel string) []TeamWorkspace {
 	}
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "channel", channel, "error", err)
+		return nil
+	}
 	return append([]TeamWorkspace(nil), st.Parents[teamChatKey(channel)]...)
 }
 
@@ -588,7 +659,12 @@ func (e *Engine) isTeamWorkspaceChat(session string) bool {
 	key := teamChatKey(session)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	return isTeamWorkspaceChannelLocked(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)), key, "")
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "channel", key, "error", err)
+		return false
+	}
+	return isTeamWorkspaceChannelLocked(st, key, "")
 }
 
 // isTeamWorkspaceChannelLocked separates channel identity from its current owner.
@@ -616,7 +692,11 @@ func (e *Engine) isTeamChat(session string) bool {
 	}
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "channel", key, "error", err)
+		return false
+	}
 	if _, ok := st.Parents[key]; ok {
 		return true
 	}
@@ -642,7 +722,11 @@ func (e *Engine) TeamWorkspaceName(ws string) string {
 	plat, id, _ := strings.Cut(key, ":")
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "workspace", key, "error", err)
+		return ""
+	}
 	if owner, w := teamWorkspaceOwnerLocked(st, plat, id); owner != "" && w.Name != "" {
 		return w.Name
 	}
@@ -966,7 +1050,10 @@ func (e *Engine) gatherTeamWorkspaces(ctx context.Context, plat TeamWorkspaceCha
 func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		return err
+	}
 	if len(list) == 0 {
 		delete(st.Parents, chat)
 	} else {
@@ -982,7 +1069,10 @@ func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
 func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool) (list []TeamWorkspace, name string, changed bool, adopted string, err error) {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		return nil, "", false, "", err
+	}
 	if isTeamWorkspaceChannelLocked(st, chat, self.Name) {
 		return nil, "", false, "", errTeamIsWorkspace
 	}
@@ -1085,7 +1175,12 @@ func (e *Engine) teamWorkspaceMigrate(ctx context.Context, chat string, plat Tea
 	path := teamWorkspacePath(e.dataDir)
 	recorded := map[string]bool{}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace: state unreadable; names not migrated", "chat", chat, "error", err)
+		return guild
+	}
 	pname, _, _ := strings.Cut(chat, ":")
 	for parent, list := range st.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p != pname {
@@ -1142,7 +1237,12 @@ func (e *Engine) teamWorkspaceMigrate(ctx context.Context, chat string, plat Tea
 	}
 	if len(renamed) > 0 {
 		teamWorkspaceStore.mu.Lock()
-		st := loadTeamWorkspacesLocked(path)
+		st, err := loadTeamWorkspacesLocked(path)
+		if err != nil {
+			teamWorkspaceStore.mu.Unlock()
+			slog.Error("team workspace: state unreadable; renames not recorded", "error", err)
+			return out
+		}
 		for parent, list := range st.Parents {
 			if p, _, _ := strings.Cut(parent, ":"); p != pname {
 				continue
@@ -1299,8 +1399,12 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 		}
 	}
 	teamWorkspaceStore.mu.Lock()
-	isWorkspace := isTeamWorkspaceChannelLocked(loadTeamWorkspacesLocked(path), chat, sourceName)
+	st0, err := loadTeamWorkspacesLocked(path)
 	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("team workspace claim: %w", err)
+	}
+	isWorkspace := isTeamWorkspaceChannelLocked(st0, chat, sourceName)
 	if isWorkspace {
 		return fmt.Errorf("team workspace claim: %s: %w; run workspace claim from the original chat channel, or complete the assigned task in this workspace", chat, errTeamIsWorkspace)
 	}
@@ -1322,8 +1426,16 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 
 	// The workspace's recorded entry (under any chat) wins over the given name.
 	teamWorkspaceStore.mu.Lock()
-	owner, w := teamWorkspaceOwnerLocked(loadTeamWorkspacesLocked(path), plat, wsID)
+	st1, err := loadTeamWorkspacesLocked(path)
+	var owner string
+	var w TeamWorkspace
+	if err == nil {
+		owner, w = teamWorkspaceOwnerLocked(st1, plat, wsID)
+	}
 	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("team workspace claim: %w", err)
+	}
 	if owner == "" {
 		w = TeamWorkspace{ID: wsID, Name: name}
 	}
@@ -1373,7 +1485,10 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		return fmt.Errorf("team workspace claim: %w", err)
+	}
 	// Only a stale record is left under another chat here (the platform freed the workspace).
 	for parent := range st.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p == plat && parent != chat {
@@ -1486,7 +1601,12 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	path := teamWorkspacePath(e.dataDir)
 	_, platformReleases := e.platformForName(plat).(TeamWorkspaceReleaser)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace: state unreadable; not released", "workspace", key, "error", err)
+		return false
+	}
 	owner, _ := teamWorkspaceOwnerLocked(st, plat, wsID)
 	if owner == "" {
 		teamWorkspaceStore.mu.Unlock()
@@ -1514,7 +1634,7 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 			teamWorkspaceDropLocked(st, owner, wsID)
 		}
 	}
-	err := saveTeamWorkspacesLocked(path, st)
+	err = saveTeamWorkspacesLocked(path, st)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		slog.Warn("team workspace: save state on release failed", "workspace", key, "error", err)
@@ -1559,8 +1679,16 @@ func (e *Engine) shelveTeamWorkspace(plat, wsID string) {
 	// shelve is queued from the release): a workspace a chat works in stays in its category.
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
-		owner, _ := teamWorkspaceOwnerLocked(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)), plat, wsID)
+		st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+		owner := ""
+		if err == nil {
+			owner, _ = teamWorkspaceOwnerLocked(st, plat, wsID)
+		}
 		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			slog.Error("team workspace: state unreadable; not shelved", "workspace", wsID, "error", err)
+			return
+		}
 		if owner != "" {
 			return
 		}
@@ -1637,7 +1765,11 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	}
 
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		return false, fmt.Errorf("team workspace park: %s: %w", key, err)
+	}
 	owner, _ := teamWorkspaceOwnerLocked(st, plat, wsID)
 	if owner == "" || (chat != "" && owner != chat) {
 		teamWorkspaceStore.mu.Unlock()
@@ -1744,8 +1876,13 @@ func (e *Engine) TeamHandoffOf(workspace, chat string, bound time.Time) (TeamHan
 	}
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "workspace", key, "error", err)
+		return TeamHandoff{}, false
+	}
 	pick := -1
-	list := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	list := st.Handoffs[key]
 	for i, h := range list {
 		if (chat != "" && teamChatKey(h.Chat) != chat) || (!bound.IsZero() && h.At.After(bound)) {
 			continue
@@ -1777,7 +1914,11 @@ func (e *Engine) TeamOpenWorkspaceHandoffs() map[string]TeamHandoff {
 	}
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "error", err)
+		return nil
+	}
 	var out map[string]TeamHandoff
 	for key, list := range st.Handoffs {
 		for i := len(list) - 1; i >= 0; i-- {
@@ -1809,7 +1950,13 @@ func (e *Engine) TeamIdleWorkspaceNames(chat string) []string {
 		return nil
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		// Unknown is not idle: no workspace is named as free.
+		slog.Error("team workspace: state unreadable; no idle workspace listed", "chat", chat, "error", err)
+		return nil
+	}
 	nameByID := map[string]string{}
 	busyID := map[string]bool{}
 	for wsKey, list := range st.Handoffs {
@@ -1928,7 +2075,13 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 	}
 	var todo []pending
 	teamWorkspaceStore.mu.Lock()
-	for parent, list := range loadTeamWorkspacesLocked(path).Parents {
+	st0, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace: state unreadable; releases not retried", "chat", chat, "error", err)
+		return
+	}
+	for parent, list := range st0.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p != plat {
 			continue
 		}
@@ -1954,7 +2107,12 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 			continue
 		}
 		teamWorkspaceStore.mu.Lock()
-		st := loadTeamWorkspacesLocked(path)
+		st, err := loadTeamWorkspacesLocked(path)
+		if err != nil {
+			teamWorkspaceStore.mu.Unlock()
+			slog.Error("team workspace: state unreadable; release kept pending", "workspace", key, "error", err)
+			continue
+		}
 		// Only the record this release was for (claims run under teamWorkspaceOpMu too).
 		if owner, w := teamWorkspaceOwnerLocked(st, plat, x.id); owner == x.owner && w.ReleasePending && w.Claim == x.claim {
 			teamWorkspaceDropLocked(st, owner, x.id)
@@ -2009,7 +2167,11 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	watched := e.handoffWatchOn.Load()
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
-		st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+		st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+		if err != nil {
+			teamWorkspaceStore.mu.Unlock()
+			return nil, err
+		}
 		for key := range st.Handoffs {
 			if p, id, _ := strings.Cut(key, ":"); p == pname {
 				open, parked := teamWorkspaceCountsLocked(st, key)

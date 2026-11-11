@@ -770,7 +770,12 @@ func (e *Engine) watchStoppedFor(en TurnJournalEntry) string {
 		return p != nil && owner != "" && e.watchOwns(p, owner)
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("turn resume: workspace state unreadable; not resumed", "workspace", key, "error", err)
+		return "workspace state unreadable"
+	}
 	var list []TeamHandoff
 	list = append(list, st.ScriptWatches[key]...)
 	for _, h := range st.Handoffs[key] {

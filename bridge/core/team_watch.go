@@ -343,7 +343,12 @@ func (w *handoffWatch) tick(now time.Time) time.Time {
 	var due []watchDue
 	var next time.Time
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team watch: workspace state unreadable; no check this round", "error", err)
+		return time.Time{}
+	}
 	for key, list := range st.Handoffs {
 		for _, h := range list {
 			if !teamHandoffOpen(h) || h.Due.IsZero() || h.Idle.Returned {
@@ -371,7 +376,10 @@ func (w *handoffWatch) updateHandoff(key string, h TeamHandoff, f func(*TeamHand
 	path := teamWorkspacePath(w.e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		return false, err
+	}
 	for i, x := range st.Handoffs[key] {
 		if x.Chat == h.Chat && x.At.Equal(h.At) {
 			if !teamHandoffOpen(x) || x.Idle.Returned {
@@ -923,7 +931,12 @@ func (e *Engine) teamWorkspaceWatchDue(key string) time.Time {
 	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	return teamWorkspaceWatchDueLocked(loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)), key)
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team watch: workspace state unreadable", "workspace", key, "error", err)
+		return time.Time{}
+	}
+	return teamWorkspaceWatchDueLocked(st, key)
 }
 
 // teamWorkspaceWatchDueLocked: the earliest check time of the tasks in work of workspace key

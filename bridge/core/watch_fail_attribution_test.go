@@ -64,7 +64,7 @@ func watchTurnFixture(t *testing.T, agent Agent) (*Engine, *exitTestPlatform, st
 	now := time.Now()
 	ws, chat := "discord:ws1", "discord:chatA"
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st := testLoadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	st.Handoffs = map[string][]TeamHandoff{ws: {{Chat: chat, At: now, Due: now.Add(time.Hour), Owner: "橘", Title: "#170 额度用量快捷按钮", Board: 170}}}
 	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), st)
 	teamWorkspaceStore.mu.Unlock()

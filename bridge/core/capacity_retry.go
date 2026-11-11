@@ -496,7 +496,11 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("capacity retry: workspace state unreadable; message held without a handoff", "key", key, "error", err)
+		return capHandoffRef{}
+	}
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[key] {
 			if teamHandoffOpen(h) {
@@ -516,8 +520,13 @@ func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
 		return true
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		// Whether the task is still in work is unknown: hold the message rather than run it.
+		slog.Error("capacity retry: workspace state unreadable; held message not re-delivered", "key", ref.key, "error", err)
+		return false
+	}
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[ref.key] {
 			if !h.At.Equal(ref.at) {

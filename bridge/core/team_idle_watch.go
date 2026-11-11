@@ -212,7 +212,11 @@ func (e *Engine) updateIdle(a idleAssignment, f func(*TeamHandoff)) (TeamHandoff
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		slog.Error("team idle watch: workspace state unreadable", "workspace", a.key, "error", err)
+		return TeamHandoff{}, false
+	}
 	rows := st.Handoffs[a.key]
 	if a.script {
 		rows = st.ScriptWatches[a.key]
@@ -453,7 +457,12 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 		e.scheduleWorkspaceReturn(key, time.Now())
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team watch: workspace state unreadable at turn end", "workspace", key, "error", err)
+		return
+	}
 	if !since.IsZero() && !boardActive {
 		for ws, rows := range st.Handoffs {
 			if ws == key {
@@ -894,7 +903,12 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 	at := time.Unix(req.Since, 0)
 	teamWorkspaceStore.mu.Lock()
 	path := teamWorkspacePath(sender.dataDir)
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if covered {
 		for _, h := range st.Handoffs[key] {
 			if teamHandoffOpen(h) && !h.Idle.Returned && (watchOwnerID(h.Owner) == watchOwnerID(req.Owner) || h.Owner == "" && target.isTeamLead()) {
@@ -956,7 +970,7 @@ func (s *APIServer) handleTeamIdleWatch(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h := *found
-	err := saveTeamWorkspacesLocked(path, st)
+	err = saveTeamWorkspacesLocked(path, st)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		http.Error(w, fmt.Sprint(err), http.StatusInternalServerError)

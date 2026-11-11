@@ -37,7 +37,13 @@ func (e *Engine) workspaceHasOpenHandoff(sessionKey string) bool {
 	key := teamChatKey(sessionKey)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	for _, h := range loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key] {
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		// Unknown is not "nothing in work": the workspace is not treated as free.
+		slog.Error("team workspace: state unreadable; workspace counted as in work", "workspace", key, "error", err)
+		return true
+	}
+	for _, h := range st.Handoffs[key] {
 		if teamHandoffOpen(h) {
 			return true
 		}
@@ -54,7 +60,12 @@ func (e *Engine) workspaceHasOpenHandoffFor(sessionKey string, board int) bool {
 	key := teamChatKey(sessionKey)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	for _, h := range loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key] {
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable; workspace counted as in work", "workspace", key, "error", err)
+		return true
+	}
+	for _, h := range st.Handoffs[key] {
 		if teamHandoffOpen(h) && (h.Board == board || h.Board == 0) {
 			return true
 		}
@@ -275,7 +286,13 @@ func (e *Engine) workspaceTaskFromLead(p Platform, msg *Message) bool {
 		return false
 	}
 	teamWorkspaceStore.mu.Lock()
-	handoffs := append([]TeamHandoff(nil), loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]...)
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace: state unreadable", "workspace", key, "error", err)
+		return false
+	}
+	handoffs := append([]TeamHandoff(nil), st.Handoffs[key]...)
 	teamWorkspaceStore.mu.Unlock()
 	for _, h := range handoffs {
 		if teamHandoffOpen(h) && h.Owner != "" && e.watchOwns(p, h.Owner) {

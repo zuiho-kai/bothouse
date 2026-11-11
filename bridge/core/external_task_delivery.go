@@ -116,7 +116,11 @@ func (e *Engine) externalTaskTarget(event ExternalTaskEvent) (*externalTaskTarge
 	// A released/reused workspace is a different assignment even when the
 	// platform channel ID stays the same. Reuse the workspace claim authority.
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(target.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(target.dataDir))
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		return nil, err
+	}
 	parent, ws := teamWorkspaceOwnerLocked(st, platformName, channel)
 	claim := ""
 	claim = ws.Claim

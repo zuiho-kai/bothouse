@@ -44,7 +44,7 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 	rm.Bind("discord", "ws", map[string]string{"orange": "orange", "longniang": "longniang", "jingyu": "jingyu"})
 	now := time.Now()
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	st.Handoffs = map[string][]TeamHandoff{ws: {{Chat: chat, At: now, Due: now.Add(time.Hour), Owner: "orange", Title: "#9 修复代码", Board: 9}}}
 	err = saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
 	teamWorkspaceStore.mu.Unlock()
@@ -62,7 +62,7 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 		t.Fatalf("board owner after two failures: %+v", items)
 	}
 	teamWorkspaceStore.mu.Lock()
-	h := loadTeamWorkspacesLocked(teamWorkspacePath(dir)).Handoffs[ws][0]
+	h := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir)).Handoffs[ws][0]
 	teamWorkspaceStore.mu.Unlock()
 	if h.Owner != "longniang" || h.Idle.Fails != 0 || h.Idle.Reported {
 		t.Fatalf("handoff must move with a fresh watch: %+v", h)
@@ -93,7 +93,7 @@ func TestCapacityRedeliveryDroppedAfterReassign(t *testing.T) {
 	now := time.Now()
 	ws := "discord:ws"
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	st.Handoffs = map[string][]TeamHandoff{ws: {{Chat: "discord:chat", At: now, Due: now.Add(time.Hour), Owner: "orange"}}}
 	err := saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
 	teamWorkspaceStore.mu.Unlock()
@@ -119,7 +119,7 @@ func TestCapacityRedeliveryDroppedAfterReassign(t *testing.T) {
 
 	// The work is handed over while the message waits.
 	teamWorkspaceStore.mu.Lock()
-	st = loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st = testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	st.Handoffs[ws][0].Owner = "longniang"
 	err = saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
 	teamWorkspaceStore.mu.Unlock()
@@ -133,7 +133,7 @@ func TestCapacityRedeliveryDroppedAfterReassign(t *testing.T) {
 
 	// Control: while the handoff is still this engine's the message is re-delivered as before.
 	teamWorkspaceStore.mu.Lock()
-	st = loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st = testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	st.Handoffs[ws][0].Owner = "orange"
 	err = saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
 	teamWorkspaceStore.mu.Unlock()
