@@ -816,6 +816,10 @@ type SessionSettings struct {
 	ReasoningEffort  string
 	InstructionsPath string
 	InstructionsText string
+	// Provider names one of the agent's configured providers that this session
+	// starts on instead of the active one (workspace_provider: a team workspace
+	// runs on a cheap local model while the lead keeps the expensive one).
+	Provider string
 }
 
 // AgentSessionCanceller is an optional interface for agent sessions that support
