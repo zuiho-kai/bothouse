@@ -61,6 +61,12 @@ func newProviderProxy(targetURL, thinkingOverride string, foldSystem bool) (*Pro
 	proxy.Director = func(req *http.Request) {
 		origDirector(req)
 		req.Host = target.Host
+		// The proxy and its upstream are both on this machine: do not add
+		// X-Forwarded-For. magpie treats a request carrying it as one from another
+		// machine and answers 403 without a gateway key, which Claude Code shows
+		// as "Not logged in" (#1455: DS workspaces through magpie). A nil entry
+		// tells ReverseProxy not to set the header.
+		req.Header["X-Forwarded-For"] = nil
 	}
 	proxy.FlushInterval = -1 // flush SSE events immediately
 

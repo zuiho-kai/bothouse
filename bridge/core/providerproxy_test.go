@@ -2,6 +2,9 @@ package core
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -25,5 +28,27 @@ func TestFoldSystemTurns(t *testing.T) {
 	plain := map[string]any{"messages": []any{map[string]any{"role": "user", "content": "a"}, map[string]any{"role": "user", "content": "b"}}}
 	if foldSystemTurns(plain) {
 		t.Fatal("no system turn: must not touch the request")
+	}
+}
+
+func TestProviderProxyNoForwardedFor(t *testing.T) {
+	got := make(chan http.Header, 1)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer up.Close()
+	pp, local, err := NewSystemFoldProxy(up.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pp.Close()
+	resp, err := http.Post(local+"/v1/messages", "application/json", strings.NewReader(`{"messages":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if h := <-got; h.Get("X-Forwarded-For") != "" {
+		t.Fatalf("proxy added X-Forwarded-For %q (magpie answers such requests 403)", h.Get("X-Forwarded-For"))
 	}
 }
