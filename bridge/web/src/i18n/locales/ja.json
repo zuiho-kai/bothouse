@@ -312,7 +312,8 @@
     "optional": "任意",
     "confirmDelete": "本当に削除しますか？",
     "close": "閉じる",
-    "saving": "保存中…"
+    "saving": "保存中…",
+    "saved": "保存しました"
   },
   "setup": {
     "addPlatform": "プラットフォームを追加",

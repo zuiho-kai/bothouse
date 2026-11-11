@@ -318,7 +318,8 @@
     "optional": "optional",
     "confirmDelete": "Are you sure you want to delete this?",
     "close": "Close",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "saved": "Saved"
   },
   "setup": {
     "addPlatform": "Add platform",

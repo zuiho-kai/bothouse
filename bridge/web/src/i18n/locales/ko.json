@@ -312,7 +312,8 @@
     "optional": "선택 사항",
     "confirmDelete": "정말 삭제하시겠습니까?",
     "close": "닫기",
-    "saving": "저장 중…"
+    "saving": "저장 중…",
+    "saved": "저장되었습니다"
   },
   "setup": {
     "addPlatform": "플랫폼 추가",
