@@ -5771,7 +5771,7 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		go e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, 0)
 		return
 	}
- ctx, cancel := context.WithCancel(e.ctx)
+	ctx, cancel := context.WithCancel(e.ctx)
 	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
 	state.mu.Unlock()
 }
@@ -5904,12 +5904,14 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	closed := make(chan struct{})
 	state.agentCloseDone = closed
 	state.agentSession = nil
- idleCancel := state.agentSessionIdleCancel
+	idleCancel := state.agentSessionIdleCancel
 	state.agentSessionIdleCancel = nil
 	state.agentSessionIdleToken = 0
 	state.mu.Unlock()
 	e.interactiveMu.Unlock()
- if idleCancel != nil { idleCancel() }
+	if idleCancel != nil {
+		idleCancel()
+	}
 
 	if timeout <= 0 {
 		slog.Info("turn ended: closing agent process; its saved session ID stays for resume",
