@@ -12,12 +12,13 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-const webUsage = `Usage: bothouse web [--no-browser]
+const webUsage = `Usage: bothouse web [--no-browser | --check]
 
 Open the web admin of this bothouse in the browser. With no bots configured yet it starts the setup
 wizard; when the web admin is off it switches it on in config.toml first.
 
 Flags:
+      --check        Check embedded web assets without reading config or starting a server
   -n, --no-browser   Print the URL and token instead of opening the browser
   -h, --help         Show this help
 `
@@ -26,6 +27,7 @@ func runWeb(args []string) {
 	// Arguments first: without config this starts the setup wizard, and with the web admin off it
 	// writes config.toml.
 	noBrowser := false
+	check := false
 	for _, a := range args {
 		switch {
 		case isHelpArg(a):
@@ -33,10 +35,24 @@ func runWeb(args []string) {
 			return
 		case a == "--no-browser" || a == "-n":
 			noBrowser = true
+		case a == "--check":
+			check = true
 		default:
 			fmt.Fprintf(os.Stderr, "bothouse web: unknown argument %q\n\n%s", a, webUsage)
 			os.Exit(2)
 		}
+	}
+	if check && noBrowser {
+		fmt.Fprintln(os.Stderr, "bothouse web: cannot combine --check with --no-browser")
+		os.Exit(2)
+	}
+	if !core.WebAssetsAvailable() {
+		fmt.Fprintln(os.Stderr, "bothouse web: web assets are not embedded in this executable. Install a full release, or run make build in bridge without NO_WEB or EXCLUDE=web (do not use no_web).")
+		os.Exit(1)
+	}
+	if check {
+		fmt.Println("Web admin assets are embedded.")
+		return
 	}
 	configPath := resolveConfigPath("")
 	// conest: no bots configured yet → the setup wizard, same as a first `cc-connect`.
