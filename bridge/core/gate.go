@@ -24,6 +24,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -829,7 +830,43 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx 
 		return false
 	}
 	slog.Info("gate: injected into running turn", "interactive_key", interactiveKey, "len", len(content))
+	go e.releaseForegroundSubTask(interactiveKey, state, as, replyCtx)
 	return true
+}
+
+// releaseForegroundSubTask keeps a message injected into a running turn from waiting behind a
+// foreground sub-agent. The CLI hands an injected message to the model only between tool calls,
+// and a foreground sub-agent is one tool call that can last many minutes (2026-11-11: 20 minutes,
+// the person saw 「↪ 已插入」 and nothing else). The sub-agent is moved to the background: it
+// keeps working, the turn reads the message at once. A backend that cannot move it gets a notice
+// that says what the turn is waiting for, so the person is not left with a bare receipt.
+func (e *Engine) releaseForegroundSubTask(interactiveKey string, state *interactiveState, as AgentSession, replyCtx any) {
+	r, ok := as.(SubTaskReporter)
+	if !ok {
+		return
+	}
+	t, ok := foregroundSubTask(r)
+	if !ok {
+		return
+	}
+	err := errors.New("backend cannot move a sub-agent to the background")
+	if b, ok := as.(SubTaskBackgrounder); ok {
+		err = b.BackgroundSubTask(t.ID)
+	}
+	if err == nil {
+		slog.Info("gate: foreground sub-agent moved to the background for an injected message",
+			"interactive_key", interactiveKey, "sub_task", t.ID, "description", t.Description, "ran", time.Since(t.StartedAt).Round(time.Second))
+		return
+	}
+	slog.Warn("gate: injected message waits behind a foreground sub-agent", "interactive_key", interactiveKey,
+		"sub_task", t.ID, "description", t.Description, "error", err)
+	state.mu.Lock()
+	p := state.platform
+	state.mu.Unlock()
+	if p == nil {
+		return
+	}
+	e.replyNotice(p, replyCtx, subAgentBlocksNotice(e.i18n.IsZhLike(), t, time.Since(t.StartedAt)))
 }
 
 // MidTurnSender is an AgentSession whose ordinary Send runs a whole turn (ACP); injection uses

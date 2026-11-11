@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -112,6 +113,19 @@ func ParseSubTaskTablePayload(content string) (*SubTaskTablePayload, bool) {
 	return &p, true
 }
 
+// SubTaskBackgrounder is an optional interface for agent sessions that can move a running
+// foreground sub-agent to the background (maomao fork). The main turn then stops waiting for
+// it: the sub-agent keeps working and reports when it is done, and the turn goes on to read
+// what was sent to it meanwhile.
+//
+// User 2026-11-11, on a turn that waited 20 minutes for a foreground sub-agent while his
+// 「为什么那么久」 got only 「↪ 已插入」: 「核心是这种根本管控不到，然后这种不是应该产品的力」.
+// The role rules could not cover it; the bridge does, for every role.
+type SubTaskBackgrounder interface {
+	// BackgroundSubTask returns nil once the CLI confirmed the move.
+	BackgroundSubTask(id string) error
+}
+
 // foregroundSubTask returns the most recently started foreground sub-agent that
 // is still running: the one the main turn is waiting for.
 func foregroundSubTask(r SubTaskReporter) (SubTask, bool) {
@@ -136,6 +150,17 @@ func subAgentWaitText(zh bool, t SubTask) string {
 		s += " — " + step
 	}
 	return s
+}
+
+// subAgentBlocksNotice tells the person whose message was injected that the turn cannot read it
+// yet: it is waiting for a foreground sub-agent that could not be moved to the background.
+func subAgentBlocksNotice(zh bool, t SubTask, ran time.Duration) string {
+	desc := strings.TrimSpace(t.Description)
+	mins := int(ran.Minutes())
+	if zh {
+		return fmt.Sprintf("⏳ 这一轮在等子 agent「%s」（已 %d 分钟），它交回后才会看到你这条", desc, mins)
+	}
+	return fmt.Sprintf("⏳ This turn is waiting for the sub-agent \"%s\" (%d min so far); it reads your message once that returns.", desc, mins)
 }
 
 // ensureSubTaskTable starts the table updater for the state's current agent
