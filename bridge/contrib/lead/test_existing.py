@@ -63,5 +63,25 @@ class ExistingTest(unittest.TestCase):
         self.assertEqual(self.me.read_text().count(_existing.SECTION), 1)
 
 
+class ProposalTest(unittest.TestCase):
+    """#1436：主角色要加东西、改机制时也列现成的（系统自带能力 + 做过的同类活）；平时不列。"""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        fake = self.tmp / "bothouse"
+        fake.write_text("#!/bin/sh\nprintf '# x\\n## 能做什么\\n- **大家记得同一件事**：共用一份 Wiki；面板里的「记忆论坛」给每条记忆打分排序。\\n## 别的\\n- **不列**：x\\n'\n")
+        fake.chmod(0o755)
+        self.cmd = str(fake)
+        _existing._about[:] = [0.0, []]
+
+    def test_lists_capabilities_when_proposing(self):
+        rows = _existing.proposal_listing("你思考一下下一代更智能的架构，应该怎么搞", records=[], cmd=self.cmd)
+        self.assertTrue(rows and "现成" in rows[0])
+        self.assertTrue(any("记忆论坛" in r for r in rows))
+        self.assertFalse(any("不列" in r for r in rows))
+
+    def test_silent_otherwise(self):
+        self.assertEqual(_existing.proposal_listing("今天吃什么", records=[], cmd=self.cmd), [])
+
+
 if __name__ == "__main__":
     unittest.main()
