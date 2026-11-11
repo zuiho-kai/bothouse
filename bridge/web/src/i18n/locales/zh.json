@@ -318,7 +318,8 @@
     "optional": "可选",
     "confirmDelete": "确定要删除吗？",
     "close": "关闭",
-    "saving": "保存中…"
+    "saving": "保存中…",
+    "saved": "已保存"
   },
   "setup": {
     "addPlatform": "添加平台",

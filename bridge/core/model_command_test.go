@@ -79,6 +79,48 @@ func TestQueueModelSwitchAppliesBeforeNextTurn(t *testing.T) {
 	if e.tiers.manual("discord:1", time.Now()) {
 		t.Fatal("auto did not clear the manual hold")
 	}
+	if got := e.sessionModelFor("discord:1"); got != "" {
+		t.Fatalf("auto kept the saved hand-picked model %q", got)
+	}
+}
+
+// Without tiers, "auto" still drops a hand-picked model saved for the session (team
+// workspaces with a saved pick otherwise never get the per-task route), and survives reload.
+func TestModelAutoWithoutTiersClearsSavedPick(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	agent := &stubStrictModelAgent{stubModelModeAgent: stubModelModeAgent{model: "opus"},
+		models: []ModelOption{{Name: "opus"}, {Name: "fable"}}}
+	e := NewEngine("test", agent, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.SetProjectStateStore(NewProjectStateStore(statePath))
+	if err := e.saveSessionSelection("discord:ws2", "fable", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveSessionSelection("discord:other", "opus", ""); err != nil {
+		t.Fatal(err)
+	}
+	r := e.QueueModelSwitch(context.Background(), "discord:ws2", "", "", true)
+	if !r.OK {
+		t.Fatalf("auto without tiers = %+v", r)
+	}
+	// Dropped at once: a timer-started workspace turn (or a restart) never applies the queue.
+	if got := e.sessionModelFor("discord:ws2"); got != "" {
+		t.Fatalf("pick still saved before the next turn: %q", got)
+	}
+	e.applyPendingSwitch("discord:ws2")
+	if got := e.sessionModelFor("discord:ws2"); got != "" {
+		t.Fatalf("pick not dropped: %q", got)
+	}
+	if got := e.sessionModelFor("discord:other"); got != "opus" {
+		t.Fatalf("other session's pick touched: %q", got)
+	}
+	reloaded := NewProjectStateStore(statePath)
+	if _, ok := reloaded.state.SessionModelOverrides["discord:ws2"]; ok {
+		t.Fatal("dropped pick came back after reload")
+	}
+	if _, ok := reloaded.state.SessionModelOverrides["discord:other"]; !ok {
+		t.Fatal("other pick lost on save")
+	}
 }
 
 func TestQueueModelSwitchAmbiguousReturnsCandidates(t *testing.T) {

@@ -705,3 +705,26 @@ it('sends an explicit owner review and updates the task from the API response', 
   expect(calls).toContain('POST /collab/api/tasks/1/review')
   unsubscribe()
 })
+
+it('sends terminal actions to the task ID endpoint and updates status only on success', async () => {
+  const assigned = { id: 7, room_id: 10, status: 'accepted' }
+  const { transport, calls } = fakeTransport((url, init) => {
+    if (url === '/collab/api/state') return json(200, state)
+    if (url === '/collab/api/rooms/1/tasks') return json(200, { chat_id: 1, tasks: [assigned] })
+    if (url === '/collab/api/tasks/7/cancel') return json(403, { error: 'permission denied' })
+    if (url === '/collab/api/tasks/7/supersede') {
+      expect(JSON.parse(String(init?.body))).toEqual({ reason: 'moved to B', superseded_by: 9 })
+      return json(200, { task: { ...assigned, status: 'superseded', termination_reason: 'moved to B', superseded_by: 9 } })
+    }
+    return json(200, { messages: [] })
+  })
+  const { source, actions } = createChannelSource(transport)
+  const unsubscribe = source.subscribe(() => {})
+  await vi.waitFor(() => expect(source.getSnapshot().tasks?.[0]?.status).toBe('accepted'))
+  await expect(actions.terminateTask!(7, 'cancel', 'ended')).rejects.toThrow('permission denied')
+  expect(source.getSnapshot().tasks?.[0]?.status).toBe('accepted')
+  await actions.terminateTask!(7, 'supersede', 'moved to B', 9)
+  expect(source.getSnapshot().tasks?.[0]?.status).toBe('superseded')
+  expect(calls).toContain('POST /collab/api/tasks/7/supersede')
+  unsubscribe()
+})

@@ -105,6 +105,7 @@ func containsFold(list []string, s string) bool {
 type pendingModelSwitch struct {
 	model, effort string
 	auto          bool
+	dropped       bool // auto already deleted a saved pick: recycle the live process on apply
 }
 
 // ModelStatus is what `cc-connect model list` shows the agent.
@@ -198,10 +199,19 @@ type ModelSwitchResult struct {
 func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort string, auto bool) ModelSwitchResult {
 	agent, _ := e.sessionContextForKey(sessionKey)
 	if auto {
-		if e.tiers == nil {
-			return ModelSwitchResult{Message: "this bot has no automatic model tiers configured"}
+		// auto also drops a hand-picked model saved for this session: without that the
+		// pick stays forever, and team workspaces skip the per-task route. Drop it now, not
+		// on the next user message: timer-started workspace turns never pass that point, and
+		// a queued switch does not survive a restart. The live process (if any) is recycled
+		// before its next turn.
+		dropped, err := e.clearSessionSelection(sessionKey)
+		if err != nil {
+			return ModelSwitchResult{Message: err.Error()}
 		}
-		e.queueSwitch(sessionKey, pendingModelSwitch{auto: true})
+		e.queueSwitch(sessionKey, pendingModelSwitch{auto: true, dropped: dropped})
+		if e.tiers == nil {
+			return ModelSwitchResult{OK: true, Message: "from the next message the hand-picked model is dropped: back to this bot's default model (team workspaces: picked per task)"}
+		}
 		return ModelSwitchResult{OK: true, Message: fmt.Sprintf("from the next message, models are picked automatically again: chat %s, task %s", e.tiers.chatModel, e.tiers.taskModel)}
 	}
 	sw, canModel := agent.(ModelSwitcher)
@@ -304,10 +314,14 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 			}
 		}
 	}
-	if !p.auto {
-		if err := e.saveSessionSelection(selectionKey, p.model, p.effort); err != nil {
+	cleared := false
+	if p.auto {
+		var err error
+		if cleared, err = e.clearSessionSelection(selectionKey); err != nil {
 			return err
 		}
+	} else if err := e.saveSessionSelection(selectionKey, p.model, p.effort); err != nil {
+		return err
 	}
 	e.modelSwitchMu.Lock()
 	for key, request := range matched {
@@ -323,7 +337,7 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 			e.tiers.setManual(interactiveKey, manualTierHold)
 		}
 	}
-	if p.auto {
+	if p.auto && !cleared && !p.dropped {
 		return nil
 	}
 	// Only the addressed live process is recycled; its saved native ID and

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -260,6 +261,21 @@ func main() {
 func runMain() {
 	if trayMode {
 		defer quitDesktopTray()
+	}
+	// Packaging checks inspect only the embedded assets, without update recovery,
+	// network checks, or configuration access. runWeb still validates every flag.
+	if slices.Contains(os.Args[1:], "--check") {
+		checkOpts, err := parseRootCLIOptions(os.Args[1:])
+		if err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return
+			}
+			os.Exit(2)
+		}
+		if !checkOpts.showVersion && len(checkOpts.args) > 1 && checkOpts.args[0] == "web" && slices.Contains(checkOpts.args[1:], "--check") {
+			runWeb(checkOpts.args[1:])
+			return
+		}
 	}
 	// First of all: a new version that did not pass its update self-check last start goes back to
 	// the old binary here, before anything that can make startup exit (flags, config, lock).
@@ -1360,6 +1376,8 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	wireImageFresh(engine, proj)
 	engine.SetSessionModels(proj.SessionModels)
 	engine.SetSessionInstructions(proj.SessionInstructions)
+	engine.SetWorkspaceExec(proj.WorkspaceProvider, proj.WorkspaceModel)
+	engine.SetWorkspaceExecDS(proj.WorkspaceDSProvider, proj.WorkspaceDSModel)
 	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
@@ -2107,6 +2125,8 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 	wireImageFresh(engine, *proj)
 	engine.SetSessionModels(proj.SessionModels)
 	engine.SetSessionInstructions(proj.SessionInstructions)
+	engine.SetWorkspaceExec(proj.WorkspaceProvider, proj.WorkspaceModel)
+	engine.SetWorkspaceExecDS(proj.WorkspaceDSProvider, proj.WorkspaceDSModel)
 	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
 	engine.SetGateLocal(proj.GateLocalEnabled())
 	engine.SetGateBurstWindow(proj.GateBurstWindowMs)

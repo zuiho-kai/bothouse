@@ -5,12 +5,15 @@
 # Needs the release signing identity, like the step that calls it: SIGN_ID and SIGN_HASH
 # (release.yml:93-94) plus the keychain at $HOME/.config/bothouse-signing (release.yml:169-170).
 set -euo pipefail
-binary=$1
+binary="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 output=$2
 tag=$3
 stage_dir=${4:-}
 lipo "$binary" -verify_arch arm64
 lipo "$binary" -verify_arch x86_64
+# API-only binaries can pass --version but cannot serve the desktop dashboard.
+# Check before touching the staging directory or accessing the signing keychain.
+"$binary" web --check
 if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; mkdir "$stage_dir"; stage=$(cd "$stage_dir" && pwd); else stage=$(mktemp -d); fi
 app="$stage/Bothouse.app"
 mkdir -p "$app/Contents/MacOS"

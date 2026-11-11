@@ -15,6 +15,20 @@ function task(id: number, status: TaskStatus, extra: Partial<ChannelTask> = {}):
 }
 
 describe('task board', () => {
+  it('archives cancelled/superseded tasks and freezes elapsed time without treating them as acceptance', () => {
+    const rows = [task(1, 'cancelled', { updated_at: 1100 }), task(2, 'superseded', { updated_at: 1200 }), task(3, 'accepted')]
+    const { open, done } = boardGroups(rows)
+    expect(open.map(row => row.id)).toEqual([3])
+    expect(done.map(row => row.status)).toEqual(['superseded', 'cancelled'])
+    expect(elapsed(rows[0], 9999)).toBe(100)
+    expect(elapsed(rows[1], 9999)).toBe(200)
+  })
+
+  it('keeps a cancelled parked task visible in its original board after workspace reuse', () => {
+    const rooms: ChannelRoom[] = [{ id: 1, name: 'original', kind: 'chat' }, { id: 10, name: 'workspace', kind: 'workspace', parent_id: 2 }]
+    const rows = [task(1, 'cancelled', { room_id: 10, paused_at: 1050 })]
+    expect(boardSections(rows, rooms, 1).find(section => section.roomId === 10)?.done).toBe(1)
+  })
   it('puts what waits on you first, then work in progress, then parked, newest first, and done apart', () => {
     const tasks = [task(1, 'done'), task(2, 'returned'), task(3, 'assigned'), task(4, 'rework'), task(5, 'declined'), task(6, 'asked'), task(7, 'accepted'), task(8, 'escalated'), task(9, 'accepted', { paused_at: 5 })]
     const { open, done } = boardGroups(tasks)

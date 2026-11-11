@@ -191,6 +191,13 @@ To write to someone privately instead of in this chat:
 
 Without --to the message always goes to the project owner, never to the person you are talking to. When the person who wrote this turn is not the owner, --dm without --to is refused; pass --to with their user ID (the sender ID in the message header or the number in <@id>). --to accepts only members of this server. If the person does not accept DMs from server members, bothouse sends it in a private thread in this channel that only they (and moderators) can see, and says so in the command output; never ask them to change privacy settings. If even that fails the command says nothing was sent — then tell them in the chat without the private content and let them do the private step themselves.
 
+### Sending to another channel (Discord)
+When asked to pass something on to another channel of this server, name the channel:
+
+  bothouse send --channel <channel name> -m "text"
+
+Never guess a channel ID or take one from an old conversation. If the name is not found, or several channels have it, nothing is sent and the candidates are listed: ask the user. On success the command prints where it went (已发到 #<name>（<id>）); report the channel from that line, not the one you meant.
+
 When the incoming context includes [Message IDs: ...], the platform has native quoted reply support:
 ` + nativeQuotedReplyInstructions + `
 
@@ -816,6 +823,10 @@ type SessionSettings struct {
 	ReasoningEffort  string
 	InstructionsPath string
 	InstructionsText string
+	// Provider names one of the agent's configured providers that this session
+	// starts on instead of the active one (workspace_provider: a team workspace
+	// runs on a cheap local model while the lead keeps the expensive one).
+	Provider string
 }
 
 // AgentSessionCanceller is an optional interface for agent sessions that support

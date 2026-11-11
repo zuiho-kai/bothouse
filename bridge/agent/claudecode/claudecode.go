@@ -55,9 +55,12 @@ type Agent struct {
 
 	appendSystemPrompt string // Custom text appended to the system prompt (keeps Claude's default)
 
-	providerProxy  *core.ProviderProxy // local proxy for third-party providers
-	proxyLocalURL  string              // local URL of the proxy
-	platformPrompt string              // platform-specific formatting instructions
+	providerProxy *core.ProviderProxy // local proxy for third-party providers
+	proxyLocalURL string              // local URL of the proxy
+	// sessionProxies: one system-fold proxy per session provider base URL (team
+	// workspace on a local model), kept for the agent's lifetime.
+	sessionProxies map[string]sessionProxy
+	platformPrompt string // platform-specific formatting instructions
 
 	// ccDataDir is injected by the cc-connect host (see buildAgentOptions
 	// in cmd/cc-connect/main.go). It locates the global directory where
@@ -535,6 +538,20 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, voice
 		activeProviderName = a.providers[activeIdx].Name
 		if m := a.providers[activeIdx].Model; m != "" {
 			model = m
+		}
+	}
+	// A session-scoped provider (team workspace on a cheap model) overrides the
+	// active provider's endpoint for this one process only; the shared agent and
+	// its provider proxy are untouched.
+	if settings, ok := core.SessionSettingsFromContext(ctx); ok && settings.Provider != "" {
+		if env, pm, found := sessionProviderEnv(a.providers, settings.Provider); found {
+			extraEnv = core.MergeEnv(extraEnv, a.foldSessionProviderEnvLocked(env))
+			activeProviderName = settings.Provider
+			if pm != "" {
+				model = pm
+			}
+		} else {
+			slog.Warn("claudecode: session provider not configured, using active provider", "provider", settings.Provider)
 		}
 	}
 	slog.Debug("claudecode: StartSession provider state",
@@ -1266,6 +1283,71 @@ func (a *Agent) providerEnvLocked() []string {
 		"provider", p.Name,
 		"model", p.Model,
 		"env", core.RedactEnv(env))
+	return env
+}
+
+// sessionProviderEnv returns the env that points one Claude Code process at the
+// named provider (Bearer auth like providerEnvLocked; openai_chat upstreams go
+// through the protoconv converter). The thinking-rewrite proxy is shared and
+// stays on the active provider, so a session provider's Thinking is ignored.
+func sessionProviderEnv(providers []core.ProviderConfig, name string) (env []string, model string, found bool) {
+	for _, raw := range providers {
+		if raw.Name != name {
+			continue
+		}
+		p := raw.ForProtocol(core.ProtocolAnthropic)
+		if p.BaseURL != "" {
+			env = append(env, "ANTHROPIC_BASE_URL="+p.BaseURL, "NO_PROXY=127.0.0.1,localhost")
+			if p.APIKey != "" {
+				env = append(env, "ANTHROPIC_AUTH_TOKEN="+p.APIKey, "ANTHROPIC_API_KEY=")
+			}
+		} else if p.APIKey != "" {
+			env = append(env, "ANTHROPIC_API_KEY="+p.APIKey)
+		}
+		if raw.Model != "" {
+			env = append(env, "ANTHROPIC_MODEL="+raw.Model)
+		}
+		for k, v := range p.Env {
+			env = append(env, k+"="+v)
+		}
+		return env, raw.Model, true
+	}
+	return nil, "", false
+}
+
+type sessionProxy struct {
+	proxy *core.ProviderProxy
+	url   string
+}
+
+// foldSessionProviderEnvLocked points a session provider's ANTHROPIC_BASE_URL
+// at a local proxy that folds mid-conversation system turns (local Qwen and
+// similar templates only accept a system message first). On any failure the
+// env is returned unchanged.
+func (a *Agent) foldSessionProviderEnvLocked(env []string) []string {
+	const key = "ANTHROPIC_BASE_URL="
+	for i, kv := range env {
+		if !strings.HasPrefix(kv, key) {
+			continue
+		}
+		target := strings.TrimPrefix(kv, key)
+		sp, ok := a.sessionProxies[target]
+		if !ok {
+			proxy, local, err := core.NewSystemFoldProxy(target)
+			if err != nil {
+				slog.Warn("claudecode: session provider proxy failed, using the endpoint directly", "error", err)
+				return env
+			}
+			if a.sessionProxies == nil {
+				a.sessionProxies = map[string]sessionProxy{}
+			}
+			sp = sessionProxy{proxy: proxy, url: local}
+			a.sessionProxies[target] = sp
+		}
+		out := append([]string{}, env...)
+		out[i] = key + sp.url
+		return out
+	}
 	return env
 }
 

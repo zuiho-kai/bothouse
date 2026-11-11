@@ -27,8 +27,10 @@ func TestQuotaCoolingReplyIsReadableFromEngine(t *testing.T) {
 	if !s.TryLock() {
 		t.Fatal("lock")
 	}
+	// A teammate bot still waits out the cooldown and gets the notice; a person's
+	// message asks the provider instead (quota_wake_test.go).
 	msg := &Message{SessionKey: "discord:c1", Platform: "discord", UserID: "u", UserName: "u",
-		Content: "在吗", ReplyCtx: "rc"}
+		Content: "在吗", ReplyCtx: "rc", FromBot: true}
 	e.processInteractiveMessageWith(p, msg, s, e.agent, e.sessions, "k", "", "")
 
 	sent := strings.Join(p.sentTo("rc"), "\n")
@@ -117,8 +119,10 @@ func TestQuotaCoolingDecisionAndTextShareOneClock(t *testing.T) {
 	if !s.TryLock() {
 		t.Fatal("lock")
 	}
+	// A teammate bot still waits out the cooldown and gets the notice; a person's
+	// message asks the provider instead (quota_wake_test.go).
 	msg := &Message{SessionKey: "discord:c1", Platform: "discord", UserID: "u", UserName: "u",
-		Content: "在吗", ReplyCtx: "rc"}
+		Content: "在吗", ReplyCtx: "rc", FromBot: true}
 	// 冷却提示是当场发的；判定若走错（改回自己读时钟）就认为不冷却，消息会落到
 	// 等待 agent 回复的正常回合里不再返回。所以这里带超时，超时本身就是失败信号。
 	done := make(chan string, 1)

@@ -537,6 +537,7 @@ type Engine struct {
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
+	workspaceExec     workspaceExec     // team workspaces start on this provider/model (session_models.go)
 	sessionSelections map[string]sessionModelSelection
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
@@ -596,6 +597,8 @@ type Engine struct {
 	interactiveMu     sync.Mutex
 	roleEvents        atomic.Pointer[roleEventBroker]
 	interactiveStates map[string]*interactiveState // key = sessionKey
+	// #739: admission order is independent of queue priority; keep it across state replacement.
+	queueOrder        atomic.Uint64
 	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
@@ -685,12 +688,16 @@ type queuedMessage struct {
 	userMessageTimeMs int64  // Feishu create_time ms (optional); see Message.UserMessageTimeMs
 	turnCtx           bool   // maomao fork: see Message.TurnCtx
 	turnCtxQuery      string
-	turnCtxSender     string // #1160
-	fromBot           bool
-	mentioned         bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
-	direct            bool   // Message.Direct
-	overflow          bool   // context only: a full group queue gave its place away (queue_batch.go)
-	modeOverride      string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
+	// #739: a gate abort/redirect (Message.abortFront) is queued at the front, ahead of what it
+	// cancels; a batch that folds it in still answers it (queue_batch.go).
+	abortFront    bool
+	queueOrder    uint64 // #739: assigned at admission, before an abort moves to the queue front
+	turnCtxSender string // #1160
+	fromBot       bool
+	mentioned     bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
+	direct        bool   // Message.Direct
+	overflow      bool   // context only: a full group queue gave its place away (queue_batch.go)
+	modeOverride  string // maomao fork: see Message.ModeOverride (cron/timer job.Mode)
 	// maomao fork: set for a queued cron/timer turn to its unmuted platform. When the turn starts
 	// it gets the same team note and channel backfill as a cron/timer turn run directly.
 	scheduledFrom Platform
@@ -718,7 +725,9 @@ type interactiveState struct {
 	externalTaskInput        *externalInputDelivery
 	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
+	agentCloseDone           <-chan struct{} // turn/idle close: wait for durable close before resume; guarded by interactiveMu
 	agentSession             AgentSession
+	processClaimed           bool           // foreground owns the process until the final queue check and session unlock; guarded by mu
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
@@ -4157,6 +4166,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		fromBot:             msg.FromBot,
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
+		abortFront:          msg.abortFront, // #739: the batch still answers this one
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
@@ -4175,6 +4185,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		// turn instead of a "queue full" notice (queue_batch.go).
 		q.overflow = e.makeRoomInGroupQueueLocked(state, msg, interactiveKey) && batchableQueued(&q)
 	}
+	q.queueOrder = e.queueOrder.Add(1)
 	if msg.abortFront {
 		// maomao fork: a gate abort is answered before what queued behind the turn it cancels.
 		state.pendingMessages = append([]queuedMessage{q}, state.pendingMessages...)
@@ -4283,15 +4294,15 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 
 	e.interactiveMu.Lock()
 	state, hasState := e.interactiveStates[interactiveKey]
-	e.interactiveMu.Unlock()
 
 	if hasState && state != nil {
-		// A placeholder (no agent session yet) whose queue formed while a native
-		// /compact held the session has nothing to drain into. Start a turn with
-		// the first queued message; it adopts the rest and drains them. Any other
-		// placeholder (its session failed to start) keeps the drop below.
+		// A compact placeholder or a process being closed has no live process to
+		// drain into. Re-enter the foreground acquisition path: it waits for
+		// actual Close, resumes the saved ID and adopts the remaining queue.
 		state.mu.Lock()
-		placeholder := state.queuedBehindCompact && state.agentSession == nil && !state.stopped && len(state.pendingMessages) > 0
+		placeholder := state.agentSession == nil && len(state.pendingMessages) > 0 &&
+			(state.agentCloseDone != nil || (state.queuedBehindCompact && !state.stopped))
+		alive := state.agentSession != nil && state.agentSession.Alive()
 		state.queuedBehindCompact = false
 		var first queuedMessage
 		if placeholder {
@@ -4299,6 +4310,7 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 			state.pendingMessages = state.pendingMessages[1:]
 		}
 		state.mu.Unlock()
+		e.interactiveMu.Unlock()
 		if placeholder {
 			msg := queuedToMessage(first)
 			e.startScheduledTurn(&msg, session) // a queued cron/timer turn, as when run directly
@@ -4306,11 +4318,12 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 			e.processInteractiveMessageWith(first.platform, &msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
 			return
 		}
-	}
-	if !hasState || state == nil || state.agentSession == nil || !state.agentSession.Alive() {
-		if hasState && state != nil {
+		if !alive {
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent session ended"))
+			return
 		}
+	} else {
+		e.interactiveMu.Unlock()
 		return
 	}
 
@@ -5029,14 +5042,24 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// (2026-11-01: 「复活」之后发一句话就该恢复正常). Bots, cron/timer/heartbeat
 	// turns and ws-handoff wake-ups still wait: they are not someone sitting
 	// there, and key suffixes alone do not prove where a message came from.
+	//
+	// The same holds for a quota cooldown: a deadline is a prediction, and a person
+	// calling the role is the moment to check it (2026-11-11 用户「我主动去叫正在冷却的人
+	// 就会自动解除桥的冷却锁 重新看看能不能正常了」). The turn's own result decides:
+	// an answer clears the cooldown (recoverQuotaFor), a quota error records it again.
 	capWait := e.capacityWait(state.quotaScope)
-	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot &&
+	humanAsks := msg.inputTurn == nil && !msg.FromBot &&
 		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
+	probeCapacity := capWait > 0 && humanAsks
+	// Only a person calling this role (an @, a reply to it, its name at the line
+	// start: Message.Mentioned) is that check. A person talking to someone else
+	// in the same channel is not asking this role to try again.
+	humanCalls := humanAsks && msg.Mentioned
 	// One clock read for both the decision and the text: two reads let a deadline that
 	// is microseconds away at the check pass before the format, printing 「大约还要 0s」
 	// (复核 2026-11-06 观察①).
 	now := quotaCoolingNow()
-	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() {
+	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() && !humanCalls {
 		// 用户 2026-11-04 报「没有正确显示什么时候恢复」：不再直接打印 RFC3339，
 		// 换成本地时间带偏移量，再按当前时刻算一次大约还要等多久（quota_cooling_display.go）。
 		// quotaCoolingForAt 只在截止值还在 now 之后时才返回非零值，
@@ -5337,6 +5360,10 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	settings := e.sessionSettingsFor(ccKey)
 	if m := e.turnModelFor(sessionKey); m != "" {
 		settings.Model = m // a review side turn on its tier model (TimerJob.Model)
+		settings.Provider = ""
+	}
+	if settings.Provider != "" {
+		slog.Info("workspace exec: session starts on workspace provider", "session", ccKey, "provider", settings.Provider, "model", settings.Model)
 	}
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
@@ -5349,7 +5376,25 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	state, ok := e.interactiveStates[sessionKey]
+	for ok && state.agentCloseDone != nil {
+		closed := state.agentCloseDone
+		e.interactiveMu.Unlock()
+		select {
+		case <-closed:
+		case <-e.ctx.Done():
+			e.interactiveMu.Lock()
+			return &interactiveState{startErr: "engine stopped while closing the previous process"}
+		}
+		e.interactiveMu.Lock()
+		if e.interactiveStates[sessionKey] == state {
+			state.agentCloseDone = nil
+		}
+		state, ok = e.interactiveStates[sessionKey]
+	}
 	if ok && state.agentSession != nil && state.agentSession.Alive() {
+		// Claim under the same map lock the closer uses. Cancelling later in the
+		// foreground worker leaves a window in which cleanup can close this process.
+		e.cancelAgentSessionIdleClose(state)
 		// Verify the running agent session matches the current active session.
 		// After /new or /switch the active session changes, but the old agent
 		// process may still be alive. Reusing it would send messages to the
@@ -5382,11 +5427,14 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			if notice != "" {
 				sessions.Save()
-				go e.sendSystemNotice(p, replyCtx, notice)
+				go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 				wantID, needRecycle = "", true
 			}
 		}
 		if !needRecycle {
+			state.mu.Lock()
+			state.processClaimed = true
+			state.mu.Unlock()
 			return state
 		}
 		// Tear down the stale agent so we start one that matches the Session below.
@@ -5455,15 +5503,15 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if input == nil {
 		if notice := e.freshOnColdCache(agent, session); notice != "" {
 			sessions.Save()
-			go e.sendSystemNotice(p, replyCtx, notice)
+			go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 		}
 		if notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey)); notice != "" {
 			sessions.Save()
-			go e.sendSystemNotice(p, replyCtx, notice)
+			go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 		}
 		if notice := e.freshOnImageBloat(agent, session); notice != "" {
 			sessions.Save()
-			go e.sendSystemNotice(p, replyCtx, notice)
+			go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 		}
 	}
 
@@ -5595,6 +5643,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	newState := &interactiveState{
 		modelSettings:    settings,
 		agentSession:     agentSession,
+		processClaimed:   true,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
 		replyCtx:         replyCtx,
@@ -5713,31 +5762,109 @@ func (e *Engine) cancelAgentSessionIdleClose(state *interactiveState) {
 	}
 }
 
-func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interactiveState) {
+// Reports whether a close was scheduled, not whether the process has exited.
+func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interactiveState) bool {
 	if state == nil {
-		return
+		return false
 	}
+	// A resumable process belongs to its turn; retain the saved conversation ID.
+	// Agents that cannot resume retain their configured idle timeout.
+	state.mu.Lock()
+	resumable := agentSessionResumable(state.agent, state.agentSession)
+	state.mu.Unlock()
 	timeout := time.Duration(e.agentSessionIdleTimeoutNanos.Load())
-	if timeout <= 0 {
-		return
+	if !resumable && timeout <= 0 {
+		return false
 	}
 
 	e.cancelAgentSessionIdleClose(state)
-	ctx, cancel := context.WithCancel(e.ctx)
 	token := e.agentSessionIdleSeq.Add(1)
 	state.mu.Lock()
-	if state.stopped ||
+	if state.stopped || state.processClaimed ||
 		state.agentSession == nil ||
 		!state.agentSession.Alive() ||
-		state.eventsNeedResync ||
+		(!resumable && state.eventsNeedResync) ||
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
-		cancel()
-		return
+		return false
 	}
+	if resumable {
+		// Same token protocol as the idle timer: a turn starting before the close runs
+		// clears the token (cancelAgentSessionIdleClose) and the close is skipped.
+		state.agentSessionIdleToken = token
+		state.mu.Unlock()
+		go e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, 0)
+		return true
+	}
+	ctx, cancel := context.WithCancel(e.ctx)
 	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
 	state.mu.Unlock()
+	return true
+}
+
+// CloseIdleTeamWorkspaceAgents asks the same turn-lifetime policy to release idle
+// teammate processes after a workspace is returned. It preserves conversation IDs
+// and returns the number scheduled; actual shutdown is logged by the shared closer.
+func (e *Engine) CloseIdleTeamWorkspaceAgents(key string) int {
+	if e == nil || e.sessions == nil || !e.teamWorkspaceFree(key) {
+		return 0
+	}
+	n := 0
+	for _, k := range e.sessions.UserKeys() {
+		if chatOf(k) != key {
+			continue
+		}
+		if s := e.sessions.GetOrCreateActive(k); s != nil && s.Busy() {
+			continue
+		}
+		iKey := e.interactiveKeyForSessionKey(k)
+		e.interactiveMu.Lock()
+		state := e.interactiveStates[iKey]
+		e.interactiveMu.Unlock()
+		if e.scheduleAgentSessionIdleClose(iKey, state) {
+			n++
+		}
+	}
+	return n
+}
+
+// agentSessionResumable reports whether closing as now loses nothing: the agent can
+// resume an exact saved conversation without falling back to a new one
+// (StrictResumeAgent), this session has an ID to resume, and, for agents whose resume
+// support is only known from the running process (ACP advertises it in initialize),
+// the process said it can.
+func agentSessionResumable(agent Agent, as AgentSession) bool {
+	if agent == nil || as == nil || as.CurrentSessionID() == "" {
+		return false
+	}
+	if strict, ok := agent.(StrictResumeAgent); !ok || !strict.SupportsStrictResume() {
+		return false
+	}
+	if r, ok := as.(ResumableSession); ok {
+		return r.CanResume()
+	}
+	return true
+}
+
+// agentHasBackgroundWork reports whether the agent process still runs work of its own
+// after its turn ended: background tasks or live sub-agents. Closing it would kill them
+// and lose their completion turn.
+func agentHasBackgroundWork(as AgentSession) bool {
+	if r, ok := as.(BackgroundTaskReporter); ok {
+		if running, _ := r.BackgroundTasks(); running > 0 {
+			return true
+		}
+	}
+	if r, ok := as.(SubTaskReporter); ok {
+		_, tasks, _ := r.SubTasks()
+		for _, task := range tasks {
+			if task.Live() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // armAgentSessionIdleTimerLocked stores cancel/token on state and starts the
@@ -5780,6 +5907,8 @@ func agentSessionIdleDeferral(agentSession AgentSession, timeout time.Duration) 
 	return 0, 0
 }
 
+// timeout 0 closes now (the turn ended; see scheduleAgentSessionIdleClose) unless the
+// agent still runs background work: its completion turn ends here again and closes then.
 func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected *interactiveState, token uint64, timeout time.Duration) {
 	e.interactiveMu.Lock()
 	state, ok := e.interactiveStates[sessionKey]
@@ -5791,17 +5920,25 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	var agentSession AgentSession
 	state.mu.Lock()
 	if state.agentSessionIdleToken != token ||
+		state.processClaimed ||
 		state.agentSession == nil ||
 		!state.agentSession.Alive() ||
 		state.stopped ||
-		state.eventsNeedResync ||
+		(timeout > 0 && state.eventsNeedResync) ||
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
 		e.interactiveMu.Unlock()
 		return
 	}
-	if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
+	if timeout <= 0 {
+		if agentHasBackgroundWork(state.agentSession) {
+			state.mu.Unlock()
+			e.interactiveMu.Unlock()
+			slog.Info("turn ended: agent still runs background work, process kept until it reports back", "session_key", sessionKey)
+			return
+		}
+	} else if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
 		// maomao fork: closing now would kill a background task and lose its
 		// completion notification. Re-arm under the same lock so a turn that
 		// starts afterwards cancels the new timer like any other.
@@ -5818,14 +5955,25 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		return
 	}
 	agentSession = state.agentSession
+	closed := make(chan struct{})
+	state.agentCloseDone = closed
 	state.agentSession = nil
+	idleCancel := state.agentSessionIdleCancel
 	state.agentSessionIdleCancel = nil
 	state.agentSessionIdleToken = 0
 	state.mu.Unlock()
 	e.interactiveMu.Unlock()
+	if idleCancel != nil {
+		idleCancel()
+	}
 
-	slog.Info("agent session idle timeout: closing live agent session",
-		"session_key", sessionKey, "timeout", timeout)
+	if timeout <= 0 {
+		slog.Info("turn ended: closing agent process; its saved session ID stays for resume",
+			"session_key", sessionKey, "agent_session", agentSession.CurrentSessionID())
+	} else {
+		slog.Info("agent session idle timeout: closing live agent session",
+			"session_key", sessionKey, "timeout", timeout)
+	}
 	e.stopUnsolicitedReader(state)
 	state.markStopped()
 
@@ -5836,13 +5984,18 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	if pending != nil {
 		pending.resolve()
 	}
-	e.notifyDroppedQueuedMessages(state, fmt.Errorf("session reset"))
-
-	e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+	// This is a process close, not a conversation reset. A message queued during
+	// close must be adopted by the replacement state, not reported as dropped.
+	e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	<-closed
 
 	e.interactiveMu.Lock()
 	if currentState, currentOk := e.interactiveStates[sessionKey]; currentOk && currentState == expected {
-		delete(e.interactiveStates, sessionKey)
+		state.mu.Lock()
+		if len(state.pendingMessages) == 0 {
+			delete(e.interactiveStates, sessionKey)
+		}
+		state.mu.Unlock()
 	}
 	e.interactiveMu.Unlock()
 }
@@ -6447,8 +6600,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		return err
 	}
 
+	var streamCard StreamingCard
 	var sentReplySegments []string // successful narration deliveries in this turn only
 	sendReplySegment := func(p Platform, replyCtx any, segment string) {
+		// A live streaming card already shows every word of this turn; a
+		// segment sent beside it repeats the same text as a second message
+		// (#703: DingTalk AI card, thinking/tool/permission flushes).
+		if streamCard != nil && !streamCard.Failed() {
+			return
+		}
 		if capability, ok := p.(RepeatedReplySuppressor); !ok || !capability.SuppressRepeatedReplyText() {
 			for _, chunk := range SplitMessageCodeFenceAware(segment, maxPlatformMessageLen) {
 				sendWorkspace(p, replyCtx, chunk)
@@ -6476,8 +6636,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		sentReplySegments = append(sentReplySegments, segment)
 	}
 
-	// Streaming card: aggregate entire turn into a single updatable card.
-	var streamCard StreamingCard
+	// Streaming card: aggregate entire turn into a single updatable card
+	// (declared with sendReplySegment above, which must not send beside it).
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
 	var cardThinkingText string        // latest thinking text
 	var cardAnswerText strings.Builder // accumulated answer text
@@ -6492,6 +6652,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	sp := newStreamPreview(e.streamPreview, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), outputCtx, workspaceRenderer)
+	// A failed freeze has not delivered the segment. Stop this output turn
+	// before detaching its preview or recording the segment as sent.
+	freezePreview := func() bool {
+		if err := sp.freeze(); err != nil {
+			slog.Error("stream preview: committing segment failed", "session", sessionKey, "error", err)
+			state.mu.Lock()
+			state.eventsNeedResync = true
+			state.mu.Unlock()
+			input.finish(inputTurnResult{err: fmt.Errorf("preview segment delivery: %w", err)})
+			return false
+		}
+		return true
+	}
 	cp := newCompactProgressWriter(outputCtx, inputOutputPlatform(state.platform, input), markAgentReply(state.platform, state.replyCtx, session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	cp.mirrorFor = e.taskThreadProgressContext(outputCtx, inputOutputPlatform(state.platform, input), sessionKey, workspaceRenderer)
 	if state.turnScheduled && !e.isTeamWorkspaceChat(sessionKey) {
@@ -6811,14 +6984,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When thinking messages are hidden, behavior depends on display mode:
 			//   quiet:   append separator to keep all text in one card
 			//   compact: freeze+detach to split text into separate cards
-			if !e.display.ThinkingMessages && len(textParts) > segmentStart {
+			if !e.display.ThinkingMessages && len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if e.display.Mode == "quiet" {
 					if sp.canPreview() && sp.appendSeparator("\n\n") {
 						textParts = append(textParts, "\n\n")
 					}
 				} else {
 					if sp.canPreview() {
-						sp.freeze()
+						if !freezePreview() {
+							return
+						}
 						sp.detachPreview()
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
@@ -6849,10 +7024,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							sendReplySegment(p, replyCtx, segment)
 						}
 					}
-					segmentStart = len(textParts)
-					silentHold = false
 				}
-				sp.freeze()
+				if !freezePreview() {
+					return
+				}
+				segmentStart = len(textParts)
+				silentHold = false
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
@@ -6916,14 +7093,16 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When tool messages are hidden, behavior depends on display mode:
 			//   quiet:   append separator to keep all text in one card
 			//   compact: freeze+detach to split text into separate cards
-			if !e.display.ToolMessages && len(textParts) > segmentStart {
+			if !e.display.ToolMessages && len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if e.display.Mode == "quiet" {
 					if sp.canPreview() && sp.appendSeparator("\n\n") {
 						textParts = append(textParts, "\n\n")
 					}
 				} else {
 					if sp.canPreview() {
-						sp.freeze()
+						if !freezePreview() {
+							return
+						}
 						sp.detachPreview()
 					} else {
 						segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
@@ -6987,10 +7166,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							sendReplySegment(p, replyCtx, segment)
 						}
 					}
-					segmentStart = len(textParts)
-					silentHold = false
 				}
-				sp.freeze()
+				if !freezePreview() {
+					return
+				}
+				segmentStart = len(textParts)
+				silentHold = false
 				if previewActive {
 					sp.detachPreview() // keep frozen preview visible as permanent message
 				}
@@ -7279,19 +7460,24 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				continue
 			}
 
-			// Flush accumulated text segment before permission prompt
+			// A live card retains ownership of its text across the prompt; only
+			// detached previews/plain sends commit a separate segment here.
 			previewActive := sp.canPreview()
-			if len(textParts) > segmentStart {
+			if len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if !previewActive {
 					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
 						sendReplySegment(p, replyCtx, segment)
 					}
 				}
+			}
+			if !freezePreview() {
+				return
+			}
+			if streamCard == nil || streamCard.Failed() {
 				segmentStart = len(textParts)
 				silentHold = false
 			}
-			sp.freeze()
 			if previewActive {
 				sp.detachPreview() // keep frozen preview visible as permanent message
 			}
@@ -7459,26 +7645,32 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			state.clearStopDraft()
 
+			// A cumulative adapter identifies the bytes it already streamed. Only
+			// its new suffix enters the stream ledger; a standalone terminal answer
+			// still replaces the open draft. Do not infer ownership from text matches.
 			fullResponse := event.Content
+			if event.StreamedContentBytes > 0 {
+				if tail := event.Content[event.StreamedContentBytes:]; tail != "" {
+					textParts = append(textParts, tail)
+				}
+				fullResponse = ""
+			}
 			if e.display.HideAgentFooter {
 				fullResponse = stripAgentFooterLines(fullResponse)
 			}
-			// When tool progress is hidden, segmentStart stays 0 and textParts
-			// contains ALL text across tool boundaries. Prefer the full accumulated
-			// text over event.Content which only contains the last assistant segment.
-			// A Stop hook blocked the turn: the adapter already chose between the
-			// blocked draft and the rewrite, and textParts holds both (#1051).
-			if stopBlocked, _ := event.Metadata[MetaStopBlockedReply].(bool); stopBlocked && strings.TrimSpace(fullResponse) != "" {
-				// keep event.Content
-			} else if len(textParts) > 0 && segmentStart == 0 && !e.display.ToolMessages {
-				fullResponse = strings.Join(textParts, "")
-			} else if fullResponse == "" && len(textParts) > 0 {
+			// A nonempty terminal result owns the final reply, including an
+			// adapter-only error or Stop-hook rewrite. An empty or explicitly
+			// cumulative result uses the stream ledger. Display settings cannot choose the
+			// answer's source (#703: quiet mode discarded terminal-only text).
+			terminalReply := fullResponse != ""
+			if !terminalReply && len(textParts) > 0 {
 				fullResponse = strings.Join(textParts, "")
 			}
 			// The adapter marked an exhausted quota; say which bot/model ran out so
 			// other bots in the channel are not blamed.
 			if reset, ok := QuotaExhaustedReset(event); ok {
 				fullResponse = e.quotaExhaustedMessage(reset, agentSession, replyAgent)
+				terminalReply = true
 			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
@@ -7640,6 +7832,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				board.finish(state, BoardDoneCompleted)
 			}
 			turnDuration := time.Since(turnStart)
+			e.noteWorkspaceTurn(sessionKey, event.Metadata, turnDuration) // #1448 route log
 			slog.Info("turn complete",
 				"session", session.ID,
 				"agent_session", session.GetAgentSessionID(),
@@ -7815,10 +8008,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						return
 					}
 				}
-			} else if toolCount > 0 && segmentStart > 0 {
-				// When tool calls happened and prior text was already surfaced in segments,
-				// only send the unsent remainder. When tool progress is hidden, tool events don't surface
-				// side-channel messages and segmentStart stays 0, so keep normal finalize flow.
+			} else if segmentStart > 0 && !terminalReply {
+				// textParts[:segmentStart] already reached the chat: every place that
+				// advances segmentStart has sent it as a segment, kept it as a detached
+				// preview, or put it in the progress card. The turn end owns only the
+				// rest. A thinking step flushes a segment without any tool call, so
+				// this must not depend on toolCount (#700: tools=0 turn re-sent both
+				// halves glued together). A terminal reply uses the normal flow
+				// instead: it can contain text absent from textParts (#703).
 				if segmentStart < len(textParts) {
 					unsent := strings.Join(textParts[segmentStart:], "")
 					unsent = finalReplyText(unsent)
@@ -8501,18 +8698,34 @@ channelClosed:
 			})
 		}
 
-		if toolCount > 0 && segmentStart > 0 {
-			sp.discard()
+		// The live card owns the entire streamed answer, including on EOF.
+		// It has not committed any detached segments; a failed finalization
+		// therefore leaves the complete text available for the ordinary send.
+		if streamCard != nil && !streamCard.Failed() {
+			finalContent := buildCardContent(cardThinkingText, cardToolCalls, fullResponse)
+			if err := authorizedOutput(outputCtx, func() error { return streamCard.Finalize(outputCtx, finalContent) }); err == nil {
+				return
+			} else {
+				slog.Error("streaming card finalize failed on channel close", "error", err)
+			}
+		}
+
+		// Same rule as the normal end: text before segmentStart already went out (#700).
+		if segmentStart > 0 {
 			if segmentStart < len(textParts) {
 				unsent := strings.Join(textParts[segmentStart:], "")
 				unsent = closedFinalReplyText(unsent)
-				if unsent != "" {
+				if unsent == "" {
+					sp.discard()
+				} else if !sp.finish(unsent, "") {
 					for _, chunk := range SplitMessageCodeFenceAware(unsent, maxPlatformMessageLen) {
 						if err := sendWorkspaceWithError(p, replyCtx, chunk); err != nil {
 							return
 						}
 					}
 				}
+			} else {
+				sp.discard()
 			}
 		} else if sp.finish(fullResponse, "") {
 			slog.Debug("stream preview: finalized in-place (process exited)")
@@ -8622,12 +8835,16 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 }
 
 // drainPendingMessages processes all queued messages in the state's pendingMessages
-// queue. It owns the event reader while draining, restores the idle reader and
-// timer before releasing the session, then rechecks the queue under state.mu.
+// queue. It owns the event reader while draining, restores the idle reader,
+// then releases process ownership and the session after the final queue check.
 // This closes both the late-enqueue window and the window in which a new
 // foreground turn could race with a late background-reader/timer restart.
 // Returns true if the session was unlocked by this call.
 func (e *Engine) drainPendingMessages(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string) bool {
+	// Orphaned queues enter here without going through process acquisition.
+	state.mu.Lock()
+	state.processClaimed = true
+	state.mu.Unlock()
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
@@ -8637,6 +8854,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			if n := len(state.pendingMessages); n > 0 {
 				slog.Info("queued messages kept for resume after shutdown", "count", n)
 			}
+			state.processClaimed = false
 			session.Unlock()
 			state.mu.Unlock()
 			return true
@@ -8683,12 +8901,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 		if len(state.pendingMessages) == 0 {
 			alive := state.agentSession != nil && state.agentSession.Alive() && !state.stopped && !state.eventsNeedResync
+			closeAfterFailure := !state.stopped && agentSessionResumable(state.agent, state.agentSession)
 			workspaceDir := state.workspaceDir
 			state.mu.Unlock()
 			if alive {
 				e.startUnsolicitedReader(state, session, sessions, sessionKey, workspaceDir)
-				e.scheduleAgentSessionIdleClose(sessionKey, state)
 			}
+			// Cancel before the final queue check: cancellation may itself let a
+			// pending enqueue finish. Closing is armed only after ownership ends.
+			e.cancelAgentSessionIdleClose(state)
 			state.mu.Lock()
 			if len(state.pendingMessages) != 0 {
 				// A message arrived while restoring idle state. Keep ownership
@@ -8697,8 +8918,12 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				e.cancelAgentSessionIdleClose(state)
 				continue
 			}
+			state.processClaimed = false
 			session.Unlock()
 			state.mu.Unlock()
+			if alive || closeAfterFailure {
+				e.scheduleAgentSessionIdleClose(sessionKey, state)
+			}
 			return true
 		}
 		queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
@@ -13105,15 +13330,25 @@ func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued
 
 normalCleanup:
 	var closed chan struct{}
+	closing := state.agentCloseDone != nil
 	if keepQueued {
-		closed = make(chan struct{})
 		state.mu.Lock()
 		state.resetHandoff = true
-		state.abortCloseDone = closed
+		if closing {
+			state.abortCloseDone = state.agentCloseDone
+		} else {
+			closed = make(chan struct{})
+			state.abortCloseDone = closed
+		}
 		state.mu.Unlock()
 	}
 	state.markStopped()
-	delete(e.interactiveStates, sessionKey)
+	// The turn closer owns the existing completion barrier. Keep it discoverable
+	// by the next message until that Close has actually finished; /stop must not
+	// start a second close or let the same native session resume prematurely.
+	if !closing {
+		delete(e.interactiveStates, sessionKey)
+	}
 	e.interactiveMu.Unlock()
 
 	if pending != nil {
@@ -13126,7 +13361,9 @@ normalCleanup:
 		state.pendingMessages = nil
 		state.mu.Unlock()
 	}
-	go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	if !closing {
+		go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	}
 
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventSessionEnded,
@@ -18997,23 +19234,10 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				if event.SessionID != "" {
 					saveRelaySessionID(event.SessionID, false)
 				}
-			case EventToolResult:
-				if quiet {
-					break
-				}
-				out := strings.TrimSpace(event.Content)
-				if out == "" {
-					out = strings.TrimSpace(event.ToolResult)
-				}
-				// Agents hand over the whole tool output (#1231); relay replies keep the old cap.
-				out = truncateIf(out, defaultToolMaxLen)
-				if out != "" {
-					tn := strings.TrimSpace(event.ToolName)
-					if tn == "" {
-						tn = "tool"
-					}
-					textParts = append(textParts, fmt.Sprintf(e.i18n.T(MsgToolResult), tn, out)+"\n\n")
-				}
+			// Tool results stay out of textParts: they are not the reply. When the
+			// final text is empty, the fallback and partial paths below would
+			// otherwise hand the "📤 **bash**" echoes back and relay visibility
+			// posts them to the group (#693).
 			case EventResult:
 				// Use agentSession.CurrentSessionID() for the same reason as above.
 				if currentID := agentSession.CurrentSessionID(); currentID != "" {

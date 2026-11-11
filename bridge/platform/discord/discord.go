@@ -967,17 +967,8 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		m.Content = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
 	}
 
-	// Capture the human's addressee before adding quoted content. External bots
-	// are absent from teamPlatforms, but Discord supplies their bot identity.
-	otherBot := !fromBot && addressedOther(m.Content, p.botID)
-	if !fromBot {
-		for _, u := range m.Mentions {
-			if u.Bot && u.ID != p.botID && (strings.Contains(m.Content, "<@"+u.ID+">") || strings.Contains(m.Content, "<@!"+u.ID+">")) {
-				otherBot = true
-				break
-			}
-		}
-	}
+	// Capture the human's addressee before adding quoted content (core addresseeOf decides).
+	otherCalled := !fromBot && callsOther(m, p.botID, botRoleID)
 
 	// Prepend the replied-to message's content and images so the agent has context.
 	if m.ReferencedMessage != nil {
@@ -994,7 +985,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
 	msg.PrivateRoom = !fromBot && p.privateRoom(s, m.GuildID, m.ChannelID, m.Author.ID)
-	msg.AddressedOther = !msg.Mentioned && otherBot
+	msg.AddressedOther = !msg.Mentioned && otherCalled
 	msg.StopAll = bareStop && !msg.Mentioned && !msg.AddressedOther
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {

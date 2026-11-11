@@ -108,47 +108,6 @@ func (e *Engine) leadCandidateKnown(name string) bool {
 	return false
 }
 
-// suppressUnaddressedGroup prevents a no-gate team sub from starting a turn
-// for a group message that has no explicit recipient. A configured gate owns
-// this decision when present, so this is deliberately only called by the
-// local no-gate path.
-func (e *Engine) suppressUnaddressedGroup(p Platform, msg *Message) bool {
-	if msg.FromBot || msg.Mentioned || msg.Direct {
-		return false
-	}
-	configured, ok := p.(ConfiguredTeamLead)
-	hasLead := ok && configured.HasConfiguredTeamLead()
-	if e.team == nil {
-		// A multi-role setup from the wizard names its lead in team_lead_bot on every
-		// member but may have no team status board; without a gate that setting alone
-		// decides: the lead answers unaddressed messages, the subs only listen.
-		// A lead chosen later (DSH member bar, gate sentence, `lead me`) is in the
-		// shared lead.json and wins over team_lead_bot, but only for members of
-		// such a team: a solo bot never reads it.
-		self, ok := p.(ConfiguredTeamLeadSelf)
-		if !hasLead || !ok {
-			return false
-		}
-		if msg.AddressedOther {
-			return true
-		}
-		if selected, ok := e.selectedTeamLead(); ok {
-			return selected != e.name
-		}
-		return !self.IsConfiguredTeamLead()
-	}
-	if hasLead && msg.AddressedOther {
-		return true // @-ed or named a teammate: that teammate answers, not the lead
-	}
-	if selected, ok := e.selectedTeamLead(); ok {
-		return selected != e.name
-	}
-	if !hasLead {
-		return false
-	}
-	return !e.isTeamLead()
-}
-
 type teamSession struct {
 	session *Session
 	chat    string

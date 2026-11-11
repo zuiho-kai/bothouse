@@ -203,8 +203,6 @@ type gateRequest struct {
 	// "可以" answering its question from idle chatter. LastReplyAge is seconds since then.
 	LastReply    string `json:"last_reply,omitempty"`
 	LastReplyAge int    `json:"last_reply_age_s,omitempty"`
-	// AddressedOther: the text @-s or names another team bot and not this one (Message.AddressedOther).
-	AddressedOther bool `json:"addressed_other,omitempty"`
 	// NoInsert (maomao fork): busy, and this turn can't take the message mid-turn (agent can't fold
 	// input in, or the turn has stopped moving), so a reply or insert would queue until it ends. The
 	// gate then aborts for a message waiting on her answer (user 2026-10-30: nagging a busy DSH
@@ -327,15 +325,12 @@ func (e *Engine) SetGateSenderSilence(on bool, silenceMs, maxMs int) {
 }
 
 // fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
-// still replies (being named directly needs no judgement); a message @-ing another bot is
-// that bot's to answer ("context"); otherwise gate_fallback applies (the fallback role
-// "reply", other roles "context").
+// still replies (being named directly needs no judgement); otherwise gate_fallback applies (the
+// fallback role "reply", other roles "context"). A message calling someone else never gets here
+// (addresseeOf).
 func (g *gateState) fallbackFor(req gateRequest) string {
 	if req.Mentioned || (req.Private && !req.FromBot) {
 		return "reply"
-	}
-	if req.AddressedOther {
-		return "context"
 	}
 	return g.fallback
 }
@@ -520,6 +515,17 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	buffered := append([]string(nil), g.buf[interactiveKey]...)
 	gateBuffered := append([]string(nil), g.gbuf[interactiveKey]...)
 	g.mu.Unlock()
+	switch e.addresseeOf(p, msg) {
+	case AddrOther:
+		// Calls another bot or a person, not this role (judged on the whole burst): only context. It never reaches the
+		// routing model, is never queued and gets no 📬 notice (addresseeOf, #1453).
+		g.bufferContext(interactiveKey, msg)
+		slog.Info("gate: message calls someone else; listening only", "session", msg.SessionKey, "project", e.name)
+		return true
+	case AddrSelf:
+		e.noteCalled(msg.SessionKey)
+	}
+
 	// #215: the buffer mixes what people typed with transcripts of what they said. Mark the
 	// transcripts where they sit, so the newest message's own mark (below) does not claim the
 	// typed buffer as speech and a transcript in the buffer is not handed over as typing.
@@ -533,7 +539,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	dec := g.decide(e.ctx, gateRequest{
 		SessionKey: msg.SessionKey, Content: userTextOf(msg), Mentioned: msg.Mentioned, FromBot: msg.FromBot, Parts: msg.gateParts, Busy: busy,
 		HasImages: len(msg.Images) > 0, HasFiles: len(msg.Files) > 0, Buffered: gateBuffered,
-		LastReply: last, LastReplyAge: lastAge, AddressedOther: msg.AddressedOther,
+		LastReply: last, LastReplyAge: lastAge,
 		Private:  !msg.FromBot && (msg.Direct || msg.PrivateRoom),
 		NoInsert: busy && !(g.canInject() && e.turnIdleFor(interactiveKey) < deadTurnAfter),
 	})

@@ -26,12 +26,12 @@ func TestEmbeddedDashboardAssets(t *testing.T) {
 	if !strings.Contains(string(index), `id="root"`) {
 		t.Fatal("embedded index.html is not the dashboard entry")
 	}
-	scripts := regexp.MustCompile(`src="(/assets/[^"]+\.js)"`).FindAllStringSubmatch(string(index), -1)
+	scripts := regexp.MustCompile(`src="((?:\./|/)assets/[^"]+\.js)"`).FindAllStringSubmatch(string(index), -1)
 	if len(scripts) == 0 {
 		t.Fatal("dashboard entry has no built JavaScript asset")
 	}
 	for _, script := range scripts {
-		content, err := fs.ReadFile(assets, strings.TrimPrefix(script[1], "/"))
+		content, err := fs.ReadFile(assets, strings.TrimPrefix(strings.TrimPrefix(script[1], "./"), "/"))
 		if err != nil || len(content) == 0 {
 			t.Fatalf("embedded JavaScript asset %q: bytes=%d error=%v", script[1], len(content), err)
 		}

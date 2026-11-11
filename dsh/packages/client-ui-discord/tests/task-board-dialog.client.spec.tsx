@@ -7,6 +7,40 @@ import type { T } from '../src/client/task-board.ts'
 import type { ChannelTask } from '../src/client/channel-source.ts'
 
 afterEach(cleanup)
+
+it('submits explicit cancellation/replacement, shows failures, and archives successful terminal tasks', async () => {
+  const t = ((key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
+    .reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), String(zh[key]))) as T
+  const onTerminate = vi.fn().mockRejectedValueOnce(new Error('permission denied')).mockResolvedValue(undefined)
+  const props = { rooms, chatId: 1, roomId: 1, t, onOpen: vi.fn(), onTerminate }
+  const { rerender } = render(<TaskBoard {...props} tasks={[task(1)]} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  fireEvent.click(screen.getByRole('button', { name: zh.taskCancel }))
+  expect((screen.getByRole('button', { name: zh.taskConfirmCancel }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.change(screen.getByLabelText(zh.taskTerminationReason), { target: { value: 'no longer needed' } })
+  fireEvent.click(screen.getByRole('button', { name: zh.taskConfirmCancel }))
+  await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('permission denied'))
+  expect(onTerminate).toHaveBeenCalledWith(1, 'cancel', 'no longer needed', undefined)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskSupersede }))
+  fireEvent.change(screen.getByLabelText(zh.taskTerminationReason), { target: { value: 'moved to another task' } })
+  fireEvent.change(screen.getByLabelText(zh.taskReplacementId), { target: { value: '9' } })
+  fireEvent.click(screen.getByRole('button', { name: zh.taskConfirmSupersede }))
+  await vi.waitFor(() => expect(onTerminate).toHaveBeenLastCalledWith(1, 'supersede', 'moved to another task', 9))
+  rerender(<TaskBoard {...props} tasks={[task(1, { status: 'superseded', termination_reason: 'moved to another task', superseded_by: 9 })]} />)
+  expect(screen.queryByText('#1 Task 1')).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: `${zh.taskTabAll} 1` }))
+  expect(screen.getByText(zh.taskSuperseded)).toBeTruthy()
+  expect(screen.getByText('替代任务：#9')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: zh.taskCancel })).toBeNull()
+})
+
+it('does not offer terminal actions without an authenticated action handler', () => {
+  const t = ((key: keyof typeof zh) => zh[key]) as T
+  render(<TaskBoard tasks={[task(1)]} rooms={rooms} chatId={1} roomId={1} t={t} onOpen={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: zh.taskBoardOpen }))
+  expect(screen.queryByRole('button', { name: zh.taskCancel })).toBeNull()
+  expect(screen.queryByRole('button', { name: zh.taskSupersede })).toBeNull()
+})
 it('keeps all Chinese and English locale keys present and nonempty', () => {
   expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   for (const key of Object.keys(zh) as (keyof typeof zh)[]) {

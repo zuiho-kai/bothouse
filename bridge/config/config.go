@@ -596,6 +596,20 @@ type ProjectConfig struct {
 	// listed keep the built-in prompt. Only core.SessionInstructionsInjector
 	// agents (codex) honor it.
 	SessionInstructions map[string]string `toml:"session_instructions,omitempty"`
+	// WorkspaceProvider / WorkspaceModel (maomao fork): team workspace channels
+	// (the ones the lead hands big jobs to) start their agent on this provider
+	// from [[projects.agent.providers]] and this model, so the lead (expensive
+	// model) writes the plan and checks the [report] while a cheap model does
+	// the work. A model picked by hand in the workspace (bothouse model set)
+	// still wins. Empty provider = workspaces run like the lead (old behavior).
+	WorkspaceProvider string `toml:"workspace_provider,omitempty"`
+	WorkspaceModel    string `toml:"workspace_model,omitempty"`
+	// WorkspaceDSProvider / WorkspaceDSModel (maomao fork, #1455): a second provider
+	// for split workspace tasks — the free domestic DeepSeek through magpie. Split
+	// tasks too big for the cheap provider's context go here, private ones never do,
+	// the rest default here and fall back to workspace_provider when it is down.
+	WorkspaceDSProvider string `toml:"workspace_ds_provider,omitempty"`
+	WorkspaceDSModel    string `toml:"workspace_ds_model,omitempty"`
 	// ResetOnIdleMins automatically rotates to a new cc-connect session after
 	// the current session has been inactive for the specified number of minutes.
 	// 0 or nil disables the behavior.

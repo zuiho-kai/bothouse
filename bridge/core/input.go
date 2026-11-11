@@ -17,6 +17,14 @@ type StrictResumeAgent interface {
 	StartSessionStrict(context.Context, string) (AgentSession, error)
 }
 
+// ResumableSession is implemented by agent sessions whose ability to resume a saved
+// conversation is only known once the process runs (ACP servers advertise loadSession or
+// session/resume in initialize). A session without it inherits its agent's
+// SupportsStrictResume. Used to end the process with its turn (agentSessionResumable).
+type ResumableSession interface {
+	CanResume() bool
+}
+
 // StrictResumeSession validates the binding before sending and before emitting
 // a successful terminal event. The normal Send path is unchanged.
 type StrictResumeSession interface {

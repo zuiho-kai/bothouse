@@ -79,6 +79,9 @@ func TestStrictLoadNeverCreatesNewSession(t *testing.T) {
 			if (err == nil) != tc.ok {
 				t.Fatalf("error=%v want success=%v", err, tc.ok)
 			}
+			if tc.ok && !s.CanResume() {
+				t.Fatal("successful load did not expose resume capability")
+			}
 			for _, method := range methods {
 				if method == "session/new" {
 					t.Fatal("strict load created a replacement session")

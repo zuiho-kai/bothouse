@@ -682,7 +682,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, terminateTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -1682,7 +1682,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
           )}
           {dmWith === undefined && <HeadTeam mates={headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms)} t={t} onOpen={openActivity} />}
           {dmWith === undefined
-            ? <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} dock={boardDock} onDocked={setBoardDocked} />
+            ? <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} onTerminate={terminateTask} dock={boardDock} onDocked={setBoardDocked} />
             : <span className={css.headSpacer} />}
           {/* 体检 #6: the primary role shows once, on the card at the top of the channel list. */}
           <button type="button" className={css.schemeToggle} title={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-label={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{scheme === 'light' ? '☾' : '☀'}</button>

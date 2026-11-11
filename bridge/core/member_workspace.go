@@ -348,13 +348,32 @@ func (s *APIServer) handleMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	resp, status := e.memberOp(r.Context(), req)
+	// api.sock is 0600, so a request there is the bridge itself; member.sock is open to local accounts
+	// and must prove which account and which turn it is (member_socket.go).
+	claims, err := s.memberPeerCaller(r, e, req)
+	if err != nil {
+		apiJSON(w, http.StatusForbidden, MemberResponse{Text: err.Error(), Exit: 1})
+		return
+	}
+	resp, status := e.memberOpAs(r.Context(), req, claims)
 	apiJSON(w, status, resp)
 }
 
 // memberCaller: who started the turn running in session. Only a real person counts: a teammate bot,
 // a timer or a hand-off wake-up has nobody's GitHub authorization.
-func (e *Engine) memberCaller(session string) (callerTurn, error) {
+//
+// A caller from another account has already been authenticated against a token the bridge signed for
+// this exact project and session (memberPeerCaller), so its claims — not the in-process turn record,
+// which a different OS account cannot be trusted to be running under — decide who this is.
+func (e *Engine) memberCaller(session string, claims *CallerClaims) (callerTurn, error) {
+	if claims != nil {
+		t := callerTurn{platform: claims.Platform, userID: claims.UserID, userName: claims.UserName,
+			chatID: claims.ChatID, kind: claims.Kind, turn: claims.Turn, at: time.Unix(claims.TurnAt, 0)}
+		if t.kind != CallerHuman || t.userID == "" || session != claims.Session {
+			return t, errors.New("这一轮不是真人发起的，不能用成员的目录和 GitHub 授权")
+		}
+		return t, nil
+	}
 	e.callerMu.Lock()
 	t, ok := e.callerTurns[session]
 	e.callerMu.Unlock()
@@ -368,10 +387,17 @@ func (e *Engine) memberCaller(session string) (callerTurn, error) {
 }
 
 func (e *Engine) memberOp(ctx context.Context, req MemberRequest) (MemberResponse, int) {
+	return e.memberOpAs(ctx, req, nil)
+}
+
+// memberOpAs runs one member operation for the caller the request was authenticated as: nil claims
+// mean the bridge's own account (the in-process turn record decides who this is), otherwise the
+// verified token's claims do.
+func (e *Engine) memberOpAs(ctx context.Context, req MemberRequest, claims *CallerClaims) (MemberResponse, int) {
 	fail := func(status int, format string, a ...any) (MemberResponse, int) {
 		return MemberResponse{Text: fmt.Sprintf(format, a...), Exit: 1}, status
 	}
-	t, err := e.memberCaller(req.Session)
+	t, err := e.memberCaller(req.Session, claims)
 	if err != nil {
 		return fail(http.StatusForbidden, "%s", err.Error())
 	}

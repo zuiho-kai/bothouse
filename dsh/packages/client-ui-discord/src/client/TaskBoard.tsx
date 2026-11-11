@@ -7,7 +7,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { ChannelRoom, ChannelTask, TaskStatus } from './channel-source.ts'
-import { BOARD_TABS, boardGroupOf, boardSections, inTab, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, type T } from './task-board.ts'
+import { BOARD_TABS, boardGroupOf, boardSections, inTab, cardMembers, sectionTitle, elapsed, formatDuration, STATUS_KEY, isTerminalTask, type T } from './task-board.ts'
 import css from './ChannelsPage.module.css'
 import { getScheme } from './scheme.ts'
 
@@ -39,7 +39,7 @@ function useSideBySide(): boolean {
   return wide
 }
 
-export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, dock, onDocked }: {
+export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, onTerminate, dock, onDocked }: {
   tasks: readonly ChannelTask[]
   rooms: readonly ChannelRoom[]
   chatId: number | undefined
@@ -47,6 +47,7 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, d
   t: T
   onOpen: (roomId: number, messageId: number) => void
   onReview?: (id: number, verdict: 'done' | 'rework', note?: string) => Promise<void>
+  onTerminate?: (id: number, action: 'cancel' | 'supersede', reason: string, supersededBy?: number) => Promise<void>
   /** Page column the board renders into beside the chat on wide screens; without it, always the drawer. */
   dock?: HTMLElement | null
   /** Told whether the board currently occupies the dock, so the page can make room for it. */
@@ -58,6 +59,8 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, d
   useEffect(() => { onDocked?.(docked) }, [docked])
   const [selectedTab, setSelectedTab] = useState(BOARD_TABS.find(tab => tab.initial)!.id)
   const [reviewing, setReviewing] = useState<number>()
+  const [terminating, setTerminating] = useState<{ id: number; action: 'cancel' | 'supersede' }>()
+  const [replacement, setReplacement] = useState('')
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
@@ -104,6 +107,21 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, d
       setSaving(false)
     }
   }
+  const terminate = async () => {
+    if (!terminating) return
+    setSaving(true)
+    setError(undefined)
+    try {
+      await onTerminate?.(terminating.id, terminating.action, reason.trim(), terminating.action === 'supersede' && replacement !== '' ? Number(replacement) : undefined)
+      setTerminating(undefined)
+      setReason('')
+      setReplacement('')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSaving(false)
+    }
+  }
   const row = (task: ChannelTask) => (
     <li key={task.id} className={css.boardTaskCard} data-task-id={task.id} data-status={task.status} data-working={boardGroupOf(task) === 'working'} data-group={boardGroupOf(task)}>
       <div className={css.boardTaskHeader}>
@@ -120,12 +138,23 @@ export function TaskBoard({ tasks, rooms, chatId, roomId, t, onOpen, onReview, d
         {task.result_msg_id !== null && <button type="button" className={css.linkButton} onClick={() => { jump(task.room_id, task.result_msg_id as number) }}>{t('taskOpenResult')}</button>}
         {onReview !== undefined && ['returned', 'declined', 'escalated'].includes(task.status) && <>
           <button type="button" className={css.linkButton} disabled={saving} onClick={() => { void review(task.id, 'done') }}>{t('taskApprove')}</button>
-          <button type="button" className={css.linkButton} disabled={saving} onClick={() => { setReviewing(task.id); setReason(''); setError(undefined) }}>{t('taskSendBack')}</button>
+          <button type="button" className={css.linkButton} disabled={saving} onClick={() => { setTerminating(undefined); setReviewing(task.id); setReason(''); setError(undefined) }}>{t('taskSendBack')}</button>
+        </>}
+        {onTerminate !== undefined && !isTerminalTask(task) && <>
+          {(['cancel', 'supersede'] as const).map(action => <button key={action} type="button" className={css.linkButton} disabled={saving} onClick={() => { setReviewing(undefined); setTerminating({ id: task.id, action }); setReason(''); setReplacement(''); setError(undefined) }}>{t(action === 'cancel' ? 'taskCancel' : 'taskSupersede')}</button>)}
         </>}
       </div>
+      {task.termination_reason && <div className={css.taskMeta}>{t('taskTerminationNote', { reason: task.termination_reason })}</div>}
+      {task.superseded_by != null && <div className={css.taskMeta}>{t('taskReplacement', { id: String(task.superseded_by) })}</div>}
       {reviewing === task.id && <form onSubmit={event => { event.preventDefault(); void review(task.id, 'rework') }}>
         <label>{t('taskReviewReason')}<input value={reason} required onChange={event => { setReason(event.target.value) }} /></label>
         <button type="submit" disabled={saving || !reason.trim()}>{t('taskReviewSubmit')}</button>
+      </form>}
+      {terminating?.id === task.id && !isTerminalTask(task) && <form onSubmit={event => { event.preventDefault(); void terminate() }}>
+        <label>{t('taskTerminationReason')}<input value={reason} required maxLength={128 * 1024} onChange={event => { setReason(event.target.value) }} /></label>
+        {terminating.action === 'supersede' && <label>{t('taskReplacementId')}<input type="number" min="1" step="1" value={replacement} onChange={event => { setReplacement(event.target.value) }} /></label>}
+        <button type="submit" disabled={saving || !reason.trim()}>{t(terminating.action === 'cancel' ? 'taskConfirmCancel' : 'taskConfirmSupersede')}</button>
+        <button type="button" disabled={saving} onClick={() => { setTerminating(undefined) }}>{t('taskKeep')}</button>
       </form>}
     </li>
   )

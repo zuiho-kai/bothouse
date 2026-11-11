@@ -144,6 +144,14 @@ func (e *Engine) quotaScopeFor(agent Agent, model string) quotaScope {
 		if p := sw.GetActiveProvider(); p != nil {
 			// Provider aliases using the same endpoint/key share the same allowance.
 			s.Provider = agent.Name() + "/" + p.BaseURL
+			if p.APIKey == "" && p.BaseURL == "" && len(p.Env) == 0 && len(p.CodexHTTPHeaders) == 0 {
+				// No credential of its own: the CLI runs on its own login, so the
+				// account is whoever is logged in (the resolver above), not this
+				// config entry. Hashing the empty entry gave every login the same
+				// key, and a new account inherited the old one's cooldown
+				// (2026-11-11 用户「我更换了c酱的账号 还是被锁了」).
+				return s
+			}
 			identity, _ := json.Marshal(struct {
 				Key     string
 				Env     map[string]string
@@ -275,6 +283,32 @@ func (e *Engine) extendDomainLocked(scope quotaScope, until time.Time) time.Time
 }
 
 func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session string) {
+	e.recordQuotaWindowFor(scope, until, session, "")
+}
+
+// quotaWindowLabel names the allowance a usage window measures, so the cooldown
+// log says whether a 5-hour or a weekly limit ran out (11-11 17:15 a role went
+// into a two-day cooldown and nobody could tell which window it came from).
+func quotaWindowLabel(w UsageWindow) string {
+	switch {
+	case w.WindowSeconds == 5*3600:
+		return "5h"
+	case w.WindowSeconds == 7*24*3600:
+		return "weekly"
+	case w.WindowSeconds > 0:
+		return (time.Duration(w.WindowSeconds) * time.Second).String()
+	case w.Name != "":
+		return w.Name
+	}
+	return "unknown"
+}
+
+// recordQuotaWindowFor is recordQuotaFor with the source of the deadline named:
+// which window (5h, weekly, …) or which signal (error text, capacity backoff).
+func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session, window string) {
+	if window == "" {
+		window = "unspecified"
+	}
 	if !until.After(time.Now()) {
 		return
 	}
@@ -296,6 +330,7 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		if !latest.After(time.Now()) {
 			return
 		}
+		prevUntil := e.quotaState.Until
 		e.quotaState.Scope = key
 		e.quotaState.Until = latest
 		e.quotaState.ProbeRound = 0
@@ -311,11 +346,59 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		// (this path) from a probe that could not measure anything ("unknown")
 		// or one that measured a reset ("available"). Only the transition is
 		// logged, so repeated exhaustion reports do not repeat the line.
-		if previous != e.quotaState.ProbeStatus {
+		// A later report that moves the deadline (a weekly window after a 5h one)
+		// is logged too, with the window that moved it.
+		if previous != e.quotaState.ProbeStatus || !prevUntil.Equal(latest) {
 			slog.Info("quota cooldown: provider reported exhaustion",
-				"project", e.name, "probe_status", e.quotaState.ProbeStatus, "cooling_until", e.quotaState.Until)
+				"project", e.name, "probe_status", e.quotaState.ProbeStatus,
+				"provider", scope.Provider, "account", scope.Account, "group", scope.Group,
+				"window", window, "reset_at", until, "cooling_until", e.quotaState.Until)
 		}
 	})
+}
+
+// recoverQuotaFor ends scope's cooldown because a real turn under it just got an
+// answer. It clears the records admission reads, so the next message is not
+// turned away; quotaTick sees those records clear and finishes the recovery
+// (lead, notice). A later quota error writes them again, and that wins: there is
+// no separate "answered" flag that could outlive it. A scope that was not
+// cooling is left untouched.
+func (e *Engine) recoverQuotaFor(scope quotaScope) {
+	now := time.Now()
+	key := scope.key()
+	quotaDomainsMu.Lock()
+	cooling := false
+	if e.domainUntilLocked(key).After(now) {
+		e.saveDomainLocked(key, time.Time{})
+		cooling = true
+	}
+	if scope.Account == "unknown" {
+		// An unresolved identity is held by the provider guard; the answer
+		// came from that same unresolved account, so the guard ends with it.
+		guard := quotaScope{Provider: scope.Provider}.key()
+		if e.domainUntilLocked(guard).After(now) {
+			e.saveDomainLocked(guard, time.Time{})
+			cooling = true
+		}
+	}
+	quotaDomainsMu.Unlock()
+	e.capMu.Lock()
+	legacy := e.quotaUntil.After(now)
+	e.capMu.Unlock()
+	if legacy && !e.quotaVerified(key) {
+		// The role-level record cannot name the account it came from; an
+		// answer exempts this scope the same way a positive probe does.
+		e.quotaVerifiedMu.Lock()
+		if e.quotaState.Verified == nil {
+			e.quotaState.Verified = map[string]bool{}
+		}
+		e.quotaState.Verified[key] = true
+		e.quotaVerifiedMu.Unlock()
+		cooling = true
+	}
+	if cooling {
+		slog.Info("quota cooldown: provider answered, cooldown cleared", "project", e.name)
+	}
 }
 
 func (e *Engine) quotaVerified(key string) bool {

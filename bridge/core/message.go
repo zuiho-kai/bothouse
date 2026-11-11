@@ -504,8 +504,13 @@ type UserQuestionOption struct {
 
 // Event represents a single piece of agent output streamed back to the engine.
 type Event struct {
-	Type                     EventType
-	Content                  string         // EventError may carry an answer, separate from Error; it is not a successful result.
+	Type    EventType
+	Content string // EventError may carry an answer, separate from Error; it is not a successful result.
+	// StreamedContentBytes is the byte length of Content's leading prefix already
+	// emitted as EventText in this turn. EventResult adapters set it for cumulative
+	// summaries; the remaining suffix is new text. Zero keeps Content as a
+	// standalone final answer/rewrite/error, or uses EventText when Content is empty.
+	StreamedContentBytes     int
 	ToolName                 string         // populated for EventToolUse, EventPermissionRequest
 	ToolInput                string         // human-readable summary of tool input
 	ToolInputRaw             map[string]any // raw tool input (for EventPermissionRequest, used in allow response)
@@ -557,6 +562,11 @@ const MetaLastReply = "last_reply"
 // Agent adapters own the CLI-specific detection; the engine words the notice
 // so that it names the bot and model.
 const MetaQuotaExhausted = "quota_exhausted"
+
+// MetaTurnCostUSD carries what one turn cost in USD (Metadata key, float64) on a
+// turn-ending EventResult, when the agent reports it (Claude: total_cost_usd).
+// The workspace route log adds it up per task (maomao fork, #1448).
+const MetaTurnCostUSD = "turn_cost_usd"
 
 // WithQuotaExhausted returns meta with the quota-exhausted mark set.
 func WithQuotaExhausted(meta map[string]any, reset string) map[string]any {

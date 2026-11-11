@@ -97,6 +97,7 @@ export class Store {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
+    this.migrateTaskStatuses();
     this.ensureSchema(version);
     this.q = {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
@@ -233,6 +234,28 @@ export class Store {
    * table if missing and adds any column an older copy lacks, so it is safe to run
    * on every open regardless of user_version.
    */
+  /** SQLite CHECK constraints require a table rebuild; keep rows, self-references and IDs. */
+  migrateTaskStatuses() {
+    const schema = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get()?.sql;
+    if (!schema || schema.includes("'cancelled'")) return;
+    const next = schema.replace(/CREATE TABLE\s+"?tasks"?/i, 'CREATE TABLE tasks_terminal')
+      .replace("'done', 'rework'", "'done', 'rework', 'cancelled', 'superseded'");
+    // foreign_keys must be changed outside a transaction (parent_task references this table).
+    this.db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      this.transaction(() => {
+        const sequence = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'tasks'").get()?.seq;
+        this.db.exec(next);
+        this.db.exec('INSERT INTO tasks_terminal SELECT * FROM tasks; DROP TABLE tasks; ALTER TABLE tasks_terminal RENAME TO tasks');
+        if (sequence != null) this.db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = 'tasks'").run(sequence);
+        this.db.exec('CREATE INDEX tasks_room ON tasks (room_id, id)');
+        if (this.db.prepare('PRAGMA foreign_key_check(tasks)').all().length) throw Error('collab: task status migration broke a foreign key');
+      });
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
   ensureTasks() {
     const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get() !== undefined;
     if (!exists) {
@@ -243,7 +266,7 @@ export class Store {
         title TEXT NOT NULL,
         owner TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework')),
+        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework', 'cancelled', 'superseded')),
         next_check_at REAL,
         result_msg_id INTEGER,
         assign_msg_id INTEGER,
@@ -253,6 +276,8 @@ export class Store {
         returned_at REAL,
         remind_msg_id INTEGER,
         reason TEXT,
+        termination_reason TEXT,
+        superseded_by INTEGER REFERENCES tasks(id),
         paused_at REAL,
         paused_chat INTEGER,
         source TEXT,
@@ -263,7 +288,7 @@ export class Store {
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0'], ['card_member_id', 'TEXT']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['termination_reason', 'TEXT'], ['superseded_by', 'INTEGER REFERENCES tasks(id)'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0'], ['card_member_id', 'TEXT']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
       // #574 B2 upgrade: workspace tasks in work with no check time start their 10-minute watch
@@ -528,7 +553,7 @@ export class Store {
     if (r === undefined || r.claim_bridge) return false;
     if (r.claim_task == null) return true;
     const handoff = this.db.prepare('SELECT status FROM tasks WHERE room_id = ? AND id > ? ORDER BY id LIMIT 1').get(roomId, r.claim_task);
-    return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
+    return handoff !== undefined && ['returned', 'done', 'cancelled', 'superseded'].includes(handoff.status);
   }
 
   /**
@@ -717,11 +742,15 @@ export class Store {
     return idle.length;
   }
 
-  /** Rooms for clients: each carries kind, parent_id and its open task count. */
+  /**
+   * Rooms for clients: each carries kind, parent_id and its open task count. A paused task is
+   * not in work (activeTasks, team_workspace list): counting it kept the sidebar's 进行中 badge
+   * on for tasks the watch had already parked (#1606).
+   */
   roomsView() {
     this.releaseIdleWorkspaces();
     const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
-      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
+      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') AND paused_at IS NULL GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
     const hidden = new Set(this.q.hiddenDms.all().map(r => r.id));
     return this.rooms().filter(r => !hidden.has(r.id))
       .map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));

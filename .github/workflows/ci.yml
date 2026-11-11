@@ -172,6 +172,8 @@ jobs:
       # use a fake host and skip on runners without them.
       - run: python3 -I ../dsh/scripts/test_reload_web.py
         if: ${{ !cancelled() }}
+      - run: python3 -I ../.github/release-check/test_dashboard_build.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/test_rolewiki.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/llmwiki/test_pending_round.py

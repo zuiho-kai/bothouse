@@ -25,7 +25,6 @@ func TestGateFailureExternalAddressee(t *testing.T) {
 				req  gateRequest
 				want string
 			}{
-				{gateRequest{Content: "<@222> help", AddressedOther: true}, "context"},
 				{gateRequest{Content: "help", Mentioned: true}, "reply"},
 				{gateRequest{Content: "hello"}, ordinary},
 			} {
