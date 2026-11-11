@@ -644,7 +644,9 @@ export class Tasks {
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     // No claim/resume: cancelling a parked task must never reclaim a reused workspace.
     this.closeReviews(id, status);
-    this.record(row, status, `#${id}「${row.title}」${STATUS[status]}（${this.nameOf(actor)}）：${reason}${replacement === null ? '' : `；替代任务 #${replacement}`}`);
+    // The card already carries the title; retain the full reason in the task even if the record needs clipping.
+    const text = `#${id} ${STATUS[status]}（${this.nameOf(actor)}）${replacement === null ? '' : `；替代任务 #${replacement}`}：${reason}`;
+    this.record(row, status, text.slice(0, MAX_TEXT));
     this.releaseIfDone(row.room_id);
     return this.changed(id);
   }
@@ -929,7 +931,9 @@ export class Tasks {
       if (owner === undefined || owner.id === lead) continue;
       const status = String(m.status ?? '');
       try {
-        const mirrored = m.id ? this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND assign_msg_id = ? AND card_member_id = ? AND source = 'card'").get(roomId, messageId, m.id) : undefined;
+        const mirrored = m.id
+          ? this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND assign_msg_id = ? AND card_member_id = ? AND source = 'card'").get(roomId, messageId, m.id)
+          : this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND assign_msg_id = ? AND owner = ? AND card_member_id IS NULL AND source = 'card' ORDER BY id DESC LIMIT 1").get(roomId, messageId, owner.id);
         if (mirrored && TERMINAL.includes(mirrored.status)) continue;
         if (mirrored && mirrored.owner !== owner.id && WORKING.includes(mirrored.status)) this.reassignForQuota(mirrored, owner.id);
         if (['queued', 'running', 'waiting'].includes(status)) {

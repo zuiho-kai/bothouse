@@ -217,3 +217,35 @@ test('#1613 cancellation during reminder delivery cannot restore the pending rem
   assert.equal(tasks.task(task.id).remind_msg_id, null);
   assert.equal(tasks.task(task.id).status, 'cancelled');
 });
+
+test('#1613 a legacy progress card without member IDs cannot recreate cancelled work', t => {
+  const { store, tasks, end } = setup(t);
+  const { message } = store.append(1, { authorKind: 'role', author: 'lead', name: 'lead', text: 'dispatch', card: '{}' });
+  const members = [{ name: 'writer', title: 'legacy work', status: 'running' }];
+  tasks.fromCard(1, 'lead', message.id, members);
+  const task = tasks.list(1)[0];
+  end(task.id);
+  tasks.fromCard(1, 'lead', message.id, members);
+  assert.equal(tasks.list(1).length, 1);
+  assert.equal(tasks.task(task.id).status, 'cancelled');
+});
+
+test('#1613 a maximum-length reason is retained without breaking release or idempotent retry', t => {
+  const { store, tasks, assign, end } = setup(t);
+  const ws = store.createWorkspace(1);
+  const task = assign(ws.id);
+  const reason = 'x'.repeat(128 * 1024);
+  assert.equal(end(task.id, 'cancel', { reason }).termination_reason, reason);
+  assert.equal(store.workspaceOwner(ws.id), null);
+  assert.equal(end(task.id, 'cancel', { reason }).status, 'cancelled');
+  assert.equal(tasks.countActive(ws.id), 0);
+});
+
+test('#1613 a self-dispatch is still not permission to accept the author own work', t => {
+  const { store, tasks, assign } = setup(t);
+  const task = assign(1, { owner: 'lead' });
+  const { message } = store.append(1, { authorKind: 'role', author: 'lead', name: 'lead', text: 'result' });
+  tasks.handBack(task.id, { actor: 'lead', messageId: message.id });
+  assert.throws(() => tasks.review(task.id, { actor: 'lead', verdict: 'done' }), e => e.code === 'forbidden');
+  assert.equal(tasks.review(task.id, { actor: 'owner', verdict: 'done' }).status, 'done');
+});
