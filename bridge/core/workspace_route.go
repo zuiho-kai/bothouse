@@ -38,6 +38,9 @@ const (
 	// is not measured yet, the daily route log (route-day) is for finding it.
 	routeSmallTokens = 10114
 	// routeDSCtxTokens: DeepSeek V4 context through the domestic upstream (#1455).
+	// Source: magpie GET /v1/models (127.0.0.1:3425, 2026-11-11) reports context_length
+	// 1048576 for guomo/deepseek-v4.1-flash and 1000000 for guomo/deepseek-v4-pro; 262144 is
+	// a conservative quarter of that, not a measured limit (#1466).
 	routeDSCtxTokens = 262144
 	// routeBytesPerToken: same measurement, 31989 bytes / 10114 tokens = 3.16.
 	routeBytesPerToken = 3
