@@ -5387,7 +5387,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 			if notice != "" {
 				sessions.Save()
-				go e.sendSystemNotice(p, replyCtx, notice)
+				go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 				wantID, needRecycle = "", true
 			}
 		}
@@ -5460,15 +5460,15 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if input == nil {
 		if notice := e.freshOnColdCache(agent, session); notice != "" {
 			sessions.Save()
-			go e.sendSystemNotice(p, replyCtx, notice)
+			go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 		}
 		if notice := e.freshOnContextSize(agent, session, contextFreshChat(p, sessionKey)); notice != "" {
 			sessions.Save()
-			go e.sendSystemNotice(p, replyCtx, notice)
+			go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 		}
 		if notice := e.freshOnImageBloat(agent, session); notice != "" {
 			sessions.Save()
-			go e.sendSystemNotice(p, replyCtx, notice)
+			go e.sendFreshNotice(p, replyCtx, sessionKey, notice)
 		}
 	}
 
