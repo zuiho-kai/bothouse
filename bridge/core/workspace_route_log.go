@@ -26,6 +26,8 @@ type routeLogLine struct {
 	Task       int     `json:"task,omitempty"`
 	Session    string  `json:"session"`
 	Route      string  `json:"route,omitempty"` // split | direct
+	Lane       string  `json:"lane,omitempty"`  // split: ds | qwen (#1455)
+	Class      string  `json:"class,omitempty"` // split: ds | qwen | either — what the handoff asked for
 	Model      string  `json:"model,omitempty"`
 	Reason     string  `json:"reason,omitempty"`
 	Handoff    string  `json:"handoff,omitempty"`
@@ -66,7 +68,10 @@ func (e *Engine) noteWorkspaceTurn(sessionKey string, meta map[string]any, d tim
 	cli, _ := meta[MetaTurnCostUSD].(float64)
 	l := routeLogLine{Event: "turn", Task: r.task, Session: teamChatKey(sessionKey), CLICostUSD: cli, DurationMS: d.Milliseconds()}
 	if r.cheap {
-		l.Route, l.Model = "split", e.workspaceExecModel()
+		l.Route, l.Lane, l.Model = "split", r.lane, e.workspaceExecModel()
+		if r.lane == routeLaneDS {
+			l.Model = e.workspaceExecDSModel()
+		}
 	} else {
 		l.Route, l.Model, l.CostUSD = "direct", e.leadModelName(), cli
 	}
@@ -77,4 +82,10 @@ func (e *Engine) workspaceExecModel() string {
 	e.sessionModelsMu.RLock()
 	defer e.sessionModelsMu.RUnlock()
 	return e.workspaceExec.model
+}
+
+func (e *Engine) workspaceExecDSModel() string {
+	e.sessionModelsMu.RLock()
+	defer e.sessionModelsMu.RUnlock()
+	return e.workspaceExec.dsModel
 }

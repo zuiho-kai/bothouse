@@ -604,6 +604,12 @@ type ProjectConfig struct {
 	// still wins. Empty provider = workspaces run like the lead (old behavior).
 	WorkspaceProvider string `toml:"workspace_provider,omitempty"`
 	WorkspaceModel    string `toml:"workspace_model,omitempty"`
+	// WorkspaceDSProvider / WorkspaceDSModel (maomao fork, #1455): a second provider
+	// for split workspace tasks — the free domestic DeepSeek through magpie. Split
+	// tasks too big for the cheap provider's context go here, private ones never do,
+	// the rest default here and fall back to workspace_provider when it is down.
+	WorkspaceDSProvider string `toml:"workspace_ds_provider,omitempty"`
+	WorkspaceDSModel    string `toml:"workspace_ds_model,omitempty"`
 	// ResetOnIdleMins automatically rotates to a new cc-connect session after
 	// the current session has been inactive for the specified number of minutes.
 	// 0 or nil disables the behavior.
