@@ -488,7 +488,7 @@ export class DshMembers {
             this.rt.ctx.agents.get(session.id)?.cancel({ kind: 'user' }, { keepInbox: true });
             return;
           }
-          const text = `${this.config.get(job.member_id).name} 的上游模型返回 Internal error，正在重试（连续 ${w.internalErrors}/${MAX_INTERNAL_ERRORS} 次）。`;
+          const text = `${w.progress.member.name} 的上游模型返回 Internal error，正在重试（连续 ${w.internalErrors}/${MAX_INTERNAL_ERRORS} 次）。`;
           if (w.retryNotice === undefined) w.retryNotice = this.hub.post(job.room_id, {
             authorKind: 'system', author: 'system', name: 'system', text, clientKey: `dsh-job-${job.id}-retry`,
           }).message.id;
@@ -960,8 +960,10 @@ export class DshMembers {
     const sessionId = agent.session.id;
     const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
     let settled = 'failed';
+    let watch;
     const done = new Promise((resolve) => {
-      this.watching.set(sessionId, { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve, progress });
+      watch = { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve, progress };
+      this.watching.set(sessionId, watch);
     });
     this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
@@ -975,6 +977,8 @@ export class DshMembers {
       else if (this.finish(job, member, outcome)) settled = 'completed';
     } finally {
       progress.end(settled);
+      if (watch.retryNotice !== undefined && !this.closed) this.hub.edit(watch.retryNotice, 'system', 'system',
+        `${member.name} 的上游模型曾返回 Internal error；${settled === 'completed' ? '重试后已恢复，本轮已完成。' : '本轮已停止。'}`);
       // A failed admission must not leave a watcher that claims a later, unrelated turn.
       if (this.watching.get(sessionId)?.jobId === job.id) this.watching.delete(sessionId);
       this.hub.setThinking(job.room_id, member.id, false);
@@ -982,6 +986,10 @@ export class DshMembers {
   }
 
   finish(job, member, { events, reason }) {
+    if (reason?.kind === 'error' && internalError(reason.error)) {
+      this.fail(job.id, `${member.name} 的上游模型返回 Internal error，本轮失败。`);
+      return false;
+    }
     const text = finalText(events);
     if (text === undefined) {
       this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);

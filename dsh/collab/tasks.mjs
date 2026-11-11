@@ -1168,7 +1168,7 @@ export class Tasks {
     return released;
   }
 
-  /** Pause one task through the same queue/release path as park; other work stays busy. */
+  /** Park only this member's failed workspace work, with a notice but no retry wake. */
   pauseForFailure(roomId, owner, reason) {
     if (this.store.room(roomId)?.kind !== 'workspace') return;
     for (const task of this.q.allBusy.all(...WORKING)) {

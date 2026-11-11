@@ -924,6 +924,7 @@ test('#1606: persistent upstream Internal error stops the turn, pauses its task 
   assert.equal(hub.thinking.get(ws.id)?.has('ds') ?? false, false);
   assert.equal(wakes, 0, 'a failed provider must not be woken by its pause notice');
   assert.ok(hub.store.page(1, undefined, 30).some(m => /Internal error/.test(m.text) && /暂停/.test(m.text)), 'parent chat sees the failure');
+  assert.ok(!hub.store.page(ws.id, undefined, 100).some(m => /正在重试/.test(m.text)), 'the retry notice is settled');
   const notices = hub.store.page(ws.id, undefined, 100).length;
   retry(4);
   dsh.emit(agent, 'turn/end', { turn: agent.turns, reason: { kind: 'aborted', reason: { kind: 'user' } } });
@@ -957,6 +958,57 @@ test('#1606: retry accounting resets after recovery and ignores unrelated turns'
   assert.equal(agent.cancels.length, 0);
   assert.equal(hub.store.openJobs().length, 0);
   assert.ok(hub.store.page(1, undefined, 30).some(m => m.text === '完成'));
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /重试后已恢复/.test(m.text)));
+});
+
+test('#1606: a terminal native Internal error cannot turn earlier commentary into a completed job', async t => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  t.after(() => { members.close(); tasks.close(); hub.store.close(); });
+  const ws = hub.store.createWorkspace(1);
+  const task = tasks.assign({ roomId: ws.id, title: 'failed after commentary', owner: 'ds', actor: 'owner' });
+  hub.post(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 开始' });
+  await settle();
+  const job = hub.store.openJobs()[0];
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['我开始处理'], { kind: 'error', error: { code: -32603, message: 'Internal error' } });
+  await settle();
+  assert.equal(hub.store.job(job.id).state, 'failed');
+  assert.ok(tasks.task(task.id).paused_at);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.equal(hub.store.page(ws.id, undefined, 30).filter(m => m.author_kind === 'role' && !m.card).length, 0);
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /Internal error/.test(m.text)));
+});
+
+test('#1606: direct CLI Internal error pauses the task and releases the workspace without replay', async t => {
+  const hub = makeHub();
+  let prompts = 0;
+  let closed = 0;
+  const members = new DshMembers(hub, {
+    ctx: {}, workspacePath: '/w', logger: quiet,
+    gateContext: { async turn() { return { block: '', commit() {} }; } },
+    memoryIndex: { turn() { return { block: '', commit() {} }; } },
+    createCliMember: () => ({
+      async ask() { prompts++; throw Object.assign(new Error('Internal error'), { code: -32603 }); },
+      close() { closed++; },
+    }),
+  }, [{ id: 'ds', name: 'CLI', cli: 'codex' }]);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  t.after(() => { members.close(); tasks.close(); hub.store.close(); });
+  const ws = hub.store.createWorkspace(1);
+  const task = tasks.assign({ roomId: ws.id, title: 'CLI provider failure', owner: 'ds', actor: 'owner' });
+  hub.post(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '@CLI 开始' });
+  await settle();
+  assert.equal(prompts, 1);
+  assert.equal(closed, 1);
+  assert.ok(tasks.task(task.id).paused_at);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.equal(hub.thinking.get(ws.id)?.has('ds') ?? false, false);
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /Internal error/.test(m.text) && /暂停/.test(m.text)));
 });
 
 test('DSH member: local images become attachments while outside paths remain untouched', async () => {
