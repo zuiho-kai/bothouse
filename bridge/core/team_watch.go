@@ -673,19 +673,8 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 			if as == nil || !as.Alive() {
 				continue
 			}
-			if r, ok := as.(BackgroundTaskReporter); ok {
-				running, _ := r.BackgroundTasks()
-				if running > 0 {
-					return true, false
-				}
-			}
-			if r, ok := as.(SubTaskReporter); ok {
-				_, tasks, _ := r.SubTasks()
-				for _, task := range tasks {
-					if task.Live() {
-						return true, false
-					}
-				}
+			if agentHasBackgroundWork(as) {
+				return true, false
 			}
 		}
 	}

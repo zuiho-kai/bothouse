@@ -51,7 +51,9 @@ func TestWorkspaceTimerProgressKeepsTaskAndSession(t *testing.T) {
 				if e.exitBounceCount(key) != 0 {
 					t.Fatalf("progress requested a report repair: %v", p.sentTo(key))
 				}
-				if e.sessions.ActiveSessionID(key) != old || a.session.closed.Load() {
+				// The process may end with the turn (#702); the conversation and its agent
+				// session ID must stay for the next turn to resume.
+				if e.sessions.ActiveSessionID(key) != old || e.sessions.GetOrCreateActive(key).GetAgentSessionID() != "t1" {
 					t.Fatal("progress cleared the conversation")
 				}
 				if !e.workspaceHasOpenHandoff(key) {

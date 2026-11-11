@@ -725,7 +725,9 @@ type interactiveState struct {
 	externalTaskInput        *externalInputDelivery
 	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
+	agentCloseDone           <-chan struct{} // turn/idle close: wait for durable close before resume; guarded by interactiveMu
 	agentSession             AgentSession
+	processClaimed           bool           // foreground owns the process until the final queue check and session unlock; guarded by mu
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
@@ -4292,15 +4294,15 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 
 	e.interactiveMu.Lock()
 	state, hasState := e.interactiveStates[interactiveKey]
-	e.interactiveMu.Unlock()
 
 	if hasState && state != nil {
-		// A placeholder (no agent session yet) whose queue formed while a native
-		// /compact held the session has nothing to drain into. Start a turn with
-		// the first queued message; it adopts the rest and drains them. Any other
-		// placeholder (its session failed to start) keeps the drop below.
+		// A compact placeholder or a process being closed has no live process to
+		// drain into. Re-enter the foreground acquisition path: it waits for
+		// actual Close, resumes the saved ID and adopts the remaining queue.
 		state.mu.Lock()
-		placeholder := state.queuedBehindCompact && state.agentSession == nil && !state.stopped && len(state.pendingMessages) > 0
+		placeholder := state.agentSession == nil && len(state.pendingMessages) > 0 &&
+			(state.agentCloseDone != nil || (state.queuedBehindCompact && !state.stopped))
+		alive := state.agentSession != nil && state.agentSession.Alive()
 		state.queuedBehindCompact = false
 		var first queuedMessage
 		if placeholder {
@@ -4308,6 +4310,7 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 			state.pendingMessages = state.pendingMessages[1:]
 		}
 		state.mu.Unlock()
+		e.interactiveMu.Unlock()
 		if placeholder {
 			msg := queuedToMessage(first)
 			e.startScheduledTurn(&msg, session) // a queued cron/timer turn, as when run directly
@@ -4315,11 +4318,12 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 			e.processInteractiveMessageWith(first.platform, &msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
 			return
 		}
-	}
-	if !hasState || state == nil || state.agentSession == nil || !state.agentSession.Alive() {
-		if hasState && state != nil {
+		if !alive {
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent session ended"))
+			return
 		}
+	} else {
+		e.interactiveMu.Unlock()
 		return
 	}
 
@@ -5362,7 +5366,25 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	state, ok := e.interactiveStates[sessionKey]
+	for ok && state.agentCloseDone != nil {
+		closed := state.agentCloseDone
+		e.interactiveMu.Unlock()
+		select {
+		case <-closed:
+		case <-e.ctx.Done():
+			e.interactiveMu.Lock()
+			return &interactiveState{startErr: "engine stopped while closing the previous process"}
+		}
+		e.interactiveMu.Lock()
+		if e.interactiveStates[sessionKey] == state {
+			state.agentCloseDone = nil
+		}
+		state, ok = e.interactiveStates[sessionKey]
+	}
 	if ok && state.agentSession != nil && state.agentSession.Alive() {
+		// Claim under the same map lock the closer uses. Cancelling later in the
+		// foreground worker leaves a window in which cleanup can close this process.
+		e.cancelAgentSessionIdleClose(state)
 		// Verify the running agent session matches the current active session.
 		// After /new or /switch the active session changes, but the old agent
 		// process may still be alive. Reusing it would send messages to the
@@ -5400,6 +5422,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 		}
 		if !needRecycle {
+			state.mu.Lock()
+			state.processClaimed = true
+			state.mu.Unlock()
 			return state
 		}
 		// Tear down the stale agent so we start one that matches the Session below.
@@ -5608,6 +5633,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	newState := &interactiveState{
 		modelSettings:    settings,
 		agentSession:     agentSession,
+		processClaimed:   true,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
 		replyCtx:         replyCtx,
@@ -5726,31 +5752,109 @@ func (e *Engine) cancelAgentSessionIdleClose(state *interactiveState) {
 	}
 }
 
-func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interactiveState) {
+// Reports whether a close was scheduled, not whether the process has exited.
+func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interactiveState) bool {
 	if state == nil {
-		return
+		return false
 	}
+	// A resumable process belongs to its turn; retain the saved conversation ID.
+	// Agents that cannot resume retain their configured idle timeout.
+	state.mu.Lock()
+	resumable := agentSessionResumable(state.agent, state.agentSession)
+	state.mu.Unlock()
 	timeout := time.Duration(e.agentSessionIdleTimeoutNanos.Load())
-	if timeout <= 0 {
-		return
+	if !resumable && timeout <= 0 {
+		return false
 	}
 
 	e.cancelAgentSessionIdleClose(state)
-	ctx, cancel := context.WithCancel(e.ctx)
 	token := e.agentSessionIdleSeq.Add(1)
 	state.mu.Lock()
-	if state.stopped ||
+	if state.stopped || state.processClaimed ||
 		state.agentSession == nil ||
 		!state.agentSession.Alive() ||
-		state.eventsNeedResync ||
+		(!resumable && state.eventsNeedResync) ||
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
-		cancel()
-		return
+		return false
 	}
+	if resumable {
+		// Same token protocol as the idle timer: a turn starting before the close runs
+		// clears the token (cancelAgentSessionIdleClose) and the close is skipped.
+		state.agentSessionIdleToken = token
+		state.mu.Unlock()
+		go e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, 0)
+		return true
+	}
+	ctx, cancel := context.WithCancel(e.ctx)
 	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
 	state.mu.Unlock()
+	return true
+}
+
+// CloseIdleTeamWorkspaceAgents asks the same turn-lifetime policy to release idle
+// teammate processes after a workspace is returned. It preserves conversation IDs
+// and returns the number scheduled; actual shutdown is logged by the shared closer.
+func (e *Engine) CloseIdleTeamWorkspaceAgents(key string) int {
+	if e == nil || e.sessions == nil || !e.teamWorkspaceFree(key) {
+		return 0
+	}
+	n := 0
+	for _, k := range e.sessions.UserKeys() {
+		if chatOf(k) != key {
+			continue
+		}
+		if s := e.sessions.GetOrCreateActive(k); s != nil && s.Busy() {
+			continue
+		}
+		iKey := e.interactiveKeyForSessionKey(k)
+		e.interactiveMu.Lock()
+		state := e.interactiveStates[iKey]
+		e.interactiveMu.Unlock()
+		if e.scheduleAgentSessionIdleClose(iKey, state) {
+			n++
+		}
+	}
+	return n
+}
+
+// agentSessionResumable reports whether closing as now loses nothing: the agent can
+// resume an exact saved conversation without falling back to a new one
+// (StrictResumeAgent), this session has an ID to resume, and, for agents whose resume
+// support is only known from the running process (ACP advertises it in initialize),
+// the process said it can.
+func agentSessionResumable(agent Agent, as AgentSession) bool {
+	if agent == nil || as == nil || as.CurrentSessionID() == "" {
+		return false
+	}
+	if strict, ok := agent.(StrictResumeAgent); !ok || !strict.SupportsStrictResume() {
+		return false
+	}
+	if r, ok := as.(ResumableSession); ok {
+		return r.CanResume()
+	}
+	return true
+}
+
+// agentHasBackgroundWork reports whether the agent process still runs work of its own
+// after its turn ended: background tasks or live sub-agents. Closing it would kill them
+// and lose their completion turn.
+func agentHasBackgroundWork(as AgentSession) bool {
+	if r, ok := as.(BackgroundTaskReporter); ok {
+		if running, _ := r.BackgroundTasks(); running > 0 {
+			return true
+		}
+	}
+	if r, ok := as.(SubTaskReporter); ok {
+		_, tasks, _ := r.SubTasks()
+		for _, task := range tasks {
+			if task.Live() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // armAgentSessionIdleTimerLocked stores cancel/token on state and starts the
@@ -5793,6 +5897,8 @@ func agentSessionIdleDeferral(agentSession AgentSession, timeout time.Duration) 
 	return 0, 0
 }
 
+// timeout 0 closes now (the turn ended; see scheduleAgentSessionIdleClose) unless the
+// agent still runs background work: its completion turn ends here again and closes then.
 func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected *interactiveState, token uint64, timeout time.Duration) {
 	e.interactiveMu.Lock()
 	state, ok := e.interactiveStates[sessionKey]
@@ -5804,17 +5910,25 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	var agentSession AgentSession
 	state.mu.Lock()
 	if state.agentSessionIdleToken != token ||
+		state.processClaimed ||
 		state.agentSession == nil ||
 		!state.agentSession.Alive() ||
 		state.stopped ||
-		state.eventsNeedResync ||
+		(timeout > 0 && state.eventsNeedResync) ||
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
 		e.interactiveMu.Unlock()
 		return
 	}
-	if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
+	if timeout <= 0 {
+		if agentHasBackgroundWork(state.agentSession) {
+			state.mu.Unlock()
+			e.interactiveMu.Unlock()
+			slog.Info("turn ended: agent still runs background work, process kept until it reports back", "session_key", sessionKey)
+			return
+		}
+	} else if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
 		// maomao fork: closing now would kill a background task and lose its
 		// completion notification. Re-arm under the same lock so a turn that
 		// starts afterwards cancels the new timer like any other.
@@ -5831,14 +5945,25 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		return
 	}
 	agentSession = state.agentSession
+	closed := make(chan struct{})
+	state.agentCloseDone = closed
 	state.agentSession = nil
+	idleCancel := state.agentSessionIdleCancel
 	state.agentSessionIdleCancel = nil
 	state.agentSessionIdleToken = 0
 	state.mu.Unlock()
 	e.interactiveMu.Unlock()
+	if idleCancel != nil {
+		idleCancel()
+	}
 
-	slog.Info("agent session idle timeout: closing live agent session",
-		"session_key", sessionKey, "timeout", timeout)
+	if timeout <= 0 {
+		slog.Info("turn ended: closing agent process; its saved session ID stays for resume",
+			"session_key", sessionKey, "agent_session", agentSession.CurrentSessionID())
+	} else {
+		slog.Info("agent session idle timeout: closing live agent session",
+			"session_key", sessionKey, "timeout", timeout)
+	}
 	e.stopUnsolicitedReader(state)
 	state.markStopped()
 
@@ -5849,13 +5974,18 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	if pending != nil {
 		pending.resolve()
 	}
-	e.notifyDroppedQueuedMessages(state, fmt.Errorf("session reset"))
-
-	e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+	// This is a process close, not a conversation reset. A message queued during
+	// close must be adopted by the replacement state, not reported as dropped.
+	e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	<-closed
 
 	e.interactiveMu.Lock()
 	if currentState, currentOk := e.interactiveStates[sessionKey]; currentOk && currentState == expected {
-		delete(e.interactiveStates, sessionKey)
+		state.mu.Lock()
+		if len(state.pendingMessages) == 0 {
+			delete(e.interactiveStates, sessionKey)
+		}
+		state.mu.Unlock()
 	}
 	e.interactiveMu.Unlock()
 }
@@ -8695,12 +8825,16 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 }
 
 // drainPendingMessages processes all queued messages in the state's pendingMessages
-// queue. It owns the event reader while draining, restores the idle reader and
-// timer before releasing the session, then rechecks the queue under state.mu.
+// queue. It owns the event reader while draining, restores the idle reader,
+// then releases process ownership and the session after the final queue check.
 // This closes both the late-enqueue window and the window in which a new
 // foreground turn could race with a late background-reader/timer restart.
 // Returns true if the session was unlocked by this call.
 func (e *Engine) drainPendingMessages(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string) bool {
+	// Orphaned queues enter here without going through process acquisition.
+	state.mu.Lock()
+	state.processClaimed = true
+	state.mu.Unlock()
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
@@ -8710,6 +8844,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			if n := len(state.pendingMessages); n > 0 {
 				slog.Info("queued messages kept for resume after shutdown", "count", n)
 			}
+			state.processClaimed = false
 			session.Unlock()
 			state.mu.Unlock()
 			return true
@@ -8756,12 +8891,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 		if len(state.pendingMessages) == 0 {
 			alive := state.agentSession != nil && state.agentSession.Alive() && !state.stopped && !state.eventsNeedResync
+			closeAfterFailure := !state.stopped && agentSessionResumable(state.agent, state.agentSession)
 			workspaceDir := state.workspaceDir
 			state.mu.Unlock()
 			if alive {
 				e.startUnsolicitedReader(state, session, sessions, sessionKey, workspaceDir)
-				e.scheduleAgentSessionIdleClose(sessionKey, state)
 			}
+			// Cancel before the final queue check: cancellation may itself let a
+			// pending enqueue finish. Closing is armed only after ownership ends.
+			e.cancelAgentSessionIdleClose(state)
 			state.mu.Lock()
 			if len(state.pendingMessages) != 0 {
 				// A message arrived while restoring idle state. Keep ownership
@@ -8770,8 +8908,12 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				e.cancelAgentSessionIdleClose(state)
 				continue
 			}
+			state.processClaimed = false
 			session.Unlock()
 			state.mu.Unlock()
+			if alive || closeAfterFailure {
+				e.scheduleAgentSessionIdleClose(sessionKey, state)
+			}
 			return true
 		}
 		queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
@@ -13178,15 +13320,25 @@ func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued
 
 normalCleanup:
 	var closed chan struct{}
+	closing := state.agentCloseDone != nil
 	if keepQueued {
-		closed = make(chan struct{})
 		state.mu.Lock()
 		state.resetHandoff = true
-		state.abortCloseDone = closed
+		if closing {
+			state.abortCloseDone = state.agentCloseDone
+		} else {
+			closed = make(chan struct{})
+			state.abortCloseDone = closed
+		}
 		state.mu.Unlock()
 	}
 	state.markStopped()
-	delete(e.interactiveStates, sessionKey)
+	// The turn closer owns the existing completion barrier. Keep it discoverable
+	// by the next message until that Close has actually finished; /stop must not
+	// start a second close or let the same native session resume prematurely.
+	if !closing {
+		delete(e.interactiveStates, sessionKey)
+	}
 	e.interactiveMu.Unlock()
 
 	if pending != nil {
@@ -13199,7 +13351,9 @@ normalCleanup:
 		state.pendingMessages = nil
 		state.mu.Unlock()
 	}
-	go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	if !closing {
+		go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	}
 
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventSessionEnded,

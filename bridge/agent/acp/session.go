@@ -38,6 +38,7 @@ type acpSession struct {
 	closeOnce      sync.Once
 	closeErr       error // published by closeOnce
 	closeSupported bool  // immutable after a successful session binding
+	canResume      bool  // immutable after a successful session binding: server can load/resume a saved session
 
 	cmd *exec.Cmd
 	tr  *transport
@@ -277,12 +278,18 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 			"cwd":        s.workDir,
 			"mcpServers": []any{},
 		}
+		// session/load replays history before acknowledging the load. It is not
+		// a new answer and must not fill the event buffer while handshake waits.
+		s.inputMu.Lock()
+		guard := s.inputGuard
+		s.inputGuard = true
+		s.inputMu.Unlock()
 		loadRes, err := s.tr.call(s.ctx, resumeMethod, loadParams)
+		s.inputMu.Lock()
+		s.inputGuard = guard
+		s.inputMu.Unlock()
 		if err != nil {
-			if s.strictResume || resumeSupported {
-				return fmt.Errorf("acp: %s: %w", resumeMethod, err)
-			}
-			slog.Warn("acp: session/load failed, starting new session", "error", err)
+			return fmt.Errorf("acp: %s: %w", resumeMethod, err)
 		} else {
 			var lr struct {
 				SessionID     string            `json:"sessionId"`
@@ -291,25 +298,22 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 				ConfigOptions []acpConfigOption `json:"configOptions"`
 			}
 			parseErr := json.Unmarshal(loadRes, &lr)
-			if s.strictResume || resumeSupported {
-				// ACP v1 LoadSessionResponse has no required sessionId: a successful
-				// object response acknowledges the requested ID. Reject a conflicting
-				// vendor extension, malformed result, or null; never create a session.
-				if parseErr != nil || len(bytes.TrimSpace(loadRes)) == 0 || bytes.TrimSpace(loadRes)[0] != '{' {
-					return fmt.Errorf("acp: invalid %s response", resumeMethod)
-				}
-				if lr.SessionID != "" && lr.SessionID != resumeSessionID {
-					return fmt.Errorf("acp: loaded session does not match original binding")
-				}
-				lr.SessionID = resumeSessionID
+			// ACP v1 LoadSessionResponse has no required sessionId: a successful
+			// object acknowledges the requested ID in both ordinary and strict
+			// starts. Report failed/invalid loads to the caller, which owns any
+			// explicit fresh-session fallback and its user-visible notice.
+			if parseErr != nil || len(bytes.TrimSpace(loadRes)) == 0 || bytes.TrimSpace(loadRes)[0] != '{' {
+				return fmt.Errorf("acp: invalid %s response", resumeMethod)
 			}
-			if parseErr == nil && lr.SessionID != "" {
-				s.setACPSessionID(lr.SessionID)
-				s.absorbModes(lr.Modes)
-				s.absorbModelInfo(lr.Models, lr.ConfigOptions)
-				s.closeSupported = closeSupported
-				return nil
+			if lr.SessionID != "" && lr.SessionID != resumeSessionID {
+				return fmt.Errorf("acp: loaded session does not match original binding")
 			}
+			s.setACPSessionID(resumeSessionID)
+			s.absorbModes(lr.Modes)
+			s.absorbModelInfo(lr.Models, lr.ConfigOptions)
+			s.closeSupported = closeSupported
+			s.canResume = initOut.AgentCapabilities.LoadSession || resumeSupported
+			return nil
 		}
 	}
 
@@ -337,6 +341,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	s.absorbModes(sn.Modes)
 	s.absorbModelInfo(sn.Models, sn.ConfigOptions)
 	s.closeSupported = closeSupported
+	s.canResume = initOut.AgentCapabilities.LoadSession || resumeSupported
 	return nil
 }
 
@@ -1046,6 +1051,12 @@ func (s *acpSession) CancelTurn() error {
 	return s.tr.sendNotification("session/cancel", map[string]any{
 		"sessionId": sid,
 	})
+}
+
+// CanResume implements core.ResumableSession: whether a later process can pick this
+// conversation up again by its ID (the server advertised loadSession or session/resume).
+func (s *acpSession) CanResume() bool {
+	return s.canResume
 }
 
 func (s *acpSession) Alive() bool {
