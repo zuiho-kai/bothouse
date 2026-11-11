@@ -16,7 +16,7 @@ import {
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
-import { nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
+import { backendLabel, nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
 import { wizardGate } from './wizardGate';
 import DSHSetup, { clearDSHDraft, readDSHDraft } from './DSHSetup';
 import DSHAdd from './DSHAdd';
@@ -36,8 +36,9 @@ interface RoleDraft {
   checking?: boolean;
   error?: string;
   agent_type: string;
+  agentTouched?: boolean; // QQ: only an explicit CLI selection may replace an existing role's agent
   useProvider: boolean;
-  provider: { vendor: string; base_url: string; api_key: string; model: string };
+  provider: { vendor: string; base_url: string; api_key: string; model: string; max_tokens: string };
   persona: string;
   // library picks: undefined = not touched (the server keeps what it has); '' = cleared
   personaSlug?: string;
@@ -86,9 +87,11 @@ export default function SetupWizard() {
     readDSHDraft() ? 'dsh' : platformParam === 'qq' || platformParam === 'feishu' || platformParam === 'cloud_web' || platformParam === 'dsh' ? platformParam : 'discord');
   // QQ: NapCat's forward WebSocket; the test is a dry run of the request (nothing written)
   // http_url / share_session_in_channel are the two fields the step did not send before (#710 件 5)
-  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', allow_from: '', http_url: '', share_session_in_channel: false });
+  const [qq, setQQ] = useState({ ws_url: 'ws://127.0.0.1:3001', token: '', clear_token: false, allow_from: '', http_url: '', share_session_in_channel: false });
   const [qqTest, setQQTest] = useState<{ running: boolean; key?: string; ok?: boolean; message?: string; fix?: string; nickname?: string; note?: string }>({ running: false });
   const qqKey = JSON.stringify(qq);
+  const latestQQKey = useRef(qqKey);
+  latestQQKey.current = qqKey;
   const qqNickname = qqTest.key === qqKey ? qqTest.nickname : undefined;
   const platform = picked;
   const [officialQQ, setOfficialQQ] = useState(false);
@@ -121,7 +124,7 @@ export default function SetupWizard() {
   const addPlatformMode = addMode && (searchParams.get('pick') === 'platform' || !!platformParam);
   const newRole = useCallback((): RoleDraft => ({
     nameCustomized: false, keepPersonaName: true, key: keySeq++, token: '', agent_type: '', useProvider: false,
-    provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '' }, persona: '', reply_language: sysReply,
+    provider: { vendor: 'deepseek', base_url: '', api_key: '', model: '', max_tokens: '' }, persona: '', reply_language: sysReply,
   }), [sysReply]);
   const [roles, setRoles] = useState<RoleDraft[]>(() => [newRole()]);
   // the language picker sets the reply language of every role not picked by hand
@@ -143,12 +146,13 @@ export default function SetupWizard() {
   const [saving, setSaving] = useState(false);
   const [restarted, setRestarted] = useState(false);
   const [copied, setCopied] = useState('');
-  // allow_from: defaults to the bots' owners (from the token check) until the user edits it
+  // allow_from: defaults to * (everyone in the picked server) until the user edits it
   const [allowFrom, setAllowFrom] = useState<string | null>(null);
   // memory wiki models: start from what is in effect; only the ones changed go into the request
   const [wikiPick, setWikiPick] = useState<WizardWiki>({});
   const wikiInfo = state?.wiki;
   // the two "install globally" checkboxes: null = what the machine has now (off by default)
+  const [memberWS, setMemberWS] = useState(false); // #1355: recommended for a team, the user ticks it
   const [globalPick, setGlobalPick] = useState<{ memory: boolean | null; guards: boolean | null }>({ memory: null, guards: null });
   const globalMemory = globalPick.memory ?? !!state?.global_memory;
   const globalGuards = globalPick.guards ?? !!state?.global_guards;
@@ -169,6 +173,14 @@ export default function SetupWizard() {
   }, [platform, state]);
   // refresh the jev hint with the fallback bot's name when reaching the jev step
   useEffect(() => { if (step === 5) getSetupState(lang, fallbackName).then(setState).catch(() => {}); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the CLI step tells you to log in from a terminal: look again on reaching it and on coming back to the page
+  useEffect(() => {
+    if (step !== 2) return;
+    const recheck = () => { getCLIs().then((r) => setClis(r.clis)).catch(() => {}); };
+    recheck();
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
+  }, [step]);
 
   // default CLI: first installed one that is logged in, else first supported
   const defaultAgent = useMemo(() => {
@@ -374,11 +386,12 @@ export default function SetupWizard() {
     }
   };
 
-  const ownerDefault = Array.from(new Set(roles.map((r) => r.info?.owner_id).filter(Boolean))).join(',');
-  const allowFromValue = allowFrom ?? ownerDefault;
+  // default: everyone in the picked server (the bots stay pinned to it), so a team channel answers
+  // its other members too; the owners still get admin_from on the server side
+  const allowFromValue = allowFrom ?? '*';
 
   // ── request ──
-  const buildRequest = (maskSecrets = false): WizardRequest => {
+  const buildRequest = (maskSecrets = false, connectionTest = false): WizardRequest => {
     if (platform === 'dsh') throw new Error('This platform uses its own setup form');
     const mask = (s: string, ph: string) => (maskSecrets && s ? ph : s);
     const req: WizardRequest = {
@@ -390,13 +403,18 @@ export default function SetupWizard() {
           name: platform !== 'cloud_web' && !r.nameCustomized ? undefined : nameOf(r),
           name_customized: !!r.nameCustomized, keep_persona_name: r.keepPersonaName,
         } : {}),
-        agent_type: r.agent_type,
+        // QQ: the connection test runs before we know whether this NapCat is already
+        // configured, so it stays quiet about the CLI for every role; a real submit omits it only
+        // for a reused role, and a new role sends the CLI the review step shows (#552)
+        agent_type: platform === 'qq' && (connectionTest || (r.reuse_project && !r.agentTouched)) ? undefined : r.agent_type,
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
         ...(r.avatar !== undefined ? { avatar: r.avatar } : {}),
         ...(r.useProvider ? { provider: { vendor: r.provider.vendor, base_url: r.provider.base_url || undefined,
-          api_key: mask(r.provider.api_key, '<API_KEY>'), model: r.provider.model || undefined } } : {}),
+          api_key: mask(r.provider.api_key, '<API_KEY>'), model: r.provider.model || undefined,
+          // #1498: only DSH has an output cap the wizard writes (llm-deepseek maxTokens); empty = the server default
+          ...(r.agent_type === 'dsh' && Number(r.provider.max_tokens) > 0 ? { max_tokens: Math.floor(Number(r.provider.max_tokens)) } : {}) } } : {}),
       })),
       // 自建平台: by display name (unique there) — a re-run reuses an existing member of the same name,
       // so the project name guessed here (projectNames) can differ from the one the server plans
@@ -414,6 +432,7 @@ export default function SetupWizard() {
     // travels when ticked so a rerun never turns it off (#710 件 5)
     if (platform === 'qq') req.qq = {
       ws_url: qq.ws_url.trim(), token: mask(qq.token, '<NAPCAT_TOKEN>') || undefined, allow_from: qq.allow_from.trim(),
+      ...(qq.clear_token ? { clear_token: true } : {}),
       ...(qq.http_url.trim() ? { http_url: qq.http_url.trim() } : {}),
       ...(qq.share_session_in_channel ? { share_session_in_channel: true } : {}),
     };
@@ -426,6 +445,7 @@ export default function SetupWizard() {
     }
     req.global_memory = globalMemory;
     req.global_guards = globalGuards;
+    if (roles.length > 1 && memberWS) req.member_workspaces = true;
     if (maskSecrets && jev.base_url) req.jev = { base_url: jev.base_url, api_key: mask(jev.api_key, '<JEV_KEY>'), model: jev.model };
     // the submitted request and the copyable AI command carry the same routing setting
     const gate = wizardGate(visibleSteps.includes(4), gateMode !== 'off', gateMode);
@@ -659,8 +679,15 @@ export default function SetupWizard() {
           <div className="space-y-3" data-testid="qq-step">
             <Button variant="secondary" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{t('qq.official')}</Button>
             <p className="text-xs text-gray-500">{T.qqNote}</p>
-            <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => setQQ({ ...qq, ws_url: e.target.value })} />
-            <Input type="password" label={T.qqToken} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />
+            <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => {
+              setQQ({ ...qq, ws_url: e.target.value });
+              patchRole(roles[0].key, { reuse_project: undefined, existingWorkDir: undefined, existingPersona: undefined, editPersona: false });
+            }} />
+            <Input type="password" label={T.qqToken} placeholder={T.qqTokenHint} disabled={qq.clear_token} value={qq.token} data-testid="qq-token" onChange={(e) => setQQ({ ...qq, token: e.target.value.trim() })} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" data-testid="qq-clear-token" checked={qq.clear_token}
+                onChange={(e) => setQQ({ ...qq, clear_token: e.target.checked, token: '' })} />{T.qqClearToken}
+            </label>
             <Input label={T.qqAllowFrom} placeholder="12345678" value={qq.allow_from} data-testid="qq-allow-from" onChange={(e) => setQQ({ ...qq, allow_from: e.target.value })} />
             {/* the two keys the panel (PATCH /projects/{name}/qq/settings) used to be the only
                 way in; both optional, so an empty field keeps what is already saved (#710 件 5) */}
@@ -675,7 +702,15 @@ export default function SetupWizard() {
                   const key = qqKey;
                   setQQTest({ running: true, key });
                   try {
-                    const r = await applyWizard({ ...buildRequest(), dry_run: true });
+                    const r = await applyWizard({ ...buildRequest(false, true), dry_run: true });
+                    if (latestQQKey.current !== key) {
+                      setQQTest({ running: false });
+                      return;
+                    }
+                    const reused = r.roles.find((role) => role.reused);
+                    if (r.qq?.code === 'ok' && reused) {
+                      pickExisting(roles[0], { project: reused.project, username: reused.name, agent_type: reused.agent_type, work_dir: reused.work_dir });
+                    }
                     // only the QQ connection is judged here; the rest of the request (CLI, persona …) is checked on save
                     // a plan error after a good connection (no CLI yet, name taken …) is shown, not hidden; later steps can fix it
                     // the API's error already ends with "; " + fix for a bad connection; take the message alone and
@@ -819,10 +854,11 @@ export default function SetupWizard() {
               return (
                 <div key={r.key} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3" data-testid={`cli-role-${idx}`}>
                   <p className="text-sm font-medium" data-testid={`role-label-${idx}`}>{roleLabel(nameOf(r), r.agent_type)}</p>
+                  {platform === 'qq' && r.reuse_project && <p className="text-xs text-gray-500" data-testid={`existing-cli-${idx}`}>{T.existingCLI} {backendLabel(r.agent_type)}</p>}
                   <Input label={zh ? '名字' : 'Name'} data-testid={`role-name-${idx}`} value={r.name || ''} onChange={e => patchRole(r.key, { name: e.target.value, nameCustomized: true })} />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {(clis || []).map((c) => (
-                      <button key={c.label} disabled={!c.supported} onClick={() => patchRole(r.key, { agent_type: c.agent_type })}
+                      <button key={c.label} disabled={!c.supported} onClick={() => patchRole(r.key, { agent_type: c.agent_type, agentTouched: true })}
                         data-testid={`cli-${idx}-${c.agent_type || c.label}`}
                         className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${!c.supported ? 'opacity-50 cursor-not-allowed border-dashed border-gray-300' : r.agent_type === c.agent_type ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
                         <div className="flex items-center justify-between gap-2"><span className="font-medium">{c.label}</span>{c.supported ? loginBadge(c) : <Badge>{T.unsupported}</Badge>}</div>
@@ -851,7 +887,14 @@ export default function SetupWizard() {
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
                         <Input label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, model: e.target.value.trim() } })} />
+                        {/* #1498: DSH sends its own 256000 when the overlay has no maxTokens, and relays answer 503 */}
+                        {isDSH && <Input inputMode="numeric" label={T.maxTokens} placeholder="128000" value={r.provider.max_tokens}
+                          data-testid={`provider-max-tokens-${idx}`}
+                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, max_tokens: e.target.value.replace(/[^0-9]/g, '') } })} />}
                       </div>
+                      {isDSH && <p className="text-xs text-gray-500" data-testid={`provider-max-tokens-hint-${idx}`}>{T.maxTokensHint}</p>}
+                      {/* DSH's thinking is a two-value setting (dsh-llm-deepseek config: enabled | disabled): say so before the first 400 */}
+                      {isDSH && <p className="text-xs text-gray-500" data-testid={`dsh-no-adaptive-${idx}`}>{T.dshNoAdaptive}</p>}
                       {via && <p className="text-xs text-gray-500"><Badge variant={via === 'native' ? 'success' : 'info'}>{via === 'native' ? T.native : T.convert}</Badge> {via === 'native' ? T.viaNative : T.viaConvert}</p>}
                       {vendor?.signup_url && <a className="text-xs text-accent inline-flex items-center gap-0.5" href={vendor.signup_url} target="_blank" rel="noreferrer">{vendor.signup_url}<ExternalLink size={10} /></a>}
                     </div>
@@ -1022,6 +1065,13 @@ export default function SetupWizard() {
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={globalGuards} data-testid="global-guards"
                     onChange={(e) => setGlobalPick({ ...globalPick, guards: e.target.checked })} />{T.globalGuards}</label>
                 </div>
+                {roles.length > 1 && (
+                  <div className="space-y-1" data-testid="member-workspaces">
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={memberWS} data-testid="member-workspaces-check"
+                      onChange={(e) => setMemberWS(e.target.checked)} />{T.memberWS}</label>
+                    <p className="text-xs text-gray-500">{T.memberWSNote}</p>
+                  </div>
+                )}
                 {platform === 'discord' && (
                   <div className="space-y-1">
                     <Input label={T.allowFromLabel} value={allowFromValue} data-testid="allow-from" onChange={(e) => setAllowFrom(e.target.value)} />

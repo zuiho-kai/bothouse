@@ -31,8 +31,10 @@ type Session struct {
 	// — use whatever the agent's default is".
 	ActiveProvider string         `json:"active_provider,omitempty"`
 	History        []HistoryEntry `json:"history"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	// Successful external text sends awaiting delivery to this conversation's model.
+	PendingOutbound []ChannelHistoryMessage `json:"pending_outbound,omitempty"`
+	CreatedAt       time.Time               `json:"created_at"`
+	UpdatedAt       time.Time               `json:"updated_at"`
 	// LastUserActivity records when a real user message was last received.
 	// Unlike UpdatedAt (bumped by every session.Unlock including heartbeats and
 	// unsolicited agent output), this field is only updated when the engine
@@ -75,7 +77,8 @@ type Session struct {
 	freshDoneUpTo, freshDonePending string
 	// backfillMu makes reading the channel since last seen and marking it seen one step, so
 	// two messages arriving together do not both deliver the same posts and images (maomao fork).
-	backfillMu sync.Mutex
+	backfillMu    sync.Mutex
+	outboundTaken int // prefix captured by takeOutboundContext, settled with other prompt blocks
 }
 
 // TurnCtxSent is what has been put into one agent context (maomao fork). It is
@@ -87,9 +90,10 @@ type TurnCtxSent struct {
 	// already pushed per (key, bot, epoch) and returns only new entries. A new context gets a new
 	// epoch because TurnCtx is dropped with it (11-03: the gate alone decides what was pushed).
 	Epoch          string          `json:"epoch,omitempty"`
-	ReferenceSince time.Time       `json:"-"`              // deliberately unknown after a bridge restart
-	ReferenceIDs   map[string]bool `json:"-"`              // agent output sent by this context only
-	Team           string          `json:"team,omitempty"` // teammate status key (without elapsed times)
+	ReferenceSince time.Time       `json:"-"`                // deliberately unknown after a bridge restart
+	ReferenceIDs   map[string]bool `json:"-"`                // agent output sent by this context only
+	Team           string          `json:"team,omitempty"`   // teammate status key (without elapsed times)
+	Member         string          `json:"member,omitempty"` // member-workspace note this context got (member_workspace.go)
 	// LeadHandoff is the switch record this agent context already received, and
 	// LeadHandoffAt is the time of its last update block (#274). Both are reset
 	// with the rest of TurnCtx when the agent context is replaced.
@@ -794,6 +798,7 @@ func (sm *SessionManager) saveLocked() {
 			AgentType:           s.AgentType,
 			PastAgentSessionIDs: append([]string(nil), s.PastAgentSessionIDs...),
 			History:             append([]HistoryEntry(nil), s.History...),
+			PendingOutbound:     append([]ChannelHistoryMessage(nil), s.PendingOutbound...),
 			CreatedAt:           s.CreatedAt,
 			UpdatedAt:           s.UpdatedAt,
 			ActiveProvider:      s.ActiveProvider,

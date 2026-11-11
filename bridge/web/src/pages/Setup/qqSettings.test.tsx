@@ -64,6 +64,17 @@ it('preserves the saved token and sends an explicit false when disabling shared 
   expect(host.querySelector('[role="status"]')?.textContent).toBe('qq.savedRestart');
 });
 
+it('shows a saved note, not the key name, when a save changed nothing', async () => {
+  // 隔离实例走查里「保存但没改动」显示的是 common.saved 这个键名本身（#710）。
+  mocks.save.mockResolvedValueOnce({ restart_required: false, changed: [] });
+  await render(<QQSettingsPanel project="qq-role" platforms={[{ type: 'qq', connected: true }]} />);
+  await click('common.save');
+  const note = host.querySelector('[data-qq-saved]');
+  expect(note?.getAttribute('data-qq-saved')).toBe('unchanged');
+  expect(note?.textContent).toBe('common.saved');
+  expect(host.querySelector('[data-qq-state]')?.getAttribute('data-qq-state')).toBe('connected');
+});
+
 it('keeps edits on save failure and clears a stored token only when explicitly selected', async () => {
   mocks.save.mockRejectedValueOnce(new Error('disk full'));
   await render(<QQSettingsPanel project="qq-role" />);
@@ -77,6 +88,24 @@ it('keeps edits on save failure and clears a stored token only when explicitly s
   await click('common.save');
   expect(mocks.save).toHaveBeenLastCalledWith('qq-role', expect.objectContaining({ token: '', ws_url: 'ws://localhost:3002' }));
   expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('keeps the pending-restart state when a later save fails', async () => {
+  // 复现：先存一次要重启的改动，再改一处并保存失败。失败那次没写盘，前一次的改动
+  // 仍然只在磁盘上、没有生效，所以面板不能因为这次失败就退回「已连接」。
+  mocks.save.mockReset()
+    .mockResolvedValueOnce({ restart_required: true, changed: ['ws_url'] })
+    .mockRejectedValueOnce(new Error('disk full'));
+  await render(<QQSettingsPanel project="qq-role" platforms={[{ type: 'qq', connected: true }]} />);
+  await fill('fields.wsUrl', 'ws://localhost:3002');
+  await click('common.save');
+  expect(host.querySelector('[data-qq-state]')?.getAttribute('data-qq-state')).toBe('restart');
+
+  await fill('qq.saveImagesDir', '/tmp/shots');
+  await click('common.save');
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('disk full');
+  expect(host.querySelector('[data-qq-saved]')).toBeNull();
+  expect(host.querySelector('[data-qq-state]')?.getAttribute('data-qq-state')).toBe('restart');
 });
 
 it('shows every switch the adapter honors, keeps allow_from read-only, and sends all of them', async () => {

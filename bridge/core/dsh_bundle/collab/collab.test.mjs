@@ -736,6 +736,112 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.members.get('ju').online, false, 'disconnected bot remains in the member list offline');
 });
 
+
+// M3 draft: external-member cases for dsh/collab/collab.test.mjs
+//
+// Where to put it (develop a28f19b7): insert after the existing
+//   test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', ...)
+// All helpers/imports used below already exist in collab.test.mjs:
+//   test, assert, makeHub(), connect(), tick(), CloudWebGateway, quiet
+//
+// Scope note: this file only covers behavior supported by the CURRENT gateway.
+// Pre-provisioned members, per-member credentials, revocation and offline
+// feedback are M1/M2 and are intentionally NOT asserted here; see
+// reports/issue-drafts/321-外部成员身份与权限设计说明-草案.md (§10, §18).
+
+test('cloud-web external member: register is visible in the roster and scoped to its room', () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'office');
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+
+  const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  assert.equal(ext.of('register_ack')[0].ok, true);
+
+  const member = hub.members.get('ext-qq');
+  assert.equal(member.kind, 'bot');
+  assert.equal(member.online, true);
+  assert.equal(member.mentionId, '999');
+  assert.deepEqual(member.rooms, [1]);
+  assert.equal(hub.routableIn(1).some(m => m.id === 'ext-qq'), true);
+  assert.equal(hub.routableIn(2).some(m => m.id === 'ext-qq'), false);
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('cloud-web external member: disconnect is offline, reconnect replaces the old socket', () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'office');
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+
+  const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  ext.close(1000);
+  assert.equal(hub.members.get('ext-qq').online, false);
+  assert.deepEqual(hub.members.get('ext-qq').rooms, [1], 'disconnect keeps the room scope');
+
+  const again = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  assert.equal(ext.closed.code, 1000, 'a clean close stays 1000');
+  assert.equal(hub.members.get('ext-qq').online, true);
+  assert.equal(hub.memberList().filter(m => m.id === 'ext-qq').length, 1, 'no duplicate member');
+
+  const replaced = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+  assert.equal(again.closed.code, 4003, 'a reconnect replaces the old socket');
+  assert.equal(replaced.of('register_ack')[0].ok, true);
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('cloud-web external member: name collision, reserved ids and unknown rooms are refused', () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'office');
+  hub.setMember({ id: 'agent', name: 'ExternalBot', kind: 'dsh', rooms: [1] });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+
+  const duplicate = connect(gw, 'bot=ext-2&name=ExternalBot&room=1');
+  assert.equal(duplicate.of('register_ack')[0].ok, false);
+  assert.equal(duplicate.closed.code, 4002);
+
+  const reserved = connect(gw, 'bot=user&name=User&room=1');
+  assert.equal(reserved.of('register_ack')[0].ok, false);
+  assert.equal(reserved.closed.code, 4002);
+
+  const unknownRoom = connect(gw, 'bot=ext-3&name=ExtThree&room=999');
+  assert.equal(unknownRoom.of('register_ack')[0].ok, false);
+  assert.equal(unknownRoom.closed.code, 4002);
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('cloud-web external member: mentioned follows @name and <@mention_id>, chatter stays silent', async () => {
+  const hub = makeHub();
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@ExternalBot hello' });
+  await tick();
+  assert.equal(ext.of('message').at(-1).mentioned, true);
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'no mention in this message' });
+  await tick();
+  assert.equal(ext.of('message').at(-1).mentioned, false);
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '<@999> hello again' });
+  await tick();
+  assert.equal(ext.of('message').at(-1).mentioned, true, 'the numeric <@mention_id> form calls the member');
+
+  gw.closeAll();
+  hub.store.close();
+});
+
+// Intentionally not asserted here (M1/M2):
+// - "unknown member id is refused" and "removed member cannot re-register" need a
+//   persistent member registry + revocation (M1);
+// - "offline member mention feedback" needs M2.
+// Add those after M1/M2 land, and mark them with the same test names for traceability.
+
 test('cloud-web: a line-start name calls a non-primary role', async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -889,6 +995,129 @@ function fakeDsh() {
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+
+test('#1606: persistent upstream Internal error stops the turn, pauses its task and notifies the chat', async t => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'other', name: 'Other' }]);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  t.after(() => { members.close(); tasks.close(); hub.store.close(); });
+  const ws = hub.store.createWorkspace(1);
+  const task = tasks.assign({ roomId: ws.id, title: 'upstream failure', owner: 'ds', actor: 'owner' });
+  const other = tasks.assign({ roomId: ws.id, title: 'unrelated work', owner: 'other', actor: 'owner', force: true });
+  let wakes = 0;
+  tasks.onWake(() => { wakes++; return true; });
+  hub.post(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 开始' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null);
+  const job = hub.store.openJobs().find(j => j.member_id === 'ds');
+  const retry = n => dsh.emit(agent, 'llm/retry', {
+    turn: agent.turns, step: 1, retry: n, retryId: 'retry-1', provider: 'acp', mode: 'always', delayMs: 1000,
+    failure: { code: 'INTERNAL_ERROR', message: 'RequestError: Internal error' },
+  });
+  retry(1);
+  await settle();
+  assert.ok(hub.store.page(ws.id, undefined, 30).some(m => /Internal error.*重试/.test(m.text)), 'the first retry must be visible');
+  assert.equal(tasks.task(task.id).paused_at, null);
+  retry(2);
+  assert.equal(agent.cancels.length, 0, 'an occasional error still gets the normal retries');
+  retry(3);
+  await settle();
+  assert.equal(hub.store.job(job.id).state, 'failed');
+  assert.equal(agent.cancels.length, 1);
+  assert.ok(tasks.task(task.id).paused_at);
+  assert.equal(tasks.task(other.id).paused_at, null);
+  assert.equal(hub.thinking.get(ws.id)?.has('ds') ?? false, false);
+  assert.equal(wakes, 0, 'a failed provider must not be woken by its pause notice');
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /Internal error/.test(m.text) && /暂停/.test(m.text)), 'parent chat sees the failure');
+  assert.ok(!hub.store.page(ws.id, undefined, 100).some(m => /正在重试/.test(m.text)), 'the retry notice is settled');
+  const notices = hub.store.page(ws.id, undefined, 100).length;
+  retry(4);
+  dsh.emit(agent, 'turn/end', { turn: agent.turns, reason: { kind: 'aborted', reason: { kind: 'user' } } });
+  await settle();
+  assert.equal(hub.store.page(ws.id, undefined, 100).length, notices, 'late events do not publish duplicate errors');
+});
+
+test('#1606: retry accounting resets after recovery and ignores unrelated turns', async t => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  t.after(() => { members.close(); hub.store.close(); });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 开始' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  const retry = (turn, step, code = 'INTERNAL_ERROR') => dsh.emit(agent, 'llm/retry', {
+    turn, step, retry: 1, failure: { code, message: code === 'INTERNAL_ERROR' ? 'Internal error' : 'rate limited' },
+  });
+  for (let i = 0; i < 3; i++) retry(99, 1);
+  assert.equal(agent.cancels.length, 0, 'unconsumed private turns are not channel jobs');
+  dsh.turn(agent, [], null);
+  retry(1, 1); retry(1, 1);
+  retry(1, 1, 'RATE_LIMIT');
+  retry(1, 1); retry(1, 1);
+  dsh.emit(agent, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: '继续工作' }] } });
+  dsh.emit(agent, 'step/start', { turn: 1, step: 2 });
+  retry(1, 2); retry(1, 2);
+  dsh.emit(agent, 'assistant/message', { turn: 1, step: 2, message: { content: [{ type: 'text', text: '完成' }] } });
+  dsh.emit(agent, 'turn/end', { turn: 1, reason: { kind: 'completed' } });
+  await settle();
+  assert.equal(agent.cancels.length, 0);
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.ok(hub.store.page(1, undefined, 30).some(m => m.text === '完成'));
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /重试后已恢复/.test(m.text)));
+});
+
+test('#1606: a terminal native Internal error cannot turn earlier commentary into a completed job', async t => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  t.after(() => { members.close(); tasks.close(); hub.store.close(); });
+  const ws = hub.store.createWorkspace(1);
+  const task = tasks.assign({ roomId: ws.id, title: 'failed after commentary', owner: 'ds', actor: 'owner' });
+  hub.post(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 开始' });
+  await settle();
+  const job = hub.store.openJobs()[0];
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['我开始处理'], { kind: 'error', error: { code: -32603, message: 'Internal error' } });
+  await settle();
+  assert.equal(hub.store.job(job.id).state, 'failed');
+  assert.ok(tasks.task(task.id).paused_at);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.equal(hub.store.page(ws.id, undefined, 30).filter(m => m.author_kind === 'role' && !m.card).length, 0);
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /Internal error/.test(m.text)));
+});
+
+test('#1606: direct CLI Internal error pauses the task and releases the workspace without replay', async t => {
+  const hub = makeHub();
+  let prompts = 0;
+  let closed = 0;
+  const members = new DshMembers(hub, {
+    ctx: {}, workspacePath: '/w', logger: quiet,
+    gateContext: { async turn() { return { block: '', commit() {} }; } },
+    memoryIndex: { turn() { return { block: '', commit() {} }; } },
+    createCliMember: () => ({
+      async ask() { prompts++; throw Object.assign(new Error('Internal error'), { code: -32603 }); },
+      close() { closed++; },
+    }),
+  }, [{ id: 'ds', name: 'CLI', cli: 'codex' }]);
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  hub.tasks = tasks;
+  t.after(() => { members.close(); tasks.close(); hub.store.close(); });
+  const ws = hub.store.createWorkspace(1);
+  const task = tasks.assign({ roomId: ws.id, title: 'CLI provider failure', owner: 'ds', actor: 'owner' });
+  hub.post(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '@CLI 开始' });
+  await settle();
+  assert.equal(prompts, 1);
+  assert.equal(closed, 1);
+  assert.ok(tasks.task(task.id).paused_at);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.equal(hub.thinking.get(ws.id)?.has('ds') ?? false, false);
+  assert.equal(hub.store.openJobs().length, 0);
+  assert.ok(hub.store.page(1, undefined, 30).some(m => /Internal error/.test(m.text) && /暂停/.test(m.text)));
+});
 
 test('DSH member: local images become attachments while outside paths remain untouched', async () => {
   const { mkdtempSync, writeFileSync, symlinkSync } = await import('node:fs');
@@ -1695,7 +1924,7 @@ test('team rules: a prompt carries only the room mode section (PR #138 review 4,
   const mixed = promptText(room, member, []);
   for (const text of [solo, team, mixed]) {
     assert.match(text, /\[团队模式规矩/);
-    assert.match(text, /只做一件活，满 4 个就排队/);
+    assert.match(text, /只做一件活，没空的就新开/);
     assert.match(text, /拿不准的设定，不要自己定：在工作区用 \[ask\] 转到聊天频道问用户/);
     assert.match(text, /主角色拿不准也一样/);
     assert.match(text, /写的人不验收自己的活/);
@@ -1948,7 +2177,7 @@ test('store: a v4 database gains the avatar column and keeps its members', async
 
 test('avatars: members pick one of the five built-in avatars; it survives reload and reaches memberView', async () => {
   const { AVATARS, avatarImage } = await import('./avatars.mjs');
-  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi']);
+  assert.deepEqual(AVATARS, ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok']);
   for (const slug of AVATARS) assert.equal(avatarImage(slug).subarray(1, 4).toString(), 'PNG');
   assert.equal(avatarImage('../plugin'), undefined);
   const hub = makeHub();
@@ -2117,6 +2346,25 @@ function cliMembers(hub, ask) {
   return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
+
+test('#1606 CLI member: an adapter error reports the provider words, clears busy and reaches quota cooling', async () => {
+  const hub = makeHub();
+  const seen = [];
+  hub.quota = { cooling: () => false, observe: (id, room, event) => seen.push(event) };
+  // What codex-acp 2.2.2 rejects session/prompt with on a used-up quota (RequestError.internalError + createTurnErrorData).
+  const members = cliMembers(hub, async () => {
+    throw Object.assign(new Error('Internal error'), { code: -32603, data: { message: "You've hit your usage limit.", codexErrorInfo: 'usageLimitExceeded' } });
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 干活' });
+  await settle();
+  const notice = hub.store.page(1, undefined, 10).filter(m => m.author_kind === 'system').map(m => m.text);
+  assert.equal(notice.length, 1);
+  assert.match(notice[0], /额度用完了.*hit your usage limit/);
+  assert.doesNotMatch(notice[0], /Internal error|检查配置/);
+  assert.match(String(seen.at(-1)?.error), /hit your usage limit/, 'quota cooling sees the provider words');
+  assert.equal([...hub.thinking.values()].some(s => s.has('cc')), false);
+  await members.close(); hub.store.close();
+});
 
 test('CLI channel directory: Later retains the bound directory until /new', async () => {
   const hub = makeHub(); const fake = fakeDsh(); const paths = [];
@@ -2641,6 +2889,19 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   assert.deepEqual(counts(), [0, 0]);
   assert.deepEqual(latest(), [0, 0]);
   assert.equal(events.length, 6);
+  tasks.close(); hub.store.close();
+});
+
+test('#1606 tasks: a paused task leaves the sidebar 进行中 count, as in team_workspace list', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const events = [];
+  hub.subscribe(e => { if (e.type === 'rooms') events.push(e.rooms); });
+  const task = tasks.assign({ roomId: ws.id, title: 'stuck upstream', owner: 'ds', actor: 'lead' });
+  assert.deepEqual(hub.store.roomsView().map(r => r.active), [0, 1]);
+  assert.ok(tasks.pauseTask(task.id));
+  assert.deepEqual(hub.store.roomsView().map(r => r.active), [0, 0]);
+  assert.deepEqual(events.at(-1).map(r => r.active), [0, 0], 'clients get the lower count without reload');
   tasks.close(); hub.store.close();
 });
 

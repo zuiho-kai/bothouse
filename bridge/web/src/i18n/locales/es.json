@@ -84,14 +84,16 @@
     "wikiGalaxy": "Galaxia del wiki",
     "forum": "Foro de memoria",
     "plugins": "Plugins",
-    "gate": "Puerta"
+    "gate": "Puerta",
+    "pet": "Mascota"
   },
   "plugins": {
     "stateClientUi": "Paquete de interfaz de cliente",
     "clientUiNote": "Lo proporciona DSH; el panel no puede activarlo ni desactivarlo."
   },
   "roles": {
-    "title": "Gestión de roles"
+    "title": "Gestión de roles",
+    "all": "All"
   },
   "dashboard": {
     "title": "Panel",
@@ -101,7 +103,21 @@
     "projects": "Proyectos",
     "bridgeAdapters": "Adaptadores de puente",
     "noData": "No hay datos disponibles",
-    "recentSessions": "Sesiones recientes"
+    "recentSessions": "Sesiones recientes",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "Proyectos",
@@ -296,7 +312,8 @@
     "optional": "opcional",
     "confirmDelete": "¿Seguro que desea eliminar esto?",
     "close": "Cerrar",
-    "saving": "Guardando…"
+    "saving": "Guardando…",
+    "saved": "Guardado"
   },
   "setup": {
     "addPlatform": "Añadir plataforma",
@@ -394,7 +411,12 @@
     "slashHint": "Presiona / para ver los comandos disponibles",
     "inputPlaceholder": "Escribe un mensaje o presiona / para comandos...",
     "commands": "Comandos",
-    "defaultSession": "Sesión Web"
+    "defaultSession": "Sesión Web",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You",
+    "sessionCount": "{{count}} sesiones",
+    "empty": "Sin mensajes todavía"
   },
   "cmd": {
     "search": "Buscar comandos...",
@@ -463,7 +485,11 @@
     "logLevel": "Nivel de registro",
     "appearance": "Apariencia",
     "theme": "Tema",
-    "themeHint": "Por defecto, amarillo y blanco. Se guarda solo en este navegador; no hace falta pulsar Guardar."
+    "themeHint": "Por defecto, amarillo y blanco. Se guarda solo en este navegador; no hace falta pulsar Guardar.",
+    "avatarStyle": "Avatares de roles",
+    "avatarStyleHint": "Se aplica al panel web y al plugin DSH; se guarda al instante.",
+    "avatarStyleBrand": "Iconos de cada marca",
+    "avatarStyleChibi": "Set chibi"
   },
   "globalProviders": {
     "title": "Gestión de proveedores",
@@ -615,5 +641,17 @@
     "presetPastYear": "Último año",
     "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
     "tokenBreakdown": "Desglose"
+  },
+  "navGroup": {
+    "main": "Principal",
+    "collab": "Colaboración",
+    "connect": "Conexiones",
+    "extend": "Extensiones",
+    "settings": "Ajustes"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

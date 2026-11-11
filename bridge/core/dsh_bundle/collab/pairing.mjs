@@ -38,6 +38,11 @@ export const UNTIL_GRACE_MS = 10_000;
 export const REMOTE_PREFIX = '/collab/remote';
 // Marks a request the host listener authenticated with a device credential (plugin.mjs owner()).
 export const REMOTE_OWNER = Symbol('collab.remoteOwner');
+// #1327: a phone in the tailnet opens this machine's pairing port in a browser, types the same
+// number and keeps the device credential in this cookie (no DSH on the phone to forward for it).
+export const PAIR_COOKIE = 'dsh_pair';
+// 「记住这台手机」的 cookie 存活：浏览器允许的上限 400 天（RFC 6265bis Max-Age 上限）；踢掉即失效。
+const REMEMBER_COOKIE_S = 400 * 24 * 3600;
 
 const TAILSCALE_BINS = ['tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale', 'C:\\Program Files\\Tailscale\\tailscale.exe'];
 // 沿用 plugin.mjs MAX_BODY（256 KiB）。
@@ -136,7 +141,7 @@ export class PairHost {
    * @param {{ code: string, mode: string, name: string, address?: string, duration_ms?: number|null }} claim
    * @returns {{ token: string, device: object }}
    */
-  claim({ code, mode, name, address, duration_ms }) {
+  claim({ code, mode, name, address, duration_ms, kind }) {
     if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
     const duration = tempDuration(mode, duration_ms);
     if (this.code === undefined) throw new PairError('no-code', '那台电脑现在没有在等配对，请在那台电脑上点「让别的电脑连我」');
@@ -152,8 +157,8 @@ export class PairHost {
     const token = randomBytes(32).toString('base64url');
     const now = this.now();
     const device = {
-      id: randomUUID(), name: String(name ?? '').trim().slice(0, 80) || '另一台电脑', address: String(address ?? ''),
-      mode, token_hash: sha256(token).toString('hex'), created_at: now, last_seen: now,
+      id: randomUUID(), name: String(name ?? '').trim().slice(0, 80) || (kind === 'browser' ? '手机浏览器' : '另一台电脑'), address: String(address ?? ''),
+      kind: kind === 'browser' ? 'browser' : 'dsh', mode, token_hash: sha256(token).toString('hex'), created_at: now, last_seen: now,
       expires_at: duration === null ? null : now + duration,
     };
     this.devices.set(device.id, device);
@@ -212,11 +217,11 @@ export class PairHost {
   // Same clock and length the number itself uses (a constructor may override codeTtl in tests).
   kickGrace() { return this.lastRevokeAt !== undefined && this.now() - this.lastRevokeAt < this.codeTtl; }
 
-  view(d) { return { id: d.id, name: d.name, address: d.address, mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
+  view(d) { return { id: d.id, name: d.name, address: d.address, kind: d.kind ?? 'dsh', mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
 
   save() {
     saveJSON(this.file, { devices: [...this.devices.values()].filter(d => d.mode === 'remember')
-      .map(({ id, name, address, token_hash, created_at, last_seen }) => ({ id, name, address, token_hash, created_at, last_seen })) });
+      .map(({ id, name, address, kind, token_hash, created_at, last_seen }) => ({ id, name, address, kind, token_hash, created_at, last_seen })) });
   }
 }
 
@@ -515,6 +520,87 @@ function bearer(req) {
   return m === null ? undefined : m[1];
 }
 
+/** The phone's device credential from its cookie, if it sent one. */
+export function cookieToken(req) {
+  for (const part of String(req.headers.cookie ?? '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === PAIR_COOKIE) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return undefined;
+}
+
+/**
+ * HttpOnly + SameSite=Strict; no Secure because the tailnet carries plain http (WireGuard already
+ * encrypts it). Remembered phones keep it across browser restarts, temporary ones only for the
+ * browser session (or the custom length).
+ */
+export function pairCookie(token, device) {
+  const base = `${PAIR_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`;
+  if (device.mode === 'remember') return `${base}; Max-Age=${REMEMBER_COOKIE_S}`;
+  if (device.expires_at !== null) return `${base}; Max-Age=${Math.max(1, Math.round((device.expires_at - device.created_at) / 1000))}`;
+  return base;
+}
+const CLEAR_COOKIE = `${PAIR_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`;
+
+const wantsHTML = req => req.method === 'GET' && String(req.headers.accept ?? '').includes('text/html');
+
+/** The number page a phone sees at http://<tailnet address>:3082/. Plain on purpose (#1327 范围收窄). */
+export function phonePairPage({ name, kicked = false }) {
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const note = kicked ? '<p id="note">这台手机已被那台电脑断开。要再看，请在那台电脑上重新生成数字，在这里输入。</p>' : '';
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>连到 ${esc(name)}</title>
+<style>:root{color-scheme:light dark}body{font:16px/1.6 -apple-system,"PingFang SC",sans-serif;margin:0;padding:24px 16px;max-width:420px;margin-inline:auto}input[type=text]{box-sizing:border-box;width:100%;font-size:28px;letter-spacing:6px;text-align:center;padding:10px}button{width:100%;font-size:18px;padding:12px;margin-top:12px}#msg{min-height:1.6em;color:#c0392b}label{display:block;margin-top:12px}</style>
+<body><h1 style="font-size:20px">连到 ${esc(name)}</h1>${note}
+<p>在那台电脑的「已连接的设备」里点「让别的电脑连我」，把显示的 6 位数字输到这里。</p>
+<form id="f"><input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000" required>
+<label><input id="remember" type="checkbox"> 记住这台手机（不勾就是临时，关掉浏览器就断）</label>
+<button type="submit">连接</button><p id="msg" role="alert"></p></form>
+<script>
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('msg');
+  msg.textContent = '';
+  try {
+    const r = await fetch('/collab/pair/browser', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ code: document.getElementById('code').value, remember: document.getElementById('remember').checked }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { location.href = '/collab'; return; }
+    msg.textContent = j.error || ('连接失败（' + r.status + '）');
+  } catch { msg.textContent = '连不上那台电脑，请确认手机的 Tailscale 开着'; }
+});
+</script></body></html>`;
+}
+
+// Added to pages a phone opens: when the host kicks it, say so in words instead of a page that
+// quietly stops updating. Asks the same whoami the controller DSH asks, at its heartbeat pace.
+const KICK_WATCH = `<script>(()=>{const t=setInterval(async()=>{let r;try{r=await fetch('/collab/pair/whoami',{credentials:'same-origin',cache:'no-store'})}catch{return}if(r.status!==401)return;clearInterval(t);document.body.innerHTML='<div style="font:16px/1.6 -apple-system,sans-serif;padding:24px 16px"><p>这台手机已被那台电脑断开。</p><p><a href="/">重新输数字连接</a></p></div>'},${ALIVE_EVERY_MS})})();</script>`;
+
+/** Append a snippet to an HTML response the route writes (only HTML; streams and JSON pass). */
+function withHTMLTail(res, tail) {
+  const { writeHead, write, end } = res;
+  let html = false;
+  const chunks = [];
+  res.writeHead = function (status, ...args) {
+    const headers = args.find(a => a !== null && typeof a === 'object' && !Array.isArray(a));
+    const type = String(headers?.['content-type'] ?? headers?.['Content-Type'] ?? res.getHeader('content-type') ?? '');
+    html = type.includes('text/html');
+    if (html) { if (headers) { delete headers['content-length']; delete headers['Content-Length']; } res.removeHeader('content-length'); }
+    return writeHead.call(this, status, ...args);
+  };
+  res.write = function (chunk, ...rest) {
+    if (!html) return write.call(this, chunk, ...rest);
+    chunks.push(Buffer.from(chunk));
+    return true;
+  };
+  res.end = function (chunk, ...rest) {
+    if (!html) return end.call(this, chunk, ...rest);
+    if (chunk !== undefined && chunk !== null && typeof chunk !== 'function') chunks.push(Buffer.from(chunk));
+    const body = Buffer.concat(chunks).toString('utf8');
+    const i = body.lastIndexOf('</body>');
+    return end.call(this, i < 0 ? body + tail : body.slice(0, i) + tail + body.slice(i));
+  };
+}
+
 /**
  * Host listener request handler: pairing endpoints for anyone in the tailnet, everything else
  * under /collab only with a device credential, handed to the plugin's own route as the owner.
@@ -529,13 +615,30 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
       if (url.pathname === '/collab/pair/hello' && req.method === 'GET') {
         return sendJSON(res, 200, { app: 'dsh-collab', name, waiting: host.codeLive() });
       }
+      // #1327: a phone browser pairs here directly and keeps the credential as a cookie.
+      if (url.pathname === '/collab/pair/browser' && req.method === 'POST') {
+        const body = await readBody(req);
+        const named = isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
+        const { token, device } = host.claim({ code: body?.code, mode: body?.remember === true ? 'remember' : 'temp', name: named, address: peer, kind: 'browser' });
+        res.setHeader('set-cookie', pairCookie(token, device));
+        return sendJSON(res, 200, { ok: true, device, host_name: name, to: '/collab' });
+      }
       if (url.pathname === '/collab/pair/claim' && req.method === 'POST') {
         const body = await readBody(req);
         const named = isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
         const { token, device } = host.claim({ code: body?.code, mode: body?.mode, name: named || body?.name, address: peer, duration_ms: body?.duration_ms });
         return sendJSON(res, 200, { token, device, host_name: name });
       }
-      const device = host.verify(bearer(req));
+      const fromCookie = bearer(req) === undefined ? cookieToken(req) : undefined;
+      const device = host.verify(bearer(req) ?? fromCookie);
+      if (url.pathname === '/' && req.method === 'GET') {
+        if (device !== undefined) { res.writeHead(302, { location: '/collab', 'cache-control': 'no-store' }); return res.end(); }
+        // A cookie this machine no longer knows: the phone was kicked (or its time ran out).
+        const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
+        if (fromCookie !== undefined) headers['set-cookie'] = CLEAR_COOKIE;
+        res.writeHead(200, headers);
+        return res.end(phonePairPage({ name, kicked: fromCookie !== undefined }));
+      }
       if (url.pathname === '/collab/pair/whoami' && req.method === 'GET') {
         // Answers with the device's own view, so a controller whose link was kicked can tell
         // "revoked" from "that machine is off". Same 401 shape as every other refused request.
@@ -550,8 +653,14 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
         return sendJSON(res, 200, { ok: true });
       }
       if (device === undefined) {
+        // A phone opening a page without (or with a dead) credential goes to the number page.
+        if (wantsHTML(req) && bearer(req) === undefined) { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }); return res.end(); }
         res.writeHead(401, { 'content-type': 'application/json; charset=utf-8', 'x-collab-pair': 'revoked' });
         return res.end(JSON.stringify({ error: 'device not paired', code: 'revoked' }));
+      }
+      // The cookie rides along on any same-site request; writes must come from this origin's pages.
+      if (fromCookie !== undefined && req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`) {
+        return sendJSON(res, 403, { error: 'cross-origin request refused' });
       }
       // Pairing management stays with the person at this machine.
       if (url.pathname.startsWith('/collab/api/pair') || url.pathname.startsWith('/collab/api/remote') || url.pathname.startsWith(`${REMOTE_PREFIX}/`) || url.pathname === '/collab/devices') {
@@ -560,6 +669,7 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
       if (url.pathname !== '/collab' && !url.pathname.startsWith('/collab/')) return sendJSON(res, 404, { error: 'not found' });
       req[REMOTE_OWNER] = true;
       host.hold(device.id, res);
+      if (fromCookie !== undefined && req.method === 'GET') withHTMLTail(res, KICK_WATCH);
       return await route(req, res);
     } catch (err) {
       if (err instanceof PairError) return sendJSON(res, PAIR_STATUS[err.code] ?? 400, { error: err.message, code: err.code });

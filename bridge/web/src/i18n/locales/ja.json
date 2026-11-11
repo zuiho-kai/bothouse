@@ -84,14 +84,16 @@
     "wikiGalaxy": "Wiki ギャラクシー",
     "forum": "記憶フォーラム",
     "plugins": "プラグイン",
-    "gate": "ゲート"
+    "gate": "ゲート",
+    "pet": "デスクトップペット"
   },
   "plugins": {
     "stateClientUi": "クライアント UI パッケージ",
     "clientUiNote": "DSH が提供するもので、このパネルからは切り替えられません。"
   },
   "roles": {
-    "title": "ロール管理"
+    "title": "ロール管理",
+    "all": "All"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -101,7 +103,21 @@
     "projects": "プロジェクト",
     "bridgeAdapters": "ブリッジアダプター",
     "noData": "データがありません",
-    "recentSessions": "最近のセッション"
+    "recentSessions": "最近のセッション",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "プロジェクト",
@@ -296,7 +312,8 @@
     "optional": "任意",
     "confirmDelete": "本当に削除しますか？",
     "close": "閉じる",
-    "saving": "保存中…"
+    "saving": "保存中…",
+    "saved": "保存しました"
   },
   "setup": {
     "addPlatform": "プラットフォームを追加",
@@ -394,7 +411,12 @@
     "slashHint": "/ を押して利用可能なコマンドを表示",
     "inputPlaceholder": "メッセージを入力、または / でコマンド...",
     "commands": "コマンド",
-    "defaultSession": "Web セッション"
+    "defaultSession": "Web セッション",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You",
+    "sessionCount": "{{count}} 件のセッション",
+    "empty": "まだメッセージはありません"
   },
   "cmd": {
     "search": "コマンドを検索...",
@@ -463,7 +485,11 @@
     "logLevel": "ログレベル",
     "appearance": "外観",
     "theme": "テーマ",
-    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。"
+    "themeHint": "既定はイエローホワイト。このブラウザだけに保存され、保存ボタンは不要です。",
+    "avatarStyle": "ロールのアバター",
+    "avatarStyleHint": "Web パネルと DSH プラグインの両方に反映され、すぐ保存されます。",
+    "avatarStyleBrand": "各社の公式アイコン",
+    "avatarStyleChibi": "擬人化アバター"
   },
   "globalProviders": {
     "title": "プロバイダー管理",
@@ -638,5 +664,17 @@
     "presetPastYear": "過去1年",
     "presetPastYearHint": "既定の範囲：今日までの1年間（1回の照会は最大1年）",
     "tokenBreakdown": "内訳"
+  },
+  "navGroup": {
+    "main": "よく使う",
+    "collab": "コラボ",
+    "connect": "接続",
+    "extend": "拡張",
+    "settings": "設定"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

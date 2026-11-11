@@ -23,7 +23,8 @@ export function rowToMember(row) {
     id: row.id,
     name: row.name,
     ...(row.name_customized == null ? {} : { nameCustomized: Boolean(row.name_customized) }),
-    ...(row.provider && row.model ? { model: { provider: row.provider, model: row.model } } : {}),
+    ...(row.cli === 'claude' && row.model ? { model: row.model }
+      : row.provider && row.model ? { model: { provider: row.provider, model: row.model } } : {}),
     ...(row.cli ? { cli: row.cli } : {}),
     ...(row.cli_config ? { cliConfig: JSON.parse(row.cli_config) } : {}),
     ...(row.cli_config_managed ? { cliConfigManaged: true } : {}),
@@ -95,7 +96,7 @@ export class Roster {
         continue;
       }
       try {
-        const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi'].includes(m.avatar) ? m.avatar : undefined;
+        const avatar = m?.avatar && ['orange', 'whale', 'dragon', 'rainbow', 'lanxi', 'grok'].includes(m.avatar) ? m.avatar : undefined;
         const base = { name, persona: m?.persona ?? '', ...(m?.cli ? { cli: m.cli } : {}), ...(m?.name_customized === undefined ? {} : { nameCustomized: Boolean(m.name_customized) }), ...(avatar ? { avatar } : {}) };
         // The wizard pins a DSH-model role to the route its key belongs to (#1173); a host without that model
         // still gets the role, on its default model.
@@ -185,6 +186,10 @@ export class Roster {
     const existing = this.store.member(id);
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
+    // Both PATCH endpoints preserve omitted fields. A backend change drops the old backend's model/config.
+    const old = rowToMember(existing);
+    const changedCli = Object.hasOwn(input, 'cli') && (input.cli ?? undefined) !== old.cli;
+    input = { ...old, ...(changedCli ? { model: undefined, cliConfig: undefined, permissionPreset: undefined } : {}), ...input };
     const m = await this.validate({ ...input, rooms: input?.rooms === undefined ? JSON.parse(existing.rooms ?? '[]') : input.rooms }, id);
     if (input?.cliConfig === undefined && existing.cli === m.cli) {
       m.cliConfig = existing.cli_config ? JSON.parse(existing.cli_config) : undefined;
@@ -278,8 +283,13 @@ export class Roster {
         }
         if (!Object.keys(cliConfig).length) cliConfig = undefined;
       }
-      if (input.model != null) throw new CollabError('invalid', 'CLI members cannot use a DSH model route');
-      return { name, persona, avatar, nameCustomized, rooms, cli, cliConfig, cliConfigManaged: input.cliConfig !== undefined, ...(preset === undefined ? {} : { permissionPreset: preset }) };
+      let model;
+      if (input.model != null) {
+        if (cli !== 'claude') throw new CollabError('invalid', 'CLI members cannot use a DSH model route');
+        if (typeof input.model !== 'string' || !input.model.trim()) throw new CollabError('invalid', 'Claude model must be a non-empty model id');
+        model = input.model.trim();
+      }
+      return { name, persona, avatar, nameCustomized, rooms, cli, model, cliConfig, cliConfigManaged: input.cliConfig !== undefined, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
     if (input?.cliConfig != null) throw new CollabError('invalid', 'cliConfig requires a Codex member');
     let model;

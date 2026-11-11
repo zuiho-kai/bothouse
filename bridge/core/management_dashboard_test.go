@@ -22,6 +22,7 @@ func TestManagementDashboardAndAPI(t *testing.T) {
 		status                      int
 	}{
 		{"root", "/", "", `id="root"`, http.StatusOK},
+		{"login", "/login?token=dashboard-test-secret&next=%2F", "", `id="root"`, http.StatusOK},
 		{"spa", "/usage", "", `id="root"`, http.StatusOK},
 		{"asset", "/assets/dashboard.js", "", "dashboard", http.StatusOK},
 		{"unauthenticated API", "/api/v1/status", "", "unauthorized", http.StatusUnauthorized},
@@ -50,17 +51,34 @@ func TestManagementWithoutDashboardKeepsAPI(t *testing.T) {
 	RegisterWebAssets(nil)
 	server := NewManagementServer(0, "dashboard-test-secret", nil)
 	handler := server.buildHandler(http.NewServeMux())
-	for _, path := range []string{"/", "/api/v1/status"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		req.Header.Set("Authorization", "Bearer dashboard-test-secret")
+	for _, tc := range []struct {
+		path, token string
+		status      int
+	}{
+		{"/", "", http.StatusServiceUnavailable},
+		{"/login?token=private-login-token&next=%2F", "", http.StatusServiceUnavailable},
+		{"/api/v1/status", "", http.StatusUnauthorized},
+		{"/api/v1/status", "wrong-token", http.StatusUnauthorized},
+		{"/api/v1/status", "dashboard-test-secret", http.StatusOK},
+		{"/api/v1/not-a-route", "", http.StatusNotFound},
+		{"/missing-file.js", "", http.StatusNotFound},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		if tc.token != "" {
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+		}
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		expected := http.StatusOK
-		if path == "/" {
-			expected = http.StatusNotFound
+		if rec.Code != tc.status {
+			t.Errorf("%s: status=%d; want %d", tc.path, rec.Code, tc.status)
 		}
-		if rec.Code != expected {
-			t.Fatalf("%s: status=%d; want %d", path, rec.Code, expected)
+		if tc.status == http.StatusServiceUnavailable {
+			if !strings.Contains(rec.Body.String(), "no_web") {
+				t.Errorf("%s: missing recovery advice: %q", tc.path, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "private-login-token") {
+				t.Errorf("%s: response exposed the login token", tc.path)
+			}
 		}
 	}
 }

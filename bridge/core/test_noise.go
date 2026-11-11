@@ -74,7 +74,7 @@ func (q *quietOKPlatform) hold(content string) {
 
 // runQuietOKShell runs a shell check job through quietOKPlatform: on failure the last post
 // (the ❌ or timeout result) goes to the chat, on success only the log sees it.
-func (e *Engine) runQuietOKShell(p Platform, replyCtx any, jobID, desc string, run func(Platform) error) error {
+func (e *Engine) runQuietOKShell(p Platform, replyCtx any, jobID, desc, sessionKey, workDir string, run func(Platform) error) error {
 	q := &quietOKPlatform{Platform: p}
 	err := run(q)
 	q.mu.Lock()
@@ -89,7 +89,10 @@ func (e *Engine) runQuietOKShell(p Platform, replyCtx any, jobID, desc string, r
 		// but the line is the same ⏰ notice a full run would post, so it goes through
 		// the quiet-chat rule as well: a QQ group keeps it out, private chats keep it.
 		if !e.noticeKeptOut(p, replyCtx, last) {
-			e.send(p, replyCtx, last)
+			if sendErr := e.sendWithError(p, replyCtx, last); sendErr != nil {
+				return sendErr
+			}
+			e.recordExternalSend(p, sessionKey, workDir, last, "定时脚本")
 		}
 	}
 	return err

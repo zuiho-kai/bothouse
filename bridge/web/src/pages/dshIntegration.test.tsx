@@ -84,7 +84,8 @@ describe('DSH API to pages', () => {
   });
   it('shows channel message failures separately from empty channels', async () => {
     setup({ ...running, channels: [{ ...channel, last_message: null, error: 'message read failed' }, { ...channel, id: 'c2', name: 'empty', last_message: null, error: undefined }] });
-    const el = await render('/sessions'); expect(el.textContent).toContain('message read failed'); expect(el.textContent).toContain('还没有消息');
+    // 对话页的 DSH 频道行只显示中文短提示，不再拼后端英文原文（SessionList.tsx:299 用 dsh.messagesError 替换了 ch.error）。
+    const el = await render('/sessions'); expect(el.textContent).toContain('消息读取失败'); expect(el.textContent).not.toContain('message read failed'); expect(el.textContent).toContain('还没有消息');
   });
   // #226 11:38 用户截图：两行红字说的是同一个原因，角色管理页读不到成员时先说清插件没启动。
   it('explains an unreadable DSH once instead of repeating it as a roster error', async () => {

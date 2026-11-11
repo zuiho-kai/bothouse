@@ -100,6 +100,17 @@ def name_of(proj):
     return lead.NAME[k] if k is not None else proj
 
 
+def project_of(who):
+    """团队文件里的名字 / 别名 / 项目键 / 主角色中文名 → cc-connect 项目名；认不出 → None。
+    ws-forward 认接收方用：负责人写「工作区1gge」「工作区9肥鱼」「工作区1G哥」都落到同一个项目名。"""
+    if _load() is None:
+        return None
+    k = lead.resolve(who)
+    if k is None:
+        return None
+    return lead.LEAD_PROJECT if k == "" and lead.LEAD_PROJECT else k or None
+
+
 def api_socket():
     """桥的本地 API socket：CC_DATA_DIR（同 bothouse send 的找法）→ 产品数据目录，下面的 run/api.sock。"""
     base = os.environ.get("CC_DATA_DIR", "").strip()

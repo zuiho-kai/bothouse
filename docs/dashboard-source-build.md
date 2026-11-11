@@ -1,7 +1,7 @@
 # Building the embedded management dashboard
 
 The management API and the dashboard use the same HTTP server. An API-only
-build can answer `/api/v1/status` while `/` returns 404: the `no_web` build tag
+build can answer `/api/v1/status` while the dashboard is unavailable: the `no_web` build tag
 excludes `cmd/cc-connect/plugin_web.go` and `web/embed.go`, so no frontend
 filesystem is registered.
 
@@ -11,6 +11,7 @@ For a source build with the dashboard:
 cd bridge
 make web                    # pnpm 10, Node.js, and the committed lockfile
 go build -o bothouse ./cmd/cc-connect
+./bothouse web --check       # checks embedded web availability without reading config
 go test ./cmd/cc-connect -run '^TestEmbeddedDashboardAssets$' -count=1
 ```
 
@@ -18,7 +19,17 @@ go test ./cmd/cc-connect -run '^TestEmbeddedDashboardAssets$' -count=1
 `PNPM=/path/to/pnpm make web` selects a particular pnpm installation. Custom
 build/install wrappers must build the frontend before Go compilation and must
 omit `no_web`. Rebuilding only Go embeds the previous contents of `web/dist`.
-`make build-noweb` remains available for intentional API-only builds.
+`make build-noweb` remains available for intentional API-only builds and writes
+`bothouse-noweb`, leaving an existing `bothouse` dashboard binary untouched.
+`make build` and release targets reject `NO_WEB=1` / `EXCLUDE=web`; select
+`build-noweb` explicitly when only the API is needed. The macOS DMG packager
+runs `web --check` before staging or signing and rejects API-only binaries.
+
+If `/` or `/login` reports that this build has no web admin, install a full
+release or rebuild with `make build`. Changing the login token cannot restore
+missing assets. `bothouse web` fails before changing configuration or opening
+a browser when the dashboard is absent. The management API remains available
+with its existing authentication requirements.
 
 ## Local and Tailscale access
 

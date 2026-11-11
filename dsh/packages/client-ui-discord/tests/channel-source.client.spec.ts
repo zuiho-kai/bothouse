@@ -593,6 +593,27 @@ describe('messageTooLarge (#144)', () => {
   })
 })
 
+describe('textTooLarge (#1445)', () => {
+  it('counts characters, the unit the store compares against MAX_TEXT', async () => {
+    const { DEFAULT_MAX_TEXT_CHARS, textTooLarge } = await import('../src/client/channel-source.ts')
+    // 131072 Chinese characters are ~400 KB of UTF-8, well under MAX_MESSAGE_BODY, so the byte
+    // check alone would pass them; the store compares text.length, so one over that is refused.
+    expect(DEFAULT_MAX_TEXT_CHARS).toBe(128 * 1024)
+    expect(textTooLarge('字'.repeat(DEFAULT_MAX_TEXT_CHARS), DEFAULT_MAX_TEXT_CHARS)).toBe(false)
+    expect(textTooLarge('字'.repeat(DEFAULT_MAX_TEXT_CHARS + 1), DEFAULT_MAX_TEXT_CHARS)).toBe(true)
+    expect(textTooLarge('字'.repeat(20000), DEFAULT_MAX_TEXT_CHARS)).toBe(false)
+  })
+
+  it('reads the cap the service publishes on /collab/api/state', async () => {
+    const { transport } = fakeTransport(url => url === '/collab/api/state' ? json(200, { ...state, max_text_chars: 64 }) : json(200, { messages: [] }))
+    const { source } = createChannelSource(transport)
+    const unsubscribe = source.subscribe(() => {})
+    await vi.waitFor(() => expect(source.getSnapshot().phase).toBe('ready'))
+    expect(source.getSnapshot().maxTextChars).toBe(64)
+    unsubscribe()
+  })
+})
+
 describe('#197 streamed uploads', () => {
   it('streams the file to its own route, reports progress, and gives back the id the message names', async () => {
     // A transport whose upload reports half, then all of the bytes.
@@ -682,5 +703,28 @@ it('sends an explicit owner review and updates the task from the API response', 
   await actions.reviewTask(1, 'rework', 'missing evidence')
   expect(source.getSnapshot().tasks?.[0]?.status).toBe('rework')
   expect(calls).toContain('POST /collab/api/tasks/1/review')
+  unsubscribe()
+})
+
+it('sends terminal actions to the task ID endpoint and updates status only on success', async () => {
+  const assigned = { id: 7, room_id: 10, status: 'accepted' }
+  const { transport, calls } = fakeTransport((url, init) => {
+    if (url === '/collab/api/state') return json(200, state)
+    if (url === '/collab/api/rooms/1/tasks') return json(200, { chat_id: 1, tasks: [assigned] })
+    if (url === '/collab/api/tasks/7/cancel') return json(403, { error: 'permission denied' })
+    if (url === '/collab/api/tasks/7/supersede') {
+      expect(JSON.parse(String(init?.body))).toEqual({ reason: 'moved to B', superseded_by: 9 })
+      return json(200, { task: { ...assigned, status: 'superseded', termination_reason: 'moved to B', superseded_by: 9 } })
+    }
+    return json(200, { messages: [] })
+  })
+  const { source, actions } = createChannelSource(transport)
+  const unsubscribe = source.subscribe(() => {})
+  await vi.waitFor(() => expect(source.getSnapshot().tasks?.[0]?.status).toBe('accepted'))
+  await expect(actions.terminateTask!(7, 'cancel', 'ended')).rejects.toThrow('permission denied')
+  expect(source.getSnapshot().tasks?.[0]?.status).toBe('accepted')
+  await actions.terminateTask!(7, 'supersede', 'moved to B', 9)
+  expect(source.getSnapshot().tasks?.[0]?.status).toBe('superseded')
+  expect(calls).toContain('POST /collab/api/tasks/7/supersede')
   unsubscribe()
 })

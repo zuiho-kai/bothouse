@@ -258,7 +258,8 @@ func dshDesktopEnv(dataDir string) []string {
 		}
 		dataDir = ccconnect.DataDir(home) // same resolution as openDSHWeb
 	}
-	env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
+	// Resolve the parent's channel default before the child receives BOTHOUSE_DATA_DIR.
+	env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_COLLAB_DATA=" + collabDataDir(), "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
 	if fallback := dshFallbackLead(dataDir); fallback != "" {
 		env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 	}

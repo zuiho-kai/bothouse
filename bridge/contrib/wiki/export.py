@@ -47,6 +47,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "llmwiki"))
 import filelock  # noqa: E402  (fcntl on Mac/Linux, msvcrt on Windows)
+try:
+    import budget  # noqa: E402  the job's deadline: ingest.py and sub-wiki.py read the same one, below the export
+except ImportError:  # older installed llmwiki: still honor the scheduler's absolute deadline (including unlimited)
+    budget = None
 
 HOME = Path.home()
 OUT = Path(os.environ.get("WIKI_TRANSCRIPTS") or Path(__file__).resolve().parent / "transcripts").expanduser()
@@ -716,6 +720,55 @@ def sources(bot):
     return items
 
 
+# 来源：budget.py 的 FALLBACK_NIGHT_WINDOW —— jobs.json 的 daf7d694/cf68c6a3 没写 timeout_mins，即
+# bridge/core/cron.go defaultCronJobTimeout 的 30 分钟。只在旁边的 llmwiki 还是旧版、没有 budget.py 时用它兜底；
+# 有 budget 时复用它的常量和 window；旧版也只在缺变量时初始化本轮一次，不覆盖显式不限时。
+NIGHT_WINDOW = 30 * 60
+# 来源：沿用 llmwiki/filelock.py 在 Windows 上等锁的轮询间隔（0.2 秒），同一节奏，Mac/Linux 也用它分段等。
+LOCK_POLL = 0.2
+
+
+def lock_remaining():
+    """One deadline for the round, including old installations without budget.py. Empty means unlimited."""
+    if budget:
+        budget.window(budget.FALLBACK_NIGHT_WINDOW)
+        return budget.remaining()
+    if "CC_JOB_DEADLINE" not in os.environ:
+        os.environ["CC_JOB_DEADLINE"] = str(time.time() + NIGHT_WINDOW)
+    deadline = os.environ["CC_JOB_DEADLINE"]
+    return float(deadline) - time.time() if deadline else None
+
+
+def lock_or_busy(lock, wait):
+    """Take the ingest lock without waiting past this job's own deadline. True: taken. False: another run holds it
+    (`wait=False`, the day runs: ask once and move on). None: gave up at the deadline (`wait=True`, nightly / lint) —
+    the old blocking wait had no ceiling, so one stuck ingest run held the whole nightly until the scheduler killed it
+    with no round of work done. Either way nothing was read or written: offsets and PENDING rows stay as they were."""
+    if not wait:
+        try:
+            if lock:
+                filelock.lock(lock, False)
+            return True
+        except BlockingIOError:
+            return False
+    while True:
+        left = lock_remaining()
+        if left is not None and left <= 0:
+            return None
+        try:
+            if lock:
+                filelock.lock(lock, False)
+            # Even a nonblocking acquisition can return after the deadline (scheduling delay). The caller closes
+            # the handle before returning a failure; no state or transcript has been read yet.
+            left = lock_remaining()
+            return None if left is not None and left <= 0 else True
+        except BlockingIOError:
+            left = lock_remaining()
+            if left is not None and left <= 0:
+                return None
+            time.sleep(min(LOCK_POLL, left) if left is not None else LOCK_POLL)
+
+
 def export(bot, out=OUT, wiki=None, wait=True):
     """`wiki`: the llm-wiki clone reading out/<bot> (default: the bot's own, only when writing to OUT). Its ingest
     lock is held for the whole export so no ingest run reads a file between its rewrite and its offset move."""
@@ -726,12 +779,17 @@ def export(bot, out=OUT, wiki=None, wait=True):
     n = {"codex": 0, "agy": 0, "claude": 0, "dsh": 0, "diary": 0, "written": 0, "empty": 0, "failed": 0}
     lock = open(wiki / ".ingest.lock", "w") if wiki and wiki.is_dir() else None
     try:
-        if lock:
-            try:  # same lock as ingest.py main(); released when closed
-                filelock.lock(lock, wait)
-            except BlockingIOError:  # --no-wait: an ingest run holds it; the next day run exports this bot
-                n["busy"] = 1
-                return n
+        took = lock_or_busy(lock, wait)
+        if took is not True:
+            # an ingest run holds the lock (day runs ask once) or outlasted this job's budget (nightly / lint): this
+            # bot's new sessions wait for the next run. Nothing was read or written yet, so no offset and no PENDING
+            # row moves. A deadline give-up is reported as a failure, not raised: sub-wiki.py says the round exported
+            # nothing and still runs ingest on what is already there.
+            n["busy"] = 1
+            if took is None:
+                n["failed"] = 1
+                print(f"export {bot}: ingest lock still held at the job deadline; export skipped this run", file=sys.stderr)
+            return n
         db = open_state(state)
         if db:  # rewrites a killed run left half done, settled before any of those files is read again
             try:

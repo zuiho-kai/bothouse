@@ -84,14 +84,16 @@
     "wikiGalaxy": "Wiki 갤럭시",
     "forum": "기억 포럼",
     "plugins": "플러그인",
-    "gate": "게이트"
+    "gate": "게이트",
+    "pet": "데스크톱 펫"
   },
   "plugins": {
     "stateClientUi": "클라이언트 UI 패키지",
     "clientUiNote": "DSH가 제공하며 패널에서 켜고 끌 수 없습니다."
   },
   "roles": {
-    "title": "역할 관리"
+    "title": "역할 관리",
+    "all": "All"
   },
   "dashboard": {
     "title": "대시보드",
@@ -101,7 +103,21 @@
     "projects": "프로젝트",
     "bridgeAdapters": "브리지 어댑터",
     "noData": "데이터가 없습니다",
-    "recentSessions": "최근 세션"
+    "recentSessions": "최근 세션",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "프로젝트",
@@ -296,7 +312,8 @@
     "optional": "선택 사항",
     "confirmDelete": "정말 삭제하시겠습니까?",
     "close": "닫기",
-    "saving": "저장 중…"
+    "saving": "저장 중…",
+    "saved": "저장되었습니다"
   },
   "setup": {
     "addPlatform": "플랫폼 추가",
@@ -394,7 +411,12 @@
     "slashHint": "/를 눌러 사용 가능한 명령어를 확인하세요",
     "inputPlaceholder": "메시지를 입력하거나 /로 명령어를 사용하세요...",
     "commands": "명령어",
-    "defaultSession": "웹 세션"
+    "defaultSession": "웹 세션",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You",
+    "sessionCount": "세션 {{count}}개",
+    "empty": "아직 메시지가 없습니다"
   },
   "cmd": {
     "search": "명령어 검색...",
@@ -463,7 +485,11 @@
     "logLevel": "로그 레벨",
     "appearance": "모양",
     "theme": "테마",
-    "themeHint": "기본값은 밝은 옐로화이트입니다. 이 브라우저에만 저장되며 저장 버튼은 필요 없습니다."
+    "themeHint": "기본값은 밝은 옐로화이트입니다. 이 브라우저에만 저장되며 저장 버튼은 필요 없습니다.",
+    "avatarStyle": "역할 아바타",
+    "avatarStyleHint": "웹 패널과 DSH 플러그인에 함께 적용되며 바로 저장됩니다.",
+    "avatarStyleBrand": "각 사 공식 아이콘",
+    "avatarStyleChibi": "캐릭터 아바타"
   },
   "globalProviders": {
     "title": "제공업체",
@@ -615,5 +641,17 @@
     "presetPastYear": "최근 1년",
     "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
     "tokenBreakdown": "구성"
+  },
+  "navGroup": {
+    "main": "주요",
+    "collab": "협업",
+    "connect": "연결",
+    "extend": "확장",
+    "settings": "설정"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

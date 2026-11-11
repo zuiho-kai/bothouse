@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Store, CollabError, publicMessage } from './store.mjs';
+import { Store, CollabError, MAX_TEXT, publicMessage } from './store.mjs';
 import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock.mjs';
 import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
@@ -75,8 +75,9 @@ export function resolveConfig(config, env = process.env) {
       throw Error(`conest-collab: dshMembers id ${JSON.stringify(m?.id)} must be unique lowercase [a-z0-9_-]`);
     }
     if (typeof m.name !== 'string' || !m.name.trim()) throw Error(`conest-collab: dshMembers ${m.id} needs a name`);
-    if (m.model !== undefined && (typeof m.model?.provider !== 'string' || typeof m.model?.model !== 'string')) {
-      throw Error(`conest-collab: dshMembers ${m.id} model must be { provider, model }`);
+    if (m.model !== undefined && (m.cli === 'claude' ? typeof m.model !== 'string' || !m.model.trim()
+      : typeof m.model?.provider !== 'string' || typeof m.model?.model !== 'string')) {
+      throw Error(`conest-collab: dshMembers ${m.id} model must be ${m.cli === 'claude' ? 'a non-empty model id' : '{ provider, model }'}`);
     }
     if (m.rooms !== undefined && (!Array.isArray(m.rooms) || m.rooms.some(id => !rooms.some(r => r.id === id)))) {
       throw Error(`conest-collab: dshMembers ${m.id} rooms must contain configured chat channel ids`);
@@ -354,7 +355,10 @@ export async function apply(ctx, rawConfig) {
           workspace_path: store.workspacePath(r.id, config.workspacePath) })), members: hub.memberView(),
         thinking: Object.fromEntries([...hub.thinking].map(([k, v]) => [k, [...v]])),
         queued: Object.fromEntries([...hub.queued.keys()].map(r => [r, hub.queueView(r)])),
-        max_upload_bytes: config.maxUploadBytes });
+        max_upload_bytes: config.maxUploadBytes,
+        // #1445: the text cap in the unit the store compares (characters), so the panel checks a
+        // typed message against the same number instead of keeping a second copy of it.
+        max_text_chars: MAX_TEXT });
     }
     if (path === '/collab/api/events' && req.method === 'GET') return events(req, res);
     if (path === '/collab/api/lead' && req.method === 'GET') {
@@ -717,12 +721,14 @@ export { TICKET_WRONG_ROUTE } from './local-host.mjs';
  *   POST /collab/api/tasks/{id}/stance          { stance: 接|问|退|升, note? }  (task owner)
  *   POST /collab/api/tasks/{id}/return          { message_id }                  (task owner)
  *   POST /collab/api/tasks/{id}/review          { verdict: done|rework, note } (the dispatcher; note required for rework)
+ *   POST /collab/api/tasks/{id}/cancel          { reason } (verified dispatcher or human owner)
+ *   POST /collab/api/tasks/{id}/supersede       { reason, superseded_by? } (same permission; optional replacement task ID)
  * Returns undefined when the request is not for this route, else a Promise of the reply.
  */
 export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   const path = url.pathname.replace(/\/+$/, '');
   const board = /^\/collab\/api\/rooms\/(\d+)\/tasks$/.exec(path);
-  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review))?$/.exec(path);
+  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review|cancel|supersede))?$/.exec(path);
   if (board === null && one === null) return undefined;
   const human = owner(req);
   if (!human && !gateway.authorized(req, url)) return Promise.resolve(refuse(req, res));
@@ -804,8 +810,8 @@ function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, 
 /**
  * 一句话拉团队 (user 11-04: DSH 用户一句话拉单模型多角色): the primary role of a channel, with its
  * (member, room) later ticket, creates a new chat channel and its roles in one call.
- *   POST /collab/api/rooms/{id}/team  { channel, members: [{ name, persona?, model? }], model? }
- * model is a model id ("deepseek-v4.1-flash") or "provider/model"; absent = DSH's default model.
+ *   POST /collab/api/rooms/{id}/team  { channel, members: [{ name, persona?, cli?, model? }], model? }
+ * DSH model is an id or "provider/model"; Claude model is a CLI model id. Absent = backend default.
  * The new roles join only the new channel; the caller becomes its primary role and joins it too.
  */
 export function teamRoute(req, res, url, { store, hub, later, roster }) {
@@ -845,16 +851,18 @@ export async function buildTeam(body, leadId, { store, hub, roster }) {
   if (wanted.length === 0 || wanted.length > MAX_TEAM) throw new CollabError('invalid', `members must list 1-${MAX_TEAM} roles`);
   const names = wanted.map(x => String(x?.name ?? '').trim());
   if (names.some(n => !n) || new Set(names.map(n => n.toLowerCase())).size !== names.length) throw new CollabError('invalid', 'every role needs a distinct name');
-  const shared = await resolveTeamModel(roster, body?.model);
   const models = [];
-  for (const x of wanted) models.push(x?.model === undefined || x?.model === '' ? shared : await resolveTeamModel(roster, x.model));
+  for (const x of wanted) {
+    const wantedModel = x?.model === undefined || x?.model === '' ? body?.model : x.model;
+    models.push(x?.cli ? wantedModel : await resolveTeamModel(roster, wantedModel));
+  }
   // Check every role before anything is written, so a bad name leaves no half-built channel behind.
-  for (const [i, x] of wanted.entries()) await roster.validate({ name: names[i], persona: String(x?.persona ?? ''), avatar: TEAM_AVATARS[i % TEAM_AVATARS.length] });
+  for (const [i, x] of wanted.entries()) await roster.validate({ name: names[i], persona: String(x?.persona ?? ''), cli: x?.cli, model: models[i], avatar: TEAM_AVATARS[i % TEAM_AVATARS.length] });
   const room = store.createRoom(channel);
   const created = [];
   for (const [i, x] of wanted.entries()) {
     const model = models[i];
-    created.push(await roster.create({ name: names[i], persona: String(x?.persona ?? ''), rooms: [room.id], avatar: TEAM_AVATARS[i % TEAM_AVATARS.length], ...(model ? { model } : {}) }));
+    created.push(await roster.create({ name: names[i], persona: String(x?.persona ?? ''), cli: x?.cli, rooms: [room.id], avatar: TEAM_AVATARS[i % TEAM_AVATARS.length], ...(model ? { model } : {}) }));
   }
   const lead = store.member(leadId);
   if (lead?.source === 'ui' && lead.rooms && lead.rooms !== '[]') {
@@ -862,11 +870,11 @@ export async function buildTeam(body, leadId, { store, hub, roster }) {
   }
   store.setLead(room.id, leadId);
   hub.emit({ type: 'rooms', rooms: store.roomsView() });
-  const label = model => (model ? model.model : 'DSH 默认模型');
+  const label = (model, i) => (model ? typeof model === 'string' ? model : model.model : `${wanted[i]?.cli ?? 'DSH'} 默认模型`);
   const leadName = hub.members.get(leadId)?.name ?? leadId;
   hub.post(room.id, { authorKind: 'system', author: 'system', name: '建团队',
-    text: `【已建团队】${leadName} 拉好了 #${channel}：${created.map((c, i) => `${c.name}（${label(models[i])}）`).join('、')}。${leadName} 是本频道主角色，直接在这里说需求。` });
-  return { room, lead: leadId, members: created.map((c, i) => ({ id: c.id, name: c.name, model: label(models[i]) })) };
+    text: `【已建团队】${leadName} 拉好了 #${channel}：${created.map((c, i) => `${c.name}（${label(models[i], i)}）`).join('、')}。${leadName} 是本频道主角色，直接在这里说需求。` });
+  return { room, lead: leadId, members: created.map((c, i) => ({ id: c.id, name: c.name, model: label(models[i], i) })) };
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };

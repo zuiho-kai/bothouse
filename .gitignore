@@ -20,6 +20,14 @@ output/
 bin/
 models/
 runtime/
+# 发布构建的产物目录（.github/workflows/release.yml 的 Build binaries 往这里拷 exe/dmg/校验和）。
+# 不进 git，而且必须被忽略：go build 看到 `git status --porcelain` 里有未跟踪文件就记
+# vcs.modified=true，而同版本重发的包带着这个标记，内置 DSH 插件判不出「是不是自己的代码」，
+# 会保留旧插件只留一行 WARN（#1496）。
+/dist/
+# 自带桌宠的 Electron 窗口代码要进 git（#1299）；shared-core.js 是构建产物
+!plugins/desktop-pet/runtime/
+plugins/desktop-pet/runtime/electron-helper/shared-core.js
 
 # 角色小家的本地配置：模板是 role-household/roles.example.toml（2026-10-20 起不进 git，见 docs/GETTING_STARTED.md「升级须知」）
 role-household/roles.toml

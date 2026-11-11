@@ -7,8 +7,66 @@ import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { Tasks } from './tasks.mjs';
 import { QuotaCooling, quotaDeadline } from './quota-cooling.mjs';
+import { DshMembers } from './dsh-member.mjs';
 
 const start = Date.parse('2026-10-27T13:00:00Z');
+test('#1606 Codex reset clock uses the local timezone and leaves missing deadlines unknown', () => {
+  // Source: captured app-server error in bridge/agent/codex/appserver_session.go.
+  const now = new Date(2026, 9, 27, 3).getTime();
+  const error = "You've hit your usage limit. Try again at 4:13 AM.";
+  assert.equal(quotaDeadline({ error }, now), new Date(2026, 9, 27, 4, 13).getTime());
+  assert.equal(quotaDeadline({ error }, new Date(2026, 9, 27, 5).getTime()), new Date(2026, 9, 28, 4, 13).getTime());
+  for (const error of ["You've hit your usage limit.", "You've hit your usage limit. Try again at unknown."]) {
+    assert.equal(quotaDeadline({ error }, now), undefined);
+  }
+});
+
+test('#1606 CLI quota failure blocks task reminders and nudge until the reported recovery', async t => {
+  const store = new Store(':memory:'); store.ensureRoom(1, 'general');
+  const hub = new Hub(store, { warn() {}, info() {} });
+  hub.setMember({ id: 'owner', name: 'Owner', kind: 'human' });
+  let now = new Date(2026, 9, 27, 3).getTime();
+  const until = new Date(2026, 9, 27, 4, 13).getTime();
+  const tasks = new Tasks(hub, { start: false, now: () => now / 1000 });
+  let turns = 0;
+  const root = mkdtempSync(join(tmpdir(), 'quota-1606-'));
+  // Same isolation as collab.test.mjs: never fetch context from the live bridge.
+  process.env.BOTHOUSE_CONFIG = join(root, 'no-bridge-config.toml');
+  const members = new DshMembers(hub, { ctx: { agents: { created: [] } }, createUserMessage: m => m, workspacePath: root, logger: { warn() {}, info() {} },
+    createCliMember: () => ({ async ask() {
+      turns++;
+      if (turns === 1) throw Object.assign(new Error('Internal error'), { data: { message: "You've hit your usage limit. Try again at 4:13 AM.", codexErrorInfo: 'usageLimitExceeded' } });
+      return 'recovered';
+    }, close() {} }),
+  }, [{ id: 'xy', name: 'Fish', cli: 'codex' }]);
+  const quota = new QuotaCooling(hub, tasks, (id, msg) => tasks.wake(id, msg), root, { now: () => now });
+  hub.quota = quota;
+  tasks.onWake((id, msg) => members.nudge(id, msg));
+  t.after(async () => { quota.close(); tasks.close(); await members.close(); store.close(); });
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r)); };
+  tasks.assign({ roomId: 1, title: 'work', owner: 'xy', actor: 'owner', ref: '无（新建）' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@Fish work' });
+  await settle();
+  assert.equal(turns, 1);
+  assert.equal(quota.cooling('xy'), true);
+  assert.equal([...hub.thinking.values()].some(s => s.has('xy')), false);
+  assert.ok(store.page(1).some(m => /额度用完了.*4:13 AM/.test(m.text)));
+  tasks.start();
+  for (const at of [new Date(2026, 9, 27, 3, 11).getTime(), until - 1]) {
+    now = at; tasks.tick(); tasks.deliverPending(); quota.tick();
+    const reminder = hub.post(1, { authorKind: 'system', author: 'system', name: 'reminder', text: '@Fish resume' }).message;
+    assert.equal(members.nudge('xy', reminder), false);
+    assert.equal(tasks.wake('xy', reminder), false);
+    await settle();
+    assert.equal(turns, 1);
+  }
+  now = until; quota.tick();
+  assert.equal(quota.cooling('xy'), false);
+  now = tasks.task(1).next_check_at * 1000; tasks.tick();
+  await settle();
+  assert.equal(turns, 2, 'the existing due-task reminder resumes after cooldown');
+  assert.ok(store.page(1).some(m => m.author === 'xy' && m.text === 'recovered'));
+});
 test('quota deadline: only a reported limit, real reset durations and provider-local clocks', () => {
   const usage = (used, limitReached = false) => ({ usage: { buckets: [{ limitReached, windows: [{ windowSeconds: 18000, usedPercent: used, resetAfterSeconds: 3600 }] }] } });
   // A window near its limit still has usable quota; switching early throws it away.

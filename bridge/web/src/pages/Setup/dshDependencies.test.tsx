@@ -18,7 +18,9 @@ let container: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); container?.remove(); vi.clearAllMocks(); });
 
 it('shows the Node prerequisite and blocks installation until detection passes', async () => {
-  mocks.status.mockResolvedValueOnce({ found: true, plugin_installed: false,
+  // the page asks again when the route changes (a status answers for one profile), so the first state
+  // repeats until the recheck below replaces it
+  mocks.status.mockResolvedValue({ found: true, plugin_installed: false,
     node_version: 'v20.19.0', pnpm_found: false, dependency_error: 'Node >= 22.12.0 is required' });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root.render(<DSHSetup lang="zh" onBack={() => {}} />));

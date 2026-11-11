@@ -135,6 +135,27 @@ class T(unittest.TestCase):
         self.assertEqual([(w["path"], w["desc"]) for w in ctxsvc.only_new({"wiki": [{"path": "【短块】", "desc": "短"}]}, req)["wiki"]],
                          [("【短块】", "短")], "短块原样给")
 
+    def test_profile_pushed_whole_not_catalog(self):
+        # #1318：懂你画像整页推（折成标题角色不取，11-10 隔离实测新手照样只拿到一句话）；同一版一个会话只推一次
+        body = "这条消息是他发的\n" + "\n".join(f"- 他刚入行，讲东西多举例子第 {i} 条，写长一点免得太短" for i in range(8))
+        req = {"key": "cloud_web:room-1", "bot": "", "epoch": "p1"}
+        item = {"path": "【懂你 阿博 04b176】", "desc": body}
+        got = ctxsvc.only_new({"wiki": [item]}, req)["wiki"]
+        self.assertEqual([w["path"] for w in got], ["【懂你 阿博 04b176】"], "不加【取正文】，不折")
+        self.assertIn("第 7 条", got[0]["desc"])
+        self.assertEqual(ctxsvc.only_new({"wiki": [item]}, req)["wiki"], [], "同一版不重推")
+
+    def test_board_pushed_whole_not_catalog(self):
+        # #1372：任务板整块推（11-10 agentm 板上写着「已启动 GPU3/6」，折成标题后主角色看不到，用户问进度它去服务器重查）
+        body = "本频道的事和等用户的事（接手前先看这里；增改结束用 board 命令）\n" + "\n".join(
+            f"#4{i} 两PR联合分析 · 实际双卡任务已启动GPU3/6；远端PID522193；导入初始化中，尚无采样数据" for i in range(3))
+        req = {"key": "discord:1569261647846178877", "bot": "", "epoch": "b1"}
+        item = {"path": "【任务板 bd3c00】", "desc": body}
+        got = ctxsvc.only_new({"wiki": [item]}, req)["wiki"]
+        self.assertEqual([w["path"] for w in got], ["【任务板 bd3c00】"], "不加【取正文】，不折")
+        self.assertIn("已启动GPU3/6", got[0]["desc"])
+        self.assertEqual(ctxsvc.only_new({"wiki": [item]}, req)["wiki"], [], "同一版不重推")
+
     def test_wiki_off_or_missing(self):
         ctxsvc.WIKI, ctxsvc._idx = None, {}
         self.assertEqual(ctxsvc.context({"text": "代理端口"}), {"wiki": []})

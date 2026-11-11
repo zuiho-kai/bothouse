@@ -2,9 +2,12 @@ package core
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // TeamReportVerdictResult answers POST /team/report/verdict (`bothouse report pass|reject`).
@@ -53,6 +56,21 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 			owner, rec = e, got
 		}
 	}
+	if req.Action == "pass" {
+		if len([]rune(req.Verdict)) < 15 {
+			http.Error(w, "verdict is required for pass: item by item, which expectation is met and the evidence", http.StatusBadRequest)
+			return
+		}
+		if rec != nil && rec.Doubt != "" && !verdictQuotesUser(req.Verdict) {
+			http.Error(w, doubtPassRefusal(rec.Doubt), http.StatusConflict)
+			return
+		}
+	}
+	// The verdict is the task's, not one record's (#1405): kept first, so a report of this task held
+	// now or found again later (a withdrawn record put back, a second copy) settles from it too.
+	if len(engines) > 0 {
+		recordTaskVerdict(engines[0].dataDir, req.Board, req.Action, req.Verdict, time.Now())
+	}
 	if rec == nil {
 		http.Error(w, "no text report of this board item is waiting for the lead's acceptance", http.StatusNotFound)
 		return
@@ -61,16 +79,39 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 	if req.Action == "reject" {
 		owner.rejectHeldReport(rec.Key, req.Verdict)
 	} else {
-		if len([]rune(req.Verdict)) < 15 {
-			http.Error(w, "verdict is required for pass: item by item, which expectation is met and the evidence", http.StatusBadRequest)
-			return
-		}
 		if err := owner.deliverHeldReport(rec.Key, req.Verdict, false); err != nil {
 			http.Error(w, "post failed: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 		res.Posted = true
+		// The lead's pass is the acceptance: the board item closes now. Left 「已交回待验收」, the review
+		// nudge hours later had the lead accept it again against the PR's newer head and send work the
+		// user already had back for rework (agentm #35 11-10 07:16; contrib/gate/board.py accepted).
+		// A progress report on a task waiting outside (#1378) leaves the item parked: it comes back by itself.
+		if rec.Waiting {
+			slog.Info("report accept: progress on a task waiting outside posted; item stays parked", "board_item", rec.Board)
+		} else if out, err := owner.runLeadScript(rec.Platform+":"+rec.Chat, "board", "accepted", strconv.Itoa(rec.Board)); err != nil {
+			slog.Warn("report accept: closing the board item failed", "board_item", rec.Board, "error", err, "output", strings.TrimSpace(string(out)))
+		}
+	}
+	// Other held copies of the same task (any engine) end with this verdict too: one post per task,
+	// the rest are not left to time out 「主角色未验收」.
+	for _, e := range engines {
+		for _, other := range e.heldReportsFor(req.Board) {
+			if other.Key == rec.Key && e == owner {
+				continue
+			}
+			e.endHeldReport(other.Key, sameTaskVerdict(req.Action, req.Verdict))
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)
+}
+
+// sameTaskVerdict is the verdict on a second held copy of a task the lead just judged.
+func sameTaskVerdict(action, verdict string) string {
+	if action == "reject" {
+		return "打回（同一件活）：" + verdict
+	}
+	return "同一件活已放行，这份不再贴：" + verdict
 }

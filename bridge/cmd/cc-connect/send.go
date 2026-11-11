@@ -74,6 +74,20 @@ func runSend(args []string) {
 		os.Exit(1)
 	}
 
+	var ok struct {
+		Note        string `json:"note"`
+		ChannelID   string `json:"channel_id"`
+		ChannelName string `json:"channel_name"`
+	}
+	if json.Unmarshal(body, &ok) == nil && ok.Note != "" {
+		fmt.Println("Message sent. " + ok.Note)
+		return
+	}
+	if ok.ChannelName != "" {
+		// Where it really went: the role reports this name, not the one it meant to send to.
+		fmt.Printf("已发到 #%s（%s）\n", ok.ChannelName, ok.ChannelID)
+		return
+	}
 	fmt.Println("Message sent successfully.")
 }
 
@@ -126,6 +140,15 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			}
 			i++
 			req.SessionKey = args[i]
+		case "--channel":
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("--channel requires a channel name")
+			}
+			i++
+			req.Channel = strings.TrimSpace(args[i])
+			if req.Channel == "" {
+				return req, "", fmt.Errorf("--channel requires a channel name")
+			}
 		case "--message", "-m":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--message requires a value")
@@ -194,6 +217,14 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			req.AtAll = true
 		case "--dm":
 			req.DM = true
+		case "--experience":
+			req.Experience = true
+		case "--to":
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("--to requires a user ID")
+			}
+			i++
+			req.DMTo = strings.TrimSpace(args[i])
 		case "--data-dir":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--data-dir requires a value")
@@ -217,10 +248,20 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 	if req.Project == "" {
 		req.Project = strings.TrimSpace(os.Getenv("CC_PROJECT"))
 	}
+	if req.DMTo != "" && !req.DM {
+		return req, "", fmt.Errorf("--to works only with --dm")
+	}
+	if req.Channel != "" && (req.DM || req.SessionKey != "") {
+		return req, "", fmt.Errorf("--channel cannot be combined with --session or --dm")
+	}
 	if req.DM {
 		if req.SessionKey != "" {
 			return req, "", fmt.Errorf("--dm cannot be combined with --session")
 		}
+		req.FromSession = strings.TrimSpace(envSessionKey())
+	} else if req.Channel != "" {
+		// The name is looked up in the server of the caller's own conversation.
+		req.FromSession = strings.TrimSpace(envSessionKey())
 	} else if req.SessionKey == "" {
 		req.SessionKey = strings.TrimSpace(envSessionKey())
 		req.SessionFromEnv = req.SessionKey != ""
@@ -440,9 +481,14 @@ Options:
       --at-users <ids>     @ user IDs, comma-separated (DingTalk, QQ, QQBot)
       --at-all             @ everyone (platform permissions and limits apply)
       --reply-to <id>      Native quoted text reply to a message in this conversation (QQ)
-      --dm                 Send privately to the project owner (first ID in admin_from) (Discord)
+      --experience         Hand work to a personal agent: append related team lessons and ask for 【经验】 lines back
+      --dm                 Send privately; without --to only to the project owner (first ID in admin_from) (Discord, QQ)
+      --to <user id>       With --dm: send privately to this member of the server instead (Discord)
+      --channel <name>     Send to the channel with this name in this server (Discord); not found or
+                           more than one with that name is an error and nothing is sent
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
+                           With --channel or -s the output says where it went: 已发到 #<name>（<id>）
       --data-dir <path>    Data directory (default: ~/.bothouse)
   -h, --help               Show this help
 
@@ -455,6 +501,7 @@ Examples:
   bothouse send --audio /tmp/voice.opus
   bothouse send --tts "Hello from bothouse"
   bothouse send --dm "A word just for you"
+  bothouse send --dm --to 123456789012345678 "Your device code is ..."
   bothouse send --stdin <<'EOF'
     Long message with "special" chars, $variables, and newlines
   EOF`)

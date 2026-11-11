@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Package, RotateCw } from 'lucide-react';
-import { Badge, Button, EmptyState, Input, LoadingState, PageHeader } from '@/components/ui';
+import { AlertTriangle, Package, RotateCw, Sparkles } from 'lucide-react';
+import { Badge, Button, EmptyState, Input, LoadingState, Modal, PageHeader } from '@/components/ui';
 import {
   getPluginConfig,
   inspectPlugin,
@@ -10,12 +11,13 @@ import {
   NON_REGISTRY_CONFIRM,
   savePluginConfig,
   switchPlugin,
+  uninstallPlugin,
   type DSHPlugin,
   type DSHPluginsState,
   type PluginConfig,
   type PluginInspection,
 } from '@/api/plugins';
-import { failureText, pluginTexts, rowErrorText } from './texts';
+import { failureText, pluginTexts, rowErrorText, uninstallFailureText } from './texts';
 import api from '@/api/client';
 import { dshHomeUrl } from '@/lib/collabPages';
 import { goToDsh } from '@/lib/openDsh';
@@ -28,6 +30,11 @@ import { goToDsh } from '@/lib/openDsh';
  * and dsh.profile.bundles, and switches by editing that same bundles list (the files DSH's built-in
  * Plugins page edits). A switch therefore never uninstalls anything, and DSH's own page shows the
  * same state. Both the list and the switch need a DSH restart to take effect, which the page says.
+ *
+ * Uninstalling (#1377) is the one destructive write here: it removes the dependency through the
+ * same `dsh plugin remove` a user would type, and the page asks for the package name before it
+ * sends anything. The three refusals live in the backend; this page only turns their kind into a
+ * sentence, so pnpm's English never reaches the reader.
  */
 export default function PluginList() {
   const { t, i18n } = useTranslation();
@@ -60,11 +67,47 @@ export default function PluginList() {
   const [configBusy, setConfigBusy] = useState(false);
   const [configError, setConfigError] = useState('');
   const [configNotice, setConfigNotice] = useState('');
+  // 插件卸载 (#1377): one row's confirm dialog. `uninstallRow` is the row it is about; `confirmText`
+  // must equal the package name before the button unlocks.
+  const [uninstallRow, setUninstallRow] = useState<DSHPlugin | null>(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [uninstalling, setUninstalling] = useState(false);
+  const [uninstallError, setUninstallError] = useState<{ why: string; wrapFailed: boolean } | null>(null);
+  // Rows removed in this session, marked in place instead of reloading the whole page and losing
+  // the position the person was reading. The row object and its index are kept because the server's
+  // post-uninstall state no longer lists the package: without them the row would vanish on success
+  // and the person would never see "已卸载，重启 DSH 后生效".
+  //
+  // The mark speaks about one removal, so it may not outlive it. Every list the server hands back
+  // goes through acceptServerState, which drops the marks that list has caught up with — install A
+  // again and the mark goes with it — and a fetch clears them outright, because after a refresh the
+  // row came from a list that no longer has it, and merging that stale row into the next uninstall
+  // would put a package nobody removed back on the page (G哥 实拍).
+  const [removedRows, setRemovedRows] = useState<Map<string, { row: DSHPlugin; index: number }>>(new Map());
+
+  // acceptServerState takes a list as the page's new truth and forgets the marks that list already
+  // reflects: a name the server lists again is installed again, so "已卸载" would be a lie.
+  const acceptServerState = (next: DSHPluginsState) => {
+    setState(next);
+    setRemovedRows((prev) => {
+      let kept: Map<string, { row: DSHPlugin; index: number }> | null = null;
+      for (const name of prev.keys()) {
+        if (!next.plugins.some((p) => p.name === name)) continue;
+        if (!kept) kept = new Map(prev);
+        kept.delete(name);
+      }
+      return kept ?? prev;
+    });
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      setState(await listPlugins());
+      const next = await listPlugins();
+      setState(next);
+      // A reload is the person asking what is there now: the marks were only ever about removals
+      // made on this screen before it, and those rows are not in the list any more.
+      setRemovedRows(new Map());
       setError('');
     } catch (e: any) {
       setError(e?.message || '');
@@ -118,7 +161,9 @@ export default function PluginList() {
       const next = await installPlugin(want, confirmSource, (ev) => {
         if (ev.line) setLines((prev) => [...prev.slice(-19), ev.line!]);
       });
-      setState(next);
+      // A package that is back in the list is installed again: a "已卸载" mark left from removing it
+      // earlier in this session would hide its switch and its button.
+      acceptServerState(next);
       setSpec('');
       setInspection(null);
       const added = next.plugins.find((p) => p.name === want || pxName(p.name) === pxName(want));
@@ -144,12 +189,74 @@ export default function PluginList() {
     setNotice('');
     try {
       const r = await switchPlugin(p.name, !p.enabled);
-      setState(r.state);
+      acceptServerState(r.state);
       if (r.changed) setNotice(T.restartNote);
     } catch (e: any) {
       setError(`${T.switchFailed}: ${e?.message || ''}`);
     } finally {
       setBusy('');
+    }
+  };
+
+  const openUninstall = (p: DSHPlugin) => {
+    setUninstallRow(p);
+    setConfirmText('');
+    setUninstallError(null);
+    setNotice('');
+  };
+
+  const closeUninstall = () => {
+    if (uninstalling) return;
+    setUninstallRow(null);
+    setConfirmText('');
+    setUninstallError(null);
+  };
+
+  // uninstall sends the name back only when the typed text matches it; the backend insists on the
+  // same thing, so a stray request without the dialog is refused rather than trusted.
+  const uninstall = async () => {
+    const row = uninstallRow;
+    if (!row) return;
+    if (confirmText !== row.name) {
+      setUninstallError({ why: confirmText.trim() ? T.confirmMismatch : T.confirmEmpty, wrapFailed: false });
+      return;
+    }
+    setUninstalling(true);
+    setUninstallError(null);
+    try {
+      const r = await uninstallPlugin(row.name, confirmText);
+      // The mark is what the person reads as "it is gone", so it follows the backend's own answer
+      // for this request. Anything but `uninstalled: true` leaves the row unmarked and the dialog
+      // open with the reason, rather than naming a removal that did not happen.
+      if (!r.uninstalled) {
+        setUninstallError({ why: T.uninstallKindUnknown, wrapFailed: false });
+        return;
+      }
+      const index = plugins.findIndex((p) => p.name === row.name);
+      // Marks this removal replaces: a name the new list holds again was installed again, so the
+      // old mark is dropped instead of being merged back with the row it points at.
+      const kept = new Map(removedRows);
+      for (const name of [...kept.keys()]) {
+        if (r.state.plugins.some((p) => p.name === name)) kept.delete(name);
+      }
+      kept.set(row.name, { row, index: index < 0 ? kept.size : index });
+      // Merge the removed rows back into the server's list at the place they were, so the page keeps
+      // its order and the row stays visible (marked) instead of disappearing.
+      const merged = [...r.state.plugins];
+      for (const [name, entry] of kept) {
+        if (!merged.some((p) => p.name === name)) {
+          merged.splice(Math.min(entry.index, merged.length), 0, entry.row);
+        }
+      }
+      setState({ ...r.state, plugins: merged });
+      setRemovedRows(kept);
+      setUninstallRow(null);
+      setConfirmText('');
+    } catch (e: any) {
+      const kind = e?.body?.kind;
+      setUninstallError({ why: uninstallFailureText(T, kind, e?.body), wrapFailed: true });
+    } finally {
+      setUninstalling(false);
     }
   };
 
@@ -194,6 +301,9 @@ export default function PluginList() {
   const plugins = state?.plugins || [];
 
   const stateBadge = (p: DSHPlugin) => {
+    // Removed in this session: the list still holds the row from the response, and a reload would
+    // lose the person's place, so the row is marked rather than dropped (#1377).
+    if (removedRows.has(p.name)) return <Badge variant="outline">{T.stateUninstalled}</Badge>;
     if (p.error) return <Badge variant="danger">{T.stateMissing}</Badge>;
     // Client UI packages (dsh.client, no dsh.bundle) are rendered by DSH itself. They are not a
     // profile layer and not a plain dependency, so they get their own label (#1376).
@@ -211,10 +321,19 @@ export default function PluginList() {
         title={T.title}
         description={T.subtitle}
         actions={
-          <Button variant="secondary" size="sm" onClick={fetchData} disabled={loading}>
-            <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-            {T.refresh}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/plugins?plugin=dsh-pet"
+              className="inline-flex items-center gap-1.5 rounded-control border border-accent/30 bg-accent-wash px-3 py-1.5 text-xs font-semibold text-accent hover:opacity-90 transition-opacity"
+            >
+              <Sparkles size={14} />
+              插件总页 (桌宠)
+            </Link>
+            <Button variant="secondary" size="sm" onClick={fetchData} disabled={loading}>
+              <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
+              {T.refresh}
+            </Button>
+          </div>
         }
       />
 
@@ -430,26 +549,51 @@ export default function PluginList() {
                   {p.description && <p className="mt-1 text-xs text-ink-soft">{p.description}</p>}
                   {p.error && <p className="mt-1 text-xs text-ink-mute">{rowErrorText(T, p.error)}</p>}
                 </div>
-                {/* A shipped surface layer has no switch here: turning it off removes the panel. */}
-                {p.layer && !p.shipped && !p.error && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => toggle(p)}
-                    // One write at a time: an install rewrites the same package.json, and two
-                    // switches at once would each answer "changed" for a list only one of them
-                    // lands. The backend now recomputes under the lock, this only stops the
-                    // confusing double-click.
-                    disabled={installing || busy !== ''}
-                    loading={busy === p.name}
-                    data-testid={`plugin-${p.name}-toggle`}
-                  >
-                    {p.enabled ? T.off : T.on}
-                  </Button>
+                {/* 插件卸载 (#1377): a package this profile installed can be removed, whether it
+                    is a bundle (with a switch), a client UI package or a plain dependency — a wrong
+                    install of any of the three is what this button exists for. A shipped layer gets
+                    neither button: removing or switching off the panel's own surface leaves no UI. */}
+                {!p.shipped && !p.error && !removedRows.has(p.name) && (
+                  <div className="flex items-center gap-2">
+                    {p.layer && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => toggle(p)}
+                        // One write at a time: an install rewrites the same package.json, and two
+                        // switches at once would each answer "changed" for a list only one of them
+                        // lands. The backend now recomputes under the lock, this only stops the
+                        // confusing double-click.
+                        disabled={installing || busy !== '' || uninstalling}
+                        loading={busy === p.name}
+                        data-testid={`plugin-${p.name}-toggle`}
+                      >
+                        {p.enabled ? T.off : T.on}
+                      </Button>
+                    )}
+                    {/* A read-only page (no management token) cannot uninstall: the backend refuses
+                        it anyway, so the button is not offered rather than failing on click. */}
+                    {state?.writes_allowed && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => openUninstall(p)}
+                        disabled={installing || busy !== '' || uninstalling}
+                        data-testid={`plugin-${p.name}-uninstall`}
+                      >
+                        {T.uninstall}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
               {p.layer && p.shipped && (
                 <p className="mt-3 text-xs text-ink-mute">{T.shippedNote}</p>
+              )}
+              {removedRows.has(p.name) && (
+                <p className="mt-3 text-xs text-ink-mute" data-testid={`plugin-${p.name}-uninstalled`}>
+                  {T.uninstallRowNote}
+                </p>
               )}
               {/* DSH renders a client UI package; this page has no switch for it (#1376). */}
               {p.client_only && (
@@ -549,6 +693,47 @@ export default function PluginList() {
           ))}
         </div>
       )}
+
+      {/* 插件卸载 (#1377): the confirm step. The button stays disabled until the typed text is the
+          package name, the same value the backend requires in `confirm`. */}
+      <Modal
+        open={uninstallRow !== null}
+        onClose={closeUninstall}
+        title={uninstallRow ? T.uninstallTitle(uninstallRow.name) : ''}
+      >
+        <div className="space-y-3 text-sm text-ink-soft" data-testid="plugins-uninstall-dialog">
+          <p>{T.uninstallBody}</p>
+          <p className="text-xs text-ink-mute">{T.uninstallRestart}</p>
+          <Input
+            label={T.uninstallConfirmLabel}
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            disabled={uninstalling}
+            autoFocus
+            data-testid="plugins-uninstall-confirm-input"
+          />
+          {uninstallError && (
+            <p className="text-sm text-ink" data-testid="plugins-uninstall-error">
+              {uninstallError.wrapFailed ? T.uninstallFailed(uninstallError.why) : uninstallError.why}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button variant="secondary" size="sm" onClick={closeUninstall} disabled={uninstalling}>
+              {T.configCancel}
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={uninstall}
+              disabled={uninstalling || confirmText !== uninstallRow?.name}
+              loading={uninstalling}
+              data-testid="plugins-uninstall-go"
+            >
+              {uninstalling ? T.uninstalling : T.uninstallConfirm}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

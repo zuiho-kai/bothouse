@@ -22,8 +22,8 @@ export function EmptyState({ message, icon: Icon = InboxIcon, hint, className }:
     >
       {/* 空态是一句话，不是一个插画面：只留 1px 描边的圆托图标，不做循环装饰动效 */}
       <div className="mb-4 grid h-16 w-16 place-items-center">
-        <span className="grid h-12 w-12 place-items-center rounded-pill border border-hairline bg-surface">
-          <Icon size={22} strokeWidth={1.25} className="text-ink-mute" />
+        <span className="grid h-14 w-14 place-items-center rounded-[18px] bg-accent-wash">
+          <Icon size={24} strokeWidth={1.6} className="text-accent-text" />
         </span>
       </div>
       <p className="text-sm font-medium text-ink">{message}</p>

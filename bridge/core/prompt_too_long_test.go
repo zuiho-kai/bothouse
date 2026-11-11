@@ -67,6 +67,8 @@ func (s *tooLongSession) Send(prompt string, _ string, _ []ImageAttachment, _ []
 	emit := func(next string) {
 		if next == "long" {
 			s.events <- Event{Type: EventError, Error: errors.New(tooLongErrText)}
+		} else if next == "refuse" {
+			s.events <- Event{Type: EventResult, Content: refusalText, Done: true, Metadata: map[string]any{MetaResultIsError: true}}
 		} else {
 			s.events <- Event{Type: EventResult, Content: "reply:" + next, Done: true}
 		}

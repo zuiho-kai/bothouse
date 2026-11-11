@@ -1,9 +1,11 @@
 package discord
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -103,4 +105,28 @@ func addressedOther(content, selfID string) bool {
 		return true
 	})
 	return other
+}
+
+var userMentionRe = regexp.MustCompile(`<@[!&]?(\d+)>`)
+
+// callsOther is this platform's one fact about a person's message calling someone other than this
+// bot: it @-s another user (a bot, external or teammate, or a person), @-s a role that is not this
+// bot's, names a teammate bot at a line start, or is a reply to someone else's message (not its own).
+// core.Engine.addresseeOf turns it into the routing decision; a message that also calls this bot
+// is this bot's (Mentioned wins there). Before #1453 only teammate and external bots counted, so a
+// person @-ing a colleague was "calls no one" and the lead took it.
+func callsOther(m *discordgo.MessageCreate, selfID, selfRoleID string) bool {
+	for _, sm := range userMentionRe.FindAllStringSubmatch(m.Content, -1) {
+		if id := sm[1]; id != selfID && id != selfRoleID {
+			return true
+		}
+	}
+	if addressedOther(m.Content, selfID) {
+		return true
+	}
+	if ref := m.ReferencedMessage; ref != nil && ref.Author != nil && ref.Author.ID != "" && ref.Author.ID != selfID &&
+		(m.Author == nil || ref.Author.ID != m.Author.ID) {
+		return m.Type == discordgo.MessageTypeReply
+	}
+	return false
 }

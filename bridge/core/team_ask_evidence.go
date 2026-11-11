@@ -17,11 +17,11 @@ import (
 // How long a bounce waits for the asking turn to end.
 const askBounceWait = 2 * time.Minute
 
-// bounceWorkspaceExit posts the reason in the workspace and hands it to the
+// bounceWorkspaceExit hands the reason to the
 // replying bot, so it fixes the [ask]/[report] instead of waiting on a user who never saw it.
 // Both wait for the asking turn to end: the notice then follows the bot's own
 // reply, and the new turn needs no queue notice.
-func (e *Engine) bounceWorkspaceExit(ctx context.Context, p Platform, rec ReplyContextReconstructor, sessionKey, kind string, problems []string) bool {
+func (e *Engine) bounceWorkspaceExit(ctx context.Context, sessionKey, kind string, problems []string) bool {
 	text := exitBounceText(kind, problems)
 	e.teamExit.mu.Lock()
 	if e.teamExit.bounces == nil {
@@ -54,15 +54,8 @@ func (e *Engine) bounceWorkspaceExit(ctx context.Context, p Platform, rec ReplyC
 		if ctx.Err() != nil {
 			return
 		}
-		rc, err := rec.ReconstructReplyCtx(sessionKey)
-		if err != nil {
-			slog.Warn("team exit: workspace unreachable for ask bounce", "session", sessionKey, "error", err)
-			return
-		}
-		if err := e.sendRenderedWithContext(ctx, p, rc, exitPrefix+" "+text); err != nil {
-			slog.Warn("team exit: ask bounce post failed", "session", sessionKey, "error", err)
-			return
-		}
+		// The reason goes to the bot only, not into the channel: people read workspace channels
+		// too (agentm #1347: 「📬 这条 … 没有转给用户」 showed up where the users talk).
 		if err := e.ExecuteHeartbeat(sessionKey, "【系统退回了你的 ["+kind+"]】"+text, true); err != nil {
 			slog.Warn("team exit: ask bounce turn failed", "session", sessionKey, "error", err)
 		}

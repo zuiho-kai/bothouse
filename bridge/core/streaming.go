@@ -307,7 +307,9 @@ func (sp *streamPreview) flushLocked(text string) {
 // updates the preview message in-place with the accumulated text, and marks
 // the preview as degraded so no further updates are sent until detach+unfreeze.
 // Call this when a permission prompt or other interruption occurs.
-func (sp *streamPreview) freeze() {
+// MaxChars applies only to the live draft. A permanent segment is complete,
+// and a delivery error leaves its handle attached for the caller to handle.
+func (sp *streamPreview) freeze() error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 	if !sp.degraded {
@@ -327,25 +329,26 @@ func (sp *streamPreview) freeze() {
 			if !sp.commitLocked(replier, text, sp.replyCtx) && strings.TrimSpace(text) != "" {
 				// No final send follows a frozen segment, so deliver it as a normal reply.
 				if err := authorizedOutput(sp.ctx, func() error { return sp.platform.Reply(sp.ctx, sp.replyCtx, text) }); err != nil {
-					slog.Warn("stream preview: frozen segment reply failed", "error", err)
+					return err
 				}
 			}
 		} else if updater, ok := sp.platform.(MessageUpdater); ok {
 			text := stripSilentReply(sp.fullText)
-			maxChars := sp.cfg.MaxChars
-			if maxChars > 0 && len([]rune(text)) > maxChars {
-				text = string([]rune(text)[:maxChars]) + "…"
-			}
+			// Freezing commits a permanent segment, so MaxChars no longer applies.
+			// The engine records the whole segment only after this update succeeds.
 			if text != "" {
 				if sp.transform != nil {
 					text = sp.transform(text)
 				}
-				_ = authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, text) })
+				if err := authorizedOutput(sp.ctx, func() error { return updater.UpdateMessage(sp.ctx, sp.previewMsgID, text) }); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
 	sp.degraded = true
+	return nil
 }
 
 // unfreeze reverses a prior freeze()+detachPreview() so the preview resumes

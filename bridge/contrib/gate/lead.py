@@ -29,6 +29,7 @@ else:
     LEAD_FILE = _PRODUCT_DATA / "lead.json"
 
 KEYS, NAME, ID, ALIASES, DSH = [], {}, {}, {}, set()  # DSH = kind=dsh 的键（DSH 原生成员）
+LEAD_PROJECT = ""  # 主角色自己的 cc-connect 项目名（config.toml 里 team_name 是主角色名字的那一个，唯一时才认）
 _alias, _WHO, PATTERNS = [], "", []
 
 
@@ -40,7 +41,7 @@ def _default_team():
 
 def configure(team):
     """团队文件 {"lead": {name, aliases, id}, "subs": {key: {name, aliases, id}}} → 本模块的表和正则。"""
-    global _alias, _WHO, PATTERNS
+    global _alias, _WHO, PATTERNS, LEAD_PROJECT
     members = {"": team["lead"], **team["subs"]}
     KEYS[:] = list(members)
     NAME.clear(); ID.clear(); ALIASES.clear(); DSH.clear()
@@ -51,6 +52,19 @@ def configure(team):
         if m.get("id"):
             ID[k] = str(m["id"])
         ALIASES[k] = list(dict.fromkeys([m["name"], *m.get("aliases", [])]))
+    # Legacy hand-written teams can omit the lead's project alias while config
+    # still sends ?bot=<project>. Recover only an unambiguous configured identity.
+    try:
+        import tomllib
+        cfg = tomllib.loads((_SETUP / "config.toml").read_text(encoding="utf-8"))
+    except (ImportError, OSError, ValueError):
+        cfg = {}
+    projects = [p["name"] for p in cfg.get("projects", [])
+                if p.get("name") and p.get("team_name") == NAME[""]
+                and p["name"] not in members]
+    LEAD_PROJECT = projects[0] if len(projects) == 1 else ""
+    if LEAD_PROJECT and LEAD_PROJECT not in ALIASES[""]:
+        ALIASES[""].append(LEAD_PROJECT)
     _build()
 
 
@@ -206,6 +220,8 @@ def member(bot):
     if bot.startswith("dsh:"):
         mid = bot[4:]
         return next((k for k in KEYS if k in DSH and ID.get(k) == mid), bot)
+    if bot not in KEYS and bot in ALIASES.get("", []):
+        return ""
     return bot
 
 

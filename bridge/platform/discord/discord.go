@@ -3,6 +3,9 @@ package discord
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -74,6 +77,8 @@ type progressPlatform struct {
 }
 
 type Platform struct {
+	workspaceShelves           *workspaceShelfStore
+	legacyGathered             sync.Map                          // guild ID → its 「空闲工作区」 channels were moved once this run (workspaces.go)
 	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
 	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
 	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
@@ -84,11 +89,13 @@ type Platform struct {
 	liveMu                     sync.RWMutex      // guards allowBots, teamLead, groupReplyAllGuilds/Channels and shareSessionInChannel, which ReloadOptions swaps while running
 	allowBots                  string            // maomao fork: bot user IDs whose @-mentions of this bot are accepted
 	allowBotsFile              *allowBotsFile    // maomao fork: more allowed bot/webhook IDs, one per line; see allow_bots_file.go
+	testWebhookPeople          map[string]bool   // test only (test_webhook_people): these webhooks post as people, one per display name; off by default
 	teamLead                   string            // maomao fork: bot ID of the primary role; a reply to its @ is routed back to it (lead_return.go)
 	botName                    string            // maomao fork: this bot's username, for self-mention marking and name calls (mentions.go)
 	auxChannels                map[string]string // maomao fork: main channel ID → log channel ID; see aux_channels.go
 	guildID                    string            // optional: instant guild registration, plus DM-only global commands
 	allowGuilds                map[string]bool   // allow_guilds: only these servers (and "dm") are served; see allow_guilds.go
+	dmDenyFrom                 map[string]bool   // dm_deny_from: DMs from these users are dropped; see dm_deny_from.go
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -137,6 +144,14 @@ func New(opts map[string]any) (core.Platform, error) {
 	allowFrom, _ := opts["allow_from"].(string)
 	allowBots, _ := opts["allow_bots"].(string)
 	allowBotsFilePath, _ := opts["allow_bots_file"].(string)
+	testWebhookPeople := map[string]bool{}
+	if v, _ := opts["test_webhook_people"].(string); v != "" {
+		for _, id := range strings.Split(v, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				testWebhookPeople[id] = true
+			}
+		}
+	}
 	teamLead, _ := opts["team_lead_bot"].(string)
 	core.CheckAllowFrom("discord", allowFrom)
 	approvers, err := parsePermissionApprovers(opts["permission_approvers"])
@@ -212,9 +227,11 @@ func New(opts map[string]any) (core.Platform, error) {
 		permissionApprovers:        approvers,
 		allowBots:                  allowBots,
 		allowBotsFile:              newAllowBotsFile(allowBotsFilePath),
+		testWebhookPeople:          testWebhookPeople,
 		teamLead:                   teamLead,
 		guildID:                    guildID,
 		allowGuilds:                parseAllowGuilds(opts),
+		dmDenyFrom:                 parseDMDenyFrom(opts),
 		progressStyle:              progressStyle,
 		cardEntries:                cardEntries,
 		cardLineLen:                cardLineLen,
@@ -229,6 +246,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		proxyURL:                   proxyU,
 	}
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
+		base.workspaceShelves = workspaceShelfStoreFor(dir)
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
 		base.cardViews.prefs = cardViewPrefsFor(dir) // shared by the bots of this data dir
@@ -804,6 +822,11 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if !p.guildAllowed(m.GuildID) {
 		return
 	}
+	if p.dmDenied(m.GuildID, m.Author.ID) {
+		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
+		return
+	}
+	asTestPerson(m, p.testWebhookPeople)
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
 	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
 	fromBot := m.Author.Bot
@@ -944,6 +967,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		m.Content = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
 	}
 
+	// Capture the human's addressee before adding quoted content (core addresseeOf decides).
+	otherCalled := !fromBot && callsOther(m, p.botID, botRoleID)
+
 	// Prepend the replied-to message's content and images so the agent has context.
 	if m.ReferencedMessage != nil {
 		m.Content, images = applyReferencedMessage(m.ReferencedMessage, m.Content, images, downloadURL)
@@ -959,7 +985,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
 	msg.PrivateRoom = !fromBot && p.privateRoom(s, m.GuildID, m.ChannelID, m.Author.ID)
-	msg.AddressedOther = !fromBot && !msg.Mentioned && addressedOther(m.Content, p.botID)
+	msg.AddressedOther = !msg.Mentioned && otherCalled
 	msg.StopAll = bareStop && !msg.Mentioned && !msg.AddressedOther
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {
@@ -1094,6 +1120,10 @@ func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.Interact
 		userName = i.User.Username
 	}
 
+	if p.dmDenied(i.GuildID, userID) {
+		slog.Info("discord: DM interaction skipped by dm_deny_from", "user", userID)
+		return
+	}
 	if !core.AllowList(p.allowFrom, userID) {
 		slog.Debug("discord: interaction from unauthorized user", "user", userID)
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -1573,8 +1603,35 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	rc := replyContext{channelID: parts[1]}
 	if len(parts) == 2 {
 		rc.threadID = parts[1]
+		if host := p.threadGoneHost(parts[1]); host != "" {
+			// The thread a task came from was deleted or locked: its report goes to the thread's
+			// text channel instead of failing (an archived thread reopens when the bot posts).
+			slog.Warn("discord: thread deleted or locked; replying in its text channel", "thread", parts[1], "channel", host)
+			return replyContext{channelID: host}, nil
+		}
 	}
 	return rc, nil
+}
+
+// threadGoneHost is the recorded text channel of a thread that worked as a chat channel for
+// workspaces, when that thread can no longer take a message (deleted or locked); "" otherwise.
+func (p *Platform) threadGoneHost(threadID string) string {
+	host := p.workspaceShelfStore().threadHost(threadID)
+	if host == "" || p.session == nil {
+		return ""
+	}
+	ch, err := p.session.Channel(threadID)
+	if err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound {
+			return host
+		}
+		return ""
+	}
+	if ch.ThreadMetadata != nil && ch.ThreadMetadata.Locked {
+		return host
+	}
+	return ""
 }
 
 // OpenDM opens (or reuses: Discord returns the existing one) the private channel between this bot
@@ -1595,6 +1652,103 @@ func (p *Platform) OpenDM(userID string) (string, error) {
 }
 
 var _ core.DirectMessageOpener = (*Platform)(nil)
+
+// IsDMMember reports whether userID is in the guild of the channel fromSession talks in (`send --dm
+// --to`, #1352). From a private chat (or no session) any guild the bot is in counts. One REST call per
+// guild (GET guild member), which needs no privileged intent.
+func (p *Platform) IsDMMember(fromSession, userID string) (bool, error) {
+	if p.session == nil {
+		return false, fmt.Errorf("discord: not connected")
+	}
+	if userID == "" {
+		return false, nil
+	}
+	var guilds []string
+	if parts := strings.SplitN(fromSession, ":", 3); len(parts) >= 2 && parts[0] == "discord" {
+		ch, err := p.session.State.Channel(parts[1])
+		if err != nil || ch == nil {
+			ch, err = p.session.Channel(parts[1])
+		}
+		if err == nil && ch != nil && ch.GuildID != "" {
+			guilds = []string{ch.GuildID}
+		}
+	}
+	if len(guilds) == 0 && p.session.State != nil {
+		p.session.State.RLock()
+		for _, g := range p.session.State.Guilds {
+			guilds = append(guilds, g.ID)
+		}
+		p.session.State.RUnlock()
+	}
+	var lastErr error
+	for _, g := range guilds {
+		m, err := p.session.GuildMember(g, userID)
+		if err == nil && m != nil {
+			return true, nil
+		}
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound {
+			continue
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return false, lastErr
+	}
+	return false, nil
+}
+
+var _ core.DMMemberChecker = (*Platform)(nil)
+
+// IsDMRefused: Discord answers 50007 "Cannot send messages to this user" (HTTP 403, or 400 on opening
+// the channel) when the person does not accept DMs from server members or has blocked the bot.
+func (p *Platform) IsDMRefused(err error) bool {
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeCannotSendMessagesToThisUser {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), `"code": 50007`)
+}
+
+// OpenPrivateThread opens a private thread in fromSession's guild channel (the parent channel when
+// fromSession is itself a thread), adds userID and returns the thread's session key. Only that person and
+// people with Manage Threads see it — the fallback for a refused `send --dm` (#1352).
+func (p *Platform) OpenPrivateThread(fromSession, userID, name string) (string, error) {
+	if p.session == nil {
+		return "", fmt.Errorf("discord: not connected")
+	}
+	parts := strings.SplitN(fromSession, ":", 3)
+	if len(parts) < 2 || parts[0] != "discord" {
+		return "", fmt.Errorf("the conversation is not a Discord channel")
+	}
+	ch, err := p.session.State.Channel(parts[1])
+	if err != nil || ch == nil {
+		ch, err = p.session.Channel(parts[1])
+	}
+	if err != nil || ch == nil {
+		return "", fmt.Errorf("discord: look up channel %s: %v", parts[1], err)
+	}
+	if ch.GuildID == "" {
+		return "", fmt.Errorf("the conversation is a private chat, not a server channel")
+	}
+	if ch.IsThread() && ch.ParentID != "" {
+		ch = &discordgo.Channel{ID: ch.ParentID, GuildID: ch.GuildID}
+	}
+	th, err := p.session.ThreadStartComplex(ch.ID, &discordgo.ThreadStart{
+		Name: name, Type: discordgo.ChannelTypeGuildPrivateThread, AutoArchiveDuration: 1440, Invitable: false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("discord: open private thread (the bot needs Create Private Threads here): %w", err)
+	}
+	if err := p.session.ThreadMemberAdd(th.ID, userID); err != nil {
+		_, _ = p.session.ChannelDelete(th.ID)
+		return "", fmt.Errorf("discord: add %s to private thread: %w", userID, err)
+	}
+	return "discord:" + th.ID, nil
+}
+
+var _ core.DMRefusalDetector = (*Platform)(nil)
+var _ core.PrivateThreadOpener = (*Platform)(nil)
 
 func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (string, any, error) {
 	if !p.threadIsolation {
@@ -2122,6 +2276,21 @@ func (p *Platform) holdBotMessage(s *discordgo.Session, m *discordgo.MessageCrea
 // teamPlatforms: botID → *Platform for every bot in this process (maomao fork), so a bot can
 // turn a plain "@name" of a teammate into a real mention (linkTeamMentions).
 var teamPlatforms sync.Map
+
+// asTestPerson turns a message from a webhook listed in test_webhook_people into a person's
+// message: each display name becomes its own sender ("wh<webhook>-<name>"). Test servers have
+// one webhook and no second human account; this lets two "people" talk there. Never on by default.
+// The id is "wh<webhook>-<first 8 hex of sha1(name)>".
+func asTestPerson(m *discordgo.MessageCreate, hooks map[string]bool) {
+	if m == nil || m.Author == nil || m.WebhookID == "" || !hooks[m.WebhookID] {
+		return
+	}
+	u := *m.Author
+	u.Bot = false
+	sum := sha1.Sum([]byte(strings.TrimSpace(u.Username))) // names may be Chinese; person keys keep only [A-Za-z0-9._-]
+	u.ID = "wh" + m.WebhookID + "-" + hex.EncodeToString(sum[:4])
+	m.Author = &u
+}
 
 // isBotNotice reports cc-connect's own status lines (queue notices, session/errors, insert
 // acks) that carry nothing a teammate should read.

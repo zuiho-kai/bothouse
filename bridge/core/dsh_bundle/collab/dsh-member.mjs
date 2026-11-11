@@ -37,7 +37,7 @@ export function workspaceHint(hub, later, memberId, roomId) {
  * of the shared file fails tests instead of silently dropping the swap.
  */
 const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
-export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，满 4 个就排队。';
+export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，没空的就新开。';
 export function dshTeamModeRules(mode) {
   const rules = teamModeRules(mode);
   if (!WORKSPACE_LINE.test(rules)) throw new Error('team-mode-rules.md: the workspace line moved; update WORKSPACE_LINE');
@@ -171,7 +171,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     mode = DEFAULT_DISPATCH_MODE;
   }
   const lines = messages.map(m => `【${m.name}】${quotePrefix(store?.quote?.(m))}${m.text}`);
-  const model = member.model === undefined ? '' : `你底层用的模型是 ${member.model.provider}/${member.model.model}。`;
+  const model = member.model === undefined ? '' : `你底层用的模型是 ${typeof member.model === 'string' ? member.model : `${member.model.provider}/${member.model.model}`}。`;
   const persona = member.persona?.trim() ? ['你的人设：', member.persona.trim(), ''] : [];
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
@@ -198,10 +198,20 @@ export function describeReason(reason) {
 }
 
 const INTERRUPTED = Symbol('interrupted');
+const MAX_INTERNAL_ERRORS = 3;
+
+// ACP adapters may preserve the JSON-RPC code or normalize it at the LLM boundary.
+function internalError(failure) {
+  return failure?.code === -32603 || /^(INTERNAL_ERROR|SERVER_ERROR)$/.test(failure?.code ?? '')
+    || /\binternal[ _]error\b/i.test(failure?.message ?? '');
+}
 
 export function friendlyFailure(raw) {
   if (raw?.code === 'COLLAB_CLI_START') return raw.message;
   const text = String(raw);
+  // #1606: a used-up quota is not a configuration problem. Same wording as quota-cooling.mjs quotaDeadline.
+  if (/quota|resource_exhausted|(?:usage|session) limit|hit your limit/i.test(text)) return `模型额度用完了，等额度恢复或换个模型/中转站再试。原始错误：${text.replace(/^出错了：/, '')}`;
+  if (/\binternal[ _]error\b/i.test(text)) return `上游模型服务内部错误（Internal error），本轮已停止；服务恢复后可重新派活。${text.includes('连续') ? ` ${text}` : ''}`;
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没填模型密钥，填好就能用。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
   // An unreachable provider is a setting or network problem. Echoing the transport wording
@@ -468,13 +478,34 @@ export class DshMembers {
       return;
     }
     if (w.turn !== undefined && event.data?.turn === w.turn) {
-      if (event.type === 'tool/call') w.progress?.call(event.data.callId, event.data.name, event.data.arguments);
+      if (event.type === 'llm/retry') {
+        w.internalErrors = internalError(event.data.failure) ? (w.internalErrors ?? 0) + 1 : 0;
+        if (w.internalErrors > 0) {
+          if (w.internalErrors >= MAX_INTERNAL_ERRORS) {
+            // Settle our watcher before cancel emits turn/end. Do not replay the input:
+            // earlier successful steps may already have performed work.
+            this.watching.delete(session.id);
+            w.resolve({ upstreamError: `连续 ${MAX_INTERNAL_ERRORS} 次 Internal error，已停止自动重试。` });
+            this.approvals.expireWhere(p => p.meta?.sessionId === session.id);
+            this.rt.ctx.agents.get(session.id)?.cancel({ kind: 'user' }, { keepInbox: true });
+            return;
+          }
+          const text = `${w.progress.member.name} 的上游模型返回 Internal error，正在重试（连续 ${w.internalErrors}/${MAX_INTERNAL_ERRORS} 次）。`;
+          if (w.retryNotice === undefined) w.retryNotice = this.hub.post(job.room_id, {
+            authorKind: 'system', author: 'system', name: 'system', text, clientKey: `dsh-job-${job.id}-retry`,
+          }).message.id;
+          else this.hub.edit(w.retryNotice, 'system', 'system', text);
+        }
+      }
+      else if (event.type === 'tool/call') w.progress?.call(event.data.callId, event.data.name, event.data.arguments);
       else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name);
       else if (event.type === 'assistant/message') {
+        w.internalErrors = 0;
         for (const part of event.data.message?.content ?? []) {
           if (part?.type === 'reasoning' && typeof part.text === 'string' && part.text !== '') w.progress?.thought(part.text);
         }
       }
+      else if (event.type === 'step/start') w.internalErrors = 0;
     }
     if (event.type === 'turn/end' && w.turn !== undefined && event.data?.turn === w.turn) {
       this.watching.delete(session.id);
@@ -851,7 +882,7 @@ export class DshMembers {
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
       // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
       const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
-      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, model: member.model, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
@@ -868,6 +899,13 @@ export class DshMembers {
           code: error.code, cwd: error.cwd, cli: error.cli,
         });
       }
+      // #1606: an ACP adapter fails a turn with a JSON-RPC error whose message is only the code's name
+      // ("Internal error", -32603) and whose data carries the provider's own words (codex-acp 2.2.2
+      // createTurnErrorData: { message, codexErrorInfo: 'usageLimitExceeded' }). Reporting the bare
+      // "Internal error" told the room to check its configuration and hid a used-up quota from the
+      // quota cooling, so every reminder or re-dispatch sent the member upstream to fail again.
+      const detail = typeof error?.data?.message === 'string' ? error.data.message.trim() : '';
+      if (detail) throw Object.assign(new Error(detail, { cause: error }), { code: error.code, data: error.data });
       throw error;
     } finally {
       turnOver.abort();
@@ -931,8 +969,10 @@ export class DshMembers {
     const sessionId = agent.session.id;
     const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
     let settled = 'failed';
+    let watch;
     const done = new Promise((resolve) => {
-      this.watching.set(sessionId, { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve, progress });
+      watch = { jobId: job.id, inputId: input.id, seqBefore, turn: undefined, resolve, progress };
+      this.watching.set(sessionId, watch);
     });
     this.hub.setError(member.id, undefined);
     this.hub.setThinking(job.room_id, member.id, true);
@@ -941,10 +981,13 @@ export class DshMembers {
       this.store.advanceCursor(member.id, job.room_id, job.trigger_id);
       const outcome = await done;
       if (outcome === INTERRUPTED || this.closed) return;
-      if (outcome.discarded) this.fail(job.id, `${member.name} 的这条任务在开始前被取消了。`);
+      if (outcome.upstreamError) this.fail(job.id, outcome.upstreamError);
+      else if (outcome.discarded) this.fail(job.id, `${member.name} 的这条任务在开始前被取消了。`);
       else if (this.finish(job, member, outcome)) settled = 'completed';
     } finally {
       progress.end(settled);
+      if (watch.retryNotice !== undefined && !this.closed) this.hub.edit(watch.retryNotice, 'system', 'system',
+        `${member.name} 的上游模型曾返回 Internal error；${settled === 'completed' ? '重试后已恢复，本轮已完成。' : '本轮已停止。'}`);
       // A failed admission must not leave a watcher that claims a later, unrelated turn.
       if (this.watching.get(sessionId)?.jobId === job.id) this.watching.delete(sessionId);
       this.hub.setThinking(job.room_id, member.id, false);
@@ -952,6 +995,10 @@ export class DshMembers {
   }
 
   finish(job, member, { events, reason }) {
+    if (reason?.kind === 'error' && internalError(reason.error)) {
+      this.fail(job.id, `${member.name} 的上游模型返回 Internal error，本轮失败。`);
+      return false;
+    }
     const text = finalText(events);
     if (text === undefined) {
       this.fail(job.id, `${member.name} 这一轮没有给出回复（${describeReason(reason)}）`);
@@ -1032,6 +1079,9 @@ export class DshMembers {
         trigger_id: job.trigger_id,
       }),
     });
+    // A terminal ACP error has already exhausted (or does not offer) retries.
+    // Native retry loops reach here after the bounded llm/retry guard above.
+    if (internalError({ message: String(notice) })) this.hub.tasks?.pauseForFailure(job.room_id, job.member_id, error);
   }
 
   /**

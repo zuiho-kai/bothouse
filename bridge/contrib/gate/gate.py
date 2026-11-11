@@ -329,9 +329,8 @@ def _cc_projects():
 def _project_member(project):
     """cc-connect 的 project 名 → 成员 key：subs 的 key 就是 project 名（gate_url 的 ?bot=）；
     主角色的 project 名在团队文件 lead 的 aliases 里（安装向导写 gate-team.json 时放进去的，core/setup_wizard.go）。"""
-    if project in SUBS:
-        return project
-    return "" if project in LEAD_NAMES else None
+    k = lead.member(project)
+    return k if k == "" or k in SUBS else None
 
 
 def _discord_opts():
@@ -536,12 +535,29 @@ def team_recent(chat):
     return out
 
 
+_asked = {}  # 频道 → 为它发过 /decide 的 bot：她们收得到这个频道的消息（本进程启动以来）
+_asked_lock = threading.Lock()  # 不用 _addr_lock：_talking 在持有 _addr_lock 时调 team_online
+
+
+def _note_asked(chat, bot):
+    with _asked_lock:
+        _asked.setdefault(chat, set()).add(bot)
+
+
 def team_online(bot, chat):
-    """收件人在线且在本频道：她的状态文件一分钟内重写过，且 sessions 里有本频道。没配 team_status_dir 时不知道，按在线算。"""
+    """收件人在线且收得到本频道。在线 = 状态文件一分钟内重写过（进程活着）。收得到本频道，下面任一条：
+    sessions 里有本频道；她是当前主角色；她为本频道发过 /decide（_asked）。只看 sessions 不够：core 只写在忙和
+    10 分钟内做完的会话（core/team.go teamRecentDone），空闲十分钟以上的主角色会被判不在线，jev 判给她的话
+    就转回模型判成 silent（2026-11-11 11:23「都装到我win上」没人接）。没配 team_status_dir 时不知道，按在线算。"""
     if TEAM_DIR is None:
         return True
     f = _team_files().get(bot)
-    return bool(f) and any(_chat(s.get("key")) == chat for s in f.get("sessions") or [])
+    if not f:
+        return False
+    if any(_chat(s.get("key")) == chat for s in f.get("sessions") or []) or bot == lead.current():
+        return True
+    with _asked_lock:
+        return bot in _asked.get(chat, ())
 
 
 def _key_part(req):
@@ -627,6 +643,7 @@ def addressee(req, bot):
         return None, "", None
     last = split_reply(_key_part(req)["content"].strip())[1] or ATTACH_ONLY_MSG
     key = (_chat(req.get("session_key")), last)
+    _note_asked(key[0], bot)
     with _addr_lock:
         now = time.time()
         for k in [k for k, v in _addr_cache.items() if now - v[0] > ADDR_REUSE_SECS]:
@@ -845,7 +862,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urllib.parse.urlsplit(self.path)
-        bot = urllib.parse.parse_qs(url.query).get("bot", [""])[0]
+        bot = lead.member(urllib.parse.parse_qs(url.query).get("bot", [""])[0])
         if url.path == "/lead":  # 主角色自己来问 / 自己来当（用户 2026-10-21：「每个角色都可以去选择当主，他自己有个功能接口过去搞」）
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             action = (req.get("action") or "get").strip()

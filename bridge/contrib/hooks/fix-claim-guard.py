@@ -6,7 +6,6 @@
 只在修 bug 的轮次检查：用户这轮原话里没有修/报错/失败这类词就放行（2026-10-15 用户问"为什么慢、谁负责"，回复里讲经过的"修完再跑"被误拦两次，补的表还顶掉了答案）。"""
 import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import eta_guard  # noqa: E402  预计时间长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
 import importlib.util  # noqa: E402
 
 
@@ -110,49 +109,77 @@ def turn_text(path):
             out += [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
     return "\n".join(reversed(out))
 
-# 2026-11-01 复盘：没查就说「我们没有 X」（实际有）。回复否定自家功能、本轮却没跑过查证命令 → 拦一次。
-DENY_OWN = re.compile(r"我们(还)?没(有|做)|没做过|不支持|做不到")
-LOOKUP_CMD = re.compile(r"search\.py|\bgrep\b|\brg\b|chanlog|codegraph|sessions\.py")
-LOOKUP_TOOL = re.compile(r"^(Grep|Glob|grep|glob)$|codegraph")
+# 2026-10-25 用户批准（原话「都做」）：本机脚本、单文件小改动有测试就直接生效，不列入口表。
+# 本轮只改了 1 个文件、改动不到 50 行、没有合并/推送/重启/发版 → 放行。统计不出来就照拦。
+SMALL_MAX_LINES = 50
+SHIP = re.compile(r"gh\s+pr\s+merge|git\s+push|safe-restart|gh\s+release|\b(npm|pnpm|yarn)\s+publish|bh-deploy|bothouse\s+daemon\s+restart")
+SED_I = re.compile(r"\bsed\s+(?:-[a-zA-Z]*\s+)*-i(?:\s*''|\s*\"\"|\S*)?\s+.*?(\S+)\s*(?:$|[;&|])", re.M)
+REDIR = re.compile(r"(?<![0-9&>])>>?\s*([^\s;&|<>()]+)")
 
-def looked_up(path):
-    """本轮有没有查证（wiki/代码/历史）的工具调用。读不出来按查过算，不误拦。"""
+def _ignored(path):
+    path = path.strip("'\"")
+    return (not path or path.startswith(("&", "/dev/", "/tmp/", "/private/tmp/", "$TMPDIR", "${TMPDIR"))
+            or "/notes/" in path or path.startswith("notes/"))
+
+def _nlines(t):
+    return len(t.splitlines()) if t else 0
+
+def small_change(path):
+    """本轮是否小改动（0 或 1 个文件，2026-10-25 起 0 文件的纯调研轮也放行）。解析出错返回 False（照拦）。"""
     try:
         lines = open(path, encoding="utf-8").read().splitlines()
-    except OSError:
-        return True
-    for line in reversed(lines):
-        try:
+        blocks = []
+        for line in reversed(lines):
             e = json.loads(line)
-        except ValueError:
-            continue
-        c = (e.get("message") or {}).get("content")
-        if e.get("type") == "user" and not e.get("isMeta") and (isinstance(c, str) or (isinstance(c, list) and any(
-                isinstance(b, dict) and b.get("type") == "text" for b in c))):
+            c = (e.get("message") or {}).get("content")
+            if e.get("type") == "user" and not e.get("isMeta"):
+                if isinstance(c, str) or (isinstance(c, list) and any(b.get("type") == "text" for b in c if isinstance(b, dict))):
+                    break
+            if e.get("type") == "assistant" and isinstance(c, list):
+                blocks += [b for b in c if isinstance(b, dict) and b.get("type") == "tool_use"]
+        # 本轮一次工具都没调（或记录是别的 CLI 的原生格式，看不到工具调用）：没法说它改得小，照拦
+        if not blocks:
             return False
-        for b in (c if e.get("type") == "assistant" and isinstance(c, list) else []):
-            if isinstance(b, dict) and b.get("type") == "tool_use" and (LOOKUP_TOOL.search(b.get("name") or "")
-                    or LOOKUP_CMD.search(str((b.get("input") or {}).get("command") or ""))):
-                return True
-    return False
+        files, total = set(), 0
+        for b in blocks:
+            name, inp = b.get("name"), b.get("input") or {}
+            if name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+                fp = inp.get("file_path") or inp.get("notebook_path")
+                if not fp:
+                    return False
+                if _ignored(fp):
+                    continue
+                files.add(fp)
+                if name == "Edit":
+                    total += max(_nlines(inp["new_string"]), _nlines(inp["old_string"]))
+                elif name == "Write":
+                    total += _nlines(inp["content"])
+                elif name == "MultiEdit":
+                    total += sum(max(_nlines(x["new_string"]), _nlines(x["old_string"])) for x in inp["edits"])
+                else:
+                    total += _nlines(inp.get("new_source", ""))
+            elif name == "apply_patch":  # Codex 的改文件工具：这里不数它的行数，照拦
+                return False
+            elif name == "Bash":
+                cmd = inp["command"]
+                if SHIP.search(cmd):
+                    return False
+                for m in list(SED_I.finditer(cmd)) + list(REDIR.finditer(cmd)):
+                    if not _ignored(m.group(1)):
+                        files.add(m.group(1).strip("'\""))
+        return len(files) <= 1 and total < SMALL_MAX_LINES
+    except Exception:
+        return False
 
 def main():
     d = json.load(sys.stdin)
     if d.get("stop_hook_active"):
         return
     reply = d.get("last_assistant_message") or turn_text(d.get("transcript_path", ""))
-    if DENY_OWN.search(QUOTED.sub("", reply)) and not looked_up(d.get("transcript_path", "")):
-        print(json.dumps({"decision": "block", "reason": "先查 wiki/代码再说我们没有：回复里否定了自家功能，"
-              "本轮却没跑过 search.py/grep/rg/chanlog/codegraph。查完再答，查不了就说没核。"}, ensure_ascii=False))
-        return
     cf = _check_first()
     why = cf.check(d) if cf else None
     if why:
         print(json.dumps({"decision": "block", "reason": why}, ensure_ascii=False))
-        return
-    eta = eta_guard.check(d.get("last_assistant_message") or turn_text(d.get("transcript_path", "")))
-    if eta:
-        print(json.dumps({"decision": "block", "reason": eta}, ensure_ascii=False))
         return
     prompt = last_prompt(d.get("transcript_path", ""))
     if prompt is not None and RELAY in prompt:
@@ -161,6 +188,8 @@ def main():
         return
     last = d.get("last_assistant_message") or ""
     if not claims(last if last else turn_text(d.get("transcript_path", ""))):
+        return
+    if small_change(d.get("transcript_path", "")):
         return
     text = turn_text(d.get("transcript_path", "")) + "\n" + last
     if HEADER.search(text):

@@ -79,13 +79,37 @@ func TestApplyWizardNotInGuildIsNotOK(t *testing.T) {
 	}
 }
 
+// A server picked and nothing given: everyone in that server (a team channel answers its other
+// members, not only the owner); the bots' owners still get admin_from.
+func TestApplyWizardAllowFromDefaultsToServer(t *testing.T) {
+	noHardware(t)
+	t1, t2 := fakeToken("111"), fakeToken("222")
+	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "teamapp"})
+	store := newMemStore()
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}, discordReq("900", WizardRole{Token: t1}, WizardRole{Token: t2}))
+	if !res.OK || res.AllowFrom != "*" || findWarning(res, "allow_from_everyone") == nil {
+		t.Fatalf("ok=%v allow_from=%q warnings=%v", res.OK, res.AllowFrom, warningCodes(res))
+	}
+	for _, p := range []string{"juzi", "teamapp"} {
+		if got := store.projects[p].Options["allow_from"]; got != "*" {
+			t.Errorf("%s allow_from = %v", p, got)
+		}
+		if got := store.projects[p].Options["allow_guilds"]; got != "900,dm" {
+			t.Errorf("%s allow_guilds = %v", p, got)
+		}
+		if got := store.projects[p].AdminFrom; got != "777,888" {
+			t.Errorf("%s admin_from = %q, want the owners", p, got)
+		}
+	}
+}
+
 func TestApplyWizardAllowFromDefaultsToOwner(t *testing.T) {
 	noHardware(t)
 	t1, t2, t3 := fakeToken("111"), fakeToken("222"), fakeToken("333")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "teamapp", t3: "noowner"})
 	store := newMemStore()
 	env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}
-	res := ApplyWizard(context.Background(), env, discordReq("900", WizardRole{Token: t1}, WizardRole{Token: t2}))
+	res := ApplyWizard(context.Background(), env, discordReq("", WizardRole{Token: t1}, WizardRole{Token: t2}))
 	if !res.OK || res.AllowFrom != "777,888" {
 		t.Fatalf("ok=%v allow_from=%q warnings=%v", res.OK, res.AllowFrom, warningCodes(res))
 	}
@@ -112,7 +136,7 @@ func TestApplyWizardAllowFromDefaultsToOwner(t *testing.T) {
 
 	// owner unknown and nothing given: fail closed — allow_from matches no one, blocking warning, not ok
 	store3 := newMemStore()
-	res3 := ApplyWizard(context.Background(), WizardEnv{Store: store3, DataDir: t.TempDir(), CLIs: testCLIs}, discordReq("900", WizardRole{Token: t3}))
+	res3 := ApplyWizard(context.Background(), WizardEnv{Store: store3, DataDir: t.TempDir(), CLIs: testCLIs}, discordReq("", WizardRole{Token: t3}))
 	w := findWarning(res3, "allow_from_unknown")
 	if w == nil || !w.Blocking || res3.OK || !res3.NeedsUserAction || !res3.Saved || !strings.Contains(w.Fix, "开发者模式") {
 		t.Fatalf("no owner: ok=%v %+v", res3.OK, res3.Warnings)
@@ -122,7 +146,7 @@ func TestApplyWizardAllowFromDefaultsToOwner(t *testing.T) {
 	}
 	// an explicit empty value is not "anyone" either; only "*" opens up
 	empty := ""
-	req4 := discordReq("900", WizardRole{Token: t3})
+	req4 := discordReq("", WizardRole{Token: t3})
 	req4.AllowFrom = &empty
 	if r := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs}, req4); r.OK || findWarning(r, "allow_from_unknown") == nil {
 		t.Fatalf("explicit empty: ok=%v %v", r.OK, warningCodes(r))
@@ -259,7 +283,7 @@ func TestApplyWizardAllowFromRerunReplacesPlaceholder(t *testing.T) {
 	fakeDiscord(t, map[string]string{tok: "noowner"})
 	store := newMemStore()
 	env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}
-	first := ApplyWizard(context.Background(), env, discordReq("900", WizardRole{Token: tok}))
+	first := ApplyWizard(context.Background(), env, discordReq("", WizardRole{Token: tok}))
 	if first.OK || findWarning(first, "allow_from_unknown") == nil || store.projects["noowner"].Options["allow_from"] != AllowFromUnset {
 		t.Fatalf("first run: ok=%v %v allow_from=%v", first.OK, warningCodes(first), store.projects["noowner"].Options["allow_from"])
 	}

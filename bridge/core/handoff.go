@@ -357,6 +357,9 @@ func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 		full = strings.TrimSuffix(full, handoffEnd) + "\n" + sealSections(seal) + handoffEnd
 	}
 	cid := StashCtx(e.dataDir, full)
+	if seal.Late != nil && cid != "" {
+		go sealLate(e.dataDir, cid, sessionKey, seal.Late, time.Now())
+	}
 	if cid == "" { // no store: the whole handoff as before
 		return full
 	}
@@ -368,6 +371,9 @@ func sealSections(seal sealResult) string {
 	var b strings.Builder
 	if seal.Digest != "" {
 		src := "程序按操作记录写的规则摘要（便宜模型没写成）"
+		if seal.Late != nil {
+			src = "程序按操作记录写的规则摘要；便宜模型还在写，写完补进交接全文"
+		}
 		if seal.ByModel {
 			src = fmt.Sprintf("便宜模型按 %d 次调用的一行摘要写的，可能有误", seal.Calls)
 		}
@@ -858,6 +864,10 @@ func (s *Session) TakeHandoffFrom() (string, string) {
 func (s *Session) SettleHandoff(delivered bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if delivered && s.outboundTaken > 0 {
+		s.PendingOutbound = append([]ChannelHistoryMessage(nil), s.PendingOutbound[s.outboundTaken:]...)
+		s.outboundTaken = 0
+	}
 	if !delivered && s.handoffTaken[0] != "" && s.HandoffFrom == "" {
 		s.HandoffFrom, s.HandoffReason = s.handoffTaken[0], s.handoffTaken[1]
 	}

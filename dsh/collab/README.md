@@ -1,5 +1,13 @@
 # collab：DSH 里的频道与多成员协作
 
+## 取消或替代任务
+
+用户在任务板上打开未结束的任务，点「取消任务」或「标为被替代」，填写原因并提交；替代操作可填写另一条任务的编号。成功后显示「已取消」或「已替代」，归入「全部」，停止催办和忙碌计数；工作区没有其他进行中任务且本次交接已结束时回到池子。原派工原因、进展说明和交回消息保留，取消不算验收通过。
+
+API：`POST /collab/api/tasks/{id}/cancel` 接受 `{ "reason": "不再执行" }`；`POST /collab/api/tasks/{id}/supersede` 接受 `{ "reason": "改由后续任务承接", "superseded_by": 123 }`（`superseded_by` 可省，填写时须是另一条已有任务的编号）。指定全局任务编号即可定位工作区任务。同一操作、原因和替代编号重试返回原结果，不重复发记录；已结束任务不能通过改写原因变更终态。
+
+浏览器须以用户身份登录。成员只允许原派活人通过自己的已验证 cloud-web 连接发送 `task` 帧（`action: "cancel"` / `"supersede"`，`task_id`、`reason`、可选 `superseded_by`）；共享 bot token 的 `actor` 和回查票据不能授权关闭任务。权限不足时交回原派活人，或请用户在任务板操作。普通聊天里写“已取消”不会转换状态，以 API 成功返回及任务板终态为准。成员仍不能自行验收自己的工作。
+
 上游 DSH 项目（未公开）的 Issue #229。一个以绝对路径加载的 DSH Host 插件（纯 ESM，无需构建），在 DSH Web 进程里提供：
 
 - **频道**：消息存在 `dataDir/collab.sqlite3`，重启不丢；数字消息 ID 与 role-household hub 一致。
@@ -19,6 +27,8 @@ Wiki 星河（`/collab/wiki-galaxy`）把一本 markdown wiki 画成可旋转的
 频道、团队工作台、bothouse 面板、其他电脑在 DSH「插件 → bothouse」里各是一行，用 DSH 自带的开关分别开关（#1044）：新装只开频道，另外三项默认关；打开哪项，左边栏马上出现哪项，关掉马上消失，不用重启。老版本升级上来时，原来左边栏有的照旧开着（只做一次，之后按你在插件页的选择）。关掉的项只是左边栏不显示，`/collab/desk` 等地址照样能打开。这三项的网页端各是一个小包（`dsh/packages/bothouse-dsh-*`，由 `dsh/packages/bothouse-embeds/build.mjs` 生成）。打开后，「团队工作台」在主区域里直接显示团队工作台；「bothouse」在主区域里显示整个 bothouse 管理面板（概览、角色、用量等页都在里面；Wiki 星河也收在这块面板里，作为它自己的「Wiki 星河」子页，不再单独占左边栏一项），经 `/collab/panel/*`（只给主人）在服务端转发到主桥管理接口：插件每次请求时读 `bridgeConfig` 指的主桥配置文件里 `[management]` 段的地址和令牌，自己给请求签名，令牌不到浏览器；面板首页的 `<base href>` 改成 `/collab/panel/`，并加一个标记让面板不再要求登录。`bridgeConfig` 不设时依次用 `BOTHOUSE_CONFIG`、`$BOTHOUSE_DATA_DIR/config.toml`、`~/.bothouse/config.toml`；管理接口关着或连不上时框里显示原因。面板页面要用支持子路径的版本（`bridge/web` 里资源和接口都按 `<base href>` 走），旧版主桥带的面板挂在这里会打不开资源。
 
 ## 只用一个模型或一种 CLI 组队
+
+原生 DSH 成员遇到上游 `Internal error` 重试时，频道会立即显示提示；同一回合连续三次失败后停止自动重试。对应成员的工作区任务会暂停，工作区和所属聊天频道都会收到原因，其他成员的任务不受影响。成功输出或进入新步骤会清零连续失败计数；本机 CLI 返回终止性的 `Internal error` 时也会暂停任务。服务恢复后重新派活，不会自动重放可能已经做过的步骤。
 
 在原生 DSH 网页的「频道」→「添加成员」中，连续添加三个不同名字的成员：
 
@@ -115,6 +125,8 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /absolute/path/t
 - **模型变更即时生效**：写了 `model` 的成员每次请求都用它；在成员表单里改模型，已绑定的会话下一次请求就切换，并在会话日志里记一条 `model/selection`。
 - **重新开始对话**：在频道里发 `@成员名 /new`，只重置被点名成员在当前频道的会话，从该命令之后继续读取消息；其他成员、频道历史和 wiki 不因此清空。
 - 接口（都需要 DSH 登录）：`GET /collab/api/models`、`POST /collab/api/rooms`、`POST /collab/api/members`、`PATCH|DELETE /collab/api/members/{id}`。
+- Claude CLI 成员的 `model` 是 CLI 模型 ID 字符串（例如 `"sonnet"`），DSH 成员仍使用 `{ "provider": "...", "model": "..." }`。`PATCH /collab/api/members/{id}` 和 `/collab/api/panel/members/{id}` 都保留未传字段；`model: null` 清除覆盖，Claude 已有会话在下一轮恢复其初始默认模型。切换在发出下一轮提示词前应用，失败时停止该轮并报错，不默默沿用旧模型。配置文件成员仍只读。
+- 建团队接口的成员项可写 `{ "name": "Claude", "cli": "claude", "model": "sonnet" }`；省略 `model` 使用该 CLI 的默认模型，省略 `cli` 保留原有 DSH 成员行为。
 
 ## 接入 cc-connect 成员
 

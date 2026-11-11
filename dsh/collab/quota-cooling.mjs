@@ -3,10 +3,12 @@ import { dirname, join } from 'node:path';
 
 // Claude reports a provider-local reset clock; convert it using its IANA zone,
 // including calendar dates for weekly limits. Missing deadlines stay unknown.
-function resetClock(raw, now) {
-  const match = /^(?:([A-Za-z]{3})\s+(\d+),?\s+)?(\d{1,2})(?::(\d{2}))?(am|pm)?\s+\(([^)]+)\)$/i.exec(raw);
+function resetClock(raw, now, defaultZone) {
+  const match = /^(?:([A-Za-z]{3})\s+(\d+),?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+\(([^)]+)\))?$/i.exec(raw);
   if (!match) return undefined;
-  const [, month, day, hour, minute, period, timeZone] = match;
+  const [, month, day, hour, minute, period, zone] = match;
+  const timeZone = zone ?? defaultZone;
+  if (!timeZone) return undefined;
   const fmt = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23' });
   const parts = at => Object.fromEntries(fmt.formatToParts(at).filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));
   const current = parts(now);
@@ -50,9 +52,12 @@ export function quotaDeadline(event, now = Date.now()) {
   if (/quota|resource_exhausted|(?:usage|session) limit|hit your limit/i.test(text) || reset !== undefined) {
     const duration = /resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?/i.exec(text);
     const delay = duration && (Number(duration[1] ?? 0) * 3600 + Number(duration[2] ?? 0) * 60 + Number(duration[3] ?? 0)) * 1000;
-    const raw = reset ?? /resets?\s+(.+?\([^)]+\))/i.exec(text)?.[1] ?? '';
+    // Source: codex app-server's captured usageLimitExceeded message (appserver_session.go).
+    // Codex prints a local clock, e.g. "Try again at 4:13 AM."; Claude supplies its IANA zone.
+    const retry = /\btry again at\s+(.+?)\.?\s*$/i.exec(text)?.[1];
+    const raw = reset ?? /resets?\s+(.+?\([^)]+\))/i.exec(text)?.[1] ?? retry ?? '';
     let absolute;
-    try { absolute = /^\d{4}-\d\d-\d\dT/.test(raw) ? Date.parse(raw) : resetClock(raw, now); }
+    try { absolute = /^\d{4}-\d\d-\d\dT/.test(raw) ? Date.parse(raw) : resetClock(raw, now, retry ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined); }
     catch (error) { if (!(error instanceof RangeError)) throw error; } // invalid external IANA zone stays unknown
     if (delay > 0) until = Math.max(until, now + delay);
     if (absolute > now) until = Math.max(until, absolute);

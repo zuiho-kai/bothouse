@@ -1,11 +1,24 @@
 package core
 
 import (
+	"context"
 	"log/slog"
+	"os/exec"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// Pass the configured deadline to cooperative shell children. This is runtime
+// context, not a second timeout setting; unlimited jobs clear inherited values.
+func scheduledShellDeadline(cmd *exec.Cmd, ctx context.Context) {
+	value := ""
+	if deadline, ok := ctx.Deadline(); ok {
+		value = strconv.FormatFloat(float64(deadline.UnixNano())/float64(time.Second), 'f', -1, 64)
+	}
+	cmd.Env = append(cmd.Environ(), "CC_JOB_DEADLINE="+value)
+}
 
 // scheduledTurns maps a running scheduled turn (cron job, timer job, heartbeat) to the
 // interactive key its agent turn runs under, so a scheduler that gives up waiting can stop

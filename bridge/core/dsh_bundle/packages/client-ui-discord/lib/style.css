@@ -1486,7 +1486,7 @@
   border-color: var(--dsw-alias-state-business-primary);
 }
 
-.dshc_boardTaskCard[data-status="done"] {
+.dshc_boardTaskCard[data-status="done"], .dshc_boardTaskCard[data-status="cancelled"], .dshc_boardTaskCard[data-status="superseded"] {
   filter: saturate(.25);
   color: var(--dsw-alias-label-secondary);
 }
@@ -1645,7 +1645,7 @@
   background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));
 }
 
-.dshc_taskStatus[data-status="done"] {
+.dshc_taskStatus[data-status="done"], .dshc_taskStatus[data-status="cancelled"], .dshc_taskStatus[data-status="superseded"] {
   background: var(--dsw-alias-label-tertiary);
 }
 

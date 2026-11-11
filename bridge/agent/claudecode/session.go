@@ -69,6 +69,10 @@ type claudeSession struct {
 	// usageMu guards lastUsage. Populated from the most recent result event.
 	usageMu   sync.Mutex
 	lastUsage *core.ContextUsage
+	// lastCostUSD: the CLI's total_cost_usd at the previous result. It is the running
+	// total of this process (measured 11-11: 0.0054 then 0.0064 over two turns, num_turns
+	// 1 then 2), so a turn's cost is the difference (#1448).
+	lastCostUSD float64
 	// reportedWindow is modelUsage[*].contextWindow from the last result event (guarded by
 	// usageMu): the window the CLI itself uses, e.g. 1000000 for claude-opus-5-5 (no "[1m]" in
 	// the id) or 200000 for a model it does not recognise. 0 until a result is seen.
@@ -117,6 +121,9 @@ type claudeSession struct {
 	// non-success result then ends it with an EventError (core only logs it).
 	interrupting atomic.Bool
 	interruptSeq atomic.Int64
+	// Control requests this session sent and waits for the answer of, by request_id
+	// (chan map[string]any); see handleControlResponse.
+	controlWaiters sync.Map
 }
 
 // StartupWarning implements core.StartupWarner. Returns a non-empty string
@@ -259,6 +266,21 @@ func buildAppendSystemPrompt(agentPrompt, platformPrompt, userAppend string) str
 		parts = append(parts, userAppend)
 	}
 	return strings.Join(parts, "\n")
+}
+
+// withSessionEnvKeys adds the keys this session sets on purpose to the spawn allowlist, so they cross
+// the sudo boundary under run_as_user. Those are the role env (CC_PROJECT / CC_SESSION_KEY /
+// CC_DATA_DIR / CC_BIN, without which `bothouse member` inside the role cannot tell whose turn it is),
+// provider keys and run_as_env. Only these keys are added, per spawn: DefaultEnvAllowlist stays as
+// narrow as it is. codex does the same (agent/codex/runas.go:codexCommand).
+func withSessionEnvKeys(allow, extraEnv []string) []string {
+	out := append([]string(nil), allow...)
+	for _, kv := range extraEnv {
+		if k, _, ok := strings.Cut(kv, "="); ok && k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, disableVerbose bool, spawnOpts core.SpawnOptions, maxContextTokens int, ccDataDir string, voiceStream bool) (*claudeSession, error) {
@@ -407,6 +429,9 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 	// spawn. WorkDir tells BuildSpawnCommand to wrap the command with a chdir;
 	// the path itself is passed through RunAsChdirEnv below.
 	spawnOpts.WorkDir = workDir
+	if spawnOpts.IsolationMode() {
+		spawnOpts.EnvAllowlist = withSessionEnvKeys(spawnOpts.EnvAllowlist, extraEnv)
+	}
 	cmd := core.BuildSpawnCommand(sessionCtx, spawnOpts, cliBin, allArgs...)
 	cmd.Dir = workDir
 	// Put the child into its own process group so Close() can terminate the
@@ -640,6 +665,8 @@ func (cs *claudeSession) handleReadLoopLine(line string) {
 		cs.handleResult(raw)
 	case "control_request":
 		cs.handleControlRequest(raw)
+	case "control_response":
+		cs.handleControlResponse(raw)
 	case "control_cancel_request":
 		requestID, _ := raw["request_id"].(string)
 		slog.Debug("claudeSession: permission cancelled", "request_id", requestID)
@@ -867,7 +894,10 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 	}
 	if isErr, _ := raw["is_api_error_message"].(bool); isErr {
 		errKind, _ := raw["error"].(string)
-		if _, quota := claudeQuotaExhausted(errKind, assistantText(msg)); quota {
+		// #1414: a classifier refusal is re-run on a fresh session by the engine;
+		// do not stream its text either.
+		_, quota := claudeQuotaExhausted(errKind, assistantText(msg))
+		if quota || strings.Contains(strings.ToLower(assistantText(msg)), "safeguards flagged this message") {
 			// The notice is not a reply: the turn-ending result carries the quota
 			// mark and the engine words it, so do not stream the raw text.
 			cs.armAPIErrorFallback(raw)
@@ -1166,6 +1196,19 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		meta = map[string]any{core.MetaContextCompacted: true}
 	} else {
 		meta = quotaMeta
+		if total, ok := raw["total_cost_usd"].(float64); ok {
+			cs.usageMu.Lock()
+			turn := total - cs.lastCostUSD
+			if turn < 0 {
+				turn = total // a new CLI process starts its total again
+			}
+			cs.lastCostUSD = total
+			cs.usageMu.Unlock()
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta[core.MetaTurnCostUSD] = turn
+		}
 		if isError, _ := raw["is_error"].(bool); isError {
 			if meta == nil {
 				meta = map[string]any{}

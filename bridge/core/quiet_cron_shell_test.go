@@ -252,7 +252,7 @@ func TestShellCheckJobKeptOutOfQuietGroup(t *testing.T) {
 		e := newTestEngine()
 		// This mirrors engine.go: the check branch wraps the real platform in
 		// runQuietOKShell and hands the wrapper to executeCronShell.
-		return e.runQuietOKShell(groupPlatform, chat, job.ID, job.Description, func(p Platform) error {
+		return e.runQuietOKShell(groupPlatform, chat, job.ID, job.Description, job.SessionKey, job.WorkDir, func(p Platform) error {
 			return e.executeCronShell(p, chat, job)
 		})
 	}

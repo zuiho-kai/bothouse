@@ -5,12 +5,15 @@
 # Needs the release signing identity, like the step that calls it: SIGN_ID and SIGN_HASH
 # (release.yml:93-94) plus the keychain at $HOME/.config/bothouse-signing (release.yml:169-170).
 set -euo pipefail
-binary=$1
+binary="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 output=$2
 tag=$3
 stage_dir=${4:-}
 lipo "$binary" -verify_arch arm64
 lipo "$binary" -verify_arch x86_64
+# API-only binaries can pass --version but cannot serve the desktop dashboard.
+# Check before touching the staging directory or accessing the signing keychain.
+"$binary" web --check
 if [ -n "$stage_dir" ]; then rm -rf "$stage_dir"; mkdir "$stage_dir"; stage=$(cd "$stage_dir" && pwd); else stage=$(mktemp -d); fi
 app="$stage/Bothouse.app"
 mkdir -p "$app/Contents/MacOS"
@@ -33,6 +36,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAppleEventsUsageDescription</key><string>Bothouse 的角色需要读取和操作你打开的应用（如浏览器标签页）来完成你交代的任务。</string>
 </dict></plist>
 PLIST
 # Sign the assembled bundle, not only the executable. Until v0.1.50 the only codesign call was

@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { MessageSquare, Bot, User, Circle, ArrowRight } from 'lucide-react';
-import { Card, EmptyState, Badge } from '@/components/ui';
+import { MessageSquare, ChevronRight, Search } from 'lucide-react';
+import { EmptyState } from '@/components/ui';
+import { LibraryAvatar } from '@/components/library/LibraryAvatar';
+import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
+import { backendLabel } from '@/lib/roleIdentity';
 import { listProjects, shownName, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 
@@ -24,6 +27,7 @@ function timeAgo(iso: string, t: (k: string) => string): string {
 
 export default function ChatList() {
   const { t } = useTranslation();
+  const avatarStyle = useAvatarStyle();
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,70 +70,91 @@ export default function ChatList() {
     return () => window.removeEventListener('cc:refresh', handler);
   }, [fetchData]);
 
-  if (loading && entries.length === 0) {
-    return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
-  }
+  const [q, setQ] = useState('');
+  const shown = q.trim()
+    ? entries.filter(({ project }) => `${shownName(project)} ${project.name} ${project.agent_type}`.toLowerCase().includes(q.trim().toLowerCase()))
+    : entries;
 
   return (
-    <div className="animate-fade-in space-y-4 ">
-      <h2 className="text-lg font-bold text-gray-900 dark:text-white">{t('nav.chat')}</h2>
+    <div className="mx-auto w-full max-w-4xl animate-fade-in space-y-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{t('nav.chat')}</h1>
+          <p className="mt-1.5 text-sm text-ink-soft">{t('chat.subtitle', '每个角色一条对话，最近说过话的排在前面')}</p>
+        </div>
+        {entries.length > 3 && (
+          <label className="relative block sm:w-72">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-mute" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t('chat.search', '找角色')}
+              aria-label={t('chat.search', '找角色')}
+              className="h-10 w-full rounded-control border border-hairline bg-surface pl-9 pr-3 text-sm text-ink shadow-ui-1 placeholder:text-ink-mute focus:border-accent-text focus:outline-none"
+            />
+          </label>
+        )}
+      </header>
 
-      {entries.length === 0 ? (
-        <EmptyState message={t('chat.noChats')} icon={MessageSquare} />
+      {loading && entries.length === 0 ? (
+        <div className="overflow-hidden rounded-card bg-surface shadow-ui-1" aria-busy="true">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-3 border-b border-hairline px-4 py-4 last:border-0">
+              <span className="h-11 w-11 animate-pulse rounded-full bg-surface-sunken" />
+              <span className="h-4 flex-1 animate-pulse rounded bg-surface-sunken" />
+            </div>
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="rounded-card bg-surface p-8 shadow-ui-1">
+          <EmptyState message={t('chat.noChats')} icon={MessageSquare} />
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {entries.map(({ project, latestSession }) => {
+        // #579 v2: an inbox, not a wall of cards: avatar, name, last line, time — the way chat apps list threads
+        <ul className="divide-y divide-hairline overflow-hidden rounded-card bg-surface shadow-ui-1" role="list">
+          {shown.map(({ project, latestSession }) => {
             const hasLive = latestSession?.live;
             const lastMsg = latestSession?.last_message;
             const ts = latestSession?.updated_at || latestSession?.created_at || '';
+            const name = shownName(project);
 
             return (
-              <Link key={project.name} to={`/chat/${project.name}`} className="min-w-0">
-                <Card hover className="h-full min-w-0 flex flex-col">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <MessageSquare size={18} className="text-accent" />
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{shownName(project)}</h3>
-                      {hasLive && <Circle size={6} className="fill-emerald-500 text-emerald-500" />}
+              <li key={project.name}>
+                <Link
+                  to={`/chat/${project.name}`}
+                  className="group flex min-h-[72px] min-w-0 items-center gap-3.5 px-4 py-3.5 transition-colors duration-base hover:bg-surface-sunken/60 focus-visible:bg-surface-sunken focus-visible:outline-none sm:px-5"
+                >
+                  <span className="relative shrink-0">
+                    <LibraryAvatar url={resolveRoleAvatar({ name, agentType: project.agent_type }, avatarStyle)} name={name} size={48} />
+                    {hasLive && <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-surface p-[2px]"><span className="block h-2.5 w-2.5 rounded-full bg-emerald-500" /></span>}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <h3 className="truncate text-[15px] font-semibold text-ink">{name}</h3>
+                      <span className="hidden shrink-0 text-xs text-ink-mute sm:inline">{backendLabel(project.agent_type)}</span>
+                      <span className="ml-auto shrink-0 text-xs tabular-nums text-ink-mute">{ts ? timeAgo(ts, t) : ''}</span>
                     </div>
-                    <ArrowRight size={16} className="text-gray-300 dark:text-gray-600" />
-                  </div>
-
-                  <div className="flex-1 min-h-[2rem] mb-3">
                     {lastMsg ? (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
-                        {lastMsg.role === 'user' ? (
-                          <User size={10} className="inline mr-1 -mt-0.5 opacity-60" />
-                        ) : (
-                          <Bot size={10} className="inline mr-1 -mt-0.5 opacity-60" />
-                        )}
-                        {lastMsg.content.replace(/\n/g, ' ').slice(0, 120)}
+                      <p className="mt-0.5 truncate text-sm text-ink-soft">
+                        <span className="text-ink-mute">{lastMsg.role === 'user' ? t('chat.you', '你') : name}：</span>
+                        {lastMsg.content.replace(/\n/g, ' ').slice(0, 160)}
                       </p>
                     ) : (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-                        {t('chat.noMessages')}
-                      </p>
+                      <p className="mt-0.5 truncate text-sm text-ink-mute">{t('chat.empty', t('chat.noMessages'))}</p>
                     )}
+                    <p className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px] text-ink-mute" data-testid="chat-card-footer">
+                      <span className="shrink-0 sm:hidden">{backendLabel(project.agent_type)}</span>
+                      <span className="shrink-0 sm:hidden" aria-hidden>·</span>
+                      <span className="shrink-0 tabular-nums" data-testid="chat-card-count-time">{t('chat.sessionCount', { count: project.sessions_count, defaultValue: `${project.sessions_count}` })}</span>
+                      {(project.platforms?.length ?? 0) > 0 && <><span aria-hidden>·</span><span className="truncate">{project.platforms!.join(' / ')}</span></>}
+                    </p>
                   </div>
-
-                  <div className="flex flex-nowrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400 mt-auto pt-3 border-t border-gray-100 dark:border-gray-800" data-testid="chat-card-footer">
-                    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
-                      <Badge className="text-[9px]">{project.agent_type}</Badge>
-                      {project.platforms?.slice(0, 2).map((pl) => <Badge key={pl}>{pl}</Badge>)}
-                      {(project.platforms?.length ?? 0) > 2 && (
-                        <Badge>+{project.platforms!.length - 2}</Badge>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap" data-testid="chat-card-count-time">
-                      <span>{project.sessions_count} {t('chat.sessions', 'sessions')}</span>
-                      {ts && <span className="text-gray-400">{timeAgo(ts, t)}</span>}
-                    </div>
-                  </div>
-                </Card>
-              </Link>
+                  <ChevronRight size={16} className="shrink-0 text-ink-mute opacity-0 transition-opacity duration-base group-hover:opacity-100" />
+                </Link>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </div>
   );

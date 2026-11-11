@@ -9,8 +9,8 @@ import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, LockHolder, OutgoingAttachment } from './channel-source.ts'
-import { DEFAULT_MAX_UPLOAD_BYTES, MAX_MESSAGE_BODY, MAX_ROWS, UploadTooLarge, errorText, formatBytes, messageTooLarge } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, ErrorPlace, LockHolder, OutgoingAttachment } from './channel-source.ts'
+import { DEFAULT_MAX_TEXT_CHARS, DEFAULT_MAX_UPLOAD_BYTES, MAX_MESSAGE_BODY, MAX_ROWS, UploadTooLarge, errorText, formatBytes, messageTooLarge, textTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments, type PendingFile } from './Attachments.tsx'
 import { dmRooms, groupRooms } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
@@ -655,7 +655,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
             <span className={css.memberText}>
               <span className={css.memberName}>{m.name}<KindTag name={m.name} kind={m.kind} cli={m.cli} t={t} /></span>
               {m.kind === 'dsh' && m.cli === undefined && (
-                <span className={css.memberModel}>{m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
+                <span className={css.memberModel}>{typeof m.model === 'string' ? m.model : m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
               )}
             </span>
             <span className={css.memberStatus} data-status={m.error ? 'error' : busy.has(m.id) ? 'busy' : m.online ? 'online' : 'offline'}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
@@ -682,7 +682,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, terminateTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -715,6 +715,11 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
     }))
   }
   const limit = state.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES
+  /** #1445: the character cap the store enforces, read back from /state (MAX_TEXT there). */
+  const textLimit = state.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS
+  /** #1445: a failure worded in the panel's language, quoting the caps this panel knows about. */
+  const failure = (error: unknown, place: ErrorPlace = 'other', typed = ''): string =>
+    errorText(error, t, place, typed, { textChars: textLimit })
   const attach = useComposerAttachments((picked) => {
     const roomId = state.roomId
     if (roomId === undefined) return
@@ -1379,7 +1384,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
       if (clearDraft) setDrafts(previous => ({ ...previous, [roomId]: '' }))
       return true
     }, (error: unknown) => {
-      setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+      // #1445: word a service refusal (a `too-long`, say) instead of splicing its English sentence.
+      setErrors(previous => ({ ...previous, [roomId]: failure(error, 'send') }))
       return false
     })
   }
@@ -1432,6 +1438,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
       setErrors(previous => ({ ...previous, [roomId]: refused[0]?.error }))
       return
     }
+    // #1445: the store refuses text over MAX_TEXT characters (dsh/collab/store.mjs:8), so count
+    // characters here — the byte budget below never refused 131072 Chinese characters (~400 KB).
+    const maxTextChars = state.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS
+    if (textTooLarge(text, maxTextChars)) {
+      setErrors(previous => ({ ...previous, [roomId]: t('messageTooLarge', { limit: t('charCount', { count: maxTextChars }) }) }))
+      return
+    }
     // Text alone still has to fit the message POST (MAX_MESSAGE_BODY); attachments do not count any more.
     if (messageTooLarge(text, [])) {
       setErrors(previous => ({ ...previous, [roomId]: t('messageTooLarge', { limit: formatBytes(MAX_MESSAGE_BODY) }) }))
@@ -1461,7 +1474,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
         updateFiles(previous => ({ ...previous, [roomId]: (previous[roomId] ?? []).filter(file => !keys.has(file.key)) }))
         setReplies(previous => ({ ...previous, [roomId]: undefined }))
       }).catch((error: unknown) => {
-        setErrors(previous => ({ ...previous, [roomId]: t('sendFailed', { message: error instanceof Error ? error.message : String(error) }) }))
+        // #1445: word a service refusal (a `too-long`, say) instead of splicing its English sentence.
+        setErrors(previous => ({ ...previous, [roomId]: failure(error, 'send') }))
       })
     }
     const settle = (): void => {
@@ -1668,7 +1682,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
           )}
           {dmWith === undefined && <HeadTeam mates={headTeam(visibleMembers, leadId, state.tasks ?? [], state.thinking, channelRooms)} t={t} onOpen={openActivity} />}
           {dmWith === undefined
-            ? <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} dock={boardDock} onDocked={setBoardDocked} />
+            ? <TaskBoard tasks={state.tasks ?? []} rooms={state.rooms} chatId={state.taskChat} roomId={state.roomId} t={t} onOpen={openMessage} onReview={reviewTask} onTerminate={terminateTask} dock={boardDock} onDocked={setBoardDocked} />
             : <span className={css.headSpacer} />}
           {/* 体检 #6: the primary role shows once, on the card at the top of the channel list. */}
           <button type="button" className={css.schemeToggle} title={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-label={t(scheme === 'light' ? 'schemeToDark' : 'schemeToLight')} aria-pressed={scheme === 'dark'} onClick={() => { setScheme(scheme === 'light' ? 'dark' : 'light') }}>{scheme === 'light' ? '☾' : '☀'}</button>

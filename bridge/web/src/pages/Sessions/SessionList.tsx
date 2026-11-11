@@ -203,7 +203,7 @@ export default function SessionList() {
           'border border-hairline bg-surface transition-[border-color] duration-state ease-ui-standard',
           selectedKeys.length > 0
             ? 'pointer-events-auto translate-y-0 opacity-100'
-            : 'pointer-events-none -translate-y-1 opacity-0'
+            : 'pointer-events-none hidden'
         )}
         aria-hidden={selectedKeys.length === 0}
       >
@@ -296,7 +296,7 @@ export default function SessionList() {
               >
                 <span className="shrink-0 text-[13px] font-medium text-ink">#{ch.name}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-ink-mute">
-                  {ch.error ? `${t('dsh.messagesError', '消息读取失败')}: ${ch.error}` : ch.last_message ? `${ch.last_message.name}：${ch.last_message.content}` : t('dsh.noMessages', '还没有消息')}
+                  {ch.error ? t('dsh.messagesError', '消息读取失败') : ch.last_message ? `${ch.last_message.name}：${ch.last_message.content}` : t('dsh.noMessages', '还没有消息')}
                 </span>
                 {ch.updated_at && (
                   <span className="shrink-0 text-xs text-ink-mute tabular-nums">

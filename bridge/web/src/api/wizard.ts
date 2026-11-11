@@ -39,7 +39,8 @@ export interface WizardWiki { daily?: string; night?: string; split?: string }
 export interface WizardRole {
   name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
-  provider?: { vendor: string; base_url?: string; api_key?: string; model?: string };
+  // #1498: DSH only — the output cap written into llm-deepseek (omitted = the server's own default)
+  provider?: { vendor: string; base_url?: string; api_key?: string; model?: string; max_tokens?: number };
   /** library persona slug / avatar slug; omitted = keep what setup state has, "" = clear */
   persona_preset?: string; avatar?: string;
 }
@@ -52,7 +53,7 @@ export interface WizardRequest {
   /** QQ: NapCat / OneBot forward WebSocket; allow_from = QQ numbers that may give orders (or *).
    * http_url = file sending, optional; share_session_in_channel is only sent when ticked, so a
    * rerun leaves an existing value as it is (#710 件 5). */
-  qq?: { ws_url: string; token?: string; allow_from: string; http_url?: string; share_session_in_channel?: boolean };
+  qq?: { ws_url: string; token?: string; clear_token?: boolean; allow_from: string; http_url?: string; share_session_in_channel?: boolean };
   roles: WizardRole[]; fallback_role?: string; fallback_bot_id?: string;
   jev?: { base_url: string; api_key?: string; model: string; remove?: boolean };
   gate?: { enabled: boolean; mode?: 'smart' | 'addressed' };
@@ -60,6 +61,8 @@ export interface WizardRequest {
   wiki?: WizardWiki;
   /** also install the memory / guard hooks into ~/.claude (terminal Claude Code); omitted = keep */
   global_memory?: boolean; global_guards?: boolean;
+  /** a team: every person who joins gets a personal directory and their own GitHub authorization (core/member_workspace.go) */
+  member_workspaces?: boolean;
   dry_run?: boolean;
   append_only?: boolean; // the panel's add-role entry: only new roles, a taken name is refused
 }
@@ -128,7 +131,7 @@ export async function applyWizard(req: WizardRequest): Promise<WizardResult> {
 
 export interface DSHStatus {
   found: boolean; version?: string; plugin_installed: boolean; profile: string;
-  open_command: string; log?: string; has_deepseek_key?: boolean;
+  open_command: string; log?: string; has_deepseek_key?: boolean; native_model_configured?: boolean;
   node_version?: string; pnpm_found?: boolean; dependency_error?: string;
   /** DeepSeek Harness Desktop (core/setup_dsh_desktop.go): the wizard's default route. */
   desktop_app?: string; desktop_profile_ready?: boolean; desktop_plugin_installed?: boolean;
@@ -136,7 +139,9 @@ export interface DSHStatus {
 }
 /** Where the roles live: the DeepSeek Harness Desktop window, or the DSH web page in a browser tab. */
 export type DSHTarget = 'desktop' | 'web';
-export const getDSHStatus = (lang = 'en') => api.get<DSHStatus>('/setup/dsh/status?lang=' + encodeURIComponent(lang));
+/** target picks whose profile `native_model_configured` describes: the desktop app or the DSH web page. */
+export const getDSHStatus = (lang = 'en', target?: DSHTarget) => api.get<DSHStatus>(
+  '/setup/dsh/status?lang=' + encodeURIComponent(lang) + (target ? '&target=' + encodeURIComponent(target) : ''));
 
 /** One line of the POST /setup/dsh/install NDJSON stream (core/setup_dsh_platform.go handleSetupDSHInstall). */
 export interface DSHInstallEvent { step?: string; line?: string; done?: boolean; status?: DSHStatus; error?: string; log?: string }
@@ -175,7 +180,7 @@ export async function installDSHPlugin(lang: string, onEvent: (e: DSHInstallEven
 }
 
 export interface DSHMember { name: string; cli?: 'claude' | 'codex' | 'gemini'; persona?: string; name_customized?: boolean }
-export const configureDSH = (body: { deepseek_api_key?: string; members: DSHMember[] }) =>
+export const configureDSH = (body: { deepseek_api_key?: string; target?: DSHTarget; members: DSHMember[] }) =>
   api.post<{ key_saved: boolean; members_file: string; members: number }>('/setup/dsh/configure', body);
 /** Opens (restarting when it must load new plugins or roles) DeepSeek Harness Desktop. */
 export const openDSHDesktop = (lang = 'en', restart = false) => api.post<{ app: string; pid?: number; restarted: boolean }>('/setup/dsh/open-desktop', { lang, restart });

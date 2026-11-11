@@ -1,0 +1,116 @@
+{
+ "_comment": "bothouse fork：桌宠形象清单，见 src/host/skins.ts。builtin 随包（assets/roles/<id>/）：前五个是自家角色（按官方设定板生图），后面是按模型命名的形象（照鲸鱼娘那套高清 Q 版画风新设计）；绑定角色按 id 和 aliases 认，自家角色排前面先匹配。recommended 是别人家的开源形象，包里不带文件，用户点了才下载。default = 没选也没绑定角色时穿的。 同一角色两套：<id>-q 是照上游鲸鱼女仆画风的 Q 版，在「换形象」里显式选择；<id> 是小人版（#1303），保留原有别名与默认解析。",
+ "default": "maomao",
+ "builtin": [
+  {
+   "id": "maomao-q",
+   "name": "橘",
+   "group": "自家角色"
+  },
+  {
+   "id": "maomao",
+   "name": "橘·小人版",
+   "aliases": [
+    "橘",
+    "cjiang",
+    "C酱"
+   ],
+   "group": "自家角色"
+  },
+  {
+   "id": "longniang",
+   "name": "龙娘",
+   "aliases": [
+    "龙娘",
+    "gge",
+    "G哥"
+   ],
+   "group": "自家角色"
+  },
+  {
+   "id": "jingyu",
+   "name": "鲸鱼娘",
+   "aliases": [
+    "鲸鱼娘",
+    "鲸鱼",
+    "大肥鱼",
+    "肥鱼",
+    "deep"
+   ],
+   "group": "自家角色"
+  },
+  {
+   "id": "caihongmao",
+   "name": "彩虹猫",
+   "aliases": [
+    "彩虹猫",
+    "大豆包",
+    "gjiang"
+   ],
+   "group": "自家角色"
+  },
+  {
+   "id": "grok",
+   "name": "grok娘",
+   "aliases": [
+    "grok娘"
+   ],
+   "group": "自家角色"
+  },
+  {
+   "id": "claude",
+   "name": "Claude",
+   "aliases": [
+    "Claude"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "gpt",
+   "name": "GPT",
+   "aliases": [
+    "GPT",
+    "ChatGPT",
+    "Codex",
+    "OpenAI"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "deepseek",
+   "name": "DeepSeek",
+   "aliases": [
+    "DeepSeek",
+    "深度求索"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "gemini",
+   "name": "Gemini",
+   "aliases": [
+    "Gemini"
+   ],
+   "group": "模型"
+  },
+  {
+   "id": "grok-ai",
+   "name": "Grok",
+   "aliases": [
+    "Grok",
+    "xAI"
+   ],
+   "group": "模型"
+  }
+ ],
+ "recommended": [
+  {
+   "id": "dsh-pet-whale",
+   "name": "鲸鱼女仆（dsh-pet）",
+   "author": "PC2005-cloud",
+   "license": "CC BY-NC-SA 4.0（形象：禁止商用；公开二创须署名 PC2005-cloud/dsh-pet，并以相同方式共享）",
+   "homepage": "https://github.com/PC2005-cloud/dsh-pet",
+   "manifest": "assets/roles/recommended/dsh-pet-whale.json"
+  }
+ ]
+}

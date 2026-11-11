@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 )
@@ -10,7 +11,8 @@ import (
 // takeQueuedBatchLocked pops the head of state.pendingMessages and folds the
 // plain messages behind it from the same sender in the same chat into it, so a
 // burst sent while the agent was busy runs as one turn (oldest first) instead
-// of one turn per message. The reply goes to the last message. Anything that is
+// of one turn per message. The reply goes to the newest abort/redirect, or otherwise
+// the last message. Anything that is
 // not a plain human message (bot, cron/timer/resume, mode override, a second
 // quote) ends the batch and waits for its own turn. Caller holds state.mu.
 func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
@@ -37,7 +39,29 @@ func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 	if len(parts) == 1 {
 		return head
 	}
-	return mergeQueued(parts)
+	return mergeQueued(inArrivalOrder(parts))
+}
+
+// inArrivalOrder restores admission order (#739). Queue position encodes priority, not time:
+// ordinary messages may arrive both before and after an abort moves to the front.
+func inArrivalOrder(parts []queuedMessage) []queuedMessage {
+	sort.SliceStable(parts, func(i, j int) bool { return parts[i].queueOrder < parts[j].queueOrder })
+	return parts
+}
+
+// batchReplyIndex chooses the reply independently of presentation order: the newest
+// abort/redirect holding a place wins; otherwise answer the newest message holding a place.
+func batchReplyIndex(parts []queuedMessage) int {
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i].abortFront && !parts[i].overflow {
+			return i
+		}
+	}
+	reply := len(parts) - 1
+	for reply > 0 && parts[reply].overflow {
+		reply--
+	}
+	return reply
 }
 
 // takeGroupBatchLocked is takeQueuedBatchLocked for a busy group chat (groupChatQueue): the plain
@@ -97,7 +121,7 @@ func takeGroupBatchLocked(state *interactiveState) queuedMessage {
 		parts[0].overflow = false
 		return parts[0]
 	}
-	return mergeQueuedChat(parts)
+	return mergeQueuedChat(inArrivalOrder(parts))
 }
 
 // GroupQueueBatcher is implemented by platforms whose busy group chats share one queue (QQ
@@ -125,14 +149,9 @@ func sameChatAnyVoice(a, b *queuedMessage) bool {
 }
 
 // mergeQueuedChat is mergeQueued for several senders of one group chat: each part names its
-// sender, and the last one is marked latest (the same wording as the gate's backfill).
+// sender, and the reply target is marked (the same wording as the gate's backfill).
 func mergeQueuedChat(parts []queuedMessage) queuedMessage {
-	// Reply to the newest message that held a place in the queue; a message filed as context
-	// (overflow) only rides along.
-	reply := len(parts) - 1
-	for reply > 0 && parts[reply].overflow {
-		reply--
-	}
+	reply := batchReplyIndex(parts)
 	// Attachments and the rest follow the parts in arrival order; who and what the reply goes to
 	// come from the reply part.
 	all := mergeQueued(parts)
@@ -173,10 +192,13 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 		// A part that is itself a re-queued batch already carries its own per-part marks
 		// (voiceMarked); wrapping it again would call its typed parts speech.
 		mark := p.fromVoice && !p.voiceMarked
+		// #1375: each part came through applyGate with its own latest mark; the batch marks the
+		// one to answer above, so a part's own mark would call every part the latest.
+		content := strings.TrimPrefix(p.content, latestMark+"\n")
 		if i == 0 {
-			b.WriteString(withVoiceNote(p.content, mark))
+			b.WriteString(withVoiceNote(content, mark))
 		} else {
-			b.WriteString(withVoiceNote(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}), mark))
+			b.WriteString(withVoiceNote(bufferedText(&Message{Content: content, AmbientChat: p.ambientChat}), mark))
 		}
 		b.WriteString("\n")
 	}
@@ -286,10 +308,11 @@ func batchReference(parts []queuedMessage) *MessageReference {
 	return nil
 }
 
-// mergeQueued joins parts (oldest first) into one message that replies to the last one.
+// mergeQueued joins parts (oldest first; a batch with an abort/redirect goes through
+// inArrivalOrder) into one message; the reply target follows batchReplyIndex.
 func mergeQueued(parts []queuedMessage) queuedMessage {
-	last := parts[len(parts)-1]
-	out := last
+	reply := batchReplyIndex(parts)
+	out := parts[reply]
 	out.ambientChat = parts[0].ambientChat
 	out.reference = batchReference(parts)
 	out.boardDesc = parts[0].boardDesc
@@ -305,6 +328,9 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 			out.turnCtxQuery = p.turnCtxQuery
 		}
 		b.WriteString("\n")
+		if i == reply && i != len(parts)-1 {
+			b.WriteString("（回这条）\n")
+		}
 		if p.userMessageTimeMs > 0 {
 			fmt.Fprintf(&b, "[%d] %s\n", i+1, time.UnixMilli(p.userMessageTimeMs).Format("15:04:05"))
 		} else {
@@ -313,10 +339,13 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 		// A re-queued batch already marks its own voice parts; never wrap its
 		// typed parts or let the last part decide whether earlier parts are marked.
 		mark := p.fromVoice && !p.voiceMarked
+		// #1375: each part came through applyGate with its own latest mark; the batch marks the
+		// one to answer above, so a part's own mark would call every part the latest.
+		content := strings.TrimPrefix(p.content, latestMark+"\n")
 		if i == 0 {
-			b.WriteString(withVoiceNote(p.content, mark))
+			b.WriteString(withVoiceNote(content, mark))
 		} else {
-			b.WriteString(withVoiceNote(bufferedText(&Message{Content: p.content, AmbientChat: p.ambientChat}), mark))
+			b.WriteString(withVoiceNote(bufferedText(&Message{Content: content, AmbientChat: p.ambientChat}), mark))
 		}
 		out.voiceMarked = out.voiceMarked || p.fromVoice || p.voiceMarked
 		b.WriteString("\n")

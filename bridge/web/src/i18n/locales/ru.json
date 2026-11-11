@@ -84,14 +84,16 @@
     "wikiGalaxy": "Галактика wiki",
     "forum": "Форум памяти",
     "plugins": "Плагины",
-    "gate": "Шлюз"
+    "gate": "Шлюз",
+    "pet": "Питомец"
   },
   "plugins": {
     "stateClientUi": "Клиентский UI-пакет",
     "clientUiNote": "Предоставляется DSH; панель не может его отключить."
   },
   "roles": {
-    "title": "Управление ролями"
+    "title": "Управление ролями",
+    "all": "All"
   },
   "dashboard": {
     "title": "Панель",
@@ -101,7 +103,21 @@
     "projects": "Проекты",
     "bridgeAdapters": "Адаптеры моста",
     "noData": "Нет данных",
-    "recentSessions": "Недавние сессии"
+    "recentSessions": "Недавние сессии",
+    "isOffline": "is offline",
+    "headlineEmpty": "No roles here yet",
+    "headlineBusy": "{{busy}} busy, {{idle}} idle",
+    "headlineIdle": "{{count}} roles standing by",
+    "needsLook": "{{count}} things need a look",
+    "allGood": "All good",
+    "busyNow": "Busy",
+    "attention": "Needs attention",
+    "live": "Right now",
+    "working": "Working",
+    "waiting": "Standing by",
+    "pausedNote": "Paused, not taking new messages",
+    "offlineNote": "Unreachable",
+    "projectSessions": "Sessions per project"
   },
   "projects": {
     "title": "Проекты",
@@ -296,7 +312,8 @@
     "optional": "необязательно",
     "confirmDelete": "Вы уверены, что хотите это удалить?",
     "close": "Закрыть",
-    "saving": "Сохранение…"
+    "saving": "Сохранение…",
+    "saved": "Сохранено"
   },
   "setup": {
     "addPlatform": "Добавить платформу",
@@ -375,7 +392,12 @@
     "slashHint": "Нажмите / для списка команд",
     "inputPlaceholder": "Введите сообщение или нажмите / для команд…",
     "commands": "Команды",
-    "defaultSession": "Веб-сессия"
+    "defaultSession": "Веб-сессия",
+    "subtitle": "One thread per role, most recent first",
+    "search": "Find a role",
+    "you": "You",
+    "sessionCount": "Сессий: {{count}}",
+    "empty": "Сообщений пока нет"
   },
   "cmd": {
     "search": "Поиск команд…",
@@ -444,7 +466,11 @@
     "logLevel": "Уровень логов",
     "appearance": "Оформление",
     "theme": "Тема",
-    "themeHint": "По умолчанию — жёлто-белая. Сохраняется только в этом браузере, кнопку «Сохранить» нажимать не нужно."
+    "themeHint": "По умолчанию — жёлто-белая. Сохраняется только в этом браузере, кнопку «Сохранить» нажимать не нужно.",
+    "avatarStyle": "Аватары ролей",
+    "avatarStyleHint": "Меняется и в веб-панели, и в плагине DSH; сохраняется сразу.",
+    "avatarStyleBrand": "Значки производителей",
+    "avatarStyleChibi": "Чиби-набор"
   },
   "globalProviders": {
     "title": "Провайдеры",
@@ -596,5 +622,17 @@
     "presetPastYear": "Последний год",
     "presetPastYearHint": "Диапазон по умолчанию: год до сегодняшнего дня (запрос охватывает не более года)",
     "tokenBreakdown": "Структура"
+  },
+  "navGroup": {
+    "main": "Основное",
+    "collab": "Совместная работа",
+    "connect": "Подключения",
+    "extend": "Расширения",
+    "settings": "Настройки"
+  },
+  "shell": {
+    "allFeatures": "All features",
+    "more": "More",
+    "addRoleHint": "Bring in another AI and put it to work in your chats"
   }
 }

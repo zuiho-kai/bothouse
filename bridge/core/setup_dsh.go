@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -198,15 +199,36 @@ func EnsureDSHRoleAttachmentPatch(opts map[string]any) (bool, error) {
 	return false, nil
 }
 
+// dshDefaultMaxTokens: the output cap the overlay gives a third-party API when the wizard request carries none.
+// 来源：issue #1498 实测（2026-11-10，Windows 11，中转 codegoai.com 的 claude-fable-5-1）：不写 maxTokens 时 DSH 按
+// 它自己的默认 256000 发请求，这个中转一律回 503「当前模型服务暂不可用」（request id
+// 2026111003074585753658336468…）；同一个模型改成 128000 后稳定 200，频道里的回合正常完成。
+const dshDefaultMaxTokens = 128000
+
+// dshMaxTokens: the output cap for this provider: what the wizard was given, else dshDefaultMaxTokens.
+func dshMaxTokens(p WizardProvider) int {
+	if p.MaxTokens > 0 {
+		return p.MaxTokens
+	}
+	return dshDefaultMaxTokens
+}
+
 // dshProviderPatch points llm-deepseek at the vendor's Anthropic endpoint and makes model the default.
-func dshProviderPatch(project, baseURL, model string) string {
+// maxTokens is the output cap DSH sends as max_tokens on every request (0 = leave it to DSH).
+func dshProviderPatch(project, baseURL, model string, maxTokens int) string {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) } // JSON string = YAML double-quoted scalar
 	// without inputModalities DSH tells the ACP client image=false and a pasted picture reaches the model only as a path
 	modalities := "        inputModalities: [text, image]\n"
+	// DSH's own default is 256000 (dsh-llm-deepseek config.d.ts: "Default per-request output cap (default
+	// 256,000)"; index.js: maxTokens: config.maxTokens ?? 256e3), and many relays answer that with 503.
+	capLine := ""
+	if maxTokens > 0 {
+		capLine = "    maxTokens: " + strconv.Itoa(maxTokens) + "\n"
+	}
 	return "# written by the bothouse setup wizard for role " + project + ": the third-party API picked in the wizard.\n" +
 		"# The key is in this role's env " + DSHKeyEnv + " (config.toml). Everything else is the user's own DSH setup.\n" +
 		"- id: llm-deepseek\n  config:\n    baseURL: " + q(baseURL) + "\n    apiKeyEnv: " + DSHKeyEnv + "\n" +
-		"    models:\n      - id: " + q(model) + "\n" + modalities +
+		capLine + "    models:\n      - id: " + q(model) + "\n" + modalities +
 		"- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: " + q(model) + "\n" +
 		"- id: acp\n  config:\n    provider: deepseek-official\n    model: " + q(model) + "\n"
 }
@@ -313,7 +335,7 @@ func dshProviderBody(project string, p WizardProvider) (string, error) {
 	if model == "" {
 		return "", fmt.Errorf("%s: model is required", p.Vendor)
 	}
-	return dshProviderPatch(project, base, model), nil
+	return dshProviderPatch(project, base, model, dshMaxTokens(p)), nil
 }
 
 var dshVersionRe = regexp.MustCompile(`\d+\.\d+\.\d+[0-9A-Za-z.+-]*`)

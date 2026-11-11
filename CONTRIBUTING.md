@@ -33,6 +33,8 @@ CI成功仅允许继续审核，不能证明需求正确或生产已经可用。
 5. 合并时使用 gh pr merge --squash --match-head-commit 指定刚审核的完整提交SHA，防止审核期间的新提交混入。保留分支，不使用管理员绕过；完整解决的 Issue 由 Closes 自动关闭。
 6. 核对 main 上的合并结果；只在工作区干净时切回 main 并快进。交接记录说明对应 PR、验证范围、未完成项和部署状态。需要部署时另开明确任务，不把 merge 当 deploy。
 
+发版（维护者）：功能增删、平台支持变化或 README 对比节改动，要同步改 `bridge/about/ABOUT.md` 与 `ABOUT.zh-CN.md`。这两份编进程序，角色被问「你是什么、和别家比」时用 `bothouse about` 读它们；README 对比节新增的项目没进这两份，`TestAboutNotesCoverReadmeComparison` 会失败。
+
 这是可手动执行、也交给 Agent 执行的协作流程。目前没有自动认领 Issue、自动创建或合并 PR，都按上面的手工步骤走。
 
 ## 验证命令

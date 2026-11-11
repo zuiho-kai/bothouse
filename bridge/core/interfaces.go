@@ -145,12 +145,17 @@ This conversation supports native quoted text replies. To deliberately quote a p
 
 Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text.`
 
+// aboutHint points every role at the built-in product notes (`bothouse about`). Agents that take
+// AgentSystemPrompt natively get it there; the others get it with the turn rules (contextRules).
+const aboutHint = "When asked what you or bothouse are, what bothouse can do, or how it compares with another project (LobeHub, OpenClaw…), run `bothouse about` first and answer from its product notes and this machine's actual roles and platforms: lead with a clear conclusion, then the reasons and what was not tested."
+
 // AgentSystemPrompt returns the system prompt fragment that informs agents about
 // cc-connect capabilities (cron scheduling, etc.).
 // The prompt is designed to be appended to the agent's existing system prompt.
 func AgentSystemPrompt() string {
 	return `You are running inside bothouse, a bridge that connects you to messaging platforms.
 Your normal text responses are automatically delivered to the user — just reply normally, do NOT use bothouse send for ordinary text replies.
+` + aboutHint + `
 
 ## Available tools
 
@@ -162,6 +167,7 @@ When you generate a local image or file that should be sent to the user, use:
   bothouse send --file /absolute/path/to/report.pdf --image /absolute/path/to/chart.png
 
 You may repeat --image / --file multiple times. Use this only for generated attachments that need to be delivered to the user.
+The user reads you in a chat app and usually cannot open paths on this machine. When a reply points the user to a local file they should read (a document, notes, a report, a log), send it with bothouse send --file or paste its content into the reply; never give only the local path.
 If you include --message, do not repeat the exact same sentence again in your normal reply, because your normal reply is also delivered automatically.
 
 When sending an audio (mp3/wav/m4a/ogg/opus) or video (mp4/mov/webm) clip that should render inline as a native voice bubble or video player — instead of as a generic file download — use the dedicated flags:
@@ -176,6 +182,21 @@ When the user explicitly asks you to synthesize speech from text, use:
   bothouse send --tts "text to speak"
 
 After bothouse send --tts (or --audio) succeeds, reply only with NO_REPLY unless the user also asked for a visible text confirmation. This prevents sending an extra text message after the voice message.
+
+### Private messages (Discord, QQ)
+To write to someone privately instead of in this chat:
+
+  bothouse send --dm --to <user id> -m "text"   # that member of this server
+  bothouse send --dm -m "text"                  # only ever the project owner
+
+Without --to the message always goes to the project owner, never to the person you are talking to. When the person who wrote this turn is not the owner, --dm without --to is refused; pass --to with their user ID (the sender ID in the message header or the number in <@id>). --to accepts only members of this server. If the person does not accept DMs from server members, bothouse sends it in a private thread in this channel that only they (and moderators) can see, and says so in the command output; never ask them to change privacy settings. If even that fails the command says nothing was sent — then tell them in the chat without the private content and let them do the private step themselves.
+
+### Sending to another channel (Discord)
+When asked to pass something on to another channel of this server, name the channel:
+
+  bothouse send --channel <channel name> -m "text"
+
+Never guess a channel ID or take one from an old conversation. If the name is not found, or several channels have it, nothing is sent and the candidates are listed: ask the user. On success the command prints where it went (已发到 #<name>（<id>）); report the channel from that line, not the one you meant.
 
 When the incoming context includes [Message IDs: ...], the platform has native quoted reply support:
 ` + nativeQuotedReplyInstructions + `
@@ -681,6 +702,16 @@ type UsageCapability interface {
 	SupportsUsageReporting() bool
 }
 
+// SessionScopedUsageCapability is an optional interface for agents whose usage
+// reads belong to the session that issued them: the quota is bound to the
+// account/model the session was created with and can lag a later provider
+// switch. Core then attributes such a read to the scope it captured for that
+// session, instead of the agent's current selection; without a tracked scope
+// the session keeps its footer but its report is not cached.
+type SessionScopedUsageCapability interface {
+	UsageScopedToSession() bool
+}
+
 // CachedUsageReporter is an optional interface for running agent sessions
 // that already receive quota snapshots as part of normal turns (e.g. Codex
 // app-server rate-limit notifications). CachedUsage must not do I/O; the
@@ -721,6 +752,9 @@ type UsageBucket struct {
 
 // UsageWindow describes a single quota window.
 type UsageWindow struct {
+	// ObservedAt is the source time for this window in a sparse snapshot.
+	// Zero means the adapter uses UsageReport.ObservedAt for all windows.
+	ObservedAt        time.Time `json:"-"`
 	Name              string
 	UsedPercent       int
 	WindowSeconds     int
@@ -789,6 +823,10 @@ type SessionSettings struct {
 	ReasoningEffort  string
 	InstructionsPath string
 	InstructionsText string
+	// Provider names one of the agent's configured providers that this session
+	// starts on instead of the active one (workspace_provider: a team workspace
+	// runs on a cheap local model while the lead keeps the expensive one).
+	Provider string
 }
 
 // AgentSessionCanceller is an optional interface for agent sessions that support

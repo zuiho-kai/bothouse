@@ -147,12 +147,16 @@ func TestFindIFlowTranscriptPath(t *testing.T) {
 
 func TestIFlowTurnFinalContentFallsBackToToolResult(t *testing.T) {
 	turn := &iflowTurn{
-		resultText:   "我来查一下。",
 		toolFallback: []string{"天气结果"},
-		awaitingTool: true,
 	}
+	turn.appendText("我来查一下。")
+	turn.awaitingTool = true
 
-	if got := turn.finalContent(); got != "我来查一下。\n\n天气结果" {
+	result := turn.resultEvent("sid")
+	if result.StreamedContentBytes != len(turn.resultText) || !result.Done || result.SessionID != "sid" {
+		t.Fatalf("cumulative result lost its stream attribution: %+v", result)
+	}
+	if got := result.Content; got != "我来查一下。\n\n天气结果" {
 		t.Fatalf("finalContent = %q", got)
 	}
 }
@@ -195,7 +199,11 @@ func TestIFlowTurnIgnoresDuplicateToolUseAfterToolResult(t *testing.T) {
 	if turn.awaitingTool {
 		t.Fatal("assistant text should clear awaitingTool")
 	}
-	if got := turn.finalContent(); got != "北京今天多云" {
+	result := turn.resultEvent("sid")
+	if result.StreamedContentBytes != len("北京今天多云") {
+		t.Fatalf("streamed bytes = %d", result.StreamedContentBytes)
+	}
+	if got := result.Content; got != "北京今天多云" {
 		t.Fatalf("finalContent = %q", got)
 	}
 }
@@ -237,6 +245,7 @@ func TestIFlowTurnPendingToolTimeoutReleasesTurn(t *testing.T) {
 	}
 	defer turn.stopResultTimer()
 
+	turn.appendText("已流出正文")
 	added := turn.addPendingTools([]iflowToolUse{{ID: "run_shell_command:1", Name: "run_shell_command"}})
 	if len(added) != 1 {
 		t.Fatalf("added = %#v", added)
@@ -245,7 +254,11 @@ func TestIFlowTurnPendingToolTimeoutReleasesTurn(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if turn.readyForResult() {
-			content := turn.finalContent()
+			result := turn.resultEvent("")
+			content := result.Content[result.StreamedContentBytes:]
+			if result.StreamedContentBytes != len("已流出正文") {
+				t.Fatalf("streamed bytes include terminal-only timeout: %+v", result)
+			}
 			if !strings.Contains(content, "timed out") || !strings.Contains(content, "run_shell_command") {
 				t.Fatalf("finalContent = %q", content)
 			}

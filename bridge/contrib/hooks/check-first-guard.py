@@ -19,6 +19,10 @@ FENCE = re.compile(r"```.*?```", re.S)
 MAYBE = re.compile(
     r"我们|咱们|自家|桥(里|上|那边|这边)?|仓库里|wiki ?里|配置里|隔壁|现成|早就|已经有|还没有|没有(这|那)?(个|条|一)"
     r"|缺(一个|个|少|了)|没订阅|订阅了|值得(学|借鉴|抄)|建议(加|做|上|改|学|补)|(应该|该|可以|不妨)(加|做|补|学|上)(一个|个|一条|条|一层|上)?")
+# 提要新做、另备一样东西（#1436：11-11 主角色说「干活的是新手、要另备一张质检单」、提给论坛加板块，
+# 本轮只搜了「负责人、放手」，没查记忆注入和论坛这类同类功能，本检查放行了）
+PROPOSE = re.compile(r"另(备|起|做|建|开|加|写)|新(做|建|加|开|写)(一|个|套|张|条|层|道)|(加|做|搞|建|备|上|引入)(一|个)(张|个|套|层|道|条|块|版|板)"
+                     r"|再(做|搞|写)一套|下一代|新架构|新机制|改成这样|(定|立|配|设|备)一(张|个|套|位|层|道)")
 # 查现场的命令：读文件、搜、看配置/日志、上远端
 LOOK_CMD = re.compile(r"\b(grep|rg|ls|cat|sed|head|tail|find|ssh|scp|jq|git|gh|diff|wc|awk|less|stat|sqlite3|docker|tree)\b"
                       r"|search\.py|sessions\.py|chanlog|codegraph|bothouse\S* (ctx|board|cron|timer|model|team)|tools\.exec_command")
@@ -26,21 +30,30 @@ LOOK_TOOL = re.compile(r"^(Read|Grep|Glob|LS|Agent|Task|read_file|grep|glob|list
 MAX_LOOKS = 20  # 喂给模型的查现场调用条数（取最后这么多条）
 ONLY_OUTSIDE = re.compile(r"^(?:\s*(?:/tmp/\S*|https?://\S*))+\s*$")  # 只碰临时目录或外网，不算查自家
 
-SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断：这段话里有没有对「我们自己的系统」现状的断言或建议，而助手这一轮查过的东西没覆盖它。
+SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断：这段话里有没有对「我们自己的系统」现状的断言或建议，而助手最近查过的东西（这一轮和前几轮）没覆盖它。
 「我们自己的系统」= 用户和助手自己的桥/bothouse、仓库代码、wiki、配置、钩子、守卫、角色、服务器、容器、订阅、缓存、已有功能和流程。
 算断言：
 - 说我们有/没有/缺/早就有/已经做了/没做/只有/没订阅/没开/怎么运作 某样东西；
 - 建议我们加/学/改/补某样东西（「值得学」「建议加」「该做个」「我们缺一个」），这隐含「我们现在没有」。
 不算：只讲外部项目、别人怎么做，没拿来说我们有没有、该不该加；闲聊、情绪；转述用户刚说的话；
 明确说「没核实/还没查/待查」的推测；只汇报自己刚做的动作（「已发出」「已派给某某」「我改了 X」）。
-「本轮查过的」列出了这轮的工具调用。断言说的那样东西，要在这些调用里被读过、搜过、看过（目录、文件名、关键词对得上），才算覆盖。
+「最近查过的」列出了这一轮和前几轮的工具调用。断言说的那样东西，要在这些调用里被读过、搜过、看过（目录、文件名、关键词对得上），才算覆盖。
 查的是别的事（比如只核了另一件活的配置），断言却讲缓存、报告折叠、证据检查等别的东西 → 没覆盖。
 只看回复立论靠的主断言和主建议（结论、推荐、「值得学的几条」这类）；顺带提一句的旁枝、引用本对话前文的、说「规则/CLAUDE.md/人设/手册里写着什么」的（这些规则每轮都在助手上下文里）、讲助手刚交付的活本身的，不算。
 判断：有主断言且没覆盖 → unchecked；没有断言，或每条断言都被覆盖 → pass。拿不准就 pass。
 只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"第一条没覆盖的断言或建议原文，一句（pass 时空）"}"""
 
+# 同类检查（#1436）：只在回复提议新做/另备某样东西、且拿得到自带能力时另问一次；原来那道判断的提示一字不动
+SYSTEM_SAME = """你是一个判断器。助手要把一段话发给用户，里面提议新做、另备或加一样东西（方案、机制、清单、角色）。下面附了「系统自带能力」和助手最近查过的工具调用。
+先看自带能力里有没有做同一件事的同类（给干活的备先验知识、质检单、记性 → 同类是共享 wiki 和记忆论坛的推送；派活、验收、换人 → 同类是工作区、任务板、交接）。
+有同类时，下面两条缺一条就 unchecked：
+1. 回复里点名了那样同类，并说它现在差在哪、要在它上面改；没点名、把这件事说成要另起或新做 → 缺。
+2. 最近查过的要查过那样同类本身（读它的程序、配置、记录，或拿它的名字去搜，如「记忆论坛」「注入」「ctxsvc」「forum」）；只用搜索工具查了别的话题不算 → 缺。
+没有同类，或提议的东西只是顺带一提、不是回复的主建议 → pass。拿不准就 pass。
+只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"提议新做〈X〉，自带〈同类〉做同一件事，回复没点名它/没查过它（pass 时空）"}"""
+
 REASON = ("先查我们现有的：仓库、wiki、配置，再说。这句在说我们自家现状或建议加东西：「{claim}」，"
-          "本轮没查过它说的那样东西（仓库、wiki、配置、日志或远端都没看）。先查（search.py 搜 wiki、grep 仓库、看配置和日志、上远端看），"
+          "最近几轮都没查过它说的那样东西（仓库、wiki、配置、日志或远端都没看）。先查（search.py 搜 wiki、grep 仓库、看配置和日志、上远端看），"
           "按查到的改写；查不了就在回复里写明「没核」。")
 
 
@@ -67,25 +80,29 @@ def turn(path):
         lines = open(path, encoding="utf-8").read().splitlines()
     except (OSError, TypeError):
         return None
-    texts, tools, user = [], [], ""
+    texts, tools, user, earlier = [], [], "", False
     for line in reversed(lines):
         try:
             e = json.loads(line)
         except ValueError:
             continue
         if _real_user(e):
-            user = _text((e.get("message") or {}).get("content"))
+            if not earlier:
+                user = _text((e.get("message") or {}).get("content"))
+            earlier = True  # 再往前只收查现场的调用：上一轮刚读过的东西，这一轮不用重查（11-11 误拦）
+            continue
+        if earlier and sum(1 for b in tools if is_lookup(b)) >= MAX_LOOKS:
             break
         c = (e.get("message") or {}).get("content")
         if e.get("type") == "assistant" and isinstance(c, list):
             for b in c:
                 if not isinstance(b, dict):
                     continue
-                if b.get("type") == "text":
+                if b.get("type") == "text" and not earlier:
                     texts.append(b.get("text", ""))
                 elif b.get("type") == "tool_use":
                     tools.append(b)
-    return "\n".join(reversed(texts)), tools, user
+    return "\n".join(reversed(texts)), list(reversed(tools)), user
 
 
 def is_lookup(b):
@@ -101,9 +118,45 @@ def is_lookup(b):
     return not paths or not ONLY_OUTSIDE.match(" ".join(paths))
 
 
-def maybe(text):
+def _clean_lines(text):
     text = QUOTED.sub("", FENCE.sub("", text))
-    return any(MAYBE.search(l) for l in text.splitlines() if not l.lstrip().startswith(">"))
+    return [l for l in text.splitlines() if not l.lstrip().startswith(">")]
+
+
+def maybe(text):
+    return any(MAYBE.search(l) for l in _clean_lines(text))
+
+
+def proposing(text):
+    """回复在提要新做、另备、加一样东西（方案、机制）。"""
+    return any(PROPOSE.search(l) for l in _clean_lines(text))
+
+
+def _lead_mod():
+    """lead/_existing.py（装好后在 ../collaboration/lead，仓库里在 ../lead）；载不到返回 None。"""
+    import importlib.util
+    for d in (os.path.join(HERE, "..", "collaboration", "lead"), os.path.join(HERE, "..", "lead")):
+        f = os.path.join(d, "_existing.py")
+        if os.path.isfile(f):
+            try:
+                spec = importlib.util.spec_from_file_location("lead_existing", f)
+                m = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(m)
+                return m
+            except Exception:
+                return None
+    return None
+
+
+def builtin_caps():
+    """系统自带能力（`bothouse about`「能做什么」节，同 _existing.about_caps）；拿不到返回 []。"""
+    m = _lead_mod()
+    if m is None:
+        return []
+    try:
+        return m.about_caps(os.environ.get("BOTHOUSE_CTX_CMD") or "bothouse")
+    except Exception:
+        return []
 
 
 def describe(b):
@@ -116,16 +169,26 @@ def describe(b):
     return f"{b.get('name')}: {str(v)[:300]}"
 
 
-def ask_model(reply, user, looks):
+def caps_block(reply, user=""):
+    """提方案的回复（或用户这句在要方案、改机制，同 _existing.PROPOSAL）附上系统自带能力，让判断器对同类；否则或拿不到返回空串。"""
+    m = _lead_mod()
+    asked = bool(m and getattr(m, "PROPOSAL", None) and m.PROPOSAL.search(user or ""))
+    if not (asked or proposing(reply)):
+        return ""
+    caps = builtin_caps()
+    return ("\n\n## 系统自带能力（bothouse about）\n" + "\n".join(f"- {c}" for c in caps)) if caps else ""
+
+
+def ask_model(reply, user, looks, system=None, extra=""):
     t0 = time.time()
     res = {"verdict": "pass", "claim": "", "ms": 0, "cost": 0}
     prompt = (f"## 用户这轮的话（末尾）\n{(user or '（没有）')[-600:]}\n\n"
-              f"## 本轮查过的（工具调用）\n" + ("\n".join(f"- {describe(b)}" for b in looks[-MAX_LOOKS:]) or "（一次都没查）") +
-              f"\n\n## 要发给用户的回复\n{reply}")
+              f"## 最近查过的（工具调用，含前几轮）\n" + ("\n".join(f"- {describe(b)}" for b in looks[-MAX_LOOKS:]) or "（一次都没查）") +
+              f"\n\n## 要发给用户的回复\n{reply}" + extra)
     try:
         p = subprocess.run(
             ["claude", "-p", "--model", intent_judge.MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
-             "--no-session-persistence", "--system-prompt", SYSTEM, "--output-format", "json"],
+             "--no-session-persistence", "--system-prompt", system or SYSTEM, "--output-format", "json"],
             input=prompt, capture_output=True, text=True, timeout=intent_judge.TIMEOUT, cwd=tempfile.gettempdir())
         d = json.loads(p.stdout)
         res["cost"] = round(d.get("total_cost_usd") or 0, 5)
@@ -148,12 +211,45 @@ def check(d):
         return None  # 读不出本轮，分不清查没查，不误拦
     text, tools, user = t
     reply = d.get("last_assistant_message") or text
-    if not reply or not maybe(reply):
+    if not reply:
         return None
-    r = ask_model(reply, user, [b for b in tools if is_lookup(b)])
+    looks = [b for b in tools if is_lookup(b)]
+    if maybe(reply):  # 原来那道：断言自家现状、本轮没查
+        r = ask_model(reply, user, looks)
+        verdict = "block" if r["verdict"] == "unchecked" else "pass"
+        intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
+        if verdict == "block":
+            return (REASON_CHAT if _team_chat() else REASON).format(claim=r["claim"].strip("「」"))
+    extra = caps_block(reply, user)  # 同类（#1436）：提议新做、自带有同类却没点名或没查
+    if not extra:
+        return None
+    r = ask_model(reply, user, looks, SYSTEM_SAME, extra)
     verdict = "block" if r["verdict"] == "unchecked" else "pass"
-    intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
-    return REASON.format(claim=r["claim"].strip("「」")) if verdict == "block" else None
+    intent_judge._log("check-same", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
+    return REASON_SAME.format(claim=r["claim"].strip("「」")) if verdict == "block" else None
+
+
+# 团队聊天频道里不现场去查：agentm 11-10 15:18 用户问「性能分析完成了吗」，它按任务板答了一句，被本检查要求「上远端看」，
+# 就在聊天频道里起了远端核查（第 8 步、1 分半）。聊天频道只按任务板、交接和工作区回报说，要现场核就交工作区。
+REASON_CHAT = ("这是聊天频道，不在这里现场查。这句在说我们自家现状：「{claim}」。按任务板、交接文件和工作区最近回报能对上的就照说，"
+               "并写明「据工作区某时回报」；对不上或要上远端、跑命令才能确认的，写「没现场核」，要核就用 ws-forward 交给负责的工作区查。")
+
+
+# 提议新做、而自带的同类没点名或没查（#1436）
+REASON_SAME = ("先对一遍系统自带的同类再提方案：「{claim}」。先查那样同类现在怎么运作、做到哪（读它的程序、配置、记录，或拿它的名字搜 wiki），"
+               "回复里点名它，只写它哪里不够、在它上面怎么改；别把现成的说成要新做。")
+
+
+def _team_chat():
+    """同 bash-guard._team_chat：团队模式下的聊天频道会话；判断不了当不是。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("drg", os.path.join(HERE, "dispatch-review-guard.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return os.path.isfile(os.path.join(m._data_dir(), "team_workspaces.json")) and not m.in_workspace()
+    except Exception:
+        return False
 
 
 def main():

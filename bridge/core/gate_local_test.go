@@ -119,7 +119,7 @@ func TestLocalGate_NotInjectedFallsThroughToUpstream(t *testing.T) {
 			if e.applyGate(p, msg, s, "k") {
 				t.Fatal("must continue down the upstream path (normal turn or busy queue)")
 			}
-			if msg.Content != before {
+			if msg.Content != withLatestMark(before) { // #1375: only the latest mark is added
 				t.Fatalf("content rewritten: %q", msg.Content)
 			}
 			running.mu.Lock()
@@ -585,14 +585,14 @@ func TestLocalGate_RedirectAnsweredBeforeQueued(t *testing.T) {
 	for {
 		prompts, cancels := sess.snapshot()
 		// Redirect and queued message are from the same sender, so they run as one
-		// batched turn with the redirect first.
+		// batched turn, listed in send order: the queued message, then the redirect (#739).
 		if len(prompts) >= 2 {
 			if cancels != 1 {
 				t.Fatalf("CancelTurn called %d times, want 1", cancels)
 			}
 			r, q := strings.Index(prompts[1], "改做另一件事"), strings.Index(prompts[1], "顺便再看看日志")
-			if r < 0 || q < 0 || r > q {
-				t.Fatalf("turn after the redirect = %q, want the redirect first, then the queued message", prompts[1])
+			if r < 0 || q < 0 || q > r {
+				t.Fatalf("turn after the redirect = %q, want both in send order: the queued message, then the redirect", prompts[1])
 			}
 			return
 		}

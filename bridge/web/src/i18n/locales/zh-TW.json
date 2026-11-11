@@ -86,14 +86,16 @@
     "system": "系統",
     "wikiGalaxy": "Wiki 星河",
     "forum": "記憶論壇",
-    "gate": "閘門"
+    "gate": "閘門",
+    "pet": "桌寵外掛"
   },
   "plugins": {
     "stateClientUi": "用戶端 UI 套件",
     "clientUiNote": "由 DSH 提供，面板無法開關。"
   },
   "roles": {
-    "title": "角色管理"
+    "title": "角色管理",
+    "all": "全部"
   },
   "dashboard": {
     "title": "總覽",
@@ -103,7 +105,21 @@
     "projects": "專案",
     "bridgeAdapters": "橋接介接器",
     "noData": "尚無資料",
-    "recentSessions": "最近會話"
+    "recentSessions": "最近會話",
+    "isOffline": "不在線",
+    "headlineEmpty": "還沒有角色在這裡",
+    "headlineBusy": "{{busy}} 個角色在忙，{{idle}} 個空閒",
+    "headlineIdle": "{{count}} 個角色都在待命",
+    "needsLook": "{{count}} 件事需要看一下",
+    "allGood": "一切正常",
+    "busyNow": "在忙",
+    "attention": "需要注意",
+    "live": "正在發生",
+    "working": "正在處理",
+    "waiting": "待命中",
+    "pausedNote": "已暫停，不接新訊息",
+    "offlineNote": "連不上",
+    "projectSessions": "各專案會話數"
   },
   "projects": {
     "title": "專案",
@@ -299,7 +315,8 @@
     "optional": "選填",
     "confirmDelete": "確定要刪除嗎？",
     "close": "關閉",
-    "saving": "儲存中…"
+    "saving": "儲存中…",
+    "saved": "已儲存"
   },
   "setup": {
     "addPlatform": "新增平台",
@@ -397,7 +414,12 @@
     "slashHint": "按 / 查看可用命令",
     "inputPlaceholder": "輸入訊息或按 / 使用命令...",
     "commands": "命令",
-    "defaultSession": "Web 對話"
+    "defaultSession": "Web 對話",
+    "subtitle": "每個角色一條對話，最近說過話的排在前面",
+    "search": "找角色",
+    "you": "你",
+    "sessionCount": "{{count}} 個會話",
+    "empty": "還沒說過話"
   },
   "cmd": {
     "search": "搜尋命令...",
@@ -479,6 +501,10 @@
     "appearance": "外觀",
     "theme": "主題",
     "themeHint": "預設是黃白明亮。只儲存在這個瀏覽器裡，不用按儲存。",
+    "avatarStyle": "角色頭像",
+    "avatarStyleHint": "網頁面板和 DSH 外掛一起換，點了就儲存。",
+    "avatarStyleBrand": "各家原圖示",
+    "avatarStyleChibi": "娘化頭像",
     "tokenUnit": "Token 用量單位",
     "tokenUnitHint": "設定 Token 用量的顯示單位（支援原數、百萬 M、十億 B），懸停可查看完整原數。只儲存在這個瀏覽器裡，不用按儲存。"
   },
@@ -632,5 +658,17 @@
     "presetPastYear": "近一年",
     "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
     "tokenBreakdown": "消耗結構"
+  },
+  "navGroup": {
+    "main": "常用",
+    "collab": "協作",
+    "connect": "接入",
+    "extend": "擴充",
+    "settings": "設定"
+  },
+  "shell": {
+    "allFeatures": "全部功能",
+    "more": "更多",
+    "addRoleHint": "接一個新的 AI 進來，設定好就能在群裡工作"
   }
 }

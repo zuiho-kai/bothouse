@@ -76,6 +76,7 @@ type iflowTurn struct {
 	pendingTimer   *time.Timer
 	resultTimer    *time.Timer
 	resultText     string
+	streamedBytes  int // Bytes appended by EventText; terminal-only diagnostics are excluded.
 	toolFallback   []string
 	awaitingTool   bool
 	resultReady    bool
@@ -240,12 +241,7 @@ func (s *iflowSession) readLoop(turn *iflowTurn, cmd *exec.Cmd, ptmx *os.File) {
 	termText := strings.TrimSpace(stripANSI(termBuf.String()))
 	if turn.readyForResult() {
 		turn.markResultSent()
-		s.emitEvent(core.Event{
-			Type:      core.EventResult,
-			Content:   turn.finalContent(),
-			SessionID: s.CurrentSessionID(),
-			Done:      true,
-		})
+		s.emitEvent(turn.resultEvent(s.CurrentSessionID()))
 		return
 	}
 
@@ -266,12 +262,7 @@ func (s *iflowSession) readLoop(turn *iflowTurn, cmd *exec.Cmd, ptmx *os.File) {
 		return
 	}
 
-	s.emitEvent(core.Event{
-		Type:      core.EventResult,
-		Content:   turn.finalContent(),
-		SessionID: s.CurrentSessionID(),
-		Done:      true,
-	})
+	s.emitEvent(turn.resultEvent(s.CurrentSessionID()))
 }
 
 func (s *iflowSession) watchTranscript(turn *iflowTurn) {
@@ -676,6 +667,7 @@ func (t *iflowTurn) appendText(text string) {
 	defer t.mu.Unlock()
 	t.awaitingTool = false
 	t.resultText += text
+	t.streamedBytes += len(text)
 }
 
 func (t *iflowTurn) completeTools(results []iflowToolResult) bool {
@@ -777,21 +769,28 @@ func (t *iflowTurn) markResultSent() {
 	t.resultSent = true
 }
 
-func (t *iflowTurn) finalContent() string {
+// resultEvent snapshots both the cumulative body and its streamed prefix under
+// the same lock. A tool fallback may append new text, but is never counted as
+// already streamed. The engine can deliver the suffix without replaying the prefix.
+func (t *iflowTurn) resultEvent(sessionID string) core.Event {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	ev := core.Event{Type: core.EventResult, Content: t.resultText,
+		StreamedContentBytes: t.streamedBytes, SessionID: sessionID, Done: true}
 	if !t.awaitingTool || len(t.toolFallback) == 0 {
-		return t.resultText
+		return ev
 	}
 
 	fallback := strings.Join(t.toolFallback, "\n\n")
 	if t.resultText == "" {
-		return fallback
+		ev.Content = fallback
+		return ev
 	}
 	if strings.Contains(t.resultText, fallback) {
-		return t.resultText
+		return ev
 	}
-	return t.resultText + "\n\n" + fallback
+	ev.Content += "\n\n" + fallback
+	return ev
 }
 
 func (s *iflowSession) emitEvent(evt core.Event) {

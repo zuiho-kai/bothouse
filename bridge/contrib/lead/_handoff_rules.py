@@ -141,7 +141,61 @@ def _check(c, lines, lead, key="msg"):
     if t == "needs_if":  # 正文命中 trigger_re 时，正文还要命中 need_re（浏览器活要写标签页 id）
         text = text_of(lines)
         return c[key] if re.search(c["trigger_re"], text) and not re.search(c["need_re"], text) else None
+    if t == "forbid_if":  # 原话节命中 trigger_re（用户要照抄）时，指定几节不许出现 forbid_re（自己发挥）；11-09 用户「让你抄他，你又搞一坨屎创意」第 n 次
+        src = text_of([x for seg in _sections(lines, c["trigger_section"], lead) for x in seg])
+        dst = [x for n in c["sections"] for seg in _sections(lines, n, lead) for x in seg[1:]]
+        if re.search(c["trigger_re"], src):
+            hit = [x.strip() for x in dst if re.search(c["forbid_re"], x)]
+            return c[key].replace("{hit}", "；".join(hit[:3])) if hit else None
+        return None
+    if t == "ref_local":  # 参考链接要有落地的本地图/视频（#1223，用户 11-08「整个参考信息全给他」）
+        links, have, gone = ref_material(text_of(lines), c, lead)
+        if not links:
+            return None
+        if gone:
+            return c["missing_msg"].replace("{items}", "、".join(gone))
+        return None if have else c[key].replace("{links}", "、".join(links[:3]))
     raise RuntimeError(f"交接规则文件里有不认识的检查类型：{t}")
+
+
+def ref_rule(rules=None):
+    """ref_local 那条检查（规则文件里没有就 None）。ws-up --direct、ws-pass 用同一条判断交接有没有参考材料。"""
+    rules = rules or load()
+    return next((c for c in rules["checks"] if c.get("type") == "ref_local"), None)
+
+
+def ref_material(text, c=None, lead=None):
+    """交接里的参考材料：(参考链接, 存在的本地参考图/视频, 写了但不存在的本地参考路径)。
+    程序追加的节（标题含 skip_heading_re，如「旧定案（程序搜出）」）不算，那是搜出来的旧材料，不是这件活的参考。"""
+    if c is None:
+        rules = load()
+        c, lead = ref_rule(rules), rules["lead"]
+        if c is None:
+            return [], [], []
+    skip, keep, lines = re.compile(c["skip_heading_re"]), True, []
+    for l in text.splitlines():
+        if _head(l):
+            keep = not skip.search(l)
+        if keep:
+            lines.append(l)
+    link, hint, url = re.compile(c["link_re"]), re.compile(c["hint_re"]), re.compile(c["url_re"])
+    links = []
+    for l in lines:
+        found = [m.group(0) for m in link.finditer(l)]
+        if hint.search(l):
+            found += [m.group(0) for m in url.finditer(l)]
+        links += [u.rstrip(".,;:：，。；") for u in found]
+    local, media = re.compile(c["local_re"]), re.compile(c["media_re"], re.I)
+    have, gone = [], []
+    for l in lines:
+        for m in local.finditer(l):
+            raw = m.group(0).rstrip(".,;:：，。；")
+            p = Path(re.sub(r":[0-9][0-9,-]*$", "", raw)).expanduser()  # figure.js:19-20 这类带行号的
+            if p.is_file() and media.search(p.name):
+                have.append(str(p))
+            elif not p.exists():
+                gone.append(raw)
+    return list(dict.fromkeys(links)), list(dict.fromkeys(have)), list(dict.fromkeys(gone))
 
 
 def text_of(lines):
