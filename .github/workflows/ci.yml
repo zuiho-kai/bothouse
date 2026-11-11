@@ -192,6 +192,10 @@ jobs:
           python-version: '3.11'
       - run: python3 -I contrib/gate/test_ctxsvc.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_ctxsvc_kickoff.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/hooks/test_check_first_samekind.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_context.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_addressee.py
