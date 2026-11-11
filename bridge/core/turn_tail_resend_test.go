@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -204,4 +205,42 @@ func TestTurnTailTerminalContent(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestTurnTailStreamingCardChannelClosed(t *testing.T) {
+	p := &turnTailCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "card"}, card: &turnTailCard{}}
+	sent := runTurnTailResend(t, p, true)
+	assertTurnSentOnce(t, append(sent, p.card.final))
+	if len(sent) != 0 {
+		t.Fatalf("live card owns the answer, got side messages: %q", sent)
+	}
+}
+
+type turnTailFailingCard struct {
+	turnTailCard
+	failed bool
+}
+
+func (c *turnTailFailingCard) Update(_ context.Context, s string) error {
+	// Fail only after the boundary would have advanced segmentStart.
+	if strings.Contains(s, "这 AI") {
+		c.failed = true
+		return errors.New("card update failed")
+	}
+	return nil
+}
+func (c *turnTailFailingCard) Failed() bool { return c.failed }
+
+type turnTailFailingCardPlatform struct {
+	stubPlatformEngine
+	card turnTailFailingCard
+}
+
+func (p *turnTailFailingCardPlatform) CreateStreamingCard(context.Context, any) (StreamingCard, error) {
+	return &p.card, nil
+}
+
+func TestTurnTailFailedCardRetainsUnsentText(t *testing.T) {
+	p := &turnTailFailingCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "card"}}
+	assertTurnSentOnce(t, runTurnTailResend(t, p, false))
 }

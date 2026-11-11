@@ -6823,7 +6823,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When thinking messages are hidden, behavior depends on display mode:
 			//   quiet:   append separator to keep all text in one card
 			//   compact: freeze+detach to split text into separate cards
-			if !e.display.ThinkingMessages && len(textParts) > segmentStart {
+			if !e.display.ThinkingMessages && len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if e.display.Mode == "quiet" {
 					if sp.canPreview() && sp.appendSeparator("\n\n") {
 						textParts = append(textParts, "\n\n")
@@ -6928,7 +6928,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// When tool messages are hidden, behavior depends on display mode:
 			//   quiet:   append separator to keep all text in one card
 			//   compact: freeze+detach to split text into separate cards
-			if !e.display.ToolMessages && len(textParts) > segmentStart {
+			if !e.display.ToolMessages && len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if e.display.Mode == "quiet" {
 					if sp.canPreview() && sp.appendSeparator("\n\n") {
 						textParts = append(textParts, "\n\n")
@@ -7291,9 +7291,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				continue
 			}
 
-			// Flush accumulated text segment before permission prompt
+			// A live card retains ownership of its text across the prompt; only
+			// detached previews/plain sends commit a separate segment here.
 			previewActive := sp.canPreview()
-			if len(textParts) > segmentStart {
+			if len(textParts) > segmentStart && (streamCard == nil || streamCard.Failed()) {
 				if !previewActive {
 					segment := stripSilentReply(strings.Join(textParts[segmentStart:], ""))
 					if segment != "" {
@@ -8513,6 +8514,18 @@ channelClosed:
 				Content:    fullResponse,
 				Extra:      e.agentHookExtra(session.GetAgentSessionID(), triggerExtra(msgID)),
 			})
+		}
+
+		// The live card owns the entire streamed answer, including on EOF.
+		// It has not committed any detached segments; a failed finalization
+		// therefore leaves the complete text available for the ordinary send.
+		if streamCard != nil && !streamCard.Failed() {
+			finalContent := buildCardContent(cardThinkingText, cardToolCalls, fullResponse)
+			if err := authorizedOutput(outputCtx, func() error { return streamCard.Finalize(outputCtx, finalContent) }); err == nil {
+				return
+			} else {
+				slog.Error("streaming card finalize failed on channel close", "error", err)
+			}
 		}
 
 		// Same rule as the normal end: text before segmentStart already went out (#700).
