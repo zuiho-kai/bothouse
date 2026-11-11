@@ -90,6 +90,9 @@ type SendRequest struct {
 	SessionFromEnv bool `json:"session_from_env,omitempty"`
 	// Experience: append the related team lessons and the hand-back rule (team_experience.go).
 	Experience bool `json:"experience,omitempty"`
+	// Channel: send to the channel with this name in the server of FromSession instead of
+	// SessionKey (send_channel.go). Not found or ambiguous is an error; nothing is sent.
+	Channel string `json:"channel,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -342,6 +345,21 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "native reply requires text and an explicit conversation without cwd or dm", http.StatusBadRequest)
 		return
 	}
+	// explicitTarget: the caller named another conversation (--channel or -s), so the reply says
+	// which channel the message really went to.
+	explicitTarget := !req.DM && !req.SessionFromEnv && req.SessionKey != "" && req.TaskText == nil
+	if strings.TrimSpace(req.Channel) != "" {
+		if req.DM || req.SessionKey != "" || workDir != "" || req.TaskText != nil || req.ReplyToMessageID != "" {
+			http.Error(w, "--channel cannot be combined with --session, --dm, --cwd, --task or --reply-to", http.StatusBadRequest)
+			return
+		}
+		key, _, err := engine.ChannelSessionByName(req.FromSession, req.Channel)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.SessionKey, explicitTarget = key, true
+	}
 	dmUserID, dmNote := "", ""
 	if req.DM {
 		if workDir != "" {
@@ -432,6 +450,12 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if dmNote != "" {
 		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "note": dmNote})
 		return
+	}
+	if explicitTarget {
+		if id, name, ok := engine.sentChannel(req.SessionKey); ok {
+			apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "channel_id": id, "channel_name": name})
+			return
+		}
 	}
 	apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
