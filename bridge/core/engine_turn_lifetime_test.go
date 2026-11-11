@@ -14,10 +14,12 @@ import (
 // next message can resume the conversation by its saved ID, and stays otherwise.
 
 type turnLifetimeSession struct {
-	id         string
-	events     chan Event
-	closed     atomic.Bool
-	background atomic.Int32
+	id           string
+	events       chan Event
+	closed       atomic.Bool
+	background   atomic.Int32
+	closeStarted chan struct{}
+	closeRelease <-chan struct{}
 }
 
 func (s *turnLifetimeSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
@@ -28,7 +30,14 @@ func (s *turnLifetimeSession) RespondPermission(string, PermissionResult) error 
 func (s *turnLifetimeSession) Events() <-chan Event                             { return s.events }
 func (s *turnLifetimeSession) CurrentSessionID() string                         { return s.id }
 func (s *turnLifetimeSession) Alive() bool                                      { return !s.closed.Load() }
-func (s *turnLifetimeSession) Close() error                                     { s.closed.Store(true); return nil }
+func (s *turnLifetimeSession) Close() error {
+	if s.closeStarted != nil {
+		close(s.closeStarted)
+		<-s.closeRelease
+	}
+	s.closed.Store(true)
+	return nil
+}
 func (s *turnLifetimeSession) BackgroundTasks() (int, time.Time) {
 	return int(s.background.Load()), time.Time{}
 }
@@ -104,7 +113,9 @@ func (a *turnLifetimeAgent) snapshot() ([]string, []*turnLifetimeSession) {
 func newTurnLifetimeEngine(t *testing.T, agent Agent) *Engine {
 	t.Helper()
 	p := &stubPlatformEngine{n: "test"}
-	return NewEngine("test", agent, []Platform{p}, filepath.Join(t.TempDir(), "sessions.json"), LangEnglish)
+	e := NewEngine("test", agent, []Platform{p}, filepath.Join(t.TempDir(), "sessions.json"), LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	return e
 }
 
 func TestTurnEnd_ClosesResumableProcessAndNextMessageResumes(t *testing.T) {
@@ -166,5 +177,87 @@ func TestTurnEnd_KeepsProcessWhileBackgroundWorkRuns(t *testing.T) {
 	_, sessions := base.snapshot()
 	if sessions[0].closed.Load() {
 		t.Fatal("closed a process with a background task running: its completion would be lost")
+	}
+	sessions[0].background.Store(0)
+	sessions[0].events <- Event{Type: EventResult, Content: "background finished", Done: true}
+	waitForInteractiveStateRemoved(t, e, key)
+	if !sessions[0].closed.Load() {
+		t.Fatal("background completion left its process running")
+	}
+}
+
+func TestTurnEnd_NextTurnClaimsProcessBeforeCleanup(t *testing.T) {
+	base := &turnLifetimeAgent{}
+	agent := strictTurnLifetimeAgent{base}
+	e := newTurnLifetimeEngine(t, agent)
+	key := "test:chat:u1"
+	session := e.sessions.GetOrCreateActive(key)
+	state := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	session.SetAgentSessionID("conv-1", agent.Name())
+	state.eventsNeedResync = false
+	token := e.agentSessionIdleSeq.Add(1)
+	state.agentSessionIdleToken = token
+	claimed := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	if claimed != state {
+		t.Fatal("did not reuse the existing process")
+	}
+	e.cleanupInteractiveStateForIdleToken(key, state, token, 0)
+	_, processes := base.snapshot()
+	if processes[0].closed.Load() {
+		t.Fatal("cleanup closed a process already claimed by the next turn")
+	}
+	e.cleanupInteractiveState(key, state)
+}
+
+func TestTurnEnd_ResumeWaitsForPreviousProcessClose(t *testing.T) {
+	base := &turnLifetimeAgent{}
+	agent := strictTurnLifetimeAgent{base}
+	e := newTurnLifetimeEngine(t, agent)
+	key := "test:chat:u1"
+	session := e.sessions.GetOrCreateActive(key)
+	state := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	session.SetAgentSessionID("conv-1", agent.Name())
+	_, processes := base.snapshot()
+	old := processes[0]
+	old.closeStarted = make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	old.closeRelease = release
+	state.eventsNeedResync = false
+	token := e.agentSessionIdleSeq.Add(1)
+	state.agentSessionIdleToken = token
+	go e.cleanupInteractiveStateForIdleToken(key, state, token, 0)
+	select {
+	case <-old.closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not start closing")
+	}
+	state.mu.Lock()
+	state.pendingMessages = append(state.pendingMessages, queuedMessage{content: "arrived during close"})
+	state.mu.Unlock()
+	ready := make(chan *interactiveState, 1)
+	go func() {
+		ready <- e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	}()
+	select {
+	case <-ready:
+		t.Fatal("resumed before the previous process finished closing")
+	case <-time.After(25 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case next := <-ready:
+		if next.agentSession.CurrentSessionID() != "conv-1" {
+			t.Fatal("lost the saved session ID")
+		}
+		if len(next.pendingMessages) != 1 || next.pendingMessages[0].content != "arrived during close" {
+			t.Fatal("lost a message queued during close")
+		}
+		next.pendingMessages = nil
+		e.cleanupInteractiveState(key, next)
+	case <-time.After(time.Second):
+		t.Fatal("resume did not continue after close")
 	}
 }

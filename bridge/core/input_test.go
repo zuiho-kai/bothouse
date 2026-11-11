@@ -351,6 +351,7 @@ func TestLocalInputSameSessionLocalOnlyAndDiscord(t *testing.T) {
 		inputDone(a, "voice answer")
 		r := inputResult(t, api, id, "completed")
 		inputWait(t, func() bool { return !s.Busy() })
+		waitForInteractiveStateRemoved(t, e, inputTestKey)
 		if r.Text != "voice answer" || r.SessionID != s.ID || r.AgentSessionID != "original-thread" {
 			t.Fatalf("%+v", r)
 		}

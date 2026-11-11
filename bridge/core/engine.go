@@ -719,6 +719,7 @@ type interactiveState struct {
 	externalTaskInput        *externalInputDelivery
 	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
+	agentCloseDone           <-chan struct{} // turn/idle close: wait for durable close before resume; guarded by interactiveMu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
@@ -5354,7 +5355,25 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	state, ok := e.interactiveStates[sessionKey]
+	for ok && state.agentCloseDone != nil {
+		closed := state.agentCloseDone
+		e.interactiveMu.Unlock()
+		select {
+		case <-closed:
+		case <-e.ctx.Done():
+			e.interactiveMu.Lock()
+			return &interactiveState{startErr: "engine stopped while closing the previous process"}
+		}
+		e.interactiveMu.Lock()
+		if e.interactiveStates[sessionKey] == state {
+			state.agentCloseDone = nil
+		}
+		state, ok = e.interactiveStates[sessionKey]
+	}
 	if ok && state.agentSession != nil && state.agentSession.Alive() {
+		// Claim under the same map lock the closer uses. Cancelling later in the
+		// foreground worker leaves a window in which cleanup can close this process.
+		e.cancelAgentSessionIdleClose(state)
 		// Verify the running agent session matches the current active session.
 		// After /new or /switch the active session changes, but the old agent
 		// process may still be alive. Reusing it would send messages to the
@@ -5722,13 +5741,8 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 	if state == nil {
 		return
 	}
-	// 2026-11-11 (#702, agent processes outliving their turns): the process lives for a turn,
-	// not for the chat. A turn that ended with nothing queued closes it here when the next
-	// message can resume the same conversation by its saved agent session ID; the session,
-	// its history and that ID stay. Before this, a process was closed only by /new, a
-	// configured idle timeout (unset here, so never) or a workspace handback, and every chat
-	// channel and task thread a bot ever answered in kept a ~0.5G process until the bridge
-	// restarted. Agents that cannot resume keep the old lifetime (idle timeout when set).
+	// A resumable process belongs to its turn; retain the saved conversation ID.
+	// Agents that cannot resume retain their configured idle timeout.
 	state.mu.Lock()
 	resumable := agentSessionResumable(state.agent, state.agentSession)
 	state.mu.Unlock()
@@ -5738,7 +5752,6 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 	}
 
 	e.cancelAgentSessionIdleClose(state)
-	ctx, cancel := context.WithCancel(e.ctx)
 	token := e.agentSessionIdleSeq.Add(1)
 	state.mu.Lock()
 	if state.stopped ||
@@ -5748,18 +5761,17 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
-		cancel()
 		return
 	}
 	if resumable {
 		// Same token protocol as the idle timer: a turn starting before the close runs
 		// clears the token (cancelAgentSessionIdleClose) and the close is skipped.
-		state.agentSessionIdleCancel = cancel
 		state.agentSessionIdleToken = token
 		state.mu.Unlock()
 		go e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, 0)
 		return
 	}
+ ctx, cancel := context.WithCancel(e.ctx)
 	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
 	state.mu.Unlock()
 }
@@ -5889,11 +5901,15 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		return
 	}
 	agentSession = state.agentSession
+	closed := make(chan struct{})
+	state.agentCloseDone = closed
 	state.agentSession = nil
+ idleCancel := state.agentSessionIdleCancel
 	state.agentSessionIdleCancel = nil
 	state.agentSessionIdleToken = 0
 	state.mu.Unlock()
 	e.interactiveMu.Unlock()
+ if idleCancel != nil { idleCancel() }
 
 	if timeout <= 0 {
 		slog.Info("turn ended: closing agent process; its saved session ID stays for resume",
@@ -5912,13 +5928,18 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	if pending != nil {
 		pending.resolve()
 	}
-	e.notifyDroppedQueuedMessages(state, fmt.Errorf("session reset"))
-
-	e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+	// This is a process close, not a conversation reset. A message queued during
+	// close must be adopted by the replacement state, not reported as dropped.
+	e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	<-closed
 
 	e.interactiveMu.Lock()
 	if currentState, currentOk := e.interactiveStates[sessionKey]; currentOk && currentState == expected {
-		delete(e.interactiveStates, sessionKey)
+		state.mu.Lock()
+		if len(state.pendingMessages) == 0 {
+			delete(e.interactiveStates, sessionKey)
+		}
+		state.mu.Unlock()
 	}
 	e.interactiveMu.Unlock()
 }

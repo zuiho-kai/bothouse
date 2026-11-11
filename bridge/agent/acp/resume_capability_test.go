@@ -50,6 +50,9 @@ func TestResumeCapability_PreservesBindingWithoutLoadSession(t *testing.T) {
 			if good && s.CurrentSessionID() != "test-session-id" {
 				t.Error("binding changed")
 			}
+			if good && !s.CanResume() {
+				t.Error("session/resume capability not exposed")
+			}
 		}
 	}
 }
