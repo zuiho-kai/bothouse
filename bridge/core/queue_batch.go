@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 )
@@ -10,7 +11,8 @@ import (
 // takeQueuedBatchLocked pops the head of state.pendingMessages and folds the
 // plain messages behind it from the same sender in the same chat into it, so a
 // burst sent while the agent was busy runs as one turn (oldest first) instead
-// of one turn per message. The reply goes to the last message. Anything that is
+// of one turn per message. The reply goes to the newest abort/redirect, or otherwise
+// the last message. Anything that is
 // not a plain human message (bot, cron/timer/resume, mode override, a second
 // quote) ends the batch and waits for its own turn. Caller holds state.mu.
 func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
@@ -40,25 +42,26 @@ func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 	return mergeQueued(inArrivalOrder(parts))
 }
 
-// inArrivalOrder puts a batch back in the order its messages were sent (#739). A gate
-// abort/redirect (abortFront) is queued at the FRONT of pendingMessages (enqueueForBusySession),
-// each new one ahead of the last, so it is newer than every plain message behind it: the plain
-// parts keep their order and the aborts follow, oldest first. The merged turn then answers its
-// last part, the person's latest word, like any other burst.
+// inArrivalOrder restores admission order (#739). Queue position encodes priority, not time:
+// ordinary messages may arrive both before and after an abort moves to the front.
 func inArrivalOrder(parts []queuedMessage) []queuedMessage {
-	out := make([]queuedMessage, 0, len(parts))
-	var aborts []queuedMessage
-	for _, p := range parts {
-		if p.abortFront {
-			aborts = append(aborts, p)
-		} else {
-			out = append(out, p)
+	sort.SliceStable(parts, func(i, j int) bool { return parts[i].queueOrder < parts[j].queueOrder })
+	return parts
+}
+
+// batchReplyIndex chooses the reply independently of presentation order: the newest
+// abort/redirect holding a place wins; otherwise answer the newest message holding a place.
+func batchReplyIndex(parts []queuedMessage) int {
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i].abortFront && !parts[i].overflow {
+			return i
 		}
 	}
-	for i := len(aborts) - 1; i >= 0; i-- {
-		out = append(out, aborts[i])
+	reply := len(parts) - 1
+	for reply > 0 && parts[reply].overflow {
+		reply--
 	}
-	return out
+	return reply
 }
 
 // takeGroupBatchLocked is takeQueuedBatchLocked for a busy group chat (groupChatQueue): the plain
@@ -146,14 +149,9 @@ func sameChatAnyVoice(a, b *queuedMessage) bool {
 }
 
 // mergeQueuedChat is mergeQueued for several senders of one group chat: each part names its
-// sender, and the last one is marked latest (the same wording as the gate's backfill).
+// sender, and the reply target is marked (the same wording as the gate's backfill).
 func mergeQueuedChat(parts []queuedMessage) queuedMessage {
-	// Reply to the newest message that held a place in the queue; a message filed as context
-	// (overflow) only rides along.
-	reply := len(parts) - 1
-	for reply > 0 && parts[reply].overflow {
-		reply--
-	}
+	reply := batchReplyIndex(parts)
 	// Attachments and the rest follow the parts in arrival order; who and what the reply goes to
 	// come from the reply part.
 	all := mergeQueued(parts)
@@ -311,10 +309,10 @@ func batchReference(parts []queuedMessage) *MessageReference {
 }
 
 // mergeQueued joins parts (oldest first; a batch with an abort/redirect goes through
-// inArrivalOrder) into one message that replies to the last one.
+// inArrivalOrder) into one message; the reply target follows batchReplyIndex.
 func mergeQueued(parts []queuedMessage) queuedMessage {
-	last := parts[len(parts)-1]
-	out := last
+	reply := batchReplyIndex(parts)
+	out := parts[reply]
 	out.ambientChat = parts[0].ambientChat
 	out.reference = batchReference(parts)
 	out.boardDesc = parts[0].boardDesc
@@ -330,6 +328,9 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 			out.turnCtxQuery = p.turnCtxQuery
 		}
 		b.WriteString("\n")
+		if i == reply && i != len(parts)-1 {
+			b.WriteString("（回这条）\n")
+		}
 		if p.userMessageTimeMs > 0 {
 			fmt.Fprintf(&b, "[%d] %s\n", i+1, time.UnixMilli(p.userMessageTimeMs).Format("15:04:05"))
 		} else {

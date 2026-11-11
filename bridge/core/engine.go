@@ -597,6 +597,8 @@ type Engine struct {
 	interactiveMu     sync.Mutex
 	roleEvents        atomic.Pointer[roleEventBroker]
 	interactiveStates map[string]*interactiveState // key = sessionKey
+	// #739: admission order is independent of queue priority; keep it across state replacement.
+	queueOrder        atomic.Uint64
 	scheduledTurns    map[string]string            // scheduled run id -> interactive key (scheduled_timeout.go)
 	nativeCompactions map[string]*nativeCompaction // guarded by interactiveMu
 
@@ -689,6 +691,7 @@ type queuedMessage struct {
 	// #739: a gate abort/redirect (Message.abortFront) is queued at the front, ahead of what it
 	// cancels; a batch that folds it in still answers it (queue_batch.go).
 	abortFront    bool
+	queueOrder    uint64 // #739: assigned at admission, before an abort moves to the queue front
 	turnCtxSender string // #1160
 	fromBot       bool
 	mentioned     bool   // Message.Mentioned: a queue-full chat never turns it away (queue_batch.go)
@@ -4180,6 +4183,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		// turn instead of a "queue full" notice (queue_batch.go).
 		q.overflow = e.makeRoomInGroupQueueLocked(state, msg, interactiveKey) && batchableQueued(&q)
 	}
+	q.queueOrder = e.queueOrder.Add(1)
 	if msg.abortFront {
 		// maomao fork: a gate abort is answered before what queued behind the turn it cancels.
 		state.pendingMessages = append([]queuedMessage{q}, state.pendingMessages...)
