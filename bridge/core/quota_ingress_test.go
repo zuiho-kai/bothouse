@@ -107,7 +107,9 @@ func TestQuotaPendingSwitchIngress(t *testing.T) {
 			if r := e.QueueModelSwitch(context.Background(), key, "A2", "", false); !r.OK {
 				t.Fatal(r.Message)
 			}
-			send("shared-pool")
+			// A teammate bot, not a person: a person's message retries the
+			// provider once (quota_wake_test.go); a bot waits for the pool.
+			e.ReceiveMessage(p, &Message{SessionKey: key, Platform: "discord", MessageID: "shared-pool", UserID: "bot", FromBot: true, Content: "shared-pool", Mentioned: true, ReplyCtx: key})
 			inputWait(t, func() bool { return e.sessionModelFor(key) == "A2" && !e.sessions.GetOrCreateActive(key).Busy() })
 			select {
 			case model := <-a.sent:

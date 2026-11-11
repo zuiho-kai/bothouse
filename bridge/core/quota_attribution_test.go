@@ -73,9 +73,11 @@ func TestCUJ_QuotaExhaustedTurnEndsOnceWithAttributedNotice(t *testing.T) {
 			if strings.Count(out, want) != 1 || strings.Contains(out, "hit your") || strings.Contains(out, "❌") {
 				t.Fatalf("sent = %q, want one %q and no raw CLI text", out, want)
 			}
-			// The turn is closed, but the provider stays cooling until its reset.
+			// The turn is closed, but the provider stays cooling until its reset:
+			// a teammate bot waits. (A person's message retries once instead,
+			// quota_wake_test.go.)
 			p.clearSent()
-			send("second")
+			e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: "second", UserID: "bot", FromBot: true, Content: "second", Mentioned: true, ReplyCtx: "local"})
 			inputWait(t, func() bool { return !s.Busy() && len(p.getSent()) > 0 })
 			select {
 			case prompt := <-as.prompts:
