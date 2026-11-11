@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // dshWebProcLookupTimeout bounds one PowerShell call. It is the cap for a caller with no round of its
@@ -25,6 +27,15 @@ var dshWebProcLookupTimeout = 2 * time.Second
 // 来源：Win32 docs — Win32_Process.CommandLine 是唯一不注入代码就能拿到的完整命令行。
 func dshWebProcLookupNow(ctx context.Context, pid int) (argv []string, env map[string]string, envKnown, ok bool) {
 	if pid <= 0 {
+		return nil, nil, false, false
+	}
+	// Native first: one NtQueryInformationProcess, no powershell.exe. The PowerShell/CIM read below
+	// failed on the windows-e2e runner for a live node.exe and answered 3s later (run 42952099038:
+	// "the command line of pid 6964 cannot be read"), so the bridge refused to stop its own host.
+	if line := dshWebCommandLineNative(pid); line != "" {
+		return splitWindowsCommandLine(line), nil, false, true
+	}
+	if ctx.Err() != nil {
 		return nil, nil, false, false
 	}
 	ctx, cancel := context.WithTimeout(ctx, dshWebProcLookupTimeout)
@@ -100,4 +111,25 @@ func dshWebParentPIDNow(_ context.Context, pid int) int {
 		}
 	}
 	return 0
+}
+
+// dshWebCommandLineNative reads pid's command line with NtQueryInformationProcess
+// (ProcessCommandLineInformation, Windows 8.1+), "" when it cannot.
+// 来源：Win32 docs — NtQueryInformationProcess / ProcessCommandLineInformation 返回 UNICODE_STRING。
+func dshWebCommandLineNative(pid int) string {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return ""
+	}
+	defer windows.CloseHandle(h)
+	var need uint32
+	_ = windows.NtQueryInformationProcess(h, windows.ProcessCommandLineInformation, nil, 0, &need)
+	if need < uint32(unsafe.Sizeof(windows.NTUnicodeString{})) || need > 1<<20 {
+		return ""
+	}
+	buf := make([]byte, need)
+	if windows.NtQueryInformationProcess(h, windows.ProcessCommandLineInformation, unsafe.Pointer(&buf[0]), need, &need) != nil {
+		return ""
+	}
+	return (*windows.NTUnicodeString)(unsafe.Pointer(&buf[0])).String()
 }

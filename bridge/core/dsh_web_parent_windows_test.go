@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -20,4 +21,18 @@ func TestDSHWebParentPIDWindows(t *testing.T) {
 	if got := dshWebParentPID(context.Background(), cmd.Process.Pid); got != os.Getpid() {
 		t.Fatalf("parent of cmd.exe %d = %d, want this test process %d", cmd.Process.Pid, got, os.Getpid())
 	}
+}
+
+// 同一个原因：PowerShell 查命令行在 CI 机器上会偶发读不到，改成系统接口直接读。
+func TestDSHWebCommandLineNativeWindows(t *testing.T) {
+	cmd := exec.Command("cmd", "/c", "ping", "-n", "5", "127.0.0.1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	line := dshWebCommandLineNative(cmd.Process.Pid)
+	if !strings.Contains(line, "ping") {
+		t.Fatalf("native command line of cmd.exe %d = %q, want it to contain ping", cmd.Process.Pid, line)
+	}
+	t.Logf("cmd.exe command line: %s", line)
 }
