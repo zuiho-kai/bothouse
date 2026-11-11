@@ -144,6 +144,14 @@ func (e *Engine) quotaScopeFor(agent Agent, model string) quotaScope {
 		if p := sw.GetActiveProvider(); p != nil {
 			// Provider aliases using the same endpoint/key share the same allowance.
 			s.Provider = agent.Name() + "/" + p.BaseURL
+			if p.APIKey == "" && p.BaseURL == "" {
+				// No key and no endpoint: the CLI runs on its own login, so the
+				// account is whoever is logged in (the resolver above), not this
+				// config entry. Hashing the empty entry gave every login the same
+				// key, and a new account inherited the old one's cooldown
+				// (2026-11-11 用户「我更换了c酱的账号 还是被锁了」).
+				return s
+			}
 			identity, _ := json.Marshal(struct {
 				Key     string
 				Env     map[string]string
@@ -300,6 +308,7 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		e.quotaState.Until = latest
 		e.quotaState.ProbeRound = 0
 		e.quotaState.NextProbeAt = time.Time{}
+		e.quotaState.Answered = false
 		previous := e.quotaState.ProbeStatus
 		e.quotaState.ProbeStatus = "exhausted"
 		if session != "" {
@@ -315,6 +324,57 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 			slog.Info("quota cooldown: provider reported exhaustion",
 				"project", e.name, "probe_status", e.quotaState.ProbeStatus, "cooling_until", e.quotaState.Until)
 		}
+	})
+}
+
+// recoverQuotaFor ends scope's cooldown because a real turn under it just got an
+// answer. The domain admission reads is cleared at once, so the next message is
+// not turned away; quotaTick then finishes the recovery (lead, notice) from
+// Answered. A scope that was not cooling is left untouched.
+func (e *Engine) recoverQuotaFor(scope quotaScope) {
+	now := time.Now()
+	key := scope.key()
+	quotaDomainsMu.Lock()
+	cooling := false
+	if e.domainUntilLocked(key).After(now) {
+		e.saveDomainLocked(key, time.Time{})
+		cooling = true
+	}
+	if scope.Account == "unknown" {
+		// An unresolved identity is held by the provider guard; the answer
+		// came from that same unresolved account, so the guard ends with it.
+		guard := quotaScope{Provider: scope.Provider}.key()
+		if e.domainUntilLocked(guard).After(now) {
+			e.saveDomainLocked(guard, time.Time{})
+			cooling = true
+		}
+	}
+	quotaDomainsMu.Unlock()
+	e.capMu.Lock()
+	legacy := e.quotaUntil.After(now)
+	e.capMu.Unlock()
+	if legacy && !e.quotaVerified(key) {
+		// The role-level record cannot name the account it came from; an
+		// answer exempts this scope the same way a positive probe does.
+		e.quotaVerifiedMu.Lock()
+		if e.quotaState.Verified == nil {
+			e.quotaState.Verified = map[string]bool{}
+		}
+		e.quotaState.Verified[key] = true
+		e.quotaVerifiedMu.Unlock()
+		cooling = true
+	}
+	if !cooling {
+		return
+	}
+	slog.Info("quota cooldown: provider answered, cooldown cleared", "project", e.name)
+	e.updateQuotaState(func() {
+		if e.quotaState.Scope != "" && e.quotaState.Scope != key {
+			e.saveQuotaLocked()
+			return
+		}
+		e.quotaState.Answered = true
+		e.saveQuotaLocked()
 	})
 }
 
