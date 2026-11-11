@@ -278,7 +278,16 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 			"cwd":        s.workDir,
 			"mcpServers": []any{},
 		}
+		// session/load replays history before acknowledging the load. It is not
+		// a new answer and must not fill the event buffer while handshake waits.
+		s.inputMu.Lock()
+		guard := s.inputGuard
+		s.inputGuard = true
+		s.inputMu.Unlock()
 		loadRes, err := s.tr.call(s.ctx, resumeMethod, loadParams)
+		s.inputMu.Lock()
+		s.inputGuard = guard
+		s.inputMu.Unlock()
 		if err != nil {
 			return fmt.Errorf("acp: %s: %w", resumeMethod, err)
 		} else {

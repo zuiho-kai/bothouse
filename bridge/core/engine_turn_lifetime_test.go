@@ -79,24 +79,20 @@ func TestTurnEnd_StopPreservesClosingBarrier(t *testing.T) {
 	session, _, unblock := beginTurnLifetimeClose(t, e, base, key)
 	defer unblock()
 	e.ReceiveMessage(e.platforms[0], &Message{Platform: "test", SessionKey: key, UserID: "u1", Content: "/stop", ReplyCtx: "ctx"})
-	ready := make(chan *interactiveState, 1)
-	go func() {
-		ready <- e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
-	}()
-	select {
-	case <-ready:
+	e.ReceiveMessage(e.platforms[0], &Message{Platform: "test", SessionKey: key, UserID: "u1", Content: "continue", ReplyCtx: "ctx"})
+	time.Sleep(25 * time.Millisecond)
+	starts, _ := base.snapshot()
+	if len(starts) != 1 {
 		t.Fatal("/stop let the next message resume before old Close completed")
-	case <-time.After(25 * time.Millisecond):
 	}
 	unblock()
-	select {
-	case next := <-ready:
-		if next.agentSession == nil || next.agentSession.CurrentSessionID() != "conv-1" {
-			t.Fatal("lost original native session after /stop")
-		}
-		e.cleanupInteractiveState(key, next)
-	case <-time.After(time.Second):
-		t.Fatal("resume stayed blocked after Close completed")
+	waitForInteractiveStateRemoved(t, e, key)
+	starts, processes := base.snapshot()
+	if len(starts) != 2 || starts[1] != "conv-1" || !processes[1].closed.Load() || session.Busy() {
+		t.Fatalf("ordinary message after /stop did not resume and finish: %q", starts)
+	}
+	if sent := strings.Join(e.platforms[0].(*stubPlatformEngine).getSent(), "\n"); !strings.Contains(sent, "ok") {
+		t.Fatalf("no answer after /stop: %s", sent)
 	}
 }
 

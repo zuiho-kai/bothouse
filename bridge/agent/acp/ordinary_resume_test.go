@@ -43,6 +43,11 @@ func TestOrdinaryLoadACPProcess(t *testing.T) {
 			result = map[string]any{"sessionId": "ordinary-native"}
 		case "session/load":
 			loaded = req.Params.SessionID == "ordinary-native"
+			// Same replay volume as TestStrictLoadNeverCreatesNewSession, above
+			// the adapter's event buffer: ordinary restoration must not buffer it.
+			for i := 0; i < 160; i++ {
+				_ = enc.Encode(inputUpdate(req.Params.SessionID, "old history"))
+			}
 		case "session/prompt":
 			text := "stored"
 			if loaded {
