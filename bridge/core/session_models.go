@@ -129,8 +129,12 @@ func (e *Engine) sessionSettingsFor(sessionKey string) SessionSettings {
 		settings.Model = selection.Model // picked by hand (model set / tiers) wins
 	case model != "":
 		settings.Model = model
-	case ws.provider != "" && e.isTeamWorkspaceChat(sessionKey):
-		if e.workspaceRouteFor(sessionKey, ws.model).cheap { // #1448: split or direct, per task
+	case (ws.provider != "" || ws.dsProvider != "") && e.isTeamWorkspaceChat(sessionKey):
+		r := e.workspaceRouteFor(sessionKey, ws.model) // #1448: split or direct, per task
+		switch {
+		case r.cheap && r.lane == routeLaneDS: // #1455: split to DS or the local Qwen
+			settings.Provider, settings.Model = ws.dsProvider, ws.dsModel
+		case r.cheap:
 			settings.Provider, settings.Model = ws.provider, ws.model
 		}
 	}
@@ -144,13 +148,25 @@ func (e *Engine) sessionSettingsFor(sessionKey string) SessionSettings {
 // (e.g. a local Qwen behind an OpenAI-compatible endpoint, reached through the
 // protoconv converter). Applies only to team workspace channels with no
 // hand-picked model.
-type workspaceExec struct{ provider, model string }
+type workspaceExec struct{ provider, model, dsProvider, dsModel string }
+
+// SetWorkspaceExecDS sets the second split lane (#1455): the free domestic DeepSeek
+// (through magpie) that split tasks take besides the local Qwen ("" = off).
+func (e *Engine) SetWorkspaceExecDS(provider, model string) {
+	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
+	e.sessionModelsMu.Lock()
+	e.workspaceExec.dsProvider, e.workspaceExec.dsModel = provider, model
+	e.sessionModelsMu.Unlock()
+	if provider != "" {
+		slog.Info("workspace exec: split tasks may also run on DS", "provider", provider, "model", model)
+	}
+}
 
 // SetWorkspaceExec sets the provider/model team workspaces start on ("" = off).
 func (e *Engine) SetWorkspaceExec(provider, model string) {
 	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
 	e.sessionModelsMu.Lock()
-	e.workspaceExec = workspaceExec{provider: provider, model: model}
+	e.workspaceExec.provider, e.workspaceExec.model = provider, model
 	e.sessionModelsMu.Unlock()
 	if provider != "" {
 		slog.Info("workspace exec: team workspaces run on a separate provider", "provider", provider, "model", model)
