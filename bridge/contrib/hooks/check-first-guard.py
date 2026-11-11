@@ -213,13 +213,13 @@ def check(d):
         return None
     r = ask_model(reply, user, [b for b in tools if is_lookup(b)])
     verdict = "block" if r["verdict"] == "unchecked" else "pass"
-    if verdict == "block" and not general and "自带" not in r["claim"]:
+    if verdict == "block" and not general and not _same_kind(r["claim"]):
         verdict = "pass"  # 只因「提议新做」才进来的回复，只按同类那条拦，别的断言照旧不管（#1436 抽查：发版回复「加了一个前提」被连带拦）
     intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
     if verdict != "block":
         return None
     claim = r["claim"].strip("「」")
-    if "自带" in claim:
+    if _same_kind(claim):
         return REASON_SAME.format(claim=claim)
     return (REASON_CHAT if _team_chat() else REASON).format(claim=claim)
 
@@ -233,6 +233,11 @@ REASON_CHAT = ("这是聊天频道，不在这里现场查。这句在说我们�
 # 提议新做、而自带的同类没点名或没查（#1436）
 REASON_SAME = ("先对一遍系统自带的同类再提方案：「{claim}」。先查那样同类现在怎么运作、做到哪（读它的程序、配置、记录，或拿它的名字搜 wiki），"
                "回复里点名它，只写它哪里不够、在它上面怎么改；别把现成的说成要新做。")
+
+
+def _same_kind(claim):
+    """判断器说的是「自带有同类」那条（措辞会变：自带…、…（同类））。"""
+    return "自带" in claim or "同类" in claim
 
 
 def _team_chat():
