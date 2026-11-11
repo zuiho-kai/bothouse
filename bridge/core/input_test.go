@@ -107,11 +107,18 @@ func (a *inputTestAgent) StartSessionStrict(_ context.Context, id string) (Agent
 	if a.err != nil {
 		return nil, a.err
 	}
-	return a.session, nil
+	return a.reopen(), nil
 }
 func (a *inputTestAgent) StartSession(context.Context, string) (AgentSession, error) {
 	a.normalStarts.Add(1)
-	return a.session, nil
+	return a.reopen(), nil
+}
+
+// reopen models a new process on the same conversation: the process ends with its
+// turn (#702) and the next start resumes the session by its ID.
+func (a *inputTestAgent) reopen() AgentSession {
+	a.session.closed.Store(false)
+	return a.session
 }
 
 const inputTestKey = "discord:voice-channel"
@@ -356,11 +363,16 @@ func TestLocalInputSameSessionLocalOnlyAndDiscord(t *testing.T) {
 	}
 	e.autoCompressEnabled = false
 	e.tts = nil
-	if a.starts.Load() != 1 || a.normalStarts.Load() != 0 || a.session.strict.Load() != 2 {
-		t.Fatal("did not reuse strict session")
+	// Each voice turn's process ends with the turn (#702); the next one strictly resumes
+	// the same conversation, never a normal (possibly new) start.
+	if a.starts.Load() != 2 || a.normalStarts.Load() != 0 || a.session.strict.Load() != 2 {
+		t.Fatalf("voice turns did not strictly resume the conversation: strict starts %d, normal starts %d, strict sends %d",
+			a.starts.Load(), a.normalStarts.Load(), a.session.strict.Load())
 	}
-	if got := <-a.requested; got != "original-thread" {
-		t.Fatal(got)
+	for i := 0; i < 2; i++ {
+		if got := <-a.requested; got != "original-thread" {
+			t.Fatal(got)
+		}
 	}
 	history := s.GetHistory(0)
 	if len(history) != 4 {
@@ -376,6 +388,9 @@ func TestLocalInputSameSessionLocalOnlyAndDiscord(t *testing.T) {
 	e.interactiveMu.Lock()
 	st := e.interactiveStates[inputTestKey]
 	e.interactiveMu.Unlock()
+	if st == nil {
+		return // the process ended with the Discord turn (#702): nothing kept the voice platform
+	}
 	st.mu.Lock()
 	original := st.platform == p
 	st.mu.Unlock()

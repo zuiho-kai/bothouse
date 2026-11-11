@@ -38,6 +38,7 @@ type acpSession struct {
 	closeOnce      sync.Once
 	closeErr       error // published by closeOnce
 	closeSupported bool  // immutable after a successful session binding
+	canResume      bool  // immutable after a successful session binding: server can load/resume a saved session
 
 	cmd *exec.Cmd
 	tr  *transport
@@ -308,6 +309,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 				s.absorbModes(lr.Modes)
 				s.absorbModelInfo(lr.Models, lr.ConfigOptions)
 				s.closeSupported = closeSupported
+				s.canResume = initOut.AgentCapabilities.LoadSession || resumeSupported
 				return nil
 			}
 		}
@@ -337,6 +339,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	s.absorbModes(sn.Modes)
 	s.absorbModelInfo(sn.Models, sn.ConfigOptions)
 	s.closeSupported = closeSupported
+	s.canResume = initOut.AgentCapabilities.LoadSession || resumeSupported
 	return nil
 }
 
@@ -1046,6 +1049,12 @@ func (s *acpSession) CancelTurn() error {
 	return s.tr.sendNotification("session/cancel", map[string]any{
 		"sessionId": sid,
 	})
+}
+
+// CanResume implements core.ResumableSession: whether a later process can pick this
+// conversation up again by its ID (the server advertised loadSession or session/resume).
+func (s *acpSession) CanResume() bool {
+	return s.canResume
 }
 
 func (s *acpSession) Alive() bool {
