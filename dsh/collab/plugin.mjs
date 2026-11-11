@@ -137,7 +137,6 @@ export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   const require = dshRequire();
   const { createUserMessage } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
-  const skillFilesystem = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-skill-filesystem')).href);
   // ws is declared by this package and resolved from this file, so the server never borrows a
   // transitive copy from the surrounding DSH runtime. It is CommonJS; its WebSocketServer is
   // not a statically detectable named export.
@@ -188,6 +187,10 @@ export async function apply(ctx, rawConfig) {
     // holder that already quit.
     clearLockOwner(lockPath);
   }, 'conest-collab: teardown');
+
+  // Only the owning host starts agents. A client sharing its host must not
+  // require the native skill provider; teardown also owns a failed import.
+  const skillFilesystem = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-skill-filesystem')).href);
 
   // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
   const collabExisted = existsSync(join(config.dataDir, 'collab.sqlite3'));
