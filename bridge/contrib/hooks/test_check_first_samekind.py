@@ -30,6 +30,14 @@ class T(unittest.TestCase):
             why = cf.check({"transcript_path": "x"})
         self.assertIn("自带的同类", why)
 
+    def test_proposal_only_reply_blocked_only_for_same_kind(self):
+        reply = "已经定好了，凌晨 3 点开始发版。我加了一个前提：检查是绿的才发"
+        self.assertFalse(cf.maybe(reply.replace("加了一个前提", "")))
+        other = {"verdict": "unchecked", "claim": "发版从 develop 出", "ms": 1, "cost": 0}
+        with patch.object(cf, "turn", return_value=(reply, [], "发个版本")), \
+             patch.object(cf, "ask_model", return_value=other), patch.object(cf.intent_judge, "_log"):
+            self.assertIsNone(cf.check({"transcript_path": "x"}))
+
 
 if __name__ == "__main__":
     unittest.main()

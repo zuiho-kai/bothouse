@@ -206,10 +206,15 @@ def check(d):
         return None  # 读不出本轮，分不清查没查，不误拦
     text, tools, user = t
     reply = d.get("last_assistant_message") or text
-    if not reply or not (maybe(reply) or (proposing(reply))):
+    if not reply:
+        return None
+    general = maybe(reply)
+    if not general and not proposing(reply):
         return None
     r = ask_model(reply, user, [b for b in tools if is_lookup(b)])
     verdict = "block" if r["verdict"] == "unchecked" else "pass"
+    if verdict == "block" and not general and "自带" not in r["claim"]:
+        verdict = "pass"  # 只因「提议新做」才进来的回复，只按同类那条拦，别的断言照旧不管（#1436 抽查：发版回复「加了一个前提」被连带拦）
     intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
     if verdict != "block":
         return None
