@@ -101,7 +101,8 @@ class T(unittest.TestCase):
     def test_zero_files_pass(self):
         self.assertEqual(self.run_tools([("Bash", {"command": "grep -n foo /a/x.py"}),
                                          ("Read", {"file_path": "/a/x.py"})]), "")
-        self.assertEqual(self.run_main("打包失败了，修一下", "我已修好"), "")
+        # 一次工具都没调就说修好了：没有可数的改动，照拦（仓库各 CLI 的 Stop 用例一直这么要求）
+        self.assertIn("block", self.run_main("打包失败了，修一下", "我已修好"))
 
     def test_can_fix_not_claim(self):
         for t in ["各一小时内能修完", "一小时内能修完", "这两处可以修好", "明天可修复了", "可以马上修好"]:
