@@ -88,6 +88,18 @@ describe('DSH setup roles', () => {
     expect(body.target).toBe('web');
     expect(detection.statusTargets).toContain('web');
   });
+  // PR #1594 审查 C: an account login alone is not the official route's credential. The status says
+  // not configured, so the key box must show, and must not tell the user to leave it empty.
+  it('shows the key box when only an account login exists on the official route', async () => {
+    detection.hasKey = true; // has_deepseek_key is true for an account login
+    detection.nativeConfigured = false;
+    await render();
+    await click('[data-testid="dsh-skip-install"]');
+    const key = container.querySelector<HTMLInputElement>('[data-testid="dsh-api-key"]');
+    expect(key).not.toBeNull();
+    expect(key?.placeholder).toBe('sk-…');
+    expect(container.querySelector('[data-testid="dsh-native-configured"]')).toBeNull();
+  });
   it('starts with one native DeepSeek role even when signed-in CLIs are available', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');

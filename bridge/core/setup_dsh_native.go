@@ -43,15 +43,17 @@ func dshSelectedProvider(target string) string {
 	return "deepseek-official"
 }
 
-// dshNativeSetupConfigured is shared by status and save. Preserve #1387's account/llm-deepseek
-// compatibility check on the DeepSeek routes only: an explicitly selected gateway needs its own
-// credential (dsh-llm-pi-ai README, apiKeyEnv: missing references fail with MISSING_CREDENTIAL; #650).
+// dshNativeSetupConfigured is shared by status and save. Each route counts only its own credential:
+// an explicitly selected gateway needs its own key (dsh-llm-pi-ai README, apiKeyEnv: missing
+// references fail with MISSING_CREDENTIAL; #650), and the official route needs a DeepSeek API key —
+// an account login is the deepseek-account route's credential, not the official one's, so it no
+// longer lets the official route through (PR #1594 审查 C). #1387's account compatibility check
+// stays on the account route only.
 func dshNativeSetupConfigured(target, officialKey string) bool {
 	if dshNativeModelConfigured(target, officialKey) {
 		return true
 	}
-	provider := dshSelectedProvider(target)
-	return (provider == "deepseek-official" || provider == "deepseek-account") && dshHasUsableModel()
+	return dshSelectedProvider(target) == "deepseek-account" && dshHasUsableModel()
 }
 
 // dshNativeModelConfigured checks the selected credential of the profile this route uses (target,

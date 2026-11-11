@@ -91,7 +91,8 @@ func collabDataDir() string {
 			return filepath.Join(home, ".conest-collab")
 		}
 	}
-	return filepath.Join(data, "conest-collab")
+	// A custom data directory chosen before this release: the channels still live in ~/.conest-collab.
+	return dshLegacyFallback("collab data", filepath.Join(data, "conest-collab"), filepath.Join(home, ".conest-collab"), "")
 }
 
 // dshMembersFile: what ConfigureDSH writes for the collab plugin (dsh/collab/roster.mjs reads it).

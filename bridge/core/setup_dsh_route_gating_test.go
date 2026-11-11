@@ -15,7 +15,8 @@ import (
 // #650: a gateway route the user explicitly selected in agent-default-model, whose own key is
 // missing, must not be let through because another credential (a DeepSeek account login or the
 // official DEEPSEEK_API_KEY) exists: the native member inherits that gateway route and every turn
-// would fail with no API key. An unselected default route keeps the #1387 account/key path.
+// would fail with no API key. The default official route likewise needs its own key; only the
+// deepseek-account route takes the account login (#1387).
 func TestConfigureDSHSelectedGatewayNotSavedByOtherCredential(t *testing.T) {
 	gateway := "- id: llm-pi-ai\n  config:\n    providers:\n      fixture-gw:\n        apiKeyEnv: FIXTURE_GW_KEY\n- id: agent-default-model\n  config:\n    provider: fixture-gw\n    model: fixture-model\n"
 	account := "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {version: 1, token: fixture-token, issuer: 'https://platform.deepseek.com'}\n"
@@ -30,7 +31,11 @@ func TestConfigureDSHSelectedGatewayNotSavedByOtherCredential(t *testing.T) {
 		{name: "gateway_with_own_key", credentials: "version: 1\nrefs:\n  FIXTURE_GW_KEY: k\n", patch: gateway, wantConfigured: true, wantSaved: true},
 		{name: "desktop_gateway_missing_key_with_account", credentials: account, patch: gateway, target: DSHDesktopProfile},
 		{name: "desktop_gateway_with_own_key", credentials: "version: 1\nrefs:\n  FIXTURE_GW_KEY: k\n", patch: gateway, target: DSHDesktopProfile, wantConfigured: true, wantSaved: true},
-		{name: "default_route_with_account", credentials: account, wantConfigured: true, wantSaved: true},
+		// PR #1594 审查 C: the default (official) route reads DEEPSEEK_API_KEY; an account login alone
+		// is not its credential, so status says not configured, the save is refused and the key box shows.
+		{name: "default_route_with_account_only", credentials: account},
+		{name: "default_route_with_account_and_supplied_key", credentials: account, suppliedKey: "fixture-official", wantSaved: true},
+		{name: "account_route_with_account", credentials: account, patch: "- id: agent-default-model\n  config:\n    provider: deepseek-account\n", wantConfigured: true, wantSaved: true},
 		{name: "default_route_with_official_key", credentials: official, wantConfigured: true, wantSaved: true},
 		{name: "cli_member_does_not_need_gateway_key", credentials: account, patch: gateway, cli: "codex", wantSaved: true},
 	} {
@@ -81,7 +86,7 @@ func TestConfigureDSHSelectedGatewayNotSavedByOtherCredential(t *testing.T) {
 			}
 			if !tc.wantSaved {
 				if saveRes.Code != http.StatusBadRequest {
-					t.Fatalf("selected gateway without its key: HTTP %d %s", saveRes.Code, saveRes.Body.String())
+					t.Fatalf("selected route without its own credential: HTTP %d %s", saveRes.Code, saveRes.Body.String())
 				}
 				if _, err := os.Stat(dshMembersFile()); !os.IsNotExist(err) {
 					t.Fatalf("rejected save wrote members: %v", err)

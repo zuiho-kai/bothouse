@@ -205,6 +205,23 @@ func dshWebPIDOwnedCtx(ctx context.Context, pid int) (bool, string) {
 	if pid <= 0 {
 		return false, "no pid"
 	}
+	// The pid this bridge records is cmd.Process.Pid. On Windows that is the cmd.exe running npm's
+	// dsh.cmd shim, and the host that listens is its node.exe child (setup_dsh_proc_windows.go
+	// stopProcess). When a port this bridge recorded with pid is held by a descendant of pid, the
+	// listener is the host to judge; stopping pid (taskkill /T) then ends both. Without this the
+	// recorded pid and the listener never matched on Windows, so nothing was ever stopped or adopted
+	// and every restart started one more host (PR #1594 审查 A).
+	if l := dshWebRecordedLauncherOf(ctx, pid); l > 0 {
+		if owned, why := dshWebPIDOwnedDirect(ctx, l); !owned {
+			return false, fmt.Sprintf("pid %d launched the listener %d on its recorded port, but %s", pid, l, why)
+		}
+		return true, ""
+	}
+	return dshWebPIDOwnedDirect(ctx, pid)
+}
+
+// dshWebPIDOwnedDirect judges pid by its own command line and environment.
+func dshWebPIDOwnedDirect(ctx context.Context, pid int) (bool, string) {
 	p, ok := dshWebProcessOf(ctx, pid)
 	if !ok {
 		if err := ctx.Err(); err != nil {
@@ -273,13 +290,28 @@ func dshWebOwnPorts(pid int) []string {
 		}
 	}
 	dshWebPortClaims.RUnlock()
-	if web, u, ok := readDSHWebState(); ok && web.PID == pid {
-		add(u.Port())
+	for _, p := range dshWebRecordedPorts(pid) {
+		add(p)
+	}
+	return ports
+}
+
+// dshWebRecordedPorts is the part of dshWebOwnPorts this bridge wrote down with pid: dsh-web.json
+// and dsh-web.starting.json.
+func dshWebRecordedPorts(pid int) []string {
+	var ports []string
+	if pid <= 0 {
+		return nil
+	}
+	if web, u, ok := readDSHWebState(); ok && web.PID == pid && u.Port() != "" {
+		ports = append(ports, u.Port())
 	}
 	if b, err := os.ReadFile(dshWebStartingPath()); err == nil {
 		var l dshWebLaunch
 		if json.Unmarshal(b, &l) == nil && l.PID == pid {
-			add(statePort(lastDSHWebURLFrom(l.Log, l.Offset)))
+			if p := statePort(lastDSHWebURLFrom(l.Log, l.Offset)); p != "" {
+				ports = append(ports, p)
+			}
 		}
 	}
 	return ports
@@ -299,5 +331,58 @@ func dshWebPIDOnOwnPort(ctx context.Context, pid int) bool {
 			return true
 		}
 	}
+	// The record may name the launcher instead of the listener (Windows: cmd.exe running dsh.cmd,
+	// node.exe listening). pid still has to be the listener on a port recorded with that launcher.
+	for _, a := range dshWebAncestors(ctx, pid) {
+		for _, p := range dshWebOwnPorts(a) {
+			if ctx.Err() != nil {
+				return false
+			}
+			if pidListeningOnPortCtx(ctx, p) == pid {
+				return true
+			}
+		}
+	}
 	return false
+}
+
+// dshWebLauncherDepth: how many parents up a recorded launcher may sit above the listener. One is
+// the cmd.exe → node.exe pair windows-e2e shows; the second covers a shim that starts one more shell.
+const dshWebLauncherDepth = 2
+
+// dshWebParentPID returns pid's parent, 0 when it cannot be read. Replaceable in tests.
+var dshWebParentPID = dshWebParentPIDNow
+
+// dshWebAncestors lists pid's parents up to dshWebLauncherDepth, nearest first.
+func dshWebAncestors(ctx context.Context, pid int) []int {
+	var out []int
+	for i := 0; i < dshWebLauncherDepth && pid > 1 && ctx.Err() == nil; i++ {
+		pid = dshWebParentPID(ctx, pid)
+		if pid <= 1 {
+			break
+		}
+		out = append(out, pid)
+	}
+	return out
+}
+
+// dshWebRecordedLauncherOf returns the listener on a port this bridge recorded together with pid
+// when that listener is a descendant of pid (pid launched it), 0 otherwise. Only the records
+// (state file, pending launch) count here, not test port claims: those are not about any pid.
+func dshWebRecordedLauncherOf(ctx context.Context, pid int) int {
+	for _, port := range dshWebRecordedPorts(pid) {
+		if ctx.Err() != nil {
+			return 0
+		}
+		l := pidListeningOnPortCtx(ctx, port)
+		if l <= 0 || l == pid {
+			continue
+		}
+		for _, a := range dshWebAncestors(ctx, l) {
+			if a == pid {
+				return l
+			}
+		}
+	}
+	return 0
 }

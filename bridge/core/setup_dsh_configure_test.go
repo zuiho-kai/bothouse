@@ -15,8 +15,11 @@ func TestConfigureDSHExistingModelLogin(t *testing.T) {
 	for _, tc := range []struct {
 		name, credentials, patch string
 		wantModel                bool
+		// refused: the status still reports a login (has_deepseek_key), but the default official route reads
+		// DEEPSEEK_API_KEY, so an account login alone is not its credential and the save is refused (PR #1594 审查 C).
+		refused bool
 	}{
-		{name: "account", credentials: "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {}\n", wantModel: true},
+		{name: "account_only_on_official_route", credentials: "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {}\n", wantModel: true, refused: true},
 		{name: "relay", credentials: "version: 1\nrefs:\n  RELAY_API_KEY: synthetic-relay-key\n", patch: "- id: llm-deepseek\n  config:\n    baseURL: https://relay.invalid\n    apiKeyEnv: RELAY_API_KEY\n", wantModel: true},
 		{name: "key", credentials: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: synthetic-key\n", wantModel: true},
 		{name: "none"},
@@ -48,7 +51,7 @@ func TestConfigureDSHExistingModelLogin(t *testing.T) {
 				t.Errorf("wizard model status = %v, want %v", got, tc.wantModel)
 			}
 			res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
-			if !tc.wantModel {
+			if !tc.wantModel || tc.refused {
 				want := "角色「DSH」当前 DSH 原生模型没有对应凭据：请在 DSH 模型设置中配置；使用官方 DeepSeek 默认模型时也可在这里填 API Key"
 				if err == nil || err.Error() != want {
 					t.Fatalf("missing model: got %v, want %s", err, want)

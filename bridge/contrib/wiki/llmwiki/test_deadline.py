@@ -279,6 +279,40 @@ else:
         self.assertGreater(left, I.budget.FALLBACK_WINDOW - 60)
         self.assertLessEqual(left, I.budget.FALLBACK_WINDOW + 1)
 
+    @unittest.skipIf(os.name == "nt", "process groups are POSIX")
+    def test_fallback_window_timeout_leaves_unrelated_group_members_alone(self):
+        """PR #1594 审查 D: a run with no scheduler deadline (hand-run ingest, pre-#1467 bridge) shares its process group
+        with unrelated processes. The fallback window must bound time only; sweeping the group killed them (-9)."""
+        child = ROOT / "fallback-child.py"
+        child.write_text(
+            "import os, sys\nsys.path.insert(0, sys.argv[1])\nimport budget, subprocess\n"
+            "budget.window(5)\n"  # minus the 2s cleanup reserve: the sleep gets about 3s, then times out
+            "try:\n    budget.run(['sleep', '30'])\nexcept subprocess.TimeoutExpired:\n    sys.exit(124)\n")
+        env = {k: v for k, v in os.environ.items() if k not in ("CC_JOB_DEADLINE", "CC_JOB_DEADLINE_FALLBACK")}
+        # Same group as this test (no start_new_session), no deadline: the shape of a hand run.
+        run = subprocess.Popen([sys.executable, "-I", str(child), str(Path(I.__file__).parent)], env=env)
+        time.sleep(1)
+        unrelated = subprocess.Popen(["sleep", "20"])
+        try:
+            self.assertEqual(run.wait(timeout=15), 124)
+            time.sleep(0.2)
+            self.assertIsNone(unrelated.poll(), f"unrelated process in the same group was killed (rc={unrelated.returncode})")
+        finally:
+            for p in (run, unrelated):
+                if p.poll() is None:
+                    p.kill()
+                p.wait(timeout=3)
+
+    def test_fallback_marks_its_deadline_so_only_a_scheduler_deadline_sweeps(self):
+        env = {k: v for k, v in os.environ.items() if k not in ("CC_JOB_DEADLINE", "CC_JOB_DEADLINE_FALLBACK")}
+        with patch.dict(os.environ, env, clear=True):
+            I.budget._fallback_end = None
+            I.budget.window(5)
+            self.assertFalse(I.budget.scheduler_deadline())
+            os.environ["CC_JOB_DEADLINE"] = str(time.time() + 60)  # a scheduler that passes its own deadline
+            self.assertTrue(I.budget.scheduler_deadline())
+        I.budget._fallback_end = None
+
     def test_fallback_keeps_a_real_deadline_and_an_explicit_unlimited_run(self):
         for deadline in (str(time.time() + 60), ""):
             with patch.dict(os.environ, CC_JOB_DEADLINE=deadline):

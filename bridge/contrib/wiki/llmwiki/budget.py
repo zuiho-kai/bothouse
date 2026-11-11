@@ -13,6 +13,10 @@ FALLBACK_WINDOW = 90 * 60
 FALLBACK_NIGHT_WINDOW = 30 * 60
 
 _fallback_end = None  # this run's own end (epoch), only when the scheduler passed no deadline
+# window() writes the same value here as into CC_JOB_DEADLINE. A deadline that equals it came from the fallback, not
+# the scheduler, so nothing says this run owns its process group: run() then only bounds time and never sweeps the
+# group (PR #1594 审查 D — a hand-run ingest or a pre-#1467 bridge shares the group with unrelated processes).
+FALLBACK_ENV = "CC_JOB_DEADLINE_FALLBACK"
 
 
 def window(seconds=None):
@@ -26,8 +30,14 @@ def window(seconds=None):
         return None  # the scheduler answered, even with "" (this job has no limit): leave it unlimited
     if _fallback_end is None:
         _fallback_end = time.time() + (seconds or FALLBACK_WINDOW)
-    os.environ["CC_JOB_DEADLINE"] = f"{_fallback_end:.3f}"
+    os.environ["CC_JOB_DEADLINE"] = os.environ[FALLBACK_ENV] = f"{_fallback_end:.3f}"
     return _fallback_end
+
+
+def scheduler_deadline():
+    """True when CC_JOB_DEADLINE came from the scheduler, which starts each job in its own process group."""
+    deadline = os.environ.get("CC_JOB_DEADLINE")
+    return bool(deadline) and os.environ.get(FALLBACK_ENV) != deadline
 
 
 def remaining():
@@ -68,7 +78,8 @@ def run(cmd, **kw):
     # Scheduled wiki jobs have their own group and run models serially. Snapshot
     # its existing members so an early-exiting model cannot hide an orphan by
     # reparenting it; the shell, orchestrator and existing processes stay protected.
-    group = os.getpgrp() if os.name != "nt" and os.environ.get("CC_JOB_DEADLINE") else None
+    # Only a scheduler deadline proves the group is the job's own; the fallback window only bounds time.
+    group = os.getpgrp() if os.name != "nt" and scheduler_deadline() else None
     before = {pid for pid, _, pgid in processes() if pgid == group} if group is not None else set()
     left = remaining()
     if left is not None:

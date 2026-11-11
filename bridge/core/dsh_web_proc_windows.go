@@ -75,3 +75,23 @@ func splitWindowsCommandLine(line string) []string {
 	flush()
 	return args
 }
+
+// dshWebParentPIDNow reads pid's parent through CIM (Win32_Process.ParentProcessId), 0 when it cannot.
+// Same bound as the command-line lookup above.
+func dshWebParentPIDNow(ctx context.Context, pid int) int {
+	if pid <= 0 {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(ctx, dshWebProcLookupTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+		"(Get-CimInstance Win32_Process -Filter \"ProcessId="+strconv.Itoa(pid)+"\").ParentProcessId").Output()
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0
+	}
+	return n
+}

@@ -31,10 +31,38 @@ func embeddedDSHDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user home dir: %w", err)
 	}
+	legacy := filepath.Join(home, ".bothouse", "dsh")
 	if os.Getenv(ccconnect.DataDirEnv) != "" {
-		return filepath.Join(ccconnect.DataDir(home), "dsh"), nil
+		// An upgrade from a release that always installed into ~/.bothouse/dsh: the custom data
+		// directory has no install yet, the old place does. Keep using the old one (no move), or the
+		// startup refresh finds no install.sh and silently stops updating the plugin (PR #1594 审查 B).
+		return dshLegacyFallback("dsh install", filepath.Join(ccconnect.DataDir(home), "dsh"), legacy, "install.sh"), nil
 	}
-	return filepath.Join(home, ".bothouse", "dsh"), nil
+	return legacy, nil
+}
+
+// dshLegacyLogged: each fallback is logged once per process, not on every call.
+var dshLegacyLogged sync.Map
+
+// dshLegacyFallback returns current, unless current has no probe (a file or directory under it, ""
+// for the directory itself) while legacy has one: then the data an older release left at legacy is
+// still the user's, and it is used where it is. Only a current location that really has nothing
+// falls back, so an install that already lives in the custom directory never reads the old one.
+func dshLegacyFallback(what, current, legacy, probe string) string {
+	if filepath.Clean(current) == filepath.Clean(legacy) {
+		return current
+	}
+	if _, err := os.Stat(filepath.Join(current, probe)); err == nil {
+		return current
+	}
+	if _, err := os.Stat(filepath.Join(legacy, probe)); err != nil {
+		return current
+	}
+	if _, done := dshLegacyLogged.LoadOrStore(what+"\x00"+current, true); !done {
+		slog.Info("dsh: the data directory has none yet; using the one an earlier release left (not moved)",
+			"what", what, "using", legacy, "data_dir_would_be", current)
+	}
+	return legacy
 }
 
 // ExtractEmbeddedDSH extracts into targetDir, defaulting to <BOTHOUSE_DATA_DIR>/dsh

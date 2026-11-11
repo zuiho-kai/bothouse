@@ -55,3 +55,19 @@ func pidListeningOnPortCtx(ctx context.Context, port string) int {
 	}
 	return 0
 }
+
+// dshWebParentPIDNow reads pid's parent with ps, 0 when it cannot.
+func dshWebParentPIDNow(ctx context.Context, pid int) int {
+	if pid <= 0 || ctx.Err() != nil {
+		return 0
+	}
+	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0
+	}
+	return n
+}
