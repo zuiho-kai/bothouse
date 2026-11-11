@@ -1169,6 +1169,18 @@ export class Tasks {
   }
 
   /** Pause one task through the same queue/release path as park; other work stays busy. */
+  pauseForFailure(roomId, owner, reason) {
+    if (this.store.room(roomId)?.kind !== 'workspace') return;
+    for (const task of this.q.allBusy.all(...WORKING)) {
+      if (task.room_id !== roomId || task.owner !== owner || task.paused_at != null) continue;
+      // Record before release so the parent chat still receives the notification.
+      // Unlike the idle watch, never wake the failed provider on its own notice.
+      this.record(task, 'pause', `#${task.id}「${task.title}」已暂停：${reason}`);
+      this.pauseTask(task.id);
+    }
+  }
+
+  /** Pause one task through the same queue/release path as park; other work stays busy. */
   pauseTask(id) {
     const task = this.task(id);
     if (!task || task.paused_at != null || !WORKING.includes(task.status)
