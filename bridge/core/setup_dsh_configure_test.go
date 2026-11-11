@@ -14,11 +14,14 @@ import (
 func TestConfigureDSHExistingModelLogin(t *testing.T) {
 	for _, tc := range []struct {
 		name, credentials, patch string
-		wantModel, wantKeyRoute  bool
+		wantModel                bool
+		// refused: the status still reports a login (has_deepseek_key), but the default official route reads
+		// DEEPSEEK_API_KEY, so an account login alone is not its credential and the save is refused (PR #1594 审查 C).
+		refused bool
 	}{
-		{name: "account", credentials: "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {}\n", wantModel: true},
+		{name: "account_only_on_official_route", credentials: "version: 1\nrecords:\n  deepseek-account-platform/default:\n    kind: grant\n    payload: {}\n", wantModel: true, refused: true},
 		{name: "relay", credentials: "version: 1\nrefs:\n  RELAY_API_KEY: synthetic-relay-key\n", patch: "- id: llm-deepseek\n  config:\n    baseURL: https://relay.invalid\n    apiKeyEnv: RELAY_API_KEY\n", wantModel: true},
-		{name: "key", credentials: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: synthetic-key\n", wantModel: true, wantKeyRoute: true},
+		{name: "key", credentials: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: synthetic-key\n", wantModel: true},
 		{name: "none"},
 		{name: "relay_without_key", patch: "- id: llm-deepseek\n  config:\n    baseURL: https://relay.invalid\n    apiKeyEnv: RELAY_API_KEY\n"},
 	} {
@@ -48,8 +51,8 @@ func TestConfigureDSHExistingModelLogin(t *testing.T) {
 				t.Errorf("wizard model status = %v, want %v", got, tc.wantModel)
 			}
 			res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
-			if !tc.wantModel {
-				want := "角色「DSH」没选本机 CLI，也没有 DeepSeek API Key：选一个 CLI，或填 Key"
+			if !tc.wantModel || tc.refused {
+				want := "角色「DSH」当前 DSH 原生模型没有对应凭据：请在 DSH 模型设置中配置；使用官方 DeepSeek 默认模型时也可在这里填 API Key"
 				if err == nil || err.Error() != want {
 					t.Fatalf("missing model: got %v, want %s", err, want)
 				}
@@ -66,12 +69,10 @@ func TestConfigureDSHExistingModelLogin(t *testing.T) {
 			if err != nil || json.Unmarshal(b, &seed) != nil || len(seed.Members) != 1 {
 				t.Fatalf("saved members: %s, %v", b, err)
 			}
-			if got := seed.Members[0].Model; tc.wantKeyRoute {
-				if got == nil || *got != dshKeyModel {
-					t.Fatalf("key route changed: %+v", got)
-				}
-			} else if got != nil {
-				t.Fatalf("existing model overridden by API-key route: %+v", got)
+			// Review of #952: configure writes no route at all, not even for a stored official key; the
+			// native member inherits the host's agent-default-model (roster.mjs:102, dsh-member.mjs:1203,1218).
+			if got := seed.Members[0].Model; got != nil {
+				t.Fatalf("member carries a pinned model %+v: %s", got, b)
 			}
 			if b, err := os.ReadFile(cred); err != nil || string(b) != tc.credentials || res.KeySaved {
 				t.Fatalf("existing credentials changed: %v, key_saved=%v", err, res.KeySaved)
@@ -116,9 +117,16 @@ func TestConfigureDSHWritesKeyPatchAndMembers(t *testing.T) {
 	if json.Unmarshal(b, &seed) != nil || len(seed.Members) != 3 || seed.Members[0].CLI != "claude" || seed.Members[2].Name != "Claude Code" || seed.Members[2].NameCustomized == nil || *seed.Members[2].NameCustomized {
 		t.Fatalf("members file: %s", b)
 	}
-	// #1173: the DSH-model role is pinned to the route of the wizard's key; CLI roles carry no model
-	if m := seed.Members[1].Model; m == nil || m.Provider != "deepseek-official" || m.Model != "deepseek-flash" || seed.Members[0].Model != nil || seed.Members[2].Model != nil {
-		t.Fatalf("member models: %s", b)
+	// Review of #952: configure pins no route at all. A member without model inherits the DSH host's
+	// agent-default-model (roster.mjs:102, dsh-member.mjs:1203,1218); writing deepseek-flash here sent
+	// every role to the official route even when the key check passed on a gateway or account route.
+	for i, m := range seed.Members {
+		if m.Model != nil {
+			t.Fatalf("member %d carries a pinned model %+v: %s", i, m.Model, b)
+		}
+	}
+	if strings.Contains(string(b), `"model"`) {
+		t.Fatalf("members file names a model route: %s", b)
 	}
 	// second run is idempotent on the patch entry
 	if _, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "橘", CLI: "gemini"}}}); err != nil {
@@ -228,3 +236,160 @@ func TestTakeOverOrphanDSHWebFromAPublicURLAnnouncement(t *testing.T) {
 }
 
 func dshBoolPtr(v bool) *bool { return &v }
+
+func TestConfigureDSHReusesSelectedNativeGateway(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	patch := filepath.Join(dshHome(), "profiles", DSHProfile, "cordis.patch.yml")
+	if err := os.MkdirAll(filepath.Dir(patch), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := "- id: llm-pi-ai\n  config:\n    providers:\n      fixture-deepseek:\n        apiKeyEnv: FIXTURE_DSH_NATIVE_KEY\n- id: agent-default-model\n  config:\n    provider: fixture-deepseek\n    model: fixture-model\n"
+	if err := os.WriteFile(patch, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cred := filepath.Join(dshHome(), ".credentials.yaml")
+	credentials := "version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n"
+	if err := os.WriteFile(cred, []byte(credentials), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+	if err != nil {
+		t.Fatalf("existing native model must not require a second official key: %v", err)
+	}
+	if res.KeySaved || res.Members != 1 {
+		t.Fatalf("configure: %+v", res)
+	}
+	got, err := os.ReadFile(cred)
+	if err != nil || string(got) != credentials {
+		t.Fatalf("existing credentials changed: %v", err)
+	}
+	selection := dshPatchEntryConfig(patch, "agent-default-model")
+	if selection == nil || mapGet(selection, "provider").Value != "fixture-deepseek" || mapGet(selection, "model").Value != "fixture-model" {
+		t.Fatal("existing model selection changed")
+	}
+	if !dshNativeModelConfigured("", "") {
+		t.Fatal("existing native provider credential reference changed")
+	}
+	// The gateway route is what the check accepted, so nothing may pin the role elsewhere.
+	var seed struct{ Members []DSHMember }
+	b, err := os.ReadFile(res.MembersFile)
+	if err != nil || json.Unmarshal(b, &seed) != nil || len(seed.Members) != 1 {
+		t.Fatalf("members file: %v %s", err, b)
+	}
+	if m := seed.Members[0].Model; m != nil {
+		t.Fatalf("gateway selection must be inherited, not pinned to %+v: %s", m, b)
+	}
+}
+
+func TestConfigureDSHReadsDesktopProfileSelection(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	// The web profile selects the official route without any key; the desktop profile (the wizard's
+	// default) selects a gateway with a stored key. Review of #952 (d): only the route's own profile counts.
+	webPatch := filepath.Join(dshHome(), "profiles", DSHProfile, "cordis.patch.yml")
+	desktopPatch := filepath.Join(dshHome(), "profiles", DSHDesktopProfile, "cordis.patch.yml")
+	gateway := "- id: llm-pi-ai\n  config:\n    providers:\n      fixture-deepseek:\n        apiKeyEnv: FIXTURE_DSH_NATIVE_KEY\n- id: agent-default-model\n  config:\n    provider: fixture-deepseek\n    model: fixture-model\n"
+	for path, body := range map[string]string{
+		webPatch:     "- id: agent-default-model\n  config:\n    provider: deepseek-official\n",
+		desktopPatch: gateway,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dshHome(), ".credentials.yaml"), []byte("version: 1\nrefs:\n  FIXTURE_DSH_NATIVE_KEY: fixture-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}}); err == nil {
+		t.Fatal("the web route has no credential, so a web role must be refused")
+	}
+	if _, err := ConfigureDSH(DSHConfigureRequest{Target: DSHDesktopProfile, Members: []DSHMember{{Name: "DSH"}}}); err != nil {
+		t.Fatalf("the desktop route's own credential must be accepted: %v", err)
+	}
+}
+
+func TestConfigureDSHReusesHomeDotenvKey(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("DSH_HOME", filepath.Join(home, ".dsh"))
+	t.Setenv("CONEST_COLLAB_DATA", filepath.Join(home, "collab"))
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	if err := os.MkdirAll(dshHome(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dotenv := filepath.Join(dshHome(), ".env")
+	original := []byte("DEEPSEEK_API_KEY=sk-dotenv-fixture\n")
+	if err := os.WriteFile(dotenv, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !dshHasDeepSeekKey() {
+		t.Fatal("status must recognize the key DSH loads from its home .env")
+	}
+	res, err := ConfigureDSH(DSHConfigureRequest{Members: []DSHMember{{Name: "DSH"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.KeySaved || res.Members != 1 {
+		t.Fatalf("unexpected configure result: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(dshHome(), ".credentials.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("must not copy the dotenv key to the credential store: %v", err)
+	}
+	got, err := os.ReadFile(dotenv)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("dotenv changed: %v", err)
+	}
+}
+
+func TestDSHHasDeepSeekKeySources(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, credential, dotenv string
+		want                          bool
+	}{
+		{name: "missing"},
+		{name: "exported", env: "fixture-key", want: true},
+		{name: "stored", credential: "version: 1\nrefs:\n  DEEPSEEK_API_KEY: fixture-key\n", want: true},
+		{name: "home dotenv", dotenv: "export DEEPSEEK_API_KEY=\"fixture-key\"\n", want: true},
+		{name: "empty dotenv", dotenv: "DEEPSEEK_API_KEY=''\n"},
+		{name: "commented empty dotenv", dotenv: "DEEPSEEK_API_KEY= # put your key here\n"},
+		{name: "quoted empty dotenv with comment", dotenv: "DEEPSEEK_API_KEY=\"\" # put your key here\n"},
+		{name: "last dotenv definition empty", dotenv: "DEEPSEEK_API_KEY=fixture-key\nDEEPSEEK_API_KEY=\n"},
+		{name: "backtick empty dotenv", dotenv: "DEEPSEEK_API_KEY=`` # empty\n"},
+		{name: "quoted hash dotenv", dotenv: "DEEPSEEK_API_KEY=\"fixture#key\" # comment\n", want: true},
+		{name: "literal dollar dotenv", dotenv: "DEEPSEEK_API_KEY=\"$FIXTURE_KEY\"\n", want: true},
+		{name: "quoted space dotenv", dotenv: "DEEPSEEK_API_KEY=\" \"\n", want: true},
+		{name: "export tab dotenv", dotenv: "export\tDEEPSEEK_API_KEY=fixture-key\r\n", want: true},
+		{name: "multiline value hides assignment", dotenv: "OTHER=\"before\nDEEPSEEK_API_KEY=fixture-key\nafter\"\n"},
+		{name: "unrelated dotenv", dotenv: "OPENAI_API_KEY=fixture-key\n"},
+		{name: "account is not an API key", credential: "version: 1\nrecords:\n  deepseek-account/test: {}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("DSH_HOME", home)
+			t.Setenv("DEEPSEEK_API_KEY", tc.env)
+			if tc.credential != "" {
+				if err := os.WriteFile(filepath.Join(home, ".credentials.yaml"), []byte(tc.credential), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.dotenv != "" {
+				if err := os.WriteFile(filepath.Join(home, ".env"), []byte(tc.dotenv), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := dshHasDeepSeekKey(); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

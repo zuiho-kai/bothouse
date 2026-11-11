@@ -293,6 +293,7 @@ TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (
 # The author's Linux machines mirror to the Mac by default; a wiki the wizard made (.bothouse-main / .bothouse-role) has no
 # "mac" host to send to, so it mirrors only when WIKI_MIRROR_TO names one.
 WIZARD_MADE = (WIKI / ".bothouse-main").exists() or (WIKI / ".bothouse-role").exists()
+ROLE_WIKI = (WIKI / ".bothouse-role").exists()  # a teammate's wiki: its cron jobs have their own outer limit
 MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "")
 HOSTS = Path(os.path.expanduser(CFG["hosts"] or "/nonexistent-wiki-hosts"))  # on the Mac: <hostname>/{projects/,ingest.sqlite,ingest.log}
 MIRROR_DIR = Path(os.path.expanduser(CFG["mirror_dir"]))
@@ -1545,11 +1546,20 @@ def dsh_env():
 
 
 def _dsh_stream(cmd, task, timeout=3600):
-    """Run `dsh --json`: the final message, plus each model step's usage added up (`status` step_end events)."""
+    """Run `dsh --json`: the final message, plus each model step's usage added up (`status` step_end events).
+    It shares the run's remaining budget like engine_run: the scheduler's 90-minute window reaches the model call
+    itself instead of leaving this one call on its own 3600s timer (#1562: two role-wiki runs went 4h+ inside it)."""
     import signal, threading
     err = tempfile.TemporaryFile("w+")
     r = dict(steps=0, input=0, cache=0, output=0, final="", rc=127, stderr="")
     plain = []  # stdout that is no event (a wrapper echoing a number, an older dsh printing the answer): see below
+    timed_out = threading.Event()
+    left = budget.remaining()
+    if left is not None:
+        if left <= 0:  # no call at the deadline: the same 124 the other engines report
+            r.update(rc=124, stderr=f"timeout after {left:.1f}s")
+            return r
+        timeout = min(timeout, left)
     try:
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, cwd=WIKI, env=dsh_env(),
                              text=True, start_new_session=True)
@@ -1557,12 +1567,22 @@ def _dsh_stream(cmd, task, timeout=3600):
         r["stderr"] = f"{type(e).__name__}: {e}"
         return r
 
-    def stop():  # the timeout: the whole process group, like the scheduler's cancel
-        try:
-            os.killpg(p.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+    def stop():  # the deadline or the call's timeout: the whole process group, like the scheduler's cancel
+        timed_out.set()
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(p.pid, sig)
+            except ProcessLookupError:
+                return
+            until = time.monotonic() + budget.CLEANUP_TIMEOUT  # 来源：budget.py 现有的两秒收尾等待，先礼后兵
+            while time.monotonic() < until:
+                if sig == signal.SIGTERM and p.poll() is not None:
+                    break
+                if sig == signal.SIGKILL and not any(pgid == p.pid for _, _, pgid in budget.processes()):
+                    break  # the signal was sent; wait for descendants to actually release their files/locks
+                time.sleep(0.05)
     timer = threading.Timer(timeout, stop)
+    timer.daemon = True
     timer.start()
     try:
         p.stdin.write(task)
@@ -1589,9 +1609,12 @@ def _dsh_stream(cmd, task, timeout=3600):
         p.wait()
     finally:
         timer.cancel()
+        timer.join()  # cancel cannot stop an active callback: finish tree cleanup before the caller can roll back
     if not r["final"] and plain:  # no final event: the answer is what was printed (an older dsh, a wrapper script)
         r["final"] = "\n".join(plain)
-    r["rc"] = p.returncode
+    # 124 = the exit status timeout(1) uses, the same one engine_run reports: a killed call is a failed call, and the
+    # batch loop turns it into "checkpoint retained, not counted as a model failure" when the budget is gone.
+    r["rc"] = 124 if timed_out.is_set() else p.returncode
     err.seek(0)
     r["stderr"] = err.read()[-300:]
     return r
@@ -4557,6 +4580,8 @@ def main():
             rc = make_room(a.make_room)
             push()
         sys.exit(rc)
+    if ROLE_WIKI:  # 角色 wiki 的直接入口（手工触发、hook-run）也受同一兜底约束：没传期限就自设，见 budget.py
+        budget.window(budget.FALLBACK_NIGHT_WINDOW if a.nightly or a.lint else None)
     while not budget.stopped():
         with open(LOCK, "w") as lk:
             try:

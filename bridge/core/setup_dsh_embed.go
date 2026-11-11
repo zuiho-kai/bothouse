@@ -17,20 +17,64 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 //go:embed all:dsh_bundle
 var embeddedDSH embed.FS
 
-// ExtractEmbeddedDSH extracts the embedded DSH files into targetDir (default ~/.bothouse/dsh).
+// embeddedDSHDir selects the install and refresh directory without migrating
+// a previous home installation. The startup caller passes an empty target too.
+func embeddedDSHDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home dir: %w", err)
+	}
+	legacy := filepath.Join(home, ".bothouse", "dsh")
+	if os.Getenv(ccconnect.DataDirEnv) != "" {
+		// An upgrade from a release that always installed into ~/.bothouse/dsh: the custom data
+		// directory has no install yet, the old place does. Keep using the old one (no move), or the
+		// startup refresh finds no install.sh and silently stops updating the plugin (PR #1594 审查 B).
+		return dshLegacyFallback("dsh install", filepath.Join(ccconnect.DataDir(home), "dsh"), legacy, "install.sh"), nil
+	}
+	return legacy, nil
+}
+
+// dshLegacyLogged: each fallback is logged once per process, not on every call.
+var dshLegacyLogged sync.Map
+
+// dshLegacyFallback returns current, unless current has no probe (a file or directory under it, ""
+// for the directory itself) while legacy has one: then the data an older release left at legacy is
+// still the user's, and it is used where it is. Only a current location that really has nothing
+// falls back, so an install that already lives in the custom directory never reads the old one.
+func dshLegacyFallback(what, current, legacy, probe string) string {
+	if filepath.Clean(current) == filepath.Clean(legacy) {
+		return current
+	}
+	if _, err := os.Stat(filepath.Join(current, probe)); err == nil {
+		return current
+	}
+	if _, err := os.Stat(filepath.Join(legacy, probe)); err != nil {
+		return current
+	}
+	if _, done := dshLegacyLogged.LoadOrStore(what+"\x00"+current, true); !done {
+		slog.Info("dsh: the data directory has none yet; using the one an earlier release left (not moved)",
+			"what", what, "using", legacy, "data_dir_would_be", current)
+	}
+	return legacy
+}
+
+// ExtractEmbeddedDSH extracts into targetDir, defaulting to <BOTHOUSE_DATA_DIR>/dsh
+// when set, otherwise ~/.bothouse/dsh.
 // It respects os.UserHomeDir() so HOME overrides in tests or isolated environments work.
 func ExtractEmbeddedDSH(targetDir string) (string, error) {
 	if targetDir == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		targetDir, err = embeddedDSHDir()
 		if err != nil {
-			return "", fmt.Errorf("resolve user home dir: %w", err)
+			return "", err
 		}
-		targetDir = filepath.Join(home, ".bothouse", "dsh")
 	}
 
 	sub, err := fs.Sub(embeddedDSH, "dsh_bundle")
@@ -389,7 +433,7 @@ func keepIfExists(rel string) bool {
 	return base == "cordis.patch.yml" || filepath.Ext(base) == ".env"
 }
 
-// RefreshEmbeddedDSH re-unpacks the embedded plugin code into targetDir (default ~/.bothouse/dsh)
+// RefreshEmbeddedDSH re-unpacks the embedded plugin code into targetDir (default embeddedDSHDir())
 // when it was installed by a different program version, so plugin fixes reach users after an
 // upgrade. It only runs for an existing install (install.sh present), writes only bundle files,
 // keeps cordis.patch.yml / *.env that already exist, and never touches node_modules, the
@@ -397,11 +441,11 @@ func keepIfExists(rel string) bool {
 // Returns true when files were refreshed.
 func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	if targetDir == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		targetDir, err = embeddedDSHDir()
 		if err != nil {
-			return false, fmt.Errorf("resolve user home dir: %w", err)
+			return false, err
 		}
-		targetDir = filepath.Join(home, ".bothouse", "dsh")
 	}
 	if _, err := os.Stat(filepath.Join(targetDir, "install.sh")); err != nil {
 		return false, nil // not installed yet; first install extracts everything

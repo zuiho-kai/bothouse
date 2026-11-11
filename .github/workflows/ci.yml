@@ -242,7 +242,7 @@ jobs:
       - name: Embedded DSH bundle matches source
         if: ${{ !cancelled() && env.RUN_GO != 'true' }}
         run: go test -tags no_web -count=1 -run '^(TestDSHBundle|TestExtractEmbeddedDSH)' ./core
-      # go mod verify, go build and go vet (linux and windows) run as the build-* shards of bridge-go, in
+      # go mod verify, go build and go vet (linux, windows and darwin) run as the build-* shards of bridge-go, in
       # parallel with the tests: here they were ~180s in series (run 41867920458).
 
   bridge-go:
@@ -257,7 +257,7 @@ jobs:
       matrix:
         # ./core is split in two by test name; every other package is split in two by package (run with
         # -p 1 these took ~280s in one shard, run 41867920458). build-* hold the build and vet checks.
-        shard: [core-1, core-2, rest-1, rest-2, build-linux, build-windows]
+        shard: [core-1, core-2, rest-1, rest-2, build-linux, build-windows, build-darwin]
     defaults:
       run:
         working-directory: bridge
@@ -285,6 +285,16 @@ jobs:
               # Windows is a supported platform (install.ps1): the code and its tests must keep compiling there.
               GOOS=windows GOARCH=amd64 go build -tags no_web ./...
               GOOS=windows GOARCH=amd64 go vet -tags no_web ./...
+              exit 0 ;;
+            build-darwin)
+              # macOS is a release target (release.yml darwin/arm64, darwin/amd64), but no other shard compiles
+              # *_darwin.go or //go:build darwin files, so a broken one stayed green. Cross-compiled from this Linux runner,
+              # so cgo is off; cmd/cc-connect is left out because getlantern/systray needs cgo on
+              # darwin (undefined: registerSystray), so its tray_*darwin* files are still only built by release.yml.
+              export GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
+              mod=$(go list -m)
+              go build -tags no_web $(go list -tags no_web -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -vxF "$mod/cmd/cc-connect")
+              go vet -tags no_web $(go list -tags no_web ./... | grep -vxF "$mod/cmd/cc-connect")
               exit 0 ;;
           esac
           core=$(go list -tags no_web ./core)
@@ -345,7 +355,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Windows Go tests
-        run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
+        run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebParentPIDWindows|TestDSHWebCommandLineNativeWindows|TestDSHWebOwnedWhenTheRecordedPIDLaunchedTheListener|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
       - name: gate Windows compat
         if: ${{ !cancelled() }}
         run: python -I contrib/gate/test_windows_compat.py

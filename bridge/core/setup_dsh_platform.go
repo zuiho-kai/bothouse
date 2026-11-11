@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // DSHProfile is the profile install.sh installs into by default (dsh/install.sh PROFILE=web).
@@ -29,17 +31,18 @@ const DSHProfile = "web"
 
 // DSHStatus is what GET /setup/dsh/status and POST /setup/dsh/install return.
 type DSHStatus struct {
-	NodeVersion     string `json:"node_version,omitempty"`
-	PNPMFound       bool   `json:"pnpm_found"`
-	DependencyError string `json:"dependency_error,omitempty"`
-	Found           bool   `json:"found"`             // dsh is on PATH
-	Version         string `json:"version,omitempty"` // `dsh --version`
-	PluginInstalled bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
-	Profile         string `json:"profile"`
-	OpenCommand     string `json:"open_command"` // run this to open the DSH web page
-	InstallScript   string `json:"install_script,omitempty"`
-	Log             string `json:"log,omitempty"`    // install.sh output (install only)
-	HasDeepSeekKey  bool   `json:"has_deepseek_key"` // legacy name: an existing model login/key lets the wizard leave the key empty
+	NativeModelConfigured bool   `json:"native_model_configured"` // selected model credential is present; not a live authentication check
+	NodeVersion           string `json:"node_version,omitempty"`
+	PNPMFound             bool   `json:"pnpm_found"`
+	DependencyError       string `json:"dependency_error,omitempty"`
+	Found                 bool   `json:"found"`             // dsh is on PATH
+	Version               string `json:"version,omitempty"` // `dsh --version`
+	PluginInstalled       bool   `json:"plugin_installed"`  // the profile lists client-ui-discord
+	Profile               string `json:"profile"`
+	OpenCommand           string `json:"open_command"` // run this to open the DSH web page
+	InstallScript         string `json:"install_script,omitempty"`
+	Log                   string `json:"log,omitempty"`    // install.sh output (install only)
+	HasDeepSeekKey        bool   `json:"has_deepseek_key"` // a DeepSeek key is stored or exported (wizard can leave the field empty)
 	// DeepSeek Harness Desktop (setup_dsh_desktop.go), the wizard's default route
 	DesktopApp             string `json:"desktop_app,omitempty"`          // the installed app, "" when none
 	DesktopProfileReady    bool   `json:"desktop_profile_ready"`          // opened once: its profile exists
@@ -87,8 +90,8 @@ func FindDSHInstallScript() string {
 			dir = parent
 		}
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		if p := filepath.Join(home, ".bothouse", "dsh", "install.sh"); fileExists(p) {
+	if dir, err := embeddedDSHDir(); err == nil {
+		if p := filepath.Join(dir, "install.sh"); fileExists(p) {
 			return p
 		}
 	}
@@ -263,11 +266,19 @@ func bashScriptArg(goos, script string) string {
 	return script
 }
 
-// GetDSHStatus detects dsh and whether the CoNest plugin is in the profile.
+// GetDSHStatus detects dsh and whether the CoNest plugin is in the profile, with the model
+// selection of the DSH web profile (the route install.sh sets up).
 func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
+	return GetDSHStatusFor(ctx, "", langs...)
+}
+
+// GetDSHStatusFor is GetDSHStatus for a wizard route (target: DSHDesktopProfile for DeepSeek
+// Harness Desktop, empty or "web" for the DSH web profile): native_model_configured reads that
+// profile's model selection, not always the web one (review of #952, point d).
+func GetDSHStatusFor(ctx context.Context, target string, langs ...string) DSHStatus {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript(), HasDeepSeekKey: dshHasUsableModel()}
+	st := DSHStatus{Profile: DSHProfile, OpenCommand: dshOpenCommand(), InstallScript: FindDSHInstallScript()}
 	st.DesktopApp = dshDesktopApp()
 	st.DesktopDownloadURL = dshDesktopDownloadURLFor(runtime.GOOS, runtime.GOARCH)
 	if st.DesktopApp != "" {
@@ -291,6 +302,10 @@ func GetDSHStatus(ctx context.Context, langs ...string) DSHStatus {
 		return st
 	}
 	st.Found = true
+	st.NativeModelConfigured = dshNativeSetupConfigured(target, "")
+	// #1387 made this the "existing model login/key lets the wizard leave the key empty" flag; this
+	// PR's key-presence read (including $DSH_HOME/.env) still counts, so both are ORed.
+	st.HasDeepSeekKey = dshHasUsableModel() || dshHasDeepSeekKey()
 	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
 	}
@@ -322,6 +337,9 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 		dir := filepath.Join(os.TempDir(), "bothouse-dsh-runtime")
 		if home, err := os.UserHomeDir(); err == nil {
 			dir = filepath.Join(home, ".bothouse", "dsh-runtime")
+			if os.Getenv(ccconnect.DataDirEnv) != "" {
+				dir = filepath.Join(ccconnect.DataDir(home), "dsh-runtime")
+			}
 		}
 		if p, ok := dshDesktopRuntimePath(app, dir); ok {
 			if nodeIssue == "" {
@@ -333,15 +351,19 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 			}
 		}
 	}
+	target := ""
+	if desktop {
+		target = DSHDesktopProfile
+	}
 	if nodeIssue != "" {
-		return GetDSHStatus(ctx, lang), errors.New(nodeIssue)
+		return GetDSHStatusFor(ctx, target, lang), errors.New(nodeIssue)
 	}
 	if desktop {
 		// The app loads the plugins the moment they are added, before the wizard's roles exist: without
 		// this marker the plugin would seed its own default role (鲸鱼娘) and make it the primary role.
 		markDSHDefaultsHandled()
 		if err := ensureDSHDesktopProfile(ctx, dataDir, onLine); err != nil {
-			return GetDSHStatus(ctx, lang), err
+			return GetDSHStatusFor(ctx, target, lang), err
 		}
 	}
 	script := FindDSHInstallScript()
@@ -352,15 +374,15 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 		}
 	}
 	if script == "" {
-		return GetDSHStatus(ctx, lang), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
+		return GetDSHStatusFor(ctx, target, lang), errors.New("dsh/install.sh not found (set BOTHOUSE_DSH_DIR to the repo's dsh directory)")
 	}
 	dshBin, err := LookDSH()
 	if err != nil {
-		return GetDSHStatus(ctx, lang), errDSHMissing
+		return GetDSHStatusFor(ctx, target, lang), errDSHMissing
 	}
 	bashBin, err := LookBash()
 	if err != nil {
-		return GetDSHStatus(ctx, lang), err
+		return GetDSHStatusFor(ctx, target, lang), err
 	}
 	l := "en"
 	if strings.HasPrefix(strings.ToLower(lang), "zh") {
@@ -401,7 +423,7 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 	}
 	_ = pw.Close()
 	<-scanned
-	st := GetDSHStatus(ctx, lang)
+	st := GetDSHStatusFor(ctx, target, lang)
 	st.Log = out.String()
 	if err != nil {
 		return st, errors.New("install.sh failed: " + err.Error() + "\n" + tailLines(st.Log, 20))
@@ -429,7 +451,8 @@ func tailLines(s string, n int) string {
 // ── HTTP ──────────────────────────────────────────────────────
 
 func (m *ManagementServer) handleSetupDSHStatus(w http.ResponseWriter, r *http.Request) {
-	mgmtJSON(w, http.StatusOK, GetDSHStatus(r.Context(), r.URL.Query().Get("lang")))
+	q := r.URL.Query()
+	mgmtJSON(w, http.StatusOK, GetDSHStatusFor(r.Context(), q.Get("target"), q.Get("lang")))
 }
 
 // handleSetupDSHInstall streams the install as NDJSON, one object per line:
@@ -524,7 +547,7 @@ func dshNodeStatus(ctx context.Context, langs ...string) (string, string) {
 	return version, ""
 }
 
-// refreshHomeDSHBeforeInstall brings ~/.bothouse/dsh up to this program version before its
+// refreshHomeDSHBeforeInstall brings the selected embedded directory up to this program version before its
 // install.sh runs (#161 ③). Without it, `module add dsh` right after an upgrade ran the old
 // version's install.sh: only a server start refreshed that copy. Only when the script picked is
 // that copy (a repo checkout or BOTHOUSE_DSH_DIR is used as-is). A failed refresh keeps the old
@@ -533,11 +556,10 @@ func refreshHomeDSHBeforeInstall(script string, onLine func(string)) {
 	if script == "" || CurrentVersion == "" {
 		return
 	}
-	home, err := os.UserHomeDir()
+	dir, err := embeddedDSHDir()
 	if err != nil {
 		return
 	}
-	dir := filepath.Join(home, ".bothouse", "dsh")
 	if filepath.Clean(script) != filepath.Join(dir, "install.sh") {
 		return
 	}

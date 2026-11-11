@@ -33,7 +33,8 @@ type DSHMember struct {
 	Persona        string `json:"persona,omitempty"`
 	Avatar         string `json:"avatar,omitempty"`
 	NameCustomized *bool  `json:"name_customized,omitempty"`
-	// Model pins a DSH-model role to the route the wizard's key belongs to (set by configure, not the page).
+	// Model pins a DSH-model role to one route. configure leaves it empty: a member without a model
+	// inherits the DSH host's agent-default-model (roster.mjs:102, dsh-member.mjs:1203,1218).
 	Model *DSHMemberModel `json:"model,omitempty"`
 }
 
@@ -43,17 +44,13 @@ type DSHMemberModel struct {
 	Model    string `json:"model"`
 }
 
-// dshKeyModel is the route the wizard's DeepSeek key serves: DSH's API-key adapter
-// (@deepseek-ai/dsh-llm-deepseek-api-key, provider deepseek-official, key DEEPSEEK_API_KEY) and the model
-// dsh-base sets as its default (agent-default-model, same in DeepSeek Harness Desktop 0.2.2-rc.1). Pinning it
-// keeps the role answering with the key it was set up with even when the DSH default model is switched to a
-// route without a key (for example a DeepSeek account sign-in in the desktop app): that showed 还没填模型密钥 (#1173).
-var dshKeyModel = DSHMemberModel{Provider: "deepseek-official", Model: "deepseek-flash"}
-
 // DSHConfigureRequest is the body of POST /setup/dsh/configure.
 type DSHConfigureRequest struct {
-	DeepSeekAPIKey string      `json:"deepseek_api_key,omitempty"`
-	Members        []DSHMember `json:"members"`
+	DeepSeekAPIKey string `json:"deepseek_api_key,omitempty"`
+	// Target is the wizard's route: DSHDesktopProfile for DeepSeek Harness Desktop, empty or "web" for
+	// the DSH web profile. It decides which profile's model selection the credential check reads.
+	Target  string      `json:"target,omitempty"`
+	Members []DSHMember `json:"members"`
 }
 
 // DSHConfigureResult says what was written (never the key itself).
@@ -78,13 +75,24 @@ func validDSHMemberName(name string) bool {
 	return dshMemberName.MatchString(name)
 }
 
-// collabDataDir mirrors dsh/collab/cordis.patch.yml: $CONEST_COLLAB_DATA, else ~/.conest-collab.
+// collabDataDir mirrors dsh/collab/cordis.patch.yml, including explicit overrides.
+// ~/.bothouse and ~/.cc-connect are the bridge's own defaults, not an isolated directory: a parent
+// that leaves BOTHOUSE_DATA_DIR alone still hands the child that path (openDSHWeb), and the
+// previous release reads its roles from ~/.conest-collab, so the channel data stays there (no
+// migration). Only a data directory outside those two takes the channel data with it.
 func collabDataDir() string {
 	if d := os.Getenv("CONEST_COLLAB_DATA"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".conest-collab")
+	data := ccconnect.DataDir(home)
+	for _, name := range []string{".bothouse", ".cc-connect"} {
+		if filepath.Clean(data) == filepath.Join(home, name) {
+			return filepath.Join(home, ".conest-collab")
+		}
+	}
+	// A custom data directory chosen before this release: the channels still live in ~/.conest-collab.
+	return dshLegacyFallback("collab data", filepath.Join(data, "conest-collab"), filepath.Join(home, ".conest-collab"), "")
 }
 
 // dshMembersFile: what ConfigureDSH writes for the collab plugin (dsh/collab/roster.mjs reads it).
@@ -117,14 +125,15 @@ func ConfigureDSH(req DSHConfigureRequest) (DSHConfigureResult, error) {
 		if m.CLI != "" && !dshCLIs[m.CLI] {
 			return res, fmt.Errorf("unsupported cli %q", m.CLI)
 		}
-		if m.CLI == "" && strings.TrimSpace(req.DeepSeekAPIKey) == "" && !dshHasUsableModel() {
-			return res, fmt.Errorf("角色「%s」没选本机 CLI，也没有 DeepSeek API Key：选一个 CLI，或填 Key", m.Name)
+		// Use the same selected-route credential check as the status endpoint (#650).
+		native := dshNativeSetupConfigured(req.Target, req.DeepSeekAPIKey)
+		if m.CLI == "" && !native {
+			return res, fmt.Errorf("角色「%s」当前 DSH 原生模型没有对应凭据：请在 DSH 模型设置中配置；使用官方 DeepSeek 默认模型时也可在这里填 API Key", m.Name)
 		}
-		// Only an official API key selects this route; account and relay users keep their own default.
-		if m.CLI == "" && (strings.TrimSpace(req.DeepSeekAPIKey) != "" || dshHasDeepSeekKey()) {
-			mm := dshKeyModel
-			m.Model = &mm
-		}
+		// No model is written: an empty member.model makes the collab plugin send no route override, so
+		// the role keeps answering with whatever agent-default-model selects now (roster.mjs:102,
+		// dsh-member.mjs:1203,1218). Writing the route here pinned every role to deepseek-flash even
+		// when the check above passed on a gateway or account route (#1173, review of #952).
 		req.Members[i] = m
 	}
 	if k := strings.TrimSpace(req.DeepSeekAPIKey); k != "" {
@@ -186,9 +195,9 @@ func dshHasUsableModel() bool {
 	return err == nil
 }
 
-// dshHasDeepSeekKey: a DeepSeek key is already stored or exported (dsh-credentials-local precedence).
+// dshHasDeepSeekKey checks presence only; DSH resolves credential precedence at runtime.
 func dshHasDeepSeekKey() bool {
-	if os.Getenv("DEEPSEEK_API_KEY") != "" {
+	if os.Getenv("DEEPSEEK_API_KEY") != "" || dshDotenvHas(dshHome(), "DEEPSEEK_API_KEY") {
 		return true
 	}
 	b, err := os.ReadFile(filepath.Join(dshHome(), ".credentials.yaml"))
@@ -539,7 +548,9 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	if dataDir != "" {
 		// GATE_PORT: where the collab plugin asks the gate for each turn's wiki pages and task board
 		// (dsh/collab/gate-context.mjs), the port bothouse runs the gate on (gate_proc.go startLocked).
-		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
+		// Resolve before injecting BOTHOUSE_DATA_DIR: an unset parent must keep
+		// using ~/.conest-collab even though the child receives the bridge data dir.
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_COLLAB_DATA=" + collabDataDir(), "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
 		if fallback := dshFallbackLead(dataDir); fallback != "" {
 			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 		}
