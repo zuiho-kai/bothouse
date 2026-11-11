@@ -7632,6 +7632,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				board.finish(state, BoardDoneCompleted)
 			}
 			turnDuration := time.Since(turnStart)
+			e.noteWorkspaceTurn(sessionKey, event.Metadata, turnDuration) // #1448 route log
 			slog.Info("turn complete",
 				"session", session.ID,
 				"agent_session", session.GetAgentSessionID(),

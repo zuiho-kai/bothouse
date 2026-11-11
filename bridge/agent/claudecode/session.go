@@ -69,6 +69,10 @@ type claudeSession struct {
 	// usageMu guards lastUsage. Populated from the most recent result event.
 	usageMu   sync.Mutex
 	lastUsage *core.ContextUsage
+	// lastCostUSD: the CLI's total_cost_usd at the previous result. It is the running
+	// total of this process (measured 11-11: 0.0054 then 0.0064 over two turns, num_turns
+	// 1 then 2), so a turn's cost is the difference (#1448).
+	lastCostUSD float64
 	// reportedWindow is modelUsage[*].contextWindow from the last result event (guarded by
 	// usageMu): the window the CLI itself uses, e.g. 1000000 for claude-opus-5-5 (no "[1m]" in
 	// the id) or 200000 for a model it does not recognise. 0 until a result is seen.
@@ -1169,6 +1173,19 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		meta = map[string]any{core.MetaContextCompacted: true}
 	} else {
 		meta = quotaMeta
+		if total, ok := raw["total_cost_usd"].(float64); ok {
+			cs.usageMu.Lock()
+			turn := total - cs.lastCostUSD
+			if turn < 0 {
+				turn = total // a new CLI process starts its total again
+			}
+			cs.lastCostUSD = total
+			cs.usageMu.Unlock()
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta[core.MetaTurnCostUSD] = turn
+		}
 		if isError, _ := raw["is_error"].(bool); isError {
 			if meta == nil {
 				meta = map[string]any{}
