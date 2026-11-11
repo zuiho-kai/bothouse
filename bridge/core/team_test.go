@@ -169,8 +169,8 @@ func TestNoGateSuppressesUnaddressedSubAfterLeadSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.name, e.team.name = "lead", "lead"
-	if e.suppressUnaddressedGroup(&p, msg) {
-		t.Fatal("the selected lead must receive an unmentioned message")
+	if !e.suppressUnaddressedGroup(&p, msg) {
+		t.Fatal("without a routing model the selected lead must not start on an unmentioned message")
 	}
 	e.name, e.team.name = "sub", "sub"
 	if !e.suppressUnaddressedGroup(&p, msg) {
@@ -350,16 +350,27 @@ type selfLeadTestPlatform struct {
 func (*selfLeadTestPlatform) HasConfiguredTeamLead() bool  { return true }
 func (p *selfLeadTestPlatform) IsConfiguredTeamLead() bool { return p.lead }
 
-// A wizard team (team_lead_bot on every bot, no gate, no team status board): an unaddressed
-// message reaches only the lead; a message that @-s or names a sub reaches only that sub.
+// A wizard team (team_lead_bot on every bot, no gate, no team status board): with no routing
+// model nobody answers a message that calls no one, the lead included (user 2026-11-11); a
+// message that @-s or names a sub reaches only that sub.
 func TestNoGateWizardTeamRoutesByConfiguredLead(t *testing.T) {
 	e := newTestEngine()
 	e.team = nil
 	lead := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, true}
 	sub := &selfLeadTestPlatform{stubPlatformEngine{n: "discord"}, false}
 	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
-	if e.suppressUnaddressedGroup(lead, msg) {
-		t.Fatal("lead must answer an unaddressed message")
+	if !e.suppressUnaddressedGroup(lead, msg) {
+		t.Fatal("without a routing model the lead must not answer a message that calls no one")
+	}
+	toHuman := &Message{Content: "<@887952333957386250> PTAL", ChannelID: "c", SessionKey: "discord:c"}
+	if !e.suppressUnaddressedGroup(lead, toHuman) {
+		t.Fatal("lead must stay quiet when the message @-s another person")
+	}
+	if e.suppressUnaddressedGroup(lead, &Message{Content: "<@L> 看看", ChannelID: "c", SessionKey: "discord:c", Mentioned: true}) {
+		t.Fatal("an @-ed lead must answer")
+	}
+	if e.suppressUnaddressedGroup(lead, &Message{Content: "在吗", ChannelID: "c", SessionKey: "discord:c", PrivateRoom: true}) {
+		t.Fatal("a one-to-one room is still the lead's")
 	}
 	if !e.suppressUnaddressedGroup(sub, msg) {
 		t.Fatal("sub must stay quiet on an unaddressed message")
@@ -414,12 +425,20 @@ func TestNoTeamBoardLeadSelectionOverridesConfiguredLead(t *testing.T) {
 	msg := &Message{Content: "大家好", ChannelID: "c", SessionKey: "discord:c"}
 
 	writeLeadSelection(t, dir, "sub")
+	if got, ok := e.selectedTeamLead(); !ok || got != "sub" {
+		t.Fatalf("lead.json selects sub: selected = %q, %v", got, ok)
+	}
+	// Without a routing model nobody starts on a message that calls no one (user 2026-11-11),
+	// whichever role is lead; an @ still reaches the role it names.
 	e.name = "sub"
-	if e.suppressUnaddressedGroup(sub, msg) {
-		t.Fatal("lead.json selects sub: sub must answer unaddressed messages")
+	if !e.suppressUnaddressedGroup(sub, msg) {
+		t.Fatal("no routing model: the selected lead must not start on a message that calls no one")
 	}
 	if !e.suppressUnaddressedGroup(sub, &Message{Content: "<@L> 在吗", ChannelID: "c", SessionKey: "discord:c", AddressedOther: true}) {
 		t.Fatal("a message addressed to another role must still go to that role")
+	}
+	if e.suppressUnaddressedGroup(sub, &Message{Content: "<@S> 在吗", ChannelID: "c", SessionKey: "discord:c", Mentioned: true}) {
+		t.Fatal("an @-ed role must answer")
 	}
 	e.name = "lead"
 	if !e.suppressUnaddressedGroup(lead, msg) {
@@ -427,7 +446,7 @@ func TestNoTeamBoardLeadSelectionOverridesConfiguredLead(t *testing.T) {
 	}
 
 	writeLeadSelection(t, dir, "")
-	if e.suppressUnaddressedGroup(lead, msg) {
+	if _, ok := e.selectedTeamLead(); ok {
 		t.Fatal("an empty selection must fall back to team_lead_bot")
 	}
 	e.name = "sub"
