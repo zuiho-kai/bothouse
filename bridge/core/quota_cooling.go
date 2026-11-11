@@ -174,7 +174,7 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 	}
 	if marked {
 		if until, ok := quotaResetTime(reset, now); ok {
-			e.recordQuotaFor(scope, until, session)
+			e.recordQuotaWindowFor(scope, until, session, "error_reset:"+reset)
 		} else {
 			slog.Warn("quota cooldown: reset time unavailable", "project", e.name, "reset", reset)
 		}
@@ -183,7 +183,7 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 		lower := strings.ToLower(raw)
 		if strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
 			if until, ok := quotaResetTime(raw, now); ok {
-				e.recordQuotaFor(scope, until, session)
+				e.recordQuotaWindowFor(scope, until, session, "error_text")
 			}
 		}
 	}
@@ -219,7 +219,7 @@ func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope
 				until = now.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
 			}
 			if until.After(now) {
-				e.recordQuotaFor(scope, until, session)
+				e.recordQuotaWindowFor(scope, until, session, quotaWindowLabel(window))
 			}
 		}
 	}
