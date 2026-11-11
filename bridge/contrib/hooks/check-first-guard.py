@@ -41,11 +41,16 @@ SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断�
 查的是别的事（比如只核了另一件活的配置），断言却讲缓存、报告折叠、证据检查等别的东西 → 没覆盖。
 只看回复立论靠的主断言和主建议（结论、推荐、「值得学的几条」这类）；顺带提一句的旁枝、引用本对话前文的、说「规则/CLAUDE.md/人设/手册里写着什么」的（这些规则每轮都在助手上下文里）、讲助手刚交付的活本身的，不算。
 判断：有主断言且没覆盖 → unchecked；没有断言，或每条断言都被覆盖 → pass。拿不准就 pass。
-提要新做/另备/加一样东西时（附了「系统自带能力」），还要对同类：先看自带能力里有没有做同一件事的（给干活的备先验知识、质检单、记性 → 同类是共享 wiki 和记忆论坛的推送；派活、验收、换人 → 同类是工作区、任务板、交接）。有同类时，下面两条缺一条就 unchecked：
+只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"第一条没覆盖的断言或建议原文，一句（pass 时空）"}"""
+
+# 同类检查（#1436）：只在回复提议新做/另备某样东西、且拿得到自带能力时另问一次；原来那道判断的提示一字不动
+SYSTEM_SAME = """你是一个判断器。助手要把一段话发给用户，里面提议新做、另备或加一样东西（方案、机制、清单、角色）。下面附了「系统自带能力」和助手最近查过的工具调用。
+先看自带能力里有没有做同一件事的同类（给干活的备先验知识、质检单、记性 → 同类是共享 wiki 和记忆论坛的推送；派活、验收、换人 → 同类是工作区、任务板、交接）。
+有同类时，下面两条缺一条就 unchecked：
 1. 回复里点名了那样同类，并说它现在差在哪、要在它上面改；没点名、把这件事说成要另起或新做 → 缺。
 2. 最近查过的要查过那样同类本身（读它的程序、配置、记录，或拿它的名字去搜，如「记忆论坛」「注入」「ctxsvc」「forum」）；只用搜索工具查了别的话题不算 → 缺。
-这时 claim 写「提议新做〈X〉，自带〈同类〉做同一件事，回复没点名它/没查过它」。没有同类 → 按上面的判断。
-只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"第一条没覆盖的断言或建议原文，一句（pass 时空）"}"""
+没有同类，或提议的东西只是顺带一提、不是回复的主建议 → pass。拿不准就 pass。
+只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"提议新做〈X〉，自带〈同类〉做同一件事，回复没点名它/没查过它（pass 时空）"}"""
 
 REASON = ("先查我们现有的：仓库、wiki、配置，再说。这句在说我们自家现状或建议加东西：「{claim}」，"
           "最近几轮都没查过它说的那样东西（仓库、wiki、配置、日志或远端都没看）。先查（search.py 搜 wiki、grep 仓库、看配置和日志、上远端看），"
@@ -119,7 +124,7 @@ def _clean_lines(text):
 
 
 def maybe(text):
-    return any(MAYBE.search(l) or PROPOSE.search(l) for l in _clean_lines(text))
+    return any(MAYBE.search(l) for l in _clean_lines(text))
 
 
 def proposing(text):
@@ -174,16 +179,16 @@ def caps_block(reply, user=""):
     return ("\n\n## 系统自带能力（bothouse about）\n" + "\n".join(f"- {c}" for c in caps)) if caps else ""
 
 
-def ask_model(reply, user, looks):
+def ask_model(reply, user, looks, system=None, extra=""):
     t0 = time.time()
     res = {"verdict": "pass", "claim": "", "ms": 0, "cost": 0}
     prompt = (f"## 用户这轮的话（末尾）\n{(user or '（没有）')[-600:]}\n\n"
               f"## 最近查过的（工具调用，含前几轮）\n" + ("\n".join(f"- {describe(b)}" for b in looks[-MAX_LOOKS:]) or "（一次都没查）") +
-              f"\n\n## 要发给用户的回复\n{reply}" + caps_block(reply, user))
+              f"\n\n## 要发给用户的回复\n{reply}" + extra)
     try:
         p = subprocess.run(
             ["claude", "-p", "--model", intent_judge.MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
-             "--no-session-persistence", "--system-prompt", SYSTEM, "--output-format", "json"],
+             "--no-session-persistence", "--system-prompt", system or SYSTEM, "--output-format", "json"],
             input=prompt, capture_output=True, text=True, timeout=intent_judge.TIMEOUT, cwd=tempfile.gettempdir())
         d = json.loads(p.stdout)
         res["cost"] = round(d.get("total_cost_usd") or 0, 5)
@@ -208,20 +213,20 @@ def check(d):
     reply = d.get("last_assistant_message") or text
     if not reply:
         return None
-    general = maybe(reply)
-    if not general and not proposing(reply):
+    looks = [b for b in tools if is_lookup(b)]
+    if maybe(reply):  # 原来那道：断言自家现状、本轮没查
+        r = ask_model(reply, user, looks)
+        verdict = "block" if r["verdict"] == "unchecked" else "pass"
+        intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
+        if verdict == "block":
+            return (REASON_CHAT if _team_chat() else REASON).format(claim=r["claim"].strip("「」"))
+    extra = caps_block(reply, user)  # 同类（#1436）：提议新做、自带有同类却没点名或没查
+    if not extra:
         return None
-    r = ask_model(reply, user, [b for b in tools if is_lookup(b)])
+    r = ask_model(reply, user, looks, SYSTEM_SAME, extra)
     verdict = "block" if r["verdict"] == "unchecked" else "pass"
-    if verdict == "block" and not general and not _same_kind(r["claim"]):
-        verdict = "pass"  # 只因「提议新做」才进来的回复，只按同类那条拦，别的断言照旧不管（#1436 抽查：发版回复「加了一个前提」被连带拦）
-    intent_judge._log("check-first", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
-    if verdict != "block":
-        return None
-    claim = r["claim"].strip("「」")
-    if _same_kind(claim):
-        return REASON_SAME.format(claim=claim)
-    return (REASON_CHAT if _team_chat() else REASON).format(claim=claim)
+    intent_judge._log("check-same", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
+    return REASON_SAME.format(claim=r["claim"].strip("「」")) if verdict == "block" else None
 
 
 # 团队聊天频道里不现场去查：agentm 11-10 15:18 用户问「性能分析完成了吗」，它按任务板答了一句，被本检查要求「上远端看」，
@@ -233,11 +238,6 @@ REASON_CHAT = ("这是聊天频道，不在这里现场查。这句在说我们�
 # 提议新做、而自带的同类没点名或没查（#1436）
 REASON_SAME = ("先对一遍系统自带的同类再提方案：「{claim}」。先查那样同类现在怎么运作、做到哪（读它的程序、配置、记录，或拿它的名字搜 wiki），"
                "回复里点名它，只写它哪里不够、在它上面怎么改；别把现成的说成要新做。")
-
-
-def _same_kind(claim):
-    """判断器说的是「自带有同类」那条（措辞会变：自带…、…（同类））。"""
-    return "自带" in claim or "同类" in claim
 
 
 def _team_chat():
