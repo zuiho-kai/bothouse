@@ -55,7 +55,11 @@ def run_one(rows, b, *args):
         # Ingest owns model cleanup/checkpoints. Do not race it with another
         # timeout at this parent; the shell's hard cancellation remains the guard.
         rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err,
-                            env=dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=b)).returncode
+                            # rolewiki.go installs this scheduler at <data_dir>/wiki.
+                            # Shell cron jobs need that root even without an agent turn environment.
+                            env=dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=b,
+                                     BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
+                                                        os.environ.get("CC_DATA_DIR") or str(HERE.parent)))).returncode
     if rc:
         say(f"{b} ingest {' '.join(args)} exited {rc}")
 

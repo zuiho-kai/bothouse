@@ -223,6 +223,16 @@ class SubWikiPy(unittest.TestCase):
         self.assertEqual(self.run_py("hook-run", "whale", "sess-42"), ["whale --session abcd1234-sess-42"])
         self.assertEqual(self.run_py("hook-run", "whale", "nope"), ["whale --pending"])
 
+    def test_nightly_role_and_storage_without_agent_environment(self):
+        """Cron has no CC_DATA_DIR; the installed scheduler owns <data_dir>/wiki."""
+        self.env.pop("BOTHOUSE_DATA_DIR", None)
+        self.env.pop("CC_DATA_DIR", None)
+        for b in ("juzi", "whale"):
+            p = self.tmp / "wikis" / b / "bin/ingest.py"
+            p.write_text(f"import os\nopen({str(self.calls)!r}, 'a').write("
+                         "os.environ['MANUALS_ROLE'] + ' ' + os.environ['BOTHOUSE_DATA_DIR'] + '\\n')\n")
+        self.assertEqual(self.run_py("nightly"), [f"juzi {self.dir.parent.resolve()}", f"whale {self.dir.parent.resolve()}"])
+
     def test_hook_detaches(self):
         env = dict(self.env, CC_HOOK_PROJECT="proj-whale", CC_HOOK_AGENT_SESSION_ID="nope")
         subprocess.run([sys.executable, "-X", "utf8", "-I", str(self.dir / "sub-wiki.py"), "hook"], env=env, check=True, timeout=10)
