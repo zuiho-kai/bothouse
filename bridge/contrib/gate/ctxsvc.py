@@ -46,10 +46,15 @@ TURN_ROWS = 5
 ITEM_MIN = 6  # 去掉前缀后短于这么多字的行不当一条推（「## 现状」「- 见上」这类）
 
 
+# 缩进的原话证据行（夜间复盘写在一条下面的「- 10-31 17:46 #频道「…」」「- 11-09 8f75cea9「…」」）是上一条的正文
+#（同 _entry_body），不单独当一条推（11-11 抽查：这类行占索引 2.2%、却占推送 9%）。
+_EVIDENCE = re.compile(r"^\s+[-*]\s+(?:\d\d-\d\d \d\d:\d\d #|\d\d-\d\d [0-9a-f]{8}「|\d\d-\d\d #\S+「)")
+
+
 def is_item(line):
-    """这行能不能当一条记忆推：标题行（# 开头）和去掉前缀后太短的不算（用户 11-06：推送里混着「# 多用户隔离…」标题行）。"""
+    """这行能不能当一条记忆推：标题行（# 开头）、缩进的原话证据行和去掉前缀后太短的不算。"""
     s = line.strip()
-    return bool(s) and not s.startswith("#") and len(_title(s)) >= ITEM_MIN
+    return bool(s) and not s.startswith("#") and not _EVIDENCE.match(line) and len(_title(s)) >= ITEM_MIN
 
 
 def _title(line):
@@ -103,13 +108,42 @@ def role_wiki(bot):
 _BLOCKS = re.compile(r"^（(?:队友状态|可能相关的 wiki 页|频道里你上次看到之后的消息)[^\n]*(?:\n.+)*\n*", re.M)
 
 
+REPLY_PREFIX = "[replying to "  # 桥（platform/discord applyReferencedMessage）给回复加的引用块开头
+SHORT_KEEP = 8  # 这句话短于八个字才并入引用：短回复「对」「继续」仍要上下文，长回复以这句话为主体
+
+
+def split_reply(text):
+    """(引用块, 自己说的话)；没有引用块时第一项是空串。
+    块尾按桥的切法取最后一个「]\\n」（core/gate_local.go localGateText；引文里可以有「]」）。"""
+    if not text.startswith(REPLY_PREFIX):
+        return "", text
+    i = text.rfind("]\n")
+    if i < 0:
+        return text, ""
+    return text[:i + 2], text[i + 2:].strip()
+
+
+# 骂词、语气词不参与检索：关键词打分里骂词罕见、分数高，会把旧的骂人原话顶上来。只删整词，不删单字「操」「屎」（操作、屎山）。
+NOISE = re.compile(r"一坨屎|狗屎|屎一样|傻逼|傻b|煞笔|沙雕|操你妈|操他妈|我操|卧槽|他妈的|妈的|你妈|我日|放屁|个屁|吃屎|尼玛|狗东西|tmd|nmd|[啊呀嘛呢哦嗯]+", re.I)
+
+
+def denoise(text):
+    """去掉骂词、语气词后的查询；去完是空的（整句只有骂）就原样返回，免得这轮什么都不搜。"""
+    out = NOISE.sub(" ", text)
+    return out if out.strip() else text
+
+
 def query(text):
-    """只留用户最新那句话：去掉系统块、频道补发的旧消息；[replying to …] 引用保留。"""
+    """只留最新那句话：去掉系统块、频道补发的旧消息；引用只在这句话短于八个字时并入；去掉骂词语气词。"""
     for mark in ("（最新，回这条）", "（最新）"):  # gate.go：补发块/缓冲消息之后的才是这条
         if mark in text:
             text = text.split(mark)[-1]
             break
-    return _BLOCKS.sub("", text).strip()
+    text = _BLOCKS.sub("", text).strip()
+    quote, own = split_reply(text)
+    if quote and len(own) >= SHORT_KEEP:  # 这句是主体：引用块不参与检索
+        return denoise(own)
+    return denoise(text)
 
 
 # 查询带前两轮作者的话：开工那句常没有话题词（「这个你修一下」），话题在前两轮里。
@@ -118,9 +152,27 @@ PREV_TURNS = 2  # 来源：上面的离线对照（取前 2 轮 10/17，只取 1
 _prev = {}  # 会话 key → 最近几句作者的话（已清洗），旧在前；进程内，重启清空
 
 
+PREV_TOKS = 20  # 前两轮只取最少见的这么多个词（11-11 重放：试 4/8/12/20，20 是保住旧考题命中的最小值）
+# 前两轮的碎词：二字切分会切出跨词碎片（「么没」「为什」「你推」）和口头常用词（「问题」「然后」），idf 和实词差不多、
+# 分不开（么没 5.9、美股 5.2），按字面滤：带虚字的二字词和下面的常用词不并进查询。
+FRAG_CH = re.compile(r"[的了是不吗呢吧啊呀嘛这那个就都也还么什你我他她们怎哪谁啥没只再又才很太把着过得它]")
+COMMON = set("问题 然后 现在 一下 感觉 这样 怎么 为何 东西 可以 应该 时候 已经 自己 知道 觉得 一样 一个 之前 之后 以后 所以 但是 因为 如果 还是 直接 其实 一些 时间 情况".split())
+
+
+def rare_toks(text, n=PREV_TOKS):
+    """一句话里在 wiki 索引中最少见的 n 个实词，空格拼起来（二字词用空格隔开，再切分仍是原词）。"""
+    try:
+        idf = _index(WIKI).idf
+    except Exception:
+        return text
+    ts = {t for t in search.toks(text) if t in idf and not FRAG_CH.search(t) and t not in COMMON}
+    return " ".join(sorted(ts, key=lambda t: -idf[t])[:n])
+
+
 def with_prev(q, prev):
-    """这轮 + 前 PREV_TURNS 轮作者的话（新在前），空格拼起来当查询。和这轮一样的不重复拼。"""
-    return " ".join([q] + [p for p in prev if p and p != q][:PREV_TURNS]).strip()
+    """这轮 + 前 PREV_TURNS 轮的话（新在前）；前几轮只取最少见的 PREV_TOKS 个实词，不整句拼——整句拼时旧话长、
+    压过这一句，推的常是上一个话题（11-11 抽查：34% 推送行和本句零共同词）。"""
+    return " ".join([q] + [rare_toks(p) for p in prev if p and p != q][:PREV_TURNS]).strip()
 
 
 def turn_query(text, key=""):
@@ -199,17 +251,19 @@ def _shown(rel, root=None):
     return "~" + p[len(home):] if p.startswith(home + "/") else p
 
 
-def match_wiki(text, k=TOP_PAGES, root=None, skip=None):
-    """root 不给 = 主 wiki（hooks/wiki-context.py 终端会话就这样调）。skip = 开工套话的词：提示里已经带着的行不占名额。"""
+def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False):
+    """root 不给 = 主 wiki（hooks/wiki-context.py 终端会话就这样调）。skip = 开工套话的词：提示里已经带着的行不占名额。
+    prepared=True：text 已经是 query() 清过的（context() 的 tq 带前两轮，再清一次会把前几轮里的引用块当块尾切掉）。"""
     root = root or WIKI
     if root is None or not root.is_dir():
         return []
     idx = _index(root)
+    q = text if prepared else query(text)
     pages = {}
     if skip:  # 多取一些，跳掉的行由后面的补上（名额不放宽）
-        hits = [h for h in idx.search(query(text), k=search.TOP * 3) if is_item(h[2]) and not in_prompt(h[2], skip)][:search.TOP]
+        hits = [h for h in idx.search(q, k=search.TOP * 3) if is_item(h[2]) and not in_prompt(h[2], skip)][:search.TOP]
     else:
-        hits = [h for h in idx.search(query(text)) if is_item(h[2])]  # 前 10 行，去掉标题行
+        hits = [h for h in idx.search(q) if is_item(h[2])]  # 前 10 行，去掉标题行
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
     shown_th = set()
@@ -223,7 +277,7 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None):
             pages[rel] = {"head": idx.desc.get(rel, "")[:DESC_CHARS], "sep": " | ", "rows": []}
         if th:
             shown_th.add(th["tid"])
-            rows = _thread_rows(th, rel, root)
+            rows = _thread_rows(th, rel, root, line)
             if rows:
                 pages[rel]["rows"] += rows
                 continue
@@ -254,7 +308,15 @@ def _floor_line(cid):
     return None
 
 
-def _thread_rows(th, rel, root):
+LATEST_SHARE = 2  # 最新楼和推出的那楼至少共用这么多个实词才附带（11-11 重放：共用 0–1 个的附带最新楼几乎都不相干）
+
+
+def _content_toks(line):
+    """一行标题里的实词（去掉带虚字的二字词和常用词，同 rare_toks）。"""
+    return {t for t in search.toks(_title(line)) if not FRAG_CH.search(t) and t not in COMMON}
+
+
+def _thread_rows(th, rel, root, hit=None):
     """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
     别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
     floors = {f["id"]: f for f in th["floors"]}
@@ -263,10 +325,19 @@ def _thread_rows(th, rel, root):
     if not found:
         return []
     top = found[0]
+    # 票数和最高分楼一样时推命中的那一楼：多楼帖九成以上各楼同票，同票按「新楼在前」等于随便挑一楼
+    #（11-11 抽查：1097 个多楼帖里 1020 个同票）。别的楼票数真更高才换。
+    if hit is not None:
+        mine = [t for t in found if _bare(t[1][2]) == _bare(hit)]
+        if mine and FORUM.rank_key(mine[0][0]["id"]) == FORUM.rank_key(top[0]["id"]):
+            top = mine[0]
     latest = max(found, key=lambda t: t[0].get("floor", 0))
     here = ((root or WIKI) / rel).resolve()
     out = []
-    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) else []):
+    # 最新楼只在和推出的那楼讲同一件事时附带：大帖里最新楼常是别的小问题，和本轮无关
+    with_latest = latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) \
+        and len(_content_toks(latest[1][2]) & _content_toks(top[1][2])) >= LATEST_SHARE
+    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if with_latest else []):
         where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
         u, d = FORUM.counts(f["id"])
         head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
@@ -288,7 +359,7 @@ def context(req):
     skip = set(search.toks(kickoff_boiler(text))) if kq else None  # 提示里已经带着的规矩这一轮不占名额
     tq = kq or turn_query(text, req.get("key") or "")  # 推页和经验用：这轮 + 前两轮作者的话（定案块仍只看这轮，它要判开工）
     own = role_wiki(bot) if WIKI is not None else None  # GATE_WIKI=off/空 = 什么 wiki 都不推，角色 wiki 也不查
-    mine = match_wiki(tq, root=own, skip=skip) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
+    mine = match_wiki(tq, root=own, skip=skip, prepared=True) if own and not _same(own, WIKI) else []  # 同一个库（真实路径）只查一次
     if WIKI is None:
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
@@ -296,7 +367,7 @@ def context(req):
     dec = decision_items(text, key)
     out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender")) + board_items(key)
            + proposal_items(text, bot, key)
-           + with_lessons(match_wiki(tq, skip=skip), tq, skip) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+           + with_lessons(match_wiki(tq, skip=skip, prepared=True), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req)  # 推过的条不再推（同一会话代号内）
@@ -617,12 +688,12 @@ def lessons(root=None):
 LESSON_MIN_TOKENS = 2  # 命中门槛：和这句话至少共享 2 个词（离线试：闲聊 0 个，「嘉立创下单参数」2 个、「交板子前查什么」4 个）
 
 
-def lesson_hits(text, skip=None):
+def lesson_hits(text, skip=None, prepared=False):
     """按这轮话题挑经验：不固定取论坛分最高前三，
     和这句话共享词够多才算命中，命中的按共享词 idf 和排，再按论坛分（lessons() 的顺序）取前 LESSON_TOP。"""
     if WIKI is None:
         return []
-    q = set(search.toks(query(text)))
+    q = set(search.toks(text if prepared else query(text)))  # prepared=True：text 已清过，别再清（同 match_wiki）
     if not q:
         return []
     idf = _index(WIKI).idf
@@ -636,10 +707,10 @@ def lesson_hits(text, skip=None):
     return [e for _, _, e in sorted(hits)[:LESSON_TOP]]
 
 
-def with_lessons(pages, text, skip=None):
+def with_lessons(pages, text, skip=None, prepared=False):
     """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。"""
     try:
-        hits = lesson_hits(text, skip)
+        hits = lesson_hits(text, skip, prepared)
     except Exception:  # 教训表读坏了不挡推页
         return pages
     for rel, n, ln, k, d in hits:
@@ -729,7 +800,9 @@ def board_items(key=""):
 MEMVOTE = Path(__file__).resolve().parent / "memvote.py"  # 投票命令；gate 目录里装了才提示投票
 EXP = Path(os.environ.get("MEMVOTE_DIR") or MEMVOTE.parent)  # 推送记录、分数、票的目录（同 memvote.EXP）
 SCORES = Path(os.environ.get("FORUM_SCORES") or EXP / "scores.json").expanduser()  # 隔离测试可换副本；同 forum_scores.path()
-_NOT_USER = re.compile(r"^(?:\[[^\]\n]+ → [^\]\n]+\]|【|\[(?:report|ask)\]|[⏰📬🔁✅❌⚠️]|你是工作区频道里的主角色)")
+# 桥自动发的话（整点叫醒、续做、额度冷却交接等）也不是真人的话，否则会混进「前两轮」（11-11 抽查：user=true 里 35% 是这些）
+_NOT_USER = re.compile(r"^(?:\[[^\]\n]+ → [^\]\n]+\]|【|\[(?:report|ask)\]|[⏰📬🔁✅❌⚠️]|你是工作区频道里的主角色"
+                       r"|现在是(?:整点|半点)|你把活标成|接着做 |（桥重启打断|原主角色|回来看 |\S{1,8} 额度冷却)")
 _sc, _sc_at = {}, 0.0
 
 

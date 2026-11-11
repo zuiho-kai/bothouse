@@ -54,9 +54,37 @@ class T(unittest.TestCase):
         if ctxsvc.lead:
             ctxsvc.lead.PLAYBOOK = self.old_pb
 
-    def test_query_keeps_reply_quote(self):
-        self.assertEqual(ctxsvc.query(REPLY), REPLY.strip())
-        self.assertEqual(ctxsvc.query("（队友状态，系统自动附上，不用回应）\n- 写手：在忙\n\n" + REPLY), REPLY.strip())
+    def test_query_reply_uses_own_words(self):
+        # 自己的话够长：引用块不参与检索，语气词去掉；短回复（「对」「继续」）仍带引用当上下文
+        own = REPLY.strip()[REPLY.strip().rfind("]\n") + 2:].strip()
+        want = ctxsvc.denoise(own)
+        self.assertEqual(ctxsvc.query(REPLY), want)
+        self.assertEqual(ctxsvc.query("（队友状态，系统自动附上，不用回应）\n- 写手：在忙\n\n" + REPLY), want)
+        self.assertNotIn("[replying to", want)
+        short = "[replying to 主管: 没卡死，一直在干活]\n继续"
+        self.assertEqual(ctxsvc.query(short), short)
+
+    def test_query_drops_swear_words(self):
+        self.assertEqual(ctxsvc.query("推送的一坨屎").strip(), "推送的")
+        self.assertEqual(ctxsvc.query("操作步骤"), "操作步骤")  # 单字「操」不删
+        self.assertEqual(ctxsvc.query("傻逼"), "傻逼")  # 整句只有骂词：原样搜
+
+    def test_evidence_lines_not_items(self):
+        self.assertFalse(ctxsvc.is_item("  - 10-31 17:46 #频道「你重新自查一下，还有什么问题」"))
+        self.assertFalse(ctxsvc.is_item("    - 11-09 8f75cea9「你就说三条，然后具体描述呢」"))
+        self.assertTrue(ctxsvc.is_item("- 10-31 用户定：整套自查一次修完、一起汇报"))
+        self.assertTrue(ctxsvc.is_item("  - 实现在 score_night.py，备份 bak-1107"))
+
+    def test_with_prev_rare_content_words_only(self):
+        with patch.object(ctxsvc, "rare_toks", lambda t, n=ctxsvc.PREV_TOKS: "美股 推荐"):
+            self.assertEqual(ctxsvc.with_prev("妖股追涨", ["为什么没看你推荐美股"]), "妖股追涨 美股 推荐")
+        self.assertTrue(ctxsvc.FRAG_CH.search("么没") and ctxsvc.FRAG_CH.search("你推"))
+        self.assertFalse(ctxsvc.FRAG_CH.search("美股"))
+
+    def test_bridge_messages_not_user(self):
+        for t in ("现在是整点，想想爸爸", "接着做 #1474 注入对照", "橘 额度冷却，现在由你接手：#1", "你把活标成完成了"):
+            self.assertFalse(ctxsvc.exp_is_user(t), t)
+        self.assertTrue(ctxsvc.exp_is_user("接着做这个吧"))
 
     def test_query_drops_blocks(self):
         t = ("（队友状态，系统自动附上，不用回应）\n- 写手：在忙\n\n"
