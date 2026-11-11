@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 // dshWebProcLookupTimeout bounds one PowerShell call. It is the cap for a caller with no round of its
@@ -76,22 +78,26 @@ func splitWindowsCommandLine(line string) []string {
 	return args
 }
 
-// dshWebParentPIDNow reads pid's parent through CIM (Win32_Process.ParentProcessId), 0 when it cannot.
-// Same bound as the command-line lookup above.
-func dshWebParentPIDNow(ctx context.Context, pid int) int {
+// dshWebParentPIDNow reads pid's parent from a toolhelp process snapshot, 0 when it cannot. No
+// PowerShell here: the CIM form (one powershell.exe per ancestor, capped at 2s) returned nothing on
+// the windows-e2e runner, so the recorded cmd.exe was never linked to its node.exe listener
+// (run 42949763557: "no record of this bridge names it" for pid 8828 / listener 2072).
+// 来源：Win32 docs — CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS) / PROCESSENTRY32.th32ParentProcessID.
+func dshWebParentPIDNow(_ context.Context, pid int) int {
 	if pid <= 0 {
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(ctx, dshWebProcLookupTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
-		"(Get-CimInstance Win32_Process -Filter \"ProcessId="+strconv.Itoa(pid)+"\").ParentProcessId").Output()
+	snap, err := syscall.CreateToolhelp32Snapshot(syscall.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return 0
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil {
-		return 0
+	defer syscall.CloseHandle(snap)
+	var e syscall.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err = syscall.Process32First(snap, &e); err == nil; err = syscall.Process32Next(snap, &e) {
+		if int(e.ProcessID) == pid {
+			return int(e.ParentProcessID)
+		}
 	}
-	return n
+	return 0
 }
