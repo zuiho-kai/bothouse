@@ -137,6 +137,9 @@ def small_change(path):
                     break
             if e.get("type") == "assistant" and isinstance(c, list):
                 blocks += [b for b in c if isinstance(b, dict) and b.get("type") == "tool_use"]
+        # 本轮一次工具都没调（或记录是别的 CLI 的原生格式，看不到工具调用）：没法说它改得小，照拦
+        if not blocks:
+            return False
         files, total = set(), 0
         for b in blocks:
             name, inp = b.get("name"), b.get("input") or {}
@@ -155,6 +158,8 @@ def small_change(path):
                     total += sum(max(_nlines(x["new_string"]), _nlines(x["old_string"])) for x in inp["edits"])
                 else:
                     total += _nlines(inp.get("new_source", ""))
+            elif name == "apply_patch":  # Codex 的改文件工具：这里不数它的行数，照拦
+                return False
             elif name == "Bash":
                 cmd = inp["command"]
                 if SHIP.search(cmd):
