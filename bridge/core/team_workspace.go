@@ -1405,7 +1405,48 @@ func (e *Engine) releaseWorkspaceOnReset(sessionKey string, lastActive time.Time
 	if e == nil || e.dataDir == "" || !e.isTeamLead() {
 		return
 	}
-	e.releaseTeamWorkspace(sessionKey, lastActive, queued)
+	if !e.releaseTeamWorkspace(sessionKey, lastActive, queued) {
+		return
+	}
+	// 2026-11-11 (agent processes not released): the lead's reset closed only the lead's own process. Teammates that worked in this
+	// workspace (an earlier owner of a reassigned task, a reviewer, a bot that was @-ed there)
+	// kept theirs alive until the bridge restarted: 2026-11-11 three DSH processes (~0.5G each)
+	// sat in workspaces released at 15:40, 15:50 and 16:05. The handback path (returnWorkspace)
+	// resets every engine; this path ends their processes too, keeping each saved session ID so
+	// nothing of their context is lost. Off the reset path: a close may take seconds.
+	key := teamChatKey(sessionKey)
+	engines := e.watchEngines()
+	go func() {
+		for _, x := range engines {
+			if x == e {
+				continue // its own session was just cleaned up by the reset
+			}
+			if n := x.CloseIdleTeamWorkspaceAgents(key); n > 0 {
+				slog.Info("team workspace: closed teammates' idle agent processes after release",
+					"workspace", key, "project", x.name, "closed", n)
+			}
+		}
+	}()
+}
+
+// teamWorkspaceFree reports whether sessionKey is a team workspace channel that no chat channel
+// owns right now (it went back to the pool). A chat channel, a thread or an unknown channel is
+// not free: only a recorded workspace can be. A release still pending on the platform keeps
+// its owner and so is not free yet.
+func (e *Engine) teamWorkspaceFree(sessionKey string) bool {
+	if e == nil || e.dataDir == "" || sessionKey == "" {
+		return false
+	}
+	key := teamChatKey(sessionKey)
+	plat, _, _ := strings.Cut(key, ":")
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if !workspaceChannelKeysLocked(st)[key] {
+		return false
+	}
+	owner, _ := teamWorkspaceOwnerLocked(st, plat, teamChannelID(key))
+	return owner == ""
 }
 
 // releaseTeamWorkspace frees workspace sessionKey ("<platform>:<id>[:user]"): its handoffs up to

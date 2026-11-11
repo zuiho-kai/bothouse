@@ -5723,7 +5723,13 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		return
 	}
 	timeout := time.Duration(e.agentSessionIdleTimeoutNanos.Load())
-	if timeout <= 0 {
+	// 2026-11-11 (agent processes not released): a turn that ended in a team workspace no chat owns any more (it went back to the
+	// pool; this turn came late, e.g. a capacity re-delivery or a teammate answering there) is
+	// the end of that conversation for this process: nothing hands work to a free workspace,
+	// and the next claim resets or resumes the session by its saved ID. Close the process now
+	// instead of leaving it to live until the bridge restarts.
+	free := e.teamWorkspaceFree(sessionKeyOfInteractive(sessionKey, state.workspaceDir))
+	if timeout <= 0 && !free {
 		return
 	}
 
@@ -5741,8 +5747,71 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 		cancel()
 		return
 	}
+	if free {
+		// Same token protocol as the idle timer: a turn starting before the close runs
+		// clears the token (cancelAgentSessionIdleClose) and the close is skipped.
+		state.agentSessionIdleCancel = cancel
+		state.agentSessionIdleToken = token
+		state.mu.Unlock()
+		go e.cleanupInteractiveStateForIdleToken(sessionKey, state, token, 0)
+		return
+	}
 	e.armAgentSessionIdleTimerLocked(sessionKey, state, ctx, cancel, token, timeout, timeout)
 	state.mu.Unlock()
+}
+
+// sessionKeyOfInteractive is the session key inside an interactive key, which in multi-workspace
+// mode is prefixed with the workspace directory ("<dir>:<platform>:<chat>[:<user>]").
+func sessionKeyOfInteractive(interactiveKey, workspaceDir string) string {
+	if workspaceDir != "" {
+		if rest, ok := strings.CutPrefix(interactiveKey, workspaceDir+":"); ok {
+			return rest
+		}
+	}
+	return interactiveKey
+}
+
+// CloseIdleTeamWorkspaceAgents ends this engine's live agent processes in team workspace key
+// ("<platform>:<id>") after the workspace went back to the pool (2026-11-11, processes not released). Only the process ends:
+// the session and its saved agent session ID stay, so a later message there resumes the same
+// conversation (session/load) with its context. Sessions with a turn running, a permission or
+// queued message waiting, or background tasks in the agent are left alone; their turn's end
+// closes them (scheduleAgentSessionIdleClose sees the free workspace). Returns how many
+// processes it closed.
+func (e *Engine) CloseIdleTeamWorkspaceAgents(key string) int {
+	if e == nil || e.sessions == nil || !e.teamWorkspaceFree(key) {
+		return 0 // claimed again meanwhile: its sessions are working
+	}
+	n := 0
+	for _, k := range e.sessions.UserKeys() {
+		if chatOf(k) != key {
+			continue
+		}
+		iKey := e.interactiveKeyForSessionKey(k)
+		e.interactiveMu.Lock()
+		state := e.interactiveStates[iKey]
+		e.interactiveMu.Unlock()
+		if state == nil {
+			continue
+		}
+		if s := e.sessions.GetOrCreateActive(k); s != nil && s.Busy() {
+			continue // a turn is running: its end closes the process
+		}
+		token := e.agentSessionIdleSeq.Add(1)
+		e.cancelAgentSessionIdleClose(state)
+		state.mu.Lock()
+		if state.stopped || state.agentSession == nil || !state.agentSession.Alive() ||
+			state.eventsNeedResync || state.pending != nil || len(state.pendingMessages) > 0 {
+			state.mu.Unlock()
+			continue
+		}
+		state.agentSessionIdleToken = token
+		state.mu.Unlock()
+		if e.cleanupInteractiveStateForIdleToken(iKey, state, token, 0) {
+			n++
+		}
+	}
+	return n
 }
 
 // armAgentSessionIdleTimerLocked stores cancel/token on state and starts the
@@ -5785,12 +5854,15 @@ func agentSessionIdleDeferral(agentSession AgentSession, timeout time.Duration) 
 	return 0, 0
 }
 
-func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected *interactiveState, token uint64, timeout time.Duration) {
+// timeout 0 closes now (the conversation is over for this process), skipping a session
+// whose agent still runs background tasks; their completion turn ends here again.
+// Returns whether it closed the process.
+func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected *interactiveState, token uint64, timeout time.Duration) bool {
 	e.interactiveMu.Lock()
 	state, ok := e.interactiveStates[sessionKey]
 	if !ok || state == nil || state != expected {
 		e.interactiveMu.Unlock()
-		return
+		return false
 	}
 
 	var agentSession AgentSession
@@ -5804,9 +5876,18 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
 		e.interactiveMu.Unlock()
-		return
+		return false
 	}
-	if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
+	if timeout <= 0 {
+		if r, ok := state.agentSession.(BackgroundTaskReporter); ok {
+			if running, _ := r.BackgroundTasks(); running > 0 {
+				state.mu.Unlock()
+				e.interactiveMu.Unlock()
+				slog.Info("team workspace free: agent has background tasks, close left to their turn", "session_key", sessionKey, "running", running)
+				return false
+			}
+		}
+	} else if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
 		// maomao fork: closing now would kill a background task and lose its
 		// completion notification. Re-arm under the same lock so a turn that
 		// starts afterwards cancels the new timer like any other.
@@ -5820,7 +5901,7 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		}
 		slog.Info("agent session idle timeout: deferred for background tasks",
 			"session_key", sessionKey, "running", running, "wait", wait)
-		return
+		return false
 	}
 	agentSession = state.agentSession
 	state.agentSession = nil
@@ -5829,8 +5910,13 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	state.mu.Unlock()
 	e.interactiveMu.Unlock()
 
-	slog.Info("agent session idle timeout: closing live agent session",
-		"session_key", sessionKey, "timeout", timeout)
+	if timeout <= 0 {
+		slog.Info("team workspace free: closing live agent session; its saved session ID stays for resume",
+			"session_key", sessionKey)
+	} else {
+		slog.Info("agent session idle timeout: closing live agent session",
+			"session_key", sessionKey, "timeout", timeout)
+	}
 	e.stopUnsolicitedReader(state)
 	state.markStopped()
 
@@ -5850,6 +5936,7 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 		delete(e.interactiveStates, sessionKey)
 	}
 	e.interactiveMu.Unlock()
+	return true
 }
 
 func (e *Engine) closeAgentSessionWithTimeout(sessionKey string, agentSession AgentSession) {
