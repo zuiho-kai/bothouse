@@ -166,6 +166,12 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 	if report != nil && report.QuotaGroup != "" {
 		scope.Group = report.QuotaGroup
 	}
+	if failed, _ := ev.Metadata[MetaResultIsError].(bool); ev.Type == EventResult && ev.Done && ev.Error == nil && !failed && !quotaError {
+		// Only a successful terminal result proves recovery. A context
+		// compaction result is intermediate, even without an error. A usage
+		// report still at 100% below records the cooldown again.
+		e.recoverQuotaFor(scope)
+	}
 	if marked {
 		if until, ok := quotaResetTime(reset, now); ok {
 			e.recordQuotaFor(scope, until, session)
@@ -575,6 +581,15 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 		return
 	}
+	if st.Until.After(now) && !e.quotaCoolingDeadlineFor(scope).After(now) {
+		// The deadline is still ahead but nothing admission reads holds it any
+		// more: an answered turn cleared the records (recoverQuotaFor). The
+		// records are the single truth, so a quota error recorded after that
+		// answer, here or by another role on the same pool, keeps this branch
+		// shut (review of #1637). Finish what a successful probe finishes.
+		e.quotaRestoredLocked(now, "quota recovered: turn answered")
+		return
+	}
 	if st.Until.IsZero() {
 		return
 	}
@@ -710,23 +725,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			e.saveDomainLocked(st.Scope, time.Time{})
 		}
 		quotaDomainsMu.Unlock()
-		st.ProbeRound = 0
-		st.NextProbeAt = time.Time{}
-		st.ProbeStatus = "available"
-		if restored, ok := e.quotaUnwindLeadLocked(now); !ok {
-			return
-		} else if restored {
-			e.quotaNotice(st.Session, e.i18n.Tf(MsgQuotaLeadRestored, e.DisplayName()))
-		}
-		st.Until, st.Lead = time.Time{}, nil
-		e.capMu.Lock()
-		if st.Scope == "" {
-			e.quotaUntil = time.Time{}
-		}
-		e.capMu.Unlock()
-		e.saveQuotaLocked()
-		slog.Info("quota auto-probe: quota restored silently", "project", e.name, "probe_status", st.ProbeStatus)
-		e.emitStreamEvent(StreamEventQuota, st.Session, "quota auto-probe: restored", map[string]any{"project": e.name, "action": "quota_restored"})
+		e.quotaRestoredLocked(now, "quota auto-probe: restored")
 		return
 	}
 	if st.Transfers == nil {
@@ -765,6 +764,32 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 	}
 	e.quotaTransferWork(st, now)
+}
+
+// quotaRestoredLocked ends the cooldown in quotaState once the domain is clear:
+// gives back the lead a takeover took and announces the recovery. It reports
+// false when the lead could not be restored; the state is kept so the next tick
+// retries. The caller holds quotaMu (and relayManager.quotaMu, as quotaTick).
+func (e *Engine) quotaRestoredLocked(now time.Time, event string) bool {
+	st := &e.quotaState
+	st.ProbeRound = 0
+	st.NextProbeAt = time.Time{}
+	st.ProbeStatus = "available"
+	if restored, ok := e.quotaUnwindLeadLocked(now); !ok {
+		return false
+	} else if restored {
+		e.quotaNotice(st.Session, e.i18n.Tf(MsgQuotaLeadRestored, e.DisplayName()))
+	}
+	st.Until, st.Lead = time.Time{}, nil
+	e.capMu.Lock()
+	if st.Scope == "" {
+		e.quotaUntil = time.Time{}
+	}
+	e.capMu.Unlock()
+	e.saveQuotaLocked()
+	slog.Info("quota cooldown: quota restored", "project", e.name, "probe_status", st.ProbeStatus, "via", event)
+	e.emitStreamEvent(StreamEventQuota, st.Session, event, map[string]any{"project": e.name, "action": "quota_restored"})
+	return true
 }
 
 func (e *Engine) quotaNotice(session, text string) {

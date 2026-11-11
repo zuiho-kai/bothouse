@@ -5042,14 +5042,24 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// (2026-11-01: 「复活」之后发一句话就该恢复正常). Bots, cron/timer/heartbeat
 	// turns and ws-handoff wake-ups still wait: they are not someone sitting
 	// there, and key suffixes alone do not prove where a message came from.
+	//
+	// The same holds for a quota cooldown: a deadline is a prediction, and a person
+	// calling the role is the moment to check it (2026-11-11 用户「我主动去叫正在冷却的人
+	// 就会自动解除桥的冷却锁 重新看看能不能正常了」). The turn's own result decides:
+	// an answer clears the cooldown (recoverQuotaFor), a quota error records it again.
 	capWait := e.capacityWait(state.quotaScope)
-	probeCapacity := capWait > 0 && msg.inputTurn == nil && !msg.FromBot &&
+	humanAsks := msg.inputTurn == nil && !msg.FromBot &&
 		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
+	probeCapacity := capWait > 0 && humanAsks
+	// Only a person calling this role (an @, a reply to it, its name at the line
+	// start: Message.Mentioned) is that check. A person talking to someone else
+	// in the same channel is not asking this role to try again.
+	humanCalls := humanAsks && msg.Mentioned
 	// One clock read for both the decision and the text: two reads let a deadline that
 	// is microseconds away at the check pass before the format, printing 「大约还要 0s」
 	// (复核 2026-11-06 观察①).
 	now := quotaCoolingNow()
-	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() {
+	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() && !humanCalls {
 		// 用户 2026-11-04 报「没有正确显示什么时候恢复」：不再直接打印 RFC3339，
 		// 换成本地时间带偏移量，再按当前时刻算一次大约还要等多久（quota_cooling_display.go）。
 		// quotaCoolingForAt 只在截止值还在 now 之后时才返回非零值，
