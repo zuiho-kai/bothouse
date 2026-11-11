@@ -127,8 +127,8 @@ export function hasRef(ref) { return checkDispatch({ title: '', ref }) === null;
 export class Tasks {
   reassignForQuota(task, owner) {
     const row = this.db.prepare(`UPDATE tasks SET owner = ?, status = 'assigned', next_check_at = ?,
-      renewals = 0, remind_msg_id = NULL, updated_at = ? WHERE id = ? AND owner = ? RETURNING *`)
-      .get(owner, this.now() + CHECK_AFTER_S, this.now(), task.id, task.owner);
+      renewals = 0, remind_msg_id = NULL, updated_at = ? WHERE id = ? AND owner = ? AND ${LIVE} RETURNING *`)
+      .get(owner, this.now() + CHECK_AFTER_S, this.now(), task.id, task.owner, ...WORKING);
     if (row) {
       this.record(row, 'quota', `#${row.id}「${row.title}」额度冷却转交 → ${this.nameOf(owner)}。原交接：${task.reason ?? ''}\n参照：${task.ref ?? ''}\n底分支：${task.base ?? ''}`);
       this.changed(row.id);
@@ -186,8 +186,8 @@ export class Tasks {
       unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL, remind_msg_id = ? WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
       undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND ${LIVE} ORDER BY id`),
       // Clear before waking (a success is never re-sent); restore only if nobody took it.
-      takeRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? RETURNING *'),
-      putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
+      takeRemind: this.db.prepare(`UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? AND ${LIVE} RETURNING *`),
+      putRemind: this.db.prepare(`UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
       // Rows the owner posted or changed in place since a time (changed_at: a streamed reply growing, a progress card edited).
@@ -511,6 +511,10 @@ export class Tasks {
   /** Delegated reviews of task id end with its verdict. */
   closeReviews(id, verdict, messageId) {
     for (const review of this.q.openReviews.all(id, ...WORKING)) {
+      if (verdict === 'cancelled' || verdict === 'superseded') {
+        this.terminate(review.id, { actor: HUMAN, status: 'cancelled', reason: `验收对象 #${id} ${STATUS[verdict]}，验收停止` });
+        continue;
+      }
       this.db.prepare(`UPDATE tasks SET status = 'done', next_check_at = NULL, remind_msg_id = NULL,
         paused_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ? WHERE id = ?`)
         .run(messageId ?? null, this.now(), this.now(), review.id);
@@ -639,6 +643,7 @@ export class Tasks {
       .get(status, reason, replacement, this.now(), id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     // No claim/resume: cancelling a parked task must never reclaim a reused workspace.
+    this.closeReviews(id, status);
     this.record(row, status, `#${id}「${row.title}」${STATUS[status]}（${this.nameOf(actor)}）：${reason}${replacement === null ? '' : `；替代任务 #${replacement}`}`);
     this.releaseIfDone(row.room_id);
     return this.changed(id);
@@ -925,6 +930,7 @@ export class Tasks {
       const status = String(m.status ?? '');
       try {
         const mirrored = m.id ? this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND assign_msg_id = ? AND card_member_id = ? AND source = 'card'").get(roomId, messageId, m.id) : undefined;
+        if (mirrored && TERMINAL.includes(mirrored.status)) continue;
         if (mirrored && mirrored.owner !== owner.id && WORKING.includes(mirrored.status)) this.reassignForQuota(mirrored, owner.id);
         if (['queued', 'running', 'waiting'].includes(status)) {
           const title = String(m.title ?? '').trim() || String(m.name ?? '').trim();
@@ -1087,13 +1093,13 @@ export class Tasks {
   deliver(taskId, msgId) {
     if (this.delivering) return;
     const message = this.store.message(msgId);
-    const task = this.q.takeRemind.get(taskId, msgId);
+    const task = this.q.takeRemind.get(taskId, msgId, ...WORKING);
     if (task === undefined) return;
     if (message === undefined) return;
     this.delivering = true;
     let taken;
     try { taken = this.wake(task.owner, message); } finally { this.delivering = false; }
-    if (!taken) this.q.putRemind.run(msgId, taskId);
+    if (!taken) this.q.putRemind.run(msgId, taskId, ...WORKING);
   }
 
   /** Start memberId on message through the first waker that takes it; true if one did. */
@@ -1147,8 +1153,9 @@ export class Tasks {
   record(task, event, text, skip) {
     const card = JSON.stringify({ kind: 'task', task_id: task.id, event });
     const m = { authorKind: 'system', author: 'system', name: '任务', text, card };
-    const message = task.room_id === skip ? undefined : this.hub.post(task.room_id, m).message;
-    const chat = this.chatOf(task.room_id);
+    const currentChat = this.chatOf(task.room_id);
+    const chat = task.paused_at != null && task.paused_chat != null ? task.paused_chat : currentChat;
+    const message = task.room_id === skip || chat !== currentChat ? undefined : this.hub.post(task.room_id, m).message;
     if (chat !== undefined && chat !== task.room_id && chat !== skip) this.hub.post(chat, m);
     return message;
   }
@@ -1228,8 +1235,9 @@ export class Tasks {
   }
 
   changed(id) {
-    const task = this.view(this.task(id));
-    this.hub.emit({ type: 'task', task, chat_id: this.chatOf(task.room_id), active: this.countActive(task.room_id) });
+    const row = this.task(id);
+    const task = this.view(row);
+    this.hub.emit({ type: 'task', task, chat_id: row.paused_at != null && row.paused_chat != null ? row.paused_chat : this.chatOf(task.room_id), active: this.countActive(task.room_id) });
     this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     this.arm();
     return task;

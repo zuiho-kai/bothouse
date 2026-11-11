@@ -239,10 +239,12 @@ export function groupRooms(allRooms: readonly ChannelRoom[]): RoomRow[] {
 }
 
 /** Task statuses (dsh/collab/tasks.mjs STATUS). */
-export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework'
+export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework' | 'cancelled' | 'superseded'
 
 /** One dispatched task (#139 team mode B), as `GET /collab/api/rooms/:id/tasks` serializes it. */
 export interface ChannelTask {
+  readonly termination_reason?: string | null
+  readonly superseded_by?: number | null
   readonly id: number
   /** Room the task was dispatched in (the chat channel or one of its workspaces). */
   readonly room_id: number
@@ -360,6 +362,7 @@ export interface ChannelSnapshot {
 /** Actions the panel can take; each returns once the service answered. */
 export interface ChannelActions {
   reviewTask(id: number, verdict: 'done' | 'rework', note?: string): Promise<void>
+  terminateTask?(id: number, action: 'cancel' | 'supersede', reason: string, supersededBy?: number): Promise<void>
   /** #1016 转任务: put a message on the task board for `owner` (POST collab/api/rooms/{id}/tasks). */
   dispatchTask?(roomId: number, task: { readonly title: string; readonly owner: string; readonly messageId: number }): Promise<void>
   /** Show another room and load its recent messages. */
@@ -1151,6 +1154,10 @@ export function createChannelSource(transport: ChannelTransport): {
     uploadAttachment: upload,
     async reviewTask(id, verdict, note) {
       const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/review`, json('POST', { verdict, note }))
+      set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
+    },
+    async terminateTask(id, action, reason, supersededBy) {
+      const { task } = await request<{ task: ChannelTask }>(`collab/api/tasks/${id}/${action}`, json('POST', { reason, superseded_by: supersededBy }))
       set({ tasks: (snapshot.tasks ?? []).map(row => row.id === task.id ? task : row) })
     },
     async dispatchTask(roomId, { title, owner, messageId }) {

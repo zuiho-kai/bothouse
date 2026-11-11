@@ -717,12 +717,14 @@ export { TICKET_WRONG_ROUTE } from './local-host.mjs';
  *   POST /collab/api/tasks/{id}/stance          { stance: 接|问|退|升, note? }  (task owner)
  *   POST /collab/api/tasks/{id}/return          { message_id }                  (task owner)
  *   POST /collab/api/tasks/{id}/review          { verdict: done|rework, note } (the dispatcher; note required for rework)
+ *   POST /collab/api/tasks/{id}/cancel          { reason } (verified dispatcher or human owner)
+ *   POST /collab/api/tasks/{id}/supersede       { reason, superseded_by? } (same permission; optional replacement task ID)
  * Returns undefined when the request is not for this route, else a Promise of the reply.
  */
 export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
   const path = url.pathname.replace(/\/+$/, '');
   const board = /^\/collab\/api\/rooms\/(\d+)\/tasks$/.exec(path);
-  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review))?$/.exec(path);
+  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review|cancel|supersede))?$/.exec(path);
   if (board === null && one === null) return undefined;
   const human = owner(req);
   if (!human && !gateway.authorized(req, url)) return Promise.resolve(refuse(req, res));

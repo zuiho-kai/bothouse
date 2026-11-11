@@ -14,11 +14,13 @@ import { exitMark } from './team-exit.mjs';
 import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
 import { execFile } from 'node:child_process';
 
-/** Status codes and their labels (the eight names are a #139 B setting, not user-specified). */
+/** Status codes and their labels. Cancellation/supersession are not acceptance. */
 export const STATUS = {
   assigned: '派出', accepted: '已接', asked: '有疑问', declined: '退回',
   escalated: '升级', returned: '交回', done: '完成', rework: '返工',
+  cancelled: '已取消', superseded: '已替代',
 };
+export const TERMINAL = ['done', 'cancelled', 'superseded'];
 /** First-line stance marks used by the team (本机团队模式【接/问/退/升】). */
 export const STANCES = { 接: 'accepted', 问: 'asked', 退: 'declined', 升: 'escalated' };
 const STANCE_WORDS = { accept: '接', ask: '问', decline: '退', escalate: '升' };
@@ -125,8 +127,8 @@ export function hasRef(ref) { return checkDispatch({ title: '', ref }) === null;
 export class Tasks {
   reassignForQuota(task, owner) {
     const row = this.db.prepare(`UPDATE tasks SET owner = ?, status = 'assigned', next_check_at = ?,
-      renewals = 0, remind_msg_id = NULL, updated_at = ? WHERE id = ? AND owner = ? RETURNING *`)
-      .get(owner, this.now() + CHECK_AFTER_S, this.now(), task.id, task.owner);
+      renewals = 0, remind_msg_id = NULL, updated_at = ? WHERE id = ? AND owner = ? AND ${LIVE} RETURNING *`)
+      .get(owner, this.now() + CHECK_AFTER_S, this.now(), task.id, task.owner, ...WORKING);
     if (row) {
       this.record(row, 'quota', `#${row.id}「${row.title}」额度冷却转交 → ${this.nameOf(owner)}。原交接：${task.reason ?? ''}\n参照：${task.ref ?? ''}\n底分支：${task.base ?? ''}`);
       this.changed(row.id);
@@ -184,8 +186,8 @@ export class Tasks {
       unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL, remind_msg_id = ? WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
       undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND ${LIVE} ORDER BY id`),
       // Clear before waking (a success is never re-sent); restore only if nobody took it.
-      takeRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? RETURNING *'),
-      putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
+      takeRemind: this.db.prepare(`UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? AND ${LIVE} RETURNING *`),
+      putRemind: this.db.prepare(`UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
       // Rows the owner posted or changed in place since a time (changed_at: a streamed reply growing, a progress card edited).
@@ -278,6 +280,7 @@ export class Tasks {
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
       note: t.note, reason: t.reason, ref: t.ref ?? null, base: t.base ?? null, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+      termination_reason: t.termination_reason ?? null, superseded_by: t.superseded_by ?? null,
       paused_at: t.paused_at ?? null,
     };
   }
@@ -508,6 +511,10 @@ export class Tasks {
   /** Delegated reviews of task id end with its verdict. */
   closeReviews(id, verdict, messageId) {
     for (const review of this.q.openReviews.all(id, ...WORKING)) {
+      if (verdict === 'cancelled' || verdict === 'superseded') {
+        this.terminate(review.id, { actor: HUMAN, status: 'cancelled', reason: `验收对象 #${id} ${STATUS[verdict]}，验收停止` });
+        continue;
+      }
       this.db.prepare(`UPDATE tasks SET status = 'done', next_check_at = NULL, remind_msg_id = NULL,
         paused_at = NULL, result_msg_id = ?, returned_at = ?, updated_at = ? WHERE id = ?`)
         .run(messageId ?? null, this.now(), this.now(), review.id);
@@ -594,6 +601,7 @@ export class Tasks {
     const reviews = this.q.openReviews.all(id, ...WORKING);
     const delegated = actor !== task.owner && reviews.some(r => r.owner === actor && r.paused_at == null);
     if (actor !== task.created_by && actor !== HUMAN && !delegated) throw new CollabError('forbidden', `only ${this.nameOf(task.created_by)} or their delegated reviewer can review task ${id}`);
+    if (actor === task.owner && actor !== HUMAN) throw new CollabError('forbidden', 'the author cannot review their own task');
     if (!REVIEWABLE.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to review`);
     if (verdict !== 'done' && verdict !== 'rework') throw new CollabError('invalid', 'verdict must be done or rework');
     // #574: a send-back always says why (same rule as board done: rework count > 0 needs a reason).
@@ -614,6 +622,30 @@ export class Tasks {
       : `${reclaim ? `@${this.nameOf(row.owner)} ` : ''}#${id}「${row.title}」返工 → ${this.nameOf(row.owner)}（${this.nameOf(actor)}）${tail}${how}`);
     if (verdict === 'done') this.releaseIfDone(row.room_id);
     if (reclaim || (delegated && verdict === 'rework')) this.wake(row.owner, record);
+    return this.changed(id);
+  }
+
+  /** Explicitly end obsolete work without claiming it passed review; identical retries are no-ops. */
+  terminate(id, { actor, status, reason, supersededBy }) {
+    const task = this.mustTask(id);
+    if (actor !== task.created_by && actor !== HUMAN) throw new CollabError('forbidden', '取消或替代任务需要原派活人或用户操作；请交给原派活人，或由用户在任务板操作');
+    if (typeof reason !== 'string' || !reason.trim() || reason.length > MAX_TEXT) throw new CollabError('invalid', '请填写取消或替代原因，长度不能超过消息上限');
+    reason = reason.trim();
+    const replacement = supersededBy == null || supersededBy === '' ? null : Number(supersededBy);
+    if (replacement !== null && (status !== 'superseded' || !Number.isSafeInteger(replacement) || replacement <= 0 || replacement === task.id)) throw new CollabError('invalid', '替代任务必须是另一条任务的编号');
+    if (replacement !== null) this.mustTask(replacement);
+    if (TERMINAL.includes(task.status)) {
+      if (task.status === status && task.termination_reason === reason && task.superseded_by === replacement) return this.view(task);
+      throw new CollabError('conflict', `task ${id} is already ${STATUS[task.status]}; a different terminal request cannot overwrite it`);
+    }
+    const row = this.db.prepare(`UPDATE tasks SET status = ?, termination_reason = ?, superseded_by = ?,
+      next_check_at = NULL, remind_msg_id = NULL, updated_at = ? WHERE id = ? AND status = ? RETURNING *`)
+      .get(status, reason, replacement, this.now(), id, task.status);
+    if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
+    // No claim/resume: cancelling a parked task must never reclaim a reused workspace.
+    this.closeReviews(id, status);
+    this.record(row, status, `#${id}「${row.title}」${STATUS[status]}（${this.nameOf(actor)}）：${reason}${replacement === null ? '' : `；替代任务 #${replacement}`}`);
+    this.releaseIfDone(row.room_id);
     return this.changed(id);
   }
 
@@ -641,7 +673,7 @@ export class Tasks {
    * Unverified actors (body.actor under the shared bot token) must name an
    * existing non-human member and can never review: acceptance only counts
    * from the dispatcher or the human owner when the server knows who it is.
-   * @param action - assign | stance | return | review.
+   * @param action - assign | stance | return | review | cancel | supersede.
    * @param args - { id?: task id, roomId?: room for assign, body: request fields }.
    */
   perform(action, { id, roomId, body = {} }, { actor, verified }) {
@@ -649,7 +681,7 @@ export class Tasks {
     if (!verified) {
       const m = this.hub.members.get(actor);
       if (!actor || actor === HUMAN || m === undefined || m.kind === 'human') throw new CollabError('forbidden', 'actor must name an existing member other than the owner');
-      if (action === 'review') throw new CollabError('forbidden', 'review needs a verified sender: the dispatcher over its own connection, or the owner');
+      if (['review', 'cancel', 'supersede'].includes(action)) throw new CollabError('forbidden', `${action} needs a verified sender: 请派活人通过自己的连接操作，或由用户在任务板操作；共享 bot token 和一次性回查票据不能关闭任务`);
     }
     const optional = v => (v == null || v === '' ? undefined : Number(v));
     switch (action) {
@@ -659,7 +691,9 @@ export class Tasks {
       case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });
-      default: throw new CollabError('invalid', 'action must be assign, stance, return or review');
+      case 'cancel':
+      case 'supersede': return this.terminate(id, { actor, status: action === 'cancel' ? 'cancelled' : 'superseded', reason: body.reason, supersededBy: body.superseded_by });
+      default: throw new CollabError('invalid', 'action must be assign, stance, return, review, cancel or supersede');
     }
   }
 
@@ -896,6 +930,7 @@ export class Tasks {
       const status = String(m.status ?? '');
       try {
         const mirrored = m.id ? this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND assign_msg_id = ? AND card_member_id = ? AND source = 'card'").get(roomId, messageId, m.id) : undefined;
+        if (mirrored && TERMINAL.includes(mirrored.status)) continue;
         if (mirrored && mirrored.owner !== owner.id && WORKING.includes(mirrored.status)) this.reassignForQuota(mirrored, owner.id);
         if (['queued', 'running', 'waiting'].includes(status)) {
           const title = String(m.title ?? '').trim() || String(m.name ?? '').trim();
@@ -1058,13 +1093,13 @@ export class Tasks {
   deliver(taskId, msgId) {
     if (this.delivering) return;
     const message = this.store.message(msgId);
-    const task = this.q.takeRemind.get(taskId, msgId);
+    const task = this.q.takeRemind.get(taskId, msgId, ...WORKING);
     if (task === undefined) return;
     if (message === undefined) return;
     this.delivering = true;
     let taken;
     try { taken = this.wake(task.owner, message); } finally { this.delivering = false; }
-    if (!taken) this.q.putRemind.run(msgId, taskId);
+    if (!taken) this.q.putRemind.run(msgId, taskId, ...WORKING);
   }
 
   /** Start memberId on message through the first waker that takes it; true if one did. */
@@ -1118,8 +1153,9 @@ export class Tasks {
   record(task, event, text, skip) {
     const card = JSON.stringify({ kind: 'task', task_id: task.id, event });
     const m = { authorKind: 'system', author: 'system', name: '任务', text, card };
-    const message = task.room_id === skip ? undefined : this.hub.post(task.room_id, m).message;
-    const chat = this.chatOf(task.room_id);
+    const currentChat = this.chatOf(task.room_id);
+    const chat = task.paused_at != null && task.paused_chat != null ? task.paused_chat : currentChat;
+    const message = task.room_id === skip || chat !== currentChat ? undefined : this.hub.post(task.room_id, m).message;
     if (chat !== undefined && chat !== task.room_id && chat !== skip) this.hub.post(chat, m);
     return message;
   }
@@ -1199,8 +1235,9 @@ export class Tasks {
   }
 
   changed(id) {
-    const task = this.view(this.task(id));
-    this.hub.emit({ type: 'task', task, chat_id: this.chatOf(task.room_id), active: this.countActive(task.room_id) });
+    const row = this.task(id);
+    const task = this.view(row);
+    this.hub.emit({ type: 'task', task, chat_id: row.paused_at != null && row.paused_chat != null ? row.paused_chat : this.chatOf(task.room_id), active: this.countActive(task.room_id) });
     this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     this.arm();
     return task;

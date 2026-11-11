@@ -126,3 +126,94 @@ test('#1613 API locates tasks by ID across rooms and refuses spoofed actors', as
   assert.equal(tasks.task(b.id).status, 'assigned');
   assert.equal(store.workspaceOwner(ws.id), null);
 });
+
+test('#1613 old CHECK constraint migrates without losing hierarchy, reports or sequence', t => {
+  const path = join(mkdtempSync(join(tmpdir(), 'tasks-terminal-upgrade-')), 'state.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'chat');
+  old.db.exec(`DROP TABLE tasks;
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER NOT NULL REFERENCES rooms(id),
+      parent_task INTEGER REFERENCES tasks(id), title TEXT NOT NULL, owner TEXT NOT NULL, created_by TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework')),
+      result_msg_id INTEGER, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+    CREATE INDEX tasks_room ON tasks(room_id, id);
+    INSERT INTO tasks VALUES (1, 1, NULL, 'parent', 'writer', 'lead', 'returned', 42, 1, 2);
+    INSERT INTO tasks VALUES (2, 1, 1, 'child', 'writer', 'lead', 'accepted', NULL, 1, 2);
+    INSERT INTO tasks VALUES (10, 1, NULL, 'deleted', 'writer', 'lead', 'done', NULL, 1, 2);
+    DELETE FROM tasks WHERE id = 10;`);
+  old.close();
+  const { store, tasks, assign, end } = setup(t, path);
+  assert.equal(tasks.task(2).parent_task, 1);
+  assert.equal(end(1).result_msg_id, 42);
+  assert.equal(end(2, 'supersede', { superseded_by: 1 }).status, 'superseded');
+  assert.equal(assign().id, 11, 'AUTOINCREMENT does not reuse previously issued IDs');
+  assert.equal(store.db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+  assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.throws(() => store.db.exec("UPDATE tasks SET status = 'unknown' WHERE id = 1"), /CHECK/);
+  const again = new Store(path);
+  assert.equal(again.db.prepare('SELECT superseded_by FROM tasks WHERE id = 2').get().superseded_by, 1);
+  again.close();
+});
+
+test('#1613 cancelling a parked old task cannot reclaim or release another channel workspace', t => {
+  const { store, hub, tasks, assign, end } = setup(t);
+  const ws = store.createWorkspace(1);
+  const a = assign(ws.id);
+  tasks.pauseTask(a.id);
+  store.ensureRoom(2, 'other-chat');
+  store.claimWorkspace(2, ws.id);
+  const b = assign(ws.id, { owner: 'other' });
+  const before = store.page(2, undefined, 100).length;
+  const events = [];
+  hub.subscribe(event => { if (event.type === 'task') events.push(event); });
+  end(a.id);
+  assert.equal(store.workspaceOwner(ws.id), 2);
+  assert.equal(tasks.task(b.id).status, 'assigned');
+  assert.equal(store.page(2, undefined, 100).length, before, 'old cancellation is not echoed to the new chat');
+  assert.equal(events.at(-1).chat_id, 1);
+  assert.equal(tasks.list(1).find(row => row.id === a.id)?.status, 'cancelled');
+  assert.equal(tasks.list(2).some(row => row.id === a.id), false);
+});
+
+test('#1613 cancelling returned work stops delegated review and leaves the original report intact', t => {
+  const { store, tasks, clock, assign, end } = setup(t);
+  const ws = store.createWorkspace(1);
+  const task = assign(ws.id);
+  const { message: report } = store.append(ws.id, { authorKind: 'role', author: 'writer', name: 'writer', text: 'result' });
+  tasks.handBack(task.id, { actor: 'writer', messageId: report.id });
+  const review = assign(1, { owner: 'other', reviewOf: task.id });
+  end(task.id);
+  assert.equal(tasks.task(task.id).result_msg_id, report.id);
+  assert.equal(tasks.task(task.id).returned_at, 1000);
+  assert.equal(tasks.task(review.id).status, 'cancelled');
+  const wakes = [];
+  tasks.onWake((...args) => wakes.push(args));
+  clock.now += CHECK_AFTER_S * 3;
+  tasks.tick();
+  assert.deepEqual(wakes, []);
+});
+
+test('#1613 late progress and quota reassignment cannot reopen a terminal card', t => {
+  const { store, tasks, end } = setup(t);
+  const { message } = store.append(1, { authorKind: 'role', author: 'lead', name: 'lead', text: 'dispatch', card: '{}' });
+  const members = [{ id: 'member-1', name: 'writer', title: 'work', status: 'running' }];
+  tasks.fromCard(1, 'lead', message.id, members);
+  const task = tasks.list(1)[0];
+  end(task.id);
+  tasks.fromCard(1, 'lead', message.id, members);
+  tasks.fromCard(1, 'lead', message.id, [{ ...members[0], status: 'completed' }]);
+  assert.equal(tasks.reassignForQuota(task, 'other'), undefined);
+  assert.equal(tasks.list(1).length, 1);
+  assert.equal(tasks.task(task.id).status, 'cancelled');
+});
+
+test('#1613 cancellation during reminder delivery cannot restore the pending reminder', t => {
+  const { tasks, clock, assign, end } = setup(t);
+  const task = assign();
+  tasks.onWake(() => { end(task.id); return false; });
+  clock.now += CHECK_AFTER_S + 1;
+  tasks.tick();
+  assert.equal(tasks.task(task.id).remind_msg_id, null);
+  assert.equal(tasks.task(task.id).status, 'cancelled');
+});
