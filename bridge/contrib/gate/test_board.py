@@ -536,7 +536,7 @@ esac
             self.assertIn("待接手", str(e.exception.code))
             it = board.items()[0]
             self.assertTrue(it.get("paused")); self.assertEqual(it["where"], "notes/a.md"); self.assertNotIn("ws", it)
-            self.assertIn("workspace claim --session-key discord:100 --board 1 201", log.read_text())
+            self.assertIn("workspace claim 201 --session-key discord:100 --board 1", log.read_text())
             # 没被领走：收回、重新绑上；再停会再放回一次
             owned.unlink()
             board.main(["resume", "1"])
@@ -559,7 +559,7 @@ esac
             owned.unlink()
             log.write_text("")
             board.main(["update", "1", "s", "", "工作区2主角色"])
-            self.assertIn("workspace claim --session-key discord:100 --board 1 202", log.read_text())
+            self.assertIn("workspace claim 202 --session-key discord:100 --board 1", log.read_text())
             self.assertEqual(board.items()[0]["ws"], "discord:202")
             # 待接手不是工作区：不问桥
             log.write_text("")
