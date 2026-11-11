@@ -202,6 +202,8 @@ const INTERRUPTED = Symbol('interrupted');
 export function friendlyFailure(raw) {
   if (raw?.code === 'COLLAB_CLI_START') return raw.message;
   const text = String(raw);
+  // #1606 cli-member.mjs 卡死看门结束的一轮：原话已说清，不再套「请检查配置」。
+  if (/没有任何输出（上游可能一直在报错）/.test(text)) return `${text.replace(/^出错了：/, '')}。可以稍后重试，或换个模型/中转站。`;
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没填模型密钥，填好就能用。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
   // An unreachable provider is a setting or network problem. Echoing the transport wording

@@ -140,3 +140,52 @@ test('text resumed after a tool call starts a new paragraph, so a closing [repor
   const reply = await m.ask('hi', 'r1');
   assert.equal(reply, '【接】#3\n\n总结文档：\n\n[report]\n56 个测试通过');
 });
+
+// #1606: the adapter logs the upstream error on stderr and never answers session/prompt.
+function hangingMember(stallMs, script = async () => new Promise(() => {})) {
+  const m = new CliMember({ cli: 'codex', cwd: '/tmp', persona: '', stallMs });
+  const cancels = [];
+  m._start = async () => {
+    m.ready = Promise.resolve({});
+    m.exited = new Promise(() => {});
+    m.conn = {
+      newSession: async () => ({ sessionId: 's1' }),
+      cancel: async (r) => { cancels.push(r.sessionId); },
+      prompt: async () => script(m._client()),
+    };
+    return m.ready;
+  };
+  return { m, cancels };
+}
+const upd = (update) => ({ sessionId: 's1', update });
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+test('#1606 a turn with no output for stallMs ends as COLLAB_CLI_STALLED and cancels the session', async () => {
+  const { m, cancels } = hangingMember(50);
+  await assert.rejects(m.ask('hi', 'r1'), e => e.code === 'COLLAB_CLI_STALLED' && /没有任何输出/.test(e.message));
+  assert.deepEqual(cancels, ['s1']);
+  assert.equal(m.watch.size, 0, 'the watch is dropped with the turn');
+});
+
+test('#1606 output inside the window, a running tool or a waiting approval never counts as stalled', async () => {
+  const { m } = hangingMember(60, async (c) => {
+    for (let i = 0; i < 4; i++) { await wait(30); await c.sessionUpdate(upd({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '.' } })); }
+    await c.sessionUpdate(upd({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'long build', status: 'in_progress' }));
+    await wait(150);
+    await c.sessionUpdate(upd({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }));
+    await c.requestPermission({ sessionId: 's1', options: [] });
+    await c.sessionUpdate(upd({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'done' } }));
+    return { stopReason: 'end_turn' };
+  });
+  const reply = await m.ask('hi', 'r1', undefined, undefined, { onPermission: async () => { await wait(150); return { outcome: 'cancelled' }; } });
+  assert.equal(reply, 'done');
+});
+
+test('#1606 silence after the last tool finished still ends the turn', async () => {
+  const { m } = hangingMember(50, async (c) => {
+    await c.sessionUpdate(upd({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'ls', status: 'in_progress' }));
+    await c.sessionUpdate(upd({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'failed' }));
+    return new Promise(() => {});
+  });
+  await assert.rejects(m.ask('hi', 'r1'), e => e.code === 'COLLAB_CLI_STALLED');
+});
