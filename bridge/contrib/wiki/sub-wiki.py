@@ -47,7 +47,7 @@ def bots():
 
 def run_one(rows, b, *args):
     # 走她自己的 bin/ingest.py（转发入口）：它确认 ~/wiki/bin 是共享版才转发（review 2026-10-20 sub-parity-code-2 A）
-    d = next((w for k, _p, w in rows if k == b), "")
+    project, d = next((p, w) for k, p, w in rows if k == b)
     say(f"{b} ingest {' '.join(args)}")
     with open(Path(d) / ".ingest.log", "a") as err:
         # WIKI_DIR = this wiki: a teammate's shim sets it itself, but the lead's main wiki holds the full tool, whose
@@ -57,7 +57,7 @@ def run_one(rows, b, *args):
         rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err,
                             # rolewiki.go installs this scheduler at <data_dir>/wiki.
                             # Shell cron jobs need that root even without an agent turn environment.
-                            env=dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=b,
+                            env=dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=project,
                                      BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
                                                         os.environ.get("CC_DATA_DIR") or str(HERE.parent)))).returncode
     if rc:

@@ -41,6 +41,25 @@ INDEX = "tooling/agent-tools/wiki/auto-manuals.md"  # 论坛帖子所在页（�
 STATE = Path(os.environ.get("MANUALS_STATE", HOME / ".local/state/wiki-manuals.json"))
 PENDING = Path(os.environ["MANUALS_PENDING_DIR"]) if os.environ.get("MANUALS_PENDING_DIR") else None
 ROLE = os.environ.get("MANUALS_ROLE", "")
+
+
+def role_project(wiki, data_dir):
+    """Wiki markers store bot keys; bots.json owns the mapping to project IDs."""
+    role = os.environ.get("MANUALS_ROLE", "")
+    if role:
+        return role
+    marker = next((wiki / mark for mark in (".bothouse-role", ".bothouse-main")
+                   if (wiki / mark).exists()), None)
+    bot = marker.read_text().strip() if marker else ""
+    if not bot:
+        return ""  # Unmarked personal wikis retain their original personal skill scope.
+    bots_path = Path(os.environ.get("WIKI_BOTS") or Path(data_dir) / "wiki/bots.json").expanduser()
+    bots = json.loads(bots_path.read_text())
+    if bot not in bots:
+        raise ValueError(f"wiki bot {bot!r} is not configured in {bots_path}")
+    return bots[bot].get("project") or bot
+
+
 FIRST = 86400  # 首晚只看最近一天，沿用 ingest.py dream()（time.time() - 86400）
 MAX_CHARS = 240_000  # 一次调用的上下文上限，沿用 ingest.py MAX_CHARS
 MIN_SESSIONS = 2  # 交接总目标原话「同一套操作在 2 个以上会话里各自从头摸索」

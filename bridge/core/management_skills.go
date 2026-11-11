@@ -173,6 +173,8 @@ func (m *ManagementServer) handleManagedSkill(w http.ResponseWriter, r *http.Req
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
+			managedSkillMu.Lock()
+			defer managedSkillMu.Unlock()
 			state, err := readManagedSkillState(m.wizardDataDir)
 			if err != nil {
 				mgmtError(w, http.StatusInternalServerError, "read managed skill state: "+err.Error())
@@ -194,28 +196,7 @@ func (m *ManagementServer) handleManagedSkill(w http.ResponseWriter, r *http.Req
 			if !decodeSkillJSON(w, r, &req) {
 				return
 			}
-			state, err := readManagedSkillState(m.wizardDataDir)
-			if err != nil {
-				mgmtError(w, http.StatusInternalServerError, "read managed skill state: "+err.Error())
-				return
-			}
-			previous, ok := state.Skills[name]
-			if !ok {
-				mgmtError(w, http.StatusNotFound, "skill not found")
-				return
-			}
-			owner := previous.Owner
-			project := owner
-			if project == "" || project == "recommended" {
-				project = "manual"
-				for enabledProject, enabled := range previous.Enabled {
-					if enabled {
-						project = enabledProject
-						break
-					}
-				}
-			}
-			record, err := writeManagedSkill(m.wizardDataDir, project, name, owner, req.Body, true)
+			record, err := editManagedSkill(m.wizardDataDir, name, req.Body)
 			if err != nil {
 				mgmtError(w, http.StatusBadRequest, "update managed skill: "+err.Error())
 				return

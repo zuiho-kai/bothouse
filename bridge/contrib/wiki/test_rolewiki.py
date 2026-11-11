@@ -231,7 +231,7 @@ class SubWikiPy(unittest.TestCase):
             p = self.tmp / "wikis" / b / "bin/ingest.py"
             p.write_text(f"import os\nopen({str(self.calls)!r}, 'a').write("
                          "os.environ['MANUALS_ROLE'] + ' ' + os.environ['BOTHOUSE_DATA_DIR'] + '\\n')\n")
-        self.assertEqual(self.run_py("nightly"), [f"juzi {self.dir.parent.resolve()}", f"whale {self.dir.parent.resolve()}"])
+        self.assertEqual(self.run_py("nightly"), [f"proj-juzi {self.dir.parent.resolve()}", f"proj-whale {self.dir.parent.resolve()}"])
 
     def test_hook_detaches(self):
         env = dict(self.env, CC_HOOK_PROJECT="proj-whale", CC_HOOK_AGENT_SESSION_ID="nope")

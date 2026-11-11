@@ -1,9 +1,11 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -65,7 +67,7 @@ func TestManagedSkillEditCreatesNewApprovedVersion(t *testing.T) {
 	if _, err := writeManagedSkill(dataDir, "writer", "guide", "writer", first, true); err != nil {
 		t.Fatal(err)
 	}
-	record, err := writeManagedSkill(dataDir, "writer", "guide", "writer", second, true)
+	record, err := editManagedSkill(dataDir, "guide", second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +111,84 @@ func TestManagedSkillUseIsCountedOnlyFromEnabledRoleView(t *testing.T) {
 	}
 	if got := state.Skills["guide"].Uses["writer"]; got != 1 {
 		t.Fatalf("disabled view uses = %d, want 1", got)
+	}
+}
+
+func TestManagedSkillEditPreservesDisabledRoles(t *testing.T) {
+	dataDir := t.TempDir()
+	for _, owner := range []string{"writer", "recommended"} {
+		name := owner + "-guide"
+		if _, err := writeManagedSkill(dataDir, "writer", name, owner, "First.", true); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := setManagedSkillEnabled(dataDir, "reviewer", name, true); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := setManagedSkillEnabled(dataDir, "writer", name, false); err != nil {
+			t.Fatal(err)
+		}
+		record, err := editManagedSkill(dataDir, name, "Edited.")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Enabled["writer"] || !record.Enabled["reviewer"] || len(record.Enabled) != 2 || record.Owner != owner {
+			t.Fatalf("edit changed ownership or enablement: %+v", record)
+		}
+		if _, err := os.Stat(filepath.Join(ManagedSkillViewDir(dataDir, "writer"), name)); !os.IsNotExist(err) {
+			t.Fatalf("disabled view returned: %v", err)
+		}
+		body, err := os.ReadFile(filepath.Join(ManagedSkillViewDir(dataDir, "reviewer"), name, "SKILL.md"))
+		if err != nil || string(body) != "Edited." {
+			t.Fatalf("enabled view not updated: %q %v", body, err)
+		}
+	}
+}
+
+func TestManagedSkillConcurrentCountDisableAndApproval(t *testing.T) {
+	dataDir := t.TempDir()
+	if _, err := writeManagedSkill(dataDir, "writer", "guide", "writer", "Guide.", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setManagedSkillEnabled(dataDir, "reader", "guide", true); err != nil {
+		t.Fatal(err)
+	}
+	const operations = 16 // Test workload: overlap independent counts, approvals and one disable.
+	for i := 0; i < operations; i++ {
+		if _, err := writeManagedSkill(dataDir, "writer", fmt.Sprintf("guide-%d", i), "writer", "Pending.", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	launch := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); <-start; fn() }() }
+	for i := 0; i < operations; i++ {
+		name := fmt.Sprintf("guide-%d", i)
+		launch(func() { recordManagedSkillUseFromView(filepath.Join(ManagedSkillViewDir(dataDir, "reader"), "guide")) })
+		launch(func() { recordManagedSkillUseFromView(filepath.Join(ManagedSkillViewDir(dataDir, "writer"), "guide")) })
+		launch(func() {
+			if _, err := approvePendingSkill(dataDir, "writer", name); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	launch(func() {
+		if _, err := setManagedSkillEnabled(dataDir, "writer", "guide", false); err != nil {
+			t.Error(err)
+		}
+	})
+	close(start)
+	wg.Wait()
+	state, err := readManagedSkillState(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Skills) != operations+1 || state.Skills["guide"].Enabled["writer"] || state.Skills["guide"].Uses["reader"] != operations {
+		t.Fatalf("lost concurrent update: %+v", state)
+	}
+	// Startup must not resurrect the disabled writer view from a stale state snapshot.
+	engine := &Engine{name: "writer", skills: NewSkillRegistry()}
+	engine.SetDataDir(dataDir)
+	if _, err := os.Stat(filepath.Join(ManagedSkillViewDir(dataDir, "writer"), "guide")); !os.IsNotExist(err) {
+		t.Fatalf("disabled view returned: %v", err)
 	}
 }

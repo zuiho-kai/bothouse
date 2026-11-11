@@ -2977,11 +2977,7 @@ def nightly(a):
     data_dir = (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
                 os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
     import manuals
-    role = os.environ.get("MANUALS_ROLE", "")
-    if not role:
-        marker = next((REPO / mark for mark in (".bothouse-role", ".bothouse-main")
-                       if (REPO / mark).exists()), None)
-        role = marker.read_text().strip() if marker else ""
+    role = manuals.role_project(REPO, data_dir)
     manuals.WIKI = REPO
     if role:
         if Path(role).name != role or role in (".", ".."):

@@ -79,6 +79,26 @@ class ManualsPending(unittest.TestCase):
         self.assertEqual(calls[0]['transcripts'], transcripts)
         self.assertGreater(calls[0]['deadline'], time.time() - 1)
 
+    def test_marker_resolves_bot_key_to_project_and_unmarked_stays_personal(self):
+        wiki = self.root / 'wiki'
+        wiki.mkdir()
+        data = self.root / 'data'
+        (data / 'wiki').mkdir(parents=True)
+        (data / 'wiki/bots.json').write_text(json.dumps({'whale': {'project': 'proj-whale'}}))
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(manuals.role_project(wiki, data), '')
+            for marker in ('.bothouse-role', '.bothouse-main'):
+                with self.subTest(marker=marker):
+                    marked = wiki / marker.lstrip('.')
+                    marked.mkdir()
+                    target = marked / marker
+                    target.write_text('whale')
+                    self.assertEqual(manuals.role_project(marked, data), 'proj-whale')
+                    target.write_text('missing')
+                    with self.assertRaises(ValueError):
+                        manuals.role_project(marked, data)
+                    target.write_text('')
+
     def test_exported_role_tools_create_pending_document_without_skill_root_file(self):
         root = Path(tempfile.mkdtemp())
         transcripts = root / "transcripts" / "dsh-role"

@@ -9,8 +9,13 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
+
+// HTTP management, engine startup and usage accounting share this transaction boundary.
+// Hold it through read, modification and view publication; an atomic file write alone loses updates.
+var managedSkillMu sync.Mutex
 
 var managedSkillName = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
@@ -88,6 +93,12 @@ func readManagedSkill(dataDir, name string, state managedSkillRecord) (managedSk
 }
 
 func writeManagedSkill(dataDir, project, name, owner, body string, approve bool) (managedSkillRecord, error) {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
+	return writeManagedSkillLocked(dataDir, project, name, owner, body, approve)
+}
+
+func writeManagedSkillLocked(dataDir, project, name, owner, body string, approve bool) (managedSkillRecord, error) {
 	if !managedSkillName.MatchString(name) || strings.TrimSpace(project) != project || project == "" {
 		return managedSkillRecord{}, errors.New("invalid skill name or project")
 	}
@@ -111,10 +122,46 @@ func writeManagedSkill(dataDir, project, name, owner, body string, approve bool)
 		return managedSkillRecord{Name: name, Description: parsed.Description, Owner: project, UpdatedAt: time.Now()}, nil
 	}
 	previous := state.Skills[name]
-	version := previous.Version + 1
-	if version == 1 {
-		version = 1
+	if previous.Name != "" && owner == "recommended" {
+		return managedSkillRecord{}, errors.New("skill is already installed")
 	}
+	if previous.Enabled == nil {
+		previous.Enabled = map[string]bool{}
+	}
+	previous.Enabled[project] = true
+	if previous.Owner == "" {
+		previous.Owner = owner
+	}
+	previous.Learned = previous.Owner != "" && previous.Owner != "recommended"
+	return saveManagedSkillVersion(dataDir, state, previous, name, body, parsed.Description)
+}
+
+// Editing changes the version and body, preserving ownership and every enabled/disabled role.
+func editManagedSkill(dataDir, name, body string) (managedSkillRecord, error) {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
+	if !managedSkillName.MatchString(name) {
+		return managedSkillRecord{}, errors.New("invalid skill name")
+	}
+	parsed := parseSkillMD(name, body, "managed")
+	if parsed == nil {
+		return managedSkillRecord{}, errors.New("skill body is empty")
+	}
+	state, err := readManagedSkillState(dataDir)
+	if err != nil {
+		return managedSkillRecord{}, err
+	}
+	previous, ok := state.Skills[name]
+	if !ok {
+		return managedSkillRecord{}, os.ErrNotExist
+	}
+	return saveManagedSkillVersion(dataDir, state, previous, name, body, parsed.Description)
+}
+
+// The caller holds managedSkillMu across state loading and publication.
+func saveManagedSkillVersion(dataDir string, state managedSkillState, previous managedSkillRecord, name, body, description string) (managedSkillRecord, error) {
+	root := managedSkillsDir(dataDir)
+	version := previous.Version + 1
 	skillDir := filepath.Join(root, "library", name)
 	versionDir := filepath.Join(skillDir, "versions", fmt.Sprintf("%d", version))
 	if err := os.MkdirAll(versionDir, 0o700); err != nil {
@@ -126,15 +173,7 @@ func writeManagedSkill(dataDir, project, name, owner, body string, approve bool)
 	if err := AtomicWriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(body), 0o600); err != nil {
 		return managedSkillRecord{}, err
 	}
-	if previous.Enabled == nil {
-		previous.Enabled = map[string]bool{}
-	}
-	previous.Enabled[project] = true
-	previous.Name, previous.Description, previous.Version = name, parsed.Description, version
-	if previous.Owner == "" {
-		previous.Owner = owner
-	}
-	previous.Learned = owner != "" && owner != "recommended"
+	previous.Name, previous.Description, previous.Version = name, description, version
 	previous.UpdatedAt = time.Now()
 	state.Skills[name] = previous
 	if err := writeManagedSkillState(dataDir, state); err != nil {
@@ -151,6 +190,8 @@ func writeManagedSkill(dataDir, project, name, owner, body string, approve bool)
 }
 
 func approvePendingSkill(dataDir, project, name string) (managedSkillRecord, error) {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
 	if !managedSkillName.MatchString(name) || project == "" || filepath.Base(project) != project {
 		return managedSkillRecord{}, errors.New("invalid skill name or project")
 	}
@@ -159,7 +200,7 @@ func approvePendingSkill(dataDir, project, name string) (managedSkillRecord, err
 	if err != nil {
 		return managedSkillRecord{}, err
 	}
-	record, err := writeManagedSkill(dataDir, project, name, project, string(body), true)
+	record, err := writeManagedSkillLocked(dataDir, project, name, project, string(body), true)
 	if err != nil {
 		return managedSkillRecord{}, err
 	}
@@ -170,6 +211,8 @@ func approvePendingSkill(dataDir, project, name string) (managedSkillRecord, err
 }
 
 func setManagedSkillEnabled(dataDir, project, name string, enabled bool) (managedSkillRecord, error) {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
 	if !managedSkillName.MatchString(name) || project == "" || filepath.Base(project) != project {
 		return managedSkillRecord{}, errors.New("invalid skill name or project")
 	}
@@ -197,6 +240,8 @@ func setManagedSkillEnabled(dataDir, project, name string, enabled bool) (manage
 }
 
 func deleteManagedSkill(dataDir, name string) error {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
 	if !managedSkillName.MatchString(name) {
 		return errors.New("invalid skill name")
 	}
@@ -298,6 +343,8 @@ func copySkillBundle(src, dst string) error {
 }
 
 func listManagedSkills(dataDir string) ([]managedSkill, []managedSkillRecord, error) {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
 	state, err := readManagedSkillState(dataDir)
 	if err != nil {
 		return nil, nil, err
@@ -340,6 +387,8 @@ func listManagedSkills(dataDir string) ([]managedSkill, []managedSkillRecord, er
 }
 
 func recordManagedSkillUseFromView(skillDir string) {
+	managedSkillMu.Lock()
+	defer managedSkillMu.Unlock()
 	name := filepath.Base(skillDir)
 	project := filepath.Base(filepath.Dir(skillDir))
 	dataDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(skillDir))))

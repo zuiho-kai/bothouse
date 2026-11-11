@@ -11,6 +11,7 @@ import {
   type ProjectSkills, type SkillPreset, type ManagedSkill,
 } from '@/api/skills';
 import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
+import { listDSHMembers, type DSHManagedMember } from '@/api/dsh';
 import { cn } from '@/lib/utils';
 
 type Tab = 'local' | 'recommended';
@@ -26,7 +27,9 @@ export default function SkillList() {
   const [presetsLoading, setPresetsLoading] = useState(false);
   const [activeProject, setActiveProject] = useState('');
   const [summaries, setSummaries] = useState<ProjectSummary[]>([]);
+  const [members, setMembers] = useState<DSHManagedMember[]>([]);
   useEffect(() => {
+    listDSHMembers().then((data) => setMembers(data.members || [])).catch(() => {});
     listProjects().then((p) => setSummaries(p.projects || [])).catch(() => {});
   }, []);
 
@@ -40,13 +43,19 @@ export default function SkillList() {
           ps.push({ project: p.name, agent_type: p.agent_type, dirs: [], skills: [] });
         }
       }
+      for (const member of members) {
+        if (!ps.some(p => p.project === member.id)) {
+          const agentType = member.cli === 'claude' ? 'claudecode' : member.cli || 'dsh';
+          ps.push({ project: member.id, agent_type: agentType, dirs: [], skills: [] });
+        }
+      }
       setProjects(ps);
       setManaged(data.managed_skills || []);
       setPending(data.pending_skills || []);
       if (ps.length > 0 && !activeProject) setActiveProject(ps[0].project);
     } catch { /* empty */ }
     setLoading(false);
-  }, [activeProject, summaries]);
+  }, [activeProject, summaries, members]);
 
   const loadPresets = useCallback(async () => {
     setPresetsLoading(true);
@@ -115,7 +124,7 @@ export default function SkillList() {
       {tab === 'local' && (
         <LocalSkills
           projects={projects}
-          shown={shownNames(summaries)}
+          shown={shownNames([...members.map(m => ({ name: m.id, display_name: m.name })), ...summaries])}
           current={current}
           activeProject={activeProject}
           onSelectProject={setActiveProject}

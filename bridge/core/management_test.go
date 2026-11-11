@@ -2233,6 +2233,9 @@ func TestMgmt_ManagedSkillWriteLifecycle(t *testing.T) {
 	if disabled := mgmtPut(t, base+"/enabled", "tok", map[string]any{"project": "dsh-role", "enabled": false}); !disabled.OK {
 		t.Fatalf("disable failed: %s", disabled.Error)
 	}
+	if updated := mgmtPut(t, base, "tok", map[string]string{"body": "Edited while disabled."}); !updated.OK {
+		t.Fatalf("edit disabled skill failed: %s", updated.Error)
+	}
 	if _, err := os.Stat(filepath.Join(ManagedSkillViewDir(dataDir, "dsh-role"), "guide")); !os.IsNotExist(err) {
 		t.Fatalf("disabled role view still exists: %v", err)
 	}

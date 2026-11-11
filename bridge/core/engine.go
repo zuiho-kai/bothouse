@@ -1743,11 +1743,13 @@ func (e *Engine) SetDataDir(dir string) {
 	if dir == "" {
 		return
 	}
+	managedSkillMu.Lock()
 	if state, err := readManagedSkillState(dir); err == nil {
 		if err := refreshManagedSkillView(dir, e.name, state); err != nil {
 			slog.Warn("refresh managed skill view", "project", e.name, "error", err)
 		}
 	}
+	managedSkillMu.Unlock()
 	dirs := e.skills.Dirs()
 	e.skills.SetDirs(append(dirs, ManagedSkillViewDir(dir, e.name)))
 }
