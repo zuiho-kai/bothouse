@@ -23,10 +23,6 @@ const ADAPTERS = {
 export const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access']
 export const DEFAULT_PERMISSION_PRESET = 'workspace-write'
 
-// #1606：一轮里没有在跑的工具、也没在等审批，适配器却这么久一点输出（文字、思考、工具）都没有，就算卡死。
-// 来源：沿用 tasks.mjs CHECK_AFTER_S（10 分钟无进展就催并暂停，团队规矩「分发的活系统每10分钟看进展」）。
-export const STALL_MS = 10 * 60 * 1000
-
 /**
  * 按档位决定一条 ACP 权限请求：返回 { optionId }（直接答）或 'ask'（发审批卡）。
  * danger-full-access = DSH approval never：不弹窗直接放行；workspace-write = approval ask：问用户；
@@ -112,7 +108,7 @@ export function cleanEnv(env = process.env) {
 function flattenOptions(options = []) { return options.flatMap(x => Array.isArray(x.options) ? flattenOptions(x.options) : [x]) }
 
 export class CliMember {
-  constructor({ cli, cwd, persona = '', env, stallMs = STALL_MS } = {}) {
+  constructor({ cli, cwd, persona = '', env } = {}) {
     if (!ADAPTERS[cli]) throw new Error(`unknown cli: ${cli}`)
     this.cli = cli
     this.cwd = cwd || process.cwd()
@@ -126,8 +122,6 @@ export class CliMember {
     this.onTool = new Map() // sessionId -> (update) => void：tool_call / tool_call_update / agent_thought_chunk，给进度卡
     this.onPermission = new Map() // sessionId -> async (request) => ACP outcome：本轮的审批处理器
     this.queue = new Map() // room -> Promise（同房间串行）
-    this.stallMs = stallMs
-    this.watch = new Map() // sessionId -> 本轮的卡死看门（#1606）
     this.ready = null
   }
 
@@ -137,10 +131,7 @@ export class CliMember {
       requestPermission: async (r) => {
         // 没有处理器（不在某一轮里）就没有地方问：按 DSH 无应答者的处理当取消（dsh-acp lib/index.js:1202-1228）。
         const h = this.onPermission.get(r.sessionId)
-        // 等人审批不算卡死：审批卡本来就不限时（dsh-member.mjs runCli onPermission）。
-        const w = this.watch.get(r.sessionId)
-        w?.hold(1)
-        try { return { outcome: h ? await h(r) : { outcome: 'cancelled' } } } finally { w?.hold(-1) }
+        return { outcome: h ? await h(r) : { outcome: 'cancelled' } }
       },
       sessionUpdate: async (n) => {
         const u = n.update
@@ -159,7 +150,6 @@ export class CliMember {
         }
         if (u?.sessionUpdate === 'tool_call' && this.buffers.has(n.sessionId)) this.toolSince.add(n.sessionId)
         if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') && this.buffers.has(n.sessionId)) this.onTool.get(n.sessionId)?.(u)
-        this.watch.get(n.sessionId)?.update(u)
       },
     }
   }
@@ -348,66 +338,18 @@ export class CliMember {
     if (onText) this.onText.set(s.sessionId, onText)
     if (onTool) this.onTool.set(s.sessionId, onTool)
     if (onPermission) this.onPermission.set(s.sessionId, onPermission)
-    const watch = this._stallWatch(s.sessionId)
-    this.watch.set(s.sessionId, watch)
     try {
       await Promise.race([
         this.conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: body }, ...attachments] }),
         this.exited,
-        watch.stalled,
       ])
       return this.buffers.get(s.sessionId)
     } finally {
-      watch.stop()
-      this.watch.delete(s.sessionId)
       this.buffers.delete(s.sessionId)
       this.toolSince.delete(s.sessionId)
       this.onText.delete(s.sessionId)
       this.onTool.delete(s.sessionId)
       this.onPermission.delete(s.sessionId)
-    }
-  }
-
-  /**
-   * #1606：上游一直报错时适配器只在 stderr 刷日志，session/prompt 永远不回，这一轮就一直「在干活」、频道没一个字。
-   * 有输出就重新计时；有工具在跑或在等审批时不计时（长命令、等人不算卡）。到点先 session/cancel，
-   * 再结束适配器进程（会话 id 留在 saved，下一轮 session/load 续上），本轮以 COLLAB_CLI_STALLED 失败，
-   * 由调用方照常报错、清掉忙碌。
-   */
-  _stallWatch(sessionId) {
-    const tools = new Set()
-    let holds = 0
-    let timer
-    let fail
-    const stalled = new Promise((_, reject) => { fail = reject })
-    stalled.catch(() => {})
-    const arm = () => {
-      clearTimeout(timer)
-      timer = undefined
-      if (!(this.stallMs > 0) || tools.size > 0 || holds > 0) return
-      timer = setTimeout(() => {
-        const span = this.stallMs >= 60000 ? `${Math.round(this.stallMs / 60000)} 分钟` : `${Math.round(this.stallMs / 1000)} 秒`
-        const error = new Error(`${this.cli} 超过 ${span}没有任何输出（上游可能一直在报错），已结束这一轮`)
-        error.code = 'COLLAB_CLI_STALLED'
-        fail(error)
-        Promise.resolve(this.conn?.cancel({ sessionId })).catch(() => {})
-        stopProcess(this.proc)
-      }, this.stallMs)
-      timer.unref?.()
-    }
-    arm()
-    return {
-      stalled,
-      update: (u) => {
-        const kind = u?.sessionUpdate
-        if (kind === 'tool_call' || kind === 'tool_call_update') {
-          const done = u.status === 'completed' || u.status === 'failed'
-          if (u.toolCallId !== undefined) { if (done) tools.delete(u.toolCallId); else if (kind === 'tool_call' || u.status) tools.add(u.toolCallId) }
-        } else if (kind !== 'agent_message_chunk' && kind !== 'agent_thought_chunk') return
-        arm()
-      },
-      hold: (n) => { holds += n; arm() },
-      stop: () => { clearTimeout(timer); timer = undefined },
     }
   }
 

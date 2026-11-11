@@ -202,8 +202,8 @@ const INTERRUPTED = Symbol('interrupted');
 export function friendlyFailure(raw) {
   if (raw?.code === 'COLLAB_CLI_START') return raw.message;
   const text = String(raw);
-  // #1606 cli-member.mjs 卡死看门结束的一轮：原话已说清，不再套「请检查配置」。
-  if (/没有任何输出（上游可能一直在报错）/.test(text)) return `${text.replace(/^出错了：/, '')}。可以稍后重试，或换个模型/中转站。`;
+  // #1606: a used-up quota is not a configuration problem. Same wording as quota-cooling.mjs quotaDeadline.
+  if (/quota|resource_exhausted|(?:usage|session) limit|hit your limit/i.test(text)) return `模型额度用完了，等额度恢复或换个模型/中转站再试。原始错误：${text.replace(/^出错了：/, '')}`;
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没填模型密钥，填好就能用。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
   // An unreachable provider is a setting or network problem. Echoing the transport wording
@@ -870,6 +870,13 @@ export class DshMembers {
           code: error.code, cwd: error.cwd, cli: error.cli,
         });
       }
+      // #1606: an ACP adapter fails a turn with a JSON-RPC error whose message is only the code's name
+      // ("Internal error", -32603) and whose data carries the provider's own words (codex-acp 2.2.2
+      // createTurnErrorData: { message, codexErrorInfo: 'usageLimitExceeded' }). Reporting the bare
+      // "Internal error" told the room to check its configuration and hid a used-up quota from the
+      // quota cooling, so every reminder or re-dispatch sent the member upstream to fail again.
+      const detail = typeof error?.data?.message === 'string' ? error.data.message.trim() : '';
+      if (detail) throw Object.assign(new Error(detail, { cause: error }), { code: error.code, data: error.data });
       throw error;
     } finally {
       turnOver.abort();

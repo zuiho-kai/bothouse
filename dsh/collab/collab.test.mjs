@@ -2115,6 +2115,25 @@ function cliMembers(hub, ask) {
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
 
+test('#1606 CLI member: an adapter error reports the provider words, clears busy and reaches quota cooling', async () => {
+  const hub = makeHub();
+  const seen = [];
+  hub.quota = { cooling: () => false, observe: (id, room, event) => seen.push(event) };
+  // What codex-acp 2.2.2 rejects session/prompt with on a used-up quota (RequestError.internalError + createTurnErrorData).
+  const members = cliMembers(hub, async () => {
+    throw Object.assign(new Error('Internal error'), { code: -32603, data: { message: "You've hit your usage limit.", codexErrorInfo: 'usageLimitExceeded' } });
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 干活' });
+  await settle();
+  const notice = hub.store.page(1, undefined, 10).filter(m => m.author_kind === 'system').map(m => m.text);
+  assert.equal(notice.length, 1);
+  assert.match(notice[0], /额度用完了.*hit your usage limit/);
+  assert.doesNotMatch(notice[0], /Internal error|检查配置/);
+  assert.match(String(seen.at(-1)?.error), /hit your usage limit/, 'quota cooling sees the provider words');
+  assert.equal([...hub.thinking.values()].some(s => s.has('cc')), false);
+  await members.close(); hub.store.close();
+});
+
 test('CLI channel directory: Later retains the bound directory until /new', async () => {
   const hub = makeHub(); const fake = fakeDsh(); const paths = [];
   const dsh = new DshMembers(hub, { ctx: fake.ctx, createUserMessage: m => m, workspacePath: '/w', logger: quiet,
