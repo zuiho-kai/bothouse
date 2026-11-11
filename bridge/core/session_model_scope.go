@@ -97,6 +97,45 @@ func (e *Engine) saveSessionSelection(key, model, effort string) error {
 	return nil
 }
 
+// clearSessionSelection drops a hand-picked model/effort for the session, so the
+// bot default (and, for team workspaces, the per-task route) applies again.
+// Reports whether there was anything to drop.
+func (e *Engine) clearSessionSelection(key string) (bool, error) {
+	if ps := e.projectState; ps != nil {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		if _, ok := ps.state.SessionModelOverrides[key]; !ok {
+			return false, nil
+		}
+		selections := make(map[string]sessionModelSelection, len(ps.state.SessionModelOverrides))
+		for k, v := range ps.state.SessionModelOverrides {
+			if k != key {
+				selections[k] = v
+			}
+		}
+		next := ps.state
+		next.SessionModelOverrides = selections
+		if ps.storePath != "" {
+			data, err := json.MarshalIndent(next, "", "  ")
+			if err != nil {
+				return false, fmt.Errorf("encode session model: %w", err)
+			}
+			if err := ps.write(data); err != nil {
+				return false, fmt.Errorf("save session model: %w", err)
+			}
+		}
+		ps.state = next
+		return true, nil
+	}
+	e.sessionModelsMu.Lock()
+	defer e.sessionModelsMu.Unlock()
+	if _, ok := e.sessionSelections[key]; !ok {
+		return false, nil
+	}
+	delete(e.sessionSelections, key)
+	return true, nil
+}
+
 func (e *Engine) sessionEffortFor(key string, agent Agent) string {
 	if getter, ok := e.liveModelSession(key).(interface{ GetReasoningEffort() string }); ok {
 		if effort := getter.GetReasoningEffort(); effort != "" {
