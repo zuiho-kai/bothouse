@@ -625,9 +625,50 @@ allow_from = "*"
         (self.team / "maomao.json").write_text(json.dumps({"project": "maomao", "updated": now, "sessions": [{"key": "discord:111", "busy": True, "task": "写周报"}]}))
         self.assertTrue(g.team_online("jingyu", CHAT))
         self.assertFalse(g.team_online("longniang", CHAT))   # 超过 60 秒没更新
-        self.assertFalse(g.team_online("", CHAT))            # 没有本频道（主角色的 project 名在 lead 的 aliases 里）
+        self.assertTrue(g.team_online("", CHAT))             # 没有本频道，但她是当前主角色（project 名在 lead 的 aliases 里）
         self.assertFalse(g.team_online("caihongmao", CHAT))  # 没有文件
         self.assertEqual(len(g.team_recent("discord:111")), 1)
+
+    def _status(self, project, age, sessions=()):
+        t = datetime.fromtimestamp(time.time() - age, timezone.utc).isoformat()
+        (self.team / f"{project}.json").write_text(json.dumps({"project": project, "updated": t, "sessions": list(sessions)}))
+
+    def test_idle_member_still_online(self):  # 2026-11-11 11:23：主角色空闲十分钟以上，sessions 里没本频道（core 只留 10 分钟内的），进程活着
+        g = self.g
+        g._asked.clear()
+        self._status("maomao", 5)                  # 状态文件新鲜、sessions 空
+        self._status("jingyu", 5)
+        self._status("longniang", 120)             # 超过 60 秒没重写：进程没了
+        self.assertEqual(g.lead.current(), "")
+        self.assertTrue(g.team_online("", CHAT))         # 主角色：收主频道每条消息
+        self.assertFalse(g.team_online("jingyu", CHAT))  # 副手：没证据收得到本频道
+        g._note_asked(CHAT, "jingyu")                    # 她为本频道发过 /decide → 收得到
+        self.assertTrue(g.team_online("jingyu", CHAT))
+        self.assertFalse(g.team_online("jingyu", "discord:555"))
+        g._note_asked(CHAT, "longniang")
+        self.assertFalse(g.team_online("longniang", CHAT))  # 状态文件过期：仍不在线
+        old = g.lead.current
+        g.lead.current = lambda: "longniang"
+        try:
+            self.assertFalse(g.team_online("longniang", CHAT))  # 过期的主角色也不在线
+        finally:
+            g.lead.current = old
+        g._asked.clear()
+
+    def test_judged_to_idle_lead_returns_lead(self):  # jev 判给空闲的主角色：返回她，不再「收件人不在线」
+        g = self.g
+        self._status("maomao", 5)
+        old = g.addr_task
+        g.addr_task = types.SimpleNamespace(score=lambda *a, **k: SC(g.lead.KEYS.index(""), 6))
+        try:
+            msgs = [(600, "", [], "目前看 drama-skills 最适合")]
+            self.assertEqual(g._judge_addressee(CHAT, "都装到我win上", msgs)[:2], ("", "jev"))
+            self._status("maomao", 120)
+            k, why, _ = g._judge_addressee(CHAT, "都装到我win上", list(msgs))
+            self.assertIsNone(k)
+            self.assertIn("收件人不在线", why)
+        finally:
+            g.addr_task = old
 
     def test_recent_messages_names(self):  # 用户按 allow_from 认；bot 按团队文件 id 认，没写 id 的按用户名
         g = self.g
