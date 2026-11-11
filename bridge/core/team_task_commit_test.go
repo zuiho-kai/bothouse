@@ -57,6 +57,9 @@ func TestTeamWorkspaceStateUnreadableIsNotFree(t *testing.T) {
 	if !e.workspaceHasOpenHandoff("discord:ws1") {
 		t.Fatal("unreadable state reported workspace ws1 as having nothing in work")
 	}
+	if free, err := e.teamWorkspaceFree("discord:ws1"); err == nil || free {
+		t.Fatalf("teamWorkspaceFree on unreadable state = %v, %v; want false and an error", free, err)
+	}
 	if names := e.TeamIdleWorkspaceNames("discord:chatA"); len(names) != 0 {
 		t.Fatalf("unreadable state listed idle workspaces %v", names)
 	}

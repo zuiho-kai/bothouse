@@ -1569,21 +1569,24 @@ func (e *Engine) releaseWorkspaceOnReset(sessionKey string, lastActive time.Time
 // teamWorkspaceFree reports whether sessionKey is a team workspace channel that no chat channel
 // owns right now (it went back to the pool). A chat channel, a thread or an unknown channel is
 // not free: only a recorded workspace can be. A release still pending on the platform keeps
-// its owner and so is not free yet.
-func (e *Engine) teamWorkspaceFree(sessionKey string) bool {
+// its owner and so is not free yet. Unreadable workspace state is an error, never "free".
+func (e *Engine) teamWorkspaceFree(sessionKey string) (bool, error) {
 	if e == nil || e.dataDir == "" || sessionKey == "" {
-		return false
+		return false, nil
 	}
 	key := teamChatKey(sessionKey)
 	plat, _, _ := strings.Cut(key, ":")
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		return false, err
+	}
 	if !workspaceChannelKeysLocked(st)[key] {
-		return false
+		return false, nil
 	}
 	owner, _ := teamWorkspaceOwnerLocked(st, plat, teamChannelID(key))
-	return owner == ""
+	return owner == "", nil
 }
 
 // releaseTeamWorkspace frees workspace sessionKey ("<platform>:<id>[:user]"): its handoffs up to

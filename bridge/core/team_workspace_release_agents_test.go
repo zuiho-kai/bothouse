@@ -36,8 +36,8 @@ func TestCloseIdleTeamWorkspaceAgentsAfterRelease(t *testing.T) {
 
 	// The release scan only visits free workspaces. Normal turn-end closing is
 	// independent of workspace ownership and covered by the turn-lifetime tests.
-	if fish.teamWorkspaceFree(wsKey) {
-		t.Fatal("owned workspace reported free")
+	if free, err := fish.teamWorkspaceFree(wsKey); err != nil || free {
+		t.Fatalf("owned workspace: free=%v err=%v, want false nil", free, err)
 	}
 	if n := fish.CloseIdleTeamWorkspaceAgents(wsKey); n != 0 {
 		t.Fatalf("closed %d in an owned workspace... want 0", n)
@@ -51,8 +51,10 @@ func TestCloseIdleTeamWorkspaceAgentsAfterRelease(t *testing.T) {
 	if !lead.releaseTeamWorkspace(wsKey, time.Now(), false) {
 		t.Fatal("workspace not released")
 	}
-	if !fish.teamWorkspaceFree(wsKey) || fish.teamWorkspaceFree("discord:100") || fish.teamWorkspaceFree("discord:999") {
-		t.Fatal("teamWorkspaceFree: want true only for the released workspace")
+	for k, want := range map[string]bool{wsKey: true, "discord:100": false, "discord:999": false} {
+		if free, err := fish.teamWorkspaceFree(k); err != nil || free != want {
+			t.Fatalf("teamWorkspaceFree(%s) = %v, %v; want %v, nil", k, free, err, want)
+		}
 	}
 
 	// A turn running: left alone.
