@@ -25,9 +25,10 @@ TIMEOUT = 20  # 秒；Stop hook 总超时 30 秒（settings.json 现值），留
 # 把橘问「说一声做」判成 self，橘被逼着直接开工，用户「不符合预期，你先别做，我都没让你做」。
 SEARCH = Path.home() / "wiki" / "bin" / "search.py"
 WIKI_TOP = 6  # 喂给模型的命中行数
-# 「要不要开工」这类授权题：用户定过「先给方案、等我说做」，这种问题只有用户能答，一律放行（不调模型）
+# 「要不要开工」这类授权题及「换方向/新路线」：用户定过「先给方案、等我说做」与「换方向才问你」，一律放行（不调模型）
 GO_ASK = re.compile(r"说一声[「“\"]?(做|开工|开始|动手)|说[「“\"]?做[」”\"]?[我就]|要不要(开工|开做|动手|开始做|现在做|我去做|我做|交给工作区)"
-                    r"|(开不开工|做不做|动不动手)|(要|需要)我(现在)?(去)?(做|开工|动手)(吗|么|？|\?)|等你(一句话|说做|点头|同意)"
+                    r"|(开不开工|做不做|动不动手)|(要|需要)我(现在)?(去)?(做|开工|动手)(吗|么|？|\?)|等你(一句话|说做|点头|同意|定|定了|选|拍板)"
+                    r"|等你.*?(再|才)(开工|做|动手)|新路线.*?(没选|还没选|没定|还没定)|(换|选|定)方向"
                     r"|你点头|批准(后|了)?(我)?(就)?(开工|做|动手)")
 WAIT_GO = re.compile(r"先给(我)?方案|先别做|没让你做|没说做|等我说|说[「“\"]?做[」”\"]?(再|才)|别直接做|你先别")
 GO_QUERY = "先给方案 先别做 没让你做 等我说做 说做才开工"
@@ -114,20 +115,23 @@ def wiki_hits(query, top=WIKI_TOP):
 
 
 def go_ask_pass(draft, user_msgs):
-    """授权题且用户定过「等我说做」→ 放行理由，否则 None。"""
+    """授权题且用户定过「等我说做」，或换方向/新路线用户还没选（用户定「换方向才问你」）→ 放行理由，否则 None。"""
     body = re.sub(r"```.*?```", "", draft, flags=re.S)
     m = GO_ASK.search(body)
     if not m:
         return None
+    matched = m.group(0)
+    if re.search(r"新路线|换方向|(?:选|定)方向", matched):
+        return f"问的是换方向/新路线（「{matched}」），用户 2026-11-10 定「真钱、发到外面、删东西、换方向才问你」：新路线只有用户能选，放行"
     for u in reversed(list(user_msgs)):
         w = WAIT_GO.search(u)
         if w:
-            return f"问的是开不开工（「{m.group(0)}」），用户本会话说过「{w.group(0)}」：开工只有用户能批，放行"
+            return f"问的是开不开工（「{matched}」），用户本会话说过「{w.group(0)}」：开工只有用户能批，放行"
     # 用户定案页（preferences/）排前面，规则候选、复盘页在后
     for h in sorted(wiki_hits(GO_QUERY, top=10), key=lambda h: "/preferences/" not in h):
         w = WAIT_GO.search(h)
         if w:
-            return f"问的是开不开工（「{m.group(0)}」），wiki 定案 {h[:160]}：开工只有用户能批，放行"
+            return f"问的是开不开工（「{matched}」），wiki 定案 {h[:160]}：开工只有用户能批，放行"
     return None
 
 
@@ -184,7 +188,8 @@ def judge(draft, user_msgs=(), kind="reply"):
     if kind == "reply":
         why = go_ask_pass(draft, user_msgs)
         if why:
-            res.update(question="开不开工", basis=why, ms=int((time.time() - t0) * 1000))
+            q_name = "换方向/新路线" if ("新路线" in why or "换方向" in why) else "开不开工"
+            res.update(question=q_name, basis=why, ms=int((time.time() - t0) * 1000))
             _log(kind, "pass-go", res["ms"], 0, draft.strip()[:60])
             return res
     cards = load_cards()

@@ -56,6 +56,14 @@ class ChoiceAskGuard(unittest.TestCase):
         self.assertEqual(subprocess.run([sys.executable, "-I", os.path.join(HERE, "choice-ask-guard.py")],
                                         input=json.dumps(p), capture_output=True, text=True, env=env).stdout.strip(), "")
 
+    def test_go_ask_direction_passes(self):
+        """11-10 #1364：新路线/换方向用户还没选，go_ask_pass 直接放行，不调模型（用户定：换方向才问你）。"""
+        import intent_judge as ij
+        draft = "这一轮只是讨论方案，我没动任何代码。这是条新路线，你还没选，所以等你定了再开工。"
+        why = ij.go_ask_pass(draft, [])
+        self.assertIsNotNone(why)
+        self.assertIn("换方向", why)
+
 
 if __name__ == "__main__":
     unittest.main()
