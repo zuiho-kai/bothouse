@@ -37,7 +37,28 @@ func takeQueuedBatchLocked(state *interactiveState) queuedMessage {
 	if len(parts) == 1 {
 		return head
 	}
-	return mergeQueued(parts)
+	return mergeQueued(inArrivalOrder(parts))
+}
+
+// inArrivalOrder puts a batch back in the order its messages were sent (#739). A gate
+// abort/redirect (abortFront) is queued at the FRONT of pendingMessages (enqueueForBusySession),
+// each new one ahead of the last, so it is newer than every plain message behind it: the plain
+// parts keep their order and the aborts follow, oldest first. The merged turn then answers its
+// last part, the person's latest word, like any other burst.
+func inArrivalOrder(parts []queuedMessage) []queuedMessage {
+	out := make([]queuedMessage, 0, len(parts))
+	var aborts []queuedMessage
+	for _, p := range parts {
+		if p.abortFront {
+			aborts = append(aborts, p)
+		} else {
+			out = append(out, p)
+		}
+	}
+	for i := len(aborts) - 1; i >= 0; i-- {
+		out = append(out, aborts[i])
+	}
+	return out
 }
 
 // takeGroupBatchLocked is takeQueuedBatchLocked for a busy group chat (groupChatQueue): the plain
@@ -97,7 +118,7 @@ func takeGroupBatchLocked(state *interactiveState) queuedMessage {
 		parts[0].overflow = false
 		return parts[0]
 	}
-	return mergeQueuedChat(parts)
+	return mergeQueuedChat(inArrivalOrder(parts))
 }
 
 // GroupQueueBatcher is implemented by platforms whose busy group chats share one queue (QQ
@@ -132,14 +153,6 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 	reply := len(parts) - 1
 	for reply > 0 && parts[reply].overflow {
 		reply--
-	}
-	// #739: an abort/redirect is queued at the front but is the person's latest word; the batch
-	// answers it rather than whatever queued behind the turn it cancels.
-	for i := range parts {
-		if parts[i].abortFront && !parts[i].overflow {
-			reply = i
-			break
-		}
 	}
 	// Attachments and the rest follow the parts in arrival order; who and what the reply goes to
 	// come from the reply part.
@@ -297,18 +310,10 @@ func batchReference(parts []queuedMessage) *MessageReference {
 	return nil
 }
 
-// mergeQueued joins parts (oldest first) into one message. The reply goes to the last part,
-// except that an abort/redirect — queued at the front of pendingMessages but still the person's
-// latest word — takes the reply (#739).
+// mergeQueued joins parts (oldest first; a batch with an abort/redirect goes through
+// inArrivalOrder) into one message that replies to the last one.
 func mergeQueued(parts []queuedMessage) queuedMessage {
-	reply := len(parts) - 1
-	for i := range parts {
-		if parts[i].abortFront {
-			reply = i
-			break
-		}
-	}
-	last := parts[reply]
+	last := parts[len(parts)-1]
 	out := last
 	out.ambientChat = parts[0].ambientChat
 	out.reference = batchReference(parts)
@@ -329,11 +334,6 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 			fmt.Fprintf(&b, "[%d] %s\n", i+1, time.UnixMilli(p.userMessageTimeMs).Format("15:04:05"))
 		} else {
 			fmt.Fprintf(&b, "[%d]\n", i+1)
-		}
-		// #739: the answered part is not the last one (an abort/redirect), so say which it is;
-		// a plain burst needs no mark, it answers the last part.
-		if i == reply && reply != len(parts)-1 {
-			b.WriteString(latestMark + "\n")
 		}
 		// A re-queued batch already marks its own voice parts; never wrap its
 		// typed parts or let the last part decide whether earlier parts are marked.

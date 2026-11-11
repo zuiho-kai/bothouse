@@ -7,8 +7,9 @@ import (
 
 // #739: a gate abort ("别做这个，改做另一件事") is queued at the FRONT of pendingMessages
 // (engine.go enqueueForBusySession), so a batch that starts with it lists the abort first and the
-// older queued messages behind it. The merged turn must answer the abort message — the user's
-// latest word — not the older queued message it folded in.
+// older queued messages behind it. The merged turn must list the parts in the order they were sent
+// (the older queued message first, the abort last) and answer the abort — the user's latest word —
+// not the older queued message it folded in.
 func TestQueuedBatch_AbortFrontRepliesToNewest(t *testing.T) {
 	p := &stubPlatformEngine{n: "test"}
 	as := newResultAgentSession("unused")
@@ -34,8 +35,31 @@ func TestQueuedBatch_AbortFrontRepliesToNewest(t *testing.T) {
 	if !strings.Contains(q.content, "别做这个") || !strings.Contains(q.content, "顺便再看看日志") {
 		t.Fatalf("merged prompt lost a part: %q", q.content)
 	}
-	if n := strings.Count(q.content, latestMark); n != 1 {
-		t.Fatalf("want exactly one %q marking the answered part, got %d: %q", latestMark, n, q.content)
+	if old, abort := strings.Index(q.content, "顺便再看看日志"), strings.Index(q.content, "别做这个"); old > abort {
+		t.Fatalf("merged prompt lists the abort before the older message; want send order: %q", q.content)
+	}
+	if !strings.HasSuffix(q.content, "别做这个，改做另一件事") {
+		t.Fatalf("the answered abort should be the last part: %q", q.content)
+	}
+}
+
+// Two redirects in a row land at the front newest-first ([a2, a1, old]); the batch still reads in
+// send order — old, a1, a2 — and answers a2.
+func TestQueuedBatch_TwoAbortsInSendOrder(t *testing.T) {
+	q := func(id, content string, abortFront bool) queuedMessage {
+		return queuedMessage{msgSessionKey: "test:r", channelKey: "room", msgPlatform: "test", userID: "user",
+			messageID: id, content: content, replyCtx: "rc-" + id, abortFront: abortFront}
+	}
+	st := &interactiveState{pendingMessages: []queuedMessage{
+		q("a2", "第二次改派", true), q("a1", "第一次改派", true), q("m1", "旧消息", false),
+	}}
+	got := takeQueuedBatchLocked(st)
+	if got.messageID != "a2" {
+		t.Fatalf("merged turn replies to %v, want a2; content=%q", got.messageID, got.content)
+	}
+	i1, i2, i3 := strings.Index(got.content, "旧消息"), strings.Index(got.content, "第一次改派"), strings.Index(got.content, "第二次改派")
+	if i1 < 0 || !(i1 < i2 && i2 < i3) {
+		t.Fatalf("parts not in send order (旧消息, 第一次改派, 第二次改派): %q", got.content)
 	}
 }
 
@@ -54,9 +78,9 @@ func TestGroupBatch_AbortFrontRepliesToNewest(t *testing.T) {
 	if q.messageID != "m3" || q.replyCtx != "rc-m3" {
 		t.Fatalf("group merged turn replies to %v (%v), want the abort m3; content=%q", q.messageID, q.replyCtx, q.content)
 	}
-	if !strings.Contains(q.content, "别做这个") || !strings.Contains(q.content, "顺便再看看日志") ||
-		strings.Count(q.content, "（回这条）") != 1 {
-		t.Fatalf("group merged prompt lost a part or its mark: %q", q.content)
+	if old, abort := strings.Index(q.content, "顺便再看看日志"), strings.Index(q.content, "别做这个"); old < 0 || abort < old ||
+		strings.Count(q.content, "（最新）") != 1 || strings.Index(q.content, "（最新）") < old {
+		t.Fatalf("group merged prompt should list the older message first and mark the abort latest: %q", q.content)
 	}
 
 	// Without an abort, a group batch still answers the newest message that held a place.
