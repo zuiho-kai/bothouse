@@ -2799,6 +2799,10 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	shellCmd.Dir = workDir
 	ownScheduledShell(shellCmd)
 	scheduledShellDeadline(shellCmd, ctx)
+	if e.dataDir != "" {
+		// Shell jobs need the same authoritative storage root as interactive role sessions.
+		shellCmd.Env = append(shellCmd.Environ(), "BOTHOUSE_DATA_DIR="+e.dataDir)
+	}
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
