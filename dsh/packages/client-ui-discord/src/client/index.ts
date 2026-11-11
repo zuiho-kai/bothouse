@@ -64,6 +64,7 @@ export function apply(ctx: ClientContext): void {
     send: channels.actions.send,
     uploadAttachment: channels.actions.uploadAttachment,
     reviewTask: channels.actions.reviewTask,
+    terminateTask: channels.actions.terminateTask,
     dispatchTask: channels.actions.dispatchTask,
     openDm: channels.actions.openDm,
     closeDm: channels.actions.closeDm,

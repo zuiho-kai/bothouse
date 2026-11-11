@@ -12,6 +12,7 @@ export type T = TranslateNS<typeof NS>
 export const STATUS_KEY = {
   assigned: 'taskAssigned', accepted: 'taskAccepted', asked: 'taskAsked', declined: 'taskDeclined',
   escalated: 'taskEscalated', returned: 'taskReturned', done: 'taskDone', rework: 'taskRework',
+  cancelled: 'taskCancelled', superseded: 'taskSuperseded',
 } as const satisfies Record<TaskStatus, string>
 
 /**
@@ -26,9 +27,10 @@ export const STATUS_KEY = {
  */
 export type BoardGroup = 'decide' | 'working' | 'parked' | 'done'
 const DECIDE: readonly TaskStatus[] = ['asked', 'returned', 'declined', 'escalated']
+export const isTerminalTask = (task: ChannelTask): boolean => ['done', 'cancelled', 'superseded'].includes(task.status)
 export function boardGroupOf(task: ChannelTask): BoardGroup {
   if (DECIDE.includes(task.status)) return 'decide'
-  if (task.status === 'done') return 'done'
+  if (isTerminalTask(task)) return 'done'
   return task.paused_at != null ? 'parked' : 'working'
 }
 
@@ -57,7 +59,7 @@ export function boardOrder(tasks: readonly ChannelTask[]): ChannelTask[] {
 
 /** Seconds a task has taken: until hand-back, until it closed, or until now. */
 export function elapsed(task: ChannelTask, now: number): number {
-  const end = task.returned_at ?? (task.status === 'done' ? task.updated_at : now)
+  const end = task.returned_at ?? (isTerminalTask(task) ? task.updated_at : now)
   return Math.max(0, end - task.created_at)
 }
 
@@ -72,7 +74,7 @@ export function formatDuration(seconds: number, t: T): string {
 /** Board sections: open tasks (owner's turn, then waiting for the lead) and finished ones. */
 export function boardGroups(tasks: readonly ChannelTask[]): { open: ChannelTask[]; done: ChannelTask[] } {
   const rows = boardOrder(tasks)
-  return { open: rows.filter(task => task.status !== 'done'), done: rows.filter(task => task.status === 'done') }
+  return { open: rows.filter(task => !isTerminalTask(task)), done: rows.filter(isTerminalTask) }
 }
 
 /** Task-card rows: the task's owner first, then each sub-task in dispatch order. */
@@ -127,7 +129,8 @@ export function boardSections(tasks: readonly ChannelTask[], rooms: readonly Cha
     ? [{ id: viewed.id, name: viewed.name, chat: false }]
     : [
       { id: chatId, name: chat?.name ?? String(chatId), chat: true },
-      ...rooms.filter(r => r.kind === 'workspace' && r.parent_id === chatId).map(r => ({ id: r.id, name: r.name, chat: false })),
+      // The API keeps parked tasks on their original chat's board after the workspace is reused.
+      ...rooms.filter(r => r.kind === 'workspace' && (r.parent_id === chatId || tasks.some(task => task.room_id === r.id && task.paused_at != null))).map(r => ({ id: r.id, name: r.name, chat: false })),
     ];
   const sections: BoardSection[] = [];
   for (const block of blocks) {
@@ -140,7 +143,7 @@ export function boardSections(tasks: readonly ChannelTask[], rooms: readonly Cha
         group = { open: [], done: [] };
         byOwner.set(task.owner, group);
       }
-      (task.status === 'done' ? group.done : group.open).push(task);
+      (isTerminalTask(task) ? group.done : group.open).push(task);
     }
     const owners: BoardOwnerGroup[] = [...byOwner].map(([owner, group]) => ({
       owner, ownerName: (group.open[0] ?? group.done[0]).owner_name, open: group.open, done: group.done,
