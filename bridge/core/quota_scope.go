@@ -144,8 +144,8 @@ func (e *Engine) quotaScopeFor(agent Agent, model string) quotaScope {
 		if p := sw.GetActiveProvider(); p != nil {
 			// Provider aliases using the same endpoint/key share the same allowance.
 			s.Provider = agent.Name() + "/" + p.BaseURL
-			if p.APIKey == "" && p.BaseURL == "" {
-				// No key and no endpoint: the CLI runs on its own login, so the
+			if p.APIKey == "" && p.BaseURL == "" && len(p.Env) == 0 && len(p.CodexHTTPHeaders) == 0 {
+				// No credential of its own: the CLI runs on its own login, so the
 				// account is whoever is logged in (the resolver above), not this
 				// config entry. Hashing the empty entry gave every login the same
 				// key, and a new account inherited the old one's cooldown
@@ -308,7 +308,6 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 		e.quotaState.Until = latest
 		e.quotaState.ProbeRound = 0
 		e.quotaState.NextProbeAt = time.Time{}
-		e.quotaState.Answered = false
 		previous := e.quotaState.ProbeStatus
 		e.quotaState.ProbeStatus = "exhausted"
 		if session != "" {
@@ -328,9 +327,11 @@ func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session strin
 }
 
 // recoverQuotaFor ends scope's cooldown because a real turn under it just got an
-// answer. The domain admission reads is cleared at once, so the next message is
-// not turned away; quotaTick then finishes the recovery (lead, notice) from
-// Answered. A scope that was not cooling is left untouched.
+// answer. It clears the records admission reads, so the next message is not
+// turned away; quotaTick sees those records clear and finishes the recovery
+// (lead, notice). A later quota error writes them again, and that wins: there is
+// no separate "answered" flag that could outlive it. A scope that was not
+// cooling is left untouched.
 func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	now := time.Now()
 	key := scope.key()
@@ -364,18 +365,9 @@ func (e *Engine) recoverQuotaFor(scope quotaScope) {
 		e.quotaVerifiedMu.Unlock()
 		cooling = true
 	}
-	if !cooling {
-		return
+	if cooling {
+		slog.Info("quota cooldown: provider answered, cooldown cleared", "project", e.name)
 	}
-	slog.Info("quota cooldown: provider answered, cooldown cleared", "project", e.name)
-	e.updateQuotaState(func() {
-		if e.quotaState.Scope != "" && e.quotaState.Scope != key {
-			e.saveQuotaLocked()
-			return
-		}
-		e.quotaState.Answered = true
-		e.saveQuotaLocked()
-	})
 }
 
 func (e *Engine) quotaVerified(key string) bool {

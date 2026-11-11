@@ -5039,11 +5039,15 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	humanAsks := msg.inputTurn == nil && !msg.FromBot &&
 		!scheduledTurnUser(msg.UserID) && msg.UserID != "handoff" && !isScheduledSideKey(interactiveKey)
 	probeCapacity := capWait > 0 && humanAsks
+	// Only a person calling this role (an @, a reply to it, its name at the line
+	// start: Message.Mentioned) is that check. A person talking to someone else
+	// in the same channel is not asking this role to try again.
+	humanCalls := humanAsks && msg.Mentioned
 	// One clock read for both the decision and the text: two reads let a deadline that
 	// is microseconds away at the check pass before the format, printing 「大约还要 0s」
 	// (复核 2026-11-06 观察①).
 	now := quotaCoolingNow()
-	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() && !humanAsks {
+	if until := e.quotaCoolingForAt(state.quotaScope, now); !until.IsZero() && !humanCalls {
 		// 用户 2026-11-04 报「没有正确显示什么时候恢复」：不再直接打印 RFC3339，
 		// 换成本地时间带偏移量，再按当前时刻算一次大约还要等多久（quota_cooling_display.go）。
 		// quotaCoolingForAt 只在截止值还在 now 之后时才返回非零值，

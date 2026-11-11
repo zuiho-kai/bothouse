@@ -29,9 +29,6 @@ type quotaCoolingState struct {
 	Lead        *quotaLeadTakeover       `json:"lead,omitempty"`
 	Transfers   map[string]quotaTransfer `json:"transfers,omitempty"`
 	ProbeRound  int                      `json:"probe_round,omitempty"`
-	// Answered: a real turn under Scope got a provider answer after the
-	// cooldown was recorded. quotaTick ends the cooldown from it (recoverQuotaFor).
-	Answered bool `json:"answered,omitempty"`
 }
 
 // quotaProbeBackoffBase: 沿用 capacity_retry.go 冷却退避策略基线
@@ -584,9 +581,12 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 		return
 	}
-	if st.Answered {
-		// recoverQuotaFor already cleared the domain admission reads; finish
-		// the same recovery a successful probe does (lead, state, event).
+	if st.Until.After(now) && !e.quotaCoolingDeadlineFor(scope).After(now) {
+		// The deadline is still ahead but nothing admission reads holds it any
+		// more: an answered turn cleared the records (recoverQuotaFor). The
+		// records are the single truth, so a quota error recorded after that
+		// answer, here or by another role on the same pool, keeps this branch
+		// shut (review of #1637). Finish what a successful probe finishes.
 		e.quotaRestoredLocked(now, "quota recovered: turn answered")
 		return
 	}
@@ -780,7 +780,7 @@ func (e *Engine) quotaRestoredLocked(now time.Time, event string) bool {
 	} else if restored {
 		e.quotaNotice(st.Session, e.i18n.Tf(MsgQuotaLeadRestored, e.DisplayName()))
 	}
-	st.Until, st.Lead, st.Answered = time.Time{}, nil, false
+	st.Until, st.Lead = time.Time{}, nil
 	e.capMu.Lock()
 	if st.Scope == "" {
 		e.quotaUntil = time.Time{}

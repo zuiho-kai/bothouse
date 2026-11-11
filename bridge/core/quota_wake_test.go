@@ -44,21 +44,16 @@ func TestQuotaCoolingPersonRetriesAndAnswerClears(t *testing.T) {
 	if until := e.quotaCoolingFor(scope); !until.IsZero() {
 		t.Fatalf("answer did not clear the cooldown, still until %v", until)
 	}
-	e.waitQuotaUpdates()
-	e.quotaMu.Lock()
-	answered := e.quotaState.Answered
-	e.quotaMu.Unlock()
-	if !answered {
-		t.Fatal("quotaTick was not told the provider answered")
-	}
 }
 
-// A teammate bot, a timer or a handoff wake-up is nobody calling the role: it keeps
-// waiting and the cooldown stays.
+// A teammate bot, a timer or a handoff wake-up is nobody calling the role, and a
+// person talking without naming this role is not calling it either (用户「我主动去叫」):
+// they keep waiting and the cooldown stays.
 func TestQuotaCoolingBotStillWaits(t *testing.T) {
 	for name, msg := range map[string]*Message{
-		"bot":     {UserID: "b", FromBot: true, Mentioned: true},
-		"handoff": {UserID: "handoff"},
+		"bot":             {UserID: "b", FromBot: true, Mentioned: true},
+		"handoff":         {UserID: "handoff", Mentioned: true},
+		"person-not-call": {UserID: "human", UserName: "瑞凤"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e, a, p := exitFixture(t, nil)
@@ -99,11 +94,65 @@ func TestQuotaCoolingRetryStillExhaustedKeepsCooling(t *testing.T) {
 	if until := e.quotaCoolingFor(scope); until.Before(time.Now().Add(90 * time.Minute)) {
 		t.Fatalf("still-exhausted retry did not record the new deadline: %v", until)
 	}
+	e.relayManager = NewRelayManager(t.TempDir())
+	e.quotaTick(time.Now())
 	e.quotaMu.Lock()
-	answered := e.quotaState.Answered
+	st := e.quotaState
 	e.quotaMu.Unlock()
-	if answered {
-		t.Fatal("a quota error was taken as an answer")
+	if st.Until.IsZero() || st.ProbeStatus == "available" {
+		t.Fatalf("a quota error was taken as an answer: until=%v status=%q", st.Until, st.ProbeStatus)
+	}
+}
+
+// Review of #1637 (P1 ①): one result event clears the cooldown (answer) and then
+// records it again (usage still at 100%). With quotaMu busy both state updates were
+// deferred to goroutines in no fixed order, and a late "answered" mark made quotaTick
+// declare a still-exhausted role recovered. The tick must follow the records.
+func TestQuotaAnswerThenRecordStaysCooling(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		e, _, _ := exitFixture(t, nil)
+		e.relayManager = NewRelayManager(t.TempDir())
+		scope := e.quotaScopeFor(e.agent, modelOf(e.agent))
+		e.recordQuotaFor(scope, time.Now().Add(time.Hour), "discord:c1")
+		e.waitQuotaUpdates()
+		e.quotaMu.Lock() // quotaTick busy: the answer's state update is deferred
+		e.recoverQuotaFor(scope)
+		e.quotaMu.Unlock()
+		// The re-record takes the free lock at once, ahead of the deferred update:
+		// the order that let a late "answered" mark win.
+		e.recordQuotaFor(scope, time.Now().Add(2*time.Hour), "discord:c1")
+		e.waitQuotaUpdates()
+		e.quotaTick(time.Now())
+		e.quotaMu.Lock()
+		st := e.quotaState
+		e.quotaMu.Unlock()
+		if st.Until.IsZero() || st.ProbeStatus == "available" || e.quotaCoolingFor(scope).IsZero() {
+			t.Fatalf("run %d: re-recorded cooldown declared recovered: until=%v status=%q", i, st.Until, st.ProbeStatus)
+		}
+	}
+}
+
+// Review of #1637 (P1 ②): this role's answer clears the shared pool, then a
+// teammate on the same account runs out and extends it. The tick must not hand the
+// lead back as if the pool were free.
+func TestQuotaAnswerThenPeerExtendsStaysCooling(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.relayManager = NewRelayManager(t.TempDir())
+	scope := e.quotaScopeFor(e.agent, modelOf(e.agent))
+	e.recordQuotaFor(scope, time.Now().Add(time.Hour), "discord:c1")
+	e.waitQuotaUpdates()
+	e.observeQuotaEventFor(Event{Type: EventResult, Done: true, Content: "ok"}, "discord:c1", nil, scope)
+	e.waitQuotaUpdates()
+	peer := time.Now().Add(3 * time.Hour)
+	quotaDomainsMu.Lock()
+	e.extendDomainLocked(scope, peer) // what the teammate's recordQuotaFor writes
+	quotaDomainsMu.Unlock()
+	e.quotaTick(time.Now())
+	e.quotaMu.Lock()
+	st := e.quotaState
+	e.quotaMu.Unlock()
+	if st.Until.IsZero() || st.ProbeStatus == "available" {
+		t.Fatalf("peer's newer cooldown ignored: until=%v status=%q", st.Until, st.ProbeStatus)
 	}
 }
 
@@ -121,8 +170,8 @@ func TestQuotaTickFinishesAnsweredRecovery(t *testing.T) {
 	e.quotaMu.Lock()
 	st := e.quotaState
 	e.quotaMu.Unlock()
-	if !st.Until.IsZero() || st.Answered || st.ProbeStatus != "available" {
-		t.Fatalf("recovery not finished: until=%v answered=%v status=%q", st.Until, st.Answered, st.ProbeStatus)
+	if !st.Until.IsZero() || st.ProbeStatus != "available" {
+		t.Fatalf("recovery not finished: until=%v status=%q", st.Until, st.ProbeStatus)
 	}
 }
 
@@ -153,5 +202,30 @@ func TestQuotaKeylessProviderFollowsLoggedInAccount(t *testing.T) {
 	a.account = "acct:new"
 	if got := e.quotaCooling(); !got.Equal(until) {
 		t.Fatalf("keyed provider cooldown followed the login instead of the key: %s", got)
+	}
+}
+
+// Review of #1637 (P2): a provider entry that carries its credential in Env or in
+// HTTP headers is a keyed account, not the CLI login. Logging in elsewhere must not
+// drop its cooldown.
+func TestQuotaEnvOrHeaderCredentialIsNotLogin(t *testing.T) {
+	for name, prov := range map[string]ProviderConfig{
+		"env":     {Name: "env", Env: map[string]string{"ANTHROPIC_AUTH_TOKEN": "fixture-token"}},
+		"headers": {Name: "hdr", CodexHTTPHeaders: map[string]string{"Authorization": "Bearer fixture"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := &quotaDomainTestAgent{stubModelModeAgent: stubModelModeAgent{model: "opus", active: prov.Name,
+				providers: []ProviderConfig{prov}}, account: "acct:old"}
+			e := NewEngine("scope-cred-"+name, a, nil, "", LangEnglish)
+			e.dataDir = t.TempDir()
+			t.Cleanup(e.cancel)
+			t.Cleanup(e.waitQuotaUpdates)
+			until := time.Now().Add(time.Hour)
+			e.recordQuota(until, "discord:test")
+			a.account = "acct:new"
+			if got := e.quotaCooling(); !got.Equal(until) {
+				t.Fatalf("credential-carrying provider followed the login: %s", got)
+			}
+		})
 	}
 }
