@@ -19090,23 +19090,10 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 				if event.SessionID != "" {
 					saveRelaySessionID(event.SessionID, false)
 				}
-			case EventToolResult:
-				if quiet {
-					break
-				}
-				out := strings.TrimSpace(event.Content)
-				if out == "" {
-					out = strings.TrimSpace(event.ToolResult)
-				}
-				// Agents hand over the whole tool output (#1231); relay replies keep the old cap.
-				out = truncateIf(out, defaultToolMaxLen)
-				if out != "" {
-					tn := strings.TrimSpace(event.ToolName)
-					if tn == "" {
-						tn = "tool"
-					}
-					textParts = append(textParts, fmt.Sprintf(e.i18n.T(MsgToolResult), tn, out)+"\n\n")
-				}
+			// Tool results stay out of textParts: they are not the reply. When the
+			// final text is empty, the fallback and partial paths below would
+			// otherwise hand the "📤 **bash**" echoes back and relay visibility
+			// posts them to the group (#693).
 			case EventResult:
 				// Use agentSession.CurrentSessionID() for the same reason as above.
 				if currentID := agentSession.CurrentSessionID(); currentID != "" {
