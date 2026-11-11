@@ -5,6 +5,55 @@ import (
 	"testing"
 )
 
+// #739: the queued turn's real capacity-failure path rebuilds its Message before
+// cooling down. Redelivery into a busy session must retain the redirect's intent.
+func TestQueuedBatch_CapacityRedeliveryKeepsAbortReply(t *testing.T) {
+	for _, group := range []bool{false, true} {
+		t.Run(map[bool]string{false: "private", true: "group"}[group], func(t *testing.T) {
+			var p Platform = &stubPlatformEngine{n: "test"}
+			if group {
+				p = &groupQueueStub{stubPlatformEngine{n: "test"}}
+			}
+			as := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap"}}
+			e := NewEngine("test", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
+			t.Cleanup(func() { _ = e.Stop() })
+			key := "test:capacity-abort"
+			session, state := busySessionWithLiveState(t, e, p, key, as)
+			msg := func(id string, abort bool) *Message {
+				return &Message{SessionKey: key, Platform: "test", ChannelKey: "room",
+					MessageID: id, UserID: "user", UserName: "用户", Content: "part-" + id,
+					ReplyCtx: "rc-" + id, Direct: !group, abortFront: abort}
+			}
+			if got := e.enqueueForBusySession(p, msg("a1", true), key, nil); got != queueAccepted {
+				t.Fatalf("enqueue redirect: %v", got)
+			}
+			if !e.drainPendingMessages(state, session, e.sessions, key) || as.sends() != capacityAttempts || e.capacityWait() <= 0 {
+				t.Fatal("queued redirect did not exhaust capacity attempts and enter cooldown")
+			}
+			if !session.TryLock() {
+				t.Fatal("could not simulate another turn running at redelivery")
+			}
+			defer session.Unlock()
+			// Fire the real cooldown callback directly; do not wait the production ten minutes.
+			e.flushCapacityPending()
+			if got := e.enqueueForBusySession(p, msg("new", false), key, nil); got != queueAccepted {
+				t.Fatalf("enqueue ordinary message: %v", got)
+			}
+			state.mu.Lock()
+			q := takeQueuedBatchLocked(state)
+			left := len(state.pendingMessages)
+			state.mu.Unlock()
+			if q.messageID != "a1" || q.replyCtx != "rc-a1" || !q.abortFront || left != 0 {
+				t.Errorf("after capacity redelivery reply=%s (%v), abort=%v, remaining=%d; want a1 (rc-a1), abort=true; prompt=%q", q.messageID, q.replyCtx, q.abortFront, left, q.content)
+			}
+			if a, n := strings.Index(q.content, "part-a1"), strings.Index(q.content, "part-new"); a < 0 || n <= a || !strings.Contains(q.content, "（回这条）\n[1]") {
+				t.Errorf("want a1 then new, with a1 marked as reply target: %q", q.content)
+			}
+			t.Logf("capacity sends=%d; redelivery reply=%s (%v); prompt:\n%s", as.sends(), q.messageID, q.replyCtx, q.content)
+		})
+	}
+}
+
 // #739: ordinary messages can arrive after an abort, before the cancelled turn drains.
 // Exercise real admission with no platform timestamps; queue priority must not become chronology.
 func TestQueuedBatch_InterleavedAbortArrivalOrder(t *testing.T) {

@@ -584,6 +584,7 @@ func queuedToMessage(q queuedMessage) Message {
 		FromBot:       q.fromBot,
 		Mentioned:     q.mentioned,
 		Direct:        q.direct,
+		abortFront:    q.abortFront, // #739: preserve redirect priority and reply target on redelivery.
 		UserID:        q.userID,
 		UserName:      q.userName,
 		TurnCtx:       q.turnCtx,
