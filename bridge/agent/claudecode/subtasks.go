@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -37,8 +38,11 @@ type subTaskTable struct {
 	// by sub-agent task_id (children) and by child task_id (childOf).
 	children map[string]map[string]bool
 	childOf  map[string]string
-	changed  chan struct{}
-	closed   bool
+	// The Agent tool call each live row runs in (task_started tool_use_id), by task_id:
+	// what the CLI's background_tasks control request names (BackgroundSubTask).
+	toolUse map[string]string
+	changed chan struct{}
+	closed  bool
 }
 
 func (t *subTaskTable) ch() chan struct{} {
@@ -115,6 +119,7 @@ func (cs *claudeSession) handleSubTaskEvent(sub string, raw map[string]any) {
 			t.gen++
 			t.prev, t.prevIndex = t.tasks, t.index
 			t.tasks = nil
+			t.toolUse = nil
 			t.index = map[string]int{}
 		}
 		if t.index == nil {
@@ -122,6 +127,12 @@ func (cs *claudeSession) handleSubTaskEvent(sub string, raw map[string]any) {
 		}
 		desc, _ := raw["description"].(string)
 		bg, _ := raw["is_backgrounded"].(bool)
+		if tu, _ := raw["tool_use_id"].(string); tu != "" {
+			if t.toolUse == nil {
+				t.toolUse = map[string]string{}
+			}
+			t.toolUse[id] = tu
+		}
 		t.index[id] = len(t.tasks)
 		t.tasks = append(t.tasks, core.SubTask{
 			ID:          id,
@@ -156,7 +167,13 @@ func (cs *claudeSession) handleSubTaskEvent(sub string, raw map[string]any) {
 	case "task_updated":
 		patch, _ := raw["patch"].(map[string]any)
 		st, _ := patch["status"].(string)
-		if !row.Live() || !t.finishLocked(row, st) {
+		// A foreground sub-agent moved to the background (BackgroundSubTask, or Ctrl+B in a
+		// terminal) reports patch.is_backgrounded=true and no status.
+		moved := false
+		if bg, _ := patch["is_backgrounded"].(bool); bg && !row.Background && row.Live() {
+			row.Background, moved = true, true
+		}
+		if (!row.Live() || !t.finishLocked(row, st)) && !moved {
 			return
 		}
 	case "task_notification":
@@ -313,3 +330,74 @@ func firstSentence(s string) string {
 	}
 	return s
 }
+
+// backgroundWait is how long BackgroundSubTask waits for the CLI's answer. Recorded from
+// claude 2.1.321 (2026-11-11): the control_response arrives in the same 100 ms as the request.
+const backgroundWait = 5 * time.Second
+
+// BackgroundSubTask implements core.SubTaskBackgrounder with the CLI's background_tasks control
+// request, the stream-json form of Ctrl+B. Recorded from claude 2.1.321 (2026-11-11, a foreground
+// Agent call running a 90 s command, a user message written to stdin 12 s in):
+//
+//	no request                  the message is not read until the sub-agent returns
+//	background_tasks            also backgrounds the Bash call inside the sub-agent, which then gives up
+//	background_tasks + tool_use_id   task_updated patch.is_backgrounded=true for that sub-agent only,
+//	                            control_response {"backgrounded":true}, the Agent call returns
+//	                            "Async agent launched", the message is answered 1.7 s later
+//
+// So the request always names the sub-agent's Agent tool call.
+func (cs *claudeSession) BackgroundSubTask(id string) error {
+	if !cs.alive.Load() {
+		return fmt.Errorf("session process is not running")
+	}
+	t := &cs.subTasks
+	t.mu.Lock()
+	toolUse := t.toolUse[id]
+	t.mu.Unlock()
+	if toolUse == "" {
+		return fmt.Errorf("sub-agent %s has no tool call on record", id)
+	}
+	reqID := fmt.Sprintf("cc-background-%d-%d", time.Now().UnixNano(), cs.interruptSeq.Add(1))
+	answer := make(chan map[string]any, 1)
+	cs.controlWaiters.Store(reqID, answer)
+	defer cs.controlWaiters.Delete(reqID)
+	if err := cs.writeJSON(map[string]any{
+		"type":       "control_request",
+		"request_id": reqID,
+		"request":    map[string]any{"subtype": "background_tasks", "tool_use_id": toolUse},
+	}); err != nil {
+		return fmt.Errorf("claude background_tasks: %w", err)
+	}
+	select {
+	case resp := <-answer:
+		if sub, _ := resp["subtype"].(string); sub != "success" {
+			msg, _ := resp["error"].(string)
+			return fmt.Errorf("claude background_tasks: %s %s", sub, msg)
+		}
+		if inner, _ := resp["response"].(map[string]any); inner != nil {
+			if moved, ok := inner["backgrounded"].(bool); ok && !moved {
+				return fmt.Errorf("claude background_tasks: nothing was moved")
+			}
+		}
+		return nil
+	case <-time.After(backgroundWait):
+		return fmt.Errorf("claude background_tasks: no answer in %s", backgroundWait)
+	case <-cs.ctx.Done():
+		return cs.ctx.Err()
+	}
+}
+
+// handleControlResponse hands the CLI's answer to a control request to whoever waits for it
+// (BackgroundSubTask). Answers nobody waits for (interrupt) are dropped as before.
+func (cs *claudeSession) handleControlResponse(raw map[string]any) {
+	resp, _ := raw["response"].(map[string]any)
+	id, _ := resp["request_id"].(string)
+	if w, ok := cs.controlWaiters.Load(id); ok {
+		select {
+		case w.(chan map[string]any) <- resp:
+		default:
+		}
+	}
+}
+
+var _ core.SubTaskBackgrounder = (*claudeSession)(nil)
