@@ -116,8 +116,8 @@ export interface ChannelMember {
   readonly kind: 'human' | 'dsh' | 'bot'
   readonly online: boolean
   readonly error?: string
-  /** DSH members only: configured model, or null for the host default. */
-  readonly model?: MemberModel | null
+  /** DSH provider route, Claude CLI model ID, or null for the backend default. */
+  readonly model?: MemberModel | string | null
   /** Local CLI members only: which CLI the member runs as. */
   readonly cli?: 'claude' | 'codex' | 'gemini'
   /** Local CLI members only: DSH permission preset for its tool calls; absent means DSH's default (workspace-write). */
@@ -153,6 +153,8 @@ export interface CliMemberInput {
   readonly persona: string
   /** CLI id as listed by `GET /collab/api/clis`. */
   readonly cli: string
+  /** Claude CLI model ID; null follows the CLI default, omitted keeps the saved choice. */
+  readonly model?: string | null
   /** DSH permission preset for the CLI's tool calls; omitted on edit keeps the stored one. */
   readonly permissionPreset?: PermissionPreset
   /** Built-in avatar slug, or '' for the initial badge. */
