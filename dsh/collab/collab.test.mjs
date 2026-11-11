@@ -2641,6 +2641,19 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   tasks.close(); hub.store.close();
 });
 
+test('#1606 tasks: a paused task leaves the sidebar 进行中 count, as in team_workspace list', () => {
+  const { hub, tasks } = makeTasks();
+  const ws = hub.store.createWorkspace(1);
+  const events = [];
+  hub.subscribe(e => { if (e.type === 'rooms') events.push(e.rooms); });
+  const task = tasks.assign({ roomId: ws.id, title: 'stuck upstream', owner: 'ds', actor: 'lead' });
+  assert.deepEqual(hub.store.roomsView().map(r => r.active), [0, 1]);
+  assert.ok(tasks.pauseTask(task.id));
+  assert.deepEqual(hub.store.roomsView().map(r => r.active), [0, 0]);
+  assert.deepEqual(events.at(-1).map(r => r.active), [0, 0], 'clients get the lower count without reload');
+  tasks.close(); hub.store.close();
+});
+
 test('tasks: dispatch → 接 → hand back → done, each step leaves one task record', () => {
   const { hub, tasks, clock } = makeTasks();
   const t = tasks.assign({ roomId: 1, title: '写登录页', owner: 'ds', actor: 'lead' });
