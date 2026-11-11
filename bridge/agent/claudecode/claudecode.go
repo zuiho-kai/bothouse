@@ -537,6 +537,20 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, voice
 			model = m
 		}
 	}
+	// A session-scoped provider (team workspace on a cheap model) overrides the
+	// active provider's endpoint for this one process only; the shared agent and
+	// its provider proxy are untouched.
+	if settings, ok := core.SessionSettingsFromContext(ctx); ok && settings.Provider != "" {
+		if env, pm, found := sessionProviderEnv(a.providers, settings.Provider); found {
+			extraEnv = core.MergeEnv(extraEnv, env)
+			activeProviderName = settings.Provider
+			if pm != "" {
+				model = pm
+			}
+		} else {
+			slog.Warn("claudecode: session provider not configured, using active provider", "provider", settings.Provider)
+		}
+	}
 	slog.Debug("claudecode: StartSession provider state",
 		"activeIdx", activeIdx,
 		"activeProvider", activeProviderName,
@@ -1267,6 +1281,35 @@ func (a *Agent) providerEnvLocked() []string {
 		"model", p.Model,
 		"env", core.RedactEnv(env))
 	return env
+}
+
+// sessionProviderEnv returns the env that points one Claude Code process at the
+// named provider (Bearer auth like providerEnvLocked; openai_chat upstreams go
+// through the protoconv converter). The thinking-rewrite proxy is shared and
+// stays on the active provider, so a session provider's Thinking is ignored.
+func sessionProviderEnv(providers []core.ProviderConfig, name string) (env []string, model string, found bool) {
+	for _, raw := range providers {
+		if raw.Name != name {
+			continue
+		}
+		p := raw.ForProtocol(core.ProtocolAnthropic)
+		if p.BaseURL != "" {
+			env = append(env, "ANTHROPIC_BASE_URL="+p.BaseURL, "NO_PROXY=127.0.0.1,localhost")
+			if p.APIKey != "" {
+				env = append(env, "ANTHROPIC_AUTH_TOKEN="+p.APIKey, "ANTHROPIC_API_KEY=")
+			}
+		} else if p.APIKey != "" {
+			env = append(env, "ANTHROPIC_API_KEY="+p.APIKey)
+		}
+		if raw.Model != "" {
+			env = append(env, "ANTHROPIC_MODEL="+raw.Model)
+		}
+		for k, v := range p.Env {
+			env = append(env, k+"="+v)
+		}
+		return env, raw.Model, true
+	}
+	return nil, "", false
 }
 
 func (a *Agent) runtimeEnvLocked() []string {

@@ -537,6 +537,7 @@ type Engine struct {
 	sessionModelsMu   sync.RWMutex
 	sessionModels     map[string]string
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
+	workspaceExec     workspaceExec     // team workspaces start on this provider/model (session_models.go)
 	sessionSelections map[string]sessionModelSelection
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
@@ -5329,6 +5330,10 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	settings := e.sessionSettingsFor(ccKey)
 	if m := e.turnModelFor(sessionKey); m != "" {
 		settings.Model = m // a review side turn on its tier model (TimerJob.Model)
+		settings.Provider = ""
+	}
+	if settings.Provider != "" {
+		slog.Info("workspace exec: session starts on workspace provider", "session", ccKey, "provider", settings.Provider, "model", settings.Model)
 	}
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()

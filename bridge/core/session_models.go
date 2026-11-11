@@ -119,11 +119,38 @@ func (e *Engine) applySessionInstructions(agent Agent, sessionKey string) {
 func (e *Engine) sessionSettingsFor(sessionKey string) SessionSettings {
 	selection := e.sessionSelection(sessionKey)
 	e.sessionModelsMu.RLock()
-	defer e.sessionModelsMu.RUnlock()
 	si := e.sessionInstructions[sessionKey]
 	model := e.sessionModels[sessionKey]
-	if selection.Model != "" {
-		model = selection.Model
+	ws := e.workspaceExec
+	e.sessionModelsMu.RUnlock()
+	settings := SessionSettings{ReasoningEffort: selection.Effort, InstructionsPath: si.path, InstructionsText: si.text}
+	switch {
+	case selection.Model != "":
+		settings.Model = selection.Model // picked by hand (model set / tiers) wins
+	case model != "":
+		settings.Model = model
+	case ws.provider != "" && e.isTeamWorkspaceChat(sessionKey):
+		settings.Provider, settings.Model = ws.provider, ws.model
 	}
-	return SessionSettings{Model: model, ReasoningEffort: selection.Effort, InstructionsPath: si.path, InstructionsText: si.text}
+	return settings
+}
+
+// ---- maomao fork: cheap workspace execution ----
+//
+// The lead (expensive model) writes the handoff and checks the [report]; the
+// workspace that does the work starts on workspace_provider/workspace_model
+// (e.g. a local Qwen behind an OpenAI-compatible endpoint, reached through the
+// protoconv converter). Applies only to team workspace channels with no
+// hand-picked model.
+type workspaceExec struct{ provider, model string }
+
+// SetWorkspaceExec sets the provider/model team workspaces start on ("" = off).
+func (e *Engine) SetWorkspaceExec(provider, model string) {
+	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
+	e.sessionModelsMu.Lock()
+	e.workspaceExec = workspaceExec{provider: provider, model: model}
+	e.sessionModelsMu.Unlock()
+	if provider != "" {
+		slog.Info("workspace exec: team workspaces run on a separate provider", "provider", provider, "model", model)
+	}
 }
