@@ -571,28 +571,43 @@ LESSON_TOP = 3
 _lesson_rel = {}
 
 
-def lessons(root=None):
-    """[(rel, 行号, 原行, 踩坑次数, 最近 MM-DD)]，按推送顺序排好。"""
+def lesson_pages(root=None):
+    """教训表主页 + 拆页拆出的子页的 rel，主页在前。拆页后主页挪进同名目录 <名>/<名>.md、子页在它旁边；
+    没挪的老布局则看主页旁的 <名>/ 目录。主页 rel 缓存，主页没了再找；子页每次重列。"""
     root = root or WIKI
     if root is None:
         return []
     rel = _lesson_rel.get(root)
-    if rel is None or not (root / rel).exists():
+    if rel is None or (rel and not (root / rel).exists()):
         hits = sorted(p for p in root.glob("**/" + LESSON_NAME) if not any(x.startswith(".") for x in p.relative_to(root).parts))
         rel = _lesson_rel[root] = hits[0].relative_to(root).as_posix() if hits else ""
     if not rel:
         return []
-    out, lines = [], _read(root / rel).split("\n")
-    for n, ln in enumerate(lines, 1):
-        if not ln.startswith(LESSON_HEAD):
-            continue
-        ev = []
-        for x in lines[n:]:
-            if not x.startswith("  "):
-                break
-            if (d := re.match(r"\s+- (\d\d-\d\d) ", x)):
-                ev.append(d.group(1))
-        out.append((rel, n, ln, len(ev), max(ev, default="")))
+    main = root / rel
+    sub = main.parent if main.parent.name == main.stem else main.with_suffix("")
+    subs = sorted(p.relative_to(root).as_posix() for p in sub.glob("**/*.md")
+                  if p != main and not any(x.startswith(".") for x in p.relative_to(sub).parts)) if sub.is_dir() else []
+    return [rel] + subs
+
+
+def lessons(root=None):
+    """[(rel, 行号, 原行, 踩坑次数, 最近 MM-DD)]，按推送顺序排好；rel 是这条真实所在的页（主页或子页）。"""
+    root = root or WIKI
+    if root is None:
+        return []
+    out = []
+    for rel in lesson_pages(root):
+        lines = _read(root / rel).split("\n")
+        for n, ln in enumerate(lines, 1):
+            if not ln.startswith(LESSON_HEAD):
+                continue
+            ev = []
+            for x in lines[n:]:
+                if not x.startswith("  "):
+                    break
+                if (d := re.match(r"\s+- (\d\d-\d\d) ", x)):
+                    ev.append(d.group(1))
+            out.append((rel, n, ln, len(ev), max(ev, default="")))
     out.sort(key=lambda x: x[4], reverse=True)  # 稳定排序：先按最近，再按次数，最后按论坛分（主键）
     out.sort(key=lambda x: -x[3])
     out.sort(key=lambda x: FORUM.rank_key(FORUM.entry_id(x[0], x[2])) if FORUM else (False, 0))

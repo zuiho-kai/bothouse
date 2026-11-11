@@ -124,5 +124,24 @@ class T(unittest.TestCase):
         hits = [("tooling/rule-candidates-recurrence.md", 9, line), ("tooling/rule-candidates-recurrence.md", 7, "- 别的")]
         self.assertEqual(forum_scores.rerank(hits)[-1][2], line)  # 沉底，不删
 
+    def test_lessons_read_split_subpages(self):
+        # 拆页后：主页 0 条经验，挪进同名目录，子页在旁边；每条 rel/行号是它真实所在的子页
+        (self.wiki / "tooling/rule-candidates-recurrence.md").unlink()
+        d = self.wiki / "tooling/rules/rule-candidates-recurrence"
+        d.mkdir(parents=True)
+        (d / "rule-candidates-recurrence.md").write_text("# 教训表\n\n## 关键事实\n- 主页普通事实\n", encoding="utf-8")
+        (d / "wait.md").write_text("# 等待\n\n## 关键事实\n- 经验：长命令先后台启动\n  - 11-08 前台等了很久\n", encoding="utf-8")
+        (d / "forum.md").write_text("# 论坛\n- 经验：发版前先看旧 run\n  - 11-09 旧 run 挡住\n  - 11-10 又挡住\n", encoding="utf-8")
+        got = {(r, n): (ln, c) for r, n, ln, c, _ in ctxsvc.lessons()}
+        base = "tooling/rules/rule-candidates-recurrence/"
+        self.assertEqual(set(got), {(base + "wait.md", 4), (base + "forum.md", 2)})
+        self.assertEqual(got[(base + "forum.md", 2)][1], 2)
+
+    def test_lessons_main_page_without_subpages(self):
+        got = ctxsvc.lessons()
+        self.assertEqual(len(got), 2)
+        self.assertEqual({r for r, *_ in got}, {"tooling/rule-candidates-recurrence.md"})
+
+
 if __name__ == "__main__":
     unittest.main()
