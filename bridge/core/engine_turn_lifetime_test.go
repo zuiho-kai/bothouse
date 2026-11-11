@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -20,9 +21,13 @@ type turnLifetimeSession struct {
 	background   atomic.Int32
 	closeStarted chan struct{}
 	closeRelease <-chan struct{}
+	sendErr      error
 }
 
 func (s *turnLifetimeSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
+	if s.sendErr != nil {
+		return s.sendErr
+	}
 	s.events <- Event{Type: EventResult, Content: "ok", Done: true}
 	return nil
 }
@@ -52,6 +57,7 @@ type turnLifetimeAgent struct {
 	strict     bool
 	noResume   bool
 	background int32
+	sendErr    error
 	mu         sync.Mutex
 	starts     []string // the saved ID each start asked to resume ("" = new)
 	sessions   []*turnLifetimeSession
@@ -66,7 +72,7 @@ func (a *turnLifetimeAgent) StartSession(_ context.Context, id string) (AgentSes
 	if sid == "" {
 		sid = "conv-1"
 	}
-	s := &turnLifetimeSession{id: sid, events: make(chan Event, 4)}
+	s := &turnLifetimeSession{id: sid, events: make(chan Event, 4), sendErr: a.sendErr}
 	s.background.Store(a.background)
 	a.sessions = append(a.sessions, s)
 	if a.noResume {
@@ -154,6 +160,19 @@ func TestTurnEnd_KeepsProcessWhenAgentCannotResume(t *testing.T) {
 	}
 }
 
+func TestTurnEnd_ClosesResumableProcessAfterFailedSend(t *testing.T) {
+	base := &turnLifetimeAgent{sendErr: errors.New("synthetic send failure")}
+	agent := strictTurnLifetimeAgent{base}
+	e := newTurnLifetimeEngine(t, agent)
+	key := "test:chat:u1"
+	runTurnLifetimeTurn(t, e, agent, key)
+	waitForInteractiveStateRemoved(t, e, key)
+	_, sessions := base.snapshot()
+	if !sessions[0].closed.Load() {
+		t.Fatal("failed send left its process running")
+	}
+}
+
 func TestTurnEnd_KeepsProcessWhenServerCannotLoadSession(t *testing.T) {
 	base := &turnLifetimeAgent{noResume: true}
 	agent := strictTurnLifetimeAgent{base}
@@ -196,6 +215,7 @@ func TestTurnEnd_NextTurnClaimsProcessBeforeCleanup(t *testing.T) {
 	session.SetAgentSessionID("conv-1", agent.Name())
 	state.eventsNeedResync = false
 	token := e.agentSessionIdleSeq.Add(1)
+	state.processClaimed = false // the preceding foreground turn released ownership
 	state.agentSessionIdleToken = token
 	claimed := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
 	if claimed != state {
@@ -207,6 +227,29 @@ func TestTurnEnd_NextTurnClaimsProcessBeforeCleanup(t *testing.T) {
 		t.Fatal("cleanup closed a process already claimed by the next turn")
 	}
 	e.cleanupInteractiveState(key, state)
+}
+
+func TestTurnEnd_BackgroundCompletionCannotCloseClaimedProcess(t *testing.T) {
+	base := &turnLifetimeAgent{}
+	agent := strictTurnLifetimeAgent{base}
+	e := newTurnLifetimeEngine(t, agent)
+	key := "test:chat:u1"
+	session := e.sessions.GetOrCreateActive(key)
+	state := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	state.eventsNeedResync = false
+	// An unsolicited completion can arrive after the new worker has claimed the
+	// process, before stopUnsolicitedReader has joined the preceding reader.
+	state.processClaimed = false // preceding turn released its foreground claim
+	if got := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, ""); got != state {
+		t.Fatal("new turn did not claim the preceding process")
+	}
+	e.scheduleAgentSessionIdleClose(key, state)
+	state.mu.Lock()
+	token := state.agentSessionIdleToken
+	state.mu.Unlock()
+	if token != 0 {
+		t.Fatal("background completion scheduled a close on a claimed process")
+	}
 }
 
 func TestTurnEnd_ResumeWaitsForPreviousProcessClose(t *testing.T) {
@@ -226,6 +269,7 @@ func TestTurnEnd_ResumeWaitsForPreviousProcessClose(t *testing.T) {
 	t.Cleanup(unblock)
 	old.closeRelease = release
 	state.eventsNeedResync = false
+	state.processClaimed = false // simulate the completed turn before cleanup
 	token := e.agentSessionIdleSeq.Add(1)
 	state.agentSessionIdleToken = token
 	go e.cleanupInteractiveStateForIdleToken(key, state, token, 0)

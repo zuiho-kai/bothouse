@@ -721,6 +721,7 @@ type interactiveState struct {
 	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
 	agentCloseDone           <-chan struct{} // turn/idle close: wait for durable close before resume; guarded by interactiveMu
 	agentSession             AgentSession
+	processClaimed           bool           // foreground owns the process until the final queue check and session unlock; guarded by mu
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
@@ -5411,6 +5412,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			}
 		}
 		if !needRecycle {
+			state.mu.Lock()
+			state.processClaimed = true
+			state.mu.Unlock()
 			return state
 		}
 		// Tear down the stale agent so we start one that matches the Session below.
@@ -5619,6 +5623,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	newState := &interactiveState{
 		modelSettings:    settings,
 		agentSession:     agentSession,
+		processClaimed:   true,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
 		platform:         p,
 		replyCtx:         replyCtx,
@@ -5754,10 +5759,10 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 	e.cancelAgentSessionIdleClose(state)
 	token := e.agentSessionIdleSeq.Add(1)
 	state.mu.Lock()
-	if state.stopped ||
+	if state.stopped || state.processClaimed ||
 		state.agentSession == nil ||
 		!state.agentSession.Alive() ||
-		state.eventsNeedResync ||
+		(!resumable && state.eventsNeedResync) ||
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
@@ -5867,10 +5872,11 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 	var agentSession AgentSession
 	state.mu.Lock()
 	if state.agentSessionIdleToken != token ||
+		state.processClaimed ||
 		state.agentSession == nil ||
 		!state.agentSession.Alive() ||
 		state.stopped ||
-		state.eventsNeedResync ||
+		(timeout > 0 && state.eventsNeedResync) ||
 		state.pending != nil ||
 		len(state.pendingMessages) > 0 {
 		state.mu.Unlock()
@@ -8722,12 +8728,16 @@ func (e *Engine) notifyDroppedQueuedMessages(state *interactiveState, reason err
 }
 
 // drainPendingMessages processes all queued messages in the state's pendingMessages
-// queue. It owns the event reader while draining, restores the idle reader and
-// timer before releasing the session, then rechecks the queue under state.mu.
+// queue. It owns the event reader while draining, restores the idle reader,
+// then releases process ownership and the session after the final queue check.
 // This closes both the late-enqueue window and the window in which a new
 // foreground turn could race with a late background-reader/timer restart.
 // Returns true if the session was unlocked by this call.
 func (e *Engine) drainPendingMessages(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string) bool {
+	// Orphaned queues enter here without going through process acquisition.
+	state.mu.Lock()
+	state.processClaimed = true
+	state.mu.Unlock()
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
@@ -8737,6 +8747,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			if n := len(state.pendingMessages); n > 0 {
 				slog.Info("queued messages kept for resume after shutdown", "count", n)
 			}
+			state.processClaimed = false
 			session.Unlock()
 			state.mu.Unlock()
 			return true
@@ -8783,12 +8794,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		}
 		if len(state.pendingMessages) == 0 {
 			alive := state.agentSession != nil && state.agentSession.Alive() && !state.stopped && !state.eventsNeedResync
+			closeAfterFailure := !state.stopped && agentSessionResumable(state.agent, state.agentSession)
 			workspaceDir := state.workspaceDir
 			state.mu.Unlock()
 			if alive {
 				e.startUnsolicitedReader(state, session, sessions, sessionKey, workspaceDir)
-				e.scheduleAgentSessionIdleClose(sessionKey, state)
 			}
+			// Cancel before the final queue check: cancellation may itself let a
+			// pending enqueue finish. Closing is armed only after ownership ends.
+			e.cancelAgentSessionIdleClose(state)
 			state.mu.Lock()
 			if len(state.pendingMessages) != 0 {
 				// A message arrived while restoring idle state. Keep ownership
@@ -8797,8 +8811,12 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				e.cancelAgentSessionIdleClose(state)
 				continue
 			}
+			state.processClaimed = false
 			session.Unlock()
 			state.mu.Unlock()
+			if alive || closeAfterFailure {
+				e.scheduleAgentSessionIdleClose(sessionKey, state)
+			}
 			return true
 		}
 		queued := takeQueuedBatchLocked(state) // a burst from one sender runs as one turn
