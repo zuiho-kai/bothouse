@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,107 @@ type turnLifetimeSession struct {
 	closeStarted chan struct{}
 	closeRelease <-chan struct{}
 	sendErr      error
+}
+
+// #711/F2: hold the actual Close open, then enter through the same late-enqueue
+// path as a message whose busy check raced with the preceding turn's unlock.
+func TestTurnEnd_LateQueueWaitsForCloseAndResumes(t *testing.T) {
+	base := &turnLifetimeAgent{}
+	agent := strictTurnLifetimeAgent{base}
+	e := newTurnLifetimeEngine(t, agent)
+	key := "test:chat:u1"
+	session, old, unblock := beginTurnLifetimeClose(t, e, base, key)
+	defer unblock()
+	msg := &Message{Platform: "test", SessionKey: key, MessageID: "late", UserID: "u1", Content: "arrived during close", ReplyCtx: "ctx"}
+	if outcome := e.queueForBusySession(e.platforms[0], msg, session, e.sessions, key, agent, "", nil); outcome != queueAccepted {
+		t.Fatalf("late message outcome = %v, want accepted", outcome)
+	}
+	// A dropped message also releases the lock, so wait for the worker to either
+	// drop it (the regression) or block behind Close, before releasing Close.
+	select {
+	case <-time.After(25 * time.Millisecond):
+	}
+	sent := strings.Join(e.platforms[0].(*stubPlatformEngine).getSent(), "\n")
+	if strings.Contains(sent, "agent session ended") {
+		t.Fatalf("accepted late message was dropped: %s", sent)
+	}
+	starts, _ := base.snapshot()
+	if len(starts) != 1 || old.closed.Load() {
+		t.Fatal("replacement started before old Close completed")
+	}
+	unblock()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		starts, processes := base.snapshot()
+		if len(processes) == 2 && processes[1].closed.Load() && !session.Busy() {
+			if starts[1] != "conv-1" {
+				t.Fatalf("late turn resumed %q", starts[1])
+			}
+			sent = strings.Join(e.platforms[0].(*stubPlatformEngine).getSent(), "\n")
+			if !strings.Contains(sent, "ok") {
+				t.Fatalf("late message has no answer: %s", sent)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("accepted late message did not complete on a resumed process")
+}
+
+// #711/F3: /stop is a real command ingress, not a direct state deletion.
+func TestTurnEnd_StopPreservesClosingBarrier(t *testing.T) {
+	base := &turnLifetimeAgent{}
+	agent := strictTurnLifetimeAgent{base}
+	e := newTurnLifetimeEngine(t, agent)
+	key := "test:chat:u1"
+	session, _, unblock := beginTurnLifetimeClose(t, e, base, key)
+	defer unblock()
+	e.ReceiveMessage(e.platforms[0], &Message{Platform: "test", SessionKey: key, UserID: "u1", Content: "/stop", ReplyCtx: "ctx"})
+	ready := make(chan *interactiveState, 1)
+	go func() {
+		ready <- e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	}()
+	select {
+	case <-ready:
+		t.Fatal("/stop let the next message resume before old Close completed")
+	case <-time.After(25 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case next := <-ready:
+		if next.agentSession == nil || next.agentSession.CurrentSessionID() != "conv-1" {
+			t.Fatal("lost original native session after /stop")
+		}
+		e.cleanupInteractiveState(key, next)
+	case <-time.After(time.Second):
+		t.Fatal("resume stayed blocked after Close completed")
+	}
+}
+
+func beginTurnLifetimeClose(t *testing.T, e *Engine, base *turnLifetimeAgent, key string) (*Session, *turnLifetimeSession, func()) {
+	t.Helper()
+	session := e.sessions.GetOrCreateActive(key)
+	state := e.getOrCreateInteractiveStateWith(key, e.platforms[0], "ctx", session, e.sessions, nil, "")
+	session.SetAgentSessionID("conv-1", base.Name())
+	_, processes := base.snapshot()
+	old := processes[0]
+	old.closeStarted = make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	old.closeRelease = release
+	state.eventsNeedResync = false
+	state.processClaimed = false
+	token := e.agentSessionIdleSeq.Add(1)
+	state.agentSessionIdleToken = token
+	go e.cleanupInteractiveStateForIdleToken(key, state, token, 0)
+	select {
+	case <-old.closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not start closing")
+	}
+	return session, old, unblock
 }
 
 func (s *turnLifetimeSession) Send(string, string, []ImageAttachment, []FileAttachment) error {

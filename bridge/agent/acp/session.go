@@ -280,10 +280,7 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		}
 		loadRes, err := s.tr.call(s.ctx, resumeMethod, loadParams)
 		if err != nil {
-			if s.strictResume || resumeSupported {
-				return fmt.Errorf("acp: %s: %w", resumeMethod, err)
-			}
-			slog.Warn("acp: session/load failed, starting new session", "error", err)
+			return fmt.Errorf("acp: %s: %w", resumeMethod, err)
 		} else {
 			var lr struct {
 				SessionID     string            `json:"sessionId"`
@@ -292,26 +289,22 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 				ConfigOptions []acpConfigOption `json:"configOptions"`
 			}
 			parseErr := json.Unmarshal(loadRes, &lr)
-			if s.strictResume || resumeSupported {
-				// ACP v1 LoadSessionResponse has no required sessionId: a successful
-				// object response acknowledges the requested ID. Reject a conflicting
-				// vendor extension, malformed result, or null; never create a session.
-				if parseErr != nil || len(bytes.TrimSpace(loadRes)) == 0 || bytes.TrimSpace(loadRes)[0] != '{' {
-					return fmt.Errorf("acp: invalid %s response", resumeMethod)
-				}
-				if lr.SessionID != "" && lr.SessionID != resumeSessionID {
-					return fmt.Errorf("acp: loaded session does not match original binding")
-				}
-				lr.SessionID = resumeSessionID
+			// ACP v1 LoadSessionResponse has no required sessionId: a successful
+			// object acknowledges the requested ID in both ordinary and strict
+			// starts. Report failed/invalid loads to the caller, which owns any
+			// explicit fresh-session fallback and its user-visible notice.
+			if parseErr != nil || len(bytes.TrimSpace(loadRes)) == 0 || bytes.TrimSpace(loadRes)[0] != '{' {
+				return fmt.Errorf("acp: invalid %s response", resumeMethod)
 			}
-			if parseErr == nil && lr.SessionID != "" {
-				s.setACPSessionID(lr.SessionID)
-				s.absorbModes(lr.Modes)
-				s.absorbModelInfo(lr.Models, lr.ConfigOptions)
-				s.closeSupported = closeSupported
-				s.canResume = initOut.AgentCapabilities.LoadSession || resumeSupported
-				return nil
+			if lr.SessionID != "" && lr.SessionID != resumeSessionID {
+				return fmt.Errorf("acp: loaded session does not match original binding")
 			}
+			s.setACPSessionID(resumeSessionID)
+			s.absorbModes(lr.Modes)
+			s.absorbModelInfo(lr.Models, lr.ConfigOptions)
+			s.closeSupported = closeSupported
+			s.canResume = initOut.AgentCapabilities.LoadSession || resumeSupported
+			return nil
 		}
 	}
 

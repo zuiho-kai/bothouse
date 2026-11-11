@@ -4286,15 +4286,15 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 
 	e.interactiveMu.Lock()
 	state, hasState := e.interactiveStates[interactiveKey]
-	e.interactiveMu.Unlock()
 
 	if hasState && state != nil {
-		// A placeholder (no agent session yet) whose queue formed while a native
-		// /compact held the session has nothing to drain into. Start a turn with
-		// the first queued message; it adopts the rest and drains them. Any other
-		// placeholder (its session failed to start) keeps the drop below.
+		// A compact placeholder or a process being closed has no live process to
+		// drain into. Re-enter the foreground acquisition path: it waits for
+		// actual Close, resumes the saved ID and adopts the remaining queue.
 		state.mu.Lock()
-		placeholder := state.queuedBehindCompact && state.agentSession == nil && !state.stopped && len(state.pendingMessages) > 0
+		placeholder := state.agentSession == nil && len(state.pendingMessages) > 0 &&
+			(state.agentCloseDone != nil || (state.queuedBehindCompact && !state.stopped))
+		alive := state.agentSession != nil && state.agentSession.Alive()
 		state.queuedBehindCompact = false
 		var first queuedMessage
 		if placeholder {
@@ -4302,6 +4302,7 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 			state.pendingMessages = state.pendingMessages[1:]
 		}
 		state.mu.Unlock()
+		e.interactiveMu.Unlock()
 		if placeholder {
 			msg := queuedToMessage(first)
 			e.startScheduledTurn(&msg, session) // a queued cron/timer turn, as when run directly
@@ -4309,11 +4310,12 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 			e.processInteractiveMessageWith(first.platform, &msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
 			return
 		}
-	}
-	if !hasState || state == nil || state.agentSession == nil || !state.agentSession.Alive() {
-		if hasState && state != nil {
+		if !alive {
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent session ended"))
+			return
 		}
+	} else {
+		e.interactiveMu.Unlock()
 		return
 	}
 
@@ -13251,15 +13253,25 @@ func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued
 
 normalCleanup:
 	var closed chan struct{}
+	closing := state.agentCloseDone != nil
 	if keepQueued {
-		closed = make(chan struct{})
 		state.mu.Lock()
 		state.resetHandoff = true
-		state.abortCloseDone = closed
+		if closing {
+			state.abortCloseDone = state.agentCloseDone
+		} else {
+			closed = make(chan struct{})
+			state.abortCloseDone = closed
+		}
 		state.mu.Unlock()
 	}
 	state.markStopped()
-	delete(e.interactiveStates, sessionKey)
+	// The turn closer owns the existing completion barrier. Keep it discoverable
+	// by the next message until that Close has actually finished; /stop must not
+	// start a second close or let the same native session resume prematurely.
+	if !closing {
+		delete(e.interactiveStates, sessionKey)
+	}
 	e.interactiveMu.Unlock()
 
 	if pending != nil {
@@ -13272,7 +13284,9 @@ normalCleanup:
 		state.pendingMessages = nil
 		state.mu.Unlock()
 	}
-	go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	if !closing {
+		go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
+	}
 
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventSessionEnded,
