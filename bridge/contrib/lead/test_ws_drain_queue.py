@@ -90,7 +90,7 @@ class DrainQueue(unittest.TestCase):
                 patch.dict(self.g, {"ws_cmd": ws_cmd, "release_stale_returned": lambda c: None,
                                     "migrate_unbound": lambda *a: False}), \
                 patch.object(self.g["subprocess"], "run", side_effect=lambda cmd, **k: seen.setdefault("claim", cmd) and R()):
-            got = self.mod["pick_pool"]("room:w2", "任务")
+            got = self.mod["pick_pool"]("room:w2", "任务", 7)
         self.assertEqual(seen["list"], "room:main")
         self.assertIn("room:main", seen["claim"])
         self.assertEqual(got, ("room:w3", "工作区3", "room:main"))

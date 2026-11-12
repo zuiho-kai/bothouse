@@ -226,8 +226,13 @@ func (e *Engine) notifyReleaseHoldUnresumed(chat string, it teamTaskBoardItem) {
 func (e *Engine) releaseHoldCovered(id int) bool {
 	items := readTeamTaskBoard(e.team.dir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		// Unknown: the hold stays (a release would free work that may be live).
+		slog.Error("release hold: workspace state unreadable; hold kept", "board", id, "error", err)
+		return true
+	}
 	for _, all := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for key, rows := range all {
 			for _, h := range rows {
@@ -255,7 +260,11 @@ func (e *Engine) releaseHoldAssignment(id int) (idleAssignment, bool) {
 	items := readTeamTaskBoard(e.team.dir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("release hold: workspace state unreadable", "board", id, "error", err)
+		return idleAssignment{}, false
+	}
 	for _, script := range []bool{false, true} {
 		all := st.Handoffs
 		if script {

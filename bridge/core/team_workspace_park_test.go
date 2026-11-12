@@ -17,7 +17,7 @@ import (
 func handoffsOf(e *Engine, key string) []TeamHandoff {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	return append([]TeamHandoff(nil), loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]...)
+	return append([]TeamHandoff(nil), testLoadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]...)
 }
 
 // Discord/Feishu (the bridge records the owner): parking the only task frees the workspace at
@@ -220,7 +220,7 @@ func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 			hs = append(hs, TeamHandoff{Chat: "discord:999", At: now, Parked: now})
 		}
 		teamWorkspaceStore.mu.Lock()
-		st := loadTeamWorkspacesLocked(path)
+		st := testLoadTeamWorkspacesLocked(path)
 		st.Parents = map[string][]TeamWorkspace{}
 		st.Handoffs = map[string][]TeamHandoff{"discord:201": hs}
 		teamWorkspaceStore.mu.Unlock()
@@ -249,7 +249,7 @@ func TestWorkspaceParkStateCompatible(t *testing.T) {
 	}
 	forgetWorkspaceCache(dir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	st := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	_, ws1 := teamWorkspaceOwnerLocked(st, "discord", "ws1")
 	owner2, _ := teamWorkspaceOwnerLocked(st, "discord", "ws2")
 	open, parked := teamWorkspaceCountsLocked(st, "discord:ws1")

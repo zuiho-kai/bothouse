@@ -48,7 +48,7 @@ func TestTurnResume_DropsStoppedWatch(t *testing.T) {
 	}
 	// Handed out again: a newer open watch with the same title resumes normally.
 	teamWorkspaceStore.mu.Lock()
-	live := loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+	live := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	live.ScriptWatches[key] = append(live.ScriptWatches[key], TeamHandoff{Owner: "<@9>", Sender: "lead", Title: "review the diagram", At: time.Now()})
 	teamWorkspaceStore.mu.Unlock()
 	if s := e.watchStoppedFor(cases["wake"]); s != "" {

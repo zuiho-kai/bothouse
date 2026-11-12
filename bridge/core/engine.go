@@ -5823,7 +5823,15 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 // teammate processes after a workspace is returned. It preserves conversation IDs
 // and returns the number scheduled; actual shutdown is logged by the shared closer.
 func (e *Engine) CloseIdleTeamWorkspaceAgents(key string) int {
-	if e == nil || e.sessions == nil || !e.teamWorkspaceFree(key) {
+	if e == nil || e.sessions == nil {
+		return 0
+	}
+	free, err := e.teamWorkspaceFree(key)
+	if err != nil {
+		slog.Error("team workspace: state unreadable; idle agents not released", "workspace", key, "error", err)
+		return 0
+	}
+	if !free {
 		return 0
 	}
 	n := 0

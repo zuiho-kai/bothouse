@@ -121,7 +121,7 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 			}
 			now := time.Now()
 			teamWorkspaceStore.mu.Lock()
-			st := loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+			st := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 			st.Handoffs = map[string][]TeamHandoff{}
 			st.Handoffs[ws] = []TeamHandoff{{Chat: chat, At: now, Owner: "orange", Title: "修复代码", Board: 9}}
 			err = saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
@@ -158,7 +158,7 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 				t.Fatal("handoff or unknown board fields lost")
 			}
 			teamWorkspaceStore.mu.Lock()
-			st = loadTeamWorkspacesLocked(teamWorkspacePath(dir))
+			st = testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 			owner := st.Handoffs[ws][0].Owner
 			teamWorkspaceStore.mu.Unlock()
 			if owner != "longniang" {

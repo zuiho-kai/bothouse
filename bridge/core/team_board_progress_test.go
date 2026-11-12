@@ -14,7 +14,7 @@ import (
 // #208: a renewal must leave 「最后活动 + 最近一步」 on the workspace's board row, or the table
 // keeps counting from the hand edit and calls live work 卡住 (1h) / 搁置 (24h).
 func TestWatchProgressWritesBoardRow(t *testing.T) {
-	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
+	e, p, w, h := progressFixtureBoard(t, "<@"+k5aOwner+">", 7)
 	// The real gate/board.py, so the row is read back by the script that owns the file.
 	gateSrc, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
 	if err != nil {
@@ -29,7 +29,7 @@ func TestWatchProgressWritesBoardRow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	now := h.Due // handoffBoardID: one board item bound to this workspace
+	now := h.Due // the handoff was claimed for #7 (#699: no guessing from the workspace)
 	p.post("ws1", k5aOwner, "@橘 改完 team_watch.go，在跑测试", now.Add(-time.Minute))
 	j := e.turnJournalStore()
 	en, err := j.Begin(TurnJournalEntry{InteractiveKey: "discord:ws1:u1"})
@@ -68,7 +68,7 @@ func TestWatchProgressWritesBoardRow(t *testing.T) {
 
 // A step the workspace wrote itself stays; the row only gets the new 最后活动时间.
 func TestWatchProgressKeepsOwnStatus(t *testing.T) {
-	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
+	e, p, w, h := progressFixtureBoard(t, "<@"+k5aOwner+">", 9)
 	boardDir := e.teamStatusDir()
 	row := `{"id":9,"what":"自己写状态","status":"在做：写 208 的看门","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main","at":"11-05 12:00"}` + "\n"
 	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
@@ -314,7 +314,7 @@ func TestBoardProgressIsolatedInstance(t *testing.T) {
 	s := &APIServer{engines: map[string]*Engine{"orange": e}}
 	s.startHandoffWatch()
 	t.Cleanup(func() { s.Stop() })
-	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "<@"+k5aOwner+">", "隔离实例"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "<@"+k5aOwner+">", "隔离实例", 11); err != nil {
 		t.Fatal(err)
 	}
 	h := handoffsOf(e, "discord:ws1")[0]

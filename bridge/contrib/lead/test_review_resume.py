@@ -27,7 +27,7 @@ class ReviewResume(unittest.TestCase):
             "ws_cmd": lambda *args: {"parent": "room:chat", "pool": pool},
             "migrate_unbound": lambda *args: False,
         }), patch.object(self.g["subprocess"], "run", claim):
-            got = self.mod["pick_pool"]("room:chat", "redo", preferred)
+            got = self.mod["pick_pool"]("room:chat", "redo", 46, preferred)
         return got, calls
 
     def test_original_workspace_first_only_when_free_and_owned(self):
@@ -56,7 +56,7 @@ class ReviewResume(unittest.TestCase):
             return None
         with patch.object(board, "items", return_value=[{"id": 46, "ws_was": "room:3", "review_rejected": "test"}]), patch.dict(self.g, {"pick_pool": pick}):
             self.assertFalse(self.mod["start"]("notes", "redo", "room:chat", 46, "reviewer"))
-        self.assertEqual(seen, [("room:chat", "redo", "room:3")])
+        self.assertEqual(seen, [("room:chat", "redo", 46, "room:3")])
 
 
 if __name__ == "__main__":

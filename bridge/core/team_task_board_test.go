@@ -286,7 +286,7 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 		teamWorkspaceStore.mu.Lock()
 		defer teamWorkspaceStore.mu.Unlock()
 		path := teamWorkspacePath(dataDir)
-		st := loadTeamWorkspacesLocked(path)
+		st := testLoadTeamWorkspacesLocked(path)
 		st.Handoffs = map[string][]TeamHandoff{"cloud_web:room-2": {
 			{Chat: "cloud_web:room-9", At: at.Add(-time.Hour), Closed: at.Add(-time.Minute)}, // an older task of another chat
 			{Chat: "cloud_web:room-1", At: at, Closed: closed},

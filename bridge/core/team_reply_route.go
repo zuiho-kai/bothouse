@@ -21,7 +21,12 @@ func (e *Engine) endedHandoffOf(key string, sent time.Time) (TeamHandoff, bool) 
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	pick := -1
-	list := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).Handoffs[key]
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "workspace", key, "error", err)
+		return TeamHandoff{}, false
+	}
+	list := st.Handoffs[key]
 	for i, h := range list {
 		if !h.At.After(sent) && (pick < 0 || !h.At.Before(list[pick].At)) {
 			pick = i

@@ -31,6 +31,7 @@ func runWorkspace(args []string) {
 	stop := fs.Bool("stop", false, "park: also stop the turn running in the workspace when it is freed (the user stopped the task)")
 	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
+	boardID := fs.Int("board", 0, "claim: the task-board item handed off; the bridge records the task's state against it")
 	_ = parseWorkspaceFlags(fs, rest)
 	if *session == "" {
 		workspaceFail(fmt.Errorf("no channel: run this inside a bothouse agent session or pass --session-key discord:<channel id>"))
@@ -59,7 +60,7 @@ func runWorkspace(args []string) {
 		if fs.NArg() < 1 {
 			workspaceFail(fmt.Errorf("usage: bothouse workspace claim <workspace channel id>"))
 		}
-		body, _ := json.Marshal(map[string]string{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title})
+		body, _ := json.Marshal(map[string]any{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title, "board": *boardID})
 		resp, err := apiPost(sock, "/team/workspace/claim", body)
 		if err != nil {
 			workspaceFail(err)
@@ -153,11 +154,14 @@ func printWorkspaceUsage() {
   list   list this chat channel's workspaces and the category's shared pool
   claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task);
          [--owner <id>] [--title <short name>]: who the task goes to and what it is, for the
-         ten-minute check (no progress: nudge first, pause after one more quiet window).
+         ten-minute check; [--board <item id>]: the task-board item, whose state the bridge
+         records (dispatched → working → paused), refused when that task is closed (no progress: nudge first, pause after one more quiet window).
          A configured project name is resolved to its ready platform user ID; without one,
          the claim fails. Options may appear before or after the workspace ID.
   park   pause one task of <workspace id> (default: this workspace); with no other task in
          work there the workspace goes back to the pool and its sessions are reset;
+         --stop: the pause comes from outside the workspace, so its running turn is stopped
+         before the workspace is given back;
          --chat <chat key> [--before <RFC 3339>]: only that chat channel's task, refused
          when the workspace belongs to another chat channel now
 

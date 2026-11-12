@@ -8,7 +8,7 @@ import (
 func scriptWatchesOf(e *Engine, key string) []TeamHandoff {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	return append([]TeamHandoff(nil), loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).ScriptWatches[key]...)
+	return append([]TeamHandoff(nil), testLoadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).ScriptWatches[key]...)
 }
 
 func acceptFixture(t *testing.T) (*Engine, *exitTestPlatform) {
@@ -269,7 +269,7 @@ func idleWatchSeed(t *testing.T, e *Engine, key string, script bool, h TeamHando
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st := testLoadTeamWorkspacesLocked(path)
 	if h.Board == 0 {
 		// develop closes a past-due watch with no board item as stale before it reads the turn
 		// (watchStale); give the seed a board number so these cases reach the #96 logic.
@@ -290,7 +290,7 @@ func idleWatchRows(t *testing.T, e *Engine, key string, script bool) []TeamHando
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st := testLoadTeamWorkspacesLocked(path)
 	if script {
 		return append([]TeamHandoff(nil), st.ScriptWatches[key]...)
 	}
@@ -499,7 +499,7 @@ func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
 			Status: tc.status, WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"})
 		teamWorkspaceStore.mu.Lock()
 		path := teamWorkspacePath(e.dataDir)
-		st := loadTeamWorkspacesLocked(path)
+		st := testLoadTeamWorkspacesLocked(path)
 		st.Handoffs["discord:ws1"] = []TeamHandoff{{Chat: "discord:chatA", At: now.Add(-time.Hour),
 			Due: now.Add(time.Minute), Owner: e.name, Board: 497, Sender: e.name, Name: "工作区1"}}
 		err := saveTeamWorkspacesLocked(path, st)

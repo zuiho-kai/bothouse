@@ -266,7 +266,12 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 	}
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace reconcile: state unreadable; nothing released", "error", err)
+		return nil
+	}
 	var stale []string
 	for key, list := range st.Handoffs {
 		if live[key] {

@@ -20,12 +20,12 @@ func TestWSClaimCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requests := make(chan map[string]string, 1)
+	requests := make(chan map[string]any, 1)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/team/workspace/claim" {
 			t.Errorf("unexpected route %s", r.URL.Path)
 		}
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
