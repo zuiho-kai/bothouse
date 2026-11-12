@@ -58,6 +58,16 @@ export class ChannelApprovals {
   open({ room, author, text, actions = DEFAULT_ACTIONS, signal, meta, check, onDecide, mapDecision }) {
     const card = { kind: 'permission', title: '权限请求', state: 'pending', actions: actions.map(a => ({ decision: a.decision, label: a.label })) };
     const { message } = this.hub.post(room, { authorKind: 'role', author: author.id, name: author.name, text, card: JSON.stringify(card) });
+    // A workspace prompt must be visible where the chat happens: mirror it into the parent chat
+    // channel as a copy of the same request (request_id), never as a second, separate approval.
+    const workspace = this.hub.store.room(room);
+    if (workspace?.parent_id && workspace.parent_id !== room) {
+      this.hub.post(workspace.parent_id, {
+        authorKind: 'role', author: author.id, name: author.name, text,
+        card: JSON.stringify({ ...card, request_id: message.id }),
+        clientKey: `approval-copy:${message.id}`,
+      });
+    }
     let resolve;
     const decision = new Promise(r => { resolve = r; });
     this.pending.set(message.id, { room, author: author.id, meta, check, onDecide, mapDecision, resolve });
@@ -79,22 +89,28 @@ export class ChannelApprovals {
    */
   decide(msgId, decision, by = 'button') {
     if (!Object.hasOwn(STATES, decision)) throw new CollabError('invalid', `unknown decision ${decision}`);
-    const row = this.hub.store.message(msgId);
+    const requested = this.hub.store.message(msgId);
+    const requestedCard = requested === undefined ? undefined : parseCard(requested.card);
+    if (requestedCard?.kind !== 'permission') throw new CollabError('not-permission', '这条消息不是权限请求');
+    if (requestedCard.state !== 'pending') throw new CollabError('conflict', requestedCard.state === 'expired' ? '这个权限请求已过期' : '这个权限请求已经处理过了');
+    // A channel copy decides the one original request; deciding either side must not re-run it.
+    const msgId0 = requestedCard.request_id ?? msgId;
+    const row = this.hub.store.message(msgId0);
     const card = row === undefined ? undefined : parseCard(row.card);
     if (card?.kind !== 'permission') throw new CollabError('not-permission', '这条消息不是权限请求');
     if (card.state !== 'pending') throw new CollabError('conflict', card.state === 'expired' ? '这个权限请求已过期' : '这个权限请求已经处理过了');
-    const p = this.pending.get(msgId);
+    const p = this.pending.get(msgId0);
     if (p === undefined) {
       // Pending in the store but not in memory: collab restarted, the asker's side is gone.
-      this.close(msgId, 'expired', row);
+      this.close(msgId0, 'expired', row);
       throw new CollabError('conflict', '这个权限请求已过期');
     }
     p.check?.();
     const applied = p.mapDecision?.(decision) ?? decision;
-    this.close(msgId, STATES[applied], row, by);
+    this.close(msgId0, STATES[applied], row, by);
     p.resolve(applied);
     p.onDecide?.(applied, by);
-    return publicMessage(this.hub.store.message(msgId), this.hub.store);
+    return publicMessage(this.hub.store.message(msgId0), this.hub.store);
   }
 
   /** Withdraw card `msgId`: it shows as expired and its decision settles 'expired'. */
@@ -116,6 +132,9 @@ export class ChannelApprovals {
     if (card?.kind !== 'permission' || card.state !== 'pending') return;
     const next = { ...card, state, ...(by ? { decided_by: by } : {}), decided_at: Math.floor(Date.now() / 1000) };
     this.hub.edit(row.id, 'role', row.author, row.text, JSON.stringify(next));
+    // Every copy of this request shows the same outcome, so one decision cannot be made twice.
+    const copies = this.hub.store.db.prepare('SELECT * FROM messages WHERE client_key = ? AND deleted = 0').all(`approval-copy:${row.id}`);
+    for (const copy of copies) this.hub.edit(copy.id, 'role', copy.author, copy.text, JSON.stringify({ ...next, request_id: row.id }));
   }
 
   /**
@@ -137,7 +156,7 @@ export class ChannelApprovals {
     const answered = new Set();
     this.answers.set(msg, answered);
     if (msg.author_kind !== 'user') return answered;
-    const inRoom = [...this.pending].filter(([, p]) => p.room === msg.room_id);
+    const inRoom = [...this.pending].filter(([, p]) => p.room === msg.room_id || this.hub.store.room(p.room)?.parent_id === msg.room_id);
     if (inRoom.length === 0) return answered;
     const members = this.hub.routable();
     const mentioned = mentions(msg.text, members);

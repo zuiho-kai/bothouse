@@ -7121,3 +7121,22 @@ test('#197 merge develop: a CLI start failure before the session is ready does n
   assert.ok(prompts[1].includes(marker), 'and its content');
   await members.close(); hub.store.close();
 });
+
+test('a workspace permission card is mirrored to its chat channel as the same request', async () => {
+  const { ChannelApprovals } = await import('./approvals.mjs');
+  const hub = makeHub();
+  hub.setMember({ id: 'fu', name: '副', kind: 'dsh', online: true });
+  const ws = hub.store.createWorkspace(1);
+  const approvals = ChannelApprovals.of(hub);
+  const { messageId, decision } = approvals.open({ room: ws.id, author: { id: 'fu', name: '副' }, text: '跑个命令' });
+  const copy = hub.store.page(1).find(m => m.client_key === `approval-copy:${messageId}`);
+  assert.ok(copy, 'the chat channel shows the request too');
+  const copyCard = JSON.parse(copy.card);
+  assert.equal(copyCard.request_id, messageId, 'the copy points at one request, not a second approval');
+  // Deciding from the channel copy must settle the same pending request exactly once.
+  approvals.decide(copy.id, 'allow');
+  assert.equal(JSON.parse(hub.store.message(messageId).card).state, 'allowed');
+  assert.equal(JSON.parse(hub.store.message(copy.id).card).state, 'allowed');
+  await decision;
+  assert.throws(() => approvals.decide(copy.id, 'deny'), /已经处理过|已过期/);
+});
