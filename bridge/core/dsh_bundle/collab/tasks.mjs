@@ -44,15 +44,16 @@ export const MAX_RENEWALS = 0;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 /**
- * The bridge watch posts its wake (「接着做 X，做完再结束本轮…」, i18n MsgWatchResume) and its notices
+ * The bridge watch posts its wake (「接着做 X，做完跑 ws-up --report <草稿文件> 交回」, i18n MsgWatchResume) and its notices
  * (「看门：…」, MsgWatchIdleEscalate / MsgWatchFailEscalate …) in the lead's name. They chase work that
  * already exists; read as a lead dispatch they opened a new task per wake (#221, 11-06: 「#6 接着做 -」).
  * The text follows bridge/core/i18n.go; keep both in step.
  */
 const WATCH_NOTICE_PREFIXES = ['看门：', '看門：', 'Watch: ', '見守り：'];
 const WATCH_RESUME_LINES = [
-  /^接着做 .+，做完再结束本轮，交回时第一行写 \[report\]$/,
+  /^接着做 .+，做完跑 ws-up --report <草稿文件> 交回$/,
   /^接著做 .+，做完再結束本輪，交回時第一行寫 \[report\]$/,
+  /^接著做 .+，做完跑 ws-up --report <草稿檔> 交回$/,
   /^Continue .+ and finish it; when done, start the reply with \[report\]$/,
   /^.+ を続けて完了させてください。完了したら返信の1行目を \[report\] にしてください$/,
   /^Continúa .+ hasta terminarlo; al terminar, empieza la respuesta con \[report\]$/,

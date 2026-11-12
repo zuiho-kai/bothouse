@@ -105,66 +105,6 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAskForwardsAndAnswerGoesBack(t *testing.T) {
-	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
-	e.SetTeam(t.TempDir(), "橘", false)
-	exitBoardItem(t, e, 7, "选方案")
-	exitSay(e, p, exitWSKey, "ws1", "开工")
-	inputPrompt(t, a)
-	inputDone(a, "[ask] #7 背景：你让我做这件事。\n用 A 还是 B？<@123> 看一下\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向")
-	// The four parts only; details are not posted (user 10-30, 2795ca4a).
-	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
-	fwd := p.sentTo("discord:chat1")[0]
-	// The three parts are posted as written, named by the board item (00014526; user 10-30).
-	if !strings.HasPrefix(fwd, "📬「选方案」要你定\n\n【背景】你让我做这件事。\n\n【做了什么】用 A 还是 B？") {
-		t.Fatalf("forward = %q", fwd)
-	}
-	// A visible record only: it must not ping anyone (other bots drop 📬 notices).
-	if strings.Contains(fwd, "<@123>") {
-		t.Fatalf("forward pings a user: %q", fwd)
-	}
-	id := askRef.FindString(fwd)
-	if id == "" {
-		t.Fatalf("no ask id in %q", fwd)
-	}
-	inputWait(t, func() bool { return len(p.sentTo(exitWSKey)) > 0 })
-	if ws := p.sentTo(exitWSKey); len(ws) != 1 || !strings.HasPrefix(ws[0], "[ask]") {
-		t.Fatalf("workspace original not kept: %q", ws)
-	}
-
-	// The user replies to the forward in the chat channel (Discord quotes it).
-	exitSay(e, p, exitChatKey, "chat1", "[replying to 橘: "+fwd+"]\n用 A")
-	prompt := inputPrompt(t, a)
-	if !strings.Contains(prompt, "在聊天频道回复了你的提问 "+id) || !strings.HasSuffix(strings.TrimSpace(prompt), "用 A") {
-		t.Fatalf("answer not delivered to the asking bot: %q", prompt)
-	}
-	if strings.Contains(prompt, "用 A 还是 B") {
-		t.Fatalf("reply quote not stripped: %q", prompt)
-	}
-	ws := p.sentTo(exitWSKey)
-	if len(ws) != 2 || !strings.HasPrefix(ws[1], "📬") || !strings.Contains(ws[1], id) || !strings.HasSuffix(ws[1], "用 A") {
-		t.Fatalf("answer not posted in workspace: %q", ws)
-	}
-	if idToKey, _ := e.sessions.SessionKeyMap(); func() bool {
-		for _, k := range idToKey {
-			if k == exitChatKey {
-				return true
-			}
-		}
-		return false
-	}() {
-		t.Fatal("the answer started a turn in the chat channel")
-	}
-	inputDone(a, "好，用 A 继续")
-	inputWait(t, func() bool { return len(p.sentTo(exitWSKey)) == 3 })
-	if got := p.sentTo(exitWSKey)[2]; got != "好，用 A 继续" {
-		t.Fatalf("bot reply went elsewhere: %q", got)
-	}
-	if len(p.sentTo("discord:chat1")) != 1 || len(p.sentTo(exitChatKey)) != 0 {
-		t.Fatal("chat channel got extra messages")
-	}
-}
-
 func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	// 11-09: a text report waits for the chat lead's acceptance before the user sees it.
@@ -179,6 +119,7 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
 	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
+	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
 	inputWait(t, func() bool { return e.heldReportFor(7) != nil })
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("held report reached the chat before the lead passed it: %q", got)
@@ -223,6 +164,7 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
 	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "第一阶段做完") {
 		t.Fatalf("forward = %q", fwd)

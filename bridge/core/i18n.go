@@ -1056,8 +1056,8 @@ var messages = map[MsgKey]map[Language]string{
 	},
 	MsgWatchResume: {
 		LangEnglish:            "Continue %s and finish it; when done, start the reply with [report]",
-		LangChinese:            "接着做 %s，做完再结束本轮，交回时第一行写 [report]",
-		LangTraditionalChinese: "接著做 %s，做完再結束本輪，交回時第一行寫 [report]",
+		LangChinese:            "接着做 %s，做完跑 ws-up --report <草稿文件> 交回",
+		LangTraditionalChinese: "接著做 %s，做完跑 ws-up --report <草稿檔> 交回",
 		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
 		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
 	},

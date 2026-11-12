@@ -54,66 +54,6 @@ func TestWatchChatAcceptWithToolsButNoBoardItemIsNotWatched(t *testing.T) {
 	}
 }
 
-// A first line that is only 【接】 (or 「-」) names nothing; where such a turn is still watched (a
-// workspace), it gets the fixed fallback title rather than the body (PR #1194 review).
-func TestWatchAcceptBlankTitleWithWorkUsesFallbackTitle(t *testing.T) {
-	for _, reply := range []string{"【接】\n一个最基础的登录页…", "【接】 -\n答案", "【接】"} {
-		e, _ := acceptFixture(t)
-		teamWorkspaceStore.mu.Lock()
-		err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
-			"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
-		}, Version: teamWorkspaceStateVersion})
-		teamWorkspaceStore.mu.Unlock()
-		if err != nil {
-			t.Fatal(err)
-		}
-		e.watchTurnEnded(e.platforms[0], "discord:ws1", reply, true, false, false, false, time.Time{})
-		got := scriptWatchesOf(e, "discord:ws1")
-		if want := e.i18n.T(MsgWatchUntitledAccept); len(got) != 1 || got[0].Title != want {
-			t.Fatalf("%q: a bare 【接】 with tool use must be watched as %q, got %+v", reply, want, got)
-		}
-	}
-}
-
-// In a workspace a 【接】 is accepted work even when the turn ran no tool: the answered-in-chat
-// rule is for chat channels only.
-func TestWatchWorkspaceAcceptWithoutToolsIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	teamWorkspaceStore.mu.Lock()
-	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
-		"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
-	}, Version: teamWorkspaceStateVersion})
-	teamWorkspaceStore.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.watchTurnEnded(e.platforms[0], "discord:ws1", "【接】改登录页\n先读交接", false, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:ws1"); len(got) != 1 || got[0].Title != "改登录页" || got[0].Chat != "discord:chat1" {
-		t.Fatalf("a tool-less 【接】 in a workspace must be watched for its chat channel, got %+v", got)
-	}
-}
-
-// A board item this channel owns keeps the watch when the first line names no #id: the board says
-// the work is open, so the turn did not answer it in chat.
-func TestWatchChatAcceptBoardActiveWithoutNumberIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:chatA"})
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】\n这就开始", false, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 9 || got[0].Title != "#9 接上游的接口" {
-		t.Fatalf("an active board item must be watched under its board title, got %+v", got)
-	}
-}
-
-// A board item named on the first line keeps the watch even without tools: it is real work.
-func TestWatchChatAcceptNamingBoardItemIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:chatA"})
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】#9 这就开始", false, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 9 {
-		t.Fatalf("an accepted board item must be watched, got %+v", got)
-	}
-}
-
 // #1167 (11-07): the lead's chat channel got 「接着做 #1162」 after every lead turn. #1162 was handed
 // back by its workspace (awaiting review, workspace released, so it fell back to the chat) and #1167
 // was the lead's own board note; neither is work left running in the chat channel. A turn there
@@ -147,32 +87,6 @@ func TestWatchWorkspaceBoardItemWithoutAcceptIsWatched(t *testing.T) {
 	e.watchTurnEnded(e.platforms[0], "discord:ws1", "先读了交接，接下来改接口", true, false, false, false, time.Time{})
 	if got := scriptWatchesOf(e, "discord:ws1"); len(got) != 1 || got[0].Board != 9 {
 		t.Fatalf("a workspace's active board item must stay watched, got %+v", got)
-	}
-}
-
-// #1183 (11-07): 龙娘 accepted in the main chat with a first line naming no #id, then handed back
-// with 「【接】…」 on the first line and 「[report] #1162 …」 on the next. The watch only read the
-// first line, stayed open, and woke her with 「接着做」 after an unrelated turn ten hours later.
-func TestWatchReportOnLaterLineEndsNumberlessWatch(t *testing.T) {
-	e, _ := acceptFixture(t)
-	// A numberless chat watch left by an older build (#1407 no longer registers one).
-	owner := e.name
-	if m, ok := e.platforms[0].(SelfMentioner); ok && m.SelfMention() != "" {
-		owner = m.SelfMention()
-	}
-	now := time.Now()
-	teamWorkspaceStore.mu.Lock()
-	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
-		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute),
-			Owner: owner, Title: "先核对任务状态和实际产物", Sender: e.name}}}})
-	teamWorkspaceStore.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物\n[report] #1162 背景：核对搏仓第二版\n已核对报告和输出\n要你做的：没有\n我加的：无", true, false, false, false, time.Time{})
-	got := scriptWatchesOf(e, "discord:chatA")
-	if len(got) != 1 || !got[0].Idle.Returned {
-		t.Fatalf("a [report] line after the 【接】 line hands the work back, got %+v", got)
 	}
 }
 
@@ -295,41 +209,6 @@ func idleWatchRows(t *testing.T, e *Engine, key string, script bool) []TeamHando
 		return append([]TeamHandoff(nil), st.ScriptWatches[key]...)
 	}
 	return append([]TeamHandoff(nil), st.Handoffs[key]...)
-}
-
-// A [report] with no board number cannot satisfy the headline check, so it must end its watch
-// instead of being treated as a reply still to be repaired: the resend rule only bounces reports
-// that name a board item (#96, 11-05: the same board-less report woke the workspace again and
-// again).
-func TestWatchTurnEnded_BoardlessReportEndsWatch(t *testing.T) {
-	const report = "[report] 背景：看门遇到没写任务板编号的交回，已经改成能收口\n\n要你做的：没有"
-	for _, script := range []bool{true, false} {
-		name := "handoff"
-		if script {
-			name = "script_watch"
-		}
-		t.Run(name, func(t *testing.T) {
-			e, p := idleWatchFixture(t)
-			key := "discord:ws96"
-			at := time.Now().Add(-2 * time.Minute)
-			idleWatchSeed(t, e, key, script, TeamHandoff{Chat: key, At: at, Due: at.Add(time.Minute), Owner: e.name, Title: "看门死循环"})
-
-			for i := 0; i < 2; i++ { // a resend or a second reply must not open it again
-				e.watchTurnEnded(p, key+":u1", report, false, false, false, false, time.Time{})
-				rows := idleWatchRows(t, e, key, script)
-				if len(rows) != 1 {
-					t.Fatalf("reply %d: rows = %d, want 1", i, len(rows))
-				}
-				h := rows[0]
-				if !h.Idle.Returned {
-					t.Fatalf("reply %d: a board-less [report] left the watch open: %+v", i, h.Idle)
-				}
-				if h.Idle.Wakes != 0 || h.Idle.Reported {
-					t.Fatalf("reply %d: the watch kept waking: %+v", i, h.Idle)
-				}
-			}
-		})
-	}
 }
 
 // A [report] that names a board item whose headline is wrong is still resent, not handed back:
