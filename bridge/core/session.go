@@ -56,6 +56,8 @@ type Session struct {
 	// failed resume, cleared once the handoff is sent.
 	HandoffFrom   string `json:"handoff_from,omitempty"`
 	HandoffReason string `json:"handoff_reason,omitempty"`
+	// Interrupted is the request of a turn that ended in an error (interrupted_turn.go, #1514).
+	Interrupted *InterruptedTurn `json:"interrupted,omitempty"`
 
 	mu           sync.Mutex `json:"-"`
 	busy         bool       `json:"-"`
@@ -77,8 +79,9 @@ type Session struct {
 	freshDoneUpTo, freshDonePending string
 	// backfillMu makes reading the channel since last seen and marking it seen one step, so
 	// two messages arriving together do not both deliver the same posts and images (maomao fork).
-	backfillMu    sync.Mutex
-	outboundTaken int // prefix captured by takeOutboundContext, settled with other prompt blocks
+	backfillMu       sync.Mutex
+	outboundTaken    int              // prefix captured by takeOutboundContext, settled with other prompt blocks
+	interruptedTaken *InterruptedTurn // taken by a turn not yet sent (takeInterrupted)
 }
 
 // TurnCtxSent is what has been put into one agent context (maomao fork). It is

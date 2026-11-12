@@ -8597,6 +8597,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// #618 K4 S1 (after capacity / prompt-too-long): re-run on a fresh session by the caller.
 					slog.Warn("resumed turn failed at once; re-running on a fresh session", "session", sessionKey, "error", errMsg)
 				} else {
+					// #1514: the request of this turn stays unfinished in the agent context;
+					// the next user turn is told it is not its work (interrupted_turn.go).
+					session.markInterrupted()
 					detail := errMsg
 					if errors.Is(event.Error, ErrTaskAlreadyCompleted) {
 						detail = e.i18n.T(MsgTaskAlreadyCompleted)

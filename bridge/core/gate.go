@@ -1078,6 +1078,7 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	}
 	add("turn_ctx", e.turnContext(session, sessionKey, query, sender))
 	add("team", e.teamBlock(session, sessionKey))
+	add("interrupted", session.takeInterrupted()) // last, right above the message (#1514)
 	return content
 }
 
