@@ -8633,11 +8633,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				}
 			}
-			// Only drop queued messages if the agent session is dead.
+			// Retire a dead process just as the channelClosed path does. Keeping
+			// it in interactiveStates makes the next turn's startup look like a
+			// dead running session, so another cooldown delivery cannot queue.
 			// Some agents (e.g. Codex) emit EventError for per-turn failures
 			// while keeping the session alive for subsequent turns.
 			if agentSession == nil || !agentSession.Alive() {
-				e.notifyDroppedQueuedMessages(state, event.Error)
+				e.cleanupInteractiveState(sessionKey, state)
 			}
 			return
 		}
