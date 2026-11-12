@@ -4978,6 +4978,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.markTurnStartLocked()
 	state.mu.Unlock()
 	state.lastEventAt.Store(time.Now().UnixNano())
+	// #699 B: the turn fact every "is this workspace running a turn" reads (team_turn_fact.go).
+	// Ends when this function returns, after the drain of the queued messages.
+	endTurnFact := beginTeamTurn(teamTurnFact{Chat: msg.SessionKey, Session: msg.SessionKey, Engine: e.name,
+		TaskID: e.teamTaskTurnStarted(msg.SessionKey), lastEvent: &state.lastEventAt})
+	defer endTurnFact()
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
 

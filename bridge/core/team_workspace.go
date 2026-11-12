@@ -1383,6 +1383,15 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	teamWorkspaceOpMu.Lock()
 	defer teamWorkspaceOpMu.Unlock()
 
+	// #699 B (#698 item 3): a workspace with a turn still running is not free, whatever its
+	// records say; only the same task may be claimed into it again (a resume into its own turn).
+	// 11-11 15:52 #679 was claimed into 工作区3 while #677's parked turn still ran there.
+	for _, f := range teamTurnsOf(plat + ":" + wsID) {
+		if board == 0 || f.TaskID != board {
+			return fmt.Errorf("team workspace claim: %s → %s: %w (a turn of task #%d is still running there)", chat, wsID, ErrTeamWorkspaceOwned, f.TaskID)
+		}
+	}
+
 	// Validate the original source before release retries, platform claims or state writes.
 	// Do not redirect a workspace request through a possibly stale parent record.
 	p, hasPlatform := e.teamWorkspacePlatform(chat)
@@ -1526,10 +1535,65 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	if board > 0 {
 		ev = teamTaskEvent{ID: board, To: TeamTaskDispatched, WS: wk, Chat: chat, By: "claim"}
 	}
+	prev := teamTasksOfLocked(st)[board]
 	if err := commitTeamTaskAndWorkspacesLocked(e.dataDir, path, st, ev, now); err != nil {
 		return fmt.Errorf("team workspace claim: %w", err)
 	}
+	if board > 0 {
+		worker.restoreTeamTaskSession(prev, wk)
+	}
 	return nil
+}
+
+// teamWorkspaceAgentSession returns the agent session ID (and agent type) of this engine's
+// session in workspace key, without creating one.
+func (e *Engine) teamWorkspaceAgentSession(key string) (id, agentType string) {
+	if e == nil || e.sessions == nil {
+		return "", ""
+	}
+	for _, k := range e.sessions.UserKeys() {
+		if chatOf(k) != key {
+			continue
+		}
+		_, sm := e.sessionContextForKey(k)
+		if sm == nil {
+			continue
+		}
+		for _, s := range sm.ListSessions(k) {
+			if sid := s.GetAgentSessionID(); sid != "" && sid != ContinueSession {
+				s.mu.Lock()
+				agentType = s.AgentType
+				s.mu.Unlock()
+				return sid, agentType
+			}
+		}
+	}
+	return "", ""
+}
+
+// restoreTeamTaskSession gives the session of workspace wk the agent session task t saved when
+// it was paused (design §3.2: resume → dispatched with the saved session), when it is valid here:
+// the same engine, and the same workspace unless this engine runs every channel in one work dir.
+// A session already holding a context is left alone. Caller holds teamWorkspaceStore.mu (the
+// session manager has its own locks).
+func (e *Engine) restoreTeamTaskSession(t TeamTask, wk string) {
+	if e == nil || e.sessions == nil || t.Session == "" || t.SessionEngine != e.name {
+		return
+	}
+	if teamChatKey(t.SessionWS) != teamChatKey(wk) && (e.multiWorkspace || e.workspacePool != nil) {
+		return
+	}
+	_, sm := e.sessionContextForKey(wk)
+	if sm == nil {
+		return
+	}
+	s := sm.GetOrCreateActive(wk)
+	if s.GetAgentSessionID() != "" {
+		return
+	}
+	s.SetAgentSessionID(t.Session, t.SessionAgent)
+	sm.Save()
+	slog.Info("team task: resumed with its saved session", "board", t.ID, "workspace", wk, "from", t.SessionWS)
 }
 
 // releaseWorkspaceOnReset frees the workspace of sessionKey when the primary role's session there
@@ -1811,6 +1875,15 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 		}
 		if inWork {
 			ev = teamTaskEvent{ID: id, To: TeamTaskPaused, By: "park", Why: why}
+			// Save the session the task ran in before the reset below clears it (#698 item 4:
+			// the paused #677 lost its context and its held message started a fresh session).
+			worker := e
+			if t := e.watchTarget(key, st.Handoffs[key][pick].Owner); t != nil {
+				worker = t
+			}
+			if sid, agent := worker.teamWorkspaceAgentSession(key); sid != "" {
+				ev.Session, ev.SessionWS, ev.SessionEngine, ev.SessionAgent = sid, key, worker.name, agent
+			}
 		}
 	}
 	now := time.Now()
@@ -1990,7 +2063,18 @@ func (e *Engine) TeamIdleWorkspaceNames(chat string) []string {
 			}
 		}
 	}
+	// #699 B: a task in work there or a running turn keeps it busy too (team_turn_fact.go).
+	for _, t := range st.Tasks {
+		if p, id, _ := strings.Cut(t.WS, ":"); teamTaskInWork(t.State) && p == plat && id != "" {
+			busyID[id] = true
+		}
+	}
 	teamWorkspaceStore.mu.Unlock()
+	for id := range nameByID {
+		if teamTurnRunning(plat + ":" + id) {
+			busyID[id] = true
+		}
+	}
 
 	teamTaskBoardChannels.Lock()
 	liveIDs := teamTaskBoardChannels.ids[plat]

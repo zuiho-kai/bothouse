@@ -424,9 +424,6 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		slog.Warn("team watch: save release hold skip failed", "workspace", key, "error", err)
 	}
 	busy := w.workspaceBusy(key)
-	if target != nil {
-		busy = target.watchBusy(key)
-	}
 	if !busy && target != nil && !h.Idle.Ended.IsZero() && !h.Idle.Returned && !h.Idle.Reported {
 		target.armIdleWake(idleAssignment{key, h, false})
 		due := now.Add(watchCheckAfter())
@@ -753,16 +750,9 @@ func (w *handoffWatch) workspaceTurnSince(key string, since time.Time) bool {
 	return found
 }
 
-// workspaceBusy: a session of workspace key ("<platform>:<id>") on any role engine is locked for a
-// turn. Lists the existing sessions only (ListSessions, never creates one).
-func (w *handoffWatch) workspaceBusy(key string) bool {
-	busy := false
-	w.sessionsOf(key, func(s *Session) bool {
-		busy = s.Busy()
-		return busy
-	})
-	return busy
-}
+// workspaceBusy: a turn is running in workspace key on any role engine (the turn fact, #699 B;
+// team_turn_fact.go), whichever session table holds its session.
+func (w *handoffWatch) workspaceBusy(key string) bool { return teamTurnRunning(key) }
 
 // interactiveSessionInWorkspace: the session key of an interactiveStates entry when it belongs to
 // workspace key. A multi-workspace engine keys the map "<workspace path>:<session key>"

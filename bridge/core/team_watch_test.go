@@ -669,7 +669,8 @@ func TestWatchBusySessionIsNotStopped(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
-	now := h.Due.Add(2 * time.Minute) // 12 minutes after the claim
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
+	now := h.Due.Add(2 * time.Minute)                        // 12 minutes after the claim
 	next := w.tick(now)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if next.IsZero() || got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
@@ -693,6 +694,7 @@ func TestWatchBusySessionWithEventsRenewsBeyondBusyLimit(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	state := &interactiveState{}
 	e.interactiveStates["discord:ws1:u1"] = state
 	now := h.Due
@@ -719,6 +721,7 @@ func TestWatchBusySessionWithoutEventsStaysCapped(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	state := &interactiveState{}
 	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
 	e.interactiveStates["discord:ws1:u1"] = state
@@ -778,6 +781,7 @@ func TestWatchMultiWorkspacePrefixedStateRenewsHandoff(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	state := &interactiveState{}
 	state.lastEventAt.Store(h.At.Add(time.Minute).UnixNano())
 	e.interactiveStates[iKey] = state
@@ -819,6 +823,7 @@ func TestWatchSiblingSessionEventsRenewStuckHandoff(t *testing.T) {
 		t.Fatal("lock stuck session")
 	}
 	defer stuck.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	stuckState := &interactiveState{}
 	stuckState.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
 	e.interactiveStates["discord:ws1:u1"] = stuckState
@@ -828,6 +833,7 @@ func TestWatchSiblingSessionEventsRenewStuckHandoff(t *testing.T) {
 		t.Fatal("lock sibling session")
 	}
 	defer sibling.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	siblingState := &interactiveState{}
 	e.interactiveStates["discord:ws1:u2"] = siblingState
 
@@ -886,12 +892,14 @@ func TestWatchBusyOnAnyEngine(t *testing.T) {
 	other := mate.sessions.GetOrCreateActive("discord:ws9:u1")
 	other.TryLock()
 	defer other.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws9"})() // #699 B: a locked session is a running turn
 	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
 		t.Fatal("a turn in another channel is not progress here")
 	}
 	s := mate.sessions.GetOrCreateActive("discord:ws1:mate")
 	s.TryLock()
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind == watchProgressNone {
 		t.Fatal("a teammate's turn in the workspace is progress")
 	}

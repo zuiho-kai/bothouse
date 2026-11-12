@@ -25,6 +25,7 @@ func TestWatchBusyAloneDoesNotRenewForever(t *testing.T) {
 		t.Fatal("lock busy session")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 
 	now := h.Due
 	for i := 1; i <= 2; i++ {

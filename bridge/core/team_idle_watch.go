@@ -119,31 +119,10 @@ func (e *Engine) watchTarget(key, owner string) *Engine {
 	return nil
 }
 
-func (e *Engine) watchBusy(key string) bool {
-	managers := []*SessionManager{e.sessions}
-	if e.workspacePool != nil {
-		for _, ws := range e.workspacePool.All() {
-			ws.mu.Lock()
-			managers = append(managers, ws.sessions)
-			ws.mu.Unlock()
-		}
-	}
-	for _, manager := range managers {
-		if manager == nil {
-			continue
-		}
-		for _, k := range manager.UserKeys() {
-			if teamChatKey(k) == key {
-				for _, s := range manager.ListSessions(k) {
-					if s.Busy() {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
+// watchBusy: a turn is running in chat key (the turn fact, #699 B). One answer for the watch, the
+// idle wake, the auto return and the release hold; before, this scanned the workspace pool's
+// session tables and the watch's workspaceBusy did not, and the two disagreed (#698 15:42).
+func (e *Engine) watchBusy(key string) bool { return teamTurnRunning(key) }
 
 // A coordinator waiting for its dispatched work is not an idle worker.
 // Receipts cover tracked relays; the peer's current incoming task identifies

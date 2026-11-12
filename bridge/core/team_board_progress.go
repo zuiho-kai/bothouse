@@ -68,6 +68,9 @@ func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now t
 	if !inWork {
 		return // paused, handed back or moved to another workspace: not this workspace's row any more
 	}
+	if teamTurnOfOtherTask(key, id) {
+		return // the turn running here is another task's: its progress is not this row's (#699 B)
+	}
 	// lastStep stays empty when this renewal window had no tool call at all (the turn journal
 	// drops the entry when the turn ends, team_journal.go), and an empty step must not replace a
 	// precise one with 「已开工」: markStartedHandoffs keeps the same guard (team_board_autostart.go
