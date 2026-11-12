@@ -33,3 +33,32 @@ func TestStuckItemIsNotShelvedAfterADay(t *testing.T) {
 		t.Fatalf("a stuck item was folded into 搁置 after a day: %s", got)
 	}
 }
+
+// #1492 常识：一件活一行。A task waiting on the user (ws-up --ask) with its handoff still open got a
+// second, synthetic 「进行中（未登记任务板）」 row; a task the board closed came back as running.
+func TestOpenHandoffDoesNotDuplicateOrReviveATask(t *testing.T) {
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.Local)
+	p := testTaskBoardPlacer()
+	p.openHandoffs = func() map[string]TeamHandoff {
+		return map[string]TeamHandoff{
+			"feishu:oc_ws":  {Chat: "feishu:oc_a", Board: 7, Title: "选发布范围", At: now.Add(-time.Hour)},
+			"feishu:oc_ws2": {Chat: "feishu:oc_a", Board: 8, Title: "已经收口的活", At: now.Add(-time.Hour)},
+		}
+	}
+	p.taskClosed = func(id int) bool { return id == 8 }
+	items := placeTeamTaskBoard(p, []teamTaskBoardItem{
+		{ID: 7, What: "选发布范围", Status: "等待用户答复", Paused: "11-01 11:00", PauseWhy: "等待用户答复：范围", Chat: "feishu:oc_a", SK: "feishu:oc_a", At: "11-01 11:00"},
+	})
+	n7, n8 := 0, 0
+	for _, it := range items {
+		switch it.ID {
+		case 7:
+			n7++
+		case 8:
+			n8++
+		}
+	}
+	if n7 != 1 || n8 != 0 {
+		t.Fatalf("rows: #7=%d (want 1), #8=%d (want 0): %+v", n7, n8, items)
+	}
+}

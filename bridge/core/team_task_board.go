@@ -219,12 +219,16 @@ type teamTaskBoardPlacer struct {
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
 	return teamTaskBoardPlacer{
-		mainChat:       teamMainChat(e.dataDir),
-		reviewerInfo:   e.taskReviewerInfo,
-		parentOf:       e.WorkspaceParent,
-		wsName:         e.TeamWorkspaceName,
-		handoffEnded:   e.TeamHandoffEnded,
-		handoffOf:      e.TeamHandoffOf,
+		mainChat:     teamMainChat(e.dataDir),
+		reviewerInfo: e.taskReviewerInfo,
+		parentOf:     e.WorkspaceParent,
+		wsName:       e.TeamWorkspaceName,
+		handoffEnded: e.TeamHandoffEnded,
+		handoffOf:    e.TeamHandoffOf,
+		taskClosed: func(id int) bool {
+			it := e.boardItemByID(id)
+			return it != nil && it.DoneAt != ""
+		},
 		openHandoffs:   e.TeamOpenWorkspaceHandoffs,
 		idleWorkspaces: e.TeamIdleWorkspaceNames,
 		boardDoneIDs: func() map[int]bool {
