@@ -137,6 +137,11 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 			return res, fmt.Errorf("workspace exit: %s", out.dropped)
 		}
 	}
+	if res.Board > 0 && !out.bounced && out.dropped == "" {
+		// The handback is done: the turn's end must not ask for the report again, and the reset
+		// ws-up queued may run (#1500: 11-12 工作区6 was nagged 13–30 s after each command).
+		e.markWorkspaceReportDelivered(sessionKey)
+	}
 	slog.Info("team exit: handed back by command", "workspace", res.Workspace, "board", res.Board, "kind", kind, "state", res.State)
 	return res, nil
 }
