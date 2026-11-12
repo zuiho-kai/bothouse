@@ -758,3 +758,29 @@ func TestTransientErrorFromLiveLogs(t *testing.T) {
 		}
 	}
 }
+
+// #730: a person's @ message held for capacity is re-sent with the must-reply note the gate
+// put in front of it (gate.go mentionedNote), and the answer after the cooldown reaches the channel.
+func TestCapacityRetry_MentionedMessageKeepsMustReplyAfterCooldown(t *testing.T) {
+	old := capacityCooldownBase
+	capacityCooldownBase = 100 * time.Millisecond
+	t.Cleanup(func() { capacityCooldownBase = old })
+
+	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "cap", "answered"}}
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u",
+		Content: mentionedNote + "\n重试", Mentioned: true, ReplyCtx: "ctx"})
+	waitFor(t, "notice to the person", func() bool { return strings.Contains(joined(p), "自动重试这条") })
+	waitFor(t, "re-delivered answer", func() bool { return strings.Contains(joined(p), "reply:answered") })
+	if n := sess.sends(); n != 4 {
+		t.Fatalf("sends = %d, want 4 (3 before cooldown + 1 re-delivery)", n)
+	}
+	for i, s := range sess.sent {
+		if !strings.Contains(s, mentionedNote) {
+			t.Fatalf("send %d lost the must-reply note: %q", i+1, s)
+		}
+	}
+}
