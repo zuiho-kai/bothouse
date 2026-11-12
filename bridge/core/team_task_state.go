@@ -48,6 +48,14 @@ type TeamTask struct {
 	Since time.Time     `json:"since"`          // when it entered State
 	By    string        `json:"by,omitempty"`   // what moved it (claim, watch, board, …)
 	Why   string        `json:"why,omitempty"`  // reason of a pause/failure
+	// Session: the agent session the task's turns ran in, saved when it left its workspace
+	// (paused/asking), so a resume continues that context (design §3.1). SessionWS/SessionEngine/
+	// SessionAgent say where it is valid: the same engine and agent, and the same workspace
+	// unless the engine has one work dir for every channel.
+	Session       string `json:"session,omitempty"`
+	SessionWS     string `json:"session_ws,omitempty"`
+	SessionEngine string `json:"session_engine,omitempty"`
+	SessionAgent  string `json:"session_agent,omitempty"`
 }
 
 // teamTaskEvent is one transition request.
@@ -58,6 +66,8 @@ type teamTaskEvent struct {
 	Chat string
 	By   string
 	Why  string
+	// Session to save with the transition (out of the workspace); empty keeps the saved one.
+	Session, SessionWS, SessionEngine, SessionAgent string
 }
 
 // teamTaskAllowed: from → the states it may move to. A task the store has never seen starts at
@@ -115,6 +125,9 @@ func planTeamTaskTransition(tasks map[int]TeamTask, ev teamTaskEvent, now time.T
 	next.ID, next.State, next.Since, next.By, next.Why = ev.ID, ev.To, now, ev.By, ev.Why
 	if ev.Chat != "" {
 		next.Chat = ev.Chat
+	}
+	if ev.Session != "" {
+		next.Session, next.SessionWS, next.SessionEngine, next.SessionAgent = ev.Session, teamChatKey(ev.SessionWS), ev.SessionEngine, ev.SessionAgent
 	}
 	switch {
 	case ev.To == TeamTaskDispatched:

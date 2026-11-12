@@ -272,9 +272,24 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 		slog.Error("team workspace reconcile: state unreadable; nothing released", "error", err)
 		return nil
 	}
+	// #699 B: a workspace whose task has a state record is live exactly while that task is in work
+	// there or a turn runs in it; the board row's text is read only for handoffs without a board id.
+	inWork := map[string]bool{}
+	for _, t := range st.Tasks {
+		if teamTaskInWork(t.State) && t.WS != "" {
+			inWork[t.WS] = true
+		}
+	}
 	var stale []string
 	for key, list := range st.Handoffs {
-		if live[key] {
+		if inWork[key] || teamTurnRunning(key) {
+			continue
+		}
+		tracked := false
+		for _, h := range list {
+			tracked = tracked || teamHandoffOpen(h) && h.Board > 0 && st.Tasks[h.Board].State != ""
+		}
+		if live[key] && !tracked {
 			continue
 		}
 		plat, _, _ := strings.Cut(key, ":")
