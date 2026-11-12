@@ -2,6 +2,8 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,5 +62,32 @@ func TestOpenHandoffDoesNotDuplicateOrReviveATask(t *testing.T) {
 	}
 	if n7 != 1 || n8 != 0 {
 		t.Fatalf("rows: #7=%d (want 1), #8=%d (want 0): %+v", n7, n8, items)
+	}
+}
+
+// #1492 常识：没列出来不等于删了。Items of a channel the last listing did not have (a workspace made
+// after it, a thread, a DM) were hidden from every board as 「频道已删」; only a channel listed before
+// and missing now is gone.
+func TestBoardHidesOnlyChannelsThatWereListedAndAreGone(t *testing.T) {
+	e, _ := newOwnerFixture(t)
+	if err := os.WriteFile(filepath.Join(e.dataDir, setupStateFile), []byte(`{"platform":"discord","channel_id":"chatA"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &teamTaskBoardChannels
+	c.Lock()
+	prevAt, prevIDs, prevSeen := c.at, c.ids, c.seen
+	c.at = map[string]time.Time{"discord": time.Now()}
+	c.ids = map[string]map[string]bool{"discord": {"chatA": true}}
+	c.seen = map[string]map[string]bool{"discord": {"chatA": true, "wsOld": true}}
+	c.Unlock()
+	t.Cleanup(func() { c.Lock(); c.at, c.ids, c.seen = prevAt, prevIDs, prevSeen; c.Unlock() })
+	items := []teamTaskBoardItem{{ID: 1, own: "discord:wsNew"}, {ID: 2, own: "discord:wsOld"}, {ID: 3, own: "discord:chatA"}}
+	got := e.dropGoneTeamTaskBoard(items)
+	var ids []int
+	for _, it := range got {
+		ids = append(ids, it.ID)
+	}
+	if len(ids) != 2 || ids[0] != 1 || ids[1] != 3 {
+		t.Fatalf("kept %v, want [1 3] (wsNew never listed, wsOld deleted)", ids)
 	}
 }
