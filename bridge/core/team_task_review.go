@@ -218,8 +218,11 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 			continue
 		}
 		if teamReviewDisabled.Load() {
-			// Verification off: a delivered handback closes as done, no reviewer is woken.
-			if it.ReviewRejected == "" && e.isTeamLead() {
+			// Verification off: a delivered handback closes as done, no reviewer is woken. Delivered
+			// means its report reached the chat channel for this handoff: a report still held for
+			// the lead, or one the lead sent back for rework, is not done (#1492 常识: #1489 was
+			// closed two minutes after its held report was sent back, PR still a draft).
+			if it.ReviewRejected == "" && e.isTeamLead() && e.handbackPosted(it) {
 				if out, err := e.runLeadScript(it.Chat, "board", "done", strconv.Itoa(it.ID), "0", "交回即完成（自动验收已关）"); err != nil {
 					slog.Warn("task review: close handback failed", "board", it.ID, "error", err, "output", string(out))
 				}
@@ -266,6 +269,15 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		sum := sha256.Sum256([]byte(e.team.dir + "/" + key + "/roundup/" + hour.UTC().Format(time.RFC3339)))
 		g.reviewer.queueTaskReview(fmt.Sprintf("review-%x", sum), g.chat, &taskReviewRef{Items: g.refs, Stage: "roundup", Hour: hour}, now)
 	}
+}
+
+// handbackPosted: board item it's [report] reached the chat channel for its current handoff (after
+// its bind; an item without a bind time: within exitReportedKeep).
+func (e *Engine) handbackPosted(it teamTaskBoardItem) bool {
+	if it.Bound == "" {
+		return e.exitReportedBefore(it.ID)
+	}
+	return e.exitReportedSinceBound(it.ID, it.Bound)
 }
 
 // teamReviewDisabled: [team_review] disabled = true closes handbacks without a verifier.
