@@ -229,3 +229,26 @@ func teamTaskInWorkOnLocked(dataDir string, id int, key string) (TeamTask, bool,
 	t, ok := st.Tasks[id]
 	return t, ok && teamTaskInWork(t.State) && t.WS == teamChatKey(key), nil
 }
+
+// workspaceTaskStateAt: the state of the task last handed to workspace key (its newest handoff
+// that names a board item with a state record); "" when there is none or the state is unreadable.
+// The idle watch reads handed back / asking from here (#699 C), not from the reply.
+func (e *Engine) workspaceTaskStateAt(key string) TeamTaskState {
+	if e == nil || e.dataDir == "" {
+		return ""
+	}
+	key = teamChatKey(key)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		return ""
+	}
+	rows := st.Handoffs[key]
+	for i := len(rows) - 1; i >= 0; i-- {
+		if t, ok := st.Tasks[rows[i].Board]; rows[i].Board > 0 && ok {
+			return t.State
+		}
+	}
+	return ""
+}

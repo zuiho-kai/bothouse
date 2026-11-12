@@ -41,7 +41,7 @@ Write the handoff as a file in `notes/<name>.md` under the current directory (yo
 
 The primary role in a workspace does not ask the user directly. The chat channel that handed the task over is the single outlet:
 
-- Results and milestones: the first line of the turn's last reply is only `[report]`, the result follows from the second line, and the bridge copies it to the chat channel (messages earlier in the turn are not copied). After the last task there, run `bothouse session new --after-turn` in the same turn to free the workspace.
+- Results and milestones: write the report into a draft file (its first line `[report] #id`, the result from the second line) and run `ws-up --report <draft>`; the bridge takes only that command as the handback (a `[report]` in a reply is not read) and posts the draft to the chat channel. After the last task there, run `bothouse session new --after-turn` in the same turn to free the workspace.
 - `ws-up "<question + options + recommendation>" --ask` asks for a decision or missing information. The chat-channel primary role asks the user and sends the answer back with `ws-forward --notes <file> "<answer>"`. While waiting, do the parts the answer does not affect.
 - If the workspace holds tasks from more than one chat channel, add `--notes <file>` to say which task; without it ws-up fails and lists the choices instead of guessing.
 - Decisions that narrow or change the scope of the user's words, and settings you are unsure of, also go through `--ask`. Decide pure technical details yourself.

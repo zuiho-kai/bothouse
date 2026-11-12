@@ -7009,8 +7009,8 @@ test('CLI configured member: collab dispatch applies fake ACP options before pro
 test('tasks: the bridge watch wake and escalation posted as the lead open no task', async () => {
   const { tasks, say } = g34Setup();
   for (const text of [
-    '@副 接着做 -，做完再结束本轮，交回时第一行写 [report]',
-    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 -，做完跑 ws-up --report <草稿文件> 交回',
+    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完跑 ws-up --report <草稿文件> 交回',
     '看门：@副「-」连续叫醒两次仍未继续，请主角色接手。',
     '看门：副「#219 修头像」连续两次报错，已停止自动接着做，请主角色换人或接手。',
     '@副 Continue the login page and finish it; when done, start the reply with [report]',
@@ -7024,14 +7024,14 @@ test('tasks: the bridge watch wake and escalation posted as the lead open no tas
 
 test('tasks: normal lead dispatch with report instructions still opens a task', async (t) => {
   for (const text of [
-    '@副 实现登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 实现登录页，做完跑 ws-up --report <草稿文件> 交回',
     '@副 實作登入頁，做完再結束本輪，交回時第一行寫 [report]',
     '@副 Implement login and finish it; when done, start the reply with [report]',
     '@副 ログイン画面を実装。完了したら返信の1行目を [report] にしてください',
     '@副 Implementa acceso; al terminar, empieza la respuesta con [report]',
-    '@副 实现登录页，参考叫醒文案：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
-    '@副 实现登录页\n叫醒示例：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
-    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]，并附截图',
+    '@副 实现登录页，参考叫醒文案：接着做 登录页，做完跑 ws-up --report <草稿文件> 交回',
+    '@副 实现登录页\n叫醒示例：接着做 登录页，做完跑 ws-up --report <草稿文件> 交回',
+    '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回，并附截图',
   ]) {
     await t.test(text, async (t) => {
       const { hub, tasks, say } = g34Setup();
@@ -7046,13 +7046,13 @@ test('tasks: normal lead dispatch with report instructions still opens a task', 
 
 test('tasks: lead watch notices leave a returned chat task unchanged', async (t) => {
   for (const text of [
-    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回',
     '看门：@副「登录页」连续叫醒两次仍未继续，请主角色接手。',
     '@副 Continue the login page and finish it; when done, start the reply with [report]',
     '@副 接著做 登入頁，做完再結束本輪，交回時第一行寫 [report]',
     '@副 ログイン画面 を続けて完了させてください。完了したら返信の1行目を [report] にしてください',
     '@副 Continúa acceso hasta terminarlo; al terminar, empieza la respuesta con [report]',
-    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]\n交接文件：isolated-handoff.md（先读最后的检查点）',
+    '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回\n交接文件：isolated-handoff.md（先读最后的检查点）',
     '看門：@副「登入頁」連續叫醒兩次仍未繼續，請主角色接手。',
     'Watch: @副 has not resumed login after two wakeups. Primary role, please take over.',
     '見守り：@副 はログインを2回呼びかけても再開していません。主担当に引き継いでください。',

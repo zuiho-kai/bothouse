@@ -6344,10 +6344,8 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						send(p, markAgentReply(p, replyCtx, session), chunk)
 					}
 				}
-				// A quota notice is not the workspace's answer: it must not go back as a [report].
-				if _, exhausted := QuotaExhaustedReset(event); fullResponse != "" && !exhausted {
-					e.forwardWorkspaceExitContext(ctx, p, sessionKey, exitReplyText(event, fullResponse)) // #139 C: workspace [ask]/[report] -> chat channel
-				}
+				// #699 C: a reply is not a handback; the workspace hands back with ws-up --report
+				// (WorkspaceExit), so nothing in this text is forwarded as a [report]/[ask].
 
 				e.watchTurnEnded(p, sessionKey, exitReplyText(event, fullResponse), len(toolsUsed) > 0, false, false, false, time.Time{})
 
@@ -7801,10 +7799,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				cp.Retract()
 			}
 
-			// A quota notice is not the workspace's answer: it must not go back as a [report].
-			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
-				e.forwardWorkspaceExitContext(outputCtx, p, sessionKey, exitReplyText(event, baseResponse)) // #139 C: workspace [ask]/[report] -> chat channel
-			}
+			// #699 C: a reply is not a handback (WorkspaceExit is), nothing is forwarded from it.
 			if !isSilent && input == nil {
 				e.hooks.Emit(HookEvent{
 					Event:      HookEventMessageSent,

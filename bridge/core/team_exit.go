@@ -187,6 +187,26 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 	}
 	reply = stripFillerLines(reply)
 	kind, body, ok := parseExitKindTurn(reply)
+	if !ok {
+		// Most turns carry no marker; only complain when one exists but did not start the reply.
+		for _, k := range exitRules.Kinds {
+			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
+				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey, "project", e.name)
+				break
+			}
+		}
+		return ""
+	}
+	return e.forwardWorkspaceExitKind(ctx, p, sessionKey, kind, body)
+}
+
+// forwardWorkspaceExitKind forwards a workspace's answer of kind (report/ask) to the chat channel
+// that handed the task off, with every check of the report. Since #699 batch C the bridge calls it
+// only from the explicit exit command (WorkspaceExit: ws-up --report, POST /team/workspace/exit);
+// forwardWorkspaceExitContext, which reads the kind from a reply's marker, is no longer called at a
+// turn's end (design §7.2: no text marker is a handback, the first-line one included).
+func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessionKey, kind, body string) string {
+	ok := kind != ""
 	// An open handoff can be waiting for external evidence with no background
 	// process running. A turn ending is not a delivery: only explicit markers
 	// enter report validation. Board/reset transitions recover missing reports
@@ -256,13 +276,6 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		e.clearAskBounces(sessionKey)
 	}
 	if !ok || p == nil {
-		// Most turns carry no marker; only complain when one exists but did not start the reply.
-		for _, k := range exitRules.Kinds {
-			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
-				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey, "project", e.name)
-				break
-			}
-		}
 		return ""
 	}
 	ws := sessionChannel(sessionKey)

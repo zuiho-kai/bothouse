@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // Idle wakeups are armed by terminal events, never by the periodic progress scan.
@@ -28,15 +27,6 @@ type watchIdleState struct {
 	Fails    int       `json:"fails,omitempty"`   // consecutive turns that ended in an agent error
 	CantDo   int       `json:"cant_do,omitempty"` // consecutive turns that answered "can't do it"
 	Reported bool      `json:"reported,omitempty"`
-}
-
-// watchCantDoRe: a turn that only says it cannot go on (blocked upstream, no access …). Two in a
-// row stop the watch: resuming it again only produces the same refusal (11-05 agentm: woken every
-// ten minutes, each time a long "做不了", and the tool calls of that reply counted as progress).
-var watchCantDoRe = regexp.MustCompile(`(?i)做不了|做不到|干不了|办不到|没法做|没办法做|无法(?:完成|继续|推进|处理|执行)|卡在上游|\bcan(?:no|')t (?:do|proceed|continue|complete)\b|\bunable to (?:do|proceed|continue|complete)\b`)
-
-func watchIsCantDo(text string) bool {
-	return watchCantDoRe.MatchString(text)
 }
 
 // watchBoardWaiting: a board status that says the item waits on someone else (等上游, 等待…, 等用户):
@@ -215,8 +205,6 @@ func (e *Engine) updateIdle(a idleAssignment, f func(*TeamHandoff)) (TeamHandoff
 }
 
 var watchTaskNumberRE = regexp.MustCompile(`(?:^|\s)#([0-9]+)`)
-var watchHandbackPR = regexp.MustCompile(`github\.com/[^\s]+/pull/\d+`)
-
 func watchTaskNumber(text string) int {
 	m := watchTaskNumberRE.FindStringSubmatch(strings.TrimPrefix(text, "【接】"))
 	if m == nil {
@@ -224,51 +212,6 @@ func watchTaskNumber(text string) int {
 	}
 	id, _ := strconv.Atoi(m[1])
 	return id
-}
-
-// Same handback policy as d10-fire.is_handback. Registered d10 callers read
-// this decision through /team/watch rather than running a second classifier.
-func watchIsHandback(text string) bool {
-	text = strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(text), ""))
-	if text == "" {
-		return false
-	}
-	for _, prefix := range []string{"↪", "⏹", "📬"} {
-		if strings.HasPrefix(text, prefix) {
-			return false
-		}
-	}
-	if strings.HasPrefix(text, "[report]") || strings.HasPrefix(text, "【交回】") || watchHandbackPR.MatchString(text) {
-		return true
-	}
-	if kind, _, ok := parseExitKindTurn(text); ok && kind == exitKindReport {
-		return true // a [report] after progress text is still the handback (#1270)
-	}
-	if strings.HasPrefix(text, "【接】") {
-		return utf8.RuneCountInString(text) >= 300
-	}
-	// Length alone is not a handback (user 2026-10-28): a long progress note left the
-	// handoff marked returned, so the watch skipped it and the workspace was never freed.
-	return false
-}
-
-// watchHandbackLater: a reply whose first line is not the handback (「【接】…」, a mention) but a
-// later line opens with [report] or 【交回】 still handed the work back, as far as the watch is
-// concerned (#1183, 11-07: 龙娘 wrote 「【接】…」 then 「[report] #1162 …」 on the next line; the
-// watch stayed open and woke her ten hours later). The exit forwarding still wants the marker on
-// the first line; this only ends the watch.
-func watchHandbackLater(text string) bool {
-	_, rest, ok := strings.Cut(text, "\n")
-	if !ok {
-		return false
-	}
-	for _, line := range strings.Split(rest, "\n") {
-		line = strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(StripMarkdown(line)), ""))
-		if strings.HasPrefix(line, "[report]") || strings.HasPrefix(line, "【交回】") {
-			return true
-		}
-	}
-	return false
 }
 
 // watchStale: a watch whose board item or owner cannot be told is closed once its due time has
@@ -281,30 +224,6 @@ func watchStale(h TeamHandoff, key string, items []teamTaskBoardItem, now time.T
 		return false
 	}
 	return strings.TrimSpace(h.Owner) == "" || h.Board == 0 && handoffBoardID(key, h, items) == 0
-}
-
-// watchAnsweredInChat: a 【接】 turn in a chat channel that names no board item and has no board
-// item behind it was the whole answer (#221, 11-06: 大豆包「【接】\n一个最基础的登录页…」 and G哥
-// 「【接】什么东西属于你…」 were one-line answers, yet each got two 「接着做」 wakes and an escalation).
-// A chat channel hands real work to a workspace with ws-handoff, and that work is watched there
-// under its board item; what was not handed off was answered in the chat. Running a tool does not
-// change that (#1407, 11-10 agentm: 鲸鱼娘 ran `bothouse model list` to answer 「在+模型名」, the
-// watch took the tool call for work in flight and woke her three times with 「还没交出去…交工作区」).
-func watchAnsweredInChat(inWorkspace, boardActive bool, boardID int) bool {
-	return !inWorkspace && !boardActive && boardID == 0
-}
-
-// watchBlankTitle: what is left of the first line after 【接】 cannot name the work: empty, or the
-// 「-」 boardLabel gives an empty label (#221: 「接着做 -」). The body below may be the answer, so it
-// is not used as a title either; a watched turn gets MsgWatchUntitledAccept instead.
-func watchBlankTitle(title string) bool {
-	return boardLabel(title) == "-"
-}
-
-// exitHeadlineBounced: a [report] naming a board item whose headline forwardWorkspaceExit bounces.
-func (e *Engine) exitHeadlineBounced(key, body string) bool {
-	id, _, _ := exitHeadline(body)
-	return id > 0 && !e.exitHeadlineOK(body) && e.exitBounceCount(key) < exitRules.Bounce.WakeLimit
 }
 
 // watchBoardClosedWords: the closing words a board status may start with, the same set as
@@ -358,21 +277,17 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	text = strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(text), ""))
 	first, _, _ := strings.Cut(text, "\n")
 	accepted := strings.HasPrefix(strings.TrimSpace(first), "【接】")
+	// #699 C: handed back, asking or failed is the task's state (WorkspaceExit from ws-up --report,
+	// the park of ws-up --ask, board.py through the bridge), never a marker in the reply text: the
+	// [report]/【交回】/PR-link/【接】≥300 guesses and the 「做不了」 pattern are gone (design §4 rows 1–2).
 	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
-	returned := cardResult && !accepted || watchIsHandback(text) || watchHandbackLater(text)
-	// A validated user question waits for the user's answer, not an idle wake.
+	returned := cardResult && !accepted
 	asking := false
-	// #1270: an [ask] after a progress line (parseExitKindTurn, as forwardWorkspaceExit reads it)
-	// still waits for the user; it used to look like idle work and woke the workspace again.
-	if kind, body, ok := parseExitKindTurn(text); ok && kind == exitKindAsk {
-		returned = askEvidenceProblems(body) == nil
-		asking = true
-	} else if _, body, ok := parseExitKind(text); ok && returned && e.exitHeadlineBounced(key, body) {
-		// A [report] bounced for its headline (forwardWorkspaceExit) is resent, not handed back yet.
-		// Only a report that names a board item has a headline to repair: one without a #id cannot
-		// satisfy the check however often it is resent, so there the reply stays a handback and its
-		// watch ends instead of waking the workspace again for the same text (11-05 #96).
-		returned = false
+	switch e.workspaceTaskStateAt(key) {
+	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
+		returned = true
+	case TeamTaskAsking, TeamTaskPaused:
+		returned, asking = true, true
 	}
 	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
 	boardID := watchTaskNumber(StripMarkdown(first))
@@ -481,11 +396,9 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	// Direct acceptance and board-owned active work have no handoff/d10
 	// registration. Register unfinished work from this terminal event only.
 	// A chat-channel 「已交给工作区」 acceptance is not work left in the chat channel.
-	if (accepted || boardActive) && !returned && !handedOff && len(assignments) == 0 && e.team != nil &&
-		!watchAnsweredInChat(inWorkspace, boardActive, boardID) {
-		if !boardActive && watchBlankTitle(title) {
-			title = e.i18n.T(MsgWatchUntitledAccept) // real work with a bare 【接】 is still watched (PR #1194 review)
-		}
+	// Only board-owned work in a workspace with no handoff registration is registered here; a 【接】
+	// in a chat channel is not watched (design §7.3; #699 C/E).
+	if inWorkspace && boardActive && !returned && !handedOff && len(assignments) == 0 && e.team != nil {
 		owner := e.name
 		if m, ok := p.(SelfMentioner); ok && m.SelfMention() != "" {
 			owner = m.SelfMention()
@@ -527,20 +440,10 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 			}
 			continue
 		}
-		giveUp, cantDo := false, false
+		giveUp := false
 		h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 			h.Idle.Returned = returned
 			h.Idle.Ended = time.Now()
-			if !returned && !asking && !failed && watchIsCantDo(text) {
-				h.Idle.CantDo++
-				if h.Idle.CantDo >= 2 && !h.Idle.Reported {
-					h.Idle.Reported = true
-					cantDo = true
-					return
-				}
-			} else if !failed {
-				h.Idle.CantDo = 0
-			}
 			if failed && scheduled {
 				return // the routine's own failure counts toward nothing here (see watchTurnEnded)
 			}
@@ -567,10 +470,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 				continue
 			}
 			e.escalateIdle(a.key, h, MsgWatchFailEscalate)
-			continue
-		}
-		if ok && cantDo {
-			e.pauseCantDo(a.key, h, boardID)
 			continue
 		}
 		if ok && !returned && !delegated && !h.Idle.Reported {
@@ -740,46 +639,6 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		slog.Warn("idle watch: escalation failed", "error", err)
 	}
 	sender.wakeWatchRole(h.Chat, text, h.Title)
-}
-
-// pauseCantDo pauses the board item of an assignment that answered "can't do" twice in a row and
-// tells a person once (the first admin_from id is mentioned). No role is woken: a wake would only
-// start one more turn of the same refusal.
-func (e *Engine) pauseCantDo(key string, h TeamHandoff, boardID int) {
-	if h.Board != 0 {
-		boardID = h.Board
-	}
-	if boardID != 0 {
-		if out, err := e.runLeadScript(h.Chat, "board", "pause", strconv.Itoa(boardID), "连续两次回复做不了，看门自动暂停"); err != nil {
-			slog.Warn("idle watch: cant-do pause failed", "board", boardID, "error", err, "output", strings.TrimSpace(string(out)))
-		}
-	}
-	plat, _, _ := strings.Cut(key, ":")
-	sender := e.watchSender(h)
-	p := sender.lookupReadyPlatform(plat)
-	if p == nil {
-		slog.Warn("idle watch: sender platform unavailable", "workspace", key)
-		return
-	}
-	human := ""
-	e.userRolesMu.RLock()
-	af := e.adminFrom
-	e.userRolesMu.RUnlock()
-	for _, id := range strings.Split(af, ",") {
-		if id = strings.TrimSpace(id); id != "" && id != "*" {
-			human = watchMention(plat, id) + " "
-			break
-		}
-	}
-	who := h.Owner
-	if t := e.watchTarget(key, h.Owner); t != nil {
-		who = t.DisplayName() // naming, not mentioning: a mention would start one more turn
-	}
-	text := sender.i18n.Tf(MsgWatchCantDoEscalate, human, who, h.Title)
-	if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
-		slog.Warn("idle watch: cant-do notice failed", "error", err)
-	}
-	slog.Info("idle watch: paused after two cant-do replies", "workspace", key, "board", boardID, "owner", h.Owner)
 }
 
 func (e *Engine) wakeWatchRole(key, text, title string) {

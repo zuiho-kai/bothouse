@@ -46,6 +46,7 @@ func TestWorkspaceReportWithGapsGoesOnWithNote(t *testing.T) {
 		exitSay(e, p, exitWSKey, "ws1", "开工")
 		inputPrompt(t, a)
 		inputDone(a, c.reply)
+		exitByCommand(t, e, exitWSKey, c.reply)
 		inputWait(t, func() bool { return e.heldReportFor(c.id) != nil })
 		held := e.heldReportFor(c.id)
 		// what the check found goes to the lead only: the user-facing parts stay as written
