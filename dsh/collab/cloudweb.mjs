@@ -528,7 +528,25 @@ export class CloudWebGateway {
         const decisions = Object.entries(PERM_DECISIONS).filter(([, data]) => buttons.some(b => b.data === data));
         if (!text) return;
         if (decisions.length === 0) {
-          // Not a permission prompt: keep the old text fallback.
+          const options = buttons.filter(b => /^askq:\d+:\d+$/.test(b.data));
+          if (options.length || text.startsWith('❓')) {
+            this.approvals.expireWhere(p => p.meta?.gateway === this && p.meta.bot === member.id && p.meta.sessionKey === d.session_key);
+            const sessionKey = d.session_key;
+            const replyCtx = typeof d.reply_ctx === 'string' ? d.reply_ctx : roomKey(room);
+            this.approvals.open({ room, author: member, text, kind: 'question',
+              actions: options.map(b => ({ decision: b.data, label: b.label })),
+              meta: { gateway: this, bot: member.id, sessionKey, question: true },
+              onDecide: (answer, by, answerId) => {
+                const bot = this.bots.get(member.id);
+                if (bot !== undefined) {
+                  if (by === 'text') send(bot.ws, { type: 'message', msg_id: `hub-${answerId}`, chat_id: roomKey(room), chat_type: 'group',
+                    user_id: 'owner', user_name: 'Owner', content: answer, reply_ctx: replyCtx, mentioned: true, from_bot: false });
+                  else send(bot.ws, { type: 'card_action', session_key: sessionKey, reply_ctx: replyCtx, action: answer });
+                }
+              },
+            });
+            return;
+          }
           this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text });
           return;
         }

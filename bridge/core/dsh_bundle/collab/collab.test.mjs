@@ -14,11 +14,45 @@ import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-me
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute, withBody } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
+import { ChannelApprovals } from './approvals.mjs';
 
 // #149: without GATE_PORT the gate context reads the install's config.toml. A test that is not about
 // that must not reach the live gate because the shell running it has BOTHOUSE_DATA_DIR/CC_DATA_DIR set
 // (a bridge-started shell does). The #149 test below points this at its own temp config.
 process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
+
+test('workspace approval shares one decision with its parent channel', async () => {
+  const store = new Store(':memory:');
+  try {
+    store.ensureRoom(1, 'chat');
+    const hub = new Hub(store, { warn() {}, info() {} });
+    hub.setMember({ id: 'ds', name: 'Astra', kind: 'dsh', online: true });
+    const ws = store.createWorkspace(1);
+    const approvals = ChannelApprovals.of(hub);
+    let executions = 0;
+    for (const [choice, expected] of [['allow', 'allowed'], ['deny', 'denied'], ['allow_all', 'allowed_all']]) {
+      const { messageId, decision } = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'run tests', onDecide() { executions++; } });
+      const copy = store.page(1).find(m => JSON.parse(m.card ?? 'null')?.request_id === messageId);
+      assert.ok(copy);
+      approvals.decide(copy.id, choice);
+      assert.equal(await decision, choice);
+      assert.equal(JSON.parse(store.message(messageId).card).state, expected);
+      assert.equal(JSON.parse(store.message(copy.id).card).state, expected);
+      assert.throws(() => approvals.decide(messageId, choice), /已经处理/);
+      assert.throws(() => approvals.decide(copy.id, choice), /已经处理/);
+    }
+    assert.equal(executions, 3);
+    const open = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'text response' });
+    const response = hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '拒绝' }).message;
+    approvals.answerByText(response);
+    assert.equal(await open.decision, 'deny');
+    const expired = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'cancelled' });
+    const expiredCopy = store.page(1).find(m => JSON.parse(m.card ?? 'null')?.request_id === expired.messageId);
+    approvals.expire(expired.messageId);
+    assert.equal(await expired.decision, 'expired');
+    assert.equal(JSON.parse(store.message(expiredCopy.id).card).state, 'expired');
+  } finally { store.close(); }
+});
 
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
@@ -2681,6 +2715,30 @@ test('cloud-web #120: permission prompt → button → card_action → card stat
   assert.equal(JSON.parse(hub.store.message(third.id).card).state, 'expired');
 });
 
+test('cloud-web: bridge question buttons and a text reply reach the bot exactly once', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  const buttons = [[{ Text: '选 A', Data: 'askq:42:0' }, { Text: '选 B', Data: 'askq:42:1' }]];
+  const ask = () => bot.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '❓ 选哪个方案？', buttons });
+  ask();
+  await tick();
+  const first = hub.store.page(1).at(-1);
+  assert.equal(JSON.parse(first.card).kind, 'question');
+  gw.decidePermission(first.id, 'askq:42:1');
+  assert.equal(JSON.parse(hub.store.message(first.id).card).state, 'answered');
+  assert.equal(bot.of('card_action').at(-1).action, 'askq:42:1');
+  assert.throws(() => gw.decidePermission(first.id, 'askq:42:0'), /已经处理/);
+  ask();
+  await tick();
+  const second = hub.store.page(1).at(-1);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '我选自定义方案', replyTo: second.id });
+  await tick();
+  assert.equal(JSON.parse(hub.store.message(second.id).card).state, 'answered');
+  assert.equal(bot.of('message').at(-1).content, '我选自定义方案');
+  assert.equal(bot.of('card_action').length, 1);
+});
+
 test('cloud-web #120: owner text reply takes the same decision path; bot text does not approve', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -3534,7 +3592,7 @@ test('G35: a DSH task parked by the watch is woken in its kept session; answerin
   const wake = woken.find(([id]) => id === 'fu');
   assert.ok(wake && wake[1] === ws.id && !/新会话/.test(wake[2]), 'woken in the workspace, its session still there');
   assert.equal(hub.store.binding('fu', ws.id).session_id, 'collab-fu');
-  hub.post(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【问】#${t.id}\n做到第二步，卡在依赖` });
+  hub.post(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n继续做到第二步` });
   await settle();
   assert.equal(tasks.task(t.id).paused_at, null, 'resumed');
   assert.equal(hub.store.workspaceOwner(ws.id), 1, 'claimed back for its chat channel');
@@ -6103,6 +6161,23 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   assert.match(copies[0].text, /ask-[0-9a-f]{8}/, 'forwarded as an ask');
   assert.equal(hub.store.page(1, undefined, 50).filter(m => /交回/.test(m.text)).length, 0);
   assert.equal(woken.length, 0);
+});
+
+for (const marker of ['问', '升']) test(`G35: numbered workspace 【${marker}】 forwards its complete question and remains answerable`, async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  const t = assign();
+  const due = tasks.task(t.id).next_check_at;
+  const source = say(ws.id, `【${marker}】#${t.id} 背景：需要决定。\n已验证两种路径。\n要你做的：选 A 或 B？\n我加的：无\n自验：已检查\n类别：方向`);
+  await settle();
+  const ask = hub.store.db.prepare('SELECT * FROM team_exit_asks WHERE source_id = ?').get(source.id);
+  assert.ok(ask);
+  const copy = hub.store.message(ask.forwarded_id);
+  assert.match(copy.text, /选 A 或 B？[\s\S]*类别：方向/);
+  assert.equal(tasks.task(t.id).status, 'assigned');
+  assert.equal(tasks.task(t.id).next_check_at, due);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '选 A', replyTo: copy.id });
+  await settle();
+  assert.equal(hub.store.db.prepare('SELECT answered FROM team_exit_asks WHERE id = ?').get(ask.id).answered, 1);
 });
 
 test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
