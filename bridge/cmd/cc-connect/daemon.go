@@ -46,6 +46,19 @@ func runDaemon(args []string) {
 			}
 		}
 	}
+	if sub == "autostart" {
+		for _, a := range rest {
+			if isHelpArg(a) {
+				printDaemonUsage()
+				return
+			}
+		}
+		if len(rest) > 1 || (len(rest) == 1 && rest[0] != "on" && rest[0] != "off") {
+			fmt.Fprintf(os.Stderr, "daemon autostart: want on, off, or nothing (show current)\n\n")
+			printDaemonUsage()
+			os.Exit(2)
+		}
+	}
 	if sub == "install" || sub == "logs" {
 		for _, a := range rest {
 			if isHelpArg(a) {
@@ -70,6 +83,8 @@ func runDaemon(args []string) {
 		daemonStatus()
 	case "logs":
 		daemonLogs(rest)
+	case "autostart":
+		daemonAutostart(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown daemon command: %s\n\n", args[0])
 		printDaemonUsage()
@@ -141,10 +156,10 @@ func daemonInstall(args []string) {
 	fmt.Printf("  WorkDir:   %s\n", cfg.WorkDir)
 	fmt.Printf("  Log:       %s\n", cfg.LogFile)
 	if on, err := mgr.Autostart(); err == nil && on {
-		fmt.Println("  Autostart: on (kept from the existing install; switch it in the panel under Settings)")
+		fmt.Println("  Autostart: on (kept from the existing install; switch it with 'bothouse daemon autostart off' or in the panel under Settings)")
 	} else {
-		fmt.Println("  Autostart: off by default; turn it on in the panel under Settings → Start at login")
-		fmt.Println("             开机自启默认关，可在面板设置里打开")
+		fmt.Println("  Autostart: off by default; turn it on with 'bothouse daemon autostart on' or in the panel under Settings → Start at login")
+		fmt.Println("             开机自启默认关，可运行 bothouse daemon autostart on 或在面板设置里打开")
 	}
 	fmt.Printf("  LogMax:    %d MB\n", cfg.LogMaxSize/1024/1024)
 	fmt.Println()
@@ -154,6 +169,7 @@ func daemonInstall(args []string) {
 	fmt.Println("  bothouse daemon restart   - Restart")
 	fmt.Println("  bothouse daemon stop      - Stop")
 	fmt.Println("  bothouse daemon uninstall - Remove")
+	fmt.Println("  bothouse daemon autostart on|off - Start at boot/login")
 
 	// Check linger for user-mode systemd
 	if strings.Contains(mgr.Platform(), "user") {
@@ -352,6 +368,40 @@ func requireInstalled(mgr daemon.Manager) {
 	}
 }
 
+// ── autostart ───────────────────────────────────────────────
+
+// daemonAutostart shows or switches start-at-boot/login for the installed
+// service: the same switch as the panel's Settings → Start at login, for
+// machines with no browser (a Linux server over SSH).
+func daemonAutostart(args []string) {
+	mgr := mustManager()
+	requireInstalled(mgr)
+	if len(args) == 1 {
+		if err := mgr.SetAutostart(args[0] == "on"); err != nil {
+			fmt.Fprintf(os.Stderr, "Autostart failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	on, err := mgr.Autostart()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	state := "off"
+	if on {
+		state = "on"
+	}
+	fmt.Printf("Autostart: %s (%s)\n", state, mgr.Platform())
+	if on && strings.Contains(mgr.Platform(), "user") {
+		if enabled, user := daemon.CheckLinger(); !enabled {
+			fmt.Println()
+			fmt.Println("⚠️  Linger is off: a user service only starts at boot after you log in.")
+			fmt.Println("   To start it at boot without logging in, run:")
+			fmt.Printf("     sudo loginctl enable-linger %s\n", user)
+		}
+	}
+}
+
 // ── status ──────────────────────────────────────────────────
 
 func daemonStatus() {
@@ -507,6 +557,7 @@ Commands:
   restart     Restart the service
   status      Show service status
   logs        View log output
+  autostart   Show, or switch with on|off, start at boot/login
 
 Install flags:
   --config PATH         Path to config.toml (uses its parent as work dir)

@@ -136,3 +136,20 @@ func TestUnitFileMode_Is0600(t *testing.T) {
 		t.Errorf("mode = %o, want 0600", info.Mode().Perm())
 	}
 }
+
+// A system unit has no User=, so systemd gives the service no $HOME; the unit
+// must carry the installer's home or the bridge and its agent CLIs cannot find ~.
+func TestBuildUnit_SystemUnitSetsHome(t *testing.T) {
+	t.Setenv("HOME", "/root")
+	cfg := Config{BinaryPath: "/bin/true", WorkDir: "/root/.bothouse", LogFile: "/tmp/log"}
+	if out := (&systemdManager{system: true}).buildUnit(cfg); !strings.Contains(out, "Environment=\"HOME=/root\"\n") {
+		t.Errorf("system unit lacks HOME; got:\n%s", out)
+	}
+	if out := (&systemdManager{system: false}).buildUnit(cfg); strings.Contains(out, "HOME=") {
+		t.Errorf("user unit should not pin HOME; got:\n%s", out)
+	}
+	cfg.EnvExtra = map[string]string{"HOME": "/srv/bot"}
+	if out := (&systemdManager{system: true}).buildUnit(cfg); strings.Count(out, "HOME=") != 1 {
+		t.Errorf("HOME from EnvExtra should be the only one; got:\n%s", out)
+	}
+}
