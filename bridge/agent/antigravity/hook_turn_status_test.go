@@ -39,12 +39,20 @@ func TestStreamSession_HookInputKeepsWholeTurnEvidence(t *testing.T) {
 			n.Trajectory.Steps[6].Type = "CORTEX_STEP_TYPE_ERROR_MESSAGE"
 			n.Trajectory.Steps[6].RunCommand.ExitCode = nil
 		}},
+		{name: "upstream-stop-without-error-message", status: "ERROR", diagnostic: "stream_step=5 kind=upstream-stream-interrupted", mutate: func(n *nativeTrajectory) {
+			n.Trajectory.Steps[5].PlannerResponse.StopReason = "STOP_REASON_CLIENT_STREAM_ERROR"
+		}},
 		{name: "command-before-input", status: "ERROR", diagnostic: "command_step=3 exit_code=128", mutate: func(n *nativeTrajectory) {
 			exit := 128
 			n.Trajectory.Steps[3].RunCommand.ExitCode = &exit
 		}},
 		{name: "command-after-input", status: "ERROR", diagnostic: "command_step=6 exit_code=1", mutate: func(n *nativeTrajectory) {
 			exit := 1
+			n.Trajectory.Steps[6].RunCommand.ExitCode = &exit
+		}},
+		{name: "commands-on-both-sides", status: "ERROR", diagnostic: "nonzero_commands=2", mutate: func(n *nativeTrajectory) {
+			exit := 1
+			n.Trajectory.Steps[3].RunCommand.ExitCode = &exit
 			n.Trajectory.Steps[6].RunCommand.ExitCode = &exit
 		}},
 		{name: "tool-error", status: "ERROR", diagnostic: "stream turn failed", mutate: func(n *nativeTrajectory) {
@@ -76,11 +84,16 @@ func TestStreamSession_HookInputKeepsWholeTurnEvidence(t *testing.T) {
 			}
 			defer base.Close()
 			s := &streamSession{antigravitySession: base, busy: true, quota: &nativeQuota{pid: 123, address: server.URL, csrf: "fixture-csrf"}}
-			for i, typ := range []string{"user_input", "tool_call", "user_input", "agent_response", "tool_call", "agent_response"} {
-				if tc.name == "upstream-interruption-then-answer" && i == 4 {
-					typ = "error_message"
-				}
-				raw := fmt.Sprintf(`{"event":"step_update","step_update":{"conversation_id":"fixture-conversation","step_index":%d,"state":"DONE","step_type":%q}}`, i+2, typ)
+			for i := 2; i < len(trajectory.Trajectory.Steps); i++ {
+				step := trajectory.Trajectory.Steps[i]
+				typ := map[string]string{
+					"CORTEX_STEP_TYPE_USER_INPUT":       "user_input",
+					"CORTEX_STEP_TYPE_RUN_COMMAND":      "tool_call",
+					"CORTEX_STEP_TYPE_PLANNER_RESPONSE": "agent_response",
+					"CORTEX_STEP_TYPE_ERROR_MESSAGE":    "error_message",
+				}[step.Type]
+				state := strings.TrimPrefix(step.Status, "CORTEX_STEP_STATUS_")
+				raw := fmt.Sprintf(`{"event":"step_update","step_update":{"conversation_id":"fixture-conversation","step_index":%d,"state":%q,"step_type":%q}}`, i, state, typ)
 				var ev agyStreamEvent
 				if err := json.Unmarshal([]byte(raw), &ev); err != nil {
 					t.Fatal(err)

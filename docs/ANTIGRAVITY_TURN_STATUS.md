@@ -19,12 +19,14 @@
 
 只修正能证明属于历史污染的 ERROR，必须同时满足：
 
-1. 本轮 stream 有明确的 user_input 起点、同一会话与单调步骤编号，最终 agent_response 为 DONE；不接受缺字段、跨会话、额外输入或失败状态。
+1. 本轮 stream 有明确的 user_input 起点、同一会话与单调步骤编号，最终 agent_response 为 DONE；不接受缺字段、跨会话或失败状态。一次运行中的 Send 可以通过 PreInvocation hook 接收后续 user_input，边界仍保留为最初输入，不从中途消息重新计轮。
 2. 从**此会话拥有的 CLI 子进程**现有本地认证接口 GetCascadeTrajectory 读取新快照，不用历史缓存。只连接该进程的 loopback 监听端点，不走代理、不跟随重定向。
 3. 返回完整且空闲的轨迹，最后步骤与本轮 stream 对齐；本轮全部 DONE，无 error/errorMessage；最终响应有已验证的正常 stopReason。
 4. result.error 精确匹配本轮开始前的 ERROR_MESSAGE.shortError；本轮最终原生正文与 result.response 一致，仅允许首尾空白差异。agy会给result正文追加换行，不能以此误判不一致。
 
 证明成立才生成正常 EventResult，写一条不含正文/凭据的核验日志。流式正文不重复，原有模型、额度、队列和历史流程继续工作。无证明、空响应、本轮错误、取消、权限拒绝、未知状态、超时、接口失败、不同正文全部保留失败；不自动重试模型，不清空会话或改审批。
+
+中途输入功能加入后，旧验证器仍把第二个 user_input 判成无效，并把 error_message 混同为协议格式错误，导致尚未读取原生轨迹就返回笼统 ERROR。修正后，中途输入不改变原始边界，error_message 标记真实失败；命令诊断和工具诊断也检查整轮，不因插入消息跳过。原生 planner 步骤的 STOP_REASON_CLIENT_STREAM_ERROR 始终保留失败；身份、完整性、最终正文匹配后，错误附上 stream_step 和 kind=upstream-stream-interrupted，不输出提供商原文。后续回答不能抹掉本轮真实中断，这项修改也不防止上游 503。
 
 接口为CLI内部接口，未来版本可能变化。核验总预算10秒、响应上限64MiB（原8MiB在约370步的长会话中被撑爆，导致核验全部失败）；不满足格式或容量边界时保留原ERROR，不能宣称所有后端失败都已解决。正常SUCCESS不增加此查询。
 
