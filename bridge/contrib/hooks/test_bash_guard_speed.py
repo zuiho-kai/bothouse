@@ -47,7 +47,7 @@ def verdict(steps, user="帮我看看", depth=0, dsh=True):
          "tool_use_id": cid, "session_id": SID, "cwd": "/tmp"}
     argv = [sys.executable, "-I", COMPAT, "--sessions", ROOT, GUARD] if dsh else [sys.executable, "-I", GUARD]
     out = subprocess.run(argv, input=json.dumps(p), capture_output=True, text=True, check=True, timeout=20).stdout
-    return "deny" if '"deny"' in out else "pass", out
+    return "deny" if '"deny"' in out else "hint" if "只读查询" in out else "pass", out
 
 
 RO3 = [[bash("ls ~/x")], [bash("cat a.md | head -20")], [bash("git log -3 --oneline")]]
@@ -68,21 +68,22 @@ CASES = [  # (说明, steps, 期望, 额外参数)
     ("上次 job_output 被拦过", [[("job_output", {"job_id": "j1", "wait": True, "_denied": True})], [("job_output", {"job_id": "j1", "wait": True})]], "pass", {}),
     ("子 agent 也拦轮询", [[bash("gh run view 9")], [bash("gh run view 9")]], "deny", {"depth": 1}),
     # 8b 串行只读
-    ("第 4 步单步只读", RO3 + [[bash("gh pr view 5")]], "deny", {}),
+    ("第 4 步单步只读", RO3 + [[bash("gh pr view 5")]], "hint", {}),
+    ("第 4 步 cat 加 echo 也只提醒（#1514 原样）", RO3 + [[bash('cat ~/n/h.md; echo "=== END ==="')]], "hint", {}),
     ("echo 不算单条只读查询", [[bash("echo start")], [bash("ls")], [bash("cat a.md")], [bash("git status")]], "pass", {}),
     ("第 3 步单步只读", RO3[:2] + [[bash("gh pr view 5")]], "pass", {}),
     ("第 4 步合并成 echo === 分段", RO3 + [[bash("gh pr view 5; echo ===; git status")]], "pass", {}),
     ("第 4 步并行两个调用", RO3 + [[bash("gh pr view 5"), bash("git status")]], "pass", {}),
     ("中间有写操作打断", RO3[:2] + [[bash("python3 build.py")], [bash("git status")]], "pass", {}),
     ("中间合并过的步不计数", RO3[:2] + [[bash("ls; echo ===; cat b")], [bash("git status")]], "pass", {}),
-    ("合并过的步不打断计数", RO3[:2] + [[bash("ls; echo ===; cat b")], [bash("git status")], [bash("gh api repos/a/b")]], "deny", {}),
-    ("被拦的步不打断计数", RO3 + [[("bash", {"command": "gh pr view 5", "_denied": True})], [bash("grep -n x f")]], "deny", {}),
-    ("DSH read 工具也算单步查询", [[("read", {"file_path": "a"})], [("read", {"file_path": "b"})], [bash("ls")], [bash("git diff")]], "deny", {}),
+    ("合并过的步不打断计数", RO3[:2] + [[bash("ls; echo ===; cat b")], [bash("git status")], [bash("gh api repos/a/b")]], "hint", {}),
+    ("被拦的步不打断计数", RO3 + [[("bash", {"command": "gh pr view 5", "_denied": True})], [bash("grep -n x f")]], "hint", {}),
+    ("DSH read 工具也算单步查询", [[("read", {"file_path": "a"})], [("read", {"file_path": "b"})], [bash("ls")], [bash("git diff")]], "hint", {}),
     ("第 4 步是写文件的命令", RO3 + [[bash("sed -i '' s/a/b/ f")]], "pass", {}),
     ("第 4 步写重定向", RO3 + [[bash("cat a > b")]], "pass", {}),
     ("子 agent 会话豁免", RO3 + [[bash("gh pr view 5")]], "pass", {"depth": 1}),
     ("外出轮豁免", RO3 + [[bash("gh pr view 5")]], "pass", {"user": OUTING}),
-    ("引用里出现【外出 不算外出轮", RO3 + [[bash("gh pr view 5")]], "deny", {"user": "【外出·接着】旧消息\n（最新，回这条）\n帮我查"}),
+    ("引用里出现【外出 不算外出轮", RO3 + [[bash("gh pr view 5")]], "hint", {"user": "【外出·接着】旧消息\n（最新，回这条）\n帮我查"}),
     # 8b 重复命令
     ("重复同一条只读命令", [[bash("git status")], [bash("ls")], [bash("git   status")]], "deny", {}),
     ("重复 echo 不属于只读查询", [[bash("echo hello")], [bash("echo hello")]], "pass", {}),
@@ -103,7 +104,7 @@ bad = 0
 for desc, steps, want, kw in CASES:
     got, out = verdict(steps, **kw)
     bad += got != want
-    print("ok  " if got == want else "FAIL", "拦" if got == "deny" else "放", desc)
+    print("ok  " if got == want else "FAIL", {"deny": "拦", "hint": "提醒"}.get(got, "放"), desc)
     if got != want:
         print("     ", out[:300])
 print("全部通过" if not bad else f"{bad} 个失败")
