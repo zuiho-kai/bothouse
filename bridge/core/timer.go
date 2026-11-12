@@ -516,6 +516,14 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 		err = <-done
 	}
 
+	if errors.Is(err, errTimerQuotaCooling) {
+		// The cooldown began between the scheduler's check and the run: the job did
+		// not run, so wait it out instead of marking it fired (#1492).
+		wait := engine.capacityWait(engine.admissionQuotaScope(engine.agent, job.SessionKey))
+		slog.Info("timer: cooldown began before the run; delaying job", "id", jobID, "delay", wait)
+		ts.scheduleAt(job, max(wait, time.Second))
+		return
+	}
 	if errors.Is(err, errTimerPlatformNotReady) {
 		// Platform still connecting (e.g. Discord reconnect backoff after wake):
 		// keep the job pending and try again; each attempt waits up to
