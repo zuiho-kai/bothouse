@@ -32,6 +32,13 @@ class RecallTests(unittest.TestCase):
             self.assertNotIn("没搜成", text)
             self.assertEqual(text.count(recall.SECTION), 1)
 
+    def test_one_failing_source_keeps_the_others(self):
+        # #1492：频道那一路抛错，wiki 已回来的命中也跟着丢了，交接里整节没有
+        hit = [('wiki a.md:1', '用户定过：看门十分钟')]
+        with patch.object(recall, 'channel_hits', side_effect=ValueError('bad transcript')), \
+                patch.object(recall, 'wiki_hits', return_value=hit), patch.object(recall, 'session_ids', return_value=[]):
+            self.assertEqual(recall.gather(['看门'], '2026-11-01T04:00:00'), hit)
+
     def test_gather_includes_attributed_channel_feedback(self):
         rows = [('频道 彩虹猫 @discord:1 caihongmao/s1 2026-11-01 02:48', '【队友原话：彩虹猫】ASCII 架构图太土，不要用字符图')]
         with patch.object(recall, 'channel_hits', return_value=rows, create=True), patch.object(recall, 'wiki_hits', return_value=[]), patch.object(recall, 'session_ids', return_value=[]):
