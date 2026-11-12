@@ -80,7 +80,7 @@ var teamTaskAllowed = map[TeamTaskState][]TeamTaskState{
 	TeamTaskAsking:     {TeamTaskDispatched, TeamTaskPaused, TeamTaskClosed},
 	TeamTaskPaused:     {TeamTaskDispatched, TeamTaskClosed},
 	TeamTaskFailed:     {TeamTaskDispatched, TeamTaskPaused, TeamTaskClosed},
-	TeamTaskReturned:   {TeamTaskDispatched, TeamTaskClosed},
+	TeamTaskReturned:   {TeamTaskDispatched, TeamTaskPaused, TeamTaskClosed}, // paused: board reject
 	TeamTaskClosed:     {},
 }
 

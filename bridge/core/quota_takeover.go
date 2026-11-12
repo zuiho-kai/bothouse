@@ -46,7 +46,7 @@ func (e *Engine) quotaWorkItems() []quotaWork {
 	coveredBoards := map[int]bool{}
 	if e.team != nil {
 		for _, it := range readTeamTaskBoard(e.team.dir) {
-			if it.Paused != "" || it.Backlog != "" || watchBoardClosed(it) || !e.quotaOwns(it.Who) {
+			if it.Paused != "" || it.Backlog != "" || !e.quotaOwns(it.Who) {
 				continue
 			}
 			key := it.WS

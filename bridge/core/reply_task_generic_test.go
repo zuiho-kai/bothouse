@@ -35,6 +35,7 @@ func TestReplyTaskIDOnlyPlatformEndToEnd(t *testing.T) {
 	e.ReceiveMessage(p, &Message{SessionKey: wsKey, Platform: "idonly", ChannelID: "ws1", MessageID: "go", UserID: "human", UserName: "瑞凤", Content: "开工", Mentioned: true, ReplyCtx: wsKey})
 	inputPrompt(t, ag)
 	inputDone(ag, "[report] #7 背景：你让我做这件事。\n登录不再掉线了\n要你做的：没有。\n我加的：无\n改了重连逻辑，已在本机验过")
+	exitByCommand(t, e, wsKey, "[report] #7 背景：你让我做这件事。\n登录不再掉线了\n要你做的：没有。\n我加的：无\n改了重连逻辑，已在本机验过")
 	// The four parts only; details are not posted (user 10-30, 2795ca4a).
 	inputWait(t, func() bool { return len(p.sentTo("idonly:chat1")) == 1 })
 	var postID, post string

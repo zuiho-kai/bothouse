@@ -86,8 +86,7 @@ class DrainQueue(unittest.TestCase):
 
         class R:
             returncode = 0
-        with patch.object(self.g["board"], "pause_stale", return_value=None), \
-                patch.dict(self.g, {"ws_cmd": ws_cmd, "release_stale_returned": lambda c: None,
+        with patch.dict(self.g, {"ws_cmd": ws_cmd, "release_stale_returned": lambda c: None,
                                     "migrate_unbound": lambda *a: False}), \
                 patch.object(self.g["subprocess"], "run", side_effect=lambda cmd, **k: seen.setdefault("claim", cmd) and R()):
             got = self.mod["pick_pool"]("room:w2", "任务", 7)

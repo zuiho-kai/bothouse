@@ -97,3 +97,22 @@ func TestParkSavesSessionAndResumeRestoresIt(t *testing.T) {
 		t.Fatalf("resumed #677's session = %q, want its saved agent-677", got)
 	}
 }
+
+// resetTeamTurns clears the process-wide turn facts for a test (and again after it).
+func resetTeamTurns(t *testing.T) {
+	clear := func() {
+		teamTurns.mu.Lock()
+		teamTurns.by = map[string]map[uint64]teamTurnFact{}
+		teamTurns.lastEnd = map[string]time.Time{}
+		teamTurns.mu.Unlock()
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
+// testTurnEnded records that a turn in chat ended at at (as the engine does when a turn returns).
+func testTurnEnded(chat string, at time.Time) {
+	teamTurns.mu.Lock()
+	teamTurns.lastEnd[teamChatKey(chat)] = at
+	teamTurns.mu.Unlock()
+}

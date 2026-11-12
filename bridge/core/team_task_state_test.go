@@ -279,7 +279,7 @@ func TestTaskStateIsolatedInstanceWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := handoffsOf(e, "discord:ws1")[1]
-	hp.post("ws1", k5aOwner, "@橘 #679 在改", h.At.Add(time.Millisecond))
+	testTurnEnded("discord:ws1", h.At.Add(time.Millisecond)) // #699 E: #679's turn ended in the window
 	j := e.turnJournalStore()
 	en, err := j.Begin(TurnJournalEntry{InteractiveKey: "discord:ws1:u1"})
 	if err != nil {

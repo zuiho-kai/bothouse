@@ -23,7 +23,7 @@ class ReviewResume(unittest.TestCase):
         def claim(args, **kwargs):
             calls.append(args)
             return types.SimpleNamespace(returncode=0, stderr="")
-        with patch.object(self.g["board"], "pause_stale"), patch.dict(self.g, {
+        with patch.dict(self.g, {
             "ws_cmd": lambda *args: {"parent": "room:chat", "pool": pool},
             "migrate_unbound": lambda *args: False,
         }), patch.object(self.g["subprocess"], "run", claim):

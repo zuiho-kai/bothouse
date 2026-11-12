@@ -59,6 +59,9 @@ func (e *Engine) exitPostedRecently(kind string, id int, line string) bool {
 	if e.dataDir == "" {
 		return false
 	}
+	if _, tracked, err := e.TeamTask(id); err == nil && tracked {
+		return false // #699 E: a task with a state record is deduplicated by its transition (WorkspaceExit)
+	}
 	path := filepath.Join(e.dataDir, exitPostedFile)
 	key := kind + "#" + strconv.Itoa(id) + ":" + line
 	now := time.Now()

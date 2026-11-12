@@ -302,8 +302,6 @@ def event(nid, kind, it, note=None):
 
 def _update_event(nid, status, before, hit):
     """update 的这次变化对应哪种事：收尾词交给 done 记，退回归退回，交回归交回，换人归派活。"""
-    if CLOSED_RE.match(status):
-        return
     if _REJECTED_RE.search(status):
         event(nid, "rejected", hit, status)
     elif _RETURNED_RE.search(status):
@@ -751,87 +749,6 @@ def park_workspace(it, stop=False):
 # User, 2026-10-24: "稳定的一放一收，以小时为力度". Unfinished tasks with no
 # progress for one hour stay on the board as paused and release only their bound handoff (#261).
 STALE_AFTER = 60 * 60
-
-
-EVENTS_TAIL = 8 << 20  # 只读 events.jsonl 末尾这么多字节（桥 20 MB 轮转）
-
-
-def _events_path():
-    return Path(os.environ.get("BOARD_EVENTS") or (SETUP / "events.jsonl")).expanduser()
-
-
-def last_activity(sk):
-    """工作区会话 sk 最近一次真在干活（工具调用、回复）的时刻（epoch 秒），读不到返回 None。
-    来源是桥的统一事件流 <数据目录>/events.jsonl（core/events.go）。"""
-    if not sk:
-        return None
-    path, best = _events_path(), None
-    needle = json.dumps(sk).encode()
-    for f in (path, path.with_name(path.name + ".1")):
-        try:
-            with open(f, "rb") as fh:
-                fh.seek(0, 2)
-                fh.seek(max(0, fh.tell() - EVENTS_TAIL))
-                data = fh.read()
-        except OSError:
-            continue
-        for line in data.splitlines():
-            if needle not in line:
-                continue
-            try:
-                ev = json.loads(line)
-                if ev.get("session_key") != sk or ev.get("type") not in ("tool", "reply"):
-                    continue
-                t = datetime.fromisoformat(ev["time"]).timestamp()
-            except (ValueError, KeyError, TypeError, AttributeError):
-                continue
-            best = t if best is None else max(best, t)
-        if best is not None:
-            break  # 当前文件有就不翻轮转出去的旧文件
-    return best
-
-
-def _touch_progress(nid, stamp):
-    with _locked():
-        cur = _read()
-        hit = next((i for i in cur if i["id"] == nid), None)
-        if hit is None or hit.get("paused") or hit.get("backlog"):
-            return None
-        if stamp > hit.get("progress_at", 0):
-            hit["progress_at"] = stamp
-            _write(cur)
-        return hit
-
-
-def pause_stale(now=None):
-    now = time.time() if now is None else now
-    changed = []
-    for it in _read():
-        if it.get("paused") or it.get("backlog") or it.get("release_hold") or not it.get("ws") or it.get("next_ts", 0) > now:
-            continue  # 为发布暂停的条目在等发布切换，不是停滞；待办是主动排下的小事，不算停滞
-        stamp = it.get("progress_at")
-        if stamp is None:
-            continue
-        at_ts = _ts(it.get("at"), now)
-        if isinstance(at_ts, (int, float)) and at_ts > stamp:
-            stamp = at_ts
-        if now - stamp < STALE_AFTER:
-            continue
-        # 只认 ws-up/board 更新会把正在调工具的工作区当停滞放掉（2026-11-02 #922 01:47、#925 02:03，
-        # 桥的 10 分钟看门同一时刻还判「有进展」）：先看工作区会话在事件流里的真实动作，一小时内动过就续。
-        act = last_activity(it["ws"])
-        if act is not None and now - act < STALE_AFTER:
-            hit = _touch_progress(it["id"], act)
-            if hit:
-                schedule_stale_check(hit, delay=f"{max(5, int((STALE_AFTER - (now - act)) // 60) + 1)}m")
-            continue
-        # 2026-11-05 起「待办」是另一个状态（board backlog）：这里只是暂停，别写成「转待办」误导人
-        hit = pause(it["id"], "一小时无进展")
-        if hit:
-            park_workspace(hit)
-            schedule_prune_check(hit)
-            changed.append(hit)
-    return changed
 
 
 def _timer_command():
@@ -1405,9 +1322,7 @@ def backlog(nid, why=None):
     return {**hit, "ws": ws} if ws else hit
 
 
-# 收尾词：update 写成这些开头的状态就直接 done（用户 2026-10-28「任务榜完成的为什么不下掉」：
-# 只有明确完成/验收/收口才关闭；「已交回」仍需验收。和桥 watchBoardClosed 同一组词。
-CLOSED_RE = re.compile(r"\s*(?:已验收|验收通过|已收口|已完成|已结束|done\b)", re.I)
+# #699 D：状态文字不再结束一件活（删了收尾词 CLOSED_RE，和桥 watchBoardClosed、drift-check 同一组）；结束只有 board done / accepted。
 
 
 def done(nid, rework=None, why=None):
@@ -1744,6 +1659,30 @@ def _cc_bin():  # 同 ../lead/later：CC_BIN，否则 PATH 里的 bothouse / cc-
     return os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
 
 
+def task_state(nid, to, why="", in_workspace_ok=False):
+    """#699 D：这件活的状态只归桥（core/team_task_api.go POST /team/task/transition）。done / reject / wait / pause
+    先改桥里的状态，再写板；桥没起、或桥拒绝，命令直接报错退出，板一个字不动（设计第 7.1 条）。
+    in_workspace_ok：活还在工作区里时桥回 409，由随后的 workspace park 去暂停（停轮、放回在同一次提交里）。
+    返回桥回的 JSON（known=false：桥没记过这件，只动板）。"""
+    cc = _cc_bin()
+    if not cc:
+        sys.exit("board: 找不到 bothouse 命令，状态归桥，没改")
+    args = [cc, "workspace", "transition", "--board", str(nid), "--to", to] + (["--why", why] if why else [])
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        sys.exit(f"board: 桥没回（{e}），#{nid} 的状态没改，板也没动")
+    if p.returncode != 0:
+        err = (p.stderr or p.stdout).strip()
+        if in_workspace_ok and "in a workspace" in err:
+            return {"id": nid, "known": True}
+        sys.exit(f"board: 桥没改 #{nid} 的状态（{err[:200]}），板也没动")
+    try:
+        return json.loads(p.stdout or "{}")
+    except ValueError:
+        return {}
+
+
 WS_TIMEOUT = 5  # 秒：问桥工作区注册表的上限（本机 socket 调用，正常 1 秒内；桥卡住时不拖住 board 命令）
 
 
@@ -1842,11 +1781,6 @@ def main(argv):
                 rebind(nid, back)
             if not before:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
-            ended = CLOSED_RE.match(argv[2]) and done(nid)
-            if ended:
-                print(f"已结束：状态「{argv[2]}」是收尾词，#{nid} 移出任务板（返工次数记「未填」）")
-                _park_done(ended)
-                return
             print("已更新")
             if before.get("ws") and not any(i["id"] == nid and i.get("ws") == before["ws"] for i in items()):
                 freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
@@ -1869,6 +1803,8 @@ def main(argv):
                 sys.exit("条目不存在，未登记交回")
             print("已交回待验收")
         elif cmd == "reject" and len(argv) == 3 and argv[2].strip():
+            if any(i["id"] == int(argv[1].lstrip("#")) and i.get("returned_at") for i in _read()):
+                task_state(int(argv[1].lstrip("#")), "paused", "rejected: " + argv[2].strip()[:100])
             got = reject(int(argv[1].lstrip("#")), argv[2].strip())
             if not got:
                 sys.exit("条目不在待验收状态，未退回")
@@ -1888,6 +1824,7 @@ def main(argv):
                 print("不在板上（已收口），不用再收")
             else:
                 rounds = hit.get("reject_reasons") or []
+                task_state(nid, "closed", "accepted")
                 ended = done(nid, len(rounds), ("；".join(rounds)[:200] or None))
                 print("已验收收口" if ended else "不在板上（已收口），不用再收")
                 if ended:
@@ -1903,6 +1840,9 @@ def main(argv):
             why = argv[3].strip() if len(argv) > 3 else ""
             if rework > 0 and not why:
                 sys.exit(f"返工 {rework} 次要写原因，比如 board done {nid} {rework} \"没先读现有实现\"")
+            if not any(i["id"] == nid for i in _read()):
+                sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
+            task_state(nid, "closed", why)
             ended = done(nid, rework, why or None)
             if not ended:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
@@ -1953,6 +1893,9 @@ def main(argv):
                 print(f"已记停手（#{nid}）：工作区里不自己暂停。把 [report] #{nid} 写进草稿文件，"
                       "说做到哪、卡在哪、要谁定，跑 ws-up --report <草稿文件> 交回；交回后桥自动放回工作区。")
                 return
+            if not any(i["id"] == nid for i in _read()):
+                sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            task_state(nid, "paused", argv[2] if len(argv) > 2 else "board pause", in_workspace_ok=True)
             hit = pause(nid, argv[2] if len(argv) > 2 else None)
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
@@ -1982,6 +1925,8 @@ def main(argv):
             # 条目记「等外部」并带 wait_until，工作区放回池子、撤兜底；看门不再叫醒，到点桥 ws-handoff --resume 接着做
             # （用户 11-09「没卡导致不断重复跑」→「修」）。
             nid, minutes = int(argv[1].lstrip("#")), max(1, int(argv[3]))
+            if any(i["id"] == nid for i in _read()):
+                task_state(nid, "paused", WAIT_EXT + argv[2].strip()[:100], in_workspace_ok=True)
             hit = wait_external(nid, argv[2].strip(), minutes)
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
@@ -2020,7 +1965,6 @@ def main(argv):
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已挂卡")
         elif cmd == "refresh" and len(argv) == 1:
-            pause_stale()
             _say_pruned(auto_prune())
         elif cmd == "prune" and argv[1:2] in (["--off"], ["--on"], ["--idle"]):
             on, h = {"--off": False, "--on": True}.get(argv[1]), None

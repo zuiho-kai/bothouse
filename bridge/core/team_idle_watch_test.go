@@ -114,25 +114,6 @@ func TestWatchStaleNumberlessWatchClosesOnNextTurn(t *testing.T) {
 	}
 }
 
-// #1183: a numberless watch whose title names a board item that has since been closed is not woken.
-func TestWatchNumberlessWatchOfClosedBoardItemDoesNotWake(t *testing.T) {
-	e, _ := acceptFixture(t)
-	writeReleaseBoard(t, e, map[string]any{"id": 1162, "what": "搏仓第二版", "status": "已完成", "who": "橘", "chat": "discord:chatA"})
-	now := time.Now()
-	h := TeamHandoff{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute), Owner: e.name, Title: "#1162 先核对任务状态", Sender: e.name, Idle: watchIdleState{Ended: now}}
-	teamWorkspaceStore.mu.Lock()
-	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
-		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {h}}})
-	teamWorkspaceStore.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.fireIdleWake(idleAssignment{"discord:chatA", h, true})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || !got[0].Idle.Returned || got[0].Idle.Wakes != 0 {
-		t.Fatalf("a closed board item must end its numberless watch without a wake, got %+v", got)
-	}
-}
-
 // #1183 follow-up: the board is checked right before 「接着做」 is sent, not only at registration. A
 // numberless watch past its due time is closed there without a wake; one still within due wakes.
 func TestWatchNumberlessWatchPastDueClosesBeforeWake(t *testing.T) {
@@ -296,67 +277,6 @@ func TestWatchTurnEnded_LiveStuckRowNotRevived(t *testing.T) {
 // happens to mention 「已完成」, and the old strings.Contains test read it as a finished item.
 const watchBoardWorkInProgress = "在做：脱敏实现+单测+隔离实例截图已完成，PR #1382 草稿已开，CI 跑完即交回"
 
-// 1/6 of #497 (the regression, red before the fix): a status that only *mentions* a closing word is
-// still work. This is what freed 工作区 and killed the author's session at 15:07 on 11-09.
-func TestWatchBoardClosedRegressionStatusMentionsClosing(t *testing.T) {
-	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: watchBoardWorkInProgress}) {
-		t.Fatalf("%q read as closed (want live work)", watchBoardWorkInProgress)
-	}
-	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "在做：等验收通过再合"}) {
-		t.Fatalf("「在做：等验收通过再合」 read as closed")
-	}
-}
-
-// 2/6 of #497: the plain closing status is still closed.
-func TestWatchBoardClosedBareClosingStatus(t *testing.T) {
-	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "已完成"}) {
-		t.Fatal("「已完成」 must read as closed")
-	}
-}
-
-// 3/6 of #497: board.py's `\s*` allows leading spaces; the bridge must trim them the same way.
-func TestWatchBoardClosedLeadingSpace(t *testing.T) {
-	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "  已完成（返工0）"}) {
-		t.Fatal("「  已完成（返工0）」 must read as closed")
-	}
-	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "\t已结束"}) {
-		t.Fatal("a tab-indented closing status must read as closed")
-	}
-}
-
-// 4/6 of #497: the other two acceptance words, still anchored at the start.
-func TestWatchBoardClosedAcceptanceWords(t *testing.T) {
-	for _, status := range []string{"已验收", "已收口", "验收通过", "已验收（返工 0，无人返工）"} {
-		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must read as closed", status)
-		}
-	}
-}
-
-// 5/6 of #497: board.py's CLOSED_RE is case-insensitive and takes "done" as a whole word only.
-func TestWatchBoardClosedDoneWord(t *testing.T) {
-	for _, status := range []string{"DONE", "done", "Done：收工", "  done"} {
-		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must read as closed", status)
-		}
-	}
-	for _, status := range []string{"donezo", "还没 done", "doing"} {
-		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must not read as closed (done needs a word boundary)", status)
-		}
-	}
-}
-
-// 6/6 of #497: a handback and a waiting item are not closed — 「已交回」 still needs acceptance
-// (board.py 的注释：只有明确完成/验收/收口才关闭).
-func TestWatchBoardClosedNotClosed(t *testing.T) {
-	for _, status := range []string{"交回待验收", "等待用户拍板", "已交回", "已交接", "在做：已开工", ""} {
-		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must not read as closed", status)
-		}
-	}
-}
-
 // #497: reconcileTeamWorkspaces frees a workspace by looking only at the bound board item
 // (team_workspace_one.go:244). With the anchored test, the in-progress row above keeps it live;
 // before the fix the same row made the workspace stale and reset the session.
@@ -366,7 +286,7 @@ func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
 		freed  bool
 	}{
 		{watchBoardWorkInProgress, false},
-		{"已完成", true},
+		{"已完成", false}, // #699 D: a status text does not close a row; board done takes it off the board
 	} {
 		e, _, _ := exitFixture(t, nil)
 		e.SetTeam(t.TempDir(), "橘", true)

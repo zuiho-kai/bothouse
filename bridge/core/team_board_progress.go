@@ -117,27 +117,6 @@ func boardProgressStep(step string) string {
 // ansiEscape: CSI sequences and the two-byte escapes tools emit in coloured output.
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 
-// boardProgressClosed: whether this row really stopped being live work. It shares the closing
-// words with watchBoardClosed (team_idle_watch.go, watchBoardClosedWords + watchBoardClosedDone)
-// instead of keeping a third copy: f76d6cec unified the watch and board.py's CLOSED_RE (#1401), and
-// a separate list here left "done" rows renewing forever (#1438). A workspace's own
-// 「在做：检查已验收的条目」 must not read as closed either — that froze the row for good, the very
-// symptom #208 removes (复核 2026-11-06 必修①: wrote=false, progress_at 停在 100, 一小时后表格重回
-// 「1 小时前 + 卡住」). A line still marked 在做 is work in progress whatever its text mentions;
-// anything else must *start* with a closing word to count.
-func boardProgressClosed(status string) bool {
-	self := strings.TrimSpace(status)
-	if strings.HasPrefix(self, "在做：") {
-		return false
-	}
-	for _, closing := range watchBoardClosedWords {
-		if strings.HasPrefix(self, closing) {
-			return true
-		}
-	}
-	return watchBoardClosedDone.MatchString(self)
-}
-
 // progressStepField: the row field that records which step this watch last put in status. It is
 // how the next renewal tells 「在做：<看门写的这一步>」 (refresh it) from 「在做：<工作区自己写的>」
 // (leave it alone — it says more than a tool name). board.py keeps fields it does not know.
@@ -192,11 +171,11 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		// `git commit -m "…#208 已验收"`. Closing on a substring of our own step froze the row for
 		// good (复核 2026-11-06 必修②: 6 轮续期全写得进 0 次，一小时后板上又变回「1 小时无进展」).
 		ours := ownStep != "" && self == "在做："+ownStep
-		// h.Board (recorded at handoff) skips handoffBoardID's workspace match, so re-check the
-		// row itself: a handoff that names the wrong item must not overwrite another workspace's
-		// row (复核 2026-11-06 建议②，实测 writeBoardProgress(dir, 3, …) 会改到绑在 ws2 的 #3).
-		if ws == "" || teamChatKey(ws) != key || paused != "" || boardProgressClosed(self) {
-			return false, nil // not live workspace work any more (paused, moved off, closed)
+		// #699 D: whether this row is live work in this workspace is the task's state (checked by
+		// markBoardProgress before it gets here), not its status text; the closing-word test is gone.
+		// The row's own binding is still checked so a stale board row never takes another's write.
+		if ws == "" || teamChatKey(ws) != key || paused != "" {
+			return false, nil
 		}
 		stamp := float64(now.UnixNano()) / 1e9
 		var prevStamp float64
