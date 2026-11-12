@@ -18,7 +18,7 @@
 
 **把你已经在用的 Claude Code、Codex、Gemini 拉进一个群：一个当主角色负责分活，大家共用一份记忆。**
 
-[宣传片](#video) · [来由](#why) · [安装](#install) · [怎么运作](#how) · [能力](#features) · [记忆](#memory) · [平台](#platforms) · [对比](#compare) · [路线图](#roadmap) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
+[宣传片](#video) · [来由](#why) · [三种用法](#usage) · [安装](#install) · [怎么运作](#how) · [能力](#features) · [记忆](#memory) · [平台](#platforms) · [对比](#compare) · [路线图](#roadmap) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -45,8 +45,25 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 我手上同时开着 Claude Code、Codex、DeepSeek，两个屏幕来回切，几个之间协作很费劲。于是把它们拉进同一个 Discord 群，让其中一个负责派活，再给它们一份共用的记忆。不用另开账号、不用另买订阅，电脑、手机、浏览器上都能指挥。
 
-<a id="install"></a>
 <a id="usage"></a>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-zh-night.svg" />
+  <img src="docs/assets/readme/banner/usage-zh-day.svg" width="960" alt="" />
+</picture>
+
+## 三种用法
+
+<a id="dsh"></a>
+
+| 你手上有 | 从哪开始 |
+| --- | --- |
+| **几种 AI 命令行** | 走[安装](#install)里的向导，每个角色选一个你已登录的 CLI。 |
+| **一个模型、一个账号** | 在同一个模型上建几个成员，各管一摊。见[一个 CLI 组团队](docs/single-cli-team.md)。 |
+| **DSH**（DeepSeek 官方的 agent 应用 DeepSeek Harness） | 在 DSH 里说「帮我装 bothouse-dsh」，或者跑 `bothouse module add dsh`。见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。 |
+
+
+<a id="install"></a>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-zh-night.svg" />
@@ -63,15 +80,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 Windows 命令、安装包下载和常驻后台见[上手指南](docs/GETTING_STARTED.md)。
 
-<a id="dsh"></a>
-
-| 你手上有 | 从哪开始 |
-| --- | --- |
-| **几种 AI 命令行** | 走上面的向导，每个角色选一个你已登录的 CLI。 |
-| **一个模型、一个账号** | 在同一个模型上建几个成员，各管一摊。见[一个 CLI 组团队](docs/single-cli-team.md)。 |
-| **DSH**（DeepSeek 官方的 agent 应用 DeepSeek Harness） | 在 DSH 里说「帮我装 bothouse-dsh」，或者跑 `bothouse module add dsh`。见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。 |
-
 **让 AI 帮你装：**把仓库链接丢给 Claude Code、Codex 等任一 CLI，说「帮我装好 bothouse 接上 Discord」。给 AI 看的步骤在 [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)。
+
 
 <a id="how"></a>
 <a id="team-mode"></a>

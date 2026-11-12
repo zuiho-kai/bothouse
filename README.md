@@ -18,7 +18,7 @@
 
 **Put the AIs you already use — Claude Code, Codex, Gemini CLI — into one group chat. One of them leads and splits the work; they all share one memory.**
 
-[Video](#video) · [Why](#why) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
+[Video](#video) · [Why](#why) · [Three ways in](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
 </div>
 
@@ -45,8 +45,25 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 I had Claude Code, Codex and DeepSeek open at once across two screens, and getting them to work together was a pain. So I put them all in one Discord group, let one of them hand out the work, and gave them a shared memory. No extra account, no extra subscription — you direct them from your computer, phone or browser.
 
-<a id="install"></a>
 <a id="usage"></a>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-en-night.svg" />
+  <img src="docs/assets/readme/banner/usage-en-day.svg" width="960" alt="" />
+</picture>
+
+## Three ways in
+
+<a id="dsh"></a>
+
+| What you have | Where to start |
+| --- | --- |
+| **Several AI CLIs** | The setup wizard (see [Install](#install)): each role gets one of your signed-in CLIs. |
+| **One model, one account** | Create several members on the same model, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
+| **DSH** (DeepSeek Harness, DeepSeek's agent app) | Say "install bothouse-dsh for me" in DSH, or run `bothouse module add dsh`. See [bothouse in DSH](docs/platforms/dsh.en.md). |
+
+
+<a id="install"></a>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-en-night.svg" />
@@ -63,15 +80,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 The Windows command, package downloads and the background service are in [Getting started](docs/GETTING_STARTED.md).
 
-<a id="dsh"></a>
-
-| What you have | Where to start |
-| --- | --- |
-| **Several AI CLIs** | The wizard above: each role gets one of your signed-in CLIs. |
-| **One model, one account** | Create several members on the same model, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
-| **DSH** (DeepSeek Harness, DeepSeek's agent app) | Say "install bothouse-dsh for me" in DSH, or run `bothouse module add dsh`. See [bothouse in DSH](docs/platforms/dsh.en.md). |
-
 **Let an AI agent install it for you:** give Claude Code, Codex or any agent CLI this repo link and say "install bothouse and connect it to Discord". The agent-side steps are in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord).
+
 
 <a id="how"></a>
 <a id="team-mode"></a>
