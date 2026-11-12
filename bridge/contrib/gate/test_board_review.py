@@ -52,6 +52,21 @@ class HandbackReview(unittest.TestCase):
         self.assertEqual((rec["rework"], rec["rework_why"]), (1, "head 变了"))
         self.assertIn("不用再收", cli("accepted", "35"))  # already closed: no error
 
+    def test_rework_cap_does_not_claim_an_unsent_ask(self):
+        # #1492: the second rejection pauses the item and sends the user an [ask]. When the send
+        # failed, stdout still said 「已在聊天频道发 [ask]」, so the lead trusted it and the user never heard.
+        tmp = tempfile.mkdtemp()
+        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "lead", "CC_SESSION_KEY": "room:chat"}
+        path = Path(tmp) / "board.jsonl"
+        path.write_text(json.dumps({"id": 35, "what": "review", "chat": "room:chat", "ws": "room:work", "project": "lead",
+                                    "returned_at": "2026-11-10T03:21:00+00:00", "reject_reasons": ["第一次"]}) + "\n")
+        p = subprocess.run([sys.executable, "-I", str(HERE / "board.py"), "reject", "35", "第二次"],
+                           env=env, text=True, capture_output=True, timeout=10)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue(json.loads(path.read_text())["rework_cap"])
+        self.assertNotIn("已在聊天频道发 [ask]", p.stdout)
+        self.assertIn("没发出去", p.stdout)
+
     def test_report_reject_rebind_and_accept(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}
