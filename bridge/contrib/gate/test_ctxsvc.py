@@ -370,6 +370,28 @@ class T(unittest.TestCase):
             self.assertIn("【未核】", texts[0])
             self.assertNotIn("【旧】", texts[0])
 
+    def test_inference_marked_in_place(self):
+        # 推论只加【推论】，顺序不动；已经推翻的行只标【旧】，不叠推论
+        with tempfile.TemporaryDirectory() as d:
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), {}
+            self.addCleanup(setattr, ctxsvc, "WIKI", self.old)
+            ctxsvc._SECS.clear()
+            old_forum = ctxsvc.FORUM
+            ctxsvc.FORUM = None
+            self.addCleanup(setattr, ctxsvc, "FORUM", old_forum)
+            p = Path(d) / "notes"
+            p.mkdir()
+            (p / "README.md").write_text("x", encoding="utf-8")
+            (p / "page.md").write_text("---\ndescription: 发版\n---\n# T\n## 现状\n"
+                                       "- 发版 release 流程 我判断先跑测试（推论），写得长一点\n"
+                                       "- 回滚 release 流程 曾选先发版 → 因 CI 改为先测试（推论），写得长一点\n",
+                                       encoding="utf-8")
+            texts = [r["text"] for w in ctxsvc.match_wiki("发版 release 流程", prepared=True) for r in w["rows"]]
+            self.assertEqual(len(texts), 2, texts)
+            self.assertIn("【推论】", texts[0])
+            self.assertNotIn("【旧】", texts[0])
+            self.assertIn("【旧】", texts[1])
+
     def test_channel_projects_before_generic_rules(self):
         # 这个频道主要在做 proj/：项目页排在通用规矩页前；频道→项目只从推送日志算
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as e:

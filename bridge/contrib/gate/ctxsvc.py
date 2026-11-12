@@ -258,6 +258,9 @@ OLD_HEADS = ("历史",)  # 页模板里被推翻的旧行原样挪进的节
 # 行里自己写着「曾以为/曾选 X → 因 Y 改为 Z」，或标了「过时」：都是已被推翻的旧说法
 OLD_LINE = re.compile(r"曾(?:以为|选|用|定|提)|→\s*因(?!此)|^\s*[-*]\s*过时[：:]")
 UNVER_LINE = re.compile(r"未核|没核|未验证|推测")  # 推测、没核过的：推出去时标【未核】，排序不动
+# 推论（四类里的第三类）：助手或队友的判断、推断，既不是用户原话也不是核过的事实。只认行首「推论：」或行尾/括号里的
+# （推论）（推断）（判断）——单看「判断」二字会和「判断器」「E 判断」这类正常词撞上。
+INFER_LINE = re.compile(r"^\s*[-*]?\s*(?:推论|推断|判断)[：:]|[（(](?:推论|推断|判断)[）)]")
 _SECS = {}  # (根, 页) → (mtime, [(行号, 节名)])：每页扫一遍分节，页改了重扫
 
 
@@ -285,15 +288,19 @@ def _sections(rel, root=None):
 
 
 def cred(rel, ln, line, root=None):
-    """这行的可信度标记：【旧】= 历史节里的、或写着「曾以为…→」/「过时」的旧说法；【未核】= 自己标了推测没核的。
-    旧说法推的时候排到最后（别的不够五条时才轮得到），未核只加标记、排序不动。"""
+    """这行的可信度标记：【旧】= 历史节里的、或写着「曾以为…→」/「过时」的旧说法；【未核】= 自己标了推测没核的；
+    【推论】= 写着推论/推断/判断的。旧说法推的时候排到最后（别的不够五条时才轮得到），未核、推论只加标记、排序不动。"""
     sec = ""
     for n, s in _sections(rel, root):
         if n > int(ln):
             break
         sec = s
     old = sec in OLD_HEADS or bool(OLD_LINE.search(line))
-    return ("【旧】" if old else "") + ("【未核】" if UNVER_LINE.search(line) else "")
+    if old:  # 旧说法优先：已经推翻的行不再标未核/推论
+        return "【旧】"
+    if UNVER_LINE.search(line):
+        return "【未核】"
+    return "【推论】" if INFER_LINE.search(line) else ""
 
 
 GEN_PREFIXES = ("tooling/workflow/rules", "tooling/workflow/workflow/preferences")  # 通用规矩页（规则、做法、偏好）：哪个频道都推，代表不了项目
