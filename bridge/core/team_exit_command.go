@@ -114,9 +114,46 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		slog.Warn("team exit: task authorization refused the send; nothing forwarded", "session", sessionKey, "error", err)
 		return res, nil
 	}
-	res.Posted = e.forwardWorkspaceExitKind(ctx, p, sessionKey, exitKindReport, body)
+	out := &exitOutcome{}
+	res.Posted = e.forwardWorkspaceExitKind(context.WithValue(ctx, exitOutcomeKey{}, out), p, sessionKey, exitKindReport, body)
+	if res.Board > 0 && (out.bounced || out.dropped != "") {
+		// #1492 常识：没交到的不算交回。A report sent back for a repair turn, or one that found no
+		// chat to go to, did not hand the task back: the task stays in this workspace, so the
+		// repaired report is accepted (it got 409 「already returned」) and the turn's end does not
+		// free the workspace under the repair turn.
+		why := "report bounced for repair"
+		if out.dropped != "" {
+			why = "report not delivered: " + out.dropped
+		}
+		teamWorkspaceStore.mu.Lock()
+		t, terr := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: res.Board, To: TeamTaskDispatched, WS: res.Workspace, By: "exit command", Why: why}, time.Now())
+		teamWorkspaceStore.mu.Unlock()
+		if terr != nil {
+			slog.Warn("team exit: could not put the task back in work", "board", res.Board, "error", terr)
+		} else {
+			res.State = string(t.State)
+		}
+		if out.dropped != "" {
+			return res, fmt.Errorf("workspace exit: %s", out.dropped)
+		}
+	}
 	slog.Info("team exit: handed back by command", "workspace", res.Workspace, "board", res.Board, "kind", kind, "state", res.State)
 	return res, nil
+}
+
+// exitOutcome tells WorkspaceExit what forwardWorkspaceExitKind did with the report besides
+// posting or holding it: sent back for a repair turn, or dropped with nowhere to go.
+type exitOutcome struct {
+	bounced bool
+	dropped string
+}
+
+type exitOutcomeKey struct{}
+
+func noteExitOutcome(ctx context.Context, f func(*exitOutcome)) {
+	if o, ok := ctx.Value(exitOutcomeKey{}).(*exitOutcome); ok && o != nil {
+		f(o)
+	}
 }
 
 // handleTeamWorkspaceExit: POST /team/workspace/exit {session_key, project, kind, text}.
