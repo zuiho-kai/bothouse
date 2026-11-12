@@ -45,7 +45,15 @@ type WizardMemoryIndexStore interface {
 }
 
 // RoleWikiDir is where the wizard installs the wiki programs.
-func RoleWikiDir(dataDir string) string { return filepath.Join(dataDir, "wiki") }
+func RoleWikiDir(dataDir string) string {
+	dir := filepath.Join(dataDir, "wiki")
+	// #1497: when the main wiki is <data>/wiki (an isolated data dir), installing the programs there
+	// first would make setup_wiki.py refuse to create it. Every other install keeps <data>/wiki.
+	if main, _ := FindWiki(); main != "" && filepath.Clean(main) == filepath.Clean(dir) {
+		return filepath.Join(dataDir, "wiki-programs")
+	}
+	return dir
+}
 
 // InstallRoleWikiPrograms writes the embedded programs into RoleWikiDir (replacing older copies; bots.json and
 // transcripts are left alone).
