@@ -5910,29 +5910,42 @@ test('workspace listing releases an empty owned workspace, not a parked task or 
   assert.equal(hub.store.workspaceOwner(bridge.id), 1, 'bridge claim remains owned');
 });
 
-test('G34: a DSH reply opening with 【接】#id and growing in place, and its progress card, count as progress', () => {
+test('G34: in-window new text and progress card count as progress; cross-window edited text does not renew', () => {
+  // A new text message posted within the current window counts as progress.
   const { hub, tasks, clock, ws, assign } = g34Setup();
   const t = assign();
   // One draft row for the whole turn, first line the stance, edited in place (dsh-member runCli).
-  const draft = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
   clock.t = 1000 + CHECK_AFTER_S;
   tasks.tick();
-  assert.equal(tasks.task(t.id).paused_at, null, 'text after the stance line is progress');
+  assert.equal(tasks.task(t.id).paused_at, null, 'text posted in this window is progress');
   assert.equal(tasks.task(t.id).renewals, 1);
-  hub.store.edit(draft.id, 'role', 'fu', `【接】#${t.id}\n\n先看代码，写好了三个模块`, undefined, clock.t + 300);
-  clock.t += CHECK_AFTER_S;
-  tasks.tick();
-  assert.equal(tasks.task(t.id).paused_at, null, 'the same row growing in the next window is progress');
-  assert.equal(tasks.task(t.id).renewals, 2);
 
+  // Cross-window: same row edited after the window boundary — text messages use created_at only
+  // (PR#1660), so the edit does not reset the clock. No new message in the new window → park.
+  clock.t += CHECK_AFTER_S;
+  hub.store.edit(row.id, 'role', 'fu', `【接】#${t.id}\n\n先看代码\n还在写`, undefined, clock.t - 30);
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at, 'editing a previous-window text row does not renew — task parks');
+
+  // A progress card edited after it was posted (TurnProgress) still counts regardless of window.
   const g = g34Setup();
   const t2 = g.assign();
-  // Only a progress card, edited after it was posted (TurnProgress).
   const card = g.hub.store.append(g.ws.id, { authorKind: 'role', author: 'fu', name: '副', text: '第 3 步', card: JSON.stringify({ title: '副 · 进行中' }) }, 900).message;
   g.hub.store.edit(card.id, 'role', 'fu', '第 19 步', JSON.stringify({ title: '副 · 进行中' }), 1300);
   g.clock.t = 1000 + CHECK_AFTER_S;
   g.tasks.tick();
   assert.equal(g.tasks.task(t2.id).paused_at, null, 'a progress card moving is progress');
+
+  // A new text message posted in the new window counts as progress (created_at > since).
+  const j = g34Setup();
+  const t4 = j.assign();
+  j.clock.t = 1000 + CHECK_AFTER_S;
+  j.hub.store.append(j.ws.id, { authorKind: 'role', author: 'fu', name: '副', text: '刚写完第二个模块' }, j.clock.t - 30).message;
+  j.tasks.tick();
+  assert.equal(j.tasks.task(t4.id).paused_at, null, 'a new text message in the new window is progress');
+  assert.equal(j.tasks.task(t4.id).renewals, 1);
+
   // A bare stance line still is not.
   const h = g34Setup();
   const t3 = h.assign();
