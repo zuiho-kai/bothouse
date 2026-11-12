@@ -138,8 +138,9 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 			if err := source.ExecuteCronJob(&CronJob{ID: "cron", SessionKey: chat, Prompt: "must not run"}); err != nil {
 				t.Fatal(err)
 			}
-			if err := source.ExecuteTimerJob(&TimerJob{ID: "timer", SessionKey: chat, Prompt: "must not run"}); err != nil {
-				t.Fatal(err)
+			// #1492: not run is not done; the scheduler re-queues on this error instead of marking it fired
+			if err := source.ExecuteTimerJob(&TimerJob{ID: "timer", SessionKey: chat, Prompt: "must not run"}); !errors.Is(err, errTimerQuotaCooling) {
+				t.Fatalf("timer during cooldown: err=%v, want errTimerQuotaCooling", err)
 			}
 			if _, err := source.HandleRelay(context.Background(), "jingyu", chat, "must not run"); err == nil {
 				t.Fatal("relay did not respect cooling")
