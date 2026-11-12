@@ -285,7 +285,13 @@ class TierTest(unittest.TestCase):
         import datetime as dt
         day = dt.date.today()
         with tempfile.TemporaryDirectory() as d:
-            ev = {"time": day.isoformat() + "T09:00:00+09:00", "type": "message", "text": "[09:00] 用户: 这功能都都已经加过，这为啥还是没有？"}
+            # 真实格式（core/backfill.go）：source=bridge，正文是频道回放；bot / 本账号名字带后缀，真人不带
+            head = "（频道里你上次看到之后的消息，按时间顺序，都是本条消息之前的旧消息；这是真实记录，先读它再回答）\n"
+            ev = {"time": day.isoformat() + "T09:00:00+09:00", "type": "message", "source": "bridge", "text": head +
+                  "[09:00，3 分钟前] zuiho_kai: [回复 Claude橘：bot 说的旧话] 这功能都都已经加过，\n这为啥还是没有？\n"
+                  "[09:01，2 分钟前] 鲸鱼娘（bot）: 用户说过：这句是鲸鱼娘编的不算数\n"
+                  "[09:02，1 分钟前] Claude橘（你这个账号，但不是你在会话里写的，如定时任务输出）: 这句是定时任务印的也不算\n"
+                  "\n（最新，回这条）\n【彩虹猫】这句看不出是谁说的"}
             (Path(d) / "events.jsonl").write_text(json.dumps(ev, ensure_ascii=False) + "\n", encoding="utf-8")
             md = f"{day.month:02d}-{day.day:02d}"
             def run(line):
@@ -300,6 +306,9 @@ class TierTest(unittest.TestCase):
             self.assertEqual(run(f"用户 {md} 原话「这功能都已经加过，这为啥还是没有」"), [])  # 少个错字照样认
             errs = run(f"用户 {md} 原话「这句话频道里根本没有出现过」")
             self.assertTrue(any("这句话频道里根本没有出现过" in e for e in errs), errs)
+            for fake in ("这句是鲸鱼娘编的不算数", "这句是定时任务印的也不算", "这句看不出是谁说的", "bot 说的旧话"):
+                errs = run(f"用户 {md} 原话「{fake}」")  # #1492 P5：bot、本账号、回复引用里的话不算用户原话
+                self.assertTrue(any(fake in e for e in errs), (fake, errs))
             self.assertEqual(run("用户 01-02 原话「这句话频道里根本没有出现过」"), [])  # 早于记录最早一天，核不了不拒
             self.assertEqual(run(f"{md} 定的检查叫「这句话频道里根本没有出现过」"), [])  # 术语引号不核
 

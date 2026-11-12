@@ -79,11 +79,16 @@ def judge(text):
                            input=prompt, capture_output=True, text=True, timeout=TIMEOUT, cwd=tempfile.gettempdir())
         d = json.loads(p.stdout)
         res["cost"] = round(d.get("total_cost_usd") or 0, 5)
+        # 退出码非 0、is_error、结果里没有 added 都算出错，不当「没多出设定」记 pass（#1492 P4）
+        if p.returncode != 0 or d.get("is_error"):
+            raise RuntimeError(f"claude 退出码 {p.returncode}{'，is_error' if d.get('is_error') else ''}")
         txt = (d.get("result") or "").strip()
         j = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
-        res["added"] = [a for a in j.get("added") or [] if isinstance(a, dict) and a.get("what")]
-    except Exception as e:  # 超时、没装 claude、输出不是 JSON：放行
-        res["error"] = f"{type(e).__name__}"
+        if not isinstance(j, dict) or not isinstance(j.get("added"), list):
+            raise ValueError("结果里没有 added 数组")
+        res["added"] = [a for a in j["added"] if isinstance(a, dict) and a.get("what")]
+    except Exception as e:  # 超时、没装 claude、输出不是 JSON、模型报错：放行，记 error
+        res["error"] = f"{type(e).__name__}: {e}"[:120]
     res["ms"] = int((time.time() - t0) * 1000)
     _log("added" if res["added"] else ("error" if res["error"] else "pass"), res["ms"], res["cost"],
          text.strip().splitlines()[0][:60] if text.strip() else "")

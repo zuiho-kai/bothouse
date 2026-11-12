@@ -260,8 +260,9 @@ def main(argv):
     else:
         for nid in handoffs(last)[path].get("board") or []:
             board.progress(nid)
-    say(key, f"📤 已报回聊天频道：{rest[0][:300]}", _team.project())
-    print(f"ws-up: 已交给聊天频道 {chat}（{'提问' if ask else '上报'}）", file=sys.stderr)
+    # 定时器刚排上，主角色那一轮还没跑：只说排队了，不说已报回（#1492 L4）
+    say(key, f"📤 已排队转给聊天频道的主角色：{rest[0][:300]}", _team.project())
+    print(f"ws-up: 已排队转给聊天频道 {chat} 的主角色（{'提问' if ask else '上报'}）", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

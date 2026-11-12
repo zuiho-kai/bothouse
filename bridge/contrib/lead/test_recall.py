@@ -55,6 +55,37 @@ class RecallTests(unittest.TestCase):
             self.assertIn('队友意见（彩虹猫）', notes.read_text())
             self.assertEqual(notes.read_text().count('## ' + recall.SECTION), 1)
 
+    def test_model_error_is_not_written_as_nothing_found(self):
+        # #1492 P3：小模型超时/出错时不能写「没搜到」；照实写「没搜成（原因）」，下次 append_to 删掉重搜
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            notes = Path(d) / 'handoff.md'
+            notes.write_text('# 用户原话\n改「架构图」\n\n# 总目标\n换架构图\n')
+            boom = subprocess.TimeoutExpired('claude', 20)
+            with patch.object(recall.subprocess, 'run', side_effect=boom), \
+                 patch.object(recall, 'gather', return_value=[('~/wiki/a.md:1', '用户定：架构图用 HTML')]), \
+                 patch.object(recall, '_log'):
+                block = recall.append_to(notes)
+            self.assertNotIn(recall.NONE_LINE, block)
+            self.assertIn(recall.FAIL_LINE, block)
+            self.assertIn('超过', block)
+            with patch.object(recall, 'old_decisions', return_value=['用户定：架构图用 HTML——~/wiki/a.md:1']):
+                again = recall.append_to(notes)
+            text = notes.read_text()
+            self.assertIn('架构图用 HTML', again)
+            self.assertNotIn(recall.FAIL_LINE, text)
+            self.assertEqual(text.count('## ' + recall.SECTION), 1)
+
+    def test_claude_ex_counts_exit_code_and_is_error(self):
+        from types import SimpleNamespace as NS
+        for rc, out in ((1, '{"result": "x"}'), (0, '{"is_error": true, "result": "rate limit"}'), (0, 'oops')):
+            with patch.object(recall.subprocess, 'run', return_value=NS(returncode=rc, stdout=out)):
+                txt, _, err = recall.claude_ex('s', 'p')
+            self.assertEqual(txt, '')
+            self.assertTrue(err, out)
+        with patch.object(recall.subprocess, 'run', return_value=NS(returncode=0, stdout='{"result": " ok "}')):
+            self.assertEqual(recall.claude_ex('s', 'p'), ('ok', 0, ''))
+
 
 if __name__ == '__main__':
     unittest.main()
