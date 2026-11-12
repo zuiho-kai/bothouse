@@ -4994,17 +4994,26 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
 
-	if state.agentSession == nil {
-		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("start session: %s", state.startErr)})
+	// Read the agent session once, under the lock: cleanupInteractiveState nils state.agentSession
+	// under state.mu while this turn runs (idle close, reset, engine stop), and the unlocked
+	// re-reads below panicked on nil (#1516, CI run 43195773186 and a local core run, both at the
+	// drainEvents call, reached from bounceWorkspaceExit's heartbeat). A session closed meanwhile
+	// makes the turn fail through its normal error path instead.
+	state.mu.Lock()
+	agentSession := state.agentSession
+	startErr := state.startErr
+	state.mu.Unlock()
+	if agentSession == nil {
+		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("start session: %s", startErr)})
 		text := e.i18n.T(MsgFailedToStartAgentSession)
-		if state.startErr != "" {
+		if startErr != "" {
 			// maomao fork: say why, so whoever reads it can act.
-			text += "：" + truncateRunes(state.startErr, 200)
+			text += "：" + truncateRunes(startErr, 200)
 		}
 		e.reply(inputOutputPlatform(p, msg.inputTurn), msg.ReplyCtx, text)
 		return
 	}
-	e.journalTurnAgent(journalTurnID, state.agentSession) // #618 K1
+	e.journalTurnAgent(journalTurnID, agentSession) // #618 K1
 	e.armResumeRetry(state, session, msg.resumeFallback)  // #618 K4 S1
 	e.cancelAgentSessionIdleClose(state)
 
@@ -5018,7 +5027,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// maomao fork: it lasts for this message's turn only; a queued message chained after it gets
 	// its own mode (setTurnMode in processInteractiveEvents), and the deferred restore is the
 	// fallback for an early return.
-	e.setTurnMode(state, state.agentSession, msg.ModeOverride)
+	e.setTurnMode(state, agentSession, msg.ModeOverride)
 	defer e.restoreTurnMode(state)
 
 	// Start typing indicator if platform supports it.
@@ -5045,7 +5054,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.turnCancelled = false
 	state.mu.Unlock()
 	if msg.inputTurn != nil {
-		strict, ok := state.agentSession.(StrictResumeSession)
+		strict, ok := agentSession.(StrictResumeSession)
 		if !ok {
 			msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("strict resume unsupported")})
 			return
@@ -5060,7 +5069,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		needResync = true
 	}
 	if needResync {
-		drainEvents(state.agentSession.Events())
+		drainEvents(agentSession.Events())
 	}
 
 	// maomao fork: while the model cools down after "at capacity", the message waits
