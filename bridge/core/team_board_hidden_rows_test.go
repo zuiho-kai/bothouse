@@ -91,3 +91,19 @@ func TestBoardHidesOnlyChannelsThatWereListedAndAreGone(t *testing.T) {
 		t.Fatalf("kept %v, want [1 3] (wsNew never listed, wsOld deleted)", ids)
 	}
 }
+
+// #1492 N6: since #699 D the status column is text, not state; an item whose status starts with
+// 「完成」 is still live work in its workspace, so its open handoff gets no second synthetic row.
+func TestStatusTextDoesNotEndAWorkspaceItem(t *testing.T) {
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.Local)
+	p := testTaskBoardPlacer()
+	p.openHandoffs = func() map[string]TeamHandoff {
+		return map[string]TeamHandoff{"feishu:oc_ws": {Chat: "feishu:oc_a", Title: "改接口", At: now.Add(-time.Hour)}}
+	}
+	items := placeTeamTaskBoard(p, []teamTaskBoardItem{
+		{ID: 9, What: "改接口", Status: "完成第一步，接着测", WS: "feishu:oc_ws", SK: "feishu:oc_ws", Chat: "feishu:oc_a", At: "11-01 11:00"},
+	})
+	if len(items) != 1 {
+		t.Fatalf("a 「完成…」 status counted as ended: %d rows %+v", len(items), items)
+	}
+}

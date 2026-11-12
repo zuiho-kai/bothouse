@@ -396,7 +396,7 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 				hasLive := false
 				for i := range items {
 					it := &items[i]
-					if it.Paused == "" && it.Backlog == "" && !strings.HasPrefix(strings.TrimSpace(it.Status), "完成") && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
+					if it.Paused == "" && it.Backlog == "" && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
 						if h.Board > 0 && it.ID != h.Board {
 							continue
 						}
