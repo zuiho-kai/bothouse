@@ -68,13 +68,18 @@ func (e *Engine) SetTeamBoard(on bool) {
 	t.mu.Lock()
 	start := on && !t.board
 	t.board = on
+	if start {
+		t.boardGen++
+	}
+	gen := t.boardGen
 	t.mu.Unlock()
 	if start {
-		go e.runTeamBoard()
+		go e.runTeamBoard(gen)
 	}
 }
 
-func (e *Engine) runTeamBoard() {
+// runTeamBoard refreshes the boards until the board is turned off or a newer loop (gen) started.
+func (e *Engine) runTeamBoard(gen uint64) {
 	tick := time.NewTicker(teamBoardInterval)
 	defer tick.Stop()
 	t := e.team
@@ -109,9 +114,9 @@ func (e *Engine) runTeamBoard() {
 			return
 		}
 		t.mu.Lock()
-		on := t.board
+		on, cur := t.board, t.boardGen
 		t.mu.Unlock()
-		if !on {
+		if !on || cur != gen {
 			return
 		}
 		if cardTries < teamBoardRetireTries {
