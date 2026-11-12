@@ -1828,9 +1828,12 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
-	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
-		slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
-		return nil
+	// Same as the scheduler (cron.go): a shell job does not use the model (#1492).
+	if !job.IsShellJob() {
+		if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
+			slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
+			return nil
+		}
 	}
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -2111,6 +2114,10 @@ var timerPlatformReadyTimeout = 2 * time.Minute
 // instead of marking it fired, so it runs once the platform connects.
 var errTimerPlatformNotReady = errors.New("timer platform not ready")
 
+// errTimerQuotaCooling marks a prompt timer run skipped because the model is in a
+// quota cooldown: the job did not run, so it must not be recorded as fired (#1492).
+var errTimerQuotaCooling = errors.New("timer skipped: provider cooldown")
+
 func (e *Engine) waitTimerPlatformReady(p Platform) error {
 	if _, async := p.(AsyncRecoverablePlatform); !async {
 		return nil
@@ -2202,9 +2209,15 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		job = e.taskReviewSessionAtRun(prepared)
 	}
 	job = e.withGuardLiveStatus(job, time.Now()) // #1067: backstop prompt carries team watch's live state
-	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
-		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
-		return nil
+	// A shell job never calls the model, so a model cooldown is no reason to skip it
+	// (the scheduler already exempts it, timer.go executeJob). A prompt job is not
+	// done when it was skipped: report it, so the scheduler runs it after the
+	// cooldown instead of recording it as fired (#1492).
+	if !job.IsShellJob() {
+		if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
+			slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
+			return errTimerQuotaCooling
+		}
 	}
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
