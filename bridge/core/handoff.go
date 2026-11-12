@@ -887,6 +887,7 @@ func (s *Session) SettleHandoff(delivered bool) {
 		s.freshDoneUpTo = s.freshDonePending
 	}
 	s.freshTaken, s.freshDonePending = false, ""
+	s.settleInterrupted(delivered)
 }
 
 // freshImagesDoneUpTo returns the newest post whose images an earlier fresh context already
