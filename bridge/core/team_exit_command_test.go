@@ -69,3 +69,33 @@ func TestExitCommandFailed(t *testing.T) {
 		t.Fatal("kind ask accepted; asking is ws-up --ask")
 	}
 }
+
+// #1500: a handback by command inside the turn is the report. The turn's end must not ask for a
+// missing [report] (11-12 工作区6 was nagged 13–30 s after each ws-up --report), and the reset the
+// handback queued runs instead of staying blocked.
+func TestExitCommandInTurnIsNotNagged(t *testing.T) {
+	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.platformReady = map[Platform]bool{p: true}
+	exitBoardItem(t, e, 9, "命令交回")
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#9 命令交回", 9); err != nil {
+		t.Fatal(err)
+	}
+	exitSay(e, p, exitWSKey, "ws1", "开工")
+	inputPrompt(t, a)
+	old := e.sessions.ActiveSessionID(exitWSKey)
+	if r, err := e.QueueSessionReset(exitWSKey); err != nil || !r.Queued {
+		t.Fatalf("reset not queued: %+v, %v", r, err)
+	}
+	report := "[report] #9 背景：你让我做这件事。\n做完了\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```"
+	if res := exitByCommand(t, e, exitWSKey, report); res.State != string(TeamTaskReturned) {
+		t.Fatalf("exit = %+v, want returned", res)
+	}
+	inputDone(a, "交回了。")
+	inputWait(t, func() bool { return e.sessions.ActiveSessionID(exitWSKey) != old })
+	select {
+	case got := <-a.session.prompts:
+		t.Fatalf("woken after a handback by command: %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

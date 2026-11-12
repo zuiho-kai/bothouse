@@ -15,6 +15,21 @@ type workspaceReportTurn struct {
 	valid    bool
 	required bool
 	wakes    int
+	// delivered: a handback command (WorkspaceExit) went through during the running turn; the
+	// turn's end counts it as the report even though the reply carries no marker (#1500).
+	delivered bool
+}
+
+// markWorkspaceReportDelivered records a handback by command for sessionKey: the report is no
+// longer owed, so the turn's end neither wakes for it nor keeps a queued session reset blocked.
+func (e *Engine) markWorkspaceReportDelivered(sessionKey string) {
+	e.pendingResetMu.Lock()
+	defer e.pendingResetMu.Unlock()
+	for _, k := range []string{sessionKey, teamChatKey(sessionKey)} {
+		if r := e.workspaceReports[k]; r != nil {
+			r.valid, r.required, r.wakes, r.delivered = true, false, 0, true
+		}
+	}
 }
 
 func (e *Engine) workspaceReportBoard(key string) map[int]string {
@@ -84,12 +99,20 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	if valid && kind == exitKindAsk {
 		valid = askEvidenceProblems(body) == nil
 	}
+	// #1500: since #699 C the handback is the command (ws-up --report → WorkspaceExit), not the
+	// reply text, so a task the state already has handed back is delivered whatever the reply says.
+	switch e.workspaceTaskStateAt(key) {
+	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
+		valid = true
+	}
 	e.pendingResetMu.Lock()
 	r := e.workspaceReports[key]
 	if r == nil {
 		e.pendingResetMu.Unlock()
 		return false
 	}
+	valid = valid || r.delivered // WorkspaceExit ran during this turn (markWorkspaceReportDelivered)
+	r.delivered = false
 	changed := false
 	for id, status := range board {
 		if r.board[id] != status {
