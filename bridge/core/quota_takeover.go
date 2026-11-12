@@ -373,9 +373,9 @@ func (e *Engine) applyQuotaWork(work quotaWork, target *Engine, now time.Time) e
 				h.Idle = watchIdleState{}
 				h.Due, h.Since = now.Add(watchCheckAfter()), now
 				h.Nudged, h.BusyRenewed, h.Renewed = false, 0, 0
-				// The new owner's watch is a fresh one: the old owner's park failures, auto-resume
-				// and unread checks are not carried over (#1492 L13).
-				h.ParkFails, h.AutoResumed, h.ReadFails = 0, false, 0
+				// The new owner's watch is a fresh one: the old owner's park failures and auto-resume
+				// are not carried over (#1492 L13).
+				h.ParkFails, h.AutoResumed = 0, false
 				changed = true
 			}
 			rows[key] = list

@@ -44,9 +44,14 @@ func TestWorkspaceLeadResetReleasesForOtherChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.sessions.GetOrCreateActive(exitWSKey).SetAgentSessionID("a1", "test") // worked on A's task
+	// #699 design §4 row 12: a reset alone does not free the workspace.
 	e.startFreshSession(e.sessions, exitWSKey, exitWSKey, "", "")
+	if _, ok := e.WorkspaceParent("ws1"); !ok {
+		t.Fatal("a session reset freed ws1; only the task's state may")
+	}
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), false)
 	if _, ok := e.WorkspaceParent("ws1"); ok {
-		t.Fatal("ws1 still owned after its lead session was reset")
+		t.Fatal("ws1 still owned after its release")
 	}
 	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
@@ -61,19 +66,19 @@ func TestWorkspaceLeadResetReleasesForOtherChat(t *testing.T) {
 	}
 }
 
-// A reset keeps the workspace owned when a handoff came after the session's last activity (not
-// worked on yet), when messages move to the fresh session, and when it is not the lead's.
+// A release keeps the workspace owned when a handoff came after the last activity (not worked on
+// yet) and when keep is set (more work queued).
 func TestWorkspaceResetKeepsOwnerWithPendingWork(t *testing.T) {
 	e, _, _ := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	e.releaseWorkspaceOnReset(exitWSKey, time.Now().Add(-time.Hour), false) // handoff after the last activity
+	e.releaseTeamWorkspace(exitWSKey, time.Now().Add(-time.Hour), false) // handoff after the last activity
 	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatA" {
 		t.Fatalf("new handoff released: parent %q,%v", p, ok)
 	}
-	e.releaseWorkspaceOnReset(exitWSKey, time.Now(), true) // queued messages move to the fresh session
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), true) // queued messages move to the fresh session
 	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatA" {
 		t.Fatalf("queued work released: parent %q,%v", p, ok)
 	}
@@ -81,16 +86,9 @@ func TestWorkspaceResetKeepsOwnerWithPendingWork(t *testing.T) {
 		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
 	}
 
-	// A teammate (not the lead) resetting its own session there does not end the lead's work.
-	sub, _, _ := exitFixture(t, nil)
-	sub.dataDir = e.dataDir
-	sub.releaseWorkspaceOnReset(exitWSKey, time.Now(), false)
-	if _, ok := e.WorkspaceParent("ws1"); !ok {
-		t.Fatal("a teammate's reset released the lead's workspace")
-	}
-	e.releaseWorkspaceOnReset(exitWSKey, time.Now(), false)
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), false)
 	if _, ok := e.WorkspaceParent("ws1"); ok {
-		t.Fatal("the lead's reset after the last task kept ws1")
+		t.Fatal("the release after the last task kept ws1")
 	}
 }
 
@@ -208,7 +206,7 @@ func TestWorkspaceOwnerFromPlatform(t *testing.T) {
 		t.Fatalf("stale A record kept: %+v", e.TeamWorkspacesOf("chatA"))
 	}
 	// B's workspace lead is reset after its last task: the gateway is told to release ws1.
-	e.releaseWorkspaceOnReset(exitWSKey, time.Now(), false)
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), false)
 	select {
 	case ws := <-p.released:
 		if ws != "ws1" {
@@ -231,7 +229,7 @@ func TestWorkspaceReleaseBusyKeepsOwnerAndRetries(t *testing.T) {
 	p.mu.Lock()
 	p.releaseErr = errors.New("cloud_web: team_workspace release: busy")
 	p.mu.Unlock()
-	e.releaseWorkspaceOnReset(exitWSKey, time.Now(), false)
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), false)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		p.mu.Lock()
@@ -288,7 +286,7 @@ func TestWorkspaceLateReleaseKeepsNewClaim(t *testing.T) {
 		t.Fatalf("claim by B after a late release = %v, want ErrTeamWorkspaceOwned", err)
 	}
 	// The bridge's own release names the current claim.
-	e.releaseWorkspaceOnReset(exitWSKey, time.Now(), false)
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), false)
 	waitWorkspaceParent(t, e, "")
 	p.mu.Lock()
 	defer p.mu.Unlock()

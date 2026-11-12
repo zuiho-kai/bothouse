@@ -352,20 +352,9 @@ func teamHandoffBelongsToItem(h TeamHandoff, it teamTaskBoardItem, bound time.Ti
 		(!h.Parked.IsZero() && !h.Parked.After(bound))) {
 		return false
 	}
-	if h.Board > 0 {
-		return h.Board == it.ID
-	}
-	// ClaimTeamWorkspace permits an empty title; retain its legacy lifecycle semantics.
-	if strings.TrimSpace(h.Title) == "" {
-		return true
-	}
-	// Source: contrib/lead/ws-handoff claim_cmd sends task[:60] without an ellipsis.
-	const handoffTitleRunes = 60
-	what := []rune(it.What)
-	if len(what) > handoffTitleRunes && h.Title == string(what[:handoffTitleRunes]) {
-		return true
-	}
-	return teamHandoffTitleMatchesItem(h.Title, it)
+	// #699 design §4: a handoff is the item's by its board number only; the title fallbacks
+	// (empty title, 60-rune cut, prefix match) are gone. A handoff without one belongs to no item.
+	return h.Board > 0 && h.Board == it.ID
 }
 
 func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []teamTaskBoardItem {
@@ -507,36 +496,7 @@ func teamHandoffMatchesPausedItem(wsKey string, h TeamHandoff, it teamTaskBoardI
 			return false
 		}
 	}
-	hBoard := h.Board
-	if hBoard <= 0 && strings.HasPrefix(strings.TrimSpace(h.Title), "#") {
-		hBoard = watchTaskNumber(h.Title)
-	}
-	if hBoard > 0 {
-		return it.ID == hBoard
-	}
-	if chatOf(it.WSWas) != wsKey && chatOf(it.WS) != wsKey {
-		return false
-	}
-	return teamHandoffTitleMatchesItem(h.Title, it)
-}
-
-func teamHandoffTitleMatchesItem(title string, it teamTaskBoardItem) bool {
-	t := strings.TrimSpace(title)
-	if t == "" {
-		return false
-	}
-	what := strings.TrimSpace(it.What)
-	short := strings.TrimSpace(it.Short)
-	if t == what || t == short {
-		return true
-	}
-	if cut := strings.TrimSpace(strings.TrimSuffix(t, "…")); cut != "" && cut != t && strings.HasPrefix(what, cut) {
-		return true
-	}
-	if what != "" && strings.HasPrefix(what, t) && short != "" && strings.HasPrefix(t, short) {
-		return true
-	}
-	return false
+	return h.Board > 0 && it.ID == h.Board // by number only (#699 design §4), never the title
 }
 
 // shownIn: the item is on chat's board.

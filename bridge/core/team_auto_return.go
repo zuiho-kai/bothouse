@@ -222,16 +222,24 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 	return b.String()
 }
 
-// scheduleWorkspaceReturn runs after a handback in workspace key ended at `ended`. After the
-// same settle delay as the idle wake, if nothing runs there, the handoffs recorded up to `ended`
-// are closed; when none is left open the workspace is released (DSH/cloud_web: through the
-// platform, releaseTeamWorkspace) and every engine's sessions there are reset. A busy
-// workspace (a queued message started the next turn) is left alone: that turn's end decides.
-func (e *Engine) scheduleWorkspaceReturn(key string, ended time.Time) {
-	if e == nil || e.dataDir == "" || !e.workspaceHasOpenHandoff(key) {
+// releaseReturnedWorkspace runs when a turn in workspace key has ended. If no other turn runs
+// there and the workspace's task is handed back (returned, failed or closed by its transition —
+// ws-up --report, board done), the handoffs are closed; when none is left open the workspace is
+// released (DSH/cloud_web: through the platform, releaseTeamWorkspace) and every engine's
+// sessions there are reset. Asking/paused tasks are parked by their own transition. A workspace
+// with no task state record is not released here.
+func (e *Engine) releaseReturnedWorkspace(key string) {
+	if e == nil || e.dataDir == "" {
 		return
 	}
-	time.AfterFunc(watchTurnEndDelay, func() { e.returnWorkspace(key, ended) })
+	key = teamChatKey(key)
+	if teamTurnRunning(key) || !e.workspaceHasOpenHandoff(key) {
+		return
+	}
+	switch e.workspaceTaskStateAt(key) {
+	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
+		e.returnWorkspace(key, time.Now())
+	}
 }
 
 func (e *Engine) returnWorkspace(key string, ended time.Time) {
