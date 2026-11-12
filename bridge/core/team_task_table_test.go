@@ -139,8 +139,9 @@ func TestTeamTaskTableShowsLastProgressAndOneLiveRowPerWorkspace(t *testing.T) {
 	want := strings.Join([]string{
 		"**工作区 3**",
 		"  🟢 工作区1 · 肥鱼并行推进 · 已做 5分钟",
-		"  ⚠ 工作区1 · 可选模块 · 上次进展 12小时前 · 卡住",
-		"  ⚠ 工作区1 · QQ卡顿治理 · 上次进展 30分钟前 · 没在跑",
+		// #1492 N5: 上次进展 is the workspace's (ws-up report, binding), not the lead's board edit (At).
+		"  ⚠ 工作区1 · 可选模块 · 上次进展 13小时前 · 卡住",
+		"  ⚠ 工作区1 · QQ卡顿治理 · 上次进展 50分钟前 · 没在跑",
 		"  🟢 工作区3 · conest同步验收 · 已做 14小时",
 		"  🟢 工作区4 · 重试层定位 · 已做 2分钟",
 	}, "\n")

@@ -46,6 +46,28 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, channelID string) (cor
 	return self, all, workspaceErr(err)
 }
 
+// TeamChannelGone reports whether channelID is deleted: Discord answers 404 (Unknown Channel). Any
+// other error is returned as is and says nothing about the channel (core keeps its items).
+func (p *Platform) TeamChannelGone(ctx context.Context, channelID string) (bool, error) {
+	api, err := p.workspaceSession()
+	if err != nil {
+		return false, err
+	}
+	return teamChannelGone(api, channelID, discordgo.WithContext(ctx))
+}
+
+func teamChannelGone(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (bool, error) {
+	_, err := api.Channel(channelID, options...)
+	if err == nil {
+		return false, nil
+	}
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound {
+		return true, nil
+	}
+	return false, err
+}
+
 func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (core.TeamChannel, error) {
 	api, err := p.workspaceSession()
 	if err != nil {

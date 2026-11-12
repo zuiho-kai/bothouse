@@ -81,6 +81,14 @@ type TeamWorkspaceChannels interface {
 	CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (TeamChannel, error)
 }
 
+// TeamChannelGoneChecker is implemented by platforms that can tell whether one channel is
+// deleted (Discord: 404 Unknown Channel). The task board asks it about an item whose chat is not
+// in the guild's text-channel list — a thread (子区), forum post or DM is a chat channel too and is
+// never in that list — and hides the item only when the platform says the channel is gone.
+type TeamChannelGoneChecker interface {
+	TeamChannelGone(ctx context.Context, channelID string) (bool, error)
+}
+
 // TeamWorkspaceClaimer is implemented by platforms whose server records which chat channel a
 // workspace belongs to (cloud_web: the DSH gateway's rooms.parent_id, which its unified exit
 // routes by). ClaimTeamWorkspace calls it so a handoff to a free pool workspace moves it to the
