@@ -123,3 +123,40 @@ func TestExitedTurnLateQueueRunsAfterUnlock(t *testing.T) {
 		t.Fatal("late input must execute once with its must-reply instruction")
 	}
 }
+
+// A deferred orphan drain still holds the pre-/new Session. Run it after a
+// replacement Session owns a fresh placeholder queue: the old lock must not
+// grant startup of that queue (Hypatia P1 on ae3b41b94).
+func TestOrphanDrainDoesNotStartReplacementSessionQueue(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	recovered := &capacityScriptSession{events: make(chan Event, 1), script: []string{"human"}}
+	a := &resultAgent{session: recovered}
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	key := "test:orphan-replacement-session"
+	oldSession := e.sessions.GetOrCreateActive(key)
+	if !oldSession.TryLock() {
+		t.Fatal("could not hold the old session for the deferred orphan drain")
+	}
+	newSession := e.sessions.NewSession(key, "replacement")
+	if !newSession.TryLock() {
+		t.Fatal("could not own the replacement session startup")
+	}
+	t.Cleanup(func() { newSession.Unlock() })
+	e.ensureInteractiveStateForQueueing(key, p, "ctx")
+	e.handleMessage(p, &Message{SessionKey: key, Platform: p.Name(), UserID: "human",
+		Content: "new conversation", ReplyCtx: "ctx"})
+	e.drainOrphanedQueue(oldSession, e.sessions, key, a, "")
+	e.interactiveMu.Lock()
+	current := e.interactiveStates[key]
+	current.mu.Lock()
+	pending := len(current.pendingMessages)
+	current.mu.Unlock()
+	e.interactiveMu.Unlock()
+	if oldSession.Busy() || !newSession.Busy() || recovered.sends() != 0 || pending != 1 {
+		t.Fatalf("orphan drain crossed session ownership: old busy=%v new busy=%v sends=%d pending=%d", oldSession.Busy(), newSession.Busy(), recovered.sends(), pending)
+	}
+	if strings.Contains(joined(p), "agent session ended") {
+		t.Fatal("replacement session queue was dropped by the old orphan drain")
+	}
+}

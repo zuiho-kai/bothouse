@@ -4306,9 +4306,17 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 		// acquires the session owns that startup, whether the previous worker
 		// retired before or after queue publication. A failed startup or stop
 		// is terminal; a closing process still waits for its durable Close.
+		// Startup is granted only with the Session that owns the queue: a
+		// deferred drain holding a pre-/new Session must leave the replacement
+		// queue to its own owner (same rule as drainPendingMessages' handoff).
 		state.mu.Lock()
 		placeholder := state.agentSession == nil && len(state.pendingMessages) > 0 &&
 			(state.agentCloseDone != nil || (!state.stopped && state.startErr == ""))
+		if placeholder && sessions.ActiveSessionID(state.pendingMessages[0].msgSessionKey) != session.ID {
+			state.mu.Unlock()
+			e.interactiveMu.Unlock()
+			return
+		}
 		alive := state.agentSession != nil && state.agentSession.Alive()
 		var first queuedMessage
 		if placeholder {
