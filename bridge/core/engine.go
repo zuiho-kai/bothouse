@@ -8948,17 +8948,42 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			// Cancel before the final queue check: cancellation may itself let a
 			// pending enqueue finish. Closing is armed only after ownership ends.
 			e.cancelAgentSessionIdleClose(state)
+			// Queue publication and the final session unlock must share the map
+			// lock. Cleanup may have removed this worker's state while it still
+			// held the session: a replacement queue belongs to that same owner.
+			e.interactiveMu.Lock()
 			state.mu.Lock()
 			if len(state.pendingMessages) != 0 {
 				// A message arrived while restoring idle state. Keep ownership
 				// and stop that reader again before sending the queued prompt.
 				state.mu.Unlock()
+				e.interactiveMu.Unlock()
 				e.cancelAgentSessionIdleClose(state)
 				continue
 			}
 			state.processClaimed = false
-			session.Unlock()
 			state.mu.Unlock()
+			current := e.interactiveStates[sessionKey]
+			if current != nil && current != state {
+				current.mu.Lock()
+				// A new placeholder can queue behind this worker after cleanup.
+				// Transfer its first turn and our still-held lock together; /new
+				// queues owned by another Session must stay with that Session.
+				if current.agentSession == nil && !current.stopped && len(current.pendingMessages) > 0 &&
+					sessions.ActiveSessionID(current.pendingMessages[0].msgSessionKey) == session.ID {
+					first := current.pendingMessages[0]
+					current.pendingMessages = current.pendingMessages[1:]
+					current.mu.Unlock()
+					e.interactiveMu.Unlock()
+					msg := queuedToMessage(first)
+					e.startScheduledTurn(&msg, session)
+					e.processInteractiveMessageWith(first.platform, &msg, session, state.agent, sessions, sessionKey, workspaceDir, msg.SessionKey)
+					return true
+				}
+				current.mu.Unlock()
+			}
+			session.Unlock()
+			e.interactiveMu.Unlock()
 			if alive || closeAfterFailure {
 				e.scheduleAgentSessionIdleClose(sessionKey, state)
 			}
