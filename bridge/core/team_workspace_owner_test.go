@@ -328,10 +328,9 @@ func TestTaskBoardNamesReleasedWorkspace(t *testing.T) {
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	e.sessions.GetOrCreateActive(exitWSKey).SetAgentSessionID("a1", "test")
-	e.startFreshSession(e.sessions, exitWSKey, exitWSKey, "", "")
+	e.releaseTeamWorkspace(exitWSKey, time.Now(), false)
 	if _, ok := e.WorkspaceParent("ws1"); ok {
-		t.Fatal("ws1 still owned after its lead session was reset")
+		t.Fatal("ws1 still owned after its release")
 	}
 	items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{{ID: 1, What: "写脚本", Who: "工作区1橘",
 		Status: "已完成", WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"}})

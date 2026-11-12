@@ -310,7 +310,7 @@ func TestBoardProgressKeepsPreciseStepWhenNoToolRan(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 6, 4, 0, 0, 0, time.Local)
 	row := `{"id":7,"what":"看门写回进度","status":"在做：Bash go test ./core","who":"工作区1橘",` +
-		`"ws":"discord:ws1","chat":"discord:main","progress_step":"Bash go test ./core",` +
+		`"ws":"discord:ws1","chat":"discord:main",` +
 		`"progress_at":` + strconv.FormatFloat(float64(now.Add(-20*time.Minute).UnixNano())/1e9, 'f', -1, 64) + `}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
@@ -355,8 +355,10 @@ func TestBoardProgressSurvivesStepThatReadsLikeClosing(t *testing.T) {
 		t.Fatalf("second write: wrote %v, err %v (a step that reads like a close froze the row)", wrote, err)
 	}
 	got := boardItemOf(t, dir, 9)
-	if got.Status != "在做：Bash go test ./core" {
-		t.Fatalf("status = %q, want the newer step", got.Status)
+	// #699 design §4: only a placeholder status is filled; the watch no longer rewrites a status
+	// it wrote before (progress_step guard gone), it only raises progress_at.
+	if got.Status != "在做：Bash rg 已验收 core/" {
+		t.Fatalf("status = %q, want the first step kept", got.Status)
 	}
 	if got.ProgressAt <= prev {
 		t.Fatalf("progress_at = %v, want > %v", got.ProgressAt, prev)

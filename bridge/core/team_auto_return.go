@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -222,18 +223,44 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 	return b.String()
 }
 
+// teamReleaseAtTurnEnd: workspaces whose task was handed back (endWorkspaceTask) while a turn
+// was still running there; the turn's end releases them (releaseReturnedWorkspace).
+var teamReleaseAtTurnEnd sync.Map
+
+// releaseHandedBackWorkspace: the handback event for workspace key. With no turn running there
+// the workspace goes back now; otherwise when that turn ends. #699 design §4 row 12: this is the
+// release — not a session reset and not a timer after the reply.
+func (e *Engine) releaseHandedBackWorkspace(key string) {
+	if e == nil || e.dataDir == "" {
+		return
+	}
+	key = teamChatKey(key)
+	if teamTurnRunning(key) {
+		teamReleaseAtTurnEnd.Store(key, true)
+		return
+	}
+	e.returnWorkspace(key, time.Now())
+}
+
 // releaseReturnedWorkspace runs when a turn in workspace key has ended. If no other turn runs
-// there and the workspace's task is handed back (returned, failed or closed by its transition —
-// ws-up --report, board done), the handoffs are closed; when none is left open the workspace is
-// released (DSH/cloud_web: through the platform, releaseTeamWorkspace) and every engine's
-// sessions there are reset. Asking/paused tasks are parked by their own transition. A workspace
-// with no task state record is not released here.
+// there and the task was handed back during it (releaseHandedBackWorkspace) or its state says
+// handed back (returned, failed or closed by its transition), the handoffs are closed; when none
+// is left open the workspace is released (DSH/cloud_web: through the platform,
+// releaseTeamWorkspace) and every engine's sessions there are reset. Asking/paused tasks are
+// parked by their own transition.
 func (e *Engine) releaseReturnedWorkspace(key string) {
 	if e == nil || e.dataDir == "" {
 		return
 	}
 	key = teamChatKey(key)
-	if teamTurnRunning(key) || !e.workspaceHasOpenHandoff(key) {
+	if teamTurnRunning(key) {
+		return
+	}
+	if _, pending := teamReleaseAtTurnEnd.LoadAndDelete(key); pending {
+		e.returnWorkspace(key, time.Now())
+		return
+	}
+	if !e.workspaceHasOpenHandoff(key) {
 		return
 	}
 	switch e.workspaceTaskStateAt(key) {

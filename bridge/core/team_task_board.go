@@ -390,7 +390,6 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 					}
 				}
 				hasLive := false
-				rebound := false
 				for i := range items {
 					it := &items[i]
 					if it.Paused == "" && it.Backlog == "" && !strings.HasPrefix(strings.TrimSpace(it.Status), "完成") && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
@@ -410,30 +409,6 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 					}
 				}
 				if hasLive {
-					continue
-				}
-				for i := range items {
-					it := &items[i]
-					if !teamHandoffMatchesPausedItem(wsKey, h, *it) {
-						continue
-					}
-					it.Paused = ""
-					it.PauseWhy = ""
-					it.WS = wsKey
-					it.SK = wsKey
-					if h.Chat != "" {
-						it.Chat = h.Chat
-					}
-					if !h.At.IsZero() {
-						it.Bound = h.At.UTC().Format(time.RFC3339Nano)
-					}
-					it.wsEnded = false
-					it.wsStuckWhy = ""
-					p.place(it)
-					rebound = true
-					break
-				}
-				if rebound {
 					continue
 				}
 				title := strings.TrimSpace(h.Title)
@@ -479,25 +454,6 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 	return items
 }
 
-// teamHandoffMatchesPausedItem reports whether an open workspace handoff h on wsKey is the
-// same task as a non-user-waiting paused board item it. A reused workspace alone is not enough:
-// source chat, binding timestamp (Bound >= h.At), and task identity (Board ID, or title for
-// legacy handoffs without Board ID) must all agree.
-func teamHandoffMatchesPausedItem(wsKey string, h TeamHandoff, it teamTaskBoardItem) bool {
-	if it.Paused == "" || it.Backlog != "" || teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
-		return false
-	}
-	if it.Chat != "" && h.Chat != "" && teamChatKey(it.Chat) != teamChatKey(h.Chat) {
-		return false
-	}
-	if it.Bound != "" && !h.At.IsZero() {
-		bound, err := time.Parse(time.RFC3339Nano, it.Bound)
-		if err != nil || h.At.After(bound) {
-			return false
-		}
-	}
-	return h.Board > 0 && it.ID == h.Board // by number only (#699 design §4), never the title
-}
 
 // shownIn: the item is on chat's board.
 func (it teamTaskBoardItem) shownIn(chat string) bool {

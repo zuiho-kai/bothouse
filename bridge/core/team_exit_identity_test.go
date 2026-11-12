@@ -110,7 +110,7 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
 	e.productPyBin.Store(t.TempDir())
-	if err := e.ClaimTeamWorkspaceFor("discord:chat1", "ws1", "工作区1", "worker", "old"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "worker", "old", 65); err != nil {
 		t.Fatal(err)
 	}
 	e.sessions.GetOrCreateActive(exitWSKey)
@@ -125,7 +125,7 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	if _, ok := e.WorkspaceParent("ws1"); ok {
 		t.Fatal("failed board write did not release workspace")
 	}
-	if err := e.ClaimTeamWorkspaceFor("discord:chat1", "ws1", "工作区1", "worker", "new"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "worker", "new", 60); err != nil {
 		t.Fatal(err)
 	}
 	writeReviewBoard(t, e, old, teamTaskBoardItem{ID: 60, What: "new", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T02:00:00Z"})
@@ -139,6 +139,8 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	e.sessions.GetOrCreateActive(exitWSKey)
 	e.beginResetTurn(exitWSKey)
 	defer e.endResetTurn(exitWSKey)
+	endTurn := beginTeamTurn(teamTurnFact{Chat: exitWSKey, Session: exitWSKey, Engine: e.name}) // the turn running ws-up
+	defer endTurn()
 	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 60, "")
 	if it := e.boardItemByID(60); it == nil || it.ReturnedAt.IsZero() || it.WS != "" {
 		t.Fatalf("old failed write blocked current handback: %+v", it)
