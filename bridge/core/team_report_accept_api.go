@@ -57,12 +57,10 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if req.Action == "pass" {
-		if len([]rune(req.Verdict)) < 15 {
-			http.Error(w, "verdict is required for pass: item by item, which expectation is met and the evidence", http.StatusBadRequest)
-			return
-		}
-		if rec != nil && rec.Doubt != "" && !verdictQuotesUser(req.Verdict) {
-			http.Error(w, doubtPassRefusal(rec.Doubt), http.StatusConflict)
+		// #1527 (user 11-12 「还后面还有什么可以删的吗？一起搞了吧」): a doubt no longer needs a quoted user line
+		// and the verdict has no length floor; only an empty verdict is refused. A real block stays a block upstream.
+		if strings.TrimSpace(req.Verdict) == "" {
+			http.Error(w, "verdict is required for pass", http.StatusBadRequest)
 			return
 		}
 	}

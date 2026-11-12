@@ -17,8 +17,9 @@ class CodexHooks(unittest.TestCase):
    def message(role,text):return {'type':'response_item','payload':{'type':'message','role':role,'content':[{'type':'input_text' if role=='user' else 'output_text','text':text}]}}
    path.write_text(json.dumps(message('user','修一下这个 bug'))+'\n'+json.dumps(message('assistant','已修复'))+'\n')
    p={'hook_event_name':'Stop','transcript_path':str(path),'last_assistant_message':'已修复'}
-   self.assertEqual(self.run_hook('fix-claim-guard',p)['decision'],'block')
-   self.assertEqual(self.run_hook('fix-claim-guard',dict(p,stop_hook_active=True)),{})
-   path.write_text(json.dumps(message('user','解释函数用途'))+'\n')
+   # #1527：入口表检查删了，「已修复」不再拦；Stop 管道改用 promise-guard 验（下一步没派出去就拦）
    self.assertEqual(self.run_hook('fix-claim-guard',p),{})
+   q=dict(p,last_assistant_message='下一步我去改路由')
+   self.assertEqual(self.run_hook('promise-guard',q)['decision'],'block')
+   self.assertEqual(self.run_hook('promise-guard',dict(q,stop_hook_active=True)),{})
 if __name__=='__main__':unittest.main()
