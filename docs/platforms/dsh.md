@@ -1,5 +1,7 @@
 # 在 DSH 里用 bothouse（实验）
 
+[English](dsh.en.md) ｜ **中文** · [回到 README](../../README.zh-CN.md)
+
 把 bothouse 的插件装进 DeepSeek 的 DSH，角色住在 DSH 的频道里，@ 谁谁回。可以添加多个 DeepSeek 或 CLI 成员。
 
 DSH 有两种用法，向导第一步让你选：
@@ -84,3 +86,29 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 - 改动前备份原 `cordis.patch.yml` 为旁边的 `.bak-时间戳` 文件；需要回退时恢复备份。其他自定义配置保留；已有动态 `disabled: !!js ...` 表达式时拒绝覆盖，提示在 DSH 中处理。
 
 状态按已注册插件包、web profile、DSH HOME 全局 patch 的顺序计算。全局 patch 优先于 profile；若全局策略与要切换的状态冲突，命令会报错且不写文件，请先在 DSH 中调整全局策略。命令不会为了单个平台改写影响其他 profile 的全局设置。
+
+<!-- 下面两节从 README 挪来（2026-11-12） -->
+
+## DSH 用户：单模型拉多角色
+
+装法有两种：在 DSH 里说「帮我装 bothouse-dsh」（它从 npm 拉插件），或者用刚装好的 bothouse 跑 `bothouse module add dsh`（装的是这个 bothouse 自带的插件）。走 npm 那条想看最新版本，就写准版本号：DSH 装插件走 pnpm，一天内新发的版本会先跳过。细节见 [bothouse-dsh](../../dsh/plugin-pkg/README.md)。
+
+单模型单角色也能玩，DSH 已有的插件照常用，热门插件也在做适配。
+
+想自己写插件：照 [插件开发说明](../plugins/plugin-dev.md) 从模板起步，仓库里 [plugins/](../../plugins) 有现成的样板（交活/出错推群、事件流水、桌面提醒）。
+
+想拉单模型多角色，对频道里的主角色说一句：
+
+> 帮我搭一个小团队：写手、程序员，模型都用 deepseek-v4.1-flash，拉个频道
+
+主角色用频道接口（`POST /collab/api/rooms/{id}/team`，只有频道主角色能调）一次把新频道和两个角色建好，并在频道里说明建了什么。这句话不必逐字照抄：说清哪几个角色，模型、人设、频道名可选。
+
+<p align="center"><img src="../assets/readme/demo/dsh-oneline-team-crop.jpg" width="750" alt="DSH 里对主角色说一句，建好写手和程序员"><br><b>说一句，建好两个角色</b></p>
+
+<p align="center"><img src="../assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="新频道小团队里，写手和程序员都在线，模型都是 deepseek-v4.1-flash"><br><b>新频道里角色已就位</b></p>
+
+## 管理 DSH 角色
+
+在面板「角色管理」中可新增、编辑或删除由 DSH roster 管理的成员；配置文件和外部成员为只读。已安装环境从添加角色进入 DSH 时直接使用日常新增，不需要重新部署。原生成员可选择 DSH 服务商和模型；Codex 成员可选择其实际支持的模型与思考强度，设置在下一轮前应用，页面会显示保存后的应用状态。
+
+面板服务商作用于引用它的桥接项目；DSH 原生路由在 DSH 的「设置 → 模型」管理，CLI 成员沿用本机 CLI 认证。桥接项目数量不等于 DSH 成员数量。详见 [DSH 面板接口](../api/dsh-panel.md)。
