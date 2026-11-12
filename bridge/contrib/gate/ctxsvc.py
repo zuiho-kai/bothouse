@@ -1135,6 +1135,11 @@ def as_doc(w):
         return w
     cid = hashlib.sha1((w.get("path", "") + "\0" + desc).encode()).hexdigest()[:8]
     stash(cid, lambda: f"{w.get('path', '')}\n{desc}\n")
+    # 标题末尾的内容指纹（「【懂你 zzzx0757 8f29fc】」）也存一份：角色常把它当编号去取（#1514，11-12 鲸鱼娘
+    # `ctx 8f29fc` 取不到，改去搜 wiki 多走两步）。指纹 6 位、编号 8 位，不会撞。
+    tag = re.search(r"\s([0-9a-f]{6})】$", w.get("path", ""))
+    if tag:
+        stash(tag.group(1), lambda: f"{w.get('path', '')}\n{desc}\n")
     return {"path": w.get("path", ""), "desc": f"{brief(desc)} [#{cid}]", "doc": desc,
             "name": _doc_name(w.get("path", "")), "cid": cid}
 

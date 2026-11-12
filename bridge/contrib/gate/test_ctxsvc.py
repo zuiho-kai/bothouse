@@ -153,6 +153,8 @@ class T(unittest.TestCase):
         self.assertIn("说明这块是什么（全文 13 行）", got[1]["desc"])
         cid = re.search(r"\[#([0-9a-f]{8})\]$", got[1]["desc"]).group(1)
         self.assertIn("第 11 条做法", (ctxsvc.store_dir() / f"{cid}.md").read_text(encoding="utf-8"), "正文存进正文库")
+        self.assertIn("第 11 条做法", (ctxsvc.store_dir() / "abc123.md").read_text(encoding="utf-8"),
+                      "标题末尾的指纹也能当编号取（#1514 鲸鱼娘 ctx 8f29fc 取不到）")
         self.assertEqual(ctxsvc.only_new({"wiki": [{"path": "【常驻做法 abc123】", "desc": body}]}, req)["wiki"], [], "不变不重推")
         changed = body.replace("第 3 条做法", "第 3 条做法改过")
         got = ctxsvc.only_new({"wiki": [{"path": "【常驻做法 def456】", "desc": changed}]}, req)["wiki"]

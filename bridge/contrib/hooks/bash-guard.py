@@ -302,10 +302,10 @@ GH_RUN_VALUE = {"-R", "--repo", "-b", "--branch", "-w", "--workflow", "-L", "--l
                 "--commit", "--created", "-a", "--attempt", "-i", "--interval"}
 GH_RUN_KEEP = {"-R", "--repo", "-b", "--branch", "-w", "--workflow", "-j", "--job", "-a", "--attempt"}
 
-SERIAL_MSG = ("这一轮已经有 {n} 步各只跑了一条只读查询，每多一步就要多等一次模型开口（中位约 7.5 秒）。"
-              "把接下来要查的合成一步：一条命令里用 echo === 分段（例：`cat a.md; echo ===; git log -3; echo ===; gh pr view 5`），"
-              "或者在一条回复里并行调多个工具。"
-              "（规则：一串只读查询里第 4 个单条查询的步起拦，跑过改东西的命令才重新计数；用户 2026-10-22「为什么他这么慢…你看到底怎么搞」）")
+SERIAL_MSG = ("（照常执行，只是提醒）这一轮已经有 {n} 步各只跑了一条只读查询，每多一步就要多等一次模型开口（中位约 7.5 秒）。"
+              "接下来能合并就合成一步：一条命令里用 echo === 分段（例：`cat a.md; echo ===; git log -3; echo ===; gh pr view 5`），"
+              "或者在一条回复里并行调多个工具；下一条要用这条的结果、合不了的，照常一步一步查。"
+              "（规则：一串只读查询里第 4 个单条查询的步起提醒，不拦；拦了换不来少走步，只多等一轮，用户 2026-11-12 #1514 定改提醒）")
 DUP_MSG = ("这条命令本轮已经跑过，之后没有改过任何东西，结果不会变：直接用上次的输出。"
            "（用户 2026-10-22「为什么他这么慢…你看到底怎么搞」）")
 POLL_MSG = ("本轮第二次查同一个对象（{key}），这是在轮询。别前台反复查：要等就后台起任务（run_in_background=true），"
@@ -533,7 +533,7 @@ def check_chat_turn(cmd, turn, done):
 
 
 def check_speed(cmd, turn, cid):
-    """规则 8a 的 gh run 轮询、8b 的串行只读和重复命令。"""
+    """规则 8a 的 gh run 轮询、8b 的串行只读和重复命令。串行只读不拦，返回要附在结果后的提醒（没有返回 None）。"""
     prior, cur = split_turn(turn, cid)
     # If the compatibility reader could not locate this invocation, do not
     # guess which calls are prior to it (or count the current call as history).
@@ -572,7 +572,7 @@ def check_speed(cmd, turn, cid):
         if len(live) == 1 and q == [1]:
             n += 1  # 单步单条查询才计数；合并过的步（并行多个调用 / 一条命令多段）不计数也不打断
     if n >= SERIAL_MAX:
-        deny(SERIAL_MSG.format(n=n) + f"\n被拦的命令：{cmd.strip()[:200]}")
+        return SERIAL_MSG.format(n=n)
 
 
 
@@ -692,6 +692,7 @@ def main():
         deny(eta)
     check_team_channels(cmd)
     check_merge(cmd, d.get("cwd"))
+    serial_note = None
     if (d.get("tool_input") or {}).get("run_in_background"):
         check_background(cmd)
     else:
@@ -699,7 +700,7 @@ def main():
         if d.get("dsh"):
             check_network(cmd)
         if turn:
-            check_speed(cmd, turn, d.get("tool_use_id"))
+            serial_note = check_speed(cmd, turn, d.get("tool_use_id"))
     for seg in segments(cmd):
         t = toks(seg)
         if t and t[0] == "pkill" and any(re.match(r"^-[a-zA-Z]*f", a) for a in t[1:]):
@@ -735,16 +736,18 @@ def main():
     capped = sub_cap(fixed or inp, d) or mcap or fixed
     if capped:  # 规则 10/12：只改 timeout；规则 15：测试管道加 pipefail。命令照常执行（别的规则已在上面查过）
         cap_msg = LONG_FG_MSG if mcap else SUB_CAP_MSG
-        msg = "\n".join(m for m in ((cap_msg if capped.get("timeout") != inp.get("timeout") else None), test_msg) if m)
+        msg = "\n".join(m for m in ((cap_msg if capped.get("timeout") != inp.get("timeout") else None), test_msg, serial_note) if m)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
                                                  "updatedInput": capped, "additionalContext": msg}},
                          ensure_ascii=False))
         sys.exit(0)
-    if test_msg:
-        hint(test_msg)
+    notes = [test_msg]
     if wiki_cat_pages(cmd, d.get("cwd")) >= WIKI_CAT_MIN:
-        hint("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "
-             "`bin/search.py <关键词>`）拿 路径:行号，再 `sed -n '<起>,<止>p' <页>` 只读命中段，不整页 cat 多页。")
+        notes.append("这条命令整页 cat 了多页 wiki（照常执行，只是提醒）。下次先 `grep -rn <关键词> <wiki 目录>`（装了 llm-wiki 就用它的 "
+                     "`bin/search.py <关键词>`）拿 路径:行号，再 `sed -n '<起>,<止>p' <页>` 只读命中段，不整页 cat 多页。")
+    notes.append(serial_note)
+    if any(notes):
+        hint("\n".join(m for m in notes if m))
 
 if __name__ == "__main__":
     main()
