@@ -940,3 +940,30 @@ func TestTeamWorkspaceAdoptSkipsBusy(t *testing.T) {
 		t.Fatalf("busy 201 got parent %q", p)
 	}
 }
+
+// #1492 L10: the release could not be saved. The state stays as the file holds it (still owned),
+// so the release must not report the workspace freed: callers would reset its sessions and hand
+// it to the queue while the record says another chat owns it.
+func TestTeamWorkspaceReleaseSaveFailureNotReleased(t *testing.T) {
+	g := newWorkspaceGuild()
+	dir := t.TempDir()
+	e := newWorkspaceLead(t, g, dir)
+	e.SetTeamWorkspaces(true)
+	if err := ensureWorkspace1(e, "discord:200"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if e.releaseTeamWorkspace("discord:201", time.Now(), false) {
+		t.Fatal("release reported freed although its state was not saved")
+	}
+	_ = os.Chmod(dir, 0o700)
+	if p, ok := e.WorkspaceParent("201"); !ok || p != "200" {
+		t.Fatalf("parent of 201 = %q,%v; want still 200", p, ok)
+	}
+}

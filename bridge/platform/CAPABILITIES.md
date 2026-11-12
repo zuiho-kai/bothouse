@@ -98,6 +98,14 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书的群组接口没有分类这个概念（platform/feishu/workspaces.go:76「Feishu has no categories: ParentID is empty」），工作区本身就是一个群，没有可挪的频道容器
 - cloud-web: 不支持：网页频道的工作区是 gateway 的房间，整个共享池只有一个平铺的「分类」（platform/cloud-web/workspaces.go:98-99，ParentID 为空），没有可挪的频道容器
 
+## TeamChannelGoneChecker
+
+任务板收起「所在频道已删」的条目时用（core/team_task_board.go dropGoneTeamTaskBoard）：列频道只拿得到服务器的文字频道，子区、论坛帖、私聊当聊天频道派的活不在列表里；实现了它的平台，core 对不在列表里的频道单独问一次，确认删了才收起，拿不准就保留。没实现的平台沿用原规则（不在列表里就收起）。
+
+- discord: 已接
+- feishu: 不支持：飞书的列表就是 bot 所在的全部群（platform/feishu/workspaces.go:75-76），私聊、话题群本来就不能派工作区，列表里没有的群就是 bot 已不在，沿用原规则
+- cloud-web: 不支持：列表是 gateway 的全部房间和工作区（platform/cloud-web/workspaces.go:97-99），房间不在列表里就是已删，沿用原规则
+
 ## DMMemberChecker
 
 `bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查。

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -155,5 +156,35 @@ func TestTurnModelIgnoredAtRun(t *testing.T) {
 	noteTurnModelIgnored(job, &stubAgent{}, "gge")
 	if n := TeamReviewModelNotice(); n == nil || n.Board != 7 || n.Tier != "complex" || n.Model != "cheap-model" {
 		t.Fatalf("notice: %+v", n)
+	}
+}
+
+// flakyModelListAgent: its model list request fails (returns nothing) until fail is cleared.
+type flakyModelListAgent struct {
+	modelListAgent
+	fail bool
+}
+
+func (a *flakyModelListAgent) AvailableModels(ctx context.Context) []ModelOption {
+	if a.fail {
+		return nil
+	}
+	return a.modelListAgent.AvailableModels(ctx)
+}
+
+// #1492 N6: a model list request that failed is not 「the model is not in the list」, and is not
+// kept for a reconcile period: the next scan asks again and finds the model.
+func TestReviewModelSupportListFailureNotCached(t *testing.T) {
+	a := &flakyModelListAgent{modelListAgent: modelListAgent{current: "other", models: []string{"cheap-model"}}, fail: true}
+	e := NewEngine("deep", a, nil, "", LangChinese)
+	t.Cleanup(e.cancel)
+	t.Cleanup(func() { reviewModelSupportMu.Lock(); delete(reviewModelSupportCache, e); reviewModelSupportMu.Unlock() })
+	ok, why := e.reviewModelSupport("cheap-model")
+	if ok || !strings.Contains(why, "失败") {
+		t.Fatalf("list failed: ok=%v why=%q, want not ok with a query-failed reason", ok, why)
+	}
+	a.fail = false
+	if ok, why := e.reviewModelSupport("cheap-model"); !ok {
+		t.Fatalf("after the list came back: ok=%v why=%q; the failed lookup was cached", ok, why)
 	}
 }

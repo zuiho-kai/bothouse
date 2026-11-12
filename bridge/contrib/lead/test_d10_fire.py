@@ -61,6 +61,28 @@ class T(unittest.TestCase):
     def test_delivered_beats_activity(self):
         self.assertSkipped([msg("Cursor 调研交付：" + "要点说明。" * 20)], commit=SINCE + 300)
 
+    def test_send_fail_keeps_watch_open(self):
+        # #1492 P6：暂停没发出去时不关看门（原先先 close 再 send，发失败后没人再催）
+        calls = []
+        with mock.patch.object(d._watch, "request", side_effect=lambda a, *x: calls.append(a) or {"busy": True}), \
+             mock.patch.object(d, "fetch_messages", return_value=[]), \
+             mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.time, "time", return_value=SINCE + 600), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            run.return_value.returncode = 1
+            rc = d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"])
+        self.assertEqual(rc, 1)
+        self.assertNotIn("close", calls)
+        calls.clear()
+        with mock.patch.object(d._watch, "request", side_effect=lambda a, *x: calls.append(a) or {"busy": True}), \
+             mock.patch.object(d, "fetch_messages", return_value=[]), \
+             mock.patch.object(d, "last_commit_epoch", return_value=0.0), \
+             mock.patch.object(d.time, "time", return_value=SINCE + 600), \
+             mock.patch.object(d.subprocess, "run") as run, mock.patch("builtins.print"):
+            run.return_value.returncode = 0
+            self.assertEqual(d.main([TID, "活", str(SINCE), "discord:3003", "lead-proj"]), 0)
+        self.assertEqual(calls[-1], "close")
+
     def assertSent(self, messages, **kw):
         run, _ = self.run_fire(messages, **kw)
         self.assertTrue(run.called); self.assertEqual(run.call_args[0][0][:2], ["cc-connect", "send"])

@@ -213,6 +213,8 @@ type teamTaskBoardPlacer struct {
 	openHandoffs func() map[string]TeamHandoff
 	// idleWorkspaces: TeamIdleWorkspaceNames (free workspace names in chat's pool); nil = unknown.
 	idleWorkspaces func(chat string) []string
+	// boardDoneIDs: the ids in board-done.jsonl; nil = unknown (only board.jsonl is consulted).
+	boardDoneIDs func() map[int]bool
 }
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
@@ -225,6 +227,13 @@ func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
 		handoffOf:      e.TeamHandoffOf,
 		openHandoffs:   e.TeamOpenWorkspaceHandoffs,
 		idleWorkspaces: e.TeamIdleWorkspaceNames,
+		boardDoneIDs: func() map[int]bool {
+			ids := map[int]bool{}
+			for _, it := range readTeamTaskBoardFile(e.teamStatusDir(), teamTaskBoardDoneFile) {
+				ids[it.ID] = true
+			}
+			return ids
+		},
 	}
 }
 
@@ -371,8 +380,26 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 				wsKeys = append(wsKeys, wsKey)
 			}
 			sort.Strings(wsKeys)
+			// The board is the item's one state: board.py writes board.jsonl first and only then
+			// parks or closes the handoff (pause → park_workspace, done, ws-up --ask), and the bridge
+			// re-reads the file within teamBoardFileCheck. A handoff that names a board item the board
+			// already knows (open, paused, 待办, or in board-done) is that window, or a park that
+			// failed; it must not show the item back as 在做 or add a 「未登记任务板」 row for it.
+			onBoard := map[int]bool{}
+			for _, it := range items {
+				onBoard[it.ID] = true
+			}
+			var doneIDs map[int]bool
 			for _, wsKey := range wsKeys {
 				h := open[wsKey]
+				if h.Board > 0 {
+					if !onBoard[h.Board] && doneIDs == nil && p.boardDoneIDs != nil {
+						doneIDs = p.boardDoneIDs()
+					}
+					if onBoard[h.Board] || doneIDs[h.Board] {
+						continue
+					}
+				}
 				hasLive := false
 				rebound := false
 				for i := range items {
@@ -657,6 +684,23 @@ func teamTaskBoardLastActive(it teamTaskBoardItem, now time.Time) time.Time {
 	return last
 }
 
+// teamTaskBoardWorkspaceActive: the newest of a workspace item's ws-up report and its binding —
+// what 卡住 is judged by. A lead's board edit (At) is not the workspace moving (user 2026-10-25:
+// 卡住要顶上); only an item with neither falls back to At.
+func teamTaskBoardWorkspaceActive(it teamTaskBoardItem, now time.Time) time.Time {
+	var last time.Time
+	if it.ProgressAt > 0 {
+		last = time.Unix(int64(it.ProgressAt), 0)
+	}
+	if b, err := time.Parse(time.RFC3339Nano, it.Bound); err == nil && b.After(last) {
+		last = b
+	}
+	if last.IsZero() {
+		last, _ = teamTaskBoardLocal(it.At, now)
+	}
+	return last
+}
+
 // teamTaskBoardAgo: 「刚刚」「N 分钟前」「N 小时前」「N 天前」 (hours up to two days, then days).
 func teamTaskBoardAgo(t, now time.Time) string {
 	d := now.Sub(t)
@@ -741,6 +785,9 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 		return teamTaskStuck, it.wsStuckWhy
 	}
 	last := teamTaskBoardLastActive(it, now)
+	if it.WS != "" {
+		last = teamTaskBoardWorkspaceActive(it, now)
+	}
 	if it.WS != "" && !last.IsZero() && now.Sub(last) >= teamTaskBoardStuckAfter {
 		hours := int(now.Sub(last) / time.Hour)
 		if it.ProgressAt == 0 {
@@ -972,6 +1019,18 @@ func teamTaskTableSince(it teamTaskBoardItem, now time.Time) time.Time {
 	return at
 }
 
+// teamTaskTableAsked: when a paused item started waiting on the user — board.py pause's paused_at
+// (RFC 3339), else its paused ("MM-DD HH:MM" local); false when it is not paused.
+func teamTaskTableAsked(it teamTaskBoardItem, now time.Time) (time.Time, bool) {
+	if it.Paused == "" {
+		return time.Time{}, false
+	}
+	if at, err := time.Parse(time.RFC3339Nano, it.PausedAt); err == nil {
+		return at, true
+	}
+	return teamTaskBoardLocal(it.Paused, now)
+}
+
 // teamTaskTableRowURL returns the safe URL to link on a pinned table row, or "".
 func teamTaskTableRowURL(it teamTaskBoardItem, card *teamTaskLink) string {
 	url := it.Card
@@ -1053,7 +1112,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if card != nil && card.UpdatedAt.After(last) {
 			last = card.UpdatedAt
 		}
-		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" && it.ReturnedAt.IsZero() || (state != teamTaskWaiting && state != teamTaskReview && state != teamTaskRelease && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
+		if state == teamTaskPaused && !it.wsEnded && it.ReviewRejected == "" && it.ReturnedAt.IsZero() || (state != teamTaskStuck && state != teamTaskWaiting && state != teamTaskReview && state != teamTaskRelease && it.ReviewRejected == "" && !it.wsEnded && !last.IsZero() && now.Sub(last) >= teamTaskTableShelveAfter) {
 			shelved++
 			continue
 		}
@@ -1101,6 +1160,9 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  " + mark + strings.Join(parts, " · ")})
 		case state == teamTaskWaiting:
 			parts := []string{short}
+			if at, ok := teamTaskTableAsked(it, now); ok {
+				span = teamTaskTableSpan(at, now) // 等了 X: since the question, not since the handoff
+			}
 			if span != "" {
 				parts = append(parts, "等了 "+span)
 			}
@@ -1133,8 +1195,13 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			if bound.After(liveBound[where]) {
 				liveBound[where] = bound
 			}
+			// 上次进展 and 卡住 on a workspace row: the workspace's own reports and card, not a lead's edit.
+			wsLast := teamTaskBoardWorkspaceActive(it, now)
+			if card != nil && card.UpdatedAt.After(wsLast) {
+				wsLast = card.UpdatedAt
+			}
 			running = append(running, runRow{where: where, short: short, span: span, url: teamTaskTableRowURL(it, card),
-				last: last, bound: bound, stuck: state == teamTaskStuck || !last.IsZero() && now.Sub(last) >= teamTaskBoardStuckAfter})
+				last: wsLast, bound: bound, stuck: state == teamTaskStuck || !wsLast.IsZero() && now.Sub(wsLast) >= teamTaskBoardStuckAfter})
 		}
 	}
 	if open == 0 {
@@ -1400,12 +1467,17 @@ var teamTaskBoardChannels struct {
 	sync.Mutex
 	at  map[string]time.Time
 	ids map[string]map[string]bool
+	// gone: per platform, the verdict of TeamChannelGoneChecker for chats not in ids (true =
+	// deleted); cleared with each new list, so a verdict is at most teamTaskBoardChannelsEvery old.
+	gone map[string]map[string]bool
 }
 
 // dropGoneTeamTaskBoard leaves out items whose channel was deleted (plan the user approved
 // 2026-10-28: 「所在频道已删的条目收起」). Only checked where the platform lists its channels
 // (TeamWorkspaceChannels) from the main chat; on an error nothing is dropped. The item stays in
-// board.jsonl, so the board command still lists it.
+// board.jsonl, so the board command still lists it. That list holds only the guild's text
+// channels; a chat that is not in it (a thread, forum post or DM, chat channels since 11-10) is
+// dropped only when the platform confirms it deleted (TeamChannelGoneChecker), else kept.
 func (e *Engine) dropGoneTeamTaskBoard(items []teamTaskBoardItem) []teamTaskBoardItem {
 	main := teamMainChat(e.dataDir)
 	plat, mainID, _ := strings.Cut(main, ":")
@@ -1420,6 +1492,9 @@ func (e *Engine) dropGoneTeamTaskBoard(items []teamTaskBoardItem) []teamTaskBoar
 	c.Lock()
 	if c.at == nil {
 		c.at, c.ids = map[string]time.Time{}, map[string]map[string]bool{}
+	}
+	if c.gone == nil {
+		c.gone = map[string]map[string]bool{}
 	}
 	if time.Since(c.at[plat]) >= teamTaskBoardChannelsEvery {
 		c.at[plat] = time.Now() // also on error: do not ask again every 10s
@@ -1436,19 +1511,42 @@ func (e *Engine) dropGoneTeamTaskBoard(items []teamTaskBoardItem) []teamTaskBoar
 			}
 			c.ids[plat] = ids
 		}
+		delete(c.gone, plat)
 	}
 	ids := c.ids[plat]
-	c.Unlock()
 	if len(ids) == 0 {
+		c.Unlock()
 		return items
 	}
+	checker, canCheck := lister.(TeamChannelGoneChecker)
+	if c.gone[plat] == nil {
+		c.gone[plat] = map[string]bool{}
+	}
+	verdict := c.gone[plat]
 	out := items[:0:0]
 	for _, it := range items {
 		p, id, _ := strings.Cut(it.own, ":")
 		if p == plat && id != "" && !ids[id] {
-			continue
+			if !canCheck {
+				continue // a platform that cannot tell: its list is the guild's chats (as before)
+			}
+			gone, known := verdict[id]
+			if !known {
+				ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+				var err error
+				gone, err = checker.TeamChannelGone(ctx, id)
+				cancel()
+				if err != nil {
+					slog.Warn("team task board: cannot tell whether a chat is deleted; keeping its items", "chat", it.own, "error", err)
+				}
+				verdict[id] = gone // also on error: asked again with the next list, not every 10s
+			}
+			if gone {
+				continue
+			}
 		}
 		out = append(out, it)
 	}
+	c.Unlock()
 	return out
 }

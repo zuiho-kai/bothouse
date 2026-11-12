@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -114,5 +116,44 @@ func TestTaskVerdictRefusedPassDoesNotCount(t *testing.T) {
 	e.recoverPendingReports(true)
 	if !unchecked(p) {
 		t.Fatalf("refused pass silenced the timeout: %q", p.sentTo("discord:chat1"))
+	}
+}
+
+// #1492 L11: a pass settled by the scan (the record was held again after the pass call found
+// nothing) closes the board item like the pass call does; a progress report on a task waiting
+// outside (#1378, #1434) leaves it parked.
+func TestTaskVerdictPassScanClosesBoardItem(t *testing.T) {
+	for _, waiting := range []bool{false, true} {
+		t.Run(map[bool]string{false: "done", true: "waiting outside"}[waiting], func(t *testing.T) {
+			e, p, _, item := heldFixture(t)
+			log := filepath.Join(t.TempDir(), "board-args")
+			bin := filepath.Join(e.dataDir, "collaboration", "lead", "board")
+			if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			holdForTest(t, e, p, item, "")
+			key := e.heldReportFor(46).Key
+			e.dropHeldReport(key, "误撤")
+			if w := verdictCall(t, e, 46, "pass", "逐条：修好了，已上线，日志为证，入口走过一遍"); w.Code != 404 {
+				t.Fatalf("pass with nothing held = %d", w.Code)
+			}
+			e.teamExit.mu.Lock()
+			r := e.teamExit.reports[key]
+			r.DeliveredAt, r.Verdict, r.Waiting = time.Time{}, "", waiting
+			e.teamExit.mu.Unlock()
+			expireHeld(t, e, key)
+			e.recoverPendingReports(true)
+			if got := p.sentTo("discord:chat1"); len(got) == 0 || unchecked(p) {
+				t.Fatalf("passed task: posts %q", got)
+			}
+			got, _ := os.ReadFile(log)
+			closed := strings.Contains(string(got), "accepted 46")
+			if closed == waiting {
+				t.Fatalf("waiting=%v: board closed=%v; board calls:\n%s", waiting, closed, got)
+			}
+		})
 	}
 }

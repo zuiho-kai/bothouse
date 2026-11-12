@@ -37,6 +37,7 @@ type teamState struct {
 	inject            bool
 	board             bool // post a live "who is doing what" message per channel (lead only)
 	boardEnabled      bool
+	boardGen          uint64 // running board loop's generation: a loop that wakes to a newer one exits
 	workspacesEnabled bool
 	dynamicLead       *bool // nil until a channel host reports its current primary role
 	mu                sync.Mutex
@@ -196,6 +197,7 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 		t.nextRelay = old.nextRelay
 		t.board = old.board
 		t.boardEnabled = old.boardEnabled
+		t.boardGen = old.boardGen
 		t.workspacesEnabled = old.workspacesEnabled
 		if old.dynamicLead != nil {
 			v := *old.dynamicLead
