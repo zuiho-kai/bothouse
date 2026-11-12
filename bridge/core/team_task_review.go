@@ -220,6 +220,14 @@ func (w *handoffWatch) reconcileTaskReviews(now time.Time, roundup bool) {
 		if teamReviewDisabled.Load() {
 			// Verification off: a delivered handback closes as done, no reviewer is woken.
 			if it.ReviewRejected == "" && e.isTeamLead() {
+				// #1492: the lead still accepts every text report (holdReportForLead). A report held for
+				// that acceptance, or one the lead sent back since the handback, is not done.
+				if w.reportAwaitsLead(it.ID) {
+					continue
+				}
+				if v, ok := taskVerdictSince(e.dataDir, it.ID, it.ReturnedAt); ok && v.Action == "reject" {
+					continue
+				}
 				if out, err := e.runLeadScript(it.Chat, "board", "done", strconv.Itoa(it.ID), "0", "交回即完成（自动验收已关）"); err != nil {
 					slog.Warn("task review: close handback failed", "board", it.ID, "error", err, "output", string(out))
 				}
@@ -659,4 +667,14 @@ func (e *Engine) refreshQueuedTaskReviewsLocked(state *interactiveState) {
 		pending = append(pending, q)
 	}
 	state.pendingMessages = pending
+}
+
+// reportAwaitsLead: a text report of board item hid is held on some engine for the lead's acceptance.
+func (w *handoffWatch) reportAwaitsLead(hid int) bool {
+	for _, x := range w.engines() {
+		if x.heldReportFor(hid) != nil {
+			return true
+		}
+	}
+	return false
 }
