@@ -745,10 +745,6 @@ func codexToolSuccess(status string, exitCode *int) bool {
 	return s == "completed" || s == "success" || s == "succeeded" || s == "ok"
 }
 
-func loadCodexRuntimeConfig(ctx context.Context, bin string, extraArgs []string, workDir string, extraEnv []string) (string, string, error) {
-	return loadCodexRuntimeConfigAs(ctx, core.SpawnOptions{}, bin, extraArgs, workDir, extraEnv)
-}
-
 func loadCodexRuntimeConfigAs(ctx context.Context, spawnOpts core.SpawnOptions, bin string, extraArgs []string, workDir string, extraEnv []string) (string, string, error) {
 	if bin == "" {
 		bin = "codex"
