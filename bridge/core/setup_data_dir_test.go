@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,14 +22,28 @@ func TestSetupDataDirIsolation(t *testing.T) {
 			home, data := t.TempDir(), t.TempDir()
 			testutil.SetHome(t, home)
 			t.Setenv("BOTHOUSE_DATA_DIR", "")
+			t.Setenv("WIKI_DIR", "")
 			t.Setenv("CONEST_COLLAB_DATA", "")
+			wiki := filepath.Join(home, "wiki")
 			dsh := filepath.Join(home, ".bothouse", "dsh")
 			collab := filepath.Join(home, ".conest-collab")
 			if isolated {
 				t.Setenv("BOTHOUSE_DATA_DIR", data)
-				dsh, collab = filepath.Join(data, "dsh"), filepath.Join(data, "conest-collab")
+				wiki, dsh, collab = filepath.Join(data, "wiki"), filepath.Join(data, "dsh"), filepath.Join(data, "conest-collab")
 			}
-			t.Logf("plugin=%s channels=%s", dsh, collab)
+			t.Logf("wiki=%s plugin=%s channels=%s", wiki, dsh, collab)
+			if got, ok := FindWiki(); got != wiki || ok {
+				t.Errorf("new main wiki = %q, %v; want %q, false", got, ok, wiki)
+			}
+			if err := os.MkdirAll(filepath.Join(wiki, "bin"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(wiki, "bin", "ingest.py"), []byte("# fixture\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := FindWiki(); got != wiki || !ok {
+				t.Errorf("existing main wiki = %q, %v; want %q, true", got, ok, wiki)
+			}
 			if got := collabDataDir(); got != collab {
 				t.Errorf("channel data = %q; want %q", got, collab)
 			}
@@ -72,12 +87,19 @@ func TestSetupDataDirIsolation(t *testing.T) {
 				t.Errorf("plugin lookup = %q; want selected install.sh", got)
 			}
 			if isolated {
+				if RoleWikiDir(data) == wiki {
+					t.Error("wiki programs occupy the main wiki directory before template creation")
+				}
 				if _, err := os.Stat(filepath.Join(home, ".bothouse", "dsh")); !os.IsNotExist(err) {
 					t.Errorf("isolated extraction touched the legacy plugin directory: %v", err)
 				}
 			}
 			// Explicit paths remain stronger than the instance default.
+			t.Setenv("WIKI_DIR", wiki)
 			t.Setenv("CONEST_COLLAB_DATA", home)
+			if got, ok := FindWiki(); got != wiki || !ok {
+				t.Errorf("explicit wiki = %q, %v", got, ok)
+			}
 			if got := collabDataDir(); got != home {
 				t.Errorf("explicit channel data = %q; want %q", got, home)
 			}
@@ -103,5 +125,66 @@ func TestSetupDataDirBridgeDefaultIsNotIsolated(t *testing.T) {
 				t.Errorf("desktop environment = %v; want the legacy channel data", env)
 			}
 		})
+	}
+}
+
+func TestApplyWizardIsolatedMainWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	home, data := t.TempDir(), t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("BOTHOUSE_DATA_DIR", data)
+	t.Setenv("WIKI_DIR", "")
+	req := oneRoleRequest(t)
+	store := &hookMemStore{memStore: newMemStore()}
+	cron := &memCron{}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: store, DataDir: data, CLIs: testCLIs, Cron: cron}, req)
+	steps := wizardSteps(res)
+	if !res.Saved || !steps["wiki"].OK || !steps["role 1 wiki"].OK {
+		t.Fatalf("wizard: %+v", res)
+	}
+	wiki := filepath.Join(data, "wiki")
+	assertMainWikiLead(t, data, wiki, "juzi")
+	if got := store.memIndex["juzi"]; got != filepath.Join(wiki, "MEMORY.md") {
+		t.Errorf("memory_index = %q; want isolated main wiki", got)
+	}
+	if len(store.hooks) != 1 || !strings.Contains(store.hooks[0], RoleWikiDir(data)) {
+		t.Errorf("agent.closed hooks = %v; want isolated wiki programs", store.hooks)
+	}
+	for _, job := range cron.jobs {
+		if strings.Contains(job.Exec, "ingest.py") && !strings.Contains(job.Exec, wiki) {
+			t.Errorf("cron uses another main wiki: %s", job.Exec)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "wiki")); !os.IsNotExist(err) {
+		t.Errorf("wizard touched home wiki: %v", err)
+	}
+}
+
+// #1497: the default data dir (launchd passes ~/.bothouse as BOTHOUSE_DATA_DIR) and a custom data
+// dir whose config.toml already names ~/wiki keep the shared ~/wiki and <data>/wiki programs.
+func TestMainWikiDefaultKeepsExistingInstalls(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+	t.Setenv("WIKI_DIR", "")
+	legacy := filepath.Join(home, "wiki")
+	def := filepath.Join(home, ".bothouse")
+	t.Setenv("BOTHOUSE_DATA_DIR", def)
+	if got, _ := FindWiki(); got != legacy {
+		t.Errorf("default data dir: main wiki = %q; want %q", got, legacy)
+	}
+	if got := RoleWikiDir(def); got != filepath.Join(def, "wiki") {
+		t.Errorf("default data dir: programs = %q; want <data>/wiki", got)
+	}
+	custom := t.TempDir()
+	t.Setenv("BOTHOUSE_DATA_DIR", custom)
+	if err := os.WriteFile(filepath.Join(custom, "config.toml"), []byte("memory_index = \""+filepath.Join(legacy, "MEMORY.md")+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := FindWiki(); got != legacy {
+		t.Errorf("upgraded custom data dir: main wiki = %q; want %q", got, legacy)
+	}
+	if got := RoleWikiDir(custom); got != filepath.Join(custom, "wiki") {
+		t.Errorf("upgraded custom data dir: programs = %q; want <data>/wiki", got)
 	}
 }
