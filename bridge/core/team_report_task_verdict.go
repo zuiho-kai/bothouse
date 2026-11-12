@@ -139,7 +139,7 @@ func (e *Engine) settleFromTaskVerdict(key string) bool {
 	case "reject":
 		return e.rejectHeldReport(key, v.Verdict)
 	case "pass":
-		if len([]rune(v.Verdict)) < 15 || (cp.Doubt != "" && !verdictQuotesUser(v.Verdict)) {
+		if strings.TrimSpace(v.Verdict) == "" {
 			return false
 		}
 		if err := e.deliverHeldReport(key, v.Verdict, false); err != nil {

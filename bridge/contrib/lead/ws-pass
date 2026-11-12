@@ -174,9 +174,8 @@ def board_id(rec, path):
 
 def pass_text(rec, path, verdict, nid=0):
     """放行桥扣下的文字 [report]：桥照原文贴 📬 到聊天频道，挂在任务板编号上。"""
-    if len(verdict.strip()) < 15:
-        sys.exit("ws-pass: 放行文字汇报要写 --verdict \"逐条对用户原话/总目标/验收：哪条做到、证据是什么\"；"
-                 "没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
+    if not verdict.strip():  # #1527：只要写了就行，删掉「满 15 字」的形式检查
+        sys.exit("ws-pass: 放行文字汇报要写 --verdict \"<验收结论>\"；没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
     nid = nid or board_id(rec, path)
     if not nid:
         sys.exit(f"ws-pass: 任务板上找不到这份交接的条目（{rec.get('file') or path or '未指定交接'}），用 --id <任务号> 写明是哪件")
@@ -270,9 +269,8 @@ def main(argv):
         if not os.path.isfile(compare) or not compare.lower().endswith(IMG) or compare in shots:
             sys.exit(f"ws-pass: --compare 要跟一张存在的并排图（图片，不是成品本身）：{compare}")
         shots = [compare, *shots]
-    if len(verdict.strip()) < 15:
-        sys.exit("ws-pass: 发前要写 --verdict \"逐条对用户原话/总目标：哪条做到、哪条没做到\"（--stitch 会列出这件活的预期）；"
-                 "只写「像参考」不算。没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
+    if not verdict.strip():  # #1527：只要写了就行，删掉「满 15 字」的形式检查
+        sys.exit("ws-pass: 发前要写 --verdict \"<验收结论>\"（--stitch 会列出这件活的预期）；没做到的用 ws-forward 打回。\n" + (expectations(rec.get("file") or path) or ""))
     if is_cover_job(rec, path) and not cover_ok:
         sys.exit("ws-pass: 这是封面/宣传活，发前要对 bili-playbook 规则逐条看过手机列表大小的缩略图（--stitch 会顺带出）：\n"
                  + cover_rules() + "\n全对了再加 --cover-checked 发；不对用 ws-forward 打回。")

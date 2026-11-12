@@ -84,8 +84,8 @@ func TestHeldReportGoesToLeadFirst(t *testing.T) {
 func TestHeldReportPassPosts(t *testing.T) {
 	e, p, _, item := heldFixture(t)
 	holdForTest(t, e, p, item, "")
-	if w := verdictCall(t, e, 46, "pass", "太短"); w.Code != http.StatusBadRequest {
-		t.Fatalf("short verdict accepted: %d %s", w.Code, w.Body)
+	if w := verdictCall(t, e, 46, "pass", "  "); w.Code != http.StatusBadRequest {
+		t.Fatalf("empty verdict accepted: %d %s", w.Code, w.Body)
 	}
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("posted on a refused pass: %q", got)
