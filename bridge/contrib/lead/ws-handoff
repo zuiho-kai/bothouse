@@ -804,8 +804,12 @@ def start(path, task, chat, nid, project, answer=None):
     append_skeleton(path, nid)
     r = subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True)
     if r.returncode != 0:
-        board._park_once(cc_bin(), ws, parent)
-        sys.exit(f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}")
+        # 没叫醒：工作区放回、任务板整条退回改前（#1492 L3：原先只放工作区，板停在「已交接」绑着那个工作区）
+        parked = board._park_once(cc_bin(), ws, parent)
+        back = board.restore(previous) if previous else False
+        sys.exit(f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}；"
+                 f"任务板{'已退回改前（' + str(previous.get('status') or '') + '）' if back else '没退回（板上找不到这条，原样留着）'}，"
+                 f"工作区{'已放回' if parked else '没放回（桥没放或本就不归这件，见上面的报错）'}")
     record_last(path, ws, task, chat, nid, project)
     board.arm_guard(nid, GUARD)
     arm_drift(nid)
@@ -850,7 +854,7 @@ def resume_answered(nid, answer):
     source = ("验收退回" if it.get("review_rejected") else
               "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else "用户答复")
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
-    _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过）
+    _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
     project = os.environ.get("CC_PROJECT", "")
     in_queue = False
     with _queue() as q:
@@ -863,7 +867,15 @@ def resume_answered(nid, answer):
     if in_queue:
         return drain()  # 用户 2026-11-02：答复续办也保留原位置，不重复派发。
     with _queue() as q:
-        if not start(it["where"], it["what"], it["chat"], nid, project, answer):
+        try:
+            ok = start(it["where"], it["what"], it["chat"], nid, project, answer)
+        except SystemExit as e:
+            # 叫醒失败：start 已把板退回到续做前一刻；再退回接回前（暂停 / 待验收退回），答复留在交接里注明没送到，
+            # 下次接回时照常再走（#1492 L3）
+            board.restore(it)
+            board.append_forward(it["where"], f"{board._now()} ⚠️ 上面这条{source}没送到工作区（叫醒失败），#{nid} 已退回接回前的状态。")
+            sys.exit(f"{e.code}；#{nid} 已退回接回前（{it.get('status') or ''}），答复没送到")
+        if not ok:
             board.update(nid, "排队")
             q.append({"nid": nid, "path": it["where"], "task": it["what"], "chat": it["chat"], "project": project, "answer": answer})
             print(f"ws-handoff: #{nid} 工作区都占着，排队", file=sys.stderr)
@@ -934,8 +946,13 @@ def main(argv):
     if own:  # 几道检查都过了才记，退回重交不留半截
         append_own(path, own)
         print(f"ws-handoff: 有一处两种读法不是方向也不是花钱，按交接写的放行，已附「{OWN}」", file=sys.stderr)
-    # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，出错跳过，都不拦交活
-    if _recall.append_to(path):
+    # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，小模型没调成写「没搜成（原因）」
+    # 并照实打印（接回时重搜），都不拦交活
+    block = _recall.append_to(path)
+    if block and _recall.FAIL_LINE in block:
+        why = block.split(_recall.FAIL_LINE, 1)[1].strip().splitlines()[0]
+        print(f"ws-handoff: {_recall.FAIL_LINE}{why}，交接里照实写了，接回时重搜", file=sys.stderr)
+    elif block:
         print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
     chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
     if append_source(path, chat):

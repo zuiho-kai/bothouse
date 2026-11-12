@@ -1222,6 +1222,20 @@ def rebind(nid, ws, chat=None):
             _write(cur)
 
 
+def restore(snap):
+    """整条换回改前的样子（snap 是改前从 items() 取的那条）。ws-handoff 交接/续做时叫醒工作区失败用：
+    update + rebind 已把它记成「已交接」、绑上那个工作区，叫醒没成就得退回原样，不能停在「已交接」（#1492 L3）。
+    返回 True 换回了 / False 板上已没有这条。"""
+    with _locked():
+        cur = _read()
+        k = next((n for n, i in enumerate(cur) if i["id"] == snap.get("id")), None)
+        if k is None:
+            return False
+        cur[k] = json.loads(json.dumps(snap))
+        _write(cur)
+    return True
+
+
 def queued(nid):
     """Paused queue entries keep their place until explicitly resumed (user 2026-11-02)."""
     try:

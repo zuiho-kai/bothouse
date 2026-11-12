@@ -2,7 +2,7 @@
 """交活时搜「旧定案」：按交接的「用户原话」「总目标」抽关键词，搜 wiki（~/wiki/bin/search.py）和历史会话
 （resume-session 的 sessions.py 索引 + ~/wiki/bin/sessionlog），再由小模型只留用户定过 / 否过的句子（带来源）。
 ws-handoff 交活时把结果追加成交接的「旧定案（程序搜出）」节；看门（drift-check）拿它和原话对照查跑偏。
-搜不到、超时、没装 claude 都只写「旧定案：没搜到」，不拦交活。
+真搜了没搜到写「旧定案：没搜到」；小模型超时、出错、没装 claude 写「旧定案：没搜成（原因）」，下次接回时重搜（#1492 P3）。都不拦交活。
 来源：10-31 交接跑偏实验（3 案，只有「原话 + 程序搜出的旧定案」那组两件都命中；只看交接两件都没中）。
 命令行：_recall.py <交接文件>  → 打出要追加的那一节（不改文件）。"""
 import json, os, re, runpy, subprocess, sys, tempfile, time
@@ -23,6 +23,7 @@ MAX_SNIPPETS = 100  # 实测 11-01：100 条片段 haiku 14 秒读完（case3）
 SNIP_BEFORE, SNIP_AFTER = 40, 80  # 沿用 sessions.py cmd_search 的 match 片段（前 40 字、后 80 字）
 SECTION = "旧定案（程序搜出）"
 NONE_LINE = "旧定案：没搜到"
+FAIL_LINE = "旧定案：没搜成"  # 后接（原因）；append_to 见到它就删掉整节重搜
 LOG = HOME / ".bothouse" / "logs" / "recall.tsv"
 
 
@@ -38,17 +39,38 @@ def section(text, *names):
     return "\n".join(out).strip()
 
 
-def claude(system, prompt):
-    """claude -p 小模型，无工具、不读设置；返回（结果文字, 花费美元）；出错返回（"", 0）。同 ../hooks/intent_judge.py。"""
+class Failed(Exception):
+    """小模型没调成（超时、出错、退出码非 0、is_error、输出不是 JSON），str 是原因。"""
+
+
+def claude_ex(system, prompt):
+    """claude -p 小模型，无工具、不读设置；返回（结果文字, 花费美元, 出错原因）；调成了原因是 ""。同 ../hooks/intent_judge.py。
+    退出码非 0、is_error、超时、输出不是 JSON 都算出错（#1492 P3：原先出错当「没搜到」写进交接）。"""
     try:
         p = subprocess.run(
             ["claude", "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
              "--no-session-persistence", "--system-prompt", system, "--output-format", "json"],
             input=prompt, capture_output=True, text=True, timeout=MODEL_TIMEOUT, cwd=tempfile.gettempdir())
+    except subprocess.TimeoutExpired:
+        return "", 0, f"小模型超过 {MODEL_TIMEOUT} 秒"
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", 0, f"调不起 claude：{type(e).__name__}"
+    try:
         d = json.loads(p.stdout)
-        return (d.get("result") or "").strip(), round(d.get("total_cost_usd") or 0, 5)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return "", 0
+    except ValueError:
+        d = None
+    if not isinstance(d, dict):
+        return "", 0, f"claude 退出码 {p.returncode}，输出不是 JSON"
+    cost = round(d.get("total_cost_usd") or 0, 5)
+    if p.returncode != 0 or d.get("is_error"):
+        return "", cost, f"claude 退出码 {p.returncode}，出错：{str(d.get('result') or d.get('subtype') or '')[:80]}"
+    return (d.get("result") or "").strip(), cost, ""
+
+
+def claude(system, prompt):
+    """同 claude_ex，只返回（结果文字, 花费美元）；出错时文字为 ""（drift-check 用）。"""
+    txt, cost, _ = claude_ex(system, prompt)
+    return txt, cost
 
 
 def parse_json(txt):
@@ -74,11 +96,13 @@ PICK_SYSTEM = """你从一堆搜索片段里挑出「用户本人以前定过或
 
 def keywords(notes):
     quote, goal = section(notes, "用户原话"), section(notes, "总目标")
-    txt, _ = claude(KW_SYSTEM, f"## 用户原话\n{quote}\n\n## 总目标\n{goal}")
+    txt, _, err = claude_ex(KW_SYSTEM, f"## 用户原话\n{quote}\n\n## 总目标\n{goal}")
     kws = parse_json(txt)
     kws = [str(k).strip() for k in kws if str(k).strip()] if isinstance(kws, list) else []
     if not kws:  # 模型不可用：取原话里「」引起来的词
         kws = re.findall(r"「([^「」\s]{2,8})」", quote + goal)
+    if not kws and err:  # 模型没调成、原话里也没引号词：不是没搜到，是没搜成
+        raise Failed(f"抽关键词时{err}")
     return list(dict.fromkeys(kws))[:5]  # 五个：同 KW_SYSTEM
 
 
@@ -218,7 +242,7 @@ def _log(n_kw, n_snip, n_out, ms, cost, title):
 
 
 def old_decisions(notes, before=None):
-    """返回旧定案行（每行带来源）；没搜到返回 []。before：ISO 时间（UTC），只看这之前的会话消息（默认现在）。"""
+    """返回旧定案行（每行带来源）；没搜到返回 []；小模型没调成抛 Failed（不当没搜到）。before：ISO 时间（UTC），只看这之前的会话消息（默认现在）。"""
     t0 = time.time()
     before = before or time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     title = (notes.splitlines() or [""])[0].lstrip("# ")
@@ -228,27 +252,49 @@ def old_decisions(notes, before=None):
     if snips:
         task = f"## 本次用户原话\n{section(notes, '用户原话')}\n\n## 总目标\n{section(notes, '总目标')}"
         body = "\n".join(f"[{src}] {txt}" for src, txt in snips)
-        txt, cost = claude(PICK_SYSTEM, f"{task}\n\n## 搜索片段（来源在方括号里）\n{body}")
+        txt, cost, err = claude_ex(PICK_SYSTEM, f"{task}\n\n## 搜索片段（来源在方括号里）\n{body}")
+        if err:
+            _log(len(kws), len(snips), -1, int((time.time() - t0) * 1000), cost, title)
+            raise Failed(f"挑定案时{err}")
         got = parse_json(txt)
         rows = [str(x).strip() for x in got if str(x).strip()][:MAX_LINES] if isinstance(got, list) else []
     _log(len(kws), len(snips), len(rows), int((time.time() - t0) * 1000), cost, title)
     return rows
 
 
-def render(rows):
+def render(rows, failed=""):
     lines = [f"## {SECTION}", "（交活时程序按原话和总目标搜 wiki、历史会话和频道原话，区分用户定案与具名队友意见；队友意见不等于用户拍板，和交接冲突时以用户原话为准，"
              "拿不准先问聊天频道的主角色，不直接问用户）"]
-    lines += [f"- {r.lstrip('-* ')}" for r in rows] if rows else [f"- {NONE_LINE}"]
+    lines += ([f"- {FAIL_LINE}（{failed}）"] if failed else
+              [f"- {r.lstrip('-* ')}" for r in rows] if rows else [f"- {NONE_LINE}"])
     return "\n".join(lines) + "\n"
 
 
+def _drop_failed(text):
+    """去掉写着「没搜成」的旧定案节（标题到下一个标题前），好重搜。"""
+    out, skip = [], False
+    for l in text.splitlines(keepends=True):
+        if l.lstrip().startswith("#"):
+            skip = l.strip() == f"## {SECTION}"
+        if not skip:
+            out.append(l)
+    return "".join(out).rstrip("\n") + "\n"
+
+
 def append_to(path):
-    """给交接文件追加「旧定案（程序搜出）」节（已有就不再加），返回追加的文字。出任何错都只返回 None，不拦交活。"""
+    """给交接文件追加「旧定案（程序搜出）」节（已有就不再加；上次写的是「没搜成」就删掉重搜），返回追加的文字。
+    出任何错都只返回 None，不拦交活。"""
     try:
         text = Path(path).read_text(encoding="utf-8")
         if SECTION in text:
-            return None
-        block = render(old_decisions(text))
+            if FAIL_LINE not in section(text, SECTION):
+                return None
+            text = _drop_failed(text)
+            Path(path).write_text(text, encoding="utf-8")
+        try:
+            block = render(old_decisions(text))
+        except Failed as e:
+            block = render([], failed=str(e))
         with open(path, "a", encoding="utf-8") as f:
             f.write(("" if text.endswith("\n") else "\n") + "\n" + block)
         return block
@@ -260,4 +306,7 @@ def append_to(path):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit("用法：_recall.py <交接文件>")
-    print(render(old_decisions(Path(sys.argv[1]).read_text(encoding="utf-8"))))
+    try:
+        print(render(old_decisions(Path(sys.argv[1]).read_text(encoding="utf-8"))))
+    except Failed as e:
+        print(render([], failed=str(e)))

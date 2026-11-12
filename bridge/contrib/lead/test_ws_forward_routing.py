@@ -41,7 +41,7 @@ class ForwardRecipientTest(unittest.TestCase):
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
         self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",
-                                                "task_ids", "find_live", "find_done", "reject_first", "main"}, dict(
+                                                "task_ids", "find_live", "find_done", "reject_first", "reject_on_board", "main"}, dict(
             _team=self.team, board=self.board, json=json, re=re, os=os,
             subprocess=types.SimpleNamespace(run=self.run),
             sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),
@@ -112,6 +112,40 @@ class ForwardRecipientTest(unittest.TestCase):
         # #1405: the reject lands on the task first, before any forwarding step can fail
         self.assertEqual(cmds[0][:5], ["bothouse", "report", "reject", "--id", "1376"])
         self.assertTrue(cmds[1][0].endswith("ws-handoff") and cmds[1][1:3] == ["--resume", "1376"], cmds[1])
+
+    def returned_forward(self, board_rc=0, board_out="已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办"):
+        # 交回待验收的活（工作区已让出，returned_at 有值）被主角色转话
+        done = dict(id=1500, where=self.notes, chat="discord:chat", returned_at="2026-11-12T10:00:00+09:00")
+        self.record["board"] = [1500]
+        self.board.items = lambda: [done]
+        self.board.__file__ = "/gate/board.py"
+        self.ns["sys"].executable = "py"
+        self.ns["__file__"] = str(HERE / "ws-forward")
+        def run(cmd, **kw):
+            rc, out = (board_rc, board_out) if cmd[:3] == ["py", "/gate/board.py", "reject"] else (0, "")
+            return types.SimpleNamespace(returncode=rc, stdout=out, stderr="board 报错" if rc else "")
+        self.run.side_effect = run
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
+            self.ns["main"](["打回：截图没对上"])
+        return cm.exception.code, [c.args[0] for c in self.run.call_args_list]
+
+    def test_returned_item_forward_records_reject_on_board(self):
+        # #1492 L2：桥的 report reject 只丢扣着的汇报不改任务板；走 --resume 前要先 board reject，
+        # 否则退回原因不记、返工次数不算、第二次退回的上限拦不住
+        code, cmds = self.returned_forward()
+        self.assertEqual(code, 0)
+        self.assertEqual(cmds[1], ["py", "/gate/board.py", "reject", "1500", "打回：截图没对上"])
+        self.assertTrue(cmds[2][0].endswith("ws-handoff") and cmds[2][1:3] == ["--resume", "1500"], cmds)
+
+    def test_returned_item_board_reject_fail_stops(self):
+        code, cmds = self.returned_forward(board_rc=1)
+        self.assertIn("退回失败", str(code))
+        self.assertFalse(any(c[0].endswith("ws-handoff") for c in cmds), cmds)
+
+    def test_returned_item_second_reject_does_not_resume(self):
+        code, cmds = self.returned_forward(board_out="第二次退回：已暂停「两轮未过，等用户」，已在聊天频道发 [ask] 请用户定")
+        self.assertEqual(code, 0)
+        self.assertFalse(any(c[0].endswith("ws-handoff") for c in cmds), cmds)
 
     def test_not_forwarded_still_rejects_by_notes(self):
         # #1405: 11-10 #1348 — the freed workspace was on another chat's #936, ws-forward --notes exited

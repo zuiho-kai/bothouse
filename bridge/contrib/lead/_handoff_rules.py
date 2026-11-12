@@ -314,11 +314,38 @@ def _norm(t):
 
 
 _LOG = {}
+# 桥回放频道历史的行头「[HH:MM，N 分钟前] 名字: 」（core/backfill.go historyPrefix）；bot 名字后带「（bot）」，
+# 本账号带「（你这个账号…）」，真人不带后缀
+_REPLAY = re.compile(r"^\[\d{1,2}:\d\d，[^\]]*\] (.+?): ")
+_BOT_SUFFIX = ("（bot）", "（你这个账号")
+# 回复引用「[回复 X：…] 」（platform/discord）/「[replying to X: …]」引的是别人的原文，不算这人说的
+_REPLY_QUOTE = re.compile(r"^\s*\[(?:回复 |replying to )[^\]]*\]\s*")
+
+
+def _human_replays(text):
+    """events.jsonl 一条 message 的正文里真人说的回放消息（去掉回复引用）。桥事件全是 source=bridge，
+    正文是频道回放加本条消息；本条消息看不出是谁说的，不收（用户本人的话另从 sessions 的 user 条收）。"""
+    out, cur = [], None
+    for l in text.splitlines():
+        m = _REPLAY.match(l)
+        if m:
+            if cur is not None:
+                out.append("\n".join(cur))
+            who = m.group(1)
+            cur = None if any(x in who for x in _BOT_SUFFIX) else [_REPLY_QUOTE.sub("", l[m.end():])]
+        elif l.startswith("（最新，回这条）"):
+            break
+        elif cur is not None:
+            cur.append(l)
+    if cur is not None:
+        out.append("\n".join(cur))
+    return out
 
 
 def _channel_log():
-    """频道里收到的原话：桥的事件流 events.jsonl*（type=message，用户和队友的话），加会话记录 sessions/*.json 里的 user 条。
-    不收 bot 的工具调用（交接本身就是这么写出来的）。返回 (最早时间 YYYY-MM-DD, [归一化正文])；读不到返回 ("", [])。"""
+    """频道里收到的原话：桥的事件流 events.jsonl*（type=message）里真人说的回放消息，加会话记录 sessions/*.json 里的 user 条。
+    不收 bot 和本账号的回放、不收回复引用（#1492 P5：原先整条正文都收，bot 写的话也能「核对」成用户原话）。
+    返回 (最早时间 YYYY-MM-DD, [归一化正文])；读不到返回 ("", [])。"""
     if "v" in _LOG:
         return _LOG["v"]
     data, first, texts = _data_dir(), "", []
@@ -336,7 +363,7 @@ def _channel_log():
                         continue
                     ts = (e.get("time") or "")[:10]
                     first = min(first, ts) if first and ts else (first or ts)
-                    texts.append(_norm(e.get("text") or ""))
+                    texts += [_norm(t) for t in _human_replays(e.get("text") or "")]
         except OSError:
             continue
     for f in data.glob("sessions/*_*.json"):
