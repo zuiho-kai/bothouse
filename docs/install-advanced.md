@@ -21,9 +21,37 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 ## 后台服务细节
 
-- `bothouse daemon install` 装成后台服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改（macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。
+- `bothouse daemon install` 装成后台服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改，也可运行 `bothouse daemon autostart on|off`（macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。
 - Windows 上 `bothouse daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `bothouse daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.bothouse\logs\daemon-handoff.log`。
 - 新安装默认使用 `~/.bothouse`；没有该目录而存在旧配置目录时，会继续沿用旧配置，不移动文件。
+
+## Linux 服务器直接安装（不用 docker）
+
+在一台有 systemd 的 Linux 服务器（x86_64 或 arm64，比如 Debian、Ubuntu）上，SSH 进去照下面做，不用 docker：
+
+```sh
+# 1. 装 bothouse（放进 ~/.local/bin）
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"   # 新开的登录 shell 会自己带上
+
+# 2. 装一个 AI 命令行并登录（任选其一），例如 Claude Code：
+curl -fsSL https://claude.ai/install.sh | bash && claude auth login
+#    用 root 装 Claude Code 时，它要求加 CLAUDE_INSTALL_ALLOW_SUDO=1：
+#    curl -fsSL https://claude.ai/install.sh | CLAUDE_INSTALL_ALLOW_SUDO=1 bash
+
+# 3. 配平台（服务器上没浏览器，用命令行），例如 Discord：
+bothouse module add discord --token <token> --guild <服务器ID> --channel <频道ID>
+
+# 4. 装成后台服务，打开开机自启
+bothouse daemon install
+bothouse daemon autostart on
+```
+
+- 用 root 跑：装成系统服务（`/etc/systemd/system/bothouse.service`），开机就起，不用登录。
+- 用普通用户跑：装成用户服务（`~/.config/systemd/user/`）。要 SSH 断开后不停、开机不登录也能起，还要一次 `sudo loginctl enable-linger <用户名>`；`daemon install` 和 `daemon autostart on` 没开时会提示这句。
+- 看是否在线：`bothouse daemon status`；看日志：`bothouse daemon logs -f`，出现 `discord: connected` 就连上了。
+- 关掉开机自启：`bothouse daemon autostart off`；只看现在开没开：`bothouse daemon autostart`。
+- 没有 systemd 的环境（docker 容器、没开 systemd 的 WSL）`daemon install` 会报错并给出 nohup 的起法。
 
 ## 老用户升级须知：role-household/roles.toml 不再进 git（2026-10-20）
 

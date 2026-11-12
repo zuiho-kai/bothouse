@@ -19,7 +19,7 @@ bothouse 是**核心 + 可选平台**：一个安装包里什么都有，但你�
 
 - macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖入 Applications，首次打开请「右键→打开」（安装包未签名）。
 - Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击；SmartScreen 拦了就点「更多信息 → 仍要运行」。双击是托盘模式（不弹黑框）；要在 PowerShell 里用命令行子命令，直接 `.\bothouse-windows.exe --version`、`.\bothouse-windows.exe model list` 这样跑，输出就打在当前窗口里。
-- Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
+- Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。服务器上不用 docker、直接装成系统服务的步骤见[安装进阶](install-advanced.md#linux-服务器直接安装不用-docker)。
 
 首次运行无配置时会自动在浏览器打开安装向导。也可用下面的命令行安装，命令都是 `bothouse`：
 
@@ -62,7 +62,7 @@ DSH 的成员在向导「角色和模型」一步配，可以直接使用 DeepSe
 
 保存后向导最后一页（或 `setup apply` 输出的 JSON）列出还要你做的事，各平台页写了每一条怎么处理。都处理完，去聊天软件里 @ 机器人说一句试试。
 
-- 想关掉终端也一直在线：`bothouse daemon install`（装成后台服务并立即启动，开机自启默认关，可在管理面板「设置」里改）。细节见[安装进阶](install-advanced.md#后台服务细节)。
+- 想关掉终端也一直在线：`bothouse daemon install`（装成后台服务并立即启动，开机自启默认关，可在管理面板「设置」里改，或运行 `bothouse daemon autostart on`）。细节见[安装进阶](install-advanced.md#后台服务细节)。
 - 以后再打开管理面板：终端运行 `bothouse web`。
 
 ## 以后添加或停用平台
