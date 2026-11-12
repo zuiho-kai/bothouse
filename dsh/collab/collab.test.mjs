@@ -6105,6 +6105,23 @@ test('G35: a DSH [ask] is forwarded as a question, not a hand-back, and its task
   assert.equal(woken.length, 0);
 });
 
+for (const marker of ['问', '升']) test(`G35: numbered workspace 【${marker}】 forwards its complete question and remains answerable`, async () => {
+  const { hub, tasks, ws, assign, say } = g34Setup();
+  const t = assign();
+  const due = tasks.task(t.id).next_check_at;
+  const source = say(ws.id, `【${marker}】#${t.id} 背景：需要决定。\n已验证两种路径。\n要你做的：选 A 或 B？\n我加的：无\n自验：已检查\n类别：方向`);
+  await settle();
+  const ask = hub.store.db.prepare('SELECT * FROM team_exit_asks WHERE source_id = ?').get(source.id);
+  assert.ok(ask);
+  const copy = hub.store.message(ask.forwarded_id);
+  assert.match(copy.text, /选 A 或 B？[\s\S]*类别：方向/);
+  assert.equal(tasks.task(t.id).status, 'assigned');
+  assert.equal(tasks.task(t.id).next_check_at, due);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '选 A', replyTo: copy.id });
+  await settle();
+  assert.equal(hub.store.db.prepare('SELECT answered FROM team_exit_asks WHERE id = ?').get(ask.id).answered, 1);
+});
+
 test('G35: while a DSH [ask] waits on the user the watch wakes nobody and keeps the workspace; the answer re-arms it', async () => {
   const { hub, tasks, clock, woken, ws, assign } = g34Setup();
   const t = assign();
