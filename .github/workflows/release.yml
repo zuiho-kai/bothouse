@@ -158,6 +158,11 @@ jobs:
               cgo=1
               cpu=$arch; [ "$arch" != amd64 ] || cpu=x86_64
               cc="clang -arch $cpu"
+              # #1519: without a deployment target clang stamps the runner's own macOS (27 on the
+              # Mac Studio) as LC_BUILD_VERSION minos, and every older Mac refuses to load the
+              # binary. 13.0 is Go 1.27's own floor (its go.o is built for 13.0) and must match
+              # LSMinimumSystemVersion in package-dmg.sh.
+              export MACOSX_DEPLOYMENT_TARGET=13.0
             fi
             # No -H=windowsgui on windows (#1495): that made the PE subsystem GUI (2), so the
             # process got no console and a subcommand typed in PowerShell printed nothing —
@@ -187,6 +192,15 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             lipo -create build/bothouse-darwin-arm64/bothouse build/bothouse-darwin-amd64/bothouse \
               -output build/bothouse-universal
+            # #1519: fail the release if either slice claims a newer macOS than the app declares.
+            want=$(sed -n 's/.*<key>LSMinimumSystemVersion<\/key><string>\([0-9.]*\)<\/string>.*/\1/p' ../.github/release-check/package-dmg.sh)
+            for cpu in arm64 x86_64; do
+              minos=$(otool -arch "$cpu" -l build/bothouse-universal | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+              if [ -z "$want" ] || [ "$minos" != "$want" ]; then
+                echo "::error::bothouse $cpu slice has minos '${minos}', expected LSMinimumSystemVersion '${want}'; older Macs cannot load it (#1519)"
+                exit 1
+              fi
+            done
             # Sign the single binary before it is staged: the in-app update swaps only this file and
             # the guard verifies this signature on the running binary (bridge/core/update_sign.go).
             # package-dmg.sh then seals the .app, which re-signs this file with an Info.plist binding.

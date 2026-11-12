@@ -33,7 +33,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${tag#v}</string>
 <key>CFBundleVersion</key><string>${tag#v}</string>
-<key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppleEventsUsageDescription</key><string>Bothouse 的角色需要读取和操作你打开的应用（如浏览器标签页）来完成你交代的任务。</string>
