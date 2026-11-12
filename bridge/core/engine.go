@@ -6485,6 +6485,14 @@ var agentErrorHandlers = []agentErrorHandler{
 }
 
 func (e *Engine) processInteractiveEvents(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string, msgID string, turnStart time.Time, stopTypingFn func(), sendDone <-chan error, replyCtx any, inputs ...*inputTurn) {
+	// Register first so terminal accounting finishes before cleanup marks a
+	// crashed process stopped (which otherwise looks like a cancelled turn).
+	var retireExitedProcess bool
+	defer func() {
+		if retireExitedProcess {
+			e.cleanupInteractiveState(sessionKey, state)
+		}
+	}()
 	defer func() {
 		outcome := "failed"
 		if state.isStopped() {
@@ -8637,11 +8645,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				}
 			}
-			// Only drop queued messages if the agent session is dead.
+			// Retire a dead process just as the channelClosed path does. Keeping
+			// it in interactiveStates makes the next turn's startup look like a
+			// dead running session, so another cooldown delivery cannot queue.
 			// Some agents (e.g. Codex) emit EventError for per-turn failures
 			// while keeping the session alive for subsequent turns.
 			if agentSession == nil || !agentSession.Alive() {
-				e.notifyDroppedQueuedMessages(state, event.Error)
+				retireExitedProcess = true
 			}
 			return
 		}

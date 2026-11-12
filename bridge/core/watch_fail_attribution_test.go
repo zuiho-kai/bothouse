@@ -12,10 +12,11 @@ import (
 // attributedFailSession answers every prompt with one plain agent error: no retry list
 // (capacity_retry.go) re-sends it, so each turn ends in exactly one failure.
 type attributedFailSession struct {
-	events chan Event
-	mu     sync.Mutex
-	sends  int
-	event  *Event
+	events      chan Event
+	mu          sync.Mutex
+	sends       int
+	event       *Event
+	exitOnError bool
 }
 
 func (s *attributedFailSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
@@ -34,8 +35,12 @@ func (s *attributedFailSession) Send(string, string, []ImageAttachment, []FileAt
 func (s *attributedFailSession) RespondPermission(string, PermissionResult) error { return nil }
 func (s *attributedFailSession) Events() <-chan Event                             { return s.events }
 func (s *attributedFailSession) CurrentSessionID() string                         { return "attributed" }
-func (s *attributedFailSession) Alive() bool                                      { return true }
-func (s *attributedFailSession) Close() error                                     { return nil }
+func (s *attributedFailSession) Alive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.exitOnError || s.sends == 0
+}
+func (s *attributedFailSession) Close() error { return nil }
 
 type attributedFailAgent struct {
 	stubAgent
@@ -73,6 +78,37 @@ func watchTurnFixture(t *testing.T, agent Agent) (*Engine, *exitTestPlatform, st
 	}
 	writeReleaseBoard(t, e, map[string]any{"id": 170, "what": "额度用量快捷按钮", "status": "进行中", "who": "橘", "ws": ws, "chat": chat})
 	return e, p, ws
+}
+
+// A fatal error must finish its accounting before retiring the dead process.
+// Cleanup marks the state stopped; doing it first disguises a crash as a cancel.
+func TestWatchExitedErrorStillCounts(t *testing.T) {
+	for _, user := range []string{"human", "timer"} {
+		t.Run(user, func(t *testing.T) {
+			as := &attributedFailSession{events: make(chan Event, 1), exitOnError: true}
+			e, p, ws := watchTurnFixture(t, &attributedFailAgent{s: as})
+			session := e.sessions.GetOrCreateActive(ws)
+			e.handleMessage(p, &Message{SessionKey: ws, Platform: "discord", UserID: user, Content: "ran", ReplyCtx: "rc"})
+			inputWait(t, func() bool {
+				as.mu.Lock()
+				defer as.mu.Unlock()
+				return as.sends > 0 && !session.Busy()
+			})
+			wantFails := 0
+			if user == "human" {
+				wantFails = 1
+			}
+			if got := handoffsOf(e, ws)[0].Idle; got.Fails != wantFails {
+				t.Fatalf("dead %s turn: %+v, want fails=%d", user, got, wantFails)
+			}
+			e.interactiveMu.Lock()
+			retained := e.interactiveStates[ws] != nil
+			e.interactiveMu.Unlock()
+			if retained {
+				t.Fatal("dead process still owns the interactive state")
+			}
+		})
+	}
 }
 
 // The deferred terminal event reads the turn's kind from the state, so a routine turn's error

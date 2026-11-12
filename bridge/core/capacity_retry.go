@@ -390,6 +390,17 @@ func isScheduledSideKey(key string) bool {
 	return strings.Contains(key, "#cron:") || strings.Contains(key, "#timer:")
 }
 
+// backgroundTurnTrigger reports whether a turn was started by the bridge's own schedule
+// (timer, cron, heartbeat) rather than by someone in the chat. A workspace handoff wake-up is
+// handed-over work that reports back, so it is not background.
+func backgroundTurnTrigger(trigger string) bool {
+	switch trigger {
+	case TurnTriggerTimer, TurnTriggerCron, TurnTriggerHeartbeat:
+		return true
+	}
+	return false
+}
+
 // deferForCapacity tells the user and, unless msg ran in a cron/timer side
 // session, re-delivers it once the cooldown ends, the same way an incoming
 // message is dispatched (after the gate). cooling = the cooldown was already
@@ -414,7 +425,14 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		why = "模型满载（at capacity）"
 	}
 	switchedTo := e.capSwitchedTo
-	already := e.capNotified[channel]
+	// Who sent msg decides whether the channel hears about the cooldown, not the session key's
+	// shape: a timer/cron/heartbeat turn on the channel's own session is re-sent like the rest,
+	// but nobody in the chat asked for it and its answer may rightly be silent, so "自动重试这条"
+	// there promised a reply that never came (#730, 2026-11-12 用户「好像没自动重试啊」). Its
+	// board row stays held through the re-send; the cooldown goes to the log only, and it does
+	// not use up the channel's one notice, which a person's held message still gets.
+	background := backgroundTurnTrigger(turnTriggerOf(&msg))
+	already := background || e.capNotified[channel]
 	if !already {
 		if e.capNotified == nil {
 			e.capNotified = map[string]bool{}
@@ -422,6 +440,9 @@ func (e *Engine) deferForCapacity(p Platform, msg Message, agent Agent, sessions
 		e.capNotified[channel] = true
 	}
 	e.capMu.Unlock()
+	if background {
+		slog.Warn("capacity: background turn held for re-delivery, no channel notice", "session_key", interactiveKey, "trigger", turnTriggerOf(&msg), "why", why, "wait", wait, "cooling", cooling)
+	}
 	if !already {
 		switch {
 		case switchedTo != "" && !cooling:
