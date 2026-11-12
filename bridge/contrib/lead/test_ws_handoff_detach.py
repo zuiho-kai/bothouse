@@ -69,7 +69,7 @@ class DetachTest(unittest.TestCase):
         r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), str(self.notes), "测一件活", "--short", "测试", "--force"],
                            capture_output=True, text=True, env={**self.env, "FAIL_TIMER": "1"})
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("timer add 失败", r.stderr)
+        self.assertIn("ws-handoff:", r.stderr.splitlines()[-1])  # 失败原因照常打到前台（临时目录在 /tmp 时是 /tmp 检查先拦）
         self.assertFalse(self.calls_of("send"))  # 前台还在就让它自己看到，不补报
 
 
