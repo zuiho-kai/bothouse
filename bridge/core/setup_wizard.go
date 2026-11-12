@@ -1354,10 +1354,13 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				addStep(res, hs, err, "")
 			} else {
 				if h.ReviewRequired {
-					addStep(res, hs, nil, tr3(req.Language,
-						"Codex hook 配置已写入；请在角色目录启动 Codex，信任项目并用 /hooks 审核后生效。",
-						"Codex hooks を保存しました。ロールのディレクトリでプロジェクトを信頼し、/hooks で確認してください。",
-						"Codex hook configuration written; start Codex in this role directory, trust the project and review /hooks to activate."))
+					// a new wizard Codex role runs on app_server (set below in the config write), and the
+					// bridge trusts these hooks itself when it starts the session, so there is nothing to
+					// review by hand; "setup hooks on" for an exec-backend role still says to review
+					addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, hookSettingsShown(r.AgentType, r.workDir, h))+
+						tr3(req.Language, "（Codex 启动时由 bothouse 自动信任，不用手动 /hooks 审核）",
+							"（Codex 起動時に bothouse が自動で信頼します。/hooks の手動確認は不要）",
+							" (bothouse trusts them when Codex starts; no manual /hooks review)"))
 				} else {
 					addStep(res, hs, nil, stepHooksOn(req.Language, h.Enabled, hookSettingsShown(r.AgentType, r.workDir, h)))
 				}

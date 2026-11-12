@@ -85,7 +85,7 @@ bothouse          # 第一次运行（还没配机器人）：建好配置，只
      "provider": {"vendor": "deepseek", "api_key": "<key>"}}
   ],
   "fallback_role": "<主角色的 project 名，不写 = 第一个>",
-  "allow_from": "<谁能指挥机器人：Discord 用户 ID，逗号分隔；不写 = 机器人的所有者>",
+  "allow_from": "<谁能指挥机器人：Discord 用户 ID，逗号分隔；不写 = 给了服务器就是 *（服务器里的人），只想自己用填你的 ID>",
   "jev": {"base_url": "https://api.siliconflow.cn/v1", "api_key": "<key>", "model": "<模型>"}
 }
 ```

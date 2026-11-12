@@ -614,6 +614,12 @@ func (emptyWizardStore) ApplyProjects(func(core.WizardSnapshot) ([]core.WizardPr
 type bootstrapOnWriteStore struct{}
 
 func (bootstrapOnWriteStore) Snapshot() (core.WizardSnapshot, error) {
+	// once ApplyProjects has created the config, read it back: the wizard's after-write steps
+	// (the team line in every member's persona) look the new projects up here, and an empty
+	// snapshot made a first-run "setup apply" skip them silently (#1536)
+	if _, err := os.Stat(config.ConfigPath); err == nil {
+		return configWizardStore{}.Snapshot()
+	}
 	return core.WizardSnapshot{}, nil
 }
 func (bootstrapOnWriteStore) IsFreshConfig() bool { return true }
