@@ -39,7 +39,7 @@ var heldReportImages = struct {
 // handback and the workspace is freed as before. false: nothing was held (a duplicate, or no
 // lead could be asked and the unchecked copy went out instead) — the caller does nothing more.
 func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, bot, body, sessionKey string, hid int, hline, doubt, check string, item *teamTaskBoardItem) bool {
-	if item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedBefore(hid) {
+	if item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedForHandoff(hid, item.Bound) {
 		slog.Info("team exit: report for a task already done; not held again", "board_item", hid, "workspace", ws)
 		return false
 	}

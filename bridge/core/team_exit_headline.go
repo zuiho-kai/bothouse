@@ -118,6 +118,16 @@ func (e *Engine) exitReportedBefore(id int) bool {
 	return seen && time.Since(at) <= exitReportedKeep
 }
 
+// exitReportedForHandoff: a [report] of board item id was posted for its current handoff (bound);
+// without a bind time, any post within exitReportedKeep counts (#1492: a done item handed out
+// again for rework dropped its round-2 report because round 1 was posted within 7 days).
+func (e *Engine) exitReportedForHandoff(id int, bound string) bool {
+	if bound == "" {
+		return e.exitReportedBefore(id)
+	}
+	return e.exitReportedSinceBound(id, bound)
+}
+
 // exitReportedSinceBound: board item id's [report] was already posted after the item was bound
 // (RFC3339 bound) to its current handoff. An unknown bind time never counts.
 func (e *Engine) exitReportedSinceBound(id int, bound string) bool {

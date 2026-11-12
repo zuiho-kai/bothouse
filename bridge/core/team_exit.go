@@ -399,7 +399,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	// The board's done mark alone does not mean the user saw the result: a workspace often runs
 	// `board update <id> 已完成` itself just before its [report] (#770 was dropped that way). Only
 	// a report already posted for this item makes a later one a late-nudge answer.
-	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedBefore(hid) {
+	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedForHandoff(hid, item.Bound) {
 		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
 		return ""
 	}
