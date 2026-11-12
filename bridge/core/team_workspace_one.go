@@ -187,6 +187,7 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 		if _, err := e.QueueSessionReset(sessionKey); err != nil {
 			slog.Warn("team workspace: reset after report failed", "session", sessionKey, "error", err)
 		}
+		e.releaseHandedBackWorkspace(sessionKey)
 	case exitKindAsk:
 		// Off the turn's goroutine: freeing the workspace resets this very session (bridge API).
 		go func() {

@@ -57,6 +57,9 @@ def check_notes(text: str):
     errs = _handoff_rules.check_tiered(text, rules, fmt)
     if fmt and rules["flags"].get("cli_gate"):
         errs += [e for e in [generic_gate(text)] if e]
+    # 对象核对也是读文件就能判的检查，和必填节同一次报（#1514：11-12 17:31–17:35 鲸鱼娘的交接先被必填节退回两次，
+    # 补齐后第三次才报对象核对缺证据，同一份交接跑了四遍）
+    errs += [e for e in [object_gate(text)] if e]
     if not errs:
         return None
     if len(errs) == 1:
@@ -452,8 +455,9 @@ def notes_chat(notes: str, chat: str) -> str:
     claim、任务板 chat、汇报、[ask]、兜底定时器都回那里。跑命令的是工作区（lead_chat 会换成 owner）、没写、写的就是
     本频道时原样返回。来源：11-10 #1342 笨蛋英文 X 版的活从 1562131004234276945 交出，📬 贴进了那里（#1346，
     用户「这个不是这个频道工作，但怎么往这个频道塞」）。"""
-    at = notes.find(f"## {SOURCE}")
-    m = re.search(r"^- 聊天频道：(\S+:\S+)\s*$", notes[at:] if at >= 0 else "", re.M)
+    source = notes.split(f"## {SOURCE}\n", 1)
+    section = source[1].split("\n## ", 1)[0] if len(source) == 2 else ""
+    m = re.search(r"^- 聊天频道：(\S+:\S+)\s*$", section, re.M)
     if not m or not chat or ":" not in chat:
         return chat
     want = m.group(1)
@@ -917,18 +921,16 @@ def main(argv):
         notes = fh.read()
     # 先说一声在交：后面搜旧定案、挑工作区要几十秒；Codex 的命令等几秒就先返回，没这行它会以为桥没响应，
     # 跟用户说「工作区还没回执、不确定成没成」（agentm 11-09 #25，那次交活跑了 47 秒）
-    print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
-          "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
     try:
         err = check_notes(notes)
     except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
+    # 读文件的检查过了才说「在交」：交接没过时这句让模型以为每次重交都要等一两分钟（#1514，实际退回不到 1 秒）
+    print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
+          "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
     err, own = intent_gate(notes)
-    if err:
-        sys.exit(f"ws-handoff: {err}")
-    err = object_gate(notes)
     if err:
         sys.exit(f"ws-handoff: {err}")
     err = added_gate(notes)
@@ -1020,5 +1022,91 @@ def main(argv):
     print(DONE.format(name=name))
 
 
+# 交活放进独立会话里跑，前台只跟着看：调用方（Codex 的 exec_command 等几秒就先返回、回合结束桥关掉 agent 进程；
+# Claude 的 Bash 两分钟超时）把前台杀掉时，交活照样跑完，没交成就在本频道补一句，不留「嘴上交了、板上没有」。
+# 来源：用户 2026-11-12「修复隔壁问题，gpt老是丢失任务」；agentm 11-12 03:52Z 那轮 ws-handoff 跑到第 24 秒，
+# 回合结束关进程（turn ended: closing agent process）连带杀掉，任务板没有这件，模型已跟用户说「已提交工作区」。
+WORKER = "WS_HANDOFF_WORKER"  # 有值＝自己就是后台那份，值是前台进程号
+RUNS_DIR = _team.SETUP / "handoff-runs"
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _tell_chat(text: str):
+    """前台已被杀、交活又没成：在交活的聊天频道补一句（发不出就只留在回执文件里）。"""
+    chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    proj = os.environ.get("CC_PROJECT", "")
+    if not chat or not proj:
+        return
+    try:
+        subprocess.run([cc_bin(), "send", "-p", proj, "-s", chat, "--message", text.replace("<@", "<\u200b@")],
+                       capture_output=True, text=True, timeout=30)
+    except Exception as e:  # noqa: BLE001  只是补报，失败写进回执
+        print(f"ws-handoff: 补报没发出去（{e}）", file=sys.stderr)
+
+
+def worker(argv):
+    parent = int(os.environ.get(WORKER) or 0)
+    rc, why = 0, ""
+    try:
+        main(argv)
+    except SystemExit as e:
+        rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        why = "" if isinstance(e.code, int) or e.code is None else str(e.code)
+        if why:
+            print(why, file=sys.stderr)
+    except BaseException as e:  # noqa: BLE001
+        rc, why = 1, f"{type(e).__name__}: {e}"
+        print(why, file=sys.stderr)
+    finally:
+        sys.stdout.flush(); sys.stderr.flush()
+    if rc and parent and not _alive(parent):
+        task = (f"#{argv[1].lstrip('#')} 续办" if argv[:1] == ["--resume"] and len(argv) > 1
+                else argv[1] if len(argv) > 1 else "")
+        _tell_chat(f"⚠️ 刚才说交给工作区的「{task}」没交出去（交活命令在回合结束后才报错）：{why.strip()[:600] or f'exit {rc}'}\n"
+                   "这件活现在不在任务板上，要重新交。")
+    os._exit(rc)
+
+
+def run(argv):
+    # --resume 也有模型直接调（续办暂停的活、ws-forward 转），同样会被回合结束杀掉，一起放后台；--drain 只由桥在后台调
+    if os.environ.get(WORKER) or os.environ.get("WS_HANDOFF_INLINE") or argv[:1] == ["--drain"]:
+        return worker(argv) if os.environ.get(WORKER) else main(argv)
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    stem = RUNS_DIR / f"{datetime.now().strftime('%m%d-%H%M%S')}-{os.getpid()}"
+    out, err = stem.with_suffix(".out"), stem.with_suffix(".err")
+    with open(out, "w") as fo, open(err, "w") as fe:
+        p = subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), *argv], stdin=subprocess.DEVNULL,
+                             stdout=fo, stderr=fe, start_new_session=True,
+                             env=dict(os.environ, **{WORKER: str(os.getpid())}))
+    print(f"ws-handoff: 回执 {err}；本命令被打断也会在后台交完，没交成会在本频道补一句。"
+          "看到最后一行「任务板 #N」才算交出", file=sys.stderr, flush=True)
+    pos = 0
+    while True:
+        done = p.poll() is not None
+        with open(err, encoding="utf-8", errors="replace") as fh:
+            fh.seek(pos)
+            chunk = fh.read()
+            pos = fh.tell()
+        if chunk:
+            sys.stderr.write(chunk)
+            sys.stderr.flush()
+        if done:
+            break
+        time.sleep(0.2)
+    with open(out, encoding="utf-8", errors="replace") as fh:
+        sys.stdout.write(fh.read())
+    sys.stdout.flush()
+    sys.exit(p.returncode)
+
+
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    run(sys.argv[1:])

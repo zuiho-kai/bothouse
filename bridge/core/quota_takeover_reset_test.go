@@ -20,7 +20,7 @@ func TestQuotaTakeoverResetsWatchCounts(t *testing.T) {
 	teamWorkspaceStore.mu.Lock()
 	st := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 	st.Handoffs = map[string][]TeamHandoff{"discord:ws": {{Chat: "discord:chat", At: at, Owner: "orange", Title: "修复",
-		ParkFails: 2, AutoResumed: true, ReadFails: 1, Renewed: 3, Nudged: true}}}
+		ParkFails: 2, AutoResumed: true, Renewed: 3, Nudged: true}}}
 	err := saveTeamWorkspacesLocked(teamWorkspacePath(dir), st)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
@@ -35,7 +35,7 @@ func TestQuotaTakeoverResetsWatchCounts(t *testing.T) {
 	if h.Owner != "longniang" {
 		t.Fatalf("owner = %q, want longniang", h.Owner)
 	}
-	if h.ParkFails != 0 || h.AutoResumed || h.ReadFails != 0 {
-		t.Fatalf("old owner's counts carried to the new owner: park_fails=%d auto_resumed=%v read_fails=%d", h.ParkFails, h.AutoResumed, h.ReadFails)
+	if h.ParkFails != 0 || h.AutoResumed {
+		t.Fatalf("old owner's counts carried to the new owner: park_fails=%d auto_resumed=%v", h.ParkFails, h.AutoResumed)
 	}
 }

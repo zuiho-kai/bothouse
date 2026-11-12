@@ -103,6 +103,15 @@ class WsUpTest(unittest.TestCase):
         self.assertIn("【工作区要问用户】选哪个？", argv[argv.index("--prompt") + 1])
         self.assertEqual(argv[argv.index("--desc") + 1], "工作区提问")
 
+    def test_ask_does_not_claim_it_reached_the_chat(self):
+        # #1492：timer 只是排给主角色那一轮，转出去之前不能在工作区说「已报回聊天频道」
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        r = self.run_tool("ws-up", "选哪个？", "--ask", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        said = " ".join(" ".join(t) for t in self.timers() if t[:1] == ["send"])
+        self.assertNotIn("已报回聊天频道", said)
+        self.assertIn("转出", said)
+
     def test_ask_handing_user_a_command_goes_back(self):
         """11-10 #1359：提问让用户在终端跑 sudo，桥的同一份规则（report check --self-route）判退回，不交出去。"""
         fake = Path(self.env["CC_BIN"])

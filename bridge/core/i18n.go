@@ -691,6 +691,7 @@ const (
 	MsgWatchResumeNotes         MsgKey = "watch_resume_notes"
 	MsgWatchChatHandoff         MsgKey = "watch_chat_handoff"
 	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
+	MsgTimerMissedNotice        MsgKey = "timer_missed_notice"
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
 	MsgWatchUntitledAccept      MsgKey = "watch_untitled_accept"
@@ -1076,6 +1077,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "交接檔案：%s（先讀最後的檢查點）",
 		LangJapanese:           "引き継ぎファイル：%s（まず最後のチェックポイントを読んでください）",
 		LangSpanish:            "Archivo de traspaso: %s (lee primero el último punto de control)",
+	},
+	MsgTimerMissedNotice: {
+		LangEnglish:            "⏰ Timer \"%s\" was due at %s while the bridge was not running; it was missed and did not run. Say so if you want it done now.",
+		LangChinese:            "⏰ 定时「%s」原定 %s，那时桥没在运行，错过了，这次没有执行。要补做请再说一声。",
+		LangTraditionalChinese: "⏰ 定時「%s」原定 %s，那時橋沒在運行，錯過了，這次沒有執行。要補做請再說一聲。",
+		LangJapanese:           "⏰ タイマー「%s」は %s 予定でしたが、その時ブリッジが止まっていたため実行されませんでした。必要ならもう一度お知らせください。",
+		LangSpanish:            "⏰ El temporizador «%s» tocaba a las %s, pero el puente no estaba en marcha: se perdió y no se ejecutó. Dilo si quieres hacerlo ahora.",
 	},
 	MsgWatchAutoResumed: {
 		LangEnglish:            "Watch: %s showed no progress on %s; stopped its stuck turn and asked it to continue (once; parked if still no progress)",

@@ -258,12 +258,11 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	// [report]/【交回】/PR-link/【接】≥300 guesses and the 「做不了」 pattern are gone (design §4 rows 1–2).
 	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
 	returned := cardResult && !accepted
-	asking := false
 	switch e.workspaceTaskStateAt(key) {
 	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
 		returned = true
 	case TeamTaskAsking, TeamTaskPaused:
-		returned, asking = true, true
+		returned = true
 	}
 	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
 	boardID := watchTaskNumber(StripMarkdown(first))
@@ -317,9 +316,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 				chat = picked.parent
 			}
 		}
-	}
-	if returned && !asking {
-		e.scheduleWorkspaceReturn(key, time.Now())
 	}
 	teamWorkspaceStore.mu.Lock()
 	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
@@ -496,7 +492,13 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 						return
 					}
 					if watchBoardWaiting(it.Status) {
-						return // waits on someone else: no "carry on"; its next turn re-arms the watch
+						// #1492: in a workspace a 「等…」 written with `board update` is text, not a state
+						// (#699 D). Waiting on the user goes through ws-up --ask (the item pauses), on
+						// something outside through 等外部 (it parks); a bare 「等用户确认」 asked no one,
+						// and the watch went quiet for good. A chat channel's own note still waits.
+						if _, inWS := e.WorkspaceParent(a.key); !inWS {
+							return // waits on someone else: no "carry on"; its next turn re-arms the watch
+						}
 					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
 					closed = it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||

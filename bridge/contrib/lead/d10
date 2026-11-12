@@ -24,7 +24,12 @@ def main(argv):
     if not skey:
         sys.exit("d10: 读不到 CC_SESSION_KEY 或 CC_SESSION（要在 cc-connect 会话里跑）")
     since = int(time.time())
-    registered = _watch.request("register", _team.project(), skey, tid, argv[1], since)
+    try:
+        registered = _watch.request("register", _team.project(), skey, tid, argv[1], since)
+    except OSError as e:
+        # #1492 常识：登记失败不等于不用看门。桥拒了（如队友不在这台桥上）就照旧挂到点看门，并说清楚
+        print(f"d10: 桥内看门没登记上（{e}），保留原到点看门", file=sys.stderr)
+        registered = None
     if registered and registered.get("covered"):
         print("桥内看门已覆盖，跳过")
         return

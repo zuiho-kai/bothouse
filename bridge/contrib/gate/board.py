@@ -17,7 +17,7 @@
   board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
-                                         #   状态以收尾词开头（已完成/已验收/已收口/已结束/done）就直接结束，同 done
+                                         #   状态只是展示文字，写什么都不结束这件；结束用 board done / accepted
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
@@ -301,7 +301,7 @@ def event(nid, kind, it, note=None):
 
 
 def _update_event(nid, status, before, hit):
-    """update 的这次变化对应哪种事：收尾词交给 done 记，退回归退回，交回归交回，换人归派活。"""
+    """update 的这次变化记进事件流（只作统计，不改状态）：退回归退回，交回归交回，换人归派活。"""
     if _REJECTED_RE.search(status):
         event(nid, "rejected", hit, status)
     elif _RETURNED_RE.search(status):
@@ -722,7 +722,7 @@ def _park_once(cc, sk, chat, bound=None, stop=False):
 
 
 def _park_done(hit):
-    """收尾（done / 收尾词）时条目还绑着工作区（没交回就直接结束）：当场放回，不等每小时对账（用户 2026-11-04
+    """收尾（done / accepted）时条目还绑着工作区（没交回就直接结束）：当场放回，不等每小时对账（用户 2026-11-04
     「工作区用完了及时清理」「交回/暂停/验收完当场放回」）。和 pause 一样：不在那个工作区里结束的连同那一轮一起停。"""
     if not isinstance(hit, dict) or not hit.get("ws"):
         return
@@ -1194,6 +1194,26 @@ def _ask_rework_cap(it):
     except Exception as e:
         print(f"board: #{nid} [ask] 没发出去（{e}），请转给用户：\n{text}", file=sys.stderr)
         return False
+    return True
+
+
+def unbind(nid, previous, why):
+    """叫醒失败、没交出去（#1492 常识：失败了之前记的状态要退）：把 start() 前的绑定原样放回，状态写明没交出去。
+    previous：start() 开头读到的那条记录。"""
+    keys = ("ws", "sk", "who", "returned_at", "review_rejected", "ws_was", "bound", "chat")
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        for k in keys:
+            if k in previous:
+                hit[k] = previous[k]
+            else:
+                hit.pop(k, None)
+        hit["status"], hit["at"] = why, _now()
+        _write(cur)
+        event(nid, "unbound", hit, why)
     return True
 
 

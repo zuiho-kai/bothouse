@@ -63,13 +63,13 @@ func TestShelvedLifecycle_StuckAfterProgressAndWatchdog(t *testing.T) {
 	p.handoffOf = func(ws, chat string, bound time.Time) (TeamHandoff, bool) {
 		switch ws {
 		case "feishu:oc_ws_nudged":
-			return TeamHandoff{Chat: chat, At: now.Add(-40 * time.Minute), Since: now.Add(-20 * time.Minute), Nudged: true}, true
+			return TeamHandoff{Board: 2, Chat: chat, At: now.Add(-40 * time.Minute), Since: now.Add(-20 * time.Minute), Nudged: true}, true
 		case "feishu:oc_ws_park":
-			return TeamHandoff{Chat: chat, At: now.Add(-30 * time.Minute), ParkFails: 1}, true
+			return TeamHandoff{Board: 3, Chat: chat, At: now.Add(-30 * time.Minute), ParkFails: 1}, true
 		case "feishu:oc_ws_idle":
-			return TeamHandoff{Chat: chat, At: now.Add(-30 * time.Minute), Idle: watchIdleState{Reported: true}}, true
+			return TeamHandoff{Board: 4, Chat: chat, At: now.Add(-30 * time.Minute), Idle: watchIdleState{Reported: true}}, true
 		default:
-			return TeamHandoff{Chat: chat, At: now.Add(-3 * time.Hour)}, true
+			return TeamHandoff{Board: 1, Chat: chat, At: now.Add(-3 * time.Hour)}, true
 		}
 	}
 	items := placeTeamTaskBoard(p, []teamTaskBoardItem{
@@ -149,8 +149,10 @@ func TestShelvedLifecycle_ReconcilesActiveWorkspaceHandoff(t *testing.T) {
 			At:       "11-01 00:30",
 		},
 	})
-	if len(items) != 2 {
-		t.Fatalf("placed items = %d, want 2 (1 rebound + 1 synthesized): %+v", len(items), items)
+	// #699 design §4: a numberless handoff is never matched to a paused item by its title; it
+	// shows as its own unregistered row and #43 stays paused.
+	if len(items) != 3 {
+		t.Fatalf("placed items = %d, want 3 (paused #43 + 2 synthesized): %+v", len(items), items)
 	}
 	table := renderTeamTaskTable(items, nil, "discord:main", now)
 	for _, want := range []string{"**工作区 2**", "🟢 工作区1 · 发布部署实测", "🟢 工作区2 · 任务板对账修复"} {

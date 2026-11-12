@@ -490,6 +490,19 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.run_hook("wiki-context", p, env), "")
         self.assertEqual(self.run_hook("wiki-context", dict(p, session_id="ingest"), dict(env, WIKI_INGEST="1")), "")
 
+    def test_lessons_read_split_subpages(self):
+        # #1447：教训表拆页后条目搬进子页，只读主页会一条都读不到
+        wiki = os.path.join(self.tmp, "lessons-split-wiki")
+        d = os.path.join(wiki, "tooling/rules/rule-candidates-recurrence")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "rule-candidates-recurrence.md"), "w") as f:
+            f.write("# 总览\n\n## 关键事实\n- 分页：[[wait-and-timeouts]]。\n")
+        with open(os.path.join(d, "wait-and-timeouts.md"), "w") as f:
+            f.write("# 等待与超时\n\n## 关键事实\n- 杀进程用 pid 文件：4 次\n  - 10-22 abcdef12「别用 pkill -f」\n")
+        env = dict(self.env, GATE_WIKI=wiki)
+        p = {"hook_event_name": "UserPromptSubmit", "session_id": "lessons-split", "prompt": "hello"}
+        self.assertIn("杀进程用 pid 文件", self.run_hook("wiki-context", p, env))
+
     def test_research_dispatch_keeps_configurable_directory(self):
         p = {"hook_event_name": "PreToolUse", "tool_name": "Agent", "cwd": "/project",
              "tool_input": {"prompt": "【免审:调研】查官方说明"}, "transcript_path": "/missing"}

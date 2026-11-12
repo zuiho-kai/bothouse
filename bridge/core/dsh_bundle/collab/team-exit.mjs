@@ -253,6 +253,13 @@ export function exitMark(text, { lastLine = false, team = [] } = {}) {
   return m === null ? undefined : { kind: markKind(m[1]), body: m[2].trim() };
 }
 
+/** Numbered workspace questions and escalations share the [ask] answer lifecycle. */
+export function workspaceAskMark(text, team = []) {
+  const first = withoutLeadingMentions(String(text ?? ''), team).trim();
+  const match = /^【(?:问|升)】\s*#(\d+)([^\n]*)([\s\S]*)$/.exec(first);
+  return match ? { kind: 'ask', body: `#${match[1]}${match[2]}${match[3]}`.trim() } : undefined;
+}
+
 export class TeamExit {
   constructor(hub) {
     this.hub = hub;
@@ -314,9 +321,10 @@ export class TeamExit {
       return message;
     }
     if (msg.author_kind !== 'role') return;
-    const mark = msg.card == null ? exitMark(msg.text, this.markOpts(msg)) : undefined;
     const room = this.workspaceOf(msg);
     if (!room) return;
+    const workspaceAsk = msg.card == null ? workspaceAskMark(msg.text, this.hub.routable?.() ?? []) : undefined;
+    const mark = msg.card == null ? workspaceAsk ?? exitMark(msg.text, this.markOpts(msg)) : undefined;
     const ask = mark?.kind === 'ask';
     let headline;
     if (mark) {
@@ -339,13 +347,13 @@ export class TeamExit {
         VALUES (?, ?, ?, ?, ?)`).run(`ask-${randomBytes(4).toString('hex')}`, room.parent_id, room.id, msg.author, msg.id);
       record = this.db.prepare('SELECT * FROM team_exit_asks WHERE source_id = ?').get(msg.id);
     }
-    const message = this.forward(room, msg, mark.body, record, headline);
+    const message = this.forward(room, msg, mark.body, record, headline, Boolean(workspaceAsk));
     if (ask) {
       this.db.prepare('UPDATE team_exit_asks SET forwarded_id = ? WHERE id = ?').run(message.id, record.id);
       const tasks = this.hub.tasks;
       // #597 G35: a DSH member's [ask] keeps its task in work and watched (and its workspace, so the
       // answer reaches the same session); a bridge bot's [ask] parks it as before (#280).
-      if (tasks && !this.markOpts(msg).lastLine) {
+      if (tasks && !this.markOpts(msg).lastLine && !workspaceAsk) {
         const busy = tasks.q.allBusy.all('assigned', 'accepted', 'asked', 'rework');
         const named = headline?.task;
         const items = [...(named ? [named] : []), ...busy]
@@ -372,7 +380,7 @@ export class TeamExit {
    * Copy a workspace reply into its chat channel (once per source row: a repeated client key
    * returns the copy already posted). ask: its team_exit_asks record; otherwise a 阶段结果.
    */
-  forward(room, msg, body, ask, headline) {
+  forward(room, msg, body, ask, headline, fullQuestion = false) {
     let text = `📬 来自 ${room.name} · ${msg.name}${ask ? ` · ${ask.id}` : ' · 阶段结果'}\n${body}`;
     let detail = '';
     if (headline) {
@@ -381,7 +389,10 @@ export class TeamExit {
       const name = headline.task?.title ?? '';
       detail = exitSplit(body).detail;
       text = `📬「${name}」${ask ? `要你定\n${headline.line}\n（直接回复这条就能答复，编号 ${ask.id}）` : `\n${headline.line}`}`;
-      if (detail) detail = `📬 细节「${name}」（来自 ${room.name} · ${msg.name}，想看再展开，不用回）\n${detail}`;
+      if (fullQuestion && ask) {
+        text += `\n${detail}`;
+        detail = '';
+      } else if (detail) detail = `📬 细节「${name}」（来自 ${room.name} · ${msg.name}，想看再展开，不用回）\n${detail}`;
     }
     const { message } = this.hub.post(room.parent_id, {
       authorKind: 'system', author: 'system', name: 'system', clientKey: `team-exit:${msg.id}`, text,
@@ -404,7 +415,7 @@ export class TeamExit {
     const room = this.workspaceOf(msg);
     if (!room || msg.author_kind !== 'role' || msg.card != null) return undefined;
     const mark = exitMark(msg.text, this.markOpts(msg));
-    if (mark?.kind === 'ask') return undefined;
+    if (mark?.kind === 'ask' || workspaceAskMark(msg.text, this.hub.routable?.() ?? [])) return undefined;
     const lines = String(msg.text).trim().split('\n');
     if (/^\s*(?:@\S+\s+)*【(接|问|退|升)】/.test(lines[0])) lines.shift();
     const body = mark?.body ?? (lines.join('\n').trim() || String(msg.text).trim());

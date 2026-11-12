@@ -10,7 +10,7 @@
 import { CollabError, MAX_TEXT } from './store.mjs';
 import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
-import { exitMark } from './team-exit.mjs';
+import { exitMark, workspaceAskMark } from './team-exit.mjs';
 import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
 import { execFile } from 'node:child_process';
 
@@ -395,19 +395,25 @@ export class Tasks {
   }
 
   /** The owner states 接/问/退/升 (also accept/ask/decline/escalate). */
-  stance(id, { actor, stance, note }) {
+  stance(id, { actor, stance, note, messageId }) {
     const mark = STANCES[stance] !== undefined ? stance : STANCE_WORDS[stance];
     if (mark === undefined) throw new CollabError('invalid', 'stance must be one of 接 问 退 升');
     const task = this.mustTask(id);
     if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can answer task ${id}`);
     if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, not waiting for its owner`);
     const status = STANCES[mark];
+    const source = messageId == null ? undefined : this.store.message(messageId);
+    if (messageId != null && (source === undefined || source.room_id !== task.room_id || source.author !== actor || source.author_kind !== 'role')) {
+      throw new CollabError('invalid', 'message_id must name the owner message in the task room');
+    }
+    const body = source === undefined ? null : clip(String(source.text).replace(/^\s*(?:@\S+\s+)*【[接问退升]】[^\n]*(?:\n|$)/, '').trim());
+    const detail = clip(note) ?? body;
     this.resumeClaim(task, true);
     // 退/升 hand the turn to the lead: the reminder is cancelled.
     // A paused task answered again is back in work with a fresh check time.
     const check = status === 'declined' || status === 'escalated' ? null
       : task.paused_at != null ? this.now() + CHECK_AFTER_S : task.next_check_at;
-    const row = this.q.set.get(status, check, clip(note), this.now(), check === null ? 0 : 1, id, task.status);
+    const row = this.q.set.get(status, check, detail, this.now(), check === null ? 0 : 1, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
     const tail = row.note ? `：${row.note}` : '';
     this.record(row, 'stance', `#${id}「${row.title}」${this.nameOf(row.owner)} 表态【${mark}】${tail}`);
@@ -693,7 +699,7 @@ export class Tasks {
       case 'assign':
         if (body.review_of != null && !verified) throw new CollabError('forbidden', 'delegating review needs a verified sender');
         return this.assign({ roomId, title: body.title, owner: String(body.owner ?? ''), actor, parentTask: optional(body.parent_task), reviewOf: optional(body.review_of), messageId: optional(body.message_id), reason: body.reason, ref: String(body.ref ?? ''), base: body.base, force: Boolean(body.force) });
-      case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note });
+      case 'stance': return this.stance(id, { actor, stance: String(body.stance ?? ''), note: body.note, messageId: optional(body.message_id) });
       case 'return': return this.handBack(id, { actor, messageId: optional(body.message_id) });
       case 'review': return this.review(id, { actor, verdict: String(body.verdict ?? ''), note: body.note });
       case 'cancel':
@@ -711,6 +717,7 @@ export class Tasks {
     if (msg.author === lead?.id && isWatchNotice(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
     if (this.verdictsOf(msg)) return undefined;
     this.settleCall(msg);
+    if (this.inWorkspace(msg.room_id) && workspaceAskMark(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
     const dshWorkspace = dsh && this.inWorkspace(msg.room_id);
@@ -821,7 +828,7 @@ export class Tasks {
     // A task is answered in its own room: a 【接】#id in the chat channel about a workspace task is
     // talk about it (and for a DSH member would be a hand-back without the work), not its answer.
     if (task === undefined || task.room_id !== msg.room_id || task.owner !== msg.author || !WORKING.includes(task.status)) return undefined;
-    return this.stance(task.id, { actor: msg.author, stance: m[1], note: m[3] });
+    return this.stance(task.id, { actor: msg.author, stance: m[1], note: m[3], messageId: msg.id });
   }
 
   /**

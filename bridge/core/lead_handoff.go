@@ -714,12 +714,23 @@ func (e *Engine) leadHandoffBlock(session *Session, sessionKey string) string {
 	}
 	sentID, sentAt := session.leadHandoffSent()
 	now := time.Now().UTC()
+	if sentID != h.ID && h.Status == LeadHandoffActive {
+		// #1515: the switch was already taken over by an earlier turn. A fresh
+		// agent context (session renewal, /new) no longer gets the whole
+		// record again — at 11-12 that re-sent ~47k chars on every new session
+		// a day after the switch. Start this context's delta window now so
+		// results arriving later are still linked to their original tasks.
+		session.UpdateTurnCtx(func(t *TurnCtxSent) {
+			t.LeadHandoff, t.LeadHandoffAt = h.ID, now
+		})
+		return ""
+	}
 	if sentID != h.ID {
 		snap := h.Snapshot
 		if snap == nil {
 			snap = buildLeadHandoffSnapshot(e.dataDir, e.name, h.From, e.handoffKnownProjects(h.From, e.name), e.handoffChats())
 		}
-		text := renderLeadHandoffBlock(h, snap)
+		text := renderLeadHandoffBlockFolded(e.dataDir, h, snap)
 		if delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, snap.GeneratedAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats()); delta != "" {
 			text += "\n\n" + delta
 		}
@@ -870,7 +881,19 @@ func buildLeadHandoffDelta(dataDir, self, from string, since time.Time, known, c
 
 // ---- rendering ----
 
+// renderLeadHandoffBlock is the full record (`bothouse handoff text`).
 func renderLeadHandoffBlock(h *LeadHandoff, snap *LeadHandoffSnapshot) string {
+	return renderLeadHandoffBlockMode(h, snap, false, "")
+}
+
+// renderLeadHandoffBlockFolded is the injected form (#1515): parked workspaces
+// are not listed one per line — only their count and a `bothouse ctx` id for
+// the full list (11-12: 203 parked lines were ~28k of the block).
+func renderLeadHandoffBlockFolded(dataDir string, h *LeadHandoff, snap *LeadHandoffSnapshot) string {
+	return renderLeadHandoffBlockMode(h, snap, true, dataDir)
+}
+
+func renderLeadHandoffBlockMode(h *LeadHandoff, snap *LeadHandoffSnapshot, foldParked bool, dataDir string) string {
 	if h == nil || snap == nil {
 		return ""
 	}
@@ -927,12 +950,25 @@ func renderLeadHandoffBlock(h *LeadHandoff, snap *LeadHandoffSnapshot) string {
 	if len(snap.Workspaces) == 0 {
 		b.WriteString("- 无。\n")
 	}
+	var parked []string
 	for _, w := range snap.Workspaces {
 		state := "进行中"
 		if w.Parked {
 			state = "已暂停，等待恢复"
 		}
-		fmt.Fprintf(&b, "- %s「%s」（%s）：任务「%s」；负责人 %s；开始 %s%s\n", state, leadHandoffWorkspaceName(w), w.ID, w.Task, leadHandoffAgent(w.Owner), handoffTime(w.At), leadHandoffDue(w.Due))
+		line := fmt.Sprintf("- %s「%s」（%s）：任务「%s」；负责人 %s；开始 %s%s\n", state, leadHandoffWorkspaceName(w), w.ID, w.Task, leadHandoffAgent(w.Owner), handoffTime(w.At), leadHandoffDue(w.Due))
+		if foldParked && w.Parked {
+			parked = append(parked, line)
+			continue
+		}
+		b.WriteString(line)
+	}
+	if len(parked) > 0 {
+		ref := "全文跑 `bothouse handoff show`"
+		if id := StashCtx(dataDir, "主角色交接 "+h.ID+" · 已暂停的工作区（"+fmt.Sprint(len(parked))+"）\n"+strings.Join(parked, "")); id != "" {
+			ref = "全文跑 `bothouse ctx " + id + "` [#" + id + "]"
+		}
+		fmt.Fprintf(&b, "- 另有 %d 个已暂停、等待恢复，不逐条列；%s。\n", len(parked), ref)
 	}
 
 	fmt.Fprintf(&b, "\n三、等待用户决定（%d）\n", snap.QuestionTotal)

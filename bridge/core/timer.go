@@ -359,6 +359,7 @@ func (ts *TimerScheduler) Start() error {
 				slog.Warn("timer: skipping stale job", "id", job.ID, "scheduled_at", job.ScheduledAt, "overdue", -delay)
 				ts.store.MarkFired(job.ID, fmt.Errorf("missed by %v (stale)", -delay))
 				skipped++
+				ts.noticeMissed(job) // #1492: skipped is not silently gone
 			}
 		} else {
 			ts.scheduleAt(job, delay)
@@ -636,4 +637,47 @@ func formatRemaining(d time.Duration) string {
 		return fmt.Sprintf("%dh", hours)
 	}
 	return fmt.Sprintf("%dh%dm", hours, mins)
+}
+
+// noticeMissed tells the job's chat that a timer the user set was skipped because the bridge was
+// down past its time (#1492 常识：被跳过要留一句话). A handoff, a resume or a muted job posts
+// nothing: those are recovered by turn resume or were never meant to speak.
+func (ts *TimerScheduler) noticeMissed(job *TimerJob) {
+	if job == nil || job.Handoff || job.Mute || job.resume != nil || job.TaskReview != nil {
+		return
+	}
+	ts.mu.RLock()
+	e := ts.engines[job.Project]
+	ts.mu.RUnlock()
+	if e == nil {
+		return
+	}
+	desc := job.Description
+	if desc == "" {
+		desc = truncateStr(job.Prompt, 40)
+		if job.IsShellJob() {
+			desc = truncateStr(job.Exec, 40)
+		}
+	}
+	go func() {
+		p, _, key := e.timerTargetPlatform(job.SessionKey)
+		if p == nil || e.i18n == nil {
+			return
+		}
+		text := e.i18n.Tf(MsgTimerMissedNotice, desc, job.ScheduledAt.Local().Format("01-02 15:04"))
+		if err := e.waitTimerPlatformReady(p); err != nil {
+			slog.Warn("timer: missed-job notice not sent", "id", job.ID, "error", err)
+			return
+		}
+		rc, ok := p.(ReplyContextReconstructor)
+		if !ok {
+			return
+		}
+		replyCtx, err := rc.ReconstructReplyCtx(key)
+		if err != nil {
+			slog.Warn("timer: missed-job notice not sent", "id", job.ID, "error", err)
+			return
+		}
+		e.sendSystemNotice(p, replyCtx, text)
+	}()
 }
