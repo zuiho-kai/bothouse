@@ -6374,10 +6374,18 @@ for (const state of ['returned', 'done']) {
     assert.equal(tasks.task(opened[0].id).status, 'asked');
   });
 
-  test(`r12 (${state}): an explicit @ opens a task at once`, async () => {
-    const { before } = await r12Run(state, '@副 把 sqrt 加上');
-    assert.equal(before.length, 1);
-    assert.equal(before[0].title, '把 sqrt 加上');
+  // #1539: an explicit @ after a delivery waits for her stance too (a DSH lead's 「@小蓝 收到，谢谢」 opened #2).
+  test(`r12 (${state}): an explicit @ waits for her stance; 【接】 opens it`, async () => {
+    const { before, opened } = await r12Run(state, '@副 把 sqrt 加上', '【接】马上加');
+    assert.equal(before.length, 0, 'the @ alone waits for her stance');
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].title, '把 sqrt 加上');
+  });
+
+  test(`r12 (${state}): 「@副 收到，谢谢」 answered with 「不客气」 opens no task`, async () => {
+    const { before, opened } = await r12Run(state, '@副 收到，谢谢', '@主 不客气');
+    assert.equal(before.length, 0);
+    assert.equal(opened.length, 0);
   });
 
   test(`r12 (${state}): a 【接】 more than 30 minutes after the call opens nothing`, async () => {
@@ -6386,7 +6394,7 @@ for (const state of ['returned', 'done']) {
   });
 }
 
-test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ still dispatches', async () => {
+test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ answered 【接】 still dispatches', async () => {
   const { tasks, say } = g34Setup();
   say(1, '副，把 README 改一下', 'zhu');
   await settle();
@@ -6404,6 +6412,9 @@ test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ st
   say(1, '@主 不客气');
   await settle();
   say(1, '@副 把 sqrt 加上', 'zhu');
+  await settle();
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 1, '#1539: after a delivery the @ waits for her stance');
+  say(1, '【接】马上加');
   await settle();
   assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 2);
 });
