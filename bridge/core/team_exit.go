@@ -291,6 +291,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 	if !ok {
 		slog.Error("team exit: no chat channel for this workspace; the answer stays in the workspace",
 			"workspace", ws, "session", sessionKey)
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.dropped = "no chat channel for this workspace" })
 		return ""
 	}
 	if _, id, full := strings.Cut(parent, ":"); full {
@@ -300,6 +301,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
 		slog.Error("team exit: platform cannot rebuild a reply context", "platform", p.Name(), "workspace", ws)
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.dropped = "platform cannot reach the chat channel" })
 		return ""
 	}
 	if problems != nil {
@@ -310,6 +312,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		// A report hands the user work it could do itself: that one still goes back once for another
 		// route (bounceWorkspaceExit forwards it with the note past wake_limit or on a timer turn).
 		if (kind != exitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
+			noteExitOutcome(ctx, func(o *exitOutcome) { o.bounced = true })
 			return ""
 		}
 		// No repair turn will come: forward it as is, with what the check found, so the user
@@ -342,6 +345,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
 	if err != nil {
 		slog.Error("team exit: chat channel unreachable", "parent", parent, "workspace", ws, "error", err)
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.dropped = "chat channel unreachable: " + err.Error() })
 		return ""
 	}
 	bot := e.exitBotName()
