@@ -37,53 +37,11 @@ func activeReleaseHold(it teamTaskBoardItem) bool {
 	return it.ReleaseHold != nil && !it.ReleaseHold.before(StartTime)
 }
 
-// handoffBoardID: the board item a workspace handoff works on. h.Board when recorded; else the
-// one open item bound to the workspace (board add ws=<key>, written right after the claim — the
-// claim itself only carries the task sentence, ws-handoff claim_cmd); a #N in the title counts
-// only when it names an item bound to that workspace, an unbound legacy item, or an item handed
-// off from that channel (a chat-channel watch), so an issue or
-// PR number in the title (「发布 #984 收尾」) cannot match another workspace's item (#984 review).
-func handoffBoardID(key string, h TeamHandoff, items []teamTaskBoardItem) int {
-	if h.Board > 0 {
-		return h.Board
-	}
-	n := handoffTitleNumber(h.Title)
-	bound, legacy := 0, 0
-	count := 0
-	for _, it := range items {
-		ws := teamChatKey(it.WS)
-		if ws == key {
-			count++
-			if bound == 0 || it.ID == n {
-				bound = it.ID
-			}
-		}
-		if n != 0 && it.ID == n && (it.WS == "" || it.Chat != "" && chatOf(it.Chat) == key) {
-			legacy = n
-		}
-	}
-	switch {
-	case count == 1 || count > 1 && bound == n:
-		return bound
-	case count > 1:
-		return 0 // several items on one workspace and the title names none of them: unknown
-	}
-	return legacy
-}
-
-// handoffTitleNumber: the board id a handoff title names, only when the title starts with it
-// ("#7 集中发布", the form the claim writes). A number inside a sentence (「发布 #984 收尾」) is an
-// issue or PR number, not the item this handoff works on (#984 review).
-func handoffTitleNumber(title string) int {
-	t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(title), "【接】"))
-	if !strings.HasPrefix(t, "#") {
-		return 0
-	}
-	n := watchTaskNumber(t)
-	if n == 0 || !strings.HasPrefix(t, "#"+strconv.Itoa(n)) {
-		return 0
-	}
-	return n
+// handoffBoardID: the board item a workspace handoff works on — the one its claim named (h.Board).
+// #699 D: no longer guessed from the workspace binding or a #N in the title (design §4: on 11-11
+// that guess wrote #679's renewals onto #677). A handoff claimed without a board id has none (0).
+func handoffBoardID(_ string, h TeamHandoff, _ []teamTaskBoardItem) int {
+	return h.Board
 }
 
 // boardReleaseHeld: the board item of handoff h in workspace key is held for a coming release.
@@ -226,8 +184,13 @@ func (e *Engine) notifyReleaseHoldUnresumed(chat string, it teamTaskBoardItem) {
 func (e *Engine) releaseHoldCovered(id int) bool {
 	items := readTeamTaskBoard(e.team.dir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		// Unknown: the hold stays (a release would free work that may be live).
+		slog.Error("release hold: workspace state unreadable; hold kept", "board", id, "error", err)
+		return true
+	}
 	for _, all := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for key, rows := range all {
 			for _, h := range rows {
@@ -255,7 +218,11 @@ func (e *Engine) releaseHoldAssignment(id int) (idleAssignment, bool) {
 	items := readTeamTaskBoard(e.team.dir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("release hold: workspace state unreadable", "board", id, "error", err)
+		return idleAssignment{}, false
+	}
 	for _, script := range []bool{false, true} {
 		all := st.Handoffs
 		if script {

@@ -18,7 +18,7 @@ import _team  # noqa: E402
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
-USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...'
+USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...  |  ws-up [--notes <交接文件>] --report <草稿文件> [--failed]'
 
 
 def bare(key: str) -> str:
@@ -154,14 +154,43 @@ def say(session_key: str, text: str, proj: str):
         print(f"ws-up: 工作区发消息失败（timer 已建，不影响）：{e}", file=sys.stderr)
 
 
+def hand_back(draft: str, notes, failed: bool):
+    """#699 C：交回只认这条命令。先跑 report check（交接的交回骨架），过了才调桥
+    （bothouse workspace exit → POST /team/workspace/exit）：桥把这件活的状态改成交回待验收（--failed 为失败），
+    草稿照旧经主角色验收后贴到聊天频道。回复里写的 [report] 桥不再读（用户 11-12 定 A：只认命令，不做双认）。"""
+    key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    last = load_last()
+    _, path = pick_chat(last, bare(key), notes)
+    # 一份交接文件交过几次时，记录键是「文件@ws…@task…」；report check 要读的是文件本身
+    path = (handoffs(last).get(path) or {}).get("file") or path.split("@ws", 1)[0]
+    c = subprocess.run([cc_bin(), "report", "check", "--notes", path, draft], capture_output=True, text=True)
+    if c.returncode != 0:
+        sys.exit(f"ws-up: 草稿没过检查，没有交回：\n{(c.stdout + c.stderr).strip()}")
+    cmd = [cc_bin(), "workspace", "exit", "--file", draft] + (["--kind", "failed"] if failed else [])
+    if key:
+        cmd += ["--session-key", key]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"ws-up: 交回失败（桥没收下）：{(r.stderr or r.stdout).strip()}")
+    print(r.stdout.strip())
+    print("ws-up: 已交回，等主角色验收", file=sys.stderr)
+
+
 def main(argv):
     if any(a in ("-h", "--help") for a in argv):  # 只打印用法，不发送
         print(f"用法：{USAGE}")
         return
     ask, notes, rest, files, it = False, None, [], [], iter(argv)
+    report, failed = "", False
     for a in it:
         if a == "--ask":
             ask = True
+        elif a == "--report":
+            report = next(it, "")
+            if not report or not os.path.isfile(os.path.expanduser(report)):
+                sys.exit(f"用法：{USAGE}（--report 后面要跟存在的草稿文件：{report or '空'}）")
+        elif a == "--failed":
+            failed = True
         elif a in ("--image", "--file"):
             p = next(it, "")
             if not p or not os.path.isfile(os.path.expanduser(p)):
@@ -173,6 +202,8 @@ def main(argv):
                 sys.exit(f"用法：{USAGE}（--notes 后面要跟交接文件）")
         else:
             rest.append(a)
+    if report:
+        return hand_back(os.path.abspath(os.path.expanduser(report)), notes, failed)
     if len(rest) != 1 or not rest[0].strip() or rest[0].startswith("-"):
         sys.exit(f"用法：{USAGE}（正文不能为空或以 - 开头）")
     if ask:
@@ -231,8 +262,9 @@ def main(argv):
     else:
         for nid in handoffs(last)[path].get("board") or []:
             board.progress(nid)
-    say(key, f"📤 已报回聊天频道：{rest[0][:300]}", _team.project())
-    print(f"ws-up: 已交给聊天频道 {chat}（{'提问' if ask else '上报'}）", file=sys.stderr)
+    # 定时器刚排上，主角色那一轮还没跑：只说排队了，不说已报回（#1492 L4）
+    say(key, f"📤 已排队转给聊天频道的主角色：{rest[0][:300]}", _team.project())
+    print(f"ws-up: 已排队转给聊天频道 {chat} 的主角色（{'提问' if ask else '上报'}）", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

@@ -222,9 +222,14 @@ def main(argv):
     if not cc:
         print("暂停没发出（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
         return 1
+    # 暂停发出去了才关看门：发送失败时看门还开着，桥照样会再催（#1492 P6，先关再发时发失败就没人管了）
+    rc = subprocess.run([cc, "send", "-p", proj, "-s", skey, "--message", msg]).returncode
+    if rc != 0:
+        print(f"暂停没发出（send 退出码 {rc}），看门不关", file=sys.stderr)
+        return rc
     if state:
         _watch.request("close", proj, skey, tid, what, since)
-    return subprocess.run([cc, "send", "-p", proj, "-s", skey, "--message", msg]).returncode
+    return 0
 
 
 if __name__ == "__main__":

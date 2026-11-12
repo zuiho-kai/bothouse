@@ -202,6 +202,9 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 		// Title (optional): the task's short name for the nudge.
 		Owner string `json:"owner"`
 		Title string `json:"title"`
+		// Board (optional): the task-board item handed off. The handoff and the task's state
+		// record name it, so the watch and a later park act on exactly this task (#699).
+		Board int `json:"board"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -221,9 +224,9 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
-	if err := e.ClaimTeamWorkspaceFor(req.SessionKey, req.WorkspaceID, req.Name, req.Owner, req.Title); err != nil {
+	if err := e.ClaimTeamWorkspaceTask(req.SessionKey, req.WorkspaceID, req.Name, req.Owner, req.Title, req.Board); err != nil {
 		code := http.StatusBadRequest
-		if errors.Is(err, ErrTeamWorkspaceOwned) {
+		if errors.Is(err, ErrTeamWorkspaceOwned) || errors.Is(err, ErrTeamTaskTransition) {
 			code = http.StatusConflict
 		}
 		http.Error(w, err.Error(), code)
@@ -291,7 +294,11 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 		plat, _, _ := strings.Cut(key, ":")
 		key = plat + ":" + req.WorkspaceID
 	}
-	freed, err := s.parkAndReset(e, key, req.Chat, before, req.Stop)
+	why := "workspace park"
+	if req.Stop {
+		why = "stopped from outside the workspace"
+	}
+	freed, err := s.parkAndReset(e, key, req.Chat, before, why, req.Stop)
 	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
 		msg := err.Error()
 		parent := key
@@ -315,13 +322,11 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 }
 
 // parkAndReset parks a task of workspace key on the team workspace engine e
-// (ParkTeamWorkspaceFor) and, when that freed the workspace, also resets the teammates'
-// sessions there (e reset the lead's). Shared by the park API and the ten-minute watch.
-// stop (the user stopped the task): every role's turn still running in the freed workspace is
-// stopped as well. Resetting the sessions does not end a running turn: on 10-28 a workspace
-// parked at 14:06 kept working and sent an [ask] at 14:10 (user 「为什么工作区没暂停」).
-func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time, stop bool) (bool, error) {
-	freed, err := e.ParkTeamWorkspaceFor(key, chat, before)
+// (ParkTeamWorkspaceWhy, which with stop also stops the turns running there before the workspace
+// is given back) and, when that freed the workspace, also resets the teammates' sessions there (e
+// reset the lead's). Shared by the park API and the ten-minute watch. why goes on the task's state.
+func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time, why string, stop bool) (bool, error) {
+	freed, err := e.ParkTeamWorkspaceWhy(key, chat, before, why, stop)
 	if err != nil || !freed {
 		return freed, err
 	}
@@ -335,14 +340,6 @@ func (s *APIServer) parkAndReset(e *Engine, key, chat string, before time.Time, 
 	s.mu.RUnlock()
 	for _, x := range others {
 		x.ResetTeamWorkspaceSessions(key)
-	}
-	if stop {
-		plat, _, _ := strings.Cut(key, ":")
-		n := 0
-		for _, x := range append(others, e) {
-			n += x.stopChannel(plat, key)
-		}
-		slog.Info("team workspace: stopped the turns running there", "workspace", key, "stopped", n)
 	}
 	return true, nil
 }

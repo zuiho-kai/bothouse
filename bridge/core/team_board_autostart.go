@@ -95,7 +95,12 @@ func (w *handoffWatch) openHandoffSince(it teamTaskBoardItem) (time.Time, bool) 
 	bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
 	path := teamWorkspacePath(w.e.dataDir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team watch: workspace state unreadable", "board", it.ID, "error", err)
+		return time.Time{}, false
+	}
 	hs := append([]TeamHandoff(nil), st.Handoffs[it.WS]...)
 	teamWorkspaceStore.mu.Unlock()
 	for i := len(hs) - 1; i >= 0; i-- {

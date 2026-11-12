@@ -554,6 +554,14 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 				continue
 			}
 			if time.Since(createdAt) >= leadAcceptTimeout {
+				// #699 E: the time limit belongs to the returned state. A task the lead already moved
+				// on (closed, sent back, paused) has nothing left waiting for acceptance.
+				if board := e.heldReportBoard(k); board > 0 {
+					if t, ok, err := e.TeamTask(board); err == nil && ok && t.State != TeamTaskReturned && t.State != TeamTaskFailed {
+						e.dropHeldReport(k, "task moved on: "+string(t.State))
+						continue
+					}
+				}
 				if err := e.deliverHeldReport(k, "", true); err != nil {
 					slog.Error("report accept: unchecked fallback post failed; record kept", "key", k, "error", err)
 				}
@@ -574,4 +582,14 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 		}
 		e.settleReportRecord(k, "", nil)
 	}
+}
+
+// heldReportBoard: the board item of held report k (0 when unknown).
+func (e *Engine) heldReportBoard(k string) int {
+	e.teamExit.mu.Lock()
+	defer e.teamExit.mu.Unlock()
+	if rec := e.teamExit.reports[k]; rec != nil {
+		return rec.Board
+	}
+	return 0
 }

@@ -46,7 +46,7 @@ func (e *Engine) quotaWorkItems() []quotaWork {
 	coveredBoards := map[int]bool{}
 	if e.team != nil {
 		for _, it := range readTeamTaskBoard(e.team.dir) {
-			if it.Paused != "" || it.Backlog != "" || watchBoardClosed(it) || !e.quotaOwns(it.Who) {
+			if it.Paused != "" || it.Backlog != "" || !e.quotaOwns(it.Who) {
 				continue
 			}
 			key := it.WS
@@ -71,7 +71,12 @@ func (e *Engine) quotaWorkItems() []quotaWork {
 		}
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		// Unknown handoffs are not taken over (a takeover would run them twice if they are live).
+		slog.Error("quota takeover: workspace state unreadable; its handoffs are not listed", "error", err)
+		st = &teamWorkspaceState{}
+	}
 	for _, group := range []struct {
 		rows   map[string][]TeamHandoff
 		script bool
@@ -350,7 +355,10 @@ func (e *Engine) applyQuotaWork(work quotaWork, target *Engine, now time.Time) e
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	path := teamWorkspacePath(e.dataDir)
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		return err
+	}
 	changed := false
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for key, list := range rows {
@@ -365,6 +373,9 @@ func (e *Engine) applyQuotaWork(work quotaWork, target *Engine, now time.Time) e
 				h.Idle = watchIdleState{}
 				h.Due, h.Since = now.Add(watchCheckAfter()), now
 				h.Nudged, h.BusyRenewed, h.Renewed = false, 0, 0
+				// The new owner's watch is a fresh one: the old owner's park failures, auto-resume
+				// and unread checks are not carried over (#1492 L13).
+				h.ParkFails, h.AutoResumed, h.ReadFails = 0, false, 0
 				changed = true
 			}
 			rows[key] = list

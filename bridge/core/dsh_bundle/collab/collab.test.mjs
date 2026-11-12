@@ -986,7 +986,9 @@ function fakeDsh() {
   };
   const createUserMessage = m => ({ ...m, role: 'user', id: `in-${++ids}` });
   const attach = (hub, list, options) => {
-    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet }, list, options);
+    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet,
+      mountManagedSkills: (agentCtx, member) => agentCtx.tools?.push(`skills:${member.id}`),
+    }, list, options);
     return members;
   };
   return { ctx, sessions, made, emit, turn, attach, restart, remove };
@@ -1285,6 +1287,7 @@ test('DSH member: after a restart the resumed Session gets its agent preset tool
   const agent = await askAgain(hub, dsh, '@DeepSeek 重启后 fa');
   assert.equal(agent, old, 'the same Session answers');
   assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
+  assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('skills:ds'), 'the role skill view is mounted on resume');
   assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
 });
 
@@ -1766,7 +1769,7 @@ test('DSH member: a configured model applies on every request; the default only 
   const run = async (member, hasHeader) => {
     let hook;
     let options;
-    members.setup({ on(_name, fn, opts) { hook = fn; options = opts; } }, member);
+    await members.setup({ on(_name, fn, opts) { hook = fn; options = opts; } }, member);
     assert.deepEqual(options, { prepend: member.model !== undefined }, 'a configured model wraps DSH model selection');
     return hook({ agent: { session: { requestHeader: () => (hasHeader ? {} : undefined) } } }, async () => ({ provider: 'old', model: 'old-model', reasoningEffort: 'high' }));
   };
@@ -1899,7 +1902,7 @@ test('a member edit reaches an already-hooked Session on its next request', asyn
   const dsh = fakeDsh();
   const members = dsh.attach(hub, [{ id: 'coder', name: 'Coder', model: { provider: 'relay', model: 'm1' } }]);
   let hook;
-  members.setup({ on(_n, fn) { hook = fn; } }, members.config.get('coder'));
+  await members.setup({ on(_n, fn) { hook = fn; } }, members.config.get('coder'));
   const call = () => hook({ agent: { session: { requestHeader: () => ({}) } } }, async () => ({ provider: 'x', model: 'y' }));
   assert.deepEqual(await call(), { provider: 'relay', model: 'm1' });
   members.putMember({ id: 'coder', name: 'Coder', model: { provider: 'relay', model: 'm2' } });
@@ -5907,29 +5910,42 @@ test('workspace listing releases an empty owned workspace, not a parked task or 
   assert.equal(hub.store.workspaceOwner(bridge.id), 1, 'bridge claim remains owned');
 });
 
-test('G34: a DSH reply opening with 【接】#id and growing in place, and its progress card, count as progress', () => {
+test('G34: in-window new text and progress card count as progress; cross-window edited text does not renew', () => {
+  // A new text message posted within the current window counts as progress.
   const { hub, tasks, clock, ws, assign } = g34Setup();
   const t = assign();
   // One draft row for the whole turn, first line the stance, edited in place (dsh-member runCli).
-  const draft = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
+  const row = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
   clock.t = 1000 + CHECK_AFTER_S;
   tasks.tick();
-  assert.equal(tasks.task(t.id).paused_at, null, 'text after the stance line is progress');
+  assert.equal(tasks.task(t.id).paused_at, null, 'text posted in this window is progress');
   assert.equal(tasks.task(t.id).renewals, 1);
-  hub.store.edit(draft.id, 'role', 'fu', `【接】#${t.id}\n\n先看代码，写好了三个模块`, undefined, clock.t + 300);
-  clock.t += CHECK_AFTER_S;
-  tasks.tick();
-  assert.equal(tasks.task(t.id).paused_at, null, 'the same row growing in the next window is progress');
-  assert.equal(tasks.task(t.id).renewals, 2);
 
+  // Cross-window: same row edited after the window boundary — text messages use created_at only
+  // (PR#1660), so the edit does not reset the clock. No new message in the new window → park.
+  clock.t += CHECK_AFTER_S;
+  hub.store.edit(row.id, 'role', 'fu', `【接】#${t.id}\n\n先看代码\n还在写`, undefined, clock.t - 30);
+  tasks.tick();
+  assert.ok(tasks.task(t.id).paused_at, 'editing a previous-window text row does not renew — task parks');
+
+  // A progress card edited after it was posted (TurnProgress) still counts regardless of window.
   const g = g34Setup();
   const t2 = g.assign();
-  // Only a progress card, edited after it was posted (TurnProgress).
   const card = g.hub.store.append(g.ws.id, { authorKind: 'role', author: 'fu', name: '副', text: '第 3 步', card: JSON.stringify({ title: '副 · 进行中' }) }, 900).message;
   g.hub.store.edit(card.id, 'role', 'fu', '第 19 步', JSON.stringify({ title: '副 · 进行中' }), 1300);
   g.clock.t = 1000 + CHECK_AFTER_S;
   g.tasks.tick();
   assert.equal(g.tasks.task(t2.id).paused_at, null, 'a progress card moving is progress');
+
+  // A new text message posted in the new window counts as progress (created_at > since).
+  const j = g34Setup();
+  const t4 = j.assign();
+  j.clock.t = 1000 + CHECK_AFTER_S;
+  j.hub.store.append(j.ws.id, { authorKind: 'role', author: 'fu', name: '副', text: '刚写完第二个模块' }, j.clock.t - 30).message;
+  j.tasks.tick();
+  assert.equal(j.tasks.task(t4.id).paused_at, null, 'a new text message in the new window is progress');
+  assert.equal(j.tasks.task(t4.id).renewals, 1);
+
   // A bare stance line still is not.
   const h = g34Setup();
   const t3 = h.assign();
@@ -6993,8 +7009,8 @@ test('CLI configured member: collab dispatch applies fake ACP options before pro
 test('tasks: the bridge watch wake and escalation posted as the lead open no task', async () => {
   const { tasks, say } = g34Setup();
   for (const text of [
-    '@副 接着做 -，做完再结束本轮，交回时第一行写 [report]',
-    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 -，做完跑 ws-up --report <草稿文件> 交回',
+    '@副 接着做 什么东西属于你，别人却比你用得更多？，做完跑 ws-up --report <草稿文件> 交回',
     '看门：@副「-」连续叫醒两次仍未继续，请主角色接手。',
     '看门：副「#219 修头像」连续两次报错，已停止自动接着做，请主角色换人或接手。',
     '@副 Continue the login page and finish it; when done, start the reply with [report]',
@@ -7008,14 +7024,14 @@ test('tasks: the bridge watch wake and escalation posted as the lead open no tas
 
 test('tasks: normal lead dispatch with report instructions still opens a task', async (t) => {
   for (const text of [
-    '@副 实现登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 实现登录页，做完跑 ws-up --report <草稿文件> 交回',
     '@副 實作登入頁，做完再結束本輪，交回時第一行寫 [report]',
     '@副 Implement login and finish it; when done, start the reply with [report]',
     '@副 ログイン画面を実装。完了したら返信の1行目を [report] にしてください',
     '@副 Implementa acceso; al terminar, empieza la respuesta con [report]',
-    '@副 实现登录页，参考叫醒文案：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
-    '@副 实现登录页\n叫醒示例：接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
-    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]，并附截图',
+    '@副 实现登录页，参考叫醒文案：接着做 登录页，做完跑 ws-up --report <草稿文件> 交回',
+    '@副 实现登录页\n叫醒示例：接着做 登录页，做完跑 ws-up --report <草稿文件> 交回',
+    '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回，并附截图',
   ]) {
     await t.test(text, async (t) => {
       const { hub, tasks, say } = g34Setup();
@@ -7030,13 +7046,13 @@ test('tasks: normal lead dispatch with report instructions still opens a task', 
 
 test('tasks: lead watch notices leave a returned chat task unchanged', async (t) => {
   for (const text of [
-    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]',
+    '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回',
     '看门：@副「登录页」连续叫醒两次仍未继续，请主角色接手。',
     '@副 Continue the login page and finish it; when done, start the reply with [report]',
     '@副 接著做 登入頁，做完再結束本輪，交回時第一行寫 [report]',
     '@副 ログイン画面 を続けて完了させてください。完了したら返信の1行目を [report] にしてください',
     '@副 Continúa acceso hasta terminarlo; al terminar, empieza la respuesta con [report]',
-    '@副 接着做 登录页，做完再结束本轮，交回时第一行写 [report]\n交接文件：isolated-handoff.md（先读最后的检查点）',
+    '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回\n交接文件：isolated-handoff.md（先读最后的检查点）',
     '看門：@副「登入頁」連續叫醒兩次仍未繼續，請主角色接手。',
     'Watch: @副 has not resumed login after two wakeups. Primary role, please take over.',
     '見守り：@副 はログインを2回呼びかけても再開していません。主担当に引き継いでください。',

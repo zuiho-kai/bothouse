@@ -105,13 +105,29 @@ test('signs API calls server-side, drops client credentials, and returns the ups
   assert.deepEqual(calls[0].init.headers, { accept: 'application/json', authorization: 'Bearer s3cret#1' });
 });
 
-test('forwards request bodies for writes', async () => {
-  let seen;
-  const fetchImpl = async (_u, init) => { seen = { method: init.method, body: await new Response(init.body).text() }; return new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } }); };
-  const res = fakeRes();
-  await panelRoute(fakeReq('PATCH', { 'content-type': 'application/json' }, '{"a":1}'), res, new URL('http://h/collab/panel/api/v1/projects/x'), { bridgeConfig: config(CONFIG), fetchImpl });
-  await res.done;
-  assert.deepEqual(seen, { method: 'PATCH', body: '{"a":1}' });
+test('forwards managed skill install, enable, edit and delete through the panel proxy', async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push({ url: String(url), method: init.method, body: await new Response(init.body).text() });
+    return new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } });
+  };
+  const calls = [
+    ['POST', '/api/v1/skills/install', '{"name":"guide","project":"dsh-role"}'],
+    ['PUT', '/api/v1/skills/managed/guide/enabled', '{"project":"dsh-role","enabled":false}'],
+    ['PUT', '/api/v1/skills/managed/guide', '{"body":"new body"}'],
+    ['DELETE', '/api/v1/skills/managed/guide', ''],
+  ];
+  for (const [method, path, body] of calls) {
+    const res = fakeRes();
+    await panelRoute(fakeReq(method, { 'content-type': 'application/json', authorization: 'Bearer browser-token' }, body), res,
+      new URL(`http://h/collab/panel${path}`), { bridgeConfig: config(CONFIG), fetchImpl });
+    await res.done;
+    assert.equal(res.status, 200);
+  }
+  assert.deepEqual(seen.map(({ url, method, body }) => ({ url, method, body })), calls.map(([method, path, body]) => ({
+    url: `http://127.0.0.1:9821${path}`, method, body,
+  })));
+  assert.equal(seen.every(call => !call.url.includes('browser-token')), true);
 });
 
 test('serves the panel page with the rewritten base and redirects the bare prefix', async () => {

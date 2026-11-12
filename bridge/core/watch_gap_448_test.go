@@ -25,6 +25,7 @@ func TestWatchBusyAloneDoesNotRenewForever(t *testing.T) {
 		t.Fatal("lock busy session")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 
 	now := h.Due
 	for i := 1; i <= 2; i++ {
@@ -38,7 +39,7 @@ func TestWatchBusyAloneDoesNotRenewForever(t *testing.T) {
 
 	// A real post in the third window renews (real progress has no cap) and resets the
 	// budget for busy-only renewals.
-	p.post("ws1", k5aOwner, "进度：改完一半，继续跑测试", now.Add(-time.Second))
+	testTurnEnded("discord:ws1", now.Add(-time.Second)) // #699 E: a turn that ended is progress, a post is not
 	next := w.tick(now)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if next.IsZero() || got.Renewed != 3 || !got.Parked.IsZero() || len(p.out) != 0 {

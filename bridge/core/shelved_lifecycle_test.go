@@ -285,8 +285,10 @@ func TestReview42_ReusedWorkspaceDoesNotReviveUnrelatedTask(t *testing.T) {
 				ws2Syn = true
 			}
 		}
-		if !ws1Syn || !ws2Syn {
-			t.Errorf("expected synthesized active items for ws1=%v ws2=%v, got %+v", ws1Syn, ws2Syn, got)
+		// #1492 N3: #5 is on the board (paused); the board is its one state, so the open handoff
+		// naming #5 adds no second 「未登记任务板」 #5 row.
+		if !ws1Syn || ws2Syn {
+			t.Errorf("want a synthesized item for ws1 only: ws1=%v ws2=%v, got %+v", ws1Syn, ws2Syn, got)
 		}
 	})
 }

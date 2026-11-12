@@ -8,7 +8,7 @@ import (
 func scriptWatchesOf(e *Engine, key string) []TeamHandoff {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	return append([]TeamHandoff(nil), loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).ScriptWatches[key]...)
+	return append([]TeamHandoff(nil), testLoadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir)).ScriptWatches[key]...)
 }
 
 func acceptFixture(t *testing.T) (*Engine, *exitTestPlatform) {
@@ -54,66 +54,6 @@ func TestWatchChatAcceptWithToolsButNoBoardItemIsNotWatched(t *testing.T) {
 	}
 }
 
-// A first line that is only 【接】 (or 「-」) names nothing; where such a turn is still watched (a
-// workspace), it gets the fixed fallback title rather than the body (PR #1194 review).
-func TestWatchAcceptBlankTitleWithWorkUsesFallbackTitle(t *testing.T) {
-	for _, reply := range []string{"【接】\n一个最基础的登录页…", "【接】 -\n答案", "【接】"} {
-		e, _ := acceptFixture(t)
-		teamWorkspaceStore.mu.Lock()
-		err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
-			"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
-		}, Version: teamWorkspaceStateVersion})
-		teamWorkspaceStore.mu.Unlock()
-		if err != nil {
-			t.Fatal(err)
-		}
-		e.watchTurnEnded(e.platforms[0], "discord:ws1", reply, true, false, false, false, time.Time{})
-		got := scriptWatchesOf(e, "discord:ws1")
-		if want := e.i18n.T(MsgWatchUntitledAccept); len(got) != 1 || got[0].Title != want {
-			t.Fatalf("%q: a bare 【接】 with tool use must be watched as %q, got %+v", reply, want, got)
-		}
-	}
-}
-
-// In a workspace a 【接】 is accepted work even when the turn ran no tool: the answered-in-chat
-// rule is for chat channels only.
-func TestWatchWorkspaceAcceptWithoutToolsIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	teamWorkspaceStore.mu.Lock()
-	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Parents: map[string][]TeamWorkspace{
-		"discord:chat1": {{Name: "工作区1", ID: "ws1"}},
-	}, Version: teamWorkspaceStateVersion})
-	teamWorkspaceStore.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.watchTurnEnded(e.platforms[0], "discord:ws1", "【接】改登录页\n先读交接", false, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:ws1"); len(got) != 1 || got[0].Title != "改登录页" || got[0].Chat != "discord:chat1" {
-		t.Fatalf("a tool-less 【接】 in a workspace must be watched for its chat channel, got %+v", got)
-	}
-}
-
-// A board item this channel owns keeps the watch when the first line names no #id: the board says
-// the work is open, so the turn did not answer it in chat.
-func TestWatchChatAcceptBoardActiveWithoutNumberIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:chatA"})
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】\n这就开始", false, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 9 || got[0].Title != "#9 接上游的接口" {
-		t.Fatalf("an active board item must be watched under its board title, got %+v", got)
-	}
-}
-
-// A board item named on the first line keeps the watch even without tools: it is real work.
-func TestWatchChatAcceptNamingBoardItemIsWatched(t *testing.T) {
-	e, _ := acceptFixture(t)
-	writeReleaseBoard(t, e, map[string]any{"id": 9, "what": "接上游的接口", "status": "进行中", "who": "橘", "ws": "discord:chatA"})
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】#9 这就开始", false, false, false, false, time.Time{})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || got[0].Board != 9 {
-		t.Fatalf("an accepted board item must be watched, got %+v", got)
-	}
-}
-
 // #1167 (11-07): the lead's chat channel got 「接着做 #1162」 after every lead turn. #1162 was handed
 // back by its workspace (awaiting review, workspace released, so it fell back to the chat) and #1167
 // was the lead's own board note; neither is work left running in the chat channel. A turn there
@@ -150,32 +90,6 @@ func TestWatchWorkspaceBoardItemWithoutAcceptIsWatched(t *testing.T) {
 	}
 }
 
-// #1183 (11-07): 龙娘 accepted in the main chat with a first line naming no #id, then handed back
-// with 「【接】…」 on the first line and 「[report] #1162 …」 on the next. The watch only read the
-// first line, stayed open, and woke her with 「接着做」 after an unrelated turn ten hours later.
-func TestWatchReportOnLaterLineEndsNumberlessWatch(t *testing.T) {
-	e, _ := acceptFixture(t)
-	// A numberless chat watch left by an older build (#1407 no longer registers one).
-	owner := e.name
-	if m, ok := e.platforms[0].(SelfMentioner); ok && m.SelfMention() != "" {
-		owner = m.SelfMention()
-	}
-	now := time.Now()
-	teamWorkspaceStore.mu.Lock()
-	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
-		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute),
-			Owner: owner, Title: "先核对任务状态和实际产物", Sender: e.name}}}})
-	teamWorkspaceStore.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.watchTurnEnded(e.platforms[0], "discord:chatA", "【接】先核对任务状态和实际产物\n[report] #1162 背景：核对搏仓第二版\n已核对报告和输出\n要你做的：没有\n我加的：无", true, false, false, false, time.Time{})
-	got := scriptWatchesOf(e, "discord:chatA")
-	if len(got) != 1 || !got[0].Idle.Returned {
-		t.Fatalf("a [report] line after the 【接】 line hands the work back, got %+v", got)
-	}
-}
-
 // #1183: a watch with no board number past its due time is left over; the owner's next unrelated
 // turn closes it instead of re-arming 「接着做」.
 func TestWatchStaleNumberlessWatchClosesOnNextTurn(t *testing.T) {
@@ -197,25 +111,6 @@ func TestWatchStaleNumberlessWatchClosesOnNextTurn(t *testing.T) {
 	got := scriptWatchesOf(e, "discord:chatA")
 	if len(got) != 1 || got[0].Closed.IsZero() {
 		t.Fatalf("a numberless watch idle for hours must close on the owner's next turn, got %+v", got)
-	}
-}
-
-// #1183: a numberless watch whose title names a board item that has since been closed is not woken.
-func TestWatchNumberlessWatchOfClosedBoardItemDoesNotWake(t *testing.T) {
-	e, _ := acceptFixture(t)
-	writeReleaseBoard(t, e, map[string]any{"id": 1162, "what": "搏仓第二版", "status": "已完成", "who": "橘", "chat": "discord:chatA"})
-	now := time.Now()
-	h := TeamHandoff{Chat: "discord:chatA", At: now, Due: now.Add(10 * time.Minute), Owner: e.name, Title: "#1162 先核对任务状态", Sender: e.name, Idle: watchIdleState{Ended: now}}
-	teamWorkspaceStore.mu.Lock()
-	err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{Version: teamWorkspaceStateVersion,
-		ScriptWatches: map[string][]TeamHandoff{"discord:chatA": {h}}})
-	teamWorkspaceStore.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.fireIdleWake(idleAssignment{"discord:chatA", h, true})
-	if got := scriptWatchesOf(e, "discord:chatA"); len(got) != 1 || !got[0].Idle.Returned || got[0].Idle.Wakes != 0 {
-		t.Fatalf("a closed board item must end its numberless watch without a wake, got %+v", got)
 	}
 }
 
@@ -269,7 +164,7 @@ func idleWatchSeed(t *testing.T, e *Engine, key string, script bool, h TeamHando
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st := testLoadTeamWorkspacesLocked(path)
 	if h.Board == 0 {
 		// develop closes a past-due watch with no board item as stale before it reads the turn
 		// (watchStale); give the seed a board number so these cases reach the #96 logic.
@@ -290,46 +185,11 @@ func idleWatchRows(t *testing.T, e *Engine, key string, script bool) []TeamHando
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(path)
+	st := testLoadTeamWorkspacesLocked(path)
 	if script {
 		return append([]TeamHandoff(nil), st.ScriptWatches[key]...)
 	}
 	return append([]TeamHandoff(nil), st.Handoffs[key]...)
-}
-
-// A [report] with no board number cannot satisfy the headline check, so it must end its watch
-// instead of being treated as a reply still to be repaired: the resend rule only bounces reports
-// that name a board item (#96, 11-05: the same board-less report woke the workspace again and
-// again).
-func TestWatchTurnEnded_BoardlessReportEndsWatch(t *testing.T) {
-	const report = "[report] 背景：看门遇到没写任务板编号的交回，已经改成能收口\n\n要你做的：没有"
-	for _, script := range []bool{true, false} {
-		name := "handoff"
-		if script {
-			name = "script_watch"
-		}
-		t.Run(name, func(t *testing.T) {
-			e, p := idleWatchFixture(t)
-			key := "discord:ws96"
-			at := time.Now().Add(-2 * time.Minute)
-			idleWatchSeed(t, e, key, script, TeamHandoff{Chat: key, At: at, Due: at.Add(time.Minute), Owner: e.name, Title: "看门死循环"})
-
-			for i := 0; i < 2; i++ { // a resend or a second reply must not open it again
-				e.watchTurnEnded(p, key+":u1", report, false, false, false, false, time.Time{})
-				rows := idleWatchRows(t, e, key, script)
-				if len(rows) != 1 {
-					t.Fatalf("reply %d: rows = %d, want 1", i, len(rows))
-				}
-				h := rows[0]
-				if !h.Idle.Returned {
-					t.Fatalf("reply %d: a board-less [report] left the watch open: %+v", i, h.Idle)
-				}
-				if h.Idle.Wakes != 0 || h.Idle.Reported {
-					t.Fatalf("reply %d: the watch kept waking: %+v", i, h.Idle)
-				}
-			}
-		})
-	}
 }
 
 // A [report] that names a board item whose headline is wrong is still resent, not handed back:
@@ -417,67 +277,6 @@ func TestWatchTurnEnded_LiveStuckRowNotRevived(t *testing.T) {
 // happens to mention 「已完成」, and the old strings.Contains test read it as a finished item.
 const watchBoardWorkInProgress = "在做：脱敏实现+单测+隔离实例截图已完成，PR #1382 草稿已开，CI 跑完即交回"
 
-// 1/6 of #497 (the regression, red before the fix): a status that only *mentions* a closing word is
-// still work. This is what freed 工作区 and killed the author's session at 15:07 on 11-09.
-func TestWatchBoardClosedRegressionStatusMentionsClosing(t *testing.T) {
-	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: watchBoardWorkInProgress}) {
-		t.Fatalf("%q read as closed (want live work)", watchBoardWorkInProgress)
-	}
-	if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "在做：等验收通过再合"}) {
-		t.Fatalf("「在做：等验收通过再合」 read as closed")
-	}
-}
-
-// 2/6 of #497: the plain closing status is still closed.
-func TestWatchBoardClosedBareClosingStatus(t *testing.T) {
-	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "已完成"}) {
-		t.Fatal("「已完成」 must read as closed")
-	}
-}
-
-// 3/6 of #497: board.py's `\s*` allows leading spaces; the bridge must trim them the same way.
-func TestWatchBoardClosedLeadingSpace(t *testing.T) {
-	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "  已完成（返工0）"}) {
-		t.Fatal("「  已完成（返工0）」 must read as closed")
-	}
-	if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: "\t已结束"}) {
-		t.Fatal("a tab-indented closing status must read as closed")
-	}
-}
-
-// 4/6 of #497: the other two acceptance words, still anchored at the start.
-func TestWatchBoardClosedAcceptanceWords(t *testing.T) {
-	for _, status := range []string{"已验收", "已收口", "验收通过", "已验收（返工 0，无人返工）"} {
-		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must read as closed", status)
-		}
-	}
-}
-
-// 5/6 of #497: board.py's CLOSED_RE is case-insensitive and takes "done" as a whole word only.
-func TestWatchBoardClosedDoneWord(t *testing.T) {
-	for _, status := range []string{"DONE", "done", "Done：收工", "  done"} {
-		if !watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must read as closed", status)
-		}
-	}
-	for _, status := range []string{"donezo", "还没 done", "doing"} {
-		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must not read as closed (done needs a word boundary)", status)
-		}
-	}
-}
-
-// 6/6 of #497: a handback and a waiting item are not closed — 「已交回」 still needs acceptance
-// (board.py 的注释：只有明确完成/验收/收口才关闭).
-func TestWatchBoardClosedNotClosed(t *testing.T) {
-	for _, status := range []string{"交回待验收", "等待用户拍板", "已交回", "已交接", "在做：已开工", ""} {
-		if watchBoardClosed(teamTaskBoardItem{ID: 497, Status: status}) {
-			t.Fatalf("%q must not read as closed", status)
-		}
-	}
-}
-
 // #497: reconcileTeamWorkspaces frees a workspace by looking only at the bound board item
 // (team_workspace_one.go:244). With the anchored test, the in-progress row above keeps it live;
 // before the fix the same row made the workspace stale and reset the session.
@@ -487,7 +286,7 @@ func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
 		freed  bool
 	}{
 		{watchBoardWorkInProgress, false},
-		{"已完成", true},
+		{"已完成", false}, // #699 D: a status text does not close a row; board done takes it off the board
 	} {
 		e, _, _ := exitFixture(t, nil)
 		e.SetTeam(t.TempDir(), "橘", true)
@@ -499,7 +298,7 @@ func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
 			Status: tc.status, WS: "discord:ws1", SK: "discord:ws1", Chat: "discord:chatA"})
 		teamWorkspaceStore.mu.Lock()
 		path := teamWorkspacePath(e.dataDir)
-		st := loadTeamWorkspacesLocked(path)
+		st := testLoadTeamWorkspacesLocked(path)
 		st.Handoffs["discord:ws1"] = []TeamHandoff{{Chat: "discord:chatA", At: now.Add(-time.Hour),
 			Due: now.Add(time.Minute), Owner: e.name, Board: 497, Sender: e.name, Name: "工作区1"}}
 		err := saveTeamWorkspacesLocked(path, st)

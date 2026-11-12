@@ -62,6 +62,12 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		return string(out)
 	}
 	id := strings.TrimSpace(run("board", "add", "task", "-", "doing", "role", "--short", "task"))
+	// #699 D: board done asks the bridge first; no bridge runs here, so answer like one that never saw the task.
+	stub := filepath.Join(home, "bridge-stub")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\n[ \"$2\" = transition ] && { echo '{\"known\":false}'; exit 0; }\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CC_BIN", stub)
 	run("board", "done", id, "2", "regression")
 	report := run("board", "rework")
 	if !strings.Contains(report, "regression：2 次") {

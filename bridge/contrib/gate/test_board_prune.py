@@ -16,6 +16,11 @@ GH_LOG = Path(TMP) / "gh.log"
 (FAKEBIN / "gh").chmod(0o755)
 # 先导入时就指向临时目录：否则 board.DIR 落在默认的产品目录，tearDown 还原后同进程的别的测试会写真数据
 os.environ.setdefault("BOARD_DIR", TMP)
+# #699 D：board done/pause/wait 先问桥改状态；测试里的「没有桥」只回 transition（known=false），别的命令都失败
+NOBRIDGE = os.path.join(tempfile.mkdtemp(), "nobridge")
+with open(NOBRIDGE, "w") as _f:
+    _f.write('#!/bin/sh\n[ "$2" = transition ] && { echo \'{"known":false}\'; exit 0; }\nexit 1\n')
+os.chmod(NOBRIDGE, 0o755)
 import board  # noqa: E402
 
 # 环境和 board.DIR 在模块开始/结束时设/还原：pytest 同进程跑多个测试文件时，board 可能已被别的文件按它的
@@ -30,7 +35,7 @@ def setUpModule():
     for k in ("CC_SESSION_KEY", "FAKE_GH_OUT"):
         os.environ.pop(k, None)
     os.environ["BOARD_PR_REPO"] = "zuiho-kai/bothouse"
-    os.environ["CC_BIN"] = "false"
+    os.environ["CC_BIN"] = NOBRIDGE
     os.environ["PATH"] = f"{FAKEBIN}:{os.environ['PATH']}"
     board.DIR = Path(TMP)
 
@@ -235,12 +240,12 @@ class Timers(unittest.TestCase):
         self.log = Path(TMP) / "cc.log"
         self.log.write_text("")
         fake = Path(TMP) / "fakecc"
-        fake.write_text(f"#!{sys.executable}\nimport json, sys\nopen({str(self.log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n")
+        fake.write_text(f"#!{sys.executable}\nimport json, sys\nif sys.argv[2:3] == ['transition']:\n    print('{{\"known\": false}}'); sys.exit(0)\nopen({str(self.log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n")
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
 
     def tearDown(self):
-        os.environ["CC_BIN"] = "false"
+        os.environ["CC_BIN"] = NOBRIDGE
 
     def calls(self):
         return [json.loads(x) for x in self.log.read_text().splitlines()]
@@ -314,24 +319,6 @@ class Timers(unittest.TestCase):
         board.add("顺手", "-", "s", "橘")
         board.main(["pause", "1"])
         self.assertEqual(self.calls(), [])
-
-    def test_pause_stale_uses_newer_at_over_expired_progress_at(self):
-        """progress_at 已过期但 at 较新时不应被 pause_stale 暂停；两者都过期才暂停。"""
-        expired_prog = NOW - 2 * board.STALE_AFTER
-        board._write([
-            {"id": 1, "what": "刚更新过状态", "where": "-", "status": "推进中", "who": "工作区1橘",
-             "ws": "discord:ws1", "sk": "discord:ws1", "chat": "discord:100",
-             "at": "10-26 10:40", "progress_at": expired_prog},
-            {"id": 2, "what": "确实停滞", "where": "-", "status": "推进中", "who": "工作区2橘",
-             "ws": "discord:ws2", "sk": "discord:ws2", "chat": "discord:100",
-             "at": "10-26 08:30", "progress_at": expired_prog},
-        ])
-        changed = board.pause_stale(now=NOW)
-        self.assertEqual([i["id"] for i in changed], [2])
-        by_id = {i["id"]: i for i in board._read()}
-        self.assertNotIn("paused", by_id[1])
-        self.assertEqual(by_id[2].get("pause_why"), "一小时无进展")
-
 
 if __name__ == "__main__":
     try:

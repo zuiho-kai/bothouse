@@ -64,7 +64,11 @@ func (e *Engine) resolveTaskWorkspace(sourceSessionKey, workspace string) (strin
 		return "", fmt.Errorf("workspace %q belongs to another chat channel", wsID)
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		return "", err
+	}
 	open, _ := teamWorkspaceCountsLocked(st, platform+":"+wsID)
 	teamWorkspaceStore.mu.Unlock()
 	if open > teamWorkspaceBusy {

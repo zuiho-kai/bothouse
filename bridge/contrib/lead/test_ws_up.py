@@ -54,6 +54,17 @@ class WsUpTest(unittest.TestCase):
         self.assertIn("ws-forward --notes /n/a.md", prompt)
         self.assertIn("别写成「你要求」", prompt)
 
+    def test_ask_says_queued_not_delivered(self):
+        # #1492 L4：timer 刚排上、主角色那一轮还没跑，不能说「已报回」「已交给」
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        r = self.run_tool("ws-up", "选哪个", "--ask", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        said = " ".join(t[t.index("--message") + 1] for t in self.timers() if t[:1] == ["send"])
+        for text in (said, r.stderr):
+            self.assertIn("已排队转给聊天频道", text)
+            self.assertNotIn("已报回聊天频道", text)
+            self.assertNotIn("已交给聊天频道", text)
+
     def test_progress_does_not_wake_chat_1188(self):
         """#1188：不带 --ask 的进度只记任务板、在工作区说一句，不建 timer 叫醒聊天频道的主角色。"""
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
@@ -197,6 +208,8 @@ if a[:2] == ["timer", "add"]:
     print("timer-1"); sys.exit(0)
 if a[0] != "workspace":
     sys.exit(1)
+if a[1] == "transition":  # board reject / done 先改桥里的状态（board.task_state）
+    print(json.dumps({"known": False})); sys.exit(0)
 sk = a[a.index("--session-key") + 1]
 plat, chat = sk.split(":")[0], sk
 ws = {w["id"]: w for w in st["ws"]}
@@ -403,6 +416,7 @@ class WsPoolTest(unittest.TestCase):
         self.assertFalse([c for c in timers if c[c.index("-s") + 1] == "test:1" and "工作区转交" in c])
         self.assertEqual(self.items()[0].get("ws"), "test:2")
         self.assertIn("截图发上来", Path(notes).read_text(encoding="utf-8"))
+        self.assertEqual(self.items()[0].get("reject_reasons"), ["截图发上来"])  # #1492 L2：打回记上任务板、算返工
 
     def test_forward_without_board_item_refuses_other_chat_workspace(self):
         """#1155：任务板上查不到这件活、原工作区眼下在做别的聊天频道的活时，不转过去。"""

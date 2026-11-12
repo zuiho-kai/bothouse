@@ -63,6 +63,23 @@ class ExistingTest(unittest.TestCase):
         self.assertEqual(self.me.read_text().count(_existing.SECTION), 1)
 
 
+class BoardRecordsTest(unittest.TestCase):
+    def test_auto_pruned_is_not_a_previous_task(self):
+        # #1492 P2：自动收起的暂停条目不是做完的活，不能当「上一棒…能用就接着用」列出来
+        import types
+        fake = types.SimpleNamespace(
+            done_records=lambda: [{"id": 1, "where": "/a.md", "status": "已完成"},
+                                  {"id": 2, "where": "/b.md", "status": "暂停", "auto_pruned": "暂停超过 7 天"}],
+            items=lambda: [{"id": 3, "where": "/c.md"}])
+        old = sys.modules.get("board")
+        sys.modules["board"] = fake
+        try:
+            ids = [r["id"] for r in _existing._board_records()]
+        finally:
+            sys.modules.pop("board") if old is None else sys.modules.__setitem__("board", old)
+        self.assertEqual(ids, [1, 3])
+
+
 class ProposalTest(unittest.TestCase):
     """#1436：主角色要加东西、改机制时也列现成的（系统自带能力 + 做过的同类活）；平时不列。"""
     def setUp(self):

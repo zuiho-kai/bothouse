@@ -44,9 +44,32 @@ func (w *handoffWatch) markBoardProgress(key string, h TeamHandoff, since, now t
 	if dir == "" {
 		return
 	}
-	id := handoffBoardID(key, h, readTeamTaskBoard(dir))
-	if id == 0 {
-		return // no board item for this workspace: nothing to write back
+	// #699: the item is the one this handoff was claimed for (h.Board, recorded by the claim), and
+	// only while that task's state says it is in work in this workspace. Guessing it from the
+	// workspace and the title (handoffBoardID) put #679's renewals on the paused #677 (11-11
+	// 16:05/16:15): the watch's park marked only the handoff, and #677's row still named 工作区3.
+	id := h.Board
+	if id <= 0 {
+		return // claimed without a board item: nothing to write back
+	}
+	teamWorkspaceStore.mu.Lock()
+	t, inWork, err := teamTaskInWorkOnLocked(e.dataDir, id, key)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Warn("team watch: task state unreadable; board progress not written", "board", id, "error", err)
+		return
+	}
+	if inWork && t.State == TeamTaskDispatched {
+		if _, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: id, To: TeamTaskWorking, By: "watch: progress"}, now); err != nil {
+			slog.Warn("team watch: task state not moved to working", "board", id, "error", err)
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	if !inWork {
+		return // paused, handed back or moved to another workspace: not this workspace's row any more
+	}
+	if teamTurnOfOtherTask(key, id) {
+		return // the turn running here is another task's: its progress is not this row's (#699 B)
 	}
 	// lastStep stays empty when this renewal window had no tool call at all (the turn journal
 	// drops the entry when the turn ends, team_journal.go), and an empty step must not replace a
@@ -93,27 +116,6 @@ func boardProgressStep(step string) string {
 
 // ansiEscape: CSI sequences and the two-byte escapes tools emit in coloured output.
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
-
-// boardProgressClosed: whether this row really stopped being live work. It shares the closing
-// words with watchBoardClosed (team_idle_watch.go, watchBoardClosedWords + watchBoardClosedDone)
-// instead of keeping a third copy: f76d6cec unified the watch and board.py's CLOSED_RE (#1401), and
-// a separate list here left "done" rows renewing forever (#1438). A workspace's own
-// 「在做：检查已验收的条目」 must not read as closed either — that froze the row for good, the very
-// symptom #208 removes (复核 2026-11-06 必修①: wrote=false, progress_at 停在 100, 一小时后表格重回
-// 「1 小时前 + 卡住」). A line still marked 在做 is work in progress whatever its text mentions;
-// anything else must *start* with a closing word to count.
-func boardProgressClosed(status string) bool {
-	self := strings.TrimSpace(status)
-	if strings.HasPrefix(self, "在做：") {
-		return false
-	}
-	for _, closing := range watchBoardClosedWords {
-		if strings.HasPrefix(self, closing) {
-			return true
-		}
-	}
-	return watchBoardClosedDone.MatchString(self)
-}
 
 // progressStepField: the row field that records which step this watch last put in status. It is
 // how the next renewal tells 「在做：<看门写的这一步>」 (refresh it) from 「在做：<工作区自己写的>」
@@ -169,11 +171,11 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		// `git commit -m "…#208 已验收"`. Closing on a substring of our own step froze the row for
 		// good (复核 2026-11-06 必修②: 6 轮续期全写得进 0 次，一小时后板上又变回「1 小时无进展」).
 		ours := ownStep != "" && self == "在做："+ownStep
-		// h.Board (recorded at handoff) skips handoffBoardID's workspace match, so re-check the
-		// row itself: a handoff that names the wrong item must not overwrite another workspace's
-		// row (复核 2026-11-06 建议②，实测 writeBoardProgress(dir, 3, …) 会改到绑在 ws2 的 #3).
-		if ws == "" || teamChatKey(ws) != key || paused != "" || boardProgressClosed(self) {
-			return false, nil // not live workspace work any more (paused, moved off, closed)
+		// #699 D: whether this row is live work in this workspace is the task's state (checked by
+		// markBoardProgress before it gets here), not its status text; the closing-word test is gone.
+		// The row's own binding is still checked so a stale board row never takes another's write.
+		if ws == "" || teamChatKey(ws) != key || paused != "" {
+			return false, nil
 		}
 		stamp := float64(now.UnixNano()) / 1e9
 		var prevStamp float64

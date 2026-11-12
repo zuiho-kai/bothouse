@@ -2,13 +2,11 @@ package core
 
 import (
 	"errors"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,11 +18,23 @@ import (
 // recorded (and may fail) instead of reaching the platform.
 func watchFixture(t *testing.T, owner, title string) (*Engine, *exitTestPlatform, *handoffWatch, TeamHandoff) {
 	t.Helper()
+	return watchFixtureBoard(t, owner, title, 0)
+}
+
+// watchFixtureBoard: watchFixture for board item board (0: from a leading "#N" in the title).
+func watchFixtureBoard(t *testing.T, owner, title string, board int) (*Engine, *exitTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
 	e, _, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
 	e.markPlatformReady(p)
 	e.handoffWatchOn.Store(true) // as startHandoffWatch does, without the goroutine
-	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", owner, title); err != nil {
+	// #699 D: the board id comes from the claim (ws-handoff passes --board), never from the title;
+	// a fixture titled "#N …" is claimed for board item N the way ws-handoff does it.
+	if rest, ok := strings.CutPrefix(title, "#"); ok && board == 0 {
+		num, _, _ := strings.Cut(rest, " ")
+		board, _ = strconv.Atoi(num)
+	}
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", owner, title, board); err != nil {
 		t.Fatal(err)
 	}
 	hs := handoffsOf(e, "discord:ws1")
@@ -427,88 +437,6 @@ func TestWatchMentionPerPlatform(t *testing.T) {
 	}
 }
 
-// The DSH gateway watches its own tasks with the same rule: same check time and renewals.
-func TestWatchConstantsMatchDSH(t *testing.T) {
-	src, err := fs.ReadFile(embeddedDSH, "dsh_bundle/collab/tasks.mjs")
-	if err != nil {
-		t.Fatal(err)
-	}
-	num := func(re string) int {
-		m := regexp.MustCompile(re).FindSubmatch(src)
-		if m == nil {
-			t.Fatalf("%s not found in tasks.mjs", re)
-		}
-		n := 1
-		for _, f := range strings.Split(string(m[1]), "*") {
-			v, err := strconv.Atoi(strings.TrimSpace(f))
-			if err != nil {
-				t.Fatalf("%s: %q: %v", re, m[1], err)
-			}
-			n *= v
-		}
-		return n
-	}
-	if got := num(`export const CHECK_AFTER_S = ([0-9 *]+);`); time.Duration(got)*time.Second != watchCheckAfterDefault {
-		t.Fatalf("tasks.mjs CHECK_AFTER_S = %ds, Go watchCheckAfterDefault = %v", got, watchCheckAfterDefault)
-	}
-	if got := num(`export const MAX_RENEWALS = ([0-9 *]+);`); got != watchMaxRenew {
-		t.Fatalf("tasks.mjs MAX_RENEWALS = %d, Go watchMaxRenew = %d", got, watchMaxRenew)
-	}
-	// Status lines: every prefix of DSH NOTICE_PREFIXES and of d10-fire STATUS_PREFIXES is one
-	// here, and nothing else.
-	web, err := fs.ReadFile(embeddedDSH, "dsh_bundle/collab/cloudweb.mjs")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fire, err := os.ReadFile("../contrib/lead/d10-fire")
-	if err != nil {
-		t.Fatal(err)
-	}
-	quoted := regexp.MustCompile(`['"]([^'"]+)['"]`)
-	want := map[string]bool{}
-	for _, c := range []struct {
-		src  []byte
-		re   string
-		name string
-	}{
-		{web, `export const NOTICE_PREFIXES = \[([^\]]*)\];`, "cloudweb.mjs NOTICE_PREFIXES"},
-		{fire, `STATUS_PREFIXES = \(([^)]*)\)`, "d10-fire STATUS_PREFIXES"},
-	} {
-		m := regexp.MustCompile(c.re).FindSubmatch(c.src)
-		if m == nil {
-			t.Fatalf("%s not found", c.name)
-		}
-		for _, q := range quoted.FindAllSubmatch(m[1], -1) {
-			want[string(q[1])] = true
-		}
-	}
-	have := map[string]bool{}
-	for _, p := range watchStatusPrefixes {
-		have[p] = true
-	}
-	for p := range want {
-		if !have[p] {
-			t.Errorf("status prefix %q (DSH/d10-fire) missing from watchStatusPrefixes", p)
-		}
-	}
-	for p := range have {
-		if !want[p] {
-			t.Errorf("watchStatusPrefixes has %q, which neither DSH nor d10-fire has", p)
-		}
-	}
-	fireStance := regexp.MustCompile(`STANCE_PREFIXES = \(([^)]*)\)`).FindSubmatch(fire)
-	if fireStance == nil {
-		t.Fatal("d10-fire STANCE_PREFIXES not found")
-	}
-	var stances []string
-	for _, q := range quoted.FindAllSubmatch(fireStance[1], -1) {
-		stances = append(stances, string(q[1]))
-	}
-	if strings.Join(stances, " ") != strings.Join(watchStancePrefixes, " ") {
-		t.Errorf("d10-fire STANCE_PREFIXES %q, Go watchStancePrefixes %q", stances, watchStancePrefixes)
-	}
-}
-
 // historyTestPlatform: exitTestPlatform that also reads channel history (or fails to).
 type historyTestPlatform struct {
 	*exitTestPlatform
@@ -548,51 +476,26 @@ func (p *historyTestPlatform) add(channelID string, m ChannelHistoryMessage) {
 // progress signals (workspaceProgress) and a fake clock (tick(now)).
 func progressFixture(t *testing.T, owner string) (*Engine, *historyTestPlatform, *handoffWatch, TeamHandoff) {
 	t.Helper()
+	return progressFixtureBoard(t, owner, 0)
+}
+
+// progressFixtureBoard is progressFixture with the handoff claimed for task-board item board
+// (#699: the claim names the item; the watch writes progress to exactly that one).
+func progressFixtureBoard(t *testing.T, owner string, board int) (*Engine, *historyTestPlatform, *handoffWatch, TeamHandoff) {
+	t.Helper()
 	e, _, p := exitFixture(t, nil)
 	hp := &historyTestPlatform{exitTestPlatform: p}
 	e.platforms = []Platform{hp}
 	e.SetTeam(t.TempDir(), "橘", true)
 	e.markPlatformReady(hp)
 	e.handoffWatchOn.Store(true)
-	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", owner, "K5a"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", owner, "K5a", board); err != nil {
 		t.Fatal(err)
 	}
 	return e, hp, newHandoffWatch(e), handoffsOf(e, "discord:ws1")[0]
 }
 
 const k5aOwner = "1472561359660253256"
-
-// The owner posted work in the workspace channel in the last ten minutes: renewed by ten minutes,
-// silently, nothing parked.
-func TestWatchOwnerPostRenews(t *testing.T) {
-	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
-	p.post("ws1", k5aOwner, "@橘 改完 team_watch.go，在跑测试", h.Due.Add(-time.Minute))
-	next := w.tick(h.Due)
-	if !next.Equal(h.Due.Add(watchCheckAfter())) {
-		t.Fatalf("renewed by %v, next %v", watchCheckAfter(), next)
-	}
-	got := handoffsOf(e, "discord:ws1")[0]
-	if got.Renewed != 1 || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
-		t.Fatalf("renewal 1, silent, not parked: %+v, sent %v", got, p.out)
-	}
-}
-
-// No owner named (ws-handoff before it passed --owner): this bot's own posts in the workspace
-// count; another author's do not; a stance line of this bot does not either.
-func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
-	e, p, w, h := progressFixture(t, "")
-	at := h.Due.Add(-time.Minute)
-	p.post("ws1", k5aOwner, "别人的进度", at)
-	p.postSelf("ws1", "【接】已派龙娘", at)
-	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
-		t.Fatal("another author or a stance line of this bot is not progress")
-	}
-	p.postSelf("ws1", "龙娘交回了第一块，在派第二块", at)
-	w.tick(h.Due)
-	if got := handoffsOf(e, "discord:ws1")[0]; got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
-		t.Fatalf("this bot's post renews silently, got %+v, sent %v", got, p.out)
-	}
-}
 
 // Posts that are not progress: stance lines (also after a mention or a reply quote), gate status
 // lines, empty posts, someone else's posts, and the owner's posts before the window.
@@ -608,35 +511,6 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 	got := handoffsOf(e, "discord:ws1")[0]
 	if got.Renewed != 0 || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
 		t.Fatalf("no progress: nudged once and parked, got %+v, sent %v", got, p.out)
-	}
-}
-
-// Progress every time: renewed at most twice (30 minutes in all), then nudged and parked.
-func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
-	withWatchMaxRenew(t, 2)
-	e, p, w, h := progressFixture(t, k5aOwner)
-	now := h.Due
-	for i := 1; i <= watchMaxRenew; i++ {
-		p.post("ws1", k5aOwner, "进度：第"+strconv.Itoa(i)+"步做完", now.Add(-time.Second))
-		next := w.tick(now)
-		if !next.Equal(now.Add(watchCheckAfter())) {
-			t.Fatalf("renewal %d: next %v", i, next)
-		}
-		now = next
-	}
-	if len(p.out) != 0 {
-		t.Fatalf("renewals are silent, got %v", p.out)
-	}
-	p.post("ws1", k5aOwner, "进度：还在做", now.Add(-time.Second))
-	if next := watchAfterWarning(t, w, now); !next.IsZero() {
-		t.Fatalf("third check stops the watch, next %v", next)
-	}
-	got := handoffsOf(e, "discord:ws1")[0]
-	if got.Renewed != watchMaxRenew || got.Parked.IsZero() || len(p.sentTo("discord:ws1")) != 1 {
-		t.Fatalf("after %d renewals: one nudge and parked, got %+v, sent %v", watchMaxRenew, got, p.out)
-	}
-	if now.Sub(h.At) != time.Duration(watchMaxRenew+1)*watchCheckAfter() {
-		t.Fatalf("stopped %v after the claim", now.Sub(h.At))
 	}
 }
 
@@ -662,7 +536,8 @@ func TestWatchBusySessionIsNotStopped(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
-	now := h.Due.Add(2 * time.Minute) // 12 minutes after the claim
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
+	now := h.Due.Add(2 * time.Minute)                        // 12 minutes after the claim
 	next := w.tick(now)
 	got := handoffsOf(e, "discord:ws1")[0]
 	if next.IsZero() || got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
@@ -686,6 +561,7 @@ func TestWatchBusySessionWithEventsRenewsBeyondBusyLimit(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	state := &interactiveState{}
 	e.interactiveStates["discord:ws1:u1"] = state
 	now := h.Due
@@ -712,6 +588,7 @@ func TestWatchBusySessionWithoutEventsStaysCapped(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	state := &interactiveState{}
 	state.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
 	e.interactiveStates["discord:ws1:u1"] = state
@@ -771,6 +648,7 @@ func TestWatchMultiWorkspacePrefixedStateRenewsHandoff(t *testing.T) {
 		t.Fatal("lock")
 	}
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	state := &interactiveState{}
 	state.lastEventAt.Store(h.At.Add(time.Minute).UnixNano())
 	e.interactiveStates[iKey] = state
@@ -812,6 +690,7 @@ func TestWatchSiblingSessionEventsRenewStuckHandoff(t *testing.T) {
 		t.Fatal("lock stuck session")
 	}
 	defer stuck.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	stuckState := &interactiveState{}
 	stuckState.lastEventAt.Store(h.At.Add(-time.Hour).UnixNano())
 	e.interactiveStates["discord:ws1:u1"] = stuckState
@@ -821,6 +700,7 @@ func TestWatchSiblingSessionEventsRenewStuckHandoff(t *testing.T) {
 		t.Fatal("lock sibling session")
 	}
 	defer sibling.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	siblingState := &interactiveState{}
 	e.interactiveStates["discord:ws1:u2"] = siblingState
 
@@ -879,74 +759,16 @@ func TestWatchBusyOnAnyEngine(t *testing.T) {
 	other := mate.sessions.GetOrCreateActive("discord:ws9:u1")
 	other.TryLock()
 	defer other.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws9"})() // #699 B: a locked session is a running turn
 	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
 		t.Fatal("a turn in another channel is not progress here")
 	}
 	s := mate.sessions.GetOrCreateActive("discord:ws1:mate")
 	s.TryLock()
 	defer s.Unlock()
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:ws1"})() // #699 B: a locked session is a running turn
 	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind == watchProgressNone {
 		t.Fatal("a teammate's turn in the workspace is progress")
-	}
-}
-
-// Reading the channel fails (a network blip, Discord 5xx/429): not a verdict. Retried after
-// watchRetryDelay without a nudge; still failing after watchParkRetries reads: no progress,
-// nudged and parked (not renewed, not dropped).
-func TestWatchSignalErrorRetriesThenNoProgress(t *testing.T) {
-	e, p, w, h := progressFixture(t, k5aOwner)
-	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
-	p.err = errors.New("discord: channel history: 503")
-	now := h.Due
-	for i := 1; i < watchParkRetries; i++ {
-		next := w.tick(now)
-		got := handoffsOf(e, "discord:ws1")[0]
-		if !next.Equal(now.Add(watchRetryDelay)) || got.ReadFails != i || !got.Parked.IsZero() || got.Nudged || len(p.out) != 0 {
-			t.Fatalf("read failure %d: retry in %v silently, got %+v, next %v, sent %v", i, watchRetryDelay, got, next, p.out)
-		}
-		now = next
-	}
-	if next := watchAfterWarning(t, w, now); !next.IsZero() {
-		t.Fatalf("retries used up: stopped, next %v", next)
-	}
-	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Renewed != 0 || len(p.sentTo("discord:ws1")) != 1 {
-		t.Fatalf("read error after retries: nudged once and parked, got %+v, sent %v", got, p.out)
-	}
-}
-
-// The connection comes back on the retry: the post in the window renews and the failures reset.
-func TestWatchSignalErrorThenReconnectRenews(t *testing.T) {
-	e, p, w, h := progressFixture(t, k5aOwner)
-	p.post("ws1", k5aOwner, "进度：做完一半", h.Due.Add(-time.Minute))
-	p.err = errors.New("discord: connection reset")
-	next := w.tick(h.Due)
-	p.mu.Lock()
-	p.err = nil
-	p.mu.Unlock()
-	w.tick(next)
-	got := handoffsOf(e, "discord:ws1")[0]
-	if got.Renewed != 1 || got.ReadFails != 0 || !got.Parked.IsZero() || len(p.out) != 0 {
-		t.Fatalf("back online: renewed silently, got %+v, sent %v", got, p.out)
-	}
-}
-
-// A post at the start of the window, then a failed read and a recovery: the retry keeps the
-// window's start, so the post still counts and the task is renewed (not nudged or parked).
-func TestWatchSignalErrorKeepsWindowStart(t *testing.T) {
-	e, p, w, h := progressFixture(t, k5aOwner)
-	p.post("ws1", k5aOwner, "进度：开工了", h.At.Add(30*time.Second))
-	p.err = errors.New("discord: 503")
-	next := w.tick(h.Due)
-	if got := handoffsOf(e, "discord:ws1")[0]; got.ReadFails != 1 || !got.Since.Equal(h.At) {
-		t.Fatalf("retry keeps the window start %v, got %+v", h.At, got)
-	}
-	p.mu.Lock()
-	p.err = nil
-	p.mu.Unlock()
-	w.tick(next)
-	got := handoffsOf(e, "discord:ws1")[0]
-	if got.Renewed != 1 || got.ReadFails != 0 || !got.Since.IsZero() || !got.Parked.IsZero() || len(p.out) != 0 {
-		t.Fatalf("post at the window start renews after the retry, got %+v, sent %v", got, p.out)
 	}
 }
 
@@ -962,34 +784,6 @@ func feishuWatchFixture(t *testing.T) (*Engine, *exitTestPlatform, *handoffWatch
 		t.Fatal(err)
 	}
 	return e, p, newHandoffWatch(e), handoffsOf(e, "feishu:ws1")[0]
-}
-
-// Feishu (no channel history): a session of the workspace that ended a turn in the window is
-// progress (Session.UpdatedAt); none, or only an older one, is no progress.
-func TestWatchFeishuUsesSessionUpdate(t *testing.T) {
-	e, p, w, h := feishuWatchFixture(t)
-	s := e.sessions.GetOrCreateActive("feishu:ws1:ou_x")
-	s.mu.Lock()
-	s.UpdatedAt = h.At.Add(-time.Minute)
-	s.mu.Unlock()
-	if kind, err := w.workspaceProgress("feishu:ws1", h, h.At); kind != watchProgressNone || err != nil {
-		t.Fatalf("a turn before the window is no progress, got %v %v", kind, err)
-	}
-	s.mu.Lock()
-	s.UpdatedAt = h.Due.Add(-time.Minute)
-	s.mu.Unlock()
-	w.tick(h.Due)
-	got := handoffsOf(e, "feishu:ws1")[0]
-	if got.Renewed != 1 || !got.Parked.IsZero() || len(p.out) != 0 {
-		t.Fatalf("a turn ended in the window renews silently, got %+v, sent %v", got, p.out)
-	}
-	// Next window: no turn since then: nudged and parked, not retried (no read error).
-	if next := watchAfterWarning(t, w, got.Due); !next.IsZero() {
-		t.Fatalf("no turn in the window: stopped, next %v", next)
-	}
-	if got := handoffsOf(e, "feishu:ws1")[0]; got.Parked.IsZero() || got.ReadFails != 0 || len(p.sentTo("feishu:ws1")) != 1 {
-		t.Fatalf("nudged once and parked, got %+v, sent %v", got, p.out)
-	}
 }
 
 func TestWatchOwnerID(t *testing.T) {

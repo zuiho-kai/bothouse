@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 )
 
 // WizardWiki: the model of each kind of wiki work ("" = leave as it is). Values are WikiEngines ids.
@@ -59,7 +61,7 @@ type WikiSetup struct {
 	Current  WizardWiki   `json:"current"`  // in effect now (config.json, else the defaults)
 }
 
-// FindWiki: $WIKI_DIR (the variable ingest.py reads), else ~/wiki, when it holds bin/ingest.py.
+// FindWiki: $WIKI_DIR, else mainWikiDefault (~/wiki, or <data>/wiki for an isolated data dir).
 func FindWiki() (string, bool) {
 	dir := os.Getenv("WIKI_DIR")
 	if dir == "" {
@@ -67,12 +69,37 @@ func FindWiki() (string, bool) {
 		if err != nil {
 			return "", false
 		}
-		dir = filepath.Join(home, "wiki")
+		dir = mainWikiDefault(home)
 	}
 	if !fileExists(filepath.Join(dir, "bin", "ingest.py")) {
 		return dir, false
 	}
 	return dir, true
+}
+
+// mainWikiDefault (#1497): a data dir other than ~/.bothouse / ~/.cc-connect (BOTHOUSE_DATA_DIR
+// pointed elsewhere) keeps its main wiki in <data>/wiki, so a second instance does not share ~/wiki.
+// The default data dir (launchd also passes it as BOTHOUSE_DATA_DIR) keeps ~/wiki. A custom data
+// dir set up by an older release, whose config.toml already names ~/wiki, keeps it (no move).
+func mainWikiDefault(home string) string {
+	legacy := filepath.Join(home, "wiki")
+	if os.Getenv(ccconnect.DataDirEnv) == "" {
+		return legacy
+	}
+	data := filepath.Clean(ccconnect.DataDir(home))
+	for _, name := range []string{".bothouse", ".cc-connect"} {
+		if data == filepath.Join(home, name) {
+			return legacy
+		}
+	}
+	cur := filepath.Join(data, "wiki")
+	if fileExists(filepath.Join(cur, "bin", "ingest.py")) {
+		return cur
+	}
+	if b, err := os.ReadFile(filepath.Join(data, "config.toml")); err == nil && strings.Contains(string(b), filepath.Join(legacy, "MEMORY.md")) {
+		return legacy
+	}
+	return cur
 }
 
 // LoadWikiSetup: nil when there is no wiki.

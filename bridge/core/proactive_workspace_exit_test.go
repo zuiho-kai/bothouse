@@ -65,6 +65,19 @@ func TestProactiveWorkspaceExitSendScope(t *testing.T) {
 					e.processInteractiveEvents(state, session, e.sessions, exitWSKey, "", time.Now(), nil, nil, exitWSKey)
 				}()
 			}
+			// The exit command runs inside the turn (ws-up is a tool call), while the turn's state
+			// is still registered; once the turn ends the idle close may drop it at any moment.
+			e.platformReady = map[Platform]bool{platform: true}
+			e.interactiveMu.Lock()
+			e.interactiveStates[e.interactiveKeyForSessionKey(exitWSKey)] = state
+			e.interactiveMu.Unlock()
+			if _, err := e.WorkspaceExit(e.ctx, exitWSKey, exitKindReport, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无"); err != nil {
+				t.Fatal(err)
+			}
+			posted := platform.sentTo("discord:chat1")
+			if (len(posted) > 0) != tc.allowSend {
+				t.Fatalf("workspace report output does not match message.send=%v: %q", tc.allowSend, posted)
+			}
 			backend.events <- Event{Type: EventResult, Done: true, Content: "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无"}
 			close(backend.events)
 			select {
@@ -72,8 +85,9 @@ func TestProactiveWorkspaceExitSendScope(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("reader timeout")
 			}
-			if got := platform.sentTo("discord:chat1"); (len(got) > 0) != tc.allowSend {
-				t.Fatalf("workspace report output does not match message.send=%v: %q", tc.allowSend, got)
+			// #699 C: the reply itself is never forwarded, only the command's post.
+			if got := platform.sentTo("discord:chat1"); len(got) != len(posted) {
+				t.Fatalf("a reply was forwarded: %q", got[len(posted):])
 			}
 		})
 	}

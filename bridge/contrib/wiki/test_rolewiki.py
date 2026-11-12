@@ -193,18 +193,28 @@ class SubWikiPy(unittest.TestCase):
         (self.dir / "export.py").write_text(
             "import sys\nif '--list' in sys.argv: print(" + repr("\n".join(lines)) + ")\n")
         self.env = dict(os.environ, WIKI_PYTHON=sys.executable, WIKI_TRANSCRIPTS=str(self.tmp / "tr"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.data = self.tmp / "data"
+        self.env.update(HOME=str(self.home), USERPROFILE=str(self.home), BOTHOUSE_DATA_DIR=str(self.data))
+        (self.dir / "llmwiki").mkdir()
+        (self.dir / "llmwiki" / "manuals.py").write_text(
+            f"import os\nopen({str(self.calls)!r}, 'a').write(os.environ['MANUALS_ROLE'] + ' manuals ' + os.environ['MANUALS_PENDING_DIR'] + '\\n')\n")
 
     def got(self):
-        got = self.calls.read_text().splitlines()
-        self.calls.unlink()
-        return got
+        rows = self.calls.read_text().splitlines()
+        offset = getattr(self, 'read_offset', 0)
+        self.read_offset = len(rows)
+        return rows[offset:]
 
     def run_py(self, *args):
         subprocess.run([sys.executable, "-X", "utf8", "-I", str(self.dir / "sub-wiki.py"), *args], env=self.env, check=True, timeout=30)
         return self.got()
 
     def test_nightly_runs_each_bot(self):
-        self.assertEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
+        self.assertEqual(self.run_py("nightly"), [
+            "juzi --nightly", "whale --nightly",
+        ])
 
     def test_hook_run_finds_session(self):
         d = self.tmp / "tr" / "whale" / "2026-10"
@@ -212,6 +222,16 @@ class SubWikiPy(unittest.TestCase):
         (d / "abcd1234-sess-42.jsonl").write_text("")
         self.assertEqual(self.run_py("hook-run", "whale", "sess-42"), ["whale --session abcd1234-sess-42"])
         self.assertEqual(self.run_py("hook-run", "whale", "nope"), ["whale --pending"])
+
+    def test_nightly_role_and_storage_without_agent_environment(self):
+        """Cron has no CC_DATA_DIR; the installed scheduler owns <data_dir>/wiki."""
+        self.env.pop("BOTHOUSE_DATA_DIR", None)
+        self.env.pop("CC_DATA_DIR", None)
+        for b in ("juzi", "whale"):
+            p = self.tmp / "wikis" / b / "bin/ingest.py"
+            p.write_text(f"import os\nopen({str(self.calls)!r}, 'a').write("
+                         "os.environ['MANUALS_ROLE'] + ' ' + os.environ['BOTHOUSE_DATA_DIR'] + '\\n')\n")
+        self.assertEqual(self.run_py("nightly"), [f"proj-juzi {self.dir.parent.resolve()}", f"proj-whale {self.dir.parent.resolve()}"])
 
     def test_hook_detaches(self):
         env = dict(self.env, CC_HOOK_PROJECT="proj-whale", CC_HOOK_AGENT_SESSION_ID="nope")
@@ -224,7 +244,7 @@ class SubWikiPy(unittest.TestCase):
         env["CC_HOOK_PROJECT"] = "other"  # a project outside bots.json: nothing runs
         subprocess.run([sys.executable, "-X", "utf8", "-I", str(self.dir / "sub-wiki.py"), "hook"], env=env, check=True, timeout=10)
         time.sleep(1)
-        self.assertFalse(self.calls.exists())
+        self.assertEqual(self.got(), [])
 
     def test_cron_skips_main_wiki_and_sets_wiki_dir(self):
         """The lead's main wiki (MAIN_MARK) is run by the cron job itself, not again here; each run gets WIKI_DIR."""

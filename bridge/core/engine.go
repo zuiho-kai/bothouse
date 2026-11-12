@@ -1360,15 +1360,6 @@ func (e *Engine) SetReasoningEffortSaveFunc(fn func(effort string) error) {
 	e.effortSaveFunc = fn
 }
 
-func (e *Engine) persistReasoningEffort(agent Agent, effort string) {
-	if agent != e.agent || e.effortSaveFunc == nil || effort == "" {
-		return
-	}
-	if err := e.effortSaveFunc(effort); err != nil {
-		slog.Warn("save reasoning effort failed", "effort", effort, "error", err)
-	}
-}
-
 func (e *Engine) SetModelSaveFunc(fn func(model string) error) {
 	e.modelSaveFunc = fn
 }
@@ -1740,6 +1731,18 @@ func (e *Engine) SetProjectStateStore(store *ProjectStateStore) {
 
 func (e *Engine) SetDataDir(dir string) {
 	e.dataDir = dir
+	if dir == "" {
+		return
+	}
+	managedSkillMu.Lock()
+	if state, err := readManagedSkillState(dir); err == nil {
+		if err := refreshManagedSkillView(dir, e.name, state); err != nil {
+			slog.Warn("refresh managed skill view", "project", e.name, "error", err)
+		}
+	}
+	managedSkillMu.Unlock()
+	dirs := e.skills.Dirs()
+	e.skills.SetDirs(append(dirs, ManagedSkillViewDir(dir, e.name)))
 }
 
 // RemoveCommand removes a custom command by name. Returns false if not found.
@@ -1816,9 +1819,12 @@ func (e *Engine) ActiveSessionKeys() []string {
 // It finds the platform that owns the session key, reconstructs a reply context,
 // and processes the message as if the user sent it.
 func (e *Engine) ExecuteCronJob(job *CronJob) error {
-	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
-		slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
-		return nil
+	// Same as the scheduler (cron.go): a shell job does not use the model (#1492).
+	if !job.IsShellJob() {
+		if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
+			slog.Info("quota cooldown: cron skipped", "project", e.name, "job", job.ID, "cooling_until", until)
+			return nil
+		}
 	}
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -2099,6 +2105,10 @@ var timerPlatformReadyTimeout = 2 * time.Minute
 // instead of marking it fired, so it runs once the platform connects.
 var errTimerPlatformNotReady = errors.New("timer platform not ready")
 
+// errTimerQuotaCooling marks a prompt timer run skipped because the model is in a
+// quota cooldown: the job did not run, so it must not be recorded as fired (#1492).
+var errTimerQuotaCooling = errors.New("timer skipped: provider cooldown")
+
 func (e *Engine) waitTimerPlatformReady(p Platform) error {
 	if _, async := p.(AsyncRecoverablePlatform); !async {
 		return nil
@@ -2190,9 +2200,15 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		job = e.taskReviewSessionAtRun(prepared)
 	}
 	job = e.withGuardLiveStatus(job, time.Now()) // #1067: backstop prompt carries team watch's live state
-	if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
-		slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
-		return nil
+	// A shell job never calls the model, so a model cooldown is no reason to skip it
+	// (the scheduler already exempts it, timer.go executeJob). A prompt job is not
+	// done when it was skipped: report it, so the scheduler runs it after the
+	// cooldown instead of recording it as fired (#1492).
+	if !job.IsShellJob() {
+		if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, job.SessionKey)); !until.IsZero() {
+			slog.Info("quota cooldown: timer skipped", "project", e.name, "job", job.ID, "cooling_until", until)
+			return errTimerQuotaCooling
+		}
 	}
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -2787,6 +2803,10 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	shellCmd.Dir = workDir
 	ownScheduledShell(shellCmd)
 	scheduledShellDeadline(shellCmd, ctx)
+	if e.dataDir != "" {
+		// Shell jobs need the same authoritative storage root as interactive role sessions.
+		shellCmd.Env = append(shellCmd.Environ(), "BOTHOUSE_DATA_DIR="+e.dataDir)
+	}
 
 	stdout, err := shellCmd.StdoutPipe()
 	if err != nil {
@@ -4962,6 +4982,11 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.markTurnStartLocked()
 	state.mu.Unlock()
 	state.lastEventAt.Store(time.Now().UnixNano())
+	// #699 B: the turn fact every "is this workspace running a turn" reads (team_turn_fact.go).
+	// Ends when this function returns, after the drain of the queued messages.
+	endTurnFact := beginTeamTurn(teamTurnFact{Chat: msg.SessionKey, Session: msg.SessionKey, Engine: e.name,
+		TaskID: e.teamTaskTurnStarted(msg.SessionKey), lastEvent: &state.lastEventAt})
+	defer endTurnFact()
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
 
@@ -5807,7 +5832,15 @@ func (e *Engine) scheduleAgentSessionIdleClose(sessionKey string, state *interac
 // teammate processes after a workspace is returned. It preserves conversation IDs
 // and returns the number scheduled; actual shutdown is logged by the shared closer.
 func (e *Engine) CloseIdleTeamWorkspaceAgents(key string) int {
-	if e == nil || e.sessions == nil || !e.teamWorkspaceFree(key) {
+	if e == nil || e.sessions == nil {
+		return 0
+	}
+	free, err := e.teamWorkspaceFree(key)
+	if err != nil {
+		slog.Error("team workspace: state unreadable; idle agents not released", "workspace", key, "error", err)
+		return 0
+	}
+	if !free {
 		return 0
 	}
 	n := 0
@@ -6315,10 +6348,8 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 						send(p, markAgentReply(p, replyCtx, session), chunk)
 					}
 				}
-				// A quota notice is not the workspace's answer: it must not go back as a [report].
-				if _, exhausted := QuotaExhaustedReset(event); fullResponse != "" && !exhausted {
-					e.forwardWorkspaceExitContext(ctx, p, sessionKey, exitReplyText(event, fullResponse)) // #139 C: workspace [ask]/[report] -> chat channel
-				}
+				// #699 C: a reply is not a handback; the workspace hands back with ws-up --report
+				// (WorkspaceExit), so nothing in this text is forwarded as a [report]/[ask].
 
 				e.watchTurnEnded(p, sessionKey, exitReplyText(event, fullResponse), len(toolsUsed) > 0, false, false, false, time.Time{})
 
@@ -7772,10 +7803,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				cp.Retract()
 			}
 
-			// A quota notice is not the workspace's answer: it must not go back as a [report].
-			if _, exhausted := QuotaExhaustedReset(event); !isSilent && !exhausted {
-				e.forwardWorkspaceExitContext(outputCtx, p, sessionKey, exitReplyText(event, baseResponse)) // #139 C: workspace [ask]/[report] -> chat channel
-			}
+			// #699 C: a reply is not a handback (WorkspaceExit is), nothing is forwarded from it.
 			if !isSilent && input == nil {
 				e.hooks.Emit(HookEvent{
 					Event:      HookEventMessageSent,
@@ -10825,28 +10853,6 @@ func appendReplyFooter(content, footer string) string {
 		return "*" + footer + "*"
 	}
 	return content + "\n\n*" + footer + "*"
-}
-
-func appendFinalMetadataToSegment(segment, fullResponse string) string {
-	segment = strings.TrimRight(segment, "\n ")
-	if segment == "" {
-		return fullResponse
-	}
-	fullResponse = strings.TrimSpace(fullResponse)
-	if fullResponse == "" || strings.TrimSpace(segment) == fullResponse {
-		return segment
-	}
-
-	metadata := ""
-	if idx := strings.LastIndex(fullResponse, "\n\n*"); idx >= 0 && strings.HasSuffix(fullResponse, "*") {
-		metadata = fullResponse[idx:]
-	} else if match := ctxSelfReportRe.FindString(fullResponse); match != "" {
-		metadata = "\n" + strings.TrimSpace(match)
-	}
-	if metadata == "" || strings.Contains(segment, strings.TrimSpace(metadata)) {
-		return segment
-	}
-	return segment + metadata
 }
 
 func (e *Engine) cmdShow(p Platform, msg *Message, args []string) {
@@ -14963,10 +14969,6 @@ func (e *Engine) sendWithContextForWorkspace(ctx context.Context, p Platform, re
 	return e.sendRenderedWithContext(ctx, p, replyCtx, content)
 }
 
-func (e *Engine) sendForWorkspace(p Platform, replyCtx any, content, workspaceDir string) {
-	_ = e.sendWithErrorForWorkspace(p, replyCtx, content, workspaceDir)
-}
-
 func (e *Engine) renderCardForPlatform(p Platform, card *Card) *Card {
 	return e.renderCardForPlatformWorkspace(p, card, "")
 }
@@ -18028,6 +18030,9 @@ func (e *Engine) executeSkill(p Platform, msg *Message, skill *Skill, args []str
 		"user", msg.UserName,
 		"workspace", workspaceDir,
 	)
+	if strings.Contains(filepath.ToSlash(skill.Source), "/skills/views/") {
+		recordManagedSkillUseFromView(skill.Source)
+	}
 
 	msg.Content = prompt
 	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, workspaceDir, msg.SessionKey)
@@ -19770,15 +19775,6 @@ func extractUserID(sessionKey string) string {
 		return parts[2]
 	}
 	return ""
-}
-
-func stringSliceContains(ss []string, target string) bool {
-	for _, s := range ss {
-		if s == target {
-			return true
-		}
-	}
-	return false
 }
 
 func extractPlatformName(sessionKey string) string {

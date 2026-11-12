@@ -1158,7 +1158,7 @@ export class DshMembers {
         agentOptions: this.selection(member),
         setup: async (agentCtx) => {
           await ctx.agentPresets.mount(agentCtx, preset.id);
-          this.setup(agentCtx, member);
+          await this.setup(agentCtx, member);
         },
       });
     } finally {
@@ -1227,7 +1227,7 @@ export class DshMembers {
     if (loaded !== undefined) {
       // Loaded by someone else (e.g. the Session is open in the DSH Web UI), so
       // our resume-time setup never ran: install the request hook on it now.
-      if (member !== undefined && !this.hooked.has(loaded)) this.setup(loaded.ctx, member, loaded);
+      if (member !== undefined && !this.hooked.has(loaded)) await this.setup(loaded.ctx, member, loaded);
       return loaded;
     }
     if (member === undefined) return (await ctx.agents.resume({ resumeSessionId: sessionId })).agent;
@@ -1244,7 +1244,7 @@ export class DshMembers {
         agentOptions: this.selection(member),
         setup: async (agentCtx) => {
           await ctx.agentPresets.mount(agentCtx, preset.id);
-          this.setup(agentCtx, member);
+          await this.setup(agentCtx, member);
         },
       });
     } finally {
@@ -1267,8 +1267,8 @@ export class DshMembers {
    * pinned only until the Session's first durable request header (webhook
    * pattern), after which the Session's own selection applies.
    */
-  setup(agentCtx, initial, agent) {
-    if (agent !== undefined) this.hooked.add(agent);
+  async setup(agentCtx, initial, agent) {
+    await this.rt.mountManagedSkills?.(agentCtx, initial);
     // Read the member's current config on each request so an edit in the UI
     // reaches a Session whose hook was installed before the edit.
     const current = () => this.config.get(initial.id) ?? initial;
@@ -1284,6 +1284,7 @@ export class DshMembers {
       const { reasoningEffort: _inherited, ...rest } = resolved;
       return { ...rest, provider, model };
     }, { prepend: always });
+    if (agent !== undefined) this.hooked.add(agent);
   }
 
   /**

@@ -31,8 +31,13 @@ func runWorkspace(args []string) {
 	stop := fs.Bool("stop", false, "park: also stop the turn running in the workspace when it is freed (the user stopped the task)")
 	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
+	boardID := fs.Int("board", 0, "claim: the task-board item handed off; the bridge records the task's state against it")
+	kind := fs.String("kind", "report", "exit: report (done, for acceptance) or failed")
+	to := fs.String("to", "", "transition: closed, paused, returned or failed")
+	why := fs.String("why", "", "transition: the reason recorded with it")
+	file := fs.String("file", "", "exit: the report draft (its first line 「[report] #id 背景：…」); - reads stdin")
 	_ = parseWorkspaceFlags(fs, rest)
-	if *session == "" {
+	if *session == "" && sub != "transition" {
 		workspaceFail(fmt.Errorf("no channel: run this inside a bothouse agent session or pass --session-key discord:<channel id>"))
 	}
 	sock := resolveSocketPath(*dataDir)
@@ -59,7 +64,7 @@ func runWorkspace(args []string) {
 		if fs.NArg() < 1 {
 			workspaceFail(fmt.Errorf("usage: bothouse workspace claim <workspace channel id>"))
 		}
-		body, _ := json.Marshal(map[string]string{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title})
+		body, _ := json.Marshal(map[string]any{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title, "board": *boardID})
 		resp, err := apiPost(sock, "/team/workspace/claim", body)
 		if err != nil {
 			workspaceFail(err)
@@ -97,6 +102,55 @@ func runWorkspace(args []string) {
 		} else {
 			fmt.Printf("%s\tkept (other tasks in work)\n", r.Workspace)
 		}
+	case "exit":
+		// #699 C: the only handback. ws-up --report runs it after `report check` passes.
+		var raw []byte
+		var err error
+		switch *file {
+		case "":
+			workspaceFail(fmt.Errorf("usage: bothouse workspace exit --file <report draft> [--kind report|failed]"))
+		case "-":
+			raw, err = io.ReadAll(os.Stdin)
+		default:
+			raw, err = os.ReadFile(*file)
+		}
+		if err != nil {
+			workspaceFail(err)
+		}
+		body, _ := json.Marshal(map[string]any{"session_key": *session, "project": os.Getenv("CC_PROJECT"), "kind": *kind, "text": string(raw)})
+		resp, err := apiPost(sock, "/team/workspace/exit", body)
+		if err != nil {
+			workspaceFail(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+		}
+		var r core.WorkspaceExitResult
+		_ = json.Unmarshal(data, &r)
+		if *jsonOut {
+			printModelJSON(r)
+			return
+		}
+		fmt.Printf("%s\thanded back #%d (%s)\n", r.Workspace, r.Board, r.State)
+	case "transition":
+		// #699 D: board.py's done / reject / wait change the task's state here; a bridge that is not
+		// running is an error (the board does not record a state of its own).
+		if *boardID <= 0 || *to == "" {
+			workspaceFail(fmt.Errorf("usage: bothouse workspace transition --board <id> --to closed|paused|returned|failed [--why <reason>]"))
+		}
+		body, _ := json.Marshal(map[string]any{"id": *boardID, "to": *to, "why": *why, "by": "board:" + os.Getenv("CC_PROJECT")})
+		resp, err := apiPost(sock, "/team/task/transition", body)
+		if err != nil {
+			workspaceFail(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+		}
+		fmt.Println(strings.TrimSpace(string(data)))
 	case "list":
 		var r core.TeamWorkspaceListResult
 		if err := modelAPIGet(sock, "/team/workspace/list?"+url.Values{"session_key": {*session}}.Encode(), &r); err != nil {
@@ -147,19 +201,27 @@ func parseWorkspaceFlags(fs *flag.FlagSet, args []string) error {
 }
 
 func printWorkspaceUsage() {
-	fmt.Println(`Usage: bothouse workspace <new|list|claim|park> [<workspace id>] [--session-key discord:<channel id>] [--json]
+	fmt.Println(`Usage: bothouse workspace <new|list|claim|park|exit|transition> [<workspace id>] [--session-key discord:<channel id>] [--json]
 
   new    create 「工作区(max+1)」 in the category's shared pool for this chat channel
   list   list this chat channel's workspaces and the category's shared pool
   claim  record this chat channel as the one handing off to <workspace id> (also resumes a paused task);
          [--owner <id>] [--title <short name>]: who the task goes to and what it is, for the
-         ten-minute check (no progress: nudge first, pause after one more quiet window).
+         ten-minute check; [--board <item id>]: the task-board item, whose state the bridge
+         records (dispatched → working → paused), refused when that task is closed (no progress: nudge first, pause after one more quiet window).
          A configured project name is resolved to its ready platform user ID; without one,
          the claim fails. Options may appear before or after the workspace ID.
   park   pause one task of <workspace id> (default: this workspace); with no other task in
          work there the workspace goes back to the pool and its sessions are reset;
+         --stop: the pause comes from outside the workspace, so its running turn is stopped
+         before the workspace is given back;
          --chat <chat key> [--before <RFC 3339>]: only that chat channel's task, refused
          when the workspace belongs to another chat channel now
+  exit   hand this workspace's task back: --file <report draft> (- = stdin), [--kind failed];
+         the task's state moves to returned (or failed) and the report goes to the chat channel.
+         The only handback: a [report] written in a reply is not read (ws-up --report runs this)
+  transition  --board <id> --to closed|paused|returned|failed [--why]: board.py's done, reject
+         and wait; a task with no state record is left as is (known=false)
 
 On by default for the primary role project (Discord only); team_workspaces = false turns it off.`)
 }

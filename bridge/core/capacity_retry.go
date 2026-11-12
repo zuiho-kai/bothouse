@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"log/slog"
-	"math"
 	"math/rand/v2"
 	"regexp"
 	"strconv"
@@ -17,13 +16,17 @@ import (
 // 然后冷却完了记得要那个尝试」。A turn that fails with the provider's "model is at
 // capacity" error is re-sent right away, up to capacityAttempts sends in total.
 // If all fail, the engine cools down (capacityCooldownBase, doubling after each
-// cooldown that ends in failure again, reset by any turn that gets through) and
+// cooldown that ends in failure again up to capacityCooldownMax, reset by any turn
+// that gets through) and
 // re-delivers the message when the cooldown ends. Messages arriving while
 // cooling down wait for the end of the cooldown instead of hitting the model.
 
 const capacityAttempts = 3 // 用户原话「三次都这样的话」
 
-var capacityCooldownBase = 10 * time.Minute // 用户原话「冷却10分钟」；var only so tests can shorten it
+// 用户 2026-11-12 08:4x「5分钟开始 翻倍但最多 20 分钟」（原 10 分钟起、不封顶，一夜中转故障冷却到 160 分钟）。
+var capacityCooldownBase = 5 * time.Minute // 用户原话「5分钟开始」；var only so tests can shorten it
+
+const capacityCooldownMax = 20 * time.Minute // 用户原话「最多 20 分钟」
 
 var quotaResetDurationRE = regexp.MustCompile(`(?i)Resets in ([0-9hms.]+)`)
 
@@ -222,13 +225,16 @@ func (e *Engine) capacityWait(scopes ...quotaScope) time.Duration {
 	return max(time.Until(until), 0)
 }
 
-// capacityStartCooldown starts the next cooldown: base, then doubling.
+// capacityStartCooldown starts the next cooldown: base, then doubling, never above capacityCooldownMax.
 func (e *Engine) capacityStartCooldown() time.Duration {
 	e.capMu.Lock()
 	defer e.capMu.Unlock()
 	d := capacityCooldownBase
-	for i := 0; i < e.capRound && d <= math.MaxInt64/2; i++ { // guard against overflow only
+	for i := 0; i < e.capRound && d < capacityCooldownMax; i++ {
 		d *= 2
+	}
+	if d > capacityCooldownMax {
+		d = capacityCooldownMax
 	}
 	e.capRound++
 	e.capUntil = time.Now().Add(d)
@@ -475,9 +481,12 @@ type capPendingEntry struct {
 }
 
 // capHandoffRef names the open handoff of a workspace at one moment (its key and start time).
+// unknown marks a ref taken while the workspace state could not be read: which task the message
+// belonged to is not known, so it is not the same as "no handoff" (a plain chat turn).
 type capHandoffRef struct {
-	key string
-	at  time.Time
+	key     string
+	at      time.Time
+	unknown bool
 }
 
 // capHandoffAt: the open handoff of workspace key now, if this engine owns it.
@@ -490,7 +499,11 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		slog.Error("capacity retry: workspace state unreadable; the held message's task is unknown", "key", key, "error", err)
+		return capHandoffRef{key: key, unknown: true}
+	}
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[key] {
 			if teamHandoffOpen(h) {
@@ -503,20 +516,37 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 
 // stillOwnsHandoff: false when the work of a held message has been handed to another role since
 // (the repeated-error reassign, the quota takeover) — re-delivering it would run the same work in
-// two places at once (#986 review 6.1). A message held without a watch (a plain chat turn) and a
-// watch that is simply gone are both re-delivered as before.
+// two places at once (#986 review 6.1) — or since paused or ended (#699). A message held without a
+// watch (a plain chat turn) and a watch that is simply gone are both re-delivered as before. A
+// message held while the state was unreadable belongs to an unknown task and is not re-delivered.
 func (e *Engine) stillOwnsHandoff(ref capHandoffRef) bool {
+	if ref.unknown {
+		slog.Error("capacity retry: held message's task was unknown when held; not re-delivered", "key", ref.key)
+		return false
+	}
 	if ref.key == "" {
 		return true
 	}
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		// Whether the task is still in work is unknown: hold the message rather than run it.
+		slog.Error("capacity retry: workspace state unreadable; held message not re-delivered", "key", ref.key, "error", err)
+		return false
+	}
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[ref.key] {
-			if h.At.Equal(ref.at) && teamHandoffOpen(h) {
-				return h.Owner == "" || h.Owner == e.name || h.Owner == e.DisplayName()
+			if !h.At.Equal(ref.at) {
+				continue
 			}
+			// #699 (#698 ④): the task this message belonged to was paused or ended while it was
+			// held. Re-delivering it opened a turn of the paused #677 on the workspace's fresh
+			// session (11-11 15:43:13, is_resume=false); a resume hands the task off again.
+			if !teamHandoffOpen(h) {
+				return false
+			}
+			return h.Owner == "" || h.Owner == e.name || h.Owner == e.DisplayName()
 		}
 	}
 	return true

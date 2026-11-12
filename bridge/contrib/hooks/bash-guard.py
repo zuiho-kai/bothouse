@@ -146,7 +146,10 @@ POLL_LOOP = re.compile(r"\b(until|while)\b.*?\bdo\b.*?\bsleep\b.*?\bdone\b", re.
 # 绕过上一条的两种（作者 11-03 复盘，慢命令 13 条 84 分钟）：for i in $(seq 1 38); do kill -0 …||break; sleep 8; done，
 # 以及 caffeinate -w <pid> 前台等进程结束。for 循环只在带 break 时算轮询（for … sleep 限速不算）。
 POLL_FOR = re.compile(r"\bfor\b.*?\bdo\b(?=.*?\bsleep\b)(?=.*?\bbreak\b).*?\bdone\b", re.S)
-PERL_ALARM = re.compile(r"perl\s+-e\s+(['\"])alarm[^'\"]*\1\s+\d+\s+")
+# 两种包法都看里面的命令：perl -e 'alarm shift; exec @ARGV' <秒> <命令…>，perl -e 'alarm <秒>; exec @ARGV' <命令…>
+PERL_ALARM = re.compile(r"perl\s+-e\s+(['\"])\s*alarm\s+(?:shift|\d+)\s*;\s*exec\s+@ARGV\s*;?\s*\1(?:\s+\d+)?\s+")
+# 循环里用解释器睡（python3 -c 'import time;time.sleep(20)'）也算 sleep：去引号前先换成 sleep，否则 for…break 轮询漏拦
+INLINE_SLEEP = re.compile(r"\b(?:python[\d.]*|perl|ruby|node(?:js)?)\s+-(?:c|e|-eval)\s+(['\"])(?:\\.|(?!\1).)*?\bsleep\b(?:\\.|(?!\1).)*?\1", re.S)
 def interpreter_poll(program, source):
     """Inspect executable inline code, never shell-quoted data or string constants."""
     if re.fullmatch(r"python[\d.]*", program):
@@ -242,7 +245,7 @@ def check_wait(cmd, busy=None, dsh=False):
                     deny(WAIT_MSG + "\n被拦：解释器中的轮询等待循环。")
                 break
     # Shell loops cannot be inferred from text quoted as an argument.
-    shell = re.sub(r"(['\"])(?:\\.|(?!\1).)*?\1", " ", cmd, flags=re.S)
+    shell = re.sub(r"(['\"])(?:\\.|(?!\1).)*?\1", " ", INLINE_SLEEP.sub(" sleep ", cmd), flags=re.S)
     if POLL_LOOP.search(shell):
         deny(WAIT_MSG + "\n被拦：until/while … sleep … done 轮询循环。")
     if POLL_FOR.search(shell):

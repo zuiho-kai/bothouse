@@ -1,1 +1,2 @@
-onlyBuiltDependencies: esbuild
+onlyBuiltDependencies:
+  - esbuild

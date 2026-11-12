@@ -157,7 +157,10 @@ func (e *Engine) reviewModelSupport(model string) (bool, string) {
 		return c.ok, c.why
 	}
 	reviewModelSupportMu.Unlock()
-	ok, why := e.reviewModelSupportNow(model)
+	ok, why, known := e.reviewModelSupportNow(model)
+	if !known {
+		return ok, why // the list could not be read: not a fact about the model, ask again next scan
+	}
 	reviewModelSupportMu.Lock()
 	if reviewModelSupportCache[e] == nil {
 		reviewModelSupportCache[e] = map[string]reviewModelSupportEntry{}
@@ -167,30 +170,44 @@ func (e *Engine) reviewModelSupport(model string) (bool, string) {
 	return ok, why
 }
 
-func (e *Engine) reviewModelSupportNow(model string) (bool, string) {
-	ms, ok := e.agent.(ModelSwitcher)
-	if !ok {
-		return false, "这个角色的后端不支持换模型，会按它自己的模型跑"
+// reviewModelSupportNow: known is false when the backend's model list could not be read (timed
+// out or came back empty); such a result is not cached.
+func (e *Engine) reviewModelSupportNow(model string) (ok bool, why string, known bool) {
+	ms, isSwitcher := e.agent.(ModelSwitcher)
+	if !isSwitcher {
+		return false, "这个角色的后端不支持换模型，会按它自己的模型跑", true
 	}
-	if agentOffersModel(ms, model) {
-		return true, ""
+	offered, listed := agentModelOffer(ms, model)
+	if offered {
+		return true, "", true
 	}
-	return false, "这个模型不在该角色后端的模型列表里，后端可能忽略它"
+	if !listed {
+		return false, "查该角色后端的模型列表失败（超时或返回空），没法确认这个模型能用", false
+	}
+	return false, "这个模型不在该角色后端的模型列表里，后端可能忽略它", true
 }
 
 // agentOffersModel: ms runs on model now or lists it (name or alias).
 func agentOffersModel(ms ModelSwitcher, model string) bool {
+	offered, _ := agentModelOffer(ms, model)
+	return offered
+}
+
+// agentModelOffer: offered as agentOffersModel; listed is false when the model list could not be
+// read (the request timed out or returned nothing), so a miss is not a fact about the model.
+func agentModelOffer(ms ModelSwitcher, model string) (offered, listed bool) {
 	if strings.EqualFold(ms.GetModel(), model) {
-		return true
+		return true, true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reviewModelListTimeout)
 	defer cancel()
-	for _, o := range ms.AvailableModels(ctx) {
+	opts := ms.AvailableModels(ctx)
+	for _, o := range opts {
 		if strings.EqualFold(o.Name, model) || (o.Alias != "" && strings.EqualFold(o.Alias, model)) {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, len(opts) > 0 && ctx.Err() == nil
 }
 
 // ReviewModelNotice is the latest case of a review model that would not take effect, for the
@@ -231,10 +248,14 @@ func noteTurnModelIgnored(job *TimerJob, agent Agent, role string) {
 	ms, ok := agent.(ModelSwitcher)
 	why := fmt.Sprintf("%s 的后端不支持换模型，这一轮按它自己的模型跑", agent.Name())
 	if ok {
-		if agentOffersModel(ms, job.Model) {
+		offered, listed := agentModelOffer(ms, job.Model)
+		if offered {
 			return
 		}
 		why = fmt.Sprintf("%s 的后端模型列表里没有 %s，后端可能忽略它、按自己的模型跑", agent.Name(), job.Model)
+		if !listed {
+			why = fmt.Sprintf("查 %s 的后端模型列表失败（超时或返回空），没法确认 %s 能用", agent.Name(), job.Model)
+		}
 	}
 	board := 0
 	if job.TaskReview != nil {

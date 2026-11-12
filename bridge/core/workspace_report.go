@@ -15,6 +15,21 @@ type workspaceReportTurn struct {
 	valid    bool
 	required bool
 	wakes    int
+	// delivered: a handback command (WorkspaceExit) went through during the running turn; the
+	// turn's end counts it as the report even though the reply carries no marker (#1500).
+	delivered bool
+}
+
+// markWorkspaceReportDelivered records a handback by command for sessionKey: the report is no
+// longer owed, so the turn's end neither wakes for it nor keeps a queued session reset blocked.
+func (e *Engine) markWorkspaceReportDelivered(sessionKey string) {
+	e.pendingResetMu.Lock()
+	defer e.pendingResetMu.Unlock()
+	for _, k := range []string{sessionKey, teamChatKey(sessionKey)} {
+		if r := e.workspaceReports[k]; r != nil {
+			r.valid, r.required, r.wakes, r.delivered = true, false, 0, true
+		}
+	}
 }
 
 func (e *Engine) workspaceReportBoard(key string) map[int]string {
@@ -84,12 +99,20 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	if valid && kind == exitKindAsk {
 		valid = askEvidenceProblems(body) == nil
 	}
+	// #1500: since #699 C the handback is the command (ws-up --report → WorkspaceExit), not the
+	// reply text, so a task the state already has handed back is delivered whatever the reply says.
+	switch e.workspaceTaskStateAt(key) {
+	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
+		valid = true
+	}
 	e.pendingResetMu.Lock()
 	r := e.workspaceReports[key]
 	if r == nil {
 		e.pendingResetMu.Unlock()
 		return false
 	}
+	valid = valid || r.delivered // WorkspaceExit ran during this turn (markWorkspaceReportDelivered)
+	r.delivered = false
 	changed := false
 	for id, status := range board {
 		if r.board[id] != status {
@@ -115,7 +138,7 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	if id, why := selfPauseOf(board); id > 0 {
 		if wake {
 			slog.Warn("workspace stopped itself without a report: requesting delivery", "session", key, "board_item", id)
-			e.wakeWatchRole(key, fmt.Sprintf("你在工作区里给 #%d 记了停手（%s），但这一轮没交 [report]。保留当前会话，现在交回：最后一条回复第一行写 [report] #%d，说做到哪、卡在哪、要谁定，第二行起写已核实的产物和证据。不要再跑新命令，不要重做已完成的工作。", id, why, id), "补交停手汇报")
+			e.wakeWatchRole(key, fmt.Sprintf("你在工作区里给 #%d 记了停手（%s），但这一轮没交 [report]。保留当前会话，现在交回：把 [report] #%d 写进草稿文件（说做到哪、卡在哪、要谁定，第二行起写已核实的产物和证据），跑 ws-up --report <草稿文件>。不要再跑新命令，不要重做已完成的工作。", id, why, id), "补交停手汇报")
 			return true
 		}
 		e.selfPauseFallback(key, id, why, text)
@@ -123,7 +146,7 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	}
 	if wake {
 		slog.Warn("workspace report missing: preserving session and requesting delivery", "session", key)
-		e.wakeWatchRole(key, fmt.Sprintf("你把活标成完成或等用户，但没交 [report]。保留当前会话，请立即补交上一轮的结果；最后一条回复第一行写 [report] #任务板编号 给用户的一两句话，第二行起写交付内容和证据，让聊天频道收到。需要用户决定时用带自验证据和类别的 [ask]。不要重新做已经完成的工作。原会话：%s", key), "补交工作区结果")
+		e.wakeWatchRole(key, fmt.Sprintf("你把活标成完成或等用户，但没交 [report]。保留当前会话，请立即补交上一轮的结果；把 [report] #任务板编号 给用户的一两句话写进草稿文件，第二行起写交付内容和证据，跑 ws-up --report <草稿文件> 交回。需要用户决定时跑带自验证据和类别的 ws-up --ask。不要重新做已经完成的工作。原会话：%s", key), "补交工作区结果")
 	} else {
 		slog.Error("workspace report recovery exhausted; session reset remains blocked", "session", key)
 	}

@@ -24,7 +24,7 @@ func reconcileGraceFixture(t *testing.T, status string, progress, boardAt time.T
 	// The handoff is old: only the board item's own activity may keep the workspace.
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st := testLoadTeamWorkspacesLocked(path)
 	for i := range st.Handoffs["discord:ws1"] {
 		st.Handoffs["discord:ws1"][i].At = now.Add(-3 * time.Hour)
 		st.Handoffs["discord:ws1"][i].Due = time.Time{}
@@ -61,29 +61,5 @@ func TestReconcileGrace_RecentProgressOnFinishedItemKeepsWorkspace(t *testing.T)
 	}
 	if _, ok := e.WorkspaceParent("discord:ws1"); !ok {
 		t.Fatal("workspace went back to the pool although its item moved 2 minutes ago")
-	}
-}
-
-func TestReconcileGrace_StaleProgressOnFinishedItemIsStillFreed(t *testing.T) {
-	now := time.Now()
-	e, w, at := reconcileGraceFixture(t, "已完成", now.Add(-time.Hour), now.Add(-3*time.Hour), now.Add(-3*time.Hour).Format(time.RFC3339))
-	freed := w.reconcileTeamWorkspaces(at)
-	if len(freed) != 1 || freed[0] != "discord:ws1" {
-		t.Fatalf("stale item must still free the workspace, freed %v", freed)
-	}
-	if _, ok := e.WorkspaceParent("discord:ws1"); ok {
-		t.Fatal("released workspace is still owned")
-	}
-}
-
-func TestReconcileGrace_NoProgressDataStillFrees(t *testing.T) {
-	now := time.Now()
-	e, w, at := reconcileGraceFixture(t, "已完成", time.Time{}, now.Add(-3*time.Hour), now.Add(-3*time.Hour).Format(time.RFC3339))
-	freed := w.reconcileTeamWorkspaces(at)
-	if len(freed) != 1 || freed[0] != "discord:ws1" {
-		t.Fatalf("an item that never reported progress must not be kept forever, freed %v", freed)
-	}
-	if _, ok := e.WorkspaceParent("discord:ws1"); ok {
-		t.Fatal("released workspace is still owned")
 	}
 }

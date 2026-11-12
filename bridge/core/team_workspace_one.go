@@ -146,7 +146,7 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 	current := e.boardItemByID(hid)
 	for _, it := range readTeamTaskBoard(e.teamStatusDir()) {
 		if it.ID != hid && it.WS != "" && teamChatKey(it.WS) == teamChatKey(sessionKey) &&
-			it.Paused == "" && it.Backlog == "" && !watchBoardClosed(it) {
+			it.Paused == "" && it.Backlog == "" {
 			// A failed board write can leave an older task bound after its
 			// session was released. It must not block a newer binding's exit.
 			if current != nil && teamChatKey(current.WS) == teamChatKey(sessionKey) {
@@ -257,19 +257,36 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 		if it.WS == "" || it.Paused != "" || it.Backlog != "" {
 			continue
 		}
-		// A finished-looking item still keeps its workspace while the item itself moved
-		// within the grace (ws-up report / board update / binding), so a wrong judgement
-		// does not kill a workspace that is still working.
-		if !watchBoardClosed(it) || now.Sub(teamTaskBoardLastActive(it, now)) < teamWorkspaceReconcileGrace {
-			live[teamChatKey(it.WS)] = true
-		}
+		// An item on the board bound to a workspace is live; a finished one is off the board
+		// (board done). #699 D: no closing words read from its status.
+		live[teamChatKey(it.WS)] = true
 	}
 	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
-	st := loadTeamWorkspacesLocked(path)
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace reconcile: state unreadable; nothing released", "error", err)
+		return nil
+	}
+	// #699 B: a workspace whose task has a state record is live exactly while that task is in work
+	// there or a turn runs in it; the board row's text is read only for handoffs without a board id.
+	inWork := map[string]bool{}
+	for _, t := range st.Tasks {
+		if teamTaskInWork(t.State) && t.WS != "" {
+			inWork[t.WS] = true
+		}
+	}
 	var stale []string
 	for key, list := range st.Handoffs {
-		if live[key] {
+		if inWork[key] || teamTurnRunning(key) {
+			continue
+		}
+		tracked := false
+		for _, h := range list {
+			tracked = tracked || teamHandoffOpen(h) && h.Board > 0 && st.Tasks[h.Board].State != ""
+		}
+		if live[key] && !tracked {
 			continue
 		}
 		plat, _, _ := strings.Cut(key, ":")

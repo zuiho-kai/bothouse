@@ -47,10 +47,9 @@ func TestReleaseHoldShowsUnderReleaseNotStuck(t *testing.T) {
 	}
 }
 
-// The claim writes the task sentence as the title (ws-handoff claim --title task[:60]), so the
-// real handoff carries no #N: the item is the one bound to its workspace (#984 review 1).
+// The claim names the board item (ws-handoff claim --board); the title is only the task sentence.
 func TestReleaseHoldFailedTurnsDoNotEscalate(t *testing.T) {
-	e, p, _, h := watchFixture(t, "", "集中发布：切版本")
+	e, p, _, h := watchFixtureBoard(t, "", "集中发布：切版本", 7) // #699 D: the claim names the item
 	held := map[string]any{"id": 7, "what": "集中发布", "status": "进行中", "who": "工作区1橘", "ws": "discord:ws1", "chat": "discord:chatA",
 		"release_hold": map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano)}}
 	writeReleaseBoard(t, e, held)
@@ -91,29 +90,6 @@ func TestReleaseHoldTitleNumberSkipsOtherWorkspaceItem(t *testing.T) {
 	}
 	if got := handoffsOf(e, "discord:ws1")[0]; got.Idle.Fails != watchFailLimit || !got.Idle.Reported {
 		t.Fatalf("another workspace's held item must not swallow these failures: %+v", got.Idle)
-	}
-}
-
-// handoffBoardID: the item bound to the workspace, a title number only when it names that item.
-func TestHandoffBoardID(t *testing.T) {
-	items := []teamTaskBoardItem{
-		{ID: 7, What: "集中发布", WS: "discord:ws1", Chat: "discord:chatA"},
-		{ID: 984, What: "开着的 PR 收尾", WS: "discord:ws9", Chat: "discord:chatB"},
-	}
-	for _, c := range []struct {
-		name string
-		key  string
-		h    TeamHandoff
-		want int
-	}{
-		{"bound item, title without a number", "discord:ws1", TeamHandoff{Title: "集中发布：切版本"}, 7},
-		{"recorded board wins", "discord:ws1", TeamHandoff{Title: "发布 #984 收尾", Board: 7}, 7},
-		{"issue number in the title is not the item", "discord:ws1", TeamHandoff{Title: "发布 #984 收尾"}, 7},
-		{"nothing bound here", "discord:ws2", TeamHandoff{Title: "集中发布"}, 0},
-	} {
-		if got := handoffBoardID(c.key, c.h, items); got != c.want {
-			t.Errorf("%s: handoffBoardID = %d, want %d", c.name, got, c.want)
-		}
 	}
 }
 
@@ -199,7 +175,7 @@ func TestReleaseHoldResumesAfterRestart(t *testing.T) {
 // #984 review N1: a held handoff must not be nudged, resumed or parked by the ten-minute watch;
 // the mark is what holds it on the board, not the workspace.
 func TestReleaseHoldWatchDoesNotNudgeOrPark(t *testing.T) {
-	e, p, w, h := watchFixture(t, "", "集中发布：切版本")
+	e, p, w, h := watchFixtureBoard(t, "", "集中发布：切版本", 7) // #699 D: the claim names the item
 	var resumed []string
 	w.resume = func(_ Platform, key string, _ TeamHandoff) { resumed = append(resumed, key) }
 	writeReleaseBoard(t, e, map[string]any{"id": 7, "what": "集中发布", "status": "进行中", "who": "工作区1橘",

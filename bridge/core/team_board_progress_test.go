@@ -14,7 +14,7 @@ import (
 // #208: a renewal must leave 「最后活动 + 最近一步」 on the workspace's board row, or the table
 // keeps counting from the hand edit and calls live work 卡住 (1h) / 搁置 (24h).
 func TestWatchProgressWritesBoardRow(t *testing.T) {
-	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
+	e, _, w, h := progressFixtureBoard(t, "<@"+k5aOwner+">", 7)
 	// The real gate/board.py, so the row is read back by the script that owns the file.
 	gateSrc, err := filepath.Abs(filepath.Join("..", "contrib", "gate"))
 	if err != nil {
@@ -29,8 +29,8 @@ func TestWatchProgressWritesBoardRow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	now := h.Due // handoffBoardID: one board item bound to this workspace
-	p.post("ws1", k5aOwner, "@橘 改完 team_watch.go，在跑测试", now.Add(-time.Minute))
+	now := h.Due // the handoff was claimed for #7 (#699: no guessing from the workspace)
+	testTurnEnded("discord:ws1", now.Add(-time.Minute)) // #699 E: a turn that ended is progress, a post is not
 	j := e.turnJournalStore()
 	en, err := j.Begin(TurnJournalEntry{InteractiveKey: "discord:ws1:u1"})
 	if err != nil {
@@ -68,13 +68,13 @@ func TestWatchProgressWritesBoardRow(t *testing.T) {
 
 // A step the workspace wrote itself stays; the row only gets the new 最后活动时间.
 func TestWatchProgressKeepsOwnStatus(t *testing.T) {
-	e, p, w, h := progressFixture(t, "<@"+k5aOwner+">")
+	e, _, w, h := progressFixtureBoard(t, "<@"+k5aOwner+">", 9)
 	boardDir := e.teamStatusDir()
 	row := `{"id":9,"what":"自己写状态","status":"在做：写 208 的看门","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main","at":"11-05 12:00"}` + "\n"
 	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p.post("ws1", k5aOwner, "@橘 看一下", h.Due.Add(-time.Minute))
+	testTurnEnded("discord:ws1", h.Due.Add(-time.Minute)) // #699 E: a turn that ended is progress, a post is not
 	w.tick(h.Due)
 	got := boardItemOf(t, boardDir, 9)
 	if got.Status != "在做：写 208 的看门" {
@@ -97,7 +97,7 @@ func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	for _, id := range []int{1, 2, 3} {
+	for _, id := range []int{1, 3} { // #699 D: a status text (#2 「已验收」) no longer closes a row
 		wrote, err := writeBoardProgress(dir, id, "Bash x", true, "discord:ws1", now)
 		if err != nil || wrote {
 			t.Fatalf("item %d: wrote %v, err %v (want untouched)", id, wrote, err)
@@ -112,47 +112,6 @@ func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 	}
 	if _, err := writeBoardProgress(t.TempDir(), 1, "Bash x", true, "discord:ws1", now); err == nil {
 		t.Fatal("missing board.jsonl must fail (and be logged), not silently pass")
-	}
-}
-
-// #1438: board.py's CLOSED_RE and watchBoardClosed take "done" as a closing word, so this writer
-// must too — otherwise a row left at done keeps getting its progress_at raised and the 10-minute
-// grace in reconcileTeamWorkspaces holds that workspace forever. Three spellings, one rule.
-func TestBoardProgressSkipsEnglishDoneRows(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, teamTaskBoardFile)
-	stamp := time.Now().Add(-20 * time.Minute)
-	wantStamp := float64(stamp.UnixNano()) / 1e9
-	at := strconv.FormatFloat(wantStamp, 'f', -1, 64)
-	statuses := []string{"done", "Done", "done: 已交回"}
-	rows := ""
-	for i, s := range statuses {
-		rows += `{"id":` + strconv.Itoa(i+1) + `,"what":"英文收尾","status":"` + s + `","who":"工作区1橘",` +
-			`"ws":"discord:ws1","chat":"discord:main","progress_at":` + at + `}` + "\n"
-	}
-	if err := os.WriteFile(path, []byte(rows), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	for i, s := range statuses {
-		wrote, err := writeBoardProgress(dir, i+1, "Bash go test ./core", true, "discord:ws1", now)
-		if err != nil || wrote {
-			t.Fatalf("status %q: wrote %v, err %v (a done row must stay untouched)", s, wrote, err)
-		}
-		if got := boardItemOf(t, dir, i+1).ProgressAt; got != wantStamp {
-			t.Fatalf("status %q: progress_at = %v, want it left at %v", s, got, wantStamp)
-		}
-	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != rows {
-		t.Fatalf("done rows rewritten (err %v):\n%s", err, data)
-	}
-	// Not a whole word: board.py's CLOSED_RE needs \bdone\b, so this stays live.
-	live := `{"id":9,"what":"英文前缀","status":"donext 收尾","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main"}` + "\n"
-	if err := os.WriteFile(path, []byte(live), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if wrote, err := writeBoardProgress(dir, 9, "Bash go test ./core", true, "discord:ws1", now); err != nil || !wrote {
-		t.Fatalf("status \"donext 收尾\": wrote %v, err %v (want live)", wrote, err)
 	}
 }
 
@@ -314,11 +273,11 @@ func TestBoardProgressIsolatedInstance(t *testing.T) {
 	s := &APIServer{engines: map[string]*Engine{"orange": e}}
 	s.startHandoffWatch()
 	t.Cleanup(func() { s.Stop() })
-	if err := e.ClaimTeamWorkspaceFor("discord:chatA", "ws1", "工作区1", "<@"+k5aOwner+">", "隔离实例"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "<@"+k5aOwner+">", "隔离实例", 11); err != nil {
 		t.Fatal(err)
 	}
 	h := handoffsOf(e, "discord:ws1")[0]
-	hp.post("ws1", k5aOwner, "@橘 接手了，在改看门", h.At.Add(time.Millisecond))
+	testTurnEnded("discord:ws1", h.At.Add(time.Millisecond)) // #699 E: a turn that ended is progress, a post is not
 	// The step the workspace's turn recorded, as engine.go does on EventToolUse.
 	j := e.turnJournalStore()
 	en, err := j.Begin(TurnJournalEntry{InteractiveKey: "discord:ws1:u1"})
@@ -446,43 +405,6 @@ func TestBoardProgressStepIsSafeForTheTable(t *testing.T) {
 	}
 	if got := boardProgressStep("   "); got != boardNoStep {
 		t.Fatalf("empty step = %q, want %q", got, boardNoStep)
-	}
-}
-
-// 复核 2026-11-06 必修①（第二审）：工作区自己写的人话里带收口词，不能被当成这一行已关闭。
-// watchBoardClosed 是子串匹配，board.py 的收口判断是行首锚定，两者对「在做：…已验收…」结论相反。
-func TestBoardProgressKeepsRowAliveWhenOwnStatusMentionsClosing(t *testing.T) {
-	for _, status := range []string{"在做：检查已验收的条目", "在做：等验收通过再合", "在做：确认已结束的会话"} {
-		dir := t.TempDir()
-		now := time.Now()
-		row := `{"id":8,"what":"别人的活","status":"` + status + `","who":"工作区1橘",` +
-			`"ws":"discord:ws1","chat":"discord:main","progress_at":100}` + "\n"
-		if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		wrote, err := writeBoardProgress(dir, 8, "Bash go test ./core", true, "discord:ws1", now)
-		if err != nil || !wrote {
-			t.Fatalf("%q: wrote %v, err %v (a status that only mentions a closing word froze the row)", status, wrote, err)
-		}
-		got := boardItemOf(t, dir, 8)
-		if got.ProgressAt <= 100 {
-			t.Fatalf("%q: progress_at = %v, want it raised", status, got.ProgressAt)
-		}
-		if got.Status != status {
-			t.Fatalf("%q: status = %q, want the workspace's own words kept", status, got.Status)
-		}
-	}
-	// 真收口的行仍然跳过。
-	dir := t.TempDir()
-	rows := `{"id":1,"status":"已验收","ws":"discord:ws1"}` + "\n" +
-		`{"id":2,"status":"已完成：收工","ws":"discord:ws1"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []int{1, 2} {
-		if wrote, err := writeBoardProgress(dir, id, "Bash x", true, "discord:ws1", time.Now()); err != nil || wrote {
-			t.Fatalf("closed row %d: wrote %v, err %v (want untouched)", id, wrote, err)
-		}
 	}
 }
 

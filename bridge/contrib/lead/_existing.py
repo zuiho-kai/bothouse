@@ -182,7 +182,7 @@ def listing(notes, task="", self_where="", before=None, records=None, skill_dirs
         if k >= 2 and s >= SKILL_MIN:
             name, desc, path = sk[i]
             lines.append(f"- 现成做法 {name}：{desc[:60]}（{path}）")
-    dec = [ln for ln in _sections(notes, ("旧定案",)).splitlines() if ln.strip().startswith("-") and "没搜到" not in ln]
+    dec = [ln for ln in _sections(notes, ("旧定案",)).splitlines() if ln.strip().startswith("-") and "没搜到" not in ln and "没搜成" not in ln]
     if dec:
         lines.append(f"- 定案：交接里「旧定案（程序搜出）」节 {len(dec)} 条，开工前读")
     if not lines:
@@ -231,10 +231,11 @@ def proposal_listing(text, records=None, cmd=None):
 
 
 def _board_records():
-    """任务板上做完的和进行中的活（../gate/board.py）。读不到返回 []。"""
+    """任务板上做完的和进行中的活（../gate/board.py）。读不到返回 []。
+    自动收起的暂停条目（auto_pruned）不是做完，是作废的暂停活，不当「上一棒」列（同 board.done_item）。"""
     try:
         import board  # noqa: PLC0415  ws-handoff 已把 gate 目录放进 sys.path
-        return list(board.done_records()) + list(board.items())
+        return [r for r in board.done_records() if not r.get("auto_pruned")] + list(board.items())
     except Exception:  # noqa: BLE001
         return []
 

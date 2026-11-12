@@ -43,11 +43,19 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		slog.Info("team exit: report for a task already done; not held again", "board_item", hid, "workspace", ws)
 		return false
 	}
-	if e.exitReportedSinceBound(hid, item.Bound) || e.exitPostedRecently(exitKindReport, hid, hline) {
+	lead := e.reportLead(p.Name())
+	owner := e
+	if lead != nil {
+		owner = lead
+	}
+	// One handoff, one report: a repair turn's copy is not held while the first still waits for
+	// the lead. Only a post counts as reported: a held report the lead sent back (ws-forward) is
+	// ended unposted, and the reworked report after it is held again (#1491: #1489's second report
+	// was dropped as 「already posted」 after the first was rejected).
+	if e.exitReportedSinceBound(hid, item.Bound) || owner.heldReportFor(hid) != nil || e.exitPostedRecently(exitKindReport, hid, hline) {
 		slog.Info("team exit: report for this handoff already held or posted; not held again", "board_item", hid, "workspace", ws)
 		return false
 	}
-	lead := e.reportLead(p.Name())
 	_, after, waiting := waitExternalOf(body)
 	rec := &pendingReport{
 		Key:      reportKey(p.Name(), parent, ws, exitKindReport, hid, body),
@@ -55,10 +63,6 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		Kind: exitKindReport, Body: body, Headline: hline, Board: hid,
 		Session: sessionKey, CreatedAt: time.Now(), Held: true, Doubt: doubt,
 		Waiting: waiting, HeldBound: item.Bound, HeldDone: item.DoneAt != "" && item.AutoPruned == "",
-	}
-	owner := e
-	if lead != nil {
-		owner = lead
 	}
 	if ok, err := owner.rememberReportErr(rec); err != nil || !ok {
 		if err != nil {
@@ -71,7 +75,6 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 	heldReportImages.m[rec.Key] = takeWorkspaceImages(sessionKey, boundTime(item))
 	heldReportImages.files[rec.Key] = takeWorkspaceFiles(sessionKey, boundTime(item), false)
 	heldReportImages.mu.Unlock()
-	e.markExitReported(hid) // one handoff, one report: a repair turn's copy is not held again
 	queued := false
 	if lead != nil && lead.timerScheduler != nil {
 		silent := true
@@ -213,6 +216,16 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。不要自己转述或重贴这份汇报；验收完回 NO_REPLY 或一句你怎么定的。\n",
 		notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
 	return b.String()
+}
+
+// reportHeldForLead: board item hid has a report held for the lead of platform that is neither
+// posted nor ended yet.
+func (e *Engine) reportHeldForLead(platform string, hid int) bool {
+	owner := e
+	if lead := e.reportLead(platform); lead != nil {
+		owner = lead
+	}
+	return owner.heldReportFor(hid) != nil
 }
 
 // heldReportFor is the newest held, undelivered record for board item hid on this engine.
@@ -391,6 +404,9 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	e.postHeldImages(ctx, p, rc, imgs, cp.Body)
 	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	e.exitMarkPosted(exitKindReport, cp.Board, cp.Headline)
+	if cp.Board > 0 {
+		e.markExitReported(cp.Board) // posted: only now does this handoff count as reported
+	}
 	e.teamExit.mu.Lock()
 	if unchecked {
 		rec.Verdict = leadUncheckedMark
