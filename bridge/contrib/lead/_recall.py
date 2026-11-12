@@ -211,10 +211,17 @@ def gather(kws, before):
     sf = [pool.submit(session_ids, k) for k in kws]
     cf = pool.submit(channel_hits, kws, before)
     wait(wf + sf + [cf], timeout=SEARCH_BUDGET)
-    snips = [h for f in wf if f.done() for h in f.result()]
-    if cf.done():
-        snips += cf.result()
-    pairs = [p for f in sf if f.done() for p in f.result()]
+    def ok(f):  # #1492：一路出错只丢那一路，别的路已回来的照用
+        if not f.done():
+            return []
+        try:
+            return f.result()
+        except Exception as e:  # noqa: BLE001
+            print(f"_recall: 一路搜索出错，跳过这一路（{type(e).__name__}: {e}）", file=sys.stderr)
+            return []
+    snips = [h for f in wf for h in ok(f)]
+    snips += ok(cf)
+    pairs = [p for f in sf for p in ok(f)]
     left = SEARCH_BUDGET - (time.time() - t0)
     if pairs and left > 0:
         f = pool.submit(session_snips, pairs, before)
@@ -257,7 +264,11 @@ def old_decisions(notes, before=None):
             _log(len(kws), len(snips), -1, int((time.time() - t0) * 1000), cost, title)
             raise Failed(f"挑定案时{err}")
         got = parse_json(txt)
-        rows = [str(x).strip() for x in got if str(x).strip()][:MAX_LINES] if isinstance(got, list) else []
+        if not isinstance(got, list):
+            # 模型没答或答的不是列表：是没查成，不是没有（11-01～11-12 recall.tsv 66 次）
+            _log(len(kws), len(snips), -1, int((time.time() - t0) * 1000), cost, title)
+            return None
+        rows = [str(x).strip() for x in got if str(x).strip()][:MAX_LINES]
     _log(len(kws), len(snips), len(rows), int((time.time() - t0) * 1000), cost, title)
     return rows
 

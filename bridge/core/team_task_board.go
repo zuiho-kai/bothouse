@@ -392,7 +392,7 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 				hasLive := false
 				for i := range items {
 					it := &items[i]
-					if it.Paused == "" && it.Backlog == "" && !strings.HasPrefix(strings.TrimSpace(it.Status), "完成") && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
+					if it.Paused == "" && it.Backlog == "" && !it.wsEnded && (it.own == wsKey || chatOf(it.WS) == wsKey) {
 						if h.Board > 0 && it.ID != h.Board {
 							continue
 						}
@@ -453,7 +453,6 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 	}
 	return items
 }
-
 
 // shownIn: the item is on chat's board.
 func (it teamTaskBoardItem) shownIn(chat string) bool {
@@ -1320,8 +1319,14 @@ func withTeamTaskBoard(board string, section func(budget int) string) string {
 // teamBoardRowLine: a line that is one task row: an item of the four-state board (⚠/▶/⏸, #610)
 // or an older "#…"/"- …" row.
 func teamBoardRowLine(s string) bool {
-	for _, p := range []string{"#", "- ", "⚠ ", "▶ ", "⏸ ", "  · ", "  🟢 ", "  🟡 "} {
-		if strings.HasPrefix(s, p) {
+	// #1492: the pinned table indents its rows ("  ⚠ ", "  ⏸ ", "  ▶ ", "  📦 ") and the workspace
+	// board does not ("🟡 ", "📦 "): count them all, or the cut said 「还有 0 件」 while rows went.
+	if strings.HasPrefix(s, "#") || strings.HasPrefix(s, "- ") {
+		return true
+	}
+	t := strings.TrimLeft(s, " ")
+	for _, p := range []string{"⚠ ", "▶ ", "⏸ ", "· ", "🟢 ", "🟡 ", "📦 "} {
+		if strings.HasPrefix(t, p) {
 			return true
 		}
 	}

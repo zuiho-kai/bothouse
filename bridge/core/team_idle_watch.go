@@ -492,7 +492,13 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 						return
 					}
 					if watchBoardWaiting(it.Status) {
-						return // waits on someone else: no "carry on"; its next turn re-arms the watch
+						// #1492: in a workspace a 「等…」 written with `board update` is text, not a state
+						// (#699 D). Waiting on the user goes through ws-up --ask (the item pauses), on
+						// something outside through 等外部 (it parks); a bare 「等用户确认」 asked no one,
+						// and the watch went quiet for good. A chat channel's own note still waits.
+						if _, inWS := e.WorkspaceParent(a.key); !inWS {
+							return // waits on someone else: no "carry on"; its next turn re-arms the watch
+						}
 					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
 					closed = it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||

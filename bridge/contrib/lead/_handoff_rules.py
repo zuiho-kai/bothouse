@@ -419,6 +419,9 @@ def _gh_pr(repo, num, lines):
         return None
     if r.returncode == 0:
         return True
+    if not repo:
+        # #1492：只写了号，是在当前目录的仓库里查的；那里没有不等于这件活的仓库里没有，核不了就不拒
+        return None
     err = r.stderr.lower()
     return False if ("could not resolve to a pullrequest" in err or "no pull requests found" in err) else None
 
