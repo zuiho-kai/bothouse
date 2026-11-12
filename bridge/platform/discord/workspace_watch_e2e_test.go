@@ -199,8 +199,8 @@ func stopBotBursts(p *Platform) {
 }
 
 // Create 「工作区1」 beside the chat channel on Discord, claim it with the watch on, and at the
-// check time (shortened to 1s by BOTHOUSE_WATCH_TEST_SECONDS, as the runbook does) the watch reads
-// the workspace's Discord history, nudges, resumes once, then parks if there is still no
+// check time (shortened to 1s by BOTHOUSE_WATCH_TEST_SECONDS, as the runbook does) the watch, without
+// reading the workspace's Discord history (#699 E), nudges, resumes once, then parks if there is still no
 // progress (#825). A second `workspace new` reuses the parked workspace.
 func TestDiscordWorkspaceWatchEndToEnd(t *testing.T) {
 	t.Setenv("BOTHOUSE_WATCH_TEST_SECONDS", "1")
@@ -247,8 +247,9 @@ func TestDiscordWorkspaceWatchEndToEnd(t *testing.T) {
 	rest.mu.Lock()
 	reads := rest.historyGET["103"]
 	rest.mu.Unlock()
-	if reads == 0 {
-		t.Fatal("the watch must read the workspace's Discord history for progress")
+	if reads != 0 {
+		// #699 E: progress comes from the task's state record, never from channel history.
+		t.Fatalf("the watch read the workspace's Discord history %d times; progress must come from the state record", reads)
 	}
 	assertWatchResumesThenParks(t, rest, owner, "G39 串测")
 
