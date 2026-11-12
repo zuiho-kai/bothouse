@@ -1067,14 +1067,16 @@ def worker(argv):
     finally:
         sys.stdout.flush(); sys.stderr.flush()
     if rc and parent and not _alive(parent):
-        task = argv[1] if len(argv) > 1 else ""
+        task = (f"#{argv[1].lstrip('#')} 续办" if argv[:1] == ["--resume"] and len(argv) > 1
+                else argv[1] if len(argv) > 1 else "")
         _tell_chat(f"⚠️ 刚才说交给工作区的「{task}」没交出去（交活命令在回合结束后才报错）：{why.strip()[:600] or f'exit {rc}'}\n"
                    "这件活现在不在任务板上，要重新交。")
     os._exit(rc)
 
 
 def run(argv):
-    if os.environ.get(WORKER) or os.environ.get("WS_HANDOFF_INLINE") or argv[:1] in (["--drain"], ["--resume"]):
+    # --resume 也有模型直接调（续办暂停的活、ws-forward 转），同样会被回合结束杀掉，一起放后台；--drain 只由桥在后台调
+    if os.environ.get(WORKER) or os.environ.get("WS_HANDOFF_INLINE") or argv[:1] == ["--drain"]:
         return worker(argv) if os.environ.get(WORKER) else main(argv)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     stem = RUNS_DIR / f"{datetime.now().strftime('%m%d-%H%M%S')}-{os.getpid()}"
