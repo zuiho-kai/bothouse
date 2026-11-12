@@ -1721,7 +1721,10 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	err = saveTeamWorkspacesLocked(path, st)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
-		slog.Warn("team workspace: save state on release failed", "workspace", key, "error", err)
+		// The save put the state back to the file: the workspace is still owned and its handoffs
+		// open. Not released, so callers do not reset its sessions or hand it to the queue.
+		slog.Error("team workspace: save state on release failed; not released", "workspace", key, "error", err)
+		return false
 	}
 	if keep {
 		return false

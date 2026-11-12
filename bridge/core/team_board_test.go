@@ -242,7 +242,7 @@ func TestBoardDisableStopsPublisher(t *testing.T) {
 			e.team = &teamState{dir: t.TempDir(), board: true, inject: tc.lead}
 			done := make(chan struct{})
 			go func() {
-				e.runTeamBoard()
+				e.runTeamBoard(0)
 				close(done)
 			}()
 			defer func() { e.cancel(); <-done }()
@@ -253,6 +253,29 @@ func TestBoardDisableStopsPublisher(t *testing.T) {
 				t.Fatal("disabled/former lead still runs the board publisher")
 			}
 		})
+	}
+}
+
+// #1492 N7: the lead role flips off and back on within one refresh interval. The old loop must
+// exit when it wakes (a newer loop runs), or two loops each post the board.
+func TestBoardQuickOffOnLeavesOneLoop(t *testing.T) {
+	oldInterval := teamBoardInterval
+	teamBoardInterval = 20 * time.Millisecond
+	t.Cleanup(func() { teamBoardInterval = oldInterval })
+	e := NewEngine("lead", &stubAgent{}, nil, "", LangEnglish)
+	e.team = &teamState{dir: t.TempDir(), board: true, inject: true}
+	done := make(chan struct{})
+	go func() {
+		e.runTeamBoard(0)
+		close(done)
+	}()
+	defer e.cancel()
+	e.SetTeamBoard(false)
+	e.SetTeamBoard(true) // a new loop starts before the old one woke
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the old board loop still runs next to the new one")
 	}
 }
 
@@ -542,7 +565,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	logs, restore := captureSlog(t)
 	done := make(chan struct{})
 	go func() {
-		e.runTeamBoard()
+		e.runTeamBoard(0)
 		close(done)
 	}()
 	stopped := false

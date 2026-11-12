@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -145,6 +147,14 @@ func (e *Engine) settleFromTaskVerdict(key string) bool {
 			return false
 		}
 		slog.Info("report accept: held report settled by the task's pass", "board_item", cp.Board, "at", v.At)
+		// Same as the pass call (team_report_accept_api.go): the pass is the acceptance and the
+		// board item closes, except a progress report on a task waiting outside (#1378), which
+		// stays parked and comes back by itself.
+		if cp.Waiting {
+			slog.Info("report accept: progress on a task waiting outside posted; item stays parked", "board_item", cp.Board)
+		} else if out, err := e.runLeadScript(cp.Platform+":"+cp.Chat, "board", "accepted", strconv.Itoa(cp.Board)); err != nil {
+			slog.Warn("report accept: closing the board item failed", "board_item", cp.Board, "error", err, "output", strings.TrimSpace(string(out)))
+		}
 		return true
 	}
 	return false
