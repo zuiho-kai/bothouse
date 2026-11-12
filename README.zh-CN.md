@@ -2,7 +2,7 @@
   <a href="https://github.com/zuiho-kai/bothouse">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
-  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="960" alt="bothouse：把电脑上的 AI CLI 拉进一个群，组成会自己派活的小团队" />
+  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="960" alt="bothouse：把你电脑上的 AI 拉进一个群，组成会自己分活的小团队" />
 </picture>
   </a>
 
@@ -16,7 +16,7 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**把你已经在用的 Claude Code、Codex、Gemini 拉进一个群：一个当主角色负责分活，大家共用一份记忆。**
+**把你已经在用的 Claude Code、Codex、Gemini 拉进一个群：组长 AI 拆活分给大家，大家共用一份记忆。**
 
 [宣传片](#video) · [来由](#why) · [三种用法](#usage) · [安装](#install) · [怎么运作](#how) · [能力](#features) · [记忆](#memory) · [平台](#platforms) · [对比](#compare) · [路线图](#roadmap) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
@@ -58,9 +58,9 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 | 你手上有 | 从哪开始 |
 | --- | --- |
-| **几种 AI 命令行** | 走[安装](#install)里的向导，每个角色选一个你已登录的 CLI。 |
+| **几种 AI 命令行** | 走[安装](#install)里的向导，每个角色选一个你已登录的 AI 命令行（下文简称 CLI）。 |
 | **一个模型、一个账号** | 在同一个模型上建几个成员，各管一摊。见[一个 CLI 组团队](docs/single-cli-team.md)。 |
-| **DSH**（DeepSeek 官方的 agent 应用 DeepSeek Harness） | 在 DSH 里说「帮我装 bothouse-dsh」，或者跑 `bothouse module add dsh`。见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。 |
+| **DSH**（DeepSeek 官方的 AI 助手应用 DeepSeek Harness） | 在 DSH 里说「帮我装 bothouse-dsh」，或者跑 `bothouse module add dsh`。见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。 |
 
 
 <a id="install"></a>
@@ -96,8 +96,8 @@ Windows 命令、安装包下载和常驻后台见[上手指南](docs/GETTING_ST
 
 只要认识三个词：
 
-- **主角色**：每个聊天频道里你直接对话的那个 AI，相当于组长。它把真正的活拆开，按所长和额度派出去，一个群里五个 AI 也不会抢话；其他角色被 @ 或点名才回。
-- **工作区**：大活（超过十分钟、要改代码跑测试的）单独开一个工作频道去做，交接里带着你的原话、范围和做成什么样算好。聊天一直不卡；一个工作区同一时间只做一件活。主角色记任务板，系统每十分钟看一次进展；做完交回要带证据，只有要你拍板的事才回到聊天频道。这一整套就是我们说的**团队模式**。
+- **组长 AI**（文档里叫「主角色」）：每个聊天频道里你直接对话的那个 AI。它把真正的活拆开，按所长和额度派出去，一个群里五个 AI 也不会抢话；其他角色被 @ 或点名才回。
+- **工作区**：大活（超过十分钟、要改代码跑测试的）单独开一个工作频道去做，交接里带着你的原话、范围和做成什么样算好。聊天一直不卡；一个工作区同一时间只做一件活。组长 AI 记任务板，系统每十分钟看一次进展；做完交回要带证据，只有要你拍板的事才回到聊天频道。这一整套就是我们说的**团队模式**。
 - **共享记忆**：所有角色读写同一份 Markdown 笔记，换谁接手都知道来龙去脉。见[记忆](#memory)。
 
 没点名时谁来回、夜间复盘、护栏、手动换主角色等细节，见[团队怎么运转](docs/readme-details.md#团队怎么运转)。
@@ -133,7 +133,7 @@ Windows 命令、安装包下载和常驻后台见[上手指南](docs/GETTING_ST
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.zh.png"><img src="docs/assets/readme/shot-handoff.zh.png" alt="聊天频道里主角色把两件活分别派给工作区1和工作区2"></a><br><b>一句话交给工作区</b>：主角色把大活派出去，聊天频道照常说话。</td>
+    <td width="50%"><a href="docs/assets/readme/shot-handoff.zh.png"><img src="docs/assets/readme/shot-handoff.zh.png" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></a><br><b>一句话交给工作区</b>：组长 AI 把大活派出去，聊天频道照常说话。</td>
     <td width="50%"><a href="docs/assets/readme/shot-workspace.zh.png"><img src="docs/assets/readme/shot-workspace.zh.png" alt="工作区1的任务板：进行中和今天做完的活，按角色列出"></a><br><b>任务板</b>：哪个工作区在做什么、今天交了什么，一眼看完。</td>
   </tr>
   <tr>

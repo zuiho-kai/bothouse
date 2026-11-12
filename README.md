@@ -2,7 +2,7 @@
   <a href="https://github.com/zuiho-kai/bothouse">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-en-night.svg" />
-  <img src="docs/assets/readme/banner/hero-en-day.svg" width="960" alt="bothouse: your local AI CLIs in one group chat — a team that hands out its own work" />
+  <img src="docs/assets/readme/banner/hero-en-day.svg" width="960" alt="bothouse: the AIs on your computer, in one group chat — a team that splits its own work" />
 </picture>
   </a>
 
@@ -16,7 +16,7 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**Put the AIs you already use — Claude Code, Codex, Gemini CLI — into one group chat. One of them leads and splits the work; they all share one memory.**
+**Put the AIs you already use — Claude Code, Codex, Gemini CLI — into one group chat. A team-lead AI splits the work and hands it out; they all share one memory.**
 
 [Video](#video) · [Why](#why) · [Three ways in](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
@@ -58,9 +58,9 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 | What you have | Where to start |
 | --- | --- |
-| **Several AI CLIs** | The setup wizard (see [Install](#install)): each role gets one of your signed-in CLIs. |
+| **Several AI command-line tools** | The setup wizard (see [Install](#install)): each role gets one of your signed-in AI command-line tools ("CLIs" below). |
 | **One model, one account** | Create several members on the same model, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
-| **DSH** (DeepSeek Harness, DeepSeek's agent app) | Say "install bothouse-dsh for me" in DSH, or run `bothouse module add dsh`. See [bothouse in DSH](docs/platforms/dsh.en.md). |
+| **DSH** (DeepSeek Harness, DeepSeek's own AI assistant app) | Say "install bothouse-dsh for me" in DSH, or run `bothouse module add dsh`. See [bothouse in DSH](docs/platforms/dsh.en.md). |
 
 
 <a id="install"></a>
@@ -96,7 +96,7 @@ The Windows command, package downloads and the background service are in [Gettin
 
 Only three ideas to learn:
 
-- **The lead** — the AI you talk to in each chat channel. It splits real work and hands it out by skill and quota, so five AIs in one group still don't talk over each other. The others reply when you mention or name them.
+- **The team-lead AI** ("the lead" in the docs) — the AI you talk to in each chat channel. It splits real work and hands it out by skill and quota, so five AIs in one group still don't talk over each other. The others reply when you mention or name them.
 - **Workspaces** — big jobs (more than about ten minutes, or code changes and tests) go to a separate job channel with a handoff that carries your original words, the scope and what "done" looks like. Chat never stalls; one workspace, one job. The lead keeps a task board, and the bridge looks at every job every ten minutes. Results come back with proof, and only decisions that need you come back to chat. This is what we call **team mode**.
 - **Shared memory** — every role reads and writes the same Markdown notes, so whoever picks up a job already knows the background. See [Memory](#memory).
 
@@ -133,7 +133,7 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.en.png"><img src="docs/assets/readme/shot-handoff.en.png" alt="In the chat channel the lead hands two tasks to Workspace 1 and Workspace 2"></a><br><b>One message, handed to a workspace</b>: the lead sends big work out and chat carries on.</td>
+    <td width="50%"><a href="docs/assets/readme/shot-handoff.en.png"><img src="docs/assets/readme/shot-handoff.en.png" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></a><br><b>One message, handed to a workspace</b>: the team-lead AI sends big work out and chat carries on.</td>
     <td width="50%"><a href="docs/assets/readme/shot-workspace.en.png"><img src="docs/assets/readme/shot-workspace.en.png" alt="Workspace 1 task board listing running and finished tasks by role"></a><br><b>Task board</b>: what each workspace is doing and what landed today, at a glance.</td>
   </tr>
   <tr>
