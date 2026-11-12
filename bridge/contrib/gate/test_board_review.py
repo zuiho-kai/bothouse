@@ -62,7 +62,7 @@ class HandbackReview(unittest.TestCase):
         # #1492: the second rejection pauses the item and sends the user an [ask]. When the send
         # failed, stdout still said 「已在聊天频道发 [ask]」, so the lead trusted it and the user never heard.
         tmp = tempfile.mkdtemp()
-        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "lead", "CC_SESSION_KEY": "room:chat"}
+        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": NOBRIDGE, "CC_PROJECT": "lead", "CC_SESSION_KEY": "room:chat"}  # transition answers, every send fails
         path = Path(tmp) / "board.jsonl"
         path.write_text(json.dumps({"id": 35, "what": "review", "chat": "room:chat", "ws": "room:work", "project": "lead",
                                     "returned_at": "2026-11-10T03:21:00+00:00", "reject_reasons": ["第一次"]}) + "\n")
