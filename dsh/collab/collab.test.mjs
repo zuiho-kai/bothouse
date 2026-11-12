@@ -14,11 +14,45 @@ import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-me
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute, renameRoomRoute, roomSettingsRoute, withBody } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
+import { ChannelApprovals } from './approvals.mjs';
 
 // #149: without GATE_PORT the gate context reads the install's config.toml. A test that is not about
 // that must not reach the live gate because the shell running it has BOTHOUSE_DATA_DIR/CC_DATA_DIR set
 // (a bridge-started shell does). The #149 test below points this at its own temp config.
 process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
+
+test('workspace approval shares one decision with its parent channel', async () => {
+  const store = new Store(':memory:');
+  try {
+    store.ensureRoom(1, 'chat');
+    const hub = new Hub(store, { warn() {}, info() {} });
+    hub.setMember({ id: 'ds', name: 'Astra', kind: 'dsh', online: true });
+    const ws = store.createWorkspace(1);
+    const approvals = ChannelApprovals.of(hub);
+    let executions = 0;
+    for (const [choice, expected] of [['allow', 'allowed'], ['deny', 'denied'], ['allow_all', 'allowed_all']]) {
+      const { messageId, decision } = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'run tests', onDecide() { executions++; } });
+      const copy = store.page(1).find(m => JSON.parse(m.card ?? 'null')?.request_id === messageId);
+      assert.ok(copy);
+      approvals.decide(copy.id, choice);
+      assert.equal(await decision, choice);
+      assert.equal(JSON.parse(store.message(messageId).card).state, expected);
+      assert.equal(JSON.parse(store.message(copy.id).card).state, expected);
+      assert.throws(() => approvals.decide(messageId, choice), /已经处理/);
+      assert.throws(() => approvals.decide(copy.id, choice), /已经处理/);
+    }
+    assert.equal(executions, 3);
+    const open = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'text response' });
+    const response = hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '拒绝' }).message;
+    approvals.answerByText(response);
+    assert.equal(await open.decision, 'deny');
+    const expired = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'cancelled' });
+    const expiredCopy = store.page(1).find(m => JSON.parse(m.card ?? 'null')?.request_id === expired.messageId);
+    approvals.expire(expired.messageId);
+    assert.equal(await expired.decision, 'expired');
+    assert.equal(JSON.parse(store.message(expiredCopy.id).card).state, 'expired');
+  } finally { store.close(); }
+});
 
 const quiet = { warn() {}, info() {} };
 const tick = () => new Promise(r => setImmediate(r));
