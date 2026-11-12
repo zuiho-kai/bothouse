@@ -1,10 +1,13 @@
 # Redundancy audit of develop
 
-Baseline: `e01256d1aa86a7d1e1c58469bcad4d9682e632f1` (2026-11-12).
+Audit start: `e01256d1aa86a7d1e1c58469bcad4d9682e632f1` (2026-11-12).
+The PR was rebased onto the concurrently advanced `develop` head
+`414733415a4ce8fb672d340f2aabbbb187330471` (#1665); the deleted helper call
+sites were unchanged by that commit. The final inventory covers the rebased tree.
 
 ## Scope and method
 
-Inventoried all 4,106 tracked paths and scanned 3,185 source files (Go, Python,
+Inventoried all 4,109 tracked paths and scanned 3,187 source files (Go, Python,
 JavaScript/TypeScript, shell/PowerShell and Makefiles), including tests. Reviewed
 bridge CLI/core/config/daemon, every registered agent and platform, web, gate/hooks/wiki,
 DSH, companion, role-household, plugins, integrations and build/release entry points.
@@ -213,6 +216,11 @@ are precise; the call-graph intersection is reproducible with the commands above
 
 ## Validation
 
-`go build -tags no_web ./...` passed in an isolated HOME. Targeted tests for
-`core`, `agent/codex`, `agent/iflow` and `cmd/cc-connect` are running in the
-same isolation; CI is pending. No merge or deployment claimed.
+`go build -tags no_web ./...` passed in an isolated HOME before and after rebase.
+The first post-test build attempt in the test worktree was blocked because tests
+left a `bridge/contrib/lead/__pycache__` directory that Go embed rejects; the
+clean worktree build passed. Targeted tests passed for `agent/codex`,
+`agent/iflow` and `cmd/cc-connect`. The `core` run failed three DSH launchd
+self-heal tests; the same three failed on clean `develop` 414733415, while the
+rest of the core package passed. Current-head CI is pending. No merge or
+deployment claimed.
