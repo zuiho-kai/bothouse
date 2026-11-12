@@ -417,16 +417,6 @@ func fetchLatestStableRelease() (*githubRelease, error) {
 	return &githubRelease{TagName: parts[1], HTMLURL: loc}, nil
 }
 
-func binaryAssetName(tag string) string {
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-	name := fmt.Sprintf("cc-connect-%s-%s-%s", tag, goos, goarch)
-	if goos == "windows" {
-		name += ".exe"
-	}
-	return name
-}
-
 // Both update entry points use the same names, checksum policy and fallback order.
 func downloadUpdatePayload(base, tag string) (*core.ReleasePayload, error) {
 	data, name, err := core.DownloadReleaseAsset([]string{base}, tag, runtime.GOOS, runtime.GOARCH)

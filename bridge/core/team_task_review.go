@@ -625,14 +625,6 @@ func taskPauseKey(it teamTaskBoardItem) string {
 	return it.Paused
 }
 
-func taskPausedSince(it teamTaskBoardItem, now time.Time) time.Time {
-	if at, err := time.Parse(time.RFC3339Nano, it.PausedAt); err == nil {
-		return at
-	}
-	at, _ := teamTaskBoardLocal(it.Paused, now)
-	return at
-}
-
 // addTaskReviewJob serializes the two callers (report and periodic watch) around the
 // durable timer receipt. Other timer IDs keep their existing behavior.
 func (ts *TimerScheduler) addTaskReviewJob(job *TimerJob) error {

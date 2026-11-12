@@ -42,6 +42,7 @@ Line numbers refer to the baseline, before deletion.
 | `bridge/core/public_progress.go:1275` | `progressInstructions` | Declaration is the sole identifier reference across tracked source including tests; unreachable in all three Go configurations. |
 | `bridge/core/team_task_review.go:628` | `taskPausedSince` | Declaration is the sole identifier reference across tracked source including tests; unreachable in all three Go configurations. |
 | `bridge/core/public_progress.go:1257` | `PublicProgress.journalOnly` | Only caller is the removed `progressInstructions`; also unreachable in all three configurations. |
+| `bridge/core/public_progress.go:1275` | `Engine.progressInstructions` | Superseded by `currentTaskLine` plus `ProgressHelp`; unreachable in all three configurations. |
 | `bridge/core/public_progress.go:1271` | `voiceProgressPrompt` | Unreferenced constant; voice uses `currentTaskLine`. Shared CLI help constants remain. |
 | `bridge/agent/iflow/session.go:26` | `sessionIDRe` | Referenced only by removed `extractSessionIDFromExecutionInfo`. |
 | `bridge/Makefile:46` | First `ALL_AGENTS` assignment | Immediately overwritten at line 48, before any use; keep final assignment unchanged. |
@@ -50,7 +51,8 @@ Line numbers refer to the baseline, before deletion.
 Replacement history strengthens the source evidence:
 
 - `40e3082b8`: moved per-turn progress instructions to `ProgressHelp`; live
-  injection uses `currentTaskLine`, leaving `progressInstructions` behind.
+  injection uses `currentTaskLine`, leaving the old formatter, journal selector
+  and voice-specific prompt behind.
 - `f7a722175` (#1367): Codex runtime config caller moved to
   `loadCodexRuntimeConfigAs`, preserving spawn identity.
 - `1660a12f4` (#840): model/effort switching became channel-local, leaving
@@ -211,4 +213,6 @@ are precise; the call-graph intersection is reproducible with the commands above
 
 ## Validation
 
-Pending implementation and build/CI; no merge or deployment claimed.
+`go build -tags no_web ./...` passed in an isolated HOME. Targeted tests for
+`core`, `agent/codex`, `agent/iflow` and `cmd/cc-connect` are running in the
+same isolation; CI is pending. No merge or deployment claimed.

@@ -1360,15 +1360,6 @@ func (e *Engine) SetReasoningEffortSaveFunc(fn func(effort string) error) {
 	e.effortSaveFunc = fn
 }
 
-func (e *Engine) persistReasoningEffort(agent Agent, effort string) {
-	if agent != e.agent || e.effortSaveFunc == nil || effort == "" {
-		return
-	}
-	if err := e.effortSaveFunc(effort); err != nil {
-		slog.Warn("save reasoning effort failed", "effort", effort, "error", err)
-	}
-}
-
 func (e *Engine) SetModelSaveFunc(fn func(model string) error) {
 	e.modelSaveFunc = fn
 }
@@ -10856,28 +10847,6 @@ func appendReplyFooter(content, footer string) string {
 	return content + "\n\n*" + footer + "*"
 }
 
-func appendFinalMetadataToSegment(segment, fullResponse string) string {
-	segment = strings.TrimRight(segment, "\n ")
-	if segment == "" {
-		return fullResponse
-	}
-	fullResponse = strings.TrimSpace(fullResponse)
-	if fullResponse == "" || strings.TrimSpace(segment) == fullResponse {
-		return segment
-	}
-
-	metadata := ""
-	if idx := strings.LastIndex(fullResponse, "\n\n*"); idx >= 0 && strings.HasSuffix(fullResponse, "*") {
-		metadata = fullResponse[idx:]
-	} else if match := ctxSelfReportRe.FindString(fullResponse); match != "" {
-		metadata = "\n" + strings.TrimSpace(match)
-	}
-	if metadata == "" || strings.Contains(segment, strings.TrimSpace(metadata)) {
-		return segment
-	}
-	return segment + metadata
-}
-
 func (e *Engine) cmdShow(p Platform, msg *Message, args []string) {
 	rawRef := strings.TrimSpace(strings.Join(args, " "))
 	if rawRef == "" {
@@ -14990,10 +14959,6 @@ func (e *Engine) sendWithContextForWorkspace(ctx context.Context, p Platform, re
 	}
 	content = e.renderOutgoingContentForWorkspace(p, content, workspaceDir)
 	return e.sendRenderedWithContext(ctx, p, replyCtx, content)
-}
-
-func (e *Engine) sendForWorkspace(p Platform, replyCtx any, content, workspaceDir string) {
-	_ = e.sendWithErrorForWorkspace(p, replyCtx, content, workspaceDir)
 }
 
 func (e *Engine) renderCardForPlatform(p Platform, card *Card) *Card {
@@ -19802,15 +19767,6 @@ func extractUserID(sessionKey string) string {
 		return parts[2]
 	}
 	return ""
-}
-
-func stringSliceContains(ss []string, target string) bool {
-	for _, s := range ss {
-		if s == target {
-			return true
-		}
-	}
-	return false
 }
 
 func extractPlatformName(sessionKey string) string {
