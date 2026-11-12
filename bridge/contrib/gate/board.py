@@ -1227,8 +1227,9 @@ def reject(nid, reason):
         event(nid, "rejected", hit, reason)
         snap = dict(hit)
     if capped:
-        _ask_rework_cap(snap)
-    return "capped" if capped else True
+        # 只有真发出去才说「已发」（#1492 常识：做了才记做过）
+        return "capped" if _ask_rework_cap(snap) else "capped_unsent"
+    return True
 
 
 REWORK_CAP = 2
@@ -1254,7 +1255,8 @@ def _worker_side(it):
 
 
 def _ask_rework_cap(it):
-    """第二次退回：交接里记一笔，并在聊天频道发 [ask] 让用户定（失败只写 stderr，不拦退回）。"""
+    """第二次退回：交接里记一笔，并在聊天频道发 [ask] 让用户定（失败只写 stderr，不拦退回）。
+    返回 [ask] 真发出去没有。"""
     nid, rounds = it["id"], it.get("reject_reasons") or []
     text = (f"[ask] #{nid} 背景：「{it.get('what', '')}」验收退回两次，按返工上限先停下，等你定。\n"
             f"验收这边：第一次「{_clip(rounds[0])}」，第二次「{_clip(rounds[-1])}」。\n"
@@ -1265,7 +1267,7 @@ def _ask_rework_cap(it):
     chat, proj = it.get("chat") or it.get("sk") or "", it.get("project") or os.environ.get("CC_PROJECT", "")
     if not chat or not proj:
         print(f"board: #{nid} 没有聊天频道或项目，[ask] 没发：\n{text}", file=sys.stderr)
-        return
+        return False
     binp = os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect") or "cc-connect"
     try:
         r = subprocess.run([binp, "send", "-p", proj, "-s", chat, "--message", text.replace("<@", "<\u200b@")],
@@ -1274,6 +1276,8 @@ def _ask_rework_cap(it):
             raise RuntimeError(r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}")
     except Exception as e:
         print(f"board: #{nid} [ask] 没发出去（{e}），请转给用户：\n{text}", file=sys.stderr)
+        return False
+    return True
 
 
 def rebind(nid, ws, chat=None):
@@ -1870,6 +1874,8 @@ def main(argv):
                 sys.exit("条目不在待验收状态，未退回")
             if got == "capped":
                 print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，已在聊天频道发 [ask] 请用户定；ws-handoff --resume 不再续做")
+            elif got == "capped_unsent":
+                print(f"第二次退回：已暂停「{REWORK_CAP_WHY}」，但 [ask] 没发出去（原文见上面的报错），请你转给用户；ws-handoff --resume 不再续做")
             else:
                 print("已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办")
         elif cmd == "accepted" and len(argv) == 2:
