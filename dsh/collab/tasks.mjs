@@ -867,13 +867,14 @@ export class Tasks {
           continue;
         }
         // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
-        // accepted, a bare name may be talk about the delivery (praise) or a send-back: the task
-        // opens only when her next message here opens with a stance line (settleCall). An explicit
-        // @, a first call, or one while her task is in work dispatches at once, as before.
+        // accepted, a call may be talk about the delivery (praise, 「收到」) or a send-back: the task
+        // opens only when her next message here opens with a stance line (settleCall). #1539: an explicit
+        // @ too — a DSH lead's 「@小蓝 收到，谢谢」 after the hand-back opened #2, her 「不客气」 handed it
+        // back, and so on. A first call, or one while her task is in work, dispatches at once, as before.
         const key = `${msg.room_id}\0${owner}`;
         this.pendingCalls.delete(key);
         const latest = this.q.latestOf.get(msg.room_id, owner);
-        if (DELIVERED.includes(latest?.status) && !explicit.has(owner)) {
+        if (DELIVERED.includes(latest?.status)) {
           this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
           continue;
         }
@@ -1277,9 +1278,16 @@ export class Tasks {
  */
 function taskTitle(text, team) {
   const clean = l => l.replace(/^[\s，,：:、]+/, '').replace(/^\[(?:ask|report)\]/i, '').replace(/^[\s，,：:、]+/, '').trim();
+  // #1539: only the @s a line opens with are dropped; one inside the sentence keeps the name
+  // (「交给空闲的 @小蓝，并要求她…」 read 「交给空闲的 ，并要求她…」 on the card).
   const lines = String(text).split('\n').map(l => {
     const segs = split(l, team);
-    return { called: segs.some(([, id]) => id), text: clean(segs.map(([seg, id]) => (id ? '' : seg)).join('')) };
+    let lead = true;
+    const kept = segs.map(([seg, id]) => {
+      if (!id) { if (seg.trim()) lead = false; return seg; }
+      return lead ? '' : seg.replace(/^[@＠]/, '');
+    });
+    return { called: segs.some(([, id]) => id), text: clean(kept.join('')) };
   }).filter(l => l.text !== '' && !STANCE_LINE.test(l.text));
   // The line that calls the teammate says what the task is; else the first line of content.
   const line = (lines.find(l => l.called) ?? lines[0])?.text ?? '';

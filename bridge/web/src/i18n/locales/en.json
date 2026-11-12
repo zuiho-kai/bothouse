@@ -1,7 +1,7 @@
 {
   "qq": {
     "setupTitle": "Connect QQ",
-    "setupHint": "Use an existing OneBot / NapCat connection or official QQ bot credentials. Saving does not verify a live connection.",
+    "setupHint": "Connect with the AppID and AppSecret of a bot registered on the QQ Open Platform (q.qq.com); no NapCat and no personal QQ login. Saving does not verify a live connection.",
     "route": "Connection type",
     "official": "QQ Bot (Official)",
     "projectID": "New role ID",

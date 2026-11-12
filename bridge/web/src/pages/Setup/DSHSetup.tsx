@@ -58,7 +58,9 @@ const TEXT = {
     rolesTitle: '谁住进 #general', rolesNote: '默认使用 DSH 当前的原生模型，也可以选本机已登录的 CLI。',
     name: '名字（@ 时用）', runner: '用什么回话', deepseek: 'DSH 原生模型',
     nativeHas: '沿用 DSH 当前模型和已有凭据；可在 DSH 的模型设置中修改。',
-    optional: '可选：自定义名字、性格与说话风格、职责', keepName: '保留我的名字',
+    optional: '可选：性格与说话风格、职责', keepName: '保留我的名字',
+    defaultNames: ['小橙', '小蓝', '小绿', '小紫', '小青', '小粉'],
+    installTime: '安装大约要 4 分钟，进度停在一步上也还在装，别关页面。',
     noPersona: '默认不附加角色人设，可以直接开始工作。', noName: '名字不能为空。',
     loggedIn: '已登录', notLoggedIn: '未登录', persona: '人设', addRole: '再加一个角色', remove: '删掉',
     cliLoginHint: '先在终端运行 {cli} 登录一次。',
@@ -85,7 +87,9 @@ const TEXT = {
     rolesTitle: '#general に住むキャラ', rolesNote: 'デフォルトでは DSH の現在のネイティブモデルを使います。ログイン済みのローカル CLI も選べます。',
     name: '名前（@ で使う）', runner: '返事に使うもの', deepseek: 'DSH ネイティブモデル',
     nativeHas: 'DSH の現在のモデルと認証情報を引き継ぎます。変更は DSH のモデル設定で行えます。',
-    optional: '任意：名前、性格・話し方、役割', keepName: '自分の名前を残す',
+    optional: '任意：性格・話し方、役割', keepName: '自分の名前を残す',
+    defaultNames: ['ミカン', 'アオ', 'ミドリ', 'スミレ', 'ソラ', 'モモ'],
+    installTime: 'インストールには約 4 分かかります。進み具合が止まって見えても続いているので、ページを閉じないでください。',
     noPersona: 'デフォルトでは人格を付けず、そのまま働けます。', noName: '名前を入力してください。',
     loggedIn: 'ログイン済み', notLoggedIn: '未ログイン', persona: 'ペルソナ', addRole: 'キャラを追加', remove: '削除',
     cliLoginHint: '先にターミナルで {cli} を実行してログインしてください。',
@@ -112,7 +116,9 @@ const TEXT = {
     rolesTitle: 'Who lives in #general', rolesNote: 'Use the current native DSH model by default, or choose a signed-in local CLI.',
     name: 'Name (used with @)', runner: 'Replies with', deepseek: 'Native DSH model',
     nativeHas: 'Reuse the current DSH model and credentials. Change them in DSH model settings.',
-    optional: 'Optional: name, personality, speaking style and responsibilities', keepName: 'Keep my name',
+    optional: 'Optional: personality, speaking style and responsibilities', keepName: 'Keep my name',
+    defaultNames: ['Orange', 'Blue', 'Green', 'Violet', 'Teal', 'Pink'],
+    installTime: 'Installing takes about 4 minutes. It is still working even when a step looks stuck; keep this page open.',
     noPersona: 'Ready to work without a persona.', noName: 'A name is required.',
     loggedIn: 'signed in', notLoggedIn: 'not signed in', persona: 'Persona', addRole: 'Add another role', remove: 'Remove',
     cliLoginHint: 'Run {cli} once in a terminal to sign in.',
@@ -170,11 +176,17 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
   const runners = clis.filter((c) => c.supported && CLI_OF[c.agent_type]);
   const backendOf = (runner: string) => (runner === DEEPSEEK ? 'dsh' : runner);
   const usedNames = (rs: Role[], except: number) => rs.filter((r) => r.key !== except).map((r) => r.name).filter(Boolean);
+  // #1539: a default role is named 小橙/小蓝…, not after its backend (Codex, Codex-2 told two members apart by a suffix);
+  // the backend still shows next to the name (roleLabel).
+  const defaultName = (taken: string[], runner: string) => {
+    const used = new Set(taken.map((n) => n.toLocaleLowerCase()));
+    return t.defaultNames.find((n) => !used.has(n.toLocaleLowerCase())) ?? nextRoleName(backendOf(runner), taken);
+  };
   const newRole = (taken: string[]): Role => {
     const runner = DEEPSEEK;
     return {
       key: nextKey.current++,
-      name: nextRoleName(backendOf(runner), taken),
+      name: defaultName(taken, runner),
       nameCustomized: false,
       keepName: true,
       runner,
@@ -200,8 +212,9 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     const r = rs.find((x) => x.key === key);
     if (!r) return rs;
     const next = { ...r, runner };
-    if (!r.nameCustomized) {
-      const name = nextRoleName(backendOf(runner), usedNames(rs, key));
+    // a default name that still names a backend (a draft from before #1539) follows the new one
+    if (!r.nameCustomized && !t.defaultNames.includes(r.name)) {
+      const name = defaultName(usedNames(rs, key), runner);
       if (r.name && name !== r.name) next.persona = personaWithName(r.persona, r.name, name);
       next.name = name;
     }
@@ -301,6 +314,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
         {status?.pnpm_found === false && <p className="text-sm">{lang.startsWith('zh') ? '未检测到 pnpm，安装插件时会通过 npm 自动补齐。' : 'pnpm was not detected; the plugin installer will install it using npm.'}</p>}
         {status?.dependency_error && <Button onClick={() => detect()} disabled={busy}>{t.detect}</Button>}
         <p>{target === 'desktop' ? 'DeepSeek Harness Desktop' : `DSH ${status?.version ?? ''}`}{pluginInstalled && !busy && !log.length ? ` · ${t.installed}` : ''}</p>
+        {(busy || !pluginInstalled) && !installDone && <p className="text-sm text-gray-500" data-testid="dsh-install-time">{t.installTime}</p>}
         {(busy || log.length > 0) && <ol className="space-y-1 text-sm" data-testid="dsh-install-progress">
           {INSTALL_STEPS.map((s) => {
             const cur = stepIndex(installStep), me = stepIndex(s);
@@ -333,6 +347,7 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
                 {roles.length > 1 && <Button size="sm" variant="ghost" onClick={() => setRoles((rs) => rs.filter((x) => x.key !== r.key))}>{t.remove}</Button>}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
+                <Input label={t.name} value={r.name} onChange={(e) => patchName(r.key, e.target.value)} data-testid={`dsh-role-name-${idx}`} />
                 <label className="block text-sm">
                   <span className="block mb-1 text-gray-700 dark:text-gray-300">{t.runner}</span>
                   <select className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
@@ -352,7 +367,6 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
               <details data-testid={`dsh-optional-${idx}`}>
                 <summary className="cursor-pointer text-sm">{t.optional}</summary>
                 <div className="space-y-2 pt-2">
-                  <Input label={t.name} value={r.name} onChange={(e) => patchName(r.key, e.target.value)} data-testid={`dsh-role-name-${idx}`} />
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.keepName} data-testid={`dsh-keep-name-${idx}`}
                     onChange={(e) => patch(r.key, { keepName: e.target.checked })} />{t.keepName}</label>
                   {lib ? (

@@ -38,10 +38,16 @@ export function workspaceHint(hub, later, memberId, roomId) {
  */
 const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
 export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，没空的就新开。';
-export function dshTeamModeRules(mode) {
+/**
+ * #1539: a local CLI member (Codex and the like over ACP) runs in its CLI's sandbox, where a new install
+ * has no network, 127.0.0.1 included: the workspace curl / node command came back as a red
+ * "curl: (7) Failed to connect" in the channel. It hands work out with @ only (tasks.mjs fromChat).
+ */
+export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友：一条消息写清要做什么和验收标准，系统按 @ 自动开任务、每十分钟看进展，交回后你验收。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
+export function dshTeamModeRules(mode, { cli = false } = {}) {
   const rules = teamModeRules(mode);
   if (!WORKSPACE_LINE.test(rules)) throw new Error('team-mode-rules.md: the workspace line moved; update WORKSPACE_LINE');
-  return rules.replace(WORKSPACE_LINE, DSH_WORKSPACE_RULE);
+  return rules.replace(WORKSPACE_LINE, cli ? DSH_CLI_DISPATCH_RULE : DSH_WORKSPACE_RULE);
 }
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
 export function workspaceInstructions(mode) { return teamModeRules(mode); }
@@ -164,7 +170,7 @@ export function consumingTurn(events, inputId) {
  * unseen channel messages up to the trigger. Identity is restated every time
  * because other members' messages in the same history name themselves.
  */
-export function promptText(room, member, messages, status = '', mode = DEFAULT_DISPATCH_MODE, store = undefined) {
+export function promptText(room, member, messages, status = '', mode = DEFAULT_DISPATCH_MODE, store = undefined, { cli = false } = {}) {
   if (status && typeof status === 'object' && typeof status.quote === 'function') {
     store = status;
     status = '';
@@ -176,7 +182,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
   return [
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
     ...(persona.length ? persona : ['显示名只用于频道 @ 和路由，不要求扮演人物。没有人设时，以实际 AI 身份直接完成工作。']),
-    dshTeamModeRules(mode),
+    dshTeamModeRules(mode, { cli }),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
@@ -876,7 +882,8 @@ export class DshMembers {
           });
         }
       };
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store) + (this.rt.later?.instructions(member.id, room.id) ?? '') + workspaceHint(this.hub, this.rt.later, member.id, room.id);
+      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host (DSH_CLI_DISPATCH_RULE).
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id) ?? '');
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
