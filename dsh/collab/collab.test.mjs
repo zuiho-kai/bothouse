@@ -2715,6 +2715,30 @@ test('cloud-web #120: permission prompt → button → card_action → card stat
   assert.equal(JSON.parse(hub.store.message(third.id).card).state, 'expired');
 });
 
+test('cloud-web: bridge question buttons and a text reply reach the bot exactly once', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  const buttons = [[{ Text: '选 A', Data: 'askq:42:0' }, { Text: '选 B', Data: 'askq:42:1' }]];
+  const ask = () => bot.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '❓ 选哪个方案？', buttons });
+  ask();
+  await tick();
+  const first = hub.store.page(1).at(-1);
+  assert.equal(JSON.parse(first.card).kind, 'question');
+  gw.decidePermission(first.id, 'askq:42:1');
+  assert.equal(JSON.parse(hub.store.message(first.id).card).state, 'answered');
+  assert.equal(bot.of('card_action').at(-1).action, 'askq:42:1');
+  assert.throws(() => gw.decidePermission(first.id, 'askq:42:0'), /已经处理/);
+  ask();
+  await tick();
+  const second = hub.store.page(1).at(-1);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '我选自定义方案', replyTo: second.id });
+  await tick();
+  assert.equal(JSON.parse(hub.store.message(second.id).card).state, 'answered');
+  assert.equal(bot.of('message').at(-1).content, '我选自定义方案');
+  assert.equal(bot.of('card_action').length, 1);
+});
+
 test('cloud-web #120: owner text reply takes the same decision path; bot text does not approve', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -3568,7 +3592,7 @@ test('G35: a DSH task parked by the watch is woken in its kept session; answerin
   const wake = woken.find(([id]) => id === 'fu');
   assert.ok(wake && wake[1] === ws.id && !/新会话/.test(wake[2]), 'woken in the workspace, its session still there');
   assert.equal(hub.store.binding('fu', ws.id).session_id, 'collab-fu');
-  hub.post(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【问】#${t.id}\n做到第二步，卡在依赖` });
+  hub.post(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n继续做到第二步` });
   await settle();
   assert.equal(tasks.task(t.id).paused_at, null, 'resumed');
   assert.equal(hub.store.workspaceOwner(ws.id), 1, 'claimed back for its chat channel');
