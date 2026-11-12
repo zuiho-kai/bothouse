@@ -1320,8 +1320,14 @@ func withTeamTaskBoard(board string, section func(budget int) string) string {
 // teamBoardRowLine: a line that is one task row: an item of the four-state board (⚠/▶/⏸, #610)
 // or an older "#…"/"- …" row.
 func teamBoardRowLine(s string) bool {
-	for _, p := range []string{"#", "- ", "⚠ ", "▶ ", "⏸ ", "  · ", "  🟢 ", "  🟡 "} {
-		if strings.HasPrefix(s, p) {
+	// #1492: the pinned table indents its rows ("  ⚠ ", "  ⏸ ", "  ▶ ", "  📦 ") and the workspace
+	// board does not ("🟡 ", "📦 "): count them all, or the cut said 「还有 0 件」 while rows went.
+	if strings.HasPrefix(s, "#") || strings.HasPrefix(s, "- ") {
+		return true
+	}
+	t := strings.TrimLeft(s, " ")
+	for _, p := range []string{"⚠ ", "▶ ", "⏸ ", "· ", "🟢 ", "🟡 ", "📦 "} {
+		if strings.HasPrefix(t, p) {
 			return true
 		}
 	}
