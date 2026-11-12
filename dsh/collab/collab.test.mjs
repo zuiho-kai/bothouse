@@ -5789,14 +5789,15 @@ test('G34: in-window new text and progress card count as progress; cross-window 
   const { hub, tasks, clock, ws, assign } = g34Setup();
   const t = assign();
   // One draft row for the whole turn, first line the stance, edited in place (dsh-member runCli).
-  hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
+  const draft = hub.store.append(ws.id, { authorKind: 'role', author: 'fu', name: '副', text: `【接】#${t.id}\n\n先看代码`, draft: true }, 1100).message;
   clock.t = 1000 + CHECK_AFTER_S;
   tasks.tick();
   assert.equal(tasks.task(t.id).paused_at, null, 'text posted in this window is progress');
   assert.equal(tasks.task(t.id).renewals, 1);
 
   // Cross-window: same row edited after the window boundary — text messages use created_at only
-  // (PR#1660), so the edit does not reset the clock. No new message in the new window → park.
+  // (PR#1660), so the edit does not reset the clock. The edit happens but still no renewal → park.
+  hub.store.edit(draft.id, 'role', 'fu', `【接】#${t.id}\n\n先看代码，写好了三个模块`, undefined, clock.t + 300);
   clock.t += CHECK_AFTER_S;
   tasks.tick();
   assert.ok(tasks.task(t.id).paused_at, 'editing a previous-window text row does not renew — task parks');
