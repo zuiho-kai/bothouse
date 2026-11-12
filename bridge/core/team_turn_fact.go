@@ -42,7 +42,9 @@ var teamTurns = struct {
 	mu   sync.Mutex
 	next uint64
 	by   map[string]map[uint64]teamTurnFact
-}{by: map[string]map[uint64]teamTurnFact{}}
+	// lastEnd: when the last turn in a chat ended (the watch's "a turn ended in this window").
+	lastEnd map[string]time.Time
+}{by: map[string]map[uint64]teamTurnFact{}, lastEnd: map[string]time.Time{}}
 
 // beginTeamTurn records a running turn and returns the function that ends it.
 func beginTeamTurn(f teamTurnFact) (end func()) {
@@ -67,6 +69,7 @@ func beginTeamTurn(f teamTurnFact) (end func()) {
 			if len(teamTurns.by[chat]) == 0 {
 				delete(teamTurns.by, chat)
 			}
+			teamTurns.lastEnd[chat] = time.Now()
 			teamTurns.mu.Unlock()
 		})
 	}
@@ -86,6 +89,15 @@ func teamTurnsOf(chat string) []teamTurnFact {
 
 // teamTurnRunning: a turn is running in chat.
 func teamTurnRunning(chat string) bool { return len(teamTurnsOf(chat)) > 0 }
+
+// teamTurnEndedSince: a turn in chat ended at or after since.
+func teamTurnEndedSince(chat string, since time.Time) bool {
+	chat = teamChatKey(chat)
+	teamTurns.mu.Lock()
+	defer teamTurns.mu.Unlock()
+	at, ok := teamTurns.lastEnd[chat]
+	return ok && !at.Before(since)
+}
 
 // teamTurnEventSince: a turn running in chat received an agent event (or started) at or after since.
 func teamTurnEventSince(chat string, since time.Time) bool {

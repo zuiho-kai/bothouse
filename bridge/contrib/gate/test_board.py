@@ -9,7 +9,12 @@ TMP = tempfile.mkdtemp()
 os.environ["BOARD_DIR"] = TMP
 os.environ.pop("CC_SESSION_KEY", None)
 os.environ.pop("DISCORD_BOT_TOKEN", None)  # board 不读平台 token、不发卡片（#597 K9）
-os.environ["CC_BIN"] = "false"  # 不问真桥
+# #699 D：board done/pause/wait 先问桥改状态；测试里的「没有桥」只回 transition（known=false），别的命令都失败
+NOBRIDGE = os.path.join(tempfile.mkdtemp(), "nobridge")
+with open(NOBRIDGE, "w") as _f:
+    _f.write('#!/bin/sh\n[ "$2" = transition ] && { echo \'{"known":false}\'; exit 0; }\nexit 1\n')
+os.chmod(NOBRIDGE, 0o755)
+os.environ["CC_BIN"] = NOBRIDGE  # 不问真桥
 os.environ.pop("BOARD_PR_REPO", None)  # done 后不调 gh
 import board  # noqa: E402
 import ctxsvc  # noqa: E402
@@ -79,28 +84,6 @@ class Board(unittest.TestCase):
         self.assertNotIn("release_hold", board._read()[0])
         self.assertEqual(cli("hold", "2"), (0, "为发布暂停：#2"))  # 点名的照标
         self.assertEqual(cli("unhold"), (0, "去掉为发布暂停：#2"))
-
-    def test_stale_skips_release_hold(self):
-        self.assertEqual(cli("add", "等发布的", "x", "进行中", "橘"), (0, "#1"))
-        rows = board._read()
-        rows[0].update(ws="discord:ws1", progress_at=1.0, release_hold={"at": "2026-11-04T09:00:00+00:00"})
-        board._write(rows)
-        self.assertEqual(board.pause_stale(now=10 * 3600), [])
-        self.assertFalse(board._read()[0].get("paused"))
-
-    def test_update_closing_status_ends_item(self):
-        # 用户 2026-10-28「任务榜完成的为什么不下掉」：状态写成收尾词就移出任务板
-        cli("add", "交来的活", "a.md", "已交接", "橘")
-        cli("add", "另一件", "b.md", "已交接", "橘")
-        cli("add", "第三件", "c.md", "已交接", "橘")
-        code, out = cli("update", "1", "已交回：报告写完")
-        self.assertEqual(code, 0)
-        self.assertIn("已更新", out)
-        self.assertEqual(cli("update", "2", "done")[0], 0)
-        self.assertEqual(cli("update", "3", "PR571已合，等新包装上后验")[1], "已更新")  # 不是开头的收尾词不算
-        self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#1", "#3"])
-        done = [json.loads(l)["id"] for l in (Path(TMP) / "board-done.jsonl").read_text().splitlines()]
-        self.assertEqual(done, [2])
 
     def test_done_record_status_is_done(self):
         # #597 N3：结束的条目进 board-done.jsonl 时 status 要是「已完成」，不能带着原来的「进行中」
@@ -302,6 +285,7 @@ class Increments(unittest.TestCase):
         log.write_text("")
         fake = Path(TMP) / "fakepark3"
         fake.write_text(f"""#!/bin/sh
+[ "$2" = transition ] && {{ echo '{{"known":false}}'; exit 0; }}
 echo "$@" >> {log}
 case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
 """)
@@ -321,7 +305,7 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
             self.assertEqual([c.split()[1] for c in log.read_text().splitlines()], ["park", "claim"])
             self.assertEqual(board.items()[0]["ws"], "discord:201")
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_backlog_takes_over_pause_and_update_takes_it_back(self):
         """从暂停挪进待办要算待办不算暂停；改了状态（有人接手）就撤掉待办标记，回主板。"""
@@ -335,16 +319,6 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
         row = board.items()[0]
         self.assertNotIn("backlog", row)
         self.assertEqual([l.split()[0] for l in cli()[1].splitlines()], ["#1"])
-
-    def test_backlog_is_not_stale(self):
-        """待办是主动排下的小事：一小时没进展也不该被自动暂停挪走（那会把它弄丢出列表）。"""
-        cli("add", "额度探针两处余量", "-", "待修", "橘")
-        rows = board._read()
-        rows[0].update(ws="discord:ws1", progress_at=1.0, backlog="11-05 22:00", backlog_why="非阻塞")
-        board._write(rows)
-        self.assertEqual(board.pause_stale(now=10 * 3600), [])
-        self.assertFalse(board._read()[0].get("paused"))
-        self.assertIn("backlog", board._read()[0])
 
     def test_backlog_item_not_in_ws_task_or_exp_task(self):
         """工作区上下文按 ws 认「这件活在做什么」：挪进待办的不能再被认成在做的活。"""
@@ -363,7 +337,7 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
         log = Path(TMP) / "park.log"
         log.write_text("")
         fake = Path(TMP) / "fakepark"
-        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.write_text(f"#!/bin/sh\n[ \"$2\" = transition ] && {{ echo '{{\"known\":false}}'; exit 0; }}\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
         board.set_prune_conf(on=False)  # 这里只看 park；暂停挂的自动收起定时见 test_board_prune.py
@@ -384,7 +358,7 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
             calls = log.read_text().splitlines()  # 恢复时向桥收回（claim）、重新绑上，再停再放一次
             self.assertEqual([c.split()[1] for c in calls], ["park", "claim", "park"])
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_self_pause_in_own_workspace_records_request(self):
         """agentm #26（11-09）：工作区在自己那一轮 board pause 自己的活：不暂停、不 park（park 会清会话、掐掉这一轮，
@@ -392,7 +366,7 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
         log = Path(TMP) / "selfpark.log"
         log.write_text("")
         fake = Path(TMP) / "fakeselfpark"
-        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.write_text(f"#!/bin/sh\n[ \"$2\" = transition ] && {{ echo '{{\"known\":false}}'; exit 0; }}\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
         board.set_prune_conf(on=False)
@@ -416,15 +390,15 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
             self.assertIn("--stop", log.read_text().split())
         finally:
             os.environ.pop("CC_SESSION_KEY", None)
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_done_parks_bound_item(self):
-        """用户 2026-11-04「交回/暂停/验收完当场放回」：没交回就直接 done（或收尾词）的条目还绑着工作区，
+        """用户 2026-11-04「交回/暂停/验收完当场放回」：没交回就直接 done 的条目还绑着工作区，
         当场 park 放回，不等每小时对账；已交回（解绑）或没绑工作区的不动桥。"""
         log = Path(TMP) / "parkdone.log"
         log.write_text("")
         fake = Path(TMP) / "fakeparkdone"
-        fake.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
+        fake.write_text(f"#!/bin/sh\n[ \"$2\" = transition ] && {{ echo '{{\"known\":false}}'; exit 0; }}\necho \"$@\" >> {log}\necho '{{\"freed\":true}}'\n")
         fake.chmod(0o755)
         os.environ["CC_BIN"] = str(fake)
         board.set_prune_conf(on=False)
@@ -441,14 +415,14 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
                                                        "--chat", "discord:100", "--before", bound, "--stop", "--json"])
             log.write_text("")
             with contextlib.redirect_stdout(io.StringIO()):
-                board.main(["update", "2", "已完成"])  # 收尾词也算结束
+                board.main(["done", "2", "0"])  # #699 D：收尾词不再结束，只有 done
             self.assertIn("--session-key discord:202", log.read_text())
             log.write_text("")
             with contextlib.redirect_stdout(io.StringIO()):
                 board.main(["done", "3", "0"])
             self.assertEqual(log.read_text(), "")  # 没绑工作区：不问桥
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_park_names_chat_and_task(self):
         """审查 pr261-code.md 第 1 条：pause / 把「谁」改走时 park 带上交活的聊天频道和绑定时刻，桥只放这一件；
@@ -458,6 +432,7 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
         fake = Path(TMP) / "fakepark1"
         # 假桥：工作区 201 眼下归 discord:300（聊天频道 Y）；不带 --chat discord:300 的 park 一律当成放掉 Y 的活
         fake.write_text(f"""#!/bin/sh
+[ "$2" = transition ] && {{ echo '{{"known":false}}'; exit 0; }}
 [ "$2" = park ] || exit 1
 echo "$@" >> {log}
 case "$*" in
@@ -481,13 +456,14 @@ esac
             self.assertIn(f"workspace park --session-key discord:201 --chat discord:100 --before {bound} --stop --json", calls)
             self.assertEqual(len(calls.splitlines()), 2)  # 1 和 2 各问一次（被拒），3 不问桥
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_paused_item_stays_on_chat_card(self):
         """审查 pr261-code.md 第 2 条：暂停或把「谁」改走后工作区放回池子，条目的卡片频道改回交活的聊天频道，
         原聊天频道的卡上还在、不跟着工作区到后来领走它的频道卡上；恢复收回后再回到工作区。"""
         fake = Path(TMP) / "fakepark2"
         fake.write_text("""#!/bin/sh
+[ "$2" = transition ] && { echo '{"known":false}'; exit 0; }
 case "$2" in park) echo '{"freed":true}' ;; claim) echo ok ;; esac
 """)
         fake.chmod(0o755)
@@ -505,7 +481,7 @@ case "$2" in park) echo '{"freed":true}' ;; claim) echo ok ;; esac
             board.main(["resume", "1"])
             self.assertEqual(board.items()[0]["ch"], "201")
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_resume_reoccupies_or_refuses(self):
         """暂停后工作区放回池子；恢复/把「谁」改回时先以交活的聊天频道向桥认领：归别的聊天频道就拒绝、板子不改，
@@ -514,6 +490,7 @@ case "$2" in park) echo '{"freed":true}' ;; claim) echo ok ;; esac
         log.write_text("")
         fake = Path(TMP) / "fakebridge"
         fake.write_text(f"""#!/bin/sh
+[ "$2" = transition ] && {{ echo '{{"known":false}}'; exit 0; }}
 echo "$@" >> {log}
 case "$2" in
   park) echo '{{"freed":true}}' ;;
@@ -567,7 +544,7 @@ esac
             self.assertNotIn("claim", log.read_text())
             self.assertEqual(board.items()[0]["who"], "待接手")
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
             owned.unlink(missing_ok=True)
 
     def test_who_change_keeps_ws(self):
@@ -577,6 +554,7 @@ esac
         log.write_text("")
         fake = Path(TMP) / "fakekeep"
         fake.write_text(f"""#!/bin/sh
+[ "$2" = transition ] && {{ echo '{{"known":false}}'; exit 0; }}
 echo "$@" >> {log}
 case "$2" in
   park) echo '{{"freed":true}}' ;;
@@ -609,7 +587,7 @@ esac
                 board.main(["update", "1", "等人接", "", "待接手"])
                 self.assertEqual(live_ws(), set())
         finally:
-            os.environ["CC_BIN"] = "false"
+            os.environ["CC_BIN"] = NOBRIDGE
 
     def test_link(self):
         cli("add", "x", "-", "s", "橘")
@@ -648,7 +626,7 @@ class BoardEvents(unittest.TestCase):
         for f in Path(TMP).glob("board*"):
             f.unlink()
         os.environ["CC_PROJECT"] = "lead"
-        os.environ["CC_BIN"] = "false"
+        os.environ["CC_BIN"] = NOBRIDGE
         board.set_prune_conf(on=False)
 
     def tearDown(self):

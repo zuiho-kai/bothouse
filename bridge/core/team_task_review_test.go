@@ -112,13 +112,6 @@ func TestTaskReviewTableDeadline(t *testing.T) {
 	if !strings.Contains(table, "🟡") || strings.Contains(table, "没人验收") {
 		t.Fatal(table)
 	}
-	if watchBoardClosed(it) {
-		t.Fatal("handback is not closed")
-	}
-	it.Status = "已交回待验收"
-	if watchBoardClosed(it) {
-		t.Fatal("handback status is not acceptance")
-	}
 }
 
 func TestRegression797ReleasedWorkspaceIsPaused(t *testing.T) {

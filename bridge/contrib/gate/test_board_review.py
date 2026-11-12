@@ -7,6 +7,12 @@ import sys
 import tempfile
 import unittest
 
+# #699 D：board done/pause/wait 先问桥改状态；「没有桥」只回 transition（known=false）
+NOBRIDGE = os.path.join(tempfile.mkdtemp(), "nobridge")
+with open(NOBRIDGE, "w") as _f:
+    _f.write('#!/bin/sh\n[ "$2" = transition ] && { echo \'{"known":false}\'; exit 0; }\nexit 1\n')
+os.chmod(NOBRIDGE, 0o755)
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # python3 -I drops the script dir (like test_board.py / test_board_prune.py)
 
@@ -14,14 +20,14 @@ sys.path.insert(0, str(HERE))  # python3 -I drops the script dir (like test_boar
 class HandbackReview(unittest.TestCase):
     def test_report_after_worker_closed_still_requires_dispatcher(self):
         tmp = tempfile.mkdtemp()
-        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "worker", "CC_SESSION_KEY": "room:work"}
+        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": NOBRIDGE, "CC_PROJECT": "worker", "CC_SESSION_KEY": "room:work"}
         path = Path(tmp) / "board.jsonl"
         path.write_text(json.dumps({"id": 46, "what": "verify", "chat": "room:chat", "ws": "room:work", "dispatcher": "dispatcher"}) + "\n")
         def cli(*args):
             p = subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args], env=env, text=True, capture_output=True, timeout=10)
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        cli("update", "46", "已完成")
-        self.assertEqual(path.read_text(), "")  # existing worker completion behavior
+        cli("done", "46", "0")  # #699 D：worker 用 done 结束（收尾词不再结束一件活）
+        self.assertEqual(path.read_text(), "")
         cli("returned", "46", "worker")
         it = json.loads(path.read_text())
         self.assertEqual(it["reviewer"], "dispatcher")
@@ -37,7 +43,7 @@ class HandbackReview(unittest.TestCase):
         # agentm #35 11-10: the lead passed the report (ws-pass) but the item stayed 「已交回待验收」;
         # the review nudge reopened it four hours later. `board accepted` is what the bridge runs on pass.
         tmp = tempfile.mkdtemp()
-        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "lead", "CC_SESSION_KEY": "room:chat"}
+        env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": NOBRIDGE, "CC_PROJECT": "lead", "CC_SESSION_KEY": "room:chat"}
         path = Path(tmp) / "board.jsonl"
         path.write_text(json.dumps({"id": 35, "what": "review", "chat": "room:chat", "ws": "room:work", "dispatcher": "lead",
                                     "returned_at": "2026-11-10T03:21:00+00:00", "reject_reasons": ["head 变了"]}) + "\n")
@@ -54,7 +60,7 @@ class HandbackReview(unittest.TestCase):
 
     def test_report_reject_rebind_and_accept(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}
+            env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": NOBRIDGE, "CC_PROJECT": "dispatcher"}
             env.pop("BOARD_PR_REPO", None)
             def cli(*args):
                 p = subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args],
@@ -287,7 +293,7 @@ class MergeClosureCLI(unittest.TestCase):
         fake=bin_dir/"gh"
         fake.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"state":"MERGED","mergedAt":"2026-11-02T00:00:00Z"}\'\n')
         fake.chmod(0o700)
-        env={"PATH":str(bin_dir)+os.pathsep+os.defpath,"HOME":str(tmp),"BOARD_DIR":str(tmp),"GATE_SETUP_DIR":str(tmp),"CC_BIN":"false","CC_PROJECT":"lead","CC_SESSION_KEY":"room:main"}
+        env={"PATH":str(bin_dir)+os.pathsep+os.defpath,"HOME":str(tmp),"BOARD_DIR":str(tmp),"GATE_SETUP_DIR":str(tmp),"CC_BIN":NOBRIDGE,"CC_PROJECT":"lead","CC_SESSION_KEY":"room:main"}
         path=tmp/"board.jsonl"
         path.write_text(json.dumps({"id":72,"chat":"room:main","dispatcher":"lead","bound":"generation"})+'\n')
         def cli(*args):
@@ -306,7 +312,7 @@ class ReviewTier(unittest.TestCase):
 
     def test_tier_marks_item(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": "false", "CC_PROJECT": "dispatcher"}
+            env = {**os.environ, "BOARD_DIR": tmp, "CC_BIN": NOBRIDGE, "CC_PROJECT": "dispatcher"}
             path = Path(tmp) / "board.jsonl"
             path.write_text(json.dumps({"id": 7, "what": "verify", "chat": "room:chat"}) + "\n")
             def cli(*args):

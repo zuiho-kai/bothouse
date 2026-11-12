@@ -441,25 +441,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		}
 		progressed, perr := w.progress(key, h, since)
 		if perr != nil {
-			// A failed read (network, Discord 5xx/429) is not a verdict: retry after
-			// watchRetryDelay, like a failed park; only when the retries are used up is it no
-			// progress (B9 plan「读信号失败…当作无进展」). The retry keeps this window's start
-			// (Since): moving Due must not push a post at the window's start out of it.
-			fails := h.ReadFails + 1
-			if fails < watchParkRetries {
-				due := now.Add(watchRetryDelay)
-				slog.Warn("team watch: cannot read the progress signal; retrying", "workspace", key, "attempt", fails, "error", perr)
-				ok, serr := w.updateHandoff(key, h, func(x *TeamHandoff) { x.ReadFails = fails; x.Due = due; x.Since = since })
-				if !ok && serr == nil {
-					return time.Time{}
-				}
-				if serr == nil {
-					return due
-				}
-				slog.Warn("team watch: save read retry failed; counted as no progress", "workspace", key, "error", serr)
-			} else {
-				slog.Warn("team watch: cannot read the progress signal; counted as no progress", "workspace", key, "attempts", fails, "error", perr)
-			}
+			slog.Warn("team watch: progress signal unreadable; counted as no progress", "workspace", key, "error", perr)
 		}
 		if progressed != watchProgressNone {
 			due := h.Due.Add(watchCheckAfter())
@@ -469,7 +451,6 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
 				x.Due = due
 				x.Renewed++
-				x.ReadFails = 0
 				x.Since = time.Time{}
 				x.Nudged = false
 				if progressed == watchProgressBusy {
@@ -529,7 +510,6 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 			x.Nudged = true // the resume is the warning: the next check without progress parks
 			x.Renewed = 0
 			x.BusyRenewed = 0
-			x.ReadFails = 0
 			x.Since = now
 			x.Due = due
 		})
@@ -578,40 +558,6 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 // Discord's maximum per request).
 const watchHistoryLimit = 100
 
-// watchStatusPrefixes: status lines the bridge and the gate post (e.g. "⏳ 模型满载冷却中",
-// capacity_retry.go), not work done. The union of the lead's d10-fire STATUS_PREFIXES and the DSH
-// gateway's NOTICE_PREFIXES (dsh/collab/cloudweb.mjs); TestWatchConstantsMatchDSH keeps them in step.
-var watchStatusPrefixes = []string{"↪", "⏹", "📬", "✅", "⏳", "🔄", "⏸"}
-
-// watchStancePrefixes: the stance a teammate opens with (taking, asking, declining, escalating,
-// not work done). Same list as d10-fire STANCE_PREFIXES (#315 review).
-var watchStancePrefixes = []string{"【接】", "【问】", "【退】", "【升】"}
-
-// watchSelfPrefixes: the watch's own posts (nudge, parked, park-failed). They land in the same
-// channel by the same account, so ownerSpoke reads them as the owner speaking and renews the
-// claim on the strength of its own reminder — the task then gets nudged every check window for
-// good (user 2026-11-06 10:53 「这种情况是为什么。好几个工作区都这样」: #207 nudged 09:13, 09:33,
-// 09:53, 10:13 … while the card sat 「已取消」). Not progress, whoever posts them.
-// Texts: watchNudgeText, MsgWatchParkedNotice, and the park-failure notice below.
-var watchSelfPrefixes = append([]string{"到了检查时间还没交回", "看门暂停失败："}, watchParkedPrefixes()...)
-
-// watchParkedPrefixes: MsgWatchParkedNotice up to its first verb, in every language the bridge
-// can post it in — a non-Chinese bridge posts "Watch: …" / "見守り：…", and a Chinese-only
-// prefix let those renew the claim just as 「看门：」 did before.
-func watchParkedPrefixes() []string {
-	var out []string
-	for _, txt := range messages[MsgWatchParkedNotice] {
-		if i := strings.Index(txt, "%s"); i > 0 {
-			out = append(out, txt[:i])
-		}
-	}
-	return out
-}
-
-// watchNoProgressPrefixes: posts that are not progress (status, stance, and the watch's own
-// notices).
-var watchNoProgressPrefixes = append(append(append([]string(nil), watchStatusPrefixes...), watchStancePrefixes...), watchSelfPrefixes...)
-
 // watchLeadingMentions: what a post opens with before its own text: mentions ("<@id>" live,
 // "@name" as channel history renders them; d10-fire LEADING_MENTION_RE) and the reply quote
 // Discord's history puts first ("[回复 name：…] "). "@name" stops at 【 and [: "<@橘>【接】…" with no
@@ -644,17 +590,10 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 		}
 		slog.Info("team watch: the workspace is still busy but its busy renewals are used up; checking for real progress", "workspace", key, "chat", h.Chat)
 	}
-	spoke, err := w.ownerSpoke(key, h.Owner, since)
-	if errors.Is(err, errWatchNoHistory) {
-		if w.workspaceTurnSince(key, since) {
-			return watchProgressReal, nil
-		}
-		return watchProgressNone, nil
-	}
-	if err != nil {
-		return watchProgressNone, err
-	}
-	if spoke {
+	// #699 E: progress is what the turns of the workspace did (events above, or a turn that ended
+	// in the window), never what the channel history shows: the status/stance/self prefix tables
+	// and the read-retry they needed are gone (design §4 row 5).
+	if w.workspaceTurnSince(key, since) {
 		return watchProgressReal, nil
 	}
 	return watchProgressNone, nil
@@ -714,40 +653,10 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 	return false, false
 }
 
-// errWatchNoHistory: the platform cannot read channel history (no ChannelHistoryReader).
-var errWatchNoHistory = errors.New("platform cannot read channel history")
-
-// sessionsOf calls f on every existing session of workspace key on any role engine (ListSessions,
-// never creates one); f returns true to stop.
-func (w *handoffWatch) sessionsOf(key string, f func(*Session) bool) {
-	if w.engines == nil {
-		return
-	}
-	for _, x := range w.engines() {
-		if x == nil || x.sessions == nil {
-			continue
-		}
-		for _, k := range x.sessions.UserKeys() {
-			if chatOf(k) != key {
-				continue
-			}
-			for _, s := range x.sessions.ListSessions(k) {
-				if f(s) {
-					return
-				}
-			}
-		}
-	}
-}
-
-// workspaceTurnSince: a session of workspace key ended a turn at or after since (local, no network).
+// workspaceTurnSince: a turn in workspace key ended at or after since (the turn fact, #699 E;
+// before, a session's UpdatedAt, which its creation and every unlock also moved).
 func (w *handoffWatch) workspaceTurnSince(key string, since time.Time) bool {
-	found := false
-	w.sessionsOf(key, func(s *Session) bool {
-		found = !s.GetUpdatedAt().Before(since)
-		return found
-	})
-	return found
+	return teamTurnEndedSince(key, since)
 }
 
 // workspaceBusy: a turn is running in workspace key on any role engine (the turn fact, #699 B;
@@ -801,45 +710,6 @@ func (w *handoffWatch) workspaceEventActive(key string, since time.Time) bool {
 	return false
 }
 
-// ownerSpoke: owner posted progress in the channel of workspace key at or after since. No owner
-// (the claim named none): the posts of this bot count (IsSelf) — the main role that took the
-// handoff in the workspace channel is this bridge's bot (ws-handoff). The platform not connected
-// or without channel history: an error.
-func (w *handoffWatch) ownerSpoke(key, owner string, since time.Time) (bool, error) {
-	id := watchOwnerID(owner)
-	plat, ch, _ := strings.Cut(key, ":")
-	p := w.e.lookupReadyPlatform(plat)
-	if p == nil {
-		return false, fmt.Errorf("platform %s not connected", plat)
-	}
-	r, ok := p.(ChannelHistoryReader)
-	if !ok {
-		return false, fmt.Errorf("%s: %w", plat, errWatchNoHistory)
-	}
-	msgs, err := r.ChannelHistory(ch, "", watchHistoryLimit)
-	if err != nil {
-		return false, err
-	}
-	if id != "" && w.e.watchTarget(plat+":", owner) == nil {
-		for _, m := range msgs {
-			if m.AuthorID == id && !m.IsBot {
-				id = "" // a person's id: the role working the task is this bot (IsSelf)
-				break
-			}
-		}
-	}
-	for _, m := range msgs {
-		mine := m.IsSelf
-		if id != "" {
-			mine = m.AuthorID == id
-		}
-		if mine && !m.Time.Before(since) && watchIsProgressText(m.Content) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // watchOwnerID: the platform id in a claim's owner (a bare id, "<@id>", "@id" or a Feishu
 // <at user_id="id"></at>).
 func watchOwnerID(owner string) string {
@@ -851,21 +721,6 @@ func watchOwnerID(owner string) string {
 	o = strings.TrimPrefix(o, "!")
 	o = strings.TrimSuffix(o, ">")
 	return strings.TrimSpace(strings.TrimPrefix(o, "@"))
-}
-
-// watchIsProgressText: a post that counts as progress: not empty once the leading mentions are
-// dropped, and not a status or stance line (d10-fire chat_active).
-func watchIsProgressText(content string) bool {
-	c := strings.TrimSpace(watchLeadingMentions.ReplaceAllString(strings.TrimSpace(content), ""))
-	if c == "" {
-		return false
-	}
-	for _, pre := range watchNoProgressPrefixes {
-		if strings.HasPrefix(c, pre) {
-			return false
-		}
-	}
-	return true
 }
 
 // send posts text to channel key ("<platform>:<channel id>") on p.

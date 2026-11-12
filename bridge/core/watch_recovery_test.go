@@ -33,7 +33,7 @@ func TestWatchClaimResolvesProjectOwner(t *testing.T) {
 	if h.Owner != "123456789" {
 		t.Fatalf("project owner persisted as %q; want platform ID", h.Owner)
 	}
-	p.post("ws1", "123456789", "implemented and tested", h.At.Add(time.Second))
+	testTurnEnded("discord:ws1", h.At.Add(time.Second)) // #699 E: a turn that ended is progress, a post is not
 	if kind, err := newHandoffWatch(e).workspaceProgress("discord:ws1", h, h.At); err != nil || kind != watchProgressReal {
 		t.Fatalf("resolved owner's real post was missed: %v, %v", kind, err)
 	}

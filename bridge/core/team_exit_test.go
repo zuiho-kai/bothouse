@@ -51,6 +51,7 @@ const (
 
 func exitFixture(t *testing.T, parents WorkspaceParentResolver) (*Engine, *inputTestAgent, *exitTestPlatform) {
 	t.Helper()
+	resetTeamTurns(t)
 	as := &inputTestSession{events: make(chan Event, 32), prompts: make(chan string, 32), id: "t1"}
 	ag := &inputTestAgent{session: as, requested: make(chan string, 32)}
 	p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}

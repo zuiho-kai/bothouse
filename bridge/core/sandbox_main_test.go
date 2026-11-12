@@ -14,6 +14,12 @@ import (
 // 本包测试跑在临时 HOME 里，见 tests/testutil/sandbox.go 与 docs/code-standards.md。
 // 向导的飞书机器人 open_id 查询不连网：默认查不到，要用的测试自己换。
 func TestMain(m *testing.M) {
+	// #699 D: board.py run by a test asks CC_BIN (this test binary) to move a task's state:
+	// answer as a bridge that has no record of it, instead of running the whole suite again.
+	if len(os.Args) > 2 && os.Args[1] == "workspace" && os.Args[2] == "transition" {
+		os.Stdout.WriteString(`{"known":false}` + "\n")
+		os.Exit(0)
+	}
 	wizardFeishuBotOpenID = func(context.Context, string, string, string) (string, error) {
 		return "", errors.New("no network in core tests")
 	}

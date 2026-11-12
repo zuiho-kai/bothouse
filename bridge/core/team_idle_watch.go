@@ -226,30 +226,6 @@ func watchStale(h TeamHandoff, key string, items []teamTaskBoardItem, now time.T
 	return strings.TrimSpace(h.Owner) == "" || h.Board == 0 && handoffBoardID(key, h, items) == 0
 }
 
-// watchBoardClosedWords: the closing words a board status may start with, the same set as
-// board.py's CLOSED_RE (#497, user 2026-10-28 定过这五个词).
-var watchBoardClosedWords = []string{"已验收", "验收通过", "已收口", "已完成", "已结束"}
-
-// watchBoardClosedDone: board.py's CLOSED_RE also takes "done" but only as a whole word
-// (\bdone\b), case-insensitively.
-var watchBoardClosedDone = regexp.MustCompile(`(?i)^done\b`)
-
-// watchBoardClosed: whether a board item is really finished. It must *start* with a closing word
-// after leading spaces — the same prefix anchored test as board.py's CLOSED_RE (#497), not a
-// substring anywhere in the status. 2026-11-09 the substring test read 「在做：脱敏实现…已完成，
-// PR 已开」 as closed twice: the idle watch stopped watching and reconcileTeamWorkspaces freed the
-// workspace at 15:07:04, killing the session (signal:killed at 15:07:05) while the author was
-// still working. Statuses such as 「交回待验收」 or 「等待用户拍板」 never start with these words.
-func watchBoardClosed(it teamTaskBoardItem) bool {
-	status := strings.TrimSpace(it.Status)
-	for _, word := range watchBoardClosedWords {
-		if strings.HasPrefix(status, word) {
-			return true
-		}
-	}
-	return watchBoardClosedDone.MatchString(status)
-}
-
 // watchTurnEnded runs before finishPublicProgress: automatic card completion is
 // not a deliberate result. A report, handback or explicit result ends the watch.
 // since: when the turn began (zero when unknown); a workspace handoff recorded from this chat
@@ -292,7 +268,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
 	boardID := watchTaskNumber(StripMarkdown(first))
 	boardActive := false
-	boardClosed := false
 	handedOff := false // the accepted work is in a workspace: its watch is the workspace's
 	chat := key
 	parent, inWorkspace := e.WorkspaceParent(key)
@@ -308,9 +283,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 			if boardID != 0 && boardID != it.ID {
 				continue
 			}
-			if boardID == it.ID && watchBoardClosed(*it) {
-				boardClosed = true
-			}
 			if boardID == it.ID && it.own != key && it.parent == key && !it.wsEnded {
 				handedOff = true
 			}
@@ -319,7 +291,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 			// explicit 【接】 is watched in a chat channel (#1167, 11-07: #1162 returned by 工作区2
 			// fell back to the chat and got a 「接着做」 every lead turn).
 			if !inWorkspace && !accepted ||
-				it.own != key || it.wsEnded || it.Backlog != "" || watchBoardClosed(*it) ||
+				it.own != key || it.wsEnded || it.Backlog != "" ||
 				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
 				continue
 			}
@@ -346,7 +318,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 			}
 		}
 	}
-	returned = returned || boardClosed
 	if returned && !asking {
 		e.scheduleWorkspaceReturn(key, time.Now())
 	}
@@ -528,7 +499,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 						return // waits on someone else: no "carry on"; its next turn re-arms the watch
 					}
 					// Handed to a workspace since: the workspace's watch keeps it, not this chat.
-					closed = watchBoardClosed(it) || it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
+					closed = it.Paused != "" || it.Backlog != "" || it.own != a.key && it.parent == a.key && !it.wsEnded ||
 						watchHandoffLeft(it, a.key)
 					break
 				}

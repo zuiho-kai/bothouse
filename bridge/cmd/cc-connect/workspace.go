@@ -33,9 +33,11 @@ func runWorkspace(args []string) {
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
 	boardID := fs.Int("board", 0, "claim: the task-board item handed off; the bridge records the task's state against it")
 	kind := fs.String("kind", "report", "exit: report (done, for acceptance) or failed")
+	to := fs.String("to", "", "transition: closed, paused, returned or failed")
+	why := fs.String("why", "", "transition: the reason recorded with it")
 	file := fs.String("file", "", "exit: the report draft (its first line 「[report] #id 背景：…」); - reads stdin")
 	_ = parseWorkspaceFlags(fs, rest)
-	if *session == "" {
+	if *session == "" && sub != "transition" {
 		workspaceFail(fmt.Errorf("no channel: run this inside a bothouse agent session or pass --session-key discord:<channel id>"))
 	}
 	sock := resolveSocketPath(*dataDir)
@@ -132,6 +134,23 @@ func runWorkspace(args []string) {
 			return
 		}
 		fmt.Printf("%s\thanded back #%d (%s)\n", r.Workspace, r.Board, r.State)
+	case "transition":
+		// #699 D: board.py's done / reject / wait change the task's state here; a bridge that is not
+		// running is an error (the board does not record a state of its own).
+		if *boardID <= 0 || *to == "" {
+			workspaceFail(fmt.Errorf("usage: bothouse workspace transition --board <id> --to closed|paused|returned|failed [--why <reason>]"))
+		}
+		body, _ := json.Marshal(map[string]any{"id": *boardID, "to": *to, "why": *why, "by": "board:" + os.Getenv("CC_PROJECT")})
+		resp, err := apiPost(sock, "/team/task/transition", body)
+		if err != nil {
+			workspaceFail(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+		}
+		fmt.Println(strings.TrimSpace(string(data)))
 	case "list":
 		var r core.TeamWorkspaceListResult
 		if err := modelAPIGet(sock, "/team/workspace/list?"+url.Values{"session_key": {*session}}.Encode(), &r); err != nil {
@@ -182,7 +201,7 @@ func parseWorkspaceFlags(fs *flag.FlagSet, args []string) error {
 }
 
 func printWorkspaceUsage() {
-	fmt.Println(`Usage: bothouse workspace <new|list|claim|park|exit> [<workspace id>] [--session-key discord:<channel id>] [--json]
+	fmt.Println(`Usage: bothouse workspace <new|list|claim|park|exit|transition> [<workspace id>] [--session-key discord:<channel id>] [--json]
 
   new    create 「工作区(max+1)」 in the category's shared pool for this chat channel
   list   list this chat channel's workspaces and the category's shared pool
@@ -201,6 +220,8 @@ func printWorkspaceUsage() {
   exit   hand this workspace's task back: --file <report draft> (- = stdin), [--kind failed];
          the task's state moves to returned (or failed) and the report goes to the chat channel.
          The only handback: a [report] written in a reply is not read (ws-up --report runs this)
+  transition  --board <id> --to closed|paused|returned|failed [--why]: board.py's done, reject
+         and wait; a task with no state record is left as is (known=false)
 
 On by default for the primary role project (Discord only); team_workspaces = false turns it off.`)
 }
