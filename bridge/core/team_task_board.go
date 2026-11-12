@@ -219,16 +219,12 @@ type teamTaskBoardPlacer struct {
 
 func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
 	return teamTaskBoardPlacer{
-		mainChat:     teamMainChat(e.dataDir),
-		reviewerInfo: e.taskReviewerInfo,
-		parentOf:     e.WorkspaceParent,
-		wsName:       e.TeamWorkspaceName,
-		handoffEnded: e.TeamHandoffEnded,
-		handoffOf:    e.TeamHandoffOf,
-		taskClosed: func(id int) bool {
-			it := e.boardItemByID(id)
-			return it != nil && it.DoneAt != ""
-		},
+		mainChat:       teamMainChat(e.dataDir),
+		reviewerInfo:   e.taskReviewerInfo,
+		parentOf:       e.WorkspaceParent,
+		wsName:         e.TeamWorkspaceName,
+		handoffEnded:   e.TeamHandoffEnded,
+		handoffOf:      e.TeamHandoffOf,
 		openHandoffs:   e.TeamOpenWorkspaceHandoffs,
 		idleWorkspaces: e.TeamIdleWorkspaceNames,
 		boardDoneIDs: func() map[int]bool {
@@ -457,7 +453,6 @@ func placeTeamTaskBoard(p teamTaskBoardPlacer, items []teamTaskBoardItem) []team
 	}
 	return items
 }
-
 
 // shownIn: the item is on chat's board.
 func (it teamTaskBoardItem) shownIn(chat string) bool {
@@ -1436,12 +1431,6 @@ func (e *Engine) dropGoneTeamTaskBoard(items []teamTaskBoardItem) []teamTaskBoar
 				ids[ch.ID] = true
 			}
 			c.ids[plat] = ids
-			if c.seen[plat] == nil {
-				c.seen[plat] = map[string]bool{}
-			}
-			for id := range ids {
-				c.seen[plat][id] = true
-			}
 		}
 		delete(c.gone, plat)
 	}

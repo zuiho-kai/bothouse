@@ -79,7 +79,7 @@ class DrainQueue(unittest.TestCase):
         self.assertIsNotNone(it, f"#7 gone from {g['board']._path('board.jsonl')}: {rows}")
         self.assertNotEqual(it.get("ws"), "room:w3")
         self.assertNotIn("已交接", it.get("status", ""))
-        self.assertIn("没交出去", it.get("status", ""))
+        self.assertEqual(it.get("status"), "排队")  # 退回改前（develop 的 board.restore）
 
     def test_no_free_workspace_stops_drain(self):
         self.queue.write_text(json.dumps([
