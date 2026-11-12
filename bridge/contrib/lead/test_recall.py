@@ -11,6 +11,27 @@ spec.loader.exec_module(recall)
 
 
 class RecallTests(unittest.TestCase):
+    def test_model_failure_is_not_reported_as_nothing_found(self):
+        # #1492：挑片段的模型失败（recall.tsv 11-01～11-12 有 66 次：有片段、0 条、花费 0），交接里却写「没搜到」，
+        # 干活的人当成用户没定过；返工再交活也不重搜
+        notes = "# 交接：x\n## 用户原话\n改看门\n## 总目标\n改看门\n"
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "n.md"
+            path.write_text(notes, encoding="utf-8")
+            with patch.object(recall, 'keywords', return_value=['看门']), patch.object(recall, 'gather', return_value=[('wiki', '看门续期改成十分钟')]), \
+                    patch.object(recall, 'claude', return_value=("", 0)), patch.object(recall, '_log'):
+                recall.append_to(str(path))
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn(recall.NONE_LINE, text)
+            self.assertIn("没搜成", text)
+            with patch.object(recall, 'keywords', return_value=['看门']), patch.object(recall, 'gather', return_value=[('wiki', '看门续期改成十分钟')]), \
+                    patch.object(recall, 'claude', return_value=('["用户定过：看门十分钟"]', 0.01)), patch.object(recall, '_log'):
+                recall.append_to(str(path))
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("用户定过：看门十分钟", text)
+            self.assertNotIn("没搜成", text)
+            self.assertEqual(text.count(recall.SECTION), 1)
+
     def test_gather_includes_attributed_channel_feedback(self):
         rows = [('频道 彩虹猫 @discord:1 caihongmao/s1 2026-11-01 02:48', '【队友原话：彩虹猫】ASCII 架构图太土，不要用字符图')]
         with patch.object(recall, 'channel_hits', return_value=rows, create=True), patch.object(recall, 'wiki_hits', return_value=[]), patch.object(recall, 'session_ids', return_value=[]):

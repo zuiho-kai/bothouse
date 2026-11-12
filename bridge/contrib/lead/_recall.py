@@ -257,7 +257,11 @@ def old_decisions(notes, before=None):
             _log(len(kws), len(snips), -1, int((time.time() - t0) * 1000), cost, title)
             raise Failed(f"挑定案时{err}")
         got = parse_json(txt)
-        rows = [str(x).strip() for x in got if str(x).strip()][:MAX_LINES] if isinstance(got, list) else []
+        if not isinstance(got, list):
+            # 模型没答或答的不是列表：是没查成，不是没有（11-01～11-12 recall.tsv 66 次）
+            _log(len(kws), len(snips), -1, int((time.time() - t0) * 1000), cost, title)
+            return None
+        rows = [str(x).strip() for x in got if str(x).strip()][:MAX_LINES]
     _log(len(kws), len(snips), len(rows), int((time.time() - t0) * 1000), cost, title)
     return rows
 
