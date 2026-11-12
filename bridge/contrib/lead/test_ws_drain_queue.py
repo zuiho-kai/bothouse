@@ -64,6 +64,23 @@ class DrainQueue(unittest.TestCase):
         self.assertEqual(started, [2])
         self.assertEqual([x["nid"] for x in json.loads(self.queue.read_text())], [1])
 
+    def test_failed_wake_does_not_leave_item_handed_over(self):
+        # #1492：叫醒失败时板子还写「已交接」、绑着放回去的工作区，没人干也没人知道
+        g = self.mod["start"].__globals__
+        Path(g["board"]._path("board.jsonl")).write_text(json.dumps(
+            {"id": 7, "what": "活", "status": "排队", "chat": "room:main", "sk": "room:main"}) + "\n")
+        with patch.dict(g, {"pick_pool": lambda *a: ("room:w3", "工作区3", "room:main"),
+                            "append_skeleton": lambda *a: None, "timer_cmd": lambda *a: ["false"]}), \
+                patch.object(g["board"], "_park_once", lambda *a: None):
+            with self.assertRaises(SystemExit):
+                self.mod["start"]("notes.md", "活", "room:main", 7, "lead")
+        rows = g["board"]._read()
+        it = next((i for i in rows if i["id"] == 7), None)
+        self.assertIsNotNone(it, f"#7 gone from {g['board']._path('board.jsonl')}: {rows}")
+        self.assertNotEqual(it.get("ws"), "room:w3")
+        self.assertNotIn("已交接", it.get("status", ""))
+        self.assertIn("没交出去", it.get("status", ""))
+
     def test_no_free_workspace_stops_drain(self):
         self.queue.write_text(json.dumps([
             {"nid": 1, "path": "a", "task": "x", "chat": "room:main"},

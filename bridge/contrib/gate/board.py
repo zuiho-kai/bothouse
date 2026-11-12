@@ -1197,6 +1197,26 @@ def _ask_rework_cap(it):
     return True
 
 
+def unbind(nid, previous, why):
+    """叫醒失败、没交出去（#1492 常识：失败了之前记的状态要退）：把 start() 前的绑定原样放回，状态写明没交出去。
+    previous：start() 开头读到的那条记录。"""
+    keys = ("ws", "sk", "who", "returned_at", "review_rejected", "ws_was", "bound", "chat")
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        for k in keys:
+            if k in previous:
+                hit[k] = previous[k]
+            else:
+                hit.pop(k, None)
+        hit["status"], hit["at"] = why, _now()
+        _write(cur)
+        event(nid, "unbound", hit, why)
+    return True
+
+
 def rebind(nid, ws, chat=None):
     """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。
     chat：交活的聊天频道，同 add(ws=…, chat=…)；ws-handoff 先上板拿编号再 claim（#699）时由这里补上，pause 按它放工作区。"""
