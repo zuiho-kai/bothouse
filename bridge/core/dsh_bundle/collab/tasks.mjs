@@ -188,9 +188,11 @@ export class Tasks {
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
-      // Rows the owner posted or changed in place since a time (changed_at: a streamed reply growing, a progress card edited).
+      // Rows the owner posted or changed in place since a time. Cards use changed_at (a progress
+      // card edited in place is real progress); text rows use only created_at so that a streaming
+      // reply growing does not keep resetting the clock.
       ownerSaid: this.db.prepare(`SELECT text, card FROM messages WHERE room_id = ? AND author_kind = 'role' AND author = ? AND deleted = 0
-        AND COALESCE(changed_at, created_at) > ?`),
+        AND (CASE WHEN card IS NOT NULL THEN COALESCE(changed_at, created_at) ELSE created_at END) > ?`),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
       resetRenewals: this.db.prepare('UPDATE tasks SET renewals = 0 WHERE id = ?'),
       renew: this.db.prepare(`UPDATE tasks SET next_check_at = ?, renewals = ? WHERE id = ? AND ${LIVE} RETURNING *`),
