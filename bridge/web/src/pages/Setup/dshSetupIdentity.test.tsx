@@ -134,18 +134,22 @@ describe('DSH setup roles', () => {
     expect(body.members[1]).not.toHaveProperty('cli');
   });
 
-  it('starts with the CLI name and no persona, and follows a backend switch until the name is edited', async () => {
+  // #1539: a default role gets a plain name (小橙), not its backend's (Codex, Codex-2); the name field is outside 「可选」.
+  it('starts with a plain default name and no persona, kept across a backend switch', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
     await select('[data-testid="dsh-role-runner-0"]', 'codex');
-    expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-0"]')?.value).toBe('Codex');
+    expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-0"]')?.value).toBe('小橙');
+    expect(container.querySelector('[data-testid="dsh-role-label-0"]')?.textContent).toBe('小橙·Codex');
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('');
     await select('[data-testid="dsh-role-runner-0"]', 'claudecode');
-    expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-0"]')?.value).toBe('Claude Code');
-    expect(container.querySelector('[data-testid="dsh-role-label-0"]')?.textContent).toBe('Claude Code');
+    expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-0"]')?.value).toBe('小橙');
+    expect(container.querySelector('[data-testid="dsh-role-label-0"]')?.textContent).toBe('小橙·Claude Code');
+    await click('[data-testid="dsh-add-role"]');
+    expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-1"]')?.value).toBe('小蓝');
     await click('[data-testid="dsh-save-roles"]');
     expect(configure).toHaveBeenCalledWith(expect.objectContaining({
-      members: [expect.objectContaining({ name: 'Claude Code', cli: 'claude', name_customized: false, persona: '' })],
+      members: [expect.objectContaining({ name: '小橙', cli: 'claude', name_customized: false, persona: '' }), expect.objectContaining({ name: '小蓝' })],
     }));
   });
 
@@ -164,7 +168,7 @@ describe('DSH setup roles', () => {
     await select('[data-testid="dsh-role-runner-0"]', 'codex');
     await openDetails();
     await click('[data-testid="pick-fixture"]');
-    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：Codex\n\n你是「Codex」——白发。\n');
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：小橙\n\n你是「小橙」——白发。\n');
     await input('[data-testid="dsh-role-name-0"]', '小码');
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：小码\n\n你是「小码」——白发。\n');
     await click('[data-testid="dsh-save-roles"]');
