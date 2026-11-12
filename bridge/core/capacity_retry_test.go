@@ -447,6 +447,53 @@ func TestCapacityNotice_OncePerChannelPerCooldown(t *testing.T) {
 	}
 }
 
+// #730: a timer/cron/heartbeat turn on the channel's own session is held and re-sent like any
+// other, but the channel is not told "自动重试这条" for it (nobody there asked; its answer may be
+// silent), and it does not use up the notice a person's held message still gets. The source is
+// the turn's trigger, not the session key's shape or the text.
+func TestCapacityNotice_BackgroundTurnHeldSilently(t *testing.T) {
+	for _, bg := range []Message{
+		{turnTrigger: TurnTriggerTimer, UserID: "timer", Content: "兜底到点：还在做就只回 NO_REPLY"},
+		{turnTrigger: TurnTriggerCron, UserID: "cron", Content: "早报"},
+		{UserID: "heartbeat", Content: "heartbeat"},
+	} {
+		p := &stubPlatformEngine{n: "test"}
+		e := NewEngine("test", &resultAgent{}, []Platform{p}, "", LangEnglish)
+		t.Cleanup(func() { _ = e.Stop() })
+		e.capacityStartCooldown()
+
+		bg.SessionKey, bg.ChannelKey, bg.ReplyCtx = "test:c1", "test:c1", "ctx"
+		e.deferForCapacity(p, bg, nil, e.sessions, "test:c1", "", time.Hour, false)
+		if out := joined(p); out != "" {
+			t.Fatalf("%s turn: channel got %q, want no cooldown notice", turnTriggerOf(&bg), out)
+		}
+		e.capMu.Lock()
+		pending := len(e.capPending)
+		e.capMu.Unlock()
+		if pending != 1 {
+			t.Fatalf("%s turn: held = %d, want it kept for re-delivery", turnTriggerOf(&bg), pending)
+		}
+
+		// A person's message in the same channel and round still gets the notice.
+		e.deferForCapacity(p, Message{SessionKey: "test:c1", ChannelKey: "test:c1", UserID: "u1", Content: "@肥鱼 看下", Mentioned: true, ReplyCtx: "ctx"}, nil, e.sessions, "test:c1", "", time.Hour, false)
+		if got := strings.Count(joined(p), "自动重试这条"); got != 1 {
+			t.Fatalf("after %s turn: person's notices = %d, want 1:\n%s", turnTriggerOf(&bg), got, joined(p))
+		}
+	}
+}
+
+// A workspace handoff wake-up is handed-over work that reports back, so it keeps the notice.
+func TestCapacityNotice_WorkspaceHandoffStillNotified(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &resultAgent{}, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	e.capacityStartCooldown()
+	e.deferForCapacity(p, Message{turnTrigger: TurnTriggerWorkspace, UserID: "handoff", SessionKey: "test:w1", ChannelKey: "test:w1", Content: "接手", ReplyCtx: "ctx"}, nil, e.sessions, "test:w1", "", time.Hour, false)
+	if got := strings.Count(joined(p), "自动重试这条"); got != 1 {
+		t.Fatalf("handoff notices = %d, want 1:\n%s", got, joined(p))
+	}
+}
+
 // While cooling down, a real person's new message asks the model directly
 // once instead of waiting out the clock: if it answers, the cooldown ends and
 // everything held is re-delivered (用户 22:07「这个得治疗一下」的后半条).
