@@ -85,3 +85,41 @@ func TestExitedTurnDoesNotTakeReplacementSessionQueue(t *testing.T) {
 		t.Fatalf("old worker crossed session ownership: old busy=%v new busy=%v sends=%d pending=%d", oldSession.Busy(), newSession.Busy(), recovered.sends(), pending)
 	}
 }
+
+// Split handleMessage at its first failed TryLock: the retiring worker
+// finishes before queueForBusySession publishes the already-admitted input.
+func TestExitedTurnLateQueueRunsAfterUnlock(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	recovered := &capacityScriptSession{events: make(chan Event, 1), script: []string{"human"}}
+	a := &resultAgent{session: recovered}
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	key := "test:late-retirement-handoff"
+	session := e.sessions.GetOrCreateActive(key)
+	if !session.TryLock() {
+		t.Fatal("could not own the old turn")
+	}
+	t.Cleanup(func() { session.Unlock() })
+	old := &interactiveState{agent: a, platform: p, stopped: true, processClaimed: true}
+	e.ensureInteractiveStateForQueueing(key, p, "ctx")
+	if session.TryLock() {
+		t.Fatal("incoming message must first observe the retiring worker as busy")
+	}
+	if !e.drainPendingMessages(old, session, e.sessions, key) || session.Busy() {
+		t.Fatal("old worker must unlock after seeing the empty replacement queue")
+	}
+	accepted := false
+	msg := &Message{SessionKey: key, Platform: p.Name(), UserID: "human",
+		Content: mentionedNote + "\nplease reply", Mentioned: true, ReplyCtx: "ctx",
+		OnAccepted: func() { accepted = true }}
+	if got := e.queueForBusySession(p, msg, session, e.sessions, key, a, "", nil); got != queueAccepted || !accepted {
+		t.Fatalf("late input not accepted: outcome=%v accepted=%v", got, accepted)
+	}
+	waitFor(t, "late queue releases session", func() bool { return !session.Busy() })
+	if out := joined(p); !strings.Contains(out, e.i18n.T(MsgMessageQueued)) || !strings.Contains(out, "reply:human") {
+		t.Fatalf("accepted late human message has no business reply: sends=%d output=%s", recovered.sends(), out)
+	}
+	if recovered.sends() != 1 || !strings.Contains(recovered.sentPrompts()[0], mentionedNote) {
+		t.Fatal("late input must execute once with its must-reply instruction")
+	}
+}

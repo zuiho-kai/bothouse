@@ -150,11 +150,6 @@ func (e *Engine) handOffQueuedAfterReset(sessions *SessionManager, sessionKey, i
 	state.mu.Lock()
 	e.interactiveMu.Unlock()
 	state.pendingMessages = append(held, state.pendingMessages...)
-	if state.agentSession == nil {
-		// A placeholder: drainOrphanedQueue starts a turn with the first
-		// message, which adopts and drains the rest.
-		state.queuedBehindCompact = true
-	}
 	state.mu.Unlock()
 	slog.Info("session reset: queued messages moved to the fresh session", "session", sessionKey, "count", len(held))
 
