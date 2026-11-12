@@ -211,3 +211,41 @@ func TestHeldReportPassedNotPostedAgainAtTimeout(t *testing.T) {
 		t.Fatalf("posts after pass and timeout = %q", got)
 	}
 }
+
+// #1491: a held report the lead sent back (ws-forward) was counted as posted, so the reworked
+// report of the same handoff was dropped as 「already posted」 and never reached the lead. Only a
+// post counts: the rework is held again, and once it is passed a further copy is not.
+func TestHeldReportRejectedThenReworkIsHeldAgain(t *testing.T) {
+	e, p, store, item := heldFixture(t)
+	item.Bound = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	writeReviewBoard(t, e, *item)
+	holdForTest(t, e, p, item, "")
+	if w := verdictCall(t, e, 46, "reject", "打回：没在线上验"); w.Code != http.StatusOK {
+		t.Fatalf("reject = %d %s", w.Code, w.Body)
+	}
+	if e.exitReportedSinceBound(46, item.Bound) {
+		t.Fatal("a rejected report counts as posted for this handoff")
+	}
+	rework := "[report] #46 背景：你让我修汇报。\n补了线上验证\n要你做的：没有。\n我加的：无\n细节：入口自验见工作区"
+	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", rework, exitWSKey, 46, "背景：你让我修汇报。\n补了线上验证\n要你做的：没有。\n我加的：无", "", "", item)
+	rec := e.heldReportFor(46)
+	if rec == nil || !strings.Contains(rec.Body, "补了线上验证") {
+		t.Fatalf("reworked report not held for the lead: %+v", rec)
+	}
+	if n := len(store.List()); n != 2 {
+		t.Fatalf("lead wakes = %d, want 2 (first report and rework)", n)
+	}
+	if w := verdictCall(t, e, 46, "pass", "逐条：补了线上验证，日志有 report posted"); w.Code != http.StatusOK {
+		t.Fatalf("pass = %d %s", w.Code, w.Body)
+	}
+	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "补了线上验证") {
+		t.Fatalf("passed rework post = %q", got)
+	}
+	if !e.exitReportedSinceBound(46, item.Bound) {
+		t.Fatal("a posted report is not recorded as reported")
+	}
+	holdForTest(t, e, p, item, "")
+	if n := len(store.List()); n != 2 {
+		t.Fatalf("copy after the post woke the lead again: %d jobs", n)
+	}
+}

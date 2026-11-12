@@ -332,8 +332,9 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		return ""
 	}
 	bot := e.exitBotName()
-	if kind == exitKindReport && item != nil && e.exitReportedSinceBound(hid, item.Bound) {
-		// Same rule as postExitHeadline, for the lead-rewrite and original-post paths below.
+	if kind == exitKindReport && item != nil && (e.exitReportedSinceBound(hid, item.Bound) || e.reportHeldForLead(p.Name(), hid)) {
+		// Same rule as postExitHeadline, for the lead-rewrite and original-post paths below; a
+		// copy of a report still waiting for the lead's acceptance is not posted either.
 		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound, "legacy", legacy)
 		return ""
 	}
