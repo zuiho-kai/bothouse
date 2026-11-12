@@ -2292,6 +2292,12 @@
   opacity: .65;
 }
 
+.dshc_errorBar .dshc_cardDetail {
+  flex-basis: 100%;
+  order: 3;
+  margin: 0 0 0 28px;
+}
+
 .dshc_errorIcon {
   color: #fff;
   background: var(--dsw-alias-state-error-primary);

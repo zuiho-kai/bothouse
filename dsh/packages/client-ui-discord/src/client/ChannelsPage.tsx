@@ -365,6 +365,13 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
     wasEditing.current = isEditing
   }, [isEditing, own?.editingOther])
 
+  // #1540: a model error reads as one Chinese line; the provider's own words stay folded under it.
+  const rawError = typeof card?.detail === 'string' && card.detail !== '' && (
+    <details className={css.cardDetail}>
+      <summary>{t('rawError')}</summary>
+      <pre>{card.detail}</pre>
+    </details>
+  )
   const retryButtons = (role === 'failure' || card?.state === 'failed') && card !== undefined && (
     <div className={css.cardButtons}>
       {card.state !== 'retried' && (
@@ -402,6 +409,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
       <div className={[css.errorBar, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} data-state={card?.state} role="alert">
         <span className={css.errorIcon} aria-hidden>!</span>
         <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.errorText} onMention={onMention} />
+        {rawError}
         {retryButtons}
       </div>
     )
@@ -565,13 +573,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
                   </div>
                 )}
                 <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
-                {/* #1540: a model error reads as one Chinese line; the provider's own words stay folded here. */}
-                {typeof card.detail === 'string' && card.detail !== '' && (
-                  <details className={css.cardDetail}>
-                    <summary>{t('rawError')}</summary>
-                    <pre>{card.detail}</pre>
-                  </details>
-                )}
+                {rawError}
                 {retryButtons}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}
