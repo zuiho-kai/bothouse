@@ -253,6 +253,16 @@ export function exitMark(text, { lastLine = false, team = [] } = {}) {
   return m === null ? undefined : { kind: markKind(m[1]), body: m[2].trim() };
 }
 
+/**
+ * A numbered workspace 【问】/【升】 uses the same question lifecycle as [ask]: the chat channel
+ * gets the whole question and can answer it, instead of a bare "表态【问】" with no text.
+ */
+export function workspaceAskMark(text, team = []) {
+  const first = withoutLeadingMentions(String(text ?? ''), team).trim();
+  const match = /^【(?:问|升)】\s*#(\d+)([^\n]*)([\s\S]*)$/.exec(first);
+  return match ? { kind: 'ask', body: `#${match[1]}${match[2]}${match[3]}`.trim() } : undefined;
+}
+
 export class TeamExit {
   constructor(hub) {
     this.hub = hub;
@@ -314,7 +324,8 @@ export class TeamExit {
       return message;
     }
     if (msg.author_kind !== 'role') return;
-    const mark = msg.card == null ? exitMark(msg.text, this.markOpts(msg)) : undefined;
+    const workspaceAsk = msg.card == null ? workspaceAskMark(msg.text, this.hub.routable?.() ?? []) : undefined;
+    const mark = msg.card == null ? workspaceAsk ?? exitMark(msg.text, this.markOpts(msg)) : undefined;
     const room = this.workspaceOf(msg);
     if (!room) return;
     const ask = mark?.kind === 'ask';

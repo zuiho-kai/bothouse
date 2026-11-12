@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { readFileSync } from 'node:fs';
-import { TeamExit, RULES, jargonProblems, lengthProblems, exitMark, askEvidenceProblems, selfRouteProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit } from './team-exit.mjs';
+import { TeamExit, RULES, jargonProblems, lengthProblems, exitMark, askEvidenceProblems, selfRouteProblems, judgeExit, exitTaskPick, exitBounceText, exitSplit, workspaceAskMark } from './team-exit.mjs';
 
 const tick = () => new Promise(r => setImmediate(r));
 
@@ -185,4 +185,15 @@ test('a part over two sentences goes back, never cut (11-10「为什么回复那
   assert.equal(p.length, 1);
   assert.ok(p[0].includes('「背景」那段写了 3 句'));
   assert.deepEqual(lengthProblems('背景：修汇报。\n改好了。已上线。要你做的：没有。\n我加的：无'), []);
+});
+
+test('a workspace 【问】#id carries the question itself, like [ask]', () => {
+  const mark = workspaceAskMark('【问】#12 背景：需要选方案。\n要你做的：选 A 还是 B？');
+  assert.equal(mark.kind, 'ask');
+  assert.match(mark.body, /^#12 /);
+  assert.match(mark.body, /选 A 还是 B/);
+  // A plain 【问】 without a task id is still the owner's stance, not a channel question.
+  assert.equal(workspaceAskMark('【问】这里没编号'), undefined);
+  // A bare id with no text is still a question, just an empty one.
+  assert.equal(workspaceAskMark('【问】#12').kind, 'ask');
 });
