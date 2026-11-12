@@ -1335,6 +1335,7 @@ func (e *Engine) ClaimTeamWorkspaceFor(channel, wsID, name, taskOwner, title str
 // of guessing the row from the workspace and the title (handoffBoardID put #679's renewals on the
 // paused #677, 11-11). A task the state does not allow to be dispatched (closed) is refused.
 func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title string, board int) error {
+	committed := false // the claim was saved; a platform claim made below is undone otherwise
 	if e == nil || e.dataDir == "" || channel == "" || wsID == "" {
 		return errors.New("team workspace claim: chat channel and workspace id are required")
 	}
@@ -1478,6 +1479,21 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 				return fmt.Errorf("team workspace claim: %s → %s: %w", chat, wsID, err)
 			}
 			w.Claim = claim
+			if r, ok := p.(TeamWorkspaceReleaser); ok && owner == "" {
+				// #1492: a claim refused or failed below (closed task, unreadable state) is rolled
+				// back here; the platform's claim is undone too, or it keeps the workspace owned
+				// with no local record to release it. Only a fresh claim: one this chat already
+				// held stays its own.
+				defer func() {
+					if !committed {
+						ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+						if rerr := r.ReleaseTeamWorkspaceChannel(ctx, wsID, claim); rerr != nil {
+							slog.Warn("team workspace claim: undoing the platform claim failed", "workspace", wsID, "claim", claim, "error", rerr)
+						}
+						cancel()
+					}
+				}()
+			}
 		}
 	} else if owner != "" && owner != chat {
 		return fmt.Errorf("team workspace claim: %s → %s: %w (%s, until it finishes its last task)", chat, wsID, ErrTeamWorkspaceOwned, owner)
@@ -1539,6 +1555,7 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	if err := commitTeamTaskAndWorkspacesLocked(e.dataDir, path, st, ev, now); err != nil {
 		return fmt.Errorf("team workspace claim: %w", err)
 	}
+	committed = true
 	if board > 0 {
 		worker.restoreTeamTaskSession(prev, wk)
 	}
