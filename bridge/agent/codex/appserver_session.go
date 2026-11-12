@@ -184,6 +184,7 @@ type appServerRequestUserInputAnswer struct {
 
 type appServerSession struct {
 	subTaskTracker
+	emitSeq       atomic.Int64 // bumped on every emitted event; the model-retry notice checks it went quiet
 	billingMu     sync.Mutex
 	billingTotal  *codexTokenUsage
 	billingTurn   codexTokenUsage
@@ -1410,6 +1411,7 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 		}
 		if notif.WillRetry {
 			slog.Warn("codex app-server: transient error, codex will retry", "error", msg)
+			s.noticeModelRetryIfQuiet(msg)
 			return
 		}
 		// Ends the turn so the turn/completed that follows is a no-op.
@@ -1917,7 +1919,26 @@ func (s *appServerSession) flushPendingAsText() (last string) {
 	return last
 }
 
+// modelRetryQuiet: how long codex may sit in its own retry before the chat is told why nothing moves.
+// #1536 新手实走：模型满载时 codex 自己退避 5 分多钟，频道里只有「正在输入」，新手以为装坏了。
+var modelRetryQuiet = 30 * time.Second
+
+// noticeModelRetryIfQuiet: codex said it will retry (its `error` notification with willRetry, text
+// "Reconnecting... 1/5" plus the cause). The notification carries no wait time, so if nothing else
+// arrives within modelRetryQuiet, emit one event marked MetaModelRetry; the engine puts the line on
+// the progress card.
+func (s *appServerSession) noticeModelRetryIfQuiet(msg string) {
+	seq := s.emitSeq.Load()
+	time.AfterFunc(modelRetryQuiet, func() {
+		if s.emitSeq.Load() != seq {
+			return // the turn moved on (or ended) meanwhile
+		}
+		s.emit(core.Event{Type: core.EventThinking, Metadata: map[string]any{core.MetaModelRetry: msg}})
+	})
+}
+
 func (s *appServerSession) emit(event core.Event) {
+	s.emitSeq.Add(1)
 	select {
 	case s.events <- event:
 	default:

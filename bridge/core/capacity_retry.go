@@ -657,3 +657,19 @@ func queuedToMessage(q queuedMessage) Message {
 		boardLabel:          q.boardDesc, // maomao fork: keeps the board text through a re-delivery
 	}
 }
+
+// modelRetryNotice: the line shown when the agent has been retrying the model for a while (#1536,
+// MetaModelRetry). Wording from the #1536 handoff: 「模型那边满载，正在重试」.
+func modelRetryNotice(zh bool, why string) string {
+	capacity := isModelCapacityError(why)
+	if zh {
+		if capacity {
+			return "⏳ 模型那边满载，正在重试，可能要等几分钟，不用重发。"
+		}
+		return "⏳ 模型那边暂时连不上，正在重试，可能要等几分钟，不用重发。"
+	}
+	if capacity {
+		return "⏳ The model is at capacity; retrying. This can take a few minutes, no need to resend."
+	}
+	return "⏳ Can't reach the model right now; retrying. This can take a few minutes, no need to resend."
+}
