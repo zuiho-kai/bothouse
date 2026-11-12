@@ -7,6 +7,7 @@
 // one that was consumed is settled from the Session log. Nothing is re-sent,
 // so a prompt is executed at most once.
 import { randomUUID } from 'node:crypto';
+import { modelErrorReply } from './model-errors.mjs';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
@@ -217,6 +218,9 @@ export function friendlyFailure(raw) {
   const text = String(raw);
   // #1606: a used-up quota is not a configuration problem. Same wording as quota-cooling.mjs quotaDeadline.
   if (/quota|resource_exhausted|(?:usage|session) limit|hit your limit/i.test(text)) return `模型额度用完了，等额度恢复或换个模型/中转站再试。原始错误：${text.replace(/^出错了：/, '')}`;
+  // #1540: other CLI/model errors (满载、超时、鉴权) read as one Chinese line; the raw text folds under the card.
+  const model = modelErrorReply(text.replace(/^出错了：/, ''));
+  if (model !== undefined) return model.zh;
   if (/\binternal[ _]error\b/i.test(text)) return `上游模型服务内部错误（Internal error），本轮已停止；服务恢复后可重新派活。${text.includes('连续') ? ` ${text}` : ''}`;
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没填模型密钥，填好就能用。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
@@ -893,6 +897,9 @@ export class DshMembers {
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
+      // #1540: codex-acp ends a turn normally with the provider's error as its only text ("Selected model is
+      // at capacity…"). Posted as her reply it @-ed the lead and handed the task back; it is a failure.
+      if (modelErrorReply(text) !== undefined) { this.fail(job.id, text); return; }
       latest = '';
       const reply = this.returnToLead(job, member, text);
       const converted = localImageReply(reply, cwd, this.rt.files, this.rt.logger);
@@ -1074,6 +1081,8 @@ export class DshMembers {
     }
     this.hub.quota?.observe(job.member_id, job.room_id, { error: String(notice) });
     const error = friendlyFailure(notice);
+    // #1540: a model error shows one Chinese line; the provider's own words fold under it (card.detail).
+    const model = modelErrorReply(String(notice?.message ?? notice));
     this.hub.setError(job.member_id, error);
     this.hub.post(job.room_id, {
       authorKind: 'system', author: 'system', name: 'system', text: error, clientKey: `dsh-job-${jobId}-${state}-${Date.now()}`,
@@ -1081,6 +1090,7 @@ export class DshMembers {
         title: '成员出错',
         state: 'failed',
         action: 'configure-model',
+        ...(model === undefined ? {} : { detail: model.raw }),
         job_id: jobId,
         member_id: job.member_id,
         trigger_id: job.trigger_id,
@@ -1088,7 +1098,10 @@ export class DshMembers {
     });
     // A terminal ACP error has already exhausted (or does not offer) retries.
     // Native retry loops reach here after the bounded llm/retry guard above.
-    if (internalError({ message: String(notice) })) this.hub.tasks?.pauseForFailure(job.room_id, job.member_id, error);
+    // #1540: in a chat channel the failed turn's task is 出错 (no hand-back to accept); a workspace task is
+    // parked as before, for an upstream internal error and now a model error too (Tasks.failOpen).
+    const inWorkspace = this.store.room(job.room_id)?.kind === 'workspace';
+    if (!inWorkspace || model !== undefined || internalError({ message: String(notice) })) this.hub.tasks?.failOpen?.(job.room_id, job.member_id, error);
   }
 
   /**

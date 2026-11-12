@@ -12,7 +12,7 @@ export type T = TranslateNS<typeof NS>
 export const STATUS_KEY = {
   assigned: 'taskAssigned', accepted: 'taskAccepted', asked: 'taskAsked', declined: 'taskDeclined',
   escalated: 'taskEscalated', returned: 'taskReturned', done: 'taskDone', rework: 'taskRework',
-  cancelled: 'taskCancelled', superseded: 'taskSuperseded',
+  cancelled: 'taskCancelled', superseded: 'taskSuperseded', failed: 'taskFailed',
 } as const satisfies Record<TaskStatus, string>
 
 /**
@@ -26,7 +26,8 @@ export const STATUS_KEY = {
  * - done: accepted; listed only under 「全部」.
  */
 export type BoardGroup = 'decide' | 'working' | 'parked' | 'done'
-const DECIDE: readonly TaskStatus[] = ['asked', 'returned', 'declined', 'escalated']
+// #1540: a failed turn (出错) waits on the lead to send it again, like a 退/升.
+const DECIDE: readonly TaskStatus[] = ['asked', 'returned', 'declined', 'escalated', 'failed']
 export const isTerminalTask = (task: ChannelTask): boolean => ['done', 'cancelled', 'superseded'].includes(task.status)
 export function boardGroupOf(task: ChannelTask): BoardGroup {
   if (DECIDE.includes(task.status)) return 'decide'

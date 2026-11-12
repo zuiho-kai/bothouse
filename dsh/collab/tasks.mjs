@@ -13,12 +13,16 @@ import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark, workspaceAskMark } from './team-exit.mjs';
 import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
 import { execFile } from 'node:child_process';
+import { modelErrorReply } from './model-errors.mjs';
 
 /** Status codes and their labels. Cancellation/supersession are not acceptance. */
 export const STATUS = {
   assigned: '派出', accepted: '已接', asked: '有疑问', declined: '退回',
   escalated: '升级', returned: '交回', done: '完成', rework: '返工',
   cancelled: '已取消', superseded: '已替代',
+  // #1540: the owner's turn ended in a CLI/model error (满载、超时、鉴权): not a hand-back, never accepted;
+  // the lead's next call to the owner re-dispatches it (fromChat).
+  failed: '出错',
 };
 export const TERMINAL = ['done', 'cancelled', 'superseded'];
 /** First-line stance marks used by the team (本机团队模式【接/问/退/升】). */
@@ -715,6 +719,13 @@ export class Tasks {
     const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
     // Watch posts arrive as the lead. Ignore them before verdicts, stances, hand-backs or implicit reviews.
     if (msg.author === lead?.id && isWatchNotice(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
+    // #1540: a reply that is only a model error (a bridge bot posts the CLI's text as is) is no
+    // stance, hand-back, verdict or dispatch: the owner's open task here is marked 出错.
+    const failure = modelErrorReply(withoutLeadingMentions(String(msg.text), this.hub.routableIn(msg.room_id)));
+    if (failure !== undefined) {
+      if (msg.author !== lead?.id) this.failOpen(msg.room_id, msg.author, failure.zh);
+      return undefined;
+    }
     if (this.verdictsOf(msg)) return undefined;
     this.settleCall(msg);
     if (this.inWorkspace(msg.room_id) && workspaceAskMark(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
@@ -874,6 +885,8 @@ export class Tasks {
         const key = `${msg.room_id}\0${owner}`;
         this.pendingCalls.delete(key);
         const latest = this.q.latestOf.get(msg.room_id, owner);
+        // #1540: a call after her turn failed sends the same task again instead of opening another.
+        if (latest?.status === 'failed' && latest.created_by === lead.id) { this.retryFailed(latest.id); continue; }
         if (DELIVERED.includes(latest?.status)) {
           this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
           continue;
@@ -1220,6 +1233,29 @@ export class Tasks {
   }
 
   /** Park only this member's failed workspace work, with a notice but no retry wake. */
+  /**
+   * #1540: owner's turn in roomId ended in a model error (modelErrorReply, dsh-member fail). Its open
+   * task there is 出错, not 交回: the lead's next message accepts nothing and its next call re-sends it.
+   * A workspace task is parked instead (pauseForFailure), the same as an upstream internal error.
+   */
+  failOpen(roomId, owner, reason) {
+    if (this.store.room(roomId)?.kind === 'workspace') return this.pauseForFailure(roomId, owner, reason);
+    const task = this.openOf(roomId, owner);
+    if (task === undefined) return undefined;
+    const row = this.q.set.get('failed', null, clip(reason), this.now(), 0, task.id, task.status);
+    if (row === undefined) return undefined;
+    this.record(row, 'failed', `#${row.id}「${row.title}」${this.nameOf(row.owner)} 出错：${reason}（不算交回）`);
+    return this.changed(row.id);
+  }
+
+  /** #1540: the lead called the owner again after her turn failed: the same task is in work again. */
+  retryFailed(id) {
+    const row = this.q.set.get('assigned', this.now() + CHECK_AFTER_S, null, this.now(), 0, id, 'failed');
+    if (row === undefined) return undefined;
+    this.record(row, 'retry', `#${id}「${row.title}」重新派给 ${this.nameOf(row.owner)}`);
+    return this.changed(id);
+  }
+
   pauseForFailure(roomId, owner, reason) {
     if (this.store.room(roomId)?.kind !== 'workspace') return;
     for (const task of this.q.allBusy.all(...WORKING)) {
