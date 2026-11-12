@@ -452,8 +452,9 @@ def notes_chat(notes: str, chat: str) -> str:
     claim、任务板 chat、汇报、[ask]、兜底定时器都回那里。跑命令的是工作区（lead_chat 会换成 owner）、没写、写的就是
     本频道时原样返回。来源：11-10 #1342 笨蛋英文 X 版的活从 1562131004234276945 交出，📬 贴进了那里（#1346，
     用户「这个不是这个频道工作，但怎么往这个频道塞」）。"""
-    at = notes.find(f"## {SOURCE}")
-    m = re.search(r"^- 聊天频道：(\S+:\S+)\s*$", notes[at:] if at >= 0 else "", re.M)
+    source = notes.split(f"## {SOURCE}\n", 1)
+    section = source[1].split("\n## ", 1)[0] if len(source) == 2 else ""
+    m = re.search(r"^- 聊天频道：(\S+:\S+)\s*$", section, re.M)
     if not m or not chat or ":" not in chat:
         return chat
     want = m.group(1)

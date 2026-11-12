@@ -20,6 +20,10 @@ class Drain(unittest.TestCase):
         self.mod = runpy.run_path(str(Path(__file__).with_name("ws-handoff")))
         self.g = self.mod["drain"].__globals__
 
+    def test_source_chat_stays_within_its_section(self):
+        notes = "## 原话出处（程序附）\n- 时间窗：x\n## 下一节\n- 聊天频道：room:other\n"
+        self.assertEqual(self.mod["notes_chat"](notes, "room:main"), "room:main")
+
     def test_paused_item_keeps_position_and_resumes_before_later_work(self):
         queue = Path(self.g["QUEUE"])
         queue.parent.mkdir(parents=True, exist_ok=True)
