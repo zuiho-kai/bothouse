@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"log/slog"
-	"math"
 	"math/rand/v2"
 	"regexp"
 	"strconv"
@@ -17,13 +16,17 @@ import (
 // 然后冷却完了记得要那个尝试」。A turn that fails with the provider's "model is at
 // capacity" error is re-sent right away, up to capacityAttempts sends in total.
 // If all fail, the engine cools down (capacityCooldownBase, doubling after each
-// cooldown that ends in failure again, reset by any turn that gets through) and
+// cooldown that ends in failure again up to capacityCooldownMax, reset by any turn
+// that gets through) and
 // re-delivers the message when the cooldown ends. Messages arriving while
 // cooling down wait for the end of the cooldown instead of hitting the model.
 
 const capacityAttempts = 3 // 用户原话「三次都这样的话」
 
-var capacityCooldownBase = 10 * time.Minute // 用户原话「冷却10分钟」；var only so tests can shorten it
+// 用户 2026-11-12 08:4x「5分钟开始 翻倍但最多 20 分钟」（原 10 分钟起、不封顶，一夜中转故障冷却到 160 分钟）。
+var capacityCooldownBase = 5 * time.Minute // 用户原话「5分钟开始」；var only so tests can shorten it
+
+const capacityCooldownMax = 20 * time.Minute // 用户原话「最多 20 分钟」
 
 var quotaResetDurationRE = regexp.MustCompile(`(?i)Resets in ([0-9hms.]+)`)
 
@@ -222,13 +225,16 @@ func (e *Engine) capacityWait(scopes ...quotaScope) time.Duration {
 	return max(time.Until(until), 0)
 }
 
-// capacityStartCooldown starts the next cooldown: base, then doubling.
+// capacityStartCooldown starts the next cooldown: base, then doubling, never above capacityCooldownMax.
 func (e *Engine) capacityStartCooldown() time.Duration {
 	e.capMu.Lock()
 	defer e.capMu.Unlock()
 	d := capacityCooldownBase
-	for i := 0; i < e.capRound && d <= math.MaxInt64/2; i++ { // guard against overflow only
+	for i := 0; i < e.capRound && d < capacityCooldownMax; i++ {
 		d *= 2
+	}
+	if d > capacityCooldownMax {
+		d = capacityCooldownMax
 	}
 	e.capRound++
 	e.capUntil = time.Now().Add(d)

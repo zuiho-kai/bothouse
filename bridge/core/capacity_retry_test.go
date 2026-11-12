@@ -347,15 +347,15 @@ func TestCapacityRetry_ScheduledSideSessionNotRedelivered(t *testing.T) {
 
 func TestCapacityRetry_CooldownDoubles(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, nil, "", LangEnglish)
-	want := []time.Duration{10, 20, 40, 80, 160}
+	want := []time.Duration{5, 10, 20, 20, 20} // 用户 2026-11-12「5分钟开始 翻倍但最多 20 分钟」
 	for i, w := range want {
 		if d := e.capacityStartCooldown(); d != w*time.Minute {
 			t.Fatalf("cooldown %d = %v, want %v", i+1, d, w*time.Minute)
 		}
 	}
 	e.capacityReset()
-	if d := e.capacityStartCooldown(); d != 10*time.Minute {
-		t.Fatalf("after reset cooldown = %v, want 10m", d)
+	if d := e.capacityStartCooldown(); d != 5*time.Minute {
+		t.Fatalf("after reset cooldown = %v, want 5m", d)
 	}
 }
 
