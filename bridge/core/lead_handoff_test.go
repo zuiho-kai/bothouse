@@ -203,12 +203,55 @@ func TestLeadHandoffInjectsDurableRecordAndDelta(t *testing.T) {
 		t.Fatalf("post-switch delta missing result:\n%s", delta)
 	}
 
-	// Restart: a fresh engine/agent context gets the stored record again.
+	// #1515: once a turn took the switch over, a fresh engine/agent context
+	// does not get the whole record again (it re-sent ~47k chars per new session).
 	d2 := handoffTestEngine(t, dir, "lead-d", "Lead D", &namedTestAgent{name: "codex"})
 	session2 := d2.sessions.GetOrCreateActive("discord:room")
 	replayed := d2.withTurnBlocks(session2, "discord:room", "", "重启后", true)
-	if !strings.Contains(replayed, "实现 274") || !strings.Contains(replayed, "主角色交接") {
-		t.Fatalf("handoff did not survive restart:\n%s", replayed)
+	if strings.Contains(replayed, "主角色交接") {
+		t.Fatalf("acknowledged handoff was re-sent to a fresh context:\n%s", replayed)
+	}
+	// ...but a result arriving later still reaches the fresh context, linked to the task.
+	time.Sleep(5 * time.Millisecond)
+	rec.Task.Events = append(rec.Task.Events, TaskEvent{
+		ID: "evt-late", TaskID: taskID, Kind: TaskEventResultReady,
+		Summary: "重启后的成员结果", Timestamp: time.Now().UTC(),
+	})
+	rec.Task.UpdatedAt = time.Now().UTC()
+	b, _ = json.Marshal(rec)
+	if err := os.WriteFile(matches[0], b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	late := d2.withTurnBlocks(session2, "discord:room", "", "再下一步", true)
+	if !strings.Contains(late, "重启后的成员结果") || !strings.Contains(late, taskID) || strings.Contains(late, "成员结果：交接实现完成") {
+		t.Fatalf("fresh context delta wrong:\n%s", late)
+	}
+}
+
+func TestLeadHandoffFoldsParkedWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	h := &LeadHandoff{ID: "handoff-x", From: "a", FromName: "A", To: "b", ToName: "B", At: time.Now()}
+	snap := &LeadHandoffSnapshot{WorkspaceTotal: 3, Workspaces: []LeadHandoffWorkspace{
+		{ID: "w1", Chat: "c", Task: "在跑的活"},
+		{ID: "w2", Chat: "c", Task: "暂停一", Parked: true},
+		{ID: "w3", Chat: "c", Task: "暂停二", Parked: true},
+	}}
+	folded := renderLeadHandoffBlockFolded(dir, h, snap)
+	if !strings.Contains(folded, "在跑的活") || strings.Contains(folded, "暂停一") || !strings.Contains(folded, "另有 2 个已暂停") {
+		t.Fatalf("parked workspaces not folded:\n%s", folded)
+	}
+	i := strings.Index(folded, "bothouse ctx ")
+	if i < 0 {
+		t.Fatalf("no ctx id:\n%s", folded)
+	}
+	id := strings.Fields(folded[i+len("bothouse ctx "):])[0]
+	id = strings.Trim(id, "`")
+	body, err := ReadCtx(dir, id)
+	if err != nil || !strings.Contains(body, "暂停一") || !strings.Contains(body, "暂停二") {
+		t.Fatalf("ctx body wrong (%v):\n%s", err, body)
+	}
+	if full := renderLeadHandoffBlock(h, snap); !strings.Contains(full, "暂停一") {
+		t.Fatalf("full record (handoff show) must keep every line:\n%s", full)
 	}
 }
 
