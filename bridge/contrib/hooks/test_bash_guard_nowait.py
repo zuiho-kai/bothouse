@@ -26,6 +26,10 @@ CASES = [  # (命令, 后台?, 应拦?)
     ("until gh run view 1 | grep -q completed; do sleep 20; done", False, True),
     ("while true; do\n  curl -s localhost:8000\n  sleep 10\ndone", False, True),
     ("perl -e 'alarm shift; exec @ARGV' 600 gh run watch 123 > /tmp/w.log 2>&1", True, False),
+    ("for i in $(seq 1 28); do gh pr checks 1 | grep -q pending || break; python3 -c 'import time;time.sleep(20)'; done", False, True),
+    ("perl -e 'alarm 270; exec @ARGV' gh pr checks 1599 --watch", False, True),
+    ("perl -e 'alarm 270; exec @ARGV' gh pr checks 1599 --watch > /tmp/w.log 2>&1", True, False),
+    ("for f in a b; do python3 -c 'import time;time.sleep(1)'; done", False, False),
     ("sleep 5", False, "DSH"),  # DSH 前台 sleep 一律拦（2026-10-22），CC 照旧 <60 秒放
     ("sleep 30 && ls", False, "DSH"),
     ("npm run watch", False, False),
