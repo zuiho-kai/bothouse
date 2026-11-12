@@ -528,8 +528,10 @@ export class CloudWebGateway {
         const decisions = Object.entries(PERM_DECISIONS).filter(([, data]) => buttons.some(b => b.data === data));
         if (!text) return;
         if (decisions.length === 0) {
-          // Not a permission prompt: keep the old text fallback.
-          this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text });
+          // Not a permission prompt: keep the text fallback, but keep the choices too. Without
+          // them the chat shows a question nobody can answer without opening the workspace.
+          const choices = buttons.length === 0 ? '' : `\n\n${buttons.map(b => `- ${b.label}`).join('\n')}`;
+          this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: `${text}${choices}`.slice(0, MAX_TEXT) });
           return;
         }
         // cc-connect keeps one pending permission per session: a new prompt supersedes older ones.

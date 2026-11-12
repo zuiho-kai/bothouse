@@ -7140,3 +7140,19 @@ test('a workspace permission card is mirrored to its chat channel as the same re
   await decision;
   assert.throws(() => approvals.decide(copy.id, 'deny'), /已经处理过|已过期/);
 });
+
+test('a non-permission question keeps its choices in the chat text', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, {});
+  const bot = connect(gw, 'bot=dou&name=大豆包');
+  hub.store.ensureRoom(1, 'general');
+  bot.frame({
+    type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '请选择方案',
+    buttons: [[{ Text: '选 A', Data: 'pick:a' }, { Text: '选 B', Data: 'pick:b' }]],
+  });
+  await tick();
+  const posted = hub.store.page(1).at(-1);
+  assert.match(posted.text, /请选择方案/);
+  assert.match(posted.text, /选 A/, 'the choices survive into the chat text');
+  assert.match(posted.text, /选 B/);
+});
