@@ -5,6 +5,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+/** Every task status the tasks table accepts (tasks.mjs STATUS); #1540 added 'failed'. */
+const TASK_STATUSES = ['assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework', 'cancelled', 'superseded', 'failed'];
+
 export const MAX_TEXT = 128 * 1024;
 // Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
@@ -237,9 +240,11 @@ export class Store {
   /** SQLite CHECK constraints require a table rebuild; keep rows, self-references and IDs. */
   migrateTaskStatuses() {
     const schema = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get()?.sql;
-    if (!schema || schema.includes("'cancelled'")) return;
+    // #1540 adds 'failed' (tasks.mjs STATUS 出错); an older table has the list without it, or without
+    // 'cancelled'/'superseded' too. The status list is rewritten whole, the other columns stay as they are.
+    if (!schema || schema.includes("'failed'")) return;
     const next = schema.replace(/CREATE TABLE\s+"?tasks"?/i, 'CREATE TABLE tasks_terminal')
-      .replace("'done', 'rework'", "'done', 'rework', 'cancelled', 'superseded'");
+      .replace(/status IN \([^)]*\)/, `status IN (${TASK_STATUSES.map(s => `'${s}'`).join(', ')})`);
     // foreign_keys must be changed outside a transaction (parent_task references this table).
     this.db.exec('PRAGMA foreign_keys = OFF');
     try {
@@ -266,7 +271,7 @@ export class Store {
         title TEXT NOT NULL,
         owner TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework', 'cancelled', 'superseded')),
+        status TEXT NOT NULL CHECK (status IN (${TASK_STATUSES.map(s => `'${s}'`).join(', ')})),
         next_check_at REAL,
         result_msg_id INTEGER,
         assign_msg_id INTEGER,

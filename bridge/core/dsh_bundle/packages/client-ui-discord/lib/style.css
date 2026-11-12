@@ -347,6 +347,22 @@
   font-weight: 600;
 }
 
+.dshc_cardDetail {
+  color: var(--dsw-alias-label-secondary);
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.dshc_cardDetail summary {
+  cursor: pointer;
+}
+
+.dshc_cardDetail pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 0;
+}
+
 .dshc_cardHead {
   justify-content: space-between;
   align-items: center;
@@ -1643,6 +1659,10 @@
 
 .dshc_taskStatus[data-status="asked"], .dshc_taskStatus[data-status="escalated"], .dshc_taskStatus[data-status="declined"], .dshc_taskStatus[data-status="rework"] {
   background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));
+}
+
+.dshc_taskStatus[data-status="failed"] {
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .dshc_taskStatus[data-status="done"], .dshc_taskStatus[data-status="cancelled"], .dshc_taskStatus[data-status="superseded"] {

@@ -119,7 +119,7 @@ function saveCardView(roomId: number, view: CardView): void {
 }
 
 /** Card metadata stored in `ChannelMessage.card` (progress, permission, task, failure, …). */
-interface CardMeta { title?: string; state?: string; action?: string; kind?: string; task_id?: number; brief?: string; steps?: number; chips?: unknown }
+interface CardMeta { title?: string; state?: string; action?: string; detail?: string; kind?: string; task_id?: number; brief?: string; steps?: number; chips?: unknown }
 
 export function parseCard(message: ChannelMessage): CardMeta | undefined {
   if (message.card === null) return undefined
@@ -565,6 +565,13 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
                   </div>
                 )}
                 <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
+                {/* #1540: a model error reads as one Chinese line; the provider's own words stay folded here. */}
+                {typeof card.detail === 'string' && card.detail !== '' && (
+                  <details className={css.cardDetail}>
+                    <summary>{t('rawError')}</summary>
+                    <pre>{card.detail}</pre>
+                  </details>
+                )}
                 {retryButtons}
                 {card.kind === 'permission' && <PermissionCard messageId={message.id} card={card as PermissionCardData} t={t} onDecide={onDecide} />}
                 {card.kind === 'task' && typeof card.task_id === 'number' && <TaskCard taskId={card.task_id} tasks={tasks} t={t} />}

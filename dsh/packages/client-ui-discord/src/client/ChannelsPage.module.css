@@ -356,6 +356,22 @@
   font-weight: 600;
 }
 
+.cardDetail {
+  margin-top: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.cardDetail summary {
+  cursor: pointer;
+}
+
+.cardDetail pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .cardHead {
   display: flex;
   align-items: center;
@@ -1531,6 +1547,10 @@
 .taskStatus[data-status='declined'],
 .taskStatus[data-status='rework'] {
   background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));
+}
+
+.taskStatus[data-status='failed'] {
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .taskStatus[data-status='done'],
