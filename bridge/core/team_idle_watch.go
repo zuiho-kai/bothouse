@@ -258,12 +258,11 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	// [report]/【交回】/PR-link/【接】≥300 guesses and the 「做不了」 pattern are gone (design §4 rows 1–2).
 	// A stale waiting-user card cannot turn a fresh acceptance into a handback.
 	returned := cardResult && !accepted
-	asking := false
 	switch e.workspaceTaskStateAt(key) {
 	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
 		returned = true
 	case TeamTaskAsking, TeamTaskPaused:
-		returned, asking = true, true
+		returned = true
 	}
 	title := strings.TrimSpace(StripMarkdown(strings.TrimPrefix(first, "【接】")))
 	boardID := watchTaskNumber(StripMarkdown(first))
@@ -317,9 +316,6 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 				chat = picked.parent
 			}
 		}
-	}
-	if returned && !asking {
-		e.scheduleWorkspaceReturn(key, time.Now())
 	}
 	teamWorkspaceStore.mu.Lock()
 	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))

@@ -4048,7 +4048,6 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 		return nil
 	}
 
-	e.releaseWorkspaceOnReset(msg.SessionKey, lastActive, false) // a workspace's tasks are over: back to the pool
 	slog.Info("auto-resetting idle session",
 		"session_key", msg.SessionKey,
 		"session_id", session.ID,
@@ -4986,7 +4985,12 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	// Ends when this function returns, after the drain of the queued messages.
 	endTurnFact := beginTeamTurn(teamTurnFact{Chat: msg.SessionKey, Session: msg.SessionKey, Engine: e.name,
 		TaskID: e.teamTaskTurnStarted(msg.SessionKey), lastEvent: &state.lastEventAt})
-	defer endTurnFact()
+	defer func() {
+		endTurnFact()
+		// #699 design §4 row 12: the workspace goes back to the pool because its task's state
+		// says handed back, when the last turn there has ended — not on a timer after a reply.
+		e.releaseReturnedWorkspace(msg.SessionKey)
+	}()
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
 
@@ -9681,23 +9685,13 @@ func (e *Engine) cmdNew(p Platform, msg *Message, args []string) {
 func (e *Engine) startFreshSession(sessions *SessionManager, interactiveKey, sessionKey, name, handoffReason string) {
 	slog.Info("cmdNew: cleaning up old session", "session_key", sessionKey)
 	e.dropPendingReset(sessionKey) // this reset satisfies any queued one; it must not hit the next conversation
-	// Messages that move to the fresh session (session new --after-turn) are more work for a
-	// workspace, so it stays owned (releaseWorkspaceOnReset below).
-	queued := false
-	e.interactiveMu.Lock()
-	st := e.interactiveStates[interactiveKey]
-	e.interactiveMu.Unlock()
-	if st != nil {
-		st.mu.Lock()
-		queued = st.resetHandoff && len(st.pendingMessages) > 0
-		st.mu.Unlock()
-	}
+	// #699 design §4 row 12: a reset no longer frees a team workspace — the task's state does,
+	// when its turn ends (releaseReturnedWorkspace).
 	e.cleanupInteractiveState(interactiveKey)
 	slog.Info("cmdNew: cleanup done, creating new session", "session_key", sessionKey)
 
 	// Clear old session's agent session ID so it cannot be resumed
 	old := sessions.GetOrCreateActive(sessionKey)
-	e.releaseWorkspaceOnReset(sessionKey, old.GetUpdatedAt(), queued) // a workspace's tasks are over: back to the pool
 	oldAgentID := old.GetAgentSessionID()
 	pendingFrom, pendingReason := old.TakeHandoffFrom() // /new twice before a turn
 	old.SetAgentSessionID("", "")

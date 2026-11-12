@@ -30,7 +30,7 @@ func autostartFixture(t *testing.T) (*Engine, *handoffWatch, string) {
 	), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.ClaimTeamWorkspaceFor("discord:main", "ws1", "工作区1", "", "自动标在做"); err != nil {
+	if err := e.ClaimTeamWorkspaceTask("discord:main", "ws1", "工作区1", "", "自动标在做", 7); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { e.cancel(); _ = e.Stop() })

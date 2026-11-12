@@ -366,7 +366,7 @@ type TeamHandoff struct {
 	// user/bot id, mentioned in the nudge; "" = nobody is mentioned). Title: the task's short
 	// name for the nudge. Due: the next check time (zero: not watched, e.g. a handoff recorded
 	// before the watch existed). Renewed: renewals given for progress. Nudged: the nudge was
-	// sent. ParkFails: parks that failed at the check time (retried, then reported). ReadFails: below.
+	// sent. ParkFails: parks that failed at the check time (retried, then reported).
 	Idle   watchIdleState `json:"idle,omitzero"`
 	Sender string         `json:"sender,omitempty"` // d10 caller project
 	Board  int            `json:"board,omitempty"`  // task-board item watched at turn completion
@@ -383,12 +383,10 @@ type TeamHandoff struct {
 	// AutoResumed: a check found no progress once and, instead of parking, stopped the stuck turn
 	// and woke the workspace to continue; the next no-progress check parks.
 	AutoResumed bool `json:"auto_resumed,omitempty"`
-	// ReadFails: checks whose progress signal could not be read (the channel history request
-	// failed); retried like ParkFails, then counted as no progress. Since: the start of the
-	// window being checked, kept while a read is retried (a retry moves Due, not the window;
-	// zero: Due - watchCheckAfter, or At if later).
-	ReadFails int       `json:"read_fails,omitempty"`
-	Since     time.Time `json:"since,omitzero"`
+	// Since: the start of the window being checked (zero: Due - watchCheckAfter, or At if later).
+	// #699 design §4: the channel-history read and its ReadFails retry are gone; progress is the
+	// turn fact and the journal, which cannot fail to read.
+	Since time.Time `json:"since,omitzero"`
 }
 
 // teamHandoffOpen: the handoff is in work (neither closed nor paused).
@@ -1619,40 +1617,6 @@ func (e *Engine) restoreTeamTaskSession(t TeamTask, wk string) {
 	s.SetAgentSessionID(t.Session, t.SessionAgent)
 	sm.Save()
 	slog.Info("team task: resumed with its saved session", "board", t.ID, "workspace", wk, "from", t.SessionWS)
-}
-
-// releaseWorkspaceOnReset frees the workspace of sessionKey when the primary role's session there
-// is reset (/new, idle reset, `cc-connect session new --after-turn`, all through
-// startFreshSession or maybeAutoResetSessionOnIdle): the workspace has finished its tasks, so it
-// goes back to the pool for any chat channel. Only the lead's session counts: a teammate
-// resetting its own session in the workspace does not end the lead's work there. queued: the
-// session has messages waiting for the fresh session (more work), which keeps the workspace.
-func (e *Engine) releaseWorkspaceOnReset(sessionKey string, lastActive time.Time, queued bool) {
-	if e == nil || e.dataDir == "" || !e.isTeamLead() {
-		return
-	}
-	if !e.releaseTeamWorkspace(sessionKey, lastActive, queued) {
-		return
-	}
-	// 2026-11-11 (agent processes not released): the lead's reset closed only the lead's own process. Teammates that worked in this
-	// workspace (an earlier owner of a reassigned task, a reviewer, a bot that was @-ed there)
-	// kept theirs alive until the bridge restarted: 2026-11-11 three DSH processes (~0.5G each)
-	// sat in workspaces released at 15:40, 15:50 and 16:05. The handback path (returnWorkspace)
-	// resets every engine; this path ends their processes too, keeping each saved session ID so
-	// nothing of their context is lost. Off the reset path: a close may take seconds.
-	key := teamChatKey(sessionKey)
-	engines := e.watchEngines()
-	go func() {
-		for _, x := range engines {
-			if x == e {
-				continue // its own session was just cleaned up by the reset
-			}
-			if n := x.CloseIdleTeamWorkspaceAgents(key); n > 0 {
-				slog.Info("team workspace: scheduled teammates' idle agent processes for release",
-					"workspace", key, "project", x.name, "scheduled", n)
-			}
-		}
-	}()
 }
 
 // teamWorkspaceFree reports whether sessionKey is a team workspace channel that no chat channel

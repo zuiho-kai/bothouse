@@ -117,15 +117,11 @@ func boardProgressStep(step string) string {
 // ansiEscape: CSI sequences and the two-byte escapes tools emit in coloured output.
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 
-// progressStepField: the row field that records which step this watch last put in status. It is
-// how the next renewal tells 「在做：<看门写的这一步>」 (refresh it) from 「在做：<工作区自己写的>」
-// (leave it alone — it says more than a tool name). board.py keeps fields it does not know.
-const progressStepField = "progress_step"
-
-// writeBoardProgress: set progress_at on board item id and refresh status to 「在做：<step>」 when
-// that status is one this watch owns (已交接, 在做：已开工, or the step it wrote last time). A
-// status the workspace wrote itself is kept, and so is a precise step when this round saw no tool
-// call (hasStep false). wrote false: the row is gone or no longer live work (paused, moved off the
+// writeBoardProgress: set progress_at on board item id and, while its status is still a placeholder
+// (已交接 or 在做：已开工), fill it with 「在做：<step>」. #699 design §4: the status column is display
+// text, so the watch no longer records which step it wrote to tell its own text from the
+// workspace's (the progress_step guard is gone); once the status says anything else it is left
+// alone and only progress_at moves. hasStep false: this round saw no tool call. wrote false: the row is gone or no longer live work (paused, moved off the
 // workspace, closed) — nothing changed and nothing to log.
 //
 // The file is rewritten the way board.py _write does it (whole file, tmp + os.replace) while
@@ -160,17 +156,11 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		if json.Unmarshal(row["id"], &got) != nil || got != id {
 			continue
 		}
-		var status, ws, paused, ownStep string
+		var status, ws, paused string
 		_ = json.Unmarshal(row["status"], &status)
 		_ = json.Unmarshal(row["ws"], &ws)
 		_ = json.Unmarshal(row["paused"], &paused)
-		_ = json.Unmarshal(row[progressStepField], &ownStep)
 		self := strings.TrimSpace(status)
-		// ours: this row's status is one this watch wrote (「在做：<step we put there>」). Its text
-		// is a tool command, and tool commands read like outcomes — `board update 5 已完成`,
-		// `git commit -m "…#208 已验收"`. Closing on a substring of our own step froze the row for
-		// good (复核 2026-11-06 必修②: 6 轮续期全写得进 0 次，一小时后板上又变回「1 小时无进展」).
-		ours := ownStep != "" && self == "在做："+ownStep
 		// #699 D: whether this row is live work in this workspace is the task's state (checked by
 		// markBoardProgress before it gets here), not its status text; the closing-word test is gone.
 		// The row's own binding is still checked so a stale board row never takes another's write.
@@ -186,11 +176,8 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		}
 		// A round with no tool call only proves the workspace spoke, so it raises progress_at and
 		// leaves the step alone instead of degrading it to 「已开工」 (必修①).
-		if hasStep && (self == boardHandedOff || self == boardStartedNoStep || ours) {
+		if hasStep && (self == boardHandedOff || self == boardStartedNoStep) {
 			row["status"] = rawJSON("在做：" + step)
-			if step != ownStep {
-				row[progressStepField] = rawJSON(step)
-			}
 			changed = true
 		}
 		out, err := json.Marshal(row)

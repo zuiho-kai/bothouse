@@ -43,9 +43,9 @@ func TestWS57HandoffIdentityAndLifecycle(t *testing.T) {
 		{"unrelated closed", TeamHandoff{Board: 10, Closed: bound.Add(time.Minute)}, "", teamTaskRunning},
 		{"same task rebound after pause", TeamHandoff{Board: 56, Parked: bound.Add(-time.Minute)}, "", teamTaskRunning},
 		{"same task rebound after release", TeamHandoff{Board: 56, Closed: bound.Add(-time.Minute)}, "", teamTaskRunning},
-		{"legacy matching title pause", TeamHandoff{Title: "new task", Parked: bound.Add(time.Minute)}, "", teamTaskPaused},
+		{"no number, matching title (#699: titles never match)", TeamHandoff{Title: "new task", Parked: bound.Add(time.Minute)}, "", teamTaskRunning},
 		{"legacy different title", TeamHandoff{Title: "old task", Parked: bound.Add(time.Minute)}, "", teamTaskRunning},
-		{"legacy untitled pause", TeamHandoff{Parked: bound.Add(time.Minute)}, "", teamTaskPaused},
+		{"no number, untitled", TeamHandoff{Parked: bound.Add(time.Minute)}, "", teamTaskRunning},
 		{"explicit board pause wins", TeamHandoff{Board: 10}, "11-01 19:00", teamTaskPaused},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -59,7 +59,9 @@ func TestWS57HandoffIdentityAndLifecycle(t *testing.T) {
 	}
 }
 
-func TestWS57LongClaimTitlePreservesLifecycle(t *testing.T) {
+// #699 design §4: a handoff is an item's by its board number only; a 60-rune title cut no
+// longer ties a numberless claim to the item.
+func TestWS57LongClaimTitleWithoutNumberIsNotTheItem(t *testing.T) {
 	bound := time.Now()
 	what := strings.Repeat("长", 70)
 	for _, closed := range []bool{false, true} {
@@ -72,17 +74,9 @@ func TestWS57LongClaimTitlePreservesLifecycle(t *testing.T) {
 		p := teamTaskBoardPlacer{handoffOf: func(string, string, time.Time) (TeamHandoff, bool) { return h, true }}
 		it := teamTaskBoardItem{ID: 56, What: what, Short: "独立短名", WS: "room:ws", Chat: "room:main", Bound: bound.Format(time.RFC3339Nano)}
 		p.place(&it)
-		if !it.wsEnded {
-			t.Fatal("real claim lifecycle ignored")
+		if it.wsEnded {
+			t.Fatal("a numberless claim matched the item by its title")
 		}
 	}
 }
 
-func TestWS57UntitledOpenHandoffDoesNotResumePausedTask(t *testing.T) {
-	now := time.Now()
-	it := teamTaskBoardItem{ID: 57, What: "paused task", Paused: "11-01 20:00", PauseWhy: "收口暂停", WSWas: "room:ws", Chat: "room:main", Bound: now.Format(time.RFC3339Nano)}
-	h := TeamHandoff{Chat: "room:main", At: now.Add(-time.Hour)}
-	if teamHandoffMatchesPausedItem("room:ws", h, it) {
-		t.Fatal("anonymous handoff resumed explicitly paused task")
-	}
-}
