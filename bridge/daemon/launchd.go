@@ -21,6 +21,9 @@ const (
 	// launchdLabelEnv overrides the launchd label, for tests and side-by-side
 	// instances that must never touch the real com.bothouse.service job.
 	launchdLabelEnv = "BOTHOUSE_LAUNCHD_LABEL"
+	// Leave room for launchd's shutdown grace period and delayed name release.
+	launchdReloadTimeout = 30 * time.Second
+	launchdPollInterval  = 500 * time.Millisecond
 )
 
 var launchdLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -58,6 +61,9 @@ var runLaunchctl = func(args ...string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
+
+var launchdNow = time.Now
+var launchdSleep = time.Sleep
 
 type launchdManager struct{}
 
@@ -104,10 +110,6 @@ func (m *launchdManager) Install(cfg Config) error {
 		return fmt.Errorf("create log dir: %w", err)
 	}
 
-	// Unload existing service first (ignore errors) so we do not leave a stale
-	// job behind when switching between GUI and headless sessions.
-	bootoutLaunchdTargets()
-
 	cfg.EnvExtra = launchdSideBySideEnv(cfg.EnvExtra)
 	plist := buildPlist(cfg)
 	// 0600: plist may contain captured secret values (config.toml ${ENV}
@@ -126,13 +128,9 @@ func (m *launchdManager) Install(cfg Config) error {
 		return fmt.Errorf("remove stale plist: %w", err)
 	}
 
-	domain := preferredLaunchdDomain()
-	if out, err := runLaunchctl("bootstrap", domain, plistPath); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %s (%w)", out, err)
-	}
-
-	if _, err := runLaunchctl("kickstart", "-kp", launchdTarget(domain)); err != nil {
-		return fmt.Errorf("launchctl kickstart: %w", err)
+	// Keep the old job loaded until its replacement plist is ready.
+	if err := reloadLaunchd(preferredLaunchdDomain(), plistPath); err != nil {
+		return fmt.Errorf("install: %w", err)
 	}
 	return nil
 }
@@ -243,29 +241,8 @@ func (*launchdManager) Restart() error {
 	if loadedDomain, _, _, ok := loadedLaunchdTarget(); ok && domain != launchdGUIDomain() {
 		domain = loadedDomain
 	}
-	target := launchdTarget(domain)
-	bootoutLaunchdTargets()
-
-	plistPath := launchdPlistPath()
-
-	// launchd bootout is asynchronous; retry bootstrap with backoff
-	// to avoid "Bootstrap failed: 5" race condition.
-	var out string
-	var err error
-	for i := 0; i < 3; i++ {
-		if i > 0 {
-			time.Sleep(500 * time.Millisecond)
-		}
-		out, err = runLaunchctl("bootstrap", domain, plistPath)
-		if err == nil {
-			break
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("restart: %s (%w)", out, err)
-	}
-	if _, err := runLaunchctl("kickstart", "-kp", target); err != nil {
-		return fmt.Errorf("restart kickstart: %w", err)
+	if err := reloadLaunchd(domain, launchdPlistPath()); err != nil {
+		return fmt.Errorf("restart: %w", err)
 	}
 	return nil
 }
@@ -388,6 +365,47 @@ func loadedLaunchdTarget() (string, string, string, bool) {
 func bootoutLaunchdTargets() {
 	for _, target := range launchdTargets() {
 		_, _ = runLaunchctl("bootout", target)
+	}
+}
+
+// bootout can return before the old job has exited. Also, print can stop
+// listing the job before launchd releases its bootstrap name (#1725). Wait
+// for both stages, under one deadline, for installs as well as restarts.
+func reloadLaunchd(domain, plistPath string) error {
+	deadline := launchdNow().Add(launchdReloadTimeout)
+	targets := launchdTargets()
+	for _, target := range targets {
+		// A target may be absent (e.g. GUI vs headless). The following print
+		// checks still prevent loading over a job whose bootout failed.
+		_, _ = runLaunchctl("bootout", target)
+	}
+	var out string
+	var err error
+	for {
+		pending := ""
+		for _, target := range targets {
+			if _, printErr := runLaunchctl("print", target); printErr == nil {
+				pending = target
+				break
+			}
+		}
+		if pending == "" {
+			out, err = runLaunchctl("bootstrap", domain, plistPath)
+			if err == nil {
+				if out, err = runLaunchctl("kickstart", "-kp", launchdTarget(domain)); err != nil {
+					return fmt.Errorf("launchctl kickstart: %s (%w); service is loaded; recover with `bothouse daemon start`", out, err)
+				}
+				return nil
+			}
+		}
+		remaining := deadline.Sub(launchdNow())
+		if remaining <= 0 {
+			if pending != "" {
+				return fmt.Errorf("launchd still lists %s after %s; check `bothouse daemon status` and retry `bothouse daemon restart`", pending, launchdReloadTimeout)
+			}
+			return fmt.Errorf("launchctl bootstrap after %s: %s (%w); service is not loaded; recover with `bothouse daemon start`", launchdReloadTimeout, out, err)
+		}
+		launchdSleep(min(launchdPollInterval, remaining))
 	}
 }
 

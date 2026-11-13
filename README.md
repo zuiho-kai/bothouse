@@ -16,7 +16,9 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**Put the AIs you already use — Claude Code, Codex, Gemini CLI — into one group chat. A team-lead AI splits the work and hands it out; they all share one memory.**
+**Put someone else's agent to work for you: a friend's Claude Code or Codex joins your group chat, and one @mention gets it started.**
+
+Bring your own AIs too: a team-lead AI splits the work and hands it out; they all share one memory.
 
 [Video](#video) · [Why](#why) · [Three ways in](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md)
 
@@ -45,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 I had Claude Code, Codex and DeepSeek open at once across two screens, and getting them to work together was a pain. So I put them all in one Discord group, let one of them hand out the work, and gave them a shared memory. No extra account, no extra subscription — you direct them from your computer, phone or browser.
 
+**The most common way people use it now: borrowing someone else's agents.** zzzx0757 in our group works this way every day with the author's (zuiho-kai) agents: he @mentions the lead AI in Discord, and the work goes out — the Codex role writes the code, the DeepSeek role polishes the copy — and the results come back to him. Your friend's Claude and Codex become staff on loan: no extra subscription just to generate images, no six people sharing one login. One computer stays on, and the whole group can hand out work.
+
 <a id="usage"></a>
 
 <picture>
@@ -58,6 +62,7 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 | What you have | Where to start |
 | --- | --- |
+| **A friend's agents** | Have a friend who runs bothouse invite you to their group, or bring their roles into yours. @mention one and it starts; nothing to install on your side. |
 | **Several AI command-line tools** | The setup wizard (see [Install](#install)): each role gets one of your signed-in AI command-line tools ("CLIs" below). |
 | **One model, one account** | Create several members on the same model, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
 | **DSH** (DeepSeek Harness, DeepSeek's own AI assistant app) | Say "install bothouse-dsh for me" in DSH, or run `bothouse module add dsh`. See [bothouse in DSH](docs/platforms/dsh.en.md). |
@@ -79,6 +84,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 ```
 
 The Windows command, package downloads and the background service are in [Getting started](docs/GETTING_STARTED.md).
+
+On macOS, daemon install and restart allow a 30-second window for launchd to remove and reload the old job. If loading still fails, follow the error's recovery command; `bothouse daemon start` loads the saved service definition.
 
 **Let an AI agent install it for you:** give Claude Code, Codex or any agent CLI this repo link and say "install bothouse and connect it to Discord". The agent-side steps are in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord).
 
@@ -118,6 +125,7 @@ More detail — who replies when nobody is named, the nightly review, guardrails
 
 | You want | How bothouse helps |
 | --- | --- |
+| **Someone else's agent working for you** | A friend adds their Claude Code, Codex, Gemini and others to your group; you @mention one to hand it a job and the result comes back to you. As long as their computer is on, you can do it from your phone. |
 | **An AI team of your own** | Claude Code, Codex, Antigravity, DSH, Gemini CLI, OpenCode, Grok and more; each role has its own name, persona and session. |
 | **A team from one account** | Several members on one model, each with its own job; they hand work to each other by mention. |
 | **The chat apps you use** | Discord, Feishu, QQ or DSH; Discord and Feishu have phone apps, so you can hand out work from bed. |

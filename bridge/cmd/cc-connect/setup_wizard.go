@@ -190,6 +190,7 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	// A machine with only DSH-native members stays in setup mode; their per-turn wiki pages and
 	// task board come from the gate (core.EnsureGateForDSH), so the gate runs here as well.
 	gateSup := startGate(cfg)
+	stopDSHWeb := core.StartDSHWebSupervisor(cfg.DataDir, configWizardStore{})
 	// The sign-in link carries the token: it goes into a file only you can read and into the
 	// browser; the terminal only shows it when no browser could be opened.
 	linkFile := setupLinkFile(configPath)
@@ -204,17 +205,20 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	select {
 	case <-desktopShutdown:
 		slog.Info("shutdown requested", "source", "tray")
+		stopDSHWeb()
 		srv.Stop()
 		gateSup.Stop()
 		release()
 		stopDesktopService()
 	case sig := <-sigCh:
 		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
+		stopDSHWeb()
 		srv.Stop()
 		gateSup.Stop()
 		release()
 	case <-core.RestartCh:
 		slog.Info("shutdown requested", "source", "restart_command")
+		stopDSHWeb()
 		srv.Stop()
 		gateSup.Stop()
 		release()
@@ -270,6 +274,20 @@ func announceSetupWizard(link, linkFile string, port int, tryBrowser bool) {
 	}
 }
 
+// refreshInstalledHookScripts brings installed guard scripts up to this binary after an upgrade.
+// Both startup paths call it: the normal one after config.Load, and setup mode, which returns into
+// the wizard before reaching that line (#1727).
+func refreshInstalledHookScripts(dataDir string) {
+	if dataDir == "" {
+		return
+	}
+	if refreshed, err := core.RefreshAgentHookScripts(dataDir, version); err != nil {
+		slog.Warn("hook scripts refresh failed", "dir", core.AgentHooksDir(dataDir), "error", err)
+	} else if refreshed {
+		slog.Info("hook scripts refreshed", "version", version)
+	}
+}
+
 // startSetupWizard serves only the setup wizard for a config without projects
 // (writing the first-run config when there is none). lock is already held.
 func startSetupWizard(configPath string, release func()) {
@@ -288,8 +306,14 @@ func startSetupWizard(configPath string, release func()) {
 		os.Exit(1)
 	}
 	config.ConfigPath = configPath
-	runSetupOnly(pc, configPath, release)
+	// #1727: this path returns into the wizard instead of continuing through main.go's startup,
+	// so the upgrade refresh of installed hook scripts has to happen here too.
+	refreshInstalledHookScripts(pc.DataDir)
+	runSetupOnlyFn(pc, configPath, release)
 }
+
+// runSetupOnlyFn is the blocking wizard server; swapped in tests.
+var runSetupOnlyFn = runSetupOnly
 
 // needsSetup: no config yet, or a config without any [[projects]].
 func needsSetup(configPath string) bool {

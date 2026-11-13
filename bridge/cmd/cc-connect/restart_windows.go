@@ -66,3 +66,6 @@ func restartProcess(execPath string) error {
 		}
 	}
 }
+
+// reapInheritedChildren: Windows restarts start a new process, nothing is inherited (#1729).
+func reapInheritedChildren() {}

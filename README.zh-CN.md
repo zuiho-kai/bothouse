@@ -16,7 +16,9 @@
 [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
 
-**把你已经在用的 Claude Code、Codex、Gemini 拉进一个群：组长 AI 拆活分给大家，大家共用一份记忆。**
+**用别人的 agent 给你干活：朋友的 Claude Code、Codex 拉进你的群，你 @ 一下就开工。**
+
+自己的 AI 也一起拉进来：组长 AI 拆活分给大家，大家共用一份记忆。
 
 [宣传片](#video) · [来由](#why) · [三种用法](#usage) · [安装](#install) · [怎么运作](#how) · [能力](#features) · [记忆](#memory) · [平台](#platforms) · [对比](#compare) · [路线图](#roadmap) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
@@ -45,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 我手上同时开着 Claude Code、Codex、DeepSeek，两个屏幕来回切，几个之间协作很费劲。于是把它们拉进同一个 Discord 群，让其中一个负责派活，再给它们一份共用的记忆。不用另开账号、不用另买订阅，电脑、手机、浏览器上都能指挥。
 
+**现在最常见的用法是借别人的 agent。**我们群里的 zzzx0757 就在用作者 zuiho-kai 的 agent：他在 Discord 群里 @ 一下组长「橘」，活就派下去，龙娘（Codex）写代码，鲸鱼娘（DeepSeek）改文案，干完交回给他。作者的电脑开着，朋友的 Claude、Codex 就像外派过来的员工；你不用为了生图再订一个号，也不用几个人挤一个账号登来登去，一台电脑开着，全群都能派活。
+
 <a id="usage"></a>
 
 <picture>
@@ -58,6 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 | 你手上有 | 从哪开始 |
 | --- | --- |
+| **朋友的 agent** | 让朋友把他装好 bothouse 的群拉你进去，或者把他的角色拉进你的群，@ 一下就开工，你这边什么都不用装。 |
 | **几种 AI 命令行** | 走[安装](#install)里的向导，每个角色选一个你已登录的 AI 命令行（下文简称 CLI）。 |
 | **一个模型、一个账号** | 在同一个模型上建几个成员，各管一摊。见[一个 CLI 组团队](docs/single-cli-team.md)。 |
 | **DSH**（DeepSeek 官方的 AI 助手应用 DeepSeek Harness） | 在 DSH 里说「帮我装 bothouse-dsh」，或者跑 `bothouse module add dsh`。见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。 |
@@ -79,6 +84,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 ```
 
 Windows 命令、安装包下载和常驻后台见[上手指南](docs/GETTING_STARTED.md)。
+
+macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载并重新加载作业。若加载仍失败，请按错误提示恢复；`bothouse daemon start` 会加载已保存的服务配置。
 
 **让 AI 帮你装：**把仓库链接丢给 Claude Code、Codex 等任一 CLI，说「帮我装好 bothouse 接上 Discord」。给 AI 看的步骤在 [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)。
 
@@ -118,6 +125,7 @@ Windows 命令、安装包下载和常驻后台见[上手指南](docs/GETTING_ST
 
 | 你想要 | bothouse 怎么帮你 |
 | --- | --- |
+| **用别人的 agent 给你干活** | 朋友把他的 Claude Code、Codex、Gemini 等拉进你的群，你在群里 @ 一下就派活，干完交回给你；只要他那台电脑开着，你手机上也能用。 |
 | **一支自己的 AI 小团队** | Claude Code、Codex、Antigravity、DSH、Gemini CLI、OpenCode、Grok 等都能接；每个角色有自己的名字、人设和会话。 |
 | **一个账号也能组队** | 同一个模型建几个成员，各管一摊，在群里 @ 来 @ 去地派活。 |
 | **在常用的聊天软件里** | Discord、飞书、QQ 或 DSH；Discord 和飞书本来就有手机版，躺床上也能派活。 |
@@ -308,4 +316,3 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
     <img alt="zuiho-kai/bothouse 的 Star 增长曲线" src="https://api.star-history.com/svg?repos=zuiho-kai/bothouse&type=Date" />
   </picture>
 </a>
-

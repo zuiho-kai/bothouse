@@ -22,6 +22,9 @@ BODY_LINE = 300  # one bullet = one fact; longer lines dodge PAGE_LINES and are 
 SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办", "历史")  # 历史 optional: superseded lines kept verbatim (invalidate.py)
 # verification bookkeeping that leaked onto a page instead of fixing the fact
 META = re.compile(r"不声称|未见用户确认|不记作现行|（用户告知）|\(用户告知\)|本会话中")
+# provenance tag: ｜源：亲验 · <text>  ｜源：转述 · <name>  ｜源：原话 · <date>
+_PROV_VALID_VALUES = {"亲验", "转述", "原话"}
+PROV_TAG = re.compile(r"｜源：([^·\n]+?)(?:\s*·\s*(.+?))?(?=\s*(?:｜|$))")
 # 待办 holds tasks the user agreed to; an unanswered proposal goes to log.md only (user 2026-10-16 「可以的」 to the
 # fix plan; 323 待办 had 132 such lines). dream's candidates (「dream 建议，用户未答复」) are its page's job: kept.
 UNANSWERED = re.compile(r"未答复")  # 「已提议，用户未答复」「橘提议，用户未答复」「：未答复」「鲸鱼娘未答复」
@@ -202,8 +205,14 @@ def check(root=None):
                                 "user agreed to — move it to the log.md entry ('- 未答复提议：…') and drop it here")
                 if len(l) > BODY_LINE:
                     errs.append(f"{d}/{name}: body line {i} is {len(l)} chars > {BODY_LINE}; split into bullets or move detail to log.md")
-                if META.search(l):
+                if META.search(l) and not l.rstrip().endswith(tuple(["｜源：亲验", "｜源：转述", "｜源：原话"])) and "｜源：" not in l:
                     errs.append(f"{d}/{name}: body line {i} has verification bookkeeping ('{META.search(l).group()}'); state the fact or drop it")
+                for m in PROV_TAG.finditer(l):
+                    val, detail = m.group(1).strip(), (m.group(2) or "").strip()
+                    if val not in _PROV_VALID_VALUES:
+                        errs.append(f"{d}/{name}: body line {i} has unknown provenance value '｜源：{val}'; must be 亲验/转述/原话")
+                    elif val == "转述" and not detail:
+                        errs.append(f"{d}/{name}: body line {i} has '｜源：转述' without a name after ' · '")
             links.update((f"{d}/{name}", n) for n in WIKILINK.findall(body))
             stats.append(f"L2 {d}/{name}: {n_lines} lines, {n_chars} chars")
         stats.append(f"L1 {d}/README.md: {len(tops)} topics")

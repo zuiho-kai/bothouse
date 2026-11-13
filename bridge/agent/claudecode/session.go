@@ -711,6 +711,16 @@ func (cs *claudeSession) handleSystem(raw map[string]any) {
 		cs.handleSubTaskEvent(sub, raw)
 	case "background_tasks_changed":
 		cs.handleBackgroundTasksChanged(raw)
+	case "api_retry":
+		// #1562: the CLI retrying a failed request is not the agent doing anything. Forwarding
+		// it (the session_id event below) bumped the engine's last-event time, and the team
+		// watch renewed a Qwen workspace 10 times while every request returned 500
+		// "Context size has been exceeded" (11-13 10:15–10:55).
+		if sid, ok := raw["session_id"].(string); ok && sid != "" {
+			cs.sessionID.Store(sid)
+		}
+		slog.Info("claudeSession: CLI retrying an API request", "attempt", raw["attempt"], "status", raw["error_status"], "error", raw["error"])
+		return
 	case "compact_boundary":
 		evt := core.Event{Type: core.EventText, Metadata: map[string]any{core.MetaContextCompacted: true}}
 		select {

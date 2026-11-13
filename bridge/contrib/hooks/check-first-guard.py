@@ -29,6 +29,101 @@ MODEL = os.environ.get("CHECK_FIRST_MODEL", "sonnet")
 MAX_LOOKS = 80  # 喂给模型的查现场调用条数（取最后这么多条）；#1527：工作区一轮常有七十多次调用，原来 20 条只剩写汇报那几步，前面查过的判断器看不到
 ONLY_OUTSIDE = re.compile(r"^(?:\s*(?:/tmp/\S*|https?://\S*))+\s*$")  # 只碰临时目录或外网，不算查自家
 
+# 没搜就答（#1563 → #1565 方案二）：agentm 11-13 10:44 外部用户点名 muse，claude 回「像 muse 这种我还不确定是哪家产品的名字，查不清会如实写出来」，
+# 那一轮一次都没搜；用户「不知道是哪家的你不会去搜一下? muse是meta的.」。#1563 先用正则拦那一句，用户「有点笨」；
+# 回放（42 轮真实对话）里它换着说法躲：把「先查清 muse 是谁家的」写进交接推给工作区、没搜就报 Claude Code 版本号。
+# 改成：本轮一次都没搜时，便宜正则粗筛（回复或本轮写出的交接/定时里有自认不知道、待查、版本号、最新）→ 小模型看回复和任务说明判。
+# 聊天频道也查（搜一下是一两步的小活）。
+UNKNOWN = re.compile(r"(不确定|不知道|不清楚|没听说过|不认识|认不出|查不清|拿不准)[^。！？!?\n]{0,10}?"
+                     r"(哪家|哪一家|哪个(公司|厂|产品)|什么(东西|产品|工具|公司|项目|模型)|是什么|是谁|指(的是)?什么|出自)")
+HEDGE = re.compile(r"不确定|不知道|不清楚|没听说|不认识|认不出|查不清|拿不准|不太了解|找不到|没找到|搜不到|翻不到|对不上|"
+                   r"还没(有)?(核|查|搜|确认)|没(核实|核过|查过|搜过|确认)|未(核|查|证实)|待(查|核|确认|核实)|有待|"
+                   r"查清|搜清|查一下|搜一下|核实一下|确认一下|是(谁家|哪家)|not sure|unverified|no idea", re.I)
+FRESH = re.compile(r"\bv?\d+\.\d+\.\d+\b|最新(的)?(版|版本|发布|消息|进展)|刚(发布|上线|出了)|版本号|发布(于|日期)", re.I)
+SEARCH_NAME = re.compile(r"web_?search|websearch|web_?fetch|search_web|google|browse|fetch|mcp__.*search", re.I)
+SEARCH_CMD = re.compile(r"websearch\.py\S*\s+(search|fetch)|\b(curl|wget)\b[^|;&\n]*https?://|yt-dlp|watchvid")
+HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?.*?\n(.*?)\n\1\b", re.S)  # 写进文件的正文不算跑过命令（11-13 那轮把 websearch.py 写进了任务说明）
+TASK_CMD = re.compile(r"\b(cron|timer)\s+add\b|ws-handoff|ws-up|\blater\b|relay\s+send|bothouse\S*\s+send")
+TASK_FILE = re.compile(r"handoff|交接|notes/|prompt|\.md$", re.I)
+MAX_TASK = 2500  # 喂给判断器的任务说明字数（取最后这么多）
+
+SYSTEM_UNSEARCHED = """你是一个判断器。助手这一轮一次网页都没搜。判断：它要发给用户的回复、或这一轮写给以后的任务说明（交接、定时任务、提醒），里面有没有一件「搜一两次网页就能弄清」的外部事实，它没搜就答了、认了不知道、或推给以后再查。
+算（unchecked）：
+- 自认不认识/不确定某个外部名字（产品、公司、模型、工具、项目、人）是什么、是哪家的，或说「还没核实」「查不清会如实写」；
+- 把「先查清 X 是什么/是哪家的」「核实 X 的版本」这类一两次搜索就能弄清的事写进任务说明、定时任务或交接，推给以后去查；
+- 没搜就把外部会变的事实当确定的说：某软件现在/最新的版本号、发布日期、价格、谁家出的、最近的新闻。
+不算（pass）：
+- 讲我们自己的系统（桥/bothouse、仓库、wiki、配置、任务板、工作区、自己做的活、自家版本号），这由别的检查管；
+- 问用户意图（「你说的是哪个方案」）；转述、引用用户的话；讲「先搜」这条规矩本身；
+- 稳定常识（Python 是什么、Meta 是哪家公司），用户本轮已经告诉的事实；
+- 一两次搜索弄不清的大活（每天汇总新闻、写调研报告、建频道），交给以后做是对的；但里面点名的某个名字是什么/是哪家的，搜一次就清，仍然算；
+- 闲聊、情绪、虚构、角色扮演。
+拿不准就 pass。只输出一个 JSON 对象，不要别的字：{"verdict":"unchecked|pass","claim":"那件没搜的事，原文一句（pass 时空）"}"""
+UNSEARCHED_REASON = ("这一轮一次网页都没搜，有件搜一两次就能弄清的事没搜：「{m}」。先搜（WebSearch，或 websearch.py search \"名字\"），"
+                     "按搜到的改写回复和交接；搜过还查不到，再写「搜过，没查到」。")
+
+
+def searched(tools):
+    """本轮有没有上网搜过/打开过网页（含派子 agent 去搜）。"""
+    for b in tools:
+        if b.get("_earlier"):
+            continue
+        name = b.get("name") or ""
+        inp = b.get("input") or {}
+        if SEARCH_NAME.search(name):
+            return True
+        s = inp if isinstance(inp, str) else json.dumps(inp, ensure_ascii=False)
+        if name in ("Agent", "Task") and re.search(r"搜|search|查", s, re.I):
+            return True
+        cmd = inp.get("command", inp.get("cmd", "")) if isinstance(inp, dict) else inp
+        if isinstance(cmd, str) and SEARCH_CMD.search(HEREDOC.sub("", cmd)):
+            return True
+    return False
+
+
+def task_texts(tools):
+    """本轮写给以后的任务说明：交接文件、定时/提醒/派活命令的正文（只收本轮的）。"""
+    out = []
+    for b in tools:
+        if b.get("_earlier"):
+            continue
+        name = b.get("name") or ""
+        inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+        if name in ("Write", "Edit", "MultiEdit", "write_file", "apply_patch"):
+            if TASK_FILE.search(str(inp.get("file_path") or inp.get("path") or "")):
+                out.append(str(inp.get("content") or inp.get("new_string") or inp.get("patch") or ""))
+            continue
+        cmd = inp.get("command", inp.get("cmd", ""))
+        cmd = cmd if isinstance(cmd, str) else json.dumps(cmd, ensure_ascii=False)
+        docs = [m.group(2) for m in HEREDOC.finditer(cmd)]
+        out.extend(docs)
+        rest = HEREDOC.sub("", cmd)
+        if TASK_CMD.search(rest):
+            out.append(rest)
+    return "\n---\n".join(t.strip() for t in out if t.strip())[-MAX_TASK:]
+
+
+def unknown_name(reply):
+    """回复里自认不认识某个名字的那句（引号和代码里的不算），没有返回空串。现在只做粗筛。"""
+    for l in _clean_lines(reply):
+        m = UNKNOWN.search(l)
+        if m and not NOT_NAME.search(l[max(0, m.start() - 12):m.end() + 12]):
+            s = re.split(r"[。！？!?]", l[:m.start()])[-1] + l[m.start():]
+            return re.split(r"[。！？!?]", s)[0].strip()[:80]  # 只引含那句的一句
+    return ""
+
+
+NOT_NAME = re.compile(r"意思|你(要|想|说的是|指的是)|哪个方案|哪条路|先搜|搜清楚|不认识的名字")  # 在问对方意图，或在讲「先搜」这条规矩本身
+
+
+def maybe_unsearched(reply, task):
+    """粗筛：回复（引号、代码外）或任务说明里有自认不知道、待查、版本号、最新。只决定问不问判断器。"""
+    if unknown_name(reply):
+        return True
+    lines = _clean_lines(reply) + (task.splitlines() if task else [])
+    return any(HEDGE.search(l) or FRESH.search(l) for l in lines)
+
+
 SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断：这段话里有没有对「我们自己的系统」现状的断言或建议，而助手最近查过的东西（这一轮和前几轮）没覆盖它。
 「我们自己的系统」= 用户和助手自己的桥/bothouse、仓库代码、wiki、配置、钩子、守卫、角色、服务器、容器、订阅、缓存、已有功能和流程。
 算断言：
@@ -91,6 +186,8 @@ def turn(path):
                 if b.get("type") == "text" and not earlier:
                     texts.append(b.get("text", ""))
                 elif b.get("type") == "tool_use":
+                    if earlier:
+                        b["_earlier"] = True  # 前几轮的调用：「不认识先搜」只认本轮搜过（11-13 那条前一轮搜过别的事）
                     tools.append(b)
     return "\n".join(reversed(texts)), list(reversed(tools)), user
 
@@ -161,6 +258,16 @@ def check(d):
     reply = d.get("last_assistant_message") or text
     if not reply:
         return None
+    if not searched(tools):
+        task = task_texts(tools)
+        if maybe_unsearched(reply, task):
+            looks = [b for b in tools if is_lookup(b) and not b.get("_earlier")]
+            extra = f"\n\n## 这一轮写给以后的任务说明（交接、定时、提醒）\n{task or '（没有）'}"
+            r = ask_model(reply, user, looks, system=SYSTEM_UNSEARCHED, extra=extra)
+            verdict = "block" if r["verdict"] == "unchecked" else "pass"
+            intent_judge._log("unsearched", verdict, r["ms"], r["cost"], r["claim"] or reply.strip()[:60])
+            if verdict == "block":
+                return UNSEARCHED_REASON.format(m=r["claim"].strip("「」")[:120])
     # 团队聊天频道整道不查（#1527，用户 11-12「还后面还有什么可以删的吗？一起搞了吧」）：那里只照任务板和工作区回报说话，
     # 11-12 19 点后拦的 22 条里至少 11 条是在汇报自己刚做的事或自我批评；要现场核的活本来就交工作区。
     if _team_chat():

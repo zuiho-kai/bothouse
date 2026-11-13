@@ -44,7 +44,19 @@ var teamTurns = struct {
 	by   map[string]map[uint64]teamTurnFact
 	// lastEnd: when the last turn in a chat ended (the watch's "a turn ended in this window").
 	lastEnd map[string]time.Time
-}{by: map[string]map[uint64]teamTurnFact{}, lastEnd: map[string]time.Time{}}
+	// failNext: the running turn in a chat ended with an API error (#1562, noteTeamTurnFailed);
+	// its end is not recorded in lastEnd, so a failed turn is not the watch's progress.
+	failNext map[string]bool
+}{by: map[string]map[uint64]teamTurnFact{}, lastEnd: map[string]time.Time{}, failNext: map[string]bool{}}
+
+// noteTeamTurnFailed marks the turn running in chat as ended by an API error (#1562): 11-13 a
+// Qwen workspace's turn that ended on "API Error: 500 Context size has been exceeded" counted
+// as a turn that ended in the window, i.e. progress, and the watch renewed it.
+func noteTeamTurnFailed(chat string) {
+	teamTurns.mu.Lock()
+	teamTurns.failNext[teamChatKey(chat)] = true
+	teamTurns.mu.Unlock()
+}
 
 // beginTeamTurn records a running turn and returns the function that ends it.
 func beginTeamTurn(f teamTurnFact) (end func()) {
@@ -69,10 +81,22 @@ func beginTeamTurn(f teamTurnFact) (end func()) {
 			if len(teamTurns.by[chat]) == 0 {
 				delete(teamTurns.by, chat)
 			}
-			teamTurns.lastEnd[chat] = time.Now()
+			if teamTurns.failNext[chat] {
+				delete(teamTurns.failNext, chat)
+			} else {
+				teamTurns.lastEnd[chat] = time.Now()
+			}
 			teamTurns.mu.Unlock()
 		})
 	}
+}
+
+// noteTeamTurnOK clears noteTeamTurnFailed: a later turn in the same run (a drained queued
+// message) ended normally.
+func noteTeamTurnOK(chat string) {
+	teamTurns.mu.Lock()
+	delete(teamTurns.failNext, teamChatKey(chat))
+	teamTurns.mu.Unlock()
 }
 
 // teamTurnsOf returns the turns running in chat (any session, any engine).
@@ -90,7 +114,8 @@ func teamTurnsOf(chat string) []teamTurnFact {
 // teamTurnRunning: a turn is running in chat.
 func teamTurnRunning(chat string) bool { return len(teamTurnsOf(chat)) > 0 }
 
-// teamTurnEndedSince: a turn in chat ended at or after since.
+// teamTurnEndedSince: a turn in chat ended at or after since (a turn ended by an API error does
+// not count, noteTeamTurnFailed).
 func teamTurnEndedSince(chat string, since time.Time) bool {
 	chat = teamChatKey(chat)
 	teamTurns.mu.Lock()

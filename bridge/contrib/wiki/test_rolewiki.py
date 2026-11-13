@@ -407,5 +407,73 @@ class ExportLockWait(unittest.TestCase):
         self.assertLess(float(waited), 10)  # NIGHT_WINDOW=2s plus at most one poll, not the holder's 60s
 
 
+class ProvenanceLint(unittest.TestCase):
+    """lint.py provenance tag checks added in #1609: valid tags pass, bad values/missing name fail,
+    free-text bookkeeping without a tag still fails, legacy pages with no tag pass unchanged."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        wiki = self.tmp
+        (wiki / "MEMORY.md").write_text("- [facts](facts/README.md) — fact pages\n")
+        (wiki / "facts").mkdir()
+        (wiki / "facts" / "README.md").write_text("- [sample](sample.md) — sample page\n")
+        self.page = wiki / "facts" / "sample.md"
+        self.wiki = wiki
+
+    def _lint(self, body):
+        self.page.write_text(
+            "---\nname: sample\ndescription: d\nmetadata:\n  scope: s\n---\n"
+            "# T\n## 现状\n" + body + "\n"
+        )
+        return subprocess.run(
+            [sys.executable, "-X", "utf8", "-I",
+             str(HERE / "llmwiki" / "lint.py"), "--root", str(self.wiki)],
+            capture_output=True, text=True,
+        )
+
+    def test_no_tag_passes(self):
+        """Existing pages without any provenance tag still lint ok (backward compat)."""
+        p = self._lint("- 接口返回空正文")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("lint ok", p.stdout)
+
+    def test_verified_tag_passes(self):
+        p = self._lint("- 接口返回空正文 ｜源：亲验 · lint ok @ 2026-11-11")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("lint ok", p.stdout)
+
+    def test_hearsay_tag_with_name_passes(self):
+        p = self._lint("- PR #622 测试已通过 ｜源：转述 · 鲸鱼娘")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("lint ok", p.stdout)
+
+    def test_verbatim_tag_passes(self):
+        p = self._lint("- 核实信源这条该做 ｜源：原话 · 2026-11-11")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("lint ok", p.stdout)
+
+    def test_unknown_tag_value_fails(self):
+        p = self._lint("- 某事 ｜源：猜测 · 也许")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("unknown provenance value", p.stdout)
+
+    def test_hearsay_tag_without_name_fails(self):
+        p = self._lint("- 队友说通过了 ｜源：转述")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("without a name", p.stdout)
+
+    def test_free_annotation_still_blocked(self):
+        """Free-text bookkeeping like 不声称 is still rejected even without a provenance tag."""
+        p = self._lint("- 不声称这是用户确认的做法")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("verification bookkeeping", p.stdout)
+
+    def test_meta_phrase_inside_prov_tag_line_passes(self):
+        """A line that contains a META phrase but also has ｜源： is a valid provenance line, not bookkeeping."""
+        p = self._lint("- 这里不声称任何事 ｜源：亲验 · 核过")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("lint ok", p.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
