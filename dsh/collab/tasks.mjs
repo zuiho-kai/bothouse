@@ -167,6 +167,13 @@ export class Tasks {
      * `room\0owner`: { roomId, owner, lead, title, messageId, at }. In memory only: a restart drops them.
      */
     this.pendingCalls = new Map();
+    /**
+     * #1745: a chat-channel @ the lead is about to dispatch travels with the message, keyed
+     * `message\0owner`: { roomId, messageId, at }. DshMembers.plan() asks dispatchRoom() before
+     * it creates the job, because a job's room is fixed there; fromChat() consumes the entry and
+     * opens the task in the workspace. In memory only: a restart drops it.
+     */
+    this.pendingDispatch = new Map();
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -714,6 +721,15 @@ export class Tasks {
 
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
+    try {
+      return this.route(msg);
+    } finally {
+      // #1745: whatever this message did not take back out of a dispatch workspace goes back there.
+      if (msg.author_kind === 'role') this.settleDispatch(msg);
+    }
+  }
+
+  route(msg) {
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     if (this.hub.teamExit?.consumeRejected(msg.id)) return undefined;
     const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
@@ -884,6 +900,13 @@ export class Tasks {
         // back, and so on. A first call, or one while her task is in work, dispatches at once, as before.
         const key = `${msg.room_id}\0${owner}`;
         this.pendingCalls.delete(key);
+        // #1745: DshMembers.plan() already moved this @ into a workspace and created its job on a
+        // 【交接】 row there; the task opens in that room so the job's trigger is its assign message.
+        const hop = this.takeDispatch(msg, owner);
+        if (hop !== undefined) {
+          this.openFromChat({ roomId: hop.roomId, owner, lead: lead.id, title, messageId: hop.messageId, source: 'workspace' });
+          continue;
+        }
         const latest = this.q.latestOf.get(msg.room_id, owner);
         // #1540: a call after her turn failed sends the same task again instead of opening another.
         if (latest?.status === 'failed' && latest.created_by === lead.id) { this.retryFailed(latest.id); continue; }
@@ -922,6 +945,77 @@ export class Tasks {
       this.openFromChat({ ...call, source: 'mention' });
     } catch (error) {
       this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
+    }
+  }
+
+  /**
+   * #1745: the room a chat-channel @ from the lead dispatches into. A dispatch is work, and work
+   * belongs in a workspace: DshMembers.plan() calls this inside the append transaction, before its
+   * job exists — a job's room is fixed at addJob and there is no moveJob — and creates the job on
+   * the handoff row this returns. fromChat() then opens the task here (takeDispatch).
+   *
+   * Nothing is created unless fromChat would open a task: the lead, a chat channel (not a DM), a
+   * title, no verdict line, and at least one owner without an open task here or one already handed
+   * over — the three excluded paths (a failed turn's retry, a waiting bare-name call, an open task)
+   * stay chat-side. Returns { workspace, destinations: Map(owner -> { roomId, messageId }), rows } for
+   * the caller to announce after commit, or undefined when every owner the message calls stays here.
+   */
+  dispatchRoom(msg, targets) {
+    if (!this.tree || msg.author_kind !== 'role' || targets.length === 0) return undefined;
+    const room = this.store.room(msg.room_id);
+    if (room?.kind !== 'chat' || this.store.dmMember(msg.room_id) !== undefined) return undefined;
+    if (isWatchNotice(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
+    const text = String(msg.text);
+    if (modelErrorReply(withoutLeadingMentions(text, this.hub.routableIn(msg.room_id))) !== undefined) return undefined;
+    const verdict = VERDICT_LINE.test(text);
+    VERDICT_LINE.lastIndex = 0;
+    if (verdict) return undefined;
+    const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
+    if (lead === undefined || msg.author !== lead.id) return undefined;
+    const team = this.hub.routableIn(msg.room_id);
+    const title = taskTitle(text, team);
+    if (!title) return undefined;
+    const owners = targets.filter(owner => {
+      if (!this.hub.members.has(owner)) return false;
+      if (this.q.openChat.get(msg.room_id, owner, lead.id, ...WORKING) !== undefined) return false;
+      if (this.q.openHanded?.get(owner, lead.id, ...WORKING, msg.room_id) !== undefined) return false;
+      const latest = this.q.latestOf.get(msg.room_id, owner);
+      if (latest?.status === 'failed' && latest.created_by === lead.id) return false;
+      return !DELIVERED.includes(latest?.status);
+    });
+    if (owners.length === 0) return undefined;
+    const workspace = this.store.createWorkspace(msg.room_id);
+    const destinations = new Map();
+    const rows = [];
+    for (const owner of owners) {
+      const { message } = this.store.append(workspace.id, { authorKind: 'system', author: 'system', name: '交接', text: `【交接】${this.nameOf(owner)}：${title}` });
+      const hop = { roomId: workspace.id, messageId: message.id, at: this.now() };
+      this.pendingDispatch.set(`${msg.id}\0${owner}`, hop);
+      destinations.set(owner, hop);
+      rows.push(message);
+    }
+    return { workspace, destinations, rows };
+  }
+
+  /** The destination dispatchRoom() prepared for this @, consumed once; stale entries are dropped. */
+  takeDispatch(msg, owner) {
+    const key = `${msg.id}\0${owner}`;
+    const hop = this.pendingDispatch.get(key);
+    if (hop === undefined) return undefined;
+    this.pendingDispatch.delete(key);
+    return this.now() - hop.at > PENDING_CALL_S ? undefined : hop;
+  }
+
+  /**
+   * Drop what this @ left undispatched (a verdict line, an open task) and give back a workspace it
+   * had to create but no task followed into. A claim no task follows is never released by the idle
+   * sweep (store.releaseIdleWorkspaces needs claim_task > 0), so it has to go back here.
+   */
+  settleDispatch(msg) {
+    for (const [key, hop] of this.pendingDispatch) {
+      if (!key.startsWith(`${msg.id}\0`)) continue;
+      this.pendingDispatch.delete(key);
+      if (this.countActive(hop.roomId) === 0) { try { this.release(hop.roomId); } catch { /* claimed elsewhere meanwhile */ } }
     }
   }
 
