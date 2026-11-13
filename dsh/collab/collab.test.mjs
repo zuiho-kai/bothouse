@@ -6016,16 +6016,21 @@ test('#1598: a person\'s big job for the lead herself moves on her own 【接】
   assert.equal(tasks.list(1).length, 1);
 });
 
-test('#1598: calls before her reply add up; her 【问】 waits for the answer and 【接】 moves both', async t => {
+test('#1598: each reply settles the calls her turn read; her 【问】 waits for the answer and 【接】 moves both', async t => {
   const { hub, members, tasks, say, person, answer, workspaces } = mentionSetup();
   t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
   say('ju', '@DeepSeek 重构登录模块并跑测试');
-  person('@DeepSeek 对了，顺手把注册页也看一眼');
+  person('@DeepSeek 对了你吃饭了吗');
   await settle();
+  // Her first turn read the job only: her 【接】 moves it, the later question is not carried along.
   await answer(1, '【接】');
   let [task] = tasks.list(1);
-  assert.equal(task.title, '重构登录模块并跑测试', 'the first call names the task');
-  assert.equal(hub.store.message(task.assign_msg_id).text, '【交接】DeepSeek：重构登录模块并跑测试\n\n对了，顺手把注册页也看一眼', 'both calls ride on the handoff');
+  assert.equal(task.title, '重构登录模块并跑测试', 'the call she read names the task');
+  assert.equal(hub.store.message(task.assign_msg_id).text, '【交接】DeepSeek：重构登录模块并跑测试');
+  // Her next turn reads the question and answers it: nothing more opens.
+  await answer(1, '吃过了');
+  assert.equal(tasks.list(1).length, 1);
+  assert.equal(workspaces().length, 1);
   // Her 【问】 opens nothing; the lead's answer joins the call; her 【接】 then moves one task.
   await answer(task.room_id, '[report] 好了');
   tasks.review(task.id, { actor: 'ju', verdict: 'done' });
@@ -6043,6 +6048,23 @@ test('#1598: calls before her reply add up; her 【问】 waits for the answer a
   assert.equal(hub.store.room(task.room_id).kind, 'workspace');
   assert.equal(hub.store.message(task.assign_msg_id).text, '【交接】DeepSeek：修登录页的样式\n\n用 develop');
   assert.equal(workspaces().length, 1, 'the pooled workspace is used again');
+});
+
+test('#1598: her answer to 「在吗」 does not drop the job that came after it', async t => {
+  const { hub, members, tasks, say, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  say('ju', '@DeepSeek 在吗');
+  await settle();
+  // The job arrives while her turn on 「在吗」 runs: that turn read only 「在吗」.
+  person('@DeepSeek 帮我重构登录模块');
+  await settle();
+  await answer(1, '在的');
+  assert.equal(workspaces().length, 0, 'her answer opens nothing');
+  await answer(1, '【接】');
+  const [task] = tasks.list(1);
+  assert.equal(task?.title, '帮我重构登录模块', 'her 【接】 moves the job she had not read before');
+  assert.equal(hub.store.message(task.assign_msg_id).text, '【交接】DeepSeek：帮我重构登录模块');
+  assert.equal(workspaces().length, 1);
 });
 
 test('#1598: a progress @ while she works in a workspace, a teammate\'s @ and a private chat open nothing', async t => {

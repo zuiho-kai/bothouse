@@ -942,16 +942,30 @@ export class Tasks {
     if (call === undefined) return false;
     this.pendingCalls.delete(key);
     if (this.now() - call.at > PENDING_CALL_S) return false;
+    const stays = this.staysForStance(call.roomId, call.owner);
+    // #1598: her reply settles the calls she had read when her turn started (her session's cursor);
+    // one that came in after waits for her next reply, so 「在吗」 answered does not drop the job after it.
+    const ids = call.messageIds ?? [call.messageId];
+    const seen = stays ? this.store.binding(msg.author, msg.room_id)?.context_cursor : undefined;
+    const read = seen == null ? ids : ids.filter(id => id <= seen);
+    const settled = read.length ? read : ids;
+    const later = ids.filter(id => !settled.includes(id));
+    if (later.length) {
+      const first = this.store.message(later[0]);
+      const title = taskTitle(String(first?.text ?? ''), this.hub.routableIn(call.roomId)) || call.title;
+      this.pendingCalls.set(key, { ...call, title, messageId: later[0], messageIds: later, at: call.at });
+    }
     const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
     if (m === null || m[2] !== undefined) return false;
+    const answered = { ...call, messageIds: settled };
     try {
-      if (this.staysForStance(call.roomId, call.owner)) {
+      if (stays) {
         // #1598: only the member who read the call can tell a big job; her 【接】 is that call.
-        if (m[1] === '接') return this.toWorkspace(call, msg) !== undefined;
+        if (m[1] === '接') return this.toWorkspace(answered, msg) !== undefined;
         // Her 【问】 waits for the answer: the answer joins this call and her 【接】 then moves both.
-        if (m[1] === '问') { this.pendingCalls.set(key, { ...call, at: this.now() }); return false; }
+        if (m[1] === '问') { this.pendingCalls.set(key, { ...call, messageIds: ids, at: this.now() }); return false; }
       }
-      this.openFromChat({ ...call, source: 'mention' });
+      this.openFromChat({ ...answered, source: 'mention' });
     } catch (error) {
       this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
     }
