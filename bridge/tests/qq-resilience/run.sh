@@ -3,6 +3,8 @@
 # --negative-control REF overlays only pre-fix qq.go, leaving final tests intact.
 # --binary PATH additionally runs an isolated copy of the actual built CLI.
 set -euo pipefail
+# Matches CI: Python helpers must not create __pycache__ in Go embed inputs.
+export PYTHONDONTWRITEBYTECODE=1
 bridge=$(cd "$(dirname "$0")/../.." && pwd)
 negative=""
 binary=""

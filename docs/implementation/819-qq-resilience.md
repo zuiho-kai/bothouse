@@ -46,7 +46,7 @@ tests/qq-resilience/run.sh --binary /tmp/qq-resilience-bothouse
 脚本保留并打印独立证据目录。`red.log` 必须包含上述三个用例的行为断言失败，编译失败
 不算红例；`green.log` 运行六类故障和三条新回归，带 race；`binary.log` 记录实际 CLI
 经配置加载、本地 `/send` API 和 QQ WebSocket 的结果。脚本不修改工作树，不删除证据。
-回滚只需停止测试自己启动的进程（测试自动执行）并回退本 PR 的代码提交，无生产配置需还原。
+回滚只需停止测试自己启动的进程（测试自动执行）并回退本 PR 的任务提交，无生产配置需还原。
 
 ## 六类场景与观测
 
@@ -85,9 +85,16 @@ tests/qq-resilience/run.sh --binary /tmp/qq-resilience-bothouse
 - 候选二进制 `TestQQBinary` 通过：CLI 在一次实测中 18ms 返回 `delivery unknown`，
   重连前后上游仅收到原消息一次，下一条新消息成功；此耗时不是性能保证。候选使用临时
   配置，模型边界为夹具，没有运行真实模型或真实 NapCat。
-- 全量 `go test -tags no_web -p 1 -count=1 ./...` 的最终结果以 PR 记录为准。
-  当前已发现 `TestSetupCLIsHint` 失败：空 PATH 仍发现本机 DSH/WorkBuddy，预期 `[]`
-  不成立；未修改的上述基线独立工作树也复现，未放宽断言。
+- 全量 `go test -tags no_web -p 1 -count=1 ./...` 已跑完：47 个包通过，2 个包失败，
+  共四条失败用例，均在未修改的上述基线独立工作树复现，未放宽断言：
+  `TestSetupCLIsHint` 的空 PATH 仍发现本机 DSH/WorkBuddy，预期 `[]` 不成立；
+  `TestOpenDSHWebReadsTheLaunchdLogWhenTheStateFileRecordsTheDefault` 与
+  `TestPanelOpenEntryAdoptsTheLaunchdHost` 没接管假 launchd host；
+  `TestDSHWebSelfHealFindsARestartedHostOnAnotherPort` 返回 503 而非 200。
+  独立 `go test -tags no_web ./core -run '^TestCUJ' -count=1 -timeout=180s` 通过（23.902s）。
+- 全量测试产生的 `contrib/lead/__pycache__` 曾阻止后续 Go embed 编译；将该生成目录
+  可逆移到工作树外后，设置 `PYTHONDONTWRITEBYTECODE=1` 重跑 CUJ 通过。新脚本沿用 CI
+  的该设置。没有把首次编译失败记作测试通过。
 - 未在 Windows 执行，不声称正式签名包、真实 QQ/NapCat 或原截图同请求因果链已验。
   未改变既有单次发送的写名额/写入/回执期限；仍慢但未断开的连接由现有期限收口。
 - draft PR 交固定完整 SHA 给未参与实现的成员复核。独立验收完成前保持 draft 和
