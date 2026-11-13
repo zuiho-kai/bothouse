@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 860" width="1280" height="860" font-family="-apple-system, 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fffaf5"/><stop offset="1" stop-color="#f5f3ff"/></linearGradient>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#6b4a2a" flood-opacity="0.10"/></filter>
+    <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#e8833a"/></marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7c4ddb"/></marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#2f9e6a"/></marker>
+    <marker id="ab" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#2b74d6"/></marker>
+  </defs>
+  <rect width="1280" height="860" fill="url(#bg)"/>
+  <text x="50" y="62" font-size="32" font-weight="700" fill="#2a1d12">bothouse 是怎么工作的</text>
+  <text x="50" y="98" font-size="18" fill="#6b5a4a">你在聊天软件里 @ 队长说一句，你电脑上的 AI 去想、去做，再把结果发回来。</text>
+
+  <!-- 左：你在哪儿说话 -->
+  <g filter="url(#sh)"><rect x="50" y="130" width="270" height="560" rx="20" fill="#fff" stroke="#efe2d4" stroke-width="2"/></g>
+  <text x="74" y="170" font-size="21" font-weight="700" fill="#2a1d12">你在哪儿说话</text>
+  <text x="74" y="196" font-size="14" fill="#8a7764">电脑、手机都行</text>
+  <g font-size="17" fill="#2a1d12">
+    <rect x="74" y="214" width="222" height="42" rx="11" fill="#f4f1ff"/><circle cx="94" cy="235" r="6" fill="#5865F2"/><text x="110" y="241">Discord</text>
+    <rect x="74" y="264" width="222" height="42" rx="11" fill="#f4f1ff"/><circle cx="94" cy="285" r="6" fill="#4d6bfe"/><text x="110" y="291">DSH 桌面版</text>
+    <rect x="74" y="314" width="222" height="42" rx="11" fill="#f4f1ff"/><circle cx="94" cy="335" r="6" fill="#12b7f5"/><text x="110" y="341">QQ</text>
+    <rect x="74" y="364" width="222" height="42" rx="11" fill="#f4f1ff"/><circle cx="94" cy="385" r="6" fill="#3370ff"/><text x="110" y="391">飞书</text>
+  </g>
+  <rect x="74" y="424" width="222" height="58" rx="12" fill="#fff4ea"/>
+  <text x="88" y="448" font-size="15" fill="#b35a18">你：</text>
+  <text x="88" y="470" font-size="15" fill="#b35a18">@队长 帮我做个登录页</text>
+  <rect x="74" y="500" width="222" height="168" rx="12" fill="#faf7f3" stroke="#e8dccd" stroke-dasharray="6 5"/>
+  <text x="88" y="526" font-size="16" font-weight="700" fill="#2a1d12">临时工作频道</text>
+  <text x="88" y="550" font-size="14" fill="#6b5a4a">队长接到大活，会自己</text>
+  <text x="88" y="570" font-size="14" fill="#6b5a4a">开「工作区 1、2…」频道</text>
+  <text x="88" y="590" font-size="14" fill="#6b5a4a">去做，主聊天不被刷屏；</text>
+  <text x="88" y="610" font-size="14" fill="#6b5a4a">做完把结果发回来。</text>
+  <text x="88" y="640" font-size="13" fill="#a08b76">（只在开了团队用法时出现）</text>
+
+  <!-- 中：你的电脑 -->
+  <g filter="url(#sh)"><rect x="380" y="130" width="560" height="560" rx="24" fill="#fff" stroke="#f3c79f" stroke-width="2.5"/></g>
+  <text x="408" y="172" font-size="22" font-weight="700" fill="#2a1d12">你的电脑</text>
+  <text x="508" y="172" font-size="15" fill="#8a7764">电脑关了，它们就不在线</text>
+  <!-- bothouse -->
+  <rect x="408" y="194" width="504" height="92" rx="16" fill="#fff1e3" stroke="#f3c79f"/>
+  <text x="430" y="232" font-size="24" font-weight="800" fill="#e8833a">bothouse</text>
+  <text x="550" y="231" font-size="17" fill="#3a2a1c">传话的：认出你在 @ 谁，把话交给它，</text>
+  <text x="550" y="257" font-size="17" fill="#3a2a1c">再把回答、进度卡发回聊天里。</text>
+  <!-- AI 队员 -->
+  <rect x="408" y="312" width="504" height="210" rx="16" fill="#f6f3ff" stroke="#dcd0fb"/>
+  <text x="430" y="344" font-size="19" font-weight="700" fill="#4b2fa0">AI 队员</text>
+  <text x="510" y="344" font-size="14" fill="#7a6aa8">每个队员用你电脑上一个已登录的 AI 工具</text>
+  <g>
+    <rect x="430" y="362" width="140" height="138" rx="14" fill="#fff" stroke="#e8833a" stroke-width="2"/>
+    <circle cx="500" cy="400" r="24" fill="#e8833a"/><text x="500" y="408" font-size="20" fill="#fff" text-anchor="middle" font-weight="700">长</text>
+    <text x="500" y="448" font-size="17" font-weight="700" fill="#2a1d12" text-anchor="middle">队长</text>
+    <text x="500" y="472" font-size="13" fill="#6b5a4a" text-anchor="middle">接你的话、分活、验收</text>
+    <text x="500" y="491" font-size="13" fill="#2b74d6" text-anchor="middle">用 Claude Code</text>
+    <rect x="590" y="362" width="140" height="138" rx="14" fill="#fff" stroke="#dcd0fb"/>
+    <circle cx="660" cy="400" r="24" fill="#7c4ddb"/><text x="660" y="408" font-size="20" fill="#fff" text-anchor="middle" font-weight="700">A</text>
+    <text x="660" y="448" font-size="17" font-weight="700" fill="#2a1d12" text-anchor="middle">队员</text>
+    <text x="660" y="472" font-size="13" fill="#6b5a4a" text-anchor="middle">写代码</text>
+    <text x="660" y="491" font-size="13" fill="#2b74d6" text-anchor="middle">用 Codex</text>
+    <rect x="750" y="362" width="140" height="138" rx="14" fill="#fff" stroke="#dcd0fb"/>
+    <circle cx="820" cy="400" r="24" fill="#2f9e6a"/><text x="820" y="408" font-size="20" fill="#fff" text-anchor="middle" font-weight="700">B</text>
+    <text x="820" y="448" font-size="17" font-weight="700" fill="#2a1d12" text-anchor="middle">队员</text>
+    <text x="820" y="472" font-size="13" fill="#6b5a4a" text-anchor="middle">查资料</text>
+    <text x="820" y="491" font-size="13" fill="#2b74d6" text-anchor="middle">用 Gemini CLI</text>
+  </g>
+  <!-- 派活箭头 -->
+  <path d="M572 418 L586 418" stroke="#7c4ddb" stroke-width="3" marker-end="url(#ap)"/>
+  <path d="M586 440 L574 440" stroke="#7c4ddb" stroke-width="3" marker-end="url(#ap)"/>
+  <circle cx="580" cy="474" r="11" fill="#7c4ddb"/><text x="580" y="479" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">3</text>
+  <!-- 记忆 -->
+  <rect x="408" y="548" width="504" height="118" rx="16" fill="#eefaf3" stroke="#bfe6cf"/>
+  <text x="430" y="582" font-size="19" font-weight="700" fill="#1d6b46">共用笔记本（记忆）</text>
+  <text x="430" y="610" font-size="15" fill="#3d6b55">一个普通文件夹，里面是能直接打开的 Markdown 文件。</text>
+  <text x="430" y="634" font-size="15" fill="#3d6b55">做过的事记下来，下次聊到相关的事还记得。</text>
+  <text x="430" y="656" font-size="13" fill="#6a9a82">可选；也可以用 Git 存进你自己的私有仓库</text>
+  <path d="M660 502 L660 544" stroke="#2f9e6a" stroke-width="3" marker-end="url(#ag)" marker-start="url(#ag)"/>
+  <circle cx="682" cy="524" r="11" fill="#2f9e6a"/><text x="682" y="529" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">4</text>
+
+  <!-- 右：AI 公司 -->
+  <g filter="url(#sh)"><rect x="1000" y="130" width="230" height="560" rx="20" fill="#fff" stroke="#d6e6fb" stroke-width="2"/></g>
+  <text x="1024" y="170" font-size="21" font-weight="700" fill="#2a1d12">AI 公司的服务器</text>
+  <text x="1024" y="196" font-size="14" fill="#55708f">用你自己的账号和额度</text>
+  <g font-size="17" fill="#1e3a5f" text-anchor="middle">
+    <path d="M1055 262 a26 26 0 0 1 40 -22 a30 30 0 0 1 56 8 a22 22 0 0 1 4 44 h-96 a16 16 0 0 1 -4 -30z" fill="#eaf3ff" stroke="#b8d4f5"/><text x="1112" y="281">Anthropic</text>
+    <path d="M1055 362 a26 26 0 0 1 40 -22 a30 30 0 0 1 56 8 a22 22 0 0 1 4 44 h-96 a16 16 0 0 1 -4 -30z" fill="#eaf3ff" stroke="#b8d4f5"/><text x="1112" y="381">OpenAI</text>
+    <path d="M1055 462 a26 26 0 0 1 40 -22 a30 30 0 0 1 56 8 a22 22 0 0 1 4 44 h-96 a16 16 0 0 1 -4 -30z" fill="#eaf3ff" stroke="#b8d4f5"/><text x="1112" y="481">Google</text>
+    <path d="M1055 562 a26 26 0 0 1 40 -22 a30 30 0 0 1 56 8 a22 22 0 0 1 4 44 h-96 a16 16 0 0 1 -4 -30z" fill="#eaf3ff" stroke="#b8d4f5"/><text x="1112" y="581">DeepSeek</text>
+  </g>
+  <text x="1115" y="650" font-size="13" fill="#55708f" text-anchor="middle">bothouse 自己不带 AI</text>
+
+  <!-- 主箭头 -->
+  <path d="M300 445 C 340 445, 340 240, 404 240" stroke="#e8833a" stroke-width="3.5" fill="none" marker-end="url(#ar)"/>
+  <circle cx="330" cy="330" r="13" fill="#e8833a"/><text x="330" y="335" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">1</text>
+  <path d="M500 288 L500 358" stroke="#e8833a" stroke-width="3.5" marker-end="url(#ar)"/>
+  <circle cx="524" cy="300" r="12" fill="#e8833a"/><text x="524" y="305" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">2</text>
+  <path d="M916 420 L994 420" stroke="#2b74d6" stroke-width="3" fill="none" marker-end="url(#ab)" marker-start="url(#ab)" stroke-dasharray="7 5"/>
+  <path d="M404 215 C 360 215, 360 150, 300 150" stroke="#7c4ddb" stroke-width="0" fill="none"/>
+  <path d="M406 268 C 350 268, 350 600, 300 600" stroke="#c38a5a" stroke-width="2.5" fill="none" stroke-dasharray="6 5" marker-end="url(#ar)"/>
+  <path d="M406 214 L326 214" stroke="#e8833a" stroke-width="3.5" fill="none" marker-end="url(#ar)"/>
+  <circle cx="352" cy="194" r="13" fill="#e8833a"/><text x="352" y="199" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">5</text>
+
+  <!-- 图下五句 -->
+  <g font-size="15.5" fill="#3a2a1c">
+    <text x="50" y="730"><tspan font-weight="700" fill="#e8833a">1</tspan>  你在聊天里 @ 队长说一句，消息到了你电脑上的 bothouse。</text>
+    <text x="50" y="756"><tspan font-weight="700" fill="#e8833a">2</tspan>  bothouse 把话交给队长；队长用你电脑上的 AI 工具去想、去做（这一步用的是你自己的 AI 账号）。</text>
+    <text x="50" y="782"><tspan font-weight="700" fill="#7c4ddb">3</tspan>  队长把活分给队员，队员做完交回给队长检查。</text>
+    <text x="50" y="808"><tspan font-weight="700" fill="#2f9e6a">4</tspan>  大家把做过的事记进共用笔记本，下次还记得。</text>
+    <text x="50" y="834"><tspan font-weight="700" fill="#e8833a">5</tspan>  队长通过 bothouse 把结果发回聊天里给你。换一个聊天软件，队员还是同一批。</text>
+  </g>
+</svg>
