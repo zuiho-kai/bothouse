@@ -47,6 +47,10 @@ class RootCauseTest(unittest.TestCase):
         body = GOOD.replace("git log -S 'mention'", 'git blame').replace('abc1234 related change', '（无输出）')
         self.assertEqual(ws.root_cause_errors('# fix\n' + body), [])
 
+    def test_develop_log_with_search_flag_is_introduction_evidence(self):
+        body = GOOD.replace("git log -S 'mention'", "git log origin/develop -S 'mention'")
+        self.assertEqual(ws.root_cause_errors('# fix\n' + body), [])
+
     def test_errors_join_existing_checks(self):
         rules = {'flags': {}}
         with patch.object(ws._handoff_rules, 'load', return_value=rules), \

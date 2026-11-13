@@ -88,7 +88,7 @@ def root_cause_errors(text: str, task: str = ""):
     blocks = re.findall(r"(?ms)^```[^\n]*\n(.*?)^```[ \t]*$", body)
     for pattern, label in (
         (r"git\s+log\s+origin/develop\b", "git log origin/develop"),
-        (r"git\s+(?:log\s+-S|blame\b)", "git log -S 或 git blame"),
+        (r"git\s+(?:log\b[^\n]*\s-S(?:\s|$)|blame\b)", "git log -S 或 git blame"),
     ):
         if not any(re.search(pattern, line) and any(x.strip() for x in block.splitlines()[i + 1:])
                    for block in blocks for i, line in enumerate(block.splitlines())):
