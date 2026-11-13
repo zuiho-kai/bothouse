@@ -169,7 +169,7 @@ export class Tasks {
     this.pendingCalls = new Map();
     /**
      * #1745: a chat-channel @ the lead is about to dispatch travels with the message, keyed
-     * `message\0owner`: { roomId, messageId, lead }. DshMembers.plan() asks dispatchRoom() before
+     * `message\0owner`: { roomId, messageId, at }. DshMembers.plan() asks dispatchRoom() before
      * it creates the job, because a job's room is fixed there; fromChat() consumes the entry and
      * opens the task in the workspace. In memory only: a restart drops it.
      */
@@ -989,7 +989,7 @@ export class Tasks {
     const rows = [];
     for (const owner of owners) {
       const { message } = this.store.append(workspace.id, { authorKind: 'system', author: 'system', name: '交接', text: `【交接】${this.nameOf(owner)}：${title}` });
-      const hop = { roomId: workspace.id, messageId: message.id, lead: lead.id, at: this.now() };
+      const hop = { roomId: workspace.id, messageId: message.id, at: this.now() };
       this.pendingDispatch.set(`${msg.id}\0${owner}`, hop);
       destinations.set(owner, hop);
       rows.push(message);
