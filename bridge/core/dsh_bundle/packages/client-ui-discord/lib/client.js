@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: d97913fa30b6c9eafe965259faea502f505c13cf13b84318e73b970b89d4ec0f
+// dsh-client-source-sha256: 1fc99e0a1bbdf70c63959cd61147103c1e2989b86c6123f71fe80e1513a7c294
 // dsh-style-sha256: 4e8c7282821f2aac857fba19c7ec76b7fceb91782891915bb78bb3c3c089bc50
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -21853,8 +21853,9 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 	const role = cardRole(card);
 	const shown = typeof card?.brief === "string" && cardView === "brief" ? role === "progress" ? compactBrief(card.brief) : card.brief : message.text;
 	const markdown = (0, react.useMemo)(() => softBreaksToHard(shown), [shown]);
+	const foldSteps = chatRoom && card?.state === "running" && cardView === "brief";
 	const stepLines = role === "progress" ? shown.slice(shown.indexOf("\n") + 1).split("\n") : [];
-	const steps = chatRoom && stepLines.length > 3 ? [t("stepsFolded", { total: String(stepLines.length) }), ...stepLines.slice(-3)].join("\n") : stepLines.join("\n");
+	const steps = foldSteps && stepLines.length > 3 ? [t("stepsFolded", { total: String(stepLines.length) }), ...stepLines.slice(-3)].join("\n") : stepLines.join("\n");
 	const stepsMarkdown = (0, react.useMemo)(() => steps === "" ? "" : softBreaksToHard(steps), [steps]);
 	const fullTime = (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString();
 	const editButtonRef = (0, react.useRef)(null);
@@ -22367,7 +22368,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 								chips,
 								runState: card.state,
 								t,
-								latest: chatRoom ? 3 : void 0
+								latest: foldSteps ? 3 : void 0
 							}) : !progressFolded && progressLines.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
 								text: stepsMarkdown,
 								labels,
@@ -24054,7 +24055,7 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 										onLongPress: () => {
 											setToolsFor(m.id);
 										},
-										chatRoom: room?.kind !== "workspace"
+										chatRoom: room?.kind !== "workspace" && room?.dm_member == null
 									}, m.id)])
 								]
 							}),

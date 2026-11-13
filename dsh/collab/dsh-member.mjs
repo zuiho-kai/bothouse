@@ -42,11 +42,10 @@ export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令�
 /**
  * #1539: a local CLI member (Codex and the like over ACP) runs in its CLI's sandbox, where a new install
  * has no network, 127.0.0.1 included: the workspace curl / node command came back as a red
- * "curl: (7) Failed to connect" in the channel. #1588: its @ is the dispatch, and the @ itself lands in
- * a workspace (tasks.mjs dispatchRoom), so the line says that instead of 「派活在频道里 @」, which read as
- * "the work happens in the channel" (#1745).
+ * "curl: (7) Failed to connect" in the channel. #1598: an @ is answered in the chat channel; the member
+ * who reads a big job opens her reply with 【接】 and that moves it into a workspace (tasks.mjs settleCall).
  */
-export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：@ 派出去的活系统自动放进工作区，开任务、每十分钟看进展，交回后你验收。被点名接大活不在聊天频道硬扛：@ 出去的活已经在工作区，在那里做完再交回。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
+export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：问话和小活她在聊天频道直接答；大活她首行回【接】，系统才把活转进工作区、开任务、每十分钟看进展，交回后你验收。你被 @ 时也一样：问话和小活直接答，不写【接】；大活首行只写【接】不动手，对真人也一样，系统开工作区叫醒你，在那里做完再交回。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
 /**
  * #1588 (audit 8): shared lines naming commands DSH has none of (/bind, bothouse channel create,
  * board pause, ws-up --image) are left out for DSH members. Each must match, so a reword of the
@@ -696,19 +695,10 @@ export class DshMembers {
         text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
       });
     }
-    // #1745: the lead's @ in a chat channel dispatches into a workspace, not the channel. The room
-    // is fixed here (addJob), so Tasks decides it first (dispatchRoom) and writes the 【交接】 row
-    // the job is created on; Tasks.fromChat opens the task in that room once this post commits.
-    const dest = this.hub.tasks?.dispatchRoom?.(msg, targets);
-    const jobs = targets.map(id => {
-      const hop = dest?.destinations.get(id);
-      return this.store.addJob(id, hop?.roomId ?? msg.room_id, hop?.messageId ?? msg.id);
-    }).filter(Boolean);
+    // #1598: every @ runs where it was written; a member's 【接】 to a chat-channel call moves the
+    // job into a workspace (tasks.mjs settleCall → toWorkspace), so a question is answered here.
+    const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
     return () => {
-      if (dest !== undefined) {
-        this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
-        for (const row of dest.rows) this.hub.emit({ type: 'message', message: publicMessage(row, this.store) });
-      }
       for (const job of jobs) this.enqueue(job, () => this.run(job.id));
     };
   }
@@ -914,8 +904,8 @@ export class DshMembers {
           });
         }
       };
-      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1588: its @
-      // lands in a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs dispatchRoom).
+      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1598: her
+      // 【接】 moves a call into a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs settleCall).
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id) ?? '');
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；

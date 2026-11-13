@@ -414,7 +414,9 @@ test('channel primary: task dispatch, handback and acceptance use the channel le
   const hub = makeHub();
   hub.store.ensureRoom(2, 'other');
   hub.leadState = { selected: () => 'global' };
-  for (const id of ['global', 'local', 'worker']) hub.setMember({ id, name: id, kind: 'dsh' });
+  for (const id of ['global', 'local']) hub.setMember({ id, name: id, kind: 'dsh' });
+  // A bridge bot: its @ opens a chat-side task at once (#1598 waits for a DSH member's 【接】).
+  hub.setMember({ id: 'worker', name: 'worker', kind: 'bot' });
   hub.store.setLead(1, 'local');
   const tasks = new Tasks(hub, { start: false });
   hub.post(1, { authorKind: 'role', author: 'local', name: 'local', text: '@worker implement channel settings' });
@@ -4415,12 +4417,13 @@ test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead
   const dispatch = say('lead', '橘', '@龙娘 @DeepSeek 把登录页写完\n细节见上');
   await tick();
   let list = tasks.list(1);
+  // #1598: the bridge bot's @ opens a task at once; the DSH member's waits for her stance (no task yet).
   assert.deepEqual(list.map(t => [t.owner, t.status, t.title, t.assign_msg_id]).sort(),
-    [['ds', 'assigned', '把登录页写完', dispatch.id], ['gpt', 'assigned', '把登录页写完', dispatch.id]]);
+    [['gpt', 'assigned', '把登录页写完', dispatch.id]]);
   // A second @ to an owner with an open task from the lead is a follow-up, not a new task.
   say('lead', '橘', '@龙娘 记得加测试');
   await tick();
-  assert.equal(tasks.list(1).length, 2);
+  assert.equal(tasks.list(1).length, 1);
   // Stance after the lead's @ (bridge lead_return form) still counts as a stance, not a hand-back.
   say('gpt', '龙娘', '@橘 【接】 开工');
   await tick();
@@ -4431,12 +4434,10 @@ test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead
   await tick();
   list = tasks.list(1);
   assert.deepEqual([list.find(t => t.owner === 'gpt').status, list.find(t => t.owner === 'gpt').result_msg_id], ['returned', result.id]);
-  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
   say('lead', '橘', '收到，龙娘这份可以');
   await tick();
   list = tasks.list(1);
   assert.equal(list.find(t => t.owner === 'gpt').status, 'done');
-  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
   // Teammates' own @s and plain chat never open tasks; API tasks are never auto-accepted.
   say('gpt', '龙娘', '@DeepSeek 你那边呢');
   const api = tasks.assign({ roomId: 1, title: 'api', owner: 'gpt', actor: 'lead' });
@@ -4444,31 +4445,38 @@ test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead
   say('lead', '橘', '好');
   await tick();
   assert.equal(tasks.task(api.id).status, 'returned');
-  assert.equal(tasks.list(1).length, 3);
+  assert.equal(tasks.list(1).length, 2);
   tasks.close(); hub.store.close();
 });
 
-test('tasks: a DSH member\'s one-message 【接】 reply is its delivery and hands the task back; a bot\'s stays a stance', async () => {
+test('#1598: a DSH member\'s 【接】 in a chat channel moves the job into a workspace; a bot\'s stays a stance', async () => {
   const { hub, tasks } = makeTasks();
   hub.fallbackLead = 'lead';
   hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const woken = [];
+  tasks.onWake((id, m) => { woken.push([id, m.room_id]); return true; });
   const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
   say('lead', '橘', '@龙娘 @DeepSeek 把登录页写完');
   await tick();
-  // A DSH member (local CLI members included) posts once, when its turn has ended:
   // dsh-member.mjs returnToLead puts the lead's @ in front of the stance.
-  const result = say('ds', 'DeepSeek', '@橘 【接】\n登录页写好了，见 login.tsx');
+  say('ds', 'DeepSeek', '@橘 【接】');
   say('gpt', '龙娘', '@橘 【接】 开工');
   await tick();
-  let list = tasks.list(1);
-  assert.deepEqual([list.find(t => t.owner === 'ds').status, list.find(t => t.owner === 'ds').result_msg_id], ['returned', result.id]);
-  assert.equal(list.find(t => t.owner === 'gpt').status, 'accepted', 'a bridge bot may keep working after its stance');
-  say('lead', '橘', '收到');
+  const ds = tasks.list(1).find(t => t.owner === 'ds');
+  assert.equal(hub.store.room(ds.room_id).kind, 'workspace', 'her 【接】 moved it into a workspace');
+  assert.equal(ds.status, 'assigned', 'her 【接】 is no delivery');
+  assert.deepEqual(woken, [['ds', ds.room_id]], 'she is woken there');
+  assert.equal(tasks.list(1).find(t => t.owner === 'gpt').status, 'accepted', 'a bridge bot may keep working after its stance');
+  // A chat-side task of hers (an API one) answered 【接】#id moves too: closed here, opened in a workspace.
+  const api = tasks.assign({ roomId: 1, title: 'q', owner: 'ds', actor: 'lead', force: true });
+  say('ds', 'DeepSeek', `@橘 【接】 #${api.id}`);
   await tick();
-  list = tasks.list(1);
-  assert.equal(list.find(t => t.owner === 'ds').status, 'done');
+  assert.equal(tasks.task(api.id).status, 'done');
+  const moved = tasks.list(1).filter(t => t.owner === 'ds' && t.title === 'q' && t.id !== api.id);
+  assert.equal(moved.length, 1);
+  assert.equal(hub.store.room(moved[0].room_id).kind, 'workspace');
   // 问 keeps the DSH member's turn on it: no hand-back.
-  const asked = tasks.assign({ roomId: 1, title: 'q', owner: 'ds', actor: 'lead' });
+  const asked = tasks.assign({ roomId: 1, title: 'q2', owner: 'ds', actor: 'lead', force: true });
   say('ds', 'DeepSeek', `@橘 【问】 #${asked.id} 要哪个分支`);
   await tick();
   assert.equal(tasks.task(asked.id).status, 'asked');
@@ -5765,7 +5773,8 @@ test('G24: an @-dispatched chat task is handed over, not opened twice', async ()
   const { hub, tasks, later, nudged, call } = await g24Setup(['ju', 'long']);
   hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页' });
   tasks.fromMessage(hub.store.page(1).at(-1));
-  assert.equal(tasks.list(1).filter(t => ['assigned', 'accepted'].includes(t.status)).length, 1);
+  // #1598: the @ waits for her stance; the lead hands it to a workspace itself here.
+  assert.equal(tasks.list(1).filter(t => ['assigned', 'accepted'].includes(t.status)).length, 0);
   const res = await call(later.ticket('ju', 1), { title: '修登录页', owner: 'long' });
   assert.equal(res.status, 200);
   const ws = res.body.workspace.id;
@@ -5840,9 +5849,9 @@ test('G24: the local workspace command carries a reason into the owner\'s turn i
   } finally { server.close(); later.close(); }
 });
 
-// #1745: the lead's @ in a chat channel is a dispatch, and a dispatch is work: it goes into a
-// workspace. The job's room is fixed when plan() creates it, so plan() asks Tasks (dispatchRoom)
-// before that and creates the job on a 【交接】 row in the workspace; fromChat opens the task there.
+// #1598 (fable design, user 11-13「fable想一下」): an @ in a chat channel is answered there. Only the
+// member who read it can tell a big job: her reply opening with 【接】 moves the call into a workspace
+// (Tasks.settleCall → toWorkspace), where she is woken on a 【交接】 row and hands back with [report].
 function mentionSetup({ files } = {}) {
   const hub = makeHub();
   hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
@@ -5851,50 +5860,36 @@ function mentionSetup({ files } = {}) {
   hub.store.setLead(1, 'ju');
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   hub.tasks = tasks;
+  tasks.onWake((id, msg) => members.nudge(id, msg));
   const say = (author, text, room = 1, attachments) => hub.post(room, { authorKind: 'role', author, name: author, text, ...(attachments ? { attachments } : {}) }).message;
-  return { hub, fake, members, tasks, say };
+  const person = (text, room = 1) => hub.post(room, { authorKind: 'user', author: 'owner', name: '我', text }).message;
+  /** The member's turn on her newest prompt in roomId (its session made for that room). */
+  const answer = async (roomId, text) => {
+    const agent = [...fake.sessions.values()].find(a => a.inbox.nextTurn.length > 0 && hub.store.binding('ds', roomId)?.session_id === a.session.id)
+      ?? [...fake.sessions.values()].find(a => a.inbox.nextTurn.length > 0);
+    fake.turn(agent, [text]);
+    await settle();
+  };
+  const workspaces = () => hub.store.rooms().filter(r => r.kind === 'workspace');
+  return { hub, fake, members, tasks, say, person, answer, workspaces };
 }
 
-test('#1745: the lead\'s @ in a chat channel dispatches the job and its task into a workspace', async t => {
-  const { hub, fake, members, tasks, say } = mentionSetup();
+test('#1598: a question @ to a member is answered in the chat channel and opens nothing', async t => {
+  const { hub, members, tasks, say, person, answer, workspaces } = mentionSetup();
   t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
-  const at = say('ju', '@DeepSeek 修登录页');
-  await settle();
-  const ws = hub.store.rooms().filter(r => r.kind === 'workspace');
-  assert.equal(ws.length, 1, 'one workspace for the dispatch');
-  assert.equal(hub.store.workspaceOwner(ws[0].id), 1, 'claimed for the chat channel');
-  const [job] = hub.store.openJobs();
-  assert.equal(job.member_id, 'ds');
-  assert.equal(job.room_id, ws[0].id, 'the job runs in the workspace, not the channel');
-  const trigger = hub.store.message(job.trigger_id);
-  assert.equal(trigger.room_id, ws[0].id);
-  assert.equal(trigger.author_kind, 'system');
-  assert.match(trigger.text, /^【交接】DeepSeek：修登录页/);
-  const [task] = tasks.list(1);
-  assert.equal(task.room_id, ws[0].id, 'the task belongs to the workspace');
-  assert.equal(tasks.task(task.id).source, 'workspace');
-  assert.equal(task.owner, 'ds');
-  assert.equal(task.created_by, 'ju');
-  assert.equal(task.assign_msg_id, job.trigger_id, 'its assign message is the handoff the job reads');
-  assert.equal(tasks.list(1).filter(x => x.room_id === 1).length, 0, 'the chat channel keeps no task');
-  // The channel is told the work moved (one 派活 record); the workspace shows the card under
-  // the handoff row its assign_msg_id names, not as a second row.
-  const chatRecords = hub.store.page(1, undefined, 100).filter(m => m.name === '任务');
-  assert.equal(chatRecords.length, 1);
-  assert.match(chatRecords[0].text, /派活 #\d+ → DeepSeek/);
-  assert.equal(hub.store.page(ws[0].id, undefined, 100).filter(m => m.name === '任务').length, 0);
-  // The member works (and reads the handoff) in the workspace; the chat channel only saw the @.
-  const agent = fake.sessions.get(fake.made[0]);
-  fake.turn(agent, ['[report] 修好了']);
-  await settle();
-  assert.equal(tasks.task(task.id).status, 'returned');
-  assert.equal(hub.store.workspaceOwner(ws[0].id), null, 'handed back: the workspace goes to the pool');
-  assert.doesNotMatch(hub.store.page(1, undefined, 100).filter(m => m.author === 'ds' && m.author_kind === 'role').map(m => m.text).join('\n'), /修好了/, 'the work stays out of the channel');
+  for (const ask of [() => say('ju', '@DeepSeek 在吗'), () => person('@DeepSeek 你觉得这个方案怎么样')]) {
+    ask();
+    await settle();
+    const job = hub.store.openJobs().find(j => j.member_id === 'ds');
+    assert.equal(job?.room_id, 1, 'the @ runs in the chat channel');
+    await answer(1, '在的，这个方案可以');
+    assert.equal(workspaces().length, 0, 'no workspace for a question');
+    assert.equal(tasks.list(1).length, 0, 'no task for a question');
+  }
+  assert.match(hub.store.page(1, undefined, 100).filter(m => m.author === 'ds').map(m => m.text).join('\n'), /方案可以/, 'the answer stays in the chat channel');
 });
 
-// #1745 follow-up (review on #1748): the handoff the workspace turn reads is the whole dispatch —
-// a multi-line ask and its files, not only the title line the card shows.
-test('#1745: a multi-line @ with a file reaches the workspace turn whole', async t => {
+test('#1598: her 【接】 moves the lead\'s @ into a workspace, with the body, the file and what she added', async t => {
   const { Attachments } = await import('./attachments.mjs');
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -5902,128 +5897,105 @@ test('#1745: a multi-line @ with a file reaches the workspace turn whole', async
   const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-dispatch-')), 'attachments'));
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
   const saved = files.save([{ name: 'shot.png', mime: 'image/png', data: png.toString('base64') }]);
-  const { hub, fake, members, tasks, say } = mentionSetup({ files });
+  const { hub, fake, members, tasks, say, answer, workspaces } = mentionSetup({ files });
   t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
   say('ju', '@DeepSeek 修登录页\n背景：输入框在手机上被遮挡\n验收：iPhone 上能看见登录按钮', 1, saved);
   await settle();
-  const [job] = hub.store.openJobs();
-  const trigger = hub.store.message(job.trigger_id);
-  assert.match(trigger.text, /^【交接】DeepSeek：修登录页\n背景：输入框在手机上被遮挡\n验收：iPhone 上能看见登录按钮$/, 'the body after the leading @ is kept');
-  assert.deepEqual(JSON.parse(trigger.attachments).map(a => a.name), ['shot.png'], 'the file rides on the handoff row');
+  assert.equal(workspaces().length, 0, 'the @ itself opens nothing');
+  await answer(1, '【接】 先看登录页的 css');
+  const ws = workspaces();
+  assert.equal(ws.length, 1, 'her 【接】 opens one workspace');
+  assert.equal(hub.store.workspaceOwner(ws[0].id), 1, 'claimed for the chat channel');
   const [task] = tasks.list(1);
-  assert.equal(task.room_id, trigger.room_id);
-  // The workspace turn is fed the handoff row (cursor past the trigger) with its image attached.
-  const agent = fake.sessions.get(fake.made[0]);
+  assert.equal(task.room_id, ws[0].id, 'the task belongs to the workspace');
+  assert.equal(tasks.task(task.id).source, 'workspace');
+  assert.equal(task.owner, 'ds');
+  assert.equal(task.created_by, 'ju', 'the lead accepts it');
+  assert.equal(task.title, '修登录页');
+  const trigger = hub.store.message(task.assign_msg_id);
+  assert.equal(trigger.room_id, ws[0].id);
+  assert.equal(trigger.author_kind, 'system');
+  assert.equal(trigger.text, '【交接】DeepSeek：修登录页\n背景：输入框在手机上被遮挡\n验收：iPhone 上能看见登录按钮\n\nDeepSeek【接】时说：先看登录页的 css');
+  assert.deepEqual(JSON.parse(trigger.attachments).map(a => a.name), ['shot.png'], 'the file rides on the handoff row');
+  assert.equal(tasks.list(1).filter(x => x.room_id === 1).length, 0, 'the chat channel keeps no task');
+  // She is woken in the workspace on the handoff row, its image attached.
+  const job = hub.store.openJobs().find(j => j.member_id === 'ds');
+  assert.equal(job?.room_id, ws[0].id, 'her next turn runs in the workspace');
+  assert.equal(job.trigger_id, trigger.id);
+  const agent = fake.sessions.get(fake.made.at(-1));
   const prompt = agent.prompts.at(-1);
   assert.match((prompt?.content ?? []).find(p => p.type === 'text')?.text ?? '', /验收：iPhone 上能看见登录按钮/);
   assert.equal((prompt?.content ?? []).find(p => p.type === 'image')?.data, png.toString('base64'), 'the file rides along');
-  tasks.close();
+  fake.turn(agent, ['[report] 修好了']);
+  await settle();
+  assert.equal(tasks.task(task.id).status, 'returned');
+  assert.equal(hub.store.workspaceOwner(ws[0].id), null, 'handed back: the workspace goes to the pool');
+  assert.doesNotMatch(hub.store.page(1, undefined, 100).filter(m => m.author === 'ds' && m.author_kind === 'role').map(m => m.text).join('\n'), /修好了/, 'the work stays out of the channel');
 });
 
-// #1751 review: a dispatch at the length cap must keep its whole body — the prefix gives way, the
-// last line ("禁止部署") is never cut off with it.
-test('#1745: a dispatch at the length cap keeps its whole body', async t => {
-  const { hub, tasks, say } = mentionSetup();
-  t.after(async () => { tasks.close(); hub.store.close(); });
+// #1751 review: a dispatch at the length cap must keep its whole body — what she added and the
+// prefix give way, the last line ("禁止部署") is never cut off.
+test('#1598: a dispatch at the length cap keeps its whole body in the workspace', async t => {
+  const { hub, members, tasks, say, answer } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
   const tail = '\n最后：禁止部署';
   const body = '修登录页\n' + 'x'.repeat(MAX_TEXT - '@DeepSeek '.length - '修登录页\n'.length - tail.length) + tail;
   const text = `@DeepSeek ${body}`;
   assert.equal(text.length, MAX_TEXT, 'the chat row is exactly at the cap');
   say('ju', text);
   await settle();
-  const [job] = hub.store.openJobs();
-  const trigger = hub.store.message(job.trigger_id);
+  await answer(1, '【接】 好');
+  const [task] = tasks.list(1);
+  const trigger = hub.store.message(task.assign_msg_id);
   assert.ok(trigger.text.endsWith(tail), 'the body ends whole, its last line included');
   assert.ok(trigger.text.length <= MAX_TEXT, 'and the row still fits');
   assert.ok(/^【交接】/.test(trigger.text), 'the prefix shrinks to fit, it does not vanish');
-  tasks.close();
 });
 
-test('#1745: a teammate\'s @, a private chat and a later @ while she is busy dispatch nothing', async t => {
-  const { hub, members, tasks, say } = mentionSetup();
+test('#1598: a person\'s @ answered 【接】 goes to a workspace on behalf of the channel lead', async t => {
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek 修登录页');
+  await settle();
+  assert.equal(workspaces().length, 0);
+  await answer(1, '【接】');
+  const ws = workspaces();
+  assert.equal(ws.length, 1, 'the person\'s @ goes to a workspace on her 【接】');
+  const [task] = tasks.list(1);
+  assert.equal(task.room_id, ws[0].id);
+  assert.equal(task.created_by, 'ju', 'the channel lead hands it out and accepts it');
+  assert.match(hub.store.message(task.assign_msg_id).text, /^【交接】DeepSeek：修登录页$/);
+  assert.equal(hub.store.openJobs().find(j => j.member_id === 'ds')?.room_id, ws[0].id);
+});
+
+test('#1598: a progress @ while she works in a workspace, a teammate\'s @ and a private chat open nothing', async t => {
+  const { hub, members, tasks, say, person, answer, workspaces } = mentionSetup();
   t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
   // A teammate's @ is a relay for the channel lead, not a dispatch.
   say('ds', '@橘 帮我看看');
   await settle();
-  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 0, 'only the lead dispatches');
+  assert.equal(workspaces().length, 0, 'only the lead dispatches');
   assert.equal(tasks.list(1).length, 0);
-
-  // A private chat with the owner stays a private chat: the job runs there, no workspace opens.
+  say('ju', '@DeepSeek 改文案');
+  await settle();
+  await answer(1, '【接】');
+  assert.equal(workspaces().length, 1);
+  // She works in her workspace; the lead and the person ask for progress in the chat channel.
+  for (const ask of [() => say('ju', '@DeepSeek 进度怎么样'), () => person('@DeepSeek 还要多久')]) {
+    ask();
+    await settle();
+    assert.equal(hub.store.openJobs().find(j => j.member_id === 'ds' && j.room_id === 1)?.room_id, 1, 'the question runs in the chat channel');
+    await answer(1, '还在改，快好了');
+  }
+  assert.equal(workspaces().length, 1, 'no second workspace');
+  assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, 'no second task');
+  // A private chat stays a private chat, even on her 【接】.
   const dm = hub.store.openDm('ds', 'DeepSeek');
   say('ju', '@DeepSeek 修登录页', dm.id);
   await settle();
-  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 0, 'a private chat stays a private chat');
   assert.equal(hub.store.openJobs().find(j => j.room_id === dm.id)?.member_id, 'ds', 'the @ still reaches the member there');
-
-  // Her dispatch is in work: a later @ adds no second workspace and no second task.
-  say('ju', '@DeepSeek 改文案');
-  await settle();
-  const ws = hub.store.rooms().filter(r => r.kind === 'workspace');
-  assert.equal(ws.length, 1);
-  say('ju', '@DeepSeek 顺便看看文案');
-  await settle();
-  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 1, 'no second workspace');
-  assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, 'no second task');
-});
-
-// #1588: the same room decision for every @ that hands work out, not only the lead's first one.
-test('#1588: a later @ while her dispatch is in work joins her workspace, not the channel', async t => {
-  const { hub, members, tasks, say } = mentionSetup();
-  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
-  say('ju', '@DeepSeek 改文案');
-  await settle();
-  const [ws] = hub.store.rooms().filter(r => r.kind === 'workspace');
-  say('ju', '@DeepSeek 顺便把按钮颜色也改了');
-  await settle();
-  const jobs = hub.store.openJobs().filter(j => j.member_id === 'ds');
-  assert.ok(jobs.length >= 1);
-  for (const job of jobs) assert.equal(job.room_id, ws.id, 'every job of hers runs in her workspace');
-  const extra = hub.store.page(ws.id, undefined, 100).find(m => /^【补充】DeepSeek：顺便把按钮颜色也改了/.test(m.text));
-  assert.ok(extra, 'the call is posted in her workspace');
-  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 1);
-  assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, 'still one task');
-});
-
-test('#1588: a person\'s @ to a member dispatches into a workspace; thanks alone does not', async t => {
-  const { hub, members, tasks } = mentionSetup();
-  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
-  const person = text => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
-  person('@DeepSeek 谢谢');
-  await settle();
-  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 0, 'thanks opens no workspace');
-  assert.equal(tasks.list(1).length, 0);
-  person('@DeepSeek 修登录页');
-  await settle();
-  const ws = hub.store.rooms().filter(r => r.kind === 'workspace');
-  assert.equal(ws.length, 1, 'the person\'s @ goes to a workspace');
-  const job = hub.store.openJobs().find(j => j.member_id === 'ds' && j.room_id === ws[0].id);
-  assert.ok(job, 'her job runs in the workspace');
-  assert.match(hub.store.message(job.trigger_id).text, /^【交接】DeepSeek：修登录页/);
-  const [task] = tasks.list(1);
-  assert.equal(task.room_id, ws[0].id);
-  assert.equal(task.created_by, 'ju', 'the channel lead hands it out and accepts it');
-  assert.equal(tasks.task(task.id).source, 'workspace');
-});
-
-test('#1588: after a delivery the lead\'s @ opens a workspace at once; 「收到」 alone does not', async t => {
-  const { hub, fake, members, tasks, say } = mentionSetup();
-  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
-  say('ju', '@DeepSeek 修登录页');
-  await settle();
-  const [first] = tasks.list(1);
-  fake.turn(fake.sessions.get(fake.made[0]), ['[report] 修好了']);
-  await settle();
-  assert.equal(tasks.task(first.id).status, 'returned');
-  say('ju', '@DeepSeek 收到，辛苦了');
-  await settle();
-  assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, '「收到」 opens nothing');
-  say('ju', '@DeepSeek 再把注册页也修了');
-  await settle();
-  const all = tasks.list(1).filter(x => x.owner === 'ds');
-  assert.equal(all.length, 2, 'the next job opens at once, no waiting for her 【接】');
-  const second = all.find(x => x.id !== first.id);
-  assert.equal(hub.store.room(second.room_id).kind, 'workspace');
-  assert.equal(second.title, '再把注册页也修了');
+  await answer(dm.id, '【接】');
+  assert.equal(workspaces().length, 1, 'a private chat stays a private chat');
 });
 
 test('G26: a ticket sent to /tasks gets a 403 pointing at /workspaces; /tasks auth is unchanged', async () => {
@@ -6063,10 +6035,11 @@ test('G26: the DSH workspace prompt spells out the full /workspaces call', async
 
 // #597 G34 (K10 r8): DSH watch counts in-place progress, a stance only answers a task in its own
 // room, a workspace hand-back brings its result to the chat channel and wakes the dispatcher.
-function g34Setup() {
+// fuKind 'bot': 副 is a bridge bot, whose @ still opens a chat-side task (#1598 moves only a DSH member's call on her 【接】).
+function g34Setup({ fuKind = 'dsh' } = {}) {
   const hub = makeHub();
   hub.setMember({ id: 'zhu', name: '主', kind: 'dsh', online: true });
-  hub.setMember({ id: 'fu', name: '副', kind: 'dsh', online: true });
+  hub.setMember({ id: 'fu', name: '副', kind: fuKind, online: true });
   hub.leadState = { selected: () => 'zhu' };
   hub.teamExit = new TeamExit(hub);
   const clock = { t: 1000 };
@@ -6586,7 +6559,7 @@ for (const state of ['returned', 'done']) {
 }
 
 test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ answered 【接】 still dispatches', async () => {
-  const { tasks, say } = g34Setup();
+  const { tasks, say } = g34Setup({ fuKind: 'bot' });
   say(1, '副，把 README 改一下', 'zhu');
   await settle();
   const [first] = tasks.list(1).filter(r => r.owner === 'fu');
@@ -6610,7 +6583,7 @@ test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ an
 // #1540: #1539 walk after-round3.png — 小蓝's 「@小橙 Selected model is at capacity. Please try a different model.」
 // was recorded 「交回，用时 0 秒」 and the lead's next message accepted it (「验收完成」).
 test('#1540: a model-error reply marks the task 出错, the lead accepts nothing, its next call sends it again', async () => {
-  const { tasks, say } = g34Setup();
+  const { tasks, say } = g34Setup({ fuKind: 'bot' });
   say(1, '副，跑一次 date 把结果发回来', 'zhu');
   await settle();
   const [first] = tasks.list(1).filter(r => r.owner === 'fu');
@@ -6632,7 +6605,7 @@ test('#1540: a model-error reply marks the task 出错, the lead accepts nothing
 
 // #1588 (audit 12): a new job after an error was taken for a retry of the old one and lost its title.
 test('#1588: after an error a new job opens a new task with its own title', async () => {
-  const { tasks, say } = g34Setup();
+  const { tasks, say } = g34Setup({ fuKind: 'bot' });
   say(1, '副，跑一次 date 把结果发回来', 'zhu');
   await settle();
   const [first] = tasks.list(1).filter(r => r.owner === 'fu');
@@ -6648,7 +6621,7 @@ test('#1588: after an error a new job opens a new task with its own title', asyn
 });
 
 test('#1540: a real reply that talks about an error still hands back', async () => {
-  const { tasks, say } = g34Setup();
+  const { tasks, say } = g34Setup({ fuKind: 'bot' });
   say(1, '副，查一下为什么超时', 'zhu');
   await settle();
   const [first] = tasks.list(1).filter(r => r.owner === 'fu');
@@ -6963,12 +6936,12 @@ test('delegated review rejects unrelated members, self review, wrong rooms, miss
 });
 
 test('chat-side delegated review stays pending through lead chatter and closes on the reviewer verdict', async () => {
-  const { hub, tasks, say } = g34Setup();
+  const { hub, tasks, say } = g34Setup({ fuKind: 'bot' });
   hub.setMember({ id: 'reviewer', name: 'DSH', kind: 'dsh', online: true });
   say(1, '@副 implement it', 'zhu');
   await settle();
   const original = tasks.list(1)[0];
-  say(1, `【接】#${original.id}\nimplementation delivered`);
+  say(1, '@主 implementation delivered');
   await settle();
   say(1, `@DSH 独立核对，回【验收】#${original.id} 或【返工】#${original.id} 原因`, 'zhu');
   await settle();
@@ -7337,7 +7310,7 @@ test('CLI configured member: collab dispatch applies fake ACP options before pro
 // #221 (11-06 09:25): the bridge watch posts its wake and escalation as the lead; DSH opened 「#6 接着做 -」
 // and 「#7 接着做 什么东西属于你…」 from them. A watch post dispatches nothing; a real dispatch still does.
 test('tasks: the bridge watch wake and escalation posted as the lead open no task', async () => {
-  const { tasks, say } = g34Setup();
+  const { tasks, say } = g34Setup({ fuKind: 'bot' });
   for (const text of [
     '@副 接着做 -，做完跑 ws-up --report <草稿文件> 交回',
     '@副 接着做 什么东西属于你，别人却比你用得更多？，做完跑 ws-up --report <草稿文件> 交回',
@@ -7364,7 +7337,7 @@ test('tasks: normal lead dispatch with report instructions still opens a task', 
     '@副 接着做 登录页，做完跑 ws-up --report <草稿文件> 交回，并附截图',
   ]) {
     await t.test(text, async (t) => {
-      const { hub, tasks, say } = g34Setup();
+      const { hub, tasks, say } = g34Setup({ fuKind: 'bot' });
       t.after(() => { tasks.close(); hub.store.close(); });
       say(1, text, 'zhu');
       await settle();
@@ -7388,7 +7361,7 @@ test('tasks: lead watch notices leave a returned chat task unchanged', async (t)
     '見守り：@副 はログインを2回呼びかけても再開していません。主担当に引き継いでください。',
   ]) {
     await t.test(text, async (t) => {
-      const { hub, tasks, clock, say } = g34Setup();
+      const { hub, tasks, clock, say } = g34Setup({ fuKind: 'bot' });
       t.after(() => { tasks.close(); hub.store.close(); });
       say(1, '@副 实现登录页', 'zhu');
       say(1, '@主 登录页已交回');

@@ -163,17 +163,11 @@ export class Tasks {
     /** released(roomId) -> a workspace finished its last task and went back to the pool. */
     this.releasers = [];
     /**
-     * #597 r12: bare-name calls after a delivery, waiting for the owner's stance line, keyed
+     * #597 r12: bare-name calls after a delivery, and #1598 every @ in a chat channel of the tree,
+     * waiting for the owner's stance line, keyed
      * `room\0owner`: { roomId, owner, lead, title, messageId, at }. In memory only: a restart drops them.
      */
     this.pendingCalls = new Map();
-    /**
-     * #1745: a chat-channel @ the lead is about to dispatch travels with the message, keyed
-     * `message\0owner`: { roomId, messageId, at }. DshMembers.plan() asks dispatchRoom() before
-     * it creates the job, because a job's room is fixed there; fromChat() consumes the entry and
-     * opens the task in the workspace. In memory only: a restart drops it.
-     */
-    this.pendingDispatch = new Map();
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -721,17 +715,12 @@ export class Tasks {
 
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
-    try {
-      return this.route(msg);
-    } finally {
-      // #1745: whatever this message did not take back out of a dispatch workspace goes back there.
-      if (msg.author_kind === 'role' || msg.author_kind === 'user') this.settleDispatch(msg);
-    }
+    return this.route(msg);
   }
 
   route(msg) {
-    // #1588: a person's @ that dispatchRoom moved into a workspace opens its task there.
-    if (msg.author_kind === 'user' && msg.card === null) { this.openDispatched(msg); return undefined; }
+    // #1598: a person's @ in a chat channel waits for the member's stance, like the lead's.
+    if (msg.author_kind === 'user' && msg.card === null) { this.callsFromPerson(msg); return undefined; }
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     if (this.hub.teamExit?.consumeRejected(msg.id)) return undefined;
     const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
@@ -745,7 +734,8 @@ export class Tasks {
       return undefined;
     }
     if (this.verdictsOf(msg)) return undefined;
-    this.settleCall(msg);
+    // #1598: her 【接】 to a call moved it into a workspace; this reply is only her stance.
+    if (this.settleCall(msg)) return undefined;
     if (this.inWorkspace(msg.room_id) && workspaceAskMark(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
@@ -767,8 +757,14 @@ export class Tasks {
         return handed;
       }
     } else if (stance?.status === 'accepted' && this.task(stance.id).source !== 'review' && dsh) {
-      // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
+      // #1598: in a chat channel of the tree a DSH member's 【接】 moves its task into a workspace
+      // (she does it there and hands back with [report]); without workspaces it is still her delivery.
       // A bridge bot may keep working after its 【接】, so its stance stays a stance.
+      const task = this.task(stance.id);
+      if (this.chatChannel(task.room_id)) {
+        this.toWorkspace({ roomId: task.room_id, owner: task.owner, lead: task.created_by, title: task.title, messageId: task.assign_msg_id }, msg, task);
+        return undefined;
+      }
       return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
     }
     if (stance !== undefined) return stance;
@@ -897,16 +893,15 @@ export class Tasks {
         }
         // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
         // accepted, a bare-name call may be praise about the delivery or a send-back: the task opens
-        // only when her next message here opens with a stance line (settleCall). #1588: an explicit @
-        // opens at once (#1539 had it wait for her 【接】 too), unless it is only thanks or 「收到」.
+        // only when her next message here opens with a stance line (settleCall). Without workspaces
+        // (no tree, a DM, a workspace) #1588 still holds: an explicit @ opens at once unless it is only
+        // thanks or 「收到」 (ackOnly), and only a retry call re-sends a failed task (retryCall).
         const key = `${msg.room_id}\0${owner}`;
         this.pendingCalls.delete(key);
-        // #1745: DshMembers.plan() already moved this @ into a workspace and created its job on a
-        // 【交接】 row there; the task opens in that room so the job's trigger is its assign message.
-        const hop = this.takeDispatch(msg, owner);
-        if (hop !== undefined) {
-          // #1588: a call about the task she already has in a workspace went there; nothing new opens.
-          if (!hop.existing) this.openFromChat({ roomId: hop.roomId, owner, lead: lead.id, title, messageId: hop.messageId, source: 'workspace' });
+        // #1598: in a chat channel of the tree every @ is answered here first: a question or a small
+        // job opens nothing; her reply opening with 【接】 moves it into a workspace (settleCall).
+        if (this.staysForStance(msg.room_id, owner)) {
+          this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
           continue;
         }
         // #1588: thanks or 「收到」 alone opens nothing and re-sends nothing.
@@ -944,136 +939,98 @@ export class Tasks {
   settleCall(msg) {
     const key = `${msg.room_id}\0${msg.author}`;
     const call = this.pendingCalls.get(key);
-    if (call === undefined) return;
+    if (call === undefined) return false;
     this.pendingCalls.delete(key);
-    if (this.now() - call.at > PENDING_CALL_S) return;
+    if (this.now() - call.at > PENDING_CALL_S) return false;
     const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
-    if (m === null || m[2] !== undefined) return;
+    if (m === null || m[2] !== undefined) return false;
     try {
+      // #1598: only the member who read the call can tell a big job; her 【接】 is that call.
+      if (m[1] === '接' && this.staysForStance(call.roomId, call.owner)) return this.toWorkspace(call, msg) !== undefined;
       this.openFromChat({ ...call, source: 'mention' });
     } catch (error) {
       this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
     }
+    return false;
+  }
+
+  /** #1598: roomId is a chat channel of the tree (not a DM). */
+  chatChannel(roomId) {
+    return this.tree && this.store.room(roomId)?.kind === 'chat' && this.store.dmMember(roomId) === undefined;
   }
 
   /**
-   * #1745: the room a chat-channel @ from the lead dispatches into. A dispatch is work, and work
-   * belongs in a workspace: DshMembers.plan() calls this inside the append transaction, before its
-   * job exists — a job's room is fixed at addJob and there is no moveJob — and creates the job on
-   * the handoff row this returns. fromChat() then opens the task here (takeDispatch).
-   *
-   * Nothing is created unless fromChat would open a task: the lead, a chat channel (not a DM), a
-   * title, no verdict line, and at least one owner without an open task here or one already handed
-   * over — the three excluded paths (a failed turn's retry, a waiting bare-name call, an open task)
-   * stay chat-side. Returns { workspace, destinations: Map(owner -> { roomId, messageId }), rows } for
-   * the caller to announce after commit, or undefined when every owner the message calls stays here.
+   * #1598: an @ to owner in roomId waits for her stance and her 【接】 moves it into a workspace: a DSH
+   * member in a chat channel of the tree. A bridge bot hands its own big job over (ws-handoff), so
+   * its @ keeps opening a chat-side task and a second workspace never opens for the same job.
    */
-  dispatchRoom(msg, targets) {
-    if (!this.tree || targets.length === 0) return undefined;
-    // #1588: a person's @ to a member is a dispatch too, the same room decision as the lead's.
-    const human = msg.author_kind === 'user';
-    if (!human && msg.author_kind !== 'role') return undefined;
-    const room = this.store.room(msg.room_id);
-    if (room?.kind !== 'chat' || this.store.dmMember(msg.room_id) !== undefined) return undefined;
-    const team = this.hub.routableIn(msg.room_id);
-    if (isWatchNotice(msg.text, team)) return undefined;
-    const text = String(msg.text);
-    const body = withoutLeadingMentions(text, team).trim().slice(0, MAX_TEXT);
-    if (modelErrorReply(body) !== undefined) return undefined;
-    const verdict = VERDICT_LINE.test(text);
-    VERDICT_LINE.lastIndex = 0;
-    if (verdict) return undefined;
-    const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
-    if (lead === undefined || (!human && msg.author !== lead.id)) return undefined;
-    const title = taskTitle(text, team);
-    // #1588: thanks or 「收到」 alone is talk, not a job.
-    if (!title || ackOnly(body)) return undefined;
-    const explicit = mentions(text, team);
-    const fresh = [];
-    const existing = new Map();
-    for (const owner of targets) {
-      if (!this.hub.members.has(owner) || owner === lead.id) continue;
-      // Her chat-side task is still in work here: the call is about it and stays with it.
-      if (this.q.openChat.get(msg.room_id, owner, lead.id, ...WORKING) !== undefined) continue;
-      // #1588: she already works on a task in a workspace under this channel: the call goes there.
-      // A paused one gave its workspace back: the call is a new job.
-      const handed = this.q.openHanded?.get(owner, lead.id, ...WORKING, msg.room_id);
-      if (handed !== undefined && handed.paused_at == null) { existing.set(owner, handed.room_id); continue; }
-      const latest = this.q.latestOf.get(msg.room_id, owner);
-      if (!human && latest?.status === 'failed' && latest.created_by === lead.id && retryCall(title, latest)) continue;
-      // #597 r12: a bare-name call after her delivery waits here for her stance (fromChat, settleCall).
-      if (!human && DELIVERED.includes(latest?.status) && !explicit.has(owner)) continue;
-      fresh.push(owner);
-    }
-    if (fresh.length === 0 && existing.size === 0) return undefined;
-    const workspace = fresh.length ? this.store.createWorkspace(msg.room_id) : undefined;
-    const destinations = new Map();
-    const rows = [];
-    // The handoff the owner reads is the whole dispatch, not only its title: the body (leading
-    // @s dropped, as on the card) and the files ride on the trigger row, which is the only row
-    // of the chat a workspace turn sees and where turn attachments are read from.
-    const handoff = body || title;
-    const attachments = messageAttachments(msg);
-    const post = (owner, roomId, mark, extra) => {
-      // Never cut the body: a dispatch at the length cap keeps its last line, so the prefix gives
-      // way instead (the full prefix when it fits, else the bare mark, else nothing).
-      const space = MAX_TEXT - handoff.length;
-      const prefix = [`${mark}${this.nameOf(owner)}：`, mark].find(p => p.length <= space) ?? '';
-      const { message } = this.store.append(roomId, {
-        authorKind: 'system', author: 'system', name: '交接',
-        text: `${prefix}${handoff}`,
-        ...(attachments.length ? { attachments } : {}),
-      });
-      const hop = { roomId, messageId: message.id, at: this.now(), title, ...extra };
-      this.pendingDispatch.set(`${msg.id}\0${owner}`, hop);
-      destinations.set(owner, hop);
-      rows.push(message);
-    };
-    for (const owner of fresh) post(owner, workspace.id, '【交接】', {});
-    for (const [owner, roomId] of existing) post(owner, roomId, '【补充】', { existing: true });
-    return { workspace, destinations, rows };
+  staysForStance(roomId, owner) {
+    return this.chatChannel(roomId) && this.hub.members.get(owner)?.kind === 'dsh';
   }
 
   /**
-   * #1588: a person's @ that dispatchRoom moved: each new workspace job opens its task there, on
-   * behalf of the channel's lead, who hands it out and accepts it like its own (created_by).
+   * #1598: a person's @ (or reply) to members in a chat channel waits for each one's stance, as the
+   * lead's does: the task, on behalf of the channel's lead, opens only on her 【接】, in a workspace.
    */
-  openDispatched(msg) {
+  callsFromPerson(msg) {
+    if (!this.chatChannel(msg.room_id)) return;
     const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
     if (lead === undefined) return;
-    for (const [key, hop] of this.pendingDispatch) {
-      if (!key.startsWith(`${msg.id}\0`) || hop.existing) continue;
-      const owner = key.slice(key.indexOf('\0') + 1);
-      if (this.now() - hop.at > PENDING_CALL_S) continue;
-      this.pendingDispatch.delete(key);
-      try {
-        this.openFromChat({ roomId: hop.roomId, owner, lead: lead.id, title: hop.title, messageId: hop.messageId, source: 'workspace' });
-      } catch (error) {
-        this.hub.logger?.warn?.('collab: person dispatch failed: %s', error?.message ?? error);
-      }
+    const team = this.hub.routableIn(msg.room_id);
+    // A command (/new, /stop …) is not a call.
+    if (withoutLeadingMentions(String(msg.text), team).trimStart().startsWith('/')) return;
+    const title = taskTitle(String(msg.text), team);
+    if (!title) return;
+    const called = this.hub.replyRoute(msg) ?? mentions(String(msg.text), team);
+    for (const owner of called) {
+      if (owner === lead.id || !this.staysForStance(msg.room_id, owner)) continue;
+      this.pendingCalls.set(`${msg.room_id}\0${owner}`, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
     }
-  }
-
-  /** The destination dispatchRoom() prepared for this @, consumed once; stale entries are dropped. */
-  takeDispatch(msg, owner) {
-    const key = `${msg.id}\0${owner}`;
-    const hop = this.pendingDispatch.get(key);
-    if (hop === undefined) return undefined;
-    this.pendingDispatch.delete(key);
-    return this.now() - hop.at > PENDING_CALL_S ? undefined : hop;
   }
 
   /**
-   * Drop what this @ left undispatched (a verdict line, an open task) and give back a workspace it
-   * had to create but no task followed into. A claim no task follows is never released by the idle
-   * sweep (store.releaseIdleWorkspaces needs claim_task > 0), so it has to go back here.
+   * #1598: move a call (or the chat-side task `from`) into a workspace once the member's reply
+   * opens with 【接】: a workspace from the pool (or a new one), a 【交接】 row with the call's body,
+   * its files and what she wrote after her 【接】 (the workspace session has no chat history), the
+   * task opened there for the lead to accept, and the member woken on that row. Returns the task.
    */
-  settleDispatch(msg) {
-    for (const [key, hop] of this.pendingDispatch) {
-      if (!key.startsWith(`${msg.id}\0`)) continue;
-      this.pendingDispatch.delete(key);
-      if (this.countActive(hop.roomId) === 0) { try { this.release(hop.roomId); } catch { /* claimed elsewhere meanwhile */ } }
+  toWorkspace(call, reply, from) {
+    const team = this.hub.routableIn(call.roomId);
+    const trigger = call.messageId == null ? undefined : this.store.message(call.messageId);
+    const body = withoutLeadingMentions(String(trigger?.text ?? ''), team).trim() || call.title;
+    const note = withoutLeadingMentions(String(reply.text), team).trim().replace(/^【接】\s*/, '').trim();
+    const name = this.nameOf(call.owner);
+    const extra = note ? `\n\n${name}【接】时说：${note}` : '';
+    // Never cut the call's body: what she added gives way first, then the prefix.
+    const room = MAX_TEXT - body.length;
+    const tail = extra.length <= room ? extra : '';
+    const prefix = [`【交接】${name}：`, '【交接】'].find(p => p.length <= room - tail.length) ?? '';
+    const attachments = trigger === undefined ? [] : messageAttachments(trigger);
+    const workspace = this.store.createWorkspace(call.roomId);
+    this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
+    const { message } = this.hub.post(workspace.id, {
+      authorKind: 'system', author: 'system', name: '交接',
+      text: `${prefix}${body}${tail}`,
+      ...(attachments.length ? { attachments } : {}),
+    });
+    let task;
+    try {
+      task = this.openFromChat({ roomId: workspace.id, owner: call.owner, lead: call.lead, title: call.title, messageId: message.id, source: 'workspace' });
+    } finally {
+      // A workspace no task followed into is never released by the idle sweep (claim_task 0).
+      if (task === undefined && this.countActive(workspace.id) === 0) { try { this.release(workspace.id); } catch { /* claimed meanwhile */ } }
     }
+    if (task === undefined) return undefined;
+    if (from !== undefined) {
+      try {
+        this.handBack(from.id, { actor: from.owner, messageId: message.id });
+        this.review(from.id, { actor: from.created_by, verdict: 'done', note: `转到${workspace.name} #${task.id}` });
+      } catch (error) {
+        this.hub.logger?.warn?.('collab: closing #%s after its move failed: %s', from.id, error?.message ?? error);
+      }
+    }
+    this.wake(call.owner, message);
+    return task;
   }
 
   /**
