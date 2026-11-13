@@ -40,6 +40,8 @@ corepack pnpm run build:artifacts
 
 ### 重启 `dsh web` 并把地址写回状态文件
 
+没有 `[[projects]]` 的 DSH-only 安装会由桥的设置模式监护已经打开过的 web 宿主：桥启动时立即检查既有启动记录，之后每次检查完成五秒再检查；宿主退出后复用面板的启动入口恢复，正在启动或已运行的宿主不会重复拉起。首次安装仍通过面板打开，桌面版宿主由应用自己管理。桥退出时停止监护，已启动的独立宿主继续运行。恢复失败会写入 `dsh web: automatic recovery failed` 日志；该监护需要桥保持运行，不要求额外安装 `local.bothouse.dsh-web` 作业。
+
 面板（bothouse 9820）判断频道页是否在运行、拿什么 token 登录，只读 `~/.bothouse/dsh-web.json`
 （`bridge/core/setup_dsh_configure.go` 的 `dshWebStatePath`，`management_dsh_proxy.go` 的
 `runningDSHWeb`）。此前只有面板自己的「打开 DSH」写这个文件，任何别的重启都会留下死 pid 和旧

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,22 +51,39 @@ func TestSetupOnlyRecoversExitedDSHHost(t *testing.T) {
 	// the PIDs this isolated test started, after its supervisor has stopped.
 	t.Cleanup(func() { stopHost(readHost().PID) })
 	_, _, stop := setupModeServer(t)
-	t.Cleanup(stop)
+	t.Cleanup(func() {
+		if stop != nil {
+			stop()
+		}
+	})
 	web, err := core.OpenDSHWeb(context.Background())
 	if err != nil || web.Starting || web.PID <= 0 {
 		t.Fatalf("initial open: %+v, %v", web, err)
 	}
 	stopHost(web.PID)
-	deadline := time.Now().Add(12 * time.Second)
-	for time.Now().Before(deadline) {
-		if next := readHost(); next.PID > 0 && next.PID != web.PID {
-			if next.URL == "" || next.Starting {
-				t.Fatalf("replacement not ready: %+v", next)
+	waitReplacement := func(previous int) core.DSHWeb {
+		t.Helper()
+		deadline := time.Now().Add(12 * time.Second)
+		for time.Now().Before(deadline) {
+			if next := readHost(); next.PID > 0 && next.PID != previous {
+				if next.URL == "" || next.Starting {
+					t.Fatalf("replacement not ready: %+v", next)
+				}
+				t.Logf("setup-only recovered exited host %d as %d without a panel request", previous, next.PID)
+				return next
 			}
-			t.Logf("setup-only recovered exited host %d as %d without a panel request", web.PID, next.PID)
-			return
+			time.Sleep(25 * time.Millisecond)
 		}
-		time.Sleep(25 * time.Millisecond)
+		t.Fatalf("setup-only bridge did not restart exited DSH host %d without a panel request; state=%+v", previous, readHost())
+		return core.DSHWeb{}
 	}
-	t.Fatal(fmt.Sprintf("setup-only bridge did not restart exited DSH host %d without a panel request; state=%+v", web.PID, readHost()))
+	recovered := waitReplacement(web.PID)
+	// The bridge may be restarted while its host is also gone: the next setup-only
+	// loop must recover from the persisted state, with no panel request at startup.
+	stop()
+	stop = nil
+	stopHost(recovered.PID)
+	_, _, stopAgain := setupModeServer(t)
+	t.Cleanup(stopAgain)
+	waitReplacement(recovered.PID)
 }
