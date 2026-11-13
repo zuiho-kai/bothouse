@@ -1017,7 +1017,7 @@ export class Tasks {
     const team = this.hub.routableIn(call.roomId);
     const triggers = (call.messageIds ?? [call.messageId]).filter(id => id != null).map(id => this.store.message(id)).filter(Boolean);
     const body = triggers.map(t => withoutLeadingMentions(String(t.text ?? ''), team).trim()).filter(Boolean).join('\n\n') || call.title;
-    const note = withoutLeadingMentions(String(reply.text), team).trim().replace(/^【接】\s*/, '').trim();
+    const note = withoutLeadingMentions(String(reply.text), team).trim().replace(/^【接】[\s，,。.：:、]*/, '').trim();
     const name = this.nameOf(call.owner);
     const extra = note ? `\n\n${name}【接】时说：${note}` : '';
     // Never cut the call's body: what she added gives way first, then the prefix.
