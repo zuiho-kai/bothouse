@@ -726,12 +726,16 @@ const (
 )
 
 const (
-	MsgQuotaLeadRestored MsgKey = "quota_lead_restored"
-	MsgQuotaLeadTakeover MsgKey = "quota_lead_takeover"
-	MsgQuotaLeadPrompt   MsgKey = "quota_lead_prompt"
-	MsgQuotaWorkTakeover MsgKey = "quota_work_takeover"
-	MsgQuotaWorkPrompt   MsgKey = "quota_work_prompt"
-	MsgQuotaCooling      MsgKey = "quota_cooling"
+	MsgQuotaLeadRestored   MsgKey = "quota_lead_restored"
+	MsgQuotaLeadTakeover   MsgKey = "quota_lead_takeover"
+	MsgQuotaLeadPrompt     MsgKey = "quota_lead_prompt"
+	MsgQuotaWorkTakeover   MsgKey = "quota_work_takeover"
+	MsgQuotaWorkPrompt     MsgKey = "quota_work_prompt"
+	MsgQuotaCooling        MsgKey = "quota_cooling"
+	MsgQuotaReassigned     MsgKey = "quota_reassigned"
+	MsgQuotaReassignNone   MsgKey = "quota_reassign_none"
+	MsgQuotaReassignBusy   MsgKey = "quota_reassign_busy"
+	MsgQuotaReassignPrompt MsgKey = "quota_reassign_prompt"
 )
 
 const (
@@ -819,6 +823,34 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "%s 額度冷卻，現在由你接手：%s。先讀下面紀錄及原交接文件，保留用戶原話和底分支，繼續未完成部分，交回原頻道。\n交接依據：\n%s",
 		LangJapanese:           "%s は利用枠待機中です。「%s」を引き継いでください。元の依頼・ブランチと保存済みの引き継ぎを確認し、元のチャンネルへ報告してください。\n記録：\n%s",
 		LangSpanish:            "%s espera su cuota. Asumes: %s. Lee el traspaso original y el registro guardado. Conserva la petición y la rama, y entrega en el canal original.\nBase:\n%s",
+	},
+	MsgQuotaReassigned: {
+		LangEnglish:            "%s is cooling down until %s; this one goes to %s.",
+		LangChinese:            "%s 额度冷却到 %s，这件改给 %s。",
+		LangTraditionalChinese: "%s 額度冷卻到 %s，這件改給 %s。",
+		LangJapanese:           "%s は %s まで利用枠待機中のため、この件は %s に回します。",
+		LangSpanish:            "%s espera su cuota hasta %s; esto pasa a %s.",
+	},
+	MsgQuotaReassignNone: {
+		LangEnglish:            "%s is cooling down until %s and every free teammate is cooling too; the earliest is back at %s.",
+		LangChinese:            "%s 额度冷却到 %s，能换的队友都在冷却，最早 %s 恢复。",
+		LangTraditionalChinese: "%s 額度冷卻到 %s，能換的隊友都在冷卻，最早 %s 恢復。",
+		LangJapanese:           "%s は %s まで待機中で、他のメンバーも全員待機中です。最も早い復帰は %s です。",
+		LangSpanish:            "%s espera su cuota hasta %s y el resto también; el primero vuelve a las %s.",
+	},
+	MsgQuotaReassignBusy: {
+		LangEnglish:            "%s is cooling down until %s and no other teammate is free right now; nothing was handed over.",
+		LangChinese:            "%s 额度冷却到 %s，其他队友这会儿都在忙，没换成人。",
+		LangTraditionalChinese: "%s 額度冷卻到 %s，其他隊友這會兒都在忙，沒換成人。",
+		LangJapanese:           "%s は %s まで待機中で、手の空いているメンバーがいないため引き継げませんでした。",
+		LangSpanish:            "%s espera su cuota hasta %s y nadie más está libre; no se reasignó.",
+	},
+	MsgQuotaReassignPrompt: {
+		LangEnglish:            "%s assigned this to %s, who is cooling down until %s, so it is yours now. Do it as if it had been sent to you, and report in this channel.\nOriginal message:\n%s",
+		LangChinese:            "%s 把这件派给了 %s，她额度冷却到 %s，现在改由你接手。当作派给你的活来做，结果交回本频道。\n原消息：\n%s",
+		LangTraditionalChinese: "%s 把這件派給了 %s，她額度冷卻到 %s，現在改由你接手。當作派給你的活來做，結果交回本頻道。\n原訊息：\n%s",
+		LangJapanese:           "%s が %s に依頼しましたが、%s まで待機中のため、あなたが引き継ぎます。自分への依頼として対応し、このチャンネルに報告してください。\n元のメッセージ：\n%s",
+		LangSpanish:            "%s asignó esto a %s, que espera su cuota hasta %s; ahora es tuyo. Hazlo como si te lo hubieran enviado e informa en este canal.\nMensaje original:\n%s",
 	},
 	MsgQuotaCooling: {
 		LangEnglish:            "This role is cooling down until %s, about %s from now.",

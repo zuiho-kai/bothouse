@@ -332,7 +332,19 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 		targetKey = platform + ":" + req.Workspace
 	}
 	if wait := targetEngine.capacityWait(targetEngine.admissionQuotaScope(targetEngine.agent, req.SessionKey, targetKey)); wait > 0 {
-		return nil, fmt.Errorf("relay: target engine %q is cooling down for %s", req.To, wait.Round(time.Second))
+		// #1549：派给的队友在冷却，不再只报错让主角色干等：换同频道空着的队友，频道里说一句。
+		until := time.Now().Add(wait)
+		who := targetEngine.DisplayName()
+		next, earliest := targetEngine.quotaReassignPick(req.SessionKey, req.Message, req.From)
+		if next == nil || sourceEngine == nil {
+			if sourceEngine != nil {
+				sourceEngine.quotaNotice(req.SessionKey, sourceEngine.quotaReassignNone(who, until, earliest))
+			}
+			return nil, fmt.Errorf("relay: target engine %q is cooling down for %s and no free teammate can take it", req.To, wait.Round(time.Second))
+		}
+		sourceEngine.quotaNotice(req.SessionKey, sourceEngine.i18n.Tf(MsgQuotaReassigned, who, quotaCoolingWhen(until), next.DisplayName()))
+		slog.Info("quota reassign: task dispatch moved to teammate", "from", req.To, "to", next.name, "task", req.TaskID)
+		req.To, targetEngine = next.name, next
 	}
 	sourceEngine.clearNotBound(req.SessionKey, req.To)
 	if rm.balance != nil {
