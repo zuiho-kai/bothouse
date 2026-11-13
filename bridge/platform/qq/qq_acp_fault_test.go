@@ -35,6 +35,7 @@ type qqACPScript struct {
 	Tool            bool
 	ImageData       []byte
 	NativeImageData []byte
+	StopReason      string
 }
 
 type qqACPTurn struct {
@@ -158,7 +159,11 @@ func TestQQFaultACPProcess(t *testing.T) {
 				if script.Text != "" {
 					update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": script.Text}})
 				}
-				reply(id, map[string]any{"stopReason": "end_turn"})
+				ending := script.StopReason
+				if ending == "" {
+					ending = "end_turn"
+				}
+				reply(id, map[string]any{"stopReason": ending})
 			}(id, prompt.String())
 		default:
 			if len(id) > 0 {
@@ -474,8 +479,8 @@ func TestQQACPMediaOnly(t *testing.T) {
 		name   string
 		script qqACPScript
 	}{
-		{"tool-image-empty-result", qqACPScript{ImageData: pngData.Bytes()}},
-		{"native-image-empty-result", qqACPScript{NativeImageData: pngData.Bytes()}},
+		{"tool-empty", qqACPScript{ImageData: pngData.Bytes()}},
+		{"native", qqACPScript{NativeImageData: pngData.Bytes()}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newQQACPHarness(t)
@@ -501,6 +506,58 @@ func TestQQACPMediaOnly(t *testing.T) {
 			data, _ := segment["data"].(map[string]any)
 			if segment["type"] != "image" || data["file"] != "base64://"+base64.StdEncoding.EncodeToString(pngData.Bytes()) {
 				t.Fatalf("native/side-channel image was lost or replaced by text: %s", mustJSON(segments))
+			}
+		})
+	}
+}
+
+// Media output must not turn a real empty/error result into success, and an
+// uncertain image receipt must never cause the model prompt to be replayed.
+func TestQQMediaErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script qqACPScript
+		reject bool
+		want   string
+	}{
+		{"empty", qqACPScript{}, false, "no public answer"},
+		{"tool-only", qqACPScript{Tool: true}, false, "no public answer"},
+		{"cancelled", qqACPScript{Tool: true, NativeImageData: []byte("synthetic-image"), StopReason: "cancelled"}, false, "did not complete successfully"},
+		{"receipt", qqACPScript{NativeImageData: []byte("synthetic-image")}, true, "retcode=1200"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newQQACPHarness(t)
+			if tc.reject {
+				h.upstream.mu.Lock()
+				h.upstream.respond = func(_ string, n int) map[string]any {
+					if n == 1 {
+						return map[string]any{"status": "failed", "retcode": 1200, "message": "429 rate limit"}
+					}
+					return nil
+				}
+				h.upstream.mu.Unlock()
+			}
+			h.upstream.push(privateMessage(111, 1, textSegment("media result")))
+			turn := h.turn()
+			turn.Script <- tc.script
+			h.idle(turn.Key)
+			wantCalls := 1
+			if tc.reject {
+				wantCalls++ // the attempted image plus one visible delivery error
+			}
+			if got := h.upstream.count("send_private_msg"); got != wantCalls {
+				t.Fatalf("got %d sends, want %d: %s", got, wantCalls, h.output())
+			}
+			if !strings.Contains(h.output(), tc.want) {
+				t.Fatalf("failure was hidden: want %q in %s", tc.want, h.output())
+			}
+			if !tc.reject && strings.Contains(h.output(), "base64://") {
+				t.Fatal("unsuccessful ACP prompt published an image", h.output())
+			}
+			select {
+			case <-h.turns:
+				t.Fatal("media/error turn was replayed")
+			default:
 			}
 		})
 	}
