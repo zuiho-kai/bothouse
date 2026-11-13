@@ -36,9 +36,10 @@ createInterface({ input: process.stdin }).on('line', line => {
   assert.equal(m.sessions.get('r1').sessionId, 'recovered');
 });
 
-/** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
+/** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */
+function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
   const m = new CliMember({ cli: 'claude', cwd: '/tmp', persona });
-  const calls = { load: [], newSession: 0, prompts: [], notified: [] };
+  const calls = { load: [], newSession: 0, prompts: [] };
   let n = 0;
   m._start = async () => {
     m.canLoad = canLoad;
@@ -48,7 +49,6 @@ createInterface({ input: process.stdin }).on('line', line => {
       loadSession: async (r) => { calls.load.push(r.sessionId); if (loadFails) throw new Error('no such session'); return {}; },
       newSession: async () => { calls.newSession += 1; return { sessionId: `new-${++n}` }; },
       prompt: async (r) => { calls.prompts.push(r); m.buffers.set(r.sessionId, 'ok'); return { stopReason: 'end_turn' }; },
-      notify: (method, params) => { calls.notified.push([method, params]); },
     };
     return m.ready;
   };
@@ -116,10 +116,11 @@ test('cancel sends ACP session/cancel for the room turn that is waiting on its p
   m._start = async () => {
     m.ready = Promise.resolve({});
     m.exited = new Promise(() => {});
+    const end = (resolve) => { m.buffers.set('s-live', ''); resolve({ stopReason: 'cancelled' }); };
     m.conn = {
       newSession: async () => ({ sessionId: 's-live' }),
       notify: (method, params) => { notified.push([method, params]); },
-      prompt: () => new Promise(resolve => { finish = () => { m.buffers.set('s-live', ''); resolve({ stopReason: 'cancelled' }); }; }),
+      prompt: () => new Promise(resolve => { finish = () => end(resolve); }),
     };
     return m.ready;
   };
