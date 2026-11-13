@@ -88,15 +88,19 @@ func (e *Engine) leadRuntimeDir() (string, error) {
 	leadRuntimeMu.Lock()
 	defer leadRuntimeMu.Unlock()
 	root := filepath.Join(e.dataDir, "collaboration", "runtime")
+	installed := filepath.Join(e.dataDir, "collaboration")
 	err := fs.WalkDir(LeadToolFS, "contrib", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
 		rel := strings.TrimPrefix(p, "contrib/")
 		dst := filepath.Join(root, filepath.FromSlash(rel))
-		b, err := fs.ReadFile(LeadToolFS, p)
+		b, err := os.ReadFile(filepath.Join(installed, filepath.FromSlash(rel)))
 		if err != nil {
-			return err
+			b, err = fs.ReadFile(LeadToolFS, p)
+			if err != nil {
+				return err
+			}
 		}
 		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, b) {
 			return nil

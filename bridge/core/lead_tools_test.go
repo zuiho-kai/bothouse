@@ -41,3 +41,32 @@ func TestInstallLeadToolsKeepsModifiedUnlessForce(t *testing.T) {
 		t.Fatalf("--force did not overwrite: %q", got)
 	}
 }
+
+func TestLeadRuntimeUsesInstalledToolOverOlderEmbeddedTool(t *testing.T) {
+	old := LeadToolFS
+	LeadToolFS = fstest.MapFS{
+		"contrib/lead/ws-handoff": {Data: []byte("embedded old\n")},
+	}
+	t.Cleanup(func() { LeadToolFS = old })
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	installed := filepath.Join(e.dataDir, "collaboration", "lead", "ws-handoff")
+	if err := os.MkdirAll(filepath.Dir(installed), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, []byte("installed current\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := e.leadRuntimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "lead", "ws-handoff"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "installed current\n" {
+		t.Fatalf("runtime tool = %q, want installed current tool", got)
+	}
+}
