@@ -22,6 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 ## 后台服务细节
 
 - `bothouse daemon install` 装成后台服务并立即启动；新安装开机自启默认关闭；重装或升级保留当前设置，可在管理面板「设置 → 开机自动启动」中修改，也可运行 `bothouse daemon autostart on|off`（macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。
+- macOS 的安装、重装和重启会等待旧作业从 launchd 移除，并在 30 秒窗口内重试加载，兼容慢关停及名称延迟释放。若加载仍失败，错误会说明状态；按提示运行 `bothouse daemon status` 检查，再用 `bothouse daemon start` 从已保存的 plist 恢复。
 - Windows 上 `bothouse daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `bothouse daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.bothouse\logs\daemon-handoff.log`。
 - 新安装默认使用 `~/.bothouse`；没有该目录而存在旧配置目录时，会继续沿用旧配置，不移动文件。
 

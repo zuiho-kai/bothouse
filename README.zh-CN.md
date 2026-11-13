@@ -85,6 +85,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 Windows 命令、安装包下载和常驻后台见[上手指南](docs/GETTING_STARTED.md)。
 
+macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载并重新加载作业。若加载仍失败，请按错误提示恢复；`bothouse daemon start` 会加载已保存的服务配置。
+
 **让 AI 帮你装：**把仓库链接丢给 Claude Code、Codex 等任一 CLI，说「帮我装好 bothouse 接上 Discord」。给 AI 看的步骤在 [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)。
 
 
@@ -314,4 +316,3 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
     <img alt="zuiho-kai/bothouse 的 Star 增长曲线" src="https://api.star-history.com/svg?repos=zuiho-kai/bothouse&type=Date" />
   </picture>
 </a>
-

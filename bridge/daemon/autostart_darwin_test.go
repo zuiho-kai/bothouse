@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,9 @@ func recordLaunchctl(t *testing.T) *[]string {
 	var calls []string
 	runLaunchctl = func(args ...string) (string, error) {
 		calls = append(calls, strings.Join(args, " "))
+		if args[0] == "print" && strings.HasSuffix(args[1], "/"+launchdLabel()) {
+			return "Could not find service", fmt.Errorf("exit status 113")
+		}
 		return "", nil
 	}
 	return &calls
