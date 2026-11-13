@@ -29,6 +29,43 @@ MODEL = os.environ.get("CHECK_FIRST_MODEL", "sonnet")
 MAX_LOOKS = 80  # 喂给模型的查现场调用条数（取最后这么多条）；#1527：工作区一轮常有七十多次调用，原来 20 条只剩写汇报那几步，前面查过的判断器看不到
 ONLY_OUTSIDE = re.compile(r"^(?:\s*(?:/tmp/\S*|https?://\S*))+\s*$")  # 只碰临时目录或外网，不算查自家
 
+# 不认识的名字先搜（#1563）：agentm 11-13 10:44 外部用户点名 muse，claude 回「像 muse 这种我还不确定是哪家产品的名字，查不清会如实写出来」，
+# 那一轮一次都没搜；用户「不知道是哪家的你不会去搜一下? muse是meta的.」。只靠正则、不调模型，聊天频道也查（搜一下是一两步的小活）。
+UNKNOWN = re.compile(r"(不确定|不知道|不清楚|没听说过|不认识|认不出|查不清|拿不准)[^。！？!?\n]{0,10}?"
+                     r"(哪家|哪一家|哪个(公司|厂|产品)|什么(东西|产品|工具|公司|项目|模型)|是什么|是谁|指(的是)?什么|出自)")
+NOT_NAME = re.compile(r"意思|你(要|想|说的是|指的是)|哪个方案|哪条路|先搜|搜清楚|不认识的名字")  # 在问对方意图，或在讲「先搜」这条规矩本身
+SEARCH_NAME = re.compile(r"web_?search|websearch|web_?fetch|search_web|google|browse|fetch|mcp__.*search", re.I)
+SEARCH_CMD = re.compile(r"websearch\.py\S*\s+(search|fetch)|\b(curl|wget)\b[^|;&\n]*https?://|yt-dlp|watchvid")
+HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?.*?\n\1\b", re.S)  # 写进文件的正文不算跑过命令（11-13 那轮把 websearch.py 写进了任务说明）
+UNKNOWN_REASON = ("你在回复里说不认识：「{m}」，这一轮一次网页都没搜。先搜（WebSearch，或 websearch.py search \"名字\"），"
+                  "按搜到的改写回复；搜过还查不到，再写「搜过，没查到」。")
+
+
+def searched(tools):
+    """本轮有没有上网搜过/打开过网页（含派子 agent 去搜）。"""
+    for b in tools:
+        name = b.get("name") or ""
+        inp = b.get("input") or {}
+        if SEARCH_NAME.search(name):
+            return True
+        s = inp if isinstance(inp, str) else json.dumps(inp, ensure_ascii=False)
+        if name in ("Agent", "Task") and re.search(r"搜|search|查", s, re.I):
+            return True
+        cmd = inp.get("command", inp.get("cmd", "")) if isinstance(inp, dict) else inp
+        if isinstance(cmd, str) and SEARCH_CMD.search(HEREDOC.sub("", cmd)):
+            return True
+    return False
+
+
+def unknown_name(reply):
+    """回复里自认不认识某个名字的那句（引号和代码里的不算），没有返回空串。"""
+    for l in _clean_lines(reply):
+        m = UNKNOWN.search(l)
+        if m and not NOT_NAME.search(l[max(0, m.start() - 12):m.end() + 12]):
+            return l.strip()[:80]
+    return ""
+
+
 SYSTEM = """你是一个判断器。助手要把一段话发给用户。判断：这段话里有没有对「我们自己的系统」现状的断言或建议，而助手最近查过的东西（这一轮和前几轮）没覆盖它。
 「我们自己的系统」= 用户和助手自己的桥/bothouse、仓库代码、wiki、配置、钩子、守卫、角色、服务器、容器、订阅、缓存、已有功能和流程。
 算断言：
@@ -161,6 +198,10 @@ def check(d):
     reply = d.get("last_assistant_message") or text
     if not reply:
         return None
+    m = unknown_name(reply)
+    if m and not searched(tools):
+        intent_judge._log("unknown-name", "block", 0, 0, m)
+        return UNKNOWN_REASON.format(m=m)
     # 团队聊天频道整道不查（#1527，用户 11-12「还后面还有什么可以删的吗？一起搞了吧」）：那里只照任务板和工作区回报说话，
     # 11-12 19 点后拦的 22 条里至少 11 条是在汇报自己刚做的事或自我批评；要现场核的活本来就交工作区。
     if _team_chat():
