@@ -504,3 +504,22 @@ func TestLeadSelectionForRemovedRoleFallsBackToConfiguredLead(t *testing.T) {
 		t.Fatal("team board: a selected teammate in another process must still win")
 	}
 }
+
+// #1592: 19:48 彩虹猫 cooled until 11-15 09:00, and at 22:38 the lead's 队友状态 still said
+// 「彩虹猫：空着，可以派活」.
+func TestTeamSummaryShowsCoolingTeammate(t *testing.T) {
+	dir := t.TempDir()
+	e := newTestEngine()
+	e.name = "tju"
+	e.team = &teamState{dir: dir, name: "小橘", inject: true, seen: map[string]*teamSession{}}
+	until := time.Now().Add(34 * time.Hour)
+	writeTeamFile(t, dir, teamFile{Project: "tcai", Name: "小彩", Updated: time.Now(), Mention: "<@7>", CoolingUntil: until})
+	writeTeamFile(t, dir, teamFile{Project: "tcool", Name: "小旧", Updated: time.Now(), CoolingUntil: time.Now().Add(-time.Minute)})
+	got, _ := e.teamSummary("discord:111")
+	if strings.Contains(got, "小彩：空着") || !strings.Contains(got, "小彩：额度冷却到 "+until.Local().Format("01-02 15:04")) {
+		t.Errorf("cooling teammate shown as:\n%s", got)
+	}
+	if !strings.Contains(got, "小旧：空着") {
+		t.Errorf("expired cooldown should read as idle:\n%s", got)
+	}
+}
