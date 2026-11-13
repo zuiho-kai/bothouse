@@ -5103,7 +5103,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// quotaCoolingForAt 只在截止值还在 now 之后时才返回非零值，
 		// 所以这里不需要「未知/已过期」的分支。
 		when, wait := quotaCoolingWhen(until), quotaCoolingWait(until, now)
-		e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
+		// #1549：被 @ 派活时不只回一句冷却，把这条活转给同频道空着的队友（quota_reassign.go）。
+		if !e.quotaReassignMention(p, msg, until) {
+			e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
+		}
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
