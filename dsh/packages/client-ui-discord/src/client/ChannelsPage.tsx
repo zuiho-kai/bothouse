@@ -260,7 +260,7 @@ const LONG_PRESS_MS = 450
 
 function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress, chatRoom = false }: {
   message: ChannelMessage
-  /** #1588: a chat channel (not a workspace): a running card there shows only its latest steps. */
+  /** #1588: a chat channel (not a workspace, not a DM): a running card there shows only its latest steps. */
   chatRoom?: boolean
   /** 体检 #8: a task record shows its card only when no earlier row of this task already does. */
   taskCardShown?: boolean
@@ -305,8 +305,10 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const markdown = useMemo(() => softBreaksToHard(shown), [shown])
   // #1588 (user 11-13「界面也是一团乱的」): work belongs in a workspace, so a run in a chat channel shows
   // its latest CHAT_RUN_STEPS steps and a count; the whole run stays visible in a workspace.
+  // #1598: only while it runs, in the brief view; a finished card and the 「细节」 view list every step.
+  const foldSteps = chatRoom && card?.state === 'running' && cardView === 'brief'
   const stepLines = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1).split('\n') : []
-  const steps = chatRoom && stepLines.length > CHAT_RUN_STEPS
+  const steps = foldSteps && stepLines.length > CHAT_RUN_STEPS
     ? [t('stepsFolded', { total: String(stepLines.length) }), ...stepLines.slice(-CHAT_RUN_STEPS)].join('\n')
     : stepLines.join('\n')
   const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
@@ -556,7 +558,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
                 </div>
                 {/* #125: the brief view shows step chips when the card carries them; older cards keep the lines. */}
                 {cardView === 'brief' && chips !== undefined
-                  ? <StepChips chips={chips} runState={card.state} t={t} latest={chatRoom ? CHAT_RUN_STEPS : undefined} />
+                  ? <StepChips chips={chips} runState={card.state} t={t} latest={foldSteps ? CHAT_RUN_STEPS : undefined} />
                   : !progressFolded && progressLines.length > 1 && (
                       <HighlightedMarkdown text={stepsMarkdown} labels={labels} members={members} className={`${css.text} ${css.runSteps}`} dataCardText onMention={onMention} />
                     )}
@@ -1776,7 +1778,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
                   taskCardShown={recordShowsCard(m)}
                   toolsOpen={toolsFor === m.id}
                   onLongPress={() => { setToolsFor(m.id) }}
-                  chatRoom={room?.kind !== 'workspace'}
+                  chatRoom={room?.kind !== 'workspace' && room?.dm_member == null}
                 />,
               ])}
         </div>

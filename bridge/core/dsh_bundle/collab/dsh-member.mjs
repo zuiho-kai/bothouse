@@ -32,21 +32,22 @@ export function workspaceHint(hub, later, memberId, roomId) {
   return later.workspaceInstructions(memberId, roomId) + (later.teamInstructions?.(memberId, roomId) ?? '');
 }
 /**
+ * #1598: the line it replaces carries the chat-channel stance rule (big job: 【接】 alone, no work), and a
+ * DSH member gets no other copy of it; without it one did the whole job in the chat turn, then 【接】.
  * #597 G24: DSH members have no bridge session, so the shared line about `bothouse workspace new` /
  * the bare workspaces POST is swapped (whole line, DSH side only) for the ticketed command. The
  * shared file stays as is: the bridge reads the same line. Throws when the line is gone so a reword
  * of the shared file fails tests instead of silently dropping the swap.
  */
 const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
-export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令）交给工作区：主角色用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，没空的就新开。';
+export const DSH_WORKSPACE_RULE = '- 聊天频道被 @：问话和小活直接答，不写【接】；大活（读长文、改代码、等命令）回复首行只写【接】就结束这一轮，不读文件、不跑命令，对真人也一样：系统随即开工作区、开任务，在那里叫醒你接着做，做完首行写 [report] 交回。主角色自己交大活：用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，没空的就新开。';
 /**
  * #1539: a local CLI member (Codex and the like over ACP) runs in its CLI's sandbox, where a new install
  * has no network, 127.0.0.1 included: the workspace curl / node command came back as a red
- * "curl: (7) Failed to connect" in the channel. #1588: its @ is the dispatch, and the @ itself lands in
- * a workspace (tasks.mjs dispatchRoom), so the line says that instead of 「派活在频道里 @」, which read as
- * "the work happens in the channel" (#1745).
+ * "curl: (7) Failed to connect" in the channel. #1598: an @ is answered in the chat channel; the member
+ * who reads a big job opens her reply with 【接】 and that moves it into a workspace (tasks.mjs settleCall).
  */
-export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：@ 派出去的活系统自动放进工作区，开任务、每十分钟看进展，交回后你验收。被点名接大活不在聊天频道硬扛：@ 出去的活已经在工作区，在那里做完再交回。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
+export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：问话和小活她在聊天频道直接答；大活她首行回【接】，系统才把活转进工作区、开任务、每十分钟看进展，交回后你验收。你被 @ 时也一样：问话和小活直接答，不写【接】；大活首行只写【接】就结束这一轮，不读文件、不跑命令，对真人也一样：系统开工作区叫醒你，在那里做完再交回。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
 /**
  * #1588 (audit 8): shared lines naming commands DSH has none of (/bind, bothouse channel create,
  * board pause, ws-up --image) are left out for DSH members. Each must match, so a reword of the
@@ -453,6 +454,7 @@ export class DshMembers {
     this.hooked = new WeakSet();
     /** JSON([memberId, cwd, roomId]) -> { memberId, roomId, cli, agent } live local CLI agents. */
     this.cliAgents = new Map();
+    this.cliTurns = new Map(); // jobId -> the CliMember whose ACP prompt that job is waiting on
     // Releasing a workspace retains its bindings for rework, but needs no resident CLI.
     this.store.onWorkspaceRelease(roomId => this.dropRoomCli(roomId));
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
@@ -551,8 +553,8 @@ export class DshMembers {
    * ends quietly, with no reply and no failure card: a queued one is closed, an
    * input still waiting in the member's inbox is taken back, and a turn already
    * running is cancelled the way DSH's stop button does (keepInbox, so the
-   * member's later inputs still run). Jobs this cannot reach (a CLI member's
-   * ask) keep running.
+   * member's later inputs still run); a CLI member's turn is cancelled through
+   * its ACP session.
    * @returns { stopped, running } member ids whose turn was cancelled / left running.
    */
   recall(triggerId) {
@@ -563,7 +565,7 @@ export class DshMembers {
    * #148 / #299: end every open job `match` accepts. A queued one is closed, one
    * still waiting in the member's inbox is taken back, and a turn already running
    * is cancelled the way DSH's stop button does (keepInbox, so the member's later
-   * inputs still run). Jobs it cannot reach (a CLI member's ask) keep running.
+   * inputs still run); a CLI member's turn is cancelled through its ACP session.
    * The one cancel path behind both "the owner withdrew the message" and "/stop".
    * @returns { stopped, running } member ids whose turn was cancelled / left running.
    */
@@ -573,6 +575,18 @@ export class DshMembers {
     for (const job of this.store.openJobs()) {
       if (!match(job)) continue;
       if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); this.syncQueue(job.member_id, job.room_id); continue; }
+      // A CLI member's job has no inbox input and no DSH watcher (runCli); its turn runs in the
+      // member's ACP session for the room. #148/#299 stop it with ACP session/cancel instead.
+      const member = this.config.get(job.member_id);
+      if (member?.cli !== undefined) {
+        // Close the job as the cancel goes out: the ACP prompt settles with a cancelled stop
+        // reason, and runCli's settle path sees the job is no longer 'sent' and posts nothing.
+        if (!this.cancelCliTurn(member, job.room_id, job.id)) { running.push(job.member_id); continue; }
+        if (this.store.finishJob(job.id, 'interrupted') === false) { running.push(job.member_id); continue; }
+        this.approvals.expireWhere(p => p.meta?.jobId === job.id);
+        stopped.push(job.member_id);
+        continue;
+      }
       const w = this.watching.get(job.session_id);
       const agent = job.input_id ? this.rt.ctx.agents.get(job.session_id) : undefined;
       if (w?.jobId !== job.id || agent === undefined) { running.push(job.member_id); continue; }
@@ -587,6 +601,20 @@ export class DshMembers {
       stopped.push(job.member_id);
     }
     return { stopped, running };
+  }
+
+  /** The CLI agent entry running member `memberId`'s turn in `roomId`, if one is alive. */
+  cliEntryFor(memberId, roomId) {
+    for (const entry of this.cliAgents.values()) if (entry.memberId === memberId && entry.roomId === roomId) return entry;
+    return undefined;
+  }
+
+  /** Ask the member's ACP session in this room to cancel its running turn; false when none is. */
+  cancelCliTurn(member, roomId, jobId) {
+    const entry = this.cliEntryFor(member.id, roomId);
+    const turn = this.cliTurns.get(jobId);
+    if (entry === undefined || turn === undefined || turn !== entry.agent) return false;
+    return entry.agent.cancel(String(roomId)) !== false;
   }
 
   /**
@@ -696,19 +724,10 @@ export class DshMembers {
         text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
       });
     }
-    // #1745: the lead's @ in a chat channel dispatches into a workspace, not the channel. The room
-    // is fixed here (addJob), so Tasks decides it first (dispatchRoom) and writes the 【交接】 row
-    // the job is created on; Tasks.fromChat opens the task in that room once this post commits.
-    const dest = this.hub.tasks?.dispatchRoom?.(msg, targets);
-    const jobs = targets.map(id => {
-      const hop = dest?.destinations.get(id);
-      return this.store.addJob(id, hop?.roomId ?? msg.room_id, hop?.messageId ?? msg.id);
-    }).filter(Boolean);
+    // #1598: every @ runs where it was written; a member's 【接】 to a chat-channel call moves the
+    // job into a workspace (tasks.mjs settleCall → toWorkspace), so a question is answered here.
+    const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
     return () => {
-      if (dest !== undefined) {
-        this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
-        for (const row of dest.rows) this.hub.emit({ type: 'message', message: publicMessage(row, this.store) });
-      }
       for (const job of jobs) this.enqueue(job, () => this.run(job.id));
     };
   }
@@ -914,15 +933,18 @@ export class DshMembers {
           });
         }
       };
-      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1588: its @
-      // lands in a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs dispatchRoom).
+      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1598: her
+      // 【接】 moves a call into a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs settleCall).
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id) ?? '');
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
       // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
       const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
+      this.cliTurns.set(job.id, entry.agent);
       const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, model: member.model, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      // A /stop or a recall closed this job while the prompt was running: the reply is not wanted.
+      if (this.store.job(job.id)?.state !== 'sent') return;
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
@@ -951,6 +973,7 @@ export class DshMembers {
       if (detail) throw Object.assign(new Error(detail, { cause: error }), { code: error.code, data: error.data });
       throw error;
     } finally {
+      this.cliTurns.delete(job.id);
       turnOver.abort();
       latest = '';
       progress.end(done ? 'completed' : 'failed');
@@ -1392,6 +1415,7 @@ export class DshMembers {
     this.watching.clear();
     for (const { agent } of this.cliAgents.values()) agent.close();
     this.cliAgents.clear();
+    this.cliTurns.clear();
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.
     let timer;
     const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_TIMEOUT_MS); });
