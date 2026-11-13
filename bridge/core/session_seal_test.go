@@ -103,7 +103,7 @@ func TestHandoffIndexWithSealCapped(t *testing.T) {
 		mem = append(mem, fmt.Sprintf("会话 %d（%s）", i, strings.Repeat("记", 100)))
 	}
 	seal := sealResult{Digest: strings.Repeat("纪要内容。\n", 400), ByModel: true, Calls: 9, Memory: mem}
-	out := formatHandoffIndex("old", "空闲", h, "#1 活 · 停点：在做", "abcd1234", seal)
+	out := formatHandoffIndex("old", "空闲", h, "#1 活 · 停点：在做", "", "abcd1234", seal)
 	if n := sealTokens(out); n > sealBootstrapTokens {
 		t.Fatalf("handoff %d tokens > %d", n, sealBootstrapTokens)
 	}
@@ -113,7 +113,7 @@ func TestHandoffIndexWithSealCapped(t *testing.T) {
 		}
 	}
 	// no seal: same as before
-	if plain := formatHandoffIndex("old", "空闲", h, "", "abcd1234"); strings.Contains(plain, "纪要") {
+	if plain := formatHandoffIndex("old", "空闲", h, "", "", "abcd1234"); strings.Contains(plain, "纪要") {
 		t.Fatalf("plain index mentions minutes:\n%s", plain)
 	}
 }

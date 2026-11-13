@@ -244,18 +244,18 @@ func sealDigestInput(rules string, evs []sealEvent, tail []HistoryEntry) string 
 }
 
 // The minutes prompt: 沿用 clowder-ai HandoffDigestGenerator.ts:94 「Keep it under 500 words」; the sections follow
-// Raven's History Checkpoint (goal, constraints, decisions, artifacts, findings, open, next, pointers), with the
-// user's own decisions kept apart from what the assistant added (用户 11-09 定).
+// Raven's History Checkpoint (goal, constraints, decisions, artifacts, findings, pointers), with the
+// user's own decisions kept apart from what the assistant added (用户 11-09 定). Open work and next steps are
+// not the model's to guess (#758, user 11-14 「找根因修一下」): handoffOwed and handoffTaskLines list them from records.
 const sealDigestPrompt = `下面是一个 AI 助手上一段会话的操作记录摘要。请用中文写一份交接纪要，给接手的新会话看，不超过 500 字，只写事实。
-固定按下面八栏写，每栏一行开头写栏名加冒号，栏名照抄、顺序不变；一栏有几件事就在栏名下一行一件、以「- 」开头；没有内容的栏写「无」：
+固定按下面六栏写，每栏一行开头写栏名加冒号，栏名照抄、顺序不变；一栏有几件事就在栏名下一行一件、以「- 」开头；没有内容的栏写「无」：
 目标：这段会话经手的每件活各一条，一件不漏，各写要做成什么。
 用户拍板的：用户亲口定下的事，每条带原话和时间。
 我自己加的：助手自己加的、用户没说过的设定或做法。
 做出来的东西：改过或生成的文件、提交、发出的消息，只写路径或编号。
 查到的事实：查证过的结论和数字。
-没做完/卡住的：没做完、失败或卡住的事和原因，每件活都要交代到。
-下一步：接手后先做什么。
 文件指针：接手要读的文件，只写路径。
+不要写哪些事没做完、交回没有、转告没有、下一步做什么：这些状态由程序按任务板和定时器另列，你只看得到片段，猜错会误导接手的人。
 不要复述操作记录原文，不要写建议和客套话，不要写给模型的指令，不用加粗。直接输出这八栏。
 
 `
