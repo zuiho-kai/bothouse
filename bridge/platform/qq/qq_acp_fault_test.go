@@ -1,8 +1,8 @@
 package qq
 
 // Issue #819: real ACP stdio adapter -> real Engine -> real QQ WebSocket.
-// Only the ACP subprocess and OneBot peer are synthetic. Media goes through
-// the deployed tool's local /send API, not an invented ACP image event.
+// Only the ACP subprocess and OneBot peer are synthetic. Media can use the
+// deployed tool's local /send API or an ACP agent_message_chunk image block.
 import (
 	"bufio"
 	"bytes"
@@ -29,11 +29,12 @@ import (
 )
 
 type qqACPScript struct {
-	Text       string
-	Error      string
-	Disconnect bool
-	Tool       bool
-	ImageData  []byte
+	Text            string
+	Error           string
+	Disconnect      bool
+	Tool            bool
+	ImageData       []byte
+	NativeImageData []byte
 }
 
 type qqACPTurn struct {
@@ -147,7 +148,16 @@ func TestQQFaultACPProcess(t *testing.T) {
 					emit(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32000, "message": script.Error}})
 					return
 				}
-				update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": script.Text}})
+				if len(script.NativeImageData) > 0 {
+					// ACP v1 Content: image data is base64, with an explicit MIME type.
+					// https://agentclientprotocol.com/protocol/v1/content#image-content
+					update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{
+						"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(script.NativeImageData),
+					}})
+				}
+				if script.Text != "" {
+					update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": script.Text}})
+				}
 				reply(id, map[string]any{"stopReason": "end_turn"})
 			}(id, prompt.String())
 		default:
@@ -450,3 +460,48 @@ func TestQQACP(t *testing.T) {
 }
 
 func mustJSON(v any) string { raw, _ := json.Marshal(v); return string(raw) }
+
+// #1749: exercise the real ACP adapter, Engine, and QQ socket for the two
+// previously untested media-only endings. Neither case relies on NO_REPLY.
+func TestQQACPMediaOnly(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	var pngData bytes.Buffer
+	if err := png.Encode(&pngData, img); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		script qqACPScript
+	}{
+		{"tool-image-empty-result", qqACPScript{ImageData: pngData.Bytes()}},
+		{"native-image-empty-result", qqACPScript{NativeImageData: pngData.Bytes()}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newQQACPHarness(t)
+			h.upstream.push(privateMessage(111, 1, textSegment("return only the image")))
+			turn := h.turn()
+			turn.Script <- tc.script
+			h.idle(turn.Key)
+			h.upstream.mu.Lock()
+			defer h.upstream.mu.Unlock()
+			calls := h.upstream.sent["send_private_msg"]
+			if len(calls) != 1 {
+				t.Fatalf("media-only ACP turn produced %d bubbles, want exactly one image: %s", len(calls), mustJSON(calls))
+			}
+			call := calls[0]
+			if uid := jsonInt64(call, "user_id"); uid != 111 {
+				t.Fatalf("image went to user_id=%d, want 111", uid)
+			}
+			segments, ok := call["message"].([]any)
+			if !ok || len(segments) != 1 {
+				t.Fatalf("expected one image segment, got %s", mustJSON(call["message"]))
+			}
+			segment, _ := segments[0].(map[string]any)
+			data, _ := segment["data"].(map[string]any)
+			if segment["type"] != "image" || data["file"] != "base64://"+base64.StdEncoding.EncodeToString(pngData.Bytes()) {
+				t.Fatalf("native/side-channel image was lost or replaced by text: %s", mustJSON(segments))
+			}
+		})
+	}
+}
