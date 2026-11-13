@@ -9,6 +9,10 @@ import { Tasks } from './tasks.mjs';
 import { QuotaCooling, quotaDeadline } from './quota-cooling.mjs';
 import { DshMembers } from './dsh-member.mjs';
 
+// #1730: a bridge-started shell exports GATE_PORT; clear it so this test file
+// does not resolve the live gate port and hit the running instance.
+delete process.env.GATE_PORT;
+
 const start = Date.parse('2026-10-27T13:00:00Z');
 test('#1606 Codex reset clock uses the local timezone and leaves missing deadlines unknown', () => {
   // Source: captured app-server error in bridge/agent/codex/appserver_session.go.
