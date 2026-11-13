@@ -7,7 +7,7 @@
 // reminder @s the owner when the check time passes without a hand-back; if no
 // waker can reach the owner (cloud-web bot offline, or not reconnected yet after
 // a restart) the reminder stays pending and is delivered once when it comes online.
-import { CollabError, MAX_TEXT } from './store.mjs';
+import { CollabError, MAX_TEXT, messageAttachments } from './store.mjs';
 import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark, workspaceAskMark } from './team-exit.mjs';
@@ -163,7 +163,8 @@ export class Tasks {
     /** released(roomId) -> a workspace finished its last task and went back to the pool. */
     this.releasers = [];
     /**
-     * #597 r12: bare-name calls after a delivery, waiting for the owner's stance line, keyed
+     * #597 r12: bare-name calls after a delivery, and #1598 every @ in a chat channel of the tree,
+     * waiting for the owner's stance line, keyed
      * `room\0owner`: { roomId, owner, lead, title, messageId, at }. In memory only: a restart drops them.
      */
     this.pendingCalls = new Map();
@@ -714,6 +715,12 @@ export class Tasks {
 
   /** A member reply whose first line is 【接】【问】【退】【升】 (optionally #id) answers its task. */
   fromMessage(msg) {
+    return this.route(msg);
+  }
+
+  route(msg) {
+    // #1598: a person's @ in a chat channel waits for the member's stance, like the lead's.
+    if (msg.author_kind === 'user' && msg.card === null) { this.callsFromPerson(msg); return undefined; }
     if (msg.author_kind !== 'role' || msg.card !== null) return undefined;
     if (this.hub.teamExit?.consumeRejected(msg.id)) return undefined;
     const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
@@ -727,7 +734,8 @@ export class Tasks {
       return undefined;
     }
     if (this.verdictsOf(msg)) return undefined;
-    this.settleCall(msg);
+    // #1598: her 【接】 to a call moved it into a workspace; this reply is only her stance.
+    if (this.settleCall(msg)) return undefined;
     if (this.inWorkspace(msg.room_id) && workspaceAskMark(msg.text, this.hub.routableIn(msg.room_id))) return undefined;
     const stance = this.stanceOf(msg);
     const dsh = this.hub.members.get(msg.author)?.kind === 'dsh';
@@ -749,8 +757,14 @@ export class Tasks {
         return handed;
       }
     } else if (stance?.status === 'accepted' && this.task(stance.id).source !== 'review' && dsh) {
-      // In a chat channel a DSH member's 【接】 is still its delivery (no [report] convention there).
+      // #1598: in a chat channel of the tree a DSH member's 【接】 moves its task into a workspace
+      // (she does it there and hands back with [report]); without workspaces it is still her delivery.
       // A bridge bot may keep working after its 【接】, so its stance stays a stance.
+      const task = this.task(stance.id);
+      if (this.chatChannel(task.room_id)) {
+        this.toWorkspace({ roomId: task.room_id, owner: task.owner, lead: task.created_by, title: task.title, messageId: task.assign_msg_id }, msg, task);
+        return undefined;
+      }
       return this.handBack(stance.id, { actor: msg.author, messageId: msg.id });
     }
     if (stance !== undefined) return stance;
@@ -878,18 +892,30 @@ export class Tasks {
           continue;
         }
         // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
-        // accepted, a call may be talk about the delivery (praise, 「收到」) or a send-back: the task
-        // opens only when her next message here opens with a stance line (settleCall). #1539: an explicit
-        // @ too — a DSH lead's 「@小蓝 收到，谢谢」 after the hand-back opened #2, her 「不客气」 handed it
-        // back, and so on. A first call, or one while her task is in work, dispatches at once, as before.
+        // accepted, a bare-name call may be praise about the delivery or a send-back: the task opens
+        // only when her next message here opens with a stance line (settleCall). For a bridge bot, and
+        // without workspaces (no tree, a DM, a workspace), #1588 still holds: an explicit @ opens at once unless it is only
+        // thanks or 「收到」 (ackOnly), and only a retry call re-sends a failed task (retryCall).
         const key = `${msg.room_id}\0${owner}`;
-        this.pendingCalls.delete(key);
-        const latest = this.q.latestOf.get(msg.room_id, owner);
-        // #1540: a call after her turn failed sends the same task again instead of opening another.
-        if (latest?.status === 'failed' && latest.created_by === lead.id) { this.retryFailed(latest.id); continue; }
-        if (DELIVERED.includes(latest?.status)) {
-          this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
+        // #1598: in a chat channel of the tree every @ is answered here first: a question or a small
+        // job opens nothing; her reply opening with 【接】 moves it into a workspace (settleCall).
+        if (this.staysForStance(msg.room_id, owner)) {
+          this.addCall({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id });
           continue;
+        }
+        this.pendingCalls.delete(key);
+        // #1588: thanks or 「收到」 alone opens nothing and re-sends nothing.
+        if (ackOnly(withoutLeadingMentions(text, team))) continue;
+        const latest = this.q.latestOf.get(msg.room_id, owner);
+        // #1540: a call after her turn failed sends the same task again; #1588: only a retry call
+        // (its title, or 「重试」「继续」…) does, a new job opens a new task and keeps its own title.
+        if (latest?.status === 'failed' && latest.created_by === lead.id && retryCall(title, latest)) { this.retryFailed(latest.id); continue; }
+        // After a delivery an explicit @ opens at once; a bare name waits for her stance (r12).
+        if (DELIVERED.includes(latest?.status)) {
+          if (!explicit.has(owner)) {
+            this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
+            continue;
+          }
         }
         this.openFromChat({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, source: 'mention' });
       }
@@ -913,16 +939,131 @@ export class Tasks {
   settleCall(msg) {
     const key = `${msg.room_id}\0${msg.author}`;
     const call = this.pendingCalls.get(key);
-    if (call === undefined) return;
+    if (call === undefined) return false;
     this.pendingCalls.delete(key);
-    if (this.now() - call.at > PENDING_CALL_S) return;
+    if (this.now() - call.at > PENDING_CALL_S) return false;
+    const stays = this.staysForStance(call.roomId, call.owner);
+    // #1598: her reply settles the calls she had read when her turn started (her session's cursor);
+    // one that came in after waits for her next reply, so 「在吗」 answered does not drop the job after it.
+    const ids = call.messageIds ?? [call.messageId];
+    const seen = stays ? this.store.binding(msg.author, msg.room_id)?.context_cursor : undefined;
+    const read = seen == null ? ids : ids.filter(id => id <= seen);
+    const settled = read.length ? read : ids;
+    const later = ids.filter(id => !settled.includes(id));
+    if (later.length) {
+      const first = this.store.message(later[0]);
+      const title = taskTitle(String(first?.text ?? ''), this.hub.routableIn(call.roomId)) || call.title;
+      this.pendingCalls.set(key, { ...call, title, messageId: later[0], messageIds: later, at: call.at });
+    }
     const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
-    if (m === null || m[2] !== undefined) return;
+    if (m === null || m[2] !== undefined) return false;
+    const answered = { ...call, messageIds: settled };
     try {
-      this.openFromChat({ ...call, source: 'mention' });
+      if (stays) {
+        // #1598: only the member who read the call can tell a big job; her 【接】 is that call.
+        if (m[1] === '接') return this.toWorkspace(answered, msg) !== undefined;
+        // Her 【问】 waits for the answer: the answer joins this call and her 【接】 then moves both.
+        if (m[1] === '问') { this.pendingCalls.set(key, { ...call, messageIds: ids, at: this.now() }); return false; }
+      }
+      this.openFromChat({ ...answered, source: 'mention' });
     } catch (error) {
       this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
     }
+    return false;
+  }
+
+  /**
+   * #1598: record a call waiting for owner's stance. Calls before her reply add up (a job told in
+   * several messages, or a question's answer): the title stays the first one's, her 【接】 moves them all.
+   */
+  addCall(call) {
+    const key = `${call.roomId}\0${call.owner}`;
+    const was = this.pendingCalls.get(key);
+    const fresh = was === undefined || was.lead !== call.lead || this.now() - was.at > PENDING_CALL_S;
+    this.pendingCalls.set(key, fresh
+      ? { ...call, messageIds: [call.messageId], at: this.now() }
+      : { ...was, messageIds: [...(was.messageIds ?? [was.messageId]), call.messageId], at: this.now() });
+  }
+
+  /** #1598: roomId is a chat channel of the tree (not a DM). */
+  chatChannel(roomId) {
+    return this.tree && this.store.room(roomId)?.kind === 'chat' && this.store.dmMember(roomId) === undefined;
+  }
+
+  /**
+   * #1598: an @ to owner in roomId waits for her stance and her 【接】 moves it into a workspace: a DSH
+   * member in a chat channel of the tree. A bridge bot hands its own big job over (ws-handoff), so
+   * its @ keeps opening a chat-side task and a second workspace never opens for the same job.
+   */
+  staysForStance(roomId, owner) {
+    return this.chatChannel(roomId) && this.hub.members.get(owner)?.kind === 'dsh';
+  }
+
+  /**
+   * #1598: a person's @ (or reply) to members in a chat channel waits for each one's stance, as the
+   * lead's does: the task, on behalf of the channel's lead, opens only on her 【接】, in a workspace.
+   */
+  callsFromPerson(msg) {
+    if (!this.chatChannel(msg.room_id)) return;
+    const lead = this.store.leadId(msg.room_id) === null ? this.hub.primaryMember() : this.hub.primaryIn(msg.room_id);
+    if (lead === undefined) return;
+    const team = this.hub.routableIn(msg.room_id);
+    // A command (/new, /stop …) is not a call.
+    if (withoutLeadingMentions(String(msg.text), team).trimStart().startsWith('/')) return;
+    const title = taskTitle(String(msg.text), team);
+    if (!title) return;
+    // Whom the message reaches (DshMembers.plan): its @s or the replied-to member, else the default reply.
+    const only = this.hub.replyRoute(msg);
+    const called = new Set(only ?? mentions(String(msg.text), team));
+    const fallback = this.hub.defaultReplyIn?.(msg.room_id);
+    if (only === null && called.size === 0 && fallback !== undefined) called.add(fallback.id);
+    // The lead herself too: a big job asked of her moves on her own 【接】, the task hers to hand back.
+    for (const owner of called) if (this.staysForStance(msg.room_id, owner)) this.addCall({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id });
+  }
+
+  /**
+   * #1598: move a call (or the chat-side task `from`) into a workspace once the member's reply
+   * opens with 【接】: a workspace from the pool (or a new one), a 【交接】 row with the call's body,
+   * its files and what she wrote after her 【接】 (the workspace session has no chat history), the
+   * task opened there for the lead to accept, and the member woken on that row. Returns the task.
+   */
+  toWorkspace(call, reply, from) {
+    const team = this.hub.routableIn(call.roomId);
+    const triggers = (call.messageIds ?? [call.messageId]).filter(id => id != null).map(id => this.store.message(id)).filter(Boolean);
+    const body = triggers.map(t => withoutLeadingMentions(String(t.text ?? ''), team).trim()).filter(Boolean).join('\n\n') || call.title;
+    const note = withoutLeadingMentions(String(reply.text), team).trim().replace(/^【接】[\s，,。.：:、]*/, '').trim();
+    const name = this.nameOf(call.owner);
+    const extra = note ? `\n\n${name}【接】时说：${note}` : '';
+    // Never cut the call's body: what she added gives way first, then the prefix.
+    const room = MAX_TEXT - body.length;
+    const tail = extra.length <= room ? extra : '';
+    const prefix = [`【交接】${name}：`, '【交接】'].find(p => p.length <= room - tail.length) ?? '';
+    const attachments = triggers.flatMap(t => messageAttachments(t));
+    const workspace = this.store.createWorkspace(call.roomId);
+    this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
+    const { message } = this.hub.post(workspace.id, {
+      authorKind: 'system', author: 'system', name: '交接',
+      text: `${prefix}${body}${tail}`,
+      ...(attachments.length ? { attachments } : {}),
+    });
+    let task;
+    try {
+      task = this.openFromChat({ roomId: workspace.id, owner: call.owner, lead: call.lead, title: call.title, messageId: message.id, source: 'workspace' });
+    } finally {
+      // A workspace no task followed into is never released by the idle sweep (claim_task 0).
+      if (task === undefined && this.countActive(workspace.id) === 0) { try { this.release(workspace.id); } catch { /* claimed meanwhile */ } }
+    }
+    if (task === undefined) return undefined;
+    if (from !== undefined) {
+      try {
+        this.handBack(from.id, { actor: from.owner, messageId: message.id });
+        this.review(from.id, { actor: from.created_by, verdict: 'done', note: `转到${workspace.name} #${task.id}` });
+      } catch (error) {
+        this.hub.logger?.warn?.('collab: closing #%s after its move failed: %s', from.id, error?.message ?? error);
+      }
+    }
+    this.wake(call.owner, message);
+    return task;
   }
 
   /**
@@ -1305,6 +1446,19 @@ export class Tasks {
     this.arm();
     return task;
   }
+}
+
+// #1588: a call that is only thanks or an acknowledgement is talk about a delivery, not a job.
+const ACK_WORDS = /^(?:收到|好的?|好嘞|行|嗯+|ok(?:ay)?|谢谢?|多谢|感谢|辛苦(?:了|啦)?|thanks?|thx|thank you|了|啦|呀|哈+|你|您|啊|[\s\p{P}\p{S}])*$/iu;
+export function ackOnly(body) {
+  const s = String(body ?? '').trim();
+  return s === '' || (s.length <= 24 && ACK_WORDS.test(s));
+}
+
+// #1588: a call after a failed turn sends that task again only when it asks for a retry or repeats its title.
+const RETRY_WORDS = /^(?:重试|再试(?:一次|一下)?|再来(?:一次)?|继续|重新(?:做|来|跑)?(?:一次|一下)?|retry|try again|again|[\s\p{P}\p{S}])+$/iu;
+function retryCall(title, failed) {
+  return title === failed.title || RETRY_WORDS.test(title);
 }
 
 /**

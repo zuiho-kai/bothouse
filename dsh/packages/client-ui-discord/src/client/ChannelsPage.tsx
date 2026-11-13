@@ -18,7 +18,7 @@ import { useCollabUrl } from './collab-url.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded } from './ProgressCard.tsx'
-import { StepChips, chipsOf, compactBrief } from './StepChips.tsx'
+import { CHAT_RUN_STEPS, StepChips, chipsOf, compactBrief } from './StepChips.tsx'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
 import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, needsTarget, slashQuery, type SlashCommand } from './slash-commands.ts'
@@ -258,8 +258,10 @@ interface OwnActions {
 // 体检 #9: a touch press this long opens the message tools (common long-press length on phones).
 const LONG_PRESS_MS = 450
 
-function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }: {
+function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress, chatRoom = false }: {
   message: ChannelMessage
+  /** #1588: a chat channel (not a workspace, not a DM): a running card there shows only its latest steps. */
+  chatRoom?: boolean
   /** 体检 #8: a task record shows its card only when no earlier row of this task already does. */
   taskCardShown?: boolean
   /** 体检 #9: on touch screens the tools show only after a long press on this row. */
@@ -301,7 +303,14 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   // Parse once per text change: MessageRow re-renders on every composer keystroke.
   const shown = typeof card?.brief === 'string' && cardView === 'brief' ? (role === 'progress' ? compactBrief(card.brief) : card.brief) : message.text
   const markdown = useMemo(() => softBreaksToHard(shown), [shown])
-  const steps = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1) : ''
+  // #1588 (user 11-13「界面也是一团乱的」): work belongs in a workspace, so a run in a chat channel shows
+  // its latest CHAT_RUN_STEPS steps and a count; the whole run stays visible in a workspace.
+  // #1598: only while it runs, in the brief view; a finished card and the 「细节」 view list every step.
+  const foldSteps = chatRoom && card?.state === 'running' && cardView === 'brief'
+  const stepLines = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1).split('\n') : []
+  const steps = foldSteps && stepLines.length > CHAT_RUN_STEPS
+    ? [t('stepsFolded', { total: String(stepLines.length) }), ...stepLines.slice(-CHAT_RUN_STEPS)].join('\n')
+    : stepLines.join('\n')
   const stepsMarkdown = useMemo(() => (steps === '' ? '' : softBreaksToHard(steps)), [steps])
   const fullTime = new Date(message.created_at * 1000).toLocaleString()
   const editButtonRef = useRef<HTMLButtonElement>(null)
@@ -549,7 +558,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
                 </div>
                 {/* #125: the brief view shows step chips when the card carries them; older cards keep the lines. */}
                 {cardView === 'brief' && chips !== undefined
-                  ? <StepChips chips={chips} runState={card.state} t={t} />
+                  ? <StepChips chips={chips} runState={card.state} t={t} latest={foldSteps ? CHAT_RUN_STEPS : undefined} />
                   : !progressFolded && progressLines.length > 1 && (
                       <HighlightedMarkdown text={stepsMarkdown} labels={labels} members={members} className={`${css.text} ${css.runSteps}`} dataCardText onMention={onMention} />
                     )}
@@ -1769,6 +1778,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
                   taskCardShown={recordShowsCard(m)}
                   toolsOpen={toolsFor === m.id}
                   onLongPress={() => { setToolsFor(m.id) }}
+                  chatRoom={room?.kind !== 'workspace' && room?.dm_member == null}
                 />,
               ])}
         </div>

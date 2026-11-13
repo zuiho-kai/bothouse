@@ -144,3 +144,47 @@ func TestQuotaReassignTaskRelayMovesTarget(t *testing.T) {
 	default:
 	}
 }
+
+// #1592 2026-11-13 22:39：彩虹猫冷却，鲸鱼娘空着，桥却回「能换的队友都在冷却」——鲸鱼娘名下挂着
+// 11-08 的主频道待办 #1243，挑人时被当成忙。用户「他冷却你要感知到，然后他换的，你这换个屁」。
+func TestQuotaReassignStaleBoardTodoDoesNotBlock(t *testing.T) {
+	engines, agents, platforms, _ := quotaReassignFixture(t)
+	until := time.Now().Add(34 * time.Hour).Truncate(time.Second)
+	quotaReassignCool(engines["caihongmao"], until)
+	quotaReassignCool(engines["longniang"], until)
+	board := `{"id": 1243, "what": "纽约篇构思", "status": "待办：#1240 交完后开构思", "who": "鲸鱼娘", "ch": "chat", "sk": "discord:chat"}` + "\n"
+	if err := os.WriteFile(filepath.Join(engines["jingyu"].team.dir, teamTaskBoardFile), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sent := quotaReassignMention(t, engines["caihongmao"], platforms["caihongmao"], "帮查 B 站 AI 视频 UP 主的做片流程")
+	t.Logf("频道里彩虹猫这一条：%s", sent)
+	if !strings.Contains(sent, "这件改给 鲸鱼娘") {
+		t.Fatalf("channel line = %q", sent)
+	}
+	if prompt := inputPrompt(t, agents["jingyu"]); !strings.Contains(prompt, "UP 主") {
+		t.Fatalf("teammate prompt = %q", prompt)
+	}
+	inputDone(agents["jingyu"], "接了")
+}
+
+// Only 彩虹猫 cools and the others are busy: the line says they are busy, not 「都在冷却」 with
+// 彩虹猫's own deadline as everyone's earliest recovery.
+func TestQuotaReassignOthersBusyIsNotAllCooling(t *testing.T) {
+	engines, _, platforms, _ := quotaReassignFixture(t)
+	until := time.Now().Add(34 * time.Hour).Truncate(time.Second)
+	quotaReassignCool(engines["caihongmao"], until)
+	for _, name := range []string{"longniang", "jingyu"} {
+		s := engines[name].sessions.GetOrCreateActive("discord:chat")
+		if !s.TryLock() {
+			t.Fatal("lock")
+		}
+		t.Cleanup(s.Unlock)
+	}
+
+	sent := quotaReassignMention(t, engines["caihongmao"], platforms["caihongmao"], "帮查 B 站 AI 视频 UP 主的做片流程")
+	t.Logf("频道里彩虹猫这一条：%s", sent)
+	if strings.Contains(sent, "都在冷却") || !strings.Contains(sent, "都在忙") {
+		t.Fatalf("channel line = %q", sent)
+	}
+}

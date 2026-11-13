@@ -5021,8 +5021,8 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		e.reply(inputOutputPlatform(p, msg.inputTurn), msg.ReplyCtx, text)
 		return
 	}
-	e.journalTurnAgent(journalTurnID, agentSession) // #618 K1
-	e.armResumeRetry(state, session, msg.resumeFallback)  // #618 K4 S1
+	e.journalTurnAgent(journalTurnID, agentSession)      // #618 K1
+	e.armResumeRetry(state, session, msg.resumeFallback) // #618 K4 S1
 	e.cancelAgentSessionIdleClose(state)
 
 	if workspaceDir != "" && e.workspacePool != nil {
@@ -6605,6 +6605,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var blockedDraft string // reply a Stop hook blocked this turn, withdrawn from the channel (stop_draft.go)
 	silentHold := false     // true while accumulated segment text could still resolve to a bare NO_REPLY marker
 	toolCount := 0
+	mediaAttempted := false   // an image send can have an external effect even without a receipt
 	var toolStartAt time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
 	watchTurnFinished := false
 	turnFailed := false // an EventError ended this turn: it counts toward the idle watch's failure limit
@@ -6975,6 +6976,49 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.eventsNeedResync = true
 			state.mu.Unlock()
 			return
+		}
+
+		if event.Type == EventResult && event.Done && len(event.Images) > 0 {
+			var imageErr error
+			if input != nil {
+				imageErr = fmt.Errorf("image-only output is not supported by the text input response")
+			} else if !e.attachmentSendEnabled {
+				imageErr = ErrAttachmentSendDisabled
+			} else if sender, ok := p.(ImageSender); !ok {
+				imageErr = fmt.Errorf("platform %s: %w", p.Name(), ErrNotSupported)
+			} else {
+				for _, img := range event.Images {
+					mediaAttempted = true
+					imageErr = authorizedOutput(outputCtx, func() error {
+						if err := e.waitOutgoing(p); err != nil {
+							return err
+						}
+						return sender.SendImage(outputCtx, replyCtx, img)
+					})
+					if imageErr != nil {
+						break
+					}
+					state.mu.Lock()
+					state.turnSentNonText = true
+					state.mu.Unlock()
+				}
+				if imageErr == nil {
+					e.noteWorkspaceImages(sessionKey, event.Images)
+				}
+			}
+			if imageErr != nil {
+				event = Event{Type: EventError, SessionID: event.SessionID, Error: fmt.Errorf("deliver agent image: %w", imageErr)}
+			}
+		}
+		if input == nil && event.Type == EventError && errors.Is(event.Error, ErrNoPublicAnswer) && event.Content == "" {
+			state.mu.Lock()
+			deliveredMedia := state.turnSentNonText
+			state.mu.Unlock()
+			if deliveredMedia {
+				// The adapter cannot see successful /send deliveries. The engine
+				// can: a delivered image/file is already a public answer.
+				event = Event{Type: EventResult, SessionID: event.SessionID, Done: true}
+			}
 		}
 
 		e.observeQuotaEventFor(event, sessionKey, agentSession, state.quotaScope)
@@ -7788,7 +7832,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			}
 			if fullResponse == "" {
-				fullResponse = e.i18n.T(MsgEmptyResponse)
+				state.mu.Lock()
+				deliveredMedia := state.turnSentNonText
+				state.mu.Unlock()
+				if deliveredMedia {
+					fullResponse = "NO_REPLY"
+				} else {
+					fullResponse = e.i18n.T(MsgEmptyResponse)
+				}
 			}
 
 			// Strip any agent-self-reported "[ctx: ~XX%]" marker so it does not
@@ -8422,6 +8473,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.mu.Unlock()
 				segmentStart = 0
 				toolCount = 0
+				mediaAttempted = false
 				watchTurnFinished = false
 				turnStart = time.Now()
 				firstEventLogged = false
@@ -8535,8 +8587,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// A tool may already have changed external state, even when its
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
-			retryCapacity := input == nil && toolCount == 0 && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isTransientError(event.Error.Error()))
-			if !retryCapacity && input == nil && toolCount == 0 && event.Error != nil && isRetryOnceError(event.Error.Error()) {
+			retryCapacity := input == nil && toolCount == 0 && !mediaAttempted && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isTransientError(event.Error.Error()))
+			if !retryCapacity && input == nil && toolCount == 0 && !mediaAttempted && event.Error != nil && isRetryOnceError(event.Error.Error()) {
 				state.mu.Lock()
 				retryCapacity = state.capacityAttempt <= 1 // #134: these get one re-send; a second failure is a normal one
 				state.mu.Unlock()

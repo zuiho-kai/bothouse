@@ -291,7 +291,7 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 	var candidates []*Engine
 	for _, peer := range e.watchEngines() {
 		if peer == e || reserved[peer.name] || peer.IsPaused() || peer.ctx.Err() != nil ||
-			!peer.quotaCoolingFor(peer.admissionQuotaScope(peer.agent, session)).IsZero() || peer.quotaBusy(session) {
+			!peer.quotaCoolingFor(peer.admissionQuotaScope(peer.agent, session)).IsZero() || peer.quotaBusyLive(session) {
 			continue
 		}
 		if _, ok := bound[peer.name]; !ok {
@@ -328,6 +328,35 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 // Workspace tasks and their parent channel share one availability domain.
 // Activity in an unrelated chat does not disqualify a teammate here.
 func (e *Engine) quotaBusy(session string) bool {
+	return e.quotaBusyLive(session) || e.quotaOwnsWorkIn(session)
+}
+
+// quotaOwnsWorkIn: an open board item, workspace handoff or task-API relay this role owns
+// points at session's chat.
+func (e *Engine) quotaOwnsWorkIn(session string) bool {
+	here := e.quotaAvailabilityChat(session)
+	for _, work := range e.quotaWorkItems() {
+		if e.quotaAvailabilityChat(work.Session) == here {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) quotaAvailabilityChat(key string) string {
+	key = teamChatKey(key)
+	if parent, ok := e.WorkspaceParent(key); ok {
+		return parent
+	}
+	return key
+}
+
+// quotaBusyLive is "busy" as the lead's 队友状态 shows it: a turn running in session's chat (or
+// one of its workspaces), or delegated work there still running. An open board item alone does
+// not count: a stale 待办 left on the board (#1243, 鲸鱼娘, 11-08) kept her out of every
+// cooldown reassignment in the main channel while the lead's status said 空着 (#1592,
+// 2026-11-13 22:39 用户「他冷却你要感知到，然后他换的，你这换个屁」).
+func (e *Engine) quotaBusyLive(session string) bool {
 	chat := func(key string) string {
 		key = teamChatKey(key)
 		if parent, ok := e.WorkspaceParent(key); ok {
@@ -357,11 +386,6 @@ func (e *Engine) quotaBusy(session string) bool {
 					return true
 				}
 			}
-		}
-	}
-	for _, work := range e.quotaWorkItems() {
-		if chat(work.Session) == here {
-			return true
 		}
 	}
 	return e.watchDelegatedWork(teamChatKey(session))

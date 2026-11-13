@@ -97,6 +97,8 @@ export class Store {
     this.sessionResets = [];
     /** fn(roomId) when a workspace returns to the pool; bindings remain resumable. */
     this.workspaceReleases = [];
+    /** transaction() nesting depth; > 0 means the outermost BEGIN IMMEDIATE is open. */
+    this.depth = 0;
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
@@ -389,9 +391,29 @@ export class Store {
     this.closed = true;
   }
 
-  /** Run fn in one write transaction; a throw rolls back every statement it made. */
+  /**
+   * Run fn in one write transaction; a throw rolls back every statement it made.
+   * Called inside an open transaction (a planner runs in hub.post's), it becomes a
+   * savepoint, so a method like claimWorkspace may be used from either side.
+   */
   transaction(fn) {
+    if (this.depth > 0) {
+      const name = `collab_sp_${this.depth}`;
+      this.depth++;
+      this.db.exec(`SAVEPOINT ${name}`);
+      try {
+        const result = fn();
+        this.db.exec(`RELEASE ${name}`);
+        return result;
+      } catch (error) {
+        this.db.exec(`ROLLBACK TO ${name}; RELEASE ${name}`);
+        throw error;
+      } finally {
+        this.depth--;
+      }
+    }
     this.db.exec('BEGIN IMMEDIATE');
+    this.depth = 1;
     try {
       const result = fn();
       this.db.exec('COMMIT');
@@ -399,6 +421,8 @@ export class Store {
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
+    } finally {
+      this.depth = 0;
     }
   }
 

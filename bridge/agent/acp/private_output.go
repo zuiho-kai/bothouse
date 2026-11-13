@@ -1,6 +1,10 @@
 package acp
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/chenhg5/cc-connect/core"
+)
 
 var outputTags = [...]string{"think", "thinking", "analysis", "compacted-summary", "summary", "details"}
 
@@ -203,6 +207,8 @@ func (m *codeLiteral) endRun() {
 // boundary so later notifications cannot change the completed turn's outcome.
 type privateOutputTurn struct {
 	public bool
+	images []core.ImageAttachment
+	err    error
 	// last is the public text of the turn's last message: a new message id or a tool call
 	// starts it over (#1270, EventResult MetaLastReply).
 	last     string
