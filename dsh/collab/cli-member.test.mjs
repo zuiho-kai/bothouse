@@ -7,6 +7,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+const tick = () => new Promise(r => setImmediate(r));
+
 // the fake CLI is a #! script, which Windows cannot run by name
 test('spawn failure retries after the missing directory is created', { timeout: 5000, skip: process.platform === 'win32' }, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'cli-retry-'));
@@ -34,10 +36,9 @@ createInterface({ input: process.stdin }).on('line', line => {
   assert.equal(m.sessions.get('r1').sessionId, 'recovered');
 });
 
-/** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */
-function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
+/** A CliMember whose ACP connection is a fake; canLoad mirrors agentCapabilities.loadSession. */function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
   const m = new CliMember({ cli: 'claude', cwd: '/tmp', persona });
-  const calls = { load: [], newSession: 0, prompts: [] };
+  const calls = { load: [], newSession: 0, prompts: [], notified: [] };
   let n = 0;
   m._start = async () => {
     m.canLoad = canLoad;
@@ -47,6 +48,7 @@ function fakeMember({ canLoad, loadFails = false, persona = 'P' } = {}) {
       loadSession: async (r) => { calls.load.push(r.sessionId); if (loadFails) throw new Error('no such session'); return {}; },
       newSession: async () => { calls.newSession += 1; return { sessionId: `new-${++n}` }; },
       prompt: async (r) => { calls.prompts.push(r); m.buffers.set(r.sessionId, 'ok'); return { stopReason: 'end_turn' }; },
+      notify: (method, params) => { calls.notified.push([method, params]); },
     };
     return m.ready;
   };
@@ -105,6 +107,31 @@ test('persona is prepended on every turn', async () => {
   await m.ask('one', 'r1');
   await m.ask('two', 'r1');
   assert.deepEqual(calls.prompts.map(p => p.prompt[0].text), ['PERSONA\n\none', 'PERSONA\n\ntwo']);
+});
+
+test('cancel sends ACP session/cancel for the room turn that is waiting on its prompt', async () => {
+  const m = new CliMember({ cli: 'claude', cwd: '/tmp', persona: '' });
+  const notified = [];
+  let finish;
+  m._start = async () => {
+    m.ready = Promise.resolve({});
+    m.exited = new Promise(() => {});
+    m.conn = {
+      newSession: async () => ({ sessionId: 's-live' }),
+      notify: (method, params) => { notified.push([method, params]); },
+      prompt: () => new Promise(resolve => { finish = () => { m.buffers.set('s-live', ''); resolve({ stopReason: 'cancelled' }); }; }),
+    };
+    return m.ready;
+  };
+  const run = m.ask('长活', '7');
+  for (let i = 0; i < 20 && finish === undefined; i++) await tick();
+  assert.equal(m.cancel('7'), true, 'the turn in this room is live');
+  assert.deepEqual(notified, [['session/cancel', { sessionId: 's-live' }]]);
+  finish();
+  await run;
+  assert.equal(m.cancel('7'), false, 'no turn is waiting once the prompt settles');
+  assert.equal(m.cancel('8'), false, 'a room with no session has nothing to cancel');
+  assert.equal(notified.length, 1, 'nothing is sent for an idle member');
 });
 
 test('cleanEnv drops the outer Claude Code session markers but keeps the env-var sign-in', () => {
