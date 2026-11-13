@@ -65,3 +65,4 @@ QQ 这一轮只接一个 QQ 号。gate、jev 是进阶功能，QQ 向导里不�
 - 再加 Discord、飞书等：管理面板「添加平台」，见[首页](../GETTING_STARTED.md#以后添加或停用平台)。
 - 暂时不用 QQ：`bothouse module disable qq`，配置留着；`bothouse module add qq` 恢复。
 - 更多 QQ 选项（文件发送用的 `http_url`、群里共享会话等）：[bridge/docs/qq.md](../../bridge/docs/qq.md)。
+- 开发者可重跑的慢响应、断连、限流、取消和媒体隔离验证：[QQ 故障注入说明](../implementation/819-qq-resilience.md)。
