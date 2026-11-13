@@ -13,8 +13,8 @@
 #   参照实现、已查过什么（文件:行或文档路径）、范围的改/不改行（改最多 3 行）、相关改动的冲突行、多人改时的底分支；不合格就报缺什么并给示例（_handoff_rules.py）。
 #   工作区：没配 WS_CHANNEL / 团队文件 "workspace" 时，走桥的共享池（<桥> workspace list/claim/new，
 #   core/team_workspace.go，Discord、飞书、DSH、网页版同一套）：一个工作区同一时间只做一件活，只挑本频道名下
-#   或空着、手上没活的（编号小的先）；都占着才 new（桥先复用空号，没有才建 工作区n+1），池子满 MAX_WS 个就不建，
-#   这件活在任务板记「排队」、进 QUEUE，有工作区放回时桥调 --drain 先排先接。暂停、等你的活不占工作区。
+#   或空着、手上没活的（编号小的先）；都占着才 new（桥先复用空号，没有才建 工作区n+1），没有空位就新建，
+#   新活不排队。暂停、等你的活不占工作区。
 #   配了 WS_CHANNEL 或团队文件顶层 "workspace"（_team.py）就固定用它（不读平台 token、不自己建频道）。
 # 来源：用户 2026-10-23「如果你觉得已经开始管不过来了，你可以去开新的频道，就叫工作区，然后把任务整个大颗粒度的交给那边的橘」
 #   「方便任意人当主角色，并且也能放到仓库」。
@@ -45,8 +45,7 @@ DONE = ("已交给{name}。本轮到此结束：不要在本轮等待、sleep �
 # 一个工作区进行中的活达到这么多件就算忙。来源：dsh_bundle/collab/team-mode-rules.md「一个工作区里进行中的活默认
 # 达到 3 件就算忙」（团队模式规矩，用户 2026-10-24）；桥里同值 core/team_workspace.go teamWorkspaceBusy。
 BUSY = 1  # 用户 2026-10-28 批「一个工作区同一时间只做一件活」
-MAX_WS = 8  # 池子最多几个工作区（含现有），满了排队；用户 10-31「新开2个工作区」4→6；用户 11-08「不要排队了，直接开新工作区去做」6→8
-QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat, project, answer}]，先排先接
+QUEUE = _team.SETUP / "ws-queue.json"  # 兼容旧版本已排队任务的续接
 
 
 def check_notes(text: str, task: str = ""):
@@ -127,7 +126,7 @@ def intent_gate(text: str):
     return None, None
 
 
-OWN = "主角色自己定的（程序附）"
+APPENDED_OWN = "主角色自己定的（程序附）"
 
 
 def append_own(path, line):
@@ -135,9 +134,9 @@ def append_own(path, line):
     重交时整节换新，不叠加。"""
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
-    text = re.sub(rf"(?ms)^## {re.escape(OWN)}\n.*?(?=^## |\Z)", "", text).rstrip("\n")
+    text = re.sub(rf"(?ms)^## {re.escape(APPENDED_OWN)}\n.*?(?=^## |\Z)", "", text).rstrip("\n")
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(f"{text}\n\n## {OWN}\n- {line}\n")
+        fh.write(f"{text}\n\n## {APPENDED_OWN}\n- {line}\n")
 
 
 # 产品活（用户原话、总目标、范围提到产品、bothouse、做成产品能力）的范围节要写覆盖哪些 CLI：点名 Claude Code 以外的
@@ -210,7 +209,6 @@ def added_gate(text: str):
 # 加「## 派活人自己定的」节（每条一行，没有写「无」）；不带 --confirmed 时只打出清单不交出，用户看过再带 --confirmed 重跑。
 # 来源：10-30 第三轮重放，只有「派活人单列自己定的主意给用户看」拦住了返工（用户「可以试一下」）。其他类的活不受影响。
 GATED = ("出图", "改用户文档", "定方向")
-OWN = "派活人自己定的"
 OWN_EXAMPLE = "类别：出图\n## 派活人自己定的\n- 画风照上次头像，不换\n- 尺寸 1024×1024"
 
 
@@ -501,7 +499,7 @@ def notes_chat(notes: str, chat: str) -> str:
 
 def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
-    没有空的、池子又满 MAX_WS 个时返回 None（排队）。
+    没有空位时新建工作区。
     claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
     算进展（core/team_watch.go ownerSpoke）；接手的就是本 bot 的主角色，不用另传 id。"""
     chat = lead_chat(chat)
@@ -519,8 +517,6 @@ def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
         if c.returncode == 0:
             return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
         print(f"ws-handoff: {w.get('name')} 认领不了（{c.stderr.strip()}），换下一个", file=sys.stderr)
-    if len([w for w in r.get("pool") or [] if isinstance(w, dict) and w.get("id")]) >= MAX_WS:
-        return None
     w = (ws_cmd(chat, "new").get("workspace") or {})
     if not w.get("id"):
         sys.exit("ws-handoff: workspace new 没回工作区")
@@ -916,7 +912,7 @@ def resume_answered(nid, answer):
 
 def main(argv):
     if argv[:1] == ["--drain"]:
-        return drain()
+        return 0
     if argv[:1] == ["--resume"] and len(argv) == 3:
         return resume_answered(int(argv[1].lstrip("#")), argv[2])
     global GUARD
@@ -997,7 +993,6 @@ def main(argv):
     elif ":" not in chat:
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
-        drain()  # 先排先接：池里有空位时先接队里的，新活不插队
         # 先上板拿编号再 claim：桥按编号记这件活的状态（#699），claim 不带编号看门就只能猜是哪一行
         nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name)
         try:
@@ -1006,14 +1001,8 @@ def main(argv):
             board.unadd(nid)  # 没交出去：撤掉刚上的板，不留一条没人做的排队
             raise
         if picked is None:
-            with _queue() as q:
-                # lead：入队时就记下交活的聊天频道（工作区里交的活此时 owner 最准；drain 时工作区可能已空）
-                q.append({"nid": nid, "path": path, "task": task, "chat": chat, "lead": lead_chat(chat),
-                          "project": os.environ.get("CC_PROJECT", "")})
-            print(f"ws-handoff: 任务板 #{nid}", file=sys.stderr)
-            print(f"queued #{nid}")
-            print(f"{MAX_WS} 个工作区都在做活，#{nid} 已排队；有工作区空出来桥会自动接上。跟用户说一句排队了，本轮到此结束。")
-            return
+            board.unadd(nid)
+            sys.exit(f"ws-handoff: #{nid} 认领新工作区失败，未排队；请检查 workspace claim 错误")
         ws, name, parent = picked
     # 先上任务板、绑这个工作区（编号要写进开工提示，同本机 ws-handoff 先 board_add 再叫醒）：
     # 放回只看绑定的条目（board pause / 把「谁」改走），刚交的活不会被当成没人做

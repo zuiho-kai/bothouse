@@ -1,6 +1,7 @@
 """Root-cause evidence is required only for repair titles/scopes; no model or bridge calls."""
 import importlib.machinery
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -50,6 +51,35 @@ class RootCauseTest(unittest.TestCase):
     def test_develop_log_with_search_flag_is_introduction_evidence(self):
         body = GOOD.replace("git log -S 'mention'", "git log origin/develop -S 'mention'")
         self.assertEqual(ws.root_cause_errors('# fix\n' + body), [])
+
+    def test_append_own_preserves_user_decisions_section(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'handoff.md'
+            path.write_text('## 派活人自己定的\n- 用户明确的设定\n', encoding='utf-8')
+            ws.append_own(path, '主角色按依据选择了方案')
+            text = path.read_text(encoding='utf-8')
+        self.assertIn('- 用户明确的设定', text)
+        self.assertIn('## 主角色自己定的（程序附）', text)
+
+    def test_busy_pool_always_tries_new_workspace(self):
+        calls = []
+        busy = [{'id': f'w{i}', 'open': 1, 'owner': 'room:main'} for i in range(1, 9)]
+
+        def ws_cmd(chat, action):
+            calls.append(action)
+            if action == 'list':
+                return {'parent': chat, 'pool': busy}
+            return {'workspace': {'id': 'w9', 'name': '工作区9'}}
+
+        class Result:
+            returncode = 0
+
+        with patch.dict(ws.__dict__, {'ws_cmd': ws_cmd, 'release_stale_returned': lambda _: None,
+                                      'migrate_unbound': lambda *args: False}), \
+             patch.object(ws.subprocess, 'run', return_value=Result()):
+            picked = ws.pick_pool('room:main', '新任务', 1)
+        self.assertEqual(picked, ('room:w9', '工作区9', 'room:main'))
+        self.assertEqual(calls, ['list', 'new'])
 
     def test_errors_join_existing_checks(self):
         rules = {'flags': {}}
