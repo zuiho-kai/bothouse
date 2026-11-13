@@ -479,10 +479,7 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	s.maybeAbsorbCurrentModeUpdate(params)
 	sid := s.currentACPSessionID()
 	var header struct {
-		Update struct {
-			SessionUpdate, MessageID string
-			Content                  json.RawMessage
-		}
+		Update struct{ SessionUpdate, MessageID string }
 	}
 	if json.Unmarshal(params, &header) != nil {
 		return
@@ -492,25 +489,6 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	// completion/error resets; foreground and unsolicited output use this seam.
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
-	if header.Update.SessionUpdate == "agent_message_chunk" {
-		var block struct{ Type, Data, MimeType string }
-		if json.Unmarshal(header.Update.Content, &block) == nil && block.Type == "image" {
-			if !acpImageMimeTypes[block.MimeType] || block.Data == "" || int64(len(block.Data)) > (core.DefaultMaxAttachmentSize+2)/3*4 {
-				s.outputTurn.err = fmt.Errorf("acp: unsupported, empty or oversized image content")
-				return
-			}
-			data, err := base64.StdEncoding.DecodeString(block.Data)
-			if err != nil || len(data) == 0 || int64(len(data)) > core.DefaultMaxAttachmentSize {
-				s.outputTurn.err = fmt.Errorf("acp: invalid image content")
-				return
-			}
-			// Keep image bytes until the same RPC completion snapshot that owns
-			// public text. Failed/cancelled prompts must not publish partial media.
-			s.outputTurn.images = append(s.outputTurn.images, core.ImageAttachment{MimeType: block.MimeType, Data: data})
-			s.outputTurn.public = true
-			return
-		}
-	}
 	for _, ev := range mapSessionUpdate(sid, params) {
 		if ev.Type == core.EventToolResult {
 			// mapToolCallUpdate falls back to the toolCallId when the update carries no title.
@@ -919,10 +897,6 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: fmt.Errorf("acp: prompt did not complete successfully")})
 		return nil
 	}
-	if output.err != nil {
-		s.emit(core.Event{Type: core.EventError, SessionID: sid, Error: output.err})
-		return nil
-	}
 	if !output.public {
 		// The RPC completed; only the reply failed. Report one terminal event,
 		// not a competing Send error. Tools may have run: never replay this turn.
@@ -935,7 +909,6 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		Type:      core.EventResult,
 		SessionID: sid,
 		Done:      true,
-		Images:    output.images,
 	}
 	if strings.TrimSpace(output.last) != "" {
 		evt.Metadata = map[string]any{core.MetaLastReply: output.last} // #1270: the [report] check reads this

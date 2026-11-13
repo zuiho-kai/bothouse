@@ -505,8 +505,7 @@ type UserQuestionOption struct {
 // Event represents a single piece of agent output streamed back to the engine.
 type Event struct {
 	Type    EventType
-	Content string            // EventError may carry an answer, separate from Error; it is not a successful result.
-	Images  []ImageAttachment // decoded public images, delivered with a successful terminal EventResult
+	Content string // EventError may carry an answer, separate from Error; it is not a successful result.
 	// StreamedContentBytes is the byte length of Content's leading prefix already
 	// emitted as EventText in this turn. EventResult adapters set it for cumulative
 	// summaries; the remaining suffix is new text. Zero keeps Content as a
