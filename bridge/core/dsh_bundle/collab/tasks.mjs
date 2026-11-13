@@ -893,17 +893,17 @@ export class Tasks {
         }
         // #597 r12: structure, not wording. Once the owner's newest task here is handed back or
         // accepted, a bare-name call may be praise about the delivery or a send-back: the task opens
-        // only when her next message here opens with a stance line (settleCall). Without workspaces
-        // (no tree, a DM, a workspace) #1588 still holds: an explicit @ opens at once unless it is only
+        // only when her next message here opens with a stance line (settleCall). For a bridge bot, and
+        // without workspaces (no tree, a DM, a workspace), #1588 still holds: an explicit @ opens at once unless it is only
         // thanks or 「收到」 (ackOnly), and only a retry call re-sends a failed task (retryCall).
         const key = `${msg.room_id}\0${owner}`;
-        this.pendingCalls.delete(key);
         // #1598: in a chat channel of the tree every @ is answered here first: a question or a small
         // job opens nothing; her reply opening with 【接】 moves it into a workspace (settleCall).
         if (this.staysForStance(msg.room_id, owner)) {
-          this.pendingCalls.set(key, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
+          this.addCall({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id });
           continue;
         }
+        this.pendingCalls.delete(key);
         // #1588: thanks or 「收到」 alone opens nothing and re-sends nothing.
         if (ackOnly(withoutLeadingMentions(text, team))) continue;
         const latest = this.q.latestOf.get(msg.room_id, owner);
@@ -945,13 +945,30 @@ export class Tasks {
     const m = STANCE_LINE.exec(withoutLeadingMentions(String(msg.text), this.hub.routable()).split('\n', 1)[0]);
     if (m === null || m[2] !== undefined) return false;
     try {
-      // #1598: only the member who read the call can tell a big job; her 【接】 is that call.
-      if (m[1] === '接' && this.staysForStance(call.roomId, call.owner)) return this.toWorkspace(call, msg) !== undefined;
+      if (this.staysForStance(call.roomId, call.owner)) {
+        // #1598: only the member who read the call can tell a big job; her 【接】 is that call.
+        if (m[1] === '接') return this.toWorkspace(call, msg) !== undefined;
+        // Her 【问】 waits for the answer: the answer joins this call and her 【接】 then moves both.
+        if (m[1] === '问') { this.pendingCalls.set(key, { ...call, at: this.now() }); return false; }
+      }
       this.openFromChat({ ...call, source: 'mention' });
     } catch (error) {
       this.hub.logger?.warn?.('collab: pending call failed: %s', error?.message ?? error);
     }
     return false;
+  }
+
+  /**
+   * #1598: record a call waiting for owner's stance. Calls before her reply add up (a job told in
+   * several messages, or a question's answer): the title stays the first one's, her 【接】 moves them all.
+   */
+  addCall(call) {
+    const key = `${call.roomId}\0${call.owner}`;
+    const was = this.pendingCalls.get(key);
+    const fresh = was === undefined || was.lead !== call.lead || this.now() - was.at > PENDING_CALL_S;
+    this.pendingCalls.set(key, fresh
+      ? { ...call, messageIds: [call.messageId], at: this.now() }
+      : { ...was, messageIds: [...(was.messageIds ?? [was.messageId]), call.messageId], at: this.now() });
   }
 
   /** #1598: roomId is a chat channel of the tree (not a DM). */
@@ -981,11 +998,13 @@ export class Tasks {
     if (withoutLeadingMentions(String(msg.text), team).trimStart().startsWith('/')) return;
     const title = taskTitle(String(msg.text), team);
     if (!title) return;
-    const called = this.hub.replyRoute(msg) ?? mentions(String(msg.text), team);
-    for (const owner of called) {
-      if (owner === lead.id || !this.staysForStance(msg.room_id, owner)) continue;
-      this.pendingCalls.set(`${msg.room_id}\0${owner}`, { roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id, at: this.now() });
-    }
+    // Whom the message reaches (DshMembers.plan): its @s or the replied-to member, else the default reply.
+    const only = this.hub.replyRoute(msg);
+    const called = new Set(only ?? mentions(String(msg.text), team));
+    const fallback = this.hub.defaultReplyIn?.(msg.room_id);
+    if (only === null && called.size === 0 && fallback !== undefined) called.add(fallback.id);
+    // The lead herself too: a big job asked of her moves on her own 【接】, the task hers to hand back.
+    for (const owner of called) if (this.staysForStance(msg.room_id, owner)) this.addCall({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id });
   }
 
   /**
@@ -996,8 +1015,8 @@ export class Tasks {
    */
   toWorkspace(call, reply, from) {
     const team = this.hub.routableIn(call.roomId);
-    const trigger = call.messageId == null ? undefined : this.store.message(call.messageId);
-    const body = withoutLeadingMentions(String(trigger?.text ?? ''), team).trim() || call.title;
+    const triggers = (call.messageIds ?? [call.messageId]).filter(id => id != null).map(id => this.store.message(id)).filter(Boolean);
+    const body = triggers.map(t => withoutLeadingMentions(String(t.text ?? ''), team).trim()).filter(Boolean).join('\n\n') || call.title;
     const note = withoutLeadingMentions(String(reply.text), team).trim().replace(/^【接】\s*/, '').trim();
     const name = this.nameOf(call.owner);
     const extra = note ? `\n\n${name}【接】时说：${note}` : '';
@@ -1005,7 +1024,7 @@ export class Tasks {
     const room = MAX_TEXT - body.length;
     const tail = extra.length <= room ? extra : '';
     const prefix = [`【交接】${name}：`, '【交接】'].find(p => p.length <= room - tail.length) ?? '';
-    const attachments = trigger === undefined ? [] : messageAttachments(trigger);
+    const attachments = triggers.flatMap(t => messageAttachments(t));
     const workspace = this.store.createWorkspace(call.roomId);
     this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     const { message } = this.hub.post(workspace.id, {

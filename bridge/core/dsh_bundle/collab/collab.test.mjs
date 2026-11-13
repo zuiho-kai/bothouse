@@ -5863,10 +5863,10 @@ function mentionSetup({ files } = {}) {
   tasks.onWake((id, msg) => members.nudge(id, msg));
   const say = (author, text, room = 1, attachments) => hub.post(room, { authorKind: 'role', author, name: author, text, ...(attachments ? { attachments } : {}) }).message;
   const person = (text, room = 1) => hub.post(room, { authorKind: 'user', author: 'owner', name: '我', text }).message;
-  /** The member's turn on her newest prompt in roomId (its session made for that room). */
-  const answer = async (roomId, text) => {
-    const agent = [...fake.sessions.values()].find(a => a.inbox.nextTurn.length > 0 && hub.store.binding('ds', roomId)?.session_id === a.session.id)
-      ?? [...fake.sessions.values()].find(a => a.inbox.nextTurn.length > 0);
+  /** The member's turn on her oldest pending prompt in roomId (its session made for that room). */
+  const answer = async (roomId, text, member = 'ds') => {
+    const agent = [...fake.sessions.values()].find(a => a.inbox.nextTurn.length > 0 && hub.store.binding(member, roomId)?.session_id === a.session.id);
+    assert.ok(agent, `${member} has a turn waiting in room ${roomId}`);
     fake.turn(agent, [text]);
     await settle();
   };
@@ -5966,6 +5966,53 @@ test('#1598: a person\'s @ answered 【接】 goes to a workspace on behalf of t
   assert.equal(task.created_by, 'ju', 'the channel lead hands it out and accepts it');
   assert.match(hub.store.message(task.assign_msg_id).text, /^【交接】DeepSeek：修登录页$/);
   assert.equal(hub.store.openJobs().find(j => j.member_id === 'ds')?.room_id, ws[0].id);
+});
+
+test('#1598: a person\'s big job for the lead herself moves on her own 【接】', async t => {
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@橘 把发版说明写完并核对每条 PR');
+  await settle();
+  await answer(1, '【接】', 'ju');
+  const ws = workspaces();
+  assert.equal(ws.length, 1, 'the lead\'s 【接】 opens a workspace too');
+  const [task] = tasks.list(1);
+  assert.deepEqual([task.owner, task.created_by, task.room_id], ['ju', 'ju', ws[0].id]);
+  assert.equal(hub.store.openJobs().find(j => j.member_id === 'ju')?.room_id, ws[0].id, 'she is woken there');
+  // A plain message (no @) reaches the lead as well; answered without a stance it opens nothing.
+  person('今天几号');
+  await settle();
+  await answer(1, '十三号', 'ju');
+  assert.equal(tasks.list(1).length, 1);
+});
+
+test('#1598: calls before her reply add up; her 【问】 waits for the answer and 【接】 moves both', async t => {
+  const { hub, members, tasks, say, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  say('ju', '@DeepSeek 重构登录模块并跑测试');
+  person('@DeepSeek 对了，顺手把注册页也看一眼');
+  await settle();
+  await answer(1, '【接】');
+  let [task] = tasks.list(1);
+  assert.equal(task.title, '重构登录模块并跑测试', 'the first call names the task');
+  assert.equal(hub.store.message(task.assign_msg_id).text, '【交接】DeepSeek：重构登录模块并跑测试\n\n对了，顺手把注册页也看一眼', 'both calls ride on the handoff');
+  // Her 【问】 opens nothing; the lead's answer joins the call; her 【接】 then moves one task.
+  await answer(task.room_id, '[report] 好了');
+  tasks.review(task.id, { actor: 'ju', verdict: 'done' });
+  say('ju', '@DeepSeek 修登录页的样式');
+  await settle();
+  await answer(1, '【问】 用哪个分支？');
+  assert.equal(tasks.list(1).filter(x => x.status !== 'done').length, 0, 'her question opens no task');
+  say('ju', '@DeepSeek 用 develop');
+  await settle();
+  await answer(1, '【接】');
+  const open = tasks.list(1).filter(x => x.status !== 'done');
+  assert.equal(open.length, 1, 'one task for the job');
+  task = open[0];
+  assert.equal(task.title, '修登录页的样式');
+  assert.equal(hub.store.room(task.room_id).kind, 'workspace');
+  assert.equal(hub.store.message(task.assign_msg_id).text, '【交接】DeepSeek：修登录页的样式\n\n用 develop');
+  assert.equal(workspaces().length, 1, 'the pooled workspace is used again');
 });
 
 test('#1598: a progress @ while she works in a workspace, a teammate\'s @ and a private chat open nothing', async t => {
