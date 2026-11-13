@@ -260,6 +260,7 @@ func main() {
 }
 
 func runMain() {
+	reapInheritedChildren()
 	if trayMode {
 		defer quitDesktopTray()
 	}
