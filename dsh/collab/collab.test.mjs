@@ -997,6 +997,8 @@ function fakeDsh() {
     permissionPresets: { sets: [], set(session, preset) { this.sets.push([session.id, preset]); } },
     sessionTitle: { renamed: [], rename(s, t) { this.renamed.push(t); } },
     workspaceRegistry: { archivedSessionIds: [], async create(path) { return { path, async attachSession() {} }; } },
+    // DSH delivers a turn's images/files through this; admit what it is given, as DSH does.
+    attachments: { async admitEncodedFile(a) { return a; }, async admitPromptContent(parts) { return parts; } },
     sessionPersistence: { async stat(id) { return deleted.has(id) ? undefined : { header: { id } }; } },
   };
   /** A process restart: every Session is persisted but none is loaded. */
@@ -1022,8 +1024,8 @@ function fakeDsh() {
     if (reason !== null) emit(agent, 'turn/end', { turn: n, reason });
   };
   const createUserMessage = m => ({ ...m, role: 'user', id: `in-${++ids}` });
-  const attach = (hub, list, options) => {
-    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet,
+  const attach = (hub, list, options, files) => {
+    members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet, files,
       mountManagedSkills: (agentCtx, member) => agentCtx.tools?.push(`skills:${member.id}`),
     }, list, options);
     return members;
@@ -5841,15 +5843,15 @@ test('G24: the local workspace command carries a reason into the owner\'s turn i
 // #1745: the lead's @ in a chat channel is a dispatch, and a dispatch is work: it goes into a
 // workspace. The job's room is fixed when plan() creates it, so plan() asks Tasks (dispatchRoom)
 // before that and creates the job on a 【交接】 row in the workspace; fromChat opens the task there.
-function mentionSetup() {
+function mentionSetup({ files } = {}) {
   const hub = makeHub();
   hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
   const fake = fakeDsh();
-  const members = fake.attach(hub, [{ id: 'ju', name: '橘' }, { id: 'ds', name: 'DeepSeek' }]);
+  const members = fake.attach(hub, [{ id: 'ju', name: '橘' }, { id: 'ds', name: 'DeepSeek' }], undefined, files);
   hub.store.setLead(1, 'ju');
   const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
   hub.tasks = tasks;
-  const say = (author, text, room = 1) => hub.post(room, { authorKind: 'role', author, name: author, text }).message;
+  const say = (author, text, room = 1, attachments) => hub.post(room, { authorKind: 'role', author, name: author, text, ...(attachments ? { attachments } : {}) }).message;
   return { hub, fake, members, tasks, say };
 }
 
@@ -5888,6 +5890,34 @@ test('#1745: the lead\'s @ in a chat channel dispatches the job and its task int
   assert.equal(tasks.task(task.id).status, 'returned');
   assert.equal(hub.store.workspaceOwner(ws[0].id), null, 'handed back: the workspace goes to the pool');
   assert.doesNotMatch(hub.store.page(1, undefined, 100).filter(m => m.author === 'ds' && m.author_kind === 'role').map(m => m.text).join('\n'), /修好了/, 'the work stays out of the channel');
+});
+
+// #1745 follow-up (review on #1748): the handoff the workspace turn reads is the whole dispatch —
+// a multi-line ask and its files, not only the title line the card shows.
+test('#1745: a multi-line @ with a file reaches the workspace turn whole', async t => {
+  const { Attachments } = await import('./attachments.mjs');
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-dispatch-')), 'attachments'));
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const saved = files.save([{ name: 'shot.png', mime: 'image/png', data: png.toString('base64') }]);
+  const { hub, fake, members, tasks, say } = mentionSetup({ files });
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  say('ju', '@DeepSeek 修登录页\n背景：输入框在手机上被遮挡\n验收：iPhone 上能看见登录按钮', 1, saved);
+  await settle();
+  const [job] = hub.store.openJobs();
+  const trigger = hub.store.message(job.trigger_id);
+  assert.match(trigger.text, /^【交接】DeepSeek：修登录页\n背景：输入框在手机上被遮挡\n验收：iPhone 上能看见登录按钮$/, 'the body after the leading @ is kept');
+  assert.deepEqual(JSON.parse(trigger.attachments).map(a => a.name), ['shot.png'], 'the file rides on the handoff row');
+  const [task] = tasks.list(1);
+  assert.equal(task.room_id, trigger.room_id);
+  // The workspace turn is fed the handoff row (cursor past the trigger) with its image attached.
+  const agent = fake.sessions.get(fake.made[0]);
+  const prompt = agent.prompts.at(-1);
+  assert.match((prompt?.content ?? []).find(p => p.type === 'text')?.text ?? '', /验收：iPhone 上能看见登录按钮/);
+  assert.equal((prompt?.content ?? []).find(p => p.type === 'image')?.data, png.toString('base64'), 'the file rides along');
+  tasks.close();
 });
 
 test('#1745: a teammate\'s @, a private chat and a later @ while she is busy dispatch nothing', async t => {

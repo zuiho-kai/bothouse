@@ -7,7 +7,7 @@
 // reminder @s the owner when the check time passes without a hand-back; if no
 // waker can reach the owner (cloud-web bot offline, or not reconnected yet after
 // a restart) the reminder stays pending and is delivered once when it comes online.
-import { CollabError, MAX_TEXT } from './store.mjs';
+import { CollabError, MAX_TEXT, messageAttachments } from './store.mjs';
 import { mentions, nameCalled, split, withoutLeadingMentions } from './mentions.mjs';
 import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark, workspaceAskMark } from './team-exit.mjs';
@@ -987,8 +987,17 @@ export class Tasks {
     const workspace = this.store.createWorkspace(msg.room_id);
     const destinations = new Map();
     const rows = [];
+    // The handoff the owner reads is the whole dispatch, not only its title: the body (leading
+    // @s dropped, as on the card) and the files ride on the trigger row, which is the only row
+    // of the chat a workspace turn sees and where turn attachments are read from.
+    const body = withoutLeadingMentions(text, team).trim().slice(0, MAX_TEXT);
+    const attachments = messageAttachments(msg);
     for (const owner of owners) {
-      const { message } = this.store.append(workspace.id, { authorKind: 'system', author: 'system', name: '交接', text: `【交接】${this.nameOf(owner)}：${title}` });
+      const { message } = this.store.append(workspace.id, {
+        authorKind: 'system', author: 'system', name: '交接',
+        text: `【交接】${this.nameOf(owner)}：${body || title}`.slice(0, MAX_TEXT),
+        ...(attachments.length ? { attachments } : {}),
+      });
       const hop = { roomId: workspace.id, messageId: message.id, at: this.now() };
       this.pendingDispatch.set(`${msg.id}\0${owner}`, hop);
       destinations.set(owner, hop);
