@@ -189,6 +189,21 @@ def by_id(last: dict, nid: int):
             "chat": it.get("chat") or "", "project": "", "board": [nid]}
 
 
+def forward_forbid(summary: str):
+    """交接规则里标了 forward 的 forbid_if（如本机 no_verify_feature，#1567），中途转话的摘要也照查；规则读不到不拦。"""
+    try:
+        import _handoff_rules
+        checks = _handoff_rules.load()["checks"]
+    except Exception:
+        return None
+    for c in checks:
+        if c.get("forward") and c.get("forbid_re"):
+            hit = [x.strip() for x in summary.splitlines() if re.search(c["forbid_re"], x)]
+            if hit:
+                return c["msg"].replace("{hit}", "；".join(hit[:3]))
+    return None
+
+
 def main(argv):
     notes, interrupt, nid = None, False, 0
     while argv[:1] and argv[0] in ("--interrupt", "--notes", "--id") and len(argv) > 1:
@@ -204,6 +219,9 @@ def main(argv):
     # 摘要以「-」开头多半是想看用法（11-05 两次把 --help 当摘要转进了工作区），不转。
     if len(argv) != 1 or not argv[0].strip() or argv[0].lstrip().startswith("-"):
         sys.exit('用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"')
+    bad = forward_forbid(argv[0])
+    if bad:
+        sys.exit(f"ws-forward: 没转。{bad}")
     if not _team.LAST.is_file():
         sys.exit(f"ws-forward: 还没跑过 ws-handoff（没有 {_team.LAST}）")
     last = json.loads(_team.LAST.read_text(encoding="utf-8"))
