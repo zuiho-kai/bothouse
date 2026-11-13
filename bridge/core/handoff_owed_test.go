@@ -97,3 +97,50 @@ func TestSealDigestPromptLeavesOpenWorkToRecords(t *testing.T) {
 		}
 	}
 }
+
+// #758 review: an item's state is its current round's. The open board copy wins over an older
+// board-done copy of the same id, and a post or hold of an earlier round (before the item's Bound)
+// does not count for the round now on.
+func TestHandoffReturnedLinesUseCurrentRound(t *testing.T) {
+	dir := t.TempDir()
+	since := time.Date(2026, 11, 14, 0, 0, 0, 0, time.Local)
+	rfc := func(d time.Duration) string { return since.Add(d).UTC().Format(time.RFC3339Nano) }
+	// #41 reworking now: round 1 returned 00:05, posted 00:08, rebound 00:20, not back yet.
+	// #42 round 1 posted 00:05, rebound 00:10, round 2 returned 00:30 and held for the lead.
+	// #43 a hold left from a bind the item no longer has.
+	writeTaskBoard(t, dir, teamTaskBoardFile,
+		`{"id":41,"what":"返工的活","short":"返工","sk":"discord:chat1","status":"在做","bound":"`+rfc(20*time.Minute)+`","returned_at":"`+rfc(5*time.Minute)+`"}`+"\n")
+	writeTaskBoard(t, dir, teamTaskBoardDoneFile, strings.Join([]string{
+		`{"id":41,"what":"返工的活","short":"返工","sk":"discord:chat1","status":"完成","bound":"` + rfc(-10*time.Minute) + `","returned_at":"` + rfc(5*time.Minute) + `"}`,
+		`{"id":42,"what":"二轮待验","short":"二轮","sk":"discord:chat1","status":"完成","bound":"` + rfc(-10*time.Minute) + `","returned_at":"` + rfc(3*time.Minute) + `"}`,
+		`{"id":42,"what":"二轮待验","short":"二轮","sk":"discord:chat1","status":"完成","bound":"` + rfc(10*time.Minute) + `","returned_at":"` + rfc(30*time.Minute) + `"}`,
+		`{"id":43,"what":"旧轮扣着","short":"旧扣","sk":"discord:chat1","status":"完成","bound":"` + rfc(10*time.Minute) + `"}`,
+	}, "\n")+"\n")
+
+	e := NewEngine("cj", &handoffStubAgent{}, []Platform{&stubPlatformEngine{n: "discord"}}, "", LangEnglish)
+	defer e.Stop()
+	e.dataDir = t.TempDir()
+	e.SetTeam(dir, "橘", false)
+	rep, _ := json.Marshal(map[string]time.Time{"41": since.Add(8 * time.Minute), "42": since.Add(5 * time.Minute)})
+	if err := os.WriteFile(filepath.Join(e.dataDir, exitReportedFile), rep, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.teamExit.mu.Lock()
+	recs := e.loadReportsLocked()
+	recs["r42"] = &pendingReport{Board: 42, Held: true, HeldBound: rfc(10 * time.Minute), CreatedAt: since.Add(31 * time.Minute)}
+	recs["r43"] = &pendingReport{Board: 43, Held: true, HeldBound: rfc(-10 * time.Minute), CreatedAt: since.Add(2 * time.Minute)}
+	e.teamExit.mu.Unlock()
+
+	got := e.handoffReturnedLines("discord:chat1:u1", since)
+	if want := "#42 二轮 · 11-14 00:31 交回了，等主角色验收"; !strings.Contains(got, want) {
+		t.Fatalf("lacks %q:\n%s", want, got)
+	}
+	for _, bad := range []string{"#41", "#43", "#42 二轮 · 11-14 00:05"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("has %q (an earlier round's state):\n%s", bad, got)
+		}
+	}
+	if n := strings.Count(got, "#42"); n != 1 {
+		t.Fatalf("#42 listed %d times:\n%s", n, got)
+	}
+}

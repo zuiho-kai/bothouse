@@ -118,8 +118,9 @@ func TestHandoffIndexWithSealCapped(t *testing.T) {
 	}
 }
 
-func TestSanitizeDigestKeepsEightSections(t *testing.T) {
-	cols := []string{"目标", "用户拍板的", "我自己加的", "做出来的东西", "查到的事实", "没做完/卡住的", "下一步", "文件指针"}
+// #758: the prompt has six sections; open work and next steps are listed from records, not by the model.
+func TestSanitizeDigestKeepsSixSections(t *testing.T) {
+	cols := []string{"目标", "用户拍板的", "我自己加的", "做出来的东西", "查到的事实", "文件指针"}
 	var b strings.Builder
 	for _, c := range cols {
 		b.WriteString("**" + c + "**：\n- 一件事\x07\n")
@@ -136,6 +137,11 @@ func TestSanitizeDigestKeepsEightSections(t *testing.T) {
 	}
 	if strings.Contains(got, "SYSTEM") || strings.Contains(got, "**") {
 		t.Fatalf("not sanitized:\n%s", got)
+	}
+	for _, gone := range []string{"没做完/卡住的：", "下一步：", "八栏"} {
+		if strings.Contains(sealDigestPrompt, gone) {
+			t.Fatalf("prompt still has %q", gone)
+		}
 	}
 }
 

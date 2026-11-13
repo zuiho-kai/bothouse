@@ -16,8 +16,8 @@ import (
 // Two lists, both from records:
 //   - 已排的定时: this bot's timers on the channel not yet fired. A promise's receipt is a timer
 //     (promise-guard), keyed by the chat, so it outlives the context; the new one is told it is there.
-//   - 交出去的活有了结果: board items of the channel whose report was posted, is held for the lead, or that
-//     were handed back after the old context's last entry, with when and in what state.
+//   - 交出去的活有了结果: board items of the channel whose current round's report is held for the lead,
+//     was posted, or that were handed back after the old context's last entry, with when and in what state.
 
 // handoffOwed renders both lists as handoff sections ("" when neither has a line).
 func (e *Engine) handoffOwed(sessionKey string, h *SessionHandoff) string {
@@ -84,9 +84,11 @@ func (e *Engine) handoffTimerLines(sessionKey string) string {
 	return cutTeamBoardLines(strings.Join(lines, "\n"), handoffTailRunes, "")
 }
 
-// handoffReturnedLines: board items shown in sessionKey's chat (open or finished) that, after since,
-// had their report posted in the channel, are held for the lead's acceptance, or were handed back.
-// One line each, 「#编号 短名 · 结果」; "" outside team mode or when nothing came back.
+// handoffReturnedLines: board items shown in sessionKey's chat (open or finished) whose current round —
+// the handoff they are bound to now (Bound, as exitReportedForHandoff in team_exit_headline.go) — after
+// since has a report held for the lead, had its report posted in the channel, or was handed back.
+// One line each, 「#编号 短名 · 结果」; "" outside team mode or when nothing came back. An item sent
+// back for rework and not yet returned has no line: its earlier round's post is not this round's.
 func (e *Engine) handoffReturnedLines(sessionKey string, since time.Time) string {
 	dir := e.teamStatusDir()
 	if dir == "" || since.IsZero() {
@@ -98,27 +100,26 @@ func (e *Engine) handoffReturnedLines(sessionKey string, since time.Time) string
 	reported := e.readExitReported()
 	e.teamExit.mu.Unlock()
 	// placed like the board (handoffTaskLines), so shownIn knows each item's chat and its parent
-	items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), append(readTeamTaskBoard(dir), readTeamTaskBoardFile(dir, teamTaskBoardDoneFile)...))
-	seen := map[int]bool{}
+	items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), currentTeamTaskBoardItems(dir))
 	type row struct {
 		at   time.Time
 		line string
 	}
 	var rows []row
-	for i := len(items) - 1; i >= 0; i-- { // board.jsonl first wins over an older board-done copy
-		it := items[i]
-		if seen[it.ID] || !it.shownIn(chat) {
+	for _, it := range items {
+		if !it.shownIn(chat) {
 			continue
 		}
-		seen[it.ID] = true
+		bound, err := time.Parse(time.RFC3339Nano, it.Bound)
+		inRound := func(t time.Time) bool { return t.After(since) && (err != nil || !t.Before(bound)) }
 		var at time.Time
 		state := ""
-		if t, ok := reported[fmt.Sprint(it.ID)]; ok && t.After(since) {
-			at, state = t, "汇报已贴进本频道"
-		} else if e.reportHeldForLead(plat, it.ID) {
+		if held := e.heldReportThisRound(plat, it); held != nil {
 			// still waiting, however long ago it came back
-			at, state = it.ReturnedAt, "交回了，等主角色验收，用户还没看到"
-		} else if it.ReturnedAt.After(since) {
+			at, state = held.CreatedAt, "交回了，等主角色验收，用户还没看到"
+		} else if t, ok := reported[fmt.Sprint(it.ID)]; ok && inRound(t) {
+			at, state = t, "汇报已贴进本频道"
+		} else if inRound(it.ReturnedAt) {
 			at, state = it.ReturnedAt, "交回了"
 		}
 		if state == "" {
@@ -135,4 +136,38 @@ func (e *Engine) handoffReturnedLines(sessionKey string, since time.Time) string
 		lines[i] = r.line
 	}
 	return cutTeamBoardLines(strings.Join(lines, "\n"), handoffTailRunes, "")
+}
+
+// currentTeamTaskBoardItems: one record per board item, its current one. An item on board.jsonl is
+// open now (reopened for rework, say) and wins over any copy in board-done.jsonl; among done copies
+// the last line, the newest close, wins.
+func currentTeamTaskBoardItems(dir string) []teamTaskBoardItem {
+	items := readTeamTaskBoard(dir)
+	have := make(map[int]bool, len(items))
+	for _, it := range items {
+		have[it.ID] = true
+	}
+	done := readTeamTaskBoardFile(dir, teamTaskBoardDoneFile)
+	var older []teamTaskBoardItem
+	for i := len(done) - 1; i >= 0; i-- {
+		if !have[done[i].ID] {
+			have[done[i].ID] = true
+			older = append(older, done[i])
+		}
+	}
+	return append(items, older...)
+}
+
+// heldReportThisRound: the report held for the lead of platform for board item it, when it belongs
+// to the item's current handoff (a hold made under another bind is an earlier round's).
+func (e *Engine) heldReportThisRound(platform string, it teamTaskBoardItem) *pendingReport {
+	owner := e
+	if lead := e.reportLead(platform); lead != nil {
+		owner = lead
+	}
+	rec := owner.heldReportFor(it.ID)
+	if rec == nil || rec.HeldBound != "" && it.Bound != "" && rec.HeldBound != it.Bound {
+		return nil
+	}
+	return rec
 }
