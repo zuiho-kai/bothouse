@@ -21,15 +21,18 @@ type tooLongAgent struct {
 	sent     []string // prompts, in order, across sessions
 	sentBy   []string // session ID per send
 	starts   []string // resume ID per StartSession
+	settings []SessionSettings // per StartSession (#1562: which provider a workspace started on)
 	release  chan struct{}
 	handoffs map[string]*SessionHandoff
 }
 
 func (a *tooLongAgent) Name() string { return "stub" }
-func (a *tooLongAgent) StartSession(_ context.Context, resume string) (AgentSession, error) {
+func (a *tooLongAgent) StartSession(ctx context.Context, resume string) (AgentSession, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.starts = append(a.starts, resume)
+	st, _ := SessionSettingsFromContext(ctx)
+	a.settings = append(a.settings, st)
 	return &tooLongSession{a: a, id: fmt.Sprintf("s%d", len(a.starts)), events: make(chan Event, 8), alive: true}, nil
 }
 func (a *tooLongAgent) ListSessions(_ context.Context) ([]AgentSessionInfo, error) { return nil, nil }
@@ -67,6 +70,8 @@ func (s *tooLongSession) Send(prompt string, _ string, _ []ImageAttachment, _ []
 	emit := func(next string) {
 		if next == "long" {
 			s.events <- Event{Type: EventError, Error: errors.New(tooLongErrText)}
+		} else if next == "toolarge" { // #1562: the CLI's text for the provider proxy's 413
+			s.events <- Event{Type: EventResult, Content: "Request too large (max 32MB). Accumulated images and attachments in the conversation pushed the request over the limit.", Done: true, Metadata: map[string]any{MetaResultIsError: true}}
 		} else if next == "refuse" {
 			s.events <- Event{Type: EventResult, Content: refusalText, Done: true, Metadata: map[string]any{MetaResultIsError: true}}
 		} else {

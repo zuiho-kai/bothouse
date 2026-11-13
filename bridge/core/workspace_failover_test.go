@@ -165,7 +165,7 @@ func TestSystemFoldProxyStopsSecondContextExceeded(t *testing.T) {
 		t.Fatalf("first: %d", code)
 	}
 	code, body := post()
-	if code != 400 || !IsLocalContextExceededError(body) {
+	if code != 413 || !IsLocalContextExceededError(body) {
 		t.Fatalf("second: %d %s", code, body)
 	}
 	fail = false
@@ -205,6 +205,10 @@ func TestTakeCheapLaneFailure(t *testing.T) {
 	if e.takeCheapLaneFailure(&interactiveState{}, nil, ev, nil, "discord:ws1") {
 		t.Fatal("second failure of a moved task taken")
 	}
+	tooLarge := Event{Type: EventResult, Done: true, Content: "Request too large (max 32MB). Accumulated images", Metadata: map[string]any{MetaResultIsError: true}}
+	if !isAPIErrorResult(tooLarge) || cheapFailureLabel(tooLarge.Content) != "上下文超限" {
+		t.Fatal("CLI 413 wording not taken as the context stop")
+	}
 	// the forced task now routes direct
 	if why, ok := forcedWorkspaceRoute(9); !ok || why != "moved" {
 		t.Fatal("not forced")
@@ -220,5 +224,48 @@ func TestTakeCheapLaneFailure(t *testing.T) {
 	}
 	if got := sessionOfInteractiveKey("/Users/x/work:discord:ws1"); got != "discord:ws1" {
 		t.Fatalf("interactive key: %q", got)
+	}
+}
+
+// #1562 replay through the engine: a Qwen workspace turn ends with the proxy's context stop; the
+// bridge re-runs it once on a fresh session on the lead model with the handoff file only, and
+// says so in the workspace.
+func TestCheapLaneFailoverRerunsOnLeadModel(t *testing.T) {
+	stubRouteProbe(t, true)
+	dir := t.TempDir()
+	big := bigRouteFile(t, dir)
+	handoff := filepath.Join(dir, "h.md")
+	if err := os.WriteFile(handoff, []byte("## 范围\n- 改："+big+" 读私有仓库，跑测试\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := &stubPlatformEngine{n: "test"}
+	e, a := newTooLongEngine(t, p, "toolarge", "second")
+	tmp := routeTestEngine(t, []teamTaskBoardItem{{ID: 1546, Short: "模拟盘进出场", Where: handoff, WS: "test:c1", Chat: "test:main", Bound: "2026-11-13T09:54:00+09:00"}})
+	e.team, e.dataDir = &teamState{dir: tmp.team.dir, seen: map[string]*teamSession{}}, tmp.dataDir
+	e.workspaceChatForTest = func(s string) bool { return teamChatKey(s) == "test:c1" }
+	e.SetWorkspaceExec("local-qwen", "qwen27b")
+
+	e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", UserID: "u", UserName: "u", Content: "开工", ReplyCtx: "ctx"})
+	waitFor(t, "re-run reply", func() bool { return strings.Contains(joined(p), "reply:second") })
+
+	sent, by, starts := a.snapshot()
+	if len(sent) != 2 || by[0] != "s1" || by[1] != "s2" || starts[1] != "" {
+		t.Fatalf("sends %q on %q starts %q", sent, by, starts)
+	}
+	a.mu.Lock()
+	settings := append([]SessionSettings(nil), a.settings...)
+	a.mu.Unlock()
+	if len(settings) != 2 || settings[0].Provider != "local-qwen" || settings[1].Provider != "" {
+		t.Fatalf("providers per start: %+v, want local-qwen then the lead model", settings)
+	}
+	if !strings.Contains(sent[1], handoff) || !strings.HasSuffix(sent[1], "开工") || strings.Contains(sent[1], handoffHead) {
+		t.Fatalf("re-run prompt must carry the handoff file and the message, no old-session handoff:\n%s", sent[1])
+	}
+	out := joined(p)
+	if !strings.Contains(out, "千问上上下文超限") || !strings.Contains(out, "#1546") {
+		t.Fatalf("no visible failover notice:\n%s", out)
+	}
+	if r, _ := cachedWorkspaceRoute("test:c1"); r.cheap {
+		t.Fatalf("task still routed cheap: %+v", r)
 	}
 }

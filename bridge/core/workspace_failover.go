@@ -46,7 +46,14 @@ func isAPIErrorResult(event Event) bool {
 	}
 	text := strings.TrimSpace(event.Content)
 	isErr, _ := event.Metadata[MetaResultIsError].(bool)
-	return strings.HasPrefix(text, "API Error") || (isErr && IsLocalContextExceededError(text))
+	return strings.HasPrefix(text, "API Error") || (isErr && (IsLocalContextExceededError(text) || isCLIRequestTooLarge(text)))
+}
+
+// isCLIRequestTooLarge: Claude Code's own wording for a 413 (the provider proxy's stop after two
+// context-exceeded answers, providerproxy.go), which replaces the upstream message. Source: claude
+// 2.1.323 against the proxy, 11-13: "Request too large (max 32MB). Accumulated images ...".
+func isCLIRequestTooLarge(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "Request too large")
 }
 
 // noteWorkspaceTurnOutcome records how a workspace turn ended: for the watch (a failed turn is
@@ -121,7 +128,7 @@ func (s *interactiveState) takeCheapFailed() (string, *queuedMessage) {
 
 // cheapFailureLabel: what the chat line calls the failure.
 func cheapFailureLabel(errMsg string) string {
-	if IsLocalContextExceededError(errMsg) || isLocalContextExceeded(errMsg) {
+	if IsLocalContextExceededError(errMsg) || isLocalContextExceeded(errMsg) || isCLIRequestTooLarge(errMsg) {
 		return "上下文超限"
 	}
 	return "API 报错"

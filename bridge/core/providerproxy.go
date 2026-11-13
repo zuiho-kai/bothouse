@@ -248,8 +248,9 @@ func foldSystemTurns(data map[string]any) bool {
 // request then answered 500 "Context size has been exceeded", which Claude Code treats as a
 // server error and retries (10 times, about 4m40s each); the turn ended after 56 and 65
 // minutes. The same prompt fails the same way, so on the second such answer in a row the
-// session-provider proxy turns it into a 400 the CLI does not retry: the turn ends at once
-// with an API error, and the engine moves the task to the lead model
+// session-provider proxy turns it into a 413 the CLI does not retry: the turn ends at once
+// (claude 2.1.323 replay 11-13: two upstream requests, then the result "Request too large …",
+// is_error; a 400 instead was retried with other betas, 12 requests), and the engine moves the task to the lead model
 // (workspace_failover.go).
 
 // localContextExceededPhrases: lower-cased upstream error texts for a full context window.
@@ -299,10 +300,10 @@ func stopContextExceededRetries(resp *http.Response, n *atomic.Int32, target str
 	}
 	n.Store(0)
 	msg, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{
-		"type":    "invalid_request_error",
+		"type":    "request_too_large",
 		"message": LocalContextExceededText + " (" + strings.TrimSpace(string(body)) + ")",
 	}})
-	resp.StatusCode, resp.Status = http.StatusBadRequest, "400 Bad Request"
+	resp.StatusCode, resp.Status = http.StatusRequestEntityTooLarge, "413 Request Entity Too Large"
 	resp.Header.Set("Content-Type", "application/json")
 	resp.Header.Del("Content-Encoding")
 	resp.Header.Set("Content-Length", fmt.Sprint(len(msg)))
