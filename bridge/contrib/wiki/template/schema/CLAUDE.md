@@ -35,6 +35,10 @@ Only these four `##` sections (a date suffix like `## Current state (2026-10-11)
 The section names are fixed: `bin/lint.py` checks them for the `language` set in `config.json` (this schema is
 for `"en"`; `"zh"` uses 现状 / 关键事实 / 决策与踩坑 / 待办, see `schema/CLAUDE.zh-CN.md`).
 One bullet = one fact, ≤ 300 chars per line — group with nested bullets, not long sentences.
+Fact lines may carry an optional provenance tag at the end: `｜源：亲验 · <how verified>`,
+`｜源：转述 · <who said it>`, or `｜源：原话 · <YYYY-MM-DD>`. Omitting the tag is legal.
+A tag does not replace the required verbatim USER quote. `bin/lint.py` validates tag syntax when
+present: value must be one of 亲验/转述/原话; 转述 requires a name after ` · `.
 Claude Code's memory system adds `node_type`/`originSessionId`/`modified` under
 `metadata` when it writes here — that's expected; keep `scope` under `metadata` too. Write in the user's language.
 
