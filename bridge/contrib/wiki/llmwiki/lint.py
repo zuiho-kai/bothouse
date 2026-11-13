@@ -17,7 +17,7 @@ MAX_TOPICS, README_LINE = 15, 120
 PAGE_LINES, PAGE_CHARS = 159, 13874
 MAX_DEPTH = 5
 WARN = 0.8
-SPLIT_AT = 0.9
+SPLIT_AT = WARN  # source: #757 user-approved 八成 split line; ingest splits where --warn starts listing
 BODY_LINE = 300  # one bullet = one fact; longer lines dodge PAGE_LINES and are unreadable
 SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办", "历史")  # 历史 optional: superseded lines kept verbatim (invalidate.py)
 # verification bookkeeping that leaked onto a page instead of fixing the fact
