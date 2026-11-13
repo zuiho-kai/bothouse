@@ -124,9 +124,20 @@ tests/qq-resilience/run.sh --binary /tmp/qq-resilience-bothouse
 macOS 的 Unix socket 路径长度有限；复跑时可设置 `TMPDIR=/private/tmp`，避免长临时目录
 导致夹具在断言前失败。这种环境失败不算红例。
 
+```sh
+# 从最终代码运行同一组新测试；仅用 overlay 还原四个运行时文件，不改工作树。
+TMPDIR=/private/tmp bridge/tests/qq-resilience/run.sh \
+  --media-negative-control 590a4aa237d49be195ade8ef257f2aee471f586a \
+  --binary /absolute/path/to/built-bothouse
+```
+
 Windows CI 的 `bridge-windows` 新增 `QQ package and candidate CLI (ACP media and receipts)`
 步骤，先构建候选 exe，再实际运行 `go test -tags no_web -count=1 -timeout 5m -v ./platform/qq/`，
 并通过 `QQ_RESILIENCE_BINARY` 启用候选程序用例。这是执行检查，不以交叉编译代替。
 Windows 实跑结果及对应提交由覆盖 PR 的检查记录保存；步骤通过之前不声称 Windows 已验证。
+
+首次 Windows 实跑已执行两条媒体回归和候选 CLI（均通过），QQ 整包仅失败在既有的
+`TestSaveImagesDir`：期望值用字符串拼接 `/`，实际正确保存为 Windows 的本机路径。
+覆盖 PR 将该断言改为 `filepath.Join`，不改保存图片的实现；首次失败作为测试兼容性的红例保留。
 
 真实 NapCat、正式签名发布包和历史截图同一请求的因果链仍不在这次验证范围。
