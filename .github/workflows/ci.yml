@@ -356,6 +356,15 @@ jobs:
           python-version: '3.12'
       - name: Windows Go tests
         run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebParentPIDWindows|TestDSHWebCommandLineNativeWindows|TestDSHWebOwnedWhenTheRecordedPIDLaunchedTheListener|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
+      - name: QQ package and candidate CLI (ACP media and receipts)
+        # #1749: run on Windows, including the real candidate binary, rather than only cross-compile.
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          QQ_RESILIENCE_BINARY: ${{ runner.temp }}/qq-resilience.exe
+        run: |
+          go build -tags no_web -o "$QQ_RESILIENCE_BINARY" ./cmd/cc-connect
+          go test -tags no_web -count=1 -timeout 5m -v ./platform/qq/
       - name: gate Windows compat
         if: ${{ !cancelled() }}
         run: python -I contrib/gate/test_windows_compat.py

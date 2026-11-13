@@ -18,7 +18,7 @@ done
 cd "$bridge"
 evidence=$(mktemp -d "${TMPDIR:-/tmp}/qq-resilience.XXXXXX")
 echo "evidence: $evidence"
-cases='^(TestQQACP|TestSlowUpstreamWriteDoesNotStallOtherConversations|TestSlowReceiptDoesNotBlockOtherConversations|TestDisconnectDuringReceiptFailsWithoutReplay|TestRateLimitedSendIsSurfacedOnceWithoutReplay|TestCancelledMultiPartSendStopsRemainingBubbles|TestMediaStaysInItsOwnConversation|TestMediaOnlyTurnSendsNoEmptyBubble|TestDisconnectedReceiptsReleaseWithoutReplay|TestStopReleasesPendingReceipt|TestStopDuringReconnectDoesNotOpenNewSocket)$'
+cases='^(TestQQACP|TestQQACPMediaOnly|TestQQMediaErrors|TestSlowUpstreamWriteDoesNotStallOtherConversations|TestSlowReceiptDoesNotBlockOtherConversations|TestDisconnectDuringReceiptFailsWithoutReplay|TestRateLimitedSendIsSurfacedOnceWithoutReplay|TestCancelledMultiPartSendStopsRemainingBubbles|TestMediaStaysInItsOwnConversation|TestMediaOnlyTurnSendsNoEmptyBubble|TestDisconnectedReceiptsReleaseWithoutReplay|TestStopReleasesPendingReceipt|TestStopDuringReconnectDoesNotOpenNewSocket)$'
 if [ -n "$negative" ]; then
   git show "$negative:bridge/platform/qq/qq.go" > "$evidence/qq.go"
   python3 - "$bridge/platform/qq/qq.go" "$evidence" <<'PY'
@@ -42,7 +42,7 @@ go test -race -tags no_web ./platform/qq -run "$cases" -count=1 -timeout=180s -v
   || { cat "$evidence/green.log"; exit 1; }
 grep -E -- '--- PASS:|^ok' "$evidence/green.log"
 if [ -n "$binary" ]; then
-  QQ_RESILIENCE_BINARY="$binary" go test -tags no_web ./platform/qq -run '^TestQQBinary$' \
-    -count=1 -timeout=45s -v > "$evidence/binary.log" 2>&1 || { cat "$evidence/binary.log"; exit 1; }
+  QQ_RESILIENCE_BINARY="$binary" go test -tags no_web ./platform/qq -run '^TestQQBinary(Media)?$' \
+    -count=1 -timeout=90s -v > "$evidence/binary.log" 2>&1 || { cat "$evidence/binary.log"; exit 1; }
   cat "$evidence/binary.log"
 fi
