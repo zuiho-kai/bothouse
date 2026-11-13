@@ -34,6 +34,9 @@ metadata:
 按 `config.json` 里的 `language` 检查（本 schema 对应 `"zh"`；`"en"` 用 Current state / Key facts / Decisions & pitfalls /
 Open items，见 `schema/CLAUDE.md`）。
 一条 bullet 一个事实，每行 ≤ 300 字符；用嵌套 bullet 分组，不写长句。
+事实行末尾可带可选的信源标注：`｜源：亲验 · <怎么核的>`、`｜源：转述 · <谁说的>`、`｜源：原话 · <YYYY-MM-DD>`。
+不标仍合法（向后兼容）。标注不能替代必须引用的 USER 原话。`bin/lint.py` 检查标注格式：
+取值只能是 亲验/转述/原话；转述必须在 ` · ` 后带名字。
 Claude Code 的记忆系统写入时会在 `metadata` 下加 `node_type`/`originSessionId`/`modified`，这是正常的；
 `scope` 也放在 `metadata` 下。用用户的语言写。
 
