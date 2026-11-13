@@ -17,3 +17,10 @@
 .route p { margin: 6px 0 !important; font-size: 14px; line-height: 1.6; }
 .route .go { display: inline-block; margin-top: 8px; font-weight: 600; }
 .route.wip { opacity: .8; }
+@media (min-width: 960px) {
+  .VPHero .image-container { width: 520px; height: auto; transform: none; }
+}
+.VPHero .image-container { height: auto; }
+.VPHero .image-bg { display: none; }
+.VPHero .image-src { position: static; transform: none; max-width: 100%; max-height: none; border-radius: 18px; box-shadow: 0 12px 40px rgba(60, 40, 120, .18); }
+.vp-doc img { cursor: zoom-in; }
