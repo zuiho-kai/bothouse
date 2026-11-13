@@ -59,6 +59,12 @@ class T(unittest.TestCase):
             self.assertEqual(cf.unknown_name(s), "", s)
         self.assertTrue(cf.unknown_name("这个 ZCode 我没听说过是什么产品"))
 
+    def test_unknown_name_search_in_earlier_turn_does_not_count(self):
+        old = {"type": "tool_use", "name": "WebSearch", "input": {"query": "agent news"}, "_earlier": True}
+        with patch.object(cf, "turn", return_value=(self.MUSE, [old], "看 muse")), \
+             patch.object(cf, "_team_chat", return_value=True), patch.object(cf.intent_judge, "_log"):
+            self.assertIn("先搜", cf.check({"transcript_path": "x"}))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,6 +44,8 @@ UNKNOWN_REASON = ("你在回复里说不认识：「{m}」，这一轮一次网�
 def searched(tools):
     """本轮有没有上网搜过/打开过网页（含派子 agent 去搜）。"""
     for b in tools:
+        if b.get("_earlier"):
+            continue
         name = b.get("name") or ""
         inp = b.get("input") or {}
         if SEARCH_NAME.search(name):
@@ -128,6 +130,8 @@ def turn(path):
                 if b.get("type") == "text" and not earlier:
                     texts.append(b.get("text", ""))
                 elif b.get("type") == "tool_use":
+                    if earlier:
+                        b["_earlier"] = True  # 前几轮的调用：「不认识先搜」只认本轮搜过（11-13 那条前一轮搜过别的事）
                     tools.append(b)
     return "\n".join(reversed(texts)), list(reversed(tools)), user
 
