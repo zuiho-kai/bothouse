@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { Store, publicMessage } from './store.mjs';
+import { Store, publicMessage, MAX_TEXT } from './store.mjs';
 import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
@@ -5917,6 +5917,25 @@ test('#1745: a multi-line @ with a file reaches the workspace turn whole', async
   const prompt = agent.prompts.at(-1);
   assert.match((prompt?.content ?? []).find(p => p.type === 'text')?.text ?? '', /验收：iPhone 上能看见登录按钮/);
   assert.equal((prompt?.content ?? []).find(p => p.type === 'image')?.data, png.toString('base64'), 'the file rides along');
+  tasks.close();
+});
+
+// #1751 review: a dispatch at the length cap must keep its whole body — the prefix gives way, the
+// last line ("禁止部署") is never cut off with it.
+test('#1745: a dispatch at the length cap keeps its whole body', async t => {
+  const { hub, tasks, say } = mentionSetup();
+  t.after(async () => { tasks.close(); hub.store.close(); });
+  const tail = '\n最后：禁止部署';
+  const body = '修登录页\n' + 'x'.repeat(MAX_TEXT - '@DeepSeek '.length - '修登录页\n'.length - tail.length) + tail;
+  const text = `@DeepSeek ${body}`;
+  assert.equal(text.length, MAX_TEXT, 'the chat row is exactly at the cap');
+  say('ju', text);
+  await settle();
+  const [job] = hub.store.openJobs();
+  const trigger = hub.store.message(job.trigger_id);
+  assert.ok(trigger.text.endsWith(tail), 'the body ends whole, its last line included');
+  assert.ok(trigger.text.length <= MAX_TEXT, 'and the row still fits');
+  assert.ok(/^【交接】/.test(trigger.text), 'the prefix shrinks to fit, it does not vanish');
   tasks.close();
 });
 
