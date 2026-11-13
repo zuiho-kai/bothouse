@@ -7,6 +7,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+const tick = () => new Promise(r => setImmediate(r));
+
 // the fake CLI is a #! script, which Windows cannot run by name
 test('spawn failure retries after the missing directory is created', { timeout: 5000, skip: process.platform === 'win32' }, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'cli-retry-'));
@@ -105,6 +107,32 @@ test('persona is prepended on every turn', async () => {
   await m.ask('one', 'r1');
   await m.ask('two', 'r1');
   assert.deepEqual(calls.prompts.map(p => p.prompt[0].text), ['PERSONA\n\none', 'PERSONA\n\ntwo']);
+});
+
+test('cancel sends ACP session/cancel for the room turn that is waiting on its prompt', async () => {
+  const m = new CliMember({ cli: 'claude', cwd: '/tmp', persona: '' });
+  const notified = [];
+  let finish;
+  m._start = async () => {
+    m.ready = Promise.resolve({});
+    m.exited = new Promise(() => {});
+    const end = (resolve) => { m.buffers.set('s-live', ''); resolve({ stopReason: 'cancelled' }); };
+    m.conn = {
+      newSession: async () => ({ sessionId: 's-live' }),
+      notify: (method, params) => { notified.push([method, params]); },
+      prompt: () => new Promise(resolve => { finish = () => end(resolve); }),
+    };
+    return m.ready;
+  };
+  const run = m.ask('长活', '7');
+  for (let i = 0; i < 20 && finish === undefined; i++) await tick();
+  assert.equal(m.cancel('7'), true, 'the turn in this room is live');
+  assert.deepEqual(notified, [['session/cancel', { sessionId: 's-live' }]]);
+  finish();
+  await run;
+  assert.equal(m.cancel('7'), false, 'no turn is waiting once the prompt settles');
+  assert.equal(m.cancel('8'), false, 'a room with no session has nothing to cancel');
+  assert.equal(notified.length, 1, 'nothing is sent for an idle member');
 });
 
 test('cleanEnv drops the outer Claude Code session markers but keeps the env-var sign-in', () => {

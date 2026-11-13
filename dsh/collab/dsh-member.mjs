@@ -453,6 +453,7 @@ export class DshMembers {
     this.hooked = new WeakSet();
     /** JSON([memberId, cwd, roomId]) -> { memberId, roomId, cli, agent } live local CLI agents. */
     this.cliAgents = new Map();
+    this.cliTurns = new Map(); // jobId -> the CliMember whose ACP prompt that job is waiting on
     // Releasing a workspace retains its bindings for rework, but needs no resident CLI.
     this.store.onWorkspaceRelease(roomId => this.dropRoomCli(roomId));
     /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
@@ -551,8 +552,8 @@ export class DshMembers {
    * ends quietly, with no reply and no failure card: a queued one is closed, an
    * input still waiting in the member's inbox is taken back, and a turn already
    * running is cancelled the way DSH's stop button does (keepInbox, so the
-   * member's later inputs still run). Jobs this cannot reach (a CLI member's
-   * ask) keep running.
+   * member's later inputs still run); a CLI member's turn is cancelled through
+   * its ACP session.
    * @returns { stopped, running } member ids whose turn was cancelled / left running.
    */
   recall(triggerId) {
@@ -563,7 +564,7 @@ export class DshMembers {
    * #148 / #299: end every open job `match` accepts. A queued one is closed, one
    * still waiting in the member's inbox is taken back, and a turn already running
    * is cancelled the way DSH's stop button does (keepInbox, so the member's later
-   * inputs still run). Jobs it cannot reach (a CLI member's ask) keep running.
+   * inputs still run); a CLI member's turn is cancelled through its ACP session.
    * The one cancel path behind both "the owner withdrew the message" and "/stop".
    * @returns { stopped, running } member ids whose turn was cancelled / left running.
    */
@@ -573,6 +574,18 @@ export class DshMembers {
     for (const job of this.store.openJobs()) {
       if (!match(job)) continue;
       if (job.state === 'pending') { this.store.finishJob(job.id, 'interrupted'); this.syncQueue(job.member_id, job.room_id); continue; }
+      // A CLI member's job has no inbox input and no DSH watcher (runCli); its turn runs in the
+      // member's ACP session for the room. #148/#299 stop it with ACP session/cancel instead.
+      const member = this.config.get(job.member_id);
+      if (member?.cli !== undefined) {
+        // Close the job as the cancel goes out: the ACP prompt settles with a cancelled stop
+        // reason, and runCli's settle path sees the job is no longer 'sent' and posts nothing.
+        if (!this.cancelCliTurn(member, job.room_id, job.id)) { running.push(job.member_id); continue; }
+        if (this.store.finishJob(job.id, 'interrupted') === false) { running.push(job.member_id); continue; }
+        this.approvals.expireWhere(p => p.meta?.jobId === job.id);
+        stopped.push(job.member_id);
+        continue;
+      }
       const w = this.watching.get(job.session_id);
       const agent = job.input_id ? this.rt.ctx.agents.get(job.session_id) : undefined;
       if (w?.jobId !== job.id || agent === undefined) { running.push(job.member_id); continue; }
@@ -587,6 +600,20 @@ export class DshMembers {
       stopped.push(job.member_id);
     }
     return { stopped, running };
+  }
+
+  /** The CLI agent entry running member `memberId`'s turn in `roomId`, if one is alive. */
+  cliEntryFor(memberId, roomId) {
+    for (const entry of this.cliAgents.values()) if (entry.memberId === memberId && entry.roomId === roomId) return entry;
+    return undefined;
+  }
+
+  /** Ask the member's ACP session in this room to cancel its running turn; false when none is. */
+  cancelCliTurn(member, roomId, jobId) {
+    const entry = this.cliEntryFor(member.id, roomId);
+    const turn = this.cliTurns.get(jobId);
+    if (entry === undefined || turn === undefined || turn !== entry.agent) return false;
+    return entry.agent.cancel(String(roomId)) !== false;
   }
 
   /**
@@ -922,7 +949,10 @@ export class DshMembers {
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
       // #197: a file over the bot connection cap is not inlined; the CLI reads it from disk.
       const bigNote = oversizedNote(this.rt.files?.oversized(unseen.flatMap(messageAttachments)));
+      this.cliTurns.set(job.id, entry.agent);
       const text = (await entry.agent.ask(`${prompt}${bigNote ? `\n${bigNote}` : ''}`, String(room.id), onText, onTool, { resumeId, onSession, onPermission, model: member.model, cliConfig: member.cliConfig, cliConfigManaged: member.cliConfigManaged, attachments: attachmentBlocks(this.rt.files, unseen) }))?.trim();
+      // A /stop or a recall closed this job while the prompt was running: the reply is not wanted.
+      if (this.store.job(job.id)?.state !== 'sent') return;
       if (this.closed) return;
       this.hub.quota?.observe(member.id, room.id, { error: text });
       if (!text) { this.fail(job.id, `${member.name} 这一轮没有给出回复（${member.cli} 没有输出文字）`); return; }
@@ -951,6 +981,7 @@ export class DshMembers {
       if (detail) throw Object.assign(new Error(detail, { cause: error }), { code: error.code, data: error.data });
       throw error;
     } finally {
+      this.cliTurns.delete(job.id);
       turnOver.abort();
       latest = '';
       progress.end(done ? 'completed' : 'failed');
@@ -1392,6 +1423,7 @@ export class DshMembers {
     this.watching.clear();
     for (const { agent } of this.cliAgents.values()) agent.close();
     this.cliAgents.clear();
+    this.cliTurns.clear();
     // A queue still waiting on the host (for example a resume during shutdown) must not block unload forever.
     let timer;
     const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_TIMEOUT_MS); });
