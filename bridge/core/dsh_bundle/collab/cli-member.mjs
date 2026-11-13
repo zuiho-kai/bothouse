@@ -353,6 +353,20 @@ export class CliMember {
     }
   }
 
+  /**
+   * 叫停该房间当前这一轮：发 ACP session/cancel 通知（协议里的 prompt-turn 取消），会话本身留着，
+   * CLI 应中止在跑的工具/模型调用并以 cancelled 结束 prompt。不在这一轮里（没有会话或还没发 prompt）
+   * 返回 false；取消通知是通知，不等回复，调用方不用等它。
+   */
+  cancel(room = 'default') {
+    const s = this.sessions.get(room)
+    if (!s || !this.conn || !this.buffers.has(s.sessionId)) return false
+    // ClientSideConnection has no typed cancel (that lives on AgentSideConnection); the raw notify
+    // path sends the same session/cancel notification the bridge's CancelTurn does.
+    Promise.resolve(this.conn.notify('session/cancel', { sessionId: s.sessionId })).catch(() => {})
+    return true
+  }
+
   close() {
     stopProcess(this.proc)
     this.sessions.clear()
