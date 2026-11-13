@@ -19,7 +19,10 @@ import { ChannelApprovals } from './approvals.mjs';
 // #149: without GATE_PORT the gate context reads the install's config.toml. A test that is not about
 // that must not reach the live gate because the shell running it has BOTHOUSE_DATA_DIR/CC_DATA_DIR set
 // (a bridge-started shell does). The #149 test below points this at its own temp config.
+// #1730: a bridge-started shell also exports GATE_PORT; clear it so tests before the #149 block do
+// not resolve the live gate port and hit the running instance.
 process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
+delete process.env.GATE_PORT;
 
 test('workspace approval shares one decision with its parent channel', async () => {
   const store = new Store(':memory:');
