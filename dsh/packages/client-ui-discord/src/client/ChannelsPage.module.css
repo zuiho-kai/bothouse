@@ -356,6 +356,22 @@
   font-weight: 600;
 }
 
+.cardDetail {
+  margin-top: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.cardDetail summary {
+  cursor: pointer;
+}
+
+.cardDetail pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .cardHead {
   display: flex;
   align-items: center;
@@ -1533,6 +1549,10 @@
   background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));
 }
 
+.taskStatus[data-status='failed'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
 .taskStatus[data-status='done'],
 .taskStatus[data-status='cancelled'],
 .taskStatus[data-status='superseded'] {
@@ -1721,6 +1741,7 @@
 .errorBar .cardButtons { margin: 0 0 0 auto; }
 .errorBar .secondaryButton { padding: 3px 10px; font-size: 12px; }
 .errorBar[data-state='retried'] { opacity: .65; }
+.errorBar .cardDetail { flex-basis: 100%; order: 3; margin: 0 0 0 28px; }
 .errorIcon { display: grid; flex: none; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: #fff; background: var(--dsw-alias-state-error-primary); font-size: 12px; font-weight: 700; }
 .errorText { flex: 1 1 200px; min-width: 0; color: var(--dsw-alias-label-primary); }
 .errorText p { margin: 0; }

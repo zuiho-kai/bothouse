@@ -1,7 +1,7 @@
 {
   "qq": {
     "setupTitle": "QQ に接続",
-    "setupHint": "既存の OneBot / NapCat 接続または QQ 公式 Bot の認証情報を使用します。保存だけでは接続を確認できません。",
+    "setupHint": "QQ オープンプラットフォーム（q.qq.com）で取得した AppID と AppSecret で接続します。NapCat も個人の QQ ログインも不要です。保存だけでは接続を確認できません。",
     "route": "接続方式",
     "official": "QQ 公式 Bot",
     "projectID": "新しいロール ID",

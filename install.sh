@@ -134,15 +134,19 @@ main() {
     if [ -n "$first" ] && [ "$first" != "$INSTALL_DIR/bothouse" ]; then
       say "WARNING: typing 'bothouse' runs another copy first: $first"
       say "  ($("$first" --version 2>/dev/null | head -n 1 || echo 'unknown version')) — an older or upstream build without the setup wizard."
-      say "  Remove it, or put $INSTALL_DIR first on your PATH:"
+      say "  Fix: copy this line into your terminal (puts $INSTALL_DIR first, now and in new terminals):"
     else
-      say "$INSTALL_DIR is not on your PATH. Add it:"
+      say "$INSTALL_DIR is not on your PATH. Fix: copy this line into your terminal:"
     fi
     case "${SHELL:-}" in
       */bash) rc="$HOME/.bashrc" ;;
       *) rc="$HOME/.zshrc" ;;
     esac
-    say "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc && . $rc"
+    # one line that works as pasted: this shell (export + hash -r drops the cached old path) and new ones (rc)
+    say ""
+    say "  export PATH=\"$INSTALL_DIR:\$PATH\"; hash -r; echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc"
+    say ""
+    say "Then check: command -v bothouse   should print $INSTALL_DIR/bothouse"
     say "Until then, use the full path: $INSTALL_DIR/bothouse"
   fi
   say ""

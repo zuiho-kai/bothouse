@@ -125,7 +125,11 @@ export class Roster {
     const fits = this.store.members().filter(r => r.source === 'ui' && !claimed.has(r.id) && (r.cli ?? '') === (cli ?? '')
       && (r.name.toLowerCase() === stem
         || (r.name_customized != null && !Boolean(r.name_customized) && r.name.toLowerCase().replace(/-\d+$/, '') === stem)));
-    const pick = fits.find(r => r.name.toLowerCase() === stem) ?? fits[0];
+    // #1539: the wizard's default names changed (Codex → 小橙), so a re-run would not find the automatic
+    // member an older run made; any still-automatic one on the same CLI serves the role, under its old name.
+    const automatic = r => r.source === 'ui' && !claimed.has(r.id) && (r.cli ?? '') === (cli ?? '')
+      && r.name_customized != null && !Boolean(r.name_customized);
+    const pick = fits.find(r => r.name.toLowerCase() === stem) ?? fits[0] ?? this.store.members().find(automatic);
     return pick === undefined ? undefined : rowToMember(pick);
   }
 

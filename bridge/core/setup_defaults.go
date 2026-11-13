@@ -80,7 +80,8 @@ type moodRole struct{ project, lang string }
 // spread over the hour so they don't all speak at once. A role that already has the job keeps it as it is.
 // Not muted (a reply is the point), no start notice, 10 minutes at most per run. Added turned off (maintainer
 // decision 2026-11-03): `bothouse cron edit <id> enabled true` turns it on.
-func AddMoodCronJobs(c WizardCron, roles []moodRole, sessionKey string) (added []string, err error) {
+// added holds the new jobs (project and ID), so the wizard can print the command that turns each one on.
+func AddMoodCronJobs(c WizardCron, roles []moodRole, sessionKey string) (added []*CronJob, err error) {
 	if len(roles) == 0 || sessionKey == "" {
 		return nil, nil
 	}
@@ -106,7 +107,7 @@ func AddMoodCronJobs(c WizardCron, roles []moodRole, sessionKey string) (added [
 		if err := c.Add(j); err != nil {
 			return added, err
 		}
-		added = append(added, r.project)
+		added = append(added, j)
 	}
 	return added, nil
 }
@@ -145,8 +146,18 @@ func applyWizardMood(res *WizardResult, env WizardEnv, req WizardRequest, roles 
 	added, err := AddMoodCronJobs(c, roles, sessionKey)
 	detail := ""
 	if len(added) > 0 {
-		detail = tr3(req.Language, "每小时「想不想说」：", "毎時「言いたいことある？」：", "hourly \"want to say something?\": ") +
-			strings.Join(added, ", ")
+		// added turned off; a new user only sees this line, so say what turning it on means (the role speaks
+		// in the channel by itself every hour, each run is a model call) and give the exact command
+		var names, on []string
+		for _, j := range added {
+			names = append(names, j.Project)
+			on = append(on, "bothouse cron edit "+j.ID+" enabled true")
+		}
+		cmds := strings.Join(on, "; ")
+		detail = tr3(req.Language,
+			"每小时「想不想说」已加上但默认关着（"+strings.Join(names, ", ")+"）：打开后角色每天 9–23 点每小时会在频道里主动说一两句，每次都调一次模型、花额度；想开："+cmds,
+			"毎時「言いたいことある？」を追加しましたが、オフのままです（"+strings.Join(names, ", ")+"）。オンにすると 9–23 時に毎時チャンネルで自分から話し、毎回モデルを呼び出して利用枠を使います。オンにするには："+cmds,
+			"hourly \"want to say something?\" added but off ("+strings.Join(names, ", ")+"): when on, the role speaks in the channel by itself every hour 9:00–23:00, one model call (quota) each time; to turn it on: "+cmds)
 	}
 	addStep(res, "mood cron", err, detail)
 }

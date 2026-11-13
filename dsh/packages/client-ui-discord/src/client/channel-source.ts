@@ -241,7 +241,7 @@ export function groupRooms(allRooms: readonly ChannelRoom[]): RoomRow[] {
 }
 
 /** Task statuses (dsh/collab/tasks.mjs STATUS). */
-export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework' | 'cancelled' | 'superseded'
+export type TaskStatus = 'assigned' | 'accepted' | 'asked' | 'declined' | 'escalated' | 'returned' | 'done' | 'rework' | 'cancelled' | 'superseded' | 'failed'
 
 /** One dispatched task (#139 team mode B), as `GET /collab/api/rooms/:id/tasks` serializes it. */
 export interface ChannelTask {

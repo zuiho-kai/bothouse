@@ -247,6 +247,12 @@ func (m *systemdManager) buildUnit(cfg Config) string {
 	fmt.Fprintf(&sb, "WorkingDirectory=%s\n", cfg.WorkDir)
 	sb.WriteString("Restart=on-failure\n")
 	sb.WriteString("RestartSec=10\n")
+	// A system unit without User= gets no $HOME from systemd, so the bridge
+	// (os.UserHomeDir) and the agent CLIs it starts (their login under ~)
+	// would fail. Pin the home of the user who ran the install.
+	if home := systemUnitHome(m.system, cfg.EnvExtra); home != "" {
+		fmt.Fprintf(&sb, "Environment=\"HOME=%s\"\n", escapeSystemdEnvValue(home))
+	}
 	fmt.Fprintf(&sb, "Environment=\"CC_LOG_FILE=%s\"\n", cfg.LogFile)
 	fmt.Fprintf(&sb, "Environment=\"CC_LOG_MAX_SIZE=%d\"\n", cfg.LogMaxSize)
 	fmt.Fprintf(&sb, "Environment=\"CC_LOG_MAX_BACKUPS=%d\"\n", cfg.LogMaxBackups)
@@ -279,6 +285,20 @@ func (m *systemdManager) buildUnit(cfg Config) string {
 		sb.WriteString("WantedBy=default.target\n")
 	}
 	return sb.String()
+}
+
+// systemUnitHome is the HOME to write into a system-level unit: the
+// installing user's home, unless EnvExtra already carries HOME. User units
+// get HOME from the user manager and need none.
+func systemUnitHome(system bool, extra map[string]string) string {
+	if !system || extra["HOME"] != "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
 }
 
 // escapeSystemdEnvValue prepares a value for inclusion inside the double

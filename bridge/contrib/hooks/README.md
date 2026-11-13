@@ -21,6 +21,10 @@ bothouse setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 
 需要 `python3`。DSH 默认把会话记录存成 zstd 压缩（`session.v4.jsonl.zstd`），不用改成 `compression: none`。找记录、解压都在 `dshlog.py`：Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node，逐帧解，正在写的最后一帧先跳过。看队友（`contrib/tools/peek.py`）和 wiki 导出（`contrib/wiki/export.py`）用的也是这一份。
 
+## 先查再说的模型
+
+`check-first-guard` 由默认安装的 `fix-claim-guard` 调用，团队模式下跳过聊天频道、保留工作区检查；`CHECK_FIRST_MODEL` 缺省为 `sonnet`，可通过桥进程的环境变量修改。一次历史样本重放中，补充命令输出后 `haiku` 仍连续三次放过应拦的未核实现状断言，因此保留 `sonnet`；样本量有限，这不代表所有场景的模型能力比较。
+
 ## 关掉
 
 ### 跟机器人说一句

@@ -4,7 +4,7 @@
 （两次说"01:18 / 02:49 我回来看"都没真正叫醒，晾了两小时）；全局规则（用户 2026-10-17 定）
 "回复里写了'下一步/先做'的事，同一轮就派出去"；审稿三条；代码审查 2026-10-18。
 三类承诺和各自认的回执：
-  带时间（HH:MM 回来看 / X 分钟后、过 X 分钟再看 / 明早看 / 到时我来看 / 大约 22:15 跑完、结果出来就发你）→ 只认会按时叫醒的：
+  带时间（HH:MM 回来看 / X 分钟后、过 X 分钟再看 / 大约 22:15 跑完、结果出来就发你；明早、到时这类模糊时间 #1527 起不算）→ 只认会按时叫醒的：
       bothouse timer/cron add、ScheduleWakeup、CronCreate；outing-next（作者自用脚本，不在本仓库，没有就不会匹配）
       只在 outing-tick 真会叫的频道和钟点里算（见 outing_fire）。
       后台 Bash、后台 Agent 不算：挂在会话上，bothouse 一重启就没了（审稿第 1 条）。
@@ -34,7 +34,9 @@ ABS_RX = re.compile(ABS)
 TIME = (r"(?:" + ABS + r"(?:\s*(?:左右|前后))?"
         r"|" + NUM + r"\s*(?:个)?\s*(?:分钟|小时|min|h)\s*(?:后|以后|之后)"
         r"|(?:过|等)\s*" + NUM + r"\s*(?:个)?\s*(?:分钟|小时)"  # "过 40 分钟回来看""等 40 分钟我再看"（代码审查第 5 条）
-        r"|明[早天晚]|明儿|明天早上|周[一二三四五六日天]凌晨|到时候?)")
+        # 「明早、明天、到时、周一凌晨」这类模糊时间在 #1527 删掉（用户 11-12「还后面还有什么可以删的吗？一起搞了吧」）：
+        # 只认绝对钟点和「N 分钟/小时后」，说不出钟点的不当带时间的承诺拦
+        r")")
 TIME_RX = re.compile(TIME)
 # 回来跟进的动作
 FOLLOW = (r"(?:回来|再看|再查|去看|来看|看一?[下眼]|看看|看进度|看结果|看重测|看日志|看情况|查看|检查|复查|汇报|报告|告诉你|通知你|同步|跟进|验收"
@@ -80,6 +82,11 @@ QUESTION = re.compile(r"吗$|[?？]|要不要|是否")
 # 队友名字：仓库预设人设（bridge/core/persona_presets.go）里的几个，加上环境变量 HOOK_TEAMMATES（用 | 隔开）
 _MATES = "|".join(re.escape(x.strip()) for x in ("橘|龙娘|鲸鱼娘|彩虹猫|" + os.environ.get("HOOK_TEAMMATES", "")).split("|") if x.strip())
 REPORTED = re.compile(r"(?:" + _MATES + r"|子 ?agent|agent|审查员?|审稿人?|她|他|它|对方|用户)(?:说|汇报|报告|回复|回|写|建议|提到)(?:了|的)?\s*[：:]|(?:汇报|报告|原话|回复)\s*[：:]|你" + NC + r"{0,20}?就行")
+# 主语是别人：讲系统、工作区、队友会做的事，不是我的承诺（#1527：11-12 晚「系统会在两小时后安排人回来看」
+# 「工作区约一小时后会回来接着看」「鲸鱼娘设了半小时后回来看进度」都被当成我没设定时器拦下）。承诺前面出现了「我」就照常算
+OTHER_SUBJ = re.compile(r"(?:系统|工作区|看门|定时任务|任务板|桥|队友|新机器人|机器人|子 ?agent|" + _MATES + r"|她|他|它|对方)")
+# 讲规则、别人要求我做什么，不是我许的下一步（「规则本身就要求我先查再吹」）
+RULE_CTX = re.compile(r"(?:要求|规定|规则|让|叫|逼|得)\s*$")
 # 讲过去的事（"昨晚说 02:49 回来看""上次…""出事时，我…"）（代码审查第 7 条）
 RETRO = re.compile(r"昨晚|昨天|前天|上次|那次|那会|当时|那时|才回来|岔开|晾了|(?<![到同及准按临])时[，,]")
 # 过去时：已经做过的不是承诺（"我 10 点看过了"）。只看承诺那几个字前 4 字到后 3 字：
@@ -297,6 +304,11 @@ def classify(s):
     for kind, rx in (("timed", TIMED), ("wait", WAIT), ("next", NEXT)):
         m = rx.search(s)
         if not m or NEG.search(s[max(0, m.start() - 2):m.start()]):
+            continue
+        head = s[:m.start()]
+        if "我" not in head and "我" not in m.group(0) and OTHER_SUBJ.search(s[:m.end()]):
+            continue
+        if RULE_CTX.search(head):
             continue
         if kind != "next" and SET_CLAIM.search(s) and TIME_RX.search(s):
             return "timed_claim"

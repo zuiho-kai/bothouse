@@ -871,9 +871,9 @@ func cloudWebTeamLine(lang string, team []SetupTeamEntry, fallback, self string)
 		you, youJA, youEN = "（就是你）", "（あなたです）", " (that is you)"
 	}
 	return tr3(lang,
-		"在自建平台上，你在一个团队里，队友有："+strings.Join(others, "、")+"（都在同一个频道里），按配置默认的主角色是「"+leadName+"」"+you+"。叫谁就在频道里写「@名字」加上要说的事；被 @ 派活的，做完后最终回复会自动 @ 回派活的人。谁当主角色、主角色和副手各自怎么干活，以桥每轮附上的团队职责层为准。",
-		"自前プラットフォームでは、あなたはチームの一員です。仲間："+strings.Join(others, "、")+"（同じチャンネルにいます）。設定上の既定のリーダーは「"+leadName+"」"+youJA+"です。呼ぶときはチャンネルで「@名前」と書いて内容を伝えてください。@ で任された仕事の最終回答には自動で依頼者への @ が付きます。誰がリーダーか、リーダーとメンバーがそれぞれどう動くかは、ブリッジが毎ターン付けるチームの役割層に従ってください。",
-		"On the self-hosted platform you are on a team; teammates: "+strings.Join(others, ", ")+" (all in the same channel); by configuration the default primary role is \""+leadName+"\""+youEN+". To call one, write \"@name\" and the message in the channel; when you are @-ed with work, your final answer goes back to whoever asked with an @ automatically. Who leads now, and how the primary role and the members each work, follow the team duty layer the bridge attaches each turn.")
+		"在自建平台上，你在一个团队里，队友有："+strings.Join(others, "、")+"（都在同一个频道里），按配置默认的主角色是「"+leadName+"」"+you+"。叫谁就在频道里写「@名字」加上要说的事；被 @ 派活的，做完后最终回复会自动 @ 回派活的人。给队友派活只用频道里的 @，不用 CLI 自带的子 agent、多 agent 工具，那些叫不到队友。谁当主角色、主角色和副手各自怎么干活，以桥每轮附上的团队职责层为准。",
+		"自前プラットフォームでは、あなたはチームの一員です。仲間："+strings.Join(others, "、")+"（同じチャンネルにいます）。設定上の既定のリーダーは「"+leadName+"」"+youJA+"です。呼ぶときはチャンネルで「@名前」と書いて内容を伝えてください。@ で任された仕事の最終回答には自動で依頼者への @ が付きます。仲間に仕事を頼むときはチャンネルの @ だけを使い、CLI 内蔵のサブエージェントやマルチエージェント機能は使いません（仲間には届きません）。誰がリーダーか、リーダーとメンバーがそれぞれどう動くかは、ブリッジが毎ターン付けるチームの役割層に従ってください。",
+		"On the self-hosted platform you are on a team; teammates: "+strings.Join(others, ", ")+" (all in the same channel); by configuration the default primary role is \""+leadName+"\""+youEN+". To call one, write \"@name\" and the message in the channel; when you are @-ed with work, your final answer goes back to whoever asked with an @ automatically. Hand work to a teammate only with an @ in the channel, never with the CLI's own sub-agent or multi-agent tools: those cannot reach your teammates. Who leads now, and how the primary role and the members each work, follow the team duty layer the bridge attaches each turn.")
 }
 
 // oneLine joins a name's lines with spaces.

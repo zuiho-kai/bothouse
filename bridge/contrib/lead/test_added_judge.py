@@ -19,6 +19,19 @@ class AddedJudgeTest(unittest.TestCase):
             r = aj.judge(NOTES)
         return r, log.call_args[0][0]
 
+    def test_guard_repair_exception_reaches_model(self):
+        notes = '# 修检查\n## 用户原话\n把误拦一起处理\n## 范围\n改：放宽误拦本次交接的检查\n'
+        with patch.object(aj.subprocess, 'run', return_value=NS(
+                returncode=0, stdout=json.dumps({'result': '{"added": []}'}))) as run, \
+             patch.object(aj, '_log'):
+            result = aj.judge(notes)
+        args = run.call_args.args[0]
+        system = args[args.index('--system-prompt') + 1]
+        self.assertIn('修检查/守卫本身', system)
+        self.assertIn('不算扩范围，是做完这件活的必要步骤', system)
+        self.assertIn('放宽误拦本次交接的检查', run.call_args.kwargs['input'])
+        self.assertEqual((result['added'], result['error']), ([], ''))
+
     def test_model_error_is_logged_error_not_pass(self):
         # #1492 P4：不查返回码和 is_error，模型报错时 result 里碰巧有 {} 就记成 pass
         for rc, out in ((1, json.dumps({'result': '{}'})),

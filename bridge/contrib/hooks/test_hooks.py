@@ -228,54 +228,29 @@ class Hooks(unittest.TestCase):
                                                    "tool_input": {"file_path": "/w/a.py", "content": "limit = 40  # 来源：用户原话\n"}})
         self.assertEqual(out, "")
 
-    # ---- Stop: fix-claim-guard over a DSH log ----
+    # ---- Stop over a DSH log（#1527 起入口表检查删了，用 promise-guard 验 Stop 管道）----
     def test_stop_dsh_log_blocks_once(self):
         recs = [
             {"type": "turn/start", "time": 1792587556252, "data": {"turn": 1}},
             {"type": "user/message", "time": 1792587556287, "data": {"source": {"kind": "user"},
                                                                     "content": [{"type": "text", "text": "登录报错了，修一下"}]}},
             {"type": "assistant/message", "time": 1792587561461, "data": {"message": {"role": "assistant", "content": [
-                # two files changed: a turn that touched one small file (or none) needs no entry table
                 {"type": "tool-call", "id": "c1", "name": "bash",
                  "arguments": "{\"command\": \"sed -i '' s/a/b/ src/a.go; sed -i '' s/a/b/ src/b.go\"}"}]}}},
             {"type": "tool/result", "time": 1792587561497, "data": {"message": {"toolCallId": "c1", "isError": False,
                                                                                "content": [{"type": "text", "text": "a"}]}}},
             {"type": "assistant/message", "time": 1792587562000, "data": {"message": {"role": "assistant", "content": [
-                {"type": "text", "text": "已修复，登录正常了。"}]}}},
+                {"type": "text", "text": "下一步我去改登录路由。"}]}}},
             # what DSH writes just before it runs a Stop hook; run.py waits for it (the log lags behind)
             {"type": "hook/invoked", "time": 1792587562001, "data": {"turn": 1, "point": "Stop", "handlerId": "claude-code:Stop:1"}},
         ]
         self.session("stop1", recs)
         p = {"hook_event_name": "Stop", "session_id": "stop1", "transcript_path": "", "stop_hook_active": False}
-        out = self.run_hook("fix-claim-guard", p)
+        out = self.run_hook("promise-guard", p)
         self.assertTrue(out and json.loads(out)["decision"] == "block", out)
-        self.assertEqual(self.run_hook("fix-claim-guard", p), "")  # same turn: only once, like Claude Code
+        self.assertEqual(self.run_hook("promise-guard", p), "")  # same turn: only once, like Claude Code
         self.session("stop2", recs, depth=1)
-        self.assertEqual(self.run_hook("fix-claim-guard", dict(p, session_id="stop2")), "")  # subagent: no Stop
-
-    def test_stop_claim_replay_20261023(self):
-        """2026-10-23 误拦回放（用户要求「改成不拦」）：将来时/条件、讲别人修好的不拦，自己报已修完仍拦。"""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("fcg", os.path.join(HERE, "fix-claim-guard.py"))
-        fcg = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(fcg)
-        for t in ("改完重跑一遍，修好以后发新版时 Windows 测试拿不到草稿里的包的问题就没了。",
-                  "派人去修的时候发现已经有人先修好了，两个分支上都有，还没验证。",
-                  "七件事进度：\n1. 草稿包 ✅ 已推上去\n2. 打包空间 ✅ 已推上去",
-                  "龙娘说她修完了，我还没验。", "子 agent 修好了一版，待我核对。", "要等 CI 跑完才算修好。",
-                  "还没有修完", "等修完再测", "修完再跑", "修完后发版", "别再说“修好了”"):
-            self.assertFalse(fcg.claims(t), t)
-        for t in ("mac 打包空间不够那一处也已经并行修完、推上去了。", "已修复，登录正常了。", "全部修复，可以发了。", "问题修好了。"):
-            self.assertTrue(fcg.claims(t), t)
-        recs = [{"type": "turn/start", "time": 1792587556252, "data": {"turn": 1}},
-                {"type": "user/message", "time": 1792587556287, "data": {"source": {"kind": "user"},
-                                                                        "content": [{"type": "text", "text": "打包失败了，修一下"}]}},
-                {"type": "assistant/message", "time": 1792587562000, "data": {"message": {"role": "assistant", "content": [
-                    {"type": "text", "text": "派人去修的时候发现已经有人先修好了，两个分支上都有。"}]}}},
-                {"type": "hook/invoked", "time": 1792587562001, "data": {"turn": 1, "point": "Stop", "handlerId": "claude-code:Stop:1"}}]
-        self.session("stop3", recs)
-        p = {"hook_event_name": "Stop", "session_id": "stop3", "transcript_path": "", "stop_hook_active": False}
-        self.assertEqual(self.run_hook("fix-claim-guard", p), "")
+        self.assertEqual(self.run_hook("promise-guard", dict(p, session_id="stop2")), "")  # subagent: no Stop
 
     # ---- switch: run.py off|on|status, what the agent runs when its user asks in chat ----
     def test_switch(self):
@@ -577,16 +552,16 @@ class Hooks(unittest.TestCase):
              "content": "<USER_REQUEST>\n登录报错了，修一下\n</USER_REQUEST>\n<ADDITIONAL_METADATA>x</ADDITIONAL_METADATA>"},
             {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "2026-10-23T01:26:15Z",
              "tool_calls": [{"name": "run_command", "args": {"CommandLine": "sed -i '' s/a/b/ src/a.go; sed -i '' s/a/b/ src/b.go"}}]},
-            {"step_index": 2, "type": "PLANNER_RESPONSE", "created_at": "2026-10-23T01:26:16Z", "content": "已修复，登录正常了。"},
+            {"step_index": 2, "type": "PLANNER_RESPONSE", "created_at": "2026-10-23T01:26:16Z", "content": "下一步我去改登录路由。"},
         ]
         with open(tr, "w", encoding="utf-8") as f:
             f.write("\n".join(json.dumps(x, ensure_ascii=False) for x in steps) + "\n")
         p = {"conversationId": "agystop", "workspacePaths": [role], "transcriptPath": tr, "executionNum": 0,
              "terminationReason": "model_stop", "fullyIdle": True}
-        out = self.run_agy("fix-claim-guard", "Stop", p, role)
+        out = self.run_agy("promise-guard", "Stop", p, role)
         self.assertEqual(out["decision"], "continue", out)
         self.assertTrue(out["reason"])
-        self.assertEqual(self.run_agy("fix-claim-guard", "Stop", p, role), {"decision": "allow"})  # once per turn
+        self.assertEqual(self.run_agy("promise-guard", "Stop", p, role), {"decision": "allow"})  # once per turn
 
 
 if __name__ == "__main__":

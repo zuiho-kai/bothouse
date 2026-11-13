@@ -6598,6 +6598,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}()
 	waitStart := time.Now()
 	firstEventLogged := false
+	modelRetryShown := false // #1536: the model-retry notice goes out once per turn
 	var toolSteps []ToolStep
 	var lastRichCardUpdate time.Time
 	var lastRichCardLen int
@@ -6960,6 +6961,22 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		// maomao fork: the agent compacted its context, so the per-turn blocks are gone.
 		if c, _ := event.Metadata[MetaContextCompacted].(bool); c {
 			session.ResetTurnCtx()
+		}
+
+		// #1536: the agent is stuck in its own model retry; say so once per turn, on the card when
+		// there is one, else as a short message, so a new user does not think the install broke.
+		if why, ok := event.Metadata[MetaModelRetry].(string); ok {
+			if !modelRetryShown {
+				modelRetryShown = true
+				note := modelRetryNotice(e.i18n.IsZhLike(), why)
+				if !cp.AppendStructured(ProgressCardEntry{Kind: ProgressEntryInfo, Text: note}, note) {
+					state.mu.Lock()
+					rc := state.replyCtx
+					state.mu.Unlock()
+					e.send(p, rc, note)
+				}
+			}
+			continue
 		}
 
 		// A boundary ends the current segment even when quiet mode joins the
@@ -8378,6 +8395,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				watchTurnFinished = false
 				turnStart = time.Now()
 				firstEventLogged = false
+				modelRetryShown = false
 				waitStart = time.Now()
 				// Reassign the local replyCtx parameter to the queued message's
 				// trigger context. state.replyCtx was updated above, but the

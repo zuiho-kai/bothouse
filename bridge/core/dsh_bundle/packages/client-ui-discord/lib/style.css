@@ -347,6 +347,22 @@
   font-weight: 600;
 }
 
+.dshc_cardDetail {
+  color: var(--dsw-alias-label-secondary);
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.dshc_cardDetail summary {
+  cursor: pointer;
+}
+
+.dshc_cardDetail pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 0;
+}
+
 .dshc_cardHead {
   justify-content: space-between;
   align-items: center;
@@ -1645,6 +1661,10 @@
   background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));
 }
 
+.dshc_taskStatus[data-status="failed"] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
 .dshc_taskStatus[data-status="done"], .dshc_taskStatus[data-status="cancelled"], .dshc_taskStatus[data-status="superseded"] {
   background: var(--dsw-alias-label-tertiary);
 }
@@ -2270,6 +2290,12 @@
 
 .dshc_errorBar[data-state="retried"] {
   opacity: .65;
+}
+
+.dshc_errorBar .dshc_cardDetail {
+  flex-basis: 100%;
+  order: 3;
+  margin: 0 0 0 28px;
 }
 
 .dshc_errorIcon {

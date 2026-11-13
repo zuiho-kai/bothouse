@@ -138,8 +138,11 @@ class WorkflowCLIs(unittest.TestCase):
         path = self.root / "updates.jsonl"
         path.write_text(json.dumps({"method": "session/update", "params": {"update": {
             "sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "修一下这个 bug"}}}}) + "\n")
-        out = self.call("fix-claim-guard", {"hook_event_name": "Stop", "transcript_path": str(path),
-                                          "last_assistant_message": "已修复"}, "grok")
+        # #1527：入口表检查删了，「已修复」不再拦；Stop 管道改用 promise-guard 验
+        self.assertEqual(self.call("fix-claim-guard", {"hook_event_name": "Stop", "transcript_path": str(path),
+                                                       "last_assistant_message": "已修复"}, "grok"), {})
+        out = self.call("promise-guard", {"hook_event_name": "Stop", "transcript_path": str(path),
+                                          "last_assistant_message": "下一步我去改路由"}, "grok")
         self.assertEqual(out["decision"], "block")
 
     def test_gemini_history_keeps_latest_tool_record(self):

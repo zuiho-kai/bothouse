@@ -104,12 +104,12 @@ func TestTaskVerdictBeforeHoldDoesNotCount(t *testing.T) {
 	}
 }
 
-// A pass refused by the doubt rule is not a pass: the report still goes out unchecked.
+// A refused pass (empty verdict) is not a pass: the report still goes out unchecked.
 func TestTaskVerdictRefusedPassDoesNotCount(t *testing.T) {
 	e, p, _, item := heldFixture(t)
 	holdForTest(t, e, p, item, "测的是另一个入口")
 	key := e.heldReportFor(46).Key
-	if w := verdictCall(t, e, 46, "pass", "逐条：我自己核过，两次都是绿的，没问题"); w.Code != 409 {
+	if w := verdictCall(t, e, 46, "pass", "  "); w.Code != 400 {
 		t.Fatalf("doubt pass = %d", w.Code)
 	}
 	expireHeld(t, e, key)

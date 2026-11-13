@@ -542,6 +542,12 @@ const MetaResultIsError = "result_is_error"
 // agent compacted its context (maomao fork).
 const MetaContextCompacted = "context_compacted"
 
+// MetaModelRetry marks an Event (Metadata key, string: the agent's retry message) sent when the
+// agent has sat in its own model retry for a while with nothing else to show (#1536: codex backing
+// off 5+ minutes on "model at capacity" while the chat only showed "typing"). The engine shows a
+// one-line notice on the progress card instead of treating it as thinking.
+const MetaModelRetry = "model_retry"
+
 // MetaStopBlockedReply marks a turn-ending EventResult (Metadata key, bool)
 // whose Content is the reply the adapter rebuilt after a Stop hook blocked the
 // turn (maomao fork, #1051). The engine sends Content as is instead of joining

@@ -1,7 +1,7 @@
 {
   "qq": {
     "setupTitle": "连接 QQ",
-    "setupHint": "使用已有的 OneBot / NapCat 连接或 QQ 官方机器人凭据。保存配置不代表已经连通。",
+    "setupHint": "用 QQ 开放平台（q.qq.com）申请的 AppID 和 AppSecret 接入，不用 NapCat，也不登录个人 QQ 号。保存配置不代表已经连通。",
     "route": "接入方式",
     "official": "QQ 官方机器人",
     "projectID": "新角色标识",

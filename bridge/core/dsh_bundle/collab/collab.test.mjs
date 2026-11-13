@@ -6374,10 +6374,18 @@ for (const state of ['returned', 'done']) {
     assert.equal(tasks.task(opened[0].id).status, 'asked');
   });
 
-  test(`r12 (${state}): an explicit @ opens a task at once`, async () => {
-    const { before } = await r12Run(state, '@副 把 sqrt 加上');
-    assert.equal(before.length, 1);
-    assert.equal(before[0].title, '把 sqrt 加上');
+  // #1539: an explicit @ after a delivery waits for her stance too (a DSH lead's 「@小蓝 收到，谢谢」 opened #2).
+  test(`r12 (${state}): an explicit @ waits for her stance; 【接】 opens it`, async () => {
+    const { before, opened } = await r12Run(state, '@副 把 sqrt 加上', '【接】马上加');
+    assert.equal(before.length, 0, 'the @ alone waits for her stance');
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].title, '把 sqrt 加上');
+  });
+
+  test(`r12 (${state}): 「@副 收到，谢谢」 answered with 「不客气」 opens no task`, async () => {
+    const { before, opened } = await r12Run(state, '@副 收到，谢谢', '@主 不客气');
+    assert.equal(before.length, 0);
+    assert.equal(opened.length, 0);
   });
 
   test(`r12 (${state}): a 【接】 more than 30 minutes after the call opens nothing`, async () => {
@@ -6386,7 +6394,7 @@ for (const state of ['returned', 'done']) {
   });
 }
 
-test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ still dispatches', async () => {
+test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ answered 【接】 still dispatches', async () => {
   const { tasks, say } = g34Setup();
   say(1, '副，把 README 改一下', 'zhu');
   await settle();
@@ -6405,7 +6413,46 @@ test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ st
   await settle();
   say(1, '@副 把 sqrt 加上', 'zhu');
   await settle();
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 1, '#1539: after a delivery the @ waits for her stance');
+  say(1, '【接】马上加');
+  await settle();
   assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 2);
+});
+
+// #1540: #1539 walk after-round3.png — 小蓝's 「@小橙 Selected model is at capacity. Please try a different model.」
+// was recorded 「交回，用时 0 秒」 and the lead's next message accepted it (「验收完成」).
+test('#1540: a model-error reply marks the task 出错, the lead accepts nothing, its next call sends it again', async () => {
+  const { tasks, say } = g34Setup();
+  say(1, '副，跑一次 date 把结果发回来', 'zhu');
+  await settle();
+  const [first] = tasks.list(1).filter(r => r.owner === 'fu');
+  say(1, '@主 Selected model is at capacity. Please try a different model.');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'failed', 'a model error is no hand-back');
+  assert.match(tasks.task(first.id).note, /满载/);
+  say(1, '@副 收到，谢谢', 'zhu');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'assigned', 'the call after the error sends the same task again');
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 1, 'no second task');
+  say(1, '@主 Tue Nov 13 02:13:00 JST 2026');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'returned');
+});
+
+test('#1540: a real reply that talks about an error still hands back', async () => {
+  const { tasks, say } = g34Setup();
+  say(1, '副，查一下为什么超时', 'zhu');
+  await settle();
+  const [first] = tasks.list(1).filter(r => r.owner === 'fu');
+  say(1, '@主 查到了：上游返回 "Selected model is at capacity"，我们没重试，已在 retry.go 加了三次重试。');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'returned');
+});
+
+test('#1540: friendlyFailure gives one Chinese line for model errors', () => {
+  assert.equal(friendlyFailure('Selected model is at capacity. Please try a different model.'), '模型那边满载，稍后重试或换个模型。');
+  assert.match(friendlyFailure(new Error('stream disconnected before completion: error sending request')), /超时/);
+  assert.match(friendlyFailure('unexpected status 401 Unauthorized'), /鉴权失败/);
 });
 
 test('r12: 【返工】#id sends the handed-back task to rework and restarts its watch; no new task', async () => {

@@ -677,7 +677,9 @@ export default function SetupWizard() {
         {/* 1 QQ (NapCat / OneBot) */}
         {step === 1 && platform === 'qq' && (
           <div className="space-y-3" data-testid="qq-step">
-            <Button variant="secondary" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{t('qq.official')}</Button>
+            {/* #1539: this route logs a normal QQ account in through NapCat; the button that sat here, labelled
+                「QQ 官方机器人」, read as the page title. The official bot (AppID from q.qq.com) is the switch at the bottom. */}
+            <h3 className="font-semibold" data-testid="qq-title">{T.qqTitle}</h3>
             <p className="text-xs text-gray-500">{T.qqNote}</p>
             <Input label={T.qqWSURL} value={qq.ws_url} data-testid="qq-ws-url" onChange={(e) => {
               setQQ({ ...qq, ws_url: e.target.value });
@@ -730,6 +732,8 @@ export default function SetupWizard() {
                   {qqTest.fix && <p className="text-xs text-gray-600 dark:text-gray-400">{qqTest.fix}</p>}</div>)}
             </div>
             <a className="text-xs text-accent inline-flex items-center gap-0.5" href="https://napneko.github.io/" target="_blank" rel="noreferrer">{T.qqHow}<ExternalLink size={11} /></a>
+            <p className="text-xs text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-800">{T.qqOfficialNote}{' '}
+              <button type="button" className="text-accent-text underline" data-testid="qq-official" onClick={() => setOfficialQQ(true)}>{T.qqOfficialSwitch}</button></p>
           </div>
         )}
 
