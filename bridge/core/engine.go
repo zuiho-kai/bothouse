@@ -810,11 +810,6 @@ type interactiveState struct {
 	currentJobID string
 	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
 	scheduledWatch uint64
-	// queuedBehindCompact: messages queued here while a native /compact held the
-	// session (enqueueForBusySession). Only then may a placeholder state with no
-	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
-	queuedBehindCompact bool
-
 	// maomao fork: why the agent session failed to start (shown to the user),
 	// and when the running turn last received an agent event (dead-turn check).
 	startErr    string
@@ -4115,11 +4110,6 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		scheduledFrom = msg.scheduledFrom // a re-delivered cron/timer turn (deferForCapacity)
 	}
 	e.interactiveMu.Lock()
-	// A running native /compact holds the session lock; what queues here runs
-	// when it ends (drainQueuedAfterNativeCompact). New user messages are
-	// turned away before this during a user /compact (nativeCompactRejectsUser
-	// in handleMessage), and queue here during an auto compaction.
-	behindCompact := e.nativeCompactions[interactiveKey] != nil
 	state, hasState := e.interactiveStates[interactiveKey]
 	if !hasState || state == nil {
 		e.interactiveMu.Unlock()
@@ -4156,9 +4146,6 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		depth := len(state.pendingMessages)
 		e.replyToAuthorizedMessage(p, msg, fmt.Sprintf(e.i18n.T(MsgQueueFull), depth))
 		return queueRejected // handled: queue-full reply sent
-	}
-	if behindCompact {
-		state.queuedBehindCompact = true
 	}
 	q := queuedMessage{
 		authorization:       msg.authorization,
@@ -4323,14 +4310,22 @@ func (e *Engine) drainOrphanedQueue(session *Session, sessions *SessionManager, 
 	state, hasState := e.interactiveStates[interactiveKey]
 
 	if hasState && state != nil {
-		// A compact placeholder or a process being closed has no live process to
-		// drain into. Re-enter the foreground acquisition path: it waits for
-		// actual Close, resumes the saved ID and adopts the remaining queue.
+		// A fresh placeholder has not attempted to start a process. Whoever
+		// acquires the session owns that startup, whether the previous worker
+		// retired before or after queue publication. A failed startup or stop
+		// is terminal; a closing process still waits for its durable Close.
+		// Startup is granted only with the Session that owns the queue: a
+		// deferred drain holding a pre-/new Session must leave the replacement
+		// queue to its own owner (same rule as drainPendingMessages' handoff).
 		state.mu.Lock()
 		placeholder := state.agentSession == nil && len(state.pendingMessages) > 0 &&
-			(state.agentCloseDone != nil || (state.queuedBehindCompact && !state.stopped))
+			(state.agentCloseDone != nil || (!state.stopped && state.startErr == ""))
+		if placeholder && sessions.ActiveSessionID(state.pendingMessages[0].msgSessionKey) != session.ID {
+			state.mu.Unlock()
+			e.interactiveMu.Unlock()
+			return
+		}
 		alive := state.agentSession != nil && state.agentSession.Alive()
-		state.queuedBehindCompact = false
 		var first queuedMessage
 		if placeholder {
 			first = state.pendingMessages[0]
@@ -9064,17 +9059,42 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			// Cancel before the final queue check: cancellation may itself let a
 			// pending enqueue finish. Closing is armed only after ownership ends.
 			e.cancelAgentSessionIdleClose(state)
+			// Queue publication and the final session unlock must share the map
+			// lock. Cleanup may have removed this worker's state while it still
+			// held the session: a replacement queue belongs to that same owner.
+			e.interactiveMu.Lock()
 			state.mu.Lock()
 			if len(state.pendingMessages) != 0 {
 				// A message arrived while restoring idle state. Keep ownership
 				// and stop that reader again before sending the queued prompt.
 				state.mu.Unlock()
+				e.interactiveMu.Unlock()
 				e.cancelAgentSessionIdleClose(state)
 				continue
 			}
 			state.processClaimed = false
-			session.Unlock()
 			state.mu.Unlock()
+			current := e.interactiveStates[sessionKey]
+			if current != nil && current != state {
+				current.mu.Lock()
+				// A new placeholder can queue behind this worker after cleanup.
+				// Transfer its first turn and our still-held lock together; /new
+				// queues owned by another Session must stay with that Session.
+				if current.agentSession == nil && !current.stopped && current.startErr == "" && len(current.pendingMessages) > 0 &&
+					sessions.ActiveSessionID(current.pendingMessages[0].msgSessionKey) == session.ID {
+					first := current.pendingMessages[0]
+					current.pendingMessages = current.pendingMessages[1:]
+					current.mu.Unlock()
+					e.interactiveMu.Unlock()
+					msg := queuedToMessage(first)
+					e.startScheduledTurn(&msg, session)
+					e.processInteractiveMessageWith(first.platform, &msg, session, state.agent, sessions, sessionKey, workspaceDir, msg.SessionKey)
+					return true
+				}
+				current.mu.Unlock()
+			}
+			session.Unlock()
+			e.interactiveMu.Unlock()
 			if alive || closeAfterFailure {
 				e.scheduleAgentSessionIdleClose(sessionKey, state)
 			}

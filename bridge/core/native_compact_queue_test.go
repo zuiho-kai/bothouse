@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -60,7 +62,7 @@ func TestNativeCompact_LockBusyAtEndRetries(t *testing.T) {
 		t.Fatal("lock")
 	}
 	e.interactiveMu.Lock()
-	e.interactiveStates[key] = &interactiveState{platform: p, replyCtx: "rc", queuedBehindCompact: true,
+	e.interactiveStates[key] = &interactiveState{platform: p, replyCtx: "rc",
 		pendingMessages: []queuedMessage{{platform: p, replyCtx: "rc", content: "queued job", msgSessionKey: key, userID: "timer"}}}
 	e.interactiveMu.Unlock()
 	e.drainQueuedAfterNativeCompact(session, e.sessions, key, e.agent, "")
@@ -70,25 +72,33 @@ func TestNativeCompact_LockBusyAtEndRetries(t *testing.T) {
 	waitFor(t, "session idle", func() bool { return !session.Busy() })
 }
 
-// A placeholder whose queue did not form behind a /compact (its session failed
-// to start) keeps the old behavior: the queue is dropped with a notice, no turn.
-func TestDrainOrphanedQueue_PlaceholderOutsideCompactKeepsOldBehavior(t *testing.T) {
-	as := newCountingResultSession()
+// A real startup failure remains terminal for its queued input: do not attempt
+// another startup just because the failed state has no agent process.
+func TestDrainOrphanedQueue_FailedStartupDropsQueuedMessages(t *testing.T) {
+	starts := 0
+	a := &controllableAgent{startSessionFn: func(context.Context, string) (AgentSession, error) {
+		starts++
+		return nil, errors.New("agent binary not found")
+	}}
 	p := &stubPlatformEngine{n: "test"}
-	e := NewEngine("test", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
+	e := NewEngine("test", a, []Platform{p}, "", LangEnglish)
 	t.Cleanup(func() { _ = e.Stop() })
 	key := "test:c1"
 	session := e.sessions.GetOrCreateActive(key)
 	if !session.TryLock() {
 		t.Fatal("lock")
 	}
-	e.interactiveMu.Lock()
-	e.interactiveStates[key] = &interactiveState{platform: p, replyCtx: "rc", pendingMessages: []queuedMessage{{platform: p, replyCtx: "rc", content: "queued", msgSessionKey: key}}}
-	e.interactiveMu.Unlock()
+	e.ensureInteractiveStateForQueueing(key, p, "rc")
+	if got := e.enqueueForBusySession(p, &Message{SessionKey: key, Content: "queued", ReplyCtx: "rc"}, key, nil); got != queueAccepted {
+		t.Fatal("message not queued behind startup")
+	}
+	state := e.getOrCreateInteractiveStateWith(key, p, "rc", session, e.sessions, nil, key)
+	if state.agentSession != nil || state.startErr == "" {
+		t.Fatal("test requires an actual failed startup")
+	}
 	e.drainOrphanedQueue(session, e.sessions, key, e.agent, "")
-	time.Sleep(50 * time.Millisecond)
-	if n := as.count(); n != 0 {
-		t.Fatalf("placeholder outside /compact started %d turns, want 0", n)
+	if starts != 1 {
+		t.Fatalf("failed startup retried: starts=%d, want 1", starts)
 	}
 	if !strings.Contains(strings.Join(p.getSent(), "\n"), "agent session ended") {
 		t.Fatalf("sent = %#v, want the dropped-queue notice", p.getSent())
