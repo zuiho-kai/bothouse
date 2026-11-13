@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -60,6 +61,12 @@ type ManagementServer struct {
 	imageGen           *ImageGenerator // opt-in 生图 (#150 item c); nil when [image_gen] is off
 	dshProxyOnce       sync.Once
 	dshProxy           *dshProxy // /dsh/ channels-page proxy (management_dsh_proxy.go)
+
+	// stopCtx is cancelled in Stop() before Shutdown() so that long-lived request
+	// handlers (e.g. the SSE /roles/events stream) notice the shutdown signal and
+	// return promptly instead of waiting for the 5-second Shutdown timeout (#1726).
+	stopCtx    context.Context
+	stopCancel context.CancelFunc
 
 	setupFeishuSave      func(req FeishuSetupSaveRequest) error
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
@@ -274,13 +281,29 @@ func (m *ManagementServer) Start() {
 	mux := http.NewServeMux()
 	handler := m.buildHandler(mux)
 
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	m.stopCtx = stopCtx
+	m.stopCancel = stopCancel
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", m.host, m.port))
+	if err != nil {
+		slog.Error("management api listen failed", "error", err)
+		return
+	}
+	// Update m.port to the actual bound port (important when port=0 lets the OS pick).
+	m.port = ln.Addr().(*net.TCPAddr).Port
+
 	m.server = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", m.host, m.port),
+		Addr:    ln.Addr().String(),
 		Handler: handler,
+		// BaseContext lets Stop() cancel all in-flight request contexts immediately
+		// so that long-lived handlers (e.g. SSE /roles/events) return before the
+		// Shutdown timeout fires (#1726).
+		BaseContext: func(_ net.Listener) context.Context { return stopCtx },
 	}
 	observeManagementConnections(m.server)
 	go func() {
-		err := m.server.ListenAndServe()
+		err := m.server.Serve(ln)
 		slog.Info("management api serve exited", "pid", os.Getpid(), "error", err)
 		if err != nil && err != http.ErrServerClosed {
 			slog.Error("management api server error", "error", err)
@@ -417,6 +440,11 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 func (m *ManagementServer) Stop() {
 	if m.server != nil {
 		slog.Info("management api shutdown started", "pid", os.Getpid())
+		// Cancel the base context first so long-lived handlers (SSE /roles/events)
+		// return immediately instead of blocking on the Shutdown timeout (#1726).
+		if m.stopCancel != nil {
+			m.stopCancel()
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := m.server.Shutdown(ctx); err != nil {
