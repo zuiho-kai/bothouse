@@ -19,7 +19,7 @@ func TestRoleDutyLayerFollowsConfiguredPosition(t *testing.T) {
 
 	isLead := func(s string) bool { return strings.Contains(s, "你现在是这个团队的主角色") }
 	isSub := func(s string) bool { return strings.Contains(s, "你现在是这个团队的副手") }
-	if d := lead.roleDutyLayer(""); !isLead(d) || !strings.Contains(d, "ws-handoff") || !strings.Contains(d, "两者冲突时照这一层做") {
+	if d := lead.roleDutyLayer(""); !isLead(d) || !strings.Contains(d, "照团队模式规矩") || !strings.Contains(d, "两者冲突时照这一层做") {
 		t.Fatalf("configured lead duty:\n%s", d)
 	}
 	if d := sub.roleDutyLayer(""); !isSub(d) || isLead(d) {
