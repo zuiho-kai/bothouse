@@ -30,6 +30,13 @@ import (
 const (
 	// routeCheapCtxTokens: local Qwen 27B context (lms load -c 131072, wiki qwen27b-worker).
 	routeCheapCtxTokens = 131072
+	// routeCheapParallel: the same load's --parallel 2. The window is shared by the parallel
+	// slots, so one workspace gets about half (#1562: 11-13 a Qwen workspace's last good
+	// request had 60132 input tokens, then every request answered "Context size has been
+	// exceeded"; the half-window reading is inferred from that, not measured separately).
+	routeCheapParallel = 2
+	// routeCheapSlotTokens: what one workspace on the local Qwen can use.
+	routeCheapSlotTokens = routeCheapCtxTokens / routeCheapParallel
 	// routeStartTokens: what Claude Code sends before any file is read (first request of the
 	// #1435 r5 Qwen workspace session: input_tokens 25632).
 	routeStartTokens = 25632
@@ -79,7 +86,46 @@ const (
 
 type routeCacheEntry struct {
 	handoff string
+	stamp   string // #1562: size and modification time of the handoff when the route was decided
+	task    int
 	route   workspaceRoute
+}
+
+// routeHandoffStamp: what tells an edited handoff from the one a route was decided on
+// (#1562: 11-13 11:46 the lead added 「执行路由：直接写」 to the same file and handed it again;
+// the cache compared only the path and kept the Qwen route).
+func routeHandoffStamp(path string) string {
+	if path == "" {
+		return ""
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "missing"
+	}
+	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+}
+
+// workspaceRouteForced: tasks moved to the lead model after the cheap lane failed
+// (workspace_failover.go); task id → reason. Never reverts for that task.
+var workspaceRouteForced = struct {
+	sync.Mutex
+	m map[int]string
+}{m: map[int]string{}}
+
+func forceWorkspaceRouteDirect(task int, reason string) {
+	if task <= 0 {
+		return
+	}
+	workspaceRouteForced.Lock()
+	workspaceRouteForced.m[task] = reason
+	workspaceRouteForced.Unlock()
+}
+
+func forcedWorkspaceRoute(task int) (string, bool) {
+	workspaceRouteForced.Lock()
+	defer workspaceRouteForced.Unlock()
+	r, ok := workspaceRouteForced.m[task]
+	return r, ok
 }
 
 var workspaceRouteCache = struct {
@@ -96,17 +142,23 @@ func (e *Engine) workspaceRouteFor(sessionKey, cheapModel string) workspaceRoute
 		handoff, task = strings.TrimSpace(it.Where), it.ID
 	}
 	key := teamChatKey(sessionKey)
+	stamp := routeHandoffStamp(handoff)
 	workspaceRouteCache.Lock()
-	if c, ok := workspaceRouteCache.m[key]; ok && c.handoff == handoff {
+	if c, ok := workspaceRouteCache.m[key]; ok && c.handoff == handoff && c.task == task && c.stamp == stamp {
 		workspaceRouteCache.Unlock()
 		return c.route
 	}
 	workspaceRouteCache.Unlock()
-	r := decideWorkspaceRoute(handoff)
+	var r workspaceRoute
+	if why, ok := forcedWorkspaceRoute(task); ok {
+		r = workspaceRoute{reason: why}
+	} else {
+		r = decideWorkspaceRoute(handoff)
+	}
 	r.task = task
 	path, model := "direct", e.leadModelName()
 	if r.cheap {
-		e.resolveRouteLane(&r)
+		e.resolveRouteLane(&r, key)
 		switch r.lane {
 		case routeLaneDS:
 			path, model = "split", e.workspaceExecDSModel()
@@ -117,7 +169,7 @@ func (e *Engine) workspaceRouteFor(sessionKey, cheapModel string) workspaceRoute
 		}
 	}
 	workspaceRouteCache.Lock()
-	workspaceRouteCache.m[key] = routeCacheEntry{handoff: handoff, route: r}
+	workspaceRouteCache.m[key] = routeCacheEntry{handoff: handoff, stamp: stamp, task: task, route: r}
 	workspaceRouteCache.Unlock()
 	slog.Info("workspace route: task routed", "session", sessionKey, "task", task, "route", path, "lane", r.lane, "class", r.class, "model", model, "reason", r.reason, "handoff", handoff)
 	e.appendRouteLog(routeLogLine{Event: "route", Task: task, Session: key, Route: path, Lane: r.lane, Class: r.class, Model: model, Reason: r.reason, Handoff: handoff})
@@ -132,7 +184,11 @@ var routeProbe = probeRouteProvider
 // DS class → DS, else Qwen if it fits, else direct; Qwen class → Qwen, else direct
 // (never DS: it must not leave the machine); either → DS, else Qwen, else direct.
 // User 11-11 「我们现在ds也不要钱…区分一下哪些适合ds，哪些适合千问或者无所谓」.
-func (e *Engine) resolveRouteLane(r *workspaceRoute) {
+//
+// #1562: the local Qwen takes one workspace at a time. A Qwen lane already held by another
+// workspace's task in work counts as not up (11-13 #1546 and #1548 ran on it together and
+// both outgrew their half of the window).
+func (e *Engine) resolveRouteLane(r *workspaceRoute, key string) {
 	e.sessionModelsMu.RLock()
 	ws := e.workspaceExec
 	e.sessionModelsMu.RUnlock()
@@ -146,6 +202,7 @@ func (e *Engine) resolveRouteLane(r *workspaceRoute) {
 		}
 		return routeProbe(e.routeProviderConfig(prov), model)
 	}
+	held := e.qwenLaneHolder(key)
 	var order []string
 	switch r.class {
 	case routeClassDS:
@@ -157,6 +214,10 @@ func (e *Engine) resolveRouteLane(r *workspaceRoute) {
 	}
 	var down []string
 	for _, lane := range order {
+		if lane == routeLaneQwen && held != "" {
+			down = append(down, "千问（正被 "+held+" 占用）")
+			continue
+		}
 		if up(lane) {
 			r.lane = lane
 			if len(down) > 0 {
@@ -169,6 +230,33 @@ func (e *Engine) resolveRouteLane(r *workspaceRoute) {
 		down = append(down, routeLaneName(lane))
 	}
 	r.reason += "；" + strings.Join(down, "、") + "都不通或没配，贵模型直接写"
+}
+
+// qwenLaneHolder: another workspace (not key) whose task in work runs on the Qwen lane
+// ("" = none). Its task must still be bound to it on the open board.
+func (e *Engine) qwenLaneHolder(key string) string {
+	workspaceRouteCache.Lock()
+	held := map[string]int{}
+	for k, c := range workspaceRouteCache.m {
+		if k != key && c.route.cheap && c.route.lane == routeLaneQwen && c.task > 0 {
+			held[k] = c.task
+		}
+	}
+	workspaceRouteCache.Unlock()
+	if len(held) == 0 {
+		return ""
+	}
+	dir := e.teamStatusDir()
+	if dir == "" {
+		return ""
+	}
+	items := readTeamTaskBoard(dir)
+	for k, task := range held {
+		if it := lastBoundItem(items, k); it != nil && it.ID == task {
+			return k
+		}
+	}
+	return ""
 }
 
 func routeLaneName(lane string) string {
@@ -289,11 +377,11 @@ func decideWorkspaceRoute(path string) workspaceRoute {
 	if total+routeStartTokens > routeDSCtxTokens {
 		return workspaceRoute{reason: fmt.Sprintf("要读的文件约 %d token，加起步 %d 超过 DS 上下文 %d，塞不下，贵模型直接写", total, routeStartTokens, routeDSCtxTokens)}
 	}
-	if total+routeStartTokens > routeCheapCtxTokens {
+	if total+routeStartTokens > routeCheapSlotTokens {
 		if private != "" {
 			return workspaceRoute{reason: fmt.Sprintf("要读的文件约 %d token，本机千问塞不下，又涉及「%s」不能发给 DS，贵模型直接写", total, private)}
 		}
-		return workspaceRoute{cheap: true, class: routeClassDS, reason: fmt.Sprintf("要读的文件约 %d token，加起步超过本机千问上下文 %d，只有 DS 塞得下，拆开走 DS", total, routeCheapCtxTokens)}
+		return workspaceRoute{cheap: true, class: routeClassDS, reason: fmt.Sprintf("要读的文件约 %d token，加起步超过本机千问每路上下文 %d（%d ÷ 并发 %d），只有 DS 塞得下，拆开走 DS", total, routeCheapSlotTokens, routeCheapCtxTokens, routeCheapParallel)}
 	}
 	if total <= routeSmallTokens {
 		return workspaceRoute{reason: fmt.Sprintf("活小（要读的文件约 %d token，不超过 #1435 小活的 %d），贵模型直接写；交本机做慢约七倍", total, routeSmallTokens)}
