@@ -11,7 +11,7 @@ import { modelErrorReply } from './model-errors.mjs';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 import { exitTarget } from './team-exit.mjs';
-import { DEFAULT_DISPATCH_MODE, MAX_TEXT, messageAttachments } from './store.mjs';
+import { DEFAULT_DISPATCH_MODE, MAX_TEXT, messageAttachments, publicMessage } from './store.mjs';
 import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
@@ -679,8 +679,19 @@ export class DshMembers {
         text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
       });
     }
-    const jobs = targets.map(id => this.store.addJob(id, msg.room_id, msg.id)).filter(Boolean);
+    // #1745: the lead's @ in a chat channel dispatches into a workspace, not the channel. The room
+    // is fixed here (addJob), so Tasks decides it first (dispatchRoom) and writes the 【交接】 row
+    // the job is created on; Tasks.fromChat opens the task in that room once this post commits.
+    const dest = this.hub.tasks?.dispatchRoom?.(msg, targets);
+    const jobs = targets.map(id => {
+      const hop = dest?.destinations.get(id);
+      return this.store.addJob(id, hop?.roomId ?? msg.room_id, hop?.messageId ?? msg.id);
+    }).filter(Boolean);
     return () => {
+      if (dest !== undefined) {
+        this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
+        for (const row of dest.rows) this.hub.emit({ type: 'message', message: publicMessage(row, this.store) });
+      }
       for (const job of jobs) this.enqueue(job, () => this.run(job.id));
     };
   }
