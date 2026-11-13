@@ -18,9 +18,9 @@ const tooLongErrText = `{"error":{"message":"{\"code\":11115,\"msg\":\"prompt is
 type tooLongAgent struct {
 	mu       sync.Mutex
 	script   []string
-	sent     []string // prompts, in order, across sessions
-	sentBy   []string // session ID per send
-	starts   []string // resume ID per StartSession
+	sent     []string          // prompts, in order, across sessions
+	sentBy   []string          // session ID per send
+	starts   []string          // resume ID per StartSession
 	settings []SessionSettings // per StartSession (#1562: which provider a workspace started on)
 	release  chan struct{}
 	handoffs map[string]*SessionHandoff
