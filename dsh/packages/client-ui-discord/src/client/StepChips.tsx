@@ -57,15 +57,21 @@ export function compactBrief(brief: string): string {
   }).join('\n')
 }
 
-export function StepChips({ chips: given, runState, t }: { chips: readonly StepChip[]; runState?: string; t: T }) {
+/** #1588: a run in a chat channel shows only its latest steps; the rest is counted, not listed. */
+export const CHAT_RUN_STEPS = 3
+
+export function StepChips({ chips: given, runState, t, latest }: { chips: readonly StepChip[]; runState?: string; t: T; latest?: number }) {
   const [open, setOpen] = useState<number>()
   // A step can only still run while its run does: once the card is done, failed or cancelled,
   // an open step has no reported outcome.
   const chips = runState === 'running' ? given : given.map(c => c.state === 'running' ? { ...c, state: 'unknown' as const } : c)
-  const groups = groupTools(chips)
+  const all = groupTools(chips)
+  const groups = latest !== undefined && all.length > latest ? all.slice(-latest) : all
+  const hidden = all.length - groups.length
   const shown = open === undefined ? undefined : groups[open]
   return (
     <div className={css.stepChips} role="group" aria-label={t('stepChips')}>
+      {hidden > 0 && <span className={css.stepChip} data-state="unknown" data-steps-folded>{t('stepsFolded', { total: String(chips.length) })}</span>}
       {groups.map((chip, i) => {
         const detail = chip.steps.some(step => step.input !== undefined || step.output !== undefined)
         const name = `${chip.tool}${chip.steps.length > 1 ? ` ×${chip.steps.length}` : ''}`

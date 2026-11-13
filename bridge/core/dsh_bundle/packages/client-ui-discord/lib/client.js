@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 9e1f57ae4a1bf6e93a12026a4ca3f757238f6669d3ee74ac07e130d498c0fa09
+// dsh-client-source-sha256: d97913fa30b6c9eafe965259faea502f505c13cf13b84318e73b970b89d4ec0f
 // dsh-style-sha256: 4e8c7282821f2aac857fba19c7ec76b7fceb91782891915bb78bb3c3c089bc50
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18751,55 +18751,67 @@ function compactBrief(brief) {
 		return `${status} ${group.tool} ×${group.steps.length}${suffix}`;
 	}).join("\n");
 }
-function StepChips({ chips: given, runState, t }) {
+function StepChips({ chips: given, runState, t, latest }) {
 	const [open, setOpen] = (0, react.useState)();
-	const groups = groupTools(runState === "running" ? given : given.map((c) => c.state === "running" ? {
+	const chips = runState === "running" ? given : given.map((c) => c.state === "running" ? {
 		...c,
 		state: "unknown"
-	} : c));
+	} : c);
+	const all = groupTools(chips);
+	const groups = latest !== void 0 && all.length > latest ? all.slice(-latest) : all;
+	const hidden = all.length - groups.length;
 	const shown = open === void 0 ? void 0 : groups[open];
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: ChannelsPage_module_default.stepChips,
 		role: "group",
 		"aria-label": t("stepChips"),
-		children: [groups.map((chip, i) => {
-			const detail = chip.steps.some((step) => step.input !== void 0 || step.output !== void 0);
-			const name = `${chip.tool}${chip.steps.length > 1 ? ` ×${chip.steps.length}` : ""}`;
-			const label = `${name} · ${t(LABEL[chip.state])}`;
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-				type: "button",
+		children: [
+			hidden > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: ChannelsPage_module_default.stepChip,
-				"data-state": chip.state,
-				"aria-expanded": detail ? open === i : void 0,
-				disabled: !detail,
-				title: label,
-				"aria-label": label,
-				onClick: () => {
-					setOpen(open === i ? void 0 : i);
-				},
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ChannelsPage_module_default.stepMark,
-					"aria-hidden": true
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", { children: name })]
-			}, i);
-		}), shown !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-			className: ChannelsPage_module_default.stepOut,
-			"data-state": shown.state,
-			role: "region",
-			"aria-label": t("stepOutput", { tool: shown.tool }),
-			children: shown.steps.map((step, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				"data-state": step.state,
-				children: [
-					shown.steps.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("b", { children: [
-						step.tool,
-						" · ",
-						t(LABEL[step.state])
-					] }),
-					step.input !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepInput") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.input })] }),
-					step.output !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepResult") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.output })] })
-				]
-			}, i))
-		})]
+				"data-state": "unknown",
+				"data-steps-folded": true,
+				children: t("stepsFolded", { total: String(chips.length) })
+			}),
+			groups.map((chip, i) => {
+				const detail = chip.steps.some((step) => step.input !== void 0 || step.output !== void 0);
+				const name = `${chip.tool}${chip.steps.length > 1 ? ` ×${chip.steps.length}` : ""}`;
+				const label = `${name} · ${t(LABEL[chip.state])}`;
+				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					type: "button",
+					className: ChannelsPage_module_default.stepChip,
+					"data-state": chip.state,
+					"aria-expanded": detail ? open === i : void 0,
+					disabled: !detail,
+					title: label,
+					"aria-label": label,
+					onClick: () => {
+						setOpen(open === i ? void 0 : i);
+					},
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ChannelsPage_module_default.stepMark,
+						"aria-hidden": true
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", { children: name })]
+				}, i);
+			}),
+			shown !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ChannelsPage_module_default.stepOut,
+				"data-state": shown.state,
+				role: "region",
+				"aria-label": t("stepOutput", { tool: shown.tool }),
+				children: shown.steps.map((step, i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					"data-state": step.state,
+					children: [
+						shown.steps.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("b", { children: [
+							step.tool,
+							" · ",
+							t(LABEL[step.state])
+						] }),
+						step.input !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepInput") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.input })] }),
+						step.output !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("stepResult") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: step.output })] })
+					]
+				}, i))
+			})
+		]
 	});
 }
 // src/client/CapabilityList.tsx
@@ -21828,7 +21840,7 @@ function MemoryBadge({ items, t }) {
 	});
 }
 const LONG_PRESS_MS = 450;
-function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress }) {
+function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress, chatRoom = false }) {
 	const collabUrl = useCollabUrl();
 	const labels = (0, react.useMemo)(() => ({
 		code: {
@@ -21841,7 +21853,8 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 	const role = cardRole(card);
 	const shown = typeof card?.brief === "string" && cardView === "brief" ? role === "progress" ? compactBrief(card.brief) : card.brief : message.text;
 	const markdown = (0, react.useMemo)(() => softBreaksToHard(shown), [shown]);
-	const steps = role === "progress" ? shown.slice(shown.indexOf("\n") + 1) : "";
+	const stepLines = role === "progress" ? shown.slice(shown.indexOf("\n") + 1).split("\n") : [];
+	const steps = chatRoom && stepLines.length > 3 ? [t("stepsFolded", { total: String(stepLines.length) }), ...stepLines.slice(-3)].join("\n") : stepLines.join("\n");
 	const stepsMarkdown = (0, react.useMemo)(() => steps === "" ? "" : softBreaksToHard(steps), [steps]);
 	const fullTime = (/* @__PURE__ */ new Date(message.created_at * 1e3)).toLocaleString();
 	const editButtonRef = (0, react.useRef)(null);
@@ -22353,7 +22366,8 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 							cardView === "brief" && chips !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StepChips, {
 								chips,
 								runState: card.state,
-								t
+								t,
+								latest: chatRoom ? 3 : void 0
 							}) : !progressFolded && progressLines.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HighlightedMarkdown, {
 								text: stepsMarkdown,
 								labels,
@@ -24039,7 +24053,8 @@ function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewT
 										toolsOpen: toolsFor === m.id,
 										onLongPress: () => {
 											setToolsFor(m.id);
-										}
+										},
+										chatRoom: room?.kind !== "workspace"
 									}, m.id)])
 								]
 							}),
@@ -24957,6 +24972,7 @@ const zh = {
 	cardViewDetail: "细节",
 	cardViewBrief: "简略",
 	stepChips: "步骤",
+	stepsFolded: "共 {total} 步，只显示最近几步",
 	stepOk: "成功",
 	stepFailed: "失败",
 	stepRunning: "进行中",
@@ -25341,6 +25357,7 @@ const en = {
 	cardViewDetail: "Detail",
 	cardViewBrief: "Brief",
 	stepChips: "Steps",
+	stepsFolded: "{total} steps, latest shown",
 	stepOk: "succeeded",
 	stepFailed: "failed",
 	stepRunning: "running",

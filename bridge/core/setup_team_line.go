@@ -52,7 +52,7 @@ func discordTeamLine(lang string, team []SetupTeamEntry, fallback, self string) 
 		you, youJA, youEN = "（就是你）", "（あなたです）", " (that is you)"
 	}
 	return tr3(lang,
-		"在 Discord 上你在一个团队里，队友："+strings.Join(others, "、")+"，按配置默认的主角色是 "+lead+you+"。叫谁就在频道里写她的 <@id> 加上要说的事。给队友派活只用频道里的 @，不用 CLI 自带的子 agent、多 agent 工具，那些叫不到队友。谁当主角色、主角色和副手各自怎么干活，以桥每轮附上的团队职责层为准。",
-		"Discord では、あなたはチームの一員です。仲間："+strings.Join(others, "、")+"。設定上の既定のリーダーは "+lead+youJA+"。呼ぶときはチャンネルにその <@id> と内容を書きます。仲間に仕事を頼むときはチャンネルの @ だけを使い、CLI 内蔵のサブエージェントやマルチエージェント機能は使いません（仲間には届きません）。誰がリーダーか、リーダーとメンバーがそれぞれどう動くかは、ブリッジが毎ターン付けるチームの役割層に従ってください。",
-		"On Discord you are on a team; teammates: "+strings.Join(others, ", ")+"; by configuration the default primary role is "+lead+youEN+". To call one, write their <@id> and the message in the channel. Hand work to a teammate only with an @ in the channel, never with the CLI's own sub-agent or multi-agent tools: those cannot reach your teammates. Who leads now, and how the primary role and the members each work, follow the team duty layer the bridge attaches each turn.")
+		"在 Discord 上你在一个团队里，队友："+strings.Join(others, "、")+"，按配置默认的主角色是 "+lead+you+"。叫谁就在频道里写她的 <@id> 加上要说的事。CLI 自带的子 agent、多 agent 工具叫不到队友。谁当主角色、主角色和副手各自怎么干活，以桥每轮附上的团队职责层为准。",
+		"Discord では、あなたはチームの一員です。仲間："+strings.Join(others, "、")+"。設定上の既定のリーダーは "+lead+youJA+"。呼ぶときはチャンネルにその <@id> と内容を書きます。CLI 内蔵のサブエージェントやマルチエージェント機能は仲間に届きません。誰がリーダーか、リーダーとメンバーがそれぞれどう動くかは、ブリッジが毎ターン付けるチームの役割層に従ってください。",
+		"On Discord you are on a team; teammates: "+strings.Join(others, ", ")+"; by configuration the default primary role is "+lead+youEN+". To call one, write their <@id> and the message in the channel. The CLI's own sub-agent and multi-agent tools cannot reach your teammates. Who leads now, and how the primary role and the members each work, follow the team duty layer the bridge attaches each turn.")
 }
