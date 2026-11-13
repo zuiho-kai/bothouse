@@ -64,7 +64,8 @@ def unknown_name(reply):
     for l in _clean_lines(reply):
         m = UNKNOWN.search(l)
         if m and not NOT_NAME.search(l[max(0, m.start() - 12):m.end() + 12]):
-            return l.strip()[:80]
+            s = re.split(r"[。！？!?]", l[:m.start()])[-1] + l[m.start():]
+            return re.split(r"[。！？!?]", s)[0].strip()[:80]  # 只引含那句的一句
     return ""
 
 

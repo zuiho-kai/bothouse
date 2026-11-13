@@ -58,6 +58,7 @@ class T(unittest.TestCase):
         for s in ("我不确定你说的是哪个方案，A 还是 B？", "用户说「不知道是哪家的你不会去搜一下」，下次先搜。", "今天天气不错。", "说明里改成了：遇到不认识的名字先搜清楚是哪家的什么产品，真搜不到才标。"):
             self.assertEqual(cf.unknown_name(s), "", s)
         self.assertTrue(cf.unknown_name("这个 ZCode 我没听说过是什么产品"))
+        self.assertTrue(cf.unknown_name(self.MUSE).startswith("像 muse 这种我还不确定是哪家产品的名字"))
 
     def test_unknown_name_search_in_earlier_turn_does_not_count(self):
         old = {"type": "tool_use", "name": "WebSearch", "input": {"query": "agent news"}, "_earlier": True}
