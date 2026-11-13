@@ -75,6 +75,8 @@ func TestLocalGate_BusyCalledMessageIsInjected(t *testing.T) {
 	}{
 		{"mentioned", func(m *Message) { m.Mentioned = true }},
 		{"direct", func(m *Message) { m.Direct = true }},
+		// #1570: a teammate's @ joins the running turn too (agentm 11-13: it only queued).
+		{"teammate bot @", func(m *Message) { m.Mentioned, m.FromBot = true, true }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, running, p, s := newLocalGateEngine(t)
@@ -102,7 +104,6 @@ func TestLocalGate_NotInjectedFallsThroughToUpstream(t *testing.T) {
 		setup func(e *Engine, s *Session, m *Message)
 	}{
 		{"busy, not called", func(e *Engine, s *Session, m *Message) {}},
-		{"busy, from a teammate bot", func(e *Engine, s *Session, m *Message) { m.Mentioned, m.FromBot = true, true }},
 		{"idle, called", func(e *Engine, s *Session, m *Message) { m.Mentioned = true; s.Unlock() }},
 		{"idle, stop word", func(e *Engine, s *Session, m *Message) { m.Mentioned, m.Content = true, "暂停"; s.Unlock() }},
 		{"gate_local = false", func(e *Engine, s *Session, m *Message) { m.Mentioned = true; e.SetGateLocal(false) }},
@@ -600,5 +601,24 @@ func TestLocalGate_RedirectAnsweredBeforeQueued(t *testing.T) {
 			t.Fatalf("turns never ran; prompts=%q sent=%+v", prompts, p.sent)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// #1570: a teammate's stop word is input, not a stop: the running turn is not cancelled.
+func TestLocalGate_TeammateStopWordIsOnlyInput(t *testing.T) {
+	e, running, p, s := newLocalGateEngine(t)
+	msg := localMsg("暂停")
+	msg.Mentioned, msg.FromBot = true, true
+	if !e.applyGate(p, msg, s, "k") {
+		t.Fatal("a teammate's @ to a busy bot must be injected")
+	}
+	running.mu.Lock()
+	mid := append([]string(nil), running.mid...)
+	running.mu.Unlock()
+	if len(mid) != 1 {
+		t.Fatalf("SendMidTurn got %q, want the teammate's words", mid)
+	}
+	if !s.Busy() {
+		t.Fatal("a teammate's stop word must not cancel the turn")
 	}
 }

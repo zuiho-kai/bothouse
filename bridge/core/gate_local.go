@@ -119,8 +119,14 @@ func (e *Engine) applyLocalStop(p Platform, msg *Message, session *Session, inte
 // applyLocalGate applies the built-in busy rules to msg. It returns true when the message has been
 // fully handled (turn cancelled, or injected into the running turn).
 func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, interactiveKey string) bool {
-	if !e.gateLocal || msg.FromBot || !(msg.Mentioned || msg.Direct) || !session.Busy() {
+	if !e.gateLocal || !(msg.Mentioned || msg.Direct) || !session.Busy() {
 		return false
+	}
+	if msg.FromBot {
+		// #1570: a teammate that @-s a busy bot is folded into the running turn too (agentm
+		// 2026-11-13: Claude told 鲸鱼娘 #91 was taken over and got 「将在当前任务完成后处理」 while she
+		// kept checking it). Stop words and redirects stay a person's: a bot only adds input.
+		return e.injectLocal(p, msg, session, interactiveKey)
 	}
 	if e.applyLocalStop(p, msg, session, interactiveKey) {
 		return true
@@ -159,6 +165,11 @@ func (e *Engine) applyLocalGate(p Platform, msg *Message, session *Session, inte
 		}
 		return stopOnly // a redirect continues through normal dispatch as a new turn
 	}
+	return e.injectLocal(p, msg, session, interactiveKey)
+}
+
+// injectLocal writes msg into the running turn when the agent takes mid-turn input.
+func (e *Engine) injectLocal(p Platform, msg *Message, session *Session, interactiveKey string) bool {
 	if !e.canInjectInto(e.agent, interactiveKey) {
 		return false // no mid-turn input, or a stuck turn: queue it instead of pretending to deliver
 	}

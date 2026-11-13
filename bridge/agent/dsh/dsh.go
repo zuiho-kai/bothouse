@@ -29,7 +29,9 @@ func init() {
 // (handoff.go).
 type Agent struct {
 	*acp.Agent
-	home string // DSH_HOME, where the session logs are
+	home string   // DSH_HOME, where the session logs are
+	cmd  string   // the configured DSH command, for the steer self-heal (steer_heal.go)
+	args []string // its args
 }
 
 // Name is the agent type in config, session keys and logs.
@@ -47,7 +49,13 @@ func New(opts map[string]any) (core.Agent, error) {
 	if !ok {
 		return a, nil
 	}
-	return &Agent{Agent: base, home: defaultDSHHome(opts)}, nil
+	cmd, _ := opts["cmd"].(string)
+	if strings.TrimSpace(cmd) == "" {
+		cmd, _ = opts["command"].(string)
+	}
+	args := argStrings(opts["args"])
+	healSteer(cmd, args)
+	return &Agent{Agent: base, home: defaultDSHHome(opts), cmd: cmd, args: args}, nil
 }
 
 // applyDSHDefaults fills cmd "dsh", args ["--profile", "acp"] (dsh --help: the profile under

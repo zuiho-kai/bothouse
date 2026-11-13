@@ -256,7 +256,18 @@ const heldWaitExpired = "中间进度（等外部）主角色没在时限内验�
 
 // dropHeldReport ends a held report without posting it because nothing is left to accept (#1378).
 func (e *Engine) dropHeldReport(key, why string) bool {
-	return e.endHeldReport(key, "撤销："+why)
+	e.teamExit.mu.Lock()
+	var jobID string
+	var board int
+	if rec := e.loadReportsLocked()[key]; rec != nil {
+		jobID, board = rec.JobID, rec.Board
+	}
+	e.teamExit.mu.Unlock()
+	if !e.endHeldReport(key, "撤销："+why) {
+		return false
+	}
+	go e.tellAcceptTurnWithdrawn(jobID, board, why)
+	return true
 }
 
 // heldReportWaiting: the held record key is a progress report on a task waiting outside.
