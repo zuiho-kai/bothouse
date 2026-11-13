@@ -54,10 +54,9 @@ func (e *Engine) quotaReassignPick(session, title string, exclude ...string) (*E
 			earliest = until
 		}
 	}
-	// e itself cools too; when nobody else cools, its own deadline is the earliest one.
-	if own := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, session)); !own.IsZero() && earliest.IsZero() {
-		earliest = own
-	}
+	// e's own deadline is not a teammate's: counting it made 「能换的队友都在冷却」 appear when the
+	// others were only busy or unavailable (#1592, 11-13 22:39). Zero here means 都在忙.
+	slog.Info("quota reassign: no free teammate", "from", e.name, "session", session, "earliest_teammate_back", earliest)
 	return nil, earliest
 }
 

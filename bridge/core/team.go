@@ -395,6 +395,17 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 		if json.Unmarshal(raw, &f) != nil || now.Sub(f.Updated) > teamStaleAfter {
 			continue
 		}
+		if f.CoolingUntil.After(now) {
+			// A cooling teammate is not free (#1592: 彩虹猫 cooled until 11-15 09:00 and the lead's
+			// status still said 空着，可以派活, so the lead @'d her). The bridge hands an @ to a free
+			// teammate anyway, but the lead should pick that teammate itself.
+			when := f.CoolingUntil.Local().Format("01-02 15:04")
+			lines = append(lines, f.Name+"：额度冷却到 "+when+"，先别派活，派给别人")
+			keys = append(keys, f.Name+"|cooling|"+when)
+			if len(f.Sessions) == 0 {
+				continue
+			}
+		}
 		if len(f.Sessions) == 0 {
 			// An idle teammate is listed too (#1329): a team made by the wizard has no roster in the
 			// lead's persona, so without this line the lead never learns who it can hand work to and
