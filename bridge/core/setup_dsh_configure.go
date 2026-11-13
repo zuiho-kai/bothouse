@@ -489,6 +489,9 @@ func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
 func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	dshWebMu.Lock()
 	defer dshWebMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return DSHWeb{}, err
+	}
 	if l := currentDSHWebLaunch(); l != nil {
 		return waitDSHWebLaunch(ctx, l)
 	}
@@ -573,6 +576,9 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		cmd.Dir = home // the collab workspace defaults to dsh's cwd (dsh/collab/cordis.patch.yml)
 	}
 	detach(cmd)
+	if err := ctx.Err(); err != nil {
+		return DSHWeb{}, err
+	}
 	if err := cmd.Start(); err != nil {
 		return DSHWeb{}, err
 	}

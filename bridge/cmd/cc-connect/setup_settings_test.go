@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/chenhg5/cc-connect/config"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // setupModeServer starts runSetupOnly against an empty config (the fresh-install state:
@@ -61,6 +62,8 @@ func setupModeServer(t *testing.T) (int, string, func()) {
 	cfg.Management.Port = port
 	cfg.Management.Host = "127.0.0.1"
 	cfg.Management.Token = "test-setup-settings"
+	// Setup recovery may prepare the gate; keep that probe off a real install's port.
+	cfg.Gate.Port = core.PickFreePort(0)
 
 	done := make(chan struct{})
 	go func() {
