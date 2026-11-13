@@ -54,6 +54,7 @@ type Platform struct {
 	project               string // this bot's project name (opts["cc_project"]), named in outbound receipts
 	handler               core.MessageHandler
 	conn                  *websocket.Conn
+	connDone              chan struct{} // closed with this socket; guarded by mu, never reused after reconnect
 	// writeSem 让同一时刻只有一次写在写 socket（gorilla 不允许并发写），但
 	// 排队等这个名额本身受调用方 ctx 约束：一个卡住的慢写不会把别的会话一起
 	// 拖住，排队的人按自己的期限退出，而不是无限等一把互斥锁。
@@ -228,7 +229,9 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 	if err != nil {
 		return fmt.Errorf("qq: ws connect failed (%s): %w", p.wsURL, err)
 	}
-	p.conn = conn
+	p.mu.Lock()
+	p.conn, p.connDone = conn, make(chan struct{})
+	p.mu.Unlock()
 	p.connectedAt.Store(p.clock().UnixNano())
 
 	slog.Info("qq: connected to OneBot", "url", p.wsURL)
@@ -268,8 +271,16 @@ func (p *Platform) readLoop(ctx context.Context) {
 		default:
 		}
 
-		_, raw, err := p.conn.ReadMessage()
+		p.mu.Lock()
+		conn := p.conn
+		p.mu.Unlock()
+		if conn == nil {
+			p.reconnect(ctx)
+			continue
+		}
+		_, raw, err := conn.ReadMessage()
 		if err != nil {
+			_ = p.closeConnection(conn)
 			if ctx.Err() != nil {
 				return
 			}
@@ -279,7 +290,6 @@ func (p *Platform) readLoop(ctx context.Context) {
 			// the same dead socket again and would otherwise push the start
 			// forward, hiding the early part of the outage.
 			p.markDisconnected()
-			p.reconnect()
 			continue
 		}
 
@@ -311,20 +321,34 @@ func (p *Platform) readLoop(ctx context.Context) {
 	}
 }
 
-func (p *Platform) reconnect() {
+func (p *Platform) reconnect(ctx context.Context) {
 	for i := 1; i <= 30; i++ {
-		time.Sleep(time.Duration(i) * 2 * time.Second)
+		timer := time.NewTimer(time.Duration(i) * 2 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 		header := http.Header{}
 		if p.token != "" {
 			header.Set("Authorization", "Bearer "+p.token)
 		}
-		conn, _, err := websocket.DefaultDialer.Dial(p.wsURL, header)
+		conn, _, err := websocket.DefaultDialer.DialContext(ctx, p.wsURL, header)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			slog.Warn("qq: reconnect attempt failed", "attempt", i, "error", err)
 			continue
 		}
 		p.mu.Lock()
-		p.conn = conn
+		if ctx.Err() != nil {
+			p.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		p.conn, p.connDone = conn, make(chan struct{})
 		p.mu.Unlock()
 		p.connectedAt.Store(p.clock().UnixNano())
 		// Real recovery: the outage that just ended becomes the catch-up
@@ -1382,10 +1406,25 @@ func (p *Platform) Stop() error {
 	if p.cancel != nil {
 		p.cancel()
 	}
-	if p.conn != nil {
-		return p.conn.Close()
+	p.mu.Lock()
+	conn := p.conn
+	p.mu.Unlock()
+	return p.closeConnection(conn)
+}
+
+// Closing a socket ends all its receipt waits. The request may already have
+// reached OneBot, so this signal must never authorize replay on a new socket.
+func (p *Platform) closeConnection(conn *websocket.Conn) error {
+	if conn == nil {
+		return nil
 	}
-	return nil
+	p.mu.Lock()
+	if p.conn == conn {
+		close(p.connDone)
+		p.conn = nil
+	}
+	p.mu.Unlock()
+	return conn.Close()
 }
 
 // cachedGroupName returns the group name when it is already known, otherwise
@@ -1534,6 +1573,7 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 	case <-time.After(qqWriteTimeout):
 		return nil, fmt.Errorf("qq: API %s not sent: another write is still stuck on a slow upstream", action)
 	}
+	var connDone <-chan struct{}
 	err = func() error {
 		defer func() { <-sem }()
 		// 写入本身也带期限（qqWriteTimeout 与 ctx 取早者）。期限到了就把这次写
@@ -1554,6 +1594,7 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 			return err
 		}
 		conn := p.conn
+		connDone = p.connDone
 		p.mu.Unlock()
 		if conn == nil {
 			return core.ErrTaskTextNotAccepted
@@ -1563,7 +1604,7 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 		// 期限只管这一次写：清掉后回执仍按 ctx 自己的分支等待。
 		_ = conn.SetWriteDeadline(time.Time{})
 		if err != nil {
-			_ = conn.Close()
+			_ = p.closeConnection(conn)
 		}
 		return err
 	}()
@@ -1577,28 +1618,35 @@ func (p *Platform) callAPIContext(ctx context.Context, action string, params map
 		return nil, fmt.Errorf("qq: ws write: %w", err)
 	}
 
+	var raw json.RawMessage
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case raw := <-ch:
-		var resp struct {
-			Status  string          `json:"status"`
-			RetCode int             `json:"retcode"`
-			Data    json.RawMessage `json:"data"`
+	case raw = <-ch:
+	case <-connDone:
+		// A receipt read just before EOF is still authoritative.
+		select {
+		case raw = <-ch:
+		default:
+			return nil, fmt.Errorf("qq: connection closed before API %s receipt; delivery unknown", action)
 		}
-		if json.Unmarshal(raw, &resp) != nil {
-			return nil, fmt.Errorf("qq: invalid API response")
-		}
-		if resp.RetCode != 0 {
-			return nil, fmt.Errorf("qq: API %s failed (retcode=%d)", action, resp.RetCode)
-		}
-		var result map[string]any
-		_ = json.Unmarshal(resp.Data, &result)
-		return result, nil
-
 	case <-time.After(15 * time.Second):
 		return nil, fmt.Errorf("qq: API %s timeout", action)
 	}
+	var resp struct {
+		Status  string          `json:"status"`
+		RetCode int             `json:"retcode"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &resp) != nil {
+		return nil, fmt.Errorf("qq: invalid API response")
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("qq: API %s failed (retcode=%d)", action, resp.RetCode)
+	}
+	var result map[string]any
+	_ = json.Unmarshal(resp.Data, &result)
+	return result, nil
 }
 
 // callFileAPI fetches file metadata through the HTTP API when http_url is

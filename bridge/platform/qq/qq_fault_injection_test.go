@@ -268,7 +268,21 @@ func TestDisconnectDuringReceiptFailsWithoutReplay(t *testing.T) {
 	if err == nil {
 		t.Fatal("Send = nil after the upstream dropped the socket, want an error")
 	}
-	time.Sleep(1500 * time.Millisecond) // 重连轮次
+	// The disconnected request now fails immediately, so wait for actual
+	// recovery rather than relying on time spent waiting for its old receipt.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		p.mu.Lock()
+		connected := p.conn != nil
+		p.mu.Unlock()
+		if connected && p.outageStart.Load() == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("OneBot did not reconnect")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if got := f.count("send_group_msg"); got != 1 {
 		t.Fatalf("send attempts = %d, want 1 (a dropped socket must not be replayed)", got)
 	}

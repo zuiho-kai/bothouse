@@ -3,6 +3,7 @@ package qq
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,15 +25,24 @@ func TestDisconnectedReceiptsReleaseWithoutReplay(t *testing.T) {
 	f.dropAfterRead = func(action string, n int) bool { return action == "send_group_msg" && n == 2 }
 	p := f.start(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
 	done := make(chan error, 2)
-	go func() { done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 41}, "first") }()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 41}, "first")
+	}()
 	select {
 	case <-firstSeen:
 	case <-time.After(time.Second):
 		t.Fatal("first request did not reach OneBot")
 	}
-	go func() { done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 42}, "second") }()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 42}, "second")
+	}()
 	for range 2 {
 		select {
 		case err := <-done:
@@ -61,9 +71,14 @@ func TestStopReleasesPendingReceipt(t *testing.T) {
 	}
 	p := f.start(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
 	done := make(chan error, 1)
-	go func() { done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 42}, "pending") }()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		done <- p.Send(ctx, &replyContext{messageType: "group", groupID: 42}, "pending")
+	}()
 	select {
 	case <-seen:
 	case <-time.After(time.Second):
