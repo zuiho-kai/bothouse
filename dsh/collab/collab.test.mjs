@@ -1659,6 +1659,12 @@ test('#299 /stop all cancels every running DSH member in this room, and only her
 });
 
 test('#299 /stop cancels a running CLI member turn at once through ACP session/cancel', async () => {
+  // Poll instead of settling a fixed number of ticks: the rest of the suite leaves timers and
+  // pending work behind, and a fixed settle is not always enough for the turn to reach `sent`.
+  const within = async (f, what) => {
+    for (let i = 0; i < 400 && !f(); i++) await tick();
+    assert.ok(f(), what);
+  };
   const hub = makeHub();
   const dsh = fakeDsh();
   const cancels = [];
@@ -1671,18 +1677,17 @@ test('#299 /stop cancels a running CLI member turn at once through ACP session/c
   const members = new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
     [{ id: 'cc', name: 'CC', cli: 'claude' }]);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 跑个长命令' });
-  await settle();
+  await within(() => hub.store.openJobs().some(j => j.member_id === 'cc' && j.state === 'sent'), 'the CLI turn is running');
   const job = hub.store.openJobs().find(j => j.member_id === 'cc');
-  assert.equal(job.state, 'sent', 'the CLI turn is running');
   // The old code left a CLI job in `running` and stopped nothing: no agent, no watcher.
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /stop' });
-  await settle();
-  assert.deepEqual(cancels, ['1'], 'the ACP session/cancel goes out right away');
+  await within(() => cancels.length > 0, 'the ACP session/cancel goes out right away');
+  assert.deepEqual(cancels, ['1']);
   assert.equal(hub.store.job(job.id).state, 'interrupted', 'the job ends as interrupted, not completed');
   assert.equal(hub.store.page(1, undefined, 1).at(-1).text, '⏹ 已停下 CC 这一轮。');
   // The ACP prompt settles later with the cancelled stop reason; its empty text posts nothing.
   release();
-  await settle();
+  await within(() => members.cliTurns.size === 0, 'the cancelled prompt settles');
   assert.equal(hub.store.page(1, undefined, 50).filter(m => m.author === 'cc').length, 0, 'no reply and no failure card for the stopped turn');
   await members.close();
   hub.store.close();
