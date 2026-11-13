@@ -77,6 +77,7 @@ func fakeDrainingLaunchd(t *testing.T, headless bool) *drainingLaunchd {
 				return "Bootstrap failed: 5: Input/output error", fmt.Errorf("exit status 5")
 			}
 			f.loaded = true
+			f.started = true // the saved plist uses RunAtLoad
 			f.bootoutAt = time.Time{}
 			return "", nil
 		case "kickstart":
@@ -153,9 +154,39 @@ func TestLaunchdReload1725FailureIsBoundedAndRecoverable(t *testing.T) {
 				t.Fatal("failed reload must not report the service as running")
 			}
 			f.bootstrapBlocked = false
-			if err := mgr.Start(); err != nil || !f.loaded {
-				t.Fatalf("documented recovery did not load the saved plist: %v", err)
+			if err := mgr.Start(); err != nil || !f.loaded || !f.started {
+				t.Fatalf("documented recovery did not start the saved service: %v", err)
 			}
 		})
+	}
+}
+
+func TestLaunchdReload1725DoesNotBootstrapOverJobThatWillNotUnload(t *testing.T) {
+	f := fakeDrainingLaunchd(t, false)
+	f.drainingFor = time.Hour
+	start := f.now
+	err := (&launchdManager{}).Restart()
+	if err == nil || !strings.Contains(err.Error(), "still lists") || !strings.Contains(err.Error(), "bothouse daemon restart") {
+		t.Fatalf("unload timeout must explain the loaded state and next action: %v", err)
+	}
+	if f.now.Sub(start) != 30*time.Second || f.bootstrapCalls != 0 {
+		t.Fatalf("must stop waiting without bootstrapping over the old job: elapsed=%s bootstrap=%d", f.now.Sub(start), f.bootstrapCalls)
+	}
+}
+
+func TestLaunchdInstall1725KeepsLoadedJobWhenReplacementCannotBeWritten(t *testing.T) {
+	f := fakeDrainingLaunchd(t, false)
+	plist := launchdPlistPath()
+	if err := os.Rename(plist, plist+".original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(plist, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&launchdManager{}).Install(autostartTestCfg(t)); err == nil {
+		t.Fatal("expected a plist write error")
+	}
+	if !f.bootoutAt.IsZero() || !f.loaded {
+		t.Fatal("a failed replacement write must leave the loaded service alone")
 	}
 }
