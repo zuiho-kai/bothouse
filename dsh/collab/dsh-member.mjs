@@ -42,12 +42,29 @@ export const DSH_WORKSPACE_RULE = '- 大活（读长文、改代码、等命令�
 /**
  * #1539: a local CLI member (Codex and the like over ACP) runs in its CLI's sandbox, where a new install
  * has no network, 127.0.0.1 included: the workspace curl / node command came back as a red
- * "curl: (7) Failed to connect" in the channel. It hands work out with @ only (tasks.mjs fromChat).
+ * "curl: (7) Failed to connect" in the channel. #1588: its @ is the dispatch, and the @ itself lands in
+ * a workspace (tasks.mjs dispatchRoom), so the line says that instead of 「派活在频道里 @」, which read as
+ * "the work happens in the channel" (#1745).
  */
-export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友：一条消息写清要做什么和验收标准，系统按 @ 自动开任务、每十分钟看进展，交回后你验收。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
+export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：@ 派出去的活系统自动放进工作区，开任务、每十分钟看进展，交回后你验收。被点名接大活不在聊天频道硬扛：@ 出去的活已经在工作区，在那里做完再交回。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
+/**
+ * #1588 (audit 8): shared lines naming commands DSH has none of (/bind, bothouse channel create,
+ * board pause, ws-up --image) are left out for DSH members. Each must match, so a reword of the
+ * shared file fails tests instead of sending them again.
+ */
+const DSH_ABSENT = [
+  [/^- 同团队同平台成员在新频道默认可派；.*\/bind.*\n/m, ''],
+  [/截图用 ws-up --image 推；/, ''],
+  [/；用户要新频道用 `bothouse channel create <名字>`，不自己调 Discord API。/, '。'],
+  [/^- 收口.*`board pause <编号>`.*\n/m, ''],
+];
 export function dshTeamModeRules(mode, { cli = false } = {}) {
-  const rules = teamModeRules(mode);
+  let rules = teamModeRules(mode);
   if (!WORKSPACE_LINE.test(rules)) throw new Error('team-mode-rules.md: the workspace line moved; update WORKSPACE_LINE');
+  for (const [re, to] of DSH_ABSENT) {
+    if (!re.test(rules)) throw new Error(`team-mode-rules.md: ${re} no longer matches; update DSH_ABSENT`);
+    rules = rules.replace(re, to);
+  }
   return rules.replace(WORKSPACE_LINE, cli ? DSH_CLI_DISPATCH_RULE : DSH_WORKSPACE_RULE);
 }
 /** Opening brief for a new workspace: the rules of the chat channel's mode. */
@@ -897,7 +914,8 @@ export class DshMembers {
           });
         }
       };
-      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host (DSH_CLI_DISPATCH_RULE).
+      // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1588: its @
+      // lands in a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs dispatchRoom).
       const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id) ?? '');
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；

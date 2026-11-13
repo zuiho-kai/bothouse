@@ -5966,6 +5966,66 @@ test('#1745: a teammate\'s @, a private chat and a later @ while she is busy dis
   assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, 'no second task');
 });
 
+// #1588: the same room decision for every @ that hands work out, not only the lead's first one.
+test('#1588: a later @ while her dispatch is in work joins her workspace, not the channel', async t => {
+  const { hub, members, tasks, say } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  say('ju', '@DeepSeek 改文案');
+  await settle();
+  const [ws] = hub.store.rooms().filter(r => r.kind === 'workspace');
+  say('ju', '@DeepSeek 顺便把按钮颜色也改了');
+  await settle();
+  const jobs = hub.store.openJobs().filter(j => j.member_id === 'ds');
+  assert.ok(jobs.length >= 1);
+  for (const job of jobs) assert.equal(job.room_id, ws.id, 'every job of hers runs in her workspace');
+  const extra = hub.store.page(ws.id, undefined, 100).find(m => /^【补充】DeepSeek：顺便把按钮颜色也改了/.test(m.text));
+  assert.ok(extra, 'the call is posted in her workspace');
+  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 1);
+  assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, 'still one task');
+});
+
+test('#1588: a person\'s @ to a member dispatches into a workspace; thanks alone does not', async t => {
+  const { hub, members, tasks } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  const person = text => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text }).message;
+  person('@DeepSeek 谢谢');
+  await settle();
+  assert.equal(hub.store.rooms().filter(r => r.kind === 'workspace').length, 0, 'thanks opens no workspace');
+  assert.equal(tasks.list(1).length, 0);
+  person('@DeepSeek 修登录页');
+  await settle();
+  const ws = hub.store.rooms().filter(r => r.kind === 'workspace');
+  assert.equal(ws.length, 1, 'the person\'s @ goes to a workspace');
+  const job = hub.store.openJobs().find(j => j.member_id === 'ds' && j.room_id === ws[0].id);
+  assert.ok(job, 'her job runs in the workspace');
+  assert.match(hub.store.message(job.trigger_id).text, /^【交接】DeepSeek：修登录页/);
+  const [task] = tasks.list(1);
+  assert.equal(task.room_id, ws[0].id);
+  assert.equal(task.created_by, 'ju', 'the channel lead hands it out and accepts it');
+  assert.equal(tasks.task(task.id).source, 'workspace');
+});
+
+test('#1588: after a delivery the lead\'s @ opens a workspace at once; 「收到」 alone does not', async t => {
+  const { hub, fake, members, tasks, say } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  say('ju', '@DeepSeek 修登录页');
+  await settle();
+  const [first] = tasks.list(1);
+  fake.turn(fake.sessions.get(fake.made[0]), ['[report] 修好了']);
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'returned');
+  say('ju', '@DeepSeek 收到，辛苦了');
+  await settle();
+  assert.equal(tasks.list(1).filter(x => x.owner === 'ds').length, 1, '「收到」 opens nothing');
+  say('ju', '@DeepSeek 再把注册页也修了');
+  await settle();
+  const all = tasks.list(1).filter(x => x.owner === 'ds');
+  assert.equal(all.length, 2, 'the next job opens at once, no waiting for her 【接】');
+  const second = all.find(x => x.id !== first.id);
+  assert.equal(hub.store.room(second.room_id).kind, 'workspace');
+  assert.equal(second.title, '再把注册页也修了');
+});
+
 test('G26: a ticket sent to /tasks gets a 403 pointing at /workspaces; /tasks auth is unchanged', async () => {
   const { hub, tasks } = makeTasks();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
@@ -6505,12 +6565,12 @@ for (const state of ['returned', 'done']) {
     assert.equal(tasks.task(opened[0].id).status, 'asked');
   });
 
-  // #1539: an explicit @ after a delivery waits for her stance too (a DSH lead's 「@小蓝 收到，谢谢」 opened #2).
-  test(`r12 (${state}): an explicit @ waits for her stance; 【接】 opens it`, async () => {
+  // #1588: an explicit @ after a delivery opens at once (#1539 made it wait for her 【接】); thanks alone still opens nothing.
+  test(`r12 (${state}): an explicit @ opens at once, no waiting for her 【接】`, async () => {
     const { before, opened } = await r12Run(state, '@副 把 sqrt 加上', '【接】马上加');
-    assert.equal(before.length, 0, 'the @ alone waits for her stance');
-    assert.equal(opened.length, 1);
-    assert.equal(opened[0].title, '把 sqrt 加上');
+    assert.equal(before.length, 1, 'the @ opens the task by itself');
+    assert.equal(before[0].title, '把 sqrt 加上');
+    assert.equal(opened.length, 1, 'her 【接】 answers it, nothing more opens');
   });
 
   test(`r12 (${state}): 「@副 收到，谢谢」 answered with 「不客气」 opens no task`, async () => {
@@ -6544,10 +6604,7 @@ test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ an
   await settle();
   say(1, '@副 把 sqrt 加上', 'zhu');
   await settle();
-  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 1, '#1539: after a delivery the @ waits for her stance');
-  say(1, '【接】马上加');
-  await settle();
-  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 2);
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 2, '#1588: after a delivery the @ opens at once');
 });
 
 // #1540: #1539 walk after-round3.png — 小蓝's 「@小橙 Selected model is at capacity. Please try a different model.」
@@ -6563,11 +6620,31 @@ test('#1540: a model-error reply marks the task 出错, the lead accepts nothing
   assert.match(tasks.task(first.id).note, /满载/);
   say(1, '@副 收到，谢谢', 'zhu');
   await settle();
-  assert.equal(tasks.task(first.id).status, 'assigned', 'the call after the error sends the same task again');
+  assert.equal(tasks.task(first.id).status, 'failed', '#1588: thanks alone re-sends nothing');
+  say(1, '@副 再试一次', 'zhu');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'assigned', 'a retry call sends the same task again');
   assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 1, 'no second task');
   say(1, '@主 Tue Nov 13 02:13:00 JST 2026');
   await settle();
   assert.equal(tasks.task(first.id).status, 'returned');
+});
+
+// #1588 (audit 12): a new job after an error was taken for a retry of the old one and lost its title.
+test('#1588: after an error a new job opens a new task with its own title', async () => {
+  const { tasks, say } = g34Setup();
+  say(1, '副，跑一次 date 把结果发回来', 'zhu');
+  await settle();
+  const [first] = tasks.list(1).filter(r => r.owner === 'fu');
+  say(1, '@主 Selected model is at capacity. Please try a different model.');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'failed');
+  say(1, '@副 换个活：把 README 的安装一节补全', 'zhu');
+  await settle();
+  const mine = tasks.list(1).filter(r => r.owner === 'fu');
+  assert.equal(mine.length, 2, 'a second task');
+  assert.equal(tasks.task(first.id).status, 'failed', 'the failed one is not re-sent');
+  assert.equal(mine.find(r => r.id !== first.id).title, '换个活：把 README 的安装一节补全');
 });
 
 test('#1540: a real reply that talks about an error still hands back', async () => {
