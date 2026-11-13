@@ -10,7 +10,7 @@ anything here.
 |---|---|---|---|
 | L0 index | `MEMORY.md` | one line per **domain**, no facts | ≤ 8 domains (+ misc), ≤ 80 chars/line |
 | L1 domain | `<domain>/README.md` | one line per **topic**: what it covers | ≤ 15 topics, ≤ 120 chars/line |
-| L2 topic | `<domain>/<topic>.md` | current state + key facts | ≤ 60 lines, ≤ 4000 chars |
+| L2 topic | `<domain>/<topic>.md` | current state + key facts | ≤ 159 lines, ≤ 13874 chars |
 | L3 log | `log.md` | dated history, session links | append-only, never loaded by default |
 
 Answering "how do I reach my server": MEMORY.md → `infra/README.md` → `infra/server.md`. Answering "how did we

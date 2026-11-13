@@ -39,5 +39,18 @@ class ManualNumbers(unittest.TestCase):
             I.manual("≤@NO_SUCH@")
 
 
+    def test_schema_budget_is_lint_budget(self):
+        """#757: the page budget the model reads (template CLAUDE.md) is the one lint.py enforces. SOP v2
+        (2026-10-25, merge first, split last; a5b512bbe) raised lint to these numbers; the templates had kept 60/4000."""
+        tpl = Path(__file__).resolve().parent.parent / "template"
+        want = {"L1": (lint.MAX_TOPICS, lint.README_LINE), "L2": (lint.PAGE_LINES, lint.PAGE_CHARS),
+                "L0": (lint.MAX_DOMAINS, lint.INDEX_LINE)}
+        for f in (tpl / "CLAUDE.md", tpl / "schema" / "CLAUDE.md", tpl / "schema" / "CLAUDE.zh-CN.md"):
+            rows = {l.split("|")[1].split()[0]: l for l in f.read_text().splitlines() if re.match(r"\| L[0-2] ", l)}
+            for level, nums in want.items():
+                self.assertEqual(tuple(int(n) for n in re.findall(r"≤ (\d+)", rows[level])), nums, f"{f} {level}")
+            self.assertIn(f"≤ {lint.BODY_LINE} ", f.read_text(), f)
+
+
 if __name__ == "__main__":
     unittest.main()
