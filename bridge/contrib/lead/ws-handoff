@@ -49,7 +49,7 @@ MAX_WS = 8  # 池子最多几个工作区（含现有），满了排队；用户
 QUEUE = _team.SETUP / "ws-queue.json"  # 排队的活：[{nid, path, task, chat, project, answer}]，先排先接
 
 
-def check_notes(text: str):
+def check_notes(text: str, task: str = ""):
     """交接文件不合格时返回报错文字（一次列出所有缺的项，含要补什么和示例），合格返回 None。
     规则在 handoff-rules.json（产品默认只查通用必填项），本机可叠严格档（_handoff_rules.load）；按档位选查哪些（check_tiered）。"""
     rules = _handoff_rules.load()
@@ -60,11 +60,40 @@ def check_notes(text: str):
     # 对象核对也是读文件就能判的检查，和必填节同一次报（#1514：11-12 17:31–17:35 鲸鱼娘的交接先被必填节退回两次，
     # 补齐后第三次才报对象核对缺证据，同一份交接跑了四遍）
     errs += [e for e in [object_gate(text)] if e]
+    errs += root_cause_errors(text, task)
     if not errs:
         return None
     if len(errs) == 1:
         return errs[0]
     return f"交接有 {len(errs)} 处要补，一次改完再交：\n" + "\n".join(f"{i}. {e}" for i, e in enumerate(errs, 1))
+
+
+
+def root_cause_errors(text: str, task: str = ""):
+    """修复交接只查根因链和两类命令输出是否存在，不判断分析质量。"""
+    scope = re.search(r"(?ms)^##[ \t]+范围[^\n]*\n(.*?)(?=^##[ \t]|\Z)", text)
+    titles = re.findall(r"(?m)^#[ \t]+(.+)$", text)
+    target = "\n".join([task, *titles, scope.group(1) if scope else ""])
+    if not re.search(r"修|fix|bug|#\d+|issue\s*[:：]?\s*\d+", target, re.I):
+        return []
+    section = re.search(r"(?ms)^##[ \t]+根因[ \t]*\n(.*?)(?=^##[ \t]|\Z)", text)
+    body = section.group(1) if section else ""
+    errors = []
+    if section is None:
+        errors.append("修 bug 的交接缺「## 根因」节。")
+    if not any(len(parts := line.split("→")) >= 3 and all(p.strip(" -*>") for p in parts)
+               for line in body.splitlines()):
+        errors.append("根因节缺一行「现象→为什么→再为什么」（三段都要写）。")
+    # 命令与输出同放代码块；只写命令不算证据。无匹配时可明确写「（无输出）」。
+    blocks = re.findall(r"(?ms)^```[^\n]*\n(.*?)^```[ \t]*$", body)
+    for pattern, label in (
+        (r"git\s+log\s+origin/develop\b", "git log origin/develop"),
+        (r"git\s+(?:log\s+-S|blame\b)", "git log -S 或 git blame"),
+    ):
+        if not any(re.search(pattern, line) and any(x.strip() for x in block.splitlines()[i + 1:])
+                   for block in blocks for i, line in enumerate(block.splitlines())):
+            errors.append(f"根因节缺 {label} 的命令及输出；用代码块贴命令和实际输出，无匹配写「（无输出）」。")
+    return errors
 
 
 def intent_gate(text: str):
@@ -922,7 +951,7 @@ def main(argv):
     # 先说一声在交：后面搜旧定案、挑工作区要几十秒；Codex 的命令等几秒就先返回，没这行它会以为桥没响应，
     # 跟用户说「工作区还没回执、不确定成没成」（agentm 11-09 #25，那次交活跑了 47 秒）
     try:
-        err = check_notes(notes)
+        err = check_notes(notes, task)
     except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
         sys.exit(f"ws-handoff: {e}")
     if err:
