@@ -738,6 +738,8 @@ type interactiveState struct {
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
 	refused                  string         // #1414: last turn's classifier refusal (takeRefused)
 	refusedQueued            *queuedMessage // #1414: the chained queued message that turn was, if any
+	cheapFailed              string         // #1562: last workspace turn on a cheap lane ended with an API error (takeCheapFailed)
+	cheapFailedQueued        *queuedMessage // #1562: the chained queued message that turn was, if any
 	platform                 Platform
 	replyCtx                 any
 	injectedReplyCtxs        []*injectedReply // maomao fork: reply contexts of messages injected into the running turn (gate.go); guarded by mu
@@ -2442,6 +2444,12 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 			return fmt.Errorf("session %q is busy and its queue is full", sessionKey)
 		}
 		return fmt.Errorf("session %q is busy", sessionKey)
+	}
+	// #1562: a forward into a workspace whose last turn ended with an API error starts fresh.
+	if job.Forward {
+		if note := e.freshForwardAfterFailure(sessionKey, session, sessions, agent); note != "" {
+			msg.Content = note + "\n\n" + msg.Content
+		}
 	}
 	// maomao fork: scheduled turns show on the team status board too, and see the channel.
 	if job.resume == nil {
@@ -5238,6 +5246,17 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				return
 			}
 		}
+		// #1562: a workspace turn on a cheap lane ended with an API error; re-run on the lead model.
+		if errMsg, q := state.takeCheapFailed(); errMsg != "" {
+			retryP, retry := p, origMsg
+			if q != nil {
+				retryP, retry = q.platform, queuedToMessage(*q)
+			}
+			if e.retryOnLeadAfterCheapFailure(retryP, retry, errMsg, state, session, sessions, agent, interactiveKey, workspaceDir, ccSessionKey) {
+				unlocked = true
+				return
+			}
+		}
 	}
 
 	// Guard against a narrow race: a message may have been queued between
@@ -7694,6 +7713,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				sp.discard()
 				return
 			}
+			// #1562: how a workspace turn ended (the watch and forwards read it); a cheap-lane
+			// turn that ended with an API error is re-run on the lead model by the caller.
+			e.noteWorkspaceTurnOutcome(sessionKey, event)
+			if e.takeCheapLaneFailure(state, input, event, chainedQueued, sessionKey) {
+				board.hold()
+				sp.discard()
+				return
+			}
 
 			// Mark clean exit so unsolicited reader preserves buffered events.
 			state.mu.Lock()
@@ -9115,6 +9142,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				rawQueued = *q
 			}
 			if e.retryFreshOnRefusal(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
+				return true
+			}
+		}
+		// #1562: a queued workspace turn on a cheap lane that ended with an API error.
+		if errMsg, q := state.takeCheapFailed(); errMsg != "" {
+			if q != nil {
+				rawQueued = *q
+			}
+			if e.retryOnLeadAfterCheapFailure(rawQueued.platform, queuedToMessage(rawQueued), errMsg, state, session, sessions, state.agent, sessionKey, state.workspaceDir, rawQueued.msgSessionKey) {
 				return true
 			}
 		}

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -69,6 +70,12 @@ func newProviderProxy(targetURL, thinkingOverride string, foldSystem bool) (*Pro
 		req.Header["X-Forwarded-For"] = nil
 	}
 	proxy.FlushInterval = -1 // flush SSE events immediately
+	var ctxExceeded atomic.Int32
+	if foldSystem {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			return stopContextExceededRetries(resp, &ctxExceeded, targetURL)
+		}
+	}
 
 	override := thinkingOverride
 	mux := http.NewServeMux()
@@ -233,4 +240,73 @@ func foldSystemTurns(data map[string]any) bool {
 		data["messages"] = out
 	}
 	return changed
+}
+
+// ---- maomao fork: stop retrying a local model whose context is full (#1562) ----
+//
+// 11-13 two workspaces on the local Qwen (LM Studio, parallel 2) outgrew their slot: every
+// request then answered 500 "Context size has been exceeded", which Claude Code treats as a
+// server error and retries (10 times, about 4m40s each); the turn ended after 56 and 65
+// minutes. The same prompt fails the same way, so on the second such answer in a row the
+// session-provider proxy turns it into a 400 the CLI does not retry: the turn ends at once
+// with an API error, and the engine moves the task to the lead model
+// (workspace_failover.go).
+
+// localContextExceededPhrases: lower-cased upstream error texts for a full context window.
+// Source: LM Studio 11-13 ("Context size has been exceeded."); llama-server
+// ("exceeds the available context size"); OpenAI-style servers ("maximum context length").
+var localContextExceededPhrases = []string{"context size has been exceeded", "exceeds the available context size", "maximum context length"}
+
+// LocalContextExceededText marks the error the proxy sends instead (the engine matches it).
+const LocalContextExceededText = "bothouse: local model context exceeded twice in a row, retries stopped"
+
+func isLocalContextExceeded(body string) bool {
+	low := strings.ToLower(body)
+	for _, p := range localContextExceededPhrases {
+		if strings.Contains(low, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsLocalContextExceededError: text (an API error the CLI reports) is the proxy's stop above.
+func IsLocalContextExceededError(text string) bool {
+	return strings.Contains(text, LocalContextExceededText)
+}
+
+func stopContextExceededRetries(resp *http.Response, n *atomic.Int32, target string) error {
+	if resp.StatusCode/100 == 2 {
+		n.Store(0)
+		return nil
+	}
+	if resp.StatusCode < 500 || resp.Body == nil {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	if !isLocalContextExceeded(string(body)) {
+		return nil
+	}
+	count := n.Add(1)
+	slog.Warn("providerproxy: upstream context exceeded", "target", target, "in_a_row", count, "status", resp.StatusCode)
+	if count < 2 {
+		return nil
+	}
+	n.Store(0)
+	msg, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{
+		"type":    "invalid_request_error",
+		"message": LocalContextExceededText + " (" + strings.TrimSpace(string(body)) + ")",
+	}})
+	resp.StatusCode, resp.Status = http.StatusBadRequest, "400 Bad Request"
+	resp.Header.Set("Content-Type", "application/json")
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Set("Content-Length", fmt.Sprint(len(msg)))
+	resp.ContentLength = int64(len(msg))
+	resp.Body = io.NopCloser(bytes.NewReader(msg))
+	return nil
 }

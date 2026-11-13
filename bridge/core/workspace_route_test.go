@@ -132,7 +132,7 @@ func TestResolveRouteLane(t *testing.T) {
 			return c.qwenUp
 		}
 		r := workspaceRoute{cheap: true, class: c.class}
-		e.resolveRouteLane(&r)
+		e.resolveRouteLane(&r, "")
 		if r.lane != c.lane || !strings.Contains(r.reason, c.reason) {
 			t.Errorf("%s ds=%v qwen=%v: lane %q reason %q", c.class, c.dsUp, c.qwenUp, r.lane, r.reason)
 		}
