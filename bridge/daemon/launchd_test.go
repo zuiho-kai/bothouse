@@ -137,6 +137,7 @@ func TestRestartPrefersGUIDomainWhenAvailable(t *testing.T) {
 	userTarget := launchdTarget(userDomain)
 
 	var calls []string
+	userLoaded := true
 	runLaunchctl = func(args ...string) (string, error) {
 		calls = append(calls, strings.Join(args, " "))
 		if len(args) < 2 {
@@ -150,11 +151,17 @@ func TestRestartPrefersGUIDomainWhenAvailable(t *testing.T) {
 			case guiTarget:
 				return "Bootstrap failed: 113: Could not find service", fmt.Errorf("exit status 113")
 			case userTarget:
+				if !userLoaded {
+					return "Could not find service", fmt.Errorf("exit status 113")
+				}
 				return "pid = 4321\nstate = running", nil
 			default:
 				return "", fmt.Errorf("unexpected print target %q", args[1])
 			}
 		case "bootout":
+			if args[1] == userTarget {
+				userLoaded = false
+			}
 			return "", nil
 		case "bootstrap":
 			if args[1] != guiDomain {
@@ -207,6 +214,7 @@ func TestRestartKeepsUserDomainWhenGUIDomainUnavailable(t *testing.T) {
 	userTarget := launchdTarget(userDomain)
 
 	var calls []string
+	userLoaded := true
 	runLaunchctl = func(args ...string) (string, error) {
 		calls = append(calls, strings.Join(args, " "))
 		if len(args) < 2 {
@@ -220,11 +228,17 @@ func TestRestartKeepsUserDomainWhenGUIDomainUnavailable(t *testing.T) {
 			case userDomain:
 				return "subsystem", nil
 			case userTarget:
+				if !userLoaded {
+					return "Could not find service", fmt.Errorf("exit status 113")
+				}
 				return "pid = 4321\nstate = running", nil
 			default:
 				return "", fmt.Errorf("unexpected print target %q", args[1])
 			}
 		case "bootout":
+			if args[1] == userTarget {
+				userLoaded = false
+			}
 			return "", nil
 		case "bootstrap":
 			if args[1] != userDomain {
@@ -453,9 +467,7 @@ func TestInstallLaunchd_WritesPlistAt0600(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	orig := runLaunchctl
-	t.Cleanup(func() { runLaunchctl = orig })
-	runLaunchctl = func(args ...string) (string, error) { return "", nil }
+	recordLaunchctl(t)
 
 	mgr := &launchdManager{}
 	cfg := Config{
@@ -487,9 +499,7 @@ func TestInstallLaunchd_TightensExistingPlistFrom0644(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	orig := runLaunchctl
-	t.Cleanup(func() { runLaunchctl = orig })
-	runLaunchctl = func(args ...string) (string, error) { return "", nil }
+	recordLaunchctl(t)
 
 	plistPath := launchdPlistPath()
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0o700); err != nil {
