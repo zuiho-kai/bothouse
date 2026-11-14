@@ -44,8 +44,12 @@ const LABEL = { done: 'progressDone', doing: 'progressDoing', next: 'progressNex
 /** Folded state of the card, remembered per room in the browser (#156). Same shape as the card view switch. */
 const FOLD_KEY = 'dsh-channels-progress-folded:'
 
+/**
+ * #1616 (Fable #37–38: the open card covered the top of the log and cut its titles to a few
+ * characters): folded is the default, one strip with the counts; a room opened by hand stays open.
+ */
 export function loadProgressFolded(roomId: number): boolean {
-  try { return globalThis.localStorage?.getItem(FOLD_KEY + roomId) === '1' } catch (error) { void error; return false /* storage unavailable: stay open */ }
+  try { return globalThis.localStorage?.getItem(FOLD_KEY + roomId) !== '0' } catch (error) { void error; return true /* storage unavailable: stay folded */ }
 }
 
 export function saveProgressFolded(roomId: number, folded: boolean): void {

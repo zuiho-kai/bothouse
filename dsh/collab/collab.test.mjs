@@ -578,7 +578,7 @@ test('relay cap: the channel setting wins over the instance default and pauses o
     await settle();
     const last = hub.store.page(1, undefined, 1)[0];
     assert.equal(last.author_kind, 'system', `cap ${cap}: message ${cap + 1} pauses the relay`);
-    assert.match(last.text, new RegExp(`连续接力 ${cap} 次以上`));
+    assert.match(last.text, new RegExp(`互相接力 ${cap} 次以上`));
     hub.store.close();
   }
 });
@@ -931,6 +931,16 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
   assert.match(c.text, /go test/);
 });
 
+test('#1616: step chips keep the newest steps whole and cut older ones once the card passes half a message', () => {
+  const big = 'y'.repeat(MAX_TEXT / 4 - 16); // two of them and their calls fit in half a message
+  const items = [];
+  for (let i = 0; i < 4; i++) items.push({ kind: 'tool_use', tool: 'Bash', text: `step ${i}` }, { kind: 'tool_result', tool: 'Bash', text: big, exit_code: 0 });
+  const chips = JSON.parse(progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', steps: 4, items })).card).chips;
+  assert.equal(chips[3].output.length, big.length, 'the newest output is whole');
+  assert.equal(chips[2].output.length, big.length, 'so is the one before, within half a message');
+  assert.ok(chips[0].output.length <= 120, 'the oldest falls back to one short line');
+});
+
 test('progress card carries step chips: tool, outcome, call and output per step (#125)', () => {
   const c = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'running', steps: 4, elapsed_sec: 9, agent: 'Codex', items: [
     { kind: 'thinking', text: 'hmm' },
@@ -940,9 +950,10 @@ test('progress card carries step chips: tool, outcome, call and output per step 
     { kind: 'tool_use', tool: 'Read', text: 'b.go' },
   ] }));
   assert.deepEqual(JSON.parse(c.card).chips, [
-    { tool: 'Bash', state: 'ok', input: 'go test ./...', output: 'ok all' },
+    // #1616: the call and output keep their lines and length (the step list folds them on the page).
+    { tool: 'Bash', state: 'ok', input: 'go   test ./...', output: 'ok\n  all' },
     { tool: 'Edit', state: 'failed', input: 'a.go', output: 'boom' },
-    { tool: 'Grep', state: 'ok', output: `${'x'.repeat(119)}…` },
+    { tool: 'Grep', state: 'ok', output: 'x'.repeat(300) },
     { tool: 'Read', state: 'running', input: 'b.go' },
   ]);
   const done = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', items: [{ kind: 'tool_use', tool: 'Read', text: 'b.go' }, { kind: 'error', text: 'denied' }, { kind: 'tool_use', text: 'q' }] }));
@@ -1787,7 +1798,7 @@ test('relay cap: agent-to-agent mentions stop starting DSH turns until a human s
   await settle();
   const last = hub.store.page(1, undefined, 1)[0];
   assert.equal(last.author_kind, 'system');
-  assert.match(last.text, /连续接力 2 次以上/);
+  assert.match(last.text, /互相接力 2 次以上/);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 继续' });
   assert.equal(hub.store.relayDepth(1, hub.store.page(1, undefined, 1)[0].id), 0);
 });
@@ -5967,6 +5978,29 @@ test('#1598: her 【接】 moves the lead\'s @ into a workspace, with the body, 
   assert.equal(tasks.task(task.id).status, 'returned');
   assert.equal(hub.store.workspaceOwner(ws[0].id), null, 'handed back: the workspace goes to the pool');
   assert.doesNotMatch(hub.store.page(1, undefined, 100).filter(m => m.author === 'ds' && m.author_kind === 'role').map(m => m.text).join('\n'), /修好了/, 'the work stays out of the channel');
+});
+
+// #1616 (user 11-14「为什么一个工作区只有一个模型」): one job called to two members goes into one
+// workspace — the second 【接】 joins the first's, told who is already there — not one each.
+test('#1616: two members called to one job work in one workspace', async t => {
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@橘 @DeepSeek 一起修登录页：橘改 css，DeepSeek 写测试');
+  await settle();
+  await answer(1, '【接】 我改 css', 'ju');
+  await answer(1, '【接】 我写测试', 'ds');
+  const ws = workspaces();
+  assert.equal(ws.length, 1, 'one workspace for the one job');
+  const owned = tasks.list(1).filter(task => task.room_id === ws[0].id).map(task => task.owner).sort();
+  assert.deepEqual(owned, ['ds', 'ju'], 'both tasks are in it');
+  const rows = hub.store.page(ws[0].id, undefined, 100).filter(m => m.author_kind === 'system' && m.text.startsWith('【交接】'));
+  assert.equal(rows.length, 2, 'each member has her handoff row there');
+  assert.match(rows[1].text, /同一件活 橘 也在这个工作区/, 'the second is told who is already there');
+  // A new job later opens its own workspace.
+  person('@DeepSeek 再查一下注册页');
+  await settle();
+  await answer(1, '【接】 好', 'ds');
+  assert.equal(workspaces().length, 2, 'another job, another workspace');
 });
 
 // #1751 review: a dispatch at the length cap must keep its whole body — what she added and the

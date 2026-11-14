@@ -120,7 +120,7 @@
   flex: 1;
   min-height: 0;
   padding: 8px 0 12px;
-  overflow-y: auto;
+  overflow: hidden auto;
 }
 
 .dshc_guide {
@@ -1537,8 +1537,71 @@
 }
 
 .dshc_boardTaskCard .dshc_taskLinks {
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 4px 10px;
   margin-top: auto;
+}
+
+.dshc_boardTaskCard .dshc_taskLinks button {
+  white-space: nowrap;
+}
+
+.dshc_taskPrimary {
+  background: var(--dsw-alias-state-business-primary);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-weight: 600;
+  color: #fff !important;
+}
+
+.dshc_taskForm {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  display: flex;
+}
+
+.dshc_taskForm label {
+  color: var(--dsw-alias-label-secondary);
+  flex-direction: column;
+  flex: 100%;
+  gap: 4px;
+  display: flex;
+}
+
+.dshc_taskForm input {
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  width: 100%;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.dshc_taskForm button {
+  border: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+
+.dshc_taskForm button[type="submit"] {
+  color: #fff;
+  background: var(--dsw-alias-state-business-primary);
+  border-color: #0000;
+}
+
+.dshc_taskForm button:disabled {
+  opacity: .5;
+  cursor: default;
 }
 
 .dshc_boardTabEmpty {
@@ -1984,6 +2047,18 @@
   min-width: 0;
 }
 
+.dshc_room:has(.dshc_roomWorking) > .dshc_roomLabel {
+  text-overflow: ellipsis;
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+}
+
+.dshc_room:has(.dshc_roomWorking) > .dshc_roomWorking {
+  flex: 0 auto;
+  min-width: 0;
+}
+
 .dshc_avatarStack {
   flex: none;
   align-items: center;
@@ -2225,8 +2300,8 @@
 
 .dshc_systemRecord {
   flex-direction: column;
-  align-items: center;
-  padding-bottom: 4px;
+  align-items: flex-start;
+  padding: 0 20px 2px 68px;
   display: flex;
 }
 
@@ -2236,52 +2311,96 @@
 
 .dshc_taskRecord {
   box-sizing: border-box;
-  width: min(480px, 100% - 40px);
+  width: min(480px, 100%);
   margin-top: 0;
 }
 
 .dshc_systemLine {
+  min-width: 0;
   color: var(--dsw-alias-label-tertiary);
-  align-items: center;
-  gap: 12px;
-  padding: 10px 32px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
   font-size: 12px;
+  line-height: 1.55;
   display: flex;
 }
 
-.dshc_systemLine:before, .dshc_systemLine:after {
-  content: "";
-  background: var(--dsw-alias-border-l2);
-  flex: 24px;
-  min-width: 24px;
-  height: 1px;
-}
-
 .dshc_systemText {
-  text-align: center;
-  max-width: min(640px, 80%);
+  text-align: left;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: min(720px, 100%);
 }
 
 .dshc_systemText p {
   margin: 0;
 }
 
-.dshc_systemBlock {
-  justify-content: center;
+.dshc_systemTime {
+  color: var(--dsw-alias-label-quaternary, var(--dsw-alias-label-tertiary));
+  opacity: 0;
+  flex: none;
+  font-size: 11px;
+  transition: opacity .15s;
 }
 
-.dshc_systemBlock:before, .dshc_systemBlock:after {
+.dshc_systemRecord:hover .dshc_systemTime, .dshc_systemRecord:focus-within .dshc_systemTime {
+  opacity: 1;
+}
+
+.dshc_systemBlock {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.dshc_systemBlock > .dshc_systemTime {
   display: none;
+}
+
+.dshc_systemLine:not(.dshc_systemBlock) .dshc_systemText, .dshc_systemLine:not(.dshc_systemBlock) .dshc_systemText * {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
 }
 
 .dshc_systemBlock .dshc_systemText {
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
-  text-align: left;
-  border-radius: 12px;
   width: min(640px, 100%);
   max-width: none;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  border-radius: 12px;
   padding: 8px 12px;
+}
+
+.dshc_systemDetail > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.dshc_systemDetail > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dshc_systemDetail > summary:after {
+  content: " ▸";
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dshc_systemDetail[open] > summary:after {
+  content: " ▾";
+}
+
+.dshc_systemDetail[open] > summary {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.dshc_systemDetail > div.dshc_systemText {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .dshc_errorBar {
@@ -2371,6 +2490,12 @@
   color: var(--dsw-alias-label-primary);
   flex: none;
   font-weight: 600;
+}
+
+.dshc_runFailed {
+  color: var(--dsw-alias-state-error-primary);
+  flex: none;
+  font-size: 11px;
 }
 
 .dshc_runSummary {
@@ -2715,12 +2840,9 @@
     flex-wrap: wrap;
   }
 
-  .dshc_systemLine {
-    padding: 8px 12px;
-  }
-
-  .dshc_systemText {
-    max-width: 90%;
+  .dshc_systemRecord {
+    padding-left: 60px;
+    padding-right: 12px;
   }
 
   .dshc_memberActions {
@@ -3183,11 +3305,10 @@
 
 .dshc_progressCard {
   border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base);
-  box-shadow: 0 6px 18px #0000000a, 0 -12px 0 0 var(--dsw-alias-bg-base);
-  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base));
+  border-radius: 10px;
   flex: none;
-  margin: 8px 16px 4px;
+  margin: 4px 16px 0;
   padding: 8px 14px;
   font-size: 12px;
   position: relative;
@@ -3325,7 +3446,7 @@
 .dshc_stepChip {
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-base);
-  max-width: 220px;
+  max-width: 260px;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
   cursor: pointer;
@@ -3401,39 +3522,118 @@
 .dshc_stepOut {
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));
+  min-width: 0;
   color: var(--dsw-alias-label-secondary);
   border-radius: 8px;
   flex-basis: 100%;
-  gap: 4px;
-  padding: 8px 10px;
-  font-size: 11px;
+  gap: 2px;
+  padding: 4px;
+  font-size: 12px;
   line-height: 1.5;
   display: grid;
 }
 
-.dshc_stepOut[data-state="failed"] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2));
+.dshc_stepRow {
+  min-width: 0;
 }
 
-.dshc_stepOut div {
-  gap: 8px;
+.dshc_stepLine {
+  width: 100%;
   min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
   display: flex;
 }
 
-.dshc_stepOut span {
-  color: var(--dsw-alias-label-tertiary);
-  flex: none;
+.dshc_stepLine:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.dshc_stepOut code {
-  overflow-wrap: anywhere;
+.dshc_stepLine:disabled {
+  cursor: default;
+}
+
+.dshc_stepLine code {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: auto;
   min-width: 0;
   font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  overflow: hidden;
 }
 
-.dshc_stepOut[data-state="failed"] > div[data-state="failed"] > div:last-child > code {
+.dshc_stepLine em {
   color: var(--dsw-alias-state-error-primary);
+  flex: none;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.dshc_stepRow[data-state="ok"] > .dshc_stepLine .dshc_stepMark {
+  background: #23a55a;
+}
+
+.dshc_stepRow[data-state="failed"] > .dshc_stepLine .dshc_stepMark {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.dshc_stepRow[data-state="running"] > .dshc_stepLine .dshc_stepMark {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.dshc_stepDetail {
+  gap: 6px;
+  margin: 2px 6px 6px 20px;
+  display: grid;
+}
+
+.dshc_stepField {
+  gap: 2px;
+  min-width: 0;
+  display: grid;
+}
+
+.dshc_stepField > span {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.dshc_stepPre {
+  background: var(--dsw-alias-bg-base);
+  max-height: 240px;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre;
+  border-radius: 6px;
+  margin: 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow: auto;
+}
+
+.dshc_stepRow[data-state="failed"] .dshc_stepField:last-child .dshc_stepPre {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dshc_stepMore {
+  color: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  justify-self: start;
+  padding: 0;
+  font-size: 11px;
 }
 
 .dshc_decideTray {

@@ -8,7 +8,7 @@ import { channelProgress } from '../src/client/ProgressCard.tsx'
 import type { ChannelSnapshot, ChannelTask } from '../src/client/channel-source.ts'
 import { zh } from '../src/client/locales.ts'
 
-afterEach(() => { cleanup() })
+afterEach(() => { cleanup(); globalThis.localStorage?.clear?.() })
 
 // jsdom in this checkout has no localStorage (same pre-existing gap that reddens the other specs'
 // afterEach); the fold is still worth testing, so give it a real in-memory store for the case.
@@ -49,6 +49,8 @@ function props(state: ChannelSnapshot, over: Partial<ChannelsPageProps> = {}): C
 }
 const card = () => screen.getByRole('region', { name: zh.progressTitle })
 const row = (label: keyof typeof zh) => within(card()).getByText(zh[label]).parentElement!
+// #1616: the card starts folded (Fable #37–38); a test of its rows opens it first.
+const expand = () => { fireEvent.click(within(card()).getByRole('button', { name: zh.progressExpand })) }
 
 it('sums up only this channel and its workspaces, newest task per row', () => {
   const lines = channelProgress([
@@ -71,6 +73,7 @@ it('shows nothing for a channel without tasks', () => {
 
 it('renders the rows that have a task above the log and hides the empty ones (#1017, 体检 #3)', () => {
   render(<ChannelsPage {...props({ ...base, tasks: [task(2), task(3), task(8, { status: 'returned' })] })} />)
+  expand()
   // 体检 #3: its own row under the title bar, outside the log, so it never covers a message.
   expect(card().closest('[role="log"]')).toBeNull()
   expect(card().querySelector('[data-row="done"]')).toBeNull()
@@ -82,12 +85,15 @@ it('renders the rows that have a task above the log and hides the empty ones (#1
 it('jumps to the task dispatch message when a row is clicked', () => {
   const selectRoom = vi.fn()
   render(<ChannelsPage {...props({ ...base, tasks: [task(6, { status: 'asked' })] }, { selectRoom })} />)
+  expand()
   fireEvent.click(within(row('progressOpen')).getByRole('button'))
   expect(selectRoom).toHaveBeenCalledWith(2)
 })
 
-it('folds to one strip and keeps the counts, then expands again (#156)', () => {
+it('starts folded as one strip with the counts, expands and folds again (#156, #1616)', () => {
   const view = render(<ChannelsPage {...props({ ...base, tasks: [task(2), task(3), task(8, { status: 'returned' })] })} />)
+  expect(card().getAttribute('data-folded')).toBe('true')
+  expand()
   expect(card().getAttribute('data-folded')).toBe('false')
   fireEvent.click(within(card()).getByRole('button', { name: zh.progressFold }))
   expect(card().getAttribute('data-folded')).toBe('true')
@@ -102,16 +108,16 @@ it('folds to one strip and keeps the counts, then expands again (#156)', () => {
 
 it('remembers the folded state per room across a reload (#156)', () => withStorage(() => {
   const first = render(<ChannelsPage {...props({ ...base, tasks: [task(2)] })} />)
-  fireEvent.click(within(card()).getByRole('button', { name: zh.progressFold }))
+  expand()
   first.unmount()
   // A reload is a fresh mount reading the stored choice, not the component keeping it in memory.
-  expect(globalThis.localStorage!.getItem('dsh-channels-progress-folded:1')).toBe('1')
+  expect(globalThis.localStorage!.getItem('dsh-channels-progress-folded:1')).toBe('0')
   render(<ChannelsPage {...props({ ...base, tasks: [task(2)] })} />)
-  expect(card().getAttribute('data-folded')).toBe('true')
-  // Another channel starts open: the fold is per room, not global.
+  expect(card().getAttribute('data-folded')).toBe('false')
+  // Another channel starts folded: the choice is per room, not global.
   cleanup()
   render(<ChannelsPage {...props({ ...base, roomId: 9, rooms: [{ id: 9, name: 'other', kind: 'chat' }], tasks: [task(7, { room_id: 9 })] })} />)
-  expect(card().getAttribute('data-folded')).toBe('false')
+  expect(card().getAttribute('data-folded')).toBe('true')
 }))
 
 it('does not render the fold button when the channel has no task (#156)', () => {
