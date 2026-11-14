@@ -323,6 +323,36 @@ export function cliApprovalCard(request) {
 }
 
 /** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
+/**
+ * #1616: the output of a finished ACP tool call (tool_call_update), for the step list: its text
+ * content blocks, a diff as its path, a terminal's or a raw output's text fields
+ * (agentclientprotocol.com/protocol/tool-calls: content, rawOutput). '' when it carries none.
+ */
+export function toolOutputText(u) {
+  const parts = [];
+  for (const c of Array.isArray(u?.content) ? u.content : []) {
+    if (c?.type === 'content' && c.content?.type === 'text' && typeof c.content.text === 'string') parts.push(c.content.text);
+    else if (c?.type === 'diff' && typeof c.path === 'string') parts.push(c.path);
+  }
+  if (parts.length === 0) {
+    const raw = u?.rawOutput;
+    if (typeof raw === 'string') parts.push(raw);
+    else if (raw !== null && typeof raw === 'object') {
+      const text = ['formatted_output', 'aggregated_output', 'output', 'stdout', 'content', 'result', 'error', 'stderr']
+        .map(k => raw[k]).find(v => typeof v === 'string' && v.trim());
+      if (text !== undefined) parts.push(text);
+    }
+  }
+  return parts.join('\n').trim();
+}
+
+/** #1616: the text of a DSH tool result message (its text content parts), for the step list. */
+function nativeResultText(message) {
+  const content = message?.content;
+  if (typeof content === 'string') return content.trim();
+  return (Array.isArray(content) ? content : []).filter(p => p?.type === 'text' && typeof p.text === 'string').map(p => p.text).join('\n').trim();
+}
+
 function toolArgText(raw) {
   try {
     const args = JSON.parse(raw);
@@ -376,10 +406,11 @@ export class TurnProgress {
     this.schedule();
   }
 
-  result(callId, failed, reason) {
+  /** #1616: the call's output (toolOutputText) goes on the card for the step list; a failure keeps its reason. */
+  result(callId, failed, output) {
     if (this.ended || this.resolved.has(callId)) return;
     if (callId !== undefined) this.resolved.add(callId);
-    this.items.push({ kind: 'tool_result', tool: this.names.get(callId) ?? '', success: !failed, text: failed ? (reason ?? '') : '' });
+    this.items.push({ kind: 'tool_result', tool: this.names.get(callId) ?? '', success: !failed, text: output ?? '' });
     this.schedule();
   }
 
@@ -535,7 +566,7 @@ export class DshMembers {
         }
       }
       else if (event.type === 'tool/call') w.progress?.call(event.data.callId, event.data.name, event.data.arguments);
-      else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name);
+      else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name ?? nativeResultText(event.data.message));
       else if (event.type === 'assistant/message') {
         w.internalErrors = 0;
         for (const part of event.data.message?.content ?? []) {
@@ -729,7 +760,7 @@ export class DshMembers {
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > cap) {
       return () => this.hub.post(msg.room_id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
-        text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
+        text: `成员之间已经互相接力 ${cap} 次以上，先停在这里；要她们接着干，就 @ 一下。`,
       });
     }
     // #1598: every @ runs where it was written; a member's 【接】 to a chat-channel call moves the
@@ -891,10 +922,24 @@ export class DshMembers {
     const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
     // ACP tool calls (agentclientprotocol.com/protocol/tool-calls): one call per toolCallId, its update says completed or failed.
     // Thoughts (agent_thought_chunk) feed the card too, as on the bridge.
+    // #1616: an agent may stream a call's output in earlier updates and close it with a bare status:
+    // codex-acp sends a command's output as chunks in _meta.terminal_output_delta (or terminal_output)
+    // of its updates. The chunks add up; the last whole output seen is kept for the result.
+    const outputs = new Map();
     const onTool = (u) => {
       if (u.sessionUpdate === 'agent_thought_chunk') { if (u.content?.type === 'text') progress.thought(u.content.text); return; }
       if (u.sessionUpdate === 'tool_call') progress.call(u.toolCallId, u.title ?? u.kind ?? '', JSON.stringify(u.rawInput ?? {}));
-      if (u.status === 'completed' || u.status === 'failed') progress.result(u.toolCallId, u.status === 'failed');
+      // A streamed command output wins over content, which may only repeat the command (readableInput).
+      const seen = outputs.get(u.toolCallId) ?? { streamed: '', content: '' };
+      const chunk = u._meta?.terminal_output_delta?.data ?? u._meta?.terminal_output?.data;
+      if (typeof chunk === 'string') seen.streamed += chunk;
+      const content = toolOutputText(u);
+      if (content !== '') seen.content = content;
+      outputs.set(u.toolCallId, seen);
+      if (u.status === 'completed' || u.status === 'failed') {
+        progress.result(u.toolCallId, u.status === 'failed', seen.streamed.trim() || seen.content);
+        outputs.delete(u.toolCallId);
+      }
     };
     // Tool approval follows the member's DSH permission preset (cli-member.mjs presetDecision):
     // Full access answers at once, Read Only refuses, Workspace Write asks the owner in the room.

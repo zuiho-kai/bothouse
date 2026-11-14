@@ -5,7 +5,7 @@ export const NS = 'discord-channels'
 
 /** Simplified Chinese dictionary and key source. */
 export const zh = {
-  headMembers: '{count} 位成员',
+  headMembers: '{count} 个角色',
   headBusy: '{names} 在忙',
   headLead: '当前主角色',
   headTeam: '队友忙闲',
@@ -273,7 +273,7 @@ export const zh = {
   kindCodex: 'Codex',
   kindGemini: 'Gemini',
   placeholderShort: '发消息到 #{room}',
-  placeholder: '发消息到 #{room}，@成员 派活（回车发送，Shift+回车换行）',
+  placeholder: '发消息到 #{room}，@ 成员派活',
   loading: '正在连接频道服务…',
   unavailable: '频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。',
   // #216: the data lock is held by another DSH — name it, and say how to switch. A reload
@@ -393,6 +393,17 @@ export const zh = {
   stepOutput: '{tool} 的输入和输出',
   stepInput: '调用',
   stepResult: '输出',
+  stepOutputAll: '展开其余 {count} 行',
+  runFailedSteps: '{count} 步出错，点开看',
+  stepOutputLess: '收起',
+  toolRun: '运行',
+  toolRead: '读文件',
+  toolEdit: '改文件',
+  toolWrite: '写文件',
+  toolSearch: '搜索',
+  toolList: '列文件',
+  toolWeb: '上网',
+  toolPlan: '计划',
   replyingTo: '回复 {name}',
   replyDeleted: '原消息已删除',
   cancelReply: '取消回复',
@@ -400,7 +411,7 @@ export const zh = {
 
 /** English dictionary. */
 export const en: Record<keyof typeof zh, string> = {
-  headMembers: '{count} members',
+  headMembers: '{count} roles',
   headBusy: '{names} at work',
   headLead: 'Current primary role',
   headTeam: 'Teammates busy or idle',
@@ -672,7 +683,7 @@ export const en: Record<keyof typeof zh, string> = {
   kindCodex: 'Codex',
   kindGemini: 'Gemini',
   placeholderShort: 'Message #{room}',
-  placeholder: 'Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)',
+  placeholder: 'Message #{room}; @ a member to put it to work',
   loading: 'Connecting to the channel service…',
   unavailable: 'The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.',
   // #216: the data lock is held by another DSH — name it, and say how to switch. A reload
@@ -789,6 +800,17 @@ export const en: Record<keyof typeof zh, string> = {
   stepOutput: '{tool} call and output',
   stepInput: 'Call',
   stepResult: 'Output',
+  stepOutputAll: 'Show {count} more lines',
+  runFailedSteps: '{count} failed, open to see',
+  stepOutputLess: 'Show less',
+  toolRun: 'Run',
+  toolRead: 'Read',
+  toolEdit: 'Edit',
+  toolWrite: 'Write',
+  toolSearch: 'Search',
+  toolList: 'List',
+  toolWeb: 'Web',
+  toolPlan: 'Plan',
   replyingTo: 'Replying to {name}',
   replyDeleted: 'Original message was deleted',
   cancelReply: 'Cancel reply',

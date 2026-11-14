@@ -125,6 +125,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* #1616 (Fable #28): a too-wide row put a grey horizontal scrollbar under the log; rows wrap or scroll inside. */
+  overflow-x: hidden;
   padding: 8px 0 12px;
 }
 
@@ -1428,9 +1430,21 @@
 }
 
 .boardTaskCard .taskLinks {
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 4px 10px;
   margin-top: auto;
 }
+
+/* #1616 (Fable #57: six grey links, each broken onto two lines): one line each, 验收通过 stands out. */
+.boardTaskCard .taskLinks button { white-space: nowrap; }
+.taskPrimary { padding: 2px 10px; border-radius: 999px; color: #fff !important; background: var(--dsw-alias-state-business-primary); font-weight: 600; }
+.taskForm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; }
+.taskForm label { display: flex; flex: 1 1 100%; flex-direction: column; gap: 4px; color: var(--dsw-alias-label-secondary); }
+.taskForm input { box-sizing: border-box; width: 100%; padding: 5px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; }
+.taskForm button { padding: 4px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
+.taskForm button[type='submit'] { border-color: transparent; color: #fff; background: var(--dsw-alias-state-business-primary); }
+.taskForm button:disabled { opacity: .5; cursor: default; }
 
 .boardTabEmpty {
   display: flex;
@@ -1678,6 +1692,9 @@
 .activeCount { margin-left: 0; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; }
 .activeBusy { color: var(--dsw-alias-state-business-primary); background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent); }
 .roomLabel { flex: 1 1 auto; min-width: 0; }
+/* #1616: a room's name never gives way to its status; the status cuts first. */
+.room:has(.roomWorking) > .roomLabel { flex: 0 0 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
+.room:has(.roomWorking) > .roomWorking { flex: 0 1 auto; min-width: 0; }
 .avatarStack { display: inline-flex; flex: none; align-items: center; padding-left: 4px; }
 .stackDot { width: 18px; height: 18px; margin-left: -6px; border: 2px solid var(--dsw-alias-bg-layer-2); border-radius: 50%; background-size: cover; background-position: center; }
 .room .stackDot { width: 16px; height: 16px; }
@@ -1727,17 +1744,27 @@
 .own .msgTools { right: auto; left: 16px; }
 .own.grouped > .messageBody > .bubbleLine > .text { border-radius: 16px 6px 6px 16px; }
 
-/* System notice: a centered divider, not a member speaking; a task record keeps its card under it. */
-.systemRecord { display: flex; flex-direction: column; align-items: center; padding-bottom: 4px; }
+/* System notice: not a member speaking; a task record keeps its card under it. */
+.systemRecord { display: flex; flex-direction: column; align-items: flex-start; padding: 0 20px 2px 68px; }
 .systemRecord > .systemLine { align-self: stretch; }
-.taskRecord { width: min(480px, calc(100% - 40px)); box-sizing: border-box; margin-top: 0; }
-.systemLine { display: flex; gap: 12px; align-items: center; padding: 10px 32px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
-.systemLine::before, .systemLine::after { content: ''; flex: 1 1 24px; min-width: 24px; height: 1px; background: var(--dsw-alias-border-l2); }
-.systemText { max-width: min(640px, 80%); text-align: center; }
+.taskRecord { width: min(480px, 100%); box-sizing: border-box; margin-top: 0; }
+/* #1616: a notice is a quiet line in the text column (left edge of the messages' text), its time after it. */
+.systemLine { display: flex; gap: 8px; align-items: baseline; min-width: 0; padding: 4px 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.55; }
+.systemText { min-width: 0; max-width: min(720px, 100%); text-align: left; overflow-wrap: anywhere; }
 .systemText p { margin: 0; }
-.systemBlock { justify-content: center; }
-.systemBlock::before, .systemBlock::after { display: none; }
-.systemBlock .systemText { box-sizing: border-box; width: min(640px, 100%); max-width: none; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; text-align: left; }
+.systemTime { flex: none; color: var(--dsw-alias-label-quaternary, var(--dsw-alias-label-tertiary)); font-size: 11px; opacity: 0; transition: opacity .15s ease; }
+.systemRecord:hover .systemTime, .systemRecord:focus-within .systemTime { opacity: 1; }
+.systemBlock { flex-direction: column; align-items: stretch; }
+.systemBlock > .systemTime { display: none; }
+/* A one-line notice reads quieter than what members say: small grey text, mentions included. */
+.systemLine:not(.systemBlock) .systemText, .systemLine:not(.systemBlock) .systemText * { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.systemBlock .systemText { box-sizing: border-box; width: min(640px, 100%); max-width: none; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-1, transparent); }
+.systemDetail > summary { cursor: pointer; list-style: none; }
+.systemDetail > summary::-webkit-details-marker { display: none; }
+.systemDetail > summary::after { content: ' ▸'; color: var(--dsw-alias-label-tertiary); }
+.systemDetail[open] > summary::after { content: ' ▾'; }
+.systemDetail[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.systemDetail > div.systemText { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 
 /* Failure: an inline bar where it happened, with retry right there. */
 .errorBar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 6px 20px 6px 68px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent); font-size: 13px; }
@@ -1755,6 +1782,7 @@
 .runStrip[data-state='failed'] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2)); }
 .runHead { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--dsw-alias-label-secondary); }
 .runTitle { flex: none; color: var(--dsw-alias-label-primary); font-weight: 600; }
+.runFailed { flex: none; color: var(--dsw-alias-state-error-primary); font-size: 11px; }
 .runSummary { overflow: hidden; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .runHead .cardViews { margin-left: 8px; }
 .runHead .cardViewButton { border-radius: 999px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
@@ -1821,8 +1849,7 @@
   .errorBar { margin-left: 12px; margin-right: 12px; }
   .permTray { margin: 0 8px 8px; }
   .permTrayItem .permActions { flex-wrap: wrap; }
-  .systemLine { padding: 8px 12px; }
-  .systemText { max-width: 90%; }
+  .systemRecord { padding-left: 60px; padding-right: 12px; }
   .memberActions { position: static; transform: none; padding-left: 0; background: transparent; }
 }
 
@@ -2093,7 +2120,7 @@
 .schemeToggle + .panelToggleEnd { margin-left: 4px; }
 
 /* #125 本频道进展 card (owner's 11:53 sample v1): sticky at the top of the log, four rows in one line on wide screens. */
-.progressCard { position: relative; flex: none; margin: 8px 16px 4px; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); box-shadow: 0 6px 18px rgb(0 0 0 / .04), 0 -12px 0 0 var(--dsw-alias-bg-base); font-size: 12px; }
+.progressCard { position: relative; flex: none; margin: 4px 16px 0; padding: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base)); font-size: 12px; }
 .progressHead { display: flex; align-items: center; gap: 8px; }
 .progressTitle { font-size: 12px; color: var(--dsw-alias-label-primary); }
 /* #156: folded is one strip — the title, the counts and the expand button, nothing taller than before. */
@@ -2119,7 +2146,7 @@
 
 /* #125 step chips under a run strip (owner's 11:53 sample v1): outcome per tool, click for call/output, failed in red. */
 .stepChips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.stepChip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 2px 9px 2px 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; cursor: pointer; }
+.stepChip { display: inline-flex; align-items: center; gap: 5px; max-width: 260px; padding: 2px 9px 2px 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; cursor: pointer; }
 .stepChip b { overflow: hidden; color: var(--dsw-alias-label-primary); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .stepChip:disabled { cursor: default; }
 .stepChip[aria-expanded='true'] { background: var(--dsw-alias-interactive-bg-hover); }
@@ -2132,13 +2159,23 @@
 .stepChip[data-state='running'] .stepMark { background: var(--dsw-alias-state-business-primary); animation: channels-blink 1s ease-in-out infinite; }
 @keyframes channels-blink { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .stepChip[data-state='running'] .stepMark { animation: none; } }
-.stepOut { flex-basis: 100%; display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.5; }
-.stepOut[data-state='failed'] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--dsw-alias-border-l2)); }
-.stepOut div { display: flex; gap: 8px; min-width: 0; }
-.stepOut span { flex: none; color: var(--dsw-alias-label-tertiary); }
-.stepOut code { min-width: 0; font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
-/* Only the failed step's output gets error color; other steps keep their own state. */
-.stepOut[data-state='failed'] > div[data-state='failed'] > div:last-child > code { color: var(--dsw-alias-state-error-primary); }
+.stepOut { flex-basis: 100%; display: grid; gap: 2px; min-width: 0; padding: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
+/* #1616: one call per line, cut to one line like a Claude Code / Codex step list; a click opens it. */
+.stepRow { min-width: 0; }
+.stepLine { display: flex; gap: 7px; align-items: center; width: 100%; min-width: 0; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; text-align: left; cursor: pointer; }
+.stepLine:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.stepLine:disabled { cursor: default; }
+.stepLine code { flex: 1 1 auto; min-width: 0; overflow: hidden; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.stepLine em { flex: none; color: var(--dsw-alias-state-error-primary); font-size: 11px; font-style: normal; }
+.stepRow[data-state='ok'] > .stepLine .stepMark { background: #23a55a; }
+.stepRow[data-state='failed'] > .stepLine .stepMark { background: var(--dsw-alias-state-error-primary); }
+.stepRow[data-state='running'] > .stepLine .stepMark { background: var(--dsw-alias-state-business-primary); }
+.stepDetail { display: grid; gap: 6px; margin: 2px 6px 6px 20px; }
+.stepField { display: grid; gap: 2px; min-width: 0; }
+.stepField > span { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.stepPre { max-height: 240px; margin: 0; padding: 6px 8px; overflow: auto; border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.45; white-space: pre; }
+.stepRow[data-state='failed'] .stepField:last-child .stepPre { color: var(--dsw-alias-state-error-primary); }
+.stepMore { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--dsw-alias-state-business-primary); font: inherit; font-size: 11px; cursor: pointer; }
 /* #125 等你定托盘（来源：用户 11-04 11:53 样张 v1 的输入框上方托盘；尺寸沿用上方 permTray 圆角、间距与配色变量）。 */
 .decideTray { display: flex; flex-direction: column; max-height: 45%; margin: 0 16px 8px; overflow-y: auto; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 55%, var(--dsw-alias-border-l2)); border-radius: 14px; background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #e9a23b) 7%, var(--dsw-alias-bg-layer-2)); }
 .decideTrayHead { display: flex; flex: none; gap: 8px; align-items: baseline; width: 100%; padding: 7px 12px; border: 0; color: inherit; background: transparent; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }

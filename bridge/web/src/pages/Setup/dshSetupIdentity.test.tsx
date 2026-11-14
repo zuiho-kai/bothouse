@@ -100,16 +100,20 @@ describe('DSH setup roles', () => {
     expect(key?.placeholder).toBe('sk-…');
     expect(container.querySelector('[data-testid="dsh-native-configured"]')).toBeNull();
   });
-  it('starts with one native DeepSeek role even when signed-in CLIs are available', async () => {
+  // #1616 (user 11-14「为什么一个工作区只有一个模型」): the native role first, then a second role on the
+  // signed-in CLI, so a new team has two models; without a signed-in CLI it stays one native role.
+  it('starts with a native DeepSeek role and a role on the signed-in CLI', async () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
-    expect(container.querySelectorAll('[data-testid^="dsh-role-runner-"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid^="dsh-role-runner-"]')).toHaveLength(2);
     expect(container.querySelector<HTMLSelectElement>('[data-testid="dsh-role-runner-0"]')?.value).toBe('deepseek');
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="dsh-role-runner-1"]')?.value).toBe('codex');
     await click('[data-testid="dsh-save-roles"]');
     expect(configure).toHaveBeenCalledOnce();
     const body = configure.mock.calls[0][0] as { members: Record<string, unknown>[] };
-    expect(body.members).toHaveLength(1);
+    expect(body.members).toHaveLength(2);
     expect(body.members[0]).not.toHaveProperty('cli');
+    expect(body.members[1]).toHaveProperty('cli', 'codex');
   });
 
   it('keeps native setup usable when optional CLI detection fails', async () => {
@@ -126,8 +130,7 @@ describe('DSH setup roles', () => {
     await render();
     await click('[data-testid="dsh-skip-install"]');
     await select('[data-testid="dsh-role-runner-0"]', 'codex');
-    await click('[data-testid="dsh-add-role"]');
-    expect(container.querySelector<HTMLSelectElement>('[data-testid="dsh-role-runner-1"]')?.value).toBe('deepseek');
+    await select('[data-testid="dsh-role-runner-1"]', 'deepseek');
     await click('[data-testid="dsh-save-roles"]');
     const body = configure.mock.calls[0][0] as { members: Record<string, unknown>[] };
     expect(body.members[0]).toHaveProperty('cli', 'codex');
@@ -145,7 +148,7 @@ describe('DSH setup roles', () => {
     await select('[data-testid="dsh-role-runner-0"]', 'claudecode');
     expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-0"]')?.value).toBe('小橙');
     expect(container.querySelector('[data-testid="dsh-role-label-0"]')?.textContent).toBe('小橙·Claude Code');
-    await click('[data-testid="dsh-add-role"]');
+    // #1616: the second starter role (on the signed-in Codex) is already there with the next plain name.
     expect(container.querySelector<HTMLInputElement>('[data-testid="dsh-role-name-1"]')?.value).toBe('小蓝');
     await click('[data-testid="dsh-save-roles"]');
     expect(configure).toHaveBeenCalledWith(expect.objectContaining({
@@ -173,7 +176,7 @@ describe('DSH setup roles', () => {
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：小码\n\n你是「小码」——白发。\n');
     await click('[data-testid="dsh-save-roles"]');
     expect(configure).toHaveBeenCalledWith(expect.objectContaining({
-      members: [expect.objectContaining({ name: '小码', name_customized: true, persona: '# 角色：小码\n\n你是「小码」——白发。\n' })],
+      members: [expect.objectContaining({ name: '小码', name_customized: true, persona: '# 角色：小码\n\n你是「小码」——白发。\n' }), expect.objectContaining({ name: '小蓝', cli: 'codex' })],
     }));
   });
 
@@ -189,7 +192,7 @@ describe('DSH setup roles', () => {
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="dsh-role-persona-0"]')?.value).toBe('# 角色：小码\n\n你是「小码」——白发。\n');
     await click('[data-testid="dsh-save-roles"]');
     expect(configure).toHaveBeenCalledWith(expect.objectContaining({
-      members: [expect.objectContaining({ name: '小码', cli: 'claude', name_customized: true })],
+      members: [expect.objectContaining({ name: '小码', cli: 'claude', name_customized: true }), expect.objectContaining({ name: '小蓝', cli: 'codex' })],
     }));
   });
 });

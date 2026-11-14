@@ -168,6 +168,12 @@ export class Tasks {
      * `room\0owner`: { roomId, owner, lead, title, messageId, at }. In memory only: a restart drops them.
      */
     this.pendingCalls = new Map();
+    /**
+     * #1616 (user 11-14「为什么一个工作区只有一个模型」): one job called to several members goes into one
+     * workspace. `${chat room}\0${first trigger message}` -> { id, claim } of the workspace the first
+     * member's 【接】 opened; the next member's 【接】 to the same message joins it while that claim holds.
+     */
+    this.jointWorkspaces = new Map();
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -1041,11 +1047,20 @@ export class Tasks {
     const tail = extra.length <= room ? extra : '';
     const prefix = [`【交接】${name}：`, '【交接】'].find(p => p.length <= room - tail.length) ?? '';
     const attachments = triggers.flatMap(t => messageAttachments(t));
-    const workspace = this.store.createWorkspace(call.roomId);
+    // #1616: the same job already moved for another member: join her workspace, so both work on
+    // one set of files and see each other's messages; the note tells who is already there.
+    const jointKey = `${call.roomId}\0${triggers[0]?.id ?? call.messageId}`;
+    const joint = this.jointWorkspaces.get(jointKey);
+    const joined = joint !== undefined && this.store.workspaceOwner(joint.id) === this.chatOf(call.roomId)
+      && this.store.claimId(joint.id) === joint.claim ? this.store.room(joint.id) : undefined;
+    const workspace = joined ?? this.store.createWorkspace(call.roomId);
+    if (joined === undefined) this.jointWorkspaces.set(jointKey, { id: workspace.id, claim: this.store.claimId(workspace.id), owners: [call.owner] });
+    else joint.owners.push(call.owner);
+    const together = joined === undefined ? '' : `\n\n同一件活 ${joint.owners.filter(o => o !== call.owner).map(o => this.nameOf(o)).join('、')} 也在这个工作区：先看上面的消息，按原话分工，要商量就 @ 对方。`;
     this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     const { message } = this.hub.post(workspace.id, {
       authorKind: 'system', author: 'system', name: '交接',
-      text: `${prefix}${body}${tail}`,
+      text: `${prefix}${body}${tail}${together.length <= room - prefix.length - tail.length ? together : ''}`,
       ...(attachments.length ? { attachments } : {}),
     });
     let task;
@@ -1352,6 +1367,7 @@ export class Tasks {
    */
   release(roomId, claim = null) {
     if (!this.store.releaseWorkspace(roomId, claim)) return false;
+    for (const [key, joint] of this.jointWorkspaces) if (joint.id === roomId) this.jointWorkspaces.delete(key);
     for (const released of this.releasers) {
       try { released(roomId); } catch (error) { this.hub.logger?.warn?.('collab: workspace release hook failed', error); }
     }
