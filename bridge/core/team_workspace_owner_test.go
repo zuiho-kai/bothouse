@@ -35,9 +35,9 @@ func TestWorkspaceOwnedRefusesOtherChat(t *testing.T) {
 }
 
 // The workspace lead's session is reset after its last task (/new, idle reset or
-// `session new --after-turn`, all through startFreshSession): ws1 goes back to the pool, B
-// takes it, and ws1's next [report] goes to B, not A.
-func TestWorkspaceLeadResetReleasesForOtherChat(t *testing.T) {
+// `session new --after-turn`, all through startFreshSession): ws1 goes back to the pool, still
+// A's (#762): B is refused, A takes it again, and ws1's next [report] goes to A, not B.
+func TestWorkspaceLeadResetReleasesForOwnChatOnly(t *testing.T) {
 	e, _, p := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
@@ -53,16 +53,19 @@ func TestWorkspaceLeadResetReleasesForOtherChat(t *testing.T) {
 	if _, ok := e.WorkspaceParent("ws1"); ok {
 		t.Fatal("ws1 still owned after its release")
 	}
-	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
+	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
+	}
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
-	exitBoardItem(t, e, 7, "B 的活")
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\nB 的活做好了\n要你做的：没有。\n我加的：无")
-	if got := p.sentTo("discord:chatB"); len(got) != 1 || !strings.Contains(got[0], "B 的活做好了") {
-		t.Fatalf("chatB got %q", got)
-	}
-	if got := p.sentTo("discord:chatA"); len(got) != 0 {
+	exitBoardItem(t, e, 7, "A 的下一件活")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\nA 的下一件活做好了\n要你做的：没有。\n我加的：无")
+	if got := p.sentTo("discord:chatA"); len(got) != 1 || !strings.Contains(got[0], "A 的下一件活做好了") {
 		t.Fatalf("chatA got %q", got)
+	}
+	if got := p.sentTo("discord:chatB"); len(got) != 0 {
+		t.Fatalf("chatB got %q", got)
 	}
 }
 

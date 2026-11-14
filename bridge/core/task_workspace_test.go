@@ -472,16 +472,17 @@ func TestTaskRelayWorkspaceRetrySurvivesHandoffChange(t *testing.T) {
 	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
 		t.Fatal("workspace was not released")
 	}
-	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); err != nil {
-		t.Fatal(err)
+	// #762: another chat channel never takes it, free or not.
+	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim by another chat channel = %v, want ErrTeamWorkspaceOwned", err)
 	}
 	if cached, err := rm.Send(context.Background(), req); err != nil || cached.Response != result.Response {
 		t.Fatalf("retry after handoff = %+v, %v", cached, err)
 	}
 	next := req
 	next.RequestID = "dispatch-two"
-	if _, err := rm.Send(context.Background(), next); err == nil || !strings.Contains(err.Error(), "another chat channel") {
-		t.Fatalf("new dispatch to moved workspace = %v", err)
+	if _, err := rm.Send(context.Background(), next); err == nil || !strings.Contains(err.Error(), "claim it first") {
+		t.Fatalf("new dispatch to the released workspace = %v", err)
 	}
 	conflict := req
 	conflict.Workspace = "ws2"
@@ -910,13 +911,14 @@ func TestAssignMemberWorkspaceRetryBeforeLiveChecks(t *testing.T) {
 	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
 		t.Fatal("workspace was not released")
 	}
-	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); err != nil {
-		t.Fatal(err)
+	// #762: another chat channel never takes it, free or not.
+	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim by another chat channel = %v, want ErrTeamWorkspaceOwned", err)
 	}
 	if retry, err := p.AssignMember(req); err != nil || retry.ReportVia != grant.ReportVia {
 		t.Fatalf("retry after workspace changed hands = %+v, %v", retry, err)
 	}
-	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m3", "ws1")); err == nil || !strings.Contains(err.Error(), "another chat channel") {
-		t.Fatalf("new work in a re-claimed workspace = %v", err)
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m3", "ws1")); err == nil || !strings.Contains(err.Error(), "claim it first") {
+		t.Fatalf("new work in the released workspace = %v", err)
 	}
 }

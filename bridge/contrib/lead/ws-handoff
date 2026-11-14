@@ -510,7 +510,8 @@ def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
     if migrate_unbound(chat, plat, parent, r.get("pool") or []):
         r = ws_cmd(chat, "list")
     ok = [w for w in r.get("pool") or [] if isinstance(w, dict) and w.get("id")
-          and str(w.get("owner") or "") in ("", parent) and int(w.get("open") or 0) < BUSY]
+          and str(w.get("owner") or "") in ("", parent) and str(w.get("home") or "") in ("", parent)
+          and int(w.get("open") or 0) < BUSY]  # #762：别的频道的工作区空着也不拿（桥 claim 也会拒）
     ok.sort(key=lambda w: (f"{plat}:{w['id']}" != preferred, int(w.get("open") or 0), num(w.get("name"))))
     for w in ok:
         c = subprocess.run(claim_cmd(chat, w["id"], task, nid), capture_output=True, text=True)
