@@ -35,6 +35,42 @@ func (a *progressCLIAgent) StartSession(context.Context, string) (core.AgentSess
 	return a.session, nil
 }
 
+// A new role is unknown until a real successful terminal reply supplies evidence.
+// Exercise that public entry instead of giving CLI fixtures privileged quota state.
+func confirmProgressCLIQuota(t *testing.T, e *core.Engine, agent *progressCLIAgent) {
+	t.Helper()
+	// Each conversation owns a session: the warm-up reader must not consume
+	// the later task relay's result from the same fake event channel.
+	taskSession := agent.session
+	session := &progressCLISession{events: make(chan core.Event, 1), prompts: make(chan string, 1)}
+	agent.session = session
+	defer func() { agent.session = taskSession }()
+	p := &progressCLIPlatform{}
+	const key = "test:quota-check"
+	e.ReceiveMessage(p, &core.Message{SessionKey: key, Platform: "test", UserID: "human", Content: "Confirm availability", Mentioned: true})
+	select {
+	case <-session.prompts:
+	case <-time.After(3 * time.Second):
+		t.Fatal("availability check never started")
+	}
+	session.events <- core.Event{Type: core.EventResult, Content: "available", Done: true}
+	s := e.GetSessions().GetOrCreateActive(key)
+	deadline := time.After(3 * time.Second)
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		if s.TryLock() {
+			s.Unlock()
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("availability check did not finish")
+		case <-tick.C:
+		}
+	}
+}
+
 type progressCLIPlatform struct {
 	delivered chan *core.Task
 	boards    chan string
