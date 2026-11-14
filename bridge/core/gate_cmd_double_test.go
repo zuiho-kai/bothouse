@@ -5,13 +5,11 @@ import (
 	"testing"
 )
 
-// A message held for its gate burst is released by re-entering handleMessage
-// with the same *Message (the release timer in gate.go). Before this guard the
-// slash-command block ran on every entry, so one inbound posted the
-// unknown-command notice twice about a second apart — the field report behind
-// this test: one inbound line in the QQ log, two identical outbound lines.
-// Running a real command twice is the same defect with worse consequences, so
-// the guard covers every slash command, not just the notice.
+// A message held for its gate burst is continued by releaseHeldMessage when its window passes
+// (the burst timer in gate.go), which only routes and dispatches: the slash-command step belongs
+// to handleMessage and runs once per platform message. The field report behind this test: one
+// inbound line in the QQ log, two identical unknown-command notices about a second apart, from
+// the time the timer called handleMessage again.
 func TestHandleMessage_HeldBurstRunsSlashCommandOnce(t *testing.T) {
 	p := &stubPlatformEngine{n: "qq"}
 	e := NewEngine("qqtest", &resultAgent{session: newImgCaptureSession()}, []Platform{p}, "", LangChinese)
@@ -46,15 +44,14 @@ func TestHandleMessage_HeldBurstRunsSlashCommandOnce(t *testing.T) {
 		t.Fatalf("after the first entry the notice was sent %d times, want 1 (sent=%q)", got, p.getSent())
 	}
 
-	// Second entry with the same message — what the gate's release timer does.
-	e.handleMessage(p, msg)
+	// The burst window passes — what the gate's release timer does.
+	e.releaseHeldMessage(p, msg)
 	if got := countNotice(); got != 1 {
 		t.Fatalf("release re-entry sent the notice %d times total, want 1 (sent=%q)", got, p.getSent())
 	}
 }
 
-// The flag must not swallow a command that arrives in a different message: a
-// message without the flag still has its command handled.
+// A command that arrives in a different message is handled on its own.
 func TestHandleMessage_SecondMessageRunsItsOwnCommand(t *testing.T) {
 	p := &stubPlatformEngine{n: "qq"}
 	e := NewEngine("qqtest", &resultAgent{session: newImgCaptureSession()}, []Platform{p}, "", LangChinese)

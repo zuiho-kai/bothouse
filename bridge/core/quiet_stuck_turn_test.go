@@ -33,7 +33,7 @@ func TestStuckTurnNoticeKeptOutOfQuietGroup(t *testing.T) {
 	e, p, s := newStuckGateEngine(t, "qq:g:1", "group")
 	msg := &Message{SessionKey: "qq:g:1", ChannelID: "1", MessageID: "102", UserName: "三秋", ReplyCtx: "group", GroupChat: true, Content: "顺便看下这个"}
 	msg.Mentioned = true
-	e.gate.released[msg] = true // its burst window has passed (busy bots hold bursts too)
+	msg.burstDone = true // its burst window has passed (busy bots hold bursts too)
 	if !e.applyGate(p, msg, s, "k") {
 		t.Fatal("a stuck turn must answer the message instead of inserting it")
 	}
@@ -49,7 +49,7 @@ func TestStuckTurnNoticeStaysInPrivateChat(t *testing.T) {
 	e, p, s := newStuckGateEngine(t, "qq:1", "private")
 	msg := &Message{SessionKey: "qq:1", ChannelID: "1", MessageID: "103", UserName: "三秋", ReplyCtx: "private", Content: "顺便看下这个"}
 	msg.Mentioned = true
-	e.gate.released[msg] = true
+	msg.burstDone = true
 	if !e.applyGate(p, msg, s, "k") {
 		t.Fatal("a stuck turn must answer the message instead of inserting it")
 	}

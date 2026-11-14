@@ -28,7 +28,7 @@ func TestApplyGate_MentionedReplyForbidsSilence(t *testing.T) {
 			e.SetGate(srv.URL, 2000, "reply")
 			content := "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
 			m := &Message{SessionKey: "discord:c1", UserName: "zuiho", Content: content, Mentioned: c.mentioned, FromBot: c.fromBot}
-			e.gate.released[m] = true
+			m.burstDone = true
 			if handled := e.applyGate(nil, m, &Session{}, "k"); handled {
 				t.Fatal("message should go on to a turn")
 			}

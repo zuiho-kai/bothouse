@@ -127,7 +127,7 @@ func TestGateChecksNonOwnerDirectMessage(t *testing.T) {
 		msg := &Message{SessionKey: "discord:dm-chan:u2", UserID: "u2", Content: "在吗", Direct: true}
 		// Mark it as handed back by the burst timer so the gate is asked right away.
 		e.gate.mu.Lock()
-		e.gate.released[msg] = true
+		msg.burstDone = true
 		e.gate.mu.Unlock()
 		if !e.applyGate(nil, msg, &Session{}, "k") {
 			t.Errorf("admin_from=%q: a non-owner DM judged as context must not start a turn", adminFrom)

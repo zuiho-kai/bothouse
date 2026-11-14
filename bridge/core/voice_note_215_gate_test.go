@@ -61,11 +61,11 @@ func TestVoiceNote215GateBufferKeepsVoiceMark(t *testing.T) {
 
 	voice := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "v",
 		UserID: "u", UserName: "u", Content: "GATE_VOICE_IN_BUFFER", FromVoice: true, ReplyCtx: "ctx"}
-	e.gate.released[voice] = true
+	voice.burstDone = true
 	e.handleMessage(p, voice)
 	latest := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "t",
 		UserID: "u2", UserName: "u2", Content: "GATE_TYPED_LATEST", Mentioned: true, ReplyCtx: "ctx"}
-	e.gate.released[latest] = true
+	latest.burstDone = true
 	e.handleMessage(p, latest)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
@@ -89,11 +89,11 @@ func TestVoiceNote215GateBufferTypedStaysTyped(t *testing.T) {
 
 	typed := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "t",
 		UserID: "u", UserName: "u", Content: "GATE_TYPED_IN_BUFFER", ReplyCtx: "ctx"}
-	e.gate.released[typed] = true
+	typed.burstDone = true
 	e.handleMessage(p, typed)
 	voice := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "v",
 		UserID: "u2", UserName: "u2", Content: "GATE_VOICE_LATEST", FromVoice: true, Mentioned: true, ReplyCtx: "ctx"}
-	e.gate.released[voice] = true
+	voice.burstDone = true
 	e.handleMessage(p, voice)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
@@ -121,12 +121,12 @@ func TestVoiceNote215GateBufferMixedPartsMarkOnlyTheVoice(t *testing.T) {
 		{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "v2",
 			UserID: "u", UserName: "u", Content: "GATE_VOICE_SECOND", FromVoice: true, ReplyCtx: "ctx"},
 	} {
-		e.gate.released[m] = true
+		m.burstDone = true
 		e.handleMessage(p, m)
 	}
 	latest := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "t3",
 		UserID: "u", UserName: "u", Content: "GATE_TYPED_LATEST", Mentioned: true, ReplyCtx: "ctx"}
-	e.gate.released[latest] = true
+	latest.burstDone = true
 	e.handleMessage(p, latest)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
@@ -163,11 +163,11 @@ func TestVoiceNote215GateInjectionMarksOnlyTheTranscript(t *testing.T) {
 
 	typed := &Message{SessionKey: key, Platform: "test", ChannelKey: "c1", MessageID: "t",
 		UserID: "u", UserName: "u", Content: "GATE_TYPED_IN_BUFFER", ReplyCtx: "ctx"}
-	e.gate.released[typed] = true
+	typed.burstDone = true
 	e.handleMessage(p, typed)
 	voice := &Message{SessionKey: key, Platform: "test", ChannelKey: "c1", MessageID: "v",
 		UserID: "u2", UserName: "u2", Content: "GATE_VOICE_LATEST", FromVoice: true, Mentioned: true, ReplyCtx: "ctx"}
-	e.gate.released[voice] = true
+	voice.burstDone = true
 	e.handleMessage(p, voice)
 
 	waitFor(t, "one injected prompt", func() bool { return len(running.sent()) == 1 })
@@ -249,7 +249,7 @@ func TestVoiceNote215BurstFoldThenBufferedMarksOnce(t *testing.T) {
 			e.handleMessage(p, releaseHeld(t, e, "test:c1")) // gate: context → buffered as one entry
 			latest := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "3",
 				UserID: "u", UserName: "u", Content: "FOLD_LATEST", Mentioned: true, ReplyCtx: "ctx"}
-			e.gate.released[latest] = true // the test hands it over directly, no burst window
+			latest.burstDone = true // the test hands it over directly, no burst window
 			e.handleMessage(p, latest)
 
 			waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })

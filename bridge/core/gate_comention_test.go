@@ -68,7 +68,7 @@ func TestApplyGate_TeammateErrorWakesLead(t *testing.T) {
 	e.SetGate(srv.URL, 2000, "reply")
 	e.team = &teamState{dir: t.TempDir(), name: "橘", inject: true, seen: map[string]*teamSession{}}
 	m := &Message{SessionKey: "discord:c1", UserName: "龙娘", Content: "【龙娘】❌ 错误: 启动 Agent 会话失败", FromBot: true}
-	e.gate.released[m] = true
+	m.burstDone = true
 	e.applyGate(nil, m, &Session{}, "k")
 	got := reqs()
 	if len(got) != 1 || !got[0].Mentioned || !got[0].FromBot {
@@ -99,7 +99,7 @@ func TestApplyGate_BurstKeepsEachMessage(t *testing.T) {
 	}
 	h.timer.Stop()
 	delete(g.held, "k")
-	g.released[h.msg] = true
+	h.msg.burstDone = true
 	g.mu.Unlock()
 
 	if rc, _ := h.msg.ReplyCtx.(leadCtx); !rc.lead {
@@ -122,7 +122,7 @@ func TestApplyGate_SingleMessageNoParts(t *testing.T) {
 	e := newTestEngine()
 	e.SetGate(srv.URL, 2000, "reply")
 	m := &Message{SessionKey: "test:room-2", Content: "@橘(你) <@2> 帮我算", Mentioned: true}
-	e.gate.released[m] = true
+	m.burstDone = true
 	e.applyGate(nil, m, &Session{}, "k")
 	if got := reqs(); len(got) != 1 || got[0].Parts != nil {
 		t.Fatalf("gate requests = %+v", got)
@@ -136,7 +136,7 @@ func TestApplyGate_ContextWithAttachmentStaysQuiet(t *testing.T) {
 	e := newTestEngine()
 	e.SetGate(srv.URL, 2000, "reply")
 	m := &Message{SessionKey: "test:room-2", Content: "@橘(你) <@2> 看图", Mentioned: true, Images: []ImageAttachment{{MimeType: "image/png"}}}
-	e.gate.released[m] = true
+	m.burstDone = true
 	if handled := e.applyGate(nil, m, &Session{}, "k"); !handled {
 		t.Fatal("co-mention with an image started a turn")
 	}

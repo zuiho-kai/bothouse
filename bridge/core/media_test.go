@@ -302,11 +302,6 @@ func TestPrepareMediaSkips(t *testing.T) {
 	e := newMediaEngine("maomao")
 	msg := &Message{Content: "看看 https://b23.tv/Xy7Zw3Q", MessageID: "5000"}
 	e.prepareMedia(msg)
-	before := msg.Content
-	e.prepareMedia(msg) // a held gate burst re-enters handleMessage
-	if msg.Content != before {
-		t.Fatal("note appended twice")
-	}
 	bot := &Message{Content: "【龙娘】https://b23.tv/Xy7Zw3Q", FromBot: true}
 	e.prepareMedia(bot)
 	if bot.Content != "【龙娘】https://b23.tv/Xy7Zw3Q" {
@@ -359,12 +354,12 @@ func TestGateSeesUserTextOnly(t *testing.T) {
 		t.Fatal("b should fold into the held burst")
 	}
 	delete(e.gate.held, "k")
-	e.gate.released[a] = true
+	a.burstDone = true
 	if !e.applyGate(nil, a, s, "k") { // gate says context → buffered
 		t.Fatal("context not consumed")
 	}
 	c := &Message{SessionKey: "discord:c", Content: "嗯"}
-	e.gate.released[c] = true
+	c.burstDone = true
 	e.applyGate(nil, c, s, "k")
 
 	mu.Lock()

@@ -108,7 +108,7 @@ func TestGateReactionReplacesInsertReceipt(t *testing.T) {
 	e.SetGate(srv.URL+"/decide", 1000, "reply")
 	msg := &Message{SessionKey: "qq:g:1", MessageID: "1", UserID: "u1", UserName: "u", Content: "补充一句", ReplyCtx: "group", GroupChat: true, Mentioned: true}
 	e.gate.mu.Lock()
-	e.gate.released[msg] = true // skip the burst window
+	msg.burstDone = true // skip the burst window
 	e.gate.mu.Unlock()
 	if !e.applyGate(p, msg, s, "k") {
 		t.Fatal("a busy group message answered \"reply\" is inserted")

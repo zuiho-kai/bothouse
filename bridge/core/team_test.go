@@ -293,7 +293,7 @@ func TestTurnCtxSurvivesSave(t *testing.T) {
 func TestApplyGateBotContextNeverStartsTurn(t *testing.T) {
 	e := newTestEngine()
 	e.gate = &gateState{url: "http://127.0.0.1:1/never", timeout: time.Millisecond, fallback: "reply",
-		buf: map[string][]string{}, held: map[string]*heldMsg{}, released: map[*Message]bool{}}
+		buf: map[string][]string{}, held: map[string]*heldMsg{}}
 	s := &Session{}
 	msg := &Message{SessionKey: "discord:1", UserName: "龙娘", Content: "【龙娘】做完了", FromBot: true}
 	if !e.applyGate(nil, msg, s, "k") {
