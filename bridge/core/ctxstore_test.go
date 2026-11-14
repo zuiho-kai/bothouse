@@ -16,7 +16,7 @@ func TestHandoffIndexKeepsUserWordsAndStopAndStoresFull(t *testing.T) {
 	tasks := "#1008 注入目录化 · 总目标：首轮降到一千字 · 停点：进行中"
 	full := formatHandoff("old", "x", h, tasks)
 	cid := StashCtx(dir, full)
-	got := formatHandoffIndex("old", "x", h, tasks, cid)
+	got := formatHandoffIndex("old", "x", h, tasks, "", cid)
 	for _, want := range []string{"先把注入改成目录", "好，我改了推送服务。", "#1008 注入目录化 · 停点：进行中", "[#" + cid + "]", handoffEnd} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("index missing %q:\n%s", want, got)

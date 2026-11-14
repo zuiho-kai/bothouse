@@ -351,8 +351,12 @@ func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 		return ""
 	}
 	tasks := e.handoffTaskLines(sessionKey)
+	owed := e.handoffOwed(sessionKey, h)
 	seal := e.sealOldContext(sessionKey, h)
 	full := formatHandoff(id, reason, h, tasks)
+	if owed != "" {
+		full = strings.TrimSuffix(full, handoffEnd) + owed + handoffEnd
+	}
 	if seal.Digest != "" {
 		full = strings.TrimSuffix(full, handoffEnd) + "\n" + sealSections(seal) + handoffEnd
 	}
@@ -363,7 +367,7 @@ func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 	if cid == "" { // no store: the whole handoff as before
 		return full
 	}
-	return formatHandoffIndex(id, reason, h, tasks, cid, seal)
+	return formatHandoffIndex(id, reason, h, tasks, owed, cid, seal)
 }
 
 // sealSections renders the minutes and the rolling memory (session_seal.go); "" when there is neither.
@@ -399,7 +403,7 @@ const (
 // sealBootstrapTokens: head, the user's words and the stop point first, then open tasks, minutes, memory, each
 // cut to what is left (clowder-ai SessionBootstrap.ts: identity > thread memory > digest > task snapshot, but
 // the task list stays whole here: user 11-04 「任务列表常驻」 in the approved plan).
-func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, cid string, seals ...sealResult) string {
+func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, owed, cid string, seals ...sealResult) string {
 	var seal sealResult
 	if len(seals) > 0 {
 		seal = seals[0]
@@ -453,6 +457,7 @@ func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, cid string,
 			b.WriteString(l + "\n")
 		}
 	}
+	b.WriteString(owed)
 	if seal.Digest != "" || len(seal.Memory) > 0 {
 		left := sealBootstrapTokens - sealTokens(b.String()+handoffEnd)
 		sealed := seal
