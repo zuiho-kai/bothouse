@@ -44,3 +44,6 @@ node_modules/
 
 # a locally built bridge binary (make build-noweb APP=…/bh); 8a45b7294 committed one by accident
 /bh
+/bh-*
+# stray scratch files tests or tools left in the package dir (testDel4.rc was committed once)
+bridge/core/*.rc
