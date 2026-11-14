@@ -344,11 +344,6 @@ def iflow_output(out):
     return "", "", 0
 
 
-# ── The user's latest words for PreToolUse (ask-only-guard) ──
-# Claude Code / Qoder put a Claude Code transcript in every PreToolUse payload. For Codex, agy and DSH run.py
-# reads the words from where that CLI keeps them and passes them as payload["user_prompt"], which the guard reads
-# before transcript_path.
-PROMPT_HOOKS = {"ask-only-guard"}
 # Grok's tool names in its hook payload -> Claude Code's (Grok maps Bash/Edit/Write in matchers, not in the payload)
 GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write", "spawn_subagent": "Agent"}  # hooks that read the user's latest words in PreToolUse
 CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
@@ -814,12 +809,6 @@ def main():
             # (dsh_turn) and dsh_busy only for a sleep / wait=true; unreadable log = no fields, hook still runs
             compat.add_fields(payload, tool, sub, lambda: read_lines(path))
 
-    if name in PROMPT_HOOKS and payload.get("hook_event_name") == "PreToolUse" and not payload.get("user_prompt"):
-        if path:  # DSH: the bridge's transcript_path is empty; the words are in the session log
-            payload["user_prompt"] = dsh_user_words(records(read_lines(path)))
-        elif OPTS["codex"] or OPTS["grok"]:  # Codex: the rollout; Grok: its session updates.jsonl
-            payload["user_prompt"] = transcript_user_words(payload.get("transcript_path"))
-
     if (stop or payload.get("hook_event_name") == "SubagentStop") and path:
         if stop and sub:
             sys.exit(0)
@@ -1115,8 +1104,6 @@ def agy_answer(event, rc, stdout, stderr):
 def run_agy(target, raw, event):
     payload = agy_payload(raw, event)
     tmp, step, sid = None, None, payload["session_id"]
-    if event == "PreToolUse" and os.path.basename(target)[:-3] in PROMPT_HOOKS:
-        payload["user_prompt"] = transcript_user_words(payload["transcript_path"])
     if event == "Stop":
         lines = []
         try:

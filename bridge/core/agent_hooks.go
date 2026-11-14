@@ -40,15 +40,9 @@ type agentHook struct {
 // Timeouts follow the author's own hooks.json / settings.json for these hooks.
 var agentHooks = []agentHook{
 	{"bash-guard", "PreToolUse", "Bash|bash|job_output", 10},
-	// Denies dispatch commands (ws-handoff, ws-forward, board add, timer/cron add), edits and writing shell
-	// commands when the user's latest message only asks a question. It reads the user's words from
-	// payload user_prompt (run.py fills it for Codex, agy, DSH) or transcript_path; none = pass.
-	{"ask-only-guard", "PreToolUse", "Bash|bash|Edit|Write|MultiEdit|NotebookEdit|edit|write|str_replace_editor", 10},
 	{"param-source-guard", "PreToolUse", "Edit|Write|MultiEdit|edit|write|str_replace_editor", 10},
 	{"dispatch-review-guard", "PreToolUse",
 		"Agent|Task|Edit|Write|MultiEdit|NotebookEdit|subagent|subagent_fork|workflow|edit|write|str_replace_editor", 10},
-	{"fix-claim-guard", "Stop", "", 30},
-	{"promise-guard", "Stop", "", 30},
 	// Blocks a reply that puts a choice/decision question to the user without the agent's own answer first.
 	{"choice-ask-guard", "Stop", "", 30},
 	{"wiki-context", "UserPromptSubmit", "", 5},
@@ -61,6 +55,11 @@ var agentHooks = []agentHook{
 	{"codemap-inject", "PreToolUse", "Agent|Task|subagent|subagent_fork", 10},
 	{"codemap-fill", "SubagentStop", "", 10},
 }
+
+// retiredAgentHooks: guards deleted in #1627 (batch 16). They judged how the model words a reply
+// (regexes over the reply or the user's sentence), not a fact a machine can check; a guard stays
+// only when it checks a fact (a file exists, a command ran, a PR merged).
+var retiredAgentHooks = []string{"ask-only-guard", "fix-claim-guard", "promise-guard", "check-first-guard", "eta_guard"}
 
 // Code maps use each backend's dispatch and completion events; Gemini uses AfterTool.
 var codeMapHooks = []string{"codemap-inject", "codemap-fill"}
@@ -103,6 +102,15 @@ func InstallAgentHookScripts(dataDir string) (string, error) {
 	dir := AgentHooksDir(dataDir)
 	if err := os.MkdirAll(filepath.Join(dir, "rules"), 0o755); err != nil {
 		return "", err
+	}
+	// Guards that left the repository: their scripts are removed from an existing install too, or
+	// a role whose settings still name them would keep running the old copy after an upgrade
+	// (run.py passes a hook whose script is missing).
+	for _, name := range retiredAgentHooks {
+		_ = os.Remove(filepath.Join(dir, name+".py"))
+		for _, lang := range []string{"en", "zh"} {
+			_ = os.Remove(filepath.Join(dir, "rules", name+"."+lang+".md"))
+		}
 	}
 	n := 0
 	err := fs.WalkDir(AgentHookFS, ".", func(p string, d fs.DirEntry, err error) error {
@@ -476,7 +484,6 @@ var AgentHookCLIs = []string{"claudecode", "dsh", "gemini", "antigravity", "pi",
 // so the names are listed explicitly rather than relying on the alias table.
 var iflowMatchers = map[string]string{
 	"bash-guard":            "run_shell_command|Bash|bash",
-	"ask-only-guard":        "run_shell_command|Bash|bash",
 	"param-source-guard":    "replace|multi_edit|write_file|Edit|Write|MultiEdit",
 	"dispatch-review-guard": "replace|multi_edit|write_file|Edit|Write|MultiEdit|Agent|Task|subagent",
 }
@@ -488,7 +495,6 @@ var iflowMatchers = map[string]string{
 // are a role/kind, not a tool name.
 var geminiMatchers = map[string]string{
 	"bash-guard":            "run_shell_command",
-	"ask-only-guard":        "run_shell_command",
 	"param-source-guard":    "write_file|replace",
 	"dispatch-review-guard": "invoke_agent|write_file|replace",
 	"codemap-inject":        "invoke_agent",
@@ -575,12 +581,12 @@ func (o AgentHookOptions) dshPatch() string {
 
 // codexHooks are the hooks run.py --codex can adapt; codexMatchers their Codex matcher. Codex's shell tool is
 // Bash and its file edits are apply_patch (PreToolUse fires for both, tool_name stays apply_patch).
-var codexHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"}
-var codexMatchers = map[string]string{"bash-guard": "Bash", "ask-only-guard": "Bash|apply_patch", "dispatch-review-guard": "Agent|apply_patch", "codemap-inject": "Agent"}
+var codexHooks = []string{"bash-guard", "dispatch-review-guard", "codemap-inject", "codemap-fill"}
+var codexMatchers = map[string]string{"bash-guard": "Bash", "dispatch-review-guard": "Agent|apply_patch", "codemap-inject": "Agent"}
 
 // grokHooks are the hooks run.py --grok adapts. Grok (run by bothouse over ACP) reads the role's
 // .claude/settings.json hooks and matches the Claude Code names in a matcher against its own tools.
-var grokHooks = []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"}
+var grokHooks = []string{"bash-guard", "dispatch-review-guard", "codemap-inject", "codemap-fill"}
 
 func (o AgentHookOptions) names() ([]string, error) {
 	if len(o.Only) == 0 {
@@ -1284,10 +1290,7 @@ const agyHookKey = "bothouse"
 // they apply to (a regex; "" = an event without matcher). run_command is agy's shell tool (its PreToolUse payload,
 // tested with agy 1.4.5). Edit/subagent hooks are left out: their agy argument names are not verified.
 var agyMatchers = map[string]string{
-	"bash-guard":      "run_command",
-	"ask-only-guard":  "run_command|write_to_file|replace_file_content|multi_replace_file_content|delete_file",
-	"fix-claim-guard": "",
-	"promise-guard":   "",
+	"bash-guard": "run_command",
 }
 
 // AgyHookFile is the role's Antigravity workspace hook file.
@@ -1370,7 +1373,7 @@ func agyNames(o AgentHookOptions, names []string) ([]string, error) {
 		if _, ok := agyMatchers[n]; ok {
 			out = append(out, n)
 		} else if len(o.Only) > 0 {
-			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard, ask-only-guard, fix-claim-guard, promise-guard)", n)
+			return nil, fmt.Errorf("hook %q does not run under antigravity (antigravity hooks: bash-guard)", n)
 		}
 	}
 	return out, nil

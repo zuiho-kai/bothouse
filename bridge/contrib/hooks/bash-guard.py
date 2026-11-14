@@ -21,7 +21,6 @@
    一串只读查询里第 4 个「一步只跑一条只读查询」的步拦（合并过的步放行），本轮重复的只读命令拦；
    前台联网长命令（git clone/fetch/pull、npm/pip/brew install）拦，改后台。子 agent 会话和外出轮豁免。
 10. 不拦只改：Claude Code 子 agent（非 long-task）前台 Bash 的 timeout 超过 290 秒时压到 290 秒，跑不完自动转后台。
-11. 报预计时间、挂定时（ws-*、later、board、bothouse progress/send/relay/timer/task）长于 15 分钟没写实测依据或外部等待 → 拦（eta_guard.py）。
 12. 不拦只改：主会话（非 DSH、非子 agent）前台的远程、装包下载、CI、编译测试命令 timeout 超过 5 分钟时压到 290 秒。
 13. 团队聊天频道不发测试：命令要往名单里的频道发东西就拦。名单 <钩子目录>/team-chat-channels.txt（或 HOOK_TEAM_CHANNELS），没有就不查。
 14. 合并前真实入口验证：gh pr merge、GitCode 合并类接口先问 merge-gate guard；没装 merge-gate 不查。
@@ -32,7 +31,6 @@ import ast, json, os, re, shlex, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
-import eta_guard  # noqa: E402  预计/定时长于 15 分钟要实测依据（用户 2026-10-26、2026-11-01）
 
 PROXY_URL = os.environ.get("HOOK_PROXY", "").strip()  # 例：http://127.0.0.1:7890；空 = 不查下载
 _wiki = os.environ.get("GATE_WIKI", "~/wiki").strip()  # 同 bridge/contrib/gate/ctxsvc.py
@@ -687,9 +685,6 @@ def main():
         asked = plan_gate.pending(d.get("transcript_path"))
         if asked:
             deny(plan_gate.message(asked))
-    eta = eta_guard.check_shell(cmd)
-    if eta:
-        deny(eta)
     check_team_channels(cmd)
     check_merge(cmd, d.get("cwd"))
     serial_note = None

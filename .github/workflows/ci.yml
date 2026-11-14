@@ -151,15 +151,11 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_bash_guard_testpipe.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/hooks/test_ask_only_guard_edits.py
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_dispatch_review_guard.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_subagent_ctx_hook.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_workflow_clis.py
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/hooks/test_eta_guard.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_codemap_inject.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
@@ -195,8 +191,6 @@ jobs:
       - run: python3 -I contrib/gate/test_ctxsvc.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_ctxsvc_kickoff.py
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/hooks/test_check_first_guard.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_context.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
