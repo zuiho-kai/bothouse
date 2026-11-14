@@ -210,6 +210,16 @@ func loadAllSessions(dataDir string) ([]sessionRecord, error) {
 				}
 			}
 
+			// History lives in the session's own file (core/session_history.go). A store file an
+			// older bridge wrote, not yet migrated, still has it inline.
+			if len(s.History) == 0 {
+				hist, err := core.ReadSessionHistory(filePath, s.ID)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: cannot read history of %s:%s: %v\n", project, s.ID, err)
+				}
+				s.History = hist
+			}
+
 			records = append(records, sessionRecord{
 				Project:    project,
 				SessionID:  s.ID,

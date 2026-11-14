@@ -342,8 +342,27 @@ def _human_replays(text):
     return out
 
 
+def _session_history(store, sid, sess):
+    """一个会话的 history 条目。桥把它存在会话文件旁边的 <会话文件去掉 .json>.history/<会话 id>.jsonl，
+    一行一条、只追加（core/session_history.go）；旧桥写的会话文件里还内嵌着 history，没迁移前照旧读它。"""
+    out = list(sess.get("history") or [])
+    name = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in sid) or "_"
+    try:
+        with open(store.parent / (store.name.removesuffix(".json") + ".history") / (name + ".jsonl"), encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    m = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(m, dict):
+                    out.append(m)
+    except OSError:
+        pass
+    return out
+
+
 def _channel_log():
-    """频道里收到的原话：桥的事件流 events.jsonl*（type=message）里真人说的回放消息，加会话记录 sessions/*.json 里的 user 条。
+    """频道里收到的原话：桥的事件流 events.jsonl*（type=message）里真人说的回放消息，加会话记录（sessions/*.json 旁的 .history/<会话 id>.jsonl）里的 user 条。
     不收 bot 和本账号的回放、不收回复引用（#1492 P5：原先整条正文都收，bot 写的话也能「核对」成用户原话）。
     返回 (最早时间 YYYY-MM-DD, [归一化正文])；读不到返回 ("", [])。"""
     if "v" in _LOG:
@@ -371,8 +390,8 @@ def _channel_log():
             d = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        for sess in (d.get("sessions") or {}).values():
-            for m in sess.get("history") or []:
+        for sid, sess in (d.get("sessions") or {}).items():
+            for m in _session_history(f, sid, sess):
                 if m.get("role") == "user":
                     ts = (m.get("timestamp") or "")[:10]
                     first = min(first, ts) if first and ts else (first or ts)
