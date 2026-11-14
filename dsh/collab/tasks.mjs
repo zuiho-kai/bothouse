@@ -1125,7 +1125,7 @@ export class Tasks {
     const made = joint === undefined ? '' : files.length ? `；${names} 已写出：${files.join('、')}` : `；${names} 还没写出文件，要用她的产出就等她 @ 你`;
     const who = joint !== undefined ? `同一件活 ${names} 也在这个工作区` : `同一件活还 @ 了 ${names}，她接了也进这个工作区`;
     return `\n\n${who}：${where}${made}，队友的文件直接在这里找，不用翻配置和进程。先看上面的消息，按原话分工，要商量就 @ 对方。`
-      + `你那一份做完就回复首行写 [report] 交回自己那份，不用等别人做完；要对方接着做，在 [report] 里 @ 她。`;
+      + '你那一份做完就回复首行写 [report] 交回自己那份，不用等别人做完。';
   }
 
   /**
