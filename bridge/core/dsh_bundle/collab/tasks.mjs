@@ -668,7 +668,8 @@ export class Tasks {
   /**
    * A workspace task (not a bridge claim's) about to be sent back: its hand-back may have released
    * the workspace, so it is claimed again for the chat channel above it with this task as the
-   * handoff (as resumeClaim does); one another chat channel claimed since refuses the rework with
+   * handoff (as resumeClaim does). New workspaces never move to another chat channel (#762), but
+   * one moved by an older version may already belong to another one: that refuses the rework with
    * 'workspace-owned'. True when the task is such a workspace task.
    */
   reworkClaim(task) {
@@ -1421,12 +1422,12 @@ export class Tasks {
   }
 
   /**
-   * A paused task's workspace was released by park and may have been claimed by another chat
-   * channel since. Resuming it there would make the workspace serve two chat channels and send
-   * its asks/reports (team-exit, by rooms.parent_id) to the later one. So: owned by another chat
-   * channel → refused with 'workspace-owned' and nothing changes (the task stays paused, still
-   * listed; hand it off again to a free workspace). Free and reclaim → claimed back for the chat
-   * channel it was paused under. Tasks not paused, or paused before paused_chat existed, pass.
+   * A paused task's workspace was released by park. New claims never move it to another chat
+   * channel (#762), but an older version did, and that persisted state is not migrated: owned by
+   * another chat channel → refused with 'workspace-owned' and nothing changes (the task stays
+   * paused, still listed; hand it off again to a free workspace). Free and reclaim → claimed back
+   * for the chat channel it was paused under. Tasks not paused, or paused before paused_chat
+   * existed, pass.
    */
   resumeClaim(task, reclaim) {
     if (task.paused_at == null || task.paused_chat == null || !this.tree) return;
