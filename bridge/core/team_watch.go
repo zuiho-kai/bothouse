@@ -37,12 +37,17 @@ import (
 	"time"
 )
 
-// Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」; same as tasks.mjs CHECK_AFTER_S.
+// watchCheckAfterDefault: the check time after a claim when config.toml does not set
+// team_watch_check_mins.
 const watchCheckAfterDefault = 10 * time.Minute
 
-// watchCheckAfterNs: the check time after a claim, in nanoseconds. Atomic only so tests (and
-// BOTHOUSE_WATCH_TEST_SECONDS, read by startHandoffWatch) can shorten it while claims read it;
-// not configurable.
+// WatchCheckSecondsEnv carries the check time to the DSH collab child (dsh/collab/tasks.mjs
+// CHECK_AFTER_S), so the bridge's value is the only source.
+const WatchCheckSecondsEnv = "BOTHOUSE_WATCH_CHECK_SECONDS"
+
+// watchCheckAfterNs: the check time after a claim, in nanoseconds. Atomic because a config
+// reload (SetTeamWatchCheckAfter), tests and BOTHOUSE_WATCH_TEST_SECONDS (startHandoffWatch)
+// change it while claims read it.
 var watchCheckAfterNs atomic.Int64
 
 func init() { watchCheckAfterNs.Store(int64(watchCheckAfterDefault)) }
@@ -50,11 +55,23 @@ func init() { watchCheckAfterNs.Store(int64(watchCheckAfterDefault)) }
 // watchCheckAfter is the current check time after a claim (see watchCheckAfterNs).
 func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Load()) }
 
-// watchMaxRenew caps renewals on progress; 0 means no cap (renew while there is progress).
-// Var only so tests can change it; not configurable. This cap counts all renewals; a
-// busy-only renewal is additionally capped by watchBusyMaxRenew.
-// Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429), replacing the earlier cap of 2;
-// same as tasks.mjs MAX_RENEWALS.
+// SetTeamWatchCheckAfter sets the check time after a claim for the whole process
+// (config.toml team_watch_check_mins); d <= 0 restores the default.
+func SetTeamWatchCheckAfter(d time.Duration) {
+	if d <= 0 {
+		d = watchCheckAfterDefault
+	}
+	watchCheckAfterNs.Store(int64(d))
+}
+
+// watchCheckSecondsEnv: "BOTHOUSE_WATCH_CHECK_SECONDS=<n>" for a child that keeps its own watch.
+func watchCheckSecondsEnv() string {
+	return WatchCheckSecondsEnv + "=" + strconv.Itoa(int(watchCheckAfter()/time.Second))
+}
+
+// watchMaxRenew caps renewals on progress; 0 means no cap (renew while there is progress, #429).
+// Var only so tests can change it. This cap counts all renewals; a busy-only renewal is
+// additionally capped by watchBusyMaxRenew.
 var watchMaxRenew = 0
 
 // watchBusyMaxRenew caps renewals granted only because a session of the workspace is still in

@@ -1962,6 +1962,7 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	engine.SetMaxQueuedMessages(derefInt(cfg.Queue.MaxDepth))              // <= 0 = the default depth
 	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
 	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
+	core.SetTeamWatchCheckAfter(time.Duration(derefInt(cfg.TeamWatchCheckMins)) * time.Minute) // bridge-wide; <= 0 = the default
 	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
 
 	// Session lifetime and context.
