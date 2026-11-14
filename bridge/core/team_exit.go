@@ -377,12 +377,12 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, false, "") {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "workspace", ws, "parent", parent)
 		// the lead rewrites the text only; the images go to the chat channel now
-		e.postExitImages(ctx, p, rc, sessionKey, body, item)
+		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 		return ""
 	}
 	id, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, "")
 	if err == nil {
-		e.postExitImages(ctx, p, rc, sessionKey, body, item)
+		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 	}
 	return id
 }
@@ -443,13 +443,13 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		if _, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, ""); err != nil {
 			e.noteReportFailure(rec, err)
 		} else {
-			e.postExitImages(ctx, p, rc, sessionKey, body, item)
+			e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 			e.completeReportDelivery(rec)
 		}
 		return ""
 	}
 	// the images the workspace sent or the report names go right under the headline
-	e.postExitImages(ctx, p, rc, sessionKey, body, item)
+	e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 	e.exitMarkPosted(kind, hid, hline)
 	if kind == exitKindAsk && rec.Authorization == nil {
 		e.rememberPostedAskWake(rec)
