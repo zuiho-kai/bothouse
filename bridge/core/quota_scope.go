@@ -91,6 +91,7 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 		e.quotaState.Verified[key] = true
 		e.quotaVerifiedMu.Unlock()
 		e.updateQuotaState(e.saveQuotaLocked)
+		e.recordQuotaProbeFor(scope, "available")
 	}
 	return scope
 }
@@ -409,10 +410,13 @@ func (e *Engine) recoverQuotaFor(scope quotaScope) {
 // usage or exhaustion without a provider reset.
 func (e *Engine) recordQuotaProbeFor(scope quotaScope, status string) {
 	e.updateQuotaState(func() {
-		if status == "available" && !e.quotaCoolingFor(scope).IsZero() {
-			return // A newer provider exhaustion wins over a deferred success.
-		}
 		key := scope.key()
+		if status == "available" && (!e.quotaCoolingFor(scope).IsZero() ||
+			(e.quotaState.Scope == key && e.quotaState.Until.After(time.Now()))) {
+			// The takeover tick finishes a pending recovery. Until then its
+			// existing exhausted verdict must survive a peer extending the pool.
+			return
+		}
 		if e.quotaState.ProbeScope == key && e.quotaState.ProbeStatus == status {
 			return
 		}

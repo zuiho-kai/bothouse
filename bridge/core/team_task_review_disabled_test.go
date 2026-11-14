@@ -14,6 +14,7 @@ func TestReviewOffClosesOnlyAPostedHandback(t *testing.T) {
 	SetTeamReviewDisabled(true)
 	t.Cleanup(func() { SetTeamReviewDisabled(false) })
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)

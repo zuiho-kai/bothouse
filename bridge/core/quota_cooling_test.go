@@ -89,6 +89,8 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 				p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: plat}}}
 				e := NewEngine(name, &quotaTakeoverAgent{inputTestAgent: a, account: name}, []Platform{p}, "", LangChinese)
 				e.dataDir = dir
+				// Fixture teammates have a prior successful provider reply.
+				e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 				e.team = &teamState{dir: filepath.Join(dir, "team"), name: name, inject: name == "orange", seen: map[string]*teamSession{}}
 				os.MkdirAll(e.team.dir, 0700)
 				e.SetRelayManager(rm)

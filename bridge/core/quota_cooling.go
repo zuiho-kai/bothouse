@@ -191,7 +191,9 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 			}
 		}
 	}
-	e.observeQuotaUsageFor(report, session, scope)
+	// Cached usage can predate this result. It may extend an exhausted
+	// window, but cannot contradict the provider's current quota error.
+	e.observeQuotaUsageAfterResult(report, session, scope, !quotaError)
 }
 
 func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
@@ -199,6 +201,10 @@ func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
 }
 
 func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope quotaScope) {
+	e.observeQuotaUsageAfterResult(report, session, scope, true)
+}
+
+func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session string, scope quotaScope, allowRecovery bool) {
 	if report == nil {
 		return
 	}
@@ -235,7 +241,7 @@ func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope
 	}
 	if exhausted {
 		e.recordQuotaProbeFor(scope, "exhausted")
-	} else if measured {
+	} else if measured && allowRecovery {
 		e.recordQuotaProbeFor(scope, "available")
 	}
 }

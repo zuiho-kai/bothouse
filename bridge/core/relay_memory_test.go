@@ -50,7 +50,7 @@ func (a *relayMemoryAgent) StartSession(_ context.Context, id string) (AgentSess
 	return &relayMemorySession{controllableAgentSession: newControllableSession("relay-ctx-1"), a: a, fail: fail}, nil
 }
 func (a *relayMemoryAgent) ListSessions(context.Context) ([]AgentSessionInfo, error) { return nil, nil }
-func (a *relayMemoryAgent) Stop() error                                             { return nil }
+func (a *relayMemoryAgent) Stop() error                                              { return nil }
 
 func (a *relayMemoryAgent) turn(i int) (prompt, resume string) {
 	a.mu.Lock()
@@ -74,6 +74,7 @@ func TestTaskRelayFirstTurnCarriesMemoryIndex(t *testing.T) {
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
 	source.publicProgress = p
 	target := NewEngine("target", a, []Platform{newProgressPlatform()}, "", LangEnglish)
+	target.recoverQuotaFor(target.quotaScopeFor(a, modelOf(a)))
 	target.SetMemoryIndex(relayMemoryIndex(t))
 	rm := NewRelayManager("")
 	rm.RegisterEngine("source", source)
@@ -177,6 +178,7 @@ func TestTaskRelayGateQueryIsAssignmentOnly(t *testing.T) {
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
 	source.publicProgress = p
 	target := NewEngine("target", a, []Platform{newProgressPlatform()}, "", LangEnglish)
+	target.recoverQuotaFor(target.quotaScopeFor(a, modelOf(a)))
 	target.gate.Store(&gateState{url: srv.URL + "/decide", timeout: time.Second, gateRuntime: newGateRuntime()})
 	rm := NewRelayManager("")
 	rm.RegisterEngine("source", source)

@@ -105,7 +105,22 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	if err := source.CheckTaskAuthorization(task, "task.dispatch"); err != nil {
 		return nil, err
 	}
-	d, cached, err := source.publicProgress.beginTaskRelay(req, name)
+	key := req.SessionKey
+	if req.Workspace != "" {
+		platform, ws, err := taskWorkspaceChannelKey(req.SessionKey, req.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		key = platform + ":" + ws
+	}
+	// Read quota before taking the task journal locks: quotaTick can hold
+	// quotaMu while updating tasks. Existing receipts remain queryable.
+	quotaScope := target.admissionQuotaScope(target.agent, req.SessionKey, key)
+	var admissionErr error
+	if _, status := target.quotaAvailabilityFor(quotaScope, time.Now()); status != "available" {
+		admissionErr = fmt.Errorf("relay: target engine %q quota availability is %s; confirm recovery before dispatch", req.To, status)
+	}
+	d, cached, err := source.publicProgress.beginTaskRelay(req, name, admissionErr)
 	if err != nil || cached != nil {
 		return cached, err
 	}
@@ -377,7 +392,7 @@ func (e *Engine) relayBoardRefs(from, sessionKey string, handoffs []string, revi
 	return refs
 }
 
-func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRelay, *RelayResponse, error) {
+func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string, admissionErr error) (*taskRelay, *RelayResponse, error) {
 	p.transitionMu.Lock()
 	defer p.transitionMu.Unlock()
 	// From and SessionKey are caller-supplied routing fields, not authenticated
@@ -428,6 +443,11 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 			return nil, &RelayResponse{Response: receipt.Response}, nil
 		}
 		return nil, nil, fmt.Errorf("relay: request %q is %s; inspect its task thread before any new dispatch", req.RequestID, receipt.Status)
+	}
+	// Querying an existing receipt does not start work. Only new dispatches
+	// need current quota evidence, checked before writing a running receipt.
+	if admissionErr != nil {
+		return nil, nil, admissionErr
 	}
 	var undo func()
 	if !taskRelayActive(r) {

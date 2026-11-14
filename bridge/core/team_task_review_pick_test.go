@@ -15,6 +15,7 @@ func reviewTestPlatforms() []Platform {
 func reviewPickRole(t *testing.T, name, team, dir string, ts *TimerScheduler, lead bool) *Engine {
 	t.Helper()
 	x := NewEngine(name, &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	x.recoverQuotaFor(x.quotaScopeFor(x.agent, modelOf(x.agent)))
 	t.Cleanup(x.cancel)
 	x.dataDir = t.TempDir()
 	x.SetTeam(dir, team, lead)
