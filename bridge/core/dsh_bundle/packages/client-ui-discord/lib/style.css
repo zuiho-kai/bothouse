@@ -2266,6 +2266,24 @@
   margin: 0;
 }
 
+.dshc_systemBlock {
+  justify-content: center;
+}
+
+.dshc_systemBlock:before, .dshc_systemBlock:after {
+  display: none;
+}
+
+.dshc_systemBlock .dshc_systemText {
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  text-align: left;
+  border-radius: 12px;
+  width: min(640px, 100%);
+  max-width: none;
+  padding: 8px 12px;
+}
+
 .dshc_errorBar {
   border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);

@@ -1018,7 +1018,9 @@ export class Tasks {
     const fallback = this.hub.defaultReplyIn?.(msg.room_id);
     if (only === null && called.size === 0 && fallback !== undefined) called.add(fallback.id);
     // The lead herself too: a big job asked of her moves on her own 【接】, the task hers to hand back.
-    for (const owner of called) if (this.staysForStance(msg.room_id, owner)) this.addCall({ roomId: msg.room_id, owner, lead: lead.id, title, messageId: msg.id });
+    // Walk 11-14: that task is the person's, not dispatched by the lead to herself: review() forbids
+    // reviewing your own task, so her 【验收】 was refused and it waited forever. The person accepts it.
+    for (const owner of called) if (this.staysForStance(msg.room_id, owner)) this.addCall({ roomId: msg.room_id, owner, lead: owner === lead.id ? HUMAN : lead.id, title, messageId: msg.id });
   }
 
   /**

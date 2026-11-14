@@ -1735,6 +1735,9 @@
 .systemLine::before, .systemLine::after { content: ''; flex: 1 1 24px; min-width: 24px; height: 1px; background: var(--dsw-alias-border-l2); }
 .systemText { max-width: min(640px, 80%); text-align: center; }
 .systemText p { margin: 0; }
+.systemBlock { justify-content: center; }
+.systemBlock::before, .systemBlock::after { display: none; }
+.systemBlock .systemText { box-sizing: border-box; width: min(640px, 100%); max-width: none; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; text-align: left; }
 
 /* Failure: an inline bar where it happened, with retry right there. */
 .errorBar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 6px 20px 6px 68px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent); font-size: 13px; }
