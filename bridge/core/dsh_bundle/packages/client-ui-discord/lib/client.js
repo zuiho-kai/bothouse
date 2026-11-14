@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 6593807c6e4ec1c2b4329f3130ab5e9081b850eb1e481bdfe8de5d746b9fc682
+// dsh-client-source-sha256: c2a98f870581faa0aadce518fc3acede4278d057e85638466375f769d8e79c5d
 // dsh-style-sha256: c57d0009406728c91ea0bba747a4279aa6c70ce35303c632cd2424e250448fbf
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18989,8 +18989,44 @@ function clipTitles(text) {
 		return `「${chars.slice(0, end).join("").replace(CUT_TAIL, "")}…」`;
 	});
 }
+const PART_LABEL = /^(背景|做了什么|要你做的|我加的)[：:][ \t]*/;
+const HANDOFF_HEAD = /^【交接】([^：:\n]{1,24})[：:](.*)$/;
+const JOINT_MATES = /同一件活(?:还 @ 了 (.+?)，她接了也进| (.+?) 也在)这个工作区/;
+const CLAUSE_KEEP = 28;
+/** 「做了什么：a」「做了什么：b」 → 「做了什么：a」「b」: a part's label once. */
+function onceEachLabel(lines) {
+	const seen = /* @__PURE__ */ new Set();
+	return lines.map((line) => {
+		const m = PART_LABEL.exec(line.trim());
+		if (m === null) return line;
+		if (!seen.has(m[1])) {
+			seen.add(m[1]);
+			return line;
+		}
+		return line.trim().slice(m[0].length);
+	});
+}
+/** The 【交接】 row of a joint job: one line (whose part, who shares the workspace), the note folded. */
+function jointHandoff(lines) {
+	const head = HANDOFF_HEAD.exec(lines[0]?.trim() ?? "");
+	const mates = JOINT_MATES.exec(lines.join("\n"));
+	if (head === null || mates === null) return void 0;
+	const name = head[1].trim();
+	const clauses = head[2].split(/[；;。]/).map((c) => c.replace(/^.*?一起做一件活[：:]/, "").trim()).filter(Boolean);
+	const own = clauses.find((c) => c.startsWith(name)) ?? clauses[0] ?? "";
+	const chars = [...own];
+	return {
+		text: "",
+		detail: {
+			summary: `【交接】${name}：${chars.length <= CLAUSE_KEEP ? own : `${chars.slice(0, CLAUSE_KEEP).join("").replace(CUT_TAIL, "")}…`}（和 ${(mates[1] ?? mates[2]).trim()} 同一工作区）`,
+			body: lines.join("\n")
+		}
+	};
+}
 function tidyNotice(text) {
-	const lines = text.split("\n").filter((line) => !ACCEPT_HOW.test(line.trim()) && !EMPTY_PART.test(line.trim())).filter((line, i, all) => line.trim() !== "" || i > 0 && all[i - 1].trim() !== "");
+	const joint = jointHandoff(text.split("\n"));
+	if (joint !== void 0) return joint;
+	const lines = onceEachLabel(text.split("\n")).filter((line) => !ACCEPT_HOW.test(line.trim()) && !EMPTY_PART.test(line.trim())).filter((line, i, all) => line.trim() !== "" || i > 0 && all[i - 1].trim() !== "");
 	while (lines.length > 0 && lines[0].trim() === "") lines.shift();
 	while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
 	const head = DETAIL_HEAD.exec(lines[0]?.trim() ?? "");
