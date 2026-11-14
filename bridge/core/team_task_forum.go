@@ -319,8 +319,9 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	}
 	head.WriteString(askPrefix + ask + "\n")
 	head.WriteString(whoLine)
-	rest := budget - runeLen(head.String()) - runeLen(foot)
-	return head.String() + cutRunes(body.String(), max(rest, 1)) + foot
+	// the newline before the foot stays outside the cut, so a cut body never glues onto it
+	rest := budget - runeLen(head.String()) - runeLen(foot) - 1
+	return head.String() + cutRunes(strings.TrimRight(body.String(), "\n"), max(rest, 1)) + "\n" + foot
 }
 
 // taskForumBodyMinRunes: room kept for the goal line when a long question is cut. Source: 沿用

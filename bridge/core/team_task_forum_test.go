@@ -294,7 +294,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	if n := len([]rune(fp.card)); n > 1900 {
 		t.Fatalf("card %d runes", n)
 	}
-	for _, want := range []string{"**" + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "**谁在做**：", "来源 <#111>", "任务板 #9", "更新于"} {
+	for _, want := range []string{"**" + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "**谁在做**：", "\n-# 来源 <#111>", "任务板 #9", "更新于"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
@@ -303,7 +303,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	fp = p.post("th1")
-	for _, want := range []string{"**在做**", "**要你做的**：没有", "**目标**：派出去的活", "来源 <#111>", "任务板 #9"} {
+	for _, want := range []string{"**在做**", "**要你做的**：没有", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
