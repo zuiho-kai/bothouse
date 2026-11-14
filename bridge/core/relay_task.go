@@ -119,6 +119,9 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	var admissionErr error
 	if _, status := target.quotaAvailabilityFor(quotaScope, time.Now()); status != "available" {
 		admissionErr = fmt.Errorf("relay: target engine %q quota availability is %s; confirm recovery before dispatch", req.To, status)
+		if status == "unknown" {
+			admissionErr = fmt.Errorf("%w; %s", admissionErr, source.i18n.T(MsgQuotaDispatchRecovery))
+		}
 	}
 	d, cached, err := source.publicProgress.beginTaskRelay(req, name, admissionErr)
 	if err != nil || cached != nil {

@@ -218,6 +218,9 @@ func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session strin
 			continue
 		}
 		for _, window := range bucket.Windows {
+			if !quotaWindowApplies(window, scope) {
+				continue
+			}
 			measured = true
 			// Cool down only when the provider says the quota is gone: a limit-reached
 			// bucket, a window at 100%, or a reported reset time. A window merely close to
@@ -232,7 +235,11 @@ func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session strin
 				until = now.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
 			}
 			if until.After(now) {
-				e.recordQuotaWindowFor(scope, until, session, quotaWindowLabel(window))
+				windowScope := scope
+				if window.QuotaGroup == "account" {
+					windowScope = scope.accountScope()
+				}
+				e.recordQuotaWindowFor(windowScope, until, session, quotaWindowLabel(window))
 			}
 		}
 		if bucket.LimitReached {
@@ -570,6 +577,9 @@ func (e *Engine) probeQuota(ctx context.Context) (bool, time.Duration, error) {
 			return false, 0, nil
 		}
 		for _, window := range bucket.Windows {
+			if !quotaWindowApplies(window, scope) {
+				continue
+			}
 			measured = true
 			if bucket.LimitReached || window.UsedPercent >= 100 {
 				until := time.Unix(window.ResetAtUnix, 0)
@@ -601,7 +611,12 @@ func (e *Engine) quotaTick(now time.Time) {
 	defer e.quotaMu.Unlock()
 	st := &e.quotaState
 	scope := e.quotaScopeFor(e.agent, modelOf(e.agent))
+	targetScope := scope
 	// A new target cannot recover or take over work for an old quota pool.
+	if st.Scope == scope.accountScope().key() {
+		// A provider-wide window is also a hold on the selected model.
+		scope = scope.accountScope()
+	}
 	if st.Scope != "" && st.Scope != scope.key() {
 		if currentUntil.IsZero() && st.Lead != nil {
 			sel, ok := readLeadSelectionFull(e.dataDir)
@@ -718,7 +733,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			if err != nil {
 				quotaDomainsMu.Unlock()
 				st.ProbeStatus = "unknown"
-				st.ProbeScope = scope.key()
+				st.ProbeScope = targetScope.key()
 				e.saveQuotaLocked()
 				slog.Warn("quota auto-probe: usage unknown, probe backed off",
 					"project", e.name, "probe_status", st.ProbeStatus, "next_probe_at", st.NextProbeAt, "err", err)
@@ -736,7 +751,7 @@ func (e *Engine) quotaTick(now time.Time) {
 				return
 			}
 			st.ProbeStatus = "exhausted"
-			st.ProbeScope = scope.key()
+			st.ProbeScope = targetScope.key()
 			// Preserve the existing bounded fallback only for confirmed exhaustion
 			// with no provider reset. An actual reset must not be rounded up.
 			st.Until = now.Add(backoff)

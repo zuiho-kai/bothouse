@@ -726,16 +726,17 @@ const (
 )
 
 const (
-	MsgQuotaLeadRestored   MsgKey = "quota_lead_restored"
-	MsgQuotaLeadTakeover   MsgKey = "quota_lead_takeover"
-	MsgQuotaLeadPrompt     MsgKey = "quota_lead_prompt"
-	MsgQuotaWorkTakeover   MsgKey = "quota_work_takeover"
-	MsgQuotaWorkPrompt     MsgKey = "quota_work_prompt"
-	MsgQuotaCooling        MsgKey = "quota_cooling"
-	MsgQuotaReassigned     MsgKey = "quota_reassigned"
-	MsgQuotaReassignNone   MsgKey = "quota_reassign_none"
-	MsgQuotaReassignBusy   MsgKey = "quota_reassign_busy"
-	MsgQuotaReassignPrompt MsgKey = "quota_reassign_prompt"
+	MsgQuotaLeadRestored     MsgKey = "quota_lead_restored"
+	MsgQuotaLeadTakeover     MsgKey = "quota_lead_takeover"
+	MsgQuotaLeadPrompt       MsgKey = "quota_lead_prompt"
+	MsgQuotaWorkTakeover     MsgKey = "quota_work_takeover"
+	MsgQuotaWorkPrompt       MsgKey = "quota_work_prompt"
+	MsgQuotaCooling          MsgKey = "quota_cooling"
+	MsgQuotaDispatchRecovery MsgKey = "quota_dispatch_recovery"
+	MsgQuotaReassigned       MsgKey = "quota_reassigned"
+	MsgQuotaReassignNone     MsgKey = "quota_reassign_none"
+	MsgQuotaReassignBusy     MsgKey = "quota_reassign_busy"
+	MsgQuotaReassignPrompt   MsgKey = "quota_reassign_prompt"
 )
 
 const (
@@ -858,6 +859,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本角色額度冷卻至 %s，大約還要 %s。",
 		LangJapanese:           "この担当は %s まで利用枠待機中です（残り約 %s）。",
 		LangSpanish:            "Este rol espera su cuota hasta %s, faltan unos %s.",
+	},
+	MsgQuotaDispatchRecovery: {
+		LangEnglish:            "A person must @mention or reply to the target role in its chat using the intended model. After a successful terminal answer, retry this same dispatch request. An error or an intermediate reply does not establish availability.",
+		LangChinese:            "请真人在目标角色的聊天频道，用要派活的模型 @点名或回复该角色；收到成功的最终答复后，重试同一派单请求。报错或中间回复不算可用证据。",
+		LangTraditionalChinese: "請真人在目標角色的聊天頻道，用要派工的模型 @點名或回覆該角色；收到成功的最終答覆後，重試同一派工請求。報錯或中間回覆不算可用證據。",
+		LangJapanese:           "本人が対象モデルを使う担当のチャットで @メンションまたは返信してください。正常な最終回答の後、同じ依頼を再試行してください。エラーや中間回答は利用可能の証拠になりません。",
+		LangSpanish:            "Una persona debe mencionar con @ o responder al rol en su chat usando el modelo previsto. Tras una respuesta final correcta, reintente la misma solicitud. Un error o respuesta intermedia no confirma disponibilidad.",
 	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",

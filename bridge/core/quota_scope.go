@@ -75,6 +75,9 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 			return scope
 		}
 		for _, w := range b.Windows {
+			if !quotaWindowApplies(w, scope) {
+				continue
+			}
 			if w.UsedPercent >= 100 {
 				e.observeQuotaUsageFor(report, "", scope)
 				return scope
@@ -111,6 +114,15 @@ type quotaScope struct {
 	Provider string
 	Account  string
 	Group    string
+}
+
+func quotaWindowApplies(window UsageWindow, scope quotaScope) bool {
+	return window.QuotaGroup == "" || window.QuotaGroup == "account" || window.QuotaGroup == scope.Group
+}
+
+func (s quotaScope) accountScope() quotaScope {
+	s.Group = "account"
+	return s
 }
 
 func (s quotaScope) key() string {
@@ -246,6 +258,9 @@ func (e *Engine) quotaCoolingForAt(scope quotaScope, now time.Time) time.Time {
 func (e *Engine) quotaCoolingDeadlineFor(scope quotaScope) time.Time {
 	quotaDomainsMu.Lock()
 	until := e.domainUntilLocked(scope.key())
+	if account := e.domainUntilLocked(scope.accountScope().key()); account.After(until) {
+		until = account
+	}
 	if scope.Account == "unknown" {
 		// An identity lookup failure is not evidence of a different allowance.
 		// This persisted guard also covers a restart with no identity cache.
@@ -372,6 +387,10 @@ func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	cooling := false
 	if e.domainUntilLocked(key).After(now) {
 		e.saveDomainLocked(key, time.Time{})
+		cooling = true
+	}
+	if account := scope.accountScope().key(); account != key && e.domainUntilLocked(account).After(now) {
+		e.saveDomainLocked(account, time.Time{})
 		cooling = true
 	}
 	if scope.Account == "unknown" {
