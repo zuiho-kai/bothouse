@@ -661,7 +661,8 @@ type workspaceInitFlow struct {
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
 	authorization *AuthorizationTurn
-	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
+	taskForum     *TaskForumReply // keep post delivery separate within the source conversation
+	turnTrigger   string          // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom      string
 	timerJobID       string
@@ -4168,6 +4169,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	}
 	q := queuedMessage{
 		authorization:       msg.authorization,
+		taskForum:           msg.TaskForum,
 		messageID:           msg.MessageID,
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,

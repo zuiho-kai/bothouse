@@ -16,11 +16,24 @@ type TaskForumReply struct {
 	prepared bool
 }
 
+func sameTaskForumPost(a, b *TaskForumReply) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Thread == b.Thread
+}
+
 // TaskForumInboundHandler is an optional capability of the platform's engine
 // event handler. A known post is consumed by every bot, but only the lead gets
 // a reply descriptor, so one gateway event cannot wake every team member.
 type TaskForumInboundHandler interface {
 	ResolveTaskForumReply(platform, guild, parent, thread string) (*TaskForumReply, bool)
+}
+
+// ChannelSessionKeyer preserves a platform's shared/per-user policy when a
+// task post delivers a message to the task's originating conversation.
+type ChannelSessionKeyer interface {
+	SessionKeyFor(channelID, userID string) string
 }
 
 func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (*TaskForumReply, bool) {
@@ -49,11 +62,25 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	if !e.isTeamLead() {
 		return nil, true
 	}
-	it := e.boardItemByID(board)
+	it := e.taskForumReplyItem(board)
 	if it == nil {
 		return &TaskForumReply{Board: board, Thread: thread}, true
 	}
 	return &TaskForumReply{Board: board, Thread: thread, Chat: taskForumChat(*it)}, true
+}
+
+// Use the same placement as the post card, including historical board rows
+// and released workspaces. Normalize Chat because taskForumChat prefers it.
+func (e *Engine) taskForumReplyItem(board int) *teamTaskBoardItem {
+	it := e.boardItemByID(board)
+	if it != nil {
+		place := e.teamTaskBoardPlacer()
+		place.place(it)
+		if strings.TrimSpace(it.Chat) != "" {
+			it.Chat = teamChatKey(strings.TrimSpace(it.Chat))
+		}
+	}
+	return it
 }
 
 // prepareTaskForumReply keeps conversation identity (the originating chat)
@@ -66,13 +93,16 @@ func (e *Engine) prepareTaskForumReply(p Platform, msg *Message) bool {
 	if r.prepared {
 		return true
 	}
-	it := e.boardItemByID(r.Board)
+	it := e.taskForumReplyItem(r.Board)
 	if it == nil || taskForumChat(*it) == "" {
-		e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("任务帖 #%d 的任务记录或来源频道缺失，暂时无法接续；请在来源聊天频道核对任务板记录。", r.Board))
+		e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgTaskForumSourceMissing, r.Board))
 		return false
 	}
 	r.Chat = taskForumChat(*it)
 	msg.SessionKey = r.Chat
+	if keys, ok := p.(ChannelSessionKeyer); ok {
+		msg.SessionKey = keys.SessionKeyFor(teamChannelID(r.Chat), msg.UserID)
+	}
 	msg.ChannelKey = teamChannelID(r.Chat)
 	msg.ChannelID = msg.ChannelKey
 	msg.Mentioned = true
@@ -90,15 +120,17 @@ func (e *Engine) taskForumReplyFacts(it teamTaskBoardItem) string {
 	}
 	question := ""
 	var latest time.Time
-	for _, peer := range e.taskForumPeers() {
-		peer.teamExit.mu.Lock()
-		peer.loadAsksLocked()
-		for _, ask := range peer.teamExit.asks {
-			if ask.Board == it.ID && (question == "" || ask.At.After(latest)) {
-				question, latest = strings.Join(ask.Forwarded, "\n"), ask.At
+	if tag == TaskForumTagWaiting {
+		for _, peer := range e.taskForumPeers() {
+			peer.teamExit.mu.Lock()
+			peer.loadAsksLocked()
+			for _, ask := range peer.teamExit.asks {
+				if ask.Board == it.ID && (question == "" || ask.At.After(latest)) {
+					question, latest = strings.Join(ask.Forwarded, "\n"), ask.At
+				}
 			}
+			peer.teamExit.mu.Unlock()
 		}
-		peer.teamExit.mu.Unlock()
 	}
 	if question == "" && tag == TaskForumTagWaiting {
 		question = firstNonEmpty(it.PauseWhy, it.Status)

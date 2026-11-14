@@ -137,3 +137,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - discord: 已接
 - feishu: 不支持：飞书群没有论坛频道和帖子标签，任务进度已由飞书任务卡展示；第一批只做 Discord（交接 #768「先只做 Discord」）
 - cloud-web: 不支持：网页频道没有论坛频道和帖子标签；第一批只做 Discord（交接 #768「先只做 Discord」）
+
+## ChannelSessionKeyer
+
+任务帖回复回到来源聊天频道时，沿用平台已有的共享/按用户隔离会话策略（core/team_task_forum_inbound.go）。
+
+- discord: 已接
+- feishu: 不支持：本批交接 #779 只做 Discord 论坛入站，飞书没有任务论坛帖，消息仍走原入口
+- cloud-web: 不支持：本批交接 #779 只做 Discord 论坛入站，网页频道没有任务论坛帖，消息仍走原入口
+- dsh: 不支持：同 cloud-web

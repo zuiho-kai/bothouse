@@ -63,6 +63,15 @@ type forumReplySink struct {
 	*inputTestPlatform
 	mu      sync.Mutex
 	targets []any
+	perUser bool
+}
+
+func (p *forumReplySink) SessionKeyFor(channel, user string) string {
+	key := "discord:" + channel
+	if p.perUser {
+		key += ":" + user
+	}
+	return key
 }
 
 func (p *forumReplySink) Reply(ctx context.Context, rc any, text string) error {
@@ -151,5 +160,51 @@ func TestTaskForumReplyFactsQuestionAndReentry(t *testing.T) {
 	msg.FromBot = true
 	if e.prepareTaskForumReply(p, msg) {
 		t.Fatal("bot accepted")
+	}
+	writeForumReplyItem(t, dir, teamTaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "source"})
+	running := &Message{TaskForum: &TaskForumReply{Board: 779}, UserID: "human"}
+	if !e.prepareTaskForumReply(p, running) || running.SessionKey != "discord:source" || strings.Contains(running.ExtraContent, "原始完整问题") {
+		t.Fatalf("historical chat or stale question: %+v", running)
+	}
+}
+
+func TestTaskForumReplyPreservesUserSession(t *testing.T) {
+	_, e, _, base, _ := inputFixture(t)
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, inject: true}
+	writeForumReplyItem(t, dir, teamTaskBoardFile, teamTaskBoardItem{ID: 779, Ch: "source"})
+	p := &forumReplySink{inputTestPlatform: base, perUser: true}
+	msg := &Message{SessionKey: "discord:post:human", UserID: "human", TaskForum: &TaskForumReply{Board: 779}, ReplyCtx: "post"}
+	if !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:source:human" || msg.ChannelID != "source" || msg.ReplyCtx != "post" {
+		t.Fatalf("user isolation or delivery changed: %+v", msg)
+	}
+}
+
+func TestTaskForumReplyQueueKeepsPostReceiptsSeparate(t *testing.T) {
+	for _, group := range []bool{false, true} {
+		p := &groupQueueStub{}
+		queue := func(post, text string) queuedMessage {
+			q := queuedMessage{userID: "human", msgSessionKey: "discord:source", channelKey: "source", content: text, replyCtx: post}
+			if group {
+				q.platform = p
+			}
+			if post != "" {
+				q.taskForum = &TaskForumReply{Board: 779, Thread: post, prepared: true}
+			}
+			return q
+		}
+		st := &interactiveState{pendingMessages: []queuedMessage{queue("post-a", "A"), queue("post-b", "B"), queue("", "chat")}}
+		for _, want := range []string{"A", "B", "chat"} {
+			got := takeQueuedBatchLocked(st)
+			if got.content != want {
+				t.Fatalf("group=%v: merged different destinations: %s", group, got.content)
+			}
+			if want != "chat" {
+				retry := queuedToMessage(got)
+				if retry.TaskForum != got.taskForum || retry.ReplyCtx != got.replyCtx {
+					t.Fatalf("redelivery lost post: %+v", retry)
+				}
+			}
+		}
 	}
 }

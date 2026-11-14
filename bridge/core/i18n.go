@@ -193,6 +193,7 @@ const (
 	MsgBackendQuotaRemaining     MsgKey = "backend_quota_remaining"
 	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
 	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
+	MsgTaskForumSourceMissing    MsgKey = "task_forum_source_missing"
 	MsgSessionNotFound           MsgKey = "session_not_found"
 	MsgFailedToStartAgentSession MsgKey = "failed_to_start_agent_session"
 	MsgFailedToDeleteSession     MsgKey = "failed_to_delete_session"
@@ -1522,6 +1523,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "嘗試停止一個已成功結束的命令任務，停止操作被拒絕。",
 		LangJapanese:           "正常終了済みのコマンドタスクを停止しようとしたため、停止操作が拒否されました。",
 		LangSpanish:            "Se intentó detener una tarea de comando ya completada correctamente; se rechazó la detención.",
+	},
+	MsgTaskForumSourceMissing: {
+		LangEnglish:            "Task post #%d has no task record or source channel, so it cannot be continued. Check the task board in the original chat.",
+		LangChinese:            "任务帖 #%d 的任务记录或来源频道缺失，暂时无法接续；请在来源聊天频道核对任务板记录。",
+		LangTraditionalChinese: "任務帖 #%d 的任務記錄或來源頻道缺失，暫時無法接續；請在來源聊天頻道核對任務板記錄。",
+		LangJapanese:           "タスク投稿 #%d のタスク記録または元のチャンネルがないため、続行できません。元のチャットでタスクボードを確認してください。",
+		LangSpanish:            "La publicación de tarea #%d no tiene registro de tarea o canal de origen y no se puede continuar. Revisa el tablero en el chat original.",
 	},
 	MsgBackgroundAutoDenied: {
 		LangEnglish:            "⚠️ Background task requested permission for `%s` but was auto-denied (no active user turn). Send a message or use `/yolo` to approve future requests.",

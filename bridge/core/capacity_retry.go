@@ -643,6 +643,7 @@ func queuedToMessage(q queuedMessage) Message {
 		TurnCtxSender: q.turnCtxSender,
 		Platform:      q.msgPlatform,
 		SessionKey:    q.msgSessionKey,
+		TaskForum:     q.taskForum,
 		ChannelKey:    q.channelKey,
 		ModeOverride:  q.modeOverride,
 		// maomao fork: a queued cron/timer turn stays one through a capacity re-delivery.
