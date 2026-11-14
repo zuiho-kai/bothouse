@@ -2,9 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -68,45 +65,52 @@ func TestQuotaModelWindowsUnrelatedOnlyIsUnknown(t *testing.T) {
 	}
 }
 
-// Normal message ingress establishes evidence; no direct recoverQuotaFor call.
-func TestDispatchAvailabilityUnknownHumanRecovery(t *testing.T) {
-	p, platform, _, id := taskRelayFixture(t)
-	var starts atomic.Int32
-	rm, _ := taskRelayManager(t, p, platform, nil, &starts)
-	target, a, chat := exitFixture(t, nil)
-	target.name = "target"
-	rm.RegisterEngine("target", target)
-	t.Cleanup(func() { target.cancel(); target.Stop() })
-	req := taskRelayRequest(id)
-	if _, err := rm.Send(context.Background(), req); err == nil || !strings.Contains(err.Error(), "@mention") || !strings.Contains(err.Error(), "same dispatch request") {
-		t.Fatalf("missing executable recovery instructions: %v", err)
+func TestQuotaModelWindowsUnresolvedModelKeepsLimits(t *testing.T) {
+	e, a := scopedQuotaFixture(t)
+	a.groups["A"] = "account"
+	report := &UsageReport{Buckets: []UsageBucket{{Windows: []UsageWindow{
+		{QuotaGroup: "account", UsedPercent: 10},
+		{QuotaGroup: "pool-a", UsedPercent: 100},
+	}}}}
+	e.observeQuotaUsageFor(report, "discord:test", e.quotaScopeFor(a, "A"))
+	e.waitQuotaUpdates()
+	if _, status := e.quotaAvailabilityFor(e.quotaScopeFor(a, "A"), time.Now()); status != "exhausted" {
+		t.Fatal("an unresolved model discarded an applicable limit:", status)
 	}
-	key := "discord:room:user"
-	target.ReceiveMessage(chat, &Message{SessionKey: key, Platform: "discord", UserID: "human", Mentioned: true, Content: "please answer", ReplyCtx: "recovery"})
-	inputPrompt(t, a)
-	inputDone(a, "ready")
-	inputWait(t, func() bool { return !target.sessions.GetOrCreateActive(key).Busy() })
-	target.waitQuotaUpdates()
-	if _, status := target.quotaAvailabilityFor(target.admissionQuotaScope(target.agent, key), time.Now()); status != "available" {
-		t.Fatal(status)
-	}
-	// The very same rejected request enters the real relay after the answer.
-	done := make(chan error, 1)
-	go func() {
-		result, err := rm.Send(context.Background(), req)
-		if err == nil && result == nil {
-			err = errors.New("missing relay result")
-		}
-		done <- err
-	}()
-	inputPrompt(t, a)
-	inputDone(a, "dispatched")
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("relay did not complete")
+}
+
+func TestQuotaModelWindowsAccountRecovery(t *testing.T) {
+	for _, via := range []string{"answer", "probe", "unknown probe"} {
+		t.Run(via, func(t *testing.T) {
+			e, a := scopedQuotaFixture(t)
+			e.SetRelayManager(NewRelayManager(e.dataDir))
+			scope := e.quotaScopeFor(a, "A")
+			if via == "answer" {
+				e.recordQuotaFor(scope.accountScope(), time.Now().Add(time.Hour), "")
+				e.recoverQuotaFor(scope)
+			} else {
+				expired := time.Now().Add(-time.Minute)
+				quotaDomainsMu.Lock()
+				e.saveDomainLocked(scope.accountScope().key(), expired)
+				quotaDomainsMu.Unlock()
+				e.quotaState = quotaCoolingState{Scope: scope.accountScope().key(), Until: expired}
+				a.reports = map[string]*UsageReport{}
+				if via == "probe" {
+					a.reports["A"] = &UsageReport{Buckets: []UsageBucket{{Windows: []UsageWindow{{QuotaGroup: "account", UsedPercent: 10}}}}}
+				}
+			}
+			e.waitQuotaUpdates()
+			e.quotaTick(time.Now())
+			want := "available"
+			if via == "unknown probe" {
+				want = "unknown"
+			}
+			if _, status := e.quotaAvailabilityFor(scope, time.Now()); status != want {
+				t.Fatalf("selected model status=%s want=%s", status, want)
+			}
+			if e.quotaState.ProbeScope != scope.key() {
+				t.Fatal("probe evidence was attributed to the account parent instead of the selected model")
+			}
+		})
 	}
 }

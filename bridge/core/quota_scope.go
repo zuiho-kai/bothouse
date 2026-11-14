@@ -117,7 +117,9 @@ type quotaScope struct {
 }
 
 func quotaWindowApplies(window UsageWindow, scope quotaScope) bool {
-	return window.QuotaGroup == "" || window.QuotaGroup == "account" || window.QuotaGroup == scope.Group
+	// An account-only scope has no proven model boundary (for example a
+	// provider default alias). It cannot discard a possibly applicable limit.
+	return scope.Group == "account" || window.QuotaGroup == "" || window.QuotaGroup == "account" || window.QuotaGroup == scope.Group
 }
 
 func (s quotaScope) accountScope() quotaScope {
