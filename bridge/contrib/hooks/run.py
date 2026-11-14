@@ -380,57 +380,6 @@ def tail_lines(path):
     return lines[1:] if size > TAIL_BYTES else lines
 
 
-def transcript_user_words(path):
-    """The latest user message in a transcript file, whichever CLI wrote it:
-    Claude Code / Qoder JSONL ({type: user, message: {content}}), Codex rollout (response_item message role user,
-    without the AGENTS.md / environment_context messages Codex injects), agy transcript_full.jsonl (USER_INPUT steps),
-    Grok updates.jsonl (session/update user_message_chunk; the chunks of one message are consecutive)."""
-    chunks = []
-    for line in reversed(tail_lines(path)):
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(e, dict):
-            continue
-        up = (e.get("params") or {}).get("update") if e.get("method") == "session/update" else None
-        if isinstance(up, dict) and up.get("sessionUpdate") == "user_message_chunk":
-            chunks.insert(0, parts_text((up.get("content") or {}).get("text") or ""))
-            continue
-        if chunks:
-            break
-        t = e.get("type")
-        if t == "user" and not e.get("isMeta"):
-            msg = e.get("message")
-            text = parts_text(msg.get("content") if isinstance(msg, dict) else None)
-            if text.strip():
-                return text
-        elif t == "response_item":
-            item = e.get("payload") or {}
-            if item.get("type") == "message" and item.get("role") == "user":
-                text = parts_text(item.get("content"))
-                if text.strip() and not text.lstrip().startswith(CODEX_INJECTED):
-                    return text
-        elif t == "USER_INPUT":
-            text = agy_user_text(e.get("content"))
-            if text:
-                return text
-    return "".join(chunks)
-
-
-def dsh_user_words(recs):
-    """The latest user message in a DSH session log."""
-    for d in reversed(recs):
-        data = d.get("data") or {}
-        if d.get("type") == "user/message" and (data.get("source") or {}).get("kind") == "user":
-            parts = [user_text(c.get("text", "")) for c in data.get("content", [])
-                     if isinstance(c, dict) and c.get("type") == "text"]
-            text = "\n\n".join(p for p in parts if p)
-            if text:
-                return text
-    return ""
-
-
 def user_text(text):
     t = text.strip()
     if t.startswith(MODEL_HEAD):
