@@ -3521,7 +3521,7 @@ test('store: opening renumbers the old per-chat duplicate 工作区n; ids and pa
   again.close();
 });
 
-test('store: a workspace belongs to one chat channel until it is released; then any chat channel may claim it', () => {
+test('store: a workspace belongs to the chat channel it was made for, also after it is released (#762)', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   s.ensureRoom(2, 'dev');
@@ -3536,28 +3536,39 @@ test('store: a workspace belongs to one chat channel until it is released; then 
   assert.equal(s.claimWorkspace(w.id, w2.id).parent_id, 1);
   assert.throws(() => s.claimWorkspace(2, 1), e => e.code === 'not-workspace');
   assert.throws(() => s.claimWorkspace(2, 99), e => e.code === 'room-missing');
-  // Released after its last task: free, and the next chat channel takes it.
+  // Released after its last task: free, but still general's; dev is refused, general takes it again.
   assert.equal(s.releaseWorkspace(w.id), true);
   assert.equal(s.workspaceOwner(w.id), null);
   assert.equal(s.releaseWorkspace(w.id), false, 'already free');
-  assert.equal(s.claimWorkspace(2, w.id).parent_id, 2);
-  assert.equal(s.workspaceOwner(w.id), 2);
+  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned');
+  assert.equal(s.room(w.id).parent_id, 1, 'the free workspace stays under general');
+  assert.equal(s.claimWorkspace(1, w.id).parent_id, 1);
+  assert.equal(s.workspaceOwner(w.id), 1);
 });
 
-test('store: createWorkspace takes the lowest free workspace of the shared pool before making 工作区n+1', () => {
+test('store #762: createWorkspace reuses only its own chat channel\'s lowest free workspace; another one gets 工作区n+1', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   s.ensureRoom(2, 'dev');
   const w1 = s.createWorkspace(1);
   const w2 = s.createWorkspace(1);
-  assert.equal(s.createWorkspace(2).name, '工作区3', 'none free: a new one');
+  const w3 = s.createWorkspace(2);
+  assert.equal(w3.name, '工作区3', 'none free: a new one');
   s.releaseWorkspace(w2.id);
   s.releaseWorkspace(w1.id);
+  // A released after its last task, then B hands off: B gets a new number, A's rooms stay under A.
   const got = s.createWorkspace(2);
-  assert.deepEqual([got.id, got.name, got.parent_id], [w1.id, '工作区1', 2]);
-  assert.equal(s.workspaceOwner(w1.id), 2);
-  assert.equal(s.createWorkspace(2).id, w2.id);
-  assert.equal(s.createWorkspace(1).name, '工作区4');
+  assert.deepEqual([got.name, got.parent_id], ['工作区4', 2]);
+  assert.equal(s.room(w1.id).parent_id, 1);
+  assert.equal(s.room(w2.id).parent_id, 1);
+  // B's own free workspace comes first for B.
+  s.releaseWorkspace(w3.id);
+  assert.equal(s.createWorkspace(2).id, w3.id);
+  // A takes its own lowest free one.
+  const again = s.createWorkspace(1);
+  assert.deepEqual([again.id, again.parent_id], [w1.id, 1]);
+  assert.equal(s.createWorkspace(1).id, w2.id);
+  assert.equal(s.createWorkspace(1).name, '工作区5');
 });
 
 test('store: a released workspace keeps its sessions until a new claim clears them; fresh ones start after its last message', () => {
@@ -3590,12 +3601,13 @@ test('store G35: claimed back for a task of its last claim a workspace keeps its
   s.claimWorkspace(1, w.id, { handoff: taskId });
   assert.equal(s.binding('ds', w.id).session_id, 'collab-old', 'rework goes on in the same session');
   s.releaseWorkspace(w.id);
-  s.claimWorkspace(2, w.id);
+  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned', 'another chat channel never takes it (#762)');
+  s.createWorkspace(1); // general's next handoff, a new claim
   s.releaseWorkspace(w.id);
   assert.equal(s.binding('ds', w.id), undefined, 'another claim started fresh');
-  s.bind('ds', w.id, 'collab-dev');
+  s.bind('ds', w.id, 'collab-next');
   s.claimWorkspace(1, w.id, { handoff: taskId });
-  assert.equal(s.binding('ds', w.id), undefined, 'and the old task claimed back after it does not get dev\'s session');
+  assert.equal(s.binding('ds', w.id), undefined, 'and the old task claimed back after it does not get the later task\'s session');
 });
 
 test('G35: rework of a handed-back DSH task wakes its owner in the same workspace session, with no briefing needed', async () => {
@@ -3678,10 +3690,11 @@ test('tasks: a workspace is released when its last task is handed back or done, 
   tasks.handBack(t3.id, { actor: 'ds', messageId: msg() });
   assert.equal(s.workspaceOwner(w.id), null, 'all handed back: released');
   assert.deepEqual(released, [w.id]);
-  assert.equal(s.claimWorkspace(2, w.id).parent_id, 2);
+  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned', 'still general\'s (#762)');
+  assert.equal(s.claimWorkspace(1, w.id).parent_id, 1);
 });
 
-test('team exit: asks and reports go to the chat channel that owns the workspace; another channel waits for the release', async () => {
+test('team exit: asks and reports go to the chat channel that owns the workspace; another channel is refused, also after the release', async () => {
   const hub = makeHub();
   hub.store.ensureRoom(2, 'dev');
   const ws = hub.store.createWorkspace(1); // created from general: general owns it
@@ -3715,13 +3728,17 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'l2', op: 'list', reply_ctx: 'room-2' });
   await tick();
   assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner]), [['工作区1', '']], 'free after its last task');
+  // Free, it is still general's (#762): dev is refused, general claims it again.
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c2', ok: false, error: 'workspace-owned' });
+  ju.frame({ type: 'team_workspace', ref_id: 'c2b', op: 'claim', reply_ctx: 'room-1', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
   hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: `[ask] #${t.id} 背景：你让我做这件事。\n要答案\n要你做的：没有。\n我加的：无\n自验：无需\n类别：方向` });
   await tick();
-  assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
-  assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches general, its owner');
+  assert.equal(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
   // The bridge's release (lead session reset after its last task) frees it again.
   ju.frame({ type: 'team_workspace', ref_id: 'r2', op: 'release', reply_ctx: roomKey(ws.id) });
   await tick();
@@ -3772,7 +3789,7 @@ test('team workspace park: paused tasks stop counting, the workspace goes back t
   assert.equal(hub.store.workspaceOwner(ws.id), 1);
 });
 
-test('team workspace park: a paused task does not resume into a workspace another chat channel claimed since', async () => {
+test('team workspace park #762: another chat channel\'s handoff does not take the paused task\'s workspace; the task resumes there', async () => {
   const hub = makeHub();
   hub.store.ensureRoom(2, 'dev');
   const ws = hub.store.createWorkspace(1); // general owns 工作区1
@@ -3782,19 +3799,55 @@ test('team workspace park: a paused task does not resume into a workspace anothe
   const t1 = tasks.assign({ roomId: ws.id, title: '停在干净点的活', owner: 'ds', actor: 'ju' });
   tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' });
   assert.equal(tasks.park(ws.id), true);
-  // dev's next workspace is the freed 工作区1, not 工作区2.
-  assert.equal(hub.store.createWorkspace(2).name, '工作区1');
-  assert.equal(hub.store.workspaceOwner(ws.id), 2);
-  // Resuming would make 工作区1 serve two chat channels: refused, nothing changes.
-  assert.throws(() => tasks.stance(t1.id, { actor: 'ds', stance: 'accept' }), e => e.code === 'workspace-owned');
+  // dev's next workspace is a new 工作区2; the freed 工作区1 stays under general.
+  const dev = hub.store.createWorkspace(2);
+  assert.deepEqual([dev.name, dev.parent_id], ['工作区2', 2]);
+  assert.equal(hub.store.room(ws.id).parent_id, 1);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  // The paused task resumes in 工作区1, claimed back for general.
+  tasks.stance(t1.id, { actor: 'ds', stance: 'accept' });
+  assert.equal(tasks.task(t1.id).status, 'accepted');
+  assert.equal(tasks.task(t1.id).paused_at, null);
+  assert.equal(hub.store.workspaceOwner(ws.id), 1);
+  assert.deepEqual(tasks.list(2).map(t => t.id), [], 'never on dev\'s board');
+});
+
+test('team workspace park #762 upgrade: a task paused before the upgrade whose workspace an older version moved to another chat channel is not resumed or handed back there', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  old.ensureRoom(2, 'dev');
+  const ws = old.createWorkspace(1);
+  let hub = makeHubFrom(old);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  let tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const t1 = tasks.assign({ roomId: ws.id, title: '升级前暂停的活', owner: 'ds', actor: 'ju' });
+  tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' });
+  assert.equal(tasks.park(ws.id), true);
+  // What the older createWorkspace wrote when dev took the freed 工作区1 (moved it under dev).
+  old.db.prepare(`UPDATE rooms SET parent_id = 2, free = 0, claim_bridge = 0, claim_seq = claim_seq + 1,
+    claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?), claim_at = unixepoch() WHERE id = ?`).run(ws.id, ws.id);
+  old.close();
+  // The new version loads that state as it is (no migration).
+  const s = new Store(path);
+  hub = makeHubFrom(s);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  assert.equal(s.workspaceOwner(ws.id), 2, 'dev holds it');
+  assert.equal(tasks.task(t1.id).paused_chat, 1);
+  assert.throws(() => tasks.stance(t1.id, { actor: 'ds', stance: 'accept' }), e => e.code === 'workspace-owned', 'not resumed into dev\'s claim');
+  const m = s.append(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交回' }).message.id;
+  assert.throws(() => tasks.handBack(t1.id, { actor: 'ds', messageId: m }), e => e.code === 'workspace-owned', 'not handed back into dev\'s claim');
   assert.equal(tasks.task(t1.id).status, 'asked');
   assert.ok(tasks.task(t1.id).paused_at != null, 'still paused, still listed');
-  assert.equal(tasks.countPaused(ws.id), 1);
-  assert.equal(tasks.countActive(ws.id), 0);
-  assert.equal(hub.store.workspaceOwner(ws.id), 2, 'dev keeps it');
-  // The paused task stays on general's board (a to-do is not lost), not on dev's.
+  assert.equal(s.workspaceOwner(ws.id), 2, 'dev keeps it');
   assert.deepEqual(tasks.list(1).map(t => [t.id, t.paused_at != null]), [[t1.id, true]]);
   assert.deepEqual(tasks.list(2).map(t => t.id), []);
+  s.close();
 });
 
 test('team workspace park: a workspace with one paused and one accepted task stays busy for a plain release', async () => {
@@ -4027,12 +4080,13 @@ test('store: upgrading to single owner puts old workspaces with no task in work 
   old.close();
   const s = new Store(path);
   assert.equal(s.workspaceOwner(idle.id), null, 'done before the upgrade: free');
-  assert.equal(s.claimWorkspace(2, idle.id).parent_id, 2, 'another chat channel claims it');
+  assert.throws(() => s.claimWorkspace(2, idle.id), e => e.code === 'workspace-owned', 'still general\'s (#762)');
+  assert.equal(s.claimWorkspace(1, idle.id).parent_id, 1, 'general claims it again');
   assert.equal(s.workspaceOwner(busy.id), 1, 'a task still in work keeps its owner');
   assert.throws(() => s.claimWorkspace(2, busy.id), e => e.code === 'workspace-owned');
   s.close();
-  const again = new Store(path); // the migration runs once: dev keeps what it claimed
-  assert.equal(again.workspaceOwner(idle.id), 2);
+  const again = new Store(path); // the migration runs once: the claim stays
+  assert.equal(again.workspaceOwner(idle.id), 1);
   again.close();
 });
 
@@ -4067,7 +4121,8 @@ test('tasks: a bridge-claimed workspace is never auto-released; only the bridge 
   tasks.review(t.id, { actor: 'lead', verdict: 'done' });
   assert.equal(s.workspaceOwner(w.id), 1, 'the bridge lead may still be working');
   assert.equal(tasks.release(w.id), true);
-  assert.equal(s.claimWorkspace(2, w.id, { bridge: true }).parent_id, 2);
+  assert.throws(() => s.claimWorkspace(2, w.id, { bridge: true }), e => e.code === 'workspace-owned');
+  assert.equal(s.claimWorkspace(1, w.id, { bridge: true }).parent_id, 1);
 });
 
 test('cloud_web release names the claim it ends: a late release does not free a newer claim', async () => {
@@ -6225,12 +6280,13 @@ test('watch closes an active task whose persisted owner was removed', () => {
   assert.match(tasks.task(task.id).note, /负责人已移除，自动收口/);
 });
 
-test('parked task closure reports to its original channel after workspace reuse', () => {
+test('parked task closure reports to its original channel while another channel hands off', () => {
   const { hub, tasks, clock, ws, assign } = g34Setup();
   hub.store.ensureRoom(2, 'other');
   const task = assign();
   tasks.pauseTask(task.id);
-  hub.store.claimWorkspace(2, ws.id);
+  assert.throws(() => hub.store.claimWorkspace(2, ws.id), e => e.code === 'workspace-owned', 'another channel never takes it (#762)');
+  hub.store.createWorkspace(2);
   hub.store.db.prepare(`INSERT INTO members (id, name, persona, source, created_at, removed)
     VALUES ('fu', '副', '', 'ui', 1, 1)`).run();
   clock.t += 1;
@@ -6238,7 +6294,7 @@ test('parked task closure reports to its original channel after workspace reuse'
   assert.equal(tasks.task(task.id).status, 'returned');
   assert.ok(hub.store.page(1).some(m => m.author_kind === 'system' && m.text.includes(`负责人已移除，自动收口`)));
   assert.equal(hub.store.page(2).some(m => m.text.includes(`负责人已移除，自动收口`)), false);
-  assert.equal(hub.store.workspaceOwner(ws.id), 2);
+  assert.equal(hub.store.room(ws.id).parent_id, 1);
 });
 
 test('a paused task with a live owner is never closed by the watch', () => {
@@ -6897,7 +6953,7 @@ test('channel directories: configuration rejects relative paths and accepts empt
 });
 
 
-test('channel directories: a released workspace uses its next owner directory and new native session', async () => {
+test('channel directories: each chat channel\'s workspace uses its directory; a reclaim starts a new native session', async () => {
   const hub = makeHub();
   hub.store.ensureRoom(1, 'first', '/first');
   hub.store.ensureRoom(2, 'second', '/second');
@@ -6906,11 +6962,15 @@ test('channel directories: a released workspace uses its next owner directory an
   const member = { id: 'ds', name: 'DS' };
   await members.ensureAgent(member, hub.store.room(workspace.id));
   assert.equal(hub.store.releaseWorkspace(workspace.id), true);
-  const reused = hub.store.createWorkspace(2);
+  const other = hub.store.createWorkspace(2);
+  assert.notEqual(other.id, workspace.id, 'the second channel never takes the first one\'s workspace (#762)');
+  assert.equal(hub.store.workspacePath(other.id, '/w'), '/second');
+  await members.ensureAgent(member, hub.store.room(other.id));
+  const reused = hub.store.createWorkspace(1);
   assert.equal(reused.id, workspace.id);
-  assert.equal(hub.store.workspacePath(reused.id, '/w'), '/second');
+  assert.equal(hub.store.workspacePath(reused.id, '/w'), '/first');
   await members.ensureAgent(member, hub.store.room(reused.id));
-  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/first', '/second']);
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/first', '/second', '/first'], 'the reclaim starts a new native session');
   await members.close(); hub.store.close();
 });
 

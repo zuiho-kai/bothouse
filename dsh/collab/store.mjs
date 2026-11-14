@@ -501,10 +501,12 @@ export class Store {
   /** #1023: the agent member a private chat room is with; undefined for every other room. */
   dmMember(roomId) { return this.db.prepare('SELECT dm_member FROM rooms WHERE id = ?').get(roomId)?.dm_member ?? undefined; }
   /**
-   * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of the shared
-   * pool (released by any chat channel after its last task) if there is one, else a new
-   * 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (one shared pool,
-   * unique numbers). Called on a workspace, it works for that workspace's chat channel.
+   * Give a chat channel its next workspace: the lowest-numbered free 工作区<k> of its own
+   * (rooms.parent_id is this chat channel, released after its last task) if there is one, else a
+   * new 工作区<n+1>, n being the highest existing 工作区<k> of any chat channel (numbers stay
+   * unique across chat channels). A workspace never moves to another chat channel: that moved the
+   * room with its history in the sidebar, and left a task paused there unable to resume (#762).
+   * Called on a workspace, it works for that workspace's chat channel.
    */
   createWorkspace(roomId, { bridge = false } = {}) {
     return this.transaction(() => {
@@ -512,15 +514,15 @@ export class Store {
       if (room === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
       const parent = room.kind === 'workspace' ? room.parent_id : room.id;
       const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
-      // One shared pool: numbers are unique across every chat channel's workspaces.
-      const all = this.db.prepare("SELECT id, name, free FROM rooms WHERE kind = 'workspace'").all();
+      // Numbers are unique across every chat channel's workspaces; reuse stays within this one.
+      const all = this.db.prepare("SELECT id, name, free, parent_id FROM rooms WHERE kind = 'workspace'").all();
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
-      const free = all.filter(w => w.free && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
+      const free = all.filter(w => w.free && w.parent_id === parent && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
         this.resetSessions(free.id);
-        return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
+        return this.db.prepare(`UPDATE rooms SET free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
           claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
-          .get(parent, bridge ? 1 : 0, free.id, free.id);
+          .get(bridge ? 1 : 0, free.id, free.id);
       }
       const n = Math.max(0, ...all.map(num));
       return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
@@ -529,9 +531,9 @@ export class Store {
 
   /**
    * Record chatId as the owner of workspace workspaceId, so the unified exit (team-exit.mjs,
-   * by rooms.parent_id) sends its asks and reports there. A workspace belongs to one chat
-   * channel at a time: one another chat channel owns (not free) is refused with
-   * 'workspace-owned' until it is released after its last task (releaseWorkspace).
+   * by rooms.parent_id) sends its asks and reports there. A workspace belongs to the chat channel
+   * it was made for (rooms.parent_id), free or not: one of another chat channel is refused with
+   * 'workspace-owned' (#762; the caller makes its own with createWorkspace).
    * chatId may be a workspace (then its chat channel is used). bridge: the claim comes from the
    * bridge (cloudweb.mjs), whose lead session the bridge releases itself. handoff: the task this
    * claim is for when it already exists (a paused task resumed, Tasks.resumeClaim), so handoffDone
@@ -545,8 +547,8 @@ export class Store {
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
       const owner = this.workspaceOwner(ws.id);
-      if (owner != null && owner !== parent) {
-        throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${owner} until it finishes its last task`);
+      if (ws.parent_id != null && ws.parent_id !== parent) {
+        throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${ws.parent_id}`);
       }
       // #597 G35: a released workspace keeps its sessions until a new claim. Claimed back for a task of
       // its last claim (rework, a paused task resumed: Tasks.reworkClaim/resumeClaim; claim_task stays

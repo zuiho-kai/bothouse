@@ -156,21 +156,20 @@ test('#1613 old CHECK constraint migrates without losing hierarchy, reports or s
   again.close();
 });
 
-test('#1613 cancelling a parked old task cannot reclaim or release another channel workspace', t => {
+test('#1613 cancelling a parked old task cannot reclaim or release the workspace its next task claimed', t => {
   const { store, hub, tasks, assign, end } = setup(t);
   const ws = store.createWorkspace(1);
   const a = assign(ws.id);
   tasks.pauseTask(a.id);
   store.ensureRoom(2, 'other-chat');
-  store.claimWorkspace(2, ws.id);
+  assert.throws(() => store.claimWorkspace(2, ws.id), e => e.code === 'workspace-owned', 'another chat never takes it (#762)');
+  store.claimWorkspace(1, ws.id);
   const b = assign(ws.id, { owner: 'other' });
-  const before = store.page(2, undefined, 100).length;
   const events = [];
   hub.subscribe(event => { if (event.type === 'task') events.push(event); });
   end(a.id);
-  assert.equal(store.workspaceOwner(ws.id), 2);
+  assert.equal(store.workspaceOwner(ws.id), 1);
   assert.equal(tasks.task(b.id).status, 'assigned');
-  assert.equal(store.page(2, undefined, 100).length, before, 'old cancellation is not echoed to the new chat');
   assert.equal(events.at(-1).chat_id, 1);
   assert.equal(tasks.list(1).find(row => row.id === a.id)?.status, 'cancelled');
   assert.equal(tasks.list(2).some(row => row.id === a.id), false);
