@@ -13,24 +13,24 @@ func TestGateBurstWindow_DefaultAndAttachmentsUnchanged(t *testing.T) {
 	defer e.Stop()
 	e.SetGate("http://localhost/decide", 1000, "reply")
 	text := &Message{Content: "hello"}
-	if got := e.gate.burstDelay(text); got != 1500*time.Millisecond {
+	if got := e.gate.Load().burstDelay(text); got != 1500*time.Millisecond {
 		t.Fatalf("default text delay = %v", got)
 	}
 	e.SetGateBurstWindow(300)
-	if got := e.gate.burstDelay(text); got != 300*time.Millisecond {
+	if got := e.gate.Load().burstDelay(text); got != 300*time.Millisecond {
 		t.Fatalf("configured text delay = %v", got)
 	}
 	for _, msg := range []*Message{
 		{Content: "caption", Images: []ImageAttachment{{}}},
 		{Content: "caption", Files: []FileAttachment{{}}},
 	} {
-		if got := e.gate.burstDelay(msg); got != 1500*time.Millisecond {
+		if got := e.gate.Load().burstDelay(msg); got != 1500*time.Millisecond {
 			t.Fatalf("attachment burst delay = %v", got)
 		}
 	}
 	for _, value := range []int{0, -1} {
 		e.SetGateBurstWindow(value)
-		if got := e.gate.burstDelay(text); got != 1500*time.Millisecond {
+		if got := e.gate.Load().burstDelay(text); got != 1500*time.Millisecond {
 			t.Fatalf("default delay for %d = %v", value, got)
 		}
 	}
@@ -92,7 +92,7 @@ func TestGateConfiguredBurstWindow_RepliesWithoutDefaultDelay(t *testing.T) {
 	env.engine.SetGate(srv.URL, 1000, "reply")
 	env.engine.SetGateBurstWindow(50)
 	defer func() {
-		g := env.engine.gate
+		g := env.engine.gate.Load()
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		for _, h := range g.held {

@@ -43,11 +43,11 @@ func newMidTurnEngine(t *testing.T) (*Engine, *midTurnAgent, *stubPlatformEngine
 
 func TestGate_MidTurnInputAskedPerMessage(t *testing.T) {
 	e, a, _ := newMidTurnEngine(t)
-	if e.gate.canInject() {
+	if e.gate.Load().canInject() {
 		t.Fatal("agent has not advertised mid-turn input yet")
 	}
 	a.can.Store(true)
-	if !e.gate.canInject() {
+	if !e.gate.Load().canInject() {
 		t.Fatal("gate must see the agent's later advertisement")
 	}
 }

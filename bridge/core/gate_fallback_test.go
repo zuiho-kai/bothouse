@@ -15,14 +15,14 @@ func TestGateFallbackMentionedReplies(t *testing.T) {
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
 	defer bad.Close()
 	for _, url := range []string{down.URL, bad.URL} {
-		g := &gateState{url: url, timeout: time.Second, fallback: "context"}
+		g := &gateState{url: url, timeout: time.Second, fallback: "context", gateRuntime: newGateRuntime()}
 		if got := g.decide(context.Background(), gateRequest{Content: "hi", Mentioned: true}); got.Action != "reply" {
 			t.Errorf("%s mentioned sub: %s", url, got.Action)
 		}
 		if got := g.decide(context.Background(), gateRequest{Content: "hi"}); got.Action != "context" {
 			t.Errorf("%s not mentioned sub: %s", url, got.Action)
 		}
-		lead := &gateState{url: url, timeout: time.Second, fallback: "reply"}
+		lead := &gateState{url: url, timeout: time.Second, fallback: "reply", gateRuntime: newGateRuntime()}
 		if got := lead.decide(context.Background(), gateRequest{Content: "hi"}); got.Action != "reply" {
 			t.Errorf("%s fallback role: %s", url, got.Action)
 		}
@@ -37,7 +37,7 @@ func TestGateFallbackNoModel(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"no jev"}`))
 	}))
 	defer noModel.Close()
-	lead := &gateState{url: noModel.URL, timeout: time.Second, fallback: "reply"}
+	lead := &gateState{url: noModel.URL, timeout: time.Second, fallback: "reply", gateRuntime: newGateRuntime()}
 	if got := lead.decide(context.Background(), gateRequest{Content: "hi"}); got.Action != "context" {
 		t.Errorf("lead, no model, names no one: %s", got.Action)
 	}

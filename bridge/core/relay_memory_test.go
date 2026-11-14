@@ -177,7 +177,7 @@ func TestTaskRelayGateQueryIsAssignmentOnly(t *testing.T) {
 	source := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangEnglish)
 	source.publicProgress = p
 	target := NewEngine("target", a, []Platform{newProgressPlatform()}, "", LangEnglish)
-	target.gate = &gateState{url: srv.URL + "/decide", timeout: time.Second}
+	target.gate.Store(&gateState{url: srv.URL + "/decide", timeout: time.Second, gateRuntime: newGateRuntime()})
 	rm := NewRelayManager("")
 	rm.RegisterEngine("source", source)
 	rm.RegisterEngine("target", target)

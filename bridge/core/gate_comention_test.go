@@ -90,7 +90,7 @@ func TestApplyGate_BurstKeepsEachMessage(t *testing.T) {
 	e.applyGate(p, first, s, "k")
 	e.applyGate(p, second, s, "k")
 
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	h := g.held["k"]
 	if h == nil {
@@ -140,7 +140,7 @@ func TestApplyGate_ContextWithAttachmentStaysQuiet(t *testing.T) {
 	if handled := e.applyGate(nil, m, &Session{}, "k"); !handled {
 		t.Fatal("co-mention with an image started a turn")
 	}
-	if b := e.gate.buf["k"]; len(b) != 1 || !strings.Contains(b[0], "附了 1 个图片") {
+	if b := e.gate.Load().buf["k"]; len(b) != 1 || !strings.Contains(b[0], "附了 1 个图片") {
 		t.Fatalf("buffer = %q", b)
 	}
 }

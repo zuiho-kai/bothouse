@@ -105,9 +105,9 @@ func TestGateSkipsOwnerDirectMessage(t *testing.T) {
 	if !msg.Mentioned {
 		t.Fatal("an owner DM must be treated as addressed to this bot")
 	}
-	e.gate.mu.Lock()
-	defer e.gate.mu.Unlock()
-	if len(e.gate.held) != 0 || len(e.gate.buf["k"]) != 0 || len(e.gate.gbuf["k"]) != 0 {
+	e.gate.Load().mu.Lock()
+	defer e.gate.Load().mu.Unlock()
+	if len(e.gate.Load().held) != 0 || len(e.gate.Load().buf["k"]) != 0 || len(e.gate.Load().gbuf["k"]) != 0 {
 		t.Fatal("a direct message must not be held or buffered")
 	}
 }
@@ -126,9 +126,9 @@ func TestGateChecksNonOwnerDirectMessage(t *testing.T) {
 		e.SetAdminFrom(adminFrom)
 		msg := &Message{SessionKey: "discord:dm-chan:u2", UserID: "u2", Content: "在吗", Direct: true}
 		// Mark it as handed back by the burst timer so the gate is asked right away.
-		e.gate.mu.Lock()
+		e.gate.Load().mu.Lock()
 		msg.burstDone = true
-		e.gate.mu.Unlock()
+		e.gate.Load().mu.Unlock()
 		if !e.applyGate(nil, msg, &Session{}, "k") {
 			t.Errorf("admin_from=%q: a non-owner DM judged as context must not start a turn", adminFrom)
 		}

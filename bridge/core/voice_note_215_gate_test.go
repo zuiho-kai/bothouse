@@ -150,8 +150,8 @@ func TestVoiceNote215GateInjectionMarksOnlyTheTranscript(t *testing.T) {
 	srv := ambientGate(t, contextThenReply)
 	e, _, p := ambientEngine(t, srv)
 	// The running turn accepts mid-turn input, as claudecode/ACP do.
-	e.gate.inject = true
-	e.gate.injectDyn = func() bool { return true }
+	e.gate.Load().inject = true
+	e.gate.Load().injectDyn = func() bool { return true }
 	running := newPromptCaptureSession()
 	key := "test:c1"
 	e.interactiveMu.Lock()

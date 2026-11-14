@@ -16,7 +16,7 @@ func TestGateFailureExternalAddressee(t *testing.T) {
 			http.Error(w, "gate unavailable", status)
 		}))
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			g := &gateState{url: srv.URL, timeout: time.Second, fallback: "reply"}
+			g := &gateState{url: srv.URL, timeout: time.Second, fallback: "reply", gateRuntime: newGateRuntime()}
 			ordinary := "reply"
 			if status == http.StatusServiceUnavailable {
 				ordinary = "context"

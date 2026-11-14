@@ -774,9 +774,11 @@ func (sm *SessionManager) deleteByIDLocked(id string) {
 }
 
 // Save persists current state to disk. Safe to call from outside (e.g. after message processing).
+// It takes the write lock like every other saveLocked caller: saveLocked writes legacyData, and
+// two saves running at once could land an older snapshot on disk after a newer one.
 func (sm *SessionManager) Save() {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	sm.saveLocked()
 }
 

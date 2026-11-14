@@ -90,7 +90,7 @@ func TestGroupQueueFull_MakesRoom(t *testing.T) {
 	e := NewEngine("test", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
 	defer e.cancel()
 	e.maxQueuedMessages = 2
-	e.gate = &gateState{buf: map[string][]string{}}
+	e.gate.Store(&gateState{gateRuntime: newGateRuntime()})
 
 	key := "qq:g:1"
 	_, state := busySessionWithLiveState(t, e, p, key, as)
@@ -120,8 +120,8 @@ func TestGroupQueueFull_MakesRoom(t *testing.T) {
 	if got := strings.Join(ids(), ","); got != "m1*,m2,m3*,m4,m5,m6*" {
 		t.Fatalf("queue = %s", got)
 	}
-	if countQueuedLocked(state) != 3 || len(e.gate.buf[key]) != 0 {
-		t.Fatalf("depth = %d, gate buffer = %q", countQueuedLocked(state), e.gate.buf[key])
+	if countQueuedLocked(state) != 3 || len(e.gate.Load().buf[key]) != 0 {
+		t.Fatalf("depth = %d, gate buffer = %q", countQueuedLocked(state), e.gate.Load().buf[key])
 	}
 	q := takeQueuedBatchLocked(state)
 	if q.messageID != "m5" || !q.mentioned || len(state.pendingMessages) != 0 {

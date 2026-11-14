@@ -59,7 +59,7 @@ func TestApplyGateSenderSilence_MergesSameSenderBurst(t *testing.T) {
 			t.Fatalf("%q was not held for the silent wait", text)
 		}
 	}
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	if len(g.held) != 1 {
 		g.mu.Unlock()
@@ -96,7 +96,7 @@ func TestApplyGateSenderSilence_KeepsSendersApart(t *testing.T) {
 	e.applyGate(p, personMsg("test:room", "u2", "乙一"), s, "k")
 	e.applyGate(p, personMsg("test:room", "u1", "甲二"), s, "k")
 
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if len(g.held) != 2 {
@@ -117,7 +117,7 @@ func TestGateSenderSilence_OnlyPlainMessages(t *testing.T) {
 	defer e.Stop()
 	e.SetGate("http://localhost/decide", 1000, "reply")
 	e.SetGateSenderSilence(true, 1500, 6000)
-	g := e.gate
+	g := e.gate.Load()
 
 	plain := personMsg("test:room", "u1", "随便说说")
 	if !g.silenceApplies(plain, false) {
@@ -159,7 +159,7 @@ func TestGateSenderSilence_OnlyPlainMessages(t *testing.T) {
 // The hard cap is measured from the burst's first message: a person who keeps typing still gets a
 // turn (石英: at most 6s). The chosen windows here follow the defaults, only compressed for a test.
 func TestGateSenderSilence_HoldForClampsAtMax(t *testing.T) {
-	g := &gateState{silence: true, silenceFor: 1500 * time.Millisecond, silenceMax: 6 * time.Second}
+	g := &gateState{silence: true, silenceFor: 1500 * time.Millisecond, silenceMax: 6 * time.Second, gateRuntime: newGateRuntime()}
 	h := &heldMsg{msg: &Message{Content: "hi"}, silence: true, firstAt: time.Now()}
 	if got := g.holdFor(h, h.firstAt); got != 1500*time.Millisecond {
 		t.Fatalf("first wait = %v, want the silent window", got)
@@ -174,7 +174,7 @@ func TestGateSenderSilence_HoldForClampsAtMax(t *testing.T) {
 	e := newTestEngine()
 	defer e.Stop()
 	e.SetGate("http://localhost/decide", 1000, "reply")
-	if got := e.gate.holdWindow(&Message{Content: "hi"}); got != burstWindow {
+	if got := e.gate.Load().holdWindow(&Message{Content: "hi"}); got != burstWindow {
 		t.Fatalf("plain burst = %v, want %v", got, burstWindow)
 	}
 }
@@ -269,7 +269,7 @@ func TestApplyGateSenderSilence_MentionJoinsItsOwnBurst(t *testing.T) {
 	if !e.applyGate(p, mention, s, "k") {
 		t.Fatal("the @ should join the sender's burst, not start a turn")
 	}
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	h := g.held["k\x00test-u1"]
 	if h == nil {
@@ -299,7 +299,7 @@ func TestApplyGateSenderSilence_OtherSenderStartsFreshBurst(t *testing.T) {
 
 	e.applyGate(p, personMsg("test:room", "u1", "甲"), s, "k")
 	e.applyGate(p, personMsg("test:room", "u2", "乙"), s, "k")
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	_, u1 := g.held["k\x00test-u1"]
 	_, u2 := g.held["k\x00test-u2"]
@@ -328,7 +328,7 @@ func TestApplyGateSenderSilence_JoinsSessionBurstInFlight(t *testing.T) {
 	if !e.applyGate(p, personMsg("test:room", "u1", "补充一句"), s, "k") {
 		t.Fatal("the plain message should join the burst already collecting")
 	}
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	keys := len(g.held)
 	h := g.held["k"]
@@ -362,7 +362,7 @@ func TestApplyGateSenderSilence_OtherSenderNotSwallowedBySessionBurst(t *testing
 		t.Fatal("B's plain message should be held in its own silent batch")
 	}
 
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	aKey, bKey := "k", "k\x00test-u2"
 	sessionHeld, aHeld := g.held[aKey]

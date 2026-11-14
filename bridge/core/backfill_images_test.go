@@ -185,7 +185,7 @@ func TestBackfillImages_InjectedMidTurn(t *testing.T) {
 	}}
 	e, _, _ := newImgEngine(t, p)
 	e.SetGate(replyWhenMentioned(t).URL, 2000, "reply")
-	e.gate.inject = true
+	e.gate.Load().inject = true
 	running := newImgCaptureSession()
 	e.interactiveMu.Lock()
 	e.interactiveStates["k"] = &interactiveState{agentSession: running}
@@ -387,7 +387,7 @@ func TestBackfillImages_ConcurrentMessagesDeliverOnce(t *testing.T) {
 	}}
 	e, _, _ := newImgEngine(t, p)
 	e.SetGate(replyWhenMentioned(t).URL, 2000, "reply")
-	e.gate.inject = true
+	e.gate.Load().inject = true
 	running := newImgCaptureSession()
 	e.interactiveMu.Lock()
 	e.interactiveStates["k"] = &interactiveState{agentSession: running}
