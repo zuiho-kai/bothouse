@@ -41,9 +41,6 @@ func isTestJob(desc, prompt string) bool {
 	return isTestWorkTitle(desc) || (desc == "" && isTestWorkTitle(prompt))
 }
 
-// checkJobPromptNote is added to a prompt check job, so a check with nothing to tell ends silent.
-const checkJobPromptNote = "\n\n（这是自检/回看类定时任务：一切正常、没有用户需要知道的事，就只回 NO_REPLY；有用户要知道或要拍板的事才写。）"
-
 // quietOKPlatform holds a shell check job's posts. They reach the chat only when the command
 // failed (flushOnFailure); a success is logged and posts nothing. It embeds only Platform, so
 // in-place preview updates are not offered and every post goes through Send/Reply here.
