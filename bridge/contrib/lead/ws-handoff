@@ -711,7 +711,7 @@ def append_skeleton(path, nid):
         if r.returncode != 0 or not r.stdout.startswith("[report]"):
             return False
         lines = [f"## {SKELETON}",
-                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话；ws-up --report 会先检查，不通过会退回。"
+                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话；细节之前的四段每段最多两句、说人话，不写编号、路径、英文标识；ws-up --report 会先检查，不通过会退回。"
                  "这一节不算范围。）",
                  "```", r.stdout.rstrip("\n"), "```"]
         with open(path, "a", encoding="utf-8") as fh:
