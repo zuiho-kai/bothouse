@@ -1078,8 +1078,10 @@ func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
 
 // teamWorkspaceHomeLocked returns the chat channel ("<platform>:<id>") workspace c of platform plat
 // belongs to, also while it is free (#762): the platform's record where it keeps one (Home,
-// cloud_web/DSH), else the chat of its latest handoff (Handoffs keep every one). "" = it was
-// never handed off. Caller holds teamWorkspaceStore.mu.
+// cloud_web/DSH), else the chat of its latest task paused there, so that task can still resume.
+// "" = none: on Discord and Feishu a free workspace with no paused task is any chat channel's to
+// claim (#1640: homed by its latest handoff, a chat channel was refused eight free workspaces and
+// opened a ninth). Caller holds teamWorkspaceStore.mu.
 func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel) string {
 	if c.OwnerKnown {
 		if c.Home == "" {
@@ -1089,6 +1091,9 @@ func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel)
 	}
 	hs := st.Handoffs[plat+":"+c.ID]
 	for i := len(hs) - 1; i >= 0; i-- { // a dirty record repaired to no chat channel names none
+		if hs[i].Parked.IsZero() || !hs[i].Closed.IsZero() {
+			continue
+		}
 		if chat := teamChatKey(hs[i].Chat); teamChannelID(chat) != "" {
 			return chat
 		}

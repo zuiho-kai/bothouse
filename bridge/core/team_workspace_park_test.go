@@ -338,10 +338,6 @@ func TestWorkspaceParkOnlyTheChatsOwnTask(t *testing.T) {
 	if !e.releaseTeamWorkspace(exitWSKey, time.Now(), false) { // A's task done: back to the pool
 		t.Fatal("ws1 not released after its task")
 	}
-	// #762: chat B never takes A's workspace, free or not.
-	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
-	}
 
 	// A claims ws1 again for a later task D. Pausing the old task parks nothing.
 	time.Sleep(2 * time.Millisecond)
