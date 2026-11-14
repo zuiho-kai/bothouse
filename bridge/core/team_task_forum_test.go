@@ -153,12 +153,12 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 		t.Fatalf("unchanged board edited/opened again: opens=%d", p.opens)
 	}
 
-	// [ask] pauses it waiting on the user: tag 等你拍板, the whole question in 要你做的, no node
+	// [ask] pauses it waiting on the user: whole question and one key state node.
 	// (the [ask] text itself is posted where it is delivered).
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 16:00","pause_why":"等待用户答复：帖子区放在哪个分类，A 工作区 B 新建"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagWaiting || !strings.Contains(fp.card, "**要你做的**：帖子区放在哪个分类，A 工作区 B 新建") || len(fp.nodes) != 0 {
+	if fp.tag != TaskForumTagWaiting || !strings.Contains(fp.card, "**要你做的**：帖子区放在哪个分类，A 工作区 B 新建") || len(fp.nodes) != 1 {
 		t.Fatalf("waiting post = %+v", fp)
 	}
 
@@ -166,7 +166,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"ws":"discord:222"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 1 || !strings.Contains(fp.nodes[0], "继续做") || !strings.Contains(fp.nodes[0], "<#222>") {
+	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "继续做") || !strings.Contains(fp.nodes[1], "<#222>") {
 		t.Fatalf("resumed post = %+v", fp)
 	}
 
@@ -174,7 +174,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"status":"已交回待验收","returned_at":"2026-11-14T08:00:00Z","reviewer":"cjiang"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagReview || len(fp.nodes) != 1 {
+	if fp.tag != TaskForumTagReview || len(fp.nodes) != 2 {
 		t.Fatalf("returned post = %+v", fp)
 	}
 
@@ -182,7 +182,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 17:00","pause_why":"验收退回：截图缺换标签","review_rejected":"截图缺换标签"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "验收退回返工：截图缺换标签") {
+	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 3 || !strings.Contains(fp.nodes[2], "验收退回返工：截图缺换标签") {
 		t.Fatalf("rejected post = %+v", fp)
 	}
 
@@ -191,7 +191,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardDoneFile, item(`,"done_at":"11-14 18:00"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagDone || fp.archived || len(fp.nodes) != 3 || fp.nodes[2] != "✅ 已完成" {
+	if fp.tag != TaskForumTagDone || fp.archived || len(fp.nodes) != 4 || fp.nodes[3] != "✅ 已完成" {
 		t.Fatalf("done post = %+v", fp)
 	}
 	// After the task-thread archive wait it is archived, once.
@@ -374,7 +374,7 @@ func TestTaskForumNodeFacts(t *testing.T) {
 	}
 	await := teamTaskBoardItem{Status: "在做", AwaitDeploy: map[string]string{"pr": "1785"}}
 	tag, sentence = taskForumTagOf(await, now)
-	if got := taskForumNode(prev, await, tag, sentence); got != "📦 已合并，等上线" {
+	if got := taskForumNode(prev, await, tag, sentence); got != "🔀 已合并，等上线" {
 		t.Fatalf("await deploy node %q", got)
 	}
 

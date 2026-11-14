@@ -70,7 +70,7 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 	}
 	return func() *compactProgressWriter {
 		t := e.outputThreadTask(ctx, session)
-		if t == nil {
+		if t == nil || t.ForumPost {
 			return nil
 		}
 		rc, ok := target.TaskThreadReplyCtx(t)
@@ -109,7 +109,7 @@ func (e *Engine) postToTaskThreadContext(ctx context.Context, p Platform, sessio
 		return
 	}
 	t := e.outputThreadTask(ctx, session)
-	if t == nil {
+	if t == nil || t.ForumPost {
 		return
 	}
 	rc, ok := target.TaskThreadReplyCtx(t)

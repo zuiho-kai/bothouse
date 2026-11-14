@@ -63,6 +63,10 @@ func (p *Platform) findPublicFact(ctx context.Context, channel, marker string, s
 // for good (deleted channel or card, lost access, archived thread) is reported
 // wrapping core.ErrDeliveryUnrecoverable, so core stops retrying it.
 func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
+	// The board owns the forum starter card; public progress sends its facts there.
+	if task.ForumPost {
+		return nil
+	}
 	return unrecoverableErr(p.ensureTaskCard(ctx, task, lang, false))
 }
 
@@ -164,6 +168,9 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 // title is tried once, and a rate limit fails fast instead of sleeping through
 // the delivery's deadline.
 func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
+	if task.ForumPost {
+		return
+	}
 	name := truncateDiscordThreadName(task.Title, 90)
 	if task.ThreadID == task.ChannelID || name == "" || name == task.ThreadTitle || task.ThreadArchivedAt != nil {
 		return

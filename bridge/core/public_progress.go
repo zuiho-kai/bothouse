@@ -154,6 +154,7 @@ type publicRun struct {
 // PublicProgress owns run authorization, durable public facts and delivery.
 // Tokens exist only in memory/prompt, never in the card or journal.
 type PublicProgress struct {
+	resolveThread            func(context.Context, *Task) // one decision for legacy threads versus the task forum
 	checkAuthorization       func(*Task, string) error
 	syncAuthorizationNotices func() error
 	revokeAuthorization      func(*Task) error
@@ -824,7 +825,7 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 		}
 		archivedAt := t.ThreadArchivedAt
 		_, canReadActivity := r.publisher.(TaskThreadActivityReader)
-		due := wait > 0 && t.ThreadID != "" && t.ThreadID != t.ChannelID &&
+		due := !t.ForumPost && wait > 0 && t.ThreadID != "" && t.ThreadID != t.ChannelID &&
 			!t.UpdatedAt.IsZero() && r.record.CardSeq >= t.Seq && r.record.FactSeq >= t.Seq
 		if due {
 			if archivedAt == nil {
@@ -969,16 +970,19 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			}
 			task.ChannelID = channel
 		}
+		if p.resolveThread != nil {
+			p.resolveThread(ctx, task)
+		}
 		view := p.authorizedTaskView(task, lang)
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, view, lang)
 		task.ChannelID, task.MessageID, task.ThreadID = view.ChannelID, view.MessageID, view.ThreadID
-		task.CardURL, task.ThreadTitle = view.CardURL, view.ThreadTitle
+		task.CardURL, task.ThreadTitle, task.ForumPost = view.CardURL, view.ThreadTitle, view.ForumPost
 		r.mu.Lock()
 		// Only transport bindings/checkpoints are written back. Newer state and
 		// summaries may have arrived while the HTTP request was in flight.
 		r.record.Task.ChannelID = task.ChannelID
 		r.record.Task.MessageID, r.record.Task.ThreadID = task.MessageID, task.ThreadID
-		r.record.Task.CardURL, r.record.Task.ThreadTitle = task.CardURL, task.ThreadTitle
+		r.record.Task.CardURL, r.record.Task.ThreadTitle, r.record.Task.ForumPost = task.CardURL, task.ThreadTitle, task.ForumPost
 		if deliveryErr == nil {
 			r.record.CardSeq = task.Seq
 		}
@@ -1120,6 +1124,7 @@ func (e *Engine) EnablePublicProgress() error {
 		}
 		return orl.Wait(ctx, platform)
 	}
+	p.resolveThread = e.resolveTaskThread
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.wakeLead = e.wakeRelayLead

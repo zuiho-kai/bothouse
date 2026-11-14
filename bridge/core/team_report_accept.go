@@ -401,7 +401,11 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 		name = teamTaskBoardShort(*item)
 	}
 	text := spaceExitLines(heldHeadlineText(name, cp.Headline, unchecked))
-	if err := e.sendRenderedWithContext(ctx, p, rc, text); err != nil {
+	_, detail := team.ExitSplit(cp.Body)
+	forumText := joinExitDetail(text, detail)
+	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, forumText)
+	inForum := forumRC != nil
+	if err := e.sendRenderedWithContext(ctx, p, rc, chatText); err != nil {
 		e.teamExit.mu.Lock()
 		rec.Attempts++
 		rec.LastError = err.Error()
@@ -414,8 +418,12 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	delete(heldReportImages.m, key)
 	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
-	e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
-	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
+	mediaRC := rc
+	if inForum {
+		mediaRC = forumRC
+	}
+	e.postHeldImages(ctx, p, mediaRC, cp.Chat, imgs, cp.Body)
+	e.postExitFiles(ctx, p, mediaRC, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)
 	if cp.Board > 0 {
 		e.markExitReported(cp.Board) // posted: only now does this handoff count as reported
@@ -430,8 +438,11 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	rec.LastError = ""
 	e.saveReportsLocked()
 	e.teamExit.mu.Unlock()
-	e.postToTaskThreadContext(ctx, p, cp.Session, text)
-	e.postTaskForumNode(cp.Board, text)
+	if !inForum {
+		e.postToTaskThreadContext(ctx, p, cp.Session, text)
+
+		e.postTaskForumNode(cp.Board, forumText)
+	}
 	slog.Info("report accept: report posted", "board_item", cp.Board, "workspace", cp.Workspace, "parent", cp.Chat, "unchecked", unchecked, "verdict", truncateStr(verdict, 200))
 	return nil
 }
