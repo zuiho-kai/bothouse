@@ -13,6 +13,8 @@ import { NOTICE_PREFIXES } from './cloudweb.mjs';
 import { exitMark, workspaceAskMark } from './team-exit.mjs';
 import { checkDispatch, HandoffRulesError } from './handoff-rules.mjs';
 import { execFile } from 'node:child_process';
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { modelErrorReply } from './model-errors.mjs';
 
 /** Status codes and their labels. Cancellation/supersession are not acceptance. */
@@ -174,6 +176,7 @@ export class Tasks {
      * member's 【接】 opened; the next member's 【接】 to the same message joins it while that claim holds.
      */
     this.jointWorkspaces = new Map();
+    this.nudged = new Set();
     const cols = new Set(this.db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name));
     // rooms.kind/parent_id come with team mode A (#134); without them every room is its own chat channel.
     this.tree = cols.has('parent_id') && cols.has('kind');
@@ -763,6 +766,10 @@ export class Tasks {
         this.fromChat(msg, { handBack: false });
         return handed;
       }
+      // #1620: a turn of hers here that ended with neither [report] nor a stance line, her task still
+      // in work, gets one note at once instead of the 10-minute watch (which counts the reply as progress).
+      if (mark === undefined && stance === undefined && !named && task !== undefined && task.owner === msg.author
+        && task.source !== 'review' && WORKING.includes(task.status)) this.nudgeReport(task);
     } else if (stance?.status === 'accepted' && this.task(stance.id).source !== 'review' && dsh) {
       // #1598: in a chat channel of the tree a DSH member's 【接】 moves its task into a workspace
       // (she does it there and hands back with [report]); without workspaces it is still her delivery.
@@ -1057,7 +1064,7 @@ export class Tasks {
     const workspace = joined ?? this.store.createWorkspace(call.roomId);
     if (joined === undefined) this.jointWorkspaces.set(jointKey, { id: workspace.id, claim: this.store.claimId(workspace.id), owners: [call.owner] });
     else joint.owners.push(call.owner);
-    const together = joined === undefined ? '' : `\n\n同一件活 ${joint.owners.filter(o => o !== call.owner).map(o => this.nameOf(o)).join('、')} 也在这个工作区：先看上面的消息，按原话分工，要商量就 @ 对方。`;
+    const together = this.jointNote(call, workspace, joined === undefined ? undefined : joint, triggers[0]);
     this.hub.emit({ type: 'rooms', rooms: this.store.roomsView() });
     const { message } = this.hub.post(workspace.id, {
       authorKind: 'system', author: 'system', name: '交接',
@@ -1082,6 +1089,43 @@ export class Tasks {
     }
     this.wake(call.owner, message);
     return task;
+  }
+
+  /**
+   * #1620: walk 11-14, Codex ended its workspace turn with "已完成 fib.py…" and no [report]; the task
+   * waited for a person to say "照规矩写一份 [report] 交回". Once per task the owner is told at once,
+   * on a record in the workspace, how to hand back or say what she is waiting for.
+   */
+  nudgeReport(task) {
+    if (this.nudged.has(task.id)) return;
+    this.nudged.add(task.id);
+    const name = this.nameOf(task.owner);
+    const message = this.record(task, 'nudge', `@${name} #${task.id}「${task.title}」这一轮没有写 [report]，还挂着没交回。`
+      + `你那一份做完了就回复首行写 [report]，下面写做了什么、文件在哪；还在等队友或没做完，回复首行写【问】#${task.id}，说清在等什么、卡在哪。`, this.chatOf(task.room_id));
+    this.wake(task.owner, message);
+  }
+
+  /**
+   * #1620: the 【交接】 note of a job called to several members. Walk 11-14: the first to arrive was
+   * told nothing of her teammate and searched config and processes for the file the other one was
+   * still writing; the later one read "also in this workspace" as "the job is not done until she is"
+   * and never handed her part back. Both now learn the shared directory (each member's cwd here),
+   * the later one what her teammate already wrote there, and that each hands back her own part.
+   * '' for a job called to one member.
+   */
+  jointNote(call, workspace, joint, trigger) {
+    const others = joint !== undefined ? joint.owners.filter(o => o !== call.owner)
+      : [...this.pendingCalls.values()].filter(c => c.roomId === call.roomId && c.owner !== call.owner
+        && trigger !== undefined && (c.messageIds ?? [c.messageId]).includes(trigger.id)).map(c => c.owner);
+    if (others.length === 0) return '';
+    const names = [...new Set(others)].map(o => this.nameOf(o)).join('、');
+    const dir = this.store.workspacePath(workspace.id, this.hub.workspacePath);
+    const where = dir ? `共用目录 ${dir}（就是你的当前目录）` : '你们共用当前目录';
+    const files = joint !== undefined && dir ? recentFiles(dir, trigger?.created_at ?? 0) : [];
+    const made = joint === undefined ? '' : files.length ? `；${names} 已写出：${files.join('、')}` : `；${names} 还没写出文件，要用她的产出就等她 @ 你`;
+    const who = joint !== undefined ? `同一件活 ${names} 也在这个工作区` : `同一件活还 @ 了 ${names}，她接了也进这个工作区`;
+    return `\n\n${who}：${where}${made}，队友的文件直接在这里找，不用翻配置和进程。先看上面的消息，按原话分工，要商量就 @ 对方。`
+      + '你那一份做完就回复首行写 [report] 交回自己那份，不用等别人做完。';
   }
 
   /**
@@ -1504,6 +1548,29 @@ function taskTitle(text, team) {
 }
 
 /** When a workspace task's watch is due: its check time, or CHECK_AFTER_S after its last change. */
+/**
+ * #1620: names of the files in dir (and one level down) changed since `since` (unix seconds),
+ * newest first, at most RECENT_FILES; dot entries skipped. [] when dir can not be read.
+ */
+const RECENT_FILES = 8;
+export function recentFiles(dir, since) {
+  const found = [];
+  const walk = (base, rel, depth) => {
+    let entries;
+    try { entries = readdirSync(base, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+      const path = join(base, e.name);
+      const name = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { if (depth > 0) walk(path, name, depth - 1); continue; }
+      if (!e.isFile()) continue;
+      try { const m = statSync(path).mtimeMs / 1000; if (m >= since) found.push({ name, m }); } catch { /* gone */ }
+    }
+  };
+  walk(dir, '', 1);
+  return found.sort((a, b) => b.m - a.m).slice(0, RECENT_FILES).map(f => f.name);
+}
+
 function watchDue(task) {
   return task.next_check_at ?? task.updated_at + CHECK_AFTER_S;
 }

@@ -6058,6 +6058,67 @@ test('#1616: two members called to one job work in one workspace', async t => {
   assert.equal(workspaces().length, 2, 'another job, another workspace');
 });
 
+// #1620 (walk 11-14): the first member was told nothing of her teammate and searched config and
+// processes for a file still being written; the later one never handed her own part back. Both are
+// told the shared directory, the later one what is already written there, and each hands back her part.
+test('#1620: a joint job tells both members the shared directory, the files written, and to hand back their own part', async t => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-joint-'));
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  hub.workspacePath = dir;
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek @橘 一起做：橘写 fib.py，DeepSeek 等她写完跑一遍');
+  await settle();
+  await answer(1, '【接】 我等她写完再跑', 'ds');
+  writeFileSync(join(dir, 'fib.py'), 'print(1)\n');
+  await answer(1, '【接】 我写 fib.py', 'ju');
+  const ws = workspaces();
+  assert.equal(ws.length, 1);
+  const rows = hub.store.page(ws[0].id, undefined, 100).filter(m => m.author_kind === 'system' && m.text.startsWith('【交接】'));
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].text, /同一件活还 @ 了 橘，她接了也进这个工作区/, 'the first is told who else was called');
+  assert.ok(rows[0].text.includes(`共用目录 ${dir}`), 'and where the shared files are');
+  assert.match(rows[1].text, /同一件活 DeepSeek 也在这个工作区/);
+  assert.match(rows[1].text, /DeepSeek 已写出：fib\.py/, 'the later one is told what is already there');
+  for (const row of rows) assert.match(row.text, /你那一份做完就回复首行写 \[report\] 交回自己那份，不用等别人做完/);
+});
+
+test('#1620: a single-member job gets no joint note', async t => {
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek 修登录页');
+  await settle();
+  await answer(1, '【接】 好');
+  const [row] = hub.store.page(workspaces()[0].id, undefined, 100).filter(m => m.text.startsWith('【交接】'));
+  assert.doesNotMatch(row.text, /同一件活|共用目录/);
+});
+
+// #1620 (walk 11-14): Codex ended its workspace turn with 「已完成 fib.py…」 and no [report]; the task
+// waited for a person to remind it. Once per task the owner is told at once and woken.
+test('#1620: a workspace turn ending without [report] gets one note at once, then the [report] hands back', async t => {
+  const { hub, members, tasks, person, say, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek 写 fib.py');
+  await settle();
+  await answer(1, '【接】 好');
+  const ws = workspaces()[0];
+  const [task] = tasks.list(1).filter(x => x.room_id === ws.id);
+  await answer(ws.id, '已完成 fib.py，打印前 20 个数并跑过');
+  const notes = () => hub.store.page(ws.id, undefined, 100).filter(m => m.author_kind === 'system' && /这一轮没有写 \[report\]/.test(m.text));
+  assert.equal(notes().length, 1, 'one note in the workspace');
+  assert.match(notes()[0].text, new RegExp(`@DeepSeek #${task.id}`));
+  assert.equal(hub.store.page(1, undefined, 100).filter(m => /这一轮没有写 \[report\]/.test(m.text)).length, 0, 'not in the chat channel');
+  assert.ok(['assigned', 'accepted'].includes(tasks.task(task.id).status), 'still in work');
+  await answer(ws.id, '还在等别的');
+  assert.equal(notes().length, 1, 'only once per task');
+  assert.equal(hub.store.openJobs().filter(j => j.member_id === 'ds').length, 0, 'not woken again');
+  say('ds', '[report] fib.py 写好跑过', ws.id);
+  await settle();
+  assert.equal(tasks.task(task.id).status, 'returned', 'her [report] hands it back');
+});
+
 // #1751 review: a dispatch at the length cap must keep its whole body — what she added and the
 // prefix give way, the last line ("禁止部署") is never cut off.
 test('#1598: a dispatch at the length cap keeps its whole body in the workspace', async t => {
