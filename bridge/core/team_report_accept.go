@@ -440,7 +440,6 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	e.teamExit.mu.Unlock()
 	if !inForum {
 		e.postToTaskThreadContext(ctx, p, cp.Session, text)
-
 		e.postTaskForumNode(cp.Board, forumText)
 	}
 	slog.Info("report accept: report posted", "board_item", cp.Board, "workspace", cp.Workspace, "parent", cp.Chat, "unchecked", unchecked, "verdict", truncateStr(verdict, 200))

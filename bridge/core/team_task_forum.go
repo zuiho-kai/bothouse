@@ -58,8 +58,19 @@ func TaskForumTagEmoji(tag string) string {
 }
 
 // A nil setting preserves the first batch's enabled default.
-func (e *Engine) SetTaskForum(on bool)   { e.taskForumOff.Store(!on) }
-func (e *Engine) taskForumEnabled() bool { return e.team != nil && !e.taskForumOff.Load() }
+func (e *Engine) SetTaskForum(on bool) { e.taskForumOff.Store(!on) }
+func (e *Engine) taskForumEnabled() bool {
+	if e.team == nil || e.taskForumOff.Load() {
+		return false
+	}
+	// A worker returning a result obeys the same switch as the team lead.
+	for _, peer := range e.taskForumPeers() {
+		if peer.isTeamLead() {
+			return !peer.taskForumOff.Load()
+		}
+	}
+	return true
+}
 
 // PermSendMessages: opening a post in the forum and posting in it.
 const PermSendMessages = "发送消息 (Send Messages)"
@@ -357,8 +368,9 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 
 // Resolve names using the configured project → display-name mapping used by task cards.
 func (e *Engine) taskForumDisplayItem(it teamTaskBoardItem) teamTaskBoardItem {
-	if name := e.projectDisplayName(it.Who); name != "" {
-		it.Who = name
+	who := whoInWorkspace(it)
+	if name := e.projectDisplayName(who); name != "" {
+		it.Who = strings.TrimSuffix(it.Who, who) + name
 	}
 	it.reviewerName = e.projectDisplayName(it.Reviewer)
 	return it
@@ -543,6 +555,8 @@ func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, po
 	}
 	e.taskForumRT().checkedForums[g] = true
 	s.Chats[chat] = g
+	// Tag reconciliation can change IDs without changing any task card.
+	e.taskForumSaveLocked()
 	return f, nil
 }
 
@@ -664,7 +678,7 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	}
 	card := taskForumCard(e.taskForumDisplayItem(it), tag, sentence, poster.TaskPostLimit())
 	title := taskForumTitle(it)
-	node := taskForumNode(ps, it, tag, sentence)
+	node := taskForumNode(ps, e.taskForumDisplayItem(it), tag, sentence)
 	edit := ps == nil || ps.Card != card || ps.Tag != tag || ps.Title != title || ps.Archived
 	forum, err := e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
 	if err != nil {
@@ -877,6 +891,7 @@ func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem)
 	if !e.taskForumEnabled() || !taskForumWant(it) || ctx.Err() != nil {
 		return nil
 	}
+	it = placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{it})[0]
 	rt := e.taskForumRT()
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -893,8 +908,7 @@ func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem)
 	if ps == nil || ps.Thread == "" {
 		return nil
 	}
-	// A cached post alone is not evidence this bot can still use it. The owner's
-	// platform must be available; API failures fall back at the initial route only.
+	// The owner must be available; the result path also checks the actual send.
 	if _, _, ok := e.taskForumPosterOf(ps); !ok {
 		return nil
 	}
@@ -909,12 +923,19 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 	if !e.taskForumEnabled() {
 		return text, nil
 	}
-	if task := e.outputThreadTask(ctx, session); task != nil && !task.ForumPost {
-		return text, nil // An existing task thread keeps its original destination.
-	}
 	it := e.boardItemByID(hid)
 	if it == nil {
 		return text, nil
+	}
+	task := e.outputThreadTask(ctx, session)
+	if task == nil && e.publicProgress != nil {
+		// Held reports may be released after the workspace conversation reset.
+		// Its board binding, rather than the new conversation, identifies the run.
+		since, _ := time.Parse(time.RFC3339Nano, it.Bound)
+		task = e.publicProgress.threadTask(session, since)
+	}
+	if task != nil && !task.ForumPost {
+		return text, nil // An existing task thread keeps its original destination.
 	}
 	ps := e.taskForumDestination(ctx, *it)
 	if ps == nil {
@@ -932,8 +953,8 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 	if !ok {
 		return text, nil
 	}
-	if err := poster.PostTaskNode(ctx, ps.Thread, text); err != nil {
-		slog.Warn("task forum: exit delivery failed; using legacy route", "board_item", hid, "error", err)
+	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, text) }); err != nil {
+		e.taskForumFailed(ctx, p, taskForumChat(*it), *it, err)
 		return text, nil
 	}
 	return fmt.Sprintf("📌 [%s](%s)", teamTaskBoardShort(*it), taskForumURL(ps)), rc
