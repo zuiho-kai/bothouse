@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"log/slog"
 	"strings"
@@ -10,8 +11,14 @@ import (
 	"time"
 )
 
-// teamModeRulesFile is shared with DSH members: dsh/collab/team-mode-rules.md is
-// mirrored into dsh_bundle/collab and both sides read the same text, so every
+// teamRulesFS holds the two rule files the bridge cannot run without. They are in git here, not in
+// the generated dsh_bundle, so a plain `go build` always has them.
+//
+//go:embed team_rules/team-mode-rules.md team_rules/team-exit-rules.json
+var teamRulesFS embed.FS
+
+// teamModeRulesFile is shared with DSH members: the build copies it into the DSH plugin
+// (dsh/scripts/bundle.mjs) and both sides read the same text, so every
 // backend and every bot gets one rule set (#139 C; user 2026-10-24 00:50
 // 「这个提交到仓库，让每个角色都知道」).
 //
@@ -21,7 +28,7 @@ import (
 // it) is the user's 2026-10-24 01:33 answer 「默认3，模型自己有把握再自己加」. It is
 // guidance only: the user said 「这个由工作角色或者主角色决定」, so nothing here
 // creates workspaces.
-const teamModeRulesFile = "dsh_bundle/collab/team-mode-rules.md"
+const teamModeRulesFile = "team_rules/team-mode-rules.md"
 
 // Dispatch modes (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合, 「默认混合模型」);
 // the same names as DSH's per-channel setting (dsh/collab/store.mjs DISPATCH_MODES).
@@ -38,9 +45,9 @@ func ValidDispatchMode(mode string) bool {
 }
 
 var teamModeRulesText = func() string {
-	b, err := embeddedDSH.ReadFile(teamModeRulesFile)
+	b, err := teamRulesFS.ReadFile(teamModeRulesFile)
 	if err != nil {
-		panic("team mode rules missing from embedded bundle: " + err.Error())
+		panic("team mode rules missing: " + err.Error())
 	}
 	return string(b)
 }()

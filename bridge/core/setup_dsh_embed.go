@@ -21,8 +21,29 @@ import (
 	ccconnect "github.com/chenhg5/cc-connect"
 )
 
+// embeddedDSH is the DSH plugin this binary installs. Only dsh_bundle/install.sh is in git; collab/
+// and packages/ are generated from dsh/ at build time (`make dshbundle`, which build and build-noweb
+// run first; dsh/scripts/bundle.mjs). A plain `go build` therefore carries no plugin: see
+// embeddedDSHReady.
+//
 //go:embed all:dsh_bundle
 var embeddedDSH embed.FS
+
+// errNoEmbeddedDSH: this binary was built without the generated plugin files.
+var errNoEmbeddedDSH = fmt.Errorf("this build carries no DSH plugin (built with plain `go build`); build it with `make build` or `make build-noweb`, or run `make dshbundle` first")
+
+// embeddedDSHReady reports whether the generated half of the bundle was built in. Without it an
+// unpack would write install.sh alone and stamp the install as up to date.
+func embeddedDSHReady() bool {
+	for _, f := range []string{"dsh_bundle/collab/plugin.mjs", "dsh_bundle/packages/client-ui-discord/lib/client.js"} {
+		if _, err := fs.Stat(embeddedDSH, f); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+var noEmbeddedDSHWarned sync.Once
 
 // embeddedDSHDir selects the install and refresh directory without migrating
 // a previous home installation. The startup caller passes an empty target too.
@@ -75,6 +96,9 @@ func ExtractEmbeddedDSH(targetDir string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+	}
+	if !embeddedDSHReady() {
+		return "", errNoEmbeddedDSH
 	}
 
 	sub, err := fs.Sub(embeddedDSH, "dsh_bundle")
@@ -449,6 +473,12 @@ func RefreshEmbeddedDSH(targetDir, version string) (bool, error) {
 	}
 	if _, err := os.Stat(filepath.Join(targetDir, "install.sh")); err != nil {
 		return false, nil // not installed yet; first install extracts everything
+	}
+	if !embeddedDSHReady() {
+		noEmbeddedDSHWarned.Do(func() {
+			slog.Warn("dsh refresh: skipped, the installed plugin was kept", "dir", targetDir, "why", errNoEmbeddedDSH.Error())
+		})
+		return false, nil
 	}
 	// Only unpack over an install that is provably older (#249): before, any different version
 	// string counted as an upgrade, so an older binary starting once replaced a newer plugin.

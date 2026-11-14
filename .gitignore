@@ -37,6 +37,9 @@ role-household/roles.toml
 
 # 打进 cc-connect 的自建平台源码，构建时由 bridge/Makefile 的 hubsrc 复制（bridge/internal/rhhub/embed.go）
 bridge/internal/rhhub/src/rh/
+# 打进桥的 DSH 插件，构建时由 bridge/Makefile 的 dshbundle 生成（dsh/scripts/bundle.mjs）；同目录的 install.sh 是源文件，留在 git
+bridge/core/dsh_bundle/collab/
+bridge/core/dsh_bundle/packages/
 
 # vitest cache from running dsh/vitest.config.mjs at the repo root
 node_modules/

@@ -121,6 +121,14 @@ jobs:
         # the setup wizard's 「在本机启动」 starts it from the binary (bridge/internal/rhhub)
         working-directory: bridge
         run: make hubsrc
+      - name: Generate the embedded DSH plugin
+        # core/dsh_bundle/{collab,packages} are not in git; without this step the binary would carry
+        # no DSH plugin (core/setup_dsh_embed.go embeddedDSHReady). pnpm is the one activated above.
+        working-directory: bridge
+        run: |
+          make dshbundle
+          test -f core/dsh_bundle/collab/plugin.mjs
+          test -f core/dsh_bundle/packages/client-ui-discord/lib/client.js
       - name: Build binaries
         working-directory: bridge
         run: |

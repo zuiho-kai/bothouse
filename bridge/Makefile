@@ -77,7 +77,7 @@ _TAGS_FLAG  := $(if $(_BUILD_TAGS),-tags '$(_BUILD_TAGS)',)
 
 PNPM ?= pnpm
 
-.PHONY: build build-noweb check-web-build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web hubsrc
+.PHONY: build build-noweb check-web-build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web hubsrc dshbundle
 
 web:
 	cd web && $(PNPM) install --frozen-lockfile
@@ -95,13 +95,19 @@ hubsrc:
 	cp $(addprefix $(HUB_SRC)/,$(HUB_FILES)) $(HUB_DST)/
 	cp -R $(HUB_SRC)/static/. $(HUB_DST)/static/
 
+# The DSH plugin the bridge installs (core/dsh_bundle/collab and packages, not in git): copied from
+# ../dsh, with the channels UI built when its lib/ does not match its sources (needs node and pnpm).
+# A plain `go build` skips this and gives a bridge that says it has no DSH plugin (core/setup_dsh_embed.go).
+dshbundle:
+	PNPM="$(PNPM)" node ../dsh/scripts/bundle.mjs
+
 check-web-build:
 	$(if $(filter no_web,$(_BUILD_TAGS)),$(error Web builds cannot exclude web; use make build-noweb for an API-only binary))
 
-build: check-web-build web hubsrc
+build: check-web-build web hubsrc dshbundle
 	go build $(_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(APP) $(CMD)
 
-build-noweb:
+build-noweb: dshbundle
 	go build -tags '$(sort $(_BUILD_TAGS) no_web)' -ldflags "$(LDFLAGS)" -o $(APP)-noweb $(CMD)
 
 run: build
@@ -171,7 +177,7 @@ test:
 lint:
 	golangci-lint run ./...
 
-release-all: check-web-build web clean
+release-all: check-web-build web dshbundle clean
 	@mkdir -p $(DIST)
 	@$(foreach platform,$(PLATFORMS), \
 		$(eval GOOS   := $(word 1,$(subst /, ,$(platform)))) \
@@ -193,7 +199,7 @@ release-all: check-web-build web clean
 	@cd $(DIST) && sha256sum * > checksums.txt
 	@echo "Done. Binaries and archives in $(DIST)/"
 
-release: check-web-build
+release: check-web-build dshbundle
 	@if [ -z "$(TARGET)" ]; then \
 		echo "Usage: make release TARGET=linux/amd64"; \
 		echo "Available: $(PLATFORMS)"; \

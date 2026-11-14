@@ -69,6 +69,10 @@ ISO=(env -i BOTHOUSE_TRAY=off PATH="$PATH" HOME="$H" TMPDIR="${TMPDIR:-/tmp}" LA
   XDG_CONFIG_HOME="$H/.config" XDG_DATA_HOME="$H/.local/share" XDG_STATE_HOME="$H/.local/state"
   XDG_CACHE_HOME="$H/.cache" DSH_HOME="$H/.dsh" npm_config_store_dir="$CACHE/pnpm-store")
 
+echo "== 生成内嵌的 DSH 插件（bridge/core/dsh_bundle 的 collab、packages 不进 git）"
+(cd "$REPO" && node dsh/scripts/bundle.mjs) >"$ROOT/log/bundle.log" 2>&1 \
+  || { tail -n 30 "$ROOT/log/bundle.log"; exit 1; }
+
 echo "== 构建 cc-connect"
 (cd "$REPO/bridge" && go build -tags no_web -o "$ROOT/bin/cc-connect.new" ./cmd/cc-connect) >"$ROOT/log/build.log" 2>&1 \
   || { tail -n 30 "$ROOT/log/build.log"; exit 1; }

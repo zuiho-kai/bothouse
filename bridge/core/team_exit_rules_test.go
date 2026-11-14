@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// The workspace exit rules are one file (dsh/collab/team-exit-rules.json, mirrored into dsh_bundle);
+// The workspace exit rules are one file (team_rules/team-exit-rules.json);
 // DSH collab runs the same cases in team-exit.test.mjs, so a rule judged differently on either side
 // fails one of them.
 type teamExitCases struct {
@@ -159,7 +159,7 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 		}
 	}
 	files := []string{"team_exit.go", "team_exit_headline.go", "team_ask_evidence.go", "team_exit_rules.go",
-		filepath.Join("dsh_bundle", "collab", "team-exit.mjs")}
+		filepath.Join("..", "..", "dsh", "collab", "team-exit.mjs")}
 	for _, f := range files {
 		src, err := os.ReadFile(f)
 		if err != nil {

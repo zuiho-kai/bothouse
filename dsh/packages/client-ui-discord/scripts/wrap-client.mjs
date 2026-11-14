@@ -8,8 +8,8 @@ const file = join(root, 'lib/client.js')
 const cssFile = join(root, 'lib/style.css')
 const manifestFile = join(root, 'lib/build.json')
 
-// Everything that changes the generated bundle. bridge/core/dsh_bundle_sync_test.go
-// computes the same list and must stay in sync with it.
+// Everything that changes the generated bundle. dsh/scripts/bundle.mjs rebuilds lib/ when
+// --check says the stamp no longer matches this list.
 const fixedInputs = ['package.json', 'tsdown.config.ts', 'scripts/wrap-client.mjs', 'pnpm-lock.yaml']
 
 function walk(dir, prefix, files) {
