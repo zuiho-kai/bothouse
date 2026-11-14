@@ -406,7 +406,7 @@ func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) 
 	if !ok || sel.Lead != target.name {
 		return "", fmt.Errorf("quota switch: shared lead selection did not change")
 	}
-	if e.gate != nil {
+	if e.gate.Load() != nil {
 		if err := e.notifyGateLead(target.name); err != nil {
 			slog.Warn("quota switch: lead.json written, gate not told", "to", target.name, "error", err)
 		}
@@ -489,7 +489,11 @@ func (e *Engine) quotaUnwindLeadLocked(now time.Time) (restored, ok bool) {
 // notifyGateLead tells the gate (POST /lead set) who leads now, for a gate that keeps its own
 // copy. The bundled gate reads lead.json itself; telling it again is harmless.
 func (e *Engine) notifyGateLead(who string) error {
-	u, err := url.Parse(e.gate.liveURL())
+	g := e.gate.Load()
+	if g == nil {
+		return nil
+	}
+	u, err := url.Parse(g.liveURL())
 	if err != nil {
 		return err
 	}

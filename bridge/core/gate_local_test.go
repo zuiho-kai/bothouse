@@ -183,7 +183,7 @@ func TestLocalGate_GateServiceWins(t *testing.T) {
 	if !alive {
 		t.Fatal("the gate said context: the running turn must not be stopped")
 	}
-	if got := e.gate.buf["k"]; len(got) != 1 {
+	if got := e.gate.Load().buf["k"]; len(got) != 1 {
 		t.Fatalf("gate buffer = %q, want the message", got)
 	}
 }

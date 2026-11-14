@@ -458,7 +458,8 @@ type Engine struct {
 	agentSessionIdleTimeoutNanos atomic.Int64
 	agentSessionIdleSeq          atomic.Uint64
 	maxQueuedMessages            int
-	gate                         *gateState  // maomao fork: fast-brain gate (nil = off)
+	gate                         atomic.Pointer[gateState] // maomao fork: fast-brain gate (nil = off); config is swapped whole, see gateState
+	gateSetMu                    sync.Mutex                // serializes the gate config setters (copy, change, swap)
 	gateLocal                    bool        // built-in busy rules when gate is nil (gate_local.go)
 	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex

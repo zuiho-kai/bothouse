@@ -184,12 +184,12 @@ func TestBufferedTextDropsAmbientChatBeforeQuote(t *testing.T) {
 
 func TestGateFallbackKeepsConfiguredAction(t *testing.T) {
 	for _, action := range []string{"silent", "context", "reply", "insert"} {
-		g := &gateState{fallback: action}
+		g := &gateState{fallback: action, gateRuntime: newGateRuntime()}
 		if got := g.fallbackFor(gateRequest{}); got != action {
 			t.Fatalf("non-@ gate failure fallback = %q, want configured %q", got, action)
 		}
 	}
-	if got := (&gateState{fallback: "silent"}).fallbackFor(gateRequest{Mentioned: true}); got != "reply" {
+	if got := (&gateState{fallback: "silent", gateRuntime: newGateRuntime()}).fallbackFor(gateRequest{Mentioned: true}); got != "reply" {
 		t.Fatalf("@ gate failure fallback = %q, want reply", got)
 	}
 }
@@ -241,9 +241,9 @@ func TestApplyGateSilentFallbackOnGateFailureDoesNotStartTurns(t *testing.T) {
 			if got := p.getSent(); len(got) != 0 {
 				t.Fatalf("%s: gate failure replied to background chatter: %v", name, got)
 			}
-			e.gate.mu.Lock()
-			buffered := append([]string(nil), e.gate.buf["k"]...)
-			e.gate.mu.Unlock()
+			e.gate.Load().mu.Lock()
+			buffered := append([]string(nil), e.gate.Load().buf["k"]...)
+			e.gate.Load().mu.Unlock()
 			if len(buffered) != 3 {
 				t.Fatalf("%s: buffered = %v, want the three messages kept for the next reply", name, buffered)
 			}
@@ -418,7 +418,7 @@ func TestQueuedTurnKeepsItsOwnSender(t *testing.T) {
 // With no gate model a person's DM is still answered without an @; a group message without an @
 // and a bot's DM are not (user 2026-11-06「允许私聊不用艾特」).
 func TestNoModelFallbackAnswersPrivateChat(t *testing.T) {
-	g := &gateState{fallback: "reply"}
+	g := &gateState{fallback: "reply", gateRuntime: newGateRuntime()}
 	cases := []struct {
 		req  gateRequest
 		want string
@@ -433,7 +433,7 @@ func TestNoModelFallbackAnswersPrivateChat(t *testing.T) {
 			t.Errorf("noModelFallback(%+v) = %q, want %q", c.req, got, c.want)
 		}
 	}
-	if got := (&gateState{fallback: "context"}).fallbackFor(gateRequest{Private: true}); got != "reply" {
+	if got := (&gateState{fallback: "context", gateRuntime: newGateRuntime()}).fallbackFor(gateRequest{Private: true}); got != "reply" {
 		t.Errorf("fallbackFor(private) = %q, want reply", got)
 	}
 }

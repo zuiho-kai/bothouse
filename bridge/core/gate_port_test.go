@@ -53,7 +53,7 @@ func TestIsWizardGateURLFollowsGatePort(t *testing.T) {
 			t.Errorf("UsesLocalGate(%q) != %v", u, want)
 		}
 	}
-	g := &gateState{url: "http://127.0.0.1:9930/decide?bot=sub"}
+	g := &gateState{url: "http://127.0.0.1:9930/decide?bot=sub", gateRuntime: newGateRuntime()}
 	if got := g.endpoint("/context"); got != "http://127.0.0.1:19731/context" {
 		t.Errorf("old 9930 gate_url not pointed at the gate in use: %s", got)
 	}

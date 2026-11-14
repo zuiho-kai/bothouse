@@ -21,7 +21,7 @@ func TestReview863OverflowContextReachesNextQueuedTurn(t *testing.T) {
 			e.maxQueuedMessages = 1
 			e.skipQueuedNotice.Store(true)
 			if withGate {
-				e.gate = &gateState{buf: map[string][]string{}}
+				e.gate.Store(&gateState{gateRuntime: newGateRuntime()})
 			}
 			const key = "qq:group:review"
 			session, state := busySessionWithLiveState(t, e, p, key, as)
@@ -43,8 +43,8 @@ func TestReview863OverflowContextReachesNextQueuedTurn(t *testing.T) {
 			}
 			if !strings.Contains(prompts[0], "KEEP_THE_EARLIER_QUESTION") {
 				t.Fatalf("evicted message absent from next actual agent Send; gate=%t; buffer=%v", withGate, func() any {
-					if e.gate != nil {
-						return e.gate.buf[key]
+					if e.gate.Load() != nil {
+						return e.gate.Load().buf[key]
 					}
 					return nil
 				}())
@@ -67,7 +67,7 @@ func TestReview863MentionedRetryStillAdmittedToFullQueue(t *testing.T) {
 	e := NewEngine("review", &resultAgent{session: as}, []Platform{p}, "", LangEnglish)
 	defer e.cancel()
 	e.maxQueuedMessages = 1
-	e.gate = &gateState{buf: map[string][]string{}}
+	e.gate.Store(&gateState{gateRuntime: newGateRuntime()})
 	const key = "qq:group:retry-review"
 	_, state := busySessionWithLiveState(t, e, p, key, as)
 	protected := &Message{SessionKey: key, Platform: "qq", UserID: "bob", UserName: "Bob", Content: "protected", MessageID: "protected", Mentioned: true}
@@ -76,7 +76,7 @@ func TestReview863MentionedRetryStillAdmittedToFullQueue(t *testing.T) {
 	}
 	retry := queuedToMessage(queuedMessage{userID: "alice", userName: "Alice", platform: qqGroup, msgPlatform: "qq", msgSessionKey: key, messageID: "retry", content: "@bot answer my queued question", mentioned: true})
 	if got := e.enqueueForBusySession(p, &retry, key, nil); got != queueAccepted {
-		t.Fatalf("previously mentioned retry rejected: outcome=%v pending=%d buffer=%v", got, len(state.pendingMessages), e.gate.buf[key])
+		t.Fatalf("previously mentioned retry rejected: outcome=%v pending=%d buffer=%v", got, len(state.pendingMessages), e.gate.Load().buf[key])
 	}
 }
 

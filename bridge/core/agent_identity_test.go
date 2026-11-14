@@ -72,7 +72,7 @@ func TestIdentity_StrictVoiceAndMidTurnInjection(t *testing.T) {
 }
 
 func TestGateBufferContext_PreservesTeammateAttribution(t *testing.T) {
-	g := &gateState{buf: map[string][]string{}}
+	g := &gateState{gateRuntime: newGateRuntime()}
 	g.bufferContext("test", &Message{FromBot: true, UserName: "C酱", Content: "我是 C酱。工作已经完成。"})
 	text := strings.Join(g.buf["test"], "\n")
 	if !strings.Contains(text, "[Quoted teammate message]") || !strings.Contains(text, "\"author\":\"C酱\"") {

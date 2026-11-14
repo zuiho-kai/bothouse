@@ -19,7 +19,7 @@ func TestReview863IncrementalOverflowCapReachesNextTurn(t *testing.T) {
 			e.maxQueuedMessages = 1
 			e.skipQueuedNotice.Store(true)
 			if withGate {
-				e.gate = &gateState{buf: map[string][]string{}}
+				e.gate.Store(&gateState{gateRuntime: newGateRuntime()})
 			}
 			const key = "qq:group:incremental-cap"
 			session, state := busySessionWithLiveState(t, e, p, key, as)
@@ -41,8 +41,8 @@ func TestReview863IncrementalOverflowCapReachesNextTurn(t *testing.T) {
 			}
 			if !strings.Contains(prompts[0], "UNIQUE_BURST_000") {
 				buffered := 0
-				if e.gate != nil {
-					buffered = len(e.gate.buf[key])
+				if e.gate.Load() != nil {
+					buffered = len(e.gate.Load().buf[key])
 				}
 				t.Fatalf("accepted earliest message absent from next actual Send: gate=%t gate_buffer=%d burst=%d", withGate, buffered, maxQueuedOverflow+3)
 			}

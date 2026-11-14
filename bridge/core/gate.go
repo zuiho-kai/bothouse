@@ -60,6 +60,11 @@ func withLatestMark(content string) string {
 // (both times the gate said reply and the model answered NO_REPLY).
 const mentionedNote = "（用户这条明确 @ 了你或回复了你，必须回复，不要只回 NO_REPLY。）"
 
+// gateState is one published gate configuration plus a pointer to the running state. The
+// configuration fields are never written after the value is stored in Engine.gate: a setter
+// copies it, changes the copy and swaps the pointer (Engine.updateGate), so a message goroutine
+// that loaded the pointer keeps a consistent configuration. The running state (gateRuntime) is
+// shared by every copy, so a config reload keeps the silent context and bursts being collected.
 type gateState struct {
 	url             string
 	timeout         time.Duration
@@ -72,11 +77,20 @@ type gateState struct {
 	silence    bool
 	silenceFor time.Duration
 	silenceMax time.Duration
-	mu         sync.Mutex
-	buf        map[string][]string // interactiveKey → silent messages not yet delivered
-	bufVoice   map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
-	held       map[string]*heldMsg // holdKey → burst being collected (busy or idle)
-	gbuf       map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
+	*gateRuntime
+}
+
+// gateRuntime is what the gate has collected so far; it outlives configuration changes.
+type gateRuntime struct {
+	mu       sync.Mutex
+	buf      map[string][]string // interactiveKey → silent messages not yet delivered
+	bufVoice map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
+	held     map[string]*heldMsg // holdKey → burst being collected (busy or idle)
+	gbuf     map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
+}
+
+func newGateRuntime() *gateRuntime {
+	return &gateRuntime{buf: map[string][]string{}, bufVoice: map[string][]bool{}, held: map[string]*heldMsg{}, gbuf: map[string][]string{}}
 }
 
 // Discord (and most IM clients) split "image + caption" into two messages, in either order,
@@ -251,10 +265,12 @@ type gateResponse struct {
 }
 
 // SetGate enables the gate; an empty url disables it. fallback is the action used when the gate
-// errors or times out ("" = "reply").
+// errors or times out ("" = "reply"). Called again on a running engine (config reload) it changes
+// the configuration only: the burst window and sender silence stay as they were until their own
+// setters run, and the running state is kept.
 func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 	if url == "" {
-		e.gate = nil
+		e.gate.Store(nil)
 		return
 	}
 	if timeoutMs <= 0 {
@@ -266,9 +282,34 @@ func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 		fallback = "reply"
 	}
 	inject, injectDyn := midTurnInjectCaps(e.agent)
-	e.gate = &gateState{url: url, timeout: time.Duration(timeoutMs) * time.Millisecond, fallback: fallback, inject: inject, injectDyn: injectDyn, textBurstWindow: burstWindow,
-		buf: map[string][]string{}, held: map[string]*heldMsg{}}
-	slog.Info("gate enabled", "url", url, "timeout_ms", timeoutMs, "fallback", fallback, "mid_turn_inject", e.gate.canInject())
+	e.gateSetMu.Lock()
+	next := &gateState{textBurstWindow: burstWindow}
+	if old := e.gate.Load(); old != nil {
+		cp := *old
+		next = &cp
+	}
+	if next.gateRuntime == nil {
+		next.gateRuntime = newGateRuntime()
+	}
+	next.url, next.timeout, next.fallback = url, time.Duration(timeoutMs)*time.Millisecond, fallback
+	next.inject, next.injectDyn = inject, injectDyn
+	e.gate.Store(next)
+	e.gateSetMu.Unlock()
+	slog.Info("gate enabled", "url", url, "timeout_ms", timeoutMs, "fallback", fallback, "mid_turn_inject", next.canInject())
+}
+
+// updateGate publishes a changed copy of the gate configuration; nil when the gate is off.
+func (e *Engine) updateGate(change func(*gateState)) *gateState {
+	e.gateSetMu.Lock()
+	defer e.gateSetMu.Unlock()
+	old := e.gate.Load()
+	if old == nil {
+		return nil
+	}
+	next := *old
+	change(&next)
+	e.gate.Store(&next)
+	return &next
 }
 
 // midTurnInjectCaps reports whether agent folds input sent during a turn into that turn.
@@ -283,18 +324,18 @@ func midTurnInjectCaps(agent Agent) (inject bool, injectDyn func() bool) {
 	return inject, injectDyn
 }
 
-// SetGateBurstWindow configures idle text coalescing before the engine starts
-// receiving messages. Nonpositive values preserve the default 1500ms window.
-// Attachment bursts retain the original image/caption coalescing delays.
+// SetGateBurstWindow configures idle text coalescing. Nonpositive values preserve the default
+// 1500ms window. Attachment bursts retain the original image/caption coalescing delays.
 func (e *Engine) SetGateBurstWindow(windowMs int) {
-	if e.gate == nil {
-		return
+	g := e.updateGate(func(g *gateState) {
+		g.textBurstWindow = burstWindow
+		if windowMs > 0 {
+			g.textBurstWindow = time.Duration(windowMs) * time.Millisecond
+		}
+	})
+	if g != nil {
+		slog.Info("gate text burst window", "window_ms", g.textBurstWindow.Milliseconds())
 	}
-	e.gate.textBurstWindow = burstWindow
-	if windowMs > 0 {
-		e.gate.textBurstWindow = time.Duration(windowMs) * time.Millisecond
-	}
-	slog.Info("gate text burst window", "window_ms", e.gate.textBurstWindow.Milliseconds())
 }
 
 func (g *gateState) burstDelay(msg *Message) time.Duration {
@@ -308,19 +349,20 @@ func (g *gateState) burstDelay(msg *Message) time.Duration {
 // Nonpositive values keep the defaults (1.5s, at most 6s, see senderSilence); a max below the
 // silence means every burst waits exactly max.
 func (e *Engine) SetGateSenderSilence(on bool, silenceMs, maxMs int) {
-	if e.gate == nil {
-		return
+	g := e.updateGate(func(g *gateState) {
+		g.silence = on
+		g.silenceFor, g.silenceMax = senderSilence, senderSilenceMax
+		if silenceMs > 0 {
+			g.silenceFor = time.Duration(silenceMs) * time.Millisecond
+		}
+		if maxMs > 0 {
+			g.silenceMax = time.Duration(maxMs) * time.Millisecond
+		}
+	})
+	if g != nil {
+		slog.Info("gate sender silence", "on", g.silence,
+			"silence_ms", g.silenceFor.Milliseconds(), "max_ms", g.silenceMax.Milliseconds())
 	}
-	e.gate.silence = on
-	e.gate.silenceFor, e.gate.silenceMax = senderSilence, senderSilenceMax
-	if silenceMs > 0 {
-		e.gate.silenceFor = time.Duration(silenceMs) * time.Millisecond
-	}
-	if maxMs > 0 {
-		e.gate.silenceMax = time.Duration(maxMs) * time.Millisecond
-	}
-	slog.Info("gate sender silence", "on", e.gate.silence,
-		"silence_ms", e.gate.silenceFor.Milliseconds(), "max_ms", e.gate.silenceMax.Milliseconds())
 }
 
 // fallbackFor is the action when the gate can't answer: a bot that was @-mentioned
@@ -382,7 +424,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// cannot merge the task into another turn or widen its authority.
 		return e.checkTurnAuthorization(msg.authorization, "task.resume") != nil
 	}
-	g := e.gate
+	g := e.gate.Load()
 	if msg.FromBot && !msg.Mentioned && e.isTeamLead() && isBotErrorNotice(msg.Content) {
 		// maomao fork: a teammate reporting a failure is the lead's job, not background chatter.
 		msg.Mentioned = true
@@ -713,12 +755,6 @@ func (g *gateState) buffer(interactiveKey, text, gateText string) {
 // spoken messages, so one mark for the turn would call the typed ones speech.
 func (g *gateState) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
 	g.mu.Lock()
-	if g.gbuf == nil {
-		g.gbuf = map[string][]string{}
-	}
-	if g.bufVoice == nil {
-		g.bufVoice = map[string][]bool{}
-	}
 	b := append(g.buf[interactiveKey], text)
 	gb := append(g.gbuf[interactiveKey], gateText)
 	gv := append(g.bufVoice[interactiveKey], fromVoice)
@@ -732,9 +768,7 @@ func (g *gateState) bufferVoice(interactiveKey, text, gateText string, fromVoice
 // dropBuffered removes the first n buffered messages (delivered with this turn). Caller holds g.mu.
 func (g *gateState) dropBuffered(interactiveKey string, n int) {
 	g.buf[interactiveKey] = g.buf[interactiveKey][min(n, len(g.buf[interactiveKey])):]
-	if g.gbuf != nil {
-		g.gbuf[interactiveKey] = g.gbuf[interactiveKey][min(n, len(g.gbuf[interactiveKey])):]
-	}
+	g.gbuf[interactiveKey] = g.gbuf[interactiveKey][min(n, len(g.gbuf[interactiveKey])):]
 	if vs := g.bufVoice[interactiveKey]; len(vs) > 0 {
 		g.bufVoice[interactiveKey] = vs[min(n, len(vs)):]
 	}
@@ -991,7 +1025,7 @@ func (g *gateState) post(ctx context.Context, path string, req any, out any) err
 // sender: personKey of this turn's message ("" = no person: cron, timer, relay); ctxsvc pushes that person's
 // 懂你 page and no one else's (#1160).
 func (e *Engine) turnContext(session *Session, sessionKey, text, sender string) string {
-	g := e.gate
+	g := e.gate.Load()
 	if g == nil {
 		return ""
 	}

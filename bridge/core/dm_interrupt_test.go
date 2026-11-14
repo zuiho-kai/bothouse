@@ -115,13 +115,13 @@ func TestOwnerDMBusyGateInserts(t *testing.T) {
 			defer srv.Close()
 			e, running, p, s := newLocalGateEngine(t)
 			e.SetGate(srv.URL, 2000, "context")
-			e.gate.inject = true
+			e.gate.Load().inject = true
 			e.SetAdminFrom("u1")
 			msg := localMsg("顺便看下这个")
 			msg.UserID, msg.Direct = "u1", true
-			e.gate.mu.Lock()
+			e.gate.Load().mu.Lock()
 			msg.burstDone = true // skip the burst window
-			e.gate.mu.Unlock()
+			e.gate.Load().mu.Unlock()
 			if !e.applyGate(p, msg, s, "k") {
 				t.Fatal("a busy owner DM must be handled (inserted)")
 			}
@@ -137,9 +137,9 @@ func TestOwnerDMBusyGateInserts(t *testing.T) {
 			if sent := p.getSent(); len(sent) != 1 || sent[0] != "↪ 已插入" {
 				t.Fatalf("replies = %q, want the insert notice", sent)
 			}
-			e.gate.mu.Lock()
-			defer e.gate.mu.Unlock()
-			if len(e.gate.buf["k"]) != 0 || len(e.gate.gbuf["k"]) != 0 {
+			e.gate.Load().mu.Lock()
+			defer e.gate.Load().mu.Unlock()
+			if len(e.gate.Load().buf["k"]) != 0 || len(e.gate.Load().gbuf["k"]) != 0 {
 				t.Fatal("an owner DM must not be buffered")
 			}
 		})
@@ -159,18 +159,18 @@ func TestOwnerDMReleasedWhenIdleSkipsGate(t *testing.T) {
 	e.SetGate(srv.URL, 2000, "context")
 	e.SetAdminFrom("u1")
 	msg := &Message{SessionKey: "discord:dm-chan:u1", UserID: "u1", Content: "在吗", Direct: true}
-	e.gate.mu.Lock()
+	e.gate.Load().mu.Lock()
 	msg.burstDone = true
-	e.gate.mu.Unlock()
+	e.gate.Load().mu.Unlock()
 	if e.applyGate(nil, msg, &Session{}, "k") {
 		t.Fatal("an idle owner DM must go on to a normal turn")
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("gate called %d times for an idle owner DM", calls.Load())
 	}
-	e.gate.mu.Lock()
-	defer e.gate.mu.Unlock()
-	if msg.burstDone || len(e.gate.held) != 0 {
+	e.gate.Load().mu.Lock()
+	defer e.gate.Load().mu.Unlock()
+	if msg.burstDone || len(e.gate.Load().held) != 0 {
 		t.Fatal("gate state left behind")
 	}
 }
