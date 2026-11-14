@@ -74,7 +74,6 @@ func TestQuietCLI(t *testing.T) {
 	source.SetDataDir(dir)
 	target.SetDataDir(dir)
 	t.Cleanup(func() { _ = target.Stop() })
-	confirmProgressCLIQuota(t, target, targetAgent)
 	// Task cards are only created in workspace channels (#453); make test:room one.
 	if err := source.ClaimTeamWorkspace("test:chat", "room", "工作区1"); err != nil {
 		t.Fatal(err)
@@ -121,6 +120,16 @@ func TestQuietCLI(t *testing.T) {
 	if err := json.Unmarshal(data, &receipt); err != nil || receipt["task_id"] == "" {
 		t.Fatal("missing task receipt", string(data), err)
 	}
+	args := []string{"relay", "send", "--data-dir", dir, "--from", "source", "--session", "test:room:user", "--to", "target", "--task", receipt["task_id"], "--request-id", "local-dispatch", "--message", "Thread-only full assignment"}
+	// #771: an old/new role without probe evidence must give an actionable
+	// refusal. Establish evidence through normal human message ingress, then
+	// retry exactly the same CLI request without a privileged state write.
+	b, rejection := quietLocalCLI(args)
+	if rejection == nil || !strings.Contains(string(b)+rejection.Error(), "@点名") {
+		t.Fatalf("missing recovery instructions: %s %v", b, rejection)
+	}
+	t.Logf("unknown dispatch refused with recovery steps: %s %v", b, rejection)
+	confirmProgressCLIQuota(t, target, targetAgent)
 	childDone := make(chan error, 1)
 	go func() {
 		select {
@@ -142,7 +151,6 @@ func TestQuietCLI(t *testing.T) {
 			childDone <- fmt.Errorf("target did not receive assignment")
 		}
 	}()
-	args := []string{"relay", "send", "--data-dir", dir, "--from", "source", "--session", "test:room:user", "--to", "target", "--task", receipt["task_id"], "--request-id", "local-dispatch", "--message", "Thread-only full assignment"}
 	for i := 0; i < 2; i++ {
 		b, err := quietLocalCLI(args)
 		if err != nil || string(b) != "Thread-only full collaborator result" {
