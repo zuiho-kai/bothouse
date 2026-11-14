@@ -196,3 +196,10 @@ test('a name the task was asked with is not jargon in its report (DSH walk 11-14
   assert.equal(back().length, 0, 'no bounce for the user\'s own word');
   assert.match(chat()[0].text, /hello\.py/);
 });
+
+test('walk 11-14: a DSH member\'s [report] is not bounced for wording, since Tasks hands it back and copies it anyway', async () => {
+  const { say, back, woken } = setup();
+  await say('[report] #1 背景：你让我修 CI。\n改了 `ci.yml` 和 fooBar。\n要你做的：没有。\n我加的：无');
+  assert.equal(back().length, 0, 'no 「没有转给用户」 notice for a report that does reach the channel');
+  assert.deepEqual(woken, [], 'the member is not woken to rewrite it');
+});

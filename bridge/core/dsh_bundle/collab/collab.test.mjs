@@ -6013,7 +6013,8 @@ test('#1598: a person\'s big job for the lead herself moves on her own 【接】
   const ws = workspaces();
   assert.equal(ws.length, 1, 'the lead\'s 【接】 opens a workspace too');
   const [task] = tasks.list(1);
-  assert.deepEqual([task.owner, task.created_by, task.room_id], ['ju', 'ju', ws[0].id]);
+  // Walk 11-14: the person who asked dispatched it and accepts it; the lead cannot review her own task.
+  assert.deepEqual([task.owner, task.created_by, task.room_id], ['ju', 'owner', ws[0].id]);
   assert.equal(hub.store.openJobs().find(j => j.member_id === 'ju')?.room_id, ws[0].id, 'she is woken there');
   // A plain message (no @) reaches the lead as well; answered without a stance it opens nothing.
   person('今天几号');
@@ -7537,4 +7538,16 @@ test('walk 11-14: DSH members are not told to run ws-up, --kind start or bothous
     assert.doesNotMatch(rules, /ws-up|--kind start|bothouse vent/, `cli=${cli}`);
     assert.match(rules, /回复首行写 \[report\]，要问用户首行写 \[ask\]/);
   }
+});
+
+test('walk 11-14: a turn in a workspace tells the member she is already there, so the 【交接】 row is not answered with 【接】 again', async () => {
+  const { promptText } = await import('./dsh-member.mjs');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  const member = { id: 'lan', name: '小蓝' };
+  const inWs = promptText(hub.store.room(ws.id), member, [], '', undefined, hub.store, { cli: true });
+  assert.match(inWs, /这里是 #general 的工作区，活已经交到你手上：不要再回【接】，直接动手做/);
+  const inChat = promptText(hub.store.room(1), member, [], '', undefined, hub.store, { cli: true });
+  assert.doesNotMatch(inChat, /活已经交到你手上/);
+  hub.store.close();
 });

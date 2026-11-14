@@ -177,7 +177,7 @@ export function jargonProblems(line, asked = '') {
   // A name the task itself was asked with (its title, the user's own words: 「写个 hello.py」) is no jargon to the user.
   const own = String(asked);
   const hits = [...String(line).replace(JARGON_URL, ' ').matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''))
-    .filter(h => h === '' || !own.includes(h));
+    .filter(h => h === '' || !own.includes(h.replace(/^`+|`+$/g, '')));
   if (hits.length) problems.push(RULES.jargon.line.replaceAll('{hits}', hits.join('、')));
   if (JARGON_TABLE.test(line)) problems.push(RULES.jargon.table);
   return problems;
@@ -333,8 +333,15 @@ export class TeamExit {
     if (mark) {
       const bounces = this.bounces.get(`${room.id}:${msg.author}`) ?? 0;
       const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces, title: id => this.hub.tasks?.task?.(id)?.title ?? '' });
+      const routed = selfRouteProblems(mark.body).length > 0;
+      // Walk 11-14: a DSH member's [report] hands its task back anyway (Tasks.route) and reaches the chat
+      // channel; only a self-route problem holds it here. Bouncing it for wording said 「没有转给用户」 while
+      // it had been, and woke the member to rewrite a delivered report. The lead reviews the wording.
+      const delivered = mark.kind === 'report' && this.markOpts(msg).lastLine && !routed;
       if (v.problems.length) {
-        if (selfRouteProblems(mark.body).length) this.rejectedMessages.add(msg.id);
+        // Tasks.handBack copies it to the chat channel as written (forwardResult).
+        if (delivered) { this.bounces.delete(`${room.id}:${msg.author}`); return; }
+        if (routed) this.rejectedMessages.add(msg.id);
         return this.bounce(room, msg, v.problems, mark.kind);
       }
       // Once bounces stop waking the member, a reply still without a headline goes out as before.
