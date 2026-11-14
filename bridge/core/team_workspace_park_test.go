@@ -234,7 +234,7 @@ func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 		want         string
 	}{{3, 0, "202"}, {1, 0, "202"}, {0, 0, "201"}, {0, 5, "201"}} {
 		set(c.open, c.parked)
-		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true)
+		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true, nil)
 		if err != nil || adopted != c.want {
 			t.Fatalf("open %d parked %d: adopted %q, %v; want %s", c.open, c.parked, adopted, err, c.want)
 		}
