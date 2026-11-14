@@ -2,9 +2,8 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -124,49 +123,16 @@ var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 // alone and only progress_at moves. hasStep false: this round saw no tool call. wrote false: the row is gone or no longer live work (paused, moved off the
 // workspace, closed) — nothing changed and nothing to log.
 //
-// The file is rewritten the way board.py _write does it (whole file, tmp + os.replace) while
-// holding the same lock board.py takes; rows other than the one this write touches keep their
-// exact bytes (the touched row is re-encoded, so its key order and escaping can shift once — 复核
-// 2026-11-06 建议⑥).
+// The write itself is updateBoardRow (team_board_store.go).
 func writeBoardProgress(dir string, id int, step string, hasStep bool, key string, now time.Time) (bool, error) {
-	path := filepath.Join(dir, teamTaskBoardFile)
-	if _, err := os.Stat(path); err != nil {
-		return false, err
-	}
-	unlock, err := lockBoardFile(filepath.Join(dir, "board.lock"))
-	if err != nil {
-		return false, err
-	}
-	defer unlock()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
-	}
-	lines := strings.Split(string(data), "\n")
-	changed := false
-	for i, ln := range lines {
-		if strings.TrimSpace(ln) == "" {
-			continue
-		}
-		var row map[string]json.RawMessage
-		if json.Unmarshal([]byte(ln), &row) != nil {
-			continue
-		}
-		var got int
-		if json.Unmarshal(row["id"], &got) != nil || got != id {
-			continue
-		}
-		var status, ws, paused string
-		_ = json.Unmarshal(row["status"], &status)
-		_ = json.Unmarshal(row["ws"], &ws)
-		_ = json.Unmarshal(row["paused"], &paused)
-		self := strings.TrimSpace(status)
+	wrote, err := updateBoardRow(dir, id, func(row map[string]json.RawMessage) (bool, error) {
 		// #699 D: whether this row is live work in this workspace is the task's state (checked by
 		// markBoardProgress before it gets here), not its status text; the closing-word test is gone.
 		// The row's own binding is still checked so a stale board row never takes another's write.
-		if ws == "" || teamChatKey(ws) != key || paused != "" {
+		if ws := boardRowString(row, "ws"); ws == "" || teamChatKey(ws) != key || boardRowString(row, "paused") != "" {
 			return false, nil
 		}
+		changed := false
 		stamp := float64(now.UnixNano()) / 1e9
 		var prevStamp float64
 		_ = json.Unmarshal(row["progress_at"], &prevStamp)
@@ -176,34 +142,15 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		}
 		// A round with no tool call only proves the workspace spoke, so it raises progress_at and
 		// leaves the step alone instead of degrading it to 「已开工」 (必修①).
+		self := strings.TrimSpace(boardRowString(row, "status"))
 		if hasStep && (self == boardHandedOff || self == boardStartedNoStep) {
 			row["status"] = rawJSON("在做：" + step)
 			changed = true
 		}
-		out, err := json.Marshal(row)
-		if err != nil {
-			return false, err
-		}
-		lines[i] = string(out)
+		return changed, nil
+	})
+	if errors.Is(err, errBoardRowMissing) {
+		return false, nil // the row is gone: nothing to write
 	}
-	if !changed {
-		return false, nil
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-		return false, err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// rawJSON: v as it must appear inside a board row (a marshal error leaves the field unset).
-func rawJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return b
+	return wrote, err
 }
