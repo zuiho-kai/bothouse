@@ -3675,6 +3675,11 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.handleMessageRecall(p, msg)
 		return
 	}
+	// A voice message becomes its text here, before anything reads the words, so every later
+	// step (team routing, stop words, hooks, who-said-what) sees it once, as text.
+	if msg.Audio != nil && !e.voiceToText(p, msg) {
+		return
+	}
 	e.collectExperience(msg)
 	if e.team != nil {
 		// The shared lead file can change without restarting any role. Refresh
@@ -3732,40 +3737,6 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		})
 	}
 	e.recordPersonSaid(msg) // #1160: each person's own words, for their 懂你 page (people_said.go)
-
-	// Voice message: transcribe to text first
-	if msg.Audio != nil {
-		if e.checkTurnAuthorization(msg.authorization, "tool.execute") != nil {
-			return
-		}
-		// If STT is configured, use it for transcription (more accurate)
-		if e.speech.Enabled && e.speech.STT != nil {
-			e.handleVoiceMessage(p, msg)
-			return
-		}
-		// Fallback: use platform-provided recognition text if available
-		if msg.Content == "" {
-			e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgVoiceNotEnabled))
-			return
-		}
-		// Use platform recognition with a hint, then continue processing
-		slog.Info("using platform-provided voice recognition",
-			"platform", msg.Platform, "content_len", len(msg.Content))
-		if msg.FromVoice {
-			// Use platform name as parameter for the message
-			// Capitalize first letter for better presentation
-			if platformName := msg.Platform; len(platformName) > 0 {
-				// Safe capitalization that handles multi-word names
-				r := []rune(platformName)
-				if len(r) > 0 {
-					r[0] = []rune(strings.ToUpper(string(r[0])))[0]
-				}
-				platformName = string(r)
-				e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgVoiceUsingPlatformRecognition, platformName))
-			}
-		}
-		// Continue processing with the platform-provided text content
-	}
 
 	content := strings.TrimSpace(msg.Content)
 	if content == "" && msg.ExtraContent == "" && msg.AmbientChat == "" && len(msg.Images) == 0 && len(msg.Files) == 0 && msg.Location == nil {
@@ -4442,16 +4413,39 @@ func (e *Engine) voiceStatusKeptOut(p Platform, msg *Message, notice string) boo
 	return false
 }
 
-func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
-	if !e.speech.Enabled || e.speech.STT == nil {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceNotEnabled))
-		return
+// voiceToText turns a voice message into a text message in place. It reports false when the
+// message ends here (not allowed, nothing recognised, transcription failed; the sender has been
+// told). With speech-to-text configured the audio is transcribed; otherwise the platform's own
+// recognition text is used when it sent one.
+func (e *Engine) voiceToText(p Platform, msg *Message) bool {
+	if e.checkTurnAuthorization(msg.authorization, "tool.execute") != nil {
+		return false
 	}
+	if e.speech.Enabled && e.speech.STT != nil {
+		return e.transcribeVoice(p, msg)
+	}
+	if msg.Content == "" {
+		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgVoiceNotEnabled))
+		return false
+	}
+	slog.Info("using platform-provided voice recognition",
+		"platform", msg.Platform, "content_len", len(msg.Content))
+	if msg.FromVoice {
+		// Name the platform in the notice, first letter capitalized.
+		if r := []rune(msg.Platform); len(r) > 0 {
+			r[0] = []rune(strings.ToUpper(string(r[0])))[0]
+			e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgVoiceUsingPlatformRecognition, string(r)))
+		}
+	}
+	return true
+}
 
+// transcribeVoice replaces msg.Audio with its transcription (speech-to-text is configured).
+func (e *Engine) transcribeVoice(p Platform, msg *Message) bool {
 	audio := msg.Audio
 	if NeedsConversion(audio.Format) && !HasFFmpeg() {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceNoFFmpeg))
-		return
+		return false
 	}
 
 	slog.Info("transcribing voice message",
@@ -4467,13 +4461,13 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 	if err != nil {
 		slog.Error("speech transcription failed", "error", err)
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgVoiceTranscribeFailed), err))
-		return
+		return false
 	}
 
 	text = strings.TrimSpace(text)
 	if text == "" {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgVoiceEmpty))
-		return
+		return false
 	}
 
 	slog.Info("voice transcribed", "text_len", len(text))
@@ -4482,11 +4476,10 @@ func (e *Engine) handleVoiceMessage(p Platform, msg *Message) {
 		e.send(p, msg.ReplyCtx, transcribedNotice)
 	}
 
-	// Replace audio with transcribed text and re-dispatch
 	msg.Audio = nil
 	msg.Content = text
 	msg.FromVoice = true
-	e.handleMessage(p, msg)
+	return true
 }
 
 // ──────────────────────────────────────────────────────────────
