@@ -29,8 +29,15 @@ type Session struct {
 	// `/provider switch` (the agent_session_id survives on disk while the
 	// in-memory active provider does not). Empty means "no explicit choice
 	// — use whatever the agent's default is".
-	ActiveProvider string         `json:"active_provider,omitempty"`
-	History        []HistoryEntry `json:"history"`
+	ActiveProvider string `json:"active_provider,omitempty"`
+	// History is kept in memory in full and stored in the session's own append-only file
+	// (session_history.go), not in the store file. The JSON tag only reads store files written by
+	// an older bridge, for the one-time migration.
+	History []HistoryEntry `json:"history,omitempty"`
+	// histSaved is how many History entries are already in the history file; histRewrite is set
+	// when History changed other than by appending (clear, merge), so the file is replaced.
+	histSaved   int
+	histRewrite bool
 	// Successful external text sends awaiting delivery to this conversation's model.
 	PendingOutbound []ChannelHistoryMessage `json:"pending_outbound,omitempty"`
 	CreatedAt       time.Time               `json:"created_at"`
@@ -373,6 +380,7 @@ func (s *Session) ClearHistory() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.History = nil
+	s.histRewrite = true
 }
 
 // HistoryLen returns the current number of history entries.
@@ -502,6 +510,8 @@ func (sm *SessionManager) NewSideSession(userKey, name string) *Session {
 		CreatedAt: now,
 		UpdatedAt: now,
 		Side:      true,
+		// A fresh id never inherits a history file left behind under the same name.
+		histRewrite: true,
 	}
 	sm.sessions[id] = s
 	sm.userSessions[userKey] = append(sm.userSessions[userKey], id)
@@ -517,6 +527,8 @@ func (sm *SessionManager) createLocked(userKey, name string) *Session {
 		Name:      name,
 		CreatedAt: now,
 		UpdatedAt: now,
+		// A fresh id never inherits a history file left behind under the same name.
+		histRewrite: true,
 	}
 	sm.sessions[id] = s
 	sm.activeSession[userKey] = id
@@ -760,6 +772,11 @@ func (sm *SessionManager) DeleteByAgentSessionID(agentSessionID string) int {
 
 func (sm *SessionManager) deleteByIDLocked(id string) {
 	delete(sm.sessions, id)
+	if sm.storePath != "" {
+		if err := os.Remove(sessionHistoryPath(sm.storePath, id)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("session: failed to remove history file", "session", id, "error", err)
+		}
+	}
 	for userKey, ids := range sm.userSessions {
 		for i, sid := range ids {
 			if sid == id {
@@ -796,13 +813,13 @@ func (sm *SessionManager) saveLocked() {
 			agentSID = ""
 			s.AgentSessionID = ""
 		}
+		s.flushHistoryLocked(sm.storePath, id) // history goes to the session's own file, not the snapshot
 		snapSessions[id] = &Session{
 			ID:                  s.ID,
 			Name:                s.Name,
 			AgentSessionID:      agentSID,
 			AgentType:           s.AgentType,
 			PastAgentSessionIDs: append([]string(nil), s.PastAgentSessionIDs...),
-			History:             append([]HistoryEntry(nil), s.History...),
 			PendingOutbound:     append([]ChannelHistoryMessage(nil), s.PendingOutbound...),
 			CreatedAt:           s.CreatedAt,
 			UpdatedAt:           s.UpdatedAt,
@@ -911,6 +928,9 @@ func (sm *SessionManager) load() {
 
 	for _, s := range sm.sessions {
 		s.stripContinueSessionSentinel()
+	}
+	if sm.loadHistories(data) {
+		sm.saveLocked() // drop the inline history now that it is in the per-session files
 	}
 
 	slog.Info("session: loaded from disk", "path", sm.storePath, "sessions", len(sm.sessions))
@@ -1071,6 +1091,7 @@ func (sm *SessionManager) PruneDuplicateSessions(mergeHistory bool) PruneResult 
 				sort.SliceStable(keep.History, func(i, j int) bool {
 					return keep.History[i].Timestamp.Before(keep.History[j].Timestamp)
 				})
+				keep.histRewrite = true // reordered, not appended
 				result.MergedHistory += oldHistoryLen
 				old.mu.Unlock()
 				keep.mu.Unlock()
