@@ -256,6 +256,24 @@ func postTaskNode(api taskForumAPI, threadID, text string, options ...discordgo.
 	return nil
 }
 
+// TaskPostLimit implements core.TaskForumPoster: the 现状卡 is one Discord message, held to the
+// same limit every message this adapter sends is split at (maxDiscordLen).
+func (p *Platform) TaskPostLimit() int { return maxDiscordLen }
+
+// OwnsTaskPost implements core.TaskForumPoster: Discord lets only a message's author edit it, so
+// the post's 现状卡 is this bot's to keep current only when this bot opened the post.
+func (p *Platform) OwnsTaskPost(ctx context.Context, threadID string) (bool, error) {
+	api, err := p.taskForumSession()
+	if err != nil {
+		return false, err
+	}
+	th, err := api.Channel(threadID, discordgo.WithContext(ctx))
+	if err != nil {
+		return false, err
+	}
+	return th != nil && th.OwnerID != "" && th.OwnerID == p.botID, nil
+}
+
 // TaskPostGone implements core.TaskForumPoster: Discord answers 404 for a deleted post or forum.
 func (p *Platform) TaskPostGone(err error) bool {
 	var rest *discordgo.RESTError

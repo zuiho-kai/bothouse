@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +25,8 @@ type stubForumPlatform struct {
 	posts     map[string]*fakeForumPost
 	ensureErr error
 	sendCtx   []string // permission notices posted (Send)
+	prefix    string   // thread id prefix: posts of different bots never share an id
+	limit     int
 }
 
 func newStubForumPlatform() *stubForumPlatform {
@@ -47,7 +51,8 @@ func (p *stubForumPlatform) OpenTaskPost(_ context.Context, f TaskForum, post Ta
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opens++
-	id := fmt.Sprintf("th%d", p.opens)
+	id := fmt.Sprintf("%sth%d", p.prefix, p.opens)
+	p.edited(id, post)
 	p.posts[id] = &fakeForumPost{title: post.Title, card: post.Card, tag: post.Tag}
 	return id, nil
 }
@@ -59,6 +64,7 @@ func (p *stubForumPlatform) UpdateTaskPost(_ context.Context, f TaskForum, id st
 	if fp == nil {
 		return errForumGone
 	}
+	p.edited(id, post)
 	fp.title, fp.card, fp.tag, fp.archived = post.Title, post.Card, post.Tag, post.Archived
 	return nil
 }
@@ -75,6 +81,25 @@ func (p *stubForumPlatform) PostTaskNode(_ context.Context, id, text string) err
 var errForumGone = fmt.Errorf("gone")
 
 func (p *stubForumPlatform) TaskPostGone(err error) bool { return err == errForumGone }
+
+func (p *stubForumPlatform) OwnsTaskPost(_ context.Context, id string) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.posts[id] != nil, nil
+}
+
+func (p *stubForumPlatform) TaskPostLimit() int {
+	if p.limit > 0 {
+		return p.limit
+	}
+	return 1900 // 沿用 discord maxDiscordLen
+}
+
+func (p *stubForumPlatform) edited(id string, post TaskForumPost) {
+	if r := []rune(post.Card); len(r) > p.TaskPostLimit() {
+		panic(fmt.Sprintf("card of %d runes over the limit %d", len(r), p.TaskPostLimit()))
+	}
+}
 
 func (p *stubForumPlatform) post(id string) fakeForumPost {
 	p.mu.Lock()
@@ -168,9 +193,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 		t.Fatalf("done post = %+v", fp)
 	}
 	// After the task-thread archive wait it is archived, once.
-	e.taskForum.mu.Lock()
-	e.taskForum.state.Posts["768"].DoneAt = time.Now().Add(-e.taskForumArchiveAfter() - time.Minute)
-	e.taskForum.mu.Unlock()
+	setForumDoneAt(t, e, "768", time.Now().Add(-e.taskForumArchiveAfter()-time.Minute))
 	e.syncTaskForum()
 	if fp = p.post("th1"); !fp.archived || fp.tag != TaskForumTagDone {
 		t.Fatalf("archived post = %+v", fp)
@@ -208,7 +231,7 @@ func TestTaskForumMissingPermissionDoesNotBlock(t *testing.T) {
 	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	e.syncTaskForum()
-	if p.opens != 0 || len(e.taskForum.state.Posts) != 0 {
+	if p.opens != 0 || len(readForumState(t, e).Posts) != 0 {
 		t.Fatalf("posted without permission: opens=%d", p.opens)
 	}
 	// once permission is there, the next pass opens the post
@@ -237,5 +260,136 @@ func TestTaskForumTagOf(t *testing.T) {
 		if got, _ := taskForumTagOf(c.it, now); got != c.want {
 			t.Errorf("%+v: tag %q, want %q", c.it, got, c.want)
 		}
+	}
+}
+
+func readForumState(t *testing.T, e *Engine) taskForumState {
+	t.Helper()
+	rt := e.taskForumRT()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return *e.taskForumLoadLocked()
+}
+
+func setForumDoneAt(t *testing.T, e *Engine, key string, at time.Time) {
+	t.Helper()
+	rt := e.taskForumRT()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	s := e.taskForumLoadLocked()
+	s.Posts[key].DoneAt = at
+	e.taskForumSaveLocked()
+}
+
+// A long 用户原话/目标 still fits one Discord message, and the cut is in them: the state line,
+// 要你做的 and the source line stay whole.
+func TestTaskForumLongCardFitsDiscord(t *testing.T) {
+	e, p, dir := forumTestEngine(t)
+	notes := dir + "/h.handoff.md"
+	words := strings.Repeat("- 「很多任务我派了老忘，额外开帖子标注下任务，和工作区啥的也都打通联动」\n", 80)
+	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+strings.Repeat("派出去的活不再被忘。", 200)+"\n")
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
+	e.syncTaskForum() // stub panics on an over-limit card
+	fp := p.post("th1")
+	if n := len([]rune(fp.card)); n > 1900 {
+		t.Fatalf("card %d runes", n)
+	}
+	for _, want := range []string{"**" + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "**谁在做**：", "来源 <#111>", "任务板 #9", "更新于"} {
+		if !strings.Contains(fp.card, want) {
+			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
+		}
+	}
+	// a long original alone (short question): the goal and the state stay, the words are cut
+	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
+	e.syncTaskForum()
+	fp = p.post("th1")
+	for _, want := range []string{"**在做**", "**要你做的**：没有", "**目标**：派出去的活", "来源 <#111>", "任务板 #9"} {
+		if !strings.Contains(fp.card, want) {
+			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
+		}
+	}
+}
+
+// Two engines of one team (the lead moves from a to b; b delivers an [ask]): one post per item,
+// kept by the bot that opened it.
+func TestTaskForumOnePostAcrossEngines(t *testing.T) {
+	dir := t.TempDir()
+	rm := NewRelayManager("")
+	pa, pb := newStubForumPlatform(), newStubForumPlatform()
+	pa.prefix, pb.prefix = "a", "b"
+	a := NewEngine("gge", &stubAgent{}, []Platform{pa}, "", LangEnglish)
+	b := NewEngine("cjiang", &stubAgent{}, []Platform{pb}, "", LangEnglish)
+	for _, e := range []*Engine{a, b} {
+		e.team = &teamState{dir: dir, board: true, inject: true}
+		e.SetRelayManager(rm)
+		rm.RegisterEngine(e.name, e)
+	}
+	item := func(extra string) string {
+		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"` + extra + "}\n"
+	}
+	writeTaskBoard(t, dir, teamTaskBoardFile, item(""))
+	a.syncTaskForum()
+	if pa.opens != 1 {
+		t.Fatalf("lead a opens=%d", pa.opens)
+	}
+	// b, not the lead, delivers an [ask]: posted in a's post, no post of its own
+	b.postTaskForumNode(5, "❓ 修登录：选 A 还是 B")
+	if pb.opens != 0 || len(pa.post("ath1").nodes) != 1 {
+		t.Fatalf("non-lead ask: b opens=%d a post=%+v", pb.opens, pa.post("ath1"))
+	}
+	// the lead moves to b: b's pass edits a's post through a, opens nothing
+	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"paused":"11-14 11:00","pause_why":"等待用户答复：选 A 还是 B"`))
+	b.syncTaskForum()
+	if pb.opens != 0 || pa.opens != 1 || pa.post("ath1").tag != TaskForumTagWaiting {
+		t.Fatalf("lead b: b opens=%d a opens=%d a post=%+v", pb.opens, pa.opens, pa.post("ath1"))
+	}
+	if st := readForumState(t, b); st.Posts["5"].Owner != "gge" {
+		t.Fatalf("owner = %q", st.Posts["5"].Owner)
+	}
+	// the state file is lost: the link on the board item finds the post and its owner again
+	if err := os.Remove(filepath.Join(dir, taskForumFile)); err != nil {
+		t.Fatal(err)
+	}
+	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"post":"https://discord.com/channels/g1/ath1/ath1"`))
+	b.syncTaskForum()
+	if pb.opens != 0 || pa.opens != 1 || pa.post("ath1").tag != TaskForumTagRunning {
+		t.Fatalf("lost state: b opens=%d a opens=%d a post=%+v", pb.opens, pa.opens, pa.post("ath1"))
+	}
+}
+
+// Nodes come from board facts: a release hold is not a merge; a merge or a deploy that leaves the
+// card as it was is still posted, once.
+func TestTaskForumNodeFacts(t *testing.T) {
+	now := time.Now()
+	prev := &taskForumPostState{Tag: TaskForumTagRunning}
+	hold := teamTaskBoardItem{Status: "在做", ReleaseHold: &teamReleaseHold{}}
+	tag, sentence := taskForumTagOf(hold, now)
+	if tag != TaskForumTagRelease {
+		t.Fatalf("hold tag %q", tag)
+	}
+	if got := taskForumNode(prev, hold, tag, sentence); strings.Contains(got, "已合并") || !strings.Contains(got, "为发布暂停") {
+		t.Fatalf("release hold node %q", got)
+	}
+	await := teamTaskBoardItem{Status: "在做", AwaitDeploy: map[string]string{"pr": "1785"}}
+	tag, sentence = taskForumTagOf(await, now)
+	if got := taskForumNode(prev, await, tag, sentence); got != "📦 已合并，等上线" {
+		t.Fatalf("await deploy node %q", got)
+	}
+
+	e, p, dir := forumTestEngine(t)
+	item := func(extra string) string {
+		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"` + extra + "}\n"
+	}
+	writeTaskBoard(t, dir, teamTaskBoardFile, item(""))
+	e.syncTaskForum()
+	card := p.post("th1").card
+	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"pr_merge":{"pr":"1785"}`))
+	e.syncTaskForum()
+	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"pr_merge":{"pr":"1785"},"deployed":{"build":"x"}`))
+	e.syncTaskForum()
+	e.syncTaskForum()
+	fp := p.post("th1")
+	if len(fp.nodes) != 2 || fp.nodes[0] != "🔀 PR 已合并" || fp.nodes[1] != "🚀 已上线，等上线验收" {
+		t.Fatalf("fact nodes = %q (card was %q, now %q)", fp.nodes, card, fp.card)
 	}
 }
