@@ -705,6 +705,7 @@ const (
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
 	MsgTaskReviewEscalate       MsgKey = "task_review_escalate"
 	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
+	MsgTaskForumRoundupWaiting  MsgKey = "task_forum_roundup_waiting"
 	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
 	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
 	MsgTaskPausedResumeQuestion MsgKey = "task_paused_resume_question"
@@ -1151,6 +1152,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "#%d：派活人 %s 不在線，請主角色核對或接手",
 		LangJapanese:           "#%d：依頼担当 %s が不在です。主担当が検収または再割当してください",
 		LangSpanish:            "#%d: el coordinador %s no está disponible; el rol principal debe verificar o reasignar",
+	},
+	MsgTaskForumRoundupWaiting: {
+		LangEnglish:            "Append this line to the hourly report: Waiting for you: %d tasks · %s",
+		LangChinese:            "在本次收口汇报中原样加一行：等你拍板 %d 件 · %s",
+		LangTraditionalChinese: "在本次收口彙報中原樣加一行：等你拍板 %d 件 · %s",
+		LangJapanese:           "毎時の報告に次の1行を含めてください：判断待ち %d 件 · %s",
+		LangSpanish:            "Añade esta línea al informe horario: Esperando tu decisión: %d tareas · %s",
 	},
 	MsgTaskReviewRoundup: {
 		LangEnglish:            "Hourly pending verification list",

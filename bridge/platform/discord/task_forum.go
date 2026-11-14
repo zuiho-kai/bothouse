@@ -281,3 +281,24 @@ func (p *Platform) TaskPostGone(err error) bool {
 	var rest *discordgo.RESTError
 	return errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound
 }
+
+// PostTaskUserNode allows exactly the identified dispatcher, once on the state move.
+// Even if the text contains role/everyone/other-user mentions they remain disabled.
+func (p *Platform) PostTaskUserNode(ctx context.Context, threadID, text, user string) error {
+	api, err := p.taskForumSession()
+	if err != nil {
+		return err
+	}
+	parts := core.SplitMessageCodeFenceAware("<@"+user+"> "+text, maxDiscordLen)
+	for i, part := range parts {
+		mentions := noMentions()
+		if i == 0 {
+			mentions = &discordgo.MessageAllowedMentions{Users: []string{user}}
+		}
+		_, err := api.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{Content: part, AllowedMentions: mentions}, discordgo.WithContext(ctx))
+		if err != nil {
+			return unrecoverableErr(err)
+		}
+	}
+	return nil
+}

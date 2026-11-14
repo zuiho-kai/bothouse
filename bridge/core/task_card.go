@@ -82,6 +82,8 @@ func (ev TaskEvent) ThreadText() string {
 
 // Task represents a persistent, trackable task unit with Discord card and thread bindings.
 type Task struct {
+	// ForumPost marks a task whose thread is the board-owned forum post; it is not renamed or archived by public progress.
+	ForumPost          bool               `json:"forum_post,omitempty"`
 	TextDeliveries     []TaskTextDelivery `json:"text_deliveries,omitempty"`
 	ID                 string             `json:"id"`
 	Title              string             `json:"title"`
