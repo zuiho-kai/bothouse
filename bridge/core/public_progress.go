@@ -1114,10 +1114,11 @@ func (e *Engine) EnablePublicProgress() error {
 		return e.CheckTaskAuthorization(task, "message.send")
 	})
 	p.waitTaskText = func(ctx context.Context, platform string) error {
-		if e.outgoingRL == nil {
+		orl := e.outgoingRL.Load()
+		if orl == nil {
 			return nil
 		}
-		return e.outgoingRL.Wait(ctx, platform)
+		return orl.Wait(ctx, platform)
 	}
 	p.resolveReporter = e.resolveTaskReporter
 	p.resolveWorkspace = e.resolveTaskWorkspace
