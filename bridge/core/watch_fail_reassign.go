@@ -20,7 +20,7 @@ func (e *Engine) reassignFailedWork(a idleAssignment, h TeamHandoff) bool {
 	if !ok {
 		return false
 	}
-	target := e.quotaCandidate(work.Session, work.Title+" "+work.Basis, nil)
+	target := e.quotaCandidate(work.Session, nil)
 	if target == nil {
 		return false
 	}

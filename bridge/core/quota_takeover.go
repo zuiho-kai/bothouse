@@ -175,7 +175,7 @@ func (e *Engine) quotaTransferWork(st *quotaCoolingState, now time.Time) {
 				}
 			}
 		} else {
-			target = e.quotaCandidate(work.Session, work.Title+" "+work.Basis, reserved)
+			target = e.quotaCandidate(work.Session, reserved)
 		}
 		if target == nil {
 			continue // keep ownership and retry when a bound teammate becomes idle
