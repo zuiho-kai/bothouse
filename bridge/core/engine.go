@@ -810,6 +810,9 @@ type interactiveState struct {
 	currentJobID string
 	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
 	scheduledWatch uint64
+	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
+	// (fireScheduledTurnTimeout); the next turn start waits for it. Guarded by mu.
+	scheduledCancel chan struct{}
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -8333,6 +8336,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Check for queued messages — if present, continue the event loop
 			// for the next turn instead of returning.
 			state.mu.Lock()
+			// A time limit that claimed the turn that just ended finishes first: a stop that
+			// closed the session dropped the queue, so no next turn starts on a dead session.
+			if state.awaitScheduledCancelLocked() {
+				state.turnCancelled = false // that cancel was for the ended turn, not the next one
+			}
 			if e.isStoppingForJournal() {
 				// #1368: shutdown owns the current journal entry. Leave even
 				// stale queued messages untouched for restart recovery.
@@ -13387,13 +13395,24 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 }
 
 func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued, keepQueued bool) bool {
+	return e.stopInteractiveStateWithQueue(sessionKey, nil, notifyQueued, keepQueued)
+}
+
+// stopInteractiveStateWithQueue stops the turn under sessionKey; with want set, only when the
+// live state there is still want. A caller that captured a turn's state (a scheduled turn's
+// time limit) names it, so a turn that started since on a replacement state is never stopped.
+func (e *Engine) stopInteractiveStateWithQueue(sessionKey string, want *interactiveState, notifyQueued, keepQueued bool) bool {
 	e.interactiveMu.Lock()
+	state, ok := e.interactiveStates[sessionKey]
+	if want != nil && state != want {
+		e.interactiveMu.Unlock()
+		return false
+	}
 	if op := e.nativeCompactions[sessionKey]; op != nil {
 		op.cancel()
 		e.interactiveMu.Unlock()
 		return true
 	}
-	state, ok := e.interactiveStates[sessionKey]
 	if !ok || state == nil {
 		e.interactiveMu.Unlock()
 		return false
