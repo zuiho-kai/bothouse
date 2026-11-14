@@ -3,9 +3,9 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -387,41 +387,32 @@ func (e *Engine) applyQuotaWork(work quotaWork, target *Engine, now time.Time) e
 	return nil
 }
 
-// board.py already owns this file's cross-process flock protocol. Use the same
-// lock and preserve unknown fields (handoff paths, card URLs and future metadata).
-const quotaBoardReassign = `
-import fcntl,json,os,pathlib,sys
-root=pathlib.Path(sys.argv[1]); nid=int(sys.argv[2])
-old=set(json.loads(sys.argv[3])); new=sys.argv[4]
-with (root/"board.lock").open("w") as lock:
- fcntl.flock(lock,fcntl.LOCK_EX)
- path=root/"board.jsonl"
- rows=[json.loads(line) for line in path.read_text().splitlines() if line.strip()]
- row=next((r for r in rows if r.get("id")==nid),None)
- if row is None: raise RuntimeError("board item missing")
- if row.get("who")!=new:
-  if row.get("who") not in old: raise RuntimeError("board owner changed")
-  row["who"]=new
- tmp=path.with_suffix(".quota.tmp")
- tmp.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in rows))
- os.replace(tmp,path)
-`
-
+// reassignQuotaBoard moves board item id from this role to target: the row's who becomes the
+// target's display name. A row that is already the target's is left alone; a row owned by
+// someone else since the takeover was planned is an error (the takeover does not go on).
 func (e *Engine) reassignQuotaBoard(id int, target *Engine) error {
-	py := "python3"
-	if bin, ok := e.productPyBin.Load().(string); ok {
-		py = filepath.Join(bin, "python3")
-	}
-	owners := []string{e.name, e.DisplayName()}
+	owners := map[string]bool{e.name: true, e.DisplayName(): true}
 	for _, p := range e.platforms {
 		if m, ok := p.(SelfMentioner); ok {
-			owners = append(owners, m.SelfMention(), watchOwnerID(m.SelfMention()))
+			owners[m.SelfMention()], owners[watchOwnerID(m.SelfMention())] = true, true
 		}
 	}
-	b, _ := json.Marshal(owners)
-	cmd := exec.CommandContext(e.ctx, py, "-c", quotaBoardReassign, e.team.dir, fmt.Sprint(id), string(b), target.DisplayName())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("reassign board: %w: %s", err, strings.TrimSpace(string(out)))
+	to := target.DisplayName()
+	_, err := updateBoardRow(e.team.dir, id, func(row map[string]json.RawMessage) (bool, error) {
+		var who any // board.py compares the raw value: a row without who matches no owner
+		_ = json.Unmarshal(row["who"], &who)
+		name, isName := who.(string)
+		if isName && name == to {
+			return false, nil
+		}
+		if !isName || !owners[name] {
+			return false, errors.New("board owner changed")
+		}
+		row["who"] = rawJSON(to)
+		return true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("reassign board: %w", err)
 	}
 	return nil
 }
