@@ -337,9 +337,8 @@ def accept_problems(targets, reads, cwd):
         elif notes:
             ids = board_ids_for_notes(notes)
             recs = [r for r in held if str(r.get("board")).isdigit() and int(r["board"]) in ids]
-        else:  # 不写是哪件：ws-pass 只在本频道只有一件时自己认
+        else:  # 不写是哪件：本频道挂着的每份都查（几份都挂着时不留后门；用户 11-14 打回）
             recs = [r for r in held if not chat or str(r.get("chat")) == chat]
-            recs = recs if len(recs) == 1 else []
         for r in recs:
             key = r.get("key") or id(r)
             if key in done:
@@ -361,8 +360,9 @@ def accept_problems(targets, reads, cwd):
             tag = "#%s" % r.get("board")
             if unseen:
                 problems.append("【没看过截图】%s 的汇报里列了 %d 张图，你这个会话还没打开过 %d 张：\n  %s\n"
-                                "逐张用 Read 打开，对着交接的用户原话和验收看界面对不对，再 %s。"
-                                % (tag, len(imgs), len(unseen), "\n  ".join(unseen), tool))
+                                "逐张用 Read 打开，对着交接的用户原话和验收看界面对不对，再 %s%s。"
+                                % (tag, len(imgs), len(unseen), "\n  ".join(unseen), tool,
+                                   "" if (nid or notes) else "（没写编号时本频道挂着的每份都查；只放行一件就带 --id）"))
             if dup:
                 problems.append("【重复截图】%s 的汇报里这些截图内容完全相同（同一张图换了名字，证明不了它说的不同场景）：\n  %s\n"
                                 "用 ws-forward --id %s \"打回：这几张截图是同一张，补拍各自的场景\" 打回补拍。"
