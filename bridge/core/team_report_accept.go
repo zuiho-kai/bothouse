@@ -429,6 +429,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	e.saveReportsLocked()
 	e.teamExit.mu.Unlock()
 	e.postToTaskThreadContext(ctx, p, cp.Session, text)
+	e.postTaskForumNode(cp.Board, text)
 	slog.Info("report accept: report posted", "board_item", cp.Board, "workspace", cp.Workspace, "parent", cp.Chat, "unchecked", unchecked, "verdict", truncateStr(verdict, 200))
 	return nil
 }

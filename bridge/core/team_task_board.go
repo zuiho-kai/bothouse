@@ -75,6 +75,8 @@ type teamTaskBoardItem struct {
 	ProgressAt float64 `json:"progress_at"`
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
+	// Post: the item's task-forum post link (board post, written by team_task_forum.go).
+	Post string `json:"post"`
 
 	ReviewRejected string `json:"review_rejected"`
 	Dispatcher     string `json:"dispatcher"`

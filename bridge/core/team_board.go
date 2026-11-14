@@ -133,6 +133,8 @@ func (e *Engine) runTeamBoard(gen uint64) {
 				}
 			}
 		}
+		// The task forum shows the same board, in the same pass (team_task_forum.go).
+		e.syncTaskForum()
 	}
 }
 
