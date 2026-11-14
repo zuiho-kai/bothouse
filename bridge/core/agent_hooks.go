@@ -56,10 +56,11 @@ var agentHooks = []agentHook{
 	{"codemap-fill", "SubagentStop", "", 10},
 }
 
-// retiredAgentHooks: guards deleted in #1627 (batch 16). They judged how the model words a reply
+// retiredAgentHooks: guards deleted in #1627 (batches 16 and 20; anti-spin-guard matched words in
+// the timer's prompt, the bridge now counts wakes in anti_spin.go). They judged how the model words a reply
 // (regexes over the reply or the user's sentence), not a fact a machine can check; a guard stays
 // only when it checks a fact (a file exists, a command ran, a PR merged).
-var retiredAgentHooks = []string{"ask-only-guard", "fix-claim-guard", "promise-guard", "check-first-guard", "eta_guard"}
+var retiredAgentHooks = []string{"ask-only-guard", "fix-claim-guard", "promise-guard", "check-first-guard", "eta_guard", "anti-spin-guard"}
 
 // Code maps use each backend's dispatch and completion events; Gemini uses AfterTool.
 var codeMapHooks = []string{"codemap-inject", "codemap-fill"}
