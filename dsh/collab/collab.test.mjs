@@ -7529,3 +7529,12 @@ test('#197 merge develop: a CLI start failure before the session is ready does n
   assert.ok(prompts[1].includes(marker), 'and its content');
   await members.close(); hub.store.close();
 });
+
+test('walk 11-14: DSH members are not told to run ws-up, --kind start or bothouse vent (commands DSH has none of)', async () => {
+  const { dshTeamModeRules } = await import('./dsh-member.mjs');
+  for (const cli of [false, true]) {
+    const rules = dshTeamModeRules(undefined, { cli });
+    assert.doesNotMatch(rules, /ws-up|--kind start|bothouse vent/, `cli=${cli}`);
+    assert.match(rules, /回复首行写 \[report\]，要问用户首行写 \[ask\]/);
+  }
+});

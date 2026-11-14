@@ -172,9 +172,12 @@ export function lengthProblems(summary) {
 }
 
 /** The part for the user names numbers, workspaces, branches, paths or identifiers, or has a table (Go: jargonProblems). */
-export function jargonProblems(line) {
+export function jargonProblems(line, asked = '') {
   const problems = [];
-  const hits = [...String(line).replace(JARGON_URL, ' ').matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''));
+  // A name the task itself was asked with (its title, the user's own words: 「写个 hello.py」) is no jargon to the user.
+  const own = String(asked);
+  const hits = [...String(line).replace(JARGON_URL, ' ').matchAll(JARGON_LINE)].map(m => m[0].replace(/^[^~/`#!_\-0-9A-Za-z＃！工]+/u, ''))
+    .filter(h => h === '' || !own.includes(h));
   if (hits.length) problems.push(RULES.jargon.line.replaceAll('{hits}', hits.join('、')));
   if (JARGON_TABLE.test(line)) problems.push(RULES.jargon.table);
   return problems;
@@ -192,13 +195,13 @@ export function exitBounceText(kind, problems) {
  * legacy: the format is still wrong but bounces stopped waking the member (the bridge's chat lead
  * rewrites it; DSH posts it without the headline).
  */
-export function judgeExit(kind, body, { known, bounces = 0 }) {
+export function judgeExit(kind, body, { known, bounces = 0, title = () => '' }) {
   const askProblems = kind === 'ask' ? askEvidenceProblems(body) : [];
   const routeProblems = selfRouteProblems(body);
   const problems = [...askProblems];
   let { id, line, problems: hp } = exitHeadline(body);
   if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
-  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line), ...lengthProblems(line)];
+  else if (!hp.length) hp = [...summaryProblems(line), ...jargonProblems(line, title(id)), ...lengthProblems(line)];
   if (routeProblems.length) {
     if (bounces >= BOUNCE_WAKE_LIMIT && !askProblems.length) return { id, line, problems: [], legacy: true, check: routeProblems };
     problems.push(...routeProblems);
@@ -329,7 +332,7 @@ export class TeamExit {
     let headline;
     if (mark) {
       const bounces = this.bounces.get(`${room.id}:${msg.author}`) ?? 0;
-      const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces });
+      const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces, title: id => this.hub.tasks?.task?.(id)?.title ?? '' });
       if (v.problems.length) {
         if (selfRouteProblems(mark.body).length) this.rejectedMessages.add(msg.id);
         return this.bounce(room, msg, v.problems, mark.kind);

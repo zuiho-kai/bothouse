@@ -405,7 +405,9 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   if (message.author_kind === 'system' && (role === 'none' || role === 'task')) {
     return (
       <div className={[css.systemRecord, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} role="note">
-        <div className={css.systemLine}>
+        {/* A multi-line notice (a workspace's 📬 report) reads as a left-aligned block: centered between
+            two rules its lines ran into the rules (walk 11-14). */}
+        <div className={markdown.includes('\n') ? `${css.systemLine} ${css.systemBlock}` : css.systemLine}>
           <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
         </div>
         {/* A task record keeps its live card, centered under the line. */}
@@ -1195,8 +1197,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
   }
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
-  // Match the settings selector: an explicit room null must not fall back to the global role.
-  const leadId = room?.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id
+  // The lead who dispatches and accepts here (tasks.mjs: the room's own lead, else the global one).
+  // Not room.effective_lead_id: that is who answers an un-@'d message, null in an unset room with two
+  // members, so a fresh install read 「未设主角色」 while its auto-picked lead dispatched (walk 11-14).
+  const leadId = room?.lead_id != null ? room.lead_id : state.effectiveLeadId ?? state.leadId
   const lead = visibleMembers.find(member => member.id === leadId)
   // No lead yet: say whether none is set or the member list has not arrived, never a made-up status.
   const leadStatus = lead !== undefined

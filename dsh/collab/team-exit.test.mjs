@@ -186,3 +186,13 @@ test('a part over two sentences goes back, never cut (11-10「为什么回复那
   assert.ok(p[0].includes('「背景」那段写了 3 句'));
   assert.deepEqual(lengthProblems('背景：修汇报。\n改好了。已上线。要你做的：没有。\n我加的：无'), []);
 });
+
+test('a name the task was asked with is not jargon in its report (DSH walk 11-14: 「写个 hello.py」)', async () => {
+  assert.deepEqual(jargonProblems('已写好 hello.py 并跑通', '帮我写个 hello.py，打印当前时间'), []);
+  assert.equal(jargonProblems('已写好 hello.py 和 util.py', '帮我写个 hello.py').length, 1, 'a name the user never wrote still goes back');
+  const { hub, say, chat, back } = setup();
+  hub.tasks.task = id => (id === 1 ? { id: 1, title: '帮我写个 hello.py，打印当前时间' } : undefined);
+  await say('[report] #1 背景：你让我写个 hello.py 打印时间。\n写好跑通了，输出是当前时间。\n要你做的：没有。\n我加的：无');
+  assert.equal(back().length, 0, 'no bounce for the user\'s own word');
+  assert.match(chat()[0].text, /hello\.py/);
+});

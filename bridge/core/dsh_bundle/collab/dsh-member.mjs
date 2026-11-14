@@ -58,6 +58,11 @@ const DSH_ABSENT = [
   [/截图用 ws-up --image 推；/, ''],
   [/；用户要新频道用 `bothouse channel create <名字>`，不自己调 Discord API。/, '。'],
   [/^- 收口.*`board pause <编号>`.*\n/m, ''],
+  // Walk 11-14: with ws-up in its rules a DSH member searched PATH for it and wrote a /tmp draft for it;
+  // in DSH the reply itself hands back: [report] / [ask] as its first line.
+  [/在工作区交结果跑 ws-up --report <草稿文件>，提问跑 ws-up --ask，回复不算交回（DSH 协作页照旧首行写 \[report\]）。草稿首行/, '在工作区交结果：回复首行写 [report]，要问用户首行写 [ask]，不带这两个标记的回复不算交回。首行'],
+  [/^- 多步骤自己做的活先开公开任务卡（先发 --kind start）；.*\n/m, ''],
+  [/；卡在工具上当场 `bothouse vent "<一句话>"`，不等汇报。/, '。'],
 ];
 export function dshTeamModeRules(mode, { cli = false } = {}) {
   let rules = teamModeRules(mode);
