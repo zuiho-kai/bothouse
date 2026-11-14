@@ -209,7 +209,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     dshTeamModeRules(mode, { cli }),
     // Walk 11-14: woken here on the 【交接】 row, a member read it as a new big job and answered 【接】
     // again, then stopped: nothing said this room is the workspace that 【接】 leads to.
-    ...(room.kind === 'workspace' ? [`这里是 #${store?.room?.(room.parent_id)?.name ?? '聊天频道'} 的工作区，活已经交到你手上：不要再回【接】，直接动手做，做完回复首行写 [report] 交回；要用户拍板首行写 [ask]。`] : []),
+    ...(room.kind === 'workspace' ? [`这里是 #${store?.room?.(room.parent_id)?.name ?? '聊天频道'} 的工作区，活已经交到你手上：不要再回【接】，直接动手做，做完回复首行写 [report] 交回；要用户拍板首行写 [ask]。几个人同做一件活时，你那一份做完就交回自己那份，不用等别人。`] : []),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
