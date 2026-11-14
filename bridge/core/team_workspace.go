@@ -1951,7 +1951,7 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	stopped := 0
 	if stop {
 		for _, x := range e.watchEngines() {
-			stopped += x.stopChannel(plat, key)
+			stopped += x.stopChannel(plat, key, "")
 		}
 	}
 	e.ResetTeamWorkspaceSessions(key)
