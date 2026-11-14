@@ -1,7 +1,6 @@
 package core
 
 import (
-	"maps"
 	"bufio"
 	"bytes"
 	"context"
@@ -12,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -380,6 +380,7 @@ type RateLimitCfg struct {
 
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
+	taskForumOff           atomic.Bool
 	proactiveMu            sync.Mutex
 	proactiveAuthorization *ProactiveAuthorization
 	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
@@ -461,8 +462,8 @@ type Engine struct {
 	maxQueuedMessages            int
 	gate                         atomic.Pointer[gateState] // maomao fork: fast-brain gate (nil = off); config is swapped whole, see gateState
 	gateSetMu                    sync.Mutex                // serializes the gate config setters (copy, change, swap)
-	gateLocal                    bool        // built-in busy rules when gate is nil (gate_local.go)
-	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
+	gateLocal                    bool                      // built-in busy rules when gate is nil (gate_local.go)
+	tiers                        *modelTiers               // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex

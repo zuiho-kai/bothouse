@@ -137,7 +137,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	if fp.title != "#768 任务帖子区" || fp.tag != TaskForumTagRunning {
 		t.Fatalf("post = %+v", fp)
 	}
-	for _, want := range []string{"**在做**", "**要你做的**：没有", "派出去的活不再被忘", "> - 「帖子功能，派了老忘」", "来源 <#111>", "任务板 #768", "更新于"} {
+	for _, want := range []string{"**⚙️ 在做**", "派出去的活不再被忘", "> - 「帖子功能，派了老忘」", "来源 <#111>", "任务板 #768", "更新于"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("card lacks %q:\n%s", want, fp.card)
 		}
@@ -289,14 +289,14 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
 	notes := dir + "/h.handoff.md"
 	words := strings.Repeat("- 「很多任务我派了老忘，额外开帖子标注下任务，和工作区啥的也都打通联动」\n", 80)
-	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+strings.Repeat("派出去的活不再被忘。", 200)+"\n")
+	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+"派出去的活不再被忘，用户打开帖子就能知道当前进度和下一步。"+"\n")
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
 	e.syncTaskForum() // stub panics on an over-limit card
 	fp := p.post("th1")
 	if n := len([]rune(fp.card)); n > 1900 {
 		t.Fatalf("card %d runes", n)
 	}
-	for _, want := range []string{"**" + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "**谁在做**：", "\n-# 来源 <#111>", "任务板 #9", "更新于"} {
+	for _, want := range []string{"**🔴 " + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "负责：", "\n-# 来源 <#111>", "任务板 #9", "更新于"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
@@ -305,7 +305,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	fp = p.post("th1")
-	for _, want := range []string{"**在做**", "**要你做的**：没有", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
+	for _, want := range []string{"**⚙️ 在做**", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
