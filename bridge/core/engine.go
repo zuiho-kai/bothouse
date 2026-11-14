@@ -1,6 +1,7 @@
 package core
 
 import (
+	"maps"
 	"bufio"
 	"bytes"
 	"context"
@@ -444,8 +445,8 @@ type Engine struct {
 	userRoles    *UserRoleManager // nil = legacy mode (no per-user policies)
 	userRolesMu  sync.RWMutex     // protects userRoles, disabledCmds, and adminFrom
 
-	rateLimiter      *RateLimiter
-	outgoingRL       *OutgoingRateLimiter
+	rateLimiter      atomic.Pointer[RateLimiter]         // swapped by SetRateLimitCfg (config reload)
+	outgoingRL       atomic.Pointer[OutgoingRateLimiter] // swapped by SetOutgoingRateLimitCfg
 	streamPreview    StreamPreviewCfg
 	instantReply     InstantReplyCfg
 	references       ReferenceRenderCfg
@@ -1638,15 +1639,23 @@ func (e *Engine) SetBannedWords(words []string) {
 // SetRateLimitCfg configures per-session message rate limiting.
 // It stops the previous rate limiter's background goroutine before replacing it.
 func (e *Engine) SetRateLimitCfg(cfg RateLimitCfg) {
-	if e.rateLimiter != nil {
-		e.rateLimiter.Stop()
+	next := NewRateLimiter(cfg.MaxMessages, cfg.Window)
+	if old := e.rateLimiter.Load(); old != nil {
+		if old.maxMessages == next.maxMessages && old.windowMs == next.windowMs {
+			next.Stop() // unchanged on a reload: keep the counts collected so far
+			return
+		}
+		defer old.Stop()
 	}
-	e.rateLimiter = NewRateLimiter(cfg.MaxMessages, cfg.Window)
+	e.rateLimiter.Store(next)
 }
 
 // SetOutgoingRateLimitCfg configures per-platform outgoing message throttling.
 func (e *Engine) SetOutgoingRateLimitCfg(defaults OutgoingRateLimitCfg, overrides map[string]OutgoingRateLimitCfg) {
-	e.outgoingRL = NewOutgoingRateLimiter(defaults, overrides)
+	if old := e.outgoingRL.Load(); old != nil && old.defaults == defaults && maps.Equal(old.overrides, overrides) {
+		return // unchanged on a reload: keep the token buckets
+	}
+	e.outgoingRL.Store(NewOutgoingRateLimiter(defaults, overrides))
 }
 
 // checkRateLimit returns true if the message is allowed, false if rate-limited.
@@ -1674,7 +1683,8 @@ func (e *Engine) checkRateLimit(msg *Message) bool {
 		// Role has no rate_limit config — fall through to global, keyed by user
 	}
 	// Global rate limiter
-	if e.rateLimiter == nil {
+	rl := e.rateLimiter.Load()
+	if rl == nil {
 		return true
 	}
 	// When users config active: key by userID (per-user); otherwise sessionKey (legacy)
@@ -1682,7 +1692,7 @@ func (e *Engine) checkRateLimit(msg *Message) bool {
 	if urm != nil && msg.UserID != "" {
 		key = msg.UserID
 	}
-	return e.rateLimiter.Allow(key)
+	return rl.Allow(key)
 }
 
 // SetStreamPreviewCfg configures the streaming preview behavior.
@@ -1708,11 +1718,12 @@ func (e *Engine) SetEventIdleTimeout(d time.Duration) {
 }
 
 // SetMaxQueuedMessages sets the per-session message queue depth.
-// Values <= 0 are ignored.
+// Values <= 0 mean the default depth.
 func (e *Engine) SetMaxQueuedMessages(n int) {
-	if n > 0 {
-		e.maxQueuedMessages = n
+	if n <= 0 {
+		n = defaultMaxQueuedMessages
 	}
+	e.maxQueuedMessages = n
 }
 
 func (e *Engine) SetRelayManager(rm *RelayManager) {
@@ -3193,8 +3204,8 @@ func (e *Engine) Stop() error {
 	// SIGKILLed so no agent survives the bridge (#618 K3).
 	closeSessionsWithBudget(sessions, engineStopCloseBudget)
 
-	if e.rateLimiter != nil {
-		e.rateLimiter.Stop()
+	if rl := e.rateLimiter.Load(); rl != nil {
+		rl.Stop()
 	}
 	e.userRolesMu.Lock()
 	if e.userRoles != nil {
@@ -6175,6 +6186,9 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 }
 
 const defaultEventIdleTimeout = 2 * time.Hour
+
+// DefaultEventIdleTimeout is the event idle timeout an engine has when the config sets none.
+const DefaultEventIdleTimeout = defaultEventIdleTimeout
 
 // cardToolEntry stores a tool call record for card content rendering.
 type cardToolEntry struct {
@@ -15139,10 +15153,11 @@ func (e *Engine) sendAskQuestionPrompt(p Platform, replyCtx any, questions []Use
 
 // waitOutgoing blocks on the per-platform outgoing rate limiter when enabled.
 func (e *Engine) waitOutgoing(p Platform) error {
-	if e.outgoingRL == nil {
+	orl := e.outgoingRL.Load()
+	if orl == nil {
 		return nil
 	}
-	return e.outgoingRL.Wait(e.ctx, p.Name())
+	return orl.Wait(e.ctx, p.Name())
 }
 
 func (e *Engine) renderOutgoingContentForWorkspace(p Platform, content, workspaceDir string) string {
@@ -15157,8 +15172,8 @@ func (e *Engine) sendWithErrorForWorkspace(p Platform, replyCtx any, content, wo
 }
 
 func (e *Engine) sendWithContextForWorkspace(ctx context.Context, p Platform, replyCtx any, content, workspaceDir string) error {
-	if e.outgoingRL != nil {
-		if err := e.outgoingRL.Wait(ctx, p.Name()); err != nil {
+	if orl := e.outgoingRL.Load(); orl != nil {
+		if err := orl.Wait(ctx, p.Name()); err != nil {
 			return err
 		}
 	}

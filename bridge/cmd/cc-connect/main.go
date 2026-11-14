@@ -1064,24 +1064,6 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 
 	engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
 	b.engine = engine
-	// Wire display settings including show_context_indicator and reply_footer
-	// Global [display] config can be overridden by project-level settings
-	_, _, _, _, _, showCtx, showFooter, _ := config.EffectiveDisplay(cfg, &proj)
-	engine.SetShowContextIndicator(showCtx)
-	showWorkdir := true
-	if proj.ShowWorkdirIndicator != nil {
-		showWorkdir = *proj.ShowWorkdirIndicator
-	}
-	engine.SetShowWorkdirIndicator(showWorkdir)
-	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
-	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
-	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
-	engine.SetQueuedNoticeEnabled(proj.QueuedNotice == nil || *proj.QueuedNotice)
-	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
-	engine.SetReplyFooterEnabled(showFooter)
-	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
-	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
 	engine.SetBaseWorkDir(workDir)
 	engine.SetProjectStateStore(projectState)
 	engine.SetDataDir(cfg.DataDir)
@@ -1170,12 +1152,6 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		}
 	}
 
-	// Wire global custom commands
-	for _, c := range cfg.Commands {
-		engine.AddCommand(c.Name, c.Description, c.Prompt, c.Exec, c.WorkDir, "config")
-	}
-
-	// Wire command persistence callbacks
 	engine.SetCommandSaveAddFunc(func(name, description, prompt, exec, workDir string) error {
 		return config.AddCommand(config.CommandConfig{Name: name, Description: description, Prompt: prompt, Exec: exec, WorkDir: workDir})
 	})
@@ -1183,50 +1159,12 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		return config.RemoveCommand(name)
 	})
 
-	// Wire global aliases
-	for _, a := range cfg.Aliases {
-		engine.AddAlias(a.Name, a.Command)
-	}
 	engine.SetAliasSaveAddFunc(func(name, command string) error {
 		return config.AddAlias(config.AliasConfig{Name: name, Command: command})
 	})
 	engine.SetAliasSaveDelFunc(func(name string) error {
 		return config.RemoveAlias(name)
 	})
-
-	// Wire banned words
-	if len(cfg.BannedWords) > 0 {
-		engine.SetBannedWords(cfg.BannedWords)
-	}
-
-	// Wire disabled commands (project-level)
-	if len(proj.DisabledCommands) > 0 {
-		engine.SetDisabledCommands(proj.DisabledCommands)
-	}
-
-	// Wire admin allowlist for privileged commands
-	engine.SetAdminFrom(proj.AdminFrom)
-
-	// Wire per-user role-based policies
-	if proj.Users != nil {
-		engine.SetUserRoles(buildUserRoleManager(proj.Users))
-	}
-
-	// Wire display truncation settings (includes legacy quiet → display mapping)
-	{
-		mode, tm, tool, tmlen, toollen, _, _, hideAgentFooter := config.EffectiveDisplay(cfg, &proj)
-		historyMaxLen := config.EffectiveHistoryMaxLen(cfg, &proj)
-		engine.SetDisplayConfig(core.DisplayCfg{
-			Mode:             mode,
-			CardMode:         config.EffectiveCardMode(cfg, &proj),
-			ThinkingMessages: tm,
-			ThinkingMaxLen:   tmlen,
-			ToolMaxLen:       toollen,
-			ToolMessages:     tool,
-			HistoryMaxLen:    &historyMaxLen,
-			HideAgentFooter:  hideAgentFooter,
-		})
-	}
 
 	// Wire shell configuration
 	shell, shellFlag, shellProfile := config.EffectiveShell(cfg, &proj)
@@ -1278,139 +1216,12 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		engine.SetStreamPreviewCfg(spcfg)
 	}
 
-	// Wire instant reply
-	if cfg.InstantReply.Enabled != nil && *cfg.InstantReply.Enabled {
-		engine.SetInstantReply(core.InstantReplyCfg{
-			Enabled: true,
-			Content: cfg.InstantReply.Content,
-		})
-	}
-
-	// Wire rate limiting
-	{
-		maxMsg := 20
-		windowSecs := 60
-		if cfg.RateLimit.MaxMessages != nil {
-			maxMsg = *cfg.RateLimit.MaxMessages
-		}
-		if cfg.RateLimit.WindowSecs != nil {
-			windowSecs = *cfg.RateLimit.WindowSecs
-		}
-		if maxMsg > 0 {
-			engine.SetRateLimitCfg(core.RateLimitCfg{
-				MaxMessages: maxMsg,
-				Window:      time.Duration(windowSecs) * time.Second,
-			})
-		}
-	}
-	// Wire outgoing rate limiting
-	{
-		var maxPS float64
-		if cfg.OutgoingRateLimit.MaxPerSecond != nil {
-			maxPS = *cfg.OutgoingRateLimit.MaxPerSecond
-		}
-		var burst int
-		if cfg.OutgoingRateLimit.Burst != nil {
-			burst = *cfg.OutgoingRateLimit.Burst
-		}
-		defaults := core.OutgoingRateLimitCfg{MaxPerSecond: maxPS, Burst: burst}
-		overrides := make(map[string]core.OutgoingRateLimitCfg)
-		for name, pc := range cfg.OutgoingRateLimit.Platforms {
-			var mps float64
-			if pc.MaxPerSecond != nil {
-				mps = *pc.MaxPerSecond
-			}
-			var b int
-			if pc.Burst != nil {
-				b = *pc.Burst
-			}
-			overrides[name] = core.OutgoingRateLimitCfg{MaxPerSecond: mps, Burst: b}
-		}
-		if maxPS > 0 || len(overrides) > 0 {
-			engine.SetOutgoingRateLimitCfg(defaults, overrides)
-		}
-	}
-
 	engine.SetDisplaySaveFunc(func(mode *string, thinkingMessages *bool, thinkingMaxLen, toolMaxLen *int, toolMessages *bool) error {
 		return config.SaveDisplayConfig(mode, thinkingMessages, thinkingMaxLen, toolMaxLen, toolMessages)
 	})
 
-	// Wire idle timeout
-	if cfg.IdleTimeoutMins != nil {
-		mins := *cfg.IdleTimeoutMins
-		if mins <= 0 {
-			engine.SetEventIdleTimeout(0)
-		} else {
-			engine.SetEventIdleTimeout(time.Duration(mins) * time.Minute)
-		}
-	}
-
-	// Wire max turn time (absolute per-turn wall-clock cap; 0 = disabled)
-	if cfg.MaxTurnTimeMins != nil && *cfg.MaxTurnTimeMins > 0 {
-		engine.SetMaxTurnTime(time.Duration(*cfg.MaxTurnTimeMins) * time.Minute)
-	}
-
-	// Wire queue depth
-	if cfg.Queue.MaxDepth != nil && *cfg.Queue.MaxDepth > 0 {
-		engine.SetMaxQueuedMessages(*cfg.Queue.MaxDepth)
-	}
-	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
-	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
-	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
-
-	// Wire auto-compress settings
-	if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {
-		minGap := 30 * time.Minute
-		if proj.AutoCompress.MinGapMins != nil {
-			minGap = time.Duration(*proj.AutoCompress.MinGapMins) * time.Minute
-		}
-		maxTokens := derefInt(proj.AutoCompress.MaxTokens)
-		if maxTokens <= 0 {
-			maxTokens = 12000
-		}
-		engine.SetAutoCompressConfig(true, maxTokens, minGap)
-	}
-	wireColdCacheFresh(engine, proj)
-	wireImageFresh(engine, proj)
-	engine.SetSessionModels(proj.SessionModels)
-	engine.SetSessionInstructions(proj.SessionInstructions)
-	engine.SetWorkspaceExec(proj.WorkspaceProvider, proj.WorkspaceModel)
-	engine.SetWorkspaceExecDS(proj.WorkspaceDSProvider, proj.WorkspaceDSModel)
-	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
-	engine.SetGateLocal(proj.GateLocalEnabled())
-	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
-	engine.SetGateSenderSilence(proj.GateSenderSilenceEnabled(), proj.GateSenderSilenceMs, proj.GateSenderSilenceMax)
-	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
-	engine.SetFallbackModels(proj.FallbackModels)
-	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
-	engine.SetChannelBoard(proj.ChannelBoard)
-	engine.SetMemoryIndex(proj.MemoryIndex)
-	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
-	engine.SetLifePage(proj.LifePage)
-	engine.SetTeamBoard(proj.TeamBoardEnabled())
-	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
-	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
-	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
-	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
-	engine.SetDispatchMode(proj.DispatchMode)
-	engine.SetVoiceDesk(proj.VoiceDesk)
-	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
-	engine.SetResetOnIdle(resetIdle)
-	if defaulted {
-		slog.Info("project: reset_on_idle_mins not set, applying default — set reset_on_idle_mins = 0 to opt out, see docs/usage.md",
-			"project", proj.Name, "default_minutes", defaultResetOnIdleMins)
-	}
-	if proj.AgentSessionIdleTimeoutMins != nil {
-		mins := *proj.AgentSessionIdleTimeoutMins
-		if mins <= 0 {
-			engine.SetAgentSessionIdleTimeout(0)
-		} else {
-			engine.SetAgentSessionIdleTimeout(time.Duration(mins) * time.Minute)
-		}
-	}
-
-	// Wire sender injection
-	engine.SetInjectSender(proj.InjectSenderEnabled())
+	// Everything a config reload may change is applied by one function, shared with reloadConfig.
+	applyProjectSettings(engine, cfg, proj)
 
 	// Wire speech-to-text if enabled
 	if cfg.Speech.Enabled {
@@ -2049,6 +1860,167 @@ func configuredLeadCandidates(dataDir string, projs []config.ProjectConfig) []co
 	return out
 }
 
+// applyProjectSettings applies every setting that may change while the bridge runs. buildProject
+// calls it once at startup and reloadConfig calls it on every reload, so a setting cannot be
+// wired in one path and forgotten in the other. Each value is set unconditionally (an option
+// removed from the config goes back to its default). Settings that need a restart (work dir,
+// platforms, hooks, shell, speech, TTS, stream preview, references) stay in buildProject; the
+// save/callback funcs are wired there too because they never change.
+func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.ProjectConfig) {
+	// Display (includes legacy quiet → display mapping), indicators and injected notes.
+	mode, tm, tool, tmlen, toollen, showCtx, showFooter, hideAgentFooter := config.EffectiveDisplay(cfg, &proj)
+	historyMaxLen := config.EffectiveHistoryMaxLen(cfg, &proj)
+	engine.SetDisplayConfig(core.DisplayCfg{
+		Mode:             mode,
+		CardMode:         config.EffectiveCardMode(cfg, &proj),
+		ThinkingMessages: tm,
+		ThinkingMaxLen:   tmlen,
+		ToolMaxLen:       toollen,
+		ToolMessages:     tool,
+		HistoryMaxLen:    &historyMaxLen,
+		HideAgentFooter:  hideAgentFooter,
+	})
+	engine.SetShowContextIndicator(showCtx)
+	engine.SetShowWorkdirIndicator(proj.ShowWorkdirIndicator == nil || *proj.ShowWorkdirIndicator)
+	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
+	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
+	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
+	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
+	engine.SetQueuedNoticeEnabled(proj.QueuedNotice == nil || *proj.QueuedNotice)
+	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
+	engine.SetReplyFooterEnabled(showFooter)
+	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
+	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
+	engine.SetInjectSender(proj.InjectSenderEnabled())
+	if cfg.InstantReply.Enabled != nil && *cfg.InstantReply.Enabled {
+		engine.SetInstantReply(core.InstantReplyCfg{Enabled: true, Content: cfg.InstantReply.Content})
+	} else {
+		engine.SetInstantReply(core.InstantReplyCfg{})
+	}
+
+	// Commands, aliases and who may use what.
+	engine.ClearCommands("config")
+	for _, c := range cfg.Commands {
+		engine.AddCommand(c.Name, c.Description, c.Prompt, c.Exec, c.WorkDir, "config")
+	}
+	engine.ClearAliases()
+	for _, a := range cfg.Aliases {
+		engine.AddAlias(a.Name, a.Command)
+	}
+	engine.SetBannedWords(cfg.BannedWords)
+	engine.SetDisabledCommands(proj.DisabledCommands)
+	engine.SetAdminFrom(proj.AdminFrom)
+	if proj.Users != nil {
+		engine.SetUserRoles(buildUserRoleManager(proj.Users))
+	} else {
+		engine.SetUserRoles(nil)
+	}
+
+	// Limits: incoming and outgoing rate, turn timeouts, queue depth.
+	{
+		maxMsg, windowSecs := 20, 60
+		if cfg.RateLimit.MaxMessages != nil {
+			maxMsg = *cfg.RateLimit.MaxMessages
+		}
+		if cfg.RateLimit.WindowSecs != nil {
+			windowSecs = *cfg.RateLimit.WindowSecs
+		}
+		engine.SetRateLimitCfg(core.RateLimitCfg{MaxMessages: max(maxMsg, 0), Window: time.Duration(windowSecs) * time.Second})
+	}
+	{
+		var defaults core.OutgoingRateLimitCfg
+		if cfg.OutgoingRateLimit.MaxPerSecond != nil {
+			defaults.MaxPerSecond = *cfg.OutgoingRateLimit.MaxPerSecond
+		}
+		if cfg.OutgoingRateLimit.Burst != nil {
+			defaults.Burst = *cfg.OutgoingRateLimit.Burst
+		}
+		overrides := make(map[string]core.OutgoingRateLimitCfg)
+		for name, pc := range cfg.OutgoingRateLimit.Platforms {
+			var o core.OutgoingRateLimitCfg
+			if pc.MaxPerSecond != nil {
+				o.MaxPerSecond = *pc.MaxPerSecond
+			}
+			if pc.Burst != nil {
+				o.Burst = *pc.Burst
+			}
+			overrides[name] = o
+		}
+		engine.SetOutgoingRateLimitCfg(defaults, overrides)
+	}
+	eventIdle := core.DefaultEventIdleTimeout
+	if cfg.IdleTimeoutMins != nil {
+		eventIdle = time.Duration(max(*cfg.IdleTimeoutMins, 0)) * time.Minute
+	}
+	engine.SetEventIdleTimeout(eventIdle)
+	// Absolute per-turn wall-clock cap; 0 = disabled.
+	var maxTurn time.Duration
+	if cfg.MaxTurnTimeMins != nil && *cfg.MaxTurnTimeMins > 0 {
+		maxTurn = time.Duration(*cfg.MaxTurnTimeMins) * time.Minute
+	}
+	engine.SetMaxTurnTime(maxTurn)
+	engine.SetMaxQueuedMessages(derefInt(cfg.Queue.MaxDepth))              // <= 0 = the default depth
+	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
+	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
+	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
+
+	// Session lifetime and context.
+	if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {
+		minGap := 30 * time.Minute
+		if proj.AutoCompress.MinGapMins != nil {
+			minGap = time.Duration(*proj.AutoCompress.MinGapMins) * time.Minute
+		}
+		maxTokens := derefInt(proj.AutoCompress.MaxTokens)
+		if maxTokens <= 0 {
+			maxTokens = 12000
+		}
+		engine.SetAutoCompressConfig(true, maxTokens, minGap)
+	} else {
+		engine.SetAutoCompressConfig(false, 0, 0)
+	}
+	wireColdCacheFresh(engine, proj)
+	wireImageFresh(engine, proj)
+	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
+	engine.SetResetOnIdle(resetIdle)
+	if defaulted {
+		slog.Info("project: reset_on_idle_mins not set, applying default — set reset_on_idle_mins = 0 to opt out, see docs/usage.md",
+			"project", proj.Name, "default_minutes", defaultResetOnIdleMins)
+	}
+	// Set explicitly even when the option is absent: a reload may remove it after timers were
+	// scheduled, and those stale idle-close timers must not fire later.
+	var agentIdle time.Duration
+	if proj.AgentSessionIdleTimeoutMins != nil && *proj.AgentSessionIdleTimeoutMins > 0 {
+		agentIdle = time.Duration(*proj.AgentSessionIdleTimeoutMins) * time.Minute
+	}
+	engine.SetAgentSessionIdleTimeout(agentIdle)
+
+	// Models, gate and routing.
+	engine.SetSessionModels(proj.SessionModels)
+	engine.SetSessionInstructions(proj.SessionInstructions)
+	engine.SetWorkspaceExec(proj.WorkspaceProvider, proj.WorkspaceModel)
+	engine.SetWorkspaceExecDS(proj.WorkspaceDSProvider, proj.WorkspaceDSModel)
+	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
+	engine.SetGateLocal(proj.GateLocalEnabled())
+	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
+	engine.SetGateSenderSilence(proj.GateSenderSilenceEnabled(), proj.GateSenderSilenceMs, proj.GateSenderSilenceMax)
+	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
+	engine.SetFallbackModels(proj.FallbackModels)
+
+	// Team.
+	engine.SetTeam(projectTeamStatus(cfg.DataDir, proj))
+	engine.SetChannelBoard(proj.ChannelBoard)
+	engine.SetMemoryIndex(proj.MemoryIndex)
+	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
+	engine.SetLifePage(proj.LifePage)
+	engine.SetTeamBoard(proj.TeamBoardEnabled())
+	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
+	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
+	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
+	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
+	engine.SetDispatchMode(proj.DispatchMode)
+	engine.SetVoiceDesk(proj.VoiceDesk)
+}
+
 func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -2075,111 +2047,9 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 		return nil, fmt.Errorf("project %q not found in config", projName)
 	}
 
-	// Reload display config (includes legacy quiet → display mapping)
-	mode, tm, tool, tmlen, toollen, showCtx, showFooter, hideAgentFooter := config.EffectiveDisplay(cfg, proj)
-	historyMaxLen := config.EffectiveHistoryMaxLen(cfg, proj)
-	engine.SetDisplayConfig(core.DisplayCfg{
-		Mode:             mode,
-		CardMode:         config.EffectiveCardMode(cfg, proj),
-		ThinkingMessages: tm,
-		ThinkingMaxLen:   tmlen,
-		ToolMaxLen:       toollen,
-		ToolMessages:     tool,
-		HistoryMaxLen:    &historyMaxLen,
-		HideAgentFooter:  hideAgentFooter,
-	})
+	applyProjectSettings(engine, cfg, *proj)
 	result.DisplayUpdated = true
-
-	// Wire show_context_indicator and reply_footer from display config
-	engine.SetShowContextIndicator(showCtx)
-	showWorkdir := true
-	if proj.ShowWorkdirIndicator != nil {
-		showWorkdir = *proj.ShowWorkdirIndicator
-	}
-	engine.SetShowWorkdirIndicator(showWorkdir)
-	engine.SetShowQuotaIndicator(proj.ShowQuotaIndicator == nil || *proj.ShowQuotaIndicator)
-	engine.SetShowQuotaStatus(proj.ShowQuotaStatus == nil || *proj.ShowQuotaStatus)
-	engine.SetSubagentPolicyEnabled(proj.InjectSubagentPolicy != nil && *proj.InjectSubagentPolicy)
-	engine.SetAgentIdentityEnabled(proj.AgentIdentityEnabled())
-	engine.SetQueuedNoticeEnabled(proj.QueuedNotice == nil || *proj.QueuedNotice)
-	engine.SetTeamModeRulesEnabled(proj.InjectTeamRules == nil || *proj.InjectTeamRules)
-	engine.SetReplyFooterEnabled(showFooter)
-
-	// Reload auto-compress settings
-	if proj.AutoCompress.Enabled != nil && *proj.AutoCompress.Enabled {
-		minGap := 30 * time.Minute
-		if proj.AutoCompress.MinGapMins != nil {
-			minGap = time.Duration(*proj.AutoCompress.MinGapMins) * time.Minute
-		}
-		maxTokens := derefInt(proj.AutoCompress.MaxTokens)
-		if maxTokens <= 0 {
-			maxTokens = 12000
-		}
-		engine.SetAutoCompressConfig(true, maxTokens, minGap)
-	} else {
-		engine.SetAutoCompressConfig(false, 0, 0)
-	}
-	wireColdCacheFresh(engine, *proj)
-	wireImageFresh(engine, *proj)
-	engine.SetSessionModels(proj.SessionModels)
-	engine.SetSessionInstructions(proj.SessionInstructions)
-	engine.SetWorkspaceExec(proj.WorkspaceProvider, proj.WorkspaceModel)
-	engine.SetWorkspaceExecDS(proj.WorkspaceDSProvider, proj.WorkspaceDSModel)
-	engine.SetGate(proj.GateURL, proj.GateTimeoutMs, proj.GateFallback)
-	engine.SetGateLocal(proj.GateLocalEnabled())
-	engine.SetGateBurstWindow(proj.GateBurstWindowMs)
-	engine.SetGateSenderSilence(proj.GateSenderSilenceEnabled(), proj.GateSenderSilenceMs, proj.GateSenderSilenceMax)
-	engine.SetModelTiers(proj.ChatModel, proj.TaskModel, proj.ChatEffort, proj.TaskEffort, proj.ModelTierStickyMins)
-	engine.SetFallbackModels(proj.FallbackModels)
-	engine.SetTeam(projectTeamStatus(cfg.DataDir, *proj))
-	engine.SetChannelBoard(proj.ChannelBoard)
-	engine.SetMemoryIndex(proj.MemoryIndex)
-	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
-	engine.SetLifePage(proj.LifePage)
-	engine.SetTeamBoard(proj.TeamBoardEnabled())
-	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
-	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
-	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
-	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
-	engine.SetDispatchMode(proj.DispatchMode)
-	engine.SetVoiceDesk(proj.VoiceDesk)
-	resetIdle, defaulted := resolveResetOnIdle(proj.ResetOnIdleMins)
-	engine.SetResetOnIdle(resetIdle)
-	if defaulted {
-		slog.Info("project: reset_on_idle_mins not set, applying default — set reset_on_idle_mins = 0 to opt out, see docs/usage.md",
-			"project", proj.Name, "default_minutes", defaultResetOnIdleMins)
-	}
-	if proj.AgentSessionIdleTimeoutMins != nil {
-		mins := *proj.AgentSessionIdleTimeoutMins
-		if mins <= 0 {
-			engine.SetAgentSessionIdleTimeout(0)
-		} else {
-			engine.SetAgentSessionIdleTimeout(time.Duration(mins) * time.Minute)
-		}
-	} else {
-		// A reload may remove this option after timers were scheduled; reset
-		// explicitly so those stale idle-close timers cannot fire later.
-		engine.SetAgentSessionIdleTimeout(0)
-	}
-
-	// Reload instant reply
-	if cfg.InstantReply.Enabled != nil && *cfg.InstantReply.Enabled {
-		engine.SetInstantReply(core.InstantReplyCfg{
-			Enabled: true,
-			Content: cfg.InstantReply.Content,
-		})
-	} else {
-		engine.SetInstantReply(core.InstantReplyCfg{})
-	}
-
-	// Reload sender injection
-	engine.SetInjectSender(proj.InjectSenderEnabled())
-
-	// Reload attachment send-back switch
-	engine.SetAttachmentSendEnabled(cfg.AttachmentSend != "off")
-
-	// Reload filter_external_sessions
-	engine.SetFilterExternalSessions(proj.FilterExternalSessions != nil && *proj.FilterExternalSessions)
+	result.CommandsUpdated = len(cfg.Commands)
 
 	// Reload providers
 	if ps, ok := engine.GetAgent().(core.ProviderSwitcher); ok {
@@ -2193,35 +2063,6 @@ func reloadConfig(configPath, projName string, engine *core.Engine, started map[
 		if active, _ := proj.Agent.Options["provider"].(string); active != "" {
 			ps.SetActiveProvider(active)
 		}
-	}
-
-	// Reload custom commands
-	engine.ClearCommands("config")
-	for _, c := range cfg.Commands {
-		engine.AddCommand(c.Name, c.Description, c.Prompt, c.Exec, c.WorkDir, "config")
-	}
-	result.CommandsUpdated = len(cfg.Commands)
-
-	// Reload aliases
-	engine.ClearAliases()
-	for _, a := range cfg.Aliases {
-		engine.AddAlias(a.Name, a.Command)
-	}
-
-	// Reload banned words
-	engine.SetBannedWords(cfg.BannedWords)
-
-	// Reload disabled commands
-	engine.SetDisabledCommands(proj.DisabledCommands)
-
-	// Reload admin allowlist
-	engine.SetAdminFrom(proj.AdminFrom)
-
-	// Reload per-user role-based policies
-	if proj.Users != nil {
-		engine.SetUserRoles(buildUserRoleManager(proj.Users))
-	} else {
-		engine.SetUserRoles(nil)
 	}
 
 	slog.Info("config reloaded", "project", projName)
