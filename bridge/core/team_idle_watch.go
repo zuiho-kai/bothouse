@@ -291,7 +291,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 			// fell back to the chat and got a 「接着做」 every lead turn).
 			if !inWorkspace && !accepted ||
 				it.own != key || it.wsEnded || it.Backlog != "" ||
-				it.Paused != "" && !(accepted && teamTaskBoardWaitUser.MatchString(it.PauseWhy)) {
+				it.Paused != "" && !(accepted && it.waitsUser()) {
 				continue
 			}
 			if !accepted && watchBoardWaiting(it.Status) {

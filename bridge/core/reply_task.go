@@ -296,7 +296,7 @@ func (e *Engine) forwardReplyToWorkspace(p Platform, msg *Message) {
 	// resumes it with the answer in a free workspace (ws-handoff --resume). 11-01 #855: the user
 	// answered the lead's relay of the question, the answer stayed in the chat channel and the
 	// workspace asked again.
-	asked := it.Paused != "" && teamTaskBoardWaitUser.MatchString(it.PauseWhy)
+	asked := it.waitsUser()
 	if it.Backlog != "" || !asked && (it.WS == "" || it.Paused != "" || !e.workspaceHasOpenHandoff(it.WS)) {
 		return
 	}

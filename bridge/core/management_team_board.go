@@ -38,7 +38,7 @@ func (m *ManagementServer) handleTeamBoard(w http.ResponseWriter, r *http.Reques
 	items := []item{}
 	if dir != "" {
 		for _, it := range readTeamTaskBoard(dir) {
-			if it.Backlog != "" || teamTaskBoardDone.MatchString(it.Status) {
+			if it.Backlog != "" || it.statusClosed() {
 				continue
 			}
 			name := strings.TrimSpace(it.Short)

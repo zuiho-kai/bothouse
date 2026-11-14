@@ -233,10 +233,10 @@ def main(argv):
             sys.exit(f"ws-up: #{stopped[0]['id']} 已挪进待办，不上报；停手，等聊天频道重新交活（board backlog 看）")
         sys.exit(f"ws-up: #{stopped[0]['id']} 已被暂停（用户叫停），不上报；停手，等聊天频道重新交活")
     rec = handoffs(last)[path]
-    if board.is_test(rec.get("task") or ""):
-        # 测试活不往用户的聊天频道报（board.is_test），只留在工作区和日志
-        say(key, f"🧪 测试活，未报回聊天频道：{rest[0][:300]}", _team.project())
-        print(f"ws-up: 测试活（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
+    if board.is_probe(rec.get("board")):
+        # 探针不往用户的聊天频道报（board.is_probe），只留在工作区和日志
+        say(key, f"🧪 探针，未报回聊天频道：{rest[0][:300]}", _team.project())
+        print(f"ws-up: 探针（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
     if files and re.search(r"https?://", rest[0]):
         # 用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发

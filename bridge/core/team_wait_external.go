@@ -83,7 +83,7 @@ func parseWaitDuration(s string) (time.Duration, bool) {
 
 // waitingExternal: the board item is paused waiting on something outside (board.py wait).
 func (it teamTaskBoardItem) waitingExternal() bool {
-	return it.Paused != "" && strings.HasPrefix(it.PauseWhy, waitExternalWhy)
+	return it.Paused != "" && it.waitsOn(teamWaitExternal)
 }
 
 // parkWaitingExternal runs board.py wait for item hid: pause as 「等外部：why」, wait_until now+after,
