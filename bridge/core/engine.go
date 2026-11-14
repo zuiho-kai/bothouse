@@ -761,6 +761,7 @@ type interactiveState struct {
 	pendingMessages          []queuedMessage // messages queued while session was busy
 	approveAll               bool            // when true, auto-approve all permission requests for this session
 	fromVoice                bool            // true if current turn originated from voice transcription
+	turnUserID               string          // who sent the message the running turn answers ("" = the bridge: timer, handoff); guarded by mu
 	sideText                 string
 	turnSentTexts            []string   // texts this turn already pushed through a script/side send; guarded by mu
 	turnSentNonText          bool       // a sticker/image/file already went out this turn (#181); guarded by mu
@@ -5047,6 +5048,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.injectedReplyCtxs = nil
 	state.currentMessageID = msg.MessageID
 	state.currentTurnUserMessageTimeMs = msg.UserMessageTimeMs
+	state.turnUserID = msg.UserID
 	state.markTurnStartLocked()
 	state.mu.Unlock()
 	state.lastEventAt.Store(time.Now().UnixNano())
@@ -8428,6 +8430,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				state.currentMessageID = queued.messageID
 				state.fromVoice = queued.fromVoice
 				state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+				state.turnUserID = queued.userID
 				state.markTurnStartLocked()
 				state.turnDesc = queued.boardDesc // maomao fork: channel task board
 				state.turnScheduled = scheduledTurnUser(queued.userID)
@@ -9145,6 +9148,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentMessageID = queued.messageID
 		state.fromVoice = queued.fromVoice
 		state.currentTurnUserMessageTimeMs = queued.userMessageTimeMs
+		state.turnUserID = queued.userID
 		state.markTurnStartLocked()
 		state.turnDesc = queued.boardDesc // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(queued.userID)

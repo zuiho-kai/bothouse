@@ -821,7 +821,7 @@ func (w *handoffWatch) autoResume(p Platform, key string, h TeamHandoff) {
 	stopped := 0
 	for _, x := range w.engines() {
 		if x != nil {
-			stopped += x.stopChannel(plat, key)
+			stopped += x.stopChannel(plat, key, "")
 		}
 	}
 	sender := w.e.watchSender(h)
