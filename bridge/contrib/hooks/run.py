@@ -344,11 +344,6 @@ def iflow_output(out):
     return "", "", 0
 
 
-# ── The user's latest words for PreToolUse (ask-only-guard) ──
-# Claude Code / Qoder put a Claude Code transcript in every PreToolUse payload. For Codex, agy and DSH run.py
-# reads the words from where that CLI keeps them and passes them as payload["user_prompt"], which the guard reads
-# before transcript_path.
-PROMPT_HOOKS = {"ask-only-guard"}
 # Grok's tool names in its hook payload -> Claude Code's (Grok maps Bash/Edit/Write in matchers, not in the payload)
 GROK_NAMES = {"run_terminal_command": "Bash", "search_replace": "Edit", "write": "Write", "spawn_subagent": "Agent"}  # hooks that read the user's latest words in PreToolUse
 CODEX_INJECTED = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<permissions instructions>")
@@ -383,57 +378,6 @@ def tail_lines(path):
         return []
     lines = data.decode("utf-8", "replace").splitlines()
     return lines[1:] if size > TAIL_BYTES else lines
-
-
-def transcript_user_words(path):
-    """The latest user message in a transcript file, whichever CLI wrote it:
-    Claude Code / Qoder JSONL ({type: user, message: {content}}), Codex rollout (response_item message role user,
-    without the AGENTS.md / environment_context messages Codex injects), agy transcript_full.jsonl (USER_INPUT steps),
-    Grok updates.jsonl (session/update user_message_chunk; the chunks of one message are consecutive)."""
-    chunks = []
-    for line in reversed(tail_lines(path)):
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(e, dict):
-            continue
-        up = (e.get("params") or {}).get("update") if e.get("method") == "session/update" else None
-        if isinstance(up, dict) and up.get("sessionUpdate") == "user_message_chunk":
-            chunks.insert(0, parts_text((up.get("content") or {}).get("text") or ""))
-            continue
-        if chunks:
-            break
-        t = e.get("type")
-        if t == "user" and not e.get("isMeta"):
-            msg = e.get("message")
-            text = parts_text(msg.get("content") if isinstance(msg, dict) else None)
-            if text.strip():
-                return text
-        elif t == "response_item":
-            item = e.get("payload") or {}
-            if item.get("type") == "message" and item.get("role") == "user":
-                text = parts_text(item.get("content"))
-                if text.strip() and not text.lstrip().startswith(CODEX_INJECTED):
-                    return text
-        elif t == "USER_INPUT":
-            text = agy_user_text(e.get("content"))
-            if text:
-                return text
-    return "".join(chunks)
-
-
-def dsh_user_words(recs):
-    """The latest user message in a DSH session log."""
-    for d in reversed(recs):
-        data = d.get("data") or {}
-        if d.get("type") == "user/message" and (data.get("source") or {}).get("kind") == "user":
-            parts = [user_text(c.get("text", "")) for c in data.get("content", [])
-                     if isinstance(c, dict) and c.get("type") == "text"]
-            text = "\n\n".join(p for p in parts if p)
-            if text:
-                return text
-    return ""
 
 
 def user_text(text):
@@ -814,12 +758,6 @@ def main():
             # (dsh_turn) and dsh_busy only for a sleep / wait=true; unreadable log = no fields, hook still runs
             compat.add_fields(payload, tool, sub, lambda: read_lines(path))
 
-    if name in PROMPT_HOOKS and payload.get("hook_event_name") == "PreToolUse" and not payload.get("user_prompt"):
-        if path:  # DSH: the bridge's transcript_path is empty; the words are in the session log
-            payload["user_prompt"] = dsh_user_words(records(read_lines(path)))
-        elif OPTS["codex"] or OPTS["grok"]:  # Codex: the rollout; Grok: its session updates.jsonl
-            payload["user_prompt"] = transcript_user_words(payload.get("transcript_path"))
-
     if (stop or payload.get("hook_event_name") == "SubagentStop") and path:
         if stop and sub:
             sys.exit(0)
@@ -917,7 +855,9 @@ def deliver_check(payload, dsh_log):
     as for Stop, so the check can see this turn's reads."""
     target = os.path.join(HERE, "deliver-check.py")
     cmd = str((payload.get("tool_input") or {}).get("command") or "")
-    if not os.path.isfile(target) or "bothouse" not in cmd or "send" not in cmd:
+    sending = "bothouse" in cmd and "send" in cmd
+    accepting = "ws-pass" in cmd or ("board" in cmd and "done" in cmd)  # 验收放行前看过截图（#1617）
+    if not os.path.isfile(target) or not (sending or accepting):
         return None
     p = dict(payload, bothouse_role=role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
     if p.get("delivery_transcript_path"):
@@ -1113,8 +1053,6 @@ def agy_answer(event, rc, stdout, stderr):
 def run_agy(target, raw, event):
     payload = agy_payload(raw, event)
     tmp, step, sid = None, None, payload["session_id"]
-    if event == "PreToolUse" and os.path.basename(target)[:-3] in PROMPT_HOOKS:
-        payload["user_prompt"] = transcript_user_words(payload["transcript_path"])
     if event == "Stop":
         lines = []
         try:

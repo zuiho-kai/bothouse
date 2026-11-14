@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -815,7 +816,7 @@ func TestSaveImagesDir(t *testing.T) {
 	p.saveImagesDir = dir
 	f.push(privateMessage(20001, 77, map[string]any{"type": "image", "data": map[string]any{"url": img.URL + "/a.png"}}))
 	m := awaitMessage(t, msgs)
-	want := dir + "/77-1.png"
+	want := filepath.Join(dir, "77-1.png")
 	if !strings.Contains(m.ExtraContent, "[图片已存到 "+want+"]") {
 		t.Fatalf("extra content = %q, want saved path %s", m.ExtraContent, want)
 	}

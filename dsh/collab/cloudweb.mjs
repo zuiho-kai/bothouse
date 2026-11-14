@@ -127,11 +127,8 @@ function toolSteps(items) {
   };
   const failed = it => typeof it.success === 'boolean' ? !it.success
     : (Number.isInteger(it.exit_code) && it.exit_code !== 0) || ['failed', 'failure', 'error'].includes(String(it.status ?? '').trim().toLowerCase());
-  // 沿用 progressCardOf 正文每行截断 120 字。
-  const clip = v => {
-    const text = String(v ?? '').replace(/\s+/g, ' ').trim();
-    return text.length > 120 ? `${text.slice(0, 119)}…` : text;
-  };
+  // #1616: the full call and output, lines kept (a heredoc, a listing); stepChips cuts them to fit the card.
+  const clip = v => String(v ?? '').replace(/\r\n?/g, '\n').trim();
   for (const it of items) {
     if (it === null || typeof it !== 'object') continue;
     const tool = String(it.tool ?? '').trim();
@@ -166,11 +163,24 @@ function briefSteps(steps, state) {
 
 /** Step chips for the DSH page (#125, owner's 11:53 sample): tool, outcome, call and output per step. */
 function stepChips(steps, state) {
-  return steps.map(s => ({
-    tool: (s.tool || '工具').slice(0, 120),
+  // #1616: the newest steps keep their whole call and output (opened from the step list, a long
+  // output folded there); once the card would pass half a message's limit (store MAX_TEXT), older
+  // steps fall back to one line of 120 characters, as before.
+  let budget = MAX_TEXT / 2;
+  const fit = v => {
+    if (!v) return v;
+    if (v.length <= budget) { budget -= v.length; return v; }
+    budget = 0;
+    const line = v.replace(/\s+/g, ' ');
+    return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+  };
+  const sized = steps.map(() => ({}));
+  for (let i = steps.length - 1; i >= 0; i--) sized[i] = { input: fit(steps[i].input), output: fit(steps[i].output) };
+  return steps.map((s, i) => ({
+    tool: (s.tool || '工具').replace(/\s+/g, ' ').slice(0, 120),
     state: s.state === 1 ? 'ok' : s.state === 2 ? 'failed' : state === 'running' ? 'running' : 'unknown',
-    ...(s.input ? { input: s.input } : {}),
-    ...(s.output ? { output: s.output } : {}),
+    ...(sized[i].input ? { input: sized[i].input } : {}),
+    ...(sized[i].output ? { output: sized[i].output } : {}),
   }));
 }
 

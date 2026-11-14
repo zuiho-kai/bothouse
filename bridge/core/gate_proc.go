@@ -190,7 +190,6 @@ func installGateScripts(dir string) error {
 
 // Timings of the supervisor; vars so tests can shorten them.
 var (
-	// 来源：本机 launchd 跑 gate 的 ThrottleInterval 10（~/Library/LaunchAgents/com.zuiho.maomao-gate.plist）：
 	// 起来不到 10s 就退出算「启动失败」（没 jev、端口被占、脚本报错），不重启，等输入变了再试。
 	gateQuickExit = 10 * time.Second
 	// 来源：方案「退出后按指数退避重启（上限 60s）」；同一个数也用作没起来时多久再看一次（装好 python / jev 自动启用）。

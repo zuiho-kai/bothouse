@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"log/slog"
 	"strings"
@@ -10,8 +11,14 @@ import (
 	"time"
 )
 
-// teamModeRulesFile is shared with DSH members: dsh/collab/team-mode-rules.md is
-// mirrored into dsh_bundle/collab and both sides read the same text, so every
+// teamRulesFS holds the two rule files the bridge cannot run without. They are in git here, not in
+// the generated dsh_bundle, so a plain `go build` always has them.
+//
+//go:embed team_rules/team-mode-rules.md team_rules/team-exit-rules.json
+var teamRulesFS embed.FS
+
+// teamModeRulesFile is shared with DSH members: the build copies it into the DSH plugin
+// (dsh/scripts/bundle.mjs) and both sides read the same text, so every
 // backend and every bot gets one rule set (#139 C; user 2026-10-24 00:50
 // 「这个提交到仓库，让每个角色都知道」).
 //
@@ -21,7 +28,7 @@ import (
 // it) is the user's 2026-10-24 01:33 answer 「默认3，模型自己有把握再自己加」. It is
 // guidance only: the user said 「这个由工作角色或者主角色决定」, so nothing here
 // creates workspaces.
-const teamModeRulesFile = "dsh_bundle/collab/team-mode-rules.md"
+const teamModeRulesFile = "team_rules/team-mode-rules.md"
 
 // Dispatch modes (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合, 「默认混合模型」);
 // the same names as DSH's per-channel setting (dsh/collab/store.mjs DISPATCH_MODES).
@@ -38,12 +45,33 @@ func ValidDispatchMode(mode string) bool {
 }
 
 var teamModeRulesText = func() string {
-	b, err := embeddedDSH.ReadFile(teamModeRulesFile)
+	b, err := teamRulesFS.ReadFile(teamModeRulesFile)
 	if err != nil {
-		panic("team mode rules missing from embedded bundle: " + err.Error())
+		panic("team mode rules missing: " + err.Error())
 	}
 	return string(b)
 }()
+
+// workspaceRulesText replaces the team-mode rules in a lead's workspace session (#1628). The full
+// rules are about 2,500 characters written for the chat-channel lead (whom to dispatch to, whom to
+// @, teammate status every turn, a second person to accept the work); a workspace does the job
+// itself, and a model that follows each sentence literally went off to open an acceptance subagent.
+// Chat channels keep teamModeRulesFor.
+const workspaceRulesText = `[工作区规矩 — 工作区会话适用]
+- 这件活自己做完：主线自己做，不拆给队友、不交给后台子 agent、不另找人验收；任务板和公开任务卡程序管，不用自己动。
+- 拿不准用户意思先读交接里的用户原话，还不清楚用 ws-up "<问题>" 问聊天频道的主角色；要用户拍板或会改用户原话范围的用 ws-up "<问题+选项+推荐>" --ask，等答复时先做不受影响的部分。不在工作区里问用户。
+- 交回只认 ws-up --report：照交接的交回骨架填空；回复里写的 [report] 桥不认。
+- 自测、预演一律隔离：用隔离数据目录和真实配置的副本（去掉密钥），不写线上事件和数据文件，不往用户的聊天频道发探针；交接指定了隔离目录的照交接。
+- 改代码推自己的分支，底分支和参照实现照交接；超过 2 分钟的命令用 bgrun 起，结束会自动叫醒，起完做不依赖它的部分，只剩等就结束本轮，不 sleep、不轮询。
+- 卡在工具上当场 ` + "`bothouse vent \"<一句话>\"`" + `，不等汇报。`
+
+// rulesForSession is workspaceRulesText in a lead's workspace session, else the team-mode rules of mode.
+func (e *Engine) rulesForSession(mode, sessionKey string) string {
+	if e != nil && sessionKey != "" && e.isTeamLead() && e.isTeamWorkspaceChat(sessionKey) {
+		return workspaceRulesText
+	}
+	return teamModeRulesFor(mode)
+}
 
 // teamModeRulesFor is the common rules plus the section of mode (unknown → mixed).
 func teamModeRulesFor(mode string) string {

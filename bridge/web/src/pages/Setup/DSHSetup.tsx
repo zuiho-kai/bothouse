@@ -50,7 +50,7 @@ const TEXT = {
     desktopFound: '已找到桌面版。', desktopMissing: '这台电脑还没装 DeepSeek Harness 桌面版。下载安装后打开一次，再点「重新检测」。',
     download: '下载桌面版', useWeb: '改用网页版', useDesktop: '改用桌面版', webFound: '已找到 dsh {v}。',
     desktopFirstOpen: '安装时会先自动打开一次桌面版，让它建好配置。', nodeFromDesktop: '这台电脑没有 Node，会用桌面版自带的 Node 安装插件。',
-    openDesktopTitle: '一切就绪', openDesktopNote: '点下面的按钮打开桌面版（已经开着的会先自动退出再打开，这样才能加载频道和角色）。在左侧栏点「频道」，进 #general，角色已经在成员列表里。',
+    openDesktopTitle: '一切就绪', openDesktopNote: '点下面的按钮打开桌面版，再在左侧栏点「频道」进 #general，角色都在里面。已经开着的桌面版会自动重开一次。',
     openDesktop: '在桌面版里打开', openingDesktop: '正在打开桌面版…', desktopOpened: '桌面版已打开。没看到窗口的话，在程序坞或任务栏里点 DeepSeek Harness。', orWeb: '或者在浏览器里打开网页版：', openWebInstead: '打开网页版',
     install: '安装插件', reinstall: '重新安装', installed: '插件已经装好了。', next: '下一步',
     stepNames: { download: '准备插件文件', deps: '安装依赖', plugin: '装进 DSH' } as Record<string, string>,
@@ -196,7 +196,17 @@ export default function DSHSetup({ lang, onBack }: { lang: string; onBack: () =>
     };
   };
   // Start with one native role; installed CLIs remain explicit alternatives.
-  const goRoles = () => { setRoles((rs) => (rs.length ? rs : [newRole([])])); setStep(2); };
+  // #1616 (user 11-14「为什么一个工作区只有一个模型」; Fable #11/#60: the wizard made one role, so a
+  // new team was one model): with a signed-in CLI on this machine, the first visit starts with two
+  // roles on different models — DSH's own and that CLI. Either can be removed or changed.
+  const starterRoles = (): Role[] => {
+    const first = newRole([]);
+    const cli = runners.find((c) => c.login === 'logged_in');
+    if (cli === undefined) return [first];
+    const second = newRole([first.name]);
+    return [first, { ...second, runner: cli.agent_type, name: defaultName([first.name], cli.agent_type) }];
+  };
+  const goRoles = () => { setRoles((rs) => (rs.length ? rs : starterRoles())); setStep(2); };
   const patch = (key: number, p: Partial<Role>) => setRoles((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
   // Renaming a role also renames the "你是谁" reference in a picked persona, matching the
   // wizard and the DSH member dialog; manual persona prose keeps common words intact.

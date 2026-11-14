@@ -36,7 +36,7 @@ func TestGateDown_StopWordStillCancels(t *testing.T) {
 				e.SetGate(tc.url(t), 500, "context")
 				msg := localMsg(content)
 				msg.Mentioned = true
-				e.gate.released[msg] = true
+				msg.burstDone = true
 				if !e.applyGate(p, msg, s, "k") {
 					t.Fatal("the stop word must be fully handled")
 				}
@@ -74,7 +74,7 @@ func TestGateDown_OtherMessageStillInserted(t *testing.T) {
 	e.SetGate(srv.URL, 500, "context")
 	msg := localMsg("另外帮我看下X")
 	msg.Mentioned = true
-	e.gate.released[msg] = true
+	msg.burstDone = true
 	e.applyGate(p, msg, s, "k")
 	running.mu.Lock()
 	mid := len(running.mid)

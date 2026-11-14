@@ -43,11 +43,11 @@ func newMidTurnEngine(t *testing.T) (*Engine, *midTurnAgent, *stubPlatformEngine
 
 func TestGate_MidTurnInputAskedPerMessage(t *testing.T) {
 	e, a, _ := newMidTurnEngine(t)
-	if e.gate.canInject() {
+	if e.gate.Load().canInject() {
 		t.Fatal("agent has not advertised mid-turn input yet")
 	}
 	a.can.Store(true)
-	if !e.gate.canInject() {
+	if !e.gate.Load().canInject() {
 		t.Fatal("gate must see the agent's later advertisement")
 	}
 }
@@ -72,7 +72,7 @@ func TestGate_InjectUsesSendMidTurn(t *testing.T) {
 			s.TryLock() // busy
 
 			msg := &Message{SessionKey: "discord:c1", ChannelID: "c1", MessageID: "102", UserName: "zuiho", Content: "顺便看下这个", Mentioned: true}
-			e.gate.released[msg] = true // its burst window has passed (busy bots hold bursts too)
+			msg.burstDone = true // its burst window has passed (busy bots hold bursts too)
 			if got := e.applyGate(p, msg, s, "k"); got != tc.injected {
 				t.Fatalf("applyGate handled=%v want %v", got, tc.injected)
 			}

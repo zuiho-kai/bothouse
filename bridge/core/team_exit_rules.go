@@ -5,15 +5,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // teamExitRulesFile is the one copy of the workspace [ask]/[report] rules: first-line mark and #id
-// format, the [ask] self-check, bounce texts. dsh/collab/team-exit-rules.json is mirrored into
-// dsh_bundle/collab; DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
+// format, the [ask] self-check, bounce texts. The build copies it into the DSH plugin
+// (dsh/scripts/bundle.mjs); DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
 // cases in dsh/collab/test/team-exit-cases.json (TestTeamExitSharedCases; team-exit.test.mjs). No
 // formats or texts live here.
-const teamExitRulesFile = "dsh_bundle/collab/team-exit-rules.json"
+const teamExitRulesFile = "team_rules/team-exit-rules.json"
 
 type teamExitRulesDoc struct {
 	Kinds      []string `json:"kinds"`
@@ -117,9 +116,9 @@ type teamExitRules struct {
 	sentenceEnd                                                                        *regexp.Regexp
 }
 
-// exitRules is read once from the embedded copy; a broken file fails every test that touches it.
+// exitRules is read once from the embedded file; a broken file fails every test that touches it.
 var exitRules = func() *teamExitRules {
-	b, err := embeddedDSH.ReadFile(teamExitRulesFile)
+	b, err := teamRulesFS.ReadFile(teamExitRulesFile)
 	if err != nil {
 		panic("team exit rules: " + err.Error())
 	}
@@ -162,63 +161,6 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		*c.dst = re
 	}
 	return r, nil
-}
-
-// parseExitKindTurn reads the exit marker of a whole turn's text. A turn whose agent narrates
-// before its final answer (Codex sends commentary-phase messages, and they arrive joined with the
-// answer) puts the marker after that narration: then the last marker that starts a line, or follows
-// a sentence end (the parts may be joined with no newline), opens the final answer and is read from
-// there (agentm #25, 11-09: 「[report] #25」 came after 「退回原因是…」 and nothing reached the chat
-// channel). Same idea as the DSH side's exitMark lastLine (dsh/collab/team-exit.mjs).
-func parseExitKindTurn(text string) (kind, body string, ok bool) {
-	if kind, body, ok = parseExitKind(text); ok {
-		return
-	}
-	if i := lastExitMarker(text); i > 0 {
-		return parseExitKind(text[i:])
-	}
-	return "", "", false
-}
-
-// exitReplyText picks the text the workspace exit checks read (#1270): the turn's last message
-// when the adapter reported one (Metadata MetaLastReply, else Content) and it starts with a marker,
-// otherwise the whole turn, where parseExitKindTurn still finds a marker after progress text.
-func exitReplyText(event Event, full string) string {
-	for _, c := range []string{metaString(event.Metadata, MetaLastReply), event.Content} {
-		c = strings.TrimRight(ctxSelfReportRe.ReplaceAllString(c, ""), "\n ")
-		if _, _, ok := parseExitKind(c); ok {
-			return c
-		}
-	}
-	return full
-}
-
-func metaString(m map[string]any, key string) string {
-	s, _ := m[key].(string)
-	return s
-}
-
-// lastExitMarker is the byte offset of the last [ask]/[report] marker that starts a line or follows
-// a sentence end; -1 when none. Markers inside a sentence or a quote (「[ask]」, `[report]`) do not count.
-func lastExitMarker(text string) int {
-	for j := strings.LastIndexByte(text, '['); j >= 0; j = strings.LastIndexByte(text[:j], '[') {
-		before := strings.TrimRight(text[:j], " \t")
-		if before != "" && !strings.HasSuffix(before, "\n") && !strings.ContainsAny(lastRune(before), "。！？.!?") {
-			continue
-		}
-		for _, k := range exitRules.Kinds {
-			tag := strings.ReplaceAll(exitRules.Mark, "{kind}", k)
-			if len(text)-j >= len(tag) && strings.EqualFold(text[j:j+len(tag)], tag) {
-				return j
-			}
-		}
-	}
-	return -1
-}
-
-func lastRune(s string) string {
-	r, _ := utf8.DecodeLastRuneInString(s)
-	return string(r)
 }
 
 // parseExitKind reads an [ask] / [report] marker on the reply's first line.

@@ -19,6 +19,7 @@ import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded } from './ProgressCard.tsx'
 import { CHAT_RUN_STEPS, StepChips, chipsOf, compactBrief } from './StepChips.tsx'
+import { hasExitMark, tidyNotice, withoutExitMark } from './notice-tidy.ts'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
 import { addressCommand, answerFailed, commandAnswers, commandLine, matchCommands, needsTarget, slashQuery, type SlashCommand } from './slash-commands.ts'
@@ -57,7 +58,7 @@ type T = TranslateNS<typeof NS>
 const CLI_TAG = { claude: 'kindClaude', codex: 'kindCodex', gemini: 'kindGemini' } as const
 
 function KindTag({ kind, cli, name, t }: { name?: string; kind: ChannelMember['kind'] | undefined; cli?: ChannelMember['cli']; t: T }) {
-  if (cli !== undefined) { const label = t(CLI_TAG[cli]); return name === label ? null : <span className={css.tag}>·{label}</span> }
+  if (cli !== undefined) { const label = t(CLI_TAG[cli]); return name === label ? null : <span className={css.tag}>{label}</span> }
   if (kind === 'dsh') return <span className={css.tag}>{t('kindDsh')}</span>
   if (kind === 'bot') return <span className={css.tag}>{t('kindBot')}</span>
   return null
@@ -301,12 +302,18 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   const card = parseCard(message)
   const role = cardRole(card)
   // Parse once per text change: MessageRow re-renders on every composer keystroke.
-  const shown = typeof card?.brief === 'string' && cardView === 'brief' ? (role === 'progress' ? compactBrief(card.brief) : card.brief) : message.text
+  // #1616: notices and hand-backs read shorter on the page (notice-tidy.ts); the stored text is unchanged.
+  const notice = message.author_kind === 'system' && (role === 'none' || role === 'task')
+  const handBack = card === undefined && message.author_kind !== 'system' && message.author_kind !== 'user' && hasExitMark(message.text)
+  const tidy = notice ? tidyNotice(message.text) : handBack ? tidyNotice(withoutExitMark(message.text)) : undefined
+  const shown = tidy !== undefined ? tidy.text
+    : typeof card?.brief === 'string' && cardView === 'brief' ? (role === 'progress' ? compactBrief(card.brief) : card.brief) : message.text
+  const detailMarkdown = useMemo(() => (tidy?.detail === undefined ? '' : softBreaksToHard(tidy.detail.body)), [tidy?.detail?.body])
   const markdown = useMemo(() => softBreaksToHard(shown), [shown])
   // #1588 (user 11-13「界面也是一团乱的」): work belongs in a workspace, so a run in a chat channel shows
   // its latest CHAT_RUN_STEPS steps and a count; the whole run stays visible in a workspace.
   // #1598: only while it runs, in the brief view; a finished card and the 「细节」 view list every step.
-  const foldSteps = chatRoom && card?.state === 'running' && cardView === 'brief'
+  const foldSteps = chatRoom && card?.state === 'running' && (cardView === 'brief' || chipsOf(card) !== undefined)
   const stepLines = role === 'progress' ? shown.slice(shown.indexOf('\n') + 1).split('\n') : []
   const steps = foldSteps && stepLines.length > CHAT_RUN_STEPS
     ? [t('stepsFolded', { total: String(stepLines.length) }), ...stepLines.slice(-CHAT_RUN_STEPS)].join('\n')
@@ -402,12 +409,28 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 
   // #113: a system notice (task reminders, joins) is a centered divider, not a member speaking;
   // a member failure posted by the system is an inline error bar with its retry right there.
-  if (message.author_kind === 'system' && (role === 'none' || role === 'task')) {
+  if (notice) {
+    // #1616 返工（用户「两份汇报块之间空了一大片」）：整条只剩写给主角色的验收提示时，页面上不留空行。
+    if (tidy?.detail === undefined && shown.trim() === '' && !(card?.kind === 'task' && taskCardShown)) return null
     return (
       <div className={[css.systemRecord, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} role="note">
-        <div className={css.systemLine}>
-          <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
-        </div>
+        {/* #1616: a notice is a quiet left-aligned line in the text column with its time, not a centered
+            divider (Fable #34–36: two short rules hung beside wrapped lines); a multi-line one (a
+            workspace's 📬 report) is a block, a 📬 细节 post folds under one line. */}
+        {tidy?.detail !== undefined
+          ? (
+              <details className={`${css.systemLine} ${css.systemBlock} ${css.systemDetail}`}>
+                <summary className={css.systemText} title={fullTime}>{tidy.detail.summary}</summary>
+                <div className={css.systemText}><HighlightedMarkdown text={detailMarkdown} labels={labels} members={members} onMention={onMention} inline /></div>
+              </details>
+            )
+          : (
+              // #1616 返工：只有 📬 汇报是带框的块；多行的【交接】等通知仍是灰色小字，不再像一段挂在上一位成员名下的气泡。
+              <div className={markdown.includes('\n') && markdown.trimStart().startsWith('📬') ? `${css.systemLine} ${css.systemBlock}` : css.systemLine}>
+                <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
+                <time className={css.systemTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
+              </div>
+            )}
         {/* A task record keeps its live card, centered under the line. */}
         {card?.kind === 'task' && typeof card.task_id === 'number' && taskCardShown && <div className={`${css.card} ${css.taskRecord}`}><TaskCard taskId={card.task_id} tasks={tasks} t={t} /></div>}
       </div>
@@ -444,6 +467,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   // A finished run in the brief view folds to its summary line; running or detailed shows the steps.
   const progressFolded = role === 'progress' && cardView === 'brief' && card?.state === 'completed'
   const chips = role === 'progress' ? chipsOf(card) : undefined
+  const failedSteps = chips?.filter(chip => chip.state === 'failed').length ?? 0
   // System notices and progress cards are not conversation turns, so they take no reply.
   // #1016: hover toolbar — copy the Markdown, reply with a quote, put the message on the task board.
   const tools = message.author_kind !== 'system' && card === undefined
@@ -544,9 +568,12 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
               <div className={css.runStrip} data-state={card.state ?? 'running'}>
                 <div className={css.runHead}>
                   <span className={css.runIcon} aria-hidden />
-                  <span className={css.runTitle}>{card.title}</span>
+                  {/* #1616: the author's name is right above; the strip says only how the run went. */}
+                  <span className={css.runTitle}>{runTitle(card.title, message.name)}</span>
                   <span className={css.runSummary}>{progressLines[0]}</span>
-                  {typeof card.brief === 'string' && (
+                  {failedSteps > 0 && card.state !== 'running' && <span className={css.runFailed}>{t('runFailedSteps', { count: String(failedSteps) })}</span>}
+                  {/* #1616: with step chips, a click on a chip is the detail; the 细节/简略 switch stays for older cards. */}
+                  {typeof card.brief === 'string' && chips === undefined && (
                     <div className={css.cardViews} role="group" aria-label={t('cardView')}>
                       {(['detail', 'brief'] as const).map(view => (
                         <button key={view} type="button" className={css.cardViewButton} aria-pressed={cardView === view} onClick={() => { onCardView(view) }}>
@@ -557,7 +584,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
                   )}
                 </div>
                 {/* #125: the brief view shows step chips when the card carries them; older cards keep the lines. */}
-                {cardView === 'brief' && chips !== undefined
+                {chips !== undefined
                   ? <StepChips chips={chips} runState={card.state} t={t} latest={foldSteps ? CHAT_RUN_STEPS : undefined} />
                   : !progressFolded && progressLines.length > 1 && (
                       <HighlightedMarkdown text={stepsMarkdown} labels={labels} members={members} className={`${css.text} ${css.runSteps}`} dataCardText onMention={onMention} />
@@ -595,6 +622,13 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
       {tools !== undefined && !toolsBesideBubble && tools}
     </div>
   )
+}
+
+/** #1616: 「小橙 · 已完成」 under 小橙's own name reads 「已完成」; another author's card keeps its title. */
+export function runTitle(title: unknown, author: string): string {
+  const text = typeof title === 'string' ? title : ''
+  const prefix = `${author} · `
+  return author !== '' && text.startsWith(prefix) ? text.slice(prefix.length) : text
 }
 
 /** One pending permission request in the tray above the composer (#113). */
@@ -1195,8 +1229,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
   }
   // #113 activity: who is at work in this channel (here or in one of its workspaces) and on what.
   const channelRooms = new Set(state.rooms.filter(r => r.id === channelId || r.parent_id === channelId).map(r => r.id))
-  // Match the settings selector: an explicit room null must not fall back to the global role.
-  const leadId = room?.effective_lead_id === undefined ? state.effectiveLeadId ?? state.leadId : room.effective_lead_id
+  // The lead who dispatches and accepts here (tasks.mjs: the room's own lead, else the global one).
+  // Not room.effective_lead_id: that is who answers an un-@'d message, null in an unset room with two
+  // members, so a fresh install read 「未设主角色」 while its auto-picked lead dispatched (walk 11-14).
+  const leadId = room?.lead_id != null ? room.lead_id : state.effectiveLeadId ?? state.leadId
   const lead = visibleMembers.find(member => member.id === leadId)
   // No lead yet: say whether none is set or the member list has not arrived, never a made-up status.
   const leadStatus = lead !== undefined
@@ -1621,8 +1657,9 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
           // in-progress count; a chat channel shows it only when something is in progress.
           const active = r.active ?? 0
           // #113: a count only when something runs; idle workspaces no longer repeat 「进行中 0 件」.
-          const showActive = active > 0
           const workers = (state.thinking[String(r.id)] ?? []).map(id => state.members.find(m => m.id === id)).filter((m): m is ChannelMember => m !== undefined)
+          // #1616 (Fable #26: 「工… ●小蓝 在干活 进行中 1 件」): who is at work already says it; the count shows only without it.
+          const showActive = active > 0 && workers.length === 0
           const fresh = r.id === state.roomId ? 0 : state.unread?.[String(r.id)] ?? 0
           // 体检 #7: who is at work here, in words, instead of an unlabelled dot.
           const working = workers.length === 0 ? undefined : workers.length === 1 ? t('roomWorking', { name: workers[0]!.name }) : t('roomWorkingMany', { count: String(workers.length) })
@@ -1694,7 +1731,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
           {/* 体检 #1/#4: the member count opens the member list; a private chat shows neither it nor the board. */}
           {dmWith === undefined && (
             <button type="button" className={css.headMeta} title={t('showMembersList')} onClick={openActivity}>
-              {t('headMembers', { count: visibleMembers.length })}
+              {/* #1616 (Fable #21: 「3 位成员」 for two roles the person made): the count is the roles; the list still shows everyone. */}
+              {t('headMembers', { count: visibleMembers.filter(m => m.kind !== 'human').length })}
               {channelActive > 0 && <> · {t('activeTasks', { count: channelActive })}</>}
             </button>
           )}
@@ -1789,17 +1827,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             <span className={css.undoBar} style={{ animationDuration: `${WITHDRAW_UNDO_MS}ms` }} aria-hidden="true" />
           </div>
         )}
-        {(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && (
-          <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
-            <span aria-hidden="true">↓</span> {t('jumpLatest')}
-            {visibleUnreadCount > 0
-              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
-          </button>
-        )}
         </div>
         <div className={css.working} aria-live="polite">
           {typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}
           {queuedFor.size > 0 && <button type="button" className={css.queuedButton} title={t('queuedJump')} onClick={jumpToQueued}>{t('queuedCount', { count: queuedFor.size })}</button>}
+          {/* #1616 返工（用户「回到最新按钮压住最后一行系统通知」）：放在日志下面这一行的右边，不再浮在消息上。 */}
+          {(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && (
+            <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
+              <span aria-hidden="true">↓</span> {t('jumpLatest')}
+              {visibleUnreadCount > 0
+                && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
+            </button>
+          )}
         </div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray

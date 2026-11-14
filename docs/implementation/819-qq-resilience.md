@@ -59,8 +59,8 @@ tests/qq-resilience/run.sh --binary /tmp/qq-resilience-bothouse
 | 发送者隔离 | `TestQQACP/queue`、`TestQQACP/media`；`TestMediaStaysInItsOwnConversation` | 独立私聊不被慢群会话阻塞；并发图片按两位发送者路由。原有覆盖通过。 |
 | 纯媒体 | `TestQQACP/media`；`TestMediaOnlyTurnSendsNoEmptyBubble` | 真实工具 `/send` 发图后以 `NO_REPLY` 收尾，每人只有一张图，没有空文本气泡。原有覆盖通过。 |
 
-原有用例在基线为绿，称为覆盖证据，不冒称本 PR 的红绿回归。纯媒体覆盖的是已有工具
-与 `NO_REPLY` 契约；图片之后 ACP 完全空正文、原生 ACP 图片块未覆盖。
+原有用例在基线为绿，称为覆盖证据，不冒称本 PR 的红绿回归。初次交付的纯媒体覆盖仅含工具
+与 `NO_REPLY` 契约；后续两条 ACP 媒体路径见下方 #1749 补充。
 
 ## 组件适用性
 
@@ -99,3 +99,45 @@ tests/qq-resilience/run.sh --binary /tmp/qq-resilience-bothouse
   未改变既有单次发送的写名额/写入/回执期限；仍慢但未断开的连接由现有期限收口。
 - draft PR 交固定完整 SHA 给未参与实现的成员复核。独立验收完成前保持 draft 和
   `Refs #819`；不关闭 issue，不部署、不重启生产。
+
+## #1749：ACP 纯媒体与 Windows 补充
+
+在 develop `590a4aa237d49be195ade8ef257f2aee471f586a` 上新增两条完整链路用例，
+通过真实 ACP stdio 适配器和 Engine 到本地 OneBot peer：
+
+- `TestQQACPMediaOnly/tool-empty`：工具 `/send` 成功发图，ACP 不发文字块、以 `end_turn` 结束。
+  底版实际收到图片和“未生成公开答复”两个气泡，故这是**回归证据**，不是现状正确的覆盖。
+- `TestQQACPMediaOnly/native`：直接发 ACP `agent_message_chunk` 的 image 内容块，不调用 `/send`，
+  最后以 `end_turn` 结束且无文字。底版没有图片，只有“未生成公开答复”提示，同样是**回归证据**。
+
+两处运行时缺陷单独由 PR #1752 修复，本覆盖 PR 不修改 `qq.go` 或运行时代码。ACP 图片格式
+以 [ACP v1 Content](https://agentclientprotocol.com/protocol/v1/content#image-content) 为依据；
+夹具使用生成的 PNG 数据，不包含账号、生产图片或真实模型输出。
+
+新增验证还检查真正空答复、只有工具副作用、取消、无效图片、附件开关和回执未知时不重放。
+它们是对当前契约的**覆盖证据**，不冒称都曾复现历史问题。
+
+`TestQQBinaryMedia` 进一步启动构建出的候选 CLI，经过配置加载、ACP 子进程和 QQ WebSocket，
+核对同一图片字节只送到原发送者一次、空正文不补额外气泡。与 `TestQQBinary` 一起由
+`run.sh --binary` 运行；省略 `--binary` 时这两项显式跳过，不能据此宣称候选程序已验证。
+
+macOS 的 Unix socket 路径长度有限；复跑时可设置 `TMPDIR=/private/tmp`，避免长临时目录
+导致夹具在断言前失败。这种环境失败不算红例。
+
+```sh
+# 从最终代码运行同一组新测试；仅用 overlay 还原四个运行时文件，不改工作树。
+TMPDIR=/private/tmp bridge/tests/qq-resilience/run.sh \
+  --media-negative-control 590a4aa237d49be195ade8ef257f2aee471f586a \
+  --binary /absolute/path/to/built-bothouse
+```
+
+Windows CI 的 `bridge-windows` 新增 `QQ package and candidate CLI (ACP media and receipts)`
+步骤，先构建候选 exe，再实际运行 `go test -tags no_web -count=1 -timeout 5m -v ./platform/qq/`，
+并通过 `QQ_RESILIENCE_BINARY` 启用候选程序用例。这是执行检查，不以交叉编译代替。
+Windows 实跑结果及对应提交由覆盖 PR 的检查记录保存；步骤通过之前不声称 Windows 已验证。
+
+首次 Windows 实跑已执行两条媒体回归和候选 CLI（均通过），QQ 整包仅失败在既有的
+`TestSaveImagesDir`：期望值用字符串拼接 `/`，实际正确保存为 Windows 的本机路径。
+覆盖 PR 将该断言改为 `filepath.Join`，不改保存图片的实现；首次失败作为测试兼容性的红例保留。
+
+真实 NapCat、正式签名发布包和历史截图同一请求的因果链仍不在这次验证范围。

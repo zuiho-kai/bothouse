@@ -95,9 +95,9 @@ func TestProactiveOffObservePreserveOrdinaryGate(t *testing.T) {
 			msg := &Message{Platform: p.Name(), MessageID: "ordinary-context", UserID: "123", SessionKey: "room", Content: "ordinary conversation", ReplyCtx: "ctx"}
 			p.handler(p, msg)
 			waitFor(t, "ordinary gate buffers unaddressed message", func() bool {
-				e.gate.mu.Lock()
-				defer e.gate.mu.Unlock()
-				for _, buffered := range e.gate.gbuf {
+				e.gate.Load().mu.Lock()
+				defer e.gate.Load().mu.Unlock()
+				for _, buffered := range e.gate.Load().gbuf {
 					if len(buffered) > 0 {
 						return true
 					}

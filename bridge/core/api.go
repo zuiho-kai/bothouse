@@ -873,7 +873,7 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 
 	// Anti-spin only for jobs created through the API (CLI/model); internal wake-ups
 	// (relay drain, watch, auto-return) add timers directly and must not be blocked.
-	if err := CheckAntiSpinTimer(job); err != nil {
+	if err := CheckAntiSpinTimer(job, s.timer.Store().ListBySessionKey(job.SessionKey)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

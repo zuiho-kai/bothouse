@@ -41,7 +41,7 @@ func TestApplyGate_TurnTitleIsUserWords(t *testing.T) {
 			session := e.sessions.GetOrCreateActive("discord:c1")
 			session.SetLastSeenMsgID("100")
 			m := &Message{SessionKey: "discord:c1", ChannelID: "c1", MessageID: "102", UserName: "u", Content: words, Mentioned: c.mentioned}
-			e.gate.released[m] = true
+			m.burstDone = true
 			if e.applyGate(p, m, session, "k") {
 				t.Fatal("message should go on to a turn")
 			}
@@ -71,7 +71,7 @@ func TestApplyGate_TurnTitleFallsBackWithoutText(t *testing.T) {
 	e.SetGate(srv.URL, 2000, "reply")
 	m := &Message{SessionKey: "discord:c1", ChannelID: "c1", UserName: "u", Mentioned: true,
 		Images: []ImageAttachment{{MimeType: "image/png", Data: []byte("x")}}}
-	e.gate.released[m] = true
+	m.burstDone = true
 	if e.applyGate(p, m, &Session{}, "k") {
 		t.Fatal("message should go on to a turn")
 	}

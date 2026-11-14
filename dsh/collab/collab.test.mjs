@@ -578,7 +578,7 @@ test('relay cap: the channel setting wins over the instance default and pauses o
     await settle();
     const last = hub.store.page(1, undefined, 1)[0];
     assert.equal(last.author_kind, 'system', `cap ${cap}: message ${cap + 1} pauses the relay`);
-    assert.match(last.text, new RegExp(`连续接力 ${cap} 次以上`));
+    assert.match(last.text, new RegExp(`互相接力 ${cap} 次以上`));
     hub.store.close();
   }
 });
@@ -931,6 +931,16 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
   assert.match(c.text, /go test/);
 });
 
+test('#1616: step chips keep the newest steps whole and cut older ones once the card passes half a message', () => {
+  const big = 'y'.repeat(MAX_TEXT / 4 - 16); // two of them and their calls fit in half a message
+  const items = [];
+  for (let i = 0; i < 4; i++) items.push({ kind: 'tool_use', tool: 'Bash', text: `step ${i}` }, { kind: 'tool_result', tool: 'Bash', text: big, exit_code: 0 });
+  const chips = JSON.parse(progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', steps: 4, items })).card).chips;
+  assert.equal(chips[3].output.length, big.length, 'the newest output is whole');
+  assert.equal(chips[2].output.length, big.length, 'so is the one before, within half a message');
+  assert.ok(chips[0].output.length <= 120, 'the oldest falls back to one short line');
+});
+
 test('progress card carries step chips: tool, outcome, call and output per step (#125)', () => {
   const c = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'running', steps: 4, elapsed_sec: 9, agent: 'Codex', items: [
     { kind: 'thinking', text: 'hmm' },
@@ -940,9 +950,10 @@ test('progress card carries step chips: tool, outcome, call and output per step 
     { kind: 'tool_use', tool: 'Read', text: 'b.go' },
   ] }));
   assert.deepEqual(JSON.parse(c.card).chips, [
-    { tool: 'Bash', state: 'ok', input: 'go test ./...', output: 'ok all' },
+    // #1616: the call and output keep their lines and length (the step list folds them on the page).
+    { tool: 'Bash', state: 'ok', input: 'go   test ./...', output: 'ok\n  all' },
     { tool: 'Edit', state: 'failed', input: 'a.go', output: 'boom' },
-    { tool: 'Grep', state: 'ok', output: `${'x'.repeat(119)}…` },
+    { tool: 'Grep', state: 'ok', output: 'x'.repeat(300) },
     { tool: 'Read', state: 'running', input: 'b.go' },
   ]);
   const done = progressCard(PROGRESS_PREFIX + JSON.stringify({ state: 'completed', items: [{ kind: 'tool_use', tool: 'Read', text: 'b.go' }, { kind: 'error', text: 'denied' }, { kind: 'tool_use', text: 'q' }] }));
@@ -1700,6 +1711,13 @@ test('#299 /stop all cancels every running DSH member in this room, and only her
 });
 
 test('#299 /stop cancels a running CLI member turn at once through ACP session/cancel', async () => {
+  // #1765: poll instead of settling a fixed number of ticks. The job reaches `sent` only after
+  // runCli's awaited turn context; a slower run or work an earlier test left behind can push that
+  // past a fixed settle, and the assertion then read `pending`.
+  const within = async (f, what) => {
+    for (let i = 0; i < 400 && !f(); i++) await tick();
+    assert.ok(f(), what);
+  };
   const hub = makeHub();
   const dsh = fakeDsh();
   const cancels = [];
@@ -1712,18 +1730,17 @@ test('#299 /stop cancels a running CLI member turn at once through ACP session/c
   const members = new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
     [{ id: 'cc', name: 'CC', cli: 'claude' }]);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 跑个长命令' });
-  await settle();
+  await within(() => hub.store.openJobs().some(j => j.member_id === 'cc' && j.state === 'sent'), 'the CLI turn is running');
   const job = hub.store.openJobs().find(j => j.member_id === 'cc');
-  assert.equal(job.state, 'sent', 'the CLI turn is running');
   // The old code left a CLI job in `running` and stopped nothing: no agent, no watcher.
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /stop' });
-  await settle();
-  assert.deepEqual(cancels, ['1'], 'the ACP session/cancel goes out right away');
+  await within(() => cancels.length > 0, 'the ACP session/cancel goes out right away');
+  assert.deepEqual(cancels, ['1']);
   assert.equal(hub.store.job(job.id).state, 'interrupted', 'the job ends as interrupted, not completed');
   assert.equal(hub.store.page(1, undefined, 1).at(-1).text, '⏹ 已停下 CC 这一轮。');
   // The ACP prompt settles later with the cancelled stop reason; its empty text posts nothing.
   release();
-  await settle();
+  await within(() => members.cliTurns.size === 0, 'the cancelled prompt settles');
   assert.equal(hub.store.page(1, undefined, 50).filter(m => m.author === 'cc').length, 0, 'no reply and no failure card for the stopped turn');
   await members.close();
   hub.store.close();
@@ -1781,7 +1798,7 @@ test('relay cap: agent-to-agent mentions stop starting DSH turns until a human s
   await settle();
   const last = hub.store.page(1, undefined, 1)[0];
   assert.equal(last.author_kind, 'system');
-  assert.match(last.text, /连续接力 2 次以上/);
+  assert.match(last.text, /互相接力 2 次以上/);
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 继续' });
   assert.equal(hub.store.relayDepth(1, hub.store.page(1, undefined, 1)[0].id), 0);
 });
@@ -6018,6 +6035,90 @@ test('#1598: her 【接】 moves the lead\'s @ into a workspace, with the body, 
   assert.doesNotMatch(hub.store.page(1, undefined, 100).filter(m => m.author === 'ds' && m.author_kind === 'role').map(m => m.text).join('\n'), /修好了/, 'the work stays out of the channel');
 });
 
+// #1616 (user 11-14「为什么一个工作区只有一个模型」): one job called to two members goes into one
+// workspace — the second 【接】 joins the first's, told who is already there — not one each.
+test('#1616: two members called to one job work in one workspace', async t => {
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@橘 @DeepSeek 一起修登录页：橘改 css，DeepSeek 写测试');
+  await settle();
+  await answer(1, '【接】 我改 css', 'ju');
+  await answer(1, '【接】 我写测试', 'ds');
+  const ws = workspaces();
+  assert.equal(ws.length, 1, 'one workspace for the one job');
+  const owned = tasks.list(1).filter(task => task.room_id === ws[0].id).map(task => task.owner).sort();
+  assert.deepEqual(owned, ['ds', 'ju'], 'both tasks are in it');
+  const rows = hub.store.page(ws[0].id, undefined, 100).filter(m => m.author_kind === 'system' && m.text.startsWith('【交接】'));
+  assert.equal(rows.length, 2, 'each member has her handoff row there');
+  assert.match(rows[1].text, /同一件活 橘 也在这个工作区/, 'the second is told who is already there');
+  // A new job later opens its own workspace.
+  person('@DeepSeek 再查一下注册页');
+  await settle();
+  await answer(1, '【接】 好', 'ds');
+  assert.equal(workspaces().length, 2, 'another job, another workspace');
+});
+
+// #1620 (walk 11-14): the first member was told nothing of her teammate and searched config and
+// processes for a file still being written; the later one never handed her own part back. Both are
+// told the shared directory, the later one what is already written there, and each hands back her part.
+test('#1620: a joint job tells both members the shared directory, the files written, and to hand back their own part', async t => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'collab-joint-'));
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  hub.workspacePath = dir;
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek @橘 一起做：橘写 fib.py，DeepSeek 等她写完跑一遍');
+  await settle();
+  await answer(1, '【接】 我等她写完再跑', 'ds');
+  writeFileSync(join(dir, 'fib.py'), 'print(1)\n');
+  await answer(1, '【接】 我写 fib.py', 'ju');
+  const ws = workspaces();
+  assert.equal(ws.length, 1);
+  const rows = hub.store.page(ws[0].id, undefined, 100).filter(m => m.author_kind === 'system' && m.text.startsWith('【交接】'));
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].text, /同一件活还 @ 了 橘，她接了也进这个工作区/, 'the first is told who else was called');
+  assert.ok(rows[0].text.includes(`共用目录 ${dir}`), 'and where the shared files are');
+  assert.match(rows[1].text, /同一件活 DeepSeek 也在这个工作区/);
+  assert.match(rows[1].text, /DeepSeek 已写出：fib\.py/, 'the later one is told what is already there');
+  for (const row of rows) assert.match(row.text, /你那一份做完就回复首行写 \[report\] 交回自己那份，不用等别人做完/);
+});
+
+test('#1620: a single-member job gets no joint note', async t => {
+  const { hub, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek 修登录页');
+  await settle();
+  await answer(1, '【接】 好');
+  const [row] = hub.store.page(workspaces()[0].id, undefined, 100).filter(m => m.text.startsWith('【交接】'));
+  assert.doesNotMatch(row.text, /同一件活|共用目录/);
+});
+
+// #1620 (walk 11-14): Codex ended its workspace turn with 「已完成 fib.py…」 and no [report]; the task
+// waited for a person to remind it. Once per task the owner is told at once and woken.
+test('#1620: a workspace turn ending without [report] gets one note at once, then the [report] hands back', async t => {
+  const { hub, members, tasks, person, say, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  person('@DeepSeek 写 fib.py');
+  await settle();
+  await answer(1, '【接】 好');
+  const ws = workspaces()[0];
+  const [task] = tasks.list(1).filter(x => x.room_id === ws.id);
+  await answer(ws.id, '已完成 fib.py，打印前 20 个数并跑过');
+  const notes = () => hub.store.page(ws.id, undefined, 100).filter(m => m.author_kind === 'system' && /这一轮没有写 \[report\]/.test(m.text));
+  assert.equal(notes().length, 1, 'one note in the workspace');
+  assert.match(notes()[0].text, new RegExp(`@DeepSeek #${task.id}`));
+  assert.equal(hub.store.page(1, undefined, 100).filter(m => /这一轮没有写 \[report\]/.test(m.text)).length, 0, 'not in the chat channel');
+  assert.ok(['assigned', 'accepted'].includes(tasks.task(task.id).status), 'still in work');
+  await answer(ws.id, '还在等别的');
+  assert.equal(notes().length, 1, 'only once per task');
+  assert.equal(hub.store.openJobs().filter(j => j.member_id === 'ds').length, 0, 'not woken again');
+  say('ds', '[report] fib.py 写好跑过', ws.id);
+  await settle();
+  assert.equal(tasks.task(task.id).status, 'returned', 'her [report] hands it back');
+});
+
 // #1751 review: a dispatch at the length cap must keep its whole body — what she added and the
 // prefix give way, the last line ("禁止部署") is never cut off.
 test('#1598: a dispatch at the length cap keeps its whole body in the workspace', async t => {
@@ -6062,7 +6163,8 @@ test('#1598: a person\'s big job for the lead herself moves on her own 【接】
   const ws = workspaces();
   assert.equal(ws.length, 1, 'the lead\'s 【接】 opens a workspace too');
   const [task] = tasks.list(1);
-  assert.deepEqual([task.owner, task.created_by, task.room_id], ['ju', 'ju', ws[0].id]);
+  // Walk 11-14: the person who asked dispatched it and accepts it; the lead cannot review her own task.
+  assert.deepEqual([task.owner, task.created_by, task.room_id], ['ju', 'owner', ws[0].id]);
   assert.equal(hub.store.openJobs().find(j => j.member_id === 'ju')?.room_id, ws[0].id, 'she is woken there');
   // A plain message (no @) reaches the lead as well; answered without a stance it opens nothing.
   person('今天几号');
@@ -7582,4 +7684,25 @@ test('#197 merge develop: a CLI start failure before the session is ready does n
   assert.ok(prompts[1].includes('你的记忆 wiki 目录页'), `retried prompt keeps the memory index:\n${prompts[1]}`);
   assert.ok(prompts[1].includes(marker), 'and its content');
   await members.close(); hub.store.close();
+});
+
+test('walk 11-14: DSH members are not told to run ws-up, --kind start or bothouse vent (commands DSH has none of)', async () => {
+  const { dshTeamModeRules } = await import('./dsh-member.mjs');
+  for (const cli of [false, true]) {
+    const rules = dshTeamModeRules(undefined, { cli });
+    assert.doesNotMatch(rules, /ws-up|--kind start|bothouse vent/, `cli=${cli}`);
+    assert.match(rules, /回复首行写 \[report\]，要问用户首行写 \[ask\]/);
+  }
+});
+
+test('walk 11-14: a turn in a workspace tells the member she is already there, so the 【交接】 row is not answered with 【接】 again', async () => {
+  const { promptText } = await import('./dsh-member.mjs');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  const member = { id: 'lan', name: '小蓝' };
+  const inWs = promptText(hub.store.room(ws.id), member, [], '', undefined, hub.store, { cli: true });
+  assert.match(inWs, /这里是 #general 的工作区，活已经交到你手上：不要再回【接】，直接动手做/);
+  const inChat = promptText(hub.store.room(1), member, [], '', undefined, hub.store, { cli: true });
+  assert.doesNotMatch(inChat, /活已经交到你手上/);
+  hub.store.close();
 });

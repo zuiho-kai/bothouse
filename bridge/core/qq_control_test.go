@@ -34,7 +34,7 @@ func TestGroupContextPreservesControlInput(t *testing.T) {
 		srv := ambientGate(t, func(req gateRequest) string { got = req.Content; return "silent" })
 		e, _, p := ambientEngine(t, srv)
 		msg := &Message{SessionKey: "test:control", Platform: "test", UserID: "u", UserName: "Alice", GroupChat: true, Content: "停", AmbientChat: "[recent]\nBob: Assistant hello", ReplyCtx: "ctx"}
-		e.gate.released[msg] = true
+		msg.burstDone = true
 		e.handleMessage(p, msg)
 		if got != "停" || !isLocalStopWord(userTextOf(msg)) {
 			t.Fatalf("gate received decorated input: %q", got)

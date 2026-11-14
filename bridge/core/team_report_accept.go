@@ -126,7 +126,7 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 		slog.Error("report accept: unchecked post failed", "board_item", rec.Board, "error", err)
 		return
 	}
-	e.postExitImages(ctx, p, rc, rec.Session, rec.Body, item)
+	e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
 	e.exitMarkPosted(exitKindReport, rec.Board, rec.Headline)
 	e.markExitReported(rec.Board)
 	e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, exitKindReport, rec.Board, rec.Body)
@@ -412,7 +412,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	delete(heldReportImages.m, key)
 	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
-	e.postHeldImages(ctx, p, rc, imgs, cp.Body)
+	e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
 	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	e.exitMarkPosted(exitKindReport, cp.Board, cp.Headline)
 	if cp.Board > 0 {
@@ -433,9 +433,11 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	return nil
 }
 
-// postHeldImages posts the images kept with the held report, then those its text names.
-func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, kept []ImageAttachment, body string) {
-	all := append(append([]ImageAttachment{}, kept...), reportNamedImages(body)...)
+// postHeldImages posts, in chat channel parent, the images kept with the held report, then those
+// its text names that are not another chat channel's (namedImagesOfChat, team_exit_images.go).
+func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, parent string, kept []ImageAttachment, body string) {
+	chat := exitImageChat(p.Name(), parent)
+	all := append(append([]ImageAttachment{}, kept...), namedImagesOfChat(e.dataDir, chat, reportNamedImages(body))...)
 	if len(all) == 0 {
 		return
 	}
@@ -444,6 +446,7 @@ func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, kept []
 		return
 	}
 	seen := map[string]bool{}
+	var sent []ImageAttachment
 	for _, img := range all {
 		k := img.FileName + fmt.Sprint(len(img.Data))
 		if seen[k] {
@@ -452,6 +455,9 @@ func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, kept []
 		seen[k] = true
 		if err := authorizedOutput(ctx, func() error { return sender.SendImage(ctx, rc, img) }); err != nil {
 			slog.Warn("report accept: image post failed", "file", img.FileName, "error", err)
+			continue
 		}
+		sent = append(sent, img)
 	}
+	noteExitImagesShown(e.dataDir, chat, sent)
 }

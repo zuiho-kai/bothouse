@@ -172,39 +172,11 @@ func newAskID() string {
 	return "ask-" + hex.EncodeToString(b)
 }
 
-// forwardWorkspaceExit copies a marked workspace reply into its chat channel.
-// It returns the forwarded ask id ("" for a report or when nothing was sent).
-func (e *Engine) forwardWorkspaceExit(p Platform, sessionKey, reply string) string {
-	return e.forwardWorkspaceExitContext(e.ctx, p, sessionKey, reply)
-}
-
-func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, sessionKey, reply string) string {
-	if err := checkProactiveExecution(ctx, "message.send"); err != nil {
-		if strings.TrimSpace(reply) != "" {
-			slog.Warn("team exit: task authorization refused the send; nothing forwarded", "session", sessionKey, "error", err)
-		}
-		return ""
-	}
-	reply = stripFillerLines(reply)
-	kind, body, ok := parseExitKindTurn(reply)
-	if !ok {
-		// Most turns carry no marker; only complain when one exists but did not start the reply.
-		for _, k := range exitRules.Kinds {
-			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
-				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey, "project", e.name)
-				break
-			}
-		}
-		return ""
-	}
-	return e.forwardWorkspaceExitKind(ctx, p, sessionKey, kind, body)
-}
-
 // forwardWorkspaceExitKind forwards a workspace's answer of kind (report/ask) to the chat channel
 // that handed the task off, with every check of the report. Since #699 batch C the bridge calls it
-// only from the explicit exit command (WorkspaceExit: ws-up --report, POST /team/workspace/exit);
-// forwardWorkspaceExitContext, which reads the kind from a reply's marker, is no longer called at a
-// turn's end (design §7.2: no text marker is a handback, the first-line one included).
+// only from the explicit exit command (WorkspaceExit: ws-up --report, POST /team/workspace/exit).
+// No text marker in a reply is a handback, the first-line one included (design §7.2); the entry
+// that read the kind from a reply's marker is gone from the bridge.
 func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessionKey, kind, body string) string {
 	ok := kind != ""
 	// An open handoff can be waiting for external evidence with no background
@@ -333,7 +305,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		e.clearAskBounces(sessionKey)
 	}
 	// a doubt never blocks; like the check above it is for the acceptor (the lead's prompt), not the user
-	if item != nil && item.isTest() {
+	if item != nil && item.Probe {
 		// test work: the answer stays in the workspace and the log, the task still closes or yields
 		// as usual (core/test_noise.go)
 		slog.Info("team exit: test item; nothing posted in the chat channel",
@@ -377,12 +349,12 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, false, "") {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "workspace", ws, "parent", parent)
 		// the lead rewrites the text only; the images go to the chat channel now
-		e.postExitImages(ctx, p, rc, sessionKey, body, item)
+		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 		return ""
 	}
 	id, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, "")
 	if err == nil {
-		e.postExitImages(ctx, p, rc, sessionKey, body, item)
+		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 	}
 	return id
 }
@@ -443,13 +415,13 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		if _, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, ""); err != nil {
 			e.noteReportFailure(rec, err)
 		} else {
-			e.postExitImages(ctx, p, rc, sessionKey, body, item)
+			e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 			e.completeReportDelivery(rec)
 		}
 		return ""
 	}
 	// the images the workspace sent or the report names go right under the headline
-	e.postExitImages(ctx, p, rc, sessionKey, body, item)
+	e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 	e.exitMarkPosted(kind, hid, hline)
 	if kind == exitKindAsk && rec.Authorization == nil {
 		e.rememberPostedAskWake(rec)
@@ -615,7 +587,7 @@ func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardIte
 
 // boardItemStopped: it is paused for a reason other than waiting on the user's answer.
 func boardItemStopped(it *teamTaskBoardItem) bool {
-	return it != nil && it.Paused != "" && !teamTaskBoardWaitUser.MatchString(it.PauseWhy)
+	return it != nil && it.Paused != "" && !it.waitsUser()
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)

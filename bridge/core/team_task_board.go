@@ -39,6 +39,14 @@ type teamTaskBoardItem struct {
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
+	// WaitKind: what the item waits on, written by board.py on every save of board.jsonl
+	// (board.py wait_kind_of): "user", "release", "external", or "" for nothing. Flow decisions
+	// read this field. nil = a row saved before the field existed; only those fall back to
+	// matching the status and pause reason (teamTaskBoardLegacy*).
+	WaitKind *string `json:"wait_kind"`
+	// Probe: an internal probe (ws-handoff --probe / board add --probe). Its report and ask stay
+	// in the workspace and the log, and it does not show on the board of the chat it came from.
+	Probe bool `json:"probe"`
 	// WaitUntil: epoch when a task paused as 「等外部：…」 (board.py wait) is handed to a workspace
 	// again (team_wait_external.go retryWaitingExternal).
 	WaitUntil int64 `json:"wait_until"`
@@ -138,26 +146,72 @@ func readTeamTaskBoard(dir string) []teamTaskBoardItem {
 	return readTeamTaskBoardFile(dir, teamTaskBoardFile)
 }
 
-// teamTaskBoardWaitUser: a pause reason that waits on the user ("等用户", "等待用户", ws-up --ask's
-// "等待用户答复"). Same pattern as board.py WAIT_USER_RE (those items are kept by auto_prune's idle
-// rule); change both together.
-var teamTaskBoardWaitUser = regexp.MustCompile(`等待?用户`)
+// Wait kinds of a board row (teamTaskBoardItem.WaitKind). board.py is the one place that decides
+// them, when it saves the row; the bridge only reads the field.
+const (
+	teamWaitUser     = "user"     // waits on the user's answer or decision
+	teamWaitRelease  = "release"  // merged, waits on the central release
+	teamWaitExternal = "external" // waits on something outside (board.py wait)
+)
 
-// teamTaskBoardDone: statuses of finished items, hidden from the board (「完成的也没必要显示」).
-// Only the 完成 lead counts, as before; 已完成 is the form that used to fall through to the release
-// wording and be shown as 等你 (#985 review 1). Other closing words (已验收/已收口/done) are not
-// added here: board.py closes those before an item reaches a board row, and a row that still says
-// 「done」 is one the test fixtures and the watch still treat as on the board.
-var teamTaskBoardDone = regexp.MustCompile(`^\s*已?完成`)
+// waitsOn: the row waits on kind. A row without the field (saved by a board.py older than the
+// field) falls back to the old text matching; that fallback goes one release after every
+// installed board.py writes wait_kind (board.py rewrites every row on its next save).
+func (it teamTaskBoardItem) waitsOn(kind string) bool {
+	if it.WaitKind != nil {
+		return *it.WaitKind == kind
+	}
+	switch kind {
+	case teamWaitExternal:
+		return it.Paused != "" && strings.HasPrefix(it.PauseWhy, waitExternalWhy)
+	case teamWaitUser:
+		if it.Paused != "" {
+			return teamTaskBoardLegacyWaitUser.MatchString(it.PauseWhy)
+		}
+		return teamTaskBoardLegacyStatusWaitUser.MatchString(it.Status)
+	case teamWaitRelease:
+		if it.Paused != "" {
+			return false
+		}
+		_, ok := teamTaskBoardLegacyAwaitRelease(it.Status)
+		return ok
+	}
+	return false
+}
 
-// teamTaskBoardAwaitRelease: the status says the item itself waits on the central release, and
-// the note to show after 等发布 ("" = nothing to add). board.py merged writes 「等发布：…」 and
-// records AwaitDeploy; this is the fallback for the hand-written ones leads keep writing
-// (「随 #133 集中发布上线」「待下次集中发布」). The waiting word must lead, and 发布 must not be
-// 发布会 (a meeting) or be followed by 后 (a note about what to do after the release). 「随 …
-// 集中发布 …」 counts anywhere in the sentence, and only the clause that says it is shown
-// (#985 review 2: the prefix-only rule missed these, and matched 「等发布会结束」).
-func teamTaskBoardAwaitRelease(status string) (string, bool) {
+// waitsUser: the row is paused and waits on the user (ws-up --ask, 「等用户定」).
+func (it teamTaskBoardItem) waitsUser() bool { return it.Paused != "" && it.waitsOn(teamWaitUser) }
+
+// statusClosed: only a row without wait_kind is still hidden by a status that starts 「完成」.
+// A row saved by the current board.py is open until board done / accepted moves it to
+// board-done.jsonl (#699 D: status text does not end a task).
+func (it teamTaskBoardItem) statusClosed() bool {
+	return it.WaitKind == nil && teamTaskBoardLegacyDone.MatchString(it.Status)
+}
+
+// releaseNote: what to show after 等发布 for a row that waits on the release.
+func (it teamTaskBoardItem) releaseNote() string {
+	if note, ok := teamTaskBoardLegacyAwaitRelease(it.Status); ok {
+		return note
+	}
+	return ""
+}
+
+// Legacy text matching, only for rows without wait_kind (see waitsOn) and for the wording of
+// the release note.
+var (
+	teamTaskBoardLegacyWaitUser       = regexp.MustCompile(`等待?用户`)
+	teamTaskBoardLegacyStatusWaitUser = regexp.MustCompile(`等待?用户|待用户`)
+	teamTaskBoardLegacyDone           = regexp.MustCompile(`^\s*已?完成`)
+)
+
+// teamTaskBoardLegacyAwaitRelease: the status says the item itself waits on the central release,
+// and the note to show after 等发布 ("" = nothing to add). The same rule as board.py
+// _status_awaits_release, which decides wait_kind; here it only serves rows without the field
+// and cuts the note. The waiting word must lead, and 发布 must not be 发布会 (a meeting) or be
+// followed by 后. 「随 … 集中发布 …」 counts anywhere in the sentence, and only the clause that
+// says it is shown (#985 review 2).
+func teamTaskBoardLegacyAwaitRelease(status string) (string, bool) {
 	s := strings.TrimSpace(strings.ReplaceAll(status, "\u3000", " "))
 	for _, text := range []string{s, strings.ReplaceAll(s, " ", "")} {
 		m := teamTaskBoardReleaseLead.FindStringSubmatch(text)
@@ -189,7 +243,7 @@ var (
 // when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
 // or last year when that is more than a day ahead (board.py _done_time).
 func teamTaskBoardWaitHours(it teamTaskBoardItem, now time.Time) int {
-	if it.Paused == "" || !teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+	if !it.waitsUser() {
 		return 0
 	}
 	at, ok := teamTaskBoardLocal(it.Paused, now)
@@ -483,7 +537,7 @@ func (it teamTaskBoardItem) chats() []string {
 	if it.own != "" {
 		out = append(out, it.own)
 	}
-	if it.parent != "" && it.parent != it.own && !it.isTest() {
+	if it.parent != "" && it.parent != it.own && !it.Probe {
 		out = append(out, it.parent)
 	}
 	return out
@@ -659,7 +713,6 @@ func teamTaskBoardOwner(who string) string {
 
 // teamTaskBoardStateOf: the item's state and the text after it (reason or age).
 func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardState, string) {
-	releaseNote, awaitRelease := teamTaskBoardAwaitRelease(it.Status)
 	switch {
 	case it.Backlog != "":
 		// 待办（board backlog）：主板不列，只在末尾计件（teamTaskBoardBacklogLine）。放在最前：挪进待办就是
@@ -672,7 +725,7 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	// not hang as 「没人验收」 (user, 2026-11-08: 「为什么做不到及时更新置顶卡片」; #181 paused a minute
 	// after its return showed 没人验收 for three days).
 	case it.Paused != "":
-		if teamTaskBoardWaitUser.MatchString(it.PauseWhy) {
+		if it.waitsUser() {
 			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
 		}
 		return teamTaskPaused, ""
@@ -681,17 +734,17 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	// A closing status wins over the release wording: 「已完成，等发布」/「完成后等发布」 say the item
 	// is done and only mention the release (before this the first counted as 交出没人接, the second
 	// was already hidden — #985 review 1). Same words as board.py CLOSED_RE.
-	case teamTaskBoardDone.MatchString(it.Status):
+	case it.statusClosed():
 		return teamTaskHidden, ""
 	case it.ReleaseHold != nil:
 		return teamTaskRelease, "为发布暂停"
-	case awaitRelease:
+	case it.waitsOn(teamWaitRelease):
 		// Hand-written 「等发布…」/「随集中发布上线…」 status: waits on the release, not 卡住.
-		if note := teamTaskBoardReason(releaseNote); note != "" {
+		if note := teamTaskBoardReason(it.releaseNote()); note != "" {
 			return teamTaskRelease, note
 		}
 		return teamTaskRelease, ""
-	case teamOtherQuiet.MatchString(it.Status):
+	case it.waitsOn(teamWaitUser):
 		return teamTaskWaiting, teamTaskBoardReason(it.Status)
 	case it.wsEnded:
 		// Releasing an execution workspace is not acceptance of its still-open board item.
@@ -733,7 +786,7 @@ func teamTaskBoardDisplayItems(items []teamTaskBoardItem, chat string, now time.
 		current := it
 		seen := map[int]bool{it.ID: true}
 		merged := false
-		for current.Paused != "" && !teamTaskBoardWaitUser.MatchString(current.PauseWhy) && !teamOtherQuiet.MatchString(current.Status) {
+		for current.Paused != "" && !current.waitsUser() && !teamOtherQuiet.MatchString(current.Status) {
 			ref := teamTaskBoardMergeRef.FindStringSubmatch(current.PauseWhy + " " + current.Status)
 			if ref == nil {
 				break

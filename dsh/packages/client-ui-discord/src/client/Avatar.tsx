@@ -13,6 +13,15 @@ function color(id: string): string {
   return PALETTE[h % PALETTE.length] as string
 }
 
+/**
+ * #1616 (Fable #20: 小橙 and 小蓝 were both a 「小」 badge): a name opening with a diminutive or
+ * kinship prefix (小/阿/老/大) shows its next character, the one that tells members apart.
+ */
+export function initialOf(name: string): string {
+  const chars = [...name.trim()]
+  return chars.length >= 2 && '小阿老大'.includes(chars[0]!) ? chars[1]! : chars[0] ?? ''
+}
+
 /** Member portrait, or a colored initial badge when there is none or the image fails to load. */
 export function Avatar({ id, name, avatar, avatarVersion, small, cli, model }: { id: string; name: string; avatar?: string; avatarVersion?: string; small?: boolean; cli?: string; model?: string }) {
   const url = useCollabUrl()
@@ -22,7 +31,7 @@ export function Avatar({ id, name, avatar, avatarVersion, small, cli, model }: {
   const [broken, setBroken] = useState<string | undefined>(undefined)
   return (
     <span className={small === true ? `${css.avatar} ${css.avatarSmall}` : css.avatar} style={{ background: color(id) }} aria-hidden>
-      {(name || id).slice(0, 1)}
+      {initialOf(name || id)}
       {src !== undefined && broken !== src && <img className={css.avatarImage} src={src} alt="" onError={() => { setBroken(src) }} />}
     </span>
   )

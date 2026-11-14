@@ -16,11 +16,12 @@ import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
 import { MemoryIndex } from './memory-index.mjs';
-// Shared with the bridge (bridge/core/team_mode.go): a common part, then one
+import { readTeamRulesFile } from './team-rules-file.mjs';
+// Shared with the bridge (bridge/core/team_rules/team-mode-rules.md, team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 // A Windows checkout (git core.autocrlf) turns the file to CRLF: "## solo\r\n" then misses the
 // `${mode}\n` match below and every member turn failed with "reading 'slice'". Read it as LF.
-const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+const TEAM_MODE_FILE = readTeamRulesFile('team-mode-rules.md').replace(/\r\n?/g, '\n');
 export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const [common, ...parts] = TEAM_MODE_FILE.split(/^## /m);
   const section = parts.find(p => p.startsWith(`${mode}\n`)) ?? parts.find(p => p.startsWith(`${DEFAULT_DISPATCH_MODE}\n`));
@@ -58,6 +59,11 @@ const DSH_ABSENT = [
   [/截图用 ws-up --image 推；/, ''],
   [/；用户要新频道用 `bothouse channel create <名字>`，不自己调 Discord API。/, '。'],
   [/^- 收口.*`board pause <编号>`.*\n/m, ''],
+  // Walk 11-14: with ws-up in its rules a DSH member searched PATH for it and wrote a /tmp draft for it;
+  // in DSH the reply itself hands back: [report] / [ask] as its first line.
+  [/在工作区交结果跑 ws-up --report <草稿文件>，提问跑 ws-up --ask，回复不算交回（DSH 协作页照旧首行写 \[report\]）。草稿首行/, '在工作区交结果：回复首行写 [report]，要问用户首行写 [ask]，不带这两个标记的回复不算交回。首行'],
+  [/^- 多步骤自己做的活先开公开任务卡（先发 --kind start）；.*\n/m, ''],
+  [/；卡在工具上当场 `bothouse vent "<一句话>"`，不等汇报。/, '。'],
 ];
 export function dshTeamModeRules(mode, { cli = false } = {}) {
   let rules = teamModeRules(mode);
@@ -202,6 +208,9 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     `你是频道 #${room.name} 的成员「${member.name}」。${model}频道里其他人各有自己的身份，他们的自我介绍说的是他们自己，不是你。`,
     ...(persona.length ? persona : ['显示名只用于频道 @ 和路由，不要求扮演人物。没有人设时，以实际 AI 身份直接完成工作。']),
     dshTeamModeRules(mode, { cli }),
+    // Walk 11-14: woken here on the 【交接】 row, a member read it as a new big job and answered 【接】
+    // again, then stopped: nothing said this room is the workspace that 【接】 leads to.
+    ...(room.kind === 'workspace' ? [`这里是 #${store?.room?.(room.parent_id)?.name ?? '聊天频道'} 的工作区，活已经交到你手上：不要再回【接】，直接动手做，做完回复首行写 [report] 交回；要用户拍板首行写 [ask]。几个人同做一件活时，你那一份做完就交回自己那份，不用等别人。`] : []),
     status,
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
@@ -315,6 +324,36 @@ export function cliApprovalCard(request) {
 }
 
 /** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
+/**
+ * #1616: the output of a finished ACP tool call (tool_call_update), for the step list: its text
+ * content blocks, a diff as its path, a terminal's or a raw output's text fields
+ * (agentclientprotocol.com/protocol/tool-calls: content, rawOutput). '' when it carries none.
+ */
+export function toolOutputText(u) {
+  const parts = [];
+  for (const c of Array.isArray(u?.content) ? u.content : []) {
+    if (c?.type === 'content' && c.content?.type === 'text' && typeof c.content.text === 'string') parts.push(c.content.text);
+    else if (c?.type === 'diff' && typeof c.path === 'string') parts.push(c.path);
+  }
+  if (parts.length === 0) {
+    const raw = u?.rawOutput;
+    if (typeof raw === 'string') parts.push(raw);
+    else if (raw !== null && typeof raw === 'object') {
+      const text = ['formatted_output', 'aggregated_output', 'output', 'stdout', 'content', 'result', 'error', 'stderr']
+        .map(k => raw[k]).find(v => typeof v === 'string' && v.trim());
+      if (text !== undefined) parts.push(text);
+    }
+  }
+  return parts.join('\n').trim();
+}
+
+/** #1616: the text of a DSH tool result message (its text content parts), for the step list. */
+function nativeResultText(message) {
+  const content = message?.content;
+  if (typeof content === 'string') return content.trim();
+  return (Array.isArray(content) ? content : []).filter(p => p?.type === 'text' && typeof p.text === 'string').map(p => p.text).join('\n').trim();
+}
+
 function toolArgText(raw) {
   try {
     const args = JSON.parse(raw);
@@ -368,10 +407,11 @@ export class TurnProgress {
     this.schedule();
   }
 
-  result(callId, failed, reason) {
+  /** #1616: the call's output (toolOutputText) goes on the card for the step list; a failure keeps its reason. */
+  result(callId, failed, output) {
     if (this.ended || this.resolved.has(callId)) return;
     if (callId !== undefined) this.resolved.add(callId);
-    this.items.push({ kind: 'tool_result', tool: this.names.get(callId) ?? '', success: !failed, text: failed ? (reason ?? '') : '' });
+    this.items.push({ kind: 'tool_result', tool: this.names.get(callId) ?? '', success: !failed, text: output ?? '' });
     this.schedule();
   }
 
@@ -527,7 +567,7 @@ export class DshMembers {
         }
       }
       else if (event.type === 'tool/call') w.progress?.call(event.data.callId, event.data.name, event.data.arguments);
-      else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name);
+      else if (event.type === 'tool/result') w.progress?.result(event.data.message?.toolCallId, event.data.error !== undefined || event.data.message?.isError === true, event.data.error?.reason ?? event.data.error?.name ?? nativeResultText(event.data.message));
       else if (event.type === 'assistant/message') {
         w.internalErrors = 0;
         for (const part of event.data.message?.content ?? []) {
@@ -721,7 +761,7 @@ export class DshMembers {
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > cap) {
       return () => this.hub.post(msg.room_id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
-        text: `Agent 之间已经连续接力 ${cap} 次以上，暂停自动接力；需要继续请人来 @。`,
+        text: `成员之间已经互相接力 ${cap} 次以上，先停在这里；要她们接着干，就 @ 一下。`,
       });
     }
     // #1598: every @ runs where it was written; a member's 【接】 to a chat-channel call moves the
@@ -883,10 +923,24 @@ export class DshMembers {
     const progress = new TurnProgress(this.hub, job.room_id, member, job.id);
     // ACP tool calls (agentclientprotocol.com/protocol/tool-calls): one call per toolCallId, its update says completed or failed.
     // Thoughts (agent_thought_chunk) feed the card too, as on the bridge.
+    // #1616: an agent may stream a call's output in earlier updates and close it with a bare status:
+    // codex-acp sends a command's output as chunks in _meta.terminal_output_delta (or terminal_output)
+    // of its updates. The chunks add up; the last whole output seen is kept for the result.
+    const outputs = new Map();
     const onTool = (u) => {
       if (u.sessionUpdate === 'agent_thought_chunk') { if (u.content?.type === 'text') progress.thought(u.content.text); return; }
       if (u.sessionUpdate === 'tool_call') progress.call(u.toolCallId, u.title ?? u.kind ?? '', JSON.stringify(u.rawInput ?? {}));
-      if (u.status === 'completed' || u.status === 'failed') progress.result(u.toolCallId, u.status === 'failed');
+      // A streamed command output wins over content, which may only repeat the command (readableInput).
+      const seen = outputs.get(u.toolCallId) ?? { streamed: '', content: '' };
+      const chunk = u._meta?.terminal_output_delta?.data ?? u._meta?.terminal_output?.data;
+      if (typeof chunk === 'string') seen.streamed += chunk;
+      const content = toolOutputText(u);
+      if (content !== '') seen.content = content;
+      outputs.set(u.toolCallId, seen);
+      if (u.status === 'completed' || u.status === 'failed') {
+        progress.result(u.toolCallId, u.status === 'failed', seen.streamed.trim() || seen.content);
+        outputs.delete(u.toolCallId);
+      }
     };
     // Tool approval follows the member's DSH permission preset (cli-member.mjs presetDecision):
     // Full access answers at once, Read Only refuses, Workspace Write asks the owner in the room.

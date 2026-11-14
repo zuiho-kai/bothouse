@@ -272,7 +272,9 @@ DREAM_REPLY_CHARS = 1500
 # 「跑完艾特你处理」); empty disables it.
 DREAM_NOTIFY = os.environ.get("WIKI_DREAM_NOTIFY", CFG["dream_notify"])
 SPLIT_ENGINE = os.environ.get("WIKI_SPLIT_ENGINE", CFG["split_engine"])  # Haiku won't split; luna/sol does it before Haiku writes
-SPLIT_AT = 0.9  # a page this full (lines or chars) is split before the next ingest
+SPLIT_AT = lint.SPLIT_AT  # a page this full (lines or chars) is split before the next ingest; lint holds the number
+# source: carried over from SOP_SPLIT ("降到预算 70% 以下"): the share of its budget a split page must end below
+SPLIT_TARGET = 0.7
 NIGHT_BUDGET = int(os.environ.get("WIKI_NIGHT_BUDGET", 5 * 3600))  # seconds; the rest waits for the next night
 QUOTA_TEXT = ("usage limit", "rate limit")
 QUOTA_RE = re.compile(r"hit your [\w\- ]{1,30}?\s*limit\b")  # session / weekly / 5-hour / later windows
@@ -367,7 +369,7 @@ R6b 每条新写的 bullet 归到四类之一，行尾标记让推送分得清�
    转述队友的判断写明是谁的判断；猜测（没核过的猜想、估计）行尾写「（推测）」；过时的旧说法按 R4 处理。
    用户原话照旧不标。
 R7 不写秘密（token、密码、key），只写它存放的位置。
-R8 页面只用 现状/关键事实/决策与踩坑/待办 四节；一条 bullet 一个事实，单行 ≤300 字；只写结论和关键数字，不写排查过程；不写「未见确认」「不声称」「用户告知」之类批注。
+R8 页面只用 现状/关键事实/决策与踩坑/待办 四节；一条 bullet 一个事实，单行 ≤@BODY_LINE@ 字；只写结论和关键数字，不写排查过程；不写「未见确认」「不声称」「用户告知」之类批注。
 R8b 写事实时能说清怎么核过的，行尾带 `｜源：亲验 · <怎么核的>`；只是在转述别人时带 `｜源：转述 · <名字>`；用户的原话带 `｜源：原话 · <YYYY-MM-DD>`。
    不加标注仍合法（向后兼容）。禁止用标注代替核实：「｜源：转述 · 橘」≠ 核实，核实后才能去掉转述标注。
    标注格式须满足：取值只能是 亲验/转述/原话；转述必须在 ` · ` 后写明谁说的（`bin/lint.py` 检查，不符报错）。
@@ -381,7 +383,7 @@ R9 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）�
    - 不存在 → 放进 scope 合适的页面；
    - 没有合适页面 → 新建 topic（frontmatter: name、description、metadata.scope），加到它所在目录的 README（子域里的页登记在子域 README）；
    - 某东西改了名 → grep 旧名，全库替换，旧名只留一次「原 X」。
-   - 目标页面写入后会超预算（`python3 bin/lint.py --warn` 报 ≥80% 或 lint 报超限）→ 按子主题拆页（新页登记 README），不许因预算跳过事实；「接近预算」不是跳过理由。
+   - 目标页面写入后会超预算（`python3 bin/lint.py --warn` 报 ≥@WARN@ 或 lint 报超限）→ 按子主题拆页（新页登记 README），不许因预算跳过事实；「接近预算」不是跳过理由。
 4. 每个改过的页面：同步 description: 和 README 那一行；新主题若不在 MEMORY.md 那行描述里，更新那行。
 5. log.md 末尾，每个 session 新追加一条（即使 log 里已有该 session 的旧条目，也要为本次追加）：`## [YYYY-MM-DD] ingest | <sid8> <title>`，下面每页一行「- <domain>/<topic>: 改了什么」；
    标题必须是 ingest（不是 lint），不要写别的维护条目；log.md 只追加，不改不删旧条目。
@@ -411,7 +413,7 @@ sid8 的 ingest 条目），当时没有核对。你负责夜间复核：改错�
 让 wiki 准确、完整地反映 TRANSCRIPT 里长期有用的知识：写错的改正，漏写的补上，重复的合并。
 
 ## 规则（违反任一条即不合格）
-R1 先读 CLAUDE.md 并全部遵守（什么算长期有用、一事一页、过时即删、日期、四节、单行 ≤300 字、不写批注、不写秘密）。
+R1 先读 CLAUDE.md 并全部遵守（什么算长期有用、一事一页、过时即删、日期、四节、单行 ≤@BODY_LINE@ 字、不写批注、不写秘密）。
 R2 只写 transcript 有依据的；transcript 后面的更正覆盖前面；用户的话优先于助手的话；助手的推测不写或标「推测」；
    用户没采纳的提议不能写成现状；未答复的提议不进页面，只在 log.md 的 review 条目里写一行「- 未答复提议：X」。
    页面「待办」只留用户已同意、还没做完的事。
@@ -482,7 +484,7 @@ R5 没有需要修的就什么都不改。
 3. 重复：同一路径/ID/端口/结论出现在多页 → 留在 scope 拥有它的页面，其余改为 [[链接]]。
 4. 矛盾与过时：同一事实说法不一；改名后残留旧名；「见上」等指向已不存在的内容 → 修正。
 5. 范围：超出页面 scope 的内容移到正确页面。
-6. 格式：只有四节；单行 ≤300 字；排查过程压成结论；会过时的事实缺日期 → 从 log.md 补。
+6. 格式：只有四节；单行 ≤@BODY_LINE@ 字；排查过程压成结论；会过时的事实缺日期 → 从 log.md 补。
 7. 预算：接近预算的页面本轮之前已由脚本处理（域有空位才拆，否则压缩），这里不拆页面；域满时由脚本在本轮之前拆成子域，这里不拆域，也不把子域合回上级。
 8. README 行、description: 与正文一致。
 9. 规则周审：只读 {rules_and}，不改{them}。逐条判断：能用脚本/测试检测的 → 建议移出；与 wiki 现状矛盾或已过时的 → 建议删；{rules_dup} → 建议合并。有建议时，把 {rule_review_page} 页（文件名 {rule_review_page}.md，在 {dream_dir}/ 或其子域目录里）的「待办」里以「{rule_name} 周审建议」开头的那一行整行替换为「{rule_name} 周审建议（YYYY-MM-DD）：<文件>:<条目> → <移出/删/合并>，…」（没有这一行就新增）；无建议则删掉这一行。
@@ -504,7 +506,7 @@ R3 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）�
 
 ## SOP
 1. 读 CLAUDE.md、下列每个页面所在目录的 README、下列每个页面。
-2. 每页按子主题切成 2–3 页；原页留总览与 [[新页]] 链接；新页有完整 frontmatter（name、description、metadata.scope），scope 写清归属；各页都降到预算 70% 以下。
+2. 每页按子主题切成 2–3 页；原页留总览与 [[新页]] 链接；新页有完整 frontmatter（name、description、metadata.scope），scope 写清归属；各页都降到预算 @SPLIT_TARGET@ 以下。
 3. 新页放在原页同一目录，登记到该目录的 README（子域页登记在子域 README）；更新原页 description 与 README 行；grep 全库 `[[原页名]]`，指向已搬走内容的改成新页。
 4. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md，如 refs/papers/x>`，下面每页一行说明搬了什么。
 5. 运行 `python3 bin/lint.py` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出这些页面。
@@ -577,7 +579,7 @@ SOP_DREAM = persona("""DREAM 任务（执行型：照 SOP 做）。TRANSCRIPT �
 这类最要紧。把它们记进 {page}，供用户决定要不要变成常驻规则，或改写/做成 hook。
 
 ## 规则（违反任一条即不合格）
-R1 先读 CLAUDE.md 并遵守（页面格式、四节、单行 ≤300 字、日期、不写秘密）。
+R1 先读 CLAUDE.md 并遵守（页面格式、四节、单行 ≤@BODY_LINE@ 字、日期、不写秘密）。
 R2 只写 TRANSCRIPT 里有依据的；每条要引用户原话（逐字，短引，只能引 USER 行）并写 日期 + sid8。助手、队友、频道里别人的话都不算用户偏好。
 R3 只读、不改：{rules}。只改 {page}、所在 README、MEMORY.md、log.md。
    不运行 git，不改 bin/、隐藏文件、其他页面。
@@ -634,7 +636,7 @@ SOP_REFLECT = persona("""REFLECT 任务（执行型：照 SOP 做）。今晚的
 - 「用户的话」：当天每个会话里用户本人说的话，格式「USER [MM-DD]: 内容」，所属会话看上面最近的「=== SESSION <sid8>」。
 
 ## 规则（违反任一条即不合格）
-R1 先读 CLAUDE.md 并遵守（页面格式、四节、单行 ≤300 字、日期、不写秘密）。
+R1 先读 CLAUDE.md 并遵守（页面格式、四节、单行 ≤@BODY_LINE@ 字、日期、不写秘密）。
 R2 每条反思都写来源。数字只抄数据包里原样出现的（如「$569.7」「94 次」），不自己加减、不四舍五入；数据包里的原句用『』
    逐字照抄；用户原话用「」逐字照抄，前面写 MM-DD sid8。脚本会核对，对不上就打回。
 R3 只写今天真发生的问题。某一类没有问题就写「无」，不凑数。
@@ -796,6 +798,19 @@ FIX = """The structural linter rejected the wiki after your last pass. Fix these
 <dir>/README.md back into its parent):
 {errors}
 Finish with one line per change."""
+
+
+# The manuals name program settings as @NAME@; the numbers live only in lint.py and the constants above.
+# An unknown name raises at import: a manual can never quote a value the program does not have.
+MANUAL_VALUES = {"BODY_LINE": str(lint.BODY_LINE), "WARN": f"{lint.WARN:.0%}", "SPLIT_TARGET": f"{SPLIT_TARGET:.0%}"}
+
+
+def manual(text):
+    return re.sub(r"@([A-Z_]+)@", lambda m: MANUAL_VALUES[m.group(1)], text)
+
+
+for _name in [n for n in globals() if n.startswith("SOP_") and isinstance(globals()[n], str)]:
+    globals()[_name] = manual(globals()[_name])
 
 
 def log(msg):

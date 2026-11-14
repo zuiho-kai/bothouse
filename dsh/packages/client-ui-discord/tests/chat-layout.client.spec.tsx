@@ -131,18 +131,25 @@ it('leaves a task parked by the hourly wrap-up out of Activity and the busy mark
 })
 
 describe('live header integration (#113)', () => {
-  it('shows the channel effective lead and work across its workspaces, not the global role', () => {
-    const view = render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 2: ['ds'] } })} />)
+  it('shows the channel\'s own lead and work across its workspaces, not the global role', () => {
+    const view = render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], lead_id: 'ds', effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 2: ['ds'] } })} />)
     const lead = screen.getByRole('group', { name: zh.leadCard })
     expect(lead.querySelector(`.${css.leadCardName}`)?.textContent).toBe('鲸')
     expect(within(lead).getByText(`${zh.leadPinned} · ${zh.headLeadBusyUnreported}`)).toBeTruthy()
     expect(within(lead).queryByText('橘')).toBeNull()
-    view.rerender(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 9: ['ds'] } })} />)
+    view.rerender(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], lead_id: 'ds', effective_lead_id: 'ds' }, base.rooms[1]], thinking: { 9: ['ds'] } })} />)
     expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadIdle}`)).toBeTruthy()
   })
 
-  it('does not invent a lead when the room explicitly has none: says no lead is set', () => {
-    render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], effective_lead_id: null }] })} />)
+  // Walk 11-14: a room without its own lead dispatches and accepts as the global lead (tasks.mjs), so the
+  // card names that lead even when no one answers un-@'d messages there (effective_lead_id null).
+  it('a room without its own lead shows the global lead that dispatches there', () => {
+    render(<ChannelsPage {...props({ ...base, rooms: [{ ...base.rooms[0], lead_id: null, effective_lead_id: null }] })} />)
+    expect(screen.getByRole('group', { name: zh.leadCard }).querySelector(`.${css.leadCardName}`)?.textContent).toBe('橘')
+  })
+
+  it('does not invent a lead when neither the room nor the product has one: says no lead is set', () => {
+    render(<ChannelsPage {...props({ ...base, leadId: null, effectiveLeadId: null, rooms: [{ ...base.rooms[0], lead_id: null, effective_lead_id: null }] })} />)
     const head = screen.getByRole('group', { name: zh.leadCard })
     expect(within(head).queryByText('橘')).toBeNull()
     expect(within(screen.getByRole('group', { name: zh.leadCard })).getByText(`${zh.leadPinned} · ${zh.headLeadUnset}`)).toBeTruthy()

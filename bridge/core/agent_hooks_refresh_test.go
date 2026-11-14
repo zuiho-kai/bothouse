@@ -16,7 +16,7 @@ func TestRefreshAgentHookScripts(t *testing.T) {
 	if _, err := InstallAgentHookScripts(data); err != nil {
 		t.Fatal(err)
 	}
-	guard := filepath.Join(AgentHooksDir(data), "ask-only-guard.py")
+	guard := filepath.Join(AgentHooksDir(data), "bash-guard.py")
 	stale := []byte("# stale 11-06 copy\n")
 	os.WriteFile(guard, stale, 0o755)
 	// dev / git-describe builds keep what is on disk

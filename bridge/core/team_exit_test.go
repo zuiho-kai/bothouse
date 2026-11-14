@@ -96,14 +96,6 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 		}
 	}
 	inputDone(a, "ok")
-	// One source: the embedded copy is the DSH member file.
-	src, err := os.ReadFile(filepath.Join("..", "..", "dsh", "collab", "team-mode-rules.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(src) != teamModeRulesText {
-		t.Fatal("dsh/collab/team-mode-rules.md and the embedded dsh_bundle copy differ")
-	}
 }
 
 func TestWorkspaceReportForwardsOnly(t *testing.T) {

@@ -30,7 +30,7 @@ func (e *Engine) quotaReassignPick(session, title string, exclude ...string) (*E
 			reserved[peer.name] = true
 		}
 	}
-	if target := e.quotaCandidate(session, title, reserved); target != nil {
+	if target := e.quotaCandidate(session, reserved); target != nil {
 		return target, time.Time{}
 	}
 	var earliest time.Time
