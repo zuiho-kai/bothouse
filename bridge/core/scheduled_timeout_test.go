@@ -1,9 +1,75 @@
 package core
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 )
+
+// Hold the old result after its clean-exit bookkeeping, before the queue advances.
+// This lets the old timeout finish entirely before the next turn starts.
+type scheduledResultBarrierPlatform struct {
+	stubPlatformEngine
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *scheduledResultBarrierPlatform) Send(ctx context.Context, rc any, content string) error {
+	if strings.Contains(content, "old turn completed") {
+		close(p.entered)
+		<-p.release
+	}
+	return p.stubPlatformEngine.Send(ctx, rc, content)
+}
+func (p *scheduledResultBarrierPlatform) Reply(ctx context.Context, rc any, content string) error {
+	return p.Send(ctx, rc, content)
+}
+
+// The prompt finished naturally while its cancel was on the way: cancellation
+// succeeds without another terminal event; the next Send emits its own error.
+type completedScheduledCancelSession struct {
+	attributedFailSession
+	cancels int
+}
+
+func (s *completedScheduledCancelSession) CancelTurn() error { s.cancels++; return nil }
+
+func TestScheduledTurnTimeoutCompletedCancelDoesNotSilenceQueuedError(t *testing.T) {
+	as := &completedScheduledCancelSession{attributedFailSession: attributedFailSession{events: make(chan Event, 8)}}
+	e, _, key := watchTurnFixture(t, &attributedFailAgent{s: &as.attributedFailSession})
+	p := &scheduledResultBarrierPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, entered: make(chan struct{}), release: make(chan struct{})}
+	session := e.sessions.GetOrCreateActive(key)
+	id := e.journalTurnBegin(&Message{SessionKey: key, Platform: "discord", UserID: "cron", Content: "old", turnTrigger: TurnTriggerCron}, key, "", session)
+	defer e.journalTurnEnd(id)
+	state := &interactiveState{agentSession: as, platform: p, replyCtx: key, currentMessageID: "old", turnScheduled: true,
+		pendingMessages: []queuedMessage{{platform: p, replyCtx: key, messageID: "next", userID: "human", content: "continue the work", msgPlatform: "discord", msgSessionKey: key}}}
+	state.markTurnStartLocked()
+	state.scheduledWatch = 7
+	e.interactiveStates[key] = state
+	done := make(chan struct{})
+	go func() {
+		e.processInteractiveEvents(state, session, e.sessions, key, "old", time.Now(), nil, nil, key)
+		close(done)
+	}()
+	as.events <- Event{Type: EventResult, Content: "old turn completed", Done: true}
+	<-p.entered // EventResult has already cleared turnCancelled.
+	stopped := e.fireScheduledTurnTimeout(state, key, 7, TurnTriggerCron, "", "job", 0)
+	state.mu.Lock()
+	cancelled, inFlight := state.turnCancelled, state.scheduledCancel != nil
+	state.mu.Unlock()
+	close(p.release) // only now can the event loop start the queued turn
+	<-done
+	if !stopped || as.cancels != 1 || !cancelled || inFlight {
+		t.Fatalf("old cancel did not finish before queue start: stopped=%v cancels=%d cancelled=%v inFlight=%v", stopped, as.cancels, cancelled, inFlight)
+	}
+	if got := strings.Join(p.getSent(), "\n"); !strings.Contains(got, "agent crashed: turn failed") {
+		t.Errorf("the next turn's own error was silenced: %q", got)
+	}
+	if got := handoffsOf(e, key)[0].Idle.Fails; got != 1 {
+		t.Errorf("the next turn's own error counted %d failures, want 1", got)
+	}
+}
 
 // A scheduled run that timed out stops the turn it started; a run that only queued
 // (registered nothing) never stops someone else's turn.
