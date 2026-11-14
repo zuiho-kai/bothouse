@@ -154,6 +154,24 @@ def say(session_key: str, text: str, proj: str):
         print(f"ws-up: 工作区发消息失败（timer 已建，不影响）：{e}", file=sys.stderr)
 
 
+def fill_map(draft, key):
+    """#1639：交回只认命令后，Stop 钩子读回复正文补地图那条腿断了；交回收下后对草稿跑 codemap-fill，
+    补「## 地图要补的条目（地图路径）」一节，结果打一行。出错只少这一步，不挡交回。"""
+    data = os.environ.get("CC_DATA_DIR")
+    dirs = ([Path(data) / "hooks"] if data else []) + [Path(__file__).resolve().parent.parent / "hooks",
+                                                       Path.home() / ".bothouse" / "hooks"]
+    f = next((d / "codemap-fill.py" for d in dirs if (d / "codemap-fill.py").is_file()), None)
+    if not f:
+        return
+    try:
+        r = subprocess.run([sys.executable, "-I", str(f), "--source", f"工作区交回 {key}".strip(), draft],
+                           capture_output=True, text=True, timeout=30)
+        out = r.stderr.strip()
+        print(out or "ws-up: 这次交回没带「## 地图要补的条目（地图路径）」一节，地图没补", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"ws-up: 补地图出错（不影响交回）：{e}", file=sys.stderr)
+
+
 def hand_back(draft, notes, failed: bool, text=None):
     """#699 C：交回只认这条命令。先跑 report check（交接的交回骨架），过了才调桥
     （bothouse workspace exit → POST /team/workspace/exit）：桥把这件活的状态改成交回待验收（--failed 为失败），
@@ -180,6 +198,7 @@ def hand_back(draft, notes, failed: bool, text=None):
         sys.exit(f"ws-up: 交回失败（桥没收下）：{(r.stderr or r.stdout).strip()}")
     print(r.stdout.strip())
     print("ws-up: 已交回，等主角色验收", file=sys.stderr)
+    fill_map(draft, key)
 
 
 def main(argv):

@@ -53,9 +53,6 @@ func TestWorkspaceLeadResetReleasesForOwnChatOnly(t *testing.T) {
 	if _, ok := e.WorkspaceParent("ws1"); ok {
 		t.Fatal("ws1 still owned after its release")
 	}
-	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
-	}
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}

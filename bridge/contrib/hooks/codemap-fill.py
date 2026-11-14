@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-"""SubagentStop / Stop：把子 agent 回报（或工作区主会话这一轮的最后回复，如 [report] 细节）里「## 地图要补的条目（<地图路径>）」一节的条目追加到代码地图末尾
+"""SubagentStop / Stop：把子 agent 回报（或主会话这一轮的最后回复；工作区交回走 ws-up --report 的草稿文件，由 ws-up 调本脚本 --source）里「## 地图要补的条目（<地图路径>）」一节的条目追加到代码地图末尾
 （codemap-inject.py 派活时要求子 agent 交付附这一节）。
 
 用法：

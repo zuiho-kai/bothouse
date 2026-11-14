@@ -735,9 +735,10 @@ func EnableAgentHooks(o AgentHookOptions) (*AgentHookResult, error) {
 		add = append(add, g)
 		events = append(events, ev)
 		if n == "codemap-fill" {
-			// The workspace lead works in its main session and reports there, so its "## 地图要补的条目" section
-			// arrives at the end of a main-session turn, not at SubagentStop: run it at the turn's end too
+			// A main session's own reply can carry a "## 地图要补的条目" section too: run it at the turn's end
 			// (Gemini AfterAgent; run.py turns every CLI's turn end into Stop with the reply or a transcript).
+			// A workspace hand-back is a draft file sent by ws-up --report, not reply text; ws-up fills the
+			// map from that draft itself (#1639).
 			stop := "Stop"
 			if o.CLI == "gemini" {
 				stop = geminiEvent("Stop")
