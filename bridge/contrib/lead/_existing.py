@@ -187,7 +187,7 @@ def listing(notes, task="", self_where="", before=None, records=None, skill_dirs
         lines.append(f"- 定案：交接里「旧定案（程序搜出）」节 {len(dec)} 条，开工前读")
     if not lines:
         return []
-    return ["开工先看这些现成的（程序按任务名和原话找的），能用就接着用，不要从头重做："] + lines
+    return ["可能有关的现成东西（程序按任务名和原话找的），用得上才打开："] + lines
 
 
 # ---- 主角色提方案前（#1436，用户 11-11「感觉你对我们整个系统这个边界能力，还有它稀有功能不清晰，都说一开始就说没有记忆」）----

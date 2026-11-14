@@ -243,7 +243,7 @@ class ForwardRecipientTest(unittest.TestCase):
     def test_queued_handoff_wakes_recorded_project(self):
         ns = functions("ws-handoff", {"timer_cmd"}, dict(
             _team=self.team, cc_bin=lambda: "bothouse", KICKOFF="",
-            kickoff_maps=lambda *args: "", kickoff_existing=lambda *args: "", PLAN_FIRST="plan", SOURCE="source", _QUOTE_SEC="quote",
+            kickoff_maps=lambda *args: "", kickoff_existing=lambda *args: "", kickoff_long=lambda: "", Path=Path, re=re, PLAN_FIRST="plan", SOURCE="source", _QUOTE_SEC="quote",
             _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton",
         ))
         cmd = ns["timer_cmd"]("discord:ws3", self.notes, "task", 362, project="deep")
