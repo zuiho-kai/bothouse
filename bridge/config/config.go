@@ -123,6 +123,9 @@ type Config struct {
 	Hooks           []HookConfig     `toml:"hooks"`
 	IdleTimeoutMins *int             `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
 	MaxTurnTimeMins *int             `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
+	// TeamWatchCheckMins: minutes after a handoff before the watch looks at the workspace
+	// (core/team_watch.go). Process-wide. Unset or <= 0 = 10.
+	TeamWatchCheckMins *int `toml:"team_watch_check_mins,omitempty"`
 	// WorkspaceIdleTimeoutMins controls the workspace idle reaper timeout
 	// (multi-workspace mode) for every engine in the process. 0 disables
 	// reaping. Default: 15 minutes. Defined as a top-level (process-global)
