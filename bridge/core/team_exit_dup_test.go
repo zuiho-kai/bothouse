@@ -3,6 +3,8 @@ package core
 import (
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // A bounced report's repair turn must not post a second report when another turn of the same
@@ -14,12 +16,12 @@ func TestWorkspaceSecondReportForSameHandoffNotPosted(t *testing.T) {
 	bound := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
 	item := teamTaskBoardItem{ID: 958, What: "回报转发", WS: exitWSKey, Chat: "discord:chat1", Bound: bound, Dispatcher: e.name}
 	writeReviewBoard(t, e, item)
-	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, "做了什么：第一版", exitWSKey, 958, "修好了", &item)
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport, "做了什么：第一版", exitWSKey, 958, "修好了", &item)
 	if !e.exitReportedSinceBound(958, bound) {
 		t.Fatal("first report not recorded")
 	}
 	n := len(p.sentTo("discord:chat1"))
-	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, "做了什么：补交版", exitWSKey, 958, "修好了，补上范围", &item)
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport, "做了什么：补交版", exitWSKey, 958, "修好了，补上范围", &item)
 	if got := len(p.sentTo("discord:chat1")); got != n {
 		t.Fatalf("second report for the same handoff was posted: %d -> %d", n, got)
 	}

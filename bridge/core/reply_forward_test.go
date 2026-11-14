@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	teampkg "github.com/chenhg5/cc-connect/core/team"
 )
 
 // A user's reply in a chat channel to a report of work still running in a workspace is handed to
@@ -77,7 +79,7 @@ func TestHandoffTurnMessagesBelongToTask(t *testing.T) {
 		"sk": "discord:ws2", "ws": "discord:ws2", "bound": time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339), "chat": "discord:chat1"}
 	a, _ := json.Marshal(old)
 	b, _ := json.Marshal(it)
-	writeTaskBoard(t, team, teamTaskBoardFile, string(a)+"\n"+string(b)+"\n")
+	writeTaskBoard(t, team, teampkg.TaskBoardFile, string(a)+"\n"+string(b)+"\n")
 	e.noteTurnHandoffs("discord:chat1:u1", []string{"m-request", "m-followup"}, start)
 	for _, id := range []string{"m-request", "m-followup"} {
 		if got := e.replyTaskBoard(id); got != 7 {

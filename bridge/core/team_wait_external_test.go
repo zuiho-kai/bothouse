@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // agentm #26 (11-09): eight GPUs taken, the workspace said so; the report must not loop.
@@ -16,24 +18,24 @@ const gpuBlockedReport = `[report] #26 背景：验证 PR9977，用户要 GPU �
 再看：2h`
 
 func TestWaitExternalOf(t *testing.T) {
-	why, after, ok := waitExternalOf(gpuBlockedReport)
+	why, after, ok := team.WaitExternalOf(gpuBlockedReport)
 	if !ok || !strings.Contains(why, "GPU 8 张全被占用") || after != 2*time.Hour {
 		t.Fatalf("got %q %v %v", why, after, ok)
 	}
-	if _, after, ok := waitExternalOf("细节：\n- 等外部：等 CI\n"); !ok || after != waitExternalDefault {
+	if _, after, ok := team.WaitExternalOf("细节：\n- 等外部：等 CI\n"); !ok || after != team.WaitExternalDefault {
 		t.Fatalf("default retry: %v %v", after, ok)
 	}
-	if _, after, _ := waitExternalOf("等外部：等对方回\n再看：1h30m"); after != 90*time.Minute {
+	if _, after, _ := team.WaitExternalOf("等外部：等对方回\n再看：1h30m"); after != 90*time.Minute {
 		t.Fatalf("1h30m: %v", after)
 	}
-	if _, after, _ := waitExternalOf("等外部：x\n再看：1 分钟"); after != waitExternalMin {
+	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：1 分钟"); after != team.WaitExternalMin {
 		t.Fatalf("min clamp: %v", after)
 	}
-	if _, after, _ := waitExternalOf("等外部：x\n再看：72h"); after != waitExternalMax {
+	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：72h"); after != team.WaitExternalMax {
 		t.Fatalf("max clamp: %v", after)
 	}
 	for _, body := range []string{"[report] #1 做完了\n要你做的：没有", "等外部：无", "我们不必等外部：直接做了"} {
-		if _, _, ok := waitExternalOf(body); ok {
+		if _, _, ok := team.WaitExternalOf(body); ok {
 			t.Fatalf("not waiting: %q", body)
 		}
 	}
@@ -52,7 +54,7 @@ func TestWaitExternalReportSkipsReturned(t *testing.T) {
 	}
 	old := e.sessions.GetOrCreateActive("room:ws1")
 	writeReviewBoard(t, e, teamTaskBoardItem{ID: 26, What: "verify", Chat: "room:main", WS: "room:ws1", Dispatcher: "lead"})
-	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 26, gpuBlockedReport)
+	e.endWorkspaceTask("room:main", "room:ws1", team.ExitKindReport, 26, gpuBlockedReport)
 	if e.sessions.ActiveSessionID("room:ws1") != old.ID {
 		t.Fatal("a waiting report reset the session like a finished one")
 	}
@@ -69,8 +71,8 @@ func TestRetryWaitingExternalDue(t *testing.T) {
 	e.SetTeam(t.TempDir(), "lead", true)
 	now := time.Now()
 	writeReviewBoard(t, e,
-		teamTaskBoardItem{ID: 1, What: "due", Chat: "room:main", Paused: "11-09 08:00", PauseWhy: waitExternalWhy + "GPU 全占", WaitUntil: now.Add(-time.Minute).Unix()},
-		teamTaskBoardItem{ID: 2, What: "later", Chat: "room:main", Paused: "11-09 08:00", PauseWhy: waitExternalWhy + "等 CI", WaitUntil: now.Add(time.Hour).Unix()},
+		teamTaskBoardItem{ID: 1, What: "due", Chat: "room:main", Paused: "11-09 08:00", PauseWhy: team.WaitExternalWhy + "GPU 全占", WaitUntil: now.Add(-time.Minute).Unix()},
+		teamTaskBoardItem{ID: 2, What: "later", Chat: "room:main", Paused: "11-09 08:00", PauseWhy: team.WaitExternalWhy + "等 CI", WaitUntil: now.Add(time.Hour).Unix()},
 		teamTaskBoardItem{ID: 3, What: "asked", Chat: "room:main", Paused: "11-09 08:00", PauseWhy: "等待用户答复", WaitUntil: now.Add(-time.Minute).Unix()},
 		teamTaskBoardItem{ID: 4, What: "running", Chat: "room:main", WS: "room:ws1"},
 	)

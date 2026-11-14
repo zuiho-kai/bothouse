@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Headline of a workspace [report]/[ask] (user 2026-10-28 「工作区完成了，他没有回报给你」→「做」;
@@ -32,7 +34,7 @@ func (e *Engine) boardItemByID(id int) *teamTaskBoardItem {
 	if dir == "" || id <= 0 {
 		return nil
 	}
-	for _, items := range [][]teamTaskBoardItem{readTeamTaskBoard(dir), readTeamTaskBoardFile(dir, teamTaskBoardDoneFile)} {
+	for _, items := range [][]teamTaskBoardItem{readTeamTaskBoard(dir), readTeamTaskBoardFile(dir, team.TaskBoardDoneFile)} {
 		for i := len(items) - 1; i >= 0; i-- {
 			if items[i].ID == id {
 				return &items[i]
@@ -46,7 +48,7 @@ func (e *Engine) boardItemByID(id int) *teamTaskBoardItem {
 // name. No board number: the user reads the work by its name (user 10-30).
 func exitHeadlineText(kind, name, line, askID string) string {
 	head := exitPrefix + "「" + name + "」"
-	if kind == exitKindAsk {
+	if kind == team.ExitKindAsk {
 		return head + "要你定\n" + quietText(line) + "\n（直接回复这条就能答复，编号 " + askID + "）"
 	}
 	return head + "\n" + quietText(line)
@@ -186,6 +188,6 @@ func (e *Engine) exitBounceCount(sessionKey string) int {
 
 // exitHeadlineOK: body's first line has a #id that is on the board and a sentence.
 func (e *Engine) exitHeadlineOK(body string) bool {
-	id, _, problems := exitHeadline(body)
+	id, _, problems := team.ExitHeadline(body)
 	return problems == nil && e.boardItemByID(id) != nil
 }

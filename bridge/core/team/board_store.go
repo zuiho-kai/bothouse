@@ -1,4 +1,4 @@
-package core
+package team
 
 import (
 	"encoding/json"
@@ -6,30 +6,31 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The bridge's one way to change a row of the task board file (board.jsonl, one JSON object per
-// line). Every bridge-side change of a row goes through updateBoardRow: the watch's progress
+// line). Every bridge-side change of a row goes through UpdateBoardRow: the watch's progress
 // stamp (writeBoardProgress) and the quota takeover's owner change (reassignQuotaBoard). The
 // second used to be a Python script embedded in the Go source and run with `python3 -c`, with
 // its own fcntl lock and its own temp file name, so the takeover failed on Windows and on a
 // machine without python3 (#1627).
 
-// errBoardRowMissing: the board has no row with the id.
-var errBoardRowMissing = errors.New("board item missing")
+// ErrBoardRowMissing: the board has no row with the id.
+var ErrBoardRowMissing = errors.New("board item missing")
 
-// updateBoardRow changes row id of the board in dir: it takes the board lock (the one board.py
-// takes, lockBoardFile), reads the file, hands the row's fields to change, and when change
+// UpdateBoardRow changes row id of the board in dir: it takes the board lock (the one board.py
+// takes, LockBoardFile), reads the file, hands the row's fields to change, and when change
 // reports a change writes the file back whole (tmp + rename, as board.py _write does). Rows
 // other than the touched one keep their exact bytes; the touched row is re-encoded, so its key
 // order and escaping can shift once. change returning an error writes nothing. A missing board
-// file is an error; a board without the row is errBoardRowMissing.
-func updateBoardRow(dir string, id int, change func(row map[string]json.RawMessage) (bool, error)) (bool, error) {
-	path := filepath.Join(dir, teamTaskBoardFile)
+// file is an error; a board without the row is ErrBoardRowMissing.
+func UpdateBoardRow(dir string, id int, change func(row map[string]json.RawMessage) (bool, error)) (bool, error) {
+	path := filepath.Join(dir, TaskBoardFile)
 	if _, err := os.Stat(path); err != nil {
 		return false, err
 	}
-	unlock, err := lockBoardFile(filepath.Join(dir, "board.lock"))
+	unlock, err := LockBoardFile(filepath.Join(dir, "board.lock"))
 	if err != nil {
 		return false, err
 	}
@@ -67,7 +68,7 @@ func updateBoardRow(dir string, id int, change func(row map[string]json.RawMessa
 		lines[i], changed = string(out), true
 	}
 	if !found {
-		return false, errBoardRowMissing
+		return false, ErrBoardRowMissing
 	}
 	if !changed {
 		return false, nil
@@ -83,18 +84,35 @@ func updateBoardRow(dir string, id int, change func(row map[string]json.RawMessa
 	return true, nil
 }
 
-// boardRowString: field name of row as a string ("" when absent or not a string).
-func boardRowString(row map[string]json.RawMessage, name string) string {
+// BoardRowString: field name of row as a string ("" when absent or not a string).
+func BoardRowString(row map[string]json.RawMessage, name string) string {
 	var s string
 	_ = json.Unmarshal(row[name], &s)
 	return s
 }
 
-// rawJSON: v as it must appear inside a board row (a marshal error leaves the field unset).
-func rawJSON(v any) json.RawMessage {
+// RawJSON: v as it must appear inside a board row (a marshal error leaves the field unset).
+func RawJSON(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return nil
 	}
 	return b
 }
+
+// The board file: <team_status_dir>/board.jsonl, one JSON object per line; finished items go to
+// board-done.jsonl.
+const (
+	TaskBoardFile     = "board.jsonl"
+	TaskBoardDoneFile = "board-done.jsonl"
+)
+
+const (
+	// BoardLockWait: how long one board write waits for board.py's lock before giving up
+	// this check (the next one is ten minutes away). Source: 实测一次 board update 亚秒返回，
+	// 2 秒还拿不到锁就是别的进程卡在写板上，不值得拖住看门这一轮。
+	BoardLockWait = 2 * time.Second
+	// BoardLockPoll: retry interval while waiting for that lock. Source: 沿用
+	// contrib/gate/filelock.py 的 0.2 秒重试间隔。
+	BoardLockPoll = 200 * time.Millisecond
+)

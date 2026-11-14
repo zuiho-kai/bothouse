@@ -3,13 +3,15 @@ package core
 import (
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // exitByCommand hands the workspace's task back the only way there is since #699 C: the command
 // (ws-up --report → POST /team/workspace/exit → WorkspaceExit).
 func exitByCommand(t *testing.T, e *Engine, key, text string) WorkspaceExitResult {
 	t.Helper()
-	res, err := e.WorkspaceExit(e.ctx, key, exitKindReport, text)
+	res, err := e.WorkspaceExit(e.ctx, key, team.ExitKindReport, text)
 	if err != nil {
 		t.Fatalf("workspace exit: %v", err)
 	}

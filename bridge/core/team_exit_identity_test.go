@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // A delayed, badly formatted report for the previous task must not be presented
@@ -24,7 +26,7 @@ func TestWorkspaceLegacyReportKeepsNamedTask(t *testing.T) {
 	ts := NewTimerScheduler(store)
 	t.Cleanup(ts.Stop)
 	e.SetTimerScheduler(ts)
-	e.teamExit.bounces = map[string]int{exitWSKey: exitRules.Bounce.WakeLimit}
+	e.teamExit.bounces = map[string]int{exitWSKey: team.ExitRules.Bounce.WakeLimit}
 	e.forwardWorkspaceExit(p, exitWSKey, "[report] #65 背景：旧预算核验。\n做了什么：用量复算完成。")
 	jobs := store.List()
 	if len(jobs) != 1 {
@@ -70,7 +72,7 @@ func TestWorkspaceRewriteUnknownOrUnmarkedIdentity(t *testing.T) {
 			ts := NewTimerScheduler(store)
 			t.Cleanup(ts.Stop)
 			e.SetTimerScheduler(ts)
-			e.teamExit.bounces = map[string]int{exitWSKey: exitRules.Bounce.WakeLimit}
+			e.teamExit.bounces = map[string]int{exitWSKey: team.ExitRules.Bounce.WakeLimit}
 			e.forwardWorkspaceExit(p, exitWSKey, tc.reply)
 			jobs := store.List()
 			if tc.want == -1 {
@@ -98,7 +100,7 @@ func TestWorkspaceLateReportDoesNotResetNewTask(t *testing.T) {
 		teamTaskBoardItem{ID: 60, What: "新任务", WS: "discord:ws1", Chat: "discord:chat1", Bound: "2026-11-02T02:00:00Z"},
 	)
 	current := e.sessions.GetOrCreateActive(exitWSKey)
-	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65, "")
+	e.endWorkspaceTask("discord:chat1", exitWSKey, team.ExitKindReport, 65, "")
 	if e.sessions.ActiveSessionID(exitWSKey) != current.ID {
 		t.Fatal("late old report reset the newer task session")
 	}
@@ -118,7 +120,7 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	writeReviewBoard(t, e, old)
 	// Missing board scripts inject a real write failure. The session is released
 	// while the old board record still claims this workspace.
-	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 65, "")
+	e.endWorkspaceTask("discord:chat1", exitWSKey, team.ExitKindReport, 65, "")
 	if it := e.boardItemByID(65); it == nil || it.WS == "" || !it.ReturnedAt.IsZero() {
 		t.Fatalf("board failure not reproduced: %+v", it)
 	}
@@ -141,7 +143,7 @@ func TestWorkspaceCurrentReportAfterOlderBoardWriteFailure(t *testing.T) {
 	defer e.endResetTurn(exitWSKey)
 	endTurn := beginTeamTurn(teamTurnFact{Chat: exitWSKey, Session: exitWSKey, Engine: e.name}) // the turn running ws-up
 	defer endTurn()
-	e.endWorkspaceTask("discord:chat1", exitWSKey, exitKindReport, 60, "")
+	e.endWorkspaceTask("discord:chat1", exitWSKey, team.ExitKindReport, 60, "")
 	if it := e.boardItemByID(60); it == nil || it.ReturnedAt.IsZero() || it.WS != "" {
 		t.Fatalf("old failed write blocked current handback: %+v", it)
 	}

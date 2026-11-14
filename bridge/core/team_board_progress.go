@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #208: the watch renews a workspace every ten minutes when it sees progress, but the board row
@@ -22,13 +24,6 @@ const (
 	// boardProgressStepRunes: how much of the latest step goes on the board row. Source: 交接
 	// board-auto-progress-20261105 :10「最近一条工具调用首行截 40 字」.
 	boardProgressStepRunes = 40
-	// boardProgressLockWait: how long one board write waits for board.py's lock before giving up
-	// this check (the next one is ten minutes away). Source: 实测一次 board update 亚秒返回，
-	// 2 秒还拿不到锁就是别的进程卡在写板上，不值得拖住看门这一轮。
-	boardProgressLockWait = 2 * time.Second
-	// boardProgressLockPoll: retry interval while waiting for that lock. Source: 沿用
-	// contrib/gate/filelock.py 的 0.2 秒重试间隔。
-	boardProgressLockPoll = 200 * time.Millisecond
 )
 
 // markBoardProgress writes 「最后活动 + 最近一步」 back to the board item of this workspace
@@ -125,11 +120,11 @@ var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[@-_]`)
 //
 // The write itself is updateBoardRow (team_board_store.go).
 func writeBoardProgress(dir string, id int, step string, hasStep bool, key string, now time.Time) (bool, error) {
-	wrote, err := updateBoardRow(dir, id, func(row map[string]json.RawMessage) (bool, error) {
+	wrote, err := team.UpdateBoardRow(dir, id, func(row map[string]json.RawMessage) (bool, error) {
 		// #699 D: whether this row is live work in this workspace is the task's state (checked by
 		// markBoardProgress before it gets here), not its status text; the closing-word test is gone.
 		// The row's own binding is still checked so a stale board row never takes another's write.
-		if ws := boardRowString(row, "ws"); ws == "" || teamChatKey(ws) != key || boardRowString(row, "paused") != "" {
+		if ws := team.BoardRowString(row, "ws"); ws == "" || teamChatKey(ws) != key || team.BoardRowString(row, "paused") != "" {
 			return false, nil
 		}
 		changed := false
@@ -137,19 +132,19 @@ func writeBoardProgress(dir string, id int, step string, hasStep bool, key strin
 		var prevStamp float64
 		_ = json.Unmarshal(row["progress_at"], &prevStamp)
 		if stamp > prevStamp { // only raise, same rule as board.py _touch_progress
-			row["progress_at"] = rawJSON(stamp)
+			row["progress_at"] = team.RawJSON(stamp)
 			changed = true
 		}
 		// A round with no tool call only proves the workspace spoke, so it raises progress_at and
 		// leaves the step alone instead of degrading it to 「已开工」 (必修①).
-		self := strings.TrimSpace(boardRowString(row, "status"))
+		self := strings.TrimSpace(team.BoardRowString(row, "status"))
 		if hasStep && (self == boardHandedOff || self == boardStartedNoStep) {
-			row["status"] = rawJSON("在做：" + step)
+			row["status"] = team.RawJSON("在做：" + step)
 			changed = true
 		}
 		return changed, nil
 	})
-	if errors.Is(err, errBoardRowMissing) {
+	if errors.Is(err, team.ErrBoardRowMissing) {
 		return false, nil // the row is gone: nothing to write
 	}
 	return wrote, err

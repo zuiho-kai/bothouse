@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func TestShelvedLifecycle_WaitingQuestionSurvivesAge(t *testing.T) {
@@ -180,7 +182,7 @@ func TestShelvedLifecycle_EndWorkspaceTaskFallsBackToGateBoard(t *testing.T) {
 	e.productPyBin.Store(t.TempDir())
 	boardDir := t.TempDir()
 	e.SetTeam(boardDir, "橘", true)
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(
 		`{"id":1,"what":"待收口工作区任务","short":"待收口","status":"进行中","who":"豆","ws":"discord:ws1","sk":"discord:ws1","chat":"discord:main","at":"11-01 01:00"}`+"\n",
 	), 0o644); err != nil {
 		t.Fatal(err)
@@ -191,7 +193,7 @@ func TestShelvedLifecycle_EndWorkspaceTaskFallsBackToGateBoard(t *testing.T) {
 	if err := e.ClaimTeamWorkspaceFor("discord:main", "ws1", "工作区1", "豆", "待收口"); err != nil {
 		t.Fatal(err)
 	}
-	e.endWorkspaceTask("discord:main", "discord:ws1", exitKindReport, 1, "")
+	e.endWorkspaceTask("discord:main", "discord:ws1", team.ExitKindReport, 1, "")
 	if got := readTeamTaskBoard(boardDir); len(got) != 1 || got[0].ReturnedAt.IsZero() || got[0].WS != "" {
 		t.Fatalf("expected durable pending handback via gate/board.py fallback: %+v", got)
 	}

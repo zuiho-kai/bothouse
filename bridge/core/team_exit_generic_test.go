@@ -3,6 +3,8 @@ package core
 import (
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func TestGenericReportProblems(t *testing.T) {
@@ -12,10 +14,10 @@ func TestGenericReportProblems(t *testing.T) {
 		"#1 背景：x\n做了 y\n要你做的：没有\n我加的：只做了 CC 的版本",
 	}
 	for _, b := range bad {
-		if got := genericReportProblems(b); len(got) != 1 || !strings.Contains(got[0], "所有 CLI") {
+		if got := team.GenericReportProblems(b); len(got) != 1 || !strings.Contains(got[0], "所有 CLI") {
 			t.Errorf("want bounce for %q, got %v", b, got)
 		} else {
-			t.Logf("bounce: %s", exitBounceText(exitKindReport, got))
+			t.Logf("bounce: %s", team.ExitBounceText(team.ExitKindReport, got))
 		}
 	}
 	ok := []string{
@@ -26,7 +28,7 @@ func TestGenericReportProblems(t *testing.T) {
 		"#1 背景：x\n做了 y\n要你做的：没有\n我加的：只抄送 accept 列表",
 	}
 	for _, b := range ok {
-		if got := genericReportProblems(b); got != nil {
+		if got := team.GenericReportProblems(b); got != nil {
 			t.Errorf("want pass for %q, got %v", b, got)
 		}
 	}

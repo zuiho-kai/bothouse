@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Background for the chat lead's turn on a workspace reply (wakeChatLead): which task it is
@@ -58,7 +60,7 @@ func (e *Engine) workspaceBoardItem(wsSession string, boardID int) *teamTaskBoar
 	if it := lastBoundItem(readTeamTaskBoard(dir), key); it != nil {
 		return it
 	}
-	return lastBoundItem(readTeamTaskBoardFile(dir, teamTaskBoardDoneFile), key)
+	return lastBoundItem(readTeamTaskBoardFile(dir, team.TaskBoardDoneFile), key)
 }
 
 func lastBoundItem(items []teamTaskBoardItem, key string) *teamTaskBoardItem {

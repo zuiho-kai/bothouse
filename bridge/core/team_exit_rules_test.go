@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // The workspace exit rules are one file (team_rules/team-exit-rules.json);
@@ -89,12 +91,12 @@ func TestTeamExitSharedCases(t *testing.T) {
 		return out
 	}
 	for _, c := range cases.Evidence {
-		if got, want := askEvidenceProblems(c.Body), texts(c.Want); !reflect.DeepEqual(got, want) {
+		if got, want := team.AskEvidenceProblems(c.Body), texts(c.Want); !reflect.DeepEqual(got, want) {
 			t.Errorf("evidence %q = %q, want %q", c.Body, got, want)
 		}
 	}
 	for _, c := range cases.Judge {
-		kind, body, ok := parseExitKind(c.Reply)
+		kind, body, ok := team.ParseExitKind(c.Reply)
 		if !ok {
 			if c.Want.Kind != "" {
 				t.Errorf("judge %s: no mark read, want %q", c.Name, c.Want.Kind)
@@ -113,28 +115,28 @@ func TestTeamExitSharedCases(t *testing.T) {
 			}
 			return false
 		}
-		v := judgeExit(kind, body, false, known, c.Bounces)
-		want := exitVerdict{ID: c.Want.ID, Line: c.Want.Line, Problems: texts(c.Want.Problems), Legacy: c.Want.Legacy}
+		v := team.JudgeExit(kind, body, false, known, c.Bounces)
+		want := team.ExitVerdict{ID: c.Want.ID, Line: c.Want.Line, Problems: texts(c.Want.Problems), Legacy: c.Want.Legacy}
 		if !reflect.DeepEqual(v, want) {
 			t.Errorf("judge %s: %+v, want %+v", c.Name, v, want)
 		}
 	}
 	for _, c := range cases.Split {
-		if s, d := exitSplit(c.Body); s != c.Want.Summary || d != c.Want.Detail {
+		if s, d := team.ExitSplit(c.Body); s != c.Want.Summary || d != c.Want.Detail {
 			t.Errorf("split %q = %q / %q, want %q / %q", c.Body, s, d, c.Want.Summary, c.Want.Detail)
 		}
 	}
 	for _, c := range cases.Pick {
-		var items []exitTaskCand
+		var items []team.ExitTaskCand
 		for _, it := range c.Items {
-			items = append(items, exitTaskCand{ID: it.ID, Here: it.Here, Bound: it.Bound})
+			items = append(items, team.ExitTaskCand{ID: it.ID, Here: it.Here, Bound: it.Bound})
 		}
-		if got := exitTaskPick(c.Named, items); got != c.Want {
+		if got := team.ExitTaskPick(c.Named, items); got != c.Want {
 			t.Errorf("pick %s: %d, want %d", c.Name, got, c.Want)
 		}
 	}
 	for _, c := range cases.Bounce {
-		if got := exitBounceText(c.Kind, c.Problems); got != c.Want {
+		if got := team.ExitBounceText(c.Kind, c.Problems); got != c.Want {
 			t.Errorf("bounce %s:\n got %s\nwant %s", c.Kind, got, c.Want)
 		}
 	}
@@ -175,7 +177,7 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 
 func TestJargonProductNamesAndLinks(t *testing.T) {
 	for _, text := range []string{"DeepSeek 与 OpenClaw 并排图已补", "邀请：https://discord.gg/fooBar，文档 https://example.com/a-b/file.md#123"} {
-		if got := jargonProblems(text); len(got) != 0 {
+		if got := team.JargonProblems(text); len(got) != 0 {
 			t.Errorf("%q: %v", text, got)
 		}
 	}
@@ -183,7 +185,7 @@ func TestJargonProductNamesAndLinks(t *testing.T) {
 
 func TestJargonStillRejectsInternalIdentifiers(t *testing.T) {
 	for _, text := range []string{"fooBar", "~/x/y", "#123", "https://discord.gg/ok 后面 fooBar"} {
-		if got := jargonProblems(text); len(got) == 0 {
+		if got := team.JargonProblems(text); len(got) == 0 {
 			t.Errorf("%q was allowed", text)
 		}
 	}
@@ -201,7 +203,7 @@ func TestSelfRouteProblems(t *testing.T) {
 		"【结论】改好了。\n【要你做的】在设置里打开辅助功能权限。",
 	}
 	for _, s := range back {
-		if p := SelfRouteProblems(s); p == nil {
+		if p := team.SelfRouteProblems(s); p == nil {
 			t.Errorf("should go back: %q", s)
 		} else if !strings.Contains(p[0], "换路") || !strings.Contains(p[0], "自己") {
 			t.Errorf("reason must name another route: %q", p[0])
@@ -226,11 +228,18 @@ func TestSelfRouteProblems(t *testing.T) {
 		"[report] #1364 背景：x\n做了什么：y\n要你做的：没有\n我加的：无\n细节：\n交接范围逐项：\n- 改：汇报和提问里「要你做的」出现让用户放文件、跑命令、改设置这类话，程序打回让它自己找路 —— 上一棒已做",
 	}
 	for _, s := range pass {
-		if p := SelfRouteProblems(s); p != nil {
+		if p := team.SelfRouteProblems(s); p != nil {
 			t.Errorf("should pass: %q → %v", s, p)
 		}
 	}
-	if p := ReportPreflight(back[0], ""); !strings.Contains(strings.Join(p, "；"), "换路") {
+	if p := team.ReportPreflight(back[0], ""); !strings.Contains(strings.Join(p, "；"), "换路") {
 		t.Errorf("preflight misses the self-route check: %v", p)
 	}
 }
+
+// teamExitRulesFile is the one copy of the workspace [ask]/[report] rules: first-line mark and #id
+// format, the [ask] self-check, bounce texts. The build copies it into the DSH plugin
+// (dsh/scripts/bundle.mjs); DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
+// cases in dsh/collab/test/team-exit-cases.json (TestTeamExitSharedCases; team-exit.test.mjs). No
+// formats or texts live here.
+const teamExitRulesFile = "team_rules/team-exit-rules.json"

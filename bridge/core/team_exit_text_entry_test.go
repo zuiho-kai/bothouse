@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Test-only. The bridge no longer reads a handback from a reply's text (#699 C, #1627): the only
@@ -24,12 +26,12 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 		}
 		return ""
 	}
-	reply = stripFillerLines(reply)
+	reply = team.StripFillerLines(reply)
 	kind, body, ok := parseExitKindTurn(reply)
 	if !ok {
 		// Most turns carry no marker; only complain when one exists but did not start the reply.
-		for _, k := range exitRules.Kinds {
-			if p != nil && strings.Contains(reply, strings.ReplaceAll(exitRules.Mark, "{kind}", k)) {
+		for _, k := range team.ExitRules.Kinds {
+			if p != nil && strings.Contains(reply, strings.ReplaceAll(team.ExitRules.Mark, "{kind}", k)) {
 				slog.Warn("team exit: marker is not on the first line, nothing forwarded", "session", sessionKey, "project", e.name)
 				break
 			}
@@ -46,11 +48,11 @@ func (e *Engine) forwardWorkspaceExitContext(ctx context.Context, p Platform, se
 // there (agentm #25, 11-09: 「[report] #25」 came after 「退回原因是…」 and nothing reached the chat
 // channel). Same idea as the DSH side's exitMark lastLine (dsh/collab/team-exit.mjs).
 func parseExitKindTurn(text string) (kind, body string, ok bool) {
-	if kind, body, ok = parseExitKind(text); ok {
+	if kind, body, ok = team.ParseExitKind(text); ok {
 		return
 	}
 	if i := lastExitMarker(text); i > 0 {
-		return parseExitKind(text[i:])
+		return team.ParseExitKind(text[i:])
 	}
 	return "", "", false
 }
@@ -63,8 +65,8 @@ func lastExitMarker(text string) int {
 		if before != "" && !strings.HasSuffix(before, "\n") && !strings.ContainsAny(lastRune(before), "。！？.!?") {
 			continue
 		}
-		for _, k := range exitRules.Kinds {
-			tag := strings.ReplaceAll(exitRules.Mark, "{kind}", k)
+		for _, k := range team.ExitRules.Kinds {
+			tag := strings.ReplaceAll(team.ExitRules.Mark, "{kind}", k)
 			if len(text)-j >= len(tag) && strings.EqualFold(text[j:j+len(tag)], tag) {
 				return j
 			}
