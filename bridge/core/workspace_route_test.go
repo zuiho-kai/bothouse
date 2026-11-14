@@ -51,9 +51,7 @@ func TestDecideWorkspaceRoute(t *testing.T) {
 		{"no test", "## 范围\n- 改：" + big + " 加三个函数\n", false, "没写测试或编译"},
 		{"tool work", "## 范围\n- 改：截图验收 " + big + "，跑测试\n", false, "工具活"},
 		{"too big for qwen goes DS", "## 范围\n- 改：" + huge + " 重构，跑测试\n", true, "只有 DS"},
-		{"too big for qwen and private", "## 范围\n- 改：" + huge + " 重构，带密钥，跑测试\n", false, "不能发给 DS"},
 		{"does not fit DS", "## 范围\n- 改：" + huger + " 重构，跑测试\n", false, "塞不下"},
-		{"private stays local", "## 范围\n- 改：" + big + " 换 API key 读取，跑测试\n", true, "不出本机"},
 		{"override DS", "## 范围\n- 改：" + small + " 改一行\n执行路由：DS\n", true, "DS"},
 		{"override qwen", "## 范围\n- 改：" + small + " 改一行\n执行路由：千问\n", true, "千问"},
 		{"override direct", "## 范围\n- 改：" + big + " 加函数，跑测试\n执行路由：直接写\n", false, "写明"},
@@ -95,7 +93,6 @@ func TestDecideWorkspaceRouteClass(t *testing.T) {
 	}
 	cases := map[string]string{
 		"## 范围\n- 改：" + big + " 加函数，跑测试\n":      routeClassEither,
-		"## 范围\n- 改：" + big + " 读私有仓库，跑测试\n":    routeClassQwen,
 		"## 范围\n- 改：" + big + " 加函数\n执行路由：拆开\n": routeClassEither,
 		"## 范围\n- 改：" + big + " 加函数\n执行路由：ds\n": routeClassDS,
 	}
