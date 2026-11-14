@@ -123,6 +123,38 @@ func TestParseClaudeUsageReport_ModelWindowMustBeComplete(t *testing.T) {
 	}
 }
 
+func TestParseClaudeUsageReport_ModelOnlyWindowQuotaGroup(t *testing.T) {
+	// Source: task #771 review found the provider selector Sonnet only was unmatched.
+	for _, tc := range []struct{ selector, wantGroup string }{
+		{"Sonnet only", "model:sonnet"},
+		{"SONNET ONLY", "model:sonnet"},
+		{"Fable only", "model:fable"},
+		{"Sonnet", "model:sonnet"},
+	} {
+		t.Run(tc.selector, func(t *testing.T) {
+			header := "Current week (" + tc.selector + ")"
+			text := strings.Join([]string{"Current session", "18% used", "Current week (all models)", "75% used", header, "100% used"}, "\n")
+			report, err := parseClaudeUsageReport(text, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			windows := report.Buckets[0].Windows
+			window := windows[len(windows)-1]
+			if window.QuotaGroup != tc.wantGroup {
+				t.Fatalf("%s: quota group = %q, want %q; full window would not match the active model", header, window.QuotaGroup, tc.wantGroup)
+			}
+			if window.Name != header || window.UsedPercent != 100 || window.WindowSeconds != claudeUsageWeekWindowSeconds {
+				t.Fatalf("model window lost its display, usage or duration: %+v", window)
+			}
+			for _, accountWindow := range windows[:len(windows)-1] {
+				if accountWindow.QuotaGroup != "account" {
+					t.Fatalf("account window changed ownership: %+v", accountWindow)
+				}
+			}
+		})
+	}
+}
+
 func TestParseClaudeUsageReport_MissingOptionalFields(t *testing.T) {
 	loc := mustLoadLocation(t, "Asia/Seoul")
 	now := time.Date(2026, time.December, 22, 12, 0, 0, 0, loc)

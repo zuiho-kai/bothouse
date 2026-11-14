@@ -510,7 +510,9 @@ func parseClaudeUsageWindow(lines []string, windowSeconds int, now time.Time) (c
 	// receive a stable pool key and never infer ownership from the UI name.
 	lowerHeader := strings.ToLower(header)
 	if model, ok := strings.CutPrefix(lowerHeader, "current week ("); ok {
-		model = strings.TrimSuffix(model, ")")
+		model = strings.TrimSpace(strings.TrimSuffix(model, ")"))
+		// The provider suffix "only" qualifies the window, not the model ID.
+		model = strings.TrimSuffix(model, " only")
 		if model != "all models" {
 			window.QuotaGroup = claudeModelQuotaGroup(model)
 		}
