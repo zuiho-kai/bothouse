@@ -13387,13 +13387,24 @@ func (e *Engine) stopInteractiveSessionWithOptions(sessionKey string, notifyQueu
 }
 
 func (e *Engine) stopInteractiveSessionWithQueue(sessionKey string, notifyQueued, keepQueued bool) bool {
+	return e.stopInteractiveStateWithQueue(sessionKey, nil, notifyQueued, keepQueued)
+}
+
+// stopInteractiveStateWithQueue stops the turn under sessionKey; with want set, only when the
+// live state there is still want. A caller that captured a turn's state (a scheduled turn's
+// time limit) names it, so a turn that started since on a replacement state is never stopped.
+func (e *Engine) stopInteractiveStateWithQueue(sessionKey string, want *interactiveState, notifyQueued, keepQueued bool) bool {
 	e.interactiveMu.Lock()
+	state, ok := e.interactiveStates[sessionKey]
+	if want != nil && state != want {
+		e.interactiveMu.Unlock()
+		return false
+	}
 	if op := e.nativeCompactions[sessionKey]; op != nil {
 		op.cancel()
 		e.interactiveMu.Unlock()
 		return true
 	}
-	state, ok := e.interactiveStates[sessionKey]
 	if !ok || state == nil {
 		e.interactiveMu.Unlock()
 		return false

@@ -91,7 +91,7 @@ var scheduledWatchSeq atomic.Uint64
 // on (it queued behind another turn and started after the scheduler moved on, or came back
 // after a capacity cooldown) gets its job's time limit here and is stopped when it runs out,
 // as StopScheduledTurn stops a direct run. 11-03 caihongmao: her queued outing turns had no
-// limit at all. Any turn start replaces the token, so a later turn on the session is never
+// limit at all. The limit is bound to the turn's state (fireScheduledTurnTimeout), so a later turn on the session is never
 // stopped by an earlier turn's limit.
 // queued: the turn was taken from the queue. A scheduler's registration under iKey belongs to the
 // turn it started, and stays until that call returns — which drains the queue first — so it does
@@ -115,16 +115,27 @@ func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger,
 	state.scheduledWatch = tok
 	state.mu.Unlock()
 	time.AfterFunc(limit, func() {
-		state.mu.Lock()
-		same := state.scheduledWatch == tok
-		state.mu.Unlock()
-		if !same {
-			return
-		}
-		if j := e.turnJournalStore(); j != nil && j.Active(iKey) == "" {
-			return // the turn already ended
-		}
-		stopped := e.stopInteractiveSession(iKey, nil, nil)
-		slog.Warn("queued scheduled turn timed out; stopping it", "project", e.name, "session", iKey, "trigger", trigger, "timer_job", timerJobID, "cron_job", cronJobID, "limit", limit, "stopped", stopped)
+		e.fireScheduledTurnTimeout(state, iKey, tok, trigger, timerJobID, cronJobID, limit)
 	})
+}
+
+// fireScheduledTurnTimeout stops the turn a limit was armed for, and only that turn. The limit
+// belongs to the turn's interactiveState: a later turn start on that state replaces the token,
+// and a turn end that closes the agent process puts a new state under iKey, so the next turn
+// there never matches. 11-14 deep: a cron turn queued at 12:01 armed 30m; its state was
+// replaced when it ended, the old token stayed, and at 12:31 the stop by iKey cancelled the
+// 12:30 cron turn running on the new state (empty response).
+func (e *Engine) fireScheduledTurnTimeout(state *interactiveState, iKey string, tok uint64, trigger, timerJobID, cronJobID string, limit time.Duration) bool {
+	state.mu.Lock()
+	same := state.scheduledWatch == tok
+	state.mu.Unlock()
+	if !same {
+		return false
+	}
+	if j := e.turnJournalStore(); j != nil && j.Active(iKey) == "" {
+		return false // the turn already ended
+	}
+	stopped := e.stopInteractiveStateWithQueue(iKey, state, true, false)
+	slog.Warn("queued scheduled turn timed out; stopping it", "project", e.name, "session", iKey, "trigger", trigger, "timer_job", timerJobID, "cron_job", cronJobID, "limit", limit, "stopped", stopped)
+	return stopped
 }
