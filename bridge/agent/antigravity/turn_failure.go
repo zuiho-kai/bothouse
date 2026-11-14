@@ -28,7 +28,7 @@ func (n *nativeTrajectory) confirmsCompletedTaskStop(t streamTurnEvidence, respo
 	for i := t.start; i <= t.last; i++ {
 		step := steps[i]
 		if step.Type == "" || step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" || step.ErrorMessage != nil ||
-			(i > t.start && step.Type == "CORTEX_STEP_TYPE_USER_INPUT") {
+			(step.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" && step.PlannerResponse.StopReason == "STOP_REASON_CLIENT_STREAM_ERROR") {
 			return false
 		}
 		if step.Status == "CORTEX_STEP_STATUS_DONE" && (len(step.Error) == 0 || string(step.Error) == "null") {

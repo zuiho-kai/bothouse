@@ -35,9 +35,9 @@ func (t *streamTurnEvidence) observe(ev agyStreamEvent) {
 			return
 		}
 		t.seen, t.start, t.conversationID = true, *s.Index, s.ConversationID
-	} else if s.Type == "user_input" && *s.Index != t.start {
-		t.invalid = true
 	}
+	// A PreInvocation inbox hook adds user_input inside this Send, not a new
+	// bridge turn. Keep the original boundary so earlier failures remain visible.
 	if s.ConversationID != t.conversationID || *s.Index < t.start || *s.Index < t.last {
 		t.invalid = true
 	}
@@ -47,7 +47,7 @@ func (t *streamTurnEvidence) observe(ev agyStreamEvent) {
 		t.invalid = true
 	}
 	if s.Type == "error_message" {
-		t.invalid = true
+		t.failed = true
 	}
 	t.last = *s.Index
 	t.finalResponse = s.Type == "agent_response" && s.State == "DONE"
@@ -143,6 +143,17 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 		outcomes.log(t)
 		return reject(reason)
 	}
+	if trajectory.currentTurnEnvelopeRejection(t, r.Response) == "" {
+		for i := t.start; i <= t.last; i++ {
+			step := trajectory.Trajectory.Steps[i]
+			if step.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" && step.PlannerResponse.StopReason == "STOP_REASON_CLIENT_STREAM_ERROR" {
+				// Native enum only: never expose provider text or infer recovery
+				// from a later answer. This is still a failed turn.
+				failure = fmt.Errorf("antigravity: stream turn failed (%s; stream_step=%d kind=upstream-stream-interrupted)", status, i)
+				return reject(reason)
+			}
+		}
+	}
 	if trajectory.confirmsCompletedTaskStop(t, r.Response) {
 		return false, fmt.Errorf("antigravity: manage_task: %w", core.ErrTaskAlreadyCompleted)
 	}
@@ -186,9 +197,9 @@ func (n *nativeTrajectory) currentTurnRejection(t streamTurnEvidence, response s
 	if reason := n.currentTurnEnvelopeRejection(t, response); reason != "" {
 		return reason
 	}
-	for i, step := range n.Trajectory.Steps[t.start:] {
+	for _, step := range n.Trajectory.Steps[t.start:] {
 		switch {
-		case step.Type == "" || (i > 0 && step.Type == "CORTEX_STEP_TYPE_USER_INPUT"):
+		case step.Type == "":
 			return "trajectory-unexpected-step"
 		case step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" || step.ErrorMessage != nil:
 			return "trajectory-error-step"
@@ -197,6 +208,8 @@ func (n *nativeTrajectory) currentTurnRejection(t streamTurnEvidence, response s
 		case step.RunCommand.ExitCode != nil && *step.RunCommand.ExitCode != 0:
 			// DONE means the command exited, not that it succeeded.
 			return "trajectory-command-failed"
+		case step.Type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" && step.PlannerResponse.StopReason == "STOP_REASON_CLIENT_STREAM_ERROR":
+			return "trajectory-stream-interrupted"
 		}
 	}
 	return ""
