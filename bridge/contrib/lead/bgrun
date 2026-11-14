@@ -1,0 +1,35 @@
+#!/bin/zsh
+# bgrun <名字> <超时秒> <命令…>：后台启动长命令/下载，立刻返回。出处：反思 11-02、11-03 a 类
+#（11-02 前台串行下载 gerber/bom/pnp 10 分钟；11-03 超过 5 分钟的命令 13 条 84 分钟）。
+# 每次一个运行号，目录 ~/.bothouse/runs/<运行号>/：cmd、pid、log（实时写）、exit（结束后写；超时为 142）。
+# 多个文件分开下：每个文件各起一个 bgrun，并行跑。查：bgrun status [运行号]；结果看 exit 和 log，不前台 sleep 轮询。
+# 结束自动叫醒（#1628）：在桥会话里起的（有 CC_PROJECT、CC_SESSION_KEY），命令结束时（成功、失败、超时都算）给发起它的会话
+# 挂一条 1 秒后的通知，带退出码和日志末尾 15 行；叫不通重试 3 次，结果记在 <运行目录>/wake。BGRUN_NO_WAKE=1 关掉。
+# 出处：会话 2a26542e（11-11）墙钟 13334 秒里 11263 秒在等「下一次有人碰巧叫醒」，后台命令早就结束了。
+R=$HOME/.bothouse/runs
+if [[ $1 == status ]]; then
+  for d in ${2:+$R/$2}(N) ${2:-$R/*(N/om[1,15])}; do
+    [[ -d $d ]] || continue; id=${d:t}; p=$(cat $d/pid 2>/dev/null)
+    if [[ -f $d/exit ]]; then st="结束 exit=$(cat $d/exit)"; elif kill -0 $p 2>/dev/null; then st="在跑 pid=$p"; else st="已死（没写 exit）"; fi
+    echo "$id  $st  log=$d/log  $(head -c 80 $d/cmd)"
+  done; exit 0
+fi
+(( $# >= 3 )) || { echo "用法：bgrun <名字> <超时秒> <命令…>；bgrun status [运行号]" >&2; exit 2; }
+name=${1//[^A-Za-z0-9._-]/_}; secs=$2; shift 2
+[[ $secs == <-> ]] || { echo "超时秒要是整数" >&2; exit 2; }
+id=$(date +%m%d-%H%M%S)-$name-$$; d=$R/$id; mkdir -p $d
+print -r -- "${(q)@}" > $d/cmd
+wake=''
+[[ -n $CC_PROJECT && -n $CC_SESSION_KEY && $BGRUN_NO_WAKE != 1 ]] && wake=${CC_BIN:-${commands[bothouse]:-/Applications/Bothouse.app/Contents/MacOS/bothouse}}
+BGRUN_WAKE=$wake BGRUN_ID=$id nohup zsh -c 'perl -e "alarm shift; exec @ARGV" "$1" "${@:3}" > "$2/log" 2>&1; rc=$?; echo $rc > "$2/exit"
+[[ -n $BGRUN_WAKE ]] || exit 0
+msg="后台命令结束：运行号 $BGRUN_ID，退出码 $rc（142 是超时）。日志 $2/log 末尾：
+$(tail -n 15 "$2/log")
+接着做依赖它的下一步；没有要做的就不用回复。"
+for i in 1 2 3; do
+  "$BGRUN_WAKE" timer add -p "$CC_PROJECT" -s "$CC_SESSION_KEY" --delay 1s --inject-if-busy --forward --desc "bgrun 结束：$BGRUN_ID exit=$rc" --prompt "$msg" >> "$2/wake" 2>&1 && { echo "叫醒成功（第 $i 次）" >> "$2/wake"; exit 0; }
+  sleep 5
+done
+echo "叫醒失败 3 次" >> "$2/wake"' bgrun $secs $d "$@" < /dev/null > /dev/null 2>&1 &
+echo $! > $d/pid
+echo "运行号 $id  pid $(cat $d/pid)  日志 $d/log  结束后看 $d/exit（超时 ${secs}s）${wake:+；结束会自动叫醒本会话，不用等}"

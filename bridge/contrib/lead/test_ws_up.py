@@ -560,7 +560,7 @@ class HandoffAlignTest(WsPoolTest):
     def test_timer_queues_and_marks_handoff(self):
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         self.handoff(self.note("a"), "改登录页")
-        t = [c for c in self.calls() if c[:2] == ["timer", "add"]][-1]
+        t = [c for c in self.calls() if c[:2] == ["timer", "add"] and "--handoff" in c][-1]  # 后面还挂了兜底和查跑偏的定时
         self.assertNotIn("--inject-if-busy", t)  # 忙时排队、轮到时自己开卡，不插进别的活那一轮
         self.assertIn("--handoff", t)
         # #597 G36：任务写进 --desc，桥拿它当这一轮的任务名（谁在干啥），不把开工提示当任务名
@@ -568,13 +568,14 @@ class HandoffAlignTest(WsPoolTest):
         prompt = t[t.index("--prompt") + 1]
         nid = self.items()[0]["id"]
         self.assertIn(f"#{nid}", prompt)
-        self.assertIn(f"board update {nid}", prompt)
         self.assertIn("ws-up", prompt)
         self.assertIn("--ask", prompt)
-        # #597 G31：交付走这一轮最后一条回复首行 [report]，最后一件交完 session new --after-turn 空出工作区
-        self.assertIn("最后一条回复的第一行写 [report] #", prompt)
-        self.assertIn("session new --after-turn", prompt)
-        self.assertNotIn("交付用 ws-up", prompt)
+        # #1628：开工提示不再要 board update、开工必搜、五段式说明、单独跑 report check；交回一次调用（草稿走标准输入）
+        self.assertNotIn(f"board update {nid}", prompt)
+        self.assertNotIn("动手前先自己搜", prompt)
+        self.assertNotIn("五段式", prompt)
+        self.assertNotIn("report check", prompt)
+        self.assertIn("--report - <<'EOF'", prompt)
 
     def test_success_tells_lead_to_end_turn(self):
         # #597 G31：交出后主角色本轮就收手，不 sleep、不查任务板等工作区；stdout 第一行仍是 timer id

@@ -45,6 +45,27 @@ var teamModeRulesText = func() string {
 	return string(b)
 }()
 
+// workspaceRulesText replaces the team-mode rules in a lead's workspace session (#1628). The full
+// rules are about 2,500 characters written for the chat-channel lead (whom to dispatch to, whom to
+// @, teammate status every turn, a second person to accept the work); a workspace does the job
+// itself, and a model that follows each sentence literally went off to open an acceptance subagent.
+// Chat channels keep teamModeRulesFor.
+const workspaceRulesText = `[工作区规矩 — 工作区会话适用]
+- 这件活自己做完：主线自己做，不拆给队友、不交给后台子 agent、不另找人验收；任务板和公开任务卡程序管，不用自己动。
+- 拿不准用户意思先读交接里的用户原话，还不清楚用 ws-up "<问题>" 问聊天频道的主角色；要用户拍板或会改用户原话范围的用 ws-up "<问题+选项+推荐>" --ask，等答复时先做不受影响的部分。不在工作区里问用户。
+- 交回只认 ws-up --report：照交接的交回骨架填空；回复里写的 [report] 桥不认。
+- 自测、预演一律隔离：用隔离数据目录和真实配置的副本（去掉密钥），不写线上事件和数据文件，不往用户的聊天频道发探针；交接指定了隔离目录的照交接。
+- 改代码推自己的分支，底分支和参照实现照交接；超过 2 分钟的命令用 bgrun 起，结束会自动叫醒，起完做不依赖它的部分，只剩等就结束本轮，不 sleep、不轮询。
+- 卡在工具上当场 ` + "`bothouse vent \"<一句话>\"`" + `，不等汇报。`
+
+// rulesForSession is workspaceRulesText in a lead's workspace session, else the team-mode rules of mode.
+func (e *Engine) rulesForSession(mode, sessionKey string) string {
+	if e != nil && sessionKey != "" && e.isTeamLead() && e.isTeamWorkspaceChat(sessionKey) {
+		return workspaceRulesText
+	}
+	return teamModeRulesFor(mode)
+}
+
 // teamModeRulesFor is the common rules plus the section of mode (unknown → mixed).
 func teamModeRulesFor(mode string) string {
 	parts := strings.Split("\n"+teamModeRulesText, "\n## ")

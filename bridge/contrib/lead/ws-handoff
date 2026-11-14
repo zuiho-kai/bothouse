@@ -615,41 +615,37 @@ def _codemap():
 
 
 def kickoff_maps(path, task):
-    """开工要读的地图和手册。地图：按任务名 + 交接正文用 codemap-inject.pick 挑（同派子任务的规则：去掉路径网址后
-    命中至少 2 个关键词）；手册：本目录的工作区规矩手册 PLAYBOOK。返回开工提示里的一段话，出错只少这一段，不拦交活。
-    来源：用户 11-01「工作区…就没有代码地图那种非常笨，或者说除了代码地图之外，一些操作手册，一些东西他都没有」。"""
-    out = []
+    """开工提示里的代码地图一句：按任务名 + 交接正文用 codemap-inject.pick 挑（同派子任务的规则）。没对上就不说
+    （#1628：「没对上地图」和主角色派活手册 PLAYBOOK 两句对接活的人是噪音，已删）。出错只少这一段，不拦交活。
+    来源：用户 11-01「工作区…就没有代码地图那种非常笨」。"""
     try:
         mod = _codemap()
         if mod:
             text = task + "\n" + Path(path).read_text(encoding="utf-8", errors="ignore")
             hits = mod.pick(mod.strip_paths(text))  # 交接里已写了地图路径的也列上
             if hits:
-                out.append("先读代码地图 " + "、".join(hits) + " 里和这件活相关的条目：grep -n <关键词> <地图>，只读命中段，不整份读；"
-                           "按里面的符号直接定位，不要从头摸代码、找编译器、找上一棒的脚本；"
-                           f"交回 [report] 的细节里附一节「## 地图要补的条目（<地图完整路径>）」，每条一行「- 符号 文件:行」，"
-                           "交回时会自动补进地图。")
-            else:
-                out.append(f"这件活没对上现成的代码地图（地图目录 {mod.MAP_DIR}，每张的 keywords: 行是触发词），"
-                           "要改代码时再去目录里找相关的，不改代码的活不用看。")
+                return ("要改代码时先 grep -n <关键词> 代码地图 " + "、".join(hits) + "，只读命中段，按里面的符号直接定位；"
+                        "发现地图缺的符号，交回细节里附一节「## 地图要补的条目（<地图完整路径>）」，每条一行「- 符号 文件:行」。")
     except Exception:  # noqa: BLE001
         pass
-    here = Path(__file__).resolve().parent
-    manual = here / "PLAYBOOK.zh-CN.md"
-    if manual.is_file():
-        out.append(f"工作区规矩手册：{manual}。")
-    return "".join(out)
+    return ""
 
 
-# 工作区开工清单：替掉「把还没派的活当场派出去」——工作区接的活自己做，开工不再去读派活手册（pm-dispatch.md）
-KICKOFF = ("工作区开工：这件活你自己做，不用读派活手册、不再拆给别人；引用的脚本和状态文件写完整路径，不放 /tmp；"
-           "浏览器活记下标签页 id。"
-           # #1354 用户 11-10「不是搞记忆论坛，他自己搜论坛吗」：撤掉旁路小模型挑经验，接活的人自己搜
-           "动手前先自己搜记忆论坛里这类活踩过的坑：按这件活自己想两三组关键词（其中一组写「经验」加这类活的类别和最容易挨骂的环节），各跑一次 python3 ~/wiki/bin/search.py <关键词>，"
-           "命中的经验和用户原话自己读，对得上的照做。"
-           # #1362 用户 11-10「都做」：交回前必须在用户实际用的入口走一遍并带证据，没有就交不出去（桥 entryReportProblems 拦）
-           "交回前在用户实际用的入口（聊天频道、装好的发布包、网页；视频、文章就是用户收到的成品本身）自己走一遍，"
-           "[report] 细节里写一行「入口自验：」，跟着截图、录屏、成品路径或链接，或用 ``` 贴命令输出；只写「已验」桥会退回。")
+# 工作区开工清单（#1628 Fable 5.2 定）：开工提示里每一句祈使句接活的模型都会当成一步去做，所以只留每件活都用得上的。
+# 删掉的：开工必搜记忆论坛（交活时程序已搜过，附在交接「旧定案」「手里现成的」）、board update（没有下游读）、
+# 五段式开工说明、单独跑 report check（ws-up --report 内部先跑同一个检查）。
+KICKOFF = ("工作区开工：这件活你自己做，不拆给别人；任务板和公开任务卡程序管，不用 board update / board add。"
+           "要留到下一轮的脚本和状态文件写完整路径，不放 /tmp（重启会丢）；交接指定了隔离目录的照交接。"
+           "做法拿不准或卡住时再搜 python3 ~/wiki/bin/search.py <关键词>。")
+
+
+def kickoff_long():
+    """长命令一句（#1628 第五节）：bgrun 结束会自动叫醒发起它的会话，所以起完不用等。找不到 bgrun 就不说。"""
+    for p in (Path(__file__).resolve().parent / "bgrun", Path.home() / "im-bridge" / "bin" / "bgrun"):
+        if p.is_file():
+            return (f"超过 2 分钟的命令用 {p} <名字> <超时秒> <命令…> 起，结束会自动叫醒你；起完接着做不依赖它的部分，"
+                    "只剩等就直接结束本轮，不 sleep、不轮询、不另挂定时；主线自己做，不交给后台子 agent。")
+    return ""
 
 
 def kickoff_existing(path, task):
@@ -714,8 +710,8 @@ def append_skeleton(path, nid):
         if r.returncode != 0 or not r.stdout.startswith("[report]"):
             return False
         lines = [f"## {SKELETON}",
-                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话；发前跑 {cc_bin()} report check --notes {path} <草稿文件>，"
-                 "不通过不发。这一节不算范围。）",
+                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话；ws-up --report 会先检查，不通过会退回。"
+                 "这一节不算范围。）",
                  "```", r.stdout.rstrip("\n"), "```"]
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(("" if text.endswith("\n") else "\n") + "\n" + "\n".join(lines) + "\n")
@@ -728,33 +724,39 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
-    开工提示对照本机 ws-handoff timer_cmd：任务板编号、上报方式。--desc 带任务：桥把它当这一轮的任务名（谁在干啥、
-    频道任务板，core/team.go teamNoteTurn → boardDescOf），不是把开工提示当任务名（#597 G36）。"""
-    head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}。{answer}\n"
-            f"先读交接 {path}（之前的进度都在里面）。这块活在任务板是 #{nid}，接手后用 board update {nid} <状态> 更新，"
+    --desc 带任务：桥把它当这一轮的任务名（谁在干啥、频道任务板，core/team.go teamNoteTurn → boardDescOf），
+    不是把开工提示当任务名（#597 G36）。
+    开工提示 #1628 重写：只留每件活都用得上的句子；「先出方案」「没有骨架」两句看交接里有没有那一节才带。"""
+    head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}（任务板 #{nid}）。{answer}\n"
+            f"先读交接 {path}（之前的进度都在里面）。"
             if answer is not None and answer.startswith("到点重试") else
-            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}。用户答复了：{answer}\n"
-            f"先读交接 {path}（之前的进度都在里面）。这块活在任务板是 #{nid}，接手后用 board update {nid} <状态> 更新，"
+            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。用户答复了：{answer}\n"
+            f"先读交接 {path}（之前的进度都在里面）。"
             if answer is not None else
-            f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}。"
-            f"先读交接 {path}。这块活交活时已在任务板建好 #{nid}，接手后用 board update {nid} <状态> 更新，")
-    prompt = (head +
-              f"不要再 board add 这块活；本轮会自动开公开任务卡。接手后发五段式说明。" + KICKOFF + kickoff_maps(path, task) + "\n" +
-              kickoff_existing(path, task) +
-              f"先读交接里「{SOURCE}」的原始对话，再读总部判断那节：总部判断定做什么、为什么、做成什么样算好，照办；怎么做你定。"
-              f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳；旧定案和用户原话冲突、或拿不准用户意思时，"
-              f"先问聊天频道的主角色（ws-up --notes {path} \"<问题>\"，不带 --ask），不直接问用户；"
-              f"主角色搜 wiki 和历史会话后代用户答，答不了才转用户。"
-              f"有问题、要用户拍板用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，等聊天频道转回答复再做，"
-              f"等的时候先做不受影响的部分；不在工作区里问用户。会缩小或改变用户原话范围的决定也先 --ask，纯技术细节自己定。"
-              f"交接里有「{PLAN_FIRST}」节的，那几项先 ws-up --ask 交方案，批了再改，没批前只读。"
-              f"只做交接里写成「改」的部分；用户原话里没有的设定、开关、参数不加，要加先 --ask。"
-              f"做完交回：草稿文件第一行写 [report] #{nid} 背景：……，再起一行写做了什么，再一行写「要你做的：……」（只写要用户拍板或只有用户本人能做的事；你自己能验的先验完，不让用户替你核对，没有写「要你做的：没有」），再一行写「我加的：……」（用户原话里没有、你自己加的设定，没有写「我加的：无」）（这四段系统原样贴到聊天频道，每段最多两句，多的写进细节），之后的行是细节，贴在那条消息下的子话题（中途发的话不转）；"
-              f"交回前照交接里「{SKELETON}」节填空（没有就跑 {cc_bin()} report skeleton --id {nid} --notes {path}），"
-              f"把草稿写进文件跑 {cc_bin()} report check --notes {path} <草稿文件>，不通过改到通过，再跑 ws-up --notes {path} --report <草稿文件> 交回（回复里写的 [report] 桥不认）；"
-              f"交回后桥自动把这件标完成、清空会话、放回工作区。"
-              f"被外部条件卡住（没空卡、等 CI、等对方）做不下去时，先做不依赖它的部分，然后照常 ws-up --report 交回说做到哪，"
-              f"细节里写一行「等外部：卡在什么」和一行「再看：<多久后，如 2h>」：桥放行、标等外部、放回工作区，到点另交工作区接着做，不要原地反复重试")
+            f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}（任务板 #{nid}）。先读交接 {path}。")
+    kickoff_existing(path, task)  # 只写进交接「手里现成的」节；开工提示里不再重复一遍
+    try:
+        note = Path(path).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        note = ""
+    draft = str(Path(path).with_suffix(".report.md"))
+    plan = (f"交接里「{PLAN_FIRST}」节的几项先 ws-up --ask 交方案，批了再改，没批前只读。"
+            if re.search(r"^#+\s*" + PLAN_FIRST, note, re.M) else "")
+    skel = (f"照交接「{SKELETON}」节填空" if f"## {SKELETON}" in note else
+            f"先跑 {cc_bin()} report skeleton --id {nid} --notes {path} 出骨架再填空")
+    prompt = (head + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
+              f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，总部判断定做什么、做成什么样算好，怎么做你定。"
+              f"拿不准用户意思时先读交接「{SOURCE}」里的原话；还不清楚、或旧定案和用户原话冲突，问聊天频道的主角色"
+              f"（ws-up --notes {path} \"<问题>\"），不在工作区里问用户。"
+              f"要用户拍板、或会缩小改变用户原话范围的决定用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，"
+              f"等答复时先做不受影响的部分；纯技术细节自己定。" + plan +
+              f"只做交接里写成「改」的部分；用户原话里没有的设定、开关、参数不加，要加先 --ask。\n"
+              f"做完交回：{skel}（入口自验一行后面跟你在用户实际用的入口走一遍的证据），一次交："
+              f"ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。它先检查再交，草稿存在 {draft}；"
+              f"被退回就改那个文件，再跑 ws-up --notes {path} --report {draft}。回复里写的 [report] 桥不认；"
+              f"交回后桥自动把这件标完成、放回工作区。"
+              f"被外部条件卡住（没空卡、等 CI、等对方）做不下去时，做完不依赖它的部分照常交回，"
+              f"细节里写一行「等外部：卡在什么」和一行「再看：<多久后，如 2h>」，到点会另交工作区接着做，不原地反复重试。")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
