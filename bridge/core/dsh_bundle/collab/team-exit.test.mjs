@@ -203,3 +203,11 @@ test('walk 11-14: a DSH member\'s [report] is not bounced for wording, since Tas
   assert.equal(back().length, 0, 'no 「没有转给用户」 notice for a report that does reach the channel');
   assert.deepEqual(woken, [], 'the member is not woken to rewrite it');
 });
+
+test('#1620: 「要你做的」 @ a teammate is their share of the job, not a hand-off to the user', () => {
+  const team = [{ id: 'm-b', name: '小蓝', kind: 'dsh' }, { id: 'm-o', name: '小橙', kind: 'dsh' }];
+  const body = '[report] #4 背景：按分工完成 fib.py\n做了什么：创建 fib.py 并运行验证。\n要你做的：@小蓝 请读取并运行 fib.py，再执行指定长输出命令，提出一条改进意见。';
+  assert.deepEqual(selfRouteProblems(body, team), []);
+  assert.equal(selfRouteProblems(body).length, 1); // no team known: still read as the user's
+  assert.equal(selfRouteProblems('[report]\n要你做的：在本机终端跑一次 sudo', team).length, 1);
+});

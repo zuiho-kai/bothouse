@@ -1,7 +1,7 @@
 // Durable workspace questions; system forwards never enter agent routing.
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { withoutLeadingMentions } from './mentions.mjs';
+import { mentions, withoutLeadingMentions } from './mentions.mjs';
 
 export function exitTarget(msg) {
   return /^team-answer:([^:]+):/.exec(msg.client_key ?? '')?.[1];
@@ -55,8 +55,10 @@ export function askEvidenceProblems(body) {
   return problems;
 }
 
-function handHit(text) {
+function handHit(text, team = []) {
   if (SR_ONLY_USER.test(text)) return '';
+  // #1620: 「要你做的：@小蓝 请运行 fib.py」 asks a teammate, not the user; teammates split work freely.
+  if (team.length && mentions(text, team).size > 0) return '';
   for (const hand of text.matchAll(new RegExp(RULES.self_route.hand_re, 'g'))) {
     const before = text.slice(0, hand.index);
     if (!SR_MINE.test(before) && !SR_NEG.test(before)) return hand[0].trim();
@@ -65,12 +67,12 @@ function handHit(text) {
 }
 
 /** What the 「要你做的」 part asks the user to do that DSH could do itself (Go: SelfRouteProblems). */
-export function selfRouteProblems(body) {
+export function selfRouteProblems(body, team = []) {
   body = String(body ?? '').replaceAll('\r\n', '\n');
   if (!SR_TODO.test(body)) {
     for (const line of body.split('\n')) {
       if (SR_ASK_LINE.test(line)) {
-        const hit = handHit(line);
+        const hit = handHit(line, team);
         if (hit) return [RULES.self_route.msg.replaceAll('{hit}', hit)];
       }
     }
@@ -88,7 +90,7 @@ export function selfRouteProblems(body) {
         if (SR_END.test(line)) break;
         part.push(line);
       }
-      const hit = handHit(part.join('\n'));
+      const hit = handHit(part.join('\n'), team);
       if (hit) return [RULES.self_route.msg.replaceAll('{hit}', hit)];
     }
   }
@@ -195,9 +197,9 @@ export function exitBounceText(kind, problems) {
  * legacy: the format is still wrong but bounces stopped waking the member (the bridge's chat lead
  * rewrites it; DSH posts it without the headline).
  */
-export function judgeExit(kind, body, { known, bounces = 0, title = () => '' }) {
+export function judgeExit(kind, body, { known, bounces = 0, title = () => '', team = [] }) {
   const askProblems = kind === 'ask' ? askEvidenceProblems(body) : [];
-  const routeProblems = selfRouteProblems(body);
+  const routeProblems = selfRouteProblems(body, team);
   const problems = [...askProblems];
   let { id, line, problems: hp } = exitHeadline(body);
   if (!hp.length && !known(id)) hp = [RULES.headline.unknown_id.replaceAll('{id}', String(id))];
@@ -332,8 +334,9 @@ export class TeamExit {
     let headline;
     if (mark) {
       const bounces = this.bounces.get(`${room.id}:${msg.author}`) ?? 0;
-      const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces, title: id => this.hub.tasks?.task?.(id)?.title ?? '' });
-      const routed = selfRouteProblems(mark.body).length > 0;
+      const team = this.hub.routable?.() ?? [];
+      const v = judgeExit(mark.kind, mark.body, { known: id => Boolean(this.hub.tasks?.task?.(id)), bounces, title: id => this.hub.tasks?.task?.(id)?.title ?? '', team });
+      const routed = selfRouteProblems(mark.body, team).length > 0;
       // Walk 11-14: a DSH member's [report] hands its task back anyway (Tasks.route) and reaches the chat
       // channel; only a self-route problem holds it here. Bouncing it for wording said 「没有转给用户」 while
       // it had been, and woke the member to rewrite a delivered report. The lead reviews the wording.

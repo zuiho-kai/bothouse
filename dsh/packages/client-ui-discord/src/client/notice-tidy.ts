@@ -14,6 +14,7 @@
  *   directory, how to hand back) — half a screen for two rows. The page shows one line, who does
  *   which part and who shares the workspace; the whole note folds under it;
  * - a hand-back that writes 「做了什么：」 on two lines reads as one part: the repeated label is dropped.
+ * - (second rework) a bounce, reminder or nudge written to a member shows one line, its text folded.
  */
 
 export interface TidyNotice { readonly text: string; readonly detail?: { readonly summary: string; readonly body: string } }
@@ -33,7 +34,8 @@ const CUT_TAIL = /[\s.。,，、:：;；…·-]+$/u
 
 /** A quoted title longer than TITLE_KEEP keeps its start and one ellipsis. */
 export function clipTitles(text: string): string {
-  return text.replace(/「([^「」\n]+)」/g, (whole, title: string) => {
+  // #1620: a title that quotes inside itself (「…回两个字「完了」…」) is one title, not cut at its inner 」.
+  return text.replace(/「((?:[^「」\n]|「[^「」\n]*」)+)」/g, (whole, title: string) => {
     const chars = [...title.replace(/(\.{3}|…)+$/u, '')]
     if (chars.length <= TITLE_KEEP + 2 && chars.length === [...title].length) return whole
     if (chars.length <= TITLE_KEEP + 2) return `「${chars.join('').replace(CUT_TAIL, '')}…」`
@@ -75,8 +77,38 @@ function jointHandoff(lines: string[]): TidyNotice | undefined {
   return { text: '', detail: { summary: `【交接】${name}：${part}（和 ${(mates[1] ?? mates[2])!.trim()} 同一工作区）`, body: lines.join('\n') } }
 }
 
+// #1620 second rework (user 11-14「凡是系统写给成员的退回、提醒、催促，页面只显示一行人话…全文折叠」).
+// The wording each pattern matches: team-exit.mjs bounce (RULES.bounce.text), tasks.mjs nudgeReport,
+// the watch reminder, the review reminder, the review handover and the watch pause.
+// A title may quote inside itself (「…只回两个字「完了」…」): one level of nested 「」 is part of it.
+const TITLE = '「(?:[^「」\n]|「[^「」\n]*」)*」'
+const MEMBER_PROMPTS: ReadonlyArray<readonly [RegExp, (m: RegExpExecArray) => string]> = [
+  [/^📬 @(\S+) 这条 \[(report|ask)\] 没有转给用户[：:]([^，。；\n]*)/,
+    m => `${m[1]} 的${m[2] === 'ask' ? '提问' : '汇报'}被退回：${clipClause(m[3]!.trim(), 40)}`],
+  [new RegExp(`^@(\\S+) #(\\d+)${TITLE}这一轮没有写 \\[report\\]`), m => `系统提醒 ${m[1]} 补交回 #${m[2]}`],
+  [new RegExp(`^@(\\S+) 任务 #(\\d+)${TITLE}到了检查时间还没交回`), m => `系统催 ${m[1]} 交回 #${m[2]}`],
+  [new RegExp(`^@(\\S+) #(\\d+)${TITLE}交回 \\d+ 分钟还没验收`), m => `系统提醒 ${m[1]} 验收 #${m[2]}`],
+  [new RegExp(`^@(\\S+) #(\\d+)${TITLE}交回超过 \\d+ 分钟，(.+?)，转给你验收`), m => `#${m[2]} 转给 ${m[1]} 验收：${clipClause(m[3]!)}`],
+  [new RegExp(`^@(\\S+) #(\\d+)${TITLE}(.+?)，已暂停。`), m => `#${m[2]} 已暂停（${clipClause(m[3]!)}），系统已通知 ${m[1]}`],
+]
+
+function clipClause(text: string, keep = CLAUSE_KEEP): string {
+  const chars = [...text]
+  return chars.length <= keep ? text : `${chars.slice(0, keep).join('').replace(CUT_TAIL, '')}…`
+}
+
+/** A bounce, reminder or nudge the system writes to a member: one line on the page, the whole text folded. */
+function memberPrompt(text: string): TidyNotice | undefined {
+  const first = text.trimStart()
+  for (const [pattern, line] of MEMBER_PROMPTS) {
+    const m = pattern.exec(first)
+    if (m !== null) return { text: '', detail: { summary: line(m), body: text } }
+  }
+  return undefined
+}
+
 export function tidyNotice(text: string): TidyNotice {
-  const joint = jointHandoff(text.split('\n'))
+  const joint = jointHandoff(text.split('\n')) ?? memberPrompt(text)
   if (joint !== undefined) return joint
   // #1616 返工（用户「两份汇报块之间空了一大片」）：删掉的行留下的空行不连成一片，头尾不留空行。
   const lines = onceEachLabel(text.split('\n')).filter(line => !ACCEPT_HOW.test(line.trim()) && !EMPTY_PART.test(line.trim()))

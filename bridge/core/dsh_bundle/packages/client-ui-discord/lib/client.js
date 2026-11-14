@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: c2a98f870581faa0aadce518fc3acede4278d057e85638466375f769d8e79c5d
+// dsh-client-source-sha256: 2659cd7002d618cff5449379aa9c41c5658765d2563f7d1af5b38701e98cd18c
 // dsh-style-sha256: c57d0009406728c91ea0bba747a4279aa6c70ce35303c632cd2424e250448fbf
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -18979,7 +18979,7 @@ const ASCII_WORD = /[A-Za-z0-9_.\-/]/;
 const CUT_TAIL = /[\s.。,，、:：;；…·-]+$/u;
 /** A quoted title longer than TITLE_KEEP keeps its start and one ellipsis. */
 function clipTitles(text) {
-	return text.replace(/「([^「」\n]+)」/g, (whole, title) => {
+	return text.replace(/「((?:[^「」\n]|「[^「」\n]*」)+)」/g, (whole, title) => {
 		const chars = [...title.replace(/(\.{3}|…)+$/u, "")];
 		if (chars.length <= 20 && chars.length === [...title].length) return whole;
 		if (chars.length <= 20) return `「${chars.join("").replace(CUT_TAIL, "")}…」`;
@@ -19023,8 +19023,35 @@ function jointHandoff(lines) {
 		}
 	};
 }
+const TITLE = "「(?:[^「」\n]|「[^「」\n]*」)*」";
+const MEMBER_PROMPTS = [
+	[/^📬 @(\S+) 这条 \[(report|ask)\] 没有转给用户[：:]([^，。；\n]*)/, (m) => `${m[1]} 的${m[2] === "ask" ? "提问" : "汇报"}被退回：${clipClause(m[3].trim(), 40)}`],
+	[new RegExp(`^@(\\S+) #(\\d+)${TITLE}这一轮没有写 \\[report\\]`), (m) => `系统提醒 ${m[1]} 补交回 #${m[2]}`],
+	[new RegExp(`^@(\\S+) 任务 #(\\d+)${TITLE}到了检查时间还没交回`), (m) => `系统催 ${m[1]} 交回 #${m[2]}`],
+	[new RegExp(`^@(\\S+) #(\\d+)${TITLE}交回 \\d+ 分钟还没验收`), (m) => `系统提醒 ${m[1]} 验收 #${m[2]}`],
+	[new RegExp(`^@(\\S+) #(\\d+)${TITLE}交回超过 \\d+ 分钟，(.+?)，转给你验收`), (m) => `#${m[2]} 转给 ${m[1]} 验收：${clipClause(m[3])}`],
+	[new RegExp(`^@(\\S+) #(\\d+)${TITLE}(.+?)，已暂停。`), (m) => `#${m[2]} 已暂停（${clipClause(m[3])}），系统已通知 ${m[1]}`]
+];
+function clipClause(text, keep = CLAUSE_KEEP) {
+	const chars = [...text];
+	return chars.length <= keep ? text : `${chars.slice(0, keep).join("").replace(CUT_TAIL, "")}…`;
+}
+/** A bounce, reminder or nudge the system writes to a member: one line on the page, the whole text folded. */
+function memberPrompt(text) {
+	const first = text.trimStart();
+	for (const [pattern, line] of MEMBER_PROMPTS) {
+		const m = pattern.exec(first);
+		if (m !== null) return {
+			text: "",
+			detail: {
+				summary: line(m),
+				body: text
+			}
+		};
+	}
+}
 function tidyNotice(text) {
-	const joint = jointHandoff(text.split("\n"));
+	const joint = jointHandoff(text.split("\n")) ?? memberPrompt(text);
 	if (joint !== void 0) return joint;
 	const lines = onceEachLabel(text.split("\n")).filter((line) => !ACCEPT_HOW.test(line.trim()) && !EMPTY_PART.test(line.trim())).filter((line, i, all) => line.trim() !== "" || i > 0 && all[i - 1].trim() !== "");
 	while (lines.length > 0 && lines[0].trim() === "") lines.shift();
