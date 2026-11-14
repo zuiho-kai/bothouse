@@ -77,10 +77,10 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(AgentHookSwitchFile(wd)), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(AgentHookSwitchFile(wd), []byte(`{"off": ["promise-guard"]}`), 0o644); err != nil {
+	if err := os.WriteFile(AgentHookSwitchFile(wd), []byte(`{"off": ["choice-ask-guard"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if off := AgentHooksSwitchedOff(wd); !slices.Equal(off, []string{"promise-guard"}) {
+	if off := AgentHooksSwitchedOff(wd); !slices.Equal(off, []string{"choice-ask-guard"}) {
 		t.Fatalf("switched off = %v", off)
 	}
 	for _, f := range []string{"run.py", "dshlog.py", "bash-guard.py", "doc-ok.py", "ctxsvc.py", "wiki_search.py", "rules/_head.zh.md"} {
@@ -88,7 +88,7 @@ func TestAgentHooksOnOffKeepsUserContent(t *testing.T) {
 			t.Errorf("script %s not installed: %v", f, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(data, "hooks", "test_promise_guard.py")); err == nil {
+	if _, err := os.Stat(filepath.Join(data, "hooks", "test_choice_ask_guard.py")); err == nil {
 		t.Error("tests must not be installed")
 	}
 	// twice = same file (no duplicate entries)
@@ -365,13 +365,13 @@ func TestAgentHooksDSH(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := AgentHookOptions{DataDir: data, WorkDir: wd, CLI: "dsh", Lang: "en", DSHHome: dshHome, DSHBridge: bridge, DSHPatch: patch,
-		Only: []string{"bash-guard", "promise-guard"}}
+		Only: []string{"bash-guard", "choice-ask-guard"}}
 	for i := 0; i < 2; i++ {
 		res, err := EnableAgentHooks(o)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.DSHPatchFile != patch || !slices.Equal(res.Enabled, []string{"bash-guard", "promise-guard"}) {
+		if res.DSHPatchFile != patch || !slices.Equal(res.Enabled, []string{"bash-guard", "choice-ask-guard"}) {
 			t.Fatalf("res = %+v", res)
 		}
 	}
@@ -394,11 +394,11 @@ func TestAgentHooksDSH(t *testing.T) {
 		t.Fatalf("dsh settings = %s", g)
 	}
 	roles, err := readDSHRoles(AgentHooksDir(data))
-	if err != nil || !slices.Equal(roles[wd].Hooks, []string{"bash-guard", "promise-guard"}) || roles[wd].DSHHome != dshHome {
+	if err != nil || !slices.Equal(roles[wd].Hooks, []string{"bash-guard", "choice-ask-guard"}) || roles[wd].DSHHome != dshHome {
 		t.Fatalf("dsh roles = %+v, %v", roles, err)
 	}
 	p, _ := os.ReadFile(filepath.Join(wd, "AGENTS.md"))
-	if !strings.Contains(string(p), "## Tool hooks") || !strings.Contains(string(p), "promise-guard") || strings.Contains(string(p), "dispatch-review-guard") {
+	if !strings.Contains(string(p), "## Tool hooks") || !strings.Contains(string(p), "choice-ask-guard") || strings.Contains(string(p), "dispatch-review-guard") {
 		t.Fatalf("AGENTS.md = %q", p)
 	}
 	// dsh found on PATH: the bridge next to it
@@ -543,7 +543,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bash-guard", "ask-only-guard", "fix-claim-guard", "promise-guard"}
+	want := []string{"bash-guard"}
 	if !slices.Equal(res.Enabled, want) || res.SettingsFile != AgyHookFile(wd) {
 		t.Fatalf("res = %+v", res)
 	}
@@ -556,8 +556,7 @@ func TestAgentHooksAntigravity(t *testing.T) {
 		t.Fatalf("user hook dropped:\n%s", b)
 	}
 	pre := m["bothouse"]["PreToolUse"]
-	// bash-guard on shell commands; ask-only-guard (#678) also covers the edit tools.
-	if len(pre) != 2 || pre[0]["matcher"] != "run_command" || !strings.Contains(pre[1]["matcher"].(string), "write_to_file") {
+	if len(pre) != 1 || pre[0]["matcher"] != "run_command" {
 		t.Fatalf("PreToolUse = %v", pre)
 	}
 	h := pre[0]["hooks"].([]any)[0].(map[string]any)
@@ -719,7 +718,7 @@ func TestWorkflowHooksInstalledAcrossTeamCLIs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, name := range []string{"bash-guard", "ask-only-guard", "dispatch-review-guard", "fix-claim-guard", "promise-guard", "codemap-inject", "codemap-fill"} {
+			for _, name := range []string{"bash-guard", "dispatch-review-guard", "codemap-inject", "codemap-fill"} {
 				if !slices.Contains(got.Enabled, name) {
 					t.Errorf("%s missing %s", cli, name)
 				}
