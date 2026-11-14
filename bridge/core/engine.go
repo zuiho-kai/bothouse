@@ -3642,15 +3642,20 @@ func (e *Engine) SetPaused(v bool) {
 	e.paused.Store(v)
 }
 
+// handleMessage takes one platform message through the whole path, once:
+//
+//	admit    – recall, team routing, stop words, hook, voice, alias, rate limit, banned words
+//	route    – which agent / session manager / interactive key (resolveMessageRoute)
+//	prepare  – commands, permission answers, "!" shell, prompt assembly, media
+//	dispatch – gate (burst collection, routing model), then start or queue the turn (dispatchMessage)
+//
+// A message the gate holds for its burst stops inside dispatch. When its window passes, the timer
+// continues it with releaseHeldMessage, which runs route and dispatch only: admit and prepare are
+// per platform message and already ran. (Until #1627 the timer called handleMessage again with the
+// same *Message, and each step that must not run twice carried its own "done" flag on Message; the
+// steps without a flag — rate limit, the MessageReceived hook — ran twice.)
 func (e *Engine) handleMessage(p Platform, msg *Message) {
-	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
-		slog.Warn("message authorization denied", "error", err)
-		return
-	}
-	if e.IsPaused() {
-		return
-	}
-	if !e.beginMessageWork() {
+	if !e.enterMessageWork(msg) {
 		return
 	}
 	defer e.messageWorkers.Done()
@@ -3714,10 +3719,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			Extra:      e.agentHookExtra(e.activeAgentSessionID(msg.SessionKey), nil),
 		})
 	}
-	if !msg.peopleDone {
-		msg.peopleDone = true
-		e.recordPersonSaid(msg) // #1160: each person's own words, for their 懂你 page (people_said.go)
-	}
+	e.recordPersonSaid(msg) // #1160: each person's own words, for their 懂你 page (people_said.go)
 
 	// Voice message: transcribe to text first
 	if msg.Audio != nil {
@@ -3760,9 +3762,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 
 	// Route commands and permissions using the sender's words, never group context.
 	content = e.resolveAlias(strings.TrimSpace(userTextOf(msg)))
-	if !msg.contentMerged {
-		msg.Content = content
-	}
+	msg.Content = content
 
 	// Rate limit check (per-user role-based, then global fallback)
 	if !e.checkRateLimit(msg) {
@@ -3781,82 +3781,13 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		}
 	}
 
-	// Multi-workspace resolution
-	var wsAgent Agent
-	var wsSessions *SessionManager
-	var resolvedWorkspace string
-	if e.multiWorkspace {
-		e.migrateLegacyWorkspaceBindings(msg)
+	route, ok := e.resolveMessageRoute(p, msg, content)
+	if !ok {
+		return
 	}
-	if forcedWorkDir := e.sendWorkDirForSession(msg.SessionKey); forcedWorkDir != "" {
-		e.bindSendWorkDir(msg.SessionKey, forcedWorkDir)
-		var err error
-		wsAgent, wsSessions, err = e.getOrCreateWorkspaceAgent(forcedWorkDir)
-		if err != nil {
-			slog.Error("failed to create send work_dir agent", "work_dir", forcedWorkDir, "err", err)
-			e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("Failed to initialize workspace: %v", err))
-			return
-		}
-		resolvedWorkspace = forcedWorkDir
-	} else if e.multiWorkspace {
-		channelID := effectiveChannelID(msg)
-		channelKey := effectiveWorkspaceChannelKey(msg)
-		workspace, channelName, err := e.resolveWorkspace(p, channelID)
-		if err != nil {
-			slog.Error("workspace resolution failed", "err", err)
-			e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgWsResolutionError, err))
-			return
-		}
-		if workspace == "" {
-			// No workspace — handle init flow (unless it's a /workspace command)
-			if !strings.HasPrefix(content, "/workspace") && !strings.HasPrefix(content, "/ws ") {
-				if e.handleWorkspaceInitFlow(p, msg, channelName) {
-					return
-				}
-			} else {
-				// Workspace command bypassed the init flow; clean up any stale flow
-				// so it doesn't interfere if the channel becomes unbound again later.
-				e.initFlowsMu.Lock()
-				delete(e.initFlows, channelKey)
-				e.initFlowsMu.Unlock()
-			}
-			// If init flow didn't consume, only workspace commands work
-			if !strings.HasPrefix(content, "/") {
-				return
-			}
-		} else {
-			// Touch for idle tracking
-			if ws := e.workspacePool.Get(workspace); ws != nil {
-				ws.Touch()
-			}
+	interactiveKey := route.interactiveKey
 
-			var effectiveWorkspace string
-			wsAgent, wsSessions, _, effectiveWorkspace, err = e.workspaceContext(workspace, msg.SessionKey)
-			if err != nil {
-				slog.Error("failed to create workspace agent", "workspace", workspace, "err", err)
-				e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("Failed to initialize workspace: %v", err))
-				return
-			}
-			resolvedWorkspace = effectiveWorkspace
-		}
-	}
-
-	// Select session manager and agent based on workspace mode
-	sessions := e.sessions
-	agent := e.agent
-	interactiveKey := msg.SessionKey
-	if resolvedWorkspace != "" && wsSessions != nil {
-		sessions = wsSessions
-		agent = wsAgent
-		interactiveKey = resolvedWorkspace + ":" + msg.SessionKey
-	}
-
-	// A held gate burst re-enters handleMessage with the same *Message (the release
-	// timer in gate.go), so the slash command is handled once: running it again posted
-	// the unknown-command notice twice (~1s apart) and would execute a real command
-	// twice as well.
-	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") && !msg.cmdDone {
-		msg.cmdDone = true
+	if len(msg.Images) == 0 && strings.HasPrefix(content, "/") {
 		if e.handleCommand(p, msg, content) {
 			return
 		}
@@ -3909,10 +3840,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
-	// A message held for its gate burst re-enters handleMessage (mediaDone above) with the
-	// same platform blocks still on it, so they are merged once: merging them again put the
-	// group's recent chat into the prompt twice.
-	if !msg.contentMerged {
+	// The prompt of this message: the sender's words under the platform blocks.
+	{
 		keepUserText(msg)
 		body := content
 		// A multi-party chat's own words need the speaker's name; otherwise the newest message
@@ -3948,7 +3877,6 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 			content = body
 		}
 		msg.Content = content
-		msg.contentMerged = true
 	}
 
 	// maomao fork: video links → watchvid once, result paths appended (media library).
@@ -3956,6 +3884,130 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		e.prepareMedia(msg)
 	}
 
+	e.dispatchMessage(p, msg, route)
+}
+
+// messageRoute is where one message runs: the agent and session manager of its workspace (the
+// engine's own without one) and the key of its interactive state.
+type messageRoute struct {
+	agent          Agent
+	sessions       *SessionManager
+	interactiveKey string
+	workspace      string // resolved workspace dir; "" outside multi-workspace / send work dir
+}
+
+// enterMessageWork is the door of every pass over a message (handleMessage, releaseHeldMessage):
+// its authorization, the pause switch and the shutdown counter. true: the caller must call
+// e.messageWorkers.Done() when it is through.
+func (e *Engine) enterMessageWork(msg *Message) bool {
+	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
+		slog.Warn("message authorization denied", "error", err)
+		return false
+	}
+	if e.IsPaused() {
+		return false
+	}
+	return e.beginMessageWork()
+}
+
+// releaseHeldMessage continues a message the gate held for its burst (gate.go, the burst timer):
+// msg is the burst folded into its first message, already admitted and prepared by handleMessage.
+// The route is resolved again — the hold is up to silenceMax long and a workspace binding can
+// change meanwhile — and the message goes on to the gate's judgement and the turn.
+func (e *Engine) releaseHeldMessage(p Platform, msg *Message) {
+	if !e.enterMessageWork(msg) {
+		return
+	}
+	defer e.messageWorkers.Done()
+	route, ok := e.resolveMessageRoute(p, msg, e.resolveAlias(strings.TrimSpace(userTextOf(msg))))
+	if !ok {
+		return
+	}
+	if e.discardStaleUserMessageIfNeeded(route.interactiveKey, msg) {
+		return
+	}
+	e.dispatchMessage(p, msg, route)
+}
+
+// resolveMessageRoute picks the agent, session manager and interactive key for msg. content is
+// the sender's words after alias resolution (the workspace commands are recognised on it).
+// false: the message ends here (no workspace bound and the init flow took it, or an error was
+// replied).
+func (e *Engine) resolveMessageRoute(p Platform, msg *Message, content string) (messageRoute, bool) {
+	// Multi-workspace resolution
+	var wsAgent Agent
+	var wsSessions *SessionManager
+	var resolvedWorkspace string
+	if e.multiWorkspace {
+		e.migrateLegacyWorkspaceBindings(msg)
+	}
+	if forcedWorkDir := e.sendWorkDirForSession(msg.SessionKey); forcedWorkDir != "" {
+		e.bindSendWorkDir(msg.SessionKey, forcedWorkDir)
+		var err error
+		wsAgent, wsSessions, err = e.getOrCreateWorkspaceAgent(forcedWorkDir)
+		if err != nil {
+			slog.Error("failed to create send work_dir agent", "work_dir", forcedWorkDir, "err", err)
+			e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("Failed to initialize workspace: %v", err))
+			return messageRoute{}, false
+		}
+		resolvedWorkspace = forcedWorkDir
+	} else if e.multiWorkspace {
+		channelID := effectiveChannelID(msg)
+		channelKey := effectiveWorkspaceChannelKey(msg)
+		workspace, channelName, err := e.resolveWorkspace(p, channelID)
+		if err != nil {
+			slog.Error("workspace resolution failed", "err", err)
+			e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgWsResolutionError, err))
+			return messageRoute{}, false
+		}
+		if workspace == "" {
+			// No workspace — handle init flow (unless it's a /workspace command)
+			if !strings.HasPrefix(content, "/workspace") && !strings.HasPrefix(content, "/ws ") {
+				if e.handleWorkspaceInitFlow(p, msg, channelName) {
+					return messageRoute{}, false
+				}
+			} else {
+				// Workspace command bypassed the init flow; clean up any stale flow
+				// so it doesn't interfere if the channel becomes unbound again later.
+				e.initFlowsMu.Lock()
+				delete(e.initFlows, channelKey)
+				e.initFlowsMu.Unlock()
+			}
+			// If init flow didn't consume, only workspace commands work
+			if !strings.HasPrefix(content, "/") {
+				return messageRoute{}, false
+			}
+		} else {
+			// Touch for idle tracking
+			if ws := e.workspacePool.Get(workspace); ws != nil {
+				ws.Touch()
+			}
+
+			var effectiveWorkspace string
+			wsAgent, wsSessions, _, effectiveWorkspace, err = e.workspaceContext(workspace, msg.SessionKey)
+			if err != nil {
+				slog.Error("failed to create workspace agent", "workspace", workspace, "err", err)
+				e.replyToAuthorizedMessage(p, msg, fmt.Sprintf("Failed to initialize workspace: %v", err))
+				return messageRoute{}, false
+			}
+			resolvedWorkspace = effectiveWorkspace
+		}
+	}
+	// Select session manager and agent based on workspace mode
+	route := messageRoute{agent: e.agent, sessions: e.sessions, interactiveKey: msg.SessionKey, workspace: resolvedWorkspace}
+	if resolvedWorkspace != "" && wsSessions != nil {
+		route.sessions = wsSessions
+		route.agent = wsAgent
+		route.interactiveKey = resolvedWorkspace + ":" + msg.SessionKey
+	}
+	return route, true
+}
+
+// dispatchMessage is the last stage of a message: the gate, then the turn. The gate may take the
+// message (held for its burst, buffered as context, inserted into the running turn); otherwise
+// the turn starts, or the message queues behind the one running.
+func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
+	sessions, agent, interactiveKey, resolvedWorkspace := route.sessions, route.agent, route.interactiveKey, route.workspace
 	session := sessions.GetOrCreateActive(msg.SessionKey)
 	sessions.UpdateUserMeta(msg.SessionKey, msg.UserName, msg.ChatName)
 	if msg.Direct {

@@ -30,7 +30,7 @@ func TestGateRequestCarriesFromBot(t *testing.T) {
 		{SessionKey: "cloud_web:room-2", Content: "@橘(你) <@2> 帮我算", Mentioned: true},
 		{SessionKey: "cloud_web:room-2", Content: "【龙娘】<@1> 391", Mentioned: true, FromBot: true},
 	} {
-		e.gate.released[m] = true
+		m.burstDone = true
 		e.applyGate(nil, m, s, "k")
 	}
 	mu.Lock()

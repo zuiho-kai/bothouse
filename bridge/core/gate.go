@@ -76,7 +76,6 @@ type gateState struct {
 	buf        map[string][]string // interactiveKey → silent messages not yet delivered
 	bufVoice   map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
 	held       map[string]*heldMsg // holdKey → burst being collected (busy or idle)
-	released   map[*Message]bool   // bursts handed back to handleMessage by their timer
 	gbuf       map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
 }
 
@@ -268,7 +267,7 @@ func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 	}
 	inject, injectDyn := midTurnInjectCaps(e.agent)
 	e.gate = &gateState{url: url, timeout: time.Duration(timeoutMs) * time.Millisecond, fallback: fallback, inject: inject, injectDyn: injectDyn, textBurstWindow: burstWindow,
-		buf: map[string][]string{}, held: map[string]*heldMsg{}, released: map[*Message]bool{}}
+		buf: map[string][]string{}, held: map[string]*heldMsg{}}
 	slog.Info("gate enabled", "url", url, "timeout_ms", timeoutMs, "fallback", fallback, "mid_turn_inject", e.gate.canInject())
 }
 
@@ -416,12 +415,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	busy := session.Busy()
 	if g == nil || msg.IsPermissionResponse || (ownerDM && !busy) {
-		if g != nil && ownerDM {
-			// Held while busy, handed back after the turn ended: nothing left to judge.
-			g.mu.Lock()
-			delete(g.released, msg)
-			g.mu.Unlock()
-		}
+		msg.burstDone = false // held while busy, released after the turn ended: nothing left to judge
 		if !msg.IsPermissionResponse {
 			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
 				return true
@@ -440,8 +434,8 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 
 	g.mu.Lock()
 	holdKey := g.holdKey(interactiveKey, msg, busy)
-	if g.released[msg] {
-		delete(g.released, msg) // the burst's timer handed it back: process normally
+	if msg.burstDone {
+		msg.burstDone = false // its burst window has passed (releaseHeldMessage): judge it now
 	} else if h := g.held[holdKey]; h != nil {
 		// Same burst: fold this message into the held one and wait a bit longer.
 		// Each part is kept as it was for the gate (issue #184: "@sub do X" then "@lead watch it"
@@ -503,9 +497,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		h.timer = time.AfterFunc(window, func() {
 			g.mu.Lock()
 			delete(g.held, holdKey)
-			g.released[h.msg] = true
+			h.msg.burstDone = true
 			g.mu.Unlock()
-			e.handleMessage(p, h.msg)
+			e.releaseHeldMessage(p, h.msg)
 		})
 		g.held[holdKey] = h
 		g.mu.Unlock()

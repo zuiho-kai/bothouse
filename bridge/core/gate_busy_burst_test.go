@@ -60,7 +60,7 @@ func releaseHeld(t *testing.T, e *Engine, key string) *Message {
 	}
 	h.timer.Stop()
 	delete(g.held, key)
-	g.released[h.msg] = true
+	h.msg.burstDone = true
 	return h.msg
 }
 

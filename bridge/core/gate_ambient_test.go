@@ -105,7 +105,7 @@ func TestGateSilentBufferDropsAmbientChat(t *testing.T) {
 		UserID: "u", UserName: "u", Content: "他们聊什么呢", ReplyCtx: "ctx",
 		AmbientChat: "[群里刚才的聊天]\n甲：旧背景不该进下一轮",
 	}
-	e.gate.released[quiet] = true
+	quiet.burstDone = true
 	e.handleMessage(p, quiet)
 
 	call := &Message{
@@ -113,7 +113,7 @@ func TestGateSilentBufferDropsAmbientChat(t *testing.T) {
 		UserID: "u", UserName: "u", Content: "Assistant你呢", Mentioned: true, ReplyCtx: "ctx",
 		AmbientChat: "[群里刚才的聊天]\n甲：新背景",
 	}
-	e.gate.released[call] = true
+	call.burstDone = true
 	e.handleMessage(p, call)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
@@ -143,7 +143,7 @@ func TestGateDigestKeepsSenderNameForNewestAndBuffered(t *testing.T) {
 		UserID: "u2", UserName: "Bob", Content: "旧消息甲", ReplyCtx: "ctx",
 		AmbientChat: "[群里刚才的聊天]\nBob：别的",
 	}
-	e.gate.released[quiet] = true
+	quiet.burstDone = true
 	e.handleMessage(p, quiet)
 
 	ask := &Message{
@@ -151,7 +151,7 @@ func TestGateDigestKeepsSenderNameForNewestAndBuffered(t *testing.T) {
 		UserID: "u1", UserName: "Alice", Content: "描述一下我的画像", Mentioned: true, ReplyCtx: "ctx",
 		AmbientChat: "[群里刚才的聊天]\nBob：草",
 	}
-	e.gate.released[ask] = true
+	ask.burstDone = true
 	e.handleMessage(p, ask)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
@@ -233,7 +233,7 @@ func TestApplyGateSilentFallbackOnGateFailureDoesNotStartTurns(t *testing.T) {
 			for i, text := range []string{"第一句闲聊", "第二句闲聊", "第三句闲聊"} {
 				msg := &Message{SessionKey: "qq:g:1", GroupChat: true, UserName: "Bob",
 					MessageID: strconv.Itoa(i + 1), Content: text, ReplyCtx: "ctx"}
-				e.gate.released[msg] = true
+				msg.burstDone = true
 				if !e.applyGate(p, msg, s, "k") {
 					t.Fatalf("%s: non-mentioned message started a turn", name)
 				}
@@ -251,7 +251,7 @@ func TestApplyGateSilentFallbackOnGateFailureDoesNotStartTurns(t *testing.T) {
 			// explicitly addressed message still receives the buffered context.
 			call := &Message{SessionKey: "qq:g:1", GroupChat: true, UserName: "Alice",
 				MessageID: "4", Content: "Assistant你在吗？", Mentioned: true, ReplyCtx: "ctx"}
-			e.gate.released[call] = true
+			call.burstDone = true
 			if e.applyGate(p, call, s, "k") {
 				t.Fatalf("%s: explicit call was swallowed", name)
 			}
@@ -273,7 +273,7 @@ func TestApplyGateMentionedReplyOnGateFailureKeepsQuestion(t *testing.T) {
 			e, p, s := fallbackTestEngine(t, url, "silent")
 			msg := &Message{SessionKey: "qq:g:1", GroupChat: true, UserName: "Alice",
 				MessageID: "1", Content: "Assistant你在吗？", Mentioned: true, ReplyCtx: "ctx"}
-			e.gate.released[msg] = true
+			msg.burstDone = true
 			if e.applyGate(p, msg, s, "k") {
 				t.Fatalf("%s: an explicitly mentioned message was swallowed", name)
 			}
@@ -303,14 +303,14 @@ func TestGateEmptyAmbientKeepsDistinctSenders(t *testing.T) {
 		SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "1",
 		UserID: "u2", UserName: "Bob", GroupChat: true, Content: "旧消息甲", ReplyCtx: "ctx",
 	}
-	e.gate.released[quiet] = true
+	quiet.burstDone = true
 	e.handleMessage(p, quiet)
 
 	ask := &Message{
 		SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "2",
 		UserID: "u1", UserName: "Alice", GroupChat: true, Content: "描述一下我的画像", Mentioned: true, ReplyCtx: "ctx",
 	}
-	e.gate.released[ask] = true
+	ask.burstDone = true
 	e.handleMessage(p, ask)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
@@ -358,7 +358,7 @@ func TestGateEmptyAmbientQuoteKeepsSpeakers(t *testing.T) {
 		UserID: "u1", UserName: "Alice", GroupChat: true, Content: "我的回答", Mentioned: true, ReplyCtx: "ctx",
 		ExtraContent: "[引用消息]\nBob：被引用的话",
 	}
-	e.gate.released[msg] = true
+	msg.burstDone = true
 	e.handleMessage(p, msg)
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })

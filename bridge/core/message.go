@@ -407,17 +407,12 @@ type Message struct {
 	SeenUpToID string // maomao fork: newest message folded into this one (gate burst), for channel backfill
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom
 	// ("" = the whole first window); freshContextImages adds the images from before it.
-	BackfillFrom  string
-	AmbientChat   string // Background merged once, excluded from the silent buffer.
-	contentMerged bool
-	BackfillRan   bool
-	peopleDone    bool // #1160: recordPersonSaid already ran (a held gate burst re-enters handleMessage)
-	mediaDone     bool // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
-	// maomao fork: handleCommand already ran for this message. The gate's burst
-	// timer releases a held message by re-entering handleMessage with the same
-	// *Message, so without this flag a slash command ran (and an unknown command
-	// posted its notice) once per entry — issue #651 follow-up.
-	cmdDone     bool
+	BackfillFrom string
+	AmbientChat  string // Background merged once, excluded from the silent buffer.
+	BackfillRan  bool
+	// burstDone: the gate collected this message's burst and its window has passed; the next
+	// applyGate judges it instead of holding it again (set by the burst timer, cleared when read).
+	burstDone   bool
 	userText    string     // maomao fork: Content before media notes were appended — the gate's input
 	userTextSet bool       // maomao fork: userText is set (see userTextOf)
 	gateParts   []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
