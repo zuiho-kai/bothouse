@@ -222,7 +222,13 @@ func newQQACPHarness(t *testing.T) *qqACPHarness {
 		}
 	}))
 	t.Cleanup(func() { close(done); control.Close() })
-	dir := t.TempDir()
+	// Not t.TempDir(): on macOS its path ($TMPDIR + test name + random suffix) plus run/api.sock
+	// can pass the ~104-byte unix socket limit, and bind then fails with "invalid argument".
+	dir, err := os.MkdirTemp("", "qqacp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	api, err := core.NewAPIServer(dir)
 	if err != nil {
 		t.Fatal(err)
