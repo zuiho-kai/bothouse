@@ -794,7 +794,7 @@ func slimHandoffEntry(text string) string {
 		case strings.HasPrefix(t, "（频道里你上次看到之后的消息"):
 			backfill = true
 			continue
-		case strings.HasPrefix(t, "（最新，回这条）"), strings.HasPrefix(t, "（定时任务，回这条）"):
+		case isReplyMarkLine(t):
 			backfill = false
 			continue
 		case strings.HasPrefix(t, "[团队模式规矩"), strings.HasPrefix(t, "[工作区规矩"), strings.HasPrefix(t, "[Bridge delegation policy"):

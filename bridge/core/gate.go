@@ -38,13 +38,6 @@ import (
 
 const insertNote = "（以下是补充信息，不是提问。若它不改变你之前的结论、也无需动作，只回复 NO_REPLY；否则简短回应。）"
 
-// latestMark goes right before the words of the message this turn answers, on every path (gate
-// or not, backfill, buffer or none), so the blocks put above them (rules, memory, wiki, team)
-// never read as if they ended with the person's words (#1375: agentm's claude role, new session,
-// no gate, answered 「没看到具体内容」 to 「你现在是主模型」). Hooks find the words by it
-// (handoff.go lastUserText, contrib/hooks ask-only-guard.py and fix-claim-guard.py).
-const latestMark = "（最新，回这条）"
-
 // withLatestMark puts latestMark before content once; empty content (attachments only) stays
 // empty so the injection fallback still applies.
 func withLatestMark(content string) string {
