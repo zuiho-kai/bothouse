@@ -836,9 +836,15 @@ type interactiveState struct {
 	turnStartedAt time.Time
 }
 
-// markTurnStartLocked records the start of the turn that owns currentMessageID. Caller
-// holds state.mu.
-func (s *interactiveState) markTurnStartLocked() { s.turnStartedAt = time.Now() }
+// markTurnStartLocked transfers the state to the turn owning currentMessageID.
+// Caller holds state.mu. A claimed timeout finishes before the transfer; whether
+// it was already done or we waited, its cancellation flag belongs to the old turn.
+func (s *interactiveState) markTurnStartLocked() {
+	s.awaitScheduledCancelLocked()
+	s.scheduledWatch = 0
+	s.turnCancelled = false
+	s.turnStartedAt = time.Now()
+}
 
 // latestUserMessageWatermarkLocked returns the highest UserMessageTimeMs among
 // completed turns, the in-flight turn, and queued messages for this session.
@@ -5062,7 +5068,6 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	e.stopUnsolicitedReader(state)
 	state.mu.Lock()
 	needResync := state.eventsNeedResync
-	state.turnCancelled = false
 	state.mu.Unlock()
 	if msg.inputTurn != nil {
 		strict, ok := agentSession.(StrictResumeSession)
@@ -6598,8 +6603,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}()
 	if msgID != "" {
 		state.mu.Lock()
+		// Foreground and drained turns already initialized this message before
+		// Send. Re-entering its event reader must preserve a cancel for this turn.
 		state.currentMessageID = msgID
-		state.markTurnStartLocked()
 		state.mu.Unlock()
 	}
 
@@ -7772,9 +7778,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Mark clean exit so unsolicited reader preserves buffered events.
 			state.mu.Lock()
 			state.eventsNeedResync = false
-			// maomao fork: a cancel that raced with a normal end of the turn must not
-			// silence the next turn's error (queued turns don't pass the reset at turn start).
-			state.turnCancelled = false
 			injected := state.injectedReplyCtxs // maomao fork: messages injected mid-turn (gate.go)
 			state.injectedReplyCtxs = nil
 			state.mu.Unlock()
@@ -8338,9 +8341,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			// A time limit that claimed the turn that just ended finishes first: a stop that
 			// closed the session dropped the queue, so no next turn starts on a dead session.
-			if state.awaitScheduledCancelLocked() {
-				state.turnCancelled = false // that cancel was for the ended turn, not the next one
-			}
+			state.awaitScheduledCancelLocked()
 			if e.isStoppingForJournal() {
 				// #1368: shutdown owns the current journal entry. Leave even
 				// stale queued messages untouched for restart recovery.

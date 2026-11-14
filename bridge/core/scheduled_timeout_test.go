@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestScheduledTurnTimeoutCompletedCancelDoesNotSilenceQueuedError(t *testing
 		close(done)
 	}()
 	as.events <- Event{Type: EventResult, Content: "old turn completed", Done: true}
-	<-p.entered // EventResult has already cleared turnCancelled.
+	<-p.entered // old result bookkeeping finished, but the queued turn has not started
 	stopped := e.fireScheduledTurnTimeout(state, key, 7, TurnTriggerCron, "", "job", 0)
 	state.mu.Lock()
 	cancelled, inFlight := state.turnCancelled, state.scheduledCancel != nil
@@ -68,6 +69,33 @@ func TestScheduledTurnTimeoutCompletedCancelDoesNotSilenceQueuedError(t *testing
 	}
 	if got := handoffsOf(e, key)[0].Idle.Fails; got != 1 {
 		t.Errorf("the next turn's own error counted %d failures, want 1", got)
+	}
+}
+
+// Arming the timer and entering the event reader happen after turn initialization.
+// Neither may erase a timeout cancellation already issued for this very turn.
+func TestScheduledTurnTimeoutCurrentCancelSurvivesReaderEntry(t *testing.T) {
+	as := &completedScheduledCancelSession{attributedFailSession: attributedFailSession{events: make(chan Event, 1)}}
+	e, _, key := watchTurnFixture(t, &attributedFailAgent{s: &as.attributedFailSession})
+	p := &stubPlatformEngine{n: "discord"}
+	session := e.sessions.GetOrCreateActive(key)
+	id := e.journalTurnBegin(&Message{SessionKey: key, Platform: "discord", Content: "current"}, key, "", session)
+	defer e.journalTurnEnd(id)
+	state := &interactiveState{agentSession: as, platform: p, replyCtx: key, currentMessageID: "current"}
+	state.markTurnStartLocked()
+	state.scheduledWatch = 7
+	e.interactiveStates[key] = state
+	if !e.fireScheduledTurnTimeout(state, key, 7, TurnTriggerCron, "", "job", 0) {
+		t.Fatal("current turn was not stopped")
+	}
+	e.armScheduledTurnTimeout(state, key, "", "", "", "human", true)
+	as.events <- Event{Type: EventError, Error: errors.New("cancelled current turn")}
+	e.processInteractiveEvents(state, session, e.sessions, key, "current", time.Now(), nil, nil, key)
+	if got := strings.Join(p.getSent(), "\n"); strings.Contains(got, "cancelled current turn") {
+		t.Errorf("the current turn lost its own cancellation: %q", got)
+	}
+	if got := handoffsOf(e, key)[0].Idle.Fails; got != 0 {
+		t.Errorf("the cancelled current turn counted %d failures", got)
 	}
 }
 
@@ -159,6 +187,9 @@ func TestScheduledTurnTimeoutCancelDoesNotReachNextTurnOnSameState(t *testing.T)
 
 	started := make(chan struct{})
 	go func() { // the old turn ended; the next turn on the same state starts
+		state.mu.Lock()
+		state.markTurnStartLocked()
+		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, key, "", "", "", "", true)
 		close(started)
 	}()
