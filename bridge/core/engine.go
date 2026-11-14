@@ -810,6 +810,9 @@ type interactiveState struct {
 	currentJobID string
 	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
 	scheduledWatch uint64
+	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
+	// (fireScheduledTurnTimeout); the next turn start waits for it. Guarded by mu.
+	scheduledCancel chan struct{}
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -8333,6 +8336,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// Check for queued messages — if present, continue the event loop
 			// for the next turn instead of returning.
 			state.mu.Lock()
+			// A time limit that claimed the turn that just ended finishes first: a stop that
+			// closed the session dropped the queue, so no next turn starts on a dead session.
+			if state.awaitScheduledCancelLocked() {
+				state.turnCancelled = false // that cancel was for the ended turn, not the next one
+			}
 			if e.isStoppingForJournal() {
 				// #1368: shutdown owns the current journal entry. Leave even
 				// stale queued messages untouched for restart recovery.
