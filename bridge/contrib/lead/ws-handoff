@@ -637,7 +637,10 @@ def kickoff_maps(path, task):
 # 五段式开工说明、单独跑 report check（ws-up --report 内部先跑同一个检查）。
 KICKOFF = ("工作区开工：这件活你自己做，不拆给别人；任务板和公开任务卡程序管，不用 board update / board add。"
            "要留到下一轮的文件写完整路径，不放 /tmp（重启会丢）；交接指定了隔离目录的照交接。"
-           "做法拿不准或卡住时再搜 python3 ~/wiki/bin/search.py <关键词>。")
+           "做法拿不准或卡住时再搜 python3 ~/wiki/bin/search.py <关键词>。"
+           # #1631：同一道小题工作区 102–108 秒、裸跑 52 秒，出字速度一样，差在多出的轮次（每轮 3–5 秒起步）和多写的字。
+           "每轮来回都要等几秒，能并的并成一条命令：看现状一条看全；写完文件、跑测试、在用户实际用的入口走一遍"
+           "放在同一条命令里，结果都对就直接交回，不单独再走一遍。")
 
 
 def kickoff_long():
@@ -711,8 +714,10 @@ def append_skeleton(path, nid):
         if r.returncode != 0 or not r.stdout.startswith("[report]"):
             return False
         lines = [f"## {SKELETON}",
-                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话；细节之前的四段每段最多两句、说人话，不写编号、路径、英文标识；ws-up --report 会先检查，不通过会退回。"
-                 "这一节不算范围。）",
+                 f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话。ws-up --report 会先检查，下面三类会退回："
+                 "①细节之前的四段每段最多两句、说人话，不能出现文件名、路径、分支名、带下划线/连字符/驼峰的英文词、反引号、"
+                 "首行以外的 #编号、表格（这些都放细节里；引用户原话时里面的文件名也换成大白话）；②「入口自验」那行或紧跟的几行要有 ``` 包住的命令输出，或真实存在的文件路径、链接；"
+                 "③范围里每条「改」都要逐条写到。细节写短：每条一两句结果，命令输出只贴关键几行。这一节不算范围。）",
                  "```", r.stdout.rstrip("\n"), "```"]
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(("" if text.endswith("\n") else "\n") + "\n" + "\n".join(lines) + "\n")
@@ -727,19 +732,22 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
     --desc 带任务：桥把它当这一轮的任务名（谁在干啥、频道任务板，core/team.go teamNoteTurn → boardDescOf），
     不是把开工提示当任务名（#597 G36）。
-    开工提示 #1628 重写：只留每件活都用得上的句子；「先出方案」「没有骨架」两句看交接里有没有那一节才带。"""
-    head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}（任务板 #{nid}）。{answer}\n"
-            f"先读交接 {path}（之前的进度都在里面）。"
-            if answer is not None and answer.startswith("到点重试") else
-            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。用户答复了：{answer}\n"
-            f"先读交接 {path}（之前的进度都在里面）。"
-            if answer is not None else
-            f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}（任务板 #{nid}）。先读交接 {path}。")
+    开工提示 #1628 重写：只留每件活都用得上的句子；「先出方案」「没有骨架」两句看交接里有没有那一节才带。
+    #1631：交接全文直接附在提示末尾（2 万字以内），省掉开工先 Read 交接的那一轮；更长的照旧「先读交接」。"""
     kickoff_existing(path, task)  # 只写进交接「手里现成的」节；开工提示里不再重复一遍
     try:
         note = Path(path).read_text(encoding="utf-8", errors="ignore")
     except OSError:
         note = ""
+    inline = 0 < len(note) <= 20000
+    read = f"交接全文附在本条末尾（文件 {path}），不用再读文件" if inline else f"先读交接 {path}"
+    head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}（任务板 #{nid}）。{answer}\n"
+            f"{read}（之前的进度都在里面）。"
+            if answer is not None and answer.startswith("到点重试") else
+            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。用户答复了：{answer}\n"
+            f"{read}（之前的进度都在里面）。"
+            if answer is not None else
+            f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}（任务板 #{nid}）。{read}。")
     draft = str(Path(path).with_suffix(".report.md"))
     plan = (f"交接里「{PLAN_FIRST}」节的几项先 --ask 交方案，批了再改，没批前只读。"
             if re.search(r"^#+\s*" + PLAN_FIRST, note, re.M) else "")
@@ -749,11 +757,12 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，怎么做你定。拿不准用户意思先读交接「{SOURCE}」里的原话，"
               f"还不清楚问聊天频道的主角色：ws-up --notes <交接> \"<问题>\"；要用户拍板、或会改变用户原话范围的用 "
               f"ws-up --notes <交接> \"<问题+选项+推荐>\" --ask，等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
-              + plan + f"只做交接里写成「改」的部分，用户原话里没有的设定不加。\n"
+              + plan + f"只做交接里写成「改」的部分，做到验收标准为止：用户原话和验收标准里没有的设定、防御分支、额外用例都不加。\n"
               f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
               f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
               f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<多久后，如 2h>」，"
-              f"到点会另交工作区接着做。")
+              f"到点会另交工作区接着做。"
+              + (f"\n\n【交接全文 {path}】\n{note.rstrip()}" if inline else ""))
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
