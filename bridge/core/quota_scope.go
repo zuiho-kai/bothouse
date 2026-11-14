@@ -337,6 +337,7 @@ func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session
 		e.quotaState.NextProbeAt = time.Time{}
 		previous := e.quotaState.ProbeStatus
 		e.quotaState.ProbeStatus = "exhausted"
+		e.quotaState.ProbeScope = key
 		if session != "" {
 			e.quotaState.Session = session
 		}
@@ -361,8 +362,8 @@ func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session
 // answer. It clears the records admission reads, so the next message is not
 // turned away; quotaTick sees those records clear and finishes the recovery
 // (lead, notice). A later quota error writes them again, and that wins: there is
-// no separate "answered" flag that could outlive it. A scope that was not
-// cooling is left untouched.
+// no separate "answered" flag that could outlive it. The answer also supplies
+// positive availability evidence when the scope was not cooling.
 func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	now := time.Now()
 	key := scope.key()
@@ -399,6 +400,49 @@ func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	if cooling {
 		slog.Info("quota cooldown: provider answered, cooldown cleared", "project", e.name)
 	}
+	e.recordQuotaProbeFor(scope, "available")
+}
+
+// recordQuotaProbeFor keeps evidence in the existing quota record. ProbeScope
+// is separate from Scope: Scope owns a pending takeover, which an answer under
+// another model/account must not relabel. No deadline is invented for unknown
+// usage or exhaustion without a provider reset.
+func (e *Engine) recordQuotaProbeFor(scope quotaScope, status string) {
+	e.updateQuotaState(func() {
+		if status == "available" && !e.quotaCoolingFor(scope).IsZero() {
+			return // A newer provider exhaustion wins over a deferred success.
+		}
+		key := scope.key()
+		if e.quotaState.ProbeScope == key && e.quotaState.ProbeStatus == status {
+			return
+		}
+		e.quotaState.ProbeScope, e.quotaState.ProbeStatus = key, status
+		e.saveQuotaLocked()
+	})
+}
+
+// quotaAvailabilityFor is the shared dispatch predicate for team publication
+// and automatic selection. Passing a reset deadline does not prove recovery.
+func (e *Engine) quotaAvailabilityFor(scope quotaScope, now time.Time) (time.Time, string) {
+	until := e.quotaCoolingForAt(scope, now)
+	e.capMu.Lock()
+	if e.capUntil.After(now) && e.capUntil.After(until) {
+		until = e.capUntil
+	}
+	e.capMu.Unlock()
+	if !until.IsZero() {
+		return until, "exhausted"
+	}
+	e.quotaMu.Lock()
+	status, evidence := e.quotaState.ProbeStatus, e.quotaState.ProbeScope
+	if evidence == "" {
+		evidence = e.quotaState.Scope // legacy probe records already carried Scope
+	}
+	e.quotaMu.Unlock()
+	if evidence == scope.key() && (status == "available" || status == "exhausted") {
+		return time.Time{}, status
+	}
+	return time.Time{}, "unknown"
 }
 
 func (e *Engine) quotaVerified(key string) bool {
