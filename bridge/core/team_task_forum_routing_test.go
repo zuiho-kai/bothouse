@@ -12,9 +12,12 @@ import (
 
 type forumRoutingPlatform struct {
 	*stubForumPlatform
-	legacyCards int
-	mentions    []string
-	failSend    bool
+	legacyCards  int
+	mentions     []string
+	failSend     bool
+	forumFactErr error
+	legacyFacts  []TaskEvent
+	forumFacts   []TaskEvent
 }
 
 func (p *forumRoutingPlatform) TaskCardDestination(session string) (string, error) {
@@ -28,7 +31,15 @@ func (p *forumRoutingPlatform) EnsureTaskCard(_ context.Context, task *Task, _ L
 	}
 	return nil
 }
-func (p *forumRoutingPlatform) PublishTaskFact(context.Context, *Task, TaskEvent, Language) error {
+func (p *forumRoutingPlatform) PublishTaskFact(_ context.Context, task *Task, ev TaskEvent, _ Language) error {
+	if task.ForumPost {
+		if p.forumFactErr != nil {
+			return p.forumFactErr
+		}
+		p.forumFacts = append(p.forumFacts, ev)
+	} else {
+		p.legacyFacts = append(p.legacyFacts, ev)
+	}
 	return nil
 }
 func (p *forumRoutingPlatform) ReconstructReplyCtx(session string) (any, error) { return session, nil }
@@ -97,6 +108,70 @@ func TestTaskForumRoutingPersistsWithoutSecondThread(t *testing.T) {
 		})
 	}
 }
+func TestTaskForumCachedPostPermissionLoss(t *testing.T) {
+	for _, mode := range []string{"creator denied", "transient", "member denied"} {
+		t.Run(mode, func(t *testing.T) {
+			e, plat, dir := forumRoutingEngine(t)
+			writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"任务并帖","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
+			progress, err := NewPublicProgress(t.TempDir(), e.name, []Platform{plat})
+			if err != nil {
+				t.Fatal(err)
+			}
+			progress.resolveThread = e.resolveTaskThread
+			run := progress.begin(plat, "discord:222", LangChinese, nil)
+			id, err := progress.Report(PublicProgressRequest{Project: e.name, SessionKey: "discord:222", Run: run, Seq: 1, Kind: "start", Title: "任务并帖", Summary: "已接手"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			progress.Flush(context.Background())
+			before, _ := progress.Task(id)
+			if !before.ForumPost || before.ThreadID != "th1" {
+				t.Fatalf("initial binding: %+v", before)
+			}
+			permanent := errors.Join(ErrTaskFactUndeliverable, ErrDeliveryUnrecoverable)
+			switch mode {
+			case "creator denied":
+				plat.forumFactErr = permanent
+			case "transient":
+				plat.forumFactErr = errors.New("temporary outage")
+			case "member denied":
+				member := &forumRoutingPlatform{forumFactErr: permanent}
+				progress.resolveReporter = func(string, string, string) (TaskCardPublisher, error) { return member, nil }
+			}
+			if _, err := progress.Report(PublicProgressRequest{Project: e.name, SessionKey: "discord:222", Run: run, Seq: 2, Kind: "milestone", Summary: "必须保留的进度"}); err != nil {
+				t.Fatal(err)
+			}
+			r := progress.records[id]
+			if mode == "member denied" {
+				r.record.Task.Events[len(r.record.Task.Events)-1].ReporterProject = "member"
+			}
+			progress.Flush(context.Background())
+			got, _ := progress.Task(id)
+			wantLegacy := mode == "creator denied"
+			if got.ForumPost == wantLegacy || (plat.legacyCards != 0) != wantLegacy {
+				t.Fatalf("mode=%s binding=%+v legacy=%d", mode, got, plat.legacyCards)
+			}
+			if wantLegacy && (len(plat.legacyFacts) != 1 || plat.legacyFacts[0].Summary != "必须保留的进度") {
+				t.Fatalf("fact not preserved: %+v", plat.legacyFacts)
+			}
+			if mode != "transient" && r.record.FactSeq != got.Seq {
+				t.Fatal("delivered fact not checkpointed")
+			}
+			if mode == "transient" && r.record.FactSeq >= got.Seq {
+				t.Fatal("temporary failure dropped the pending fact")
+			}
+			restored, err := NewPublicProgress(progress.dataDir, e.name, []Platform{plat})
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved, _ := restored.Task(id)
+			if saved.ForumPost != got.ForumPost || saved.ThreadID != got.ThreadID {
+				t.Fatal("fallback binding not durable")
+			}
+		})
+	}
+}
+
 func TestTaskForumExitRequiresDeliveredPost(t *testing.T) {
 	e, p, dir := forumRoutingEngine(t)
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"任务并帖","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
@@ -233,5 +308,17 @@ func TestTaskForumCountAppendsToExistingRoundup(t *testing.T) {
 	}
 	if !strings.Contains(prepared.Prompt, "保留原收口事项") || !strings.Contains(prepared.Prompt, "等你拍板 1 件") {
 		t.Fatal(prepared.Prompt)
+	}
+}
+
+func TestTaskForumInitiallyWaitingKeepsFullQuestion(t *testing.T) {
+	e, p, dir := forumRoutingEngine(t)
+	question := strings.Repeat("选A还是B？", 500)
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"目标保持完整","status":"在做","chat":"discord:111","paused":"11-15 00:00","pause_why":"等待用户答复：`+question+`"}`+"\n")
+	e.syncTaskForum()
+	e.syncTaskForum()
+	post := p.post("th1")
+	if !strings.Contains(post.card, "完整问题见下方最新回复") || len(post.nodes) != 1 || !strings.Contains(post.nodes[0], question) || len(p.mentions) != 0 {
+		t.Fatalf("initial pending question missing or mentioned: nodes=%d mentions=%v", len(post.nodes), p.mentions)
 	}
 }

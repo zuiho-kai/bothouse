@@ -399,11 +399,16 @@ func taskForumStamped(card string, now time.Time) string {
 // taskForumNode is what is posted for this pass's move from prev: one line per new board fact
 // (退回, 合并, 上线, each seen once through prev's Rejected/Merged/Deployed) and one for a tag
 // move, or "" when nothing is a key moment ([report]/[ask] text is posted where it is delivered;
-// a first look is not a move). 「已合并」 is said only on a merge fact (pr_merge or await_deploy,
+// an initial waiting card also keeps its full question below). 「已合并」 is said only on a merge fact (pr_merge or await_deploy,
 // the board's 「已合并，等上线」), never because the item waits on a release: a release hold is
 // 「为发布暂停」 with nothing merged.
 func taskForumNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence string) string {
 	if prev == nil {
+		// A first card may abbreviate a long pending question. Keep the full
+		// question below it even when the task was already waiting at startup.
+		if tag == TaskForumTagWaiting {
+			return taskForumTagNode(&taskForumPostState{}, it, tag, sentence, false)
+		}
 		return ""
 	}
 	var lines []string
@@ -707,6 +712,12 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		}
 		if tag == TaskForumTagDone {
 			s.Posts[key].DoneAt = now
+		}
+		if node != "" {
+			// Initial waiting is a question, not a new transition mentioning a user.
+			if err := poster.PostTaskNode(ctx, id, node); err != nil {
+				slog.Warn("task forum: initial question not posted", "board_item", it.ID, "error", err)
+			}
 		}
 		slog.Info("task forum: post opened", "board_item", it.ID, "thread", id, "tag", tag, "owner", e.name)
 		e.taskForumLinkLocked(s.Posts[key], it)
