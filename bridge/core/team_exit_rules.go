@@ -8,11 +8,11 @@ import (
 )
 
 // teamExitRulesFile is the one copy of the workspace [ask]/[report] rules: first-line mark and #id
-// format, the [ask] self-check, bounce texts. dsh/collab/team-exit-rules.json is mirrored into
-// dsh_bundle/collab; DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
+// format, the [ask] self-check, bounce texts. The build copies it into the DSH plugin
+// (dsh/scripts/bundle.mjs); DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
 // cases in dsh/collab/test/team-exit-cases.json (TestTeamExitSharedCases; team-exit.test.mjs). No
 // formats or texts live here.
-const teamExitRulesFile = "dsh_bundle/collab/team-exit-rules.json"
+const teamExitRulesFile = "team_rules/team-exit-rules.json"
 
 type teamExitRulesDoc struct {
 	Kinds      []string `json:"kinds"`
@@ -116,9 +116,9 @@ type teamExitRules struct {
 	sentenceEnd                                                                        *regexp.Regexp
 }
 
-// exitRules is read once from the embedded copy; a broken file fails every test that touches it.
+// exitRules is read once from the embedded file; a broken file fails every test that touches it.
 var exitRules = func() *teamExitRules {
-	b, err := embeddedDSH.ReadFile(teamExitRulesFile)
+	b, err := teamRulesFS.ReadFile(teamExitRulesFile)
 	if err != nil {
 		panic("team exit rules: " + err.Error())
 	}

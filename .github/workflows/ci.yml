@@ -139,6 +139,12 @@ jobs:
       - run: npx -y pnpm@10 install --frozen-lockfile
         if: ${{ !cancelled() }}
         working-directory: dsh/collab
+      # bridge/core/dsh_bundle/{collab,packages} are not in git: generated from dsh/ (same script as
+      # `make dshbundle`). The bothouse-embeds test below and the Go bundle tests read the result.
+      - name: Generate the embedded DSH bundle
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - run: node --test ../dsh/collab/*.test.mjs ../dsh/packages/bothouse-embeds/*.test.mjs
         if: ${{ !cancelled() }}
       - run: python3 -I contrib/hooks/test_hooks.py
@@ -232,10 +238,9 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: .
         run: '"$CONEST_VITEST" run --config dsh/vitest.config.mjs'
-      # A PR that edits dsh/packages/client-ui-discord without rebuilding the embedded bundle skipped bridge-go
-      # (go=false) and only failed on develop (runs 41836087833, 41838005851, 41846409429). Run the bundle
-      # checks here whenever bridge-go is skipped; when it runs, its core shards already cover them.
-      - name: Embedded DSH bundle matches source
+      # A dsh-only PR skips bridge-go (go=false), but it changes what the bridge embeds: run the bundle
+      # install tests here whenever bridge-go is skipped; when it runs, its core shards already cover them.
+      - name: Embedded DSH bundle installs
         if: ${{ !cancelled() && env.RUN_GO != 'true' }}
         run: go test -tags no_web -count=1 -run '^(TestDSHBundle|TestExtractEmbeddedDSH)' ./core
       # go mod verify, go build and go vet (linux, windows and darwin) run as the build-* shards of bridge-go, in
@@ -265,6 +270,16 @@ jobs:
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
+      # The test shards run code that unpacks the embedded DSH plugin; it is generated, not in git.
+      # The build-* shards compile without it on purpose: a plain `go build` must keep working.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: ${{ !startsWith(matrix.shard, 'build-') }}
+        with:
+          node-version: '24'
+      - name: Generate the embedded DSH bundle
+        if: ${{ !startsWith(matrix.shard, 'build-') }}
+        working-directory: .
+        run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - name: go test (${{ matrix.shard }})
         env:
           SHARD: ${{ matrix.shard }}
@@ -350,6 +365,12 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Generate the embedded DSH bundle
+        working-directory: .
+        run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - name: Windows Go tests
         run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebParentPIDWindows|TestDSHWebCommandLineNativeWindows|TestDSHWebOwnedWhenTheRecordedPIDLaunchedTheListener|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
       - name: QQ package and candidate CLI (ACP media and receipts)
@@ -406,6 +427,8 @@ jobs:
         run: |
           set -euo pipefail
           (cd web && npx -y pnpm@10.34.7 install --frozen-lockfile --ignore-scripts && npx -y pnpm@10.34.7 run build)
+          # the DSH plugin this binary installs is generated, not in git (same script as `make dshbundle`)
+          (cd .. && PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs)
           go build -trimpath -tags goolm -o "$RUNNER_TEMP/bothouse-new.exe" ./cmd/cc-connect
       - name: Install bothouse with install.ps1 (latest release)
         shell: pwsh
