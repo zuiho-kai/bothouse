@@ -39,6 +39,7 @@
   board deployed <提交> [编号...]         # 桥以 <提交> 版本起来后（桥自己会跑）：等发布的条目已含在这次部署里的转「待上线验收」，
                                          #   桥自动派非作者去做上线验收；查不到（gh 失败）的先不动，下次再核
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），board 列表那行末尾出「卡 链接」
+  board post <编号> <帖子链接>             # 桥开的任务帖子（Discord「任务」帖子区，core/team_task_forum.go）挂到这件事，列表那行末尾出「帖 链接」
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
   board prune [--dry-run]                # 只做自动收起（--dry-run 只列不动）；收起的条目 board resume <编号> 能找回
   board prune --off | --on | --idle <小时> # 整块板子关掉 / 打开自动收起、改闲置门槛（默认开、24 小时），打印当前设定
@@ -194,6 +195,7 @@ def fmt(i):
     pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}）" if i.get("paused") else ""
     bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
+    card += f"｜帖 {i['post']}" if i.get("post") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
     return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
 
@@ -485,7 +487,7 @@ def progress(nid):
 CARD_RE = re.compile(r"https://discord\.com/channels/\d+/\d+/\d+")  # Discord 消息链接：/channels/<服务器>/<频道>/<消息>
 
 
-def link(nid, url):
+def link(nid, url, field="card"):
     if not CARD_RE.fullmatch(url):
         raise ValueError("card")
     with _locked():
@@ -493,7 +495,7 @@ def link(nid, url):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
-        hit["card"] = url
+        hit[field] = url
         _write(cur)
     return True
 
@@ -1998,6 +2000,15 @@ def main(argv):
             if not ok:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已挂卡")
+        elif cmd == "post" and len(argv) == 3:
+            nid = int(argv[1].lstrip("#"))
+            try:
+                ok = link(nid, argv[2].strip(), "post")
+            except ValueError:
+                sys.exit("帖子链接要是 https://discord.com/channels/<服务器>/<帖子>/<首楼消息>")
+            if not ok:
+                sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            print("已挂帖子")
         elif cmd == "refresh" and len(argv) == 1:
             _say_pruned(auto_prune())
         elif cmd == "prune" and argv[1:2] in (["--off"], ["--on"], ["--idle"]):

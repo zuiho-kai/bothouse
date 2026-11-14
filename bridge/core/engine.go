@@ -637,6 +637,8 @@ type Engine struct {
 	// Data directory for socket path injection
 	dataDir        string
 	publicProgress *PublicProgress
+	// taskForum: the Discord task forum's remembered posts (team_task_forum.go).
+	taskForum taskForumRuntime
 	// Source: #750/#751; set before Start by the shared authorization layer.
 	externalTaskEventCheck func(ExternalTaskEvent, *Task) error
 	workspaceChatForTest   func(session string) bool
