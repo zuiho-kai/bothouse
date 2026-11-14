@@ -216,7 +216,7 @@ func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
 	}
 	for mode, want := range map[string]string{DispatchTeam: "派活方式：完全团队", DispatchMixed: "派活方式：混合", "bogus": "派活方式：混合"} {
 		r := teamModeRulesFor(mode)
-		if !strings.Contains(r, want) || !strings.Contains(r, "成员空着时先当面派给成员") || !strings.Contains(r, "reason 字段") || !strings.Contains(r, "同时带 ref（参照实现：文件:行") || !strings.Contains(r, "带 base（底分支名）") {
+		if !strings.Contains(r, want) || !strings.Contains(r, "成员空着且额度已确认可用时先当面派给成员") || !strings.Contains(r, "额度未知、耗尽或冷却先别派") || !strings.Contains(r, "reason 字段") || !strings.Contains(r, "同时带 ref（参照实现：文件:行") || !strings.Contains(r, "带 base（底分支名）") {
 			t.Fatalf("%s rules: %q", mode, r)
 		}
 	}

@@ -31,8 +31,11 @@ func TestTaskWsCLI(t *testing.T) {
 
 	targetPlatform := &progressCLIPlatform{delivered: make(chan *core.Task, 20), boards: make(chan string, 20)}
 	targetSession := &progressCLISession{events: make(chan core.Event, 10), prompts: make(chan string, 4)}
-	target := core.NewEngine("worker", &progressCLIAgent{session: targetSession}, []core.Platform{targetPlatform}, "", core.LangEnglish)
+	targetAgent := &progressCLIAgent{session: targetSession}
+	target := core.NewEngine("worker", targetAgent, []core.Platform{targetPlatform}, "", core.LangEnglish)
 	target.SetDataDir(dir)
+	t.Cleanup(func() { _ = target.Stop() })
+	confirmProgressCLIQuota(t, target, targetAgent)
 
 	rm := core.NewRelayManager("")
 	rm.RegisterEngine("fish", source)

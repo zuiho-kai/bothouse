@@ -2027,11 +2027,13 @@ test('team rules: a prompt carries only the room mode section (PR #138 review 4,
   assert.match(solo, /单模型多进程/);
   assert.doesNotMatch(solo, /先当面派给成员|完全团队|混合/);
   assert.match(team, /完全团队/);
-  assert.match(team, /成员空着时先当面派给成员/);
+  assert.match(team, /成员空着且额度已确认可用时先当面派给成员/);
+  assert.match(team, /额度未知、耗尽或冷却先别派/);
   assert.match(team, /reason 字段/);
   assert.doesNotMatch(team, /单模型多进程|混合/);
   assert.match(mixed, /混合。按这件活谁更合适选人/);
-  assert.match(mixed, /成员空着时先当面派给成员/);
+  assert.match(mixed, /成员空着且额度已确认可用时先当面派给成员/);
+  assert.match(mixed, /额度未知、耗尽或冷却先别派/);
   assert.match(mixed, /为什么选这个人/);
   assert.equal(teamModeRules('bogus'), teamModeRules('mixed'));
 });
@@ -5717,7 +5719,7 @@ test('DSH member: its own MEMORY.md goes into the first turn of a conversation o
   }
 });
 
-test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', async () => {
+test('CLI member: its own MEMORY.md on the first turn only; no wiki yet, a starter page', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');

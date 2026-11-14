@@ -873,7 +873,7 @@ func TestCrossWorkspaceRequiresBindingInSourceToo(t *testing.T) {
 	// receipt step checks both channels on its own as well.
 	req := taskRelayRequest(id)
 	req.Workspace = "ws1"
-	if _, _, err := p.beginTaskRelay(req, "Target"); err == nil || !strings.Contains(err.Error(), "unbound in discord:room:user") {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err == nil || !strings.Contains(err.Error(), "unbound in discord:room:user") {
 		t.Fatalf("relay with target unbound in source = %v", err)
 	}
 	if _, ok := p.records[id].record.Relays[req.RequestID]; ok {

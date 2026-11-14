@@ -520,8 +520,43 @@ jobs:
       - run: node --test ../dsh/collab/*.test.mjs
         working-directory: bridge
 
+  # The DSH plugin installed alone, as an outside user does (no bridge: no BOTHOUSE_DATA_DIR, no gate):
+  # npm pack the plugin, dsh plugin add it into a scratch HOME, @ a member (stub model). Retro #1644: every
+  # other check started dsh web through the bridge, so #1643 (no memory, silent gate, no persona) stayed green.
+  dsh-plugin-solo:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      # what plugin-pkg/README.md tells users: DSH from npm, pnpm on PATH for `dsh plugin add`
+      - name: Install DSH and pnpm (npm i -g, as the README tells users)
+        run: npm i -g @deepseek-ai/dsh pnpm && dsh --version
+      - name: Pack the plugin (npm run pack, the tarball npm publishes)
+        working-directory: dsh/plugin-pkg
+        run: npm run pack
+      - name: Plugin alone in a scratch HOME, @ a member
+        run: python3 -I .github/release-check/dsh_plugin_solo.py --tgz dsh/plugin-pkg/bothouse-dsh-*.tgz --out "$RUNNER_TEMP/solo"
+      - name: Keep logs and model requests
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dsh-plugin-solo
+          path: |
+            ${{ runner.temp }}/solo/*.log
+            ${{ runner.temp }}/solo/model-requests.json
+          if-no-files-found: ignore
+
   bridge:
-    needs: [changes, bridge-checks, bridge-go, bridge-windows, windows-e2e, dsh-collab-windows]
+    needs: [changes, bridge-checks, bridge-go, bridge-windows, windows-e2e, dsh-collab-windows, dsh-plugin-solo]
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -533,10 +568,11 @@ jobs:
           WIN: ${{ needs.bridge-windows.result }}
           WIN_E2E: ${{ needs.windows-e2e.result }}
           WIN_COLLAB: ${{ needs.dsh-collab-windows.result }}
+          SOLO: ${{ needs.dsh-plugin-solo.result }}
         run: |
-          echo "bridge-checks=$CHECKS bridge-go=$GO bridge-windows=$WIN windows-e2e=$WIN_E2E dsh-collab-windows=$WIN_COLLAB"
+          echo "bridge-checks=$CHECKS bridge-go=$GO bridge-windows=$WIN windows-e2e=$WIN_E2E dsh-collab-windows=$WIN_COLLAB dsh-plugin-solo=$SOLO"
           okish() { [ "$1" = success ] || [ "$1" = skipped ]; }
-          [ "$CHECKS" = success ] && okish "$GO" && okish "$WIN" && okish "$WIN_E2E" && okish "$WIN_COLLAB"
+          [ "$CHECKS" = success ] && okish "$GO" && okish "$WIN" && okish "$WIN_E2E" && okish "$WIN_COLLAB" && okish "$SOLO"
 
   # Fork PRs get the same companion steps under their own required check name.
   companion-fork:

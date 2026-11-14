@@ -122,7 +122,7 @@ func TestRelayWatchRestartInterruptionWakesLead(t *testing.T) {
 	}
 	store := settledTimerStore(t)
 	source.timerScheduler = NewTimerScheduler(store)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

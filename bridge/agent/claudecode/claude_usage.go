@@ -501,6 +501,7 @@ func parseClaudeUsageWindow(lines []string, windowSeconds int, now time.Time) (c
 	}
 
 	window := core.UsageWindow{
+		QuotaGroup:    "account", // Existing session/total-week panels cover all models.
 		Name:          header,
 		UsedPercent:   *usedPercent,
 		WindowSeconds: windowSeconds,

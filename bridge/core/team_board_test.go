@@ -53,16 +53,16 @@ func (p *stubBoardPlatform) RemoveBoard(_ context.Context, sessionKey, _ string)
 
 func boardFiles(now time.Time) []teamFile {
 	return []teamFile{
-		{Project: "a", Name: "G哥", Updated: now, Sessions: []teamEntry{
+		{Project: "a", Name: "G哥", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:111", Chat: "general", Task: "预解码原型", Busy: true, Worked: true, Since: now},
 		}},
-		{Project: "b", Name: "大豆包", Updated: now, Sessions: []teamEntry{
+		{Project: "b", Name: "大豆包", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:222", Chat: "dev", Task: "私密的活", Busy: true, Worked: true, Since: now},
 		}},
-		{Project: "c", Name: "Grok", Updated: now, Sessions: []teamEntry{
+		{Project: "c", Name: "Grok", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:111", Chat: "general", Task: "随便聊聊", Busy: true, Since: now},
 		}},
-		{Project: "d", Name: "C酱", Updated: now, Sessions: []teamEntry{
+		{Project: "d", Name: "C酱", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:111:9", Chat: "general", Task: "审 #139", Worked: true, DoneAt: now},
 		}},
 	}
@@ -91,7 +91,7 @@ func TestRenderTeamBoard(t *testing.T) {
 func TestTeamBoardBusyInDMHidesTask(t *testing.T) {
 	now := time.Now()
 	for _, chat := range []string{"", "333"} {
-		files := []teamFile{{Project: "e", Name: "小橙", Updated: now, Sessions: []teamEntry{
+		files := []teamFile{{Project: "e", Name: "小橙", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:333:u", Chat: chat, Task: "私聊里的秘密", Busy: true, Worked: true, Since: now},
 		}}}
 		got, _ := teamBoardMembers(files, "discord:111", nil)
@@ -109,10 +109,10 @@ func TestTeamBoardBusyInDMHidesTask(t *testing.T) {
 func TestTeamBoardBusyElsewhereNotBusyHere(t *testing.T) {
 	now := time.Now()
 	files := []teamFile{
-		{Project: "b", Name: "大豆包", Updated: now, Sessions: []teamEntry{
+		{Project: "b", Name: "大豆包", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:222", Chat: "外出", Task: "外出巡逻", Busy: true, Worked: true, Since: now},
 		}},
-		{Project: "e", Name: "小橙", Updated: now, Sessions: []teamEntry{
+		{Project: "e", Name: "小橙", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:333", Task: "私聊里的活", Busy: true, Worked: true, Since: now},
 		}},
 	}
@@ -178,7 +178,7 @@ func TestUpdateTeamBoards(t *testing.T) {
 	}
 
 	// Bot busy/idle no longer edits the board (no 谁在干啥 lines).
-	idle := []teamFile{{Project: "a", Name: "G哥", Updated: now}}
+	idle := []teamFile{{Project: "a", Name: "G哥", QuotaStatus: "available", Updated: now}}
 	if e.updateTeamBoards(idle, boards) || p.posts != 1 {
 		t.Fatalf("idle update edited the board: posts = %d", p.posts)
 	}
@@ -544,7 +544,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	}
 	writeStatus := func(since time.Time) {
 		t.Helper()
-		raw, _ := json.Marshal(teamFile{Project: "a", Name: "G哥", Updated: time.Now(), Sessions: []teamEntry{
+		raw, _ := json.Marshal(teamFile{Project: "a", Name: "G哥", QuotaStatus: "available", Updated: time.Now(), Sessions: []teamEntry{
 			{Key: "discord:111", Chat: "general", Task: "预解码原型", Busy: true, Worked: true, Since: since},
 		}})
 		if err := AtomicWriteFile(filepath.Join(dir, "a"+teamStatusFileExt), raw, 0o600); err != nil {
@@ -557,7 +557,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	if err := json.Unmarshal([]byte(state), &boards); err != nil || !boards["discord:111"].GaveUpAt.Equal(gaveUp) {
 		t.Fatalf("read back gave_up_at: %+v, %v", boards["discord:111"], err)
 	}
-	if e.updateTeamBoards([]teamFile{{Project: "a", Name: "G哥", Updated: time.Now(), Sessions: []teamEntry{
+	if e.updateTeamBoards([]teamFile{{Project: "a", Name: "G哥", QuotaStatus: "available", Updated: time.Now(), Sessions: []teamEntry{
 		{Key: "discord:111", Chat: "general", Task: "x", Busy: true, Worked: true, Since: gaveUp.Add(-time.Minute)},
 	}}}, boards) || p.triesSoFar() != 0 {
 		t.Fatalf("old activity retried a given-up board: tries=%d", p.triesSoFar())

@@ -27,6 +27,8 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 		p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
 		e := NewEngine(name, &quotaTakeoverAgent{inputTestAgent: a, account: name}, []Platform{p}, "", LangChinese)
 		e.dataDir = dir
+		// Available candidates have evidence from a prior successful terminal reply.
+		e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 		e.team = &teamState{dir: filepath.Join(dir, "team"), name: name, inject: name == "orange", seen: map[string]*teamSession{}}
 		os.MkdirAll(e.team.dir, 0700)
 		e.SetRelayManager(rm)
@@ -58,7 +60,7 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 	for range watchFailLimit {
 		source.watchTurnEnded(platforms["orange"], ws, "", false, true, false, false, time.Time{})
 	}
-	// #1805: one rule picks the teammate: bound, free, not cooling, first by name (jingyu < longniang).
+	// #1805/#1828: bound, free, confirmed available, first by name (jingyu < longniang).
 	if items := readTeamTaskBoard(source.team.dir); len(items) != 1 || items[0].Who != "jingyu" {
 		t.Fatalf("board owner after two failures: %+v", items)
 	}

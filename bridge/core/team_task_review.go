@@ -366,21 +366,22 @@ func taskReviewAuthor(it teamTaskBoardItem, x *Engine) bool {
 	return strings.Contains(it.Who, x.name) || strings.Contains(it.Who, x.DisplayName())
 }
 
-func (e *Engine) reviewCooling(chat string) bool {
-	return e.capacityWait(e.admissionQuotaScope(e.agent, chat)) > 0
+func (e *Engine) reviewUnavailable(chat string) bool {
+	_, status := e.quotaAvailabilityFor(e.admissionQuotaScope(e.agent, chat), time.Now())
+	return status != "available"
 }
 
 // pickTaskReviewer chooses who verifies handback it (user 2026-11-04 10:4x: the lead alone cannot
 // keep up; hand reviews out, even to a busy role in a new conversation; no fixed cap):
-//   - a job already queued for this handback keeps its role, unless that role is cooling and the
+//   - a job already queued for this handback keeps its role, unless that role lacks confirmed quota and the
 //     job has not run: then it is withdrawn and the handback goes to someone else (#112 waited on
 //     a role cooling for 624h);
-//   - never the author; never a cooling role;
+//   - never the author; require confirmed available quota;
 //   - the designated reviewer first, then the role with the fewest reviews handed out this scan;
 //     an idle role reviews in its channel session, and when every candidate is busy the first
 //     one reviews in a fresh side session (new_per_run) next to its running work.
 //
-// No candidate (all authors or cooling): nil, the next scan tries again.
+// No candidate (all authors or without confirmed quota): nil, the next scan tries again.
 func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]int, now time.Time) (*Engine, bool) {
 	chat := teamChatKey(it.Chat)
 	dir := w.e.team.dir
@@ -402,10 +403,10 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 			if prior == nil {
 				continue
 			}
-			if !prior.Fired && x.reviewCooling(chat) {
+			if !prior.Fired && x.reviewUnavailable(chat) {
 				x.timerScheduler.RemoveJob(id)
 				skip[x.name] = true
-				slog.Info("task review: reviewer cooling, handing the review to another role", "board", it.ID, "from", x.name)
+				slog.Info("task review: reviewer quota unavailable, handing the review to another role", "board", it.ID, "from", x.name)
 				continue
 			}
 			// The queued review has waited behind the role's own work for a full watch window:
@@ -424,7 +425,7 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	var pool []*Engine
 	tierRole := taskReviewTierRole(it)
 	for _, x := range w.engines() {
-		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewCooling(chat) {
+		if x.timerScheduler == nil || skip[x.name] || taskReviewAuthor(it, x) || x.reviewUnavailable(chat) {
 			continue
 		}
 		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
@@ -480,7 +481,7 @@ func (w *handoffWatch) pickTaskReviewer(it teamTaskBoardItem, load map[string]in
 	// workspace that did the work, instead of the handback waiting forever.
 	// 来源：2026-11-10 agentm 只有龙娘一个角色，#15 #26 #27 #29 #35 交回后一直「已交回待验收」。
 	for _, x := range w.engines() {
-		if x.timerScheduler == nil || skip[x.name] || !taskReviewAuthor(it, x) || x.reviewCooling(chat) {
+		if x.timerScheduler == nil || skip[x.name] || !taskReviewAuthor(it, x) || x.reviewUnavailable(chat) {
 			continue
 		}
 		if p, _, _ := x.timerTargetPlatform(chat); p == nil {
