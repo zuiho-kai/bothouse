@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/chenhg5/cc-connect/core/team"
+	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 )
 
 // The workspace exit rules are one file (team_rules/team-exit-rules.json);
@@ -61,7 +62,7 @@ func exitRuleText(t *testing.T, ref string) string {
 	t.Helper()
 	key, id, _ := strings.Cut(ref, ":")
 	var doc map[string]map[string]any
-	b, _ := teamRulesFS.ReadFile(teamExitRulesFile)
+	b := teamrules.ExitRules
 	_ = json.Unmarshal(b, &doc)
 	group, name, _ := strings.Cut(key, ".")
 	text, ok := doc[group][name].(string)
@@ -148,7 +149,7 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 		Headline map[string]string `json:"headline"`
 		Ask      map[string]string `json:"ask"`
 	}
-	b, _ := teamRulesFS.ReadFile(teamExitRulesFile)
+	b := teamrules.ExitRules
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
