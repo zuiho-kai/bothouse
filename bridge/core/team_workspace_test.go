@@ -418,26 +418,24 @@ func TestTeamWorkspacesSharedPoolInCategory(t *testing.T) {
 	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); err != nil {
 		t.Fatal(err)
 	}
-	// 工作区1 finishes its last task (its lead session is reset): free for any chat channel.
+	// 工作区1 finishes its last task (its lead session is reset): free, but still #200's (#762).
 	if !e.releaseTeamWorkspace("discord:201", time.Now(), false) {
 		t.Fatal("201 not released")
 	}
-	if pool, _ := e.TeamWorkspacePool("discord:300"); pool[0].Owner != "" {
-		t.Fatalf("released 201 still owned: %+v", pool[0])
+	if pool, _ := e.TeamWorkspacePool("discord:300"); pool[0].Owner != "" || pool[0].Home != "discord:200" {
+		t.Fatalf("released 201: %+v; want free, home #200", pool[0])
 	}
-	if err := e.ClaimTeamWorkspace("discord:300", "201", "工作区1"); err != nil {
-		t.Fatal(err)
+	if err := e.ClaimTeamWorkspace("discord:300", "201", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim of #200's free workspace by #300 = %v, want ErrTeamWorkspaceOwned", err)
 	}
-	if p, ok := e.WorkspaceParent("201"); !ok || p != "300" {
-		t.Fatalf("parent of 201 = %q,%v; want 300", p, ok)
+	if _, w, err := e.NewTeamWorkspace("discord:300"); err != nil || w.ID == "" || w.ID == "201" {
+		t.Fatalf("#300 new = %+v, %v; want a workspace other than 201", w, err)
 	}
-	for _, w := range e.TeamWorkspacesOf("200") {
-		if w.ID == "201" {
-			t.Fatalf("201 still recorded under #200: %+v", e.TeamWorkspacesOf("200"))
-		}
+	if err := e.ClaimTeamWorkspace("discord:200", "201", "工作区1"); err != nil {
+		t.Fatalf("claim back by #200 = %v", err)
 	}
-	if err := e.ClaimTeamWorkspace("discord:200", "201", ""); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim back by #200 = %v, want ErrTeamWorkspaceOwned", err)
+	if p, ok := e.WorkspaceParent("201"); !ok || p != "200" {
+		t.Fatalf("parent of 201 = %q,%v; want 200", p, ok)
 	}
 }
 

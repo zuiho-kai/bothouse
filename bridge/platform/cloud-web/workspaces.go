@@ -111,7 +111,7 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 		if r.ID != "" && r.ID != self.ID {
 			c := core.TeamChannel{ID: r.ID, Name: r.Name, Active: r.Active, ActiveKnown: true}
 			if r.Owner != nil {
-				c.Owner, c.OwnerKnown = *r.Owner, true
+				c.Owner, c.OwnerKnown, c.Home = *r.Owner, true, r.ParentID
 			}
 			all = append(all, c)
 		}
