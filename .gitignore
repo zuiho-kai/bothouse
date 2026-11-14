@@ -41,3 +41,6 @@ bridge/internal/rhhub/src/rh/
 # vitest cache from running dsh/vitest.config.mjs at the repo root
 node_modules/
 /dsh/packages/client-ui-discord/node_modules
+
+# a locally built bridge binary (make build-noweb APP=…/bh); 8a45b7294 committed one by accident
+/bh
