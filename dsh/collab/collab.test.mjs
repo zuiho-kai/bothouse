@@ -5717,7 +5717,7 @@ test('DSH member: its own MEMORY.md goes into the first turn of a conversation o
   }
 });
 
-test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', async () => {
+test('CLI member: its own MEMORY.md on the first turn only; no wiki yet, a starter page', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
