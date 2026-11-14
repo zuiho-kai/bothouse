@@ -111,6 +111,17 @@ func TestTaskForumExitRequiresDeliveredPost(t *testing.T) {
 		t.Fatal("failed send hid the report behind a link")
 	}
 }
+
+func TestTaskForumHeldLegacyReportKeepsThreadAfterSessionReset(t *testing.T) {
+	e, p, dir := forumRoutingEngine(t)
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"旧任务","status":"在做","chat":"discord:111","ws":"discord:222","bound":"2026-11-14T00:00:00Z"}`+"\n")
+	old := &Task{ID: "old", SessionKey: "discord:222", ThreadID: "legacy", CreatedAt: time.Now()}
+	e.publicProgress = &PublicProgress{records: map[string]*publicRun{"old": {record: progressRecord{Task: old}}}}
+	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, "原报告")
+	if text != "原报告" || rc != nil || p.opens != 0 {
+		t.Fatalf("old report migrated: %s %v %d", text, rc, p.opens)
+	}
+}
 func TestTaskForumMentionOnlyOnWaitingTransition(t *testing.T) {
 	for _, dispatcher := range []string{"123", "lead", "", "unknown"} {
 		t.Run(dispatcher, func(t *testing.T) {
@@ -164,5 +175,63 @@ func TestTaskForumWaitingSummaryUsesExplicitBoardState(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, "")
 	if e.taskForumWaitingSummary("discord:111", time.Now()) != "" {
 		t.Fatal("zero summary")
+	}
+}
+
+func TestTaskForumDisplayNamesAndWithdrawnTransport(t *testing.T) {
+	e, _, _ := forumRoutingEngine(t)
+	name := "G哥"
+	e.displayName.Store(&name)
+	it := e.taskForumDisplayItem(teamTaskBoardItem{Who: "工作区7lead", wsName: "工作区7", Reviewer: "lead"})
+	card := taskForumCard(it, TaskForumTagReview, "待核对", 1900)
+	if strings.Contains(card, "lead") || !strings.Contains(card, "工作区7G哥") || !strings.Contains(card, "等 G哥 核对") {
+		t.Fatal(card)
+	}
+	progress := &PublicProgress{}
+	task := &Task{ForumPost: true, ThreadID: "post", AuthorizationDecisionID: "withdrawn", Title: "private model content"}
+	view := progress.authorizedTaskView(task, LangChinese)
+	if !view.ForumPost || view.ThreadID != "post" || view.Title == task.Title {
+		t.Fatalf("transport authorization view: %+v", view)
+	}
+	e.SetTaskForum(false)
+	e.resolveTaskThread(context.Background(), view)
+	if view.ForumPost || view.ThreadID != "" {
+		t.Fatal("disabled forum binding survived")
+	}
+}
+
+func TestTaskForumLeadSwitchAlsoStopsWorker(t *testing.T) {
+	lead, p, dir := forumRoutingEngine(t)
+	worker := NewEngine("worker", &stubAgent{}, []Platform{p}, "", LangChinese)
+	t.Cleanup(worker.cancel)
+	worker.team = &teamState{dir: dir, board: true}
+	rm := NewRelayManager("")
+	lead.SetRelayManager(rm)
+	worker.SetRelayManager(rm)
+	rm.RegisterEngine(lead.name, lead)
+	rm.RegisterEngine(worker.name, worker)
+	if !worker.taskForumEnabled() {
+		t.Fatal("default changed")
+	}
+	lead.SetTaskForum(false)
+	if worker.taskForumEnabled() {
+		t.Fatal("worker ignored team switch")
+	}
+}
+
+func TestTaskForumCountAppendsToExistingRoundup(t *testing.T) {
+	e, _, dir := forumRoutingEngine(t)
+	now := time.Now()
+	returned := now.Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"等待问题","status":"在做","chat":"discord:111","paused":"11-15 00:00","pause_why":"等待用户答复：选择 A"}`+"\n"+`{"id":784,"what":"保留原收口事项","status":"已交回待验收","chat":"discord:111","reviewer":"lead","returned_at":"`+returned+`"}`+"\n")
+	e.syncTaskForum()
+	at, _ := time.Parse(time.RFC3339Nano, returned)
+	job := &TimerJob{SessionKey: "discord:111", TaskReview: &taskReviewRef{Stage: "roundup", Hour: now, Items: []taskReviewRef{{Board: 784, ReturnedAt: at}}}}
+	prepared, err := e.prepareTaskReview(job, now)
+	if err != nil || prepared == nil {
+		t.Fatalf("prepare existing roundup: %v %v", prepared, err)
+	}
+	if !strings.Contains(prepared.Prompt, "保留原收口事项") || !strings.Contains(prepared.Prompt, "等你拍板 1 件") {
+		t.Fatal(prepared.Prompt)
 	}
 }

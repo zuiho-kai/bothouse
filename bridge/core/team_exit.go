@@ -441,7 +441,6 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	}
 	if !inForum {
 		e.postToTaskThreadContext(ctx, p, sessionKey, joinExitDetail(text, detail))
-
 		e.postTaskForumNode(hid, joinExitDetail(text, detail))
 	}
 	if kind == team.ExitKindReport {
