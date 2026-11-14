@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
+)
 
 // teamModeInjectMaxBytes caps what one delivery actually carries (contextRules): the team-mode rules of a
 // mode, the duty layer of a position and aboutHint. Source: #574 第6条：常驻规则定总量，加一删一. #1588: the
@@ -11,8 +15,8 @@ const teamModeInjectMaxBytes = 6215 + 1 + len(aboutHint)
 
 func TestTeamModeRulesSizeCap(t *testing.T) {
 	for _, mode := range []string{DispatchSolo, DispatchTeam, DispatchMixed} {
-		for name, body := range map[string]string{"lead": leadDutyBody, "lead-workspace": leadWorkspaceDutyBody, "member": memberDutyBody} {
-			if n := len(teamModeRulesFor(mode) + "\n" + roleDutyText(body) + "\n" + aboutHint); n > teamModeInjectMaxBytes {
+		for name, body := range map[string]string{"lead": team.LeadDutyBody, "lead-workspace": team.LeadWorkspaceDutyBody, "member": team.MemberDutyBody} {
+			if n := len(teamModeRulesFor(mode) + "\n" + team.RoleDutyText(body) + "\n" + aboutHint); n > teamModeInjectMaxBytes {
 				t.Fatalf("%s/%s 每轮注入超出总量：加一条先删或合一条（%d 字节，上限 %d）", mode, name, n, teamModeInjectMaxBytes)
 			}
 		}

@@ -235,7 +235,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 			// tested what the user named, not a look-alike (team_exit_intent.go); only once the form
 			// passes, so a format bounce costs no model call
 			var in []string
-			in, doubt = e.reportIntentCheck(sessionKey, item.Where, body, hid)
+			in, doubt = e.teamLayer().ReportIntentCheck(sessionKey, item.Where, body, hid)
 			if in != nil {
 				problems, legacy = in, false
 			}
@@ -293,10 +293,10 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		// log, never into the four parts. Joined into the headline, the lead's pass posted it to an
 		// outside user as written (agentm #33 11-10 「（系统核对：…）」).
 		note := ""
-		if rest := withoutIntent(problems); rest != nil {
+		if rest := team.WithoutIntent(problems); rest != nil {
 			note = team.ExitBounceNote(rest)
 		}
-		check = joinIntentLines(intentFailLine(problems), note)
+		check = team.JoinIntentLines(team.IntentFailLine(problems), note)
 		legacy = item == nil || strings.TrimSpace(hline) == ""
 		slog.Info("team exit: report goes on with what the check found; for the acceptor only", "board_item", hid, "check", check)
 		problems = nil

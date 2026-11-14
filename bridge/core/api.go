@@ -388,7 +388,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		req.Message = msg
 	}
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
-		req.SessionKey = engine.sendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
+		req.SessionKey = engine.teamLayer().SendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {
