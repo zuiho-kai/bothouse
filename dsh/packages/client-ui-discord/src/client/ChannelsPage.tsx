@@ -425,7 +425,8 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
               </details>
             )
           : (
-              <div className={markdown.includes('\n') ? `${css.systemLine} ${css.systemBlock}` : css.systemLine}>
+              // #1616 返工：只有 📬 汇报是带框的块；多行的【交接】等通知仍是灰色小字，不再像一段挂在上一位成员名下的气泡。
+              <div className={markdown.includes('\n') && markdown.trimStart().startsWith('📬') ? `${css.systemLine} ${css.systemBlock}` : css.systemLine}>
                 <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
                 <time className={css.systemTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
               </div>

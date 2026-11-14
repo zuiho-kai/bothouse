@@ -1,4 +1,4 @@
-// dsh-client-source-sha256: 94ddea27b5761318677a11383819e5342a29936556502001949da44809c0e483
+// dsh-client-source-sha256: 6593807c6e4ec1c2b4329f3130ab5e9081b850eb1e481bdfe8de5d746b9fc682
 // dsh-style-sha256: c57d0009406728c91ea0bba747a4279aa6c70ce35303c632cd2424e250448fbf
 window.__ModuleLoader__.load({
  id: "@deepseek-ai/dsh-experimental-client-ui-discord",
@@ -22194,7 +22194,7 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
 					})
 				})]
 			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: markdown.includes("\n") ? `${ChannelsPage_module_default.systemLine} ${ChannelsPage_module_default.systemBlock}` : ChannelsPage_module_default.systemLine,
+				className: markdown.includes("\n") && markdown.trimStart().startsWith("📬") ? `${ChannelsPage_module_default.systemLine} ${ChannelsPage_module_default.systemBlock}` : ChannelsPage_module_default.systemLine,
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: ChannelsPage_module_default.systemText,
 					title: fullTime,
