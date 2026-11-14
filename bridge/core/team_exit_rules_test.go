@@ -59,7 +59,7 @@ func exitRuleText(t *testing.T, ref string) string {
 	t.Helper()
 	key, id, _ := strings.Cut(ref, ":")
 	var doc map[string]map[string]any
-	b, _ := embeddedDSH.ReadFile(teamExitRulesFile)
+	b, _ := teamRulesFS.ReadFile(teamExitRulesFile)
 	_ = json.Unmarshal(b, &doc)
 	group, name, _ := strings.Cut(key, ".")
 	text, ok := doc[group][name].(string)
@@ -146,7 +146,7 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 		Headline map[string]string `json:"headline"`
 		Ask      map[string]string `json:"ask"`
 	}
-	b, _ := embeddedDSH.ReadFile(teamExitRulesFile)
+	b, _ := teamRulesFS.ReadFile(teamExitRulesFile)
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}

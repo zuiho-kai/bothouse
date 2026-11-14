@@ -151,7 +151,9 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 				t.Fatalf("automatic lead selection=%+v", sel)
 			}
 			items := readTeamTaskBoard(source.team.dir)
-			if len(items) != 1 || items[0].Who != "longniang" {
+			// #1805: one rule picks who takes the work: bound, free, not cooling, first by name, so
+			// jingyu takes both the lead and the work here.
+			if len(items) != 1 || items[0].Who != "jingyu" {
 				t.Fatalf("board owner=%+v", items)
 			}
 			content, _ := os.ReadFile(filepath.Join(source.team.dir, "board.jsonl"))
@@ -162,18 +164,19 @@ func TestQuotaTakeoverIsolationJourney(t *testing.T) {
 			st = testLoadTeamWorkspacesLocked(teamWorkspacePath(dir))
 			owner := st.Handoffs[ws][0].Owner
 			teamWorkspaceStore.mu.Unlock()
-			if owner != "longniang" {
+			if owner != "jingyu" {
 				t.Fatalf("workspace watch owner=%s", owner)
 			}
 			// Both automatic wakes execute through the real timer entry. The
 			// fake agents only record prompts; no provider/network is involved.
-			prompt := inputPrompt(t, agents["longniang"])
-			if !strings.Contains(prompt, "/isolation/original-handoff.md") {
-				t.Fatalf("new owner lost original handoff: %s", prompt)
+			var prompts []string
+			for range 2 { // the lead wake and the work handoff, in either order
+				prompts = append(prompts, inputPrompt(t, agents["jingyu"]))
+				inputDone(agents["jingyu"], "已接")
 			}
-			inputDone(agents["longniang"], "交接已收到")
-			inputPrompt(t, agents["jingyu"])
-			inputDone(agents["jingyu"], "主角色已接")
+			if !strings.Contains(strings.Join(prompts, "\n"), "/isolation/original-handoff.md") {
+				t.Fatalf("new owner lost original handoff: %q", prompts)
+			}
 			select {
 			case <-agents["orange"].requested:
 				t.Fatal("cooling role was woken")

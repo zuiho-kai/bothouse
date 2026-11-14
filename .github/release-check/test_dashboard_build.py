@@ -38,7 +38,7 @@ exit 1
 
     def make(self, *args):
         return subprocess.run(
-            ["make", "-f", str(ROOT / "bridge/Makefile"), "-o", "web", "-o", "hubsrc", *args],
+            ["make", "-f", str(ROOT / "bridge/Makefile"), "-o", "web", "-o", "hubsrc", "-o", "dshbundle", *args],
             cwd=self.work, env=self.env, capture_output=True, text=True,
         )
 
