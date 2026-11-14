@@ -624,8 +624,8 @@ def kickoff_maps(path, task):
             text = task + "\n" + Path(path).read_text(encoding="utf-8", errors="ignore")
             hits = mod.pick(mod.strip_paths(text))  # 交接里已写了地图路径的也列上
             if hits:
-                return ("要改代码时先 grep -n <关键词> 代码地图 " + "、".join(hits) + "，只读命中段，按里面的符号直接定位；"
-                        "发现地图缺的符号，交回细节里附一节「## 地图要补的条目（<地图完整路径>）」，每条一行「- 符号 文件:行」。")
+                return ("要改代码时先 grep -n <关键词> " + "、".join(hits) + "，只读命中段；"
+                        "地图缺的符号在交回细节里附「## 地图要补的条目（<地图完整路径>）」，每条「- 符号 文件:行」。")
     except Exception:  # noqa: BLE001
         pass
     return ""
@@ -635,7 +635,7 @@ def kickoff_maps(path, task):
 # 删掉的：开工必搜记忆论坛（交活时程序已搜过，附在交接「旧定案」「手里现成的」）、board update（没有下游读）、
 # 五段式开工说明、单独跑 report check（ws-up --report 内部先跑同一个检查）。
 KICKOFF = ("工作区开工：这件活你自己做，不拆给别人；任务板和公开任务卡程序管，不用 board update / board add。"
-           "要留到下一轮的脚本和状态文件写完整路径，不放 /tmp（重启会丢）；交接指定了隔离目录的照交接。"
+           "要留到下一轮的文件写完整路径，不放 /tmp（重启会丢）；交接指定了隔离目录的照交接。"
            "做法拿不准或卡住时再搜 python3 ~/wiki/bin/search.py <关键词>。")
 
 
@@ -643,8 +643,8 @@ def kickoff_long():
     """长命令一句（#1628 第五节）：bgrun 结束会自动叫醒发起它的会话，所以起完不用等。找不到 bgrun 就不说。"""
     for p in (Path(__file__).resolve().parent / "bgrun", Path.home() / "im-bridge" / "bin" / "bgrun"):
         if p.is_file():
-            return (f"超过 2 分钟的命令用 {p} <名字> <超时秒> <命令…> 起，结束会自动叫醒你；起完接着做不依赖它的部分，"
-                    "只剩等就直接结束本轮，不 sleep、不轮询、不另挂定时；主线自己做，不交给后台子 agent。")
+            return (f"超过 2 分钟的命令用 {p} <名字> <超时秒> <命令…> 起，结束会自动叫醒你：起完做不依赖它的部分，"
+                    "只剩等就结束本轮，不 sleep、不轮询、不另挂定时，也不交给后台子 agent。")
     return ""
 
 
@@ -740,23 +740,19 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     except OSError:
         note = ""
     draft = str(Path(path).with_suffix(".report.md"))
-    plan = (f"交接里「{PLAN_FIRST}」节的几项先 ws-up --ask 交方案，批了再改，没批前只读。"
+    plan = (f"交接里「{PLAN_FIRST}」节的几项先 --ask 交方案，批了再改，没批前只读。"
             if re.search(r"^#+\s*" + PLAN_FIRST, note, re.M) else "")
     skel = (f"照交接「{SKELETON}」节填空" if f"## {SKELETON}" in note else
             f"先跑 {cc_bin()} report skeleton --id {nid} --notes {path} 出骨架再填空")
     prompt = (head + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
-              f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，总部判断定做什么、做成什么样算好，怎么做你定。"
-              f"拿不准用户意思时先读交接「{SOURCE}」里的原话；还不清楚、或旧定案和用户原话冲突，问聊天频道的主角色"
-              f"（ws-up --notes {path} \"<问题>\"），不在工作区里问用户。"
-              f"要用户拍板、或会缩小改变用户原话范围的决定用 ws-up --notes {path} \"<问题+选项+推荐>\" --ask，"
-              f"等答复时先做不受影响的部分；纯技术细节自己定。" + plan +
-              f"只做交接里写成「改」的部分；用户原话里没有的设定、开关、参数不加，要加先 --ask。\n"
-              f"做完交回：{skel}（入口自验一行后面跟你在用户实际用的入口走一遍的证据），一次交："
-              f"ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。它先检查再交，草稿存在 {draft}；"
-              f"被退回就改那个文件，再跑 ws-up --notes {path} --report {draft}。回复里写的 [report] 桥不认；"
-              f"交回后桥自动把这件标完成、放回工作区。"
-              f"被外部条件卡住（没空卡、等 CI、等对方）做不下去时，做完不依赖它的部分照常交回，"
-              f"细节里写一行「等外部：卡在什么」和一行「再看：<多久后，如 2h>」，到点会另交工作区接着做，不原地反复重试。")
+              f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，怎么做你定。拿不准用户意思先读交接「{SOURCE}」里的原话，"
+              f"还不清楚问聊天频道的主角色：ws-up --notes <交接> \"<问题>\"；要用户拍板、或会改变用户原话范围的用 "
+              f"ws-up --notes <交接> \"<问题+选项+推荐>\" --ask，等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
+              + plan + f"只做交接里写成「改」的部分，用户原话里没有的设定不加。\n"
+              f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
+              f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
+              f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<多久后，如 2h>」，"
+              f"到点会另交工作区接着做。")
     key = ws if ":" in ws else f"discord:{ws}"
     return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
