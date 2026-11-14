@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -100,35 +101,36 @@ func findTaskForum(list []*discordgo.Channel, remembered string) *discordgo.Chan
 	return nil
 }
 
-// ensureForumTags adds the state tags the forum lacks (tags the user added are kept) and returns
-// tag name → tag ID.
+// ensureForumTags reconciles managed order and icons in place, retaining tag IDs
+// (posts already refer to them) and every custom tag after the managed ones.
 func ensureForumTags(api taskForumAPI, forum *discordgo.Channel, tags []string, options ...discordgo.RequestOption) (map[string]string, error) {
 	ids := map[string]string{}
-	for _, t := range forum.AvailableTags {
-		ids[t.Name] = t.ID
+	existing := map[string]discordgo.ForumTag{}
+	for _, tag := range forum.AvailableTags {
+		existing[tag.Name] = tag
+		ids[tag.Name] = tag.ID
 	}
-	missing := false
+	all := make([]discordgo.ForumTag, 0, len(forum.AvailableTags))
 	for _, name := range tags {
-		if ids[name] == "" {
-			missing = true
+		tag := existing[name]
+		tag.Name, tag.EmojiID, tag.EmojiName = name, "", core.TaskForumTagEmoji(name)
+		all = append(all, tag)
+	}
+	for _, tag := range forum.AvailableTags {
+		if !slices.Contains(tags, tag.Name) {
+			all = append(all, tag)
 		}
 	}
-	if !missing {
+	if slices.Equal(all, forum.AvailableTags) {
 		return ids, nil
-	}
-	all := append([]discordgo.ForumTag{}, forum.AvailableTags...)
-	for _, name := range tags {
-		if ids[name] == "" {
-			all = append(all, discordgo.ForumTag{Name: name})
-		}
 	}
 	edited, err := api.ChannelEdit(forum.ID, &discordgo.ChannelEdit{AvailableTags: &all}, options...)
 	if err != nil {
 		return nil, err
 	}
 	ids = map[string]string{}
-	for _, t := range edited.AvailableTags {
-		ids[t.Name] = t.ID
+	for _, tag := range edited.AvailableTags {
+		ids[tag.Name] = tag.ID
 	}
 	for _, name := range tags {
 		if ids[name] == "" {

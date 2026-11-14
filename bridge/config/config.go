@@ -690,6 +690,8 @@ type ProjectConfig struct {
 	// without editing config.toml; team_board = false opts out (TeamBoardEnabled). Ignored on
 	// non-lead projects.
 	TeamBoard *bool `toml:"team_board,omitempty"`
+	// TaskForum mirrors team tasks in the server forum. Unset preserves the enabled default.
+	TaskForum *bool `toml:"task_forum,omitempty"`
 	// Source: #797. Nonpositive values follow the existing one-hour stuck threshold.
 	TeamReviewAfterSeconds int `toml:"team_review_after_seconds,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
@@ -801,6 +803,8 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
 // TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
+func (p ProjectConfig) TaskForumEnabled() bool { return p.TaskForum == nil || *p.TaskForum }
+
 func (p ProjectConfig) TeamBoardEnabled() bool {
 	return p.TeamBoard == nil || *p.TeamBoard
 }

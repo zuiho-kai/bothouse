@@ -36,7 +36,30 @@ const (
 	TaskForumTagDone    = "完成"
 )
 
-var taskForumTags = []string{TaskForumTagRunning, TaskForumTagWaiting, TaskForumTagReview, TaskForumTagPaused, TaskForumTagRelease, TaskForumTagDone}
+// Source: handoff #783 puts the states needing a person first.
+var taskForumTags = []string{TaskForumTagWaiting, TaskForumTagReview, TaskForumTagRelease, TaskForumTagRunning, TaskForumTagPaused, TaskForumTagDone}
+
+func TaskForumTagEmoji(tag string) string {
+	switch tag {
+	case TaskForumTagWaiting:
+		return "🔴"
+	case TaskForumTagReview:
+		return "👀"
+	case TaskForumTagRelease:
+		return "📦"
+	case TaskForumTagRunning:
+		return "⚙️"
+	case TaskForumTagPaused:
+		return "⏸️"
+	case TaskForumTagDone:
+		return "✅"
+	}
+	return ""
+}
+
+// A nil setting preserves the first batch's enabled default.
+func (e *Engine) SetTaskForum(on bool)   { e.taskForumOff.Store(!on) }
+func (e *Engine) taskForumEnabled() bool { return e.team != nil && !e.taskForumOff.Load() }
 
 // PermSendMessages: opening a post in the forum and posting in it.
 const PermSendMessages = "发送消息 (Send Messages)"
@@ -260,75 +283,85 @@ func taskForumTitle(it teamTaskBoardItem) string {
 
 func taskForumMarker(id int) string { return fmt.Sprintf("#%d ", id) }
 
-// taskForumCard is the post's 现状卡: what the user needs first (state, what is asked of them, who
-// and where) at the top, the original words and goal below; links are clickable channel mentions.
-// limit is the platform's one-message limit (TaskPostLimit): the card plus its update-time line
-// fit in it. What gives way is the goal and the original words (they live in full in the
-// handoff); the state line, 要你做的 and the source line are kept, 要你做的 cut only when it alone
-// would not fit.
+// taskForumCard keeps status, current progress, goal and footer before allocating space
+// to the question and then the original words (handoff #783 layout decision).
 func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string {
-	var head strings.Builder
-	// The tag leads; the sentence only when it says more (a waiting item's question is the next line).
-	if sentence == "" || sentence == tag || tag == TaskForumTagWaiting || tag == TaskForumTagDone {
-		fmt.Fprintf(&head, "**%s**\n", tag)
-	} else {
-		fmt.Fprintf(&head, "**%s** · %s\n", tag, sentence)
-	}
-	ask := "没有"
-	if tag == TaskForumTagWaiting {
-		// the whole question, not the board's short reason: this is where the user reads it
-		ask = strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), ""))
-		if ask == "" {
-			ask = strings.TrimPrefix(sentence, "等你：")
-		}
-	}
-	who := teamTaskBoardOwner(it.Who)
-	if who == "" {
-		who = "还没人接"
-	}
-	where := ""
+	who := firstNonEmpty(teamTaskBoardOwner(it.Who), "还没人接")
 	if ws := firstNonEmpty(it.WS, it.WSWas); ws != "" && tag != TaskForumTagDone {
-		where = "（" + teamChatRef(ws, it.wsName) + "）"
+		who = teamChatRef(ws, firstNonEmpty(it.wsName, who))
 	}
-	whoLine := fmt.Sprintf("**谁在做**：%s%s\n", who, where)
-
-	var body strings.Builder
+	ownerLabel := "负责"
+	if tag == TaskForumTagDone {
+		ownerLabel = "负责人"
+	}
+	head := fmt.Sprintf("**%s %s** · %s：%s", TaskForumTagEmoji(tag), tag, ownerLabel, who)
+	if tag == TaskForumTagReview && it.Reviewer != "" {
+		head += " · 等 " + firstNonEmpty(it.reviewerName, it.Reviewer) + " 核对"
+	}
+	head += "\n"
+	now := firstNonEmpty(boardLabel(it.Status), sentence)
+	if it.ReviewRejected != "" {
+		now += " · 退回：" + boardLabel(it.ReviewRejected)
+	}
+	if strings.HasPrefix(it.Where, "https://") && !strings.Contains(now, it.Where) {
+		now += " · " + it.Where
+	}
 	notes := readNotes(it.Where)
-	goal := notesSection(notes, "总目标")
-	if goal == "" {
-		goal = boardLabel(it.What)
-	}
-	fmt.Fprintf(&body, "**目标**：%s\n", goal)
-	if words := notesSection(notes, "用户原话"); words != "" {
-		body.WriteString("**用户原话**：\n")
-		for _, line := range strings.Split(words, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				body.WriteString("> " + line + "\n")
-			}
-		}
-	}
+	goal := firstNonEmpty(notesSection(notes, "总目标"), boardLabel(it.What))
 	src := ""
 	if chat := taskForumChat(it); chat != "" {
 		src = "来源 " + teamChatRef(chat, "") + " · "
 	}
 	foot := fmt.Sprintf("-# %s任务板 #%d", src, it.ID)
-
 	budget := limit - taskForumStampRunes
-	askPrefix := "**要你做的**："
-	fixed := runeLen(head.String()) + runeLen(askPrefix) + 1 + runeLen(whoLine) + runeLen(foot)
-	if room := budget - fixed - taskForumBodyMinRunes; runeLen(ask) > room {
-		ask = cutRunes(ask, max(room, 1))
+	current := "**现在**：" + now + "\n"
+	target := "**目标**：" + goal + "\n"
+	// Only shorten the goal when the fixed text alone exceeds the platform limit.
+	// A long question never steals the goal's space.
+	fixed := runeLen(head + current + target + foot)
+	if fixed > budget {
+		current = "**现在**：" + cutRunes(now, max(1, runeLen(now)-(fixed-budget))) + "\n"
+		fixed = runeLen(head + current + target + foot)
+		if fixed > budget {
+			target = "**目标**：" + cutRunes(goal, max(1, runeLen(goal)-(fixed-budget))) + "\n"
+		}
 	}
-	head.WriteString(askPrefix + ask + "\n")
-	head.WriteString(whoLine)
-	// the newline before the foot stays outside the cut, so a cut body never glues onto it
-	rest := budget - runeLen(head.String()) - runeLen(foot) - 1
-	return head.String() + cutRunes(strings.TrimRight(body.String(), "\n"), max(rest, 1)) + "\n" + foot
+	ask := ""
+	if tag == TaskForumTagWaiting {
+		question := strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), ""))
+		question = firstNonEmpty(question, strings.TrimPrefix(sentence, "等你："))
+		prefix, suffix := "> 👉 **要你做的**：", "（完整问题见下方最新回复）"
+		room := budget - runeLen(head+current+target+foot) - runeLen(prefix) - 1
+		if room > 0 {
+			if runeLen(question) > room {
+				question = cutRunes(question, max(1, room-runeLen(suffix))) + suffix
+			}
+			if runeLen(question) <= room {
+				ask = prefix + question + "\n"
+			}
+		}
+	}
+	original := ""
+	if words := notesSection(notes, "用户原话"); words != "" {
+		original = "**原话**：\n> " + strings.ReplaceAll(strings.TrimSpace(words), "\n", "\n> ") + "\n"
+		room := budget - runeLen(head+ask+current+target+foot)
+		if room > runeLen("**原话**：\n> …\n") {
+			original = cutRunes(strings.TrimRight(original, "\n"), room-1) + "\n"
+		} else {
+			original = ""
+		}
+	}
+	return head + ask + current + target + original + foot
 }
 
-// taskForumBodyMinRunes: room kept for the goal line when a long question is cut. Source: 沿用
-// the pinned team board's reason length (a goal shown in short there).
-const taskForumBodyMinRunes = teamTaskBoardReasonRunes
+// Resolve names using the configured project → display-name mapping used by task cards.
+func (e *Engine) taskForumDisplayItem(it teamTaskBoardItem) teamTaskBoardItem {
+	if name := e.projectDisplayName(it.Who); name != "" {
+		it.Who = name
+	}
+	it.reviewerName = e.projectDisplayName(it.Reviewer)
+	return it
+}
 
 func runeLen(s string) int { return len([]rune(s)) }
 
@@ -417,7 +450,7 @@ func taskForumWant(it teamTaskBoardItem) bool {
 // 现状卡/tag when the item changed, posts key moves, and marks finished items 完成 (archived after
 // the task-thread archive wait). Runs in runTeamBoard after the team boards.
 func (e *Engine) syncTaskForum() {
-	if e.team == nil {
+	if !e.taskForumEnabled() {
 		return
 	}
 	now := time.Now()
@@ -619,7 +652,7 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if !ok {
 		return adopted
 	}
-	card := taskForumCard(it, tag, sentence, poster.TaskPostLimit())
+	card := taskForumCard(e.taskForumDisplayItem(it), tag, sentence, poster.TaskPostLimit())
 	title := taskForumTitle(it)
 	node := taskForumNode(ps, it, tag, sentence)
 	edit := ps == nil || ps.Card != card || ps.Tag != tag || ps.Title != title || ps.Archived
@@ -741,7 +774,7 @@ func (e *Engine) taskForumFailed(ctx context.Context, p Platform, chat string, i
 // board item hid's post (opening the post first when the board pass has not yet).
 func (e *Engine) postTaskForumNode(hid int, text string) {
 	text = strings.TrimSpace(text)
-	if hid <= 0 || text == "" || e.team == nil {
+	if hid <= 0 || text == "" || !e.taskForumEnabled() {
 		return
 	}
 	var item *teamTaskBoardItem
