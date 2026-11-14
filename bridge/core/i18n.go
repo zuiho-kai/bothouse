@@ -5036,6 +5036,44 @@ func (i *I18n) T(key MsgKey) string {
 	return string(key)
 }
 
+// promptLang is the language of notes the bridge writes into a prompt for the model to read
+// (#1627 batch 13). It follows the configured project language, never the language detected from
+// the latest message: with language = "auto", DetectAndSet switches on every message, and one
+// English line in a Chinese team must not turn the notes English. With "auto" the notes stay
+// Chinese, as they were before they had translations. Caller holds i.mu (read).
+func (i *I18n) promptLang() Language {
+	if i.lang == LangAuto || i.lang == "" {
+		return LangChinese
+	}
+	return i.lang
+}
+
+// TPrompt is T for a note only the model reads; see promptLang. Notes that other code recognises
+// by their text (wiki ingest, handoff's stale blocks, hooks) are not translated and do not go here.
+func (i *I18n) TPrompt(key MsgKey) string {
+	i.mu.RLock()
+	lang := i.promptLang()
+	i.mu.RUnlock()
+	msg := messages[key]
+	if translated, ok := msg[lang]; ok {
+		return translated
+	}
+	if translated, ok := msg[LangChinese]; ok {
+		return translated
+	}
+	return msg[LangEnglish]
+}
+
+// MsgPromptCheckJob is added to a prompt check job, so a check with nothing to tell ends silent.
+const MsgPromptCheckJob MsgKey = "prompt_check_job"
+
+func init() {
+	messages[MsgPromptCheckJob] = map[Language]string{
+		LangChinese: "\n\n（这是自检/回看类定时任务：一切正常、没有用户需要知道的事，就只回 NO_REPLY；有用户要知道或要拍板的事才写。）",
+		LangEnglish: "\n\n(This is a self-check / look-back scheduled job: if all is well and there is nothing the user needs to know, reply only NO_REPLY; write only what the user needs to know or decide.)",
+	}
+}
+
 func (i *I18n) Tf(key MsgKey, args ...interface{}) string {
 	template := i.T(key)
 	return fmt.Sprintf(template, args...)

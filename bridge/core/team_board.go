@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // teamBoardInterval is how often the lead refreshes its boards (a var so tests can shorten it).
@@ -103,7 +105,7 @@ func (e *Engine) runTeamBoard(gen uint64) {
 			return
 		case <-tick.C:
 		case <-fileTick.C:
-			st, err := os.Stat(filepath.Join(t.dir, teamTaskBoardFile))
+			st, err := os.Stat(filepath.Join(t.dir, team.TaskBoardFile))
 			if err != nil || st.ModTime().Equal(fileMod) {
 				continue
 			}

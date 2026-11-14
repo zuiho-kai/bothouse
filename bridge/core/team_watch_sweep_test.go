@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	teampkg "github.com/chenhg5/cc-connect/core/team"
 )
 
 type syncBuf struct {
@@ -27,7 +29,7 @@ func TestSweepLoopFreesWhileMainLoopStalled(t *testing.T) {
 	e, _, _ := exitFixture(t, nil)
 	team := t.TempDir()
 	e.SetTeam(team, "橘", true)
-	if err := os.WriteFile(filepath.Join(team, teamTaskBoardFile), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(team, teampkg.TaskBoardFile), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {

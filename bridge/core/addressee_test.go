@@ -68,8 +68,8 @@ func TestAddresseeTable(t *testing.T) {
 					default:
 						asked = func() []gateRequest { return nil }
 					}
-					if e.gate != nil {
-						e.gate.released[&m] = true // skip the burst hold
+					if e.gate.Load() != nil {
+						m.burstDone = true // skip the burst hold
 					}
 					starts := !e.applyGate(p, &m, &Session{}, "k")
 					w := want[mode][role][mc.addr]

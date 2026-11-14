@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Workspace auto-return (user 2026-10-28 「工作区队列做完了为什么没返回，工作区为什么不忙也占位置」).
@@ -182,7 +184,7 @@ func (e *Engine) queueChatLeadTurn(p Platform, parent, ws, desc, prompt string, 
 func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted bool) string {
 	var b strings.Builder
 	what := "阶段结果"
-	if kind == exitKindAsk {
+	if kind == team.ExitKindAsk {
 		what = "提问"
 	}
 	if posted {
@@ -191,7 +193,7 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 	} else {
 		fmt.Fprintf(&b, "[工作区回传] 工作区 %s 的「%s」交回了%s。原文只给你看，没有贴进本频道；用户看到的只有你这一条。\n", wsLabel, bot, what)
 	}
-	if posted && kind != exitKindAsk {
+	if posted && kind != team.ExitKindAsk {
 		// The headline and the full text are already posted (postExitHeadline); the lead's own
 		// context gets only the headline (user 2026-10-28: workspace text is not to fill it).
 		fmt.Fprintf(&b, "\n第一行：%s\n四段和细节系统都已贴进本频道，用户看得到，不要再贴一遍。\n\n", firstLine(body))
@@ -202,7 +204,7 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 		b.WriteString("\n内容：\n" + truncateRelayMore(dataDir, "workspace-reply", body, chatLeadWakeLimit) + "\n\n")
 	}
 	switch {
-	case posted && kind == exitKindAsk:
+	case posted && kind == team.ExitKindAsk:
 		b.WriteString("问题已经贴给用户，不要再问一遍。先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就用 ws-forward 把答案（附用户原话）转回工作区，再说一句你怎么定的；没答过就回 NO_REPLY，等用户回复。\n")
 	case posted:
 		b.WriteString("不用转述。你有用户需要知道、那句话里没有的事（比如要用户动手），补一两句；没有就回 NO_REPLY。\n")
@@ -212,7 +214,7 @@ func chatLeadPrompt(dataDir, wsLabel, bot, kind, body, background string, posted
 			"第二段说这次做了哪几项、各改成什么、上线没有；第三段「要你做的：」一句，没有就写「要你做的：没有」；第四段「我加的：」列用户原话里没有、自己加的设定，没有就写「我加的：无」。" +
 			"不写编号、工作区代号、分支名、路径、英文标识、表格；细节、过程、文件名不说，用户问了再去工作区取。用户意图已经明确的事，不给 A/B 选项让用户回字母，直接按用户意图办，说一句你怎么办的。\n")
 		b.WriteString("只说待协调、待审核不算汇报：还差什么、下一步谁接要写清楚；没有安排就明说尚未安排。\n")
-		if kind == exitKindAsk {
+		if kind == team.ExitKindAsk {
 			b.WriteString("这是提问：先对照上面的用户原话和本频道最近的用户消息，看用户是不是已经答过或意图已经明确。" +
 				"答过就不问用户，直接用 ws-forward 把答案（附用户原话）转回工作区，再跟用户说一句你怎么定的；" +
 				"真没答过才问用户，只问一句要定什么、为什么，用户答了用 ws-forward 转回。\n")

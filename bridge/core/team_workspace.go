@@ -210,7 +210,7 @@ type TeamWorkspace struct {
 
 // teamWorkspaceBusy: a workspace with this many tasks in work counts as busy; a new handoff
 // does not adopt it. One task per workspace (user 2026-10-28 approved「一个工作区同一时间只做一件活」,
-// dsh_bundle/collab/team-mode-rules.md).
+// team_rules/team-mode-rules.md).
 const teamWorkspaceBusy = 1
 
 // TeamWorkspaceParker is implemented by platforms that count a workspace's tasks themselves
@@ -1951,7 +1951,7 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	stopped := 0
 	if stop {
 		for _, x := range e.watchEngines() {
-			stopped += x.stopChannel(plat, key)
+			stopped += x.stopChannel(plat, key, "")
 		}
 	}
 	e.ResetTeamWorkspaceSessions(key)

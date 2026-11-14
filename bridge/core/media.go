@@ -413,10 +413,9 @@ func videoNote(link videoLink, r videoResult) string {
 // archived. Only messages with links wait (at most watchvidTimeout); others touch no shared
 // state and add no wait. No ordering between messages: a follow-up may reach the gate first.
 func (e *Engine) prepareMedia(msg *Message) {
-	if !mediaEnabled || msg.FromBot || msg.mediaDone {
+	if !mediaEnabled || msg.FromBot {
 		return
 	}
-	msg.mediaDone = true
 	links := findVideoLinks(msg.Content)
 	var notes []string
 	if len(links) > 0 {

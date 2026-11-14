@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	teampkg "github.com/chenhg5/cc-connect/core/team"
 )
 
 // The reply background is core logic, not a Discord feature (user 10-30「我们这套应该通用化」).
@@ -30,7 +32,7 @@ func TestReplyTaskIDOnlyPlatformEndToEnd(t *testing.T) {
 	e.SetTeam(team, "橘", false)
 	it := map[string]any{"id": 7, "what": "修登录掉线", "short": "修登录", "status": "改完待验", "who": "橘", "where": writeReplyTaskHandoff(t, team), "at": "10-29 10:00", "sk": "idonly:chat1", "ws": "idonly:ws1", "bound": "2026-10-29T02:00:00Z", "chat": "idonly:chat1"}
 	b, _ := json.Marshal(it)
-	writeTaskBoard(t, team, teamTaskBoardFile, string(b)+"\n")
+	writeTaskBoard(t, team, teampkg.TaskBoardFile, string(b)+"\n")
 
 	e.ReceiveMessage(p, &Message{SessionKey: wsKey, Platform: "idonly", ChannelID: "ws1", MessageID: "go", UserID: "human", UserName: "瑞凤", Content: "开工", Mentioned: true, ReplyCtx: wsKey})
 	inputPrompt(t, ag)

@@ -266,8 +266,10 @@ func (e *Engine) startQuotaCooling() {
 }
 
 // Candidates come from the existing same-channel team binding. No provider or
-// model substitution is performed, and a busy/cooling role is never selected.
-func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool) *Engine {
+// model substitution is performed, and a busy/cooling role is never selected. One rule only: a
+// free teammate bound to the same channel, first by name. What the task is about does not pick
+// the person (the title keywords and role names that used to rank candidates are gone).
+func (e *Engine) quotaCandidate(session string, reserved map[string]bool) *Engine {
 	rm := e.relayManager
 	if rm == nil {
 		return nil
@@ -301,24 +303,7 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 			candidates = append(candidates, peer)
 		}
 	}
-	code := strings.Contains(strings.ToLower(title), "code") || strings.Contains(title, "代码") ||
-		strings.Contains(title, "编译") || strings.Contains(title, "修复") || strings.Contains(title, "PR")
-	score := func(peer *Engine) int {
-		name := peer.name + " " + peer.DisplayName()
-		if code && (strings.Contains(name, "longniang") || strings.Contains(name, "龙娘")) {
-			return 0
-		}
-		if !code && (strings.Contains(name, "jingyu") || strings.Contains(name, "鲸鱼")) {
-			return 0
-		}
-		return 1
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if a, b := score(candidates[i]), score(candidates[j]); a != b {
-			return a < b
-		}
-		return candidates[i].name < candidates[j].name
-	})
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].name < candidates[j].name })
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -406,7 +391,7 @@ func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) 
 	if !ok || sel.Lead != target.name {
 		return "", fmt.Errorf("quota switch: shared lead selection did not change")
 	}
-	if e.gate != nil {
+	if e.gate.Load() != nil {
 		if err := e.notifyGateLead(target.name); err != nil {
 			slog.Warn("quota switch: lead.json written, gate not told", "to", target.name, "error", err)
 		}
@@ -489,7 +474,11 @@ func (e *Engine) quotaUnwindLeadLocked(now time.Time) (restored, ok bool) {
 // notifyGateLead tells the gate (POST /lead set) who leads now, for a gate that keeps its own
 // copy. The bundled gate reads lead.json itself; telling it again is harmless.
 func (e *Engine) notifyGateLead(who string) error {
-	u, err := url.Parse(e.gate.liveURL())
+	g := e.gate.Load()
+	if g == nil {
+		return nil
+	}
+	u, err := url.Parse(g.liveURL())
 	if err != nil {
 		return err
 	}
@@ -764,7 +753,7 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 	}
 	if e.isTeamLead() && st.Lead == nil && session != "" {
-		if target := e.quotaCandidate(session, "", nil); target != nil {
+		if target := e.quotaCandidate(session, nil); target != nil {
 			at, err := e.quotaSwitchLead(target, now)
 			if err != nil {
 				slog.Warn("quota takeover: lead switch failed", "project", e.name, "error", err)

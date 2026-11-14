@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #699 batch C: a workspace hands its task back, or reports it failed, only through this explicit
@@ -45,7 +47,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	}
 	to := TeamTaskReturned
 	switch kind {
-	case exitKindReport:
+	case team.ExitKindReport:
 	case exitKindFailed:
 		to = TeamTaskFailed
 	default:
@@ -56,7 +58,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		return res, errors.New("workspace exit: empty report")
 	}
 	body := text
-	if k, b, ok := parseExitKind(text); ok && k == exitKindReport {
+	if k, b, ok := team.ParseExitKind(text); ok && k == team.ExitKindReport {
 		body = b // the command names the kind; a leading marker is only the skeleton's
 	}
 	plat, _, _ := strings.Cut(res.Workspace, ":")
@@ -115,7 +117,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		return res, nil
 	}
 	out := &exitOutcome{}
-	res.Posted = e.forwardWorkspaceExitKind(context.WithValue(ctx, exitOutcomeKey{}, out), p, sessionKey, exitKindReport, body)
+	res.Posted = e.forwardWorkspaceExitKind(context.WithValue(ctx, exitOutcomeKey{}, out), p, sessionKey, team.ExitKindReport, body)
 	if res.Board > 0 && (out.bounced || out.dropped != "") {
 		// #1492 常识：没交到的不算交回。A report sent back for a repair turn, or one that found no
 		// chat to go to, did not hand the task back: the task stays in this workspace, so the
@@ -137,9 +139,11 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 			return res, fmt.Errorf("workspace exit: %s", out.dropped)
 		}
 	}
-	if res.Board > 0 && !out.bounced && out.dropped == "" {
+	if !out.bounced && out.dropped == "" {
 		// The handback is done: the turn's end must not ask for the report again, and the reset
 		// ws-up queued may run (#1500: 11-12 工作区6 was nagged 13–30 s after each command).
+		// A workspace without a task record (Board 0) counts too: since #1802 the reply text no
+		// longer stands in for the command, so without this its turn end asked for the report again.
 		e.markWorkspaceReportDelivered(sessionKey)
 	}
 	slog.Info("team exit: handed back by command", "workspace", res.Workspace, "board", res.Board, "kind", kind, "state", res.State)

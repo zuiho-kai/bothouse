@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Forced reporting for workspace handbacks (user 2026-10-28 「这个能否强制汇报？」).
@@ -439,7 +441,7 @@ func (e *Engine) completeReportDelivery(rec *pendingReport) {
 	if rec.Headline != "" {
 		e.exitMarkPosted(rec.Kind, rec.Board, rec.Headline)
 	}
-	if rec.Kind == exitKindReport && rec.Board > 0 {
+	if rec.Kind == team.ExitKindReport && rec.Board > 0 {
 		e.markExitReported(rec.Board)
 	}
 	if rec.Board > 0 && !rec.Posted {

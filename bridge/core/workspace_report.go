@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Per-turn board snapshots distinguish a new completion from an older item
@@ -39,7 +41,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 	}
 	parent, _ := e.workspaceParent(teamChatKey(key))
 	wsName := e.TeamWorkspaceName(key)
-	items := append(readTeamTaskBoard(e.team.dir), readTeamTaskBoardFile(e.team.dir, teamTaskBoardDoneFile)...)
+	items := append(readTeamTaskBoard(e.team.dir), readTeamTaskBoardFile(e.team.dir, team.TaskBoardDoneFile)...)
 	for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), items) {
 		owner := it.WS
 		if owner == "" {
@@ -61,7 +63,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 		if who != e.name && who != e.DisplayName() {
 			continue
 		}
-		if it.DoneAt != "" || teamTaskBoardWaitUser.MatchString(it.Status) {
+		if it.DoneAt != "" || it.waitsOn(teamWaitUser) {
 			out[it.ID] = it.Status + "\n" + it.DoneAt
 		} else if it.PauseReq != "" && it.DoneAt == "" && it.Paused == "" {
 			// stopped itself this turn (board.py self_pause): a report is owed like for a done item
@@ -93,14 +95,13 @@ func (e *Engine) beginWorkspaceReportTurn(key string) {
 
 // finishWorkspaceReportTurn returns true when recovery owns this terminal
 // event, so the generic idle watcher cannot queue a duplicate continuation.
+// text is the turn's reply; it is only passed on as the workspace's last words (selfPauseFallback),
+// never read for a marker.
 func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	board := e.workspaceReportBoard(key)
-	kind, body, valid := parseExitKindTurn(text)
-	if valid && kind == exitKindAsk {
-		valid = askEvidenceProblems(body) == nil
-	}
-	// #1500: since #699 C the handback is the command (ws-up --report → WorkspaceExit), not the
-	// reply text, so a task the state already has handed back is delivered whatever the reply says.
+	// The handback is the command (ws-up --report → WorkspaceExit), never the reply text (#699 C,
+	// #1500): a turn delivered when the task's state says handed back, or WorkspaceExit ran in it.
+	valid := false
 	switch e.workspaceTaskStateAt(key) {
 	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
 		valid = true
@@ -185,7 +186,7 @@ func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
 	}
 	plat, _, _ := strings.Cut(teamChatKey(key), ":")
 	p := e.platformForName(plat)
-	note := strings.TrimSpace(stripFillerLines(text))
+	note := strings.TrimSpace(team.StripFillerLines(text))
 	if note == "" {
 		note = "（这一轮最后没说话）"
 	}
@@ -196,7 +197,7 @@ func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
 	}
 	posted := false
 	if p != nil {
-		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), exitKindReport, body, key, id, false, "")
+		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), team.ExitKindReport, body, key, id, false, "")
 	}
 	slog.Warn("workspace self-pause: no report after the wakes; last words handed to the chat lead", "session", key, "board_item", id, "handed", posted)
 	chat := parent

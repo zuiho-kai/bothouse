@@ -189,7 +189,7 @@ func TestGateContextWiki(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, []Platform{&stubPlatformEngine{n: "x"}}, "", LangEnglish)
 	defer e.Stop()
 	e.SetGate(srv.URL+"/decide?bot=longniang", 1000, "reply")
-	if ep := e.gate.endpoint("/context"); ep != srv.URL+"/context" {
+	if ep := e.gate.Load().endpoint("/context"); ep != srv.URL+"/context" {
 		t.Fatalf("endpoint = %q", ep)
 	}
 	sess := &Session{AgentSessionID: "a1"}

@@ -16,11 +16,12 @@ import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
 import { MemoryIndex } from './memory-index.mjs';
-// Shared with the bridge (bridge/core/team_mode.go): a common part, then one
+import { readTeamRulesFile } from './team-rules-file.mjs';
+// Shared with the bridge (bridge/core/team_rules/team-mode-rules.md, team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 // A Windows checkout (git core.autocrlf) turns the file to CRLF: "## solo\r\n" then misses the
 // `${mode}\n` match below and every member turn failed with "reading 'slice'". Read it as LF.
-const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+const TEAM_MODE_FILE = readTeamRulesFile('team-mode-rules.md').replace(/\r\n?/g, '\n');
 export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const [common, ...parts] = TEAM_MODE_FILE.split(/^## /m);
   const section = parts.find(p => p.startsWith(`${mode}\n`)) ?? parts.find(p => p.startsWith(`${DEFAULT_DISPATCH_MODE}\n`));

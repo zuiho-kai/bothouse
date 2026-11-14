@@ -9,8 +9,8 @@ import (
 )
 
 // #75: the ws-forward notice must pass the API entry — 1m delay and the user's own wording
-// (which can say 状态/回执). The identical request without the forward mark stays blocked,
-// so the guard itself still catches status polling.
+// (which can say 状态/回执). Since #1810 the anti-spin check counts wakes, not words, so the
+// same text without the mark is no longer refused here.
 func TestHandleTimerAdd_ForwardNoticeAccepted(t *testing.T) {
 	store, err := NewTimerStore(t.TempDir())
 	if err != nil {
@@ -37,8 +37,5 @@ func TestHandleTimerAdd_ForwardNoticeAccepted(t *testing.T) {
 
 	if rec := post(true); rec.Code != http.StatusOK {
 		t.Fatalf("forwarded notice must be accepted, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if rec := post(false); rec.Code != http.StatusBadRequest {
-		t.Fatalf("the same 1m poll text without the mark must stay blocked, got %d", rec.Code)
 	}
 }

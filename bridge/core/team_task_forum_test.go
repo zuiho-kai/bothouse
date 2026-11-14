@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 type fakeForumPost struct {
@@ -126,7 +128,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	item := func(extra string) string {
 		return `{"id":768,"what":"Discord 任务帖子区：一件活一个帖子","short":"任务帖子区","where":"` + notes + `","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","chat":"discord:111"` + extra + "}\n"
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(""))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(""))
 	e.syncTaskForum()
 	if p.opens != 1 {
 		t.Fatalf("opens = %d, want 1", p.opens)
@@ -153,7 +155,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 
 	// [ask] pauses it waiting on the user: tag 等你拍板, the whole question in 要你做的, no node
 	// (the [ask] text itself is posted where it is delivered).
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"paused":"11-14 16:00","pause_why":"等待用户答复：帖子区放在哪个分类，A 工作区 B 新建"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 16:00","pause_why":"等待用户答复：帖子区放在哪个分类，A 工作区 B 新建"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
 	if fp.tag != TaskForumTagWaiting || !strings.Contains(fp.card, "**要你做的**：帖子区放在哪个分类，A 工作区 B 新建") || len(fp.nodes) != 0 {
@@ -161,7 +163,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	}
 
 	// Resumed in a workspace: tag back to 在做 with one key-move line.
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"ws":"discord:222"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"ws":"discord:222"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
 	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 1 || !strings.Contains(fp.nodes[0], "继续做") || !strings.Contains(fp.nodes[0], "<#222>") {
@@ -169,7 +171,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	}
 
 	// Returned: 待验收, no extra node.
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"status":"已交回待验收","returned_at":"2026-11-14T08:00:00Z","reviewer":"cjiang"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"status":"已交回待验收","returned_at":"2026-11-14T08:00:00Z","reviewer":"cjiang"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
 	if fp.tag != TaskForumTagReview || len(fp.nodes) != 1 {
@@ -177,7 +179,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	}
 
 	// Rejected: paused with the reason, one 退回 node.
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"paused":"11-14 17:00","pause_why":"验收退回：截图缺换标签","review_rejected":"截图缺换标签"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 17:00","pause_why":"验收退回：截图缺换标签","review_rejected":"截图缺换标签"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
 	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "验收退回返工：截图缺换标签") {
@@ -185,8 +187,8 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	}
 
 	// Done: off the board into board-done.jsonl → 完成, one node, not archived before the wait.
-	writeTaskBoard(t, dir, teamTaskBoardFile, "")
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, item(`,"done_at":"11-14 18:00"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, "")
+	writeTaskBoard(t, dir, team.TaskBoardDoneFile, item(`,"done_at":"11-14 18:00"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
 	if fp.tag != TaskForumTagDone || fp.archived || len(fp.nodes) != 3 || fp.nodes[2] != "✅ 已完成" {
@@ -210,9 +212,9 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 
 func TestTaskForumReportNodeAndSkips(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
-	writeTaskBoard(t, dir, teamTaskBoardFile,
+	writeTaskBoard(t, dir, team.TaskBoardFile,
 		`{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n"+
-			`{"id":6,"what":"测试：探针","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n"+
+			`{"id":6,"what":"验收探针","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","probe":true}`+"\n"+
 			`{"id":7,"what":"飞书的活","status":"在做","who":"G哥","at":"11-14 10:00","sk":"feishu:abc"}`+"\n")
 	// A [report] delivered before the board pass opened the post opens it first, then posts.
 	e.postTaskForumNode(5, "📬 修登录：已修好")
@@ -228,7 +230,7 @@ func TestTaskForumReportNodeAndSkips(t *testing.T) {
 func TestTaskForumMissingPermissionDoesNotBlock(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
 	p.ensureErr = &MissingPermissionError{Perm: PermManageChannels, Hint: "缺管理频道", Err: fmt.Errorf("50013")}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	e.syncTaskForum()
 	if p.opens != 0 || len(readForumState(t, e).Posts) != 0 {
@@ -288,7 +290,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	notes := dir + "/h.handoff.md"
 	words := strings.Repeat("- 「很多任务我派了老忘，额外开帖子标注下任务，和工作区啥的也都打通联动」\n", 80)
 	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+strings.Repeat("派出去的活不再被忘。", 200)+"\n")
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
 	e.syncTaskForum() // stub panics on an over-limit card
 	fp := p.post("th1")
 	if n := len([]rune(fp.card)); n > 1900 {
@@ -300,7 +302,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 		}
 	}
 	// a long original alone (short question): the goal and the state stay, the words are cut
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	fp = p.post("th1")
 	for _, want := range []string{"**在做**", "**要你做的**：没有", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
@@ -327,7 +329,7 @@ func TestTaskForumOnePostAcrossEngines(t *testing.T) {
 	item := func(extra string) string {
 		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"` + extra + "}\n"
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(""))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(""))
 	a.syncTaskForum()
 	if pa.opens != 1 {
 		t.Fatalf("lead a opens=%d", pa.opens)
@@ -338,7 +340,7 @@ func TestTaskForumOnePostAcrossEngines(t *testing.T) {
 		t.Fatalf("non-lead ask: b opens=%d a post=%+v", pb.opens, pa.post("ath1"))
 	}
 	// the lead moves to b: b's pass edits a's post through a, opens nothing
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"paused":"11-14 11:00","pause_why":"等待用户答复：选 A 还是 B"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 11:00","pause_why":"等待用户答复：选 A 还是 B"`))
 	b.syncTaskForum()
 	if pb.opens != 0 || pa.opens != 1 || pa.post("ath1").tag != TaskForumTagWaiting {
 		t.Fatalf("lead b: b opens=%d a opens=%d a post=%+v", pb.opens, pa.opens, pa.post("ath1"))
@@ -350,7 +352,7 @@ func TestTaskForumOnePostAcrossEngines(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, taskForumFile)); err != nil {
 		t.Fatal(err)
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"post":"https://discord.com/channels/g1/ath1/ath1"`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"post":"https://discord.com/channels/g1/ath1/ath1"`))
 	b.syncTaskForum()
 	if pb.opens != 0 || pa.opens != 1 || pa.post("ath1").tag != TaskForumTagRunning {
 		t.Fatalf("lost state: b opens=%d a opens=%d a post=%+v", pb.opens, pa.opens, pa.post("ath1"))
@@ -380,12 +382,12 @@ func TestTaskForumNodeFacts(t *testing.T) {
 	item := func(extra string) string {
 		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"` + extra + "}\n"
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(""))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(""))
 	e.syncTaskForum()
 	card := p.post("th1").card
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"pr_merge":{"pr":"1785"}`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"pr_merge":{"pr":"1785"}`))
 	e.syncTaskForum()
-	writeTaskBoard(t, dir, teamTaskBoardFile, item(`,"pr_merge":{"pr":"1785"},"deployed":{"build":"x"}`))
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"pr_merge":{"pr":"1785"},"deployed":{"build":"x"}`))
 	e.syncTaskForum()
 	e.syncTaskForum()
 	fp := p.post("th1")

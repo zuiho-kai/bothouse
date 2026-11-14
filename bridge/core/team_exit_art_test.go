@@ -3,6 +3,8 @@ package core
 import (
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func TestArtReportProblems(t *testing.T) {
@@ -25,7 +27,7 @@ func TestArtReportProblems(t *testing.T) {
 		{"link", art, head + "- 对照图：https://cdn.example.com/c.jpg\n", ""},
 	}
 	for _, c := range cases {
-		got := artReportProblems(c.notes, c.body, have)
+		got := team.ArtReportProblems(c.notes, c.body, have)
 		if c.want == "" {
 			if got != nil {
 				t.Errorf("%s: want pass, got %v", c.name, got)

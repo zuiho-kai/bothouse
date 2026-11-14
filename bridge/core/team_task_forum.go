@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Task forum (「任务」帖子区, #768 第一批; user 2026-11-14 「很多任务我派了老忘……额外开帖子标注下任务……
@@ -406,9 +408,9 @@ func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sente
 	return ""
 }
 
-// taskForumWant: the item gets a post (test work posts nothing, test_noise.go).
+// taskForumWant: the item gets a post (a probe item posts nothing, test_noise.go).
 func taskForumWant(it teamTaskBoardItem) bool {
-	return !it.isTest() && strings.HasPrefix(taskForumChat(it), "discord:")
+	return !it.Probe && strings.HasPrefix(taskForumChat(it), "discord:")
 }
 
 // syncTaskForum brings every post in line with the board: opens posts for new items, edits the
@@ -421,7 +423,7 @@ func (e *Engine) syncTaskForum() {
 	now := time.Now()
 	open := e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
 	done := map[int]teamTaskBoardItem{}
-	for _, it := range readTeamTaskBoardFile(e.team.dir, teamTaskBoardDoneFile) {
+	for _, it := range readTeamTaskBoardFile(e.team.dir, team.TaskBoardDoneFile) {
 		done[it.ID] = it // the last record of an id wins (a reopened then closed item)
 	}
 	t := e.taskForumRT()

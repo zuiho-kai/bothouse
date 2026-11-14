@@ -83,12 +83,15 @@ func runSend(args []string) {
 		fmt.Println("Message sent. " + ok.Note)
 		return
 	}
+	// The receipt tells the model the reader already has it, so the turn's closing reply does not
+	// describe the send step or say the same thing again (the bridge no longer edits such
+	// sentences out of the reply; it only drops a reply identical to what was already sent).
 	if ok.ChannelName != "" {
 		// Where it really went: the role reports this name, not the one it meant to send to.
-		fmt.Printf("已发到 #%s（%s）\n", ok.ChannelName, ok.ChannelID)
+		fmt.Printf("已发到 #%s（%s）。对方已收到，不要在回复里复述这条内容或发送过程。\n", ok.ChannelName, ok.ChannelID)
 		return
 	}
-	fmt.Println("Message sent successfully.")
+	fmt.Println("Message sent successfully. It is delivered; do not restate it or narrate the send in your reply.")
 }
 
 var errSendUsage = errors.New("show send usage")

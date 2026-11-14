@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // reportTestPlatform records sends and can reject the next N of them.
@@ -53,7 +55,7 @@ func pendingReportForTest(key string) *pendingReport {
 		Chat:      "chat1",
 		Workspace: "ws1",
 		Bot:       "橘",
-		Kind:      exitKindReport,
+		Kind:      team.ExitKindReport,
 		Body:      "任务24：看门修复完成\n细节留在工作区",
 		Session:   exitWSKey,
 		CreatedAt: time.Now(),
@@ -72,7 +74,7 @@ func TestReportPostedAskStillQueuesLead(t *testing.T) {
 	item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
 	body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
 	post := func() {
-		e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+		e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
 	}
 	post()
 	jobs := store.List()
@@ -111,14 +113,14 @@ func TestReportPostedAskRetriesFailedTimerWrite(t *testing.T) {
 			store.path = t.TempDir()
 			item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
 			body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
-			e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+			e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
 			if len(p.sentTo("discord:chat1")) != 1 {
 				t.Fatal("headline was not sent exactly once")
 			}
 			disk := NewEngine(e.name, &stubAgent{}, []Platform{p}, "", LangEnglish)
 			defer disk.Stop()
 			disk.dataDir = e.dataDir
-			key := reportKey(p.Name(), "chat1", "ws1", exitKindAsk, 46, body)
+			key := reportKey(p.Name(), "chat1", "ws1", team.ExitKindAsk, 46, body)
 			rec := disk.loadReportsLocked()[key]
 			if rec == nil || rec.delivered() || !rec.Posted {
 				t.Fatalf("sent ask lost its durable wake responsibility: %+v", rec)
@@ -187,7 +189,7 @@ func TestReportPostedAskWaitsForLeadAndHonorsCancellation(t *testing.T) {
 			e.SetTeam(t.TempDir(), "橘", true)
 			item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
 			body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
-			e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+			e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
 			store, err := NewTimerStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
@@ -230,7 +232,7 @@ func TestReportPostedAskPreservesProactiveBoundary(t *testing.T) {
 	defer e.timerScheduler.Stop()
 	item := &teamTaskBoardItem{ID: 46, What: "等待决定"}
 	body := "[ask] #46 背景：需要确认方向\n做了什么：完成比较\n要你做的：选择方案\n我加的：无"
-	e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
+	e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindAsk, body, exitWSKey, 46, "需要确认方向", item)
 	if err := a.Revoke(d.ID, "human:stop"); err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +320,7 @@ func TestHeadlinePostFailureFallsBackToOriginal(t *testing.T) {
 	e, p := reportFixture(t)
 	p.failSends = 1
 	item := &teamTaskBoardItem{ID: 5, Who: "orange", What: "改桥"}
-	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport,
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport,
 		"[report] #5 看门修复完成\n细节留在工作区", exitWSKey, 5, "看门修复完成", item)
 
 	sent := p.sentTo("discord:chat1")
@@ -333,12 +335,12 @@ func TestHeadlineFallbackFailureKeepsRecord(t *testing.T) {
 	e, p := reportFixture(t)
 	p.failSends = 2
 	item := &teamTaskBoardItem{ID: 6, Who: "orange", What: "改桥"}
-	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport,
+	e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport,
 		"[report] #6 看门修复完成\n细节留在工作区", exitWSKey, 6, "看门修复完成", item)
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("unexpected post while both sends fail: %#v", got)
 	}
-	key := reportKey("discord", "chat1", "ws1", exitKindReport, 6, "[report] #6 看门修复完成\n细节留在工作区")
+	key := reportKey("discord", "chat1", "ws1", team.ExitKindReport, 6, "[report] #6 看门修复完成\n细节留在工作区")
 	e.teamExit.mu.Lock()
 	rec := e.teamExit.reports[key]
 	attempts, lastErr := 0, ""
@@ -563,7 +565,7 @@ func TestReportDedupeSameHandback(t *testing.T) {
 // TestChatLeadPromptAllowsAuthorizedFollowUp: the prompt used to say 「不要再派回工作区」, which
 // contradicted the team rule that an unfinished task keeps its next step.
 func TestChatLeadPromptAllowsAuthorizedFollowUp(t *testing.T) {
-	p := chatLeadPrompt("", "<#9>", "橘", exitKindReport, "做完了", "", false)
+	p := chatLeadPrompt("", "<#9>", "橘", team.ExitKindReport, "做完了", "", false)
 	for _, want := range []string{"尚未安排", "不要把这件活重新派一遍", "花钱、部署、重启", "用户已经停止的任务"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, p)
@@ -594,7 +596,7 @@ func TestReportDeliveryLeavesPendingVerification(t *testing.T) {
 			rec.Board = 46
 			switch mode {
 			case "headline":
-				e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, rec.Body, exitWSKey, 46, "结果已交回", &item)
+				e.postExitHeadline(e.ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport, rec.Body, exitWSKey, 46, "结果已交回", &item)
 			case "enqueue-failure":
 				e.queueReportWake(&TimerJob{}, rec, func(*TimerJob) error { return errors.New("queue unavailable") })
 			default:
@@ -775,7 +777,7 @@ func TestReportRecoveryPreservesSourceAuthorization(t *testing.T) {
 			e.platforms = []Platform{p}
 			item := &teamTaskBoardItem{ID: 46, What: "报告恢复"}
 			body := "[report] #46 背景：报告恢复\n做了什么：完成比较\n要你做的：没有\n我加的：无"
-			e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", exitKindReport, body, exitWSKey, item.ID, "报告恢复", item)
+			e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport, body, exitWSKey, item.ID, "报告恢复", item)
 			if got := p.sentTo("discord:chat1"); len(got) != 0 {
 				t.Fatalf("rejected output unexpectedly sent: %v", got)
 			}

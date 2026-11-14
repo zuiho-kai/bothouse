@@ -36,7 +36,7 @@ func TestLatestMarkOnEveryPath(t *testing.T) {
 		e := newTestEngine()
 		e.SetGate(srv.URL, 2000, "reply")
 		m := &Message{SessionKey: "discord:c1", UserID: "u1", UserName: "zuiho", Content: words}
-		e.gate.released[m] = true
+		m.burstDone = true
 		if e.applyGate(nil, m, &Session{}, "k") {
 			t.Fatal("message should go on to a turn")
 		}
@@ -47,7 +47,7 @@ func TestLatestMarkOnEveryPath(t *testing.T) {
 		e := newTestEngine()
 		e.SetGate(srv.URL, 2000, "reply")
 		m := &Message{SessionKey: "discord:c1", UserID: "u1", UserName: "zuiho", Content: words, Mentioned: true}
-		e.gate.released[m] = true
+		m.burstDone = true
 		if e.applyGate(nil, m, &Session{}, "k") {
 			t.Fatal("message should go on to a turn")
 		}

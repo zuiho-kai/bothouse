@@ -159,13 +159,13 @@ func TestIndependent751EventErrorRevocationDuringWait(t *testing.T) {
 			}
 			session := e.sessions.GetOrCreateActive("room")
 			// Source: same rate-limit fixture as TestProactiveOutputRechecksAfterRateLimitWait.
-			e.outgoingRL = NewOutgoingRateLimiter(OutgoingRateLimitCfg{MaxPerSecond: 1, Burst: 1}, nil)
-			if err := e.outgoingRL.Wait(ctx, p.Name()); err != nil {
+			e.outgoingRL.Store(NewOutgoingRateLimiter(OutgoingRateLimitCfg{MaxPerSecond: 1, Burst: 1}, nil))
+			if err := e.outgoingRL.Load().Wait(ctx, p.Name()); err != nil {
 				t.Fatal(err)
 			}
-			e.outgoingRL.mu.Lock()
-			before := e.outgoingRL.buckets[p.Name()].lastRefill
-			e.outgoingRL.mu.Unlock()
+			e.outgoingRL.Load().mu.Lock()
+			before := e.outgoingRL.Load().buckets[p.Name()].lastRefill
+			e.outgoingRL.Load().mu.Unlock()
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -174,9 +174,9 @@ func TestIndependent751EventErrorRevocationDuringWait(t *testing.T) {
 			backend.events <- Event{Type: EventError, Error: errors.New("backend-private-payload-751")}
 			close(backend.events)
 			waitFor(t, "EventError waiting for send budget", func() bool {
-				e.outgoingRL.mu.Lock()
-				defer e.outgoingRL.mu.Unlock()
-				return e.outgoingRL.buckets[p.Name()].lastRefill.After(before)
+				e.outgoingRL.Load().mu.Lock()
+				defer e.outgoingRL.Load().mu.Unlock()
+				return e.outgoingRL.Load().buckets[p.Name()].lastRefill.After(before)
 			})
 			if phase == "revoked" {
 				if err := a.Revoke(d.ID, "human:stop"); err != nil {

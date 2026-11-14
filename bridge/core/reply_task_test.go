@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // replyRecPlatform records the ids of posts made with a RecordSentMessages context, like
@@ -67,7 +69,7 @@ func writeReplyTaskBoard(t *testing.T, dir, where, ws string) {
 	t.Helper()
 	it := map[string]any{"id": 7, "what": "修登录掉线", "short": "修登录", "status": "改完待验", "who": "橘", "where": where, "at": "10-29 10:00", "sk": "discord:chat1", "ws": ws, "bound": "2026-10-29T02:00:00Z", "chat": "discord:chat1"}
 	b, _ := json.Marshal(it)
-	writeTaskBoard(t, dir, teamTaskBoardFile, string(b)+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, string(b)+"\n")
 }
 
 func TestReplyTaskMapSurvivesRestart(t *testing.T) {

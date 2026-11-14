@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // A workspace's text [report] goes to the chat lead before the user sees it, like ws-up's
@@ -52,15 +54,15 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 	// the lead. Only a post counts as reported: a held report the lead sent back (ws-forward) is
 	// ended unposted, and the reworked report after it is held again (#1491: #1489's second report
 	// was dropped as 「already posted」 after the first was rejected).
-	if e.exitReportedSinceBound(hid, item.Bound) || owner.heldReportFor(hid) != nil || e.exitPostedRecently(exitKindReport, hid, hline) {
+	if e.exitReportedSinceBound(hid, item.Bound) || owner.heldReportFor(hid) != nil || e.exitPostedRecently(team.ExitKindReport, hid, hline) {
 		slog.Info("team exit: report for this handoff already held or posted; not held again", "board_item", hid, "workspace", ws)
 		return false
 	}
-	_, after, waiting := waitExternalOf(body)
+	_, after, waiting := team.WaitExternalOf(body)
 	rec := &pendingReport{
-		Key:      reportKey(p.Name(), parent, ws, exitKindReport, hid, body),
+		Key:      reportKey(p.Name(), parent, ws, team.ExitKindReport, hid, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
-		Kind: exitKindReport, Body: body, Headline: hline, Board: hid,
+		Kind: team.ExitKindReport, Body: body, Headline: hline, Board: hid,
 		Session: sessionKey, CreatedAt: time.Now(), Held: true, Doubt: doubt,
 		Waiting: waiting, HeldBound: item.Bound, HeldDone: item.DoneAt != "" && item.AutoPruned == "",
 	}
@@ -96,7 +98,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			owner.teamExit.mu.Unlock()
 		}
 	}
-	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, exitKindReport, hid, body)
+	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, team.ExitKindReport, hid, body)
 	if !queued {
 		// No lead can look at it: the user still gets it, marked unchecked.
 		slog.Warn("report accept: no lead to accept the report; posting it unchecked", "board_item", hid, "workspace", ws)
@@ -127,9 +129,9 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 		return
 	}
 	e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
-	e.exitMarkPosted(exitKindReport, rec.Board, rec.Headline)
+	e.exitMarkPosted(team.ExitKindReport, rec.Board, rec.Headline)
 	e.markExitReported(rec.Board)
-	e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, exitKindReport, rec.Board, rec.Body)
+	e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, team.ExitKindReport, rec.Board, rec.Body)
 }
 
 func boundTime(item *teamTaskBoardItem) time.Time {
@@ -153,7 +155,7 @@ func (e *Engine) reportLead(platform string) *Engine {
 // heldHeadlineText is the 📬 headline of a released report; unchecked marks one the lead never
 // judged on its first line.
 func heldHeadlineText(name, hline string, unchecked bool) string {
-	text := exitHeadlineText(exitKindReport, name, hline, "")
+	text := exitHeadlineText(team.ExitKindReport, name, hline, "")
 	if unchecked {
 		head, rest, _ := strings.Cut(text, "\n")
 		text = head + "（" + leadUncheckedMark + "）\n" + rest
@@ -180,7 +182,7 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	if background != "" {
 		b.WriteString("\n这件活的背景：\n" + background + "\n")
 	}
-	head, _ := exitSplit(body)
+	head, _ := team.ExitSplit(body)
 	b.WriteString("\n给用户的四段（原文）：\n" + head + "\n")
 	b.WriteString("\n全文：\n" + truncateRelayMore(dataDir, "workspace-report", body, chatLeadWakeLimit) + "\n")
 	if check != "" {
@@ -414,7 +416,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	heldReportImages.mu.Unlock()
 	e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
 	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
-	e.exitMarkPosted(exitKindReport, cp.Board, cp.Headline)
+	e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)
 	if cp.Board > 0 {
 		e.markExitReported(cp.Board) // posted: only now does this handoff count as reported
 	}

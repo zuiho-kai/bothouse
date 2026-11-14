@@ -28,7 +28,7 @@ func TestSetupModeRefreshesInstalledHookScripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	hooksDir := core.AgentHooksDir(dataDir)
-	guard := filepath.Join(hooksDir, "ask-only-guard.py")
+	guard := filepath.Join(hooksDir, "bash-guard.py")
 	stale := []byte("# the guards of the release that installed them\n")
 	if err := os.WriteFile(guard, stale, 0o755); err != nil {
 		t.Fatal(err)

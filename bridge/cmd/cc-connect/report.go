@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // 来源：一天 24 小时。
@@ -333,9 +334,9 @@ func reportCheckCommand(args []string, stdin io.Reader, out, errOut io.Writer) i
 	}
 	var problems []string
 	if *selfRoute {
-		problems = core.SelfRouteProblems(string(draft))
+		problems = team.SelfRouteProblems(string(draft))
 	} else {
-		problems = core.ReportPreflight(string(draft), notes)
+		problems = team.ReportPreflight(string(draft), notes)
 	}
 	if len(problems) == 0 {
 		fmt.Fprintln(out, "OK：桥会转发这条")
@@ -366,7 +367,7 @@ func reportSkeletonCommand(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, err)
 		return 2
 	}
-	fmt.Fprint(out, core.ReportSkeleton(*id, notes))
+	fmt.Fprint(out, team.ReportSkeleton(*id, notes))
 	return 0
 }
 

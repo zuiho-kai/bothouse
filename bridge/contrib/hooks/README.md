@@ -1,6 +1,6 @@
 # 工具拦截 hook（Claude Code 和 DSH 通用）
 
-这里的 hook 在 agent 调用工具或结束一轮时检查规则：危险命令、没标明审没审的派活、没写来源的数字、说"修好了"却没列入口表、许了"回来看"却没定时器。违反时拒绝这次调用，或让模型补一步。同一份配置 Claude Code 和 DSH 都会执行。
+这里的 hook 在 agent 调用工具或结束一轮时检查规则：危险命令、没标明审没审的派活、没写来源的数字。只查机器能核对的事实；管模型怎么措辞的守卫（ask-only、fix-claim、check-first、promise、eta）已删（#1627）。违反时拒绝这次调用，或让模型补一步。同一份配置 Claude Code 和 DSH 都会执行。
 
 ## 开包就用
 
@@ -20,10 +20,6 @@ bothouse setup hooks on --work-dir <角色目录> --cli dsh    # DSH 角色
 `--cli dsh` 另外做一件事：在角色自己的 overlay（`dsh --patch`，`<data_dir>/dsh/<角色>.patch.yml`）里挂上 DSH 自带的桥 `@deepseek-ai/dsh-hooks-claude-code`（`id: hooks-claude-code`），`configPath` 是绝对路径 `<角色目录>/.claude/conest-dsh-hooks.json`，`projectDir` 是角色目录。用户自己的 `$DSH_HOME` 一律不写。这份配置里的命令都带 `--dsh-global`：`run.py` 只在登记过的 DSH 角色目录里（`<data_dir>/hooks/dsh-roles.json`，由 `setup hooks on|off --cli dsh` 维护）跑这个角色开着的 hook，在别的目录里直接放行，所以在陌生仓库里跑 dsh 不会执行那个仓库的 `.claude/settings.json`。**DSH 改完要重启 DSH 进程才生效**（bothouse 管的 DSH 角色：重启 bothouse）。桥按文件路径挂载（从 PATH 上的 `dsh` 旁边找；找不到用 `--dsh-bridge <…/dsh-hooks-claude-code/lib/index.js>` 指定），因为按包名挂载要从 profile 目录解析，新的 DSH_HOME 里找不到这个包。
 
 需要 `python3`。DSH 默认把会话记录存成 zstd 压缩（`session.v4.jsonl.zstd`），不用改成 `compression: none`。找记录、解压都在 `dshlog.py`：Python 3.14 的 `compression.zstd`、`zstandard` 模块或 DSH 自带的 node，逐帧解，正在写的最后一帧先跳过。看队友（`contrib/tools/peek.py`）和 wiki 导出（`contrib/wiki/export.py`）用的也是这一份。
-
-## 先查再说的模型
-
-`check-first-guard` 由默认安装的 `fix-claim-guard` 调用，团队模式下跳过聊天频道、保留工作区检查；`CHECK_FIRST_MODEL` 缺省为 `sonnet`，可通过桥进程的环境变量修改。一次历史样本重放中，补充命令输出后 `haiku` 仍连续三次放过应拦的未核实现状断言，因此保留 `sonnet`；样本量有限，这不代表所有场景的模型能力比较。
 
 ## 关掉
 
@@ -48,7 +44,7 @@ python3 ~/.bothouse/hooks/run.py --role <角色目录> status                   
 bothouse setup hooks off --work-dir <角色目录>                        # 这个角色全关，人设里那段规则一起删掉
 bothouse setup hooks off --work-dir <角色目录> --only bash-guard      # 只关一条，人设里只删这一条
 bothouse setup hooks status --work-dir <角色目录>                     # 看装了哪些、开关关了哪些
-bothouse setup hooks on --work-dir <角色目录> --only promise-guard    # 再打开一条
+bothouse setup hooks on --work-dir <角色目录> --only bash-guard    # 再打开一条
 ```
 
 DSH 角色加 `--cli dsh`（人设是 `AGENTS.md`）。关掉会把这个角色移出 `dsh-roles.json`；这个角色的 hook 全关时，它 overlay 里 `# conest:hooks begin` 到 `# conest:hooks end` 那一段和 `conest-dsh-hooks.json` 一起删掉，文件其余内容不动。改完重启 DSH 进程才生效。
@@ -79,18 +75,13 @@ bothouse setup hooks status --global memory
 | bash-guard | PreToolUse（Bash/bash） | `pkill -f`；后台命令没超时或接了 `\| tail`；macOS 上 `go build -o …bothouse`；设了 `HOOK_PROXY` 时没走代理的下载；整页 cat 多页 wiki（只提示）；前台干等（`gh run watch`、`sleep` ≥60 秒、shell/perl/python 里带 sleep 的轮询循环）；Claude Code 子 agent 前台命令 timeout 超过 290 秒时压到 290 秒（不拦，跑不完自动转后台，long-task 子 agent 不压） | `# long-running-ok`、`# direct-ok`、`# tcc-ok`；要等的放后台 |
 | codemap-inject | PreToolUse（五个团队 CLI 的派活工具） | 派子 agent 时，按派活说明命中的关键词附上代码地图（`<data_dir>/codemaps/*.md`），要求先读地图、交付附「## 地图要补的条目（<地图路径>）」 | 改写派活输入；DSH 返回完整参数要求重试；没命中不动 |
 | codemap-fill | SubagentStop（Gemini 用 AfterTool） | 子 agent 交付里「地图要补的条目」一节追加到对应地图末尾（去重，跳过「无…」） | 不拦；出错只写 stderr |
-| ask-only-guard | PreToolUse（Bash/bash、编辑类，Codex 含 apply_patch） | 用户最新一条只在提问，命令却是派活、转活或挂定时（`ws-handoff`、`ws-forward`、`board add`、`bothouse timer/cron add`，heredoc 和引号里的字不算），或用编辑工具改 wiki、临时目录以外的文件 | 用户说"做/可以/帮我…"；定时任务和别的 bot 触发的轮；判不准放行 |
 | param-source-guard | PreToolUse（Edit/Write/edit/write/str_replace_editor） | 代码里新加 `名字 = 数字` 没写来源注释 | 同一行或上一行注释写来源（用户原话、数据、SPEC、沿用） |
 | dispatch-review-guard | PreToolUse（Agent/Task/subagent/subagent_fork/workflow；主会话的 Edit/Write） | 【审稿】没引用户原话、【已审:…】指的文件不对；主会话直接改代码（没打标记的派活放行） | 【免审:调研/小改动/一次性脚本/代码审查】、【审稿】+逐字原话、【已审:<审稿文件>】；文档先跑 `doc-ok.py <文件>` |
-| fix-claim-guard | Stop | 用户在说 bug，回复说"已修复"却没列入口表 | 列 `入口 \| 是否经过修复 \| 核对结果` 表；每轮只拦一次 |
-| eta_guard（bash-guard 调用） | PreToolUse（Bash） | ws-*/later/board/bothouse progress·send·relay·timer·task 命令里报了长于 15 分钟的预计时间、跨天时间，或挂了长于 15 分钟的 `timer add --delay/--at`、`later`，同句没有实测依据或外部等待原因 | 同句写「按实测：N 块 × M 分钟 ÷ P 并行」或等什么（等你/CI/下载）；每轮只拦一次 |
-| check-first-guard（fix-claim-guard 调用） | Stop | 回复断言我们自家现状（有/没有/缺/早就有）或建议加/学什么，小模型看最近查过的命令（含前几轮）判没覆盖 | 先查仓库、wiki、配置、日志或远端再说，查不了写「没核」；每轮只拦一次，模型超时放行；拦下记进 intent-judge.tsv（kind=check-first） |
-| promise-guard | Stop | 说了"X 点回来看/跑完告诉你/下一步做 X"，本轮却没有定时器、后台任务或派活 | 设定时器、当轮派出去，或写明「这件事不跟进，原因是 Y」；每轮只拦一次 |
 | choice-ask-guard | Stop | 回复里有要用户拍板的问题时，小模型（intent_judge.py，Haiku）对照产品意图卡（hooks/intent-cards.txt 列的路径）和最近 10 条用户消息判断：与用户定过的冲突（「能推出答案就不许问」这条 11-11 删了，它和交接出口的「先问用户」互相打架） | 拦回并指出冲突的那条；真是方向/花钱放行；超时出错放行；每轮只拦一次。ws-handoff 交接时调同一判断，但「两种读法」那条用交接专用的写法：只有换方向和花钱才退回让问用户，别的放行并在交接里记一行「这处主角色自己定了」 |
 | wiki-context | UserPromptSubmit | 终端会话里按消息附「可能相关的 wiki 页」（和 gate 同一套检索） | 只是附上下文；bothouse 起的 bot 跳过，因为 gate 已经推了 |
 | subagent-ctx-hook | PreToolUse（所有工具） | 子 agent 上下文到 15 万 token 后还在调工具 | 不放行：拒绝理由里要求写交接（做到哪、文件在哪、下一步）后收工；主会话不管 |
 
-fix-claim-guard、promise-guard 和 choice-ask-guard 认的是中文措辞。
+choice-ask-guard 认的是中文措辞。
 
 ### long-task 子 agent 类型（Claude Code，跟 bash-guard 一起装）
 
@@ -125,8 +116,6 @@ bothouse setup hooks off --work-dir <角色目录> --only subagent-ctx-hook
 | `HOOK_REVIEWS_DIR` | `~/.claude/reviews` | 审稿文件目录（【已审:…】指向这里） |
 | `HOOK_FREE_DIRS` | 空 | 主会话可以直接改的目录，追加在 `~/.claude`、`/tmp`、wiki 目录后面，用系统路径分隔符隔开 |
 | `HOOK_RESEARCHER_DIRS` | 空 | 这些工作目录里【免审:调研】的派活必须用 `subagent_type: "researcher"` 或 sonnet 模型；不设就不查 |
-| `HOOK_TEAMMATES` | 空 | promise-guard 认作"转述队友的话"的名字，`\|` 隔开；仓库预设人设里的几个名字已经算上 |
-| `HOOK_DETACHED_CMDS` | 空 | promise-guard 认作"已派出去"的后台命令名，`\|` 隔开 |
 
 ## 两种 CLI 的差别
 
@@ -144,21 +133,20 @@ DSH 桥支持的事件：SessionStart、UserPromptSubmit、PreToolUse、PostTool
 ```sh
 python3 -I bridge/contrib/hooks/test_hooks.py            # 两种载荷走 run.py：拒绝、放行、开关、zstd 记录上的 Stop、wiki-context
 python3 -I bridge/contrib/hooks/test_dshlog.py           # DSH 记录：多帧 zstd、未压缩、两种混在一起、坏文件；export.py 和 peek.py 读两种结果一致
-python3 -I bridge/contrib/hooks/test_promise_guard.py    # promise-guard 的句子回放
 python3 -I bridge/contrib/hooks/test_doc_ok.py           # doc-ok：Codex/Claude/DSH 会话登记、同会话放行、跨会话拒绝、路径归一化
 python3 -I bridge/contrib/hooks/test_subagent_ctx_hook.py  # subagent-ctx-hook：阈值上下、主会话不管、Codex/context_tokens、经 run.py 跑一次
 cd bridge && go test -tags no_web ./core -run 'TestAgentHooks|TestWithHookRules|TestApplyWizardNewClaudeRoleGetsHooks'
 ```
 
-`test_promise_guard.py` 用固定时钟、临时 HOME 和定时任务夹具。新增 `test_bash_guard_nowait.py`、`test_bash_guard_speed.py` 可直接通过 python3 -I 运行；只把命令作为 hook 输入，不执行被测 shell 命令。DSH 辅助文件不单独注册，既有 run.py 复用它的会话字段读取。
+新增 `test_bash_guard_nowait.py`、`test_bash_guard_speed.py` 可直接通过 python3 -I 运行；只把命令作为 hook 输入，不执行被测 shell 命令。DSH 辅助文件不单独注册，既有 run.py 复用它的会话字段读取。
 
 ## Grok roles
 
-`setup hooks on --cli grok` 只装 ask-only-guard，写进角色的 `.claude/settings.json`（Grok 读它，项目目录要先信任）。run.py `--grok` 把 Grok 的工具名（run_terminal_command、search_replace、write）换成 Bash/Edit/Write，从 Grok 会话的 updates.jsonl 读用户最新一句。
+`setup hooks on --cli grok` 装 bash-guard、dispatch-review-guard 和代码地图两条，写进角色的 `.claude/settings.json`（Grok 读它，项目目录要先信任）。run.py `--grok` 把 Grok 的工具名（run_terminal_command、search_replace、write）换成 Bash/Edit/Write，从 Grok 会话的 updates.jsonl 读用户最新一句。
 
 ## Codex roles
 
-`bothouse setup hooks on --cli codex --work-dir <role>` installs only `bash-guard` and `fix-claim-guard` in `<role>/.codex/hooks.json`, with `[features] hooks = true` in that role's `.codex/config.toml`. The wizard also prepares these two hooks for new Codex roles. Existing custom hook entries/config values are retained (TOML formatting/comments may be normalized). `off` removes only managed entries; `status --cli codex` reads the Codex file.
+`bothouse setup hooks on --cli codex --work-dir <role>` installs `bash-guard`, `dispatch-review-guard` and the two code-map hooks in `<role>/.codex/hooks.json`, with `[features] hooks = true` in that role's `.codex/config.toml`. The wizard also prepares these two hooks for new Codex roles. Existing custom hook entries/config values are retained (TOML formatting/comments may be normalized). `off` removes only managed entries; `status --cli codex` reads the Codex file.
 
 Codex loads hooks beside active config layers, including project `.codex` and the user config under CODEX_HOME. Project layers require project trust, and Codex skips hooks whose hash is not recorded as trusted (app-server has no bypass flag). When bothouse starts a Codex app-server session it calls `hooks/list` for the role directory and, for its own untrusted/modified hooks only (commands carrying `--conest-hook` and `--codex`), writes `hooks.state.<key>.trusted_hash` through `config/batchWrite` into that session's CODEX_HOME config.toml, the same write Codex's own app-server uses. User hooks are never auto-trusted; `codex exec` / interactive sessions still need review through `/hooks`. Production launches never add a trust-bypass flag. If that registration fails at any step (reading the role's hooks file, `hooks/list` not listing every bothouse hook, the `config/batchWrite`, or a read-back that still reports them untrusted), the session start returns the error naming the step and the session does not start: running without bash-guard registered is not an acceptable fallback. Restart an existing session after configuration changes.
 

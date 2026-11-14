@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 type stubBoardPlatform struct {
@@ -161,7 +163,7 @@ func TestUpdateTeamBoards(t *testing.T) {
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
 	now := time.Now()
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 	boards := map[string]*boardChat{}
 
 	if !e.updateTeamBoards(boardFiles(now), boards) {
@@ -191,7 +193,7 @@ func TestUpdateTeamBoardsKeepsStateOnFailure(t *testing.T) {
 	allChatsAreWorkspaces(e)
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 	boards := map[string]*boardChat{}
 	if e.updateTeamBoards(boardFiles(time.Now()), boards) {
 		t.Fatal("failed posts must not count as changes")
@@ -455,7 +457,7 @@ func TestTeamBoardEditGivesUp(t *testing.T) {
 			allChatsAreWorkspaces(e)
 			dir := t.TempDir()
 			e.team = &teamState{dir: dir, board: true}
-			writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
+			writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 			boards := map[string]*boardChat{"discord:111": {SessionKey: "discord:111", MessageID: tc.messageID, Content: "old"}}
 			before := time.Now().Add(-time.Minute)
 			logs, restore := captureSlog(t)
@@ -533,7 +535,7 @@ func TestTeamBoardGaveUpSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true, inject: true}
 	// An open item keeps the board non-empty, so a retry attempts the edit.
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":7,"what":"修登录","status":"在做","who":"G哥","at":"10-26 03:00","sk":"discord:111"}`+"\n")
 	gaveUp := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	statePath := filepath.Join(dir, "lead"+teamBoardFileExt)
 	state := fmt.Sprintf(`{"discord:111":{"session_key":"discord:111","message_id":"m1","content":"old","gave_up_at":%q}}`, gaveUp.Format(time.RFC3339))

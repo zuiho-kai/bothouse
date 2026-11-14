@@ -65,7 +65,7 @@ func TestStopWaitsForMessagePersistence(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stop did not join the turn")
 	}
-	data, err := os.ReadFile(path)
+	data, err := persisted(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,28 @@ func TestStopWaitsForMessagePersistence(t *testing.T) {
 		t.Fatalf("assistant reply not persisted: %s", data)
 	}
 	e.ReceiveMessage(p, mediaMessage("late message after stop"))
-	after, err := os.ReadFile(path)
+	after, err := persisted(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(after) != string(data) {
 		t.Fatal("stopped engine still accepted a message")
 	}
+}
+
+// persisted is the session store and, since #1812, each session's history file beside it.
+func persisted(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	files, _ := filepath.Glob(filepath.Join(core.SessionHistoryDir(path), "*.jsonl"))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, b...)
+	}
+	return data, nil
 }

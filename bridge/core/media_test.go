@@ -302,11 +302,6 @@ func TestPrepareMediaSkips(t *testing.T) {
 	e := newMediaEngine("maomao")
 	msg := &Message{Content: "看看 https://b23.tv/Xy7Zw3Q", MessageID: "5000"}
 	e.prepareMedia(msg)
-	before := msg.Content
-	e.prepareMedia(msg) // a held gate burst re-enters handleMessage
-	if msg.Content != before {
-		t.Fatal("note appended twice")
-	}
 	bot := &Message{Content: "【龙娘】https://b23.tv/Xy7Zw3Q", FromBot: true}
 	e.prepareMedia(bot)
 	if bot.Content != "【龙娘】https://b23.tv/Xy7Zw3Q" {
@@ -354,17 +349,17 @@ func TestGateSeesUserTextOnly(t *testing.T) {
 	b := &Message{SessionKey: "discord:c", Content: "你们看看"}
 	e.prepareMedia(b)
 	// burst: a is held, b folds into it
-	e.gate.held["k"] = &heldMsg{msg: a, timer: time.NewTimer(time.Hour)}
+	e.gate.Load().held["k"] = &heldMsg{msg: a, timer: time.NewTimer(time.Hour)}
 	if !e.applyGate(nil, b, s, "k") {
 		t.Fatal("b should fold into the held burst")
 	}
-	delete(e.gate.held, "k")
-	e.gate.released[a] = true
+	delete(e.gate.Load().held, "k")
+	a.burstDone = true
 	if !e.applyGate(nil, a, s, "k") { // gate says context → buffered
 		t.Fatal("context not consumed")
 	}
 	c := &Message{SessionKey: "discord:c", Content: "嗯"}
-	e.gate.released[c] = true
+	c.burstDone = true
 	e.applyGate(nil, c, s, "k")
 
 	mu.Lock()
@@ -378,7 +373,7 @@ func TestGateSeesUserTextOnly(t *testing.T) {
 	if len(reqs[1].Buffered) != 1 || reqs[1].Buffered[0] != "看这个 https://b23.tv/Xy7Zw3Q\n你们看看" {
 		t.Fatalf("gate buffered = %q", reqs[1].Buffered)
 	}
-	if got := e.gate.buf["k"]; len(got) != 2 || !strings.Contains(got[0], nasIndex) {
+	if got := e.gate.Load().buf["k"]; len(got) != 2 || !strings.Contains(got[0], nasIndex) {
 		t.Fatalf("agent-side buffer lost the note: %q", got)
 	}
 }
@@ -459,7 +454,7 @@ func TestArchiveAttachmentsTimeout(t *testing.T) {
 func TestHoldWindowIgnoresMediaNote(t *testing.T) {
 	var mounted atomic.Bool
 	withMedia(t, func(context.Context, string) (string, string, error) { return "", "", nil }, &mounted)
-	g := &gateState{textBurstWindow: 5 * time.Second} // a custom gate_burst_window_ms
+	g := &gateState{textBurstWindow: 5 * time.Second, gateRuntime: newGateRuntime()} // a custom gate_burst_window_ms
 	for _, m := range []bool{true, false} {
 		mounted.Store(m)
 		msg := &Message{Images: []ImageAttachment{{MimeType: "image/png"}}}
