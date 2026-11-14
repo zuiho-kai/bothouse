@@ -51,7 +51,7 @@ func TestCmdUsage_PreservesModelWindowsInTextAndCard(t *testing.T) {
 		t.Run(map[bool]string{false: "text", true: "card"}[card], func(t *testing.T) {
 			plain := &stubPlatformEngine{n: "test"}
 			var p Platform = plain
-			cards := &stubCardPlatform{stubPlatformEngine: *plain}
+			cards := &stubCardPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}
 			if card {
 				p = cards
 			}
