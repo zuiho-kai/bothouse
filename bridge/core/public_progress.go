@@ -973,26 +973,8 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		if p.resolveThread != nil {
 			p.resolveThread(ctx, task)
 		}
-		view := p.authorizedTaskView(task, lang)
-		deliveryErr := r.publisher.EnsureTaskCard(ctx, view, lang)
-		task.ChannelID, task.MessageID, task.ThreadID = view.ChannelID, view.MessageID, view.ThreadID
-		task.CardURL, task.ThreadTitle, task.ForumPost = view.CardURL, view.ThreadTitle, view.ForumPost
-		r.mu.Lock()
-		// Only transport bindings/checkpoints are written back. Newer state and
-		// summaries may have arrived while the HTTP request was in flight.
-		r.record.Task.ChannelID = task.ChannelID
-		r.record.Task.MessageID, r.record.Task.ThreadID = task.MessageID, task.ThreadID
-		r.record.Task.CardURL, r.record.Task.ThreadTitle, r.record.Task.ForumPost = task.CardURL, task.ThreadTitle, task.ForumPost
-		if deliveryErr == nil {
-			r.record.CardSeq = task.Seq
-		}
-		err = p.save(r)
-		r.mu.Unlock()
-		if err != nil {
+		if err := p.ensureTaskTransport(ctx, r, task, lang); err != nil {
 			return attempted, err
-		}
-		if deliveryErr != nil {
-			return attempted, deliveryErr
 		}
 	}
 	for _, ev := range task.Events {
@@ -1000,6 +982,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 			continue
 		}
 		if ev.IsKeyFact {
+			creator := ev.ReporterProject == "" || ev.ReporterProject == p.project
 			// Facts go to the channel that holds the card: the execution
 			// workspace for a chat-channel source, else the source session.
 			// ChannelID is a platform channel ID, not a session key.
@@ -1030,6 +1013,22 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 				}
 				slog.Warn("public progress: reporter cannot post; creator posted note", "task_id", task.ID, "reporter", ev.ReporterProject)
 				err = r.publisher.PublishTaskFact(ctx, p.authorizedTaskView(task, lang), note, lang)
+				ev, creator = note, true
+			}
+			if creator && task.ForumPost && errors.Is(err, ErrTaskFactUndeliverable) {
+				// A cached forum binding can lose access after it was chosen. Only
+				// a permanent creator refusal changes the destination; transient
+				// errors and another reporter's permissions keep their usual handling.
+				task.ForumPost = false
+				task.ThreadID, task.MessageID, task.CardURL, task.ThreadTitle = "", "", "", ""
+				if err := p.ensureTaskTransport(ctx, r, task, lang); err != nil {
+					return attempted, err
+				}
+				view := p.authorizedTaskView(task, lang)
+				if view != task {
+					ev.Summary, ev.Detail, ev.Pointer = view.LatestProgress, "", false
+				}
+				err = r.publisher.PublishTaskFact(ctx, view, ev, lang)
 			}
 			if err != nil {
 				return attempted, err
@@ -1049,6 +1048,30 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		}
 	}
 	return attempted, nil
+}
+
+// ensureTaskTransport persists the actual destination before publishing facts,
+// including a legacy destination selected after permanent forum refusal.
+func (p *PublicProgress) ensureTaskTransport(ctx context.Context, r *publicRun, task *Task, lang Language) error {
+	view := p.authorizedTaskView(task, lang)
+	deliveryErr := r.publisher.EnsureTaskCard(ctx, view, lang)
+	task.ChannelID, task.MessageID, task.ThreadID = view.ChannelID, view.MessageID, view.ThreadID
+	task.CardURL, task.ThreadTitle, task.ForumPost = view.CardURL, view.ThreadTitle, view.ForumPost
+	r.mu.Lock()
+	// Only transport bindings/checkpoints are written back. Newer state and
+	// summaries may have arrived while the HTTP request was in flight.
+	r.record.Task.ChannelID = task.ChannelID
+	r.record.Task.MessageID, r.record.Task.ThreadID = task.MessageID, task.ThreadID
+	r.record.Task.CardURL, r.record.Task.ThreadTitle, r.record.Task.ForumPost = task.CardURL, task.ThreadTitle, task.ForumPost
+	if deliveryErr == nil {
+		r.record.CardSeq = task.Seq
+	}
+	err := p.save(r)
+	r.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return deliveryErr
 }
 
 // errCardOutsideWorkspace: a task card was asked for outside a workspace channel (user, 2026-10-26
