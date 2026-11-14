@@ -433,42 +433,47 @@ func parseClaudeUsageReport(text string, now time.Time) (*core.UsageReport, erro
 	}
 
 	lines := strings.Split(text, "\n")
-	session, err := parseClaudeUsageWindow(lines, "Current session", claudeUsageSessionWindowSeconds, now)
-	if err != nil {
-		return nil, err
+	var windows []core.UsageWindow
+	var hasSession, hasWeek bool
+	for i, line := range lines {
+		header := strings.ToLower(strings.TrimSpace(line))
+		if !strings.HasPrefix(header, "current ") {
+			continue
+		}
+		seconds := 0
+		switch {
+		case header == "current session":
+			seconds = claudeUsageSessionWindowSeconds
+			hasSession = true
+		case header == "current week" || strings.HasPrefix(header, "current week ("):
+			seconds = claudeUsageWeekWindowSeconds
+			hasWeek = true
+		}
+		window, err := parseClaudeUsageWindow(lines[i:], seconds, now)
+		if err != nil {
+			return nil, err
+		}
+		windows = append(windows, window)
 	}
-	week, err := parseClaudeUsageWindow(lines, "Current week", claudeUsageWeekWindowSeconds, now)
-	if err != nil {
-		return nil, err
+	if !hasSession || !hasWeek {
+		return nil, fmt.Errorf("claudecode: missing Current session or Current week block in Claude Code /usage output")
 	}
 
 	report.Buckets = []core.UsageBucket{{
 		Name:    "Usage",
 		Allowed: true,
-		Windows: []core.UsageWindow{session, week},
+		Windows: windows,
 	}}
 	return report, nil
 }
 
-func parseClaudeUsageWindow(lines []string, header string, windowSeconds int, now time.Time) (core.UsageWindow, error) {
-	start := -1
-	headerLower := strings.ToLower(header)
-	for i, line := range lines {
-		lower := strings.ToLower(strings.TrimSpace(line))
-		if strings.HasPrefix(lower, headerLower) {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return core.UsageWindow{}, fmt.Errorf("claudecode: missing %s block in Claude Code /usage output", header)
-	}
-
+func parseClaudeUsageWindow(lines []string, windowSeconds int, now time.Time) (core.UsageWindow, error) {
+	header := strings.TrimSpace(lines[0])
 	var (
 		usedPercent *int
 		resetRaw    string
 	)
-	for i := start + 1; i < len(lines); i++ {
+	for i := 1; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue

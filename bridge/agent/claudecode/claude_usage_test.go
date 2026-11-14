@@ -75,7 +75,7 @@ Extra usage not enabled
 	}
 
 	week := report.Buckets[0].Windows[1]
-	if week.Name != "Current week" {
+	if week.Name != "Current week (all models)" {
 		t.Fatalf("week.Name = %q", week.Name)
 	}
 	if week.WindowSeconds != 604800 {
@@ -86,6 +86,36 @@ Extra usage not enabled
 	}
 	if week.ResetAfterSeconds != 104340 {
 		t.Fatalf("week.ResetAfterSeconds = %d, want 104340", week.ResetAfterSeconds)
+	}
+}
+
+func TestParseClaudeUsageReport_PreservesAllModelWindows(t *testing.T) {
+	// Source: real Claude Code panel captured for task #780 on 2026-11-14.
+	text := "Current session\n18% used\nCurrent week (all models)\n75% used\nCurrent week (Fable)\n34% used\nCurrent week (another model)\n12% used\nExtra usage\nExtra usage not enabled"
+	report, err := parseClaudeUsageReport(text, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"Current session": 18, "Current week (all models)": 75, "Current week (Fable)": 34, "Current week (another model)": 12}
+	if len(report.Buckets[0].Windows) != len(want) {
+		t.Fatalf("windows = %+v, want all %d panel blocks", report.Buckets[0].Windows, len(want))
+	}
+	for _, w := range report.Buckets[0].Windows {
+		used, ok := want[w.Name]
+		if !ok || used != w.UsedPercent {
+			t.Fatalf("unexpected window: %+v", w)
+		}
+		delete(want, w.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing windows: %v", want)
+	}
+}
+
+func TestParseClaudeUsageReport_ModelWindowMustBeComplete(t *testing.T) {
+	_, err := parseClaudeUsageReport("Current session\n18% used\nCurrent week (all models)\n75% used\nCurrent week (Fable)\nLoading", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "Fable") {
+		t.Fatalf("err = %v, want incomplete model window error", err)
 	}
 }
 
