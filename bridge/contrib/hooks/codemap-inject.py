@@ -62,7 +62,7 @@ def main():
         except OSError:
             return
         if catalogue:
-            note = "【代码地图】按本次任务选择下面关键词匹配的地图，先读匹配地图再定位代码；不相关的不用读。交付附一节「## 地图要补的条目（地图完整路径）」，每条写「- 符号 文件:行」。\n"
+            note = "【代码地图】按本次任务选择下面关键词匹配的地图，匹配的地图用 grep -n <关键词> 只读命中段，不整份读，再定位代码；不相关的不用读。交付附一节「## 地图要补的条目（地图完整路径）」，每条写「- 符号 文件:行」。\n"
             note += "".join(f"- {path}（关键词：{', '.join(words)}）\n" for path, words in catalogue)
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": note}}, ensure_ascii=False))
         return
@@ -78,7 +78,7 @@ def main():
     if not hits:
         return
     note = "".join(
-        f"【代码地图】先读 {p}，按里面的符号直接定位，不要从头摸代码；交付时附一节「## 地图要补的条目（{p}）」，下面每条一行「- 符号 文件:行」（会自动补进地图）。\n" for p in hits
+        f"【代码地图】先读 {p} 里和这件活相关的条目：grep -n <关键词> {p}，只读命中段，不整份读；按里面的符号直接定位，不要从头摸代码；交付时附一节「## 地图要补的条目（{p}）」，下面每条一行「- 符号 文件:行」（会自动补进地图）。\n" for p in hits
     )
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",

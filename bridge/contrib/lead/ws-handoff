@@ -625,12 +625,13 @@ def kickoff_maps(path, task):
             text = task + "\n" + Path(path).read_text(encoding="utf-8", errors="ignore")
             hits = mod.pick(mod.strip_paths(text))  # 交接里已写了地图路径的也列上
             if hits:
-                out.append("先读代码地图 " + "、".join(hits) + "，按里面的符号直接定位，不要从头摸代码、找编译器、找上一棒的脚本；"
+                out.append("先读代码地图 " + "、".join(hits) + " 里和这件活相关的条目：grep -n <关键词> <地图>，只读命中段，不整份读；"
+                           "按里面的符号直接定位，不要从头摸代码、找编译器、找上一棒的脚本；"
                            f"交回 [report] 的细节里附一节「## 地图要补的条目（<地图完整路径>）」，每条一行「- 符号 文件:行」，"
                            "交回时会自动补进地图。")
             else:
                 out.append(f"这件活没对上现成的代码地图（地图目录 {mod.MAP_DIR}，每张的 keywords: 行是触发词），"
-                           "开工前先看一眼目录里有没有相关的。")
+                           "要改代码时再去目录里找相关的，不改代码的活不用看。")
     except Exception:  # noqa: BLE001
         pass
     here = Path(__file__).resolve().parent

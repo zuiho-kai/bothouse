@@ -1071,13 +1071,21 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	add("lead_handoff", e.leadHandoffBlock(session, sessionKey))
 	add("handoff", e.handoffBlock(session, sessionKey))
 	add("memory", e.memoryBlock(session)) // before the handoff: the index, then what the old context did
-	add("life_page", e.lifePageBlock())   // every turn, cron and timer included (lifepage.go)
-	add("member", e.memberBlock(session)) // once per context, with or without the gate (member_workspace.go)
+	// A workspace chat does one handed-over job by itself (#1625): the life page, the member-directory note and
+	// the teammate status are written for the lead chatting in its channel, so a workspace turn skips them.
+	// Measured 11-11 (#1469) and 11-14 (#1625): Fable 5.2 reads every block it gets, so this noise cost it most.
+	ws := e.isTeamWorkspaceChat(sessionKey)
+	if !ws {
+		add("life_page", e.lifePageBlock())   // every turn, cron and timer included (lifepage.go)
+		add("member", e.memberBlock(session)) // once per context, with or without the gate (member_workspace.go)
+	}
 	if !turnCtx {
 		return content
 	}
 	add("turn_ctx", e.turnContext(session, sessionKey, query, sender))
-	add("team", e.teamBlock(session, sessionKey))
+	if !ws {
+		add("team", e.teamBlock(session, sessionKey))
+	}
 	add("interrupted", session.takeInterrupted()) // last, right above the message (#1514)
 	return content
 }
