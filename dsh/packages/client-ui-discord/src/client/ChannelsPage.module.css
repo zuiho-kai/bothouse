@@ -1985,26 +1985,23 @@
   animation: channelsEnter 180ms cubic-bezier(.2, 0, 0, 1) both;
 }
 
-/* Floating pill above the composer while the reader is scrolled up. */
+/* #1616 返工: in the row under the log, right side — it never covers a message. */
 .jumpLatest {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  z-index: 3;
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  margin-left: auto;
+  padding: 0 10px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
-  box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgb(0 0 0 / 0.16));
   font: inherit;
   font-size: 12px;
+  line-height: 18px;
   cursor: pointer;
-  transform: translateX(-50%);
-  animation: channelsPop 220ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: channelsEnter 180ms cubic-bezier(.2, 0, 0, 1) both;
 }
 
 .jumpLatest:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -2093,7 +2090,9 @@
 .leadCardName { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .leadCardStatus { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 /* 气泡：对方浅灰圆角，自己深色靠右；卡片、执行条、权限行不套气泡。 */
-.message:not(.own) > .messageBody > .bubbleLine > .text { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 14px; border-radius: 6px 16px 16px 16px; background: var(--dsw-alias-bg-layer-2); }
+/* #1616 返工（用户「汇报正文缩进和上面【交接】不齐，像孤儿段落」）：DSH 桌面版里 bg-layer-2 和底色一样白，气泡看不见、
+   只剩 14px 内缩；给气泡一层看得见的浅底，左沿和上面的进度卡对齐，读得出是这位成员说的。 */
+.message:not(.own) > .messageBody > .bubbleLine > .text { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 14px; border-radius: 6px 16px 16px 16px; background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, var(--dsw-alias-bg-base)); }
 .message.grouped:not(.own) > .messageBody > .bubbleLine > .text { border-radius: 6px 16px 16px 6px; }
 .own > .messageBody > .bubbleLine > .text { color: var(--dsw-alias-bg-base); background: var(--dsw-alias-label-primary); box-shadow: none; }
 .own > .messageBody > .bubbleLine > .text * { color: inherit; }
@@ -2173,7 +2172,9 @@
 .stepDetail { display: grid; gap: 6px; margin: 2px 6px 6px 20px; }
 .stepField { display: grid; gap: 2px; min-width: 0; }
 .stepField > span { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
-.stepPre { max-height: 240px; margin: 0; padding: 6px 8px; overflow: auto; border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.45; white-space: pre; }
+.stepPre { max-height: 240px; margin: 0; padding: 6px 8px; overflow-x: hidden; overflow-y: auto; border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* #1616 返工：折起时每行一行，过长截断加省略号（用户「长行要折行或截断加省略号」）。 */
+.stepPreFolded > div { overflow: hidden; white-space: pre; text-overflow: ellipsis; }
 .stepRow[data-state='failed'] .stepField:last-child .stepPre { color: var(--dsw-alias-state-error-primary); }
 .stepMore { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--dsw-alias-state-business-primary); font: inherit; font-size: 11px; cursor: pointer; }
 /* #125 等你定托盘（来源：用户 11-04 11:53 样张 v1 的输入框上方托盘；尺寸沿用上方 permTray 圆角、间距与配色变量）。 */

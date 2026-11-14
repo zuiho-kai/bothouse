@@ -3030,24 +3030,21 @@
 }
 
 .dshc_jumpLatest {
-  z-index: 3;
   border: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
-  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #00000029);
   font: inherit;
   cursor: pointer;
   border-radius: 999px;
+  flex: none;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  margin-left: auto;
+  padding: 0 10px;
   font-size: 12px;
-  animation: .22s cubic-bezier(.22, 1, .36, 1) both dshc_channelsPop;
+  line-height: 18px;
+  animation: .18s cubic-bezier(.2, 0, 0, 1) both dshc_channelsEnter;
   display: inline-flex;
-  position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
 }
 
 .dshc_jumpLatest:hover {
@@ -3199,7 +3196,7 @@
 
 .dshc_message:not(.dshc_own) > .dshc_messageBody > .dshc_bubbleLine > .dshc_text {
   box-sizing: border-box;
-  background: var(--dsw-alias-bg-layer-2);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, var(--dsw-alias-bg-base));
   border-radius: 6px 16px 16px;
   width: fit-content;
   max-width: 100%;
@@ -3611,14 +3608,21 @@
   background: var(--dsw-alias-bg-base);
   max-height: 240px;
   color: var(--dsw-alias-label-primary);
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   border-radius: 6px;
   margin: 0;
   padding: 6px 8px;
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11.5px;
   line-height: 1.45;
-  overflow: auto;
+  overflow: hidden auto;
+}
+
+.dshc_stepPreFolded > div {
+  white-space: pre;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .dshc_stepRow[data-state="failed"] .dshc_stepField:last-child .dshc_stepPre {

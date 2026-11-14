@@ -19,13 +19,30 @@ const EMPTY_PART = /^(要你做的|我加的)[：:]\s*(无|没有|暂无|无需|
 const ACCEPT_HOW = /^验收 #\d+：回复里单独一行写/
 const DETAIL_HEAD = /^📬 细节「(.*?)」（来自 (.+?)，想看再展开，不用回）$/
 
-/** A quoted title longer than TITLE_KEEP keeps its start and an ellipsis. */
+// #1616 返工（用户 11-14「📬 标题截断成『fib....』四个点，统一成一个省略号」）：截在 fib.py 这类英文词中间时，
+// 词不超过 WORD_REACH 个字就留整，再去掉结尾的点、逗号、空格，最后只加一个省略号。
+const WORD_REACH = 8
+const ASCII_WORD = /[A-Za-z0-9_.\-/]/
+const CUT_TAIL = /[\s.。,，、:：;；…·-]+$/u
+
+/** A quoted title longer than TITLE_KEEP keeps its start and one ellipsis. */
 export function clipTitles(text: string): string {
-  return text.replace(/「([^「」\n]+)」/g, (whole, title: string) => [...title].length > TITLE_KEEP + 2 ? `「${[...title].slice(0, TITLE_KEEP).join('')}…」` : whole)
+  return text.replace(/「([^「」\n]+)」/g, (whole, title: string) => {
+    const chars = [...title.replace(/(\.{3}|…)+$/u, '')]
+    if (chars.length <= TITLE_KEEP + 2 && chars.length === [...title].length) return whole
+    if (chars.length <= TITLE_KEEP + 2) return `「${chars.join('').replace(CUT_TAIL, '')}…」`
+    let end = TITLE_KEEP
+    while (end < chars.length && end < TITLE_KEEP + WORD_REACH && ASCII_WORD.test(chars[end]!) && ASCII_WORD.test(chars[end - 1]!)) end++
+    if (end < chars.length && ASCII_WORD.test(chars[end]!) && ASCII_WORD.test(chars[end - 1]!)) end = TITLE_KEEP
+    return `「${chars.slice(0, end).join('').replace(CUT_TAIL, '')}…」`
+  })
 }
 
 export function tidyNotice(text: string): TidyNotice {
+  // #1616 返工（用户「两份汇报块之间空了一大片」）：删掉的行留下的空行不连成一片，头尾不留空行。
   const lines = text.split('\n').filter(line => !ACCEPT_HOW.test(line.trim()) && !EMPTY_PART.test(line.trim()))
+    .filter((line, i, all) => line.trim() !== '' || (i > 0 && all[i - 1]!.trim() !== ''))
+  while (lines.length > 0 && lines[0]!.trim() === '') lines.shift()
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
   const head = DETAIL_HEAD.exec(lines[0]?.trim() ?? '')
   if (head !== null) return { text: '', detail: { summary: clipTitles(`📬 细节「${head[1]}」· ${head[2]}`), body: lines.slice(1).join('\n') } }

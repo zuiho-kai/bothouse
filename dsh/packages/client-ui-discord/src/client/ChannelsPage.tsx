@@ -410,6 +410,8 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
   // #113: a system notice (task reminders, joins) is a centered divider, not a member speaking;
   // a member failure posted by the system is an inline error bar with its retry right there.
   if (notice) {
+    // #1616 返工（用户「两份汇报块之间空了一大片」）：整条只剩写给主角色的验收提示时，页面上不留空行。
+    if (tidy?.detail === undefined && shown.trim() === '' && !(card?.kind === 'task' && taskCardShown)) return null
     return (
       <div className={[css.systemRecord, enterClass, focused ? css.focused : ''].filter(Boolean).join(' ')} style={enterStyle} data-message-id={message.id} role="note">
         {/* #1616: a notice is a quiet left-aligned line in the text column with its time, not a centered
@@ -423,7 +425,8 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
               </details>
             )
           : (
-              <div className={markdown.includes('\n') ? `${css.systemLine} ${css.systemBlock}` : css.systemLine}>
+              // #1616 返工：只有 📬 汇报是带框的块；多行的【交接】等通知仍是灰色小字，不再像一段挂在上一位成员名下的气泡。
+              <div className={markdown.includes('\n') && markdown.trimStart().startsWith('📬') ? `${css.systemLine} ${css.systemBlock}` : css.systemLine}>
                 <span className={css.systemText} title={fullTime}><HighlightedMarkdown text={markdown} labels={labels} members={members} onMention={onMention} inline /></span>
                 <time className={css.systemTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
               </div>
@@ -1824,17 +1827,18 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             <span className={css.undoBar} style={{ animationDuration: `${WITHDRAW_UNDO_MS}ms` }} aria-hidden="true" />
           </div>
         )}
-        {(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && (
-          <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
-            <span aria-hidden="true">↓</span> {t('jumpLatest')}
-            {visibleUnreadCount > 0
-              && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
-          </button>
-        )}
         </div>
         <div className={css.working} aria-live="polite">
           {typingNames.length > 0 && <><span className={css.typingDots} aria-hidden="true"><i /><i /><i /></span>{t('workingList', { names: typingNames.join('、') })}</>}
           {queuedFor.size > 0 && <button type="button" className={css.queuedButton} title={t('queuedJump')} onClick={jumpToQueued}>{t('queuedCount', { count: queuedFor.size })}</button>}
+          {/* #1616 返工（用户「回到最新按钮压住最后一行系统通知」）：放在日志下面这一行的右边，不再浮在消息上。 */}
+          {(!atBottom || state.hasMoreNewer === true) && state.messages.length > 0 && (
+            <button type="button" className={css.jumpLatest} onClick={scrollToLatest}>
+              <span aria-hidden="true">↓</span> {t('jumpLatest')}
+              {visibleUnreadCount > 0
+                && <span className={css.jumpCount}>{t('jumpLatestCount', { count: visibleUnreadCount })}</span>}
+            </button>
+          )}
         </div>
         {/* #113/#125: questions and pending permission requests stay pinned above the composer while the log scrolls. */}
         <DecideTray

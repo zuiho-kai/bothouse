@@ -123,15 +123,31 @@ export function compactBrief(brief: string): string {
 
 export const CHAT_RUN_STEPS = 3 // 沿用已有配置：#1588 聊天频道里在跑的活只显示最近几步
 
-/** A step's output, its first OUTPUT_LINES lines until 「展开全部」. */
+/**
+ * #1616 返工（用户 11-14「一长串 ### 被右边切掉…输出里还空了一行再出现 [...]」）：工具自己在中间砍掉的
+ * 一段（空行、[...]、空行）合成一行省略号；结尾空行不算行。
+ */
+export function outputLines(text: string): string[] {
+  const lines = text.replace(/\n*^[ \t]*\[\.\.\.\][ \t]*$\n*/gm, '\n…\n').split('\n')
+  while (lines.length > 1 && lines[lines.length - 1]!.trim() === '') lines.pop()
+  while (lines.length > 1 && lines[0]!.trim() === '') lines.shift()
+  return lines
+}
+
+/**
+ * A step's output, its first OUTPUT_LINES lines until 「展开全部」. Folded, each line is one row cut
+ * with an ellipsis; opened, long lines wrap — nothing runs off the right edge.
+ */
 function StepOutput({ text, t }: { text: string; t: T }) {
   const [all, setAll] = useState(false)
-  const lines = text.split('\n')
+  const lines = outputLines(text)
   const long = lines.length > OUTPUT_LINES
   return (
     <div className={css.stepField}>
       <span>{t('stepResult')}</span>
-      <pre className={css.stepPre}>{long && !all ? lines.slice(0, OUTPUT_LINES).join('\n') : text}</pre>
+      {long && !all
+        ? <div className={`${css.stepPre} ${css.stepPreFolded}`}>{lines.slice(0, OUTPUT_LINES).map((line, i) => <div key={i} title={line}>{line === '' ? '\u00a0' : line}</div>)}</div>
+        : <pre className={css.stepPre}>{lines.join('\n')}</pre>}
       {long && (
         <button type="button" className={css.stepMore} onClick={() => { setAll(!all) }}>
           {all ? t('stepOutputLess') : t('stepOutputAll', { count: String(lines.length - OUTPUT_LINES) })}
