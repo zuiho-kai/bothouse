@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #72 shared-interface contract (2026-11-02): a dispatch freezes the board item
@@ -17,7 +19,7 @@ func boardRefsFixture(t *testing.T, lines string) (*PublicProgress, string, Rela
 	t.Helper()
 	teamDir := t.TempDir()
 	if lines != "" {
-		if err := os.WriteFile(filepath.Join(teamDir, teamTaskBoardFile), []byte(lines), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(teamDir, team.TaskBoardFile), []byte(lines), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -112,7 +114,7 @@ func TestRelayBoardRefsSurviveRetryWithSameRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	moved := strings.ReplaceAll(lines, "gen-1", "gen-2")
-	if err := os.WriteFile(filepath.Join(teamDir, teamTaskBoardFile), []byte(moved), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(teamDir, team.TaskBoardFile), []byte(moved), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := p.beginTaskRelay(req, "Target"); err == nil {

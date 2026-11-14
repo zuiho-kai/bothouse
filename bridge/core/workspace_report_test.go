@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Drive real engine turns, reset queuing, board files and parent forwarding;
@@ -41,7 +43,7 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 					}
 					return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"sk\":%q,\"status\":%q,\"done_at\":%q}\n", key, status, done)
 				}
-				writeTaskBoard(t, dir, teamTaskBoardFile, row("在做", ""))
+				writeTaskBoard(t, dir, team.TaskBoardFile, row("在做", ""))
 				e.ReceiveMessage(p, &Message{SessionKey: key, Platform: platform, ChannelID: "ws1", UserID: "u", Content: "finish the draft", Mentioned: true, ReplyCtx: key})
 				inputPrompt(t, a)
 				old := e.sessions.ActiveSessionID(key)
@@ -50,13 +52,13 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 						t.Fatalf("reset not queued: %+v, %v", r, err)
 					}
 					if mode == "reset_waiting" {
-						writeTaskBoard(t, dir, teamTaskBoardFile, row("等用户[看片]", ""))
+						writeTaskBoard(t, dir, team.TaskBoardFile, row("等用户[看片]", ""))
 					}
 				} else if mode == "waiting" {
-					writeTaskBoard(t, dir, teamTaskBoardFile, row("等用户[看片]", ""))
+					writeTaskBoard(t, dir, team.TaskBoardFile, row("等用户[看片]", ""))
 				} else {
-					writeTaskBoard(t, dir, teamTaskBoardFile, "")
-					writeTaskBoard(t, dir, teamTaskBoardDoneFile, row("在做", "10-27 19:52"))
+					writeTaskBoard(t, dir, team.TaskBoardFile, "")
+					writeTaskBoard(t, dir, team.TaskBoardDoneFile, row("在做", "10-27 19:52"))
 				}
 				// An open handoff must not turn arbitrary text into evidence
 				// that the result was delivered before a requested reset.
@@ -96,7 +98,7 @@ func TestWorkspaceOldWaitingItemDoesNotWake(t *testing.T) {
 	e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	dir := t.TempDir()
 	e.SetTeam(dir, "橘", false)
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":666,"who":"橘","sk":"discord:ws1","status":"等用户[看片]"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":666,"who":"橘","sk":"discord:ws1","status":"等用户[看片]"}`+"\n")
 	e.beginWorkspaceReportTurn("discord:ws1")
 	if e.finishWorkspaceReportTurn("discord:ws1", "NO_REPLY") {
 		t.Fatal("old waiting item requested another report")
@@ -138,7 +140,7 @@ func TestWorkspaceReportLegacyHandoffOwnership(t *testing.T) {
 		{"explicit workspace wins", `"ch":"chat1","who":"工作区1橘","ws":"discord:ws2"`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			writeTaskBoard(t, dir, teamTaskBoardFile, fmt.Sprintf("{\"id\":677,\"status\":\"等用户[看片]\",%s}\n", tc.fields))
+			writeTaskBoard(t, dir, team.TaskBoardFile, fmt.Sprintf("{\"id\":677,\"status\":\"等用户[看片]\",%s}\n", tc.fields))
 			_, got := e.workspaceReportBoard("discord:ws1")[677]
 			if got != tc.want {
 				t.Fatalf("workspace owns row = %t, want %t: %s", got, tc.want, tc.fields)

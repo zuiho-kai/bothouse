@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func writeReviewBoard(t *testing.T, e *Engine, items ...teamTaskBoardItem) {
@@ -20,7 +22,7 @@ func writeReviewBoard(t *testing.T, e *Engine, items ...teamTaskBoardItem) {
 		data = append(data, b...)
 		data = append(data, '\n')
 	}
-	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -307,7 +309,7 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 	writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, What: "verify", Chat: "room:main", WS: "room:ws1", Dispatcher: "lead"})
 	e.markExitReported(46)
 	// No installed scripts: the delivered final report must still end the execution session.
-	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46, "")
+	e.endWorkspaceTask("room:main", "room:ws1", team.ExitKindReport, 46, "")
 	if e.sessions.ActiveSessionID("room:ws1") == old.ID {
 		t.Fatal("board write failure kept the old workspace session")
 	}
@@ -446,7 +448,7 @@ func TestTaskReviewWatchReconcilesBoundNoDeployPR(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	data := []byte("{\"id\":72,\"what\":\"verify\",\"chat\":\"room:main\",\"dispatcher\":\"lead\",\"bound\":\"generation\",\"pr_binding\":{\"url\":\"https://github.com/example/project/pull/830\",\"repo\":\"example/project\",\"number\":830,\"no_deploy\":true,\"bound\":\"generation\"}}\n")
-	if err = os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), data, 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	w := newHandoffWatch(e)

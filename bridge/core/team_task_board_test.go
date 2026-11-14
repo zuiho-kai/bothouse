@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func writeTaskBoard(t *testing.T, dir, name, lines string) {
@@ -33,7 +35,7 @@ func testTaskBoardPlacer() teamTaskBoardPlacer {
 
 func TestTeamTaskBoardRendersChatItems(t *testing.T) {
 	dir := t.TempDir()
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录 <@123>","status":"在做","who":"龙娘","at":"10-26 02:00","sk":"feishu:oc_a"}
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1,"what":"修登录 <@123>","status":"在做","who":"龙娘","at":"10-26 02:00","sk":"feishu:oc_a"}
 {"id":2,"what":"别的频道","status":"在做","who":"橘","at":"10-26 02:01","sk":"discord:9"}
 {"id":3,"what":"交接","status":"已交接","who":"工作区1橘","at":"10-26 02:02","sk":"feishu:oc_ws","ws":"feishu:oc_ws","chat":"feishu:oc_a"}
 {"id":4,"what":"停着","status":"x","who":"橘","at":"10-26 02:03","sk":"feishu:oc_a","paused":"10-26 02:03","pause_why":"等用户"}
@@ -166,8 +168,8 @@ func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":7,"what":"出板","status":"在做","who":"橘","at":"10-26 03:00","sk":"feishu:oc_a"}`+"\n")
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, `{"id":6,"what":"做完了","who":"龙娘","sk":"feishu:oc_a","done_at":"`+time.Now().Format("01-02 15:04")+`"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":7,"what":"出板","status":"在做","who":"橘","at":"10-26 03:00","sk":"feishu:oc_a"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardDoneFile, `{"id":6,"what":"做完了","who":"龙娘","sk":"feishu:oc_a","done_at":"`+time.Now().Format("01-02 15:04")+`"}`+"\n")
 	boards := map[string]*boardChat{}
 	if !e.updateTeamBoards(nil, boards) {
 		t.Fatal("no board posted")
@@ -200,7 +202,7 @@ func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
 	}
 	e := NewEngine("lead", &stubAgent{}, nil, "", LangEnglish)
 	e.SetTeam(dir, "橘", true)
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":9,"what":"没记频道","status":"在做","who":"橘","at":"10-26 02:00"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"没记频道","status":"在做","who":"橘","at":"10-26 02:00"}`+"\n")
 	os.Remove(filepath.Join(dir, setupStateFile))
 	boards := map[string]*boardChat{}
 	e.updateTeamBoards(nil, boards)
@@ -220,8 +222,8 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	e.team = &teamState{dir: dir, board: true}
 	now := time.Now()
 	files := []teamFile{{Project: "a", Name: "橘", Updated: now, Sessions: []teamEntry{{Key: "cloud_web:room-1", Chat: "room-1", Task: "写文档", Worked: true, Since: now, DoneAt: now}}}}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","sk":"cloud_web:room-1"}`+"\n")
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, `{"id":2,"what":"写文档","who":"橘","sk":"cloud_web:room-1","done_at":"`+now.Format("01-02 15:04")+`"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","sk":"cloud_web:room-1"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardDoneFile, `{"id":2,"what":"写文档","who":"橘","sk":"cloud_web:room-1","done_at":"`+now.Format("01-02 15:04")+`"}`+"\n")
 	if !e.updateTeamBoards(files, map[string]*boardChat{}) {
 		t.Fatal("no board posted")
 	}
@@ -235,7 +237,7 @@ func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	if !p.live["cloud_web:room-1"] {
 		t.Fatalf("running item, card must be Running:\n%s", got)
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等用户确认","sk":"cloud_web:room-1"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1,"what":"修登录","status":"在做","who":"橘","at":"10-26 03:00","paused":"10-26 04:00","pause_why":"等用户确认","sk":"cloud_web:room-1"}`+"\n")
 	e.updateTeamBoards(files, map[string]*boardChat{})
 	got = p.content["cloud_web:room-1"]
 	if !strings.Contains(got, "⏸ 修登录 · 等你") || p.live["cloud_web:room-1"] {
@@ -297,7 +299,7 @@ func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	}
 	now := time.Now()
 	files := []teamFile{{Project: "ayi", Name: "ayi", Updated: now}}
-	writeTaskBoard(t, dir, teamTaskBoardFile, `{"id":1,"what":"实现 release.py","status":"done","who":"工作区1ayi","at":"10-26 06:57","sk":"cloud_web:room-2","ws":"cloud_web:room-2","bound":"`+at.Add(time.Second).UTC().Format(time.RFC3339Nano)+`","chat":"cloud_web:room-1"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1,"what":"实现 release.py","status":"done","who":"工作区1ayi","at":"10-26 06:57","sk":"cloud_web:room-2","ws":"cloud_web:room-2","bound":"`+at.Add(time.Second).UTC().Format(time.RFC3339Nano)+`","chat":"cloud_web:room-1"}`+"\n")
 	boards := map[string]*boardChat{}
 
 	setHandoff(time.Time{}) // the workspace is on it

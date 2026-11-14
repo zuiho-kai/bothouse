@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // autostartFixture: a lead engine with the real gate/board.py, one board item handed to 工作区1
@@ -25,7 +27,7 @@ func autostartFixture(t *testing.T) (*Engine, *handoffWatch, string) {
 	e.productPyBin.Store(t.TempDir())
 	boardDir := t.TempDir()
 	e.SetTeam(boardDir, "橘", true)
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(
 		`{"id":7,"what":"开工后自动标在做","short":"自动标在做","status":"已交接","who":"工作区1橘","ws":"discord:ws1","sk":"discord:ws1","chat":"discord:main","at":"11-05 12:00"}`+"\n",
 	), 0o644); err != nil {
 		t.Fatal(err)

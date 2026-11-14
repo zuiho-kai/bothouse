@@ -1,4 +1,4 @@
-package core
+package team
 
 import (
 	"fmt"
@@ -17,17 +17,17 @@ const ReportBlank = "（待填"
 // ReportPreflight lists why the bridge would send the draft back to the workspace; nil: it would go
 // to the chat channel. notes is the handoff text ("" when there is none: art and scope not checked).
 func ReportPreflight(draft, notes string) []string {
-	draft = stripFillerLines(draft)
-	kind, body, ok := parseExitKind(draft)
+	draft = StripFillerLines(draft)
+	kind, body, ok := ParseExitKind(draft)
 	if !ok {
-		return []string{exitRules.Headline.MissingMarker}
+		return []string{ExitRules.Headline.MissingMarker}
 	}
-	problems := judgeExit(kind, body, false, func(int) bool { return true }, 0).Problems
-	if kind == exitKindReport {
-		problems = append(problems, artReportProblems(notes, body, localFileExists)...)
-		problems = append(problems, scopeReportProblems(notes, body)...)
-		problems = append(problems, genericReportProblems(body)...)
-		problems = append(problems, entryReportProblems(body, localFileExists)...)
+	problems := JudgeExit(kind, body, false, func(int) bool { return true }, 0).Problems
+	if kind == ExitKindReport {
+		problems = append(problems, ArtReportProblems(notes, body, LocalFileExists)...)
+		problems = append(problems, ScopeReportProblems(notes, body)...)
+		problems = append(problems, GenericReportProblems(body)...)
+		problems = append(problems, EntryReportProblems(body, LocalFileExists)...)
 	}
 	problems = append(problems, SelfRouteProblems(body)...)
 	var blanks []string

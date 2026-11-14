@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #758: the open promises and the results that came back are listed from records — this bot's
@@ -18,13 +20,13 @@ func TestHandoffBlockListsOwedFromRecords(t *testing.T) {
 	board := strings.Join([]string{
 		`{"id":31,"what":"在做的活","short":"在做","sk":"discord:chat1","status":"在做"}`,
 	}, "\n") + "\n"
-	writeTaskBoard(t, dir, teamTaskBoardFile, board)
+	writeTaskBoard(t, dir, team.TaskBoardFile, board)
 	done := strings.Join([]string{
 		`{"id":21,"what":"查 wiki 提炼单","short":"查提炼单","sk":"discord:chat1","status":"完成"}`,
 		`{"id":22,"what":"早就交回的","short":"早交回","sk":"discord:chat1","status":"完成"}`,
 		`{"id":23,"what":"别的频道的","short":"别频道","sk":"discord:chat2","status":"完成"}`,
 	}, "\n") + "\n"
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, done)
+	writeTaskBoard(t, dir, team.TaskBoardDoneFile, done)
 
 	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
 		"old": {Path: "/x/old.jsonl", Tail: []HistoryEntry{{Role: "assistant", Content: "交给工作区了，查完带回来", Timestamp: last}}},
@@ -108,9 +110,9 @@ func TestHandoffReturnedLinesUseCurrentRound(t *testing.T) {
 	// #41 reworking now: round 1 returned 00:05, posted 00:08, rebound 00:20, not back yet.
 	// #42 round 1 posted 00:05, rebound 00:10, round 2 returned 00:30 and held for the lead.
 	// #43 a hold left from a bind the item no longer has.
-	writeTaskBoard(t, dir, teamTaskBoardFile,
+	writeTaskBoard(t, dir, team.TaskBoardFile,
 		`{"id":41,"what":"返工的活","short":"返工","sk":"discord:chat1","status":"在做","bound":"`+rfc(20*time.Minute)+`","returned_at":"`+rfc(5*time.Minute)+`"}`+"\n")
-	writeTaskBoard(t, dir, teamTaskBoardDoneFile, strings.Join([]string{
+	writeTaskBoard(t, dir, team.TaskBoardDoneFile, strings.Join([]string{
 		`{"id":41,"what":"返工的活","short":"返工","sk":"discord:chat1","status":"完成","bound":"` + rfc(-10*time.Minute) + `","returned_at":"` + rfc(5*time.Minute) + `"}`,
 		`{"id":42,"what":"二轮待验","short":"二轮","sk":"discord:chat1","status":"完成","bound":"` + rfc(-10*time.Minute) + `","returned_at":"` + rfc(3*time.Minute) + `"}`,
 		`{"id":42,"what":"二轮待验","short":"二轮","sk":"discord:chat1","status":"完成","bound":"` + rfc(10*time.Minute) + `","returned_at":"` + rfc(30*time.Minute) + `"}`,

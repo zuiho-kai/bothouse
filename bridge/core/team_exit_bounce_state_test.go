@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
+)
 
 // #1492 常识：没交到的不算交回。A report sent back for another route (要你做的 hands the user a
 // command) was recorded as returned first, so the repaired report got 「already returned」 and
@@ -14,7 +18,7 @@ func TestBouncedReportKeepsTheTaskInWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	bad := "[report] #9 背景：你让我装新包。\n做了什么：编好了\n要你做的：把新包拷到 /Applications 里替换一下\n我加的：无\n入口自验：\n```\nbuilt ok\n```"
-	res, err := e.WorkspaceExit(e.ctx, exitWSKey, exitKindReport, bad)
+	res, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, bad)
 	if err != nil {
 		t.Fatalf("bounced exit: %v", err)
 	}
@@ -22,7 +26,7 @@ func TestBouncedReportKeepsTheTaskInWork(t *testing.T) {
 		t.Fatalf("#9 after a bounced report = %+v (exit %+v), want still in work", task, res)
 	}
 	good := "[report] #9 背景：你让我装新包。\n做了什么：编好并装上了\n要你做的：没有。\n我加的：无\n入口自验：\n```\ninstalled ok\n```"
-	res, err = e.WorkspaceExit(e.ctx, exitWSKey, exitKindReport, good)
+	res, err = e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, good)
 	if err != nil {
 		t.Fatalf("the repaired report was refused: %v", err)
 	}

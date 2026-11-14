@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #1347: agentm's workspace reports went back 15 times (11-09/10); the repair turns mostly answered
@@ -40,7 +42,7 @@ func TestWorkspaceReportWithGapsGoesOnWithNote(t *testing.T) {
 		if err := os.WriteFile(notes, []byte("# 交接\n\n## 范围\n"+c.scope+"\n不改：不部署。\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), []byte(fmt.Sprintf("{\"id\":%d,\"what\":\"agentm 样本\",\"where\":%q,\"status\":\"在做\",\"who\":\"橘\"}\n", c.id, notes)), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), []byte(fmt.Sprintf("{\"id\":%d,\"what\":\"agentm 样本\",\"where\":%q,\"status\":\"在做\",\"who\":\"橘\"}\n", c.id, notes)), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		exitSay(e, p, exitWSKey, "ws1", "开工")
@@ -71,7 +73,7 @@ func TestWorkspaceReportWithGapsGoesOnWithNote(t *testing.T) {
 
 // The check's findings reach the acceptor: the lead's prompt names them, the user's parts do not.
 func TestLeadAcceptPromptCarriesCheck(t *testing.T) {
-	check := exitBounceNote([]string{"交接里这几项交回没提到：使用授权人 yangji"})
+	check := team.ExitBounceNote([]string{"交接里这几项交回没提到：使用授权人 yangji"})
 	got := leadAcceptPrompt(t.TempDir(), "<#1>", "橘", "[report] #33 背景：x\n做了\n要你做的：没有\n我加的：无", 33, "", "", check, "", 0)
 	if !strings.Contains(got, "系统核对没过") || !strings.Contains(got, "使用授权人 yangji") {
 		t.Fatalf("lead prompt lacks the check:\n%s", got)

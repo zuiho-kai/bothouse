@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // A user's reply to a task card or to a workspace report is about that work (user 10-29: the
@@ -113,7 +115,7 @@ func (e *Engine) openBoardIDs() map[int]bool {
 	if dir == "" {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, teamTaskBoardFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, team.TaskBoardFile)); err != nil {
 		return nil
 	}
 	open := map[int]bool{}

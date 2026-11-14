@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // A task the user stopped (board pause) sends nothing more to the chat channel: the turn that
@@ -28,7 +30,7 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 			dir := t.TempDir()
 			e.SetTeam(dir, "橘", false)
-			if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(c.item+"\n"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(c.item+"\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			e.forwardWorkspaceExit(p, exitWSKey, "[ask] #4 背景：你让我做这件事。\n能不能开子任务\n要你做的：没有。\n我加的：无\n自验：设计稿已写好\n类别：权限确认")
@@ -66,7 +68,7 @@ func TestStoppedJudgedByHeadlineID(t *testing.T) {
 			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 			dir := t.TempDir()
 			e.SetTeam(dir, "橘", false)
-			if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(board+"\n"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(board+"\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			e.forwardWorkspaceExit(p, exitWSKey, c.reply)

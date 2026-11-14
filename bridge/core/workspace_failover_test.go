@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	teampkg "github.com/chenhg5/cc-connect/core/team"
 )
 
 // routeTestEngine: an engine whose team board binds the given tasks (id → workspace, handoff).
@@ -31,7 +33,7 @@ func routeTestEngine(t *testing.T, items []teamTaskBoardItem) *Engine {
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	if err := os.WriteFile(filepath.Join(team, teamTaskBoardFile), []byte(b.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(team, teampkg.TaskBoardFile), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	e := &Engine{dataDir: t.TempDir(), team: &teamState{dir: team}}

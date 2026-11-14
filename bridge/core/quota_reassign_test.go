@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #1549 用户 2026-11-13「如果你指定的那个角色没额度了，可以换别人，而不用你在这傻等」。
@@ -153,7 +155,7 @@ func TestQuotaReassignStaleBoardTodoDoesNotBlock(t *testing.T) {
 	quotaReassignCool(engines["caihongmao"], until)
 	quotaReassignCool(engines["longniang"], until)
 	board := `{"id": 1243, "what": "纽约篇构思", "status": "待办：#1240 交完后开构思", "who": "鲸鱼娘", "ch": "chat", "sk": "discord:chat"}` + "\n"
-	if err := os.WriteFile(filepath.Join(engines["jingyu"].team.dir, teamTaskBoardFile), []byte(board), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(engines["jingyu"].team.dir, team.TaskBoardFile), []byte(board), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

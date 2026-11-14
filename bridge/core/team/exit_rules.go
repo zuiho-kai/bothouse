@@ -1,18 +1,13 @@
-package core
+package team
 
 import (
 	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
-)
 
-// teamExitRulesFile is the one copy of the workspace [ask]/[report] rules: first-line mark and #id
-// format, the [ask] self-check, bounce texts. The build copies it into the DSH plugin
-// (dsh/scripts/bundle.mjs); DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
-// cases in dsh/collab/test/team-exit-cases.json (TestTeamExitSharedCases; team-exit.test.mjs). No
-// formats or texts live here.
-const teamExitRulesFile = "team_rules/team-exit-rules.json"
+	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
+)
 
 type teamExitRulesDoc struct {
 	Kinds      []string `json:"kinds"`
@@ -116,13 +111,9 @@ type teamExitRules struct {
 	sentenceEnd                                                                        *regexp.Regexp
 }
 
-// exitRules is read once from the embedded file; a broken file fails every test that touches it.
-var exitRules = func() *teamExitRules {
-	b, err := teamRulesFS.ReadFile(teamExitRulesFile)
-	if err != nil {
-		panic("team exit rules: " + err.Error())
-	}
-	r, err := parseTeamExitRules(b)
+// ExitRules is read once from the embedded file (core/team_rules/team-exit-rules.json); a broken file fails every test that touches it.
+var ExitRules = func() *teamExitRules {
+	r, err := parseTeamExitRules(teamrules.ExitRules)
 	if err != nil {
 		panic("team exit rules: " + err.Error())
 	}
@@ -163,11 +154,11 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 	return r, nil
 }
 
-// parseExitKind reads an [ask] / [report] marker on the reply's first line.
-func parseExitKind(text string) (kind, body string, ok bool) {
+// ParseExitKind reads an [ask] / [report] marker on the reply's first line.
+func ParseExitKind(text string) (kind, body string, ok bool) {
 	t := strings.TrimLeft(text, " \t\r\n")
-	for _, k := range exitRules.Kinds {
-		tag := strings.ReplaceAll(exitRules.Mark, "{kind}", k)
+	for _, k := range ExitRules.Kinds {
+		tag := strings.ReplaceAll(ExitRules.Mark, "{kind}", k)
 		if len(t) >= len(tag) && strings.EqualFold(t[:len(tag)], tag) {
 			body = strings.TrimSpace(t[len(tag):])
 			if body == "" {
@@ -179,33 +170,33 @@ func parseExitKind(text string) (kind, body string, ok bool) {
 	return "", "", false
 }
 
-// exitHeadline reads body's first line board id and the part for the user after it (exitSplit).
-func exitHeadline(body string) (id int, line string, problems []string) {
+// ExitHeadline reads body's first line board id and the part for the user after it (ExitSplit).
+func ExitHeadline(body string) (id int, line string, problems []string) {
 	first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
-	m := exitRules.headline.FindStringSubmatch(first)
+	m := ExitRules.headline.FindStringSubmatch(first)
 	if m == nil {
-		problems = append(problems, exitRules.Headline.MissingID)
+		problems = append(problems, ExitRules.Headline.MissingID)
 		if first == "" || strings.HasPrefix(first, "#") {
-			problems = append(problems, exitRules.Headline.MissingLine)
+			problems = append(problems, ExitRules.Headline.MissingLine)
 		}
 		return 0, "", problems
 	}
 	id, _ = strconv.Atoi(m[1])
-	line, _ = exitSplit(body)
+	line, _ = ExitSplit(body)
 	if line == "" {
-		problems = append(problems, exitRules.Headline.MissingLine)
+		problems = append(problems, ExitRules.Headline.MissingLine)
 	}
 	return id, line, problems
 }
 
-// exitSplit splits a marked body, after its first line's #id, into the part posted for the user
+// ExitSplit splits a marked body, after its first line's #id, into the part posted for the user
 // (background, what was done, what the user is to do, what the agent added on its own: up to and
 // including the 「我加的：」 line, else the 「要你做的：」 line) and the details after it, which go under that post (user 10-30 「太多事我都忘记了。背景，例如复盘
 // 问题12345有什么xxx，我做了125 xxx，已经上线了」; 10-30 「别忘了你自己加的东西，那个很重要」). Without either line the part for the user is the
 // first paragraph. A 「细节：」 line opening the details only separates them and is dropped.
-func exitSplit(body string) (summary, detail string) {
+func ExitSplit(body string) (summary, detail string) {
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
-	if m := exitRules.headline.FindStringSubmatch(strings.TrimSpace(lines[0])); m != nil {
+	if m := ExitRules.headline.FindStringSubmatch(strings.TrimSpace(lines[0])); m != nil {
 		lines[0] = m[2]
 	}
 	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
@@ -213,13 +204,13 @@ func exitSplit(body string) (summary, detail string) {
 	}
 	end := -1
 	for i, l := range lines {
-		if exitRules.todo.MatchString(l) {
+		if ExitRules.todo.MatchString(l) {
 			end = i
 			break
 		}
 	}
 	for i := end + 1; end >= 0 && i < len(lines); i++ {
-		if exitRules.added.MatchString(lines[i]) {
+		if ExitRules.added.MatchString(lines[i]) {
 			end = i
 			break
 		}
@@ -238,7 +229,7 @@ func exitSplit(body string) (summary, detail string) {
 	for len(rest) > 0 && strings.TrimSpace(rest[0]) == "" {
 		rest = rest[1:]
 	}
-	if len(rest) > 0 && exitRules.detail.MatchString(strings.TrimSpace(rest[0])) {
+	if len(rest) > 0 && ExitRules.detail.MatchString(strings.TrimSpace(rest[0])) {
 		rest = rest[1:]
 	}
 	return summary, strings.TrimSpace(strings.Join(rest, "\n"))
@@ -249,12 +240,12 @@ func exitSplit(body string) (summary, detail string) {
 func summaryProblems(summary string) []string {
 	lines := strings.Split(summary, "\n")
 	var problems []string
-	if !exitRules.background.MatchString(strings.TrimSpace(lines[0])) {
-		problems = append(problems, exitRules.Summary.MissingBackground)
+	if !ExitRules.background.MatchString(strings.TrimSpace(lines[0])) {
+		problems = append(problems, ExitRules.Summary.MissingBackground)
 	}
 	todo := -1
 	for i, l := range lines {
-		if exitRules.todo.MatchString(l) {
+		if ExitRules.todo.MatchString(l) {
 			todo = i
 			break
 		}
@@ -263,35 +254,35 @@ func summaryProblems(summary string) []string {
 	for i := 1; i < len(lines) && !done; i++ {
 		l := lines[i]
 		if i == todo {
-			l = l[:exitRules.todo.FindStringIndex(l)[0]]
+			l = l[:ExitRules.todo.FindStringIndex(l)[0]]
 		} else if todo >= 0 && i > todo {
 			break
 		}
 		done = strings.TrimSpace(l) != ""
 	}
 	if !done {
-		problems = append(problems, exitRules.Summary.MissingDone)
+		problems = append(problems, ExitRules.Summary.MissingDone)
 	}
 	if todo < 0 {
-		problems = append(problems, exitRules.Summary.MissingTodo)
+		problems = append(problems, ExitRules.Summary.MissingTodo)
 	}
 	added := false
 	for _, l := range lines {
-		added = added || exitRules.added.MatchString(l)
+		added = added || ExitRules.added.MatchString(l)
 	}
 	if !added {
-		problems = append(problems, exitRules.Summary.MissingAdded)
+		problems = append(problems, ExitRules.Summary.MissingAdded)
 	}
 	return problems
 }
 
-// lengthProblems: a part for the user over the sentence limit (user 11-10「为什么回复那么长」「把这个太长也
+// LengthProblems: a part for the user over the sentence limit (user 11-10「为什么回复那么长」「把这个太长也
 // 处理一下」: a 6–7 sentence 背景/做了什么 reached the chat channel as written). It goes back to be
 // rewritten, never cut. Parts: line 0 背景; then 做了什么 up to the 「要你做的：」 match; 要你做的 up to the
 // 「我加的：」 line; 我加的 to the end.
-func lengthProblems(summary string) []string {
-	max := exitRules.Length.MaxSentences
-	if max <= 0 || len(exitRules.Length.Parts) < 4 {
+func LengthProblems(summary string) []string {
+	max := ExitRules.Length.MaxSentences
+	if max <= 0 || len(ExitRules.Length.Parts) < 4 {
 		return nil
 	}
 	texts := make([]string, 4)
@@ -301,12 +292,12 @@ func lengthProblems(summary string) []string {
 			part = 1
 		}
 		if part < 2 {
-			if loc := exitRules.todo.FindStringIndex(l); loc != nil {
+			if loc := ExitRules.todo.FindStringIndex(l); loc != nil {
 				texts[part] += " " + l[:loc[0]]
 				part, l = 2, l[loc[0]:]
 			}
 		}
-		if part < 3 && exitRules.added.MatchString(l) {
+		if part < 3 && ExitRules.added.MatchString(l) {
 			part = 3
 		}
 		texts[part] += " " + l
@@ -314,8 +305,8 @@ func lengthProblems(summary string) []string {
 	var problems []string
 	for i, t := range texts {
 		if n := sentenceCount(t); n > max {
-			problems = append(problems, strings.NewReplacer("{part}", exitRules.Length.Parts[i],
-				"{n}", strconv.Itoa(n), "{max}", strconv.Itoa(max)).Replace(exitRules.Length.Msg))
+			problems = append(problems, strings.NewReplacer("{part}", ExitRules.Length.Parts[i],
+				"{n}", strconv.Itoa(n), "{max}", strconv.Itoa(max)).Replace(ExitRules.Length.Msg))
 		}
 	}
 	return problems
@@ -324,7 +315,7 @@ func lengthProblems(summary string) []string {
 // sentenceCount: sentences in s, split at sentence ends; a tail with no end counts as one.
 func sentenceCount(s string) int {
 	n := 0
-	for _, seg := range exitRules.sentenceEnd.Split(s, -1) {
+	for _, seg := range ExitRules.sentenceEnd.Split(s, -1) {
 		if strings.TrimSpace(seg) != "" {
 			n++
 		}
@@ -332,60 +323,60 @@ func sentenceCount(s string) int {
 	return n
 }
 
-// askEvidenceProblems lists what an [ask] body lacks; nil means it may go to the user.
-func askEvidenceProblems(body string) []string {
+// AskEvidenceProblems lists what an [ask] body lacks; nil means it may go to the user.
+func AskEvidenceProblems(body string) []string {
 	var problems []string
 	cat := ""
-	if loc := exitRules.category.FindStringIndex(body); loc != nil {
+	if loc := ExitRules.category.FindStringIndex(body); loc != nil {
 		cat = strings.TrimSpace(strings.SplitN(body[loc[1]:], "\n", 2)[0])
 	}
 	check := ""
-	if loc := exitRules.selfCheck.FindStringIndex(body); loc != nil {
+	if loc := ExitRules.selfCheck.FindStringIndex(body); loc != nil {
 		rest := body[loc[1]:]
-		if next := exitRules.category.FindStringIndex(rest); next != nil {
+		if next := ExitRules.category.FindStringIndex(rest); next != nil {
 			rest = rest[:next[0]]
 		}
 		check = strings.TrimSpace(rest)
 	}
 	if check == "" {
-		problems = append(problems, exitRules.Ask.MissingSelfCheck)
+		problems = append(problems, ExitRules.Ask.MissingSelfCheck)
 	}
 	if cat == "" {
-		problems = append(problems, exitRules.Ask.MissingCategory)
+		problems = append(problems, ExitRules.Ask.MissingCategory)
 	}
-	if check != "" && cat != "" && exitRules.noCheck.MatchString(check) && !exitRules.exempt.MatchString(cat) {
-		problems = append(problems, exitRules.Ask.NoCheckNotExempt)
+	if check != "" && cat != "" && ExitRules.noCheck.MatchString(check) && !ExitRules.exempt.MatchString(cat) {
+		problems = append(problems, ExitRules.Ask.NoCheckNotExempt)
 	}
 	return problems
 }
 
-// artReportProblems lists what a [report] on image work lacks: image work is a task whose handoff
+// ArtReportProblems lists what a [report] on image work lacks: image work is a task whose handoff
 // notes list reference images (handoff-rules.json art_ref makes image handoffs list them); its
 // report must name a side-by-side image of the references and the result, and a local one must
 // exist. notes is the handoff text ("" when there is none: nothing to check).
-func artReportProblems(notes, body string, exists func(string) bool) []string {
-	if notes == "" || !exitRules.artNotes.MatchString(notes) {
+func ArtReportProblems(notes, body string, exists func(string) bool) []string {
+	if notes == "" || !ExitRules.artNotes.MatchString(notes) {
 		return nil
 	}
-	for _, m := range exitRules.artCompare.FindAllStringSubmatch(body, -1) {
+	for _, m := range ExitRules.artCompare.FindAllStringSubmatch(body, -1) {
 		path := strings.Trim(m[1], "`'\"「」<>()（）")
-		if !exitRules.artImage.MatchString(path) {
+		if !ExitRules.artImage.MatchString(path) {
 			continue
 		}
 		if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") || exists(path) {
 			return nil
 		}
-		return []string{strings.ReplaceAll(exitRules.Art.MissingFile, "{path}", path)}
+		return []string{strings.ReplaceAll(ExitRules.Art.MissingFile, "{path}", path)}
 	}
-	return []string{exitRules.Art.MissingCompare}
+	return []string{ExitRules.Art.MissingCompare}
 }
 
-// scopeReportProblems: a [report] that mentions none of the handoff's 「## 范围」「改」 items
+// ScopeReportProblems: a [report] that mentions none of the handoff's 「## 范围」「改」 items
 // anywhere (summary and details) goes back naming them (user 11-01 「我们要提取优秀基因，但是也要
 // 对我们的错误进行一个深刻的检讨和规避」: a handoff item was not done and nobody noticed on return).
 // Each item's key is its text up to the first punctuation, at most key_runes runes; it and the
 // body are compared without whitespace, case-folded. notes "" or no 改 items: nothing to check.
-func scopeReportProblems(notes, body string) []string {
+func ScopeReportProblems(notes, body string) []string {
 	norm := func(s string) string {
 		return strings.ToLower(strings.Join(strings.Fields(s), ""))
 	}
@@ -399,7 +390,7 @@ func scopeReportProblems(notes, body string) []string {
 	if missing == nil {
 		return nil
 	}
-	return []string{strings.ReplaceAll(exitRules.Scope.Missing, "{items}", strings.Join(missing, exitRules.Scope.Sep))}
+	return []string{strings.ReplaceAll(ExitRules.Scope.Missing, "{items}", strings.Join(missing, ExitRules.Scope.Sep))}
 }
 
 // scopeItem is one 「改」 item of a handoff's 「## 范围」: Text as written after 「改：」, Key what a
@@ -412,41 +403,41 @@ func scopeChangeItems(notes string) []scopeItem {
 	in := false
 	for _, ln := range strings.Split(strings.ReplaceAll(notes, "\r\n", "\n"), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(ln), "#") {
-			in = exitRules.scopeSection.MatchString(strings.TrimSpace(ln))
+			in = ExitRules.scopeSection.MatchString(strings.TrimSpace(ln))
 			continue
 		}
-		m := exitRules.scopeItem.FindStringSubmatch(ln)
+		m := ExitRules.scopeItem.FindStringSubmatch(ln)
 		if !in || m == nil {
 			continue
 		}
 		key := m[2]
-		if loc := exitRules.scopeKeyStop.FindStringIndex(key); loc != nil {
+		if loc := ExitRules.scopeKeyStop.FindStringIndex(key); loc != nil {
 			key = key[:loc[0]]
 		}
-		key = strings.TrimSpace(strings.Trim(strings.TrimSpace(key), exitRules.Scope.KeyTrim))
-		if r := []rune(key); exitRules.Scope.KeyRunes > 0 && len(r) > exitRules.Scope.KeyRunes {
-			key = string(r[:exitRules.Scope.KeyRunes])
+		key = strings.TrimSpace(strings.Trim(strings.TrimSpace(key), ExitRules.Scope.KeyTrim))
+		if r := []rune(key); ExitRules.Scope.KeyRunes > 0 && len(r) > ExitRules.Scope.KeyRunes {
+			key = string(r[:ExitRules.Scope.KeyRunes])
 		}
 		items = append(items, scopeItem{Text: strings.TrimSpace(m[2]), Key: key})
 	}
 	return items
 }
 
-// entryReportProblems: a [report] must carry evidence that the work was walked through where the
+// EntryReportProblems: a [report] must carry evidence that the work was walked through where the
 // user actually uses it (user 11-10 「都做」 on 「交回前必须在你实际用的入口走一遍并带证据，没有就交不出去」).
 // The evidence is on a 「入口自验：」 line or the lines right after it (up to a blank line, a fenced
 // block that opens there runs to its close): a screenshot / recording / deliverable path (local
 // ones must exist), a link, or command output in a ``` block. A bare 「已验」 is not evidence. A
 // report waiting on something outside (「等外部：」) has not delivered yet and is not checked.
-func entryReportProblems(body string, exists func(string) bool) []string {
-	if _, _, waiting := waitExternalOf(body); waiting {
+func EntryReportProblems(body string, exists func(string) bool) []string {
+	if _, _, waiting := WaitExternalOf(body); waiting {
 		return nil
 	}
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 	found := false
 	var missing []string
 	for i := 0; i < len(lines); i++ {
-		loc := exitRules.entryLabel.FindStringIndex(lines[i])
+		loc := ExitRules.entryLabel.FindStringIndex(lines[i])
 		if loc == nil {
 			continue
 		}
@@ -461,18 +452,18 @@ func entryReportProblems(body string, exists func(string) bool) []string {
 				fence = !fence
 				continue
 			}
-			if !fence && (t == "" || exitRules.entryLabel.MatchString(lines[j])) {
+			if !fence && (t == "" || ExitRules.entryLabel.MatchString(lines[j])) {
 				break
 			}
 			block = append(block, lines[j])
 		}
 		for _, ln := range block {
-			if exitRules.entryURL.MatchString(ln) {
+			if ExitRules.entryURL.MatchString(ln) {
 				found = true
 			}
-			for _, p := range exitRules.entryPath.FindAllString(exitRules.entryURL.ReplaceAllString(ln, " "), -1) {
+			for _, p := range ExitRules.entryPath.FindAllString(ExitRules.entryURL.ReplaceAllString(ln, " "), -1) {
 				p = strings.TrimRight(p, ".:：。")
-				if !exitRules.entryFile.MatchString(p) {
+				if !ExitRules.entryFile.MatchString(p) {
 					continue
 				}
 				if exists(p) {
@@ -484,26 +475,26 @@ func entryReportProblems(body string, exists func(string) bool) []string {
 		}
 	}
 	if len(missing) > 0 {
-		return []string{strings.ReplaceAll(exitRules.Entry.MissingFile, "{path}", missing[0])}
+		return []string{strings.ReplaceAll(ExitRules.Entry.MissingFile, "{path}", missing[0])}
 	}
 	if !found {
-		return []string{exitRules.Entry.Missing}
+		return []string{ExitRules.Entry.Missing}
 	}
 	return nil
 }
 
-// genericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for
+// GenericReportProblems: a [report] whose 「我加的：」 line says a product capability was made for
 // Claude Code only (只给/只装/只做/仅 Claude Code or cc) goes back unless the same line gives a
 // 「来源：」 for why another CLI cannot have it (task #875: bothouse capabilities must work on every CLI).
-func genericReportProblems(body string) []string {
+func GenericReportProblems(body string) []string {
 	for _, ln := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
-		loc := exitRules.added.FindStringIndex(ln)
+		loc := ExitRules.added.FindStringIndex(ln)
 		if loc == nil {
 			continue
 		}
 		rest := ln[loc[1]:]
-		if hit := exitRules.ccOnly.FindString(rest); hit != "" && !exitRules.ccSource.MatchString(rest) {
-			return []string{strings.ReplaceAll(exitRules.Generic.Msg, "{hit}", strings.TrimSpace(hit))}
+		if hit := ExitRules.ccOnly.FindString(rest); hit != "" && !ExitRules.ccSource.MatchString(rest) {
+			return []string{strings.ReplaceAll(ExitRules.Generic.Msg, "{hit}", strings.TrimSpace(hit))}
 		}
 	}
 	return nil
@@ -517,7 +508,7 @@ func genericReportProblems(body string) []string {
 // paying, hands on hardware) pass. nil: nothing to send back.
 func SelfRouteProblems(body string) []string {
 	if hit := selfRouteHit(body); hit != "" {
-		return []string{strings.ReplaceAll(exitRules.SelfRoute.Msg, "{hit}", hit)}
+		return []string{strings.ReplaceAll(ExitRules.SelfRoute.Msg, "{hit}", hit)}
 	}
 	return nil
 }
@@ -527,9 +518,9 @@ func SelfRouteProblems(body string) []string {
 // something of the reader (「请把……」「你先……」) is checked the same way.
 func selfRouteHit(body string) string {
 	body = strings.ReplaceAll(body, "\r\n", "\n")
-	if exitRules.srTodo.FindStringIndex(body) == nil {
+	if ExitRules.srTodo.FindStringIndex(body) == nil {
 		for _, ln := range strings.Split(body, "\n") {
-			if exitRules.srAskLine.MatchString(ln) {
+			if ExitRules.srAskLine.MatchString(ln) {
 				if hit := handHit(ln); hit != "" {
 					return hit
 				}
@@ -538,18 +529,18 @@ func selfRouteHit(body string) string {
 		return ""
 	}
 	for {
-		loc := exitRules.srTodo.FindStringIndex(body)
+		loc := ExitRules.srTodo.FindStringIndex(body)
 		if loc == nil {
 			return ""
 		}
 		body = body[loc[1]:]
 		first, more, _ := strings.Cut(body, "\n")
-		if exitRules.srNone.MatchString(first) {
+		if ExitRules.srNone.MatchString(first) {
 			continue
 		}
 		part := []string{first}
 		for _, ln := range strings.Split(more, "\n") {
-			if exitRules.srEnd.MatchString(ln) {
+			if ExitRules.srEnd.MatchString(ln) {
 				break
 			}
 			part = append(part, ln)
@@ -564,30 +555,30 @@ func selfRouteHit(body string) string {
 // phrase after 「我就/我再/我来……」 is the agent's own next step, not the user's (11-07 「回「发」我就合主干……
 // 再实装一次」); one right after 「不用/无需/别」 is negated (10-31 「接上就生效，不用再重启」).
 func handHit(s string) string {
-	if exitRules.srOnlyUser.MatchString(s) {
+	if ExitRules.srOnlyUser.MatchString(s) {
 		return ""
 	}
-	for _, loc := range exitRules.srHand.FindAllStringIndex(s, -1) {
-		if pre := s[:loc[0]]; !exitRules.srMine.MatchString(pre) && !exitRules.srNeg.MatchString(pre) {
+	for _, loc := range ExitRules.srHand.FindAllStringIndex(s, -1) {
+		if pre := s[:loc[0]]; !ExitRules.srMine.MatchString(pre) && !ExitRules.srNeg.MatchString(pre) {
 			return strings.TrimSpace(s[loc[0]:loc[1]])
 		}
 	}
 	return ""
 }
 
-// jargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
+// JargonProblems: the part for the user names board/PR numbers, workspaces, branches, paths or
 // code identifiers, or holds a table (user 10-30 复盘「汇报堆编号、表格、工作区代号，要追问才知道进度」).
-func jargonProblems(line string) []string {
+func JargonProblems(line string) []string {
 	var problems []string
 	var hits []string
-	for _, m := range exitRules.jargonLine.FindAllString(exitRules.jargonURL.ReplaceAllString(line, " "), -1) {
+	for _, m := range ExitRules.jargonLine.FindAllString(ExitRules.jargonURL.ReplaceAllString(line, " "), -1) {
 		hits = append(hits, strings.TrimLeftFunc(m, jargonLead))
 	}
 	if len(hits) > 0 {
-		problems = append(problems, strings.ReplaceAll(exitRules.Jargon.Line, "{hits}", strings.Join(hits, "、")))
+		problems = append(problems, strings.ReplaceAll(ExitRules.Jargon.Line, "{hits}", strings.Join(hits, "、")))
 	}
-	if exitRules.jargonTable.MatchString(line) {
-		problems = append(problems, exitRules.Jargon.Table)
+	if ExitRules.jargonTable.MatchString(line) {
+		problems = append(problems, ExitRules.Jargon.Table)
 	}
 	return problems
 }
@@ -598,42 +589,42 @@ func jargonLead(r rune) bool {
 		r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')) && r != '＃' && r != '！' && r != '工'
 }
 
-// exitBounceText: why a workspace [ask]/[report] stayed in the workspace and how to resend it.
-func exitBounceText(kind string, problems []string) string {
+// ExitBounceText: why a workspace [ask]/[report] stayed in the workspace and how to resend it.
+func ExitBounceText(kind string, problems []string) string {
 	return strings.NewReplacer(
 		"{kind}", kind,
-		"{problems}", strings.Join(problems, exitRules.Bounce.Sep),
-		"{extra}", exitRules.Bounce.Extra[kind],
-	).Replace(exitRules.Bounce.Text)
+		"{problems}", strings.Join(problems, ExitRules.Bounce.Sep),
+		"{extra}", ExitRules.Bounce.Extra[kind],
+	).Replace(ExitRules.Bounce.Text)
 }
 
-// exitVerdict is how a marked workspace reply is judged.
-type exitVerdict struct {
+// ExitVerdict is how a marked workspace reply is judged.
+type ExitVerdict struct {
 	ID       int      // the first line's board id (0 when it has none)
-	Line     string   // the part for the user after the id (exitSplit)
+	Line     string   // the part for the user after the id (ExitSplit)
 	Problems []string // why it goes back to the workspace; nil: it goes to the chat channel
 	Legacy   bool     // the format is still wrong but bounces stopped waking the bot: the chat lead rewrites it
 }
 
-// judgeExit judges a marked reply's body. auto: the reply had no mark (an unmarked turn end
+// JudgeExit judges a marked reply's body. auto: the reply had no mark (an unmarked turn end
 // answering a handoff). known reports whether a board id is on the board; bounces is how many
 // replies in a row went back already.
-func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) exitVerdict {
-	var v exitVerdict
-	if kind == exitKindAsk {
-		v.Problems = askEvidenceProblems(body)
+func JudgeExit(kind, body string, auto bool, known func(int) bool, bounces int) ExitVerdict {
+	var v ExitVerdict
+	if kind == ExitKindAsk {
+		v.Problems = AskEvidenceProblems(body)
 	}
 	var hp []string
 	if auto {
-		hp = []string{exitRules.Headline.MissingMarker}
-	} else if v.ID, v.Line, hp = exitHeadline(body); hp == nil && !known(v.ID) {
-		hp = []string{strings.ReplaceAll(exitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
+		hp = []string{ExitRules.Headline.MissingMarker}
+	} else if v.ID, v.Line, hp = ExitHeadline(body); hp == nil && !known(v.ID) {
+		hp = []string{strings.ReplaceAll(ExitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
 	} else if hp == nil {
-		hp = append(append(summaryProblems(v.Line), jargonProblems(v.Line)...), lengthProblems(v.Line)...)
+		hp = append(append(summaryProblems(v.Line), JargonProblems(v.Line)...), LengthProblems(v.Line)...)
 	}
 	// Format goes back only while bounces still wake the bot; after that the chat lead rewrites it
 	// (user 10-30: not posted as written any more). A missing [ask] self-check always goes back.
-	if hp != nil && v.Problems == nil && bounces >= exitRules.Bounce.WakeLimit {
+	if hp != nil && v.Problems == nil && bounces >= ExitRules.Bounce.WakeLimit {
 		v.Legacy = true
 	} else {
 		v.Problems = append(v.Problems, hp...)
@@ -641,17 +632,17 @@ func judgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 	return v
 }
 
-// exitTaskCand is a task a workspace reply may be about: here when it is bound to that workspace,
+// ExitTaskCand is a task a workspace reply may be about: here when it is bound to that workspace,
 // bound when it was bound (compared as written).
-type exitTaskCand struct {
+type ExitTaskCand struct {
 	ID    int
 	Here  bool
 	Bound string
 }
 
-// exitTaskPick is the task a workspace reply is about: the one its first line names when that one
+// ExitTaskPick is the task a workspace reply is about: the one its first line names when that one
 // is bound to this workspace, else the one bound here last; 0 when none is here.
-func exitTaskPick(named int, items []exitTaskCand) int {
+func ExitTaskPick(named int, items []ExitTaskCand) int {
 	pick, last := 0, ""
 	for _, it := range items {
 		if !it.Here {
@@ -667,8 +658,8 @@ func exitTaskPick(named int, items []exitTaskCand) int {
 	return pick
 }
 
-// exitBounceNote is what goes with an answer forwarded although the check found problems (no
+// ExitBounceNote is what goes with an answer forwarded although the check found problems (no
 // repair turn could follow the bounce): the user sees the answer and what it lacks.
-func exitBounceNote(problems []string) string {
-	return "（系统核对：" + strings.Join(problems, exitRules.Bounce.Sep) + "）"
+func ExitBounceNote(problems []string) string {
+	return "（系统核对：" + strings.Join(problems, ExitRules.Bounce.Sep) + "）"
 }

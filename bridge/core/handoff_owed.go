@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // What a swapped-out context still owes, or what came back for it, read from the bridge's records and
@@ -147,7 +149,7 @@ func currentTeamTaskBoardItems(dir string) []teamTaskBoardItem {
 	for _, it := range items {
 		have[it.ID] = true
 	}
-	done := readTeamTaskBoardFile(dir, teamTaskBoardDoneFile)
+	done := readTeamTaskBoardFile(dir, team.TaskBoardDoneFile)
 	var older []teamTaskBoardItem
 	for i := len(done) - 1; i >= 0; i-- {
 		if !have[done[i].ID] {

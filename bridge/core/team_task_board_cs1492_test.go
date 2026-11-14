@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #1492 用户 11-12「带基本常识梳理一下，现在vibe code，太多这种傻逼东西了，和我想的不一样」：
@@ -87,7 +89,7 @@ func TestCS1492OpenHandoffDoesNotOverrideBoard(t *testing.T) {
 	e.SetDataDir(t.TempDir())
 	boardDir := t.TempDir()
 	e.SetTeam(boardDir, "橘", true)
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardDoneFile), []byte(
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardDoneFile), []byte(
 		`{"id":8,"what":"已做完的活","status":"完成","done_at":"11-12 11:00"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

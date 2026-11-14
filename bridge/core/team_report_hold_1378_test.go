@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #1378: a held report whose task the lead closed or handed on, or a progress report on a task
@@ -35,7 +37,7 @@ func TestHeldReportDroppedWhenItemClosedAfterHold(t *testing.T) {
 	done.DoneAt, done.Status = "11-10 17:38", "已完成"
 	b, _ := json.Marshal(done)
 	writeReviewBoard(t, e)
-	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardDoneFile), append(b, '\n'), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardDoneFile), append(b, '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
 	e.recoverPendingReports(true)
@@ -58,7 +60,7 @@ func TestHeldReportClosedBeforeHoldStillPosts(t *testing.T) {
 	key := e.heldReportFor(46).Key
 	b, _ := json.Marshal(*item)
 	writeReviewBoard(t, e)
-	_ = os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardDoneFile), append(b, '\n'), 0600)
+	_ = os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardDoneFile), append(b, '\n'), 0600)
 	expireHeld(t, e, key)
 	e.recoverPendingReports(true)
 	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], leadUncheckedMark) {
@@ -161,7 +163,7 @@ func TestHeldReportKeptWhenHandbackClosesItem(t *testing.T) {
 	done.DoneAt, done.Status, done.ReturnedAt = "11-10 18:32", "已完成", time.Now()
 	b, _ := json.Marshal(done)
 	writeReviewBoard(t, e)
-	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardDoneFile), append(b, '\n'), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardDoneFile), append(b, '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
 	e.recoverPendingReports(true)
