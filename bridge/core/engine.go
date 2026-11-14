@@ -3643,6 +3643,9 @@ func (e *Engine) SetPaused(v bool) {
 }
 
 func (e *Engine) handleMessage(p Platform, msg *Message) {
+	if msg.TaskForum != nil && !e.prepareTaskForumReply(p, msg) {
+		return
+	}
 	if err := e.checkTurnAuthorization(msg.authorization, "task.resume"); err != nil {
 		slog.Warn("message authorization denied", "error", err)
 		return
@@ -3664,7 +3667,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		// lead-only board/workspace services before handling the next message.
 		e.setDynamicTeamLead(e.isTeamLead())
 	}
-	if msg.authorization == nil {
+	if msg.authorization == nil && msg.TaskForum == nil {
 		// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
 		if e.routeWorkspaceAnswer(p, msg) {
 			return
@@ -3682,7 +3685,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
 	// A stop word that calls no bot (no @, no reply) means the same.
-	if !msg.FromBot && len(msg.Images) == 0 && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg)) {
+	if msg.TaskForum == nil && !msg.FromBot && len(msg.Images) == 0 && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg)) {
 		e.cmdStopAll(p, msg)
 		return
 	}
@@ -3961,7 +3964,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if msg.Direct {
 		sessions.MarkDirect(msg.SessionKey)
 	}
-	if e.applyGate(p, msg, session, interactiveKey) {
+	if msg.TaskForum == nil && e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
 	if e.nativeCompactRejectsUser(interactiveKey) {
