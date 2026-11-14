@@ -1648,19 +1648,26 @@ def auto_prune(dry=False, now=None, check_pr=True, skip=()):
 
 
 def unprune(nid):
-    """resume 找回自动收起的条目：board-done.jsonl 里这个编号最后一条是 auto_pruned 的，拿回板上（照旧暂停着）。
-    手动 done 的不找回。返回放回的条目，没有返回 None。"""
+    """resume 从完成记录找回这个编号最后一条（含已验收完成），先拿回暂停态，再沿原流程恢复。
+    保留原编号、帖子和交接信息。返回放回的条目，没有返回 None。"""
     with _locked():
         if any(i.get("id") == nid for i in _read()):
             return None
         recs = _read("board-done.jsonl")
         k = next((k for k in range(len(recs) - 1, -1, -1) if recs[k].get("id") == nid), None)
-        if k is None or not recs[k].get("auto_pruned"):
+        if k is None:
             return None
+        completed = not recs[k].get("auto_pruned")
         rec = {x: v for x, v in recs.pop(k).items() if x not in ("done_at", "auto_pruned")}
         # 找回算一次更新（PR #457 审查第 4 条）：resume 接着被 reoccupy 拒绝时条目留在板上暂停着，不能下一条命令又按③收走
         rec["at"] = _now()
         rec["unpruned"] = True
+        if completed:
+            # #779：完成后的返工仍是原任务；上一轮的完成/交回状态不能带进本轮。
+            for key in ("review_accepted_at", "returned_at", "reviewer", "review_rejected"):
+                rec.pop(key, None)
+            rec["status"] = "待接续"
+            rec["paused"] = rec["at"]
         _write(recs, "board-done.jsonl")  # 同样的唯一临时名 + 重试（#257；原来所有进程共抢 .tmp）
         _write(_read() + [rec])
     return rec
@@ -1972,8 +1979,9 @@ def main(argv):
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
-            if unprune(nid):  # 自动收起的：先从完成记录拿回板上（还暂停着），再照常恢复
-                print(f"#{nid} 已从自动收起里找回")
+            restored = unprune(nid)  # 自动收起或已完成的：先拿回暂停态，再照常恢复
+            if restored:
+                print(f"#{nid} 已从{'完成记录' if restored.get('status') == '待接续' else '自动收起'}里找回")
             cur = next((i for i in items() if i["id"] == nid), None)
             in_queue = queued(nid)
             back = cur.get("ws_was") if not in_queue and cur and (cur.get("paused") or cur.get("backlog")) and WS_NAME_RE.match(cur.get("who") or "") else None
