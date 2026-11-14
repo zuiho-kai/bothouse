@@ -26,6 +26,8 @@ import (
 // The decision reads the handoff file only (no model call, so it costs nothing) and is
 // fixed per (workspace, handoff): one task never changes provider half-way.
 // A line 「执行路由：直接写」 or 「执行路由：拆开」 outside the quoted user words overrides it.
+// The route looks at size and checkability only. It does not guess privacy from words in the
+// handoff (user 11-14: every model here is an outside service, so that split meant nothing).
 
 const (
 	// routeCheapCtxTokens: local Qwen 27B context (lms load -c 131072, wiki qwen27b-worker).
@@ -55,10 +57,7 @@ const (
 
 var (
 	routeOverrideRe = regexp.MustCompile(`(?i)执行路由\s*[:：]\s*(直接写|拆开|DS|千问)`)
-	// #1455: a split task that must not leave this machine (the DS upstream is an outside
-	// service): secrets, private repositories, personal files.
-	routePrivateRe = regexp.MustCompile(`(?i)密钥|私钥|口令|密码|私有仓库|私有库|私密|隐私|password|secret|api[_ -]?key|credentials|服务器记录|\.env\b|keychain`)
-	routeToolRe    = regexp.MustCompile(`(?i)截图|录屏|浏览器|playwright|发帖|投稿|出片|成片|视频|生图|配音|部署|重启|发版|上线|下单`)
+	routeToolRe     = regexp.MustCompile(`(?i)截图|录屏|浏览器|playwright|发帖|投稿|出片|成片|视频|生图|配音|部署|重启|发版|上线|下单`)
 	// a mechanical check of the cheap model's work: tests, or for code the team merges on a
 	// passing build (user 10-26 「编译能过就合」) a compile
 	routeTestRe = regexp.MustCompile(`(?i)测试|单测|\btests?\b|pytest|go test|npm test|编译|go build|go vet|make build`)
@@ -78,7 +77,7 @@ type workspaceRoute struct {
 // is checked.
 const (
 	routeClassDS     = "ds"     // only DS can take it (too big for Qwen's context)
-	routeClassQwen   = "qwen"   // must stay on this machine (secrets, private code)
+	routeClassQwen   = "qwen"   // the handoff says 「执行路由：千问」
 	routeClassEither = "either" // both can; the default lane is DS, Qwen the fallback
 	routeLaneDS      = "ds"
 	routeLaneQwen    = "qwen"
@@ -373,21 +372,14 @@ func decideWorkspaceRoute(path string) workspaceRoute {
 	}
 	material := secs["范围"] + "\n" + secs["参照实现"] + "\n" + secs["总目标"]
 	total := routeMaterialTokens(material, text)
-	private := routePrivateRe.FindString(work)
 	if total+routeStartTokens > routeDSCtxTokens {
 		return workspaceRoute{reason: fmt.Sprintf("要读的文件约 %d token，加起步 %d 超过 DS 上下文 %d，塞不下，贵模型直接写", total, routeStartTokens, routeDSCtxTokens)}
 	}
 	if total+routeStartTokens > routeCheapSlotTokens {
-		if private != "" {
-			return workspaceRoute{reason: fmt.Sprintf("要读的文件约 %d token，本机千问塞不下，又涉及「%s」不能发给 DS，贵模型直接写", total, private)}
-		}
 		return workspaceRoute{cheap: true, class: routeClassDS, reason: fmt.Sprintf("要读的文件约 %d token，加起步超过本机千问每路上下文 %d（%d ÷ 并发 %d），只有 DS 塞得下，拆开走 DS", total, routeCheapSlotTokens, routeCheapCtxTokens, routeCheapParallel)}
 	}
 	if total <= routeSmallTokens {
 		return workspaceRoute{reason: fmt.Sprintf("活小（要读的文件约 %d token，不超过 #1435 小活的 %d），贵模型直接写；交本机做慢约七倍", total, routeSmallTokens)}
-	}
-	if private != "" {
-		return workspaceRoute{cheap: true, class: routeClassQwen, reason: fmt.Sprintf("活大（约 %d token）、有测试判对错，涉及「%s」不出本机，拆开走千问", total, private)}
 	}
 	return workspaceRoute{cheap: true, class: routeClassEither, reason: fmt.Sprintf("活大（要读的文件约 %d token）、有测试或编译判对错、两边都塞得下，拆开（DS、千问都行）", total)}
 }
