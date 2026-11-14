@@ -6449,7 +6449,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				// #699 C: a reply is not a handback; the workspace hands back with ws-up --report
 				// (WorkspaceExit), so nothing in this text is forwarded as a [report]/[ask].
 
-				e.watchTurnEnded(p, sessionKey, exitReplyText(event, fullResponse), len(toolsUsed) > 0, false, false, false, time.Time{})
+				e.watchTurnEnded(p, sessionKey, fullResponse, len(toolsUsed) > 0, false, false, false, time.Time{})
 
 				// Safety note: concurrent writes to session.History by the
 				// unsolicited reader and a foreground turn cannot overlap.

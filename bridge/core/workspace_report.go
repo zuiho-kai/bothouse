@@ -93,14 +93,13 @@ func (e *Engine) beginWorkspaceReportTurn(key string) {
 
 // finishWorkspaceReportTurn returns true when recovery owns this terminal
 // event, so the generic idle watcher cannot queue a duplicate continuation.
+// text is the turn's reply; it is only passed on as the workspace's last words (selfPauseFallback),
+// never read for a marker.
 func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	board := e.workspaceReportBoard(key)
-	kind, body, valid := parseExitKindTurn(text)
-	if valid && kind == exitKindAsk {
-		valid = askEvidenceProblems(body) == nil
-	}
-	// #1500: since #699 C the handback is the command (ws-up --report → WorkspaceExit), not the
-	// reply text, so a task the state already has handed back is delivered whatever the reply says.
+	// The handback is the command (ws-up --report → WorkspaceExit), never the reply text (#699 C,
+	// #1500): a turn delivered when the task's state says handed back, or WorkspaceExit ran in it.
+	valid := false
 	switch e.workspaceTaskStateAt(key) {
 	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
 		valid = true
