@@ -1977,7 +1977,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	content := job.Prompt
 	if check {
-		content += checkJobPromptNote
+		content += e.i18n.TPrompt(MsgPromptCheckJob)
 	}
 	if strings.HasPrefix(content, "/") {
 		parts := strings.Fields(content)
@@ -2323,7 +2323,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 
 	content := job.Prompt
 	if check {
-		content += checkJobPromptNote
+		content += e.i18n.TPrompt(MsgPromptCheckJob)
 	}
 	if strings.HasPrefix(content, "/") {
 		parts := strings.Fields(content)
