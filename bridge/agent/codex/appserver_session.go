@@ -94,6 +94,34 @@ type errorNotification struct {
 	Message   string `json:"message"`
 }
 
+// classify reads codexErrorInfo: a bare name ("unauthorized") or an object with one key whose
+// value may carry the upstream status ({"responseStreamDisconnected":{"httpStatusCode":502}}).
+// Names it does not know give ("", 0) and the bridge falls back to the message text.
+func (n errorNotification) classify() (core.ErrorKind, int) {
+	if n.Error == nil || len(n.Error.CodexErrorInfo) == 0 {
+		return "", 0
+	}
+	name, status := "", 0
+	var obj map[string]struct {
+		HTTPStatusCode int `json:"httpStatusCode"`
+	}
+	if json.Unmarshal(n.Error.CodexErrorInfo, &name) != nil && json.Unmarshal(n.Error.CodexErrorInfo, &obj) == nil {
+		for k, v := range obj {
+			name, status = k, v.HTTPStatusCode
+		}
+	}
+	if status != 0 {
+		return "", status // the status decides (429 / 5xx / 4xx)
+	}
+	switch name {
+	case "httpConnectionFailed", "responseStreamConnectionFailed", "responseStreamDisconnected", "internalServerError", "serverOverloaded":
+		return core.ErrorKindTransient, 0
+	case "unauthorized", "badRequest", "contextWindowExceeded", "sandboxError":
+		return core.ErrorKindPermanent, 0
+	}
+	return "", 0
+}
+
 // codexQuotaResetRe captures the reset time in codex's usage-limit message.
 // Source: app-server `error` notification seen from codex,
 // {"error":{"message":"You've hit your usage limit. Try again at 4:13 AM.",
@@ -1419,7 +1447,8 @@ func (s *appServerSession) handleNotification(method string, paramsRaw json.RawM
 			s.failRunningTurnWith(msg, core.WithQuotaExhausted(nil, reset))
 			return
 		}
-		s.failRunningTurn(msg)
+		kind, status := notif.classify()
+		s.failRunningTurnAs(msg, nil, kind, status)
 	}
 }
 
@@ -1955,6 +1984,12 @@ func (s *appServerSession) failRunningTurn(reason string) {
 // failRunningTurnWith is failRunningTurn with event metadata (e.g. the
 // quota-exhausted mark) on the error event.
 func (s *appServerSession) failRunningTurnWith(reason string, meta map[string]any) {
+	s.failRunningTurnAs(reason, meta, "", 0)
+}
+
+// failRunningTurnAs is failRunningTurnWith plus what codex itself said the error is
+// (errorNotification.classify), so the bridge does not have to read it out of the text.
+func (s *appServerSession) failRunningTurnAs(reason string, meta map[string]any, kind core.ErrorKind, status int) {
 	s.stateMu.Lock()
 	if st := s.strict; st != nil {
 		s.stateMu.Unlock()
@@ -1969,7 +2004,7 @@ func (s *appServerSession) failRunningTurnWith(reason string, meta map[string]an
 		return
 	}
 	slog.Warn("codex app-server: turn failed", "reason", reason)
-	s.emit(core.Event{Type: core.EventError, Error: errors.New(reason), Metadata: meta})
+	s.emit(core.Event{Type: core.EventError, Error: errors.New(reason), Metadata: meta, ErrorKind: kind, ErrorStatus: status})
 }
 
 func (s *appServerSession) emitError(err error) {

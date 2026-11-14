@@ -734,6 +734,7 @@ type interactiveState struct {
 	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
 	capacityErr              string         // #134: that failure's error text (429 waits use its Retry-After)
+	capacityClass            errorClass     // what that failure is (classifyEventError); guarded by mu
 	capacityAttempt          int            // #134: which send of runTurnWithCapacityRetry is running (1 = first)
 	turnErrored              bool           // maomao fork: last turn ended with an error event (not a success)
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
@@ -8655,8 +8656,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			// A tool may already have changed external state, even when its
 			// progress is hidden. Only capacity failures before tools can replay
 			// the user prompt, including queued turns and cooldown redelivery.
-			retryCapacity := input == nil && toolCount == 0 && !mediaAttempted && event.Error != nil && (isModelCapacityError(event.Error.Error()) || isTransientError(event.Error.Error()))
-			if !retryCapacity && input == nil && toolCount == 0 && !mediaAttempted && event.Error != nil && isRetryOnceError(event.Error.Error()) {
+			errClass := classifyEventError(event)
+			retryCapacity := input == nil && toolCount == 0 && !mediaAttempted && (errClass == errClassCapacity || errClass == errClassRateLimit || errClass == errClassTransient)
+			if !retryCapacity && input == nil && toolCount == 0 && !mediaAttempted && errClass == errClassRetryOnce {
 				state.mu.Lock()
 				retryCapacity = state.capacityAttempt <= 1 // #134: these get one re-send; a second failure is a normal one
 				state.mu.Unlock()
@@ -8757,6 +8759,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					} else {
 						state.capacityFailed = true
 						state.capacityErr = errMsg
+						state.capacityClass = errClass
 						keepLeadHandoffForRetry = true
 					}
 					state.mu.Unlock()
