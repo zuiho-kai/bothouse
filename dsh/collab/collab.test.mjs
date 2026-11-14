@@ -3801,6 +3801,44 @@ test('team workspace park #762: another chat channel\'s handoff does not take th
   assert.deepEqual(tasks.list(2).map(t => t.id), [], 'never on dev\'s board');
 });
 
+test('team workspace park #762 upgrade: a task paused before the upgrade whose workspace an older version moved to another chat channel is not resumed or handed back there', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'collab.sqlite3');
+  const old = new Store(path);
+  old.ensureRoom(1, 'general');
+  old.ensureRoom(2, 'dev');
+  const ws = old.createWorkspace(1);
+  let hub = makeHubFrom(old);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  let tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const t1 = tasks.assign({ roomId: ws.id, title: '升级前暂停的活', owner: 'ds', actor: 'ju' });
+  tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' });
+  assert.equal(tasks.park(ws.id), true);
+  // What the older createWorkspace wrote when dev took the freed 工作区1 (moved it under dev).
+  old.db.prepare(`UPDATE rooms SET parent_id = 2, free = 0, claim_bridge = 0, claim_seq = claim_seq + 1,
+    claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?), claim_at = unixepoch() WHERE id = ?`).run(ws.id, ws.id);
+  old.close();
+  // The new version loads that state as it is (no migration).
+  const s = new Store(path);
+  hub = makeHubFrom(s);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  assert.equal(s.workspaceOwner(ws.id), 2, 'dev holds it');
+  assert.equal(tasks.task(t1.id).paused_chat, 1);
+  assert.throws(() => tasks.stance(t1.id, { actor: 'ds', stance: 'accept' }), e => e.code === 'workspace-owned', 'not resumed into dev\'s claim');
+  const m = s.append(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '交回' }).message.id;
+  assert.throws(() => tasks.handBack(t1.id, { actor: 'ds', messageId: m }), e => e.code === 'workspace-owned', 'not handed back into dev\'s claim');
+  assert.equal(tasks.task(t1.id).status, 'asked');
+  assert.ok(tasks.task(t1.id).paused_at != null, 'still paused, still listed');
+  assert.equal(s.workspaceOwner(ws.id), 2, 'dev keeps it');
+  assert.deepEqual(tasks.list(1).map(t => [t.id, t.paused_at != null]), [[t1.id, true]]);
+  assert.deepEqual(tasks.list(2).map(t => t.id), []);
+  s.close();
+});
+
 test('team workspace park: a workspace with one paused and one accepted task stays busy for a plain release', async () => {
   const hub = makeHub();
   const ws = hub.store.createWorkspace(1);

@@ -668,12 +668,18 @@ export class Tasks {
   /**
    * A workspace task (not a bridge claim's) about to be sent back: its hand-back may have released
    * the workspace, so it is claimed again for the chat channel above it with this task as the
-   * handoff (as resumeClaim does). A workspace never moves to another chat channel (#762), so it
-   * is still there. True when the task is such a workspace task.
+   * handoff (as resumeClaim does). New workspaces never move to another chat channel (#762), but
+   * one moved by an older version may already belong to another one: that refuses the rework with
+   * 'workspace-owned'. True when the task is such a workspace task.
    */
   reworkClaim(task) {
     if (!this.tree || this.store.room(task.room_id)?.kind !== 'workspace' || this.store.bridgeClaimed(task.room_id)) return false;
-    if (this.store.workspaceOwner(task.room_id) == null) this.store.claimWorkspace(this.chatOf(task.room_id), task.room_id, { handoff: task.id });
+    const chat = this.chatOf(task.room_id);
+    const owner = this.store.workspaceOwner(task.room_id);
+    if (owner != null && owner !== chat) {
+      throw new CollabError('workspace-owned', `task ${task.id}'s workspace now belongs to room ${owner}; hand it off again to a free workspace`);
+    }
+    if (owner == null) this.store.claimWorkspace(chat, task.room_id, { handoff: task.id });
     return true;
   }
 
@@ -1416,15 +1422,21 @@ export class Tasks {
   }
 
   /**
-   * A paused task's workspace was released by park. It stays its chat channel's (a workspace never
-   * moves to another chat channel, #762), so free and reclaim → claimed back for the chat channel
-   * it was paused under; still busy with that chat channel's next task → it resumes alongside.
-   * Tasks not paused, or paused before paused_chat existed, pass.
+   * A paused task's workspace was released by park. New claims never move it to another chat
+   * channel (#762), but an older version did, and that persisted state is not migrated: owned by
+   * another chat channel → refused with 'workspace-owned' and nothing changes (the task stays
+   * paused, still listed; hand it off again to a free workspace). Free and reclaim → claimed back
+   * for the chat channel it was paused under. Tasks not paused, or paused before paused_chat
+   * existed, pass.
    */
   resumeClaim(task, reclaim) {
     if (task.paused_at == null || task.paused_chat == null || !this.tree) return;
+    const owner = this.store.workspaceOwner(task.room_id);
+    if (owner != null && owner !== task.paused_chat) {
+      throw new CollabError('workspace-owned', `task ${task.id} is paused and its workspace now belongs to room ${owner}; hand it off again to a free workspace`);
+    }
     // The resumed task is this claim's handoff: handing it back frees the workspace again (handoffDone).
-    if (reclaim && this.store.workspaceOwner(task.room_id) == null) this.store.claimWorkspace(task.paused_chat, task.room_id, { handoff: task.id });
+    if (owner == null && reclaim) this.store.claimWorkspace(task.paused_chat, task.room_id, { handoff: task.id });
   }
 
   changed(id) {
