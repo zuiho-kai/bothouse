@@ -242,7 +242,12 @@ func taskForumMarker(id int) string { return fmt.Sprintf("#%d ", id) }
 // and where) at the top, the original words and goal below; links are clickable channel mentions.
 func taskForumCard(it teamTaskBoardItem, tag, sentence string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "**%s** · %s\n", tag, sentence)
+	// The tag leads; the sentence only when it says more (a waiting item's question is the next line).
+	if sentence == "" || sentence == tag || tag == TaskForumTagWaiting || tag == TaskForumTagDone {
+		fmt.Fprintf(&b, "**%s**\n", tag)
+	} else {
+		fmt.Fprintf(&b, "**%s** · %s\n", tag, sentence)
+	}
 	ask := "没有"
 	if tag == TaskForumTagWaiting {
 		// the whole question, not the board's short reason: this is where the user reads it
