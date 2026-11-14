@@ -102,6 +102,74 @@ func isTransientError(msg string) bool {
 	return transientErrorRE.MatchString(msg)
 }
 
+// errorClass is what the retry logic does with a failed turn.
+type errorClass int
+
+const (
+	errClassOther     errorClass = iota // not retried
+	errClassCapacity                    // codex "at capacity"
+	errClassRateLimit                   // 429: wait Retry-After or back off, then re-send
+	errClassTransient                   // other temporary failure: back off, then re-send
+	errClassRetryOnce                   // unclear cause: exactly one re-send
+	errClassPermanent                   // never retried
+)
+
+// retryable: the class goes through runTurnWithCapacityRetry.
+func (c errorClass) retryable() bool {
+	return c == errClassCapacity || c == errClassRateLimit || c == errClassTransient || c == errClassRetryOnce
+}
+
+// classifyEventError classifies a failed turn's error event.
+func classifyEventError(ev Event) errorClass {
+	if ev.Error == nil {
+		return errClassOther
+	}
+	return classifyError(ev.ErrorKind, ev.ErrorStatus, ev.Error.Error())
+}
+
+// classifyError: the adapter's kind first, then the upstream HTTP status, and only when the
+// adapter gave neither, the error text (the regular expressions above and below). Adapters that
+// wrap a CLI mostly have only text; those that see the upstream's structured error set the kind
+// or status and never reach the text rules.
+func classifyError(kind ErrorKind, status int, msg string) errorClass {
+	if isModelCapacityError(msg) {
+		return errClassCapacity // only ever a sentence from codex; no status goes with it
+	}
+	switch kind {
+	case ErrorKindRateLimit:
+		return errClassRateLimit
+	case ErrorKindTransient:
+		return errClassTransient
+	case ErrorKindPermanent:
+		return errClassPermanent
+	}
+	switch status {
+	case 429:
+		if isRateLimitError(msg) || !permanentErrorRE.MatchString(msg) {
+			return errClassRateLimit
+		}
+		return errClassPermanent // a spent quota is also sent as 429 (quota_cooling.go)
+	case 408, 500, 502, 503, 504, 529:
+		return errClassTransient
+	case 400, 401, 402, 403:
+		if strings.Contains(strings.ToLower(msg), "temporarily unavailable") {
+			return errClassTransient // some relays send this with a 403
+		}
+		return errClassPermanent
+	}
+	switch {
+	case isRateLimitError(msg):
+		return errClassRateLimit
+	case isTransientError(msg):
+		return errClassTransient
+	case isRetryOnceError(msg):
+		return errClassRetryOnce
+	case permanentErrorRE.MatchString(msg):
+		return errClassPermanent
+	}
+	return errClassOther
+}
+
 // ---- #134: errors of unclear cause get exactly one re-send (主区定案 2026-11-04 17:5x) ----
 //
 // Seen in the live logs without a clear temporary/permanent cause: ACP's "prompt did not complete
@@ -290,11 +358,11 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	if probe {
 		attempts = 1 // one question, not the usual three-in-a-row
 	}
-	lastErr := ""
+	lastErr, lastClass := "", errClassOther
 	for attempt := 1; ; attempt++ {
 		// #134: an "at capacity" re-send waits too (主区 17:54: 立即重发改成等待退避), as do the
 		// retry-once errors.
-		if attempt > 1 && (isTransientError(lastErr) || isModelCapacityError(lastErr) || isRetryOnceError(lastErr)) {
+		if attempt > 1 && lastClass.retryable() {
 			wait := rateLimitDelay(lastErr, attempt)
 			slog.Warn("rate limited, waiting before retry", "session_key", key, "attempt", attempt, "wait", wait)
 			if !e.sleepCtx(wait) {
@@ -326,6 +394,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		failed := state.capacityFailed
 		state.capacityFailed = false
 		lastErr, state.capacityErr = state.capacityErr, ""
+		lastClass, state.capacityClass = state.capacityClass, errClassOther
 		errored := state.turnErrored
 		state.turnErrored = false
 		alive := state.agentSession != nil && state.agentSession.Alive()
@@ -355,10 +424,10 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		return
 	}
 	why := "模型满载（at capacity）"
-	switch {
-	case isRateLimitError(lastErr):
+	switch lastClass {
+	case errClassRateLimit:
 		why = "中转限流（429）"
-	case isTransientError(lastErr):
+	case errClassTransient:
 		why = "上游临时故障（断流、超时或过载）"
 	}
 	if to := e.switchToFallbackModel(key); to != "" {

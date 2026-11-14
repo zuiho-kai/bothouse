@@ -497,6 +497,15 @@ type UserQuestionOption struct {
 	Description string `json:"description"`
 }
 
+// ErrorKind is an adapter's own classification of an EventError; "" = the adapter cannot tell.
+type ErrorKind string
+
+const (
+	ErrorKindRateLimit ErrorKind = "rate_limit" // throttled; the same request passes after a wait
+	ErrorKindTransient ErrorKind = "transient"  // cut stream, overloaded or failing upstream; a re-send may pass
+	ErrorKindPermanent ErrorKind = "permanent"  // auth, bad request, spent balance: a re-send gets the same answer
+)
+
 // Event represents a single piece of agent output streamed back to the engine.
 type Event struct {
 	Type    EventType
@@ -506,19 +515,25 @@ type Event struct {
 	// emitted as EventText in this turn. EventResult adapters set it for cumulative
 	// summaries; the remaining suffix is new text. Zero keeps Content as a
 	// standalone final answer/rewrite/error, or uses EventText when Content is empty.
-	StreamedContentBytes     int
-	ToolName                 string         // populated for EventToolUse, EventPermissionRequest
-	ToolInput                string         // human-readable summary of tool input
-	ToolInputRaw             map[string]any // raw tool input (for EventPermissionRequest, used in allow response)
-	ToolResult               string         // populated for EventToolResult
-	ToolStatus               string         // optional status for EventToolResult (e.g. completed/failed)
-	ToolExitCode             *int           // optional exit code for EventToolResult
-	ToolSuccess              *bool          // optional success flag for EventToolResult
-	SessionID                string         // agent-managed session ID for conversation continuity
-	RequestID                string         // unique request ID for EventPermissionRequest
-	Questions                []UserQuestion // populated when ToolName == "AskUserQuestion"
-	Done                     bool
-	Error                    error
+	StreamedContentBytes int
+	ToolName             string         // populated for EventToolUse, EventPermissionRequest
+	ToolInput            string         // human-readable summary of tool input
+	ToolInputRaw         map[string]any // raw tool input (for EventPermissionRequest, used in allow response)
+	ToolResult           string         // populated for EventToolResult
+	ToolStatus           string         // optional status for EventToolResult (e.g. completed/failed)
+	ToolExitCode         *int           // optional exit code for EventToolResult
+	ToolSuccess          *bool          // optional success flag for EventToolResult
+	SessionID            string         // agent-managed session ID for conversation continuity
+	RequestID            string         // unique request ID for EventPermissionRequest
+	Questions            []UserQuestion // populated when ToolName == "AskUserQuestion"
+	Done                 bool
+	Error                error
+	// ErrorKind / ErrorStatus: what an EventError is, when the adapter knows it from the
+	// upstream's own structured error (an HTTP status, an error code). The retry logic reads
+	// these first and only falls back to matching the error text when both are empty
+	// (core/capacity_retry.go classifyError).
+	ErrorKind                ErrorKind
+	ErrorStatus              int  // upstream HTTP status; 0 = unknown
 	UsageKnown               bool // true when this result contains authoritative per-turn usage
 	InputTokens              int  // token usage from agent result events
 	OutputTokens             int
