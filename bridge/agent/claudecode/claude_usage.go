@@ -506,6 +506,15 @@ func parseClaudeUsageWindow(lines []string, windowSeconds int, now time.Time) (c
 		UsedPercent:   *usedPercent,
 		WindowSeconds: windowSeconds,
 	}
+	// Decode the provider's model selector at the parsing boundary. Consumers
+	// receive a stable pool key and never infer ownership from the UI name.
+	lowerHeader := strings.ToLower(header)
+	if model, ok := strings.CutPrefix(lowerHeader, "current week ("); ok {
+		model = strings.TrimSuffix(model, ")")
+		if model != "all models" {
+			window.QuotaGroup = claudeModelQuotaGroup(model)
+		}
+	}
 
 	if resetRaw != "" {
 		resetAt, err := parseClaudeUsageResetTime(resetRaw, now)

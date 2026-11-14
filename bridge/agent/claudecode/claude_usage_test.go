@@ -97,6 +97,7 @@ func TestParseClaudeUsageReport_PreservesAllModelWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]int{"Current session": 18, "Current week (all models)": 75, "Current week (Fable)": 34, "Current week (another model)": 12}
+	wantGroups := map[string]string{"Current session": "account", "Current week (all models)": "account", "Current week (Fable)": "model:fable", "Current week (another model)": "model:another model"}
 	if len(report.Buckets[0].Windows) != len(want) {
 		t.Fatalf("windows = %+v, want all %d panel blocks", report.Buckets[0].Windows, len(want))
 	}
@@ -104,6 +105,9 @@ func TestParseClaudeUsageReport_PreservesAllModelWindows(t *testing.T) {
 		used, ok := want[w.Name]
 		if !ok || used != w.UsedPercent {
 			t.Fatalf("unexpected window: %+v", w)
+		}
+		if w.QuotaGroup != wantGroups[w.Name] {
+			t.Fatalf("window %s has group %q, want %q", w.Name, w.QuotaGroup, wantGroups[w.Name])
 		}
 		delete(want, w.Name)
 	}
