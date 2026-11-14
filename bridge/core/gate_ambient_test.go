@@ -340,7 +340,7 @@ func TestGateEmptyAmbientBurstKeepsEachSender(t *testing.T) {
 		UserID: "u1", UserName: "Alice", GroupChat: true, Content: "第二句", ReplyCtx: "ctx",
 	}
 	e.handleMessage(p, second) // folds into the held burst
-	e.handleMessage(p, releaseHeld(t, e, "test:c1"))
+	e.releaseHeldMessage(p, releaseHeld(t, e, "test:c1"))
 
 	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
 	got := sess.sent()[0]

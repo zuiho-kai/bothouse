@@ -564,9 +564,9 @@ func TestAgentHooksAntigravity(t *testing.T) {
 		ourHook(cmd) != "bash-guard" {
 		t.Fatalf("command = %s", cmd)
 	}
-	stop := m["bothouse"]["Stop"]
-	if len(stop) != 2 || stop[0]["type"] != "command" || !regexp.MustCompile(`--agy ['"]?Stop`).MatchString(stop[0]["command"].(string)) {
-		t.Fatalf("Stop (handlers directly under the event) = %v", stop)
+	// #1807: the two Stop guards antigravity ran (fix-claim-guard, promise-guard) are retired.
+	if stop, ok := m["bothouse"]["Stop"]; ok {
+		t.Fatalf("Stop has no antigravity guard left, got %v", stop)
 	}
 	if _, err := os.Stat(AgentHookSettingsPath("claudecode", wd)); err == nil {
 		t.Fatal(".claude/settings.json written for antigravity")

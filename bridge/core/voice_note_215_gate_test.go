@@ -210,7 +210,7 @@ func TestVoiceNote215BurstFoldMarksTheVoicePart(t *testing.T) {
 			e.handleMessage(p, tc.first)
 			e.handleMessage(p, tc.next)
 			h := releaseHeld(t, e, "test:c1")
-			e.handleMessage(p, h)
+			e.releaseHeldMessage(p, h)
 
 			waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
 			got := sess.sent()[0]
@@ -246,7 +246,7 @@ func TestVoiceNote215BurstFoldThenBufferedMarksOnce(t *testing.T) {
 				UserID: "u", UserName: "u", Content: first, FromVoice: voiceFirst, ReplyCtx: "ctx"})
 			e.handleMessage(p, &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "2",
 				UserID: "u", UserName: "u", Content: next, FromVoice: !voiceFirst, ReplyCtx: "ctx"})
-			e.handleMessage(p, releaseHeld(t, e, "test:c1")) // gate: context → buffered as one entry
+			e.releaseHeldMessage(p, releaseHeld(t, e, "test:c1")) // gate: context → buffered as one entry
 			latest := &Message{SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "3",
 				UserID: "u", UserName: "u", Content: "FOLD_LATEST", Mentioned: true, ReplyCtx: "ctx"}
 			latest.burstDone = true // the test hands it over directly, no burst window

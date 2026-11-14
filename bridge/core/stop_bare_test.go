@@ -18,6 +18,9 @@ func newStopBot(t *testing.T, name, dataDir string) (*Engine, *stubPlatformEngin
 	e := NewEngine(name, &stubAgent{}, []Platform{p}, "", LangEnglish)
 	t.Cleanup(func() { _ = e.Stop() })
 	e.SetDataDir(dataDir)
+	// #1809: an unaddressed stop from an admin stops the whole channel; anyone else stops only
+	// the turns they started. These cases are about the channel scope, so the sender is admin.
+	e.SetAdminFrom("u1")
 	return e, p
 }
 

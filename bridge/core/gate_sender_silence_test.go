@@ -151,6 +151,7 @@ func TestGateSenderSilence_OnlyPlainMessages(t *testing.T) {
 
 	// A project without the switch keeps the old behaviour for the same message.
 	e.SetGateSenderSilence(false, 0, 0)
+	g = e.gate.Load() // settings are copy-on-write: read the new gate
 	if g.silenceApplies(plain, false) || g.holdKey("k", plain, false) != "k" {
 		t.Fatal("silence off must keep the per-session burst")
 	}
