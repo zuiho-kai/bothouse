@@ -277,8 +277,8 @@ def main(argv):
     chat = rec.get("chat") or key
     if not chat:
         sys.exit("ws-pass: 不知道发到哪个频道（没有 CC_SESSION_KEY，也没找到交接记录）")
-    if board.is_test(rec.get("task") or ""):
-        print(f"ws-pass: 测试活（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
+    if board.is_probe(rec.get("board")):
+        print(f"ws-pass: 探针（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
         return
     close_text(rec, path, verdict, nid)
     args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]

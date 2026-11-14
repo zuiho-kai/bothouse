@@ -333,7 +333,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		e.clearAskBounces(sessionKey)
 	}
 	// a doubt never blocks; like the check above it is for the acceptor (the lead's prompt), not the user
-	if item != nil && item.isTest() {
+	if item != nil && item.Probe {
 		// test work: the answer stays in the workspace and the log, the task still closes or yields
 		// as usual (core/test_noise.go)
 		slog.Info("team exit: test item; nothing posted in the chat channel",
@@ -615,7 +615,7 @@ func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardIte
 
 // boardItemStopped: it is paused for a reason other than waiting on the user's answer.
 func boardItemStopped(it *teamTaskBoardItem) bool {
-	return it != nil && it.Paused != "" && !teamTaskBoardWaitUser.MatchString(it.PauseWhy)
+	return it != nil && it.Paused != "" && !it.waitsUser()
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)

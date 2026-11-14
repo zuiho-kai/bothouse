@@ -61,7 +61,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 		if who != e.name && who != e.DisplayName() {
 			continue
 		}
-		if it.DoneAt != "" || teamTaskBoardWaitUser.MatchString(it.Status) {
+		if it.DoneAt != "" || it.waitsOn(teamWaitUser) {
 			out[it.ID] = it.Status + "\n" + it.DoneAt
 		} else if it.PauseReq != "" && it.DoneAt == "" && it.Paused == "" {
 			// stopped itself this turn (board.py self_pause): a report is owed like for a done item

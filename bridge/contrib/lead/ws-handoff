@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force] [--probe]
+#   --probe：内部探针（自检、验收探针）。条目带 probe=true，交回和提问只进工作区和日志，不进用户的聊天频道。
 #   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
 #   --confirmed：交接标了「类别：出图/改用户文档/定方向」时，用户看过「派活人自己定的」清单后才带（见 own_gate）。
 #   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
@@ -928,7 +929,8 @@ def main(argv):
         argv = argv[:k] + argv[k + 2:]
     confirmed = "--confirmed" in argv
     force = "--force" in argv
-    argv = [a for a in argv if a not in ("--confirmed", "--force")]
+    probe = "--probe" in argv
+    argv = [a for a in argv if a not in ("--confirmed", "--force", "--probe")]
     short_name = None
     if "--short" in argv:
         k = argv.index("--short")
@@ -998,7 +1000,7 @@ def main(argv):
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
         # 先上板拿编号再 claim：桥按编号记这件活的状态（#699），claim 不带编号看门就只能猜是哪一行
-        nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name)
+        nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name, probe=probe)
         try:
             picked = pick_pool(chat, task, nid)
         except SystemExit:
@@ -1013,7 +1015,7 @@ def main(argv):
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
     if nid is None:  # 固定工作区频道：不经桥的池子，不 claim
-        nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name)
+        nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name, probe=probe)
     else:
         board.update(nid, "已交接", who=f"{name}{lead_name}")
         board.rebind(nid, key, chat=chat)

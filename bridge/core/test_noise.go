@@ -11,9 +11,11 @@ import (
 // Test, probe and self-check work stays out of the user's chat channels (user 2026-10-28 「这个傻逼
 // 提问探针是什么东西啊？来了三个，还还返回了三次」, 10-29 「常见问题的就要去修」). Two kinds:
 //
-//   - test work: a board item or scheduled job whose title starts with a test marker and a
-//     delimiter (「测试：」「验收探针：」「【自检】」「probe:」). Its workspace [report]/[ask] and
-//     its job output only go to the log; the item does not show on the chat's board.
+//   - a probe: a board item created with --probe (teamTaskBoardItem.Probe). Its workspace
+//     [report]/[ask] only go to the log; the item does not show on the chat's board. The title
+//     is not read: a task the user names 「测试：…」 is ordinary work.
+//   - a test job: a scheduled job whose title starts with a test marker and a delimiter
+//     (「测试：」「验收探针：」「【自检】」「probe:」). Its output only goes to the log.
 //   - a check job: a timer or cron job whose description or prompt names a self-check or a
 //     look-back (自检、回看、实测、验收、探针、测试). It posts no start notice; a shell check posts
 //     only when the command fails, and a prompt check is told to answer NO_REPLY when the user
@@ -26,11 +28,6 @@ var (
 // isTestWorkTitle: title is marked as test work (testWorkTitle).
 func isTestWorkTitle(title string) bool {
 	return testWorkTitle.MatchString(title)
-}
-
-// isTest: the board item is test work; its result never reaches the user's chat channel.
-func (it teamTaskBoardItem) isTest() bool {
-	return isTestWorkTitle(it.What) || isTestWorkTitle(it.Short)
 }
 
 // isCheckJob: a scheduled job is a self-check or look-back (checkJobWords in its description

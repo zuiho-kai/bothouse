@@ -1292,7 +1292,7 @@ def exp_task(key):
     """这个频道当前在做的那件活：本频道的、没暂停、不是测试活，取最近交出/绑定的一件。"""
     if board is None or not key:
         return None
-    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not i.get("backlog") and not board.is_test(i.get("what"))]
+    its = [i for i in board.items() if board.in_chat(i, key) and not i.get("paused") and not i.get("backlog") and not i.get("probe")]
     return max(its, key=lambda i: (i.get("bound") or "", i.get("id") or 0), default=None)
 
 
