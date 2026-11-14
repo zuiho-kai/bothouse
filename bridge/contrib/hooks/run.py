@@ -917,7 +917,9 @@ def deliver_check(payload, dsh_log):
     as for Stop, so the check can see this turn's reads."""
     target = os.path.join(HERE, "deliver-check.py")
     cmd = str((payload.get("tool_input") or {}).get("command") or "")
-    if not os.path.isfile(target) or "bothouse" not in cmd or "send" not in cmd:
+    sending = "bothouse" in cmd and "send" in cmd
+    accepting = "ws-pass" in cmd or ("board" in cmd and "done" in cmd)  # 验收放行前看过截图（#1617）
+    if not os.path.isfile(target) or not (sending or accepting):
         return None
     p = dict(payload, bothouse_role=role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
     if p.get("delivery_transcript_path"):
