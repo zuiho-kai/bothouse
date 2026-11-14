@@ -1094,14 +1094,16 @@ export class Tasks {
   /**
    * #1620: walk 11-14, Codex ended its workspace turn with "已完成 fib.py…" and no [report]; the task
    * waited for a person to say "照规矩写一份 [report] 交回". Once per task the owner is told at once,
-   * on a record in the workspace, how to hand back or say what she is waiting for.
+   * on a record in the workspace, how to hand back or say what she is waiting for. #1620 rework: it
+   * said 「下面写做了什么、文件在哪」 and DSH wrote 「做了什么：」 twice and a 「文件在哪：」 part; it
+   * now points at the hand-back format.
    */
   nudgeReport(task) {
     if (this.nudged.has(task.id)) return;
     this.nudged.add(task.id);
     const name = this.nameOf(task.owner);
     const message = this.record(task, 'nudge', `@${name} #${task.id}「${task.title}」这一轮没有写 [report]，还挂着没交回。`
-      + `你那一份做完了就回复首行写 [report]，下面写做了什么、文件在哪；还在等队友或没做完，回复首行写【问】#${task.id}，说清在等什么、卡在哪。`, this.chatOf(task.room_id));
+      + `你那一份做完了就回复首行写 [report]，照交回格式写（「做了什么：」只写一段，文件位置放进细节）；还在等队友或没做完，回复首行写【问】#${task.id}，说清在等什么、卡在哪。`, this.chatOf(task.room_id));
     this.wake(task.owner, message);
   }
 
