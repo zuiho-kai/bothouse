@@ -172,9 +172,9 @@ func mergeQueuedChat(parts []queuedMessage) queuedMessage {
 	for i, p := range parts {
 		b.WriteString("\n")
 		if i == reply && i == len(parts)-1 {
-			b.WriteString("（最新）\n")
+			b.WriteString(batchLatestMark + "\n")
 		} else if i == reply {
-			b.WriteString("（回这条）\n") // context-only messages came after it
+			b.WriteString(batchReplyMark + "\n") // context-only messages came after it
 		}
 		name := p.userName
 		if name == "" {
@@ -329,7 +329,7 @@ func mergeQueued(parts []queuedMessage) queuedMessage {
 		}
 		b.WriteString("\n")
 		if i == reply && i != len(parts)-1 {
-			b.WriteString("（回这条）\n")
+			b.WriteString(batchReplyMark + "\n")
 		}
 		if p.userMessageTimeMs > 0 {
 			fmt.Fprintf(&b, "[%d] %s\n", i+1, time.UnixMilli(p.userMessageTimeMs).Format("15:04:05"))
