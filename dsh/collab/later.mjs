@@ -57,10 +57,13 @@ export function ticketClaims(ticket) {
  * #1651: one local command line a member's shell tool can run as is. DSH's shell tool on Windows is
  * PowerShell, where a quoted program path is a string, not a command: it needs the call operator `&`,
  * and a quote inside a single-quoted word is doubled. Elsewhere the POSIX single-quote form.
+ * #1653: in DSH Desktop the plugin runs inside the app's Electron binary (process.execPath is
+ * "DeepSeek Harness", made a node by ELECTRON_RUN_AS_NODE=1). The line sets that variable itself, so a
+ * shell that did not inherit it still gets a node instead of a second app window.
  */
-export function localCommand(words, platform = process.platform) {
-  if (platform === 'win32') return '& ' + words.map(word => "'" + String(word).replaceAll("'", "''") + "'").join(' ');
-  return words.map(word => "'" + String(word).replaceAll("'", "'\\''") + "'").join(' ');
+export function localCommand(words, platform = process.platform, electron = Boolean(process.versions.electron)) {
+  if (platform === 'win32') return (electron ? "$env:ELECTRON_RUN_AS_NODE='1'; " : '') + '& ' + words.map(word => "'" + String(word).replaceAll("'", "''") + "'").join(' ');
+  return (electron ? 'ELECTRON_RUN_AS_NODE=1 ' : '') + words.map(word => "'" + String(word).replaceAll("'", "'\\''") + "'").join(' ');
 }
 /**
  * #1651: JSON as a command-line word. Windows PowerShell 5.1 drops bare double quotes on the way to a
@@ -121,10 +124,17 @@ export class Later {
   }
   /** The shell the command lines are written for: PowerShell for a DSH-native member on Windows (#1651). */
   shell(cli) { return this.platform === 'win32' && !cli ? 'win32' : 'posix'; }
-  /** cli: the reader is a local CLI member or a bridge bot, whose shell is not DSH's (POSIX form as before). */
+  /**
+   * cli: the reader is a local CLI member or a bridge bot, whose shell is not DSH's. Elsewhere that is a
+   * POSIX shell. #1653: on Windows it is PowerShell (Codex, Claude Code without Git) or Git Bash
+   * (Claude Code with Git), and the plugin cannot see which, so the prompt gives one line for each.
+   */
   instructions(member, room, { cli = false } = {}) {
     const ticket = this.ticket(member, room);
-    const local = this.origin ? `用本机命令登记（重启后仍触发）：\n${localCommand([process.execPath, fileURLToPath(import.meta.url), this.origin, ticket, '10m', '事情', '到点要做什么'], this.shell(cli))}\n` : '';
+    const words = [process.execPath, fileURLToPath(import.meta.url), this.origin, ticket, '10m', '事情', '到点要做什么'];
+    const local = !this.origin ? '' : cli && this.platform === 'win32'
+      ? `用本机命令登记（重启后仍触发），按你的 shell 用其中一条：\nPowerShell：${localCommand(words, 'win32')}\nGit Bash：${localCommand(words, 'posix')}\n`
+      : `用本机命令登记（重启后仍触发）：\n${localCommand(words, this.shell(cli))}\n`;
     return `\n【一次性回查】要过会儿回来，${local}或 POST /collab/api/rooms/${room}/later（头 X-Later-Ticket: ${ticket}，JSON: delay, title, todo）。凭据只对你和本房间有效。登记成功才说已挂；到点在原房间唤醒你。\n`;
   }
   /**
