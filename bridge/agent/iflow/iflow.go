@@ -55,7 +55,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	cmd, extraArgs := core.ParseCmdOpts(opts, "iflow")
 
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("iflow: %q CLI not found in PATH, install with: npm i -g @iflow-ai/iflow-cli", cmd)
+		return nil, fmt.Errorf("iflow: %q %w, install with: npm i -g @iflow-ai/iflow-cli", cmd, core.ErrCLINotFound)
 	}
 
 	var toolTimeoutSec int

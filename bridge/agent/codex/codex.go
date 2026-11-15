@@ -85,7 +85,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		// Not on PATH: also try the common install dirs and start the absolute path found there.
 		resolved, err := core.ResolveCLI(cmd)
 		if err != nil {
-			return nil, fmt.Errorf("codex: %q CLI not found in PATH, install with: npm install -g @openai/codex", cmd)
+			return nil, fmt.Errorf("codex: %q %w, install with: npm install -g @openai/codex", cmd, core.ErrCLINotFound)
 		}
 		cmd = resolved
 	}

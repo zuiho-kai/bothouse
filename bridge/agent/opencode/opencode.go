@@ -83,7 +83,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("opencode: %q CLI not found in PATH, install from: https://github.com/opencode-ai/opencode", cmd)
+		return nil, fmt.Errorf("opencode: %q %w, install from: https://github.com/opencode-ai/opencode", cmd, core.ErrCLINotFound)
 	}
 
 	return &Agent{

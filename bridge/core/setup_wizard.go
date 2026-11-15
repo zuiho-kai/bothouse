@@ -2104,6 +2104,11 @@ func sameCloudWebMember(s WizardSnapshot, cwBase string, w wizardIdentity, used 
 		}
 		u, _ := o["ws_url"].(string)
 		if !sameCloudWebHub(u, cwBase) {
+			// The same project on this machine's DSH host after dsh web moved to another port: update it,
+			// not a second 鲸鱼娘-2 the host refuses by name (#1662).
+			if want != "" && p.Name == want && sameLocalHub(u, cwBase) {
+				return p.Name
+			}
 			continue
 		}
 		name := cloudWebQuery(u, "name")
