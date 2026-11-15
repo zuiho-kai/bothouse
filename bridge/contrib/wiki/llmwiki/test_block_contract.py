@@ -243,6 +243,7 @@ class BlockContract(unittest.TestCase):
 
     def test_upstream_restate_delivers_with_original_blocks_in_history(self):
         def restate(root, **kwargs):
+            self.assertTrue(callable(kwargs["ask"]))
             (root / "misc/source.md").write_text(PAGE + "- synthetic current summary\n## 历史\n" + FACT + FACT)
             self.git("add", "-A", cwd=root)
             self.git("commit", "-qm", "synthetic restate", cwd=root)

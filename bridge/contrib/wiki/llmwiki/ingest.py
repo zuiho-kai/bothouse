@@ -3257,7 +3257,9 @@ def restate_pass():
     coverage["kind"] = "restate"
     try:
         ok, summary, _ = ((True, "resumed candidate", []) if pending else
-                          restate.restate(WIKI, commit=True, label=label, log=lambda m: log(f"{label}: {m}")))
+                          restate.restate(WIKI, commit=True, label=label,
+                                          ask=lambda prompt: json.dumps(profile_ask(prompt), ensure_ascii=False),
+                                          log=lambda m: log(f"{label}: {m}")))
     except Exception as e:
         log(f"{label} failed: {type(e).__name__}: {e}")
         return
