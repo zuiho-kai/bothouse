@@ -41,14 +41,14 @@ export function workspaceHint(hub, later, memberId, roomId) {
  * of the shared file fails tests instead of silently dropping the swap.
  */
 const WORKSPACE_LINE = /^- .*\/collab\/api\/rooms\/\{聊天频道 id\}\/workspaces.*$/m;
-export const DSH_WORKSPACE_RULE = '- 聊天频道被 @：问话和小活直接答，不写【接】；大活（读长文、改代码、等命令）回复首行只写【接】就结束这一轮，不读文件、不跑命令，对真人也一样：系统随即开工作区、开任务，在那里叫醒你接着做，做完首行写 [report] 交回。主角色自己交大活：用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，没空的就新开。';
+export const DSH_WORKSPACE_RULE = '- 聊天频道被 @：问话和小活直接答，不写【接】；大活（读长文、改代码、等命令）回复首行只写【接】就结束这一轮，不读文件、不跑命令，对真人也一样：系统随即开工作区、开任务，在那里叫醒你接着做，做完首行写 [report] 交回。别人让你把活派给某个队友：回复里 @ 她写清要做什么就派出去了，首行不写【接】，她做完会发回频道。主角色自己交大活：用提示末尾【开工作区】给的本机命令或 curl：POST /collab/api/rooms/{聊天频道 id}/workspaces（头 X-Later-Ticket 带你的票据，只对你和本频道有效）。建工作区=这一条，任务和十分钟看门会自动开；不要调 /tasks（它不认票据）。一次带上标题、接活人（不写就是你自己）和交接正文（用户原话、要做什么、验收标准）；系统建好工作区、开任务、挂十分钟看门并叫醒接活人，交过去的活不再在频道里 @ 另派。DSH 上不用 `bothouse workspace new`。何时交活、交给哪个、要不要新建，由主角色或正在干活的角色决定；一个工作区同一时间只做一件活，没空的就新开。';
 /**
  * #1539: a local CLI member (Codex and the like over ACP) runs in its CLI's sandbox, where a new install
  * has no network, 127.0.0.1 included: the workspace curl / node command came back as a red
  * "curl: (7) Failed to connect" in the channel. #1598: an @ is answered in the chat channel; the member
  * who reads a big job opens her reply with 【接】 and that moves it into a workspace (tasks.mjs settleCall).
  */
-export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：问话和小活她在聊天频道直接答；大活她首行回【接】，系统才把活转进工作区、开任务、每十分钟看进展，交回后你验收。你被 @ 时也一样：问话和小活直接答，不写【接】；大活首行只写【接】就结束这一轮，不读文件、不跑命令，对真人也一样：系统开工作区叫醒你，在那里做完再交回。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
+export const DSH_CLI_DISPATCH_RULE = '- 派活在频道里 @ 队友，一条消息写清要做什么和验收标准：问话和小活她在聊天频道直接答；大活她首行回【接】，系统才把活转进工作区、开任务、每十分钟看进展，交回后你验收。你被 @ 时也一样：问话和小活直接答，不写【接】；大活首行只写【接】就结束这一轮，不读文件、不跑命令，对真人也一样：系统开工作区叫醒你，在那里做完再交回。别人让你把活派给某个队友：回复里 @ 她写清要做什么就派出去了，首行不写【接】，她做完会发回频道。你的命令在沙箱里，连不上本机接口：不要用 curl 或本机命令建工作区、调 /tasks。';
 /**
  * #1588 (audit 8): shared lines naming commands DSH has none of (/bind, bothouse channel create,
  * board pause, ws-up --image) are left out for DSH members. Each must match, so a reword of the
@@ -1062,7 +1062,10 @@ export class DshMembers {
       };
       // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1598: her
       // 【接】 moves a call into a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs settleCall).
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id, { cli: true }) ?? '');
+      // #1660: Codex runs every turn in a sandbox without network (codex-acp agent modes: networkAccess false
+      // unless full access), so the local later command / POST only came back as "curl: (7) Failed to connect".
+      const later = member.cli === 'codex' ? '' : (this.rt.later?.instructions(member.id, room.id, { cli: true }) ?? '');
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + later;
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。

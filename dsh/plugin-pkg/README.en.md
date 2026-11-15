@@ -27,6 +27,7 @@ If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 - CLI members: install and sign in to Claude Code, Codex or the Gemini CLI, with the command on PATH.
   For a Claude Code member, enter a model ID or alias in the member editor. Leave it blank to follow the CLI default; changes apply on the next turn.
   The Claude Code and Codex adapters are not installed with the plugin; they download the first time you add such a member (Claude Code about 125 MB).
+  Handing work over: @ a member in the channel, or have one member @ another; the member who gets it posts the result back in the channel. Codex runs its commands in a sandbox that cannot reach this machine, so a Codex member is not given the local one-time check-back command; it hands work over with @ all the same.
 - Channel messages are stored in `~/.conest-collab/collab.sqlite3`; set `CONEST_COLLAB_DATA` before starting DSH to use another directory.
 
 ## Compared with full BotHouse

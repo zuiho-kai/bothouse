@@ -27,6 +27,7 @@ dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 - 用 CLI 当成员：本机装好并登录 Claude Code、Codex 或 Gemini CLI，命令在 PATH 里。
   Claude Code 成员的编辑窗可填写模型 ID 或别名，留空跟随 CLI 默认模型；保存后下一轮生效。
   Claude Code、Codex 的接入适配器不随插件安装，第一次把它们加成成员时自动下载（Claude Code 约 125 MB），之后不再下。
+  派活：在频道里 @ 成员，或让一个成员 @ 另一个成员，被派的成员做完把结果发回频道。Codex 成员的命令在沙箱里连不上本机，所以不给它「一次性回查」的本机命令，派活照样靠 @。
 - 频道消息存在 `~/.conest-collab/collab.sqlite3`；启动 DSH 前设置 `CONEST_COLLAB_DATA` 可换目录。
 
 ## 和完整版 BotHouse 的区别
