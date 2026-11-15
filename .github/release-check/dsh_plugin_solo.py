@@ -1,23 +1,24 @@
-"""The DSH plugin installed alone (ci.yml dsh-plugin-solo): no bothouse bridge, no BOTHOUSE_DATA_DIR, no gate.
-Retro 2026-11-15 (#1644): every check started dsh web through the bridge, which fills in the data dir and the
-gate for the plugin, so a plugin-only install shipped members with an empty memory index, a silent missing gate
-and no persona in the system prompt (#1643), and nothing went red.
+"""The DSH plugin installed alone (ci.yml dsh-plugin-solo): no bothouse config, no BOTHOUSE_DATA_DIR, no gate.
+Retro 2026-11-15 (#1644): every check started dsh web through the bridge, so a plugin-only install could break
+and nothing went red. Since #1662 the plugin is an adapter: its members run as bothouse roles, which it sets up
+(`bothouse setup apply`) and starts itself; with no bothouse it runs the official installer. Here the bothouse
+built from this commit is put where that installer puts it (~/.local/bin), so the check runs this commit's bridge.
 
   1. `dsh plugin add <the npm pack tarball>` into a scratch HOME, with an env built from nothing
      (no BOTHOUSE_*, GATE_*, CC_* variables, no ~/.bothouse/config.toml)
-  2. `dsh web`, open it with its login token, @ 鲸鱼娘 in the first channel (the model is a local stub)
-  3. what the member sent the model: its memory index block, a system prompt with its persona
-  4. the channel says the gate is missing
+  2. `dsh web`, open it with its login token: 鲸鱼娘 is seeded and comes online as a bothouse role
+  3. @ 鲸鱼娘 in the first channel: the role answers (the model is a local stub) and the model got her persona
 
 Every check prints PASS; the first failure prints FAIL and exits 1.
 
-usage: dsh_plugin_solo.py --tgz <bothouse-dsh-*.tgz> --out <scratch dir>
+usage: dsh_plugin_solo.py --tgz <bothouse-dsh-*.tgz> --bothouse <bothouse binary> --out <scratch dir>
 """
 import argparse
 import http.cookiejar
 import http.server
 import json
 import os
+import shutil
 import re
 import subprocess
 import sys
@@ -27,19 +28,7 @@ import urllib.error
 import urllib.request
 
 MEMBER = "鲸鱼娘"  # the member the plugin seeds into #general on first start (plugin-pkg/README.md)
-MEMORY_HEAD = "（你的记忆 wiki 目录页"  # dsh/collab/memory-index.mjs MEMORY_INDEX_HEAD
-PERSONA_MARK = "你的人设："  # dsh/collab/dsh-member.mjs memberSystemPrompt
-GATE_NOTICE = "没连上 gate"  # dsh/collab/dsh-member.mjs turnContext, the room notice without a gate
-REPLY = "CI-STUB-REPLY-solo"  # what the stub model answers to an ordinary turn
-# #1648, a big job moved into a workspace (dsh/collab/dsh-member.mjs promptText, tasks.mjs toWorkspace)
-UNSEEN_HEAD = "下面是频道里你还没看过的消息"  # promptText: the unseen rows follow it
-LATER_HEAD = "【一次性回查】"  # later.mjs instructions: appended after the unseen rows
-WS_MARK = "的工作区，活已经交到你手上"  # promptText: only a workspace turn has it
-HANDOFF = "【交接】"  # tasks.mjs toWorkspace: the row a workspace turn is woken on
-BIG_JOB = "大活"  # the stub takes a chat @ carrying it with 【接】
-SECRET = "蓝鲸42"  # said in the chat channel before the job
-RESULT = "ci-secret.txt"  # what the stub's workspace turn reports back
-RELAY = "📬"  # team-exit.mjs forward: the workspace result copied into the chat channel
+REPLY = "CI-STUB-REPLY-solo"  # what the stub model answers
 LINK_RE = re.compile(r"dsh web: (http://127\.0\.0\.1:\d+)/\?token=(\S+)")
 # SPEC (Anthropic Messages API): usage token counts are required integers; DSH only displays them
 STUB_TOKENS = 1
@@ -51,6 +40,7 @@ POLL = 1.0  # 沿用已有配置 windows_e2e.py wait(every=1.0)
 ap = argparse.ArgumentParser()
 ap.add_argument("--tgz", required=True)
 ap.add_argument("--out", required=True)
+ap.add_argument("--bothouse", required=True)
 args = ap.parse_args()
 out = os.path.abspath(args.out)
 home, work = os.path.join(out, "home"), os.path.join(out, "work")
@@ -71,19 +61,8 @@ def ok(msg):
 bodies = []
 
 
-def last_text(body):
-    return json.dumps(body.get("messages", [])[-1:], ensure_ascii=False)
-
-
 def stub_reply(body):
-    """【接】 to a chat @ whose trigger row carries BIG_JOB, a [report] to the handoff row in a workspace, else REPLY."""
-    last = last_text(body)
-    unseen = last.split(UNSEEN_HEAD)[-1]
-    if WS_MARK in last:
-        return f"[report] 背景：交接的活\n做了什么：写好了文件 {RESULT}\n要你做的：无\n我加的：无" if HANDOFF in unseen else REPLY
-    return "【接】" if BIG_JOB in unseen.split(LATER_HEAD)[0].rsplit("\\n【", 1)[-1] else REPLY
-
-
+    return REPLY
 class Stub(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -151,6 +130,9 @@ if r.returncode:
 if os.path.exists(os.path.join(home, ".bothouse", "config.toml")):
     fail("the scratch HOME has a bothouse config.toml")
 ok("plugin installed from the tarball into a scratch HOME, no bridge variables")
+# where install.sh puts bothouse (INSTALL_DIR default ~/.local/bin), so the plugin finds this commit's build
+os.makedirs(os.path.join(home, ".local", "bin"), exist_ok=True)
+shutil.copy(args.bothouse, os.path.join(home, ".local", "bin", "bothouse"))
 
 # ---- 2. dsh web, logged in with its token ----
 web_log = open(os.path.join(out, "dsh-web.log"), "w", encoding="utf-8")
@@ -214,6 +196,11 @@ try:
     s = wait(f"channel plugin answers with {MEMBER} seeded", state, T_STATE)
     room = s["rooms"][0]
     ok(f"dsh web up, #{room.get('name')} has {MEMBER}")
+    def online():
+        code, s = call("/collab/api/state")
+        return code == HTTP_OK and any(m.get("name") == MEMBER and m.get("online") for m in s.get("members", []))
+    wait(f"{MEMBER} comes online as a bothouse role (the plugin set it up and started bothouse)", online, T_INSTALL)
+    ok(f"{MEMBER} is online: the plugin set up and started bothouse")
 
     code, r = call(f"/collab/api/rooms/{room['id']}/messages",
                    {"text": f"@{MEMBER} 回一句话就行", "client_key": f"ci-solo-{time.time()}"})
@@ -231,56 +218,11 @@ try:
     wait(f"@{MEMBER} answers", answered, T_REPLY)
     ok(f"@{MEMBER} answered in #{room.get('name')}")
 
-    # ---- 3. what the member gave the model ----
-    system = "\n".join(json.dumps(b.get("system", ""), ensure_ascii=False) for b in bodies)
-    convo = "\n".join(json.dumps(b.get("messages", []), ensure_ascii=False) for b in bodies)
-    if MEMORY_HEAD not in convo:
-        fail(f"no memory index block ({MEMORY_HEAD}…) in what {MEMBER} sent the model: {convo[:600]}")
-    ok(f"{MEMBER}'s turn carries its memory index block")
-    if PERSONA_MARK not in system or MEMBER not in system:
-        fail(f"the system prompt has no {MEMBER} persona ({PERSONA_MARK}): {system[:600]}")
-    ok(f"the system prompt carries {MEMBER}'s persona")
-
-    # ---- 4. the channel says the gate is missing ----
-    if not any(GATE_NOTICE in t for t in texts):
-        fail(f"no missing-gate notice ({GATE_NOTICE}) in #{room.get('name')}: {texts}")
-    ok(f"#{room.get('name')} says the gate is missing")
-
-    # ---- 5. #1648: a big job moved into a workspace keeps what was said, and its result comes back ----
-    def post(text):
-        code, r = call(f"/collab/api/rooms/{room['id']}/messages", {"text": text, "client_key": f"ci-solo-{time.time()}"})
-        if code != HTTP_OK:
-            fail(f"posting {text!r} -> HTTP {code}: {str(r)[:300]}")
-        return r["message"]["id"]
-
-    def chat_rows(after_id):
-        code, page = call(f"/collab/api/rooms/{room['id']}/messages?after={after_id}")
-        return [m.get("text") or "" for m in page.get("messages", [])] if code == HTTP_OK else []
-
-    def turns(start, workspace):
-        return [b for b in bodies[start:] if (WS_MARK in last_text(b)) == workspace]
-
-    def said(reqs):
-        return "\n".join(json.dumps(b.get("messages", []), ensure_ascii=False) for b in reqs)
-
-    first = post(f"@{MEMBER} 记住：暗号是{SECRET}，等下有活")
-    wait(f"@{MEMBER} answers the note", lambda: any(REPLY in t for t in chat_rows(first)), T_REPLY)
-    for job, text, needs in [(1, "照刚才说的，把暗号写进文件", [SECRET]), (2, "刚才那个文件再加一行", [SECRET, RESULT])]:
-        n = len(bodies)
-        relays = sum(RELAY in t for t in chat_rows(first))
-        post(f"@{MEMBER} {BIG_JOB}：{text}")
-        reqs = wait(f"job {job} runs in a workspace", lambda: turns(n, True), T_REPLY)
-        for needle in needs:
-            if needle not in said(reqs):
-                fail(f"job {job}: the workspace turn does not carry {needle}: {said(reqs)[:900]}")
-        wait(f"job {job} is handed back to #{room.get('name')}", lambda: sum(RELAY in t for t in chat_rows(first)) > relays, T_REPLY)
-        ok(f"job {job}: the workspace turn carries {' and '.join(needs)}, its result is back in #{room.get('name')}")
-    n = len(bodies)
-    post(f"@{MEMBER} 刚才两件事做得怎么样，文件叫什么")
-    reqs = wait(f"@{MEMBER} is asked in #{room.get('name')}", lambda: turns(n, False), T_REPLY)
-    if RESULT not in said(reqs):
-        fail(f"the chat turn does not carry the workspace result {RESULT}: {said(reqs)[:900]}")
-    ok(f"@{MEMBER} in #{room.get('name')} reads what the workspace handed back")
+    # ---- 3. what the role gave the model: her persona (the bridge writes it into the role) ----
+    sent = "\n".join(json.dumps([b.get("system", ""), b.get("messages", [])], ensure_ascii=False) for b in bodies)
+    if MEMBER not in sent:
+        fail(f"no {MEMBER} persona in what the role sent the model: {sent[:600]}")
+    ok(f"the role's model request carries {MEMBER}'s persona")
 finally:
     if proc.poll() is None:
         proc.terminate()

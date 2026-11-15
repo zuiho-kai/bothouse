@@ -68,7 +68,10 @@ type WizardRequest struct {
 	// GitHub authorization (member_workspaces, core/member_workspace.go). The team page recommends it,
 	// unchecked; only a team (two or more roles) gets it. nil = leave.
 	MemberWorkspaces *bool `json:"member_workspaces,omitempty"`
-	DryRun           bool  `json:"dry_run,omitempty"`
+	// RemoveProjects: roles to take out of config.toml (a channel host dropped the member). Only a project whose
+	// one platform is cloud_web goes; any other is kept and named in the steps.
+	RemoveProjects []string `json:"remove_projects,omitempty"`
+	DryRun         bool     `json:"dry_run,omitempty"`
 	// AppendOnly: the panel's "add role/model" entry. Every role must become a new project; a role
 	// that would update an existing one (reuse_project, same bot, same name) is refused, not merged.
 	AppendOnly bool `json:"append_only,omitempty"`
@@ -120,6 +123,8 @@ type WizardRole struct {
 	EditPersona     bool            `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
 	ReplyLanguage   string          `json:"reply_language,omitempty"`
 	Provider        *WizardProvider `json:"provider,omitempty"` // nil = the CLI's own local login
+	// Model: the agent's model option ("" = leave). DSH takes its ACP model value, `["<provider route>","<model>"]`.
+	Model string `json:"model,omitempty"`
 	// Library picks; nil / "" = keep what the state already has for this project.
 	PersonaPreset *string `json:"persona_preset,omitempty"` // library persona slug ("" via pointer = clear)
 	Avatar        *string `json:"avatar,omitempty"`         // library avatar slug ("" via pointer = clear)
@@ -1265,6 +1270,9 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		return fail("config", err)
 	}
 	fillRoleResults(res, pl)
+	if len(req.RemoveProjects) > 0 {
+		removeCloudWebOnlyRoles(env.Store, req.RemoveProjects, res)
+	}
 	if pl.note != "" {
 		addStep(res, "fallback_role", nil, pl.note)
 	}
@@ -1918,6 +1926,12 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				}
 			}
 		}
+		if m := strings.TrimSpace(r.Model); m != "" {
+			if pw.AgentOptions == nil {
+				pw.AgentOptions = map[string]any{}
+			}
+			pw.AgentOptions["model"] = m
+		}
 		if cloudWeb {
 			pw.PlatformType = "cloud_web"
 			cur := s.projectPlatform(r.project, "cloud_web")
@@ -1928,7 +1942,10 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			}
 			pw.Options["ws_url"] = cloudWebBotURL(cwBase, r.project, r.Name, r.mentionID, avatar)
 			pw.Options["token"] = cwToken
-			if a, _ := cur["allow_from"].(string); strings.TrimSpace(a) == "" || strings.TrimSpace(a) == AllowFromUnset {
+			// A given allow_from wins over the preset: the DSH channel host's owner is "owner", not the hub's "user".
+			if req.AllowFrom != nil && allowFrom != "" {
+				pw.Options["allow_from"] = allowFrom
+			} else if a, _ := cur["allow_from"].(string); strings.TrimSpace(a) == "" || strings.TrimSpace(a) == AllowFromUnset {
 				pw.Options["allow_from"] = cloudWebPresets[req.Platform].AllowFrom
 			}
 			// rh/cloudweb.py 文件头：hub 要求 group_reply_all = true（不然没 @ 它的消息在 gate 之前就被丢了）
@@ -3004,4 +3021,35 @@ func gateTeamJSON(team []SetupTeamEntry, fallback, fallbackName string, s Wizard
 		}
 	}
 	return gt
+}
+
+// removeCloudWebOnlyRoles takes the named projects out of config.toml when their only platform is cloud_web
+// (remove_projects). A project with any other platform, or one that is not there, is left alone.
+func removeCloudWebOnlyRoles(store WizardStore, names []string, res *WizardResult) {
+	rm, ok := store.(WizardProjectRemover)
+	if !ok {
+		return
+	}
+	snap, err := store.Snapshot()
+	if err != nil {
+		addStep(res, "remove_projects", err, "")
+		return
+	}
+	var drop []string
+	for _, n := range names {
+		p, ok := snap.project(n)
+		if !ok {
+			continue
+		}
+		if _, cw := p.Platforms["cloud_web"]; !cw || len(p.Platforms) != 1 {
+			addStep(res, "remove_projects", nil, "kept "+n+": it is not a cloud_web-only role")
+			continue
+		}
+		drop = append(drop, n)
+	}
+	if len(drop) == 0 {
+		return
+	}
+	removed, err := rm.RemoveProjects(drop)
+	addStep(res, "remove_projects", err, "removed "+strings.Join(removed, ","))
 }

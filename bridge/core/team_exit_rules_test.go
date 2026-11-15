@@ -73,7 +73,7 @@ func exitRuleText(t *testing.T, ref string) string {
 }
 
 func TestTeamExitSharedCases(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "dsh", "collab", "test", "team-exit-cases.json"))
+	b, err := os.ReadFile(filepath.Join("team_rules", "testdata", "team-exit-cases.json"))
 	if os.IsNotExist(err) {
 		t.Skipf("source tree not present: %v", err)
 	}
@@ -161,8 +161,7 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 			}
 		}
 	}
-	files := []string{"team_exit.go", "team_exit_headline.go", "team_ask_evidence.go", filepath.Join("team", "exit_rules.go"),
-		filepath.Join("..", "..", "dsh", "collab", "team-exit.mjs")}
+	files := []string{"team_exit.go", "team_exit_headline.go", "team_ask_evidence.go", filepath.Join("team", "exit_rules.go")}
 	for _, f := range files {
 		src, err := os.ReadFile(f)
 		if err != nil {
@@ -240,7 +239,7 @@ func TestSelfRouteProblems(t *testing.T) {
 
 // teamExitRulesFile is the one copy of the workspace [ask]/[report] rules: first-line mark and #id
 // format, the [ask] self-check, bounce texts. The build copies it into the DSH plugin
-// (dsh/scripts/bundle.mjs); DSH collab (team-exit.mjs) reads the same file, and both sides run the shared
-// cases in dsh/collab/test/team-exit-cases.json (TestTeamExitSharedCases; team-exit.test.mjs). No
+// (dsh/scripts/bundle.mjs) no longer: DSH members are bridge roles now (#1662), and the bridge runs the shared
+// cases in team_rules/testdata/team-exit-cases.json (TestTeamExitSharedCases). No
 // formats or texts live here.
 const teamExitRulesFile = "team_rules/team-exit-rules.json"

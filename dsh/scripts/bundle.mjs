@@ -3,7 +3,7 @@
 // directories are not in git; dsh_bundle/install.sh is, and is left alone. `make dshbundle` in
 // bridge/ runs this, and `make build` / `make build-noweb` run that first (same shape as hubsrc).
 //
-//   collab/                      dsh/collab without tests, plus the team rules from bridge/core/team_rules
+//   collab/                      dsh/collab without tests (the team rules stay in the bridge since #1662)
 //   packages/bothouse-dsh-*/     dsh/packages/bothouse-dsh-* as committed
 //   packages/client-ui-discord/  package.json, locale/ and lib/ (built here when its stamp does not match src)
 //
@@ -29,7 +29,6 @@ cpSync(join(dsh, 'collab'), join(out, 'collab'), {
     return !skipDirs.has(name) && !skipFiles.has(name) && !name.endsWith('.test.mjs')
   },
 })
-for (const f of ['team-mode-rules.md', 'team-exit-rules.json']) cpSync(join(core, 'team_rules', f), join(out, 'collab', f))
 
 for (const name of ['bothouse-dsh-desk', 'bothouse-dsh-panel', 'bothouse-dsh-devices']) {
   cpSync(join(dsh, 'packages', name), join(out, 'packages', name), { recursive: true, filter: (src) => basename(src) !== 'node_modules' })

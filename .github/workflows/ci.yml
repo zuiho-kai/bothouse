@@ -521,8 +521,8 @@ jobs:
         working-directory: bridge
 
   # The DSH plugin installed alone, as an outside user does (no bridge: no BOTHOUSE_DATA_DIR, no gate):
-  # npm pack the plugin, dsh plugin add it into a scratch HOME, @ a member (stub model). Retro #1644: every
-  # other check started dsh web through the bridge, so #1643 (no memory, silent gate, no persona) stayed green.
+  # npm pack the plugin, dsh plugin add it into a scratch HOME, @ a member (stub model) that runs as a bothouse
+  # role the plugin set up itself (#1662). Retro #1644: every other check started dsh web through the bridge.
   dsh-plugin-solo:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
@@ -543,8 +543,16 @@ jobs:
       - name: Pack the plugin (npm run pack, the tarball npm publishes)
         working-directory: dsh/plugin-pkg
         run: npm run pack
+      # #1662: the plugin's members run as bothouse roles; the check runs this commit's bothouse
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - name: Build bothouse
+        working-directory: bridge
+        run: go build -tags no_web -o "$RUNNER_TEMP/bothouse" ./cmd/cc-connect
       - name: Plugin alone in a scratch HOME, @ a member
-        run: python3 -I .github/release-check/dsh_plugin_solo.py --tgz dsh/plugin-pkg/bothouse-dsh-*.tgz --out "$RUNNER_TEMP/solo"
+        run: python3 -I .github/release-check/dsh_plugin_solo.py --tgz dsh/plugin-pkg/bothouse-dsh-*.tgz --bothouse "$RUNNER_TEMP/bothouse" --out "$RUNNER_TEMP/solo"
       - name: Keep logs and model requests
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

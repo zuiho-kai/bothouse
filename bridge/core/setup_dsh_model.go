@@ -44,7 +44,10 @@ func dshProviderBase(p WizardProvider) (string, error) {
 // dshHomeLayers are dshHome's own patch layers in DSH's order (a later one wins).
 func dshHomeLayers(dshHome string) []string {
 	home := DSHHome(dshHome)
-	return []string{filepath.Join(home, "profiles", "acp", "cordis.patch.yml"), filepath.Join(home, "cordis.patch.yml")}
+	// The web and desktop profiles first (#1662): a user with only DSH and its channels plugin set the model up
+	// there, and the members of those channels are this bridge's roles. The acp profile and the home layer win.
+	return []string{filepath.Join(home, "profiles", "web", "cordis.patch.yml"), filepath.Join(home, "profiles", DSHDesktopProfile, "cordis.patch.yml"),
+		filepath.Join(home, "profiles", "acp", "cordis.patch.yml"), filepath.Join(home, "cordis.patch.yml")}
 }
 
 // dshOwnModelPatch is the user's own model entries from dshHome (dshModelEntryIDs, each the config of the last

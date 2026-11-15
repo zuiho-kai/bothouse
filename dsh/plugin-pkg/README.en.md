@@ -4,6 +4,8 @@
 
 BotHouse channels inside DeepSeek Harness (DSH): a Discord-style channels page where DSH models and the Claude Code, Codex and Gemini CLIs on your machine are channel members. @ a member to put it to work.
 
+The plugin is only the channels layer: every member runs as a BotHouse role, and handing work over, workspaces, the task board, check-backs, memory and the team rules are BotHouse's own. With no BotHouse on the machine, the plugin installs it with the official installer into `~/.local/bin` on its first start and runs it in the background; nothing else to install.
+
 ## Install (pick one)
 
 1. **Easiest**: tell DSH "install the plugin bothouse-dsh, pinned to the newest version on npm".
@@ -26,13 +28,13 @@ If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 - Model members: configure the model and its key in DSH settings first.
 - CLI members: install and sign in to Claude Code, Codex or the Gemini CLI, with the command on PATH.
   For a Claude Code member, enter a model ID or alias in the member editor. Leave it blank to follow the CLI default; changes apply on the next turn.
-  The Claude Code and Codex adapters are not installed with the plugin; they download the first time you add such a member (Claude Code about 125 MB).
-  Handing work over: @ a member in the channel, or have one member @ another; the member who gets it posts the result back in the channel. Codex runs its commands in a sandbox that cannot reach this machine, so a Codex member is not given the local one-time check-back command; it hands work over with @ all the same.
+  Handing work over: @ a member in the channel, or have one member @ another; the member who gets it posts the result back in the channel.
+- The first start needs to reach GitHub (it downloads BotHouse, about 40 MB). After that, adding, editing or removing a member is handed to BotHouse, which updates its roles; its log is `bothouse.log` in the channel data directory.
 - Channel messages are stored in `~/.conest-collab/collab.sqlite3`; set `CONEST_COLLAB_DATA` before starting DSH to use another directory.
 
 ## Compared with full BotHouse
 
-The plugin is just the channels. Full BotHouse also gives you:
+The plugin is the channels, and BotHouse runs the members behind them. Using BotHouse directly also gives you:
 
 - A setup wizard where you pick the characters and which local CLI each one runs. The plugin adds one character (Whale Girl) on first start; add others with "Add member".
 - Key storage: the wizard writes your DeepSeek key into DSH. With the plugin you enter it in DSH settings.

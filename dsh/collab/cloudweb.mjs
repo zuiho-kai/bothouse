@@ -1,4 +1,3 @@
-import { exitTarget } from './team-exit.mjs';
 // cc-connect cloud_web gateway (server side of bridge/platform/cloud-web, WS
 // transport). Ported from role-household/rh/cloudweb.py so a cc-connect
 // project configured for the role-household hub connects here unchanged:
@@ -17,7 +16,7 @@ export const WS_PATH = '/cloud-web/ws';
 // a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
 // text (#120); cards are not declared, so cc-connect degrades them to text
 // (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode', 'queue'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'dispatch_mode', 'queue'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
 /**
@@ -207,7 +206,6 @@ export class CloudWebGateway {
     /** #120: permission cards, shared with DSH members (approvals.mjs); meta = { gateway, bot, sessionKey } */
     this.approvals = ChannelApprovals.of(hub);
     /** Tasks (#139 B), set by the plugin; `task` frames act through it. */
-    this.tasks = undefined;
     hub.onMessage(message => this.onNew(message));
   }
 
@@ -254,7 +252,7 @@ export class CloudWebGateway {
     const project = typeof frame.project === 'string' ? frame.project : '';
     const id = clean(url.searchParams.get('bot') || project).slice(0, MAX_NAME);
     const existing = this.hub.members.get(id);
-    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot')) {
+    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot' && existing.kind !== 'dsh')) {
       send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
       ws.close(WS_BAD_REGISTER, 'bad register');
       return undefined;
@@ -279,7 +277,10 @@ export class CloudWebGateway {
     let avatar = '';
     try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
     // voter: the bridge project, as which its agent cites memories (memvote.py CC_PROJECT; memory-sources.mjs).
-    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}), voter: project || id };
+    const mention = /^\d+$/.test(mentionId) ? mentionId : '';
+    // #1662: a member stored here (kind 'dsh') is the bothouse role of that id: it keeps its entry and comes online.
+    const member = existing?.kind === 'dsh' ? { ...existing, mentionId: mention, online: true, voter: project || id }
+      : { id, name, rooms, kind: 'bot', mentionId: mention, online: true, ...(avatar ? { avatar } : {}), voter: project || id };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -337,8 +338,7 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || this.hub.teamExit?.answerFor(msg)) return;
-    const target = exitTarget(msg);
+    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
     const fromAgent = msg.author_kind === 'role';
     // The owner's text reply to a pending permission prompt goes the same way as a button click.
     const answered = this.approvals.answerByText(msg);
@@ -364,13 +364,13 @@ export class CloudWebGateway {
     const replyTo = replyToFields(quoted, this.hub.store);
     for (const { ws, member } of this.bots.values()) {
       if (!members.some(m => m.id === member.id)) continue;
-      if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
+      if (fromAgent && msg.author === member.id) continue;
       if (answered.has(member.id)) continue;
       // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
       if (only !== null && !only.has(member.id)) continue;
       let content = forMember(text, member, members);
       // #1023: an owner message in a private chat is addressed to its one agent.
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name)
+      const hit = only !== null || mentioned.has(member.id) || nameCalled(text, member.name)
         || (!fromAgent && this.hub.store.dmMember?.(msg.room_id) === member.id);
       if (fromAgent && !content) continue;
       if (fromAgent) content = `【${msg.name}】${quote}${content}`;
@@ -380,7 +380,7 @@ export class CloudWebGateway {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
         // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
         // command word as its arguments (core/engine.go handleCommand), so no later instructions.
-        user_id: msg.author, user_name: msg.name, content: content + (tooBig ? `\n${tooBig}` : '') + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id, { cli: true }) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
+        user_id: msg.author, user_name: msg.name, content: content + (tooBig ? `\n${tooBig}` : ''), reply_ctx: roomKey(msg.room_id),
         mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
       };
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -394,7 +394,6 @@ export class CloudWebGateway {
    * reminder); onNew never forwards system rows. False when the bot is offline.
    */
   nudge(memberId, msg) {
-    if (this.hub.quota?.cooling(memberId)) return false;
     const bot = this.bots.get(memberId);
     if (bot === undefined || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
     const members = this.hub.routableIn(msg.room_id);
@@ -421,15 +420,13 @@ export class CloudWebGateway {
       if (d.op === 'dispatch_mode') return { ok: true, ...store.dispatchSetting(id) };
       if (d.op === 'list') {
         // One shared pool per server: every workspace with its owner ("" = free, released after
-        // its last task) and active (tasks in progress, tasks.mjs countActive), so the bridge
+        // its last task); active and paused stay 0: the bridge keeps the tasks (#1662), so the bridge
         // adopts only a free one and never claims a workspace another chat channel owns.
         const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.id !== id).map(r => {
           const owner = store.workspaceOwner(r.id);
           return {
             ...view(r), parent_id: r.parent_id == null ? '' : roomKey(r.parent_id),
             owner: owner == null ? '' : roomKey(owner),
-            active: this.tasks?.countActive(r.id) ?? 0,
-            paused: this.tasks?.countPaused?.(r.id) ?? 0,
           };
         });
         return { ok: true, self: view(self), rooms };
@@ -451,8 +448,7 @@ export class CloudWebGateway {
         if (self.kind !== 'workspace') return { ok: false, error: 'not-workspace' };
         const claim = d.claim == null || d.claim === '' ? null : String(d.claim);
         // park (core ParkTeamWorkspace): its tasks are paused, not finished; they stop counting first.
-        const released = !this.tasks ? store.releaseWorkspace(id, claim)
-          : d.park ? this.tasks.park(id, claim) : this.tasks.release(id, claim);
+        const released = store.releaseWorkspace(id, claim);
         if (released) this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
       }
@@ -493,23 +489,23 @@ export class CloudWebGateway {
     return told;
   }
 
+  /** The room's roles each start a fresh conversation: the bridge's /new, as an @ to every bot there. Returns their names. */
+  renew(roomId) {
+    const room = this.hub.store.room(roomId);
+    const told = [];
+    for (const { ws, member } of this.bots.values()) {
+      if (!this.hub.routableIn(roomId).some(m => m.id === member.id)) continue;
+      send(ws, { type: 'message', msg_id: `renew-${roomId}-${Date.now()}-${member.id}`, chat_id: roomKey(roomId), chat_type: chatType(this.hub.store, roomId),
+        user_id: 'owner', user_name: 'Owner', content: '/new', reply_ctx: roomKey(roomId), mentioned: true, from_bot: false, ...(room ? { chat_name: room.name } : {}) });
+      told.push(member.name);
+    }
+    return told;
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
-      case 'task': {
-        // #139 B: the socket says which bot this is, so the action is verified as it.
-        // The frame's `ref` is the ack correlation id, so its task field ref (#574) travels as task_ref.
-        const ack = r => send(bot.ws, { type: 'task_ack', ref: d.ref, ...r });
-        if (this.tasks === undefined) { ack({ ok: false, error: 'tasks are not enabled' }); return; }
-        try {
-          const task = this.tasks.perform(String(d.action ?? ''), { id: Number(d.task_id), roomId: roomOf(d, this.hub.store), body: { ...d, ref: d.task_ref } }, { actor: member.id, verified: true });
-          ack({ ok: true, task });
-        } catch (error) {
-          ack({ ok: false, error: error?.message ?? String(error), code: error?.code });
-        }
-        return;
-      }
       case 'reply': {
         const room = roomOf(d, this.hub.store);
         if (typeof d.content !== 'string' || room === undefined) return;
@@ -628,7 +624,6 @@ export class CloudWebGateway {
           if (!created && fresh) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
           // A late older frame must not reopen tasks the newer card already handed back.
-          if (fresh && body.members) this.tasks?.fromCard(room, member.id, message.id, body.members);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });
@@ -650,7 +645,6 @@ export class CloudWebGateway {
         const body = withSeq(this.body(d.content), seq);
         if (!body.text) return;
         const row = this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
-        if (row !== undefined && body.members) this.tasks?.fromCard(row.room_id, member.id, row.id, body.members);
         return;
       }
       default:
