@@ -7844,3 +7844,22 @@ test('#1648: ChatBackground gives the parent chat once per conversation, only in
   assert.notEqual(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).block, '', 'a released workspace starts over');
   hub.store.close();
 });
+
+test('#1660: a Codex member gets no local later command (its sandbox has no network); Claude still does', async () => {
+  for (const [cli, wants] of [['codex', false], ['claude', true]]) {
+    const hub = makeHub();
+    const fake = fakeDsh();
+    const prompts = [];
+    const members = new DshMembers(hub, {
+      ctx: fake.ctx, createUserMessage: m => m, workspacePath: '/w', logger: quiet,
+      later: { instructions: () => '\n【一次性回查】curl http://127.0.0.1:1/later\n' },
+      createCliMember: () => ({ async ask(prompt) { prompts.push(prompt); return '好'; }, close() {} }),
+    }, [{ id: 'm', name: 'M', cli }]);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@M 派个小活给小蓝' });
+    await settle();
+    assert.equal(prompts.length, 1, cli);
+    assert.equal(prompts[0].includes('【一次性回查】'), wants, cli);
+    assert.match(prompts[0], /别人让你把活派给某个队友：回复里 @ 她/);
+    await members.close(); hub.store.close();
+  }
+});
