@@ -1195,7 +1195,8 @@ def deliver(label):
         before = git("rev-parse", "HEAD", cwd=REPO)
         git("stash", "push", "-q", "-m", f"ingest deliver {label}", "--", *held, cwd=REPO)
     picking.write_text(sha + "\n")
-    r = subprocess.run(["git", "cherry-pick", sha], cwd=REPO, capture_output=True, text=True)
+    # An accepted final piece may change no page; its durable progress is still a delivery.
+    r = subprocess.run(["git", "cherry-pick", "--allow-empty", sha], cwd=REPO, capture_output=True, text=True)
     if held:
         if not r.returncode:
             p = subprocess.run(["git", "stash", "pop", "-q"], cwd=REPO, capture_output=True, text=True)
@@ -1816,11 +1817,9 @@ def acceptance(sids=(), max_delete=None, kind="ingest", coverage=None):
     uncommitted diff against HEAD (a commit landing mid-pass from another session isn't counted). Lint errors already
     on HEAD don't reject (new_lint_errors)."""
     base = "HEAD"
-    # over-long lines are split by code, verbatim (lint.wrap_pages), never by the model: a model's hand split reworded
-    # old lines and the lossless check reverted the batch (2026-10-28, three batches in a row)
-    wrapped = lint.wrap_pages(WIKI)
-    if wrapped:
-        log(f"acceptance: wrapped over-long lines in {', '.join(wrapped)}")
+    # Frozen blocks include their original line breaks. Wrapping them here would
+    # invalidate exact coverage even on an otherwise unchanged accepted page.
+    # New formatting errors still fail new_lint_errors; existing ones stay baseline.
     errs = [new_lint_errors(base)]
     git("add", "-AN")  # intent-to-add so new files show in the diff
     files = git("diff", "--name-only", base).split()
@@ -2065,7 +2064,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         return "\n".join(e for e in (acceptance(sids, max_delete, kind, coverage=coverage), check and check()) if e)
 
     def settle(answer):
-        if apply and not pending:
+        if apply and (not pending or answer):
             discard()
             error = apply(answer)
             if error:
@@ -2090,6 +2089,8 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         return True
 
     errs = settle(out) if ok else ""
+    if pending and pending["stage"] == "fix" and not errs:
+        errs = "Finish the saved incomplete model turn before this candidate can be accepted."
     if ok and held_for_review(errs):
         return False
     if ok and errs:
@@ -2101,7 +2102,8 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         REJECT_REASONS.append(errs)
         # apply: the previous answer goes with the errors (the fix is to that answer; review M6)
         fix = (instruction + "\n\n" + REDO.format(errors=errs) + "\n\n上一次的输出：\n" + out) if apply else FIX.format(errors=errs) + block_contract.INSTRUCTION
-        ok, out, c2 = once(fix, label=label + " fix", context=fix_context)
+        original_source = block_contract.git(REPO, "cat-file", "blob", coverage["input"]).decode()
+        ok, out, c2 = once(fix, label=label + " fix", context=fix_context or original_source)
         ok = finished(ok, out)
         log(f"{label} fix ${c2:.3f}: {out[-300:]}")
         if ok and merge and apply and len(answers) > 1:  # the fix replaces the last batch's answer, earlier ones stay
@@ -2111,7 +2113,10 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         if ok and held_for_review(errs):
             return False
     if not ok or errs:
-        save_block_candidate(label, coverage, key, "fix", checkpoint)
+        # Failed calls with no output edits have no candidate to resume. In particular,
+        # an empty failed turn must never become an accepted checkpoint on restart.
+        if ok or pending or git("status", "--porcelain"):
+            save_block_candidate(label, coverage, key, "fix", checkpoint)
         LAST_REJECTED = bool(ok and errs)
         log(f"{label} RETAINED: {errs[:500] or 'model failed'}")
         REJECT_REASONS.append(errs or "model failed")

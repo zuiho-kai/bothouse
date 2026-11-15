@@ -158,6 +158,84 @@ class BlockContract(unittest.TestCase):
         self.assertNotIn(FACT, (self.repo / "misc/source.md").read_text(encoding="utf-8"))
         self.assertIn("23 units", (self.repo / "misc/source.md").read_text(encoding="utf-8"))
 
+    def test_uncompleted_turn_does_not_turn_into_an_accepted_checkpoint(self):
+        checkpoint = [dict(id="failed-session", start=0, end=123)]
+        def interrupted(*args, **kwargs):
+            (I.WORK / "misc/source.md").write_text(PAGE + FACT + FACT + "- incomplete new fact\n", encoding="utf-8")
+            return False, "interrupted synthetic turn", 0
+        with patch.object(I, "runner", return_value=interrupted):
+            self.assertFalse(I.model_pass("failed turn", "append", engine="fake", checkpoint=checkpoint))
+        with patch.object(I, "runner", return_value=lambda *a, **k: (False, "still incomplete", 0)):
+            self.assertFalse(I.model_pass("failed turn", "append", engine="fake", checkpoint=checkpoint))
+        db = I.state()
+        self.assertEqual(db.execute("select * from ingested").fetchall(), [])
+        self.assertNotIn("incomplete new fact", (self.repo / "misc/source.md").read_text(encoding="utf-8"))
+        db.close()
+
+    def test_program_callback_can_relocate_exact_blocks_but_not_rewrite_them(self):
+        def apply(answer):
+            (I.WORK / "misc/dest.md").write_text(PAGE + FACT + FACT, encoding="utf-8")
+            (I.WORK / "misc/source.md").write_text(PAGE, encoding="utf-8")
+            with (I.WORK / "misc/README.md").open("a", encoding="utf-8") as f:
+                f.write("- [dest](dest.md) — scripted destination\n")
+            return ""
+        with patch.object(I, "runner", return_value=lambda *a, **k: (True, "synthetic grouping", 0)):
+            self.assertEqual(I.model_pass("scripted move", "group", engine="fake", kind="restructure", apply=apply), "changed")
+        self.assertEqual((self.repo / "misc/dest.md").read_text(encoding="utf-8").count(FACT), 2)
+
+    def test_review_receipt_becomes_invalid_when_main_advances(self):
+        c = I.block_contract
+        coverage = c.freeze(self.repo, ["HEAD"], "USER: synthetic replacement")
+        row = next(iter(c.inventory(self.repo, coverage["sources"])[0].values()))
+        coverage["plan"]["updates"] = [dict(block=row["id"], to=row["path"], section=row["section"],
+                                              text="- replacement synthetic fact", source=dict(line=1, quote="USER: synthetic replacement"),
+                                              reason="synthetic explicit update")]
+        files = c.render(self.repo, coverage, c.working_tree(self.repo), "ingest")
+        key = c.review_key(coverage, files, "ingest")
+        receipt = c.review_path(self.repo, key)
+        receipt.parent.mkdir(parents=True)
+        receipt.write_text(json.dumps(dict(subject=key, reviewer="synthetic reviewer", reason="fixture only")), encoding="utf-8")
+        self.assertTrue(c.reviewed(self.repo, coverage, files, "ingest"))
+        (self.repo / "log.md").write_text("# Log\n- new main entry\n", encoding="utf-8")
+        self.commit("main advanced after review")
+        coverage["sources"] = c.freeze(self.repo, coverage["sources"] + ["HEAD"])["sources"]
+        self.assertFalse(c.reviewed(self.repo, coverage, files, "ingest"))
+
+    def test_saved_program_fix_applies_the_corrected_answer(self):
+        def apply(answer):
+            if answer != "complete grouping":
+                return "incomplete synthetic grouping"
+            (I.WORK / "log.md").write_text("# Log\n- completed grouping\n", encoding="utf-8")
+            return ""
+        with patch.object(I, "runner", return_value=lambda *a, **k: (True, "incomplete", 0)):
+            self.assertFalse(I.model_pass("saved program", "group", engine="fake", apply=apply))
+        with patch.object(I, "runner", return_value=lambda *a, **k: (True, "complete grouping", 0)):
+            self.assertEqual(I.model_pass("saved program", "group", engine="fake", apply=apply), "changed")
+        self.assertIn("completed grouping", (self.repo / "log.md").read_text(encoding="utf-8"))
+
+    def test_acceptance_preserves_original_long_block_bytes(self):
+        long_fact = "- " + "synthetic original words " * 200 + "\n"
+        (self.repo / "misc/source.md").write_text(PAGE + long_fact, encoding="utf-8")
+        self.commit("long original source")
+        self.assertEqual(I.acceptance(), "")
+        self.assertEqual((self.repo / "misc/source.md").read_text(encoding="utf-8"), PAGE + long_fact)
+
+    def test_partial_checkpoint_recovers_before_final_offset(self):
+        partial = [dict(id="chunk-session", start=0, end=123, chunk="synthetic complete record", part=1)]
+        with patch.object(I, "runner", return_value=self.move_model):
+            self.assertEqual(I.model_pass("partial fixture", "move", engine="fake", checkpoint=partial), "changed")
+        db = I.state()
+        self.assertEqual(db.execute("select * from ingested").fetchall(), [])
+        self.assertEqual(db.execute("select part from pending_parts").fetchone(), (1,))
+        with patch.object(I, "runner", return_value=lambda *a, **k: (True, "no further edits", 0)):
+            self.assertEqual(I.model_pass("final fixture", "append", engine="fake",
+                                          checkpoint=[dict(id="chunk-session", start=0, end=123)]), "changed")
+        db.close()
+        db = I.state()
+        self.assertEqual(db.execute("select offset from ingested").fetchone(), (123,))
+        self.assertEqual(db.execute("select * from pending_parts").fetchall(), [])
+        db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

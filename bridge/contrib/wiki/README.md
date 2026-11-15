@@ -101,3 +101,33 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 指定读取原生会话记录的位置，`CODEMAP_FILL_SCRIPT` 指定地图回填脚本。
 远端转录镜像由 `WIKI_MIRROR_TO` 指定 SSH 主机别名；默认不启用。接收端路径用 wiki 配置的 `mirror_dir`
 设置，默认 `~/.bothouse/wiki-hosts`，按主机名分目录存储。
+
+
+### 原文块守恒与候选恢复
+
+整理开始前，程序把来源提交、逐块原文和输入转录冻结到本地 Git refs，给模型提供
+`.ingest-work/block-sources.json`。模型只返回搬移地址，程序读取原块并执行；接受、交付和
+断点恢复都检查原块份数及其在 MEMORY → README 索引链中的可检索位置。拆页不允许改写或增删事实，
+追加新事实不能抵消丢失旧块。产品原有嵌套目录、拆域与机械合并继续使用。
+原块保留既有换行；接受边界不再自动折行旧正文，新格式错误仍由增量 lint 检查拒绝。
+
+模型返回一行 `Wiki-Blocks: {"moves":[],"updates":[]}`；moves 的每项包含 catalog 中的
+block ID、目标主题页 to 和已有 H2 标题 section。updates 还须包含一个完整替代块 text、
+原始输入的精确行号和原句 source、明确取代关系 reason。该契约检查字面覆盖和来源，不能证明自然语言真实性。
+
+显式事实替换会保存待审候选，不推进会话断点、不增加失败计数，也不在等待期间重复调用模型。
+日志会给出 candidate SHA；独立审核者可用以下入口查看完整来源和提案，再决定是否批准：
+
+```sh
+python3 -I bin/block_contract.py show --repo /path/to/wiki --candidate <SHA>
+python3 -I bin/block_contract.py approve --repo /path/to/wiki --candidate <SHA> --reviewer <name> --reason <review-result>
+```
+
+审核回执绑定来源、输入、搬移计划和完整最终树；候选或主库改变后需要重新审核。模型整理进程
+（WIKI_INGEST）不能调用批准入口。回执是本机人工审核记录，不是操作系统级身份隔离。
+下次同一批次进入普通整理时恢复候选，再经过接受与交付；安装工具不会自动执行任何审核。
+
+候选 refs 是输出，不会再次加入搬移前的来源清单；主库前进只增加新的主库来源并合并候选。
+文本冲突时两侧保留，日志标明 pending，留给维护者处理，不能当作已交付。
+交付提交记录同批次的完整/分片进度；Git 成功而 SQLite 尚未写入时，下次 state 装载先验证契约再恢复断点。
+所有来源、候选和回执保留在对应 wiki 内，不随软件代码推送。
