@@ -175,14 +175,15 @@ func TestTaskForumCachedPostPermissionLoss(t *testing.T) {
 func TestTaskForumExitRequiresDeliveredPost(t *testing.T) {
 	e, p, dir := forumRoutingEngine(t)
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"任务并帖","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
-	body := "📬 结果\n\n完整报告"
-	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, body)
+	headline, detail := "📬 结果", "完整报告"
+	body := joinExitDetail(headline, detail)
+	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail)
 	if rc != "discord:th1" || !strings.Contains(text, "https://discord.com/channels/g1/th1/th1") || len(p.post("th1").nodes) != 1 || p.post("th1").nodes[0] != body {
 		t.Fatalf("text=%s rc=%v post=%+v", text, rc, p.post("th1"))
 	}
 	p.failSend = true
-	text, rc = e.taskForumExitText(context.Background(), p, "discord:222", 783, body)
-	if rc != nil || text != body {
+	text, rc = e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail)
+	if rc != nil || text != headline {
 		t.Fatal("failed send hid the report behind a link")
 	}
 }
@@ -192,7 +193,7 @@ func TestTaskForumHeldLegacyReportKeepsThreadAfterSessionReset(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"旧任务","status":"在做","chat":"discord:111","ws":"discord:222","bound":"2026-11-14T00:00:00Z"}`+"\n")
 	old := &Task{ID: "old", SessionKey: "discord:222", ThreadID: "legacy", CreatedAt: time.Now()}
 	e.publicProgress = &PublicProgress{records: map[string]*publicRun{"old": {record: progressRecord{Task: old}}}}
-	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, "原报告")
+	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, "原报告", "")
 	if text != "原报告" || rc != nil || p.opens != 0 {
 		t.Fatalf("old report migrated: %s %v %d", text, rc, p.opens)
 	}

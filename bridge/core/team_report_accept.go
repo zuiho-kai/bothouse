@@ -402,8 +402,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	}
 	text := spaceExitLines(heldHeadlineText(name, cp.Headline, unchecked))
 	_, detail := team.ExitSplit(cp.Body)
-	forumText := joinExitDetail(text, detail)
-	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, forumText)
+	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail)
 	inForum := forumRC != nil
 	if err := e.sendRenderedWithContext(ctx, p, rc, chatText); err != nil {
 		e.teamExit.mu.Lock()
@@ -440,7 +439,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	e.teamExit.mu.Unlock()
 	if !inForum {
 		e.postToTaskThreadContext(ctx, p, cp.Session, text)
-		e.postTaskForumNode(cp.Board, forumText)
+		e.postTaskForumNode(cp.Board, joinExitDetail(text, detail))
 	}
 	slog.Info("report accept: report posted", "board_item", cp.Board, "workspace", cp.Workspace, "parent", cp.Chat, "unchecked", unchecked, "verdict", truncateStr(verdict, 200))
 	return nil

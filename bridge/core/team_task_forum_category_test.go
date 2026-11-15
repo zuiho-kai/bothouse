@@ -134,11 +134,38 @@ func TestTaskForumMovedChatPreservesOldPostAndSource(t *testing.T) {
 	if !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:111" || msg.ReplyCtx != "forumA-receipt" {
 		t.Fatalf("prepared route: %+v", msg)
 	}
+	// The stable saved source also survives a board row with no current placement.
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1,"what":"类别任务","status":"在做"}`+"\n")
+	r, _ = e.ResolveTaskForumReply("discord", "g1", "forumA", old.Thread)
+	msg = &Message{TaskForum: r, ReplyCtx: "forumA-receipt"}
+	if r == nil || !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:111" {
+		t.Fatalf("saved source rejected after placement cleared: %+v", msg)
+	}
+	writeTaskBoard(t, dir, team.TaskBoardFile, categoryTestRows("changed", "111"))
 	// Removing the source category does not make the old post unusable.
 	p.scopes["111"] = TaskForum{GuildID: "g1"}
 	e.syncTaskForum()
 	if p.opens != 2 || readForumTestState(t, e).Posts["1"].Forum != "forumA" {
 		t.Fatal("old post lost after unclassification")
+	}
+}
+
+func TestTaskForumDeletedPostParentAfterRestart(t *testing.T) {
+	e, p, dir := forumRoutingEngine(t)
+	writeTaskBoard(t, dir, team.TaskBoardFile, categoryTestRows("111"))
+	e.syncTaskForum()
+	old := readForumTestState(t, e).Posts["1"].Thread
+	p.mu.Lock()
+	delete(p.posts, old)
+	p.mu.Unlock()
+	taskForumRuntimes.Delete(dir)
+	e.syncTaskForum()
+	if readForumTestState(t, e).Posts["1"] != nil {
+		t.Fatal("confirmed deletion left stale post identity after parent lookup")
+	}
+	e.syncTaskForum()
+	if post := readForumTestState(t, e).Posts["1"]; post == nil || post.Thread == old || p.opens != 2 {
+		t.Fatal("explicit-deletion recovery did not recreate on the next sync")
 	}
 }
 

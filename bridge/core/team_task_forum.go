@@ -598,6 +598,7 @@ func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, po
 func (e *Engine) taskForumPostForumLocked(ctx context.Context, s *taskForumState, poster TaskForumPoster, ps *taskForumPostState) (TaskForum, error) {
 	if ps.Forum == "" {
 		ps.Forum = s.Forums[ps.Platform+":"+ps.Guild].ID
+		e.taskForumSaveLocked()
 	}
 	for _, f := range s.Forums {
 		if f.ID == ps.Forum && f.GuildID == ps.Guild && e.taskForumRT().checkedForums[f.ID] {
@@ -749,6 +750,12 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		}
 		chat = ps.Chat
 		forum, err = e.taskForumPostForumLocked(ctx, s, poster, ps)
+		if err != nil && poster.TaskPostGone(err) {
+			// Parent lookup can observe deletion before UpdateTaskPost does.
+			// Preserve the existing explicit-deletion recovery on the next sync.
+			delete(s.Posts, key)
+			return true, false
+		}
 	} else {
 		forum, err = e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
 	}
@@ -1021,13 +1028,13 @@ func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem)
 // taskForumExitText delivers into the chosen post before replacing the chat
 // headline with a link. A failed forum send retains the legacy delivery path.
 // The returned reply context sends attachments to the same post as the text.
-func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session string, hid int, text string) (string, any) {
+func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session string, hid int, headline, detail string) (string, any) {
 	if !e.taskForumEnabled() {
-		return text, nil
+		return headline, nil
 	}
 	it := e.boardItemByID(hid)
 	if it == nil {
-		return text, nil
+		return headline, nil
 	}
 	task := e.outputThreadTask(ctx, session)
 	if task == nil && e.publicProgress != nil {
@@ -1037,27 +1044,27 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 		task = e.publicProgress.threadTask(session, since)
 	}
 	if task != nil && !task.ForumPost {
-		return text, nil // An existing task thread keeps its original destination.
+		return headline, nil // An existing task thread keeps its original destination.
 	}
 	ps := e.taskForumDestination(ctx, *it)
 	if ps == nil {
-		return text, nil
+		return headline, nil
 	}
 	rcr, ok := p.(ReplyContextReconstructor)
 	if !ok {
-		return text, nil
+		return headline, nil
 	}
 	rc, err := rcr.ReconstructReplyCtx(ps.Platform + ":" + ps.Thread)
 	if err != nil {
-		return text, nil
+		return headline, nil
 	}
 	_, poster, ok := e.taskForumPosterOf(ps)
 	if !ok {
-		return text, nil
+		return headline, nil
 	}
-	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, text) }); err != nil {
+	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, joinExitDetail(headline, detail)) }); err != nil {
 		e.taskForumFailed(ctx, p, taskForumChat(*it), *it, err)
-		return text, nil
+		return headline, nil
 	}
 	return fmt.Sprintf("📌 [%s](%s)", teamTaskBoardShort(*it), taskForumURL(ps)), rc
 }

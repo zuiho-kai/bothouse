@@ -99,7 +99,7 @@ func (e *Engine) prepareTaskForumReply(p Platform, msg *Message) bool {
 		return true
 	}
 	it := e.taskForumReplyItem(r.Board)
-	if it == nil || taskForumChat(*it) == "" {
+	if it == nil || firstNonEmpty(r.Chat, taskForumChat(*it)) == "" {
 		e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgTaskForumSourceMissing, r.Board))
 		return false
 	}
