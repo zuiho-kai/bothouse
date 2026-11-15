@@ -20,8 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -747,7 +749,7 @@ func setTerminalSessions(dataDir, wiki, claudeDir string, roleDirs []string) (st
 	note := ""
 	ing := filepath.Join(wiki, "bin", "ingest.py")
 	if b, _ := os.ReadFile(ing); !bytes.Contains(b, []byte(terminalFileName)) {
-		if err := refreshWikiPrograms(dataDir, wiki); err != nil {
+		if err := refreshWikiPrograms(dataDir, wiki, "llm-wiki：更新共享程序（全局记忆读终端会话）"); err != nil {
 			return "", "", fmt.Errorf("update %s: %w", ing, err)
 		}
 		note = "updated the programs in " + filepath.Join(wiki, "bin") + " (their ingest.py did not read terminal sessions yet)"
@@ -768,6 +770,33 @@ func setTerminalSessions(dataDir, wiki, claudeDir string, roleDirs []string) (st
 		return "", note, err
 	}
 	return p, note, gitExclude(wiki, terminalFileName)
+}
+
+// SyncMainWikiPrograms (#1650): the bin/*.py of a wizard-made main wiki are a copy from the day it was made, and the
+// scheduled runs use that copy, so a fix in a new build never reached an existing install. On start, when any of them
+// differs from this build's, all are replaced and committed. The user's own wiki (no mainWikiMark) is left alone.
+func SyncMainWikiPrograms(dataDir string) (bool, error) {
+	wiki, ok := FindWiki()
+	if _, made := mainWikiLead(wiki); !ok || !made || RoleWikiFS == nil {
+		return false, nil
+	}
+	files, err := fs.Glob(RoleWikiFS, "contrib/wiki/llmwiki/*.py")
+	if err != nil {
+		return false, err
+	}
+	for _, f := range files {
+		if strings.HasPrefix(path.Base(f), "test_") {
+			continue
+		}
+		want, err := fs.ReadFile(RoleWikiFS, f)
+		if err != nil {
+			return false, err
+		}
+		if have, _ := os.ReadFile(filepath.Join(wiki, "bin", path.Base(f))); !bytes.Equal(have, want) {
+			return true, refreshWikiPrograms(dataDir, wiki, "llm-wiki：更新共享程序（随 bothouse 新版本）")
+		}
+	}
+	return false, nil
 }
 
 // gitExclude adds name to <wiki>/.git/info/exclude (local only), so ingest's "files the pass changed" never see it.
@@ -795,7 +824,7 @@ func gitExclude(wiki, name string) error {
 
 // refreshWikiPrograms copies this build's llmwiki/*.py into a wizard-made wiki's bin/ (what setup_wiki.py --main
 // put there) and commits them.
-func refreshWikiPrograms(dataDir, wiki string) error {
+func refreshWikiPrograms(dataDir, wiki, msg string) error {
 	if RoleWikiFS == nil {
 		return errors.New("the wiki programs are not built into this binary")
 	}
@@ -823,7 +852,7 @@ func refreshWikiPrograms(dataDir, wiki string) error {
 		return fmt.Errorf("git add: %v: %s", err, out)
 	}
 	c := exec.Command("git", "-C", wiki, "-c", "user.name=sub-memory", "-c", "user.email=sub-memory@localhost",
-		"commit", "-qm", "llm-wiki：更新共享程序（全局记忆读终端会话）", "--", "bin")
+		"commit", "-qm", msg, "--", "bin")
 	if out, err := c.CombinedOutput(); err != nil && !bytes.Contains(out, []byte("nothing")) {
 		return fmt.Errorf("git commit: %v: %s", err, out)
 	}

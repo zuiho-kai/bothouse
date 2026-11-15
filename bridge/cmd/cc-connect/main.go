@@ -574,6 +574,12 @@ func runMain() {
 		os.Exit(1)
 	}
 
+	// a wizard-made main wiki runs its own copy of the wiki programs: bring it to this build's (#1650)
+	if updated, err := core.SyncMainWikiPrograms(cfg.DataDir); err != nil {
+		slog.Warn("wiki programs: update failed", "error", err)
+	} else if updated {
+		slog.Info("wiki programs: main wiki bin updated to this build")
+	}
 	if cronStore != nil {
 		// an install from before the wizard added the wiki / forum jobs without a default channel gets them now, once
 		if added, err := core.EnsureWizardWikiCron(cfg.DataDir, core.CronOfStore(cronStore), subWikiScript(cfg)); err != nil {
