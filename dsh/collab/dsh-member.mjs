@@ -95,6 +95,58 @@ import { progressCardOf } from './cloudweb.mjs';
 import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, oversizedNote, undeliveredReasonZh } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
+const BACKGROUND_LINE_LIMIT = 1500;
+
+/** A workspace result or ask the unified exit forwarded into its chat channel (team-exit.mjs forward). */
+function exitRelay(m) {
+  return /^team-exit(-detail)?:/.test(m.client_key ?? '');
+}
+
+/**
+ * #1648: a workspace conversation starts with nothing but the 【交接】 row, so "照刚才说的" pointed at
+ * nothing and a second job did not know the first one's result. Its first turn gets what was said in
+ * the chat channel the workspace belongs to: the latest rows before the turn's trigger, with the
+ * results earlier workspaces handed back. Once per (member, room, session), like MemoryIndex.
+ */
+export class ChatBackground {
+  constructor(store) {
+    this.store = store;
+    /** `${member}\0${room}` -> session the background was given in (undefined for a local CLI member). */
+    this.given = new Map();
+  }
+
+  /** @returns {{ block: string, commit: () => void }} */
+  turn({ member, room, session, before }) {
+    const none = { block: '', commit: () => {} };
+    if (room?.kind !== 'workspace' || room.parent_id == null) return none;
+    const key = `${member}\u0000${room.id}`;
+    if (this.given.has(key) && this.given.get(key) === session) return none;
+    const parent = this.store.room(room.parent_id);
+    if (parent === undefined) return none;
+    const lines = this.store.page(parent.id, before, CONTEXT_LIMIT * 4)
+      .filter(m => !m.draft && m.card === null && (m.author_kind !== 'system' || exitRelay(m)) && String(m.text ?? '').trim())
+      .slice(-CONTEXT_LIMIT)
+      .map(m => {
+        const text = String(m.text);
+        return `【${m.name}】${text.length > BACKGROUND_LINE_LIMIT ? `${text.slice(0, BACKGROUND_LINE_LIMIT)}…（已截断）` : text}`;
+      });
+    if (lines.length === 0) return none;
+    return {
+      block: `【聊天频道 #${parent.name} 交接前的对话】（这件活是从那里交过来的，系统自动附上作背景，不用逐条回应；「刚才说的」「上一件活」指的就是这里面的内容）\n${lines.join('\n')}`,
+      commit: () => { this.given.set(key, session); },
+    };
+  }
+
+  /** The conversation of (member, room) starts over or lost its context: give the background again. */
+  reset(member, room) {
+    this.given.delete(`${member}\u0000${room}`);
+  }
+
+  /** A released workspace starts its conversations over. */
+  resetRoom(room) {
+    for (const k of this.given.keys()) if (k.endsWith(`\u0000${room}`)) this.given.delete(k);
+  }
+}
 const CLOSE_TIMEOUT_MS = 5_000;
 const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_LOCAL_IMAGES = 10;
@@ -523,6 +575,8 @@ export class DshMembers {
     this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
     /** The member's own MEMORY.md on the first turn of each conversation (bridge memory_index). */
     this.memoryIndex = runtime.memoryIndex ?? new MemoryIndex();
+    /** #1648: what was said in the chat channel, on the first turn of each workspace conversation. */
+    this.chatBackground = new ChatBackground(this.store);
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -998,6 +1052,7 @@ export class DshMembers {
         if (lost) {
           // the CLI's new session has none of what this conversation was given: the next turn gives it again
           this.memoryIndex.forget(member.id, room.id);
+          this.chatBackground.reset(member.id, room.id);
           this.gateContext.forget(member.id, room.id);
           this.hub.post(job.room_id, {
             authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${job.id}-session-lost`,
@@ -1072,9 +1127,10 @@ export class DshMembers {
         text: 'ℹ️ 没连上 gate（记忆检索服务）：成员每轮只带自己的记忆目录，不带相关 wiki 页和任务板。和 bothouse 桥一起装会自动起 gate。',
       });
     }
+    const background = this.chatBackground.turn({ member: member.id, room, session, before: trigger?.id });
     return {
-      block: [memory.block, gate.block].filter(Boolean).join('\n\n'),
-      commit: () => { memory.commit(); gate.commit(); },
+      block: [memory.block, gate.block, background.block].filter(Boolean).join('\n\n'),
+      commit: () => { memory.commit(); gate.commit(); background.commit(); },
     };
   }
 
@@ -1082,6 +1138,7 @@ export class DshMembers {
   resetRoom(roomId) {
     this.gateContext.resetRoom(roomId);
     this.memoryIndex.resetRoom(roomId);
+    this.chatBackground.resetRoom(roomId);
     this.dropRoomCli(roomId);
   }
 
@@ -1247,7 +1304,15 @@ export class DshMembers {
     const binding = this.store.binding(member.id, room.id);
     if (binding === undefined) return this.createAgent(member, room);
     const agent = await this.boundAgent(binding.session_id, member);
-    return agent ?? this.createAgent(member, room);
+    if (agent !== undefined) return agent;
+    // #1648: the replacement used to be silent, the member just stopped knowing the conversation
+    // (a CLI member's lost session is already announced, runCli onSession).
+    const fresh = await this.createAgent(member, room);
+    this.hub.post(room.id, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-session-replaced-${binding.session_id}`,
+      text: `${member.name} 这轮起是新会话，之前的上下文没了：原会话已归档或找不到了。`,
+    });
+    return fresh;
   }
 
   sessionTitle(room, member) {
@@ -1351,6 +1416,7 @@ export class DshMembers {
       // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
       this.gateContext.reset(member.id, room.id);
       this.memoryIndex.reset(member.id, room.id);
+      this.chatBackground.reset(member.id, room.id);
     } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);
@@ -1525,9 +1591,11 @@ export class DshMembers {
 /**
  * A row a member's turn reads: unread, not its own, no draft; system rows and cards only as the
  * trigger itself (a task reminder or pause record carries a task card and must still reach the member).
+ * #1648: a result a workspace handed back (exitRelay) is read too, else the chat channel's member could
+ * not say what the job it gave away came to.
  */
 function turnSees(m, job, binding, member) {
   const trigger = m.id === job.trigger_id;
   return (m.id > binding.context_cursor || trigger) && m.author !== member.id
-    && (m.author_kind !== 'system' || trigger) && (m.card === null || trigger) && !m.draft;
+    && (m.author_kind !== 'system' || trigger || exitRelay(m)) && (m.card === null || trigger) && !m.draft;
 }

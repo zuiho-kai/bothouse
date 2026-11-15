@@ -30,7 +30,16 @@ MEMBER = "鲸鱼娘"  # the member the plugin seeds into #general on first start
 MEMORY_HEAD = "（你的记忆 wiki 目录页"  # dsh/collab/memory-index.mjs MEMORY_INDEX_HEAD
 PERSONA_MARK = "你的人设："  # dsh/collab/dsh-member.mjs memberSystemPrompt
 GATE_NOTICE = "没连上 gate"  # dsh/collab/dsh-member.mjs turnContext, the room notice without a gate
-REPLY = "CI-STUB-REPLY-solo"  # what the stub model always answers
+REPLY = "CI-STUB-REPLY-solo"  # what the stub model answers to an ordinary turn
+# #1648, a big job moved into a workspace (dsh/collab/dsh-member.mjs promptText, tasks.mjs toWorkspace)
+UNSEEN_HEAD = "下面是频道里你还没看过的消息"  # promptText: the unseen rows follow it
+LATER_HEAD = "【一次性回查】"  # later.mjs instructions: appended after the unseen rows
+WS_MARK = "的工作区，活已经交到你手上"  # promptText: only a workspace turn has it
+HANDOFF = "【交接】"  # tasks.mjs toWorkspace: the row a workspace turn is woken on
+BIG_JOB = "大活"  # the stub takes a chat @ carrying it with 【接】
+SECRET = "蓝鲸42"  # said in the chat channel before the job
+RESULT = "ci-secret.txt"  # what the stub's workspace turn reports back
+RELAY = "📬"  # team-exit.mjs forward: the workspace result copied into the chat channel
 LINK_RE = re.compile(r"dsh web: (http://127\.0\.0\.1:\d+)/\?token=(\S+)")
 # SPEC (Anthropic Messages API): usage token counts are required integers; DSH only displays them
 STUB_TOKENS = 1
@@ -62,6 +71,19 @@ def ok(msg):
 bodies = []
 
 
+def last_text(body):
+    return json.dumps(body.get("messages", [])[-1:], ensure_ascii=False)
+
+
+def stub_reply(body):
+    """【接】 to a chat @ whose trigger row carries BIG_JOB, a [report] to the handoff row in a workspace, else REPLY."""
+    last = last_text(body)
+    unseen = last.split(UNSEEN_HEAD)[-1]
+    if WS_MARK in last:
+        return f"[report] 背景：交接的活\n做了什么：写好了文件 {RESULT}\n要你做的：无\n我加的：无" if HANDOFF in unseen else REPLY
+    return "【接】" if BIG_JOB in unseen.split(LATER_HEAD)[0].rsplit("\\n【", 1)[-1] else REPLY
+
+
 class Stub(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -83,11 +105,12 @@ class Stub(http.server.BaseHTTPRequestHandler):
         if not path.endswith("/messages"):
             return self._json({"error": "not found"}, HTTP_NOT_FOUND)
         bodies.append(body)
+        reply = stub_reply(body)
         usage = {"input_tokens": STUB_TOKENS, "output_tokens": STUB_TOKENS}
         msg = {"id": "msg_stub", "type": "message", "role": "assistant", "model": body.get("model", "deepseek-chat"),
                "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}
         if not body.get("stream"):
-            msg.update(content=[{"type": "text", "text": REPLY}], stop_reason="end_turn")
+            msg.update(content=[{"type": "text", "text": reply}], stop_reason="end_turn")
             return self._json(msg)
         self.send_response(HTTP_OK)
         self.send_header("content-type", "text/event-stream")
@@ -95,7 +118,7 @@ class Stub(http.server.BaseHTTPRequestHandler):
         for ev in [
             {"type": "message_start", "message": msg},
             {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": REPLY}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": reply}},
             {"type": "content_block_stop", "index": 0},
             {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": usage},
             {"type": "message_stop"},
@@ -222,6 +245,42 @@ try:
     if not any(GATE_NOTICE in t for t in texts):
         fail(f"no missing-gate notice ({GATE_NOTICE}) in #{room.get('name')}: {texts}")
     ok(f"#{room.get('name')} says the gate is missing")
+
+    # ---- 5. #1648: a big job moved into a workspace keeps what was said, and its result comes back ----
+    def post(text):
+        code, r = call(f"/collab/api/rooms/{room['id']}/messages", {"text": text, "client_key": f"ci-solo-{time.time()}"})
+        if code != HTTP_OK:
+            fail(f"posting {text!r} -> HTTP {code}: {str(r)[:300]}")
+        return r["message"]["id"]
+
+    def chat_rows(after_id):
+        code, page = call(f"/collab/api/rooms/{room['id']}/messages?after={after_id}")
+        return [m.get("text") or "" for m in page.get("messages", [])] if code == HTTP_OK else []
+
+    def turns(start, workspace):
+        return [b for b in bodies[start:] if (WS_MARK in last_text(b)) == workspace]
+
+    def said(reqs):
+        return "\n".join(json.dumps(b.get("messages", []), ensure_ascii=False) for b in reqs)
+
+    first = post(f"@{MEMBER} 记住：暗号是{SECRET}，等下有活")
+    wait(f"@{MEMBER} answers the note", lambda: any(REPLY in t for t in chat_rows(first)), T_REPLY)
+    for job, text, needs in [(1, "照刚才说的，把暗号写进文件", [SECRET]), (2, "刚才那个文件再加一行", [SECRET, RESULT])]:
+        n = len(bodies)
+        relays = sum(RELAY in t for t in chat_rows(first))
+        post(f"@{MEMBER} {BIG_JOB}：{text}")
+        reqs = wait(f"job {job} runs in a workspace", lambda: turns(n, True), T_REPLY)
+        for needle in needs:
+            if needle not in said(reqs):
+                fail(f"job {job}: the workspace turn does not carry {needle}: {said(reqs)[:900]}")
+        wait(f"job {job} is handed back to #{room.get('name')}", lambda: sum(RELAY in t for t in chat_rows(first)) > relays, T_REPLY)
+        ok(f"job {job}: the workspace turn carries {' and '.join(needs)}, its result is back in #{room.get('name')}")
+    n = len(bodies)
+    post(f"@{MEMBER} 刚才两件事做得怎么样，文件叫什么")
+    reqs = wait(f"@{MEMBER} is asked in #{room.get('name')}", lambda: turns(n, False), T_REPLY)
+    if RESULT not in said(reqs):
+        fail(f"the chat turn does not carry the workspace result {RESULT}: {said(reqs)[:900]}")
+    ok(f"@{MEMBER} in #{room.get('name')} reads what the workspace handed back")
 finally:
     if proc.poll() is None:
         proc.terminate()

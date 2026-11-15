@@ -28,7 +28,7 @@ delete process.env.GATE_PORT;
 const NO_LIVE_DATA = mkdtempSync(join(tmpdir(), 'collab-data-'));
 process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
 // #1643: with no gate the room gets one notice; it is not a failure card.
-const failureCard = m => m.author_kind === 'system' && !String(m.client_key ?? '').startsWith('gate-missing-room-');
+const failureCard = m => m.author_kind === 'system' && !/^(gate-missing-room-|dsh-session-replaced-)/.test(String(m.client_key ?? ''));
 
 test('workspace approval shares one decision with its parent channel', async () => {
   const store = new Store(':memory:');
@@ -1316,6 +1316,8 @@ for (const [label, lose] of [
     assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
     assert.equal(hub.store.openJobs().length, 0);
     assert.ok(!hub.store.page(1, undefined, 20).some(failureCard), 'no failure card');
+    // #1648: the replacement is no longer silent
+    assert.ok(hub.store.page(1, undefined, 20).some(m => m.client_key === `dsh-session-replaced-${old.session.id}` && /DeepSeek 这轮起是新会话/.test(m.text)), 'the room is told');
   });
 }
 
@@ -7713,5 +7715,62 @@ test('walk 11-14: a turn in a workspace tells the member she is already there, s
   assert.match(inWs, /这里是 #general 的工作区，活已经交到你手上：不要再回【接】，直接动手做/);
   const inChat = promptText(hub.store.room(1), member, [], '', undefined, hub.store, { cli: true });
   assert.doesNotMatch(inChat, /活已经交到你手上/);
+  hub.store.close();
+});
+
+// #1648 (feedback from a plugin-only install: "大活" lost everything said before it): the workspace
+// conversation gets the chat channel's talk on its first turn, a second job gets the first one's
+// result, and the chat channel's member reads what the workspace handed back.
+test('#1648: a workspace turn carries the chat talk; handed-back results are read on both sides', async t => {
+  const { hub, fake, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  const textOf = agent => (agent.prompts.at(-1)?.content ?? []).find(p => p.type === 'text')?.text ?? '';
+  const chatAgent = () => fake.sessions.get(hub.store.binding('ds', 1).session_id);
+  person('@DeepSeek 记住：暗号是蓝鲸42，文件放 notes 目录');
+  await settle();
+  await answer(1, '记住了');
+  person('@DeepSeek 大活：照刚才说的，把暗号写进文件');
+  await settle();
+  await answer(1, '【接】');
+  const [ws] = workspaces();
+  const first = fake.sessions.get(hub.store.binding('ds', ws.id).session_id);
+  assert.match(textOf(first), /交接前的对话/);
+  assert.match(textOf(first), /暗号是蓝鲸42/, 'what was said before the job reaches the workspace');
+  // What the unified exit forwards (team-exit.mjs forward), and an ordinary system row beside it.
+  hub.post(1, { authorKind: 'system', author: 'system', name: 'system', clientKey: 'team-exit:9001', text: '📬 来自 工作区1 · DeepSeek · 阶段结果\n做了什么：写好了 secret-3.txt' });
+  hub.post(1, { authorKind: 'system', author: 'system', name: 'system', text: '普通系统行不该读到' });
+  fake.turn(first, ['[report] 写好了 secret-3.txt']);
+  await settle();
+  person('@DeepSeek 刚才那件活做得怎么样');
+  await settle();
+  assert.match(textOf(chatAgent()), /secret-3\.txt/, 'the chat member reads the handed-back result');
+  assert.doesNotMatch(textOf(chatAgent()), /普通系统行/, 'other system rows stay unread');
+  await answer(1, '做好了');
+  person('@DeepSeek 大活：刚才那个文件再加一行');
+  await settle();
+  await answer(1, '【接】');
+  const wsNow = hub.store.openJobs().find(j => j.member_id === 'ds').room_id;
+  const second = fake.sessions.get(hub.store.binding('ds', wsNow).session_id);
+  assert.notEqual(second, first, 'a new claim is a new conversation');
+  assert.match(textOf(second), /secret-3\.txt/, 'the second job knows the first one\'s result');
+  assert.match(textOf(second), /暗号是蓝鲸42/);
+  assert.doesNotMatch(textOf(second), /普通系统行/);
+});
+
+test('#1648: ChatBackground gives the parent chat once per conversation, only in a workspace', async () => {
+  const { ChatBackground } = await import('./dsh-member.mjs');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '甲'.repeat(2000) });
+  const bg = new ChatBackground(hub.store);
+  assert.equal(bg.turn({ member: 'ds', room: hub.store.room(1), session: 's1' }).block, '', 'a chat channel has its own history');
+  const one = bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's1' });
+  assert.match(one.block, /【我】甲{1500}…（已截断）$/);
+  one.commit();
+  assert.equal(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's1' }).block, '');
+  assert.notEqual(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).block, '', 'a new session is a fresh context');
+  bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).commit();
+  bg.resetRoom(ws.id);
+  assert.notEqual(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).block, '', 'a released workspace starts over');
   hub.store.close();
 });
