@@ -47,6 +47,23 @@ class Profiles(unittest.TestCase):
         self.assertNotIn("根因", b)
         self.assertTrue(all("我要根因" not in p for p in self.prompts if "zzzx0757" in p))  # 他的页只喂他的话
 
+    def test_rewrite_keeps_unmatched_lines(self):
+        """现状里带论坛注释（对不上格式）的行、别人加的其他「##」节的行，重写后都在「历史」里，不丢。"""
+        self.prompts = []
+        page = self.wiki / profiles.page_rel("discord-1")
+        page.parent.mkdir(parents=True)
+        noted = "- 他看你给的是现象还是根因，所以先问一层为什么（10-30「这个只是现象」） <!-- 帖 t6e85aa5bb0·18楼 -->"
+        extra = "- 画像页别带日期行，无损检查会拒"
+        old = "- 他以前认结论，所以先给结论（10-01「先说结论」）"
+        page.write_text("# 懂你：owner\n\n## 现状\n### 判断标准\n" + noted + "\n\n## 历史\n" + old +
+                        "\n\n## 决策与踩坑\n" + extra + "\n", encoding="utf-8")
+        profiles.run(self.wiki, 0, time.time(), self.ask, lambda m: None, root=self.store)
+        text = page.read_text(encoding="utf-8")
+        hist = text.split("## 历史\n")[1].split("\n")
+        for ln in (noted, extra, old):
+            self.assertIn(ln, hist)
+        self.assertIn("我要根因", text.split("## 历史")[0])  # 新行照常写进现状
+
     def test_push_by_sender(self):
         import ctxsvc
         self.prompts = []

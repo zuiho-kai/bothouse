@@ -141,7 +141,8 @@ def read_page(text):
             sec = ln[4:].strip()
         elif part == "现状" and LINE.match(ln):
             cur.append((sec, ln))
-        elif part == HISTORY and ln.startswith("- "):
+        elif part and ln.startswith("- "):
+            # 历史行；也收现状里带论坛注释等对不上格式的行、别人加的其他「##」节的行——重写时不丢（11-15 被 lossless 拒提交）
             hist.append(ln)
     return cur, hist
 
