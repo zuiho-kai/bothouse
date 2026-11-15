@@ -1911,8 +1911,8 @@ function applyMessage(ev, animate = true) {
   const author = S.byId.get(message.author) || resolveRef(message.name) || resolveRef(message.author);
   if (!author) return;
   const targets = new Set();
-  // #876 P: 回放接口直接给被 @ 的成员 id；实时事件没有这个字段，就按 hub 的同一套规则
-  // （mentions.mjs）从文本认：``` 代码块里的不算，多个名字重叠时最长优先。
+  // #876 P: 画细光用：从文本认 @（``` 代码块里的不算，多个名字重叠时最长优先）。只管画，
+  // 谁被叫到、谁接活由桥判断（#1662，bridge/platform/cloud-web/mentions.go）。
   if (Array.isArray(message.mentions)) {
     for (const id of message.mentions) {
       const other = S.byId.get(id);
@@ -1927,7 +1927,7 @@ function applyMessage(ev, animate = true) {
       for (const n of [other.name, other.id, rm?.name, ...(rm?.aliases ?? [])].filter(Boolean)) pairs.push(['@' + n, other]);
     }
     pairs.sort((a, b) => b[0].length - a[0].length);
-    // 逐位扫描、命中即跳过整段，和 mentions.mjs 的 matchAll(最长优先) 等价：
+    // 逐位扫描、命中即跳过整段（最长优先）：
     // 否则 "@阿柚子" 会同时命中 "@阿柚子" 和 "@阿柚" 两个名字。
     for (let i = 0; i < outside.length;) {
       const hit = pairs.find(([alias]) => outside.startsWith(alias, i));

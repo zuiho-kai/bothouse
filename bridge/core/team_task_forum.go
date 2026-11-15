@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -36,16 +37,62 @@ const (
 	TaskForumTagDone    = "完成"
 )
 
-var taskForumTags = []string{TaskForumTagRunning, TaskForumTagWaiting, TaskForumTagReview, TaskForumTagPaused, TaskForumTagRelease, TaskForumTagDone}
+// Source: handoff #783 puts the states needing a person first.
+var taskForumTags = []string{TaskForumTagWaiting, TaskForumTagReview, TaskForumTagRelease, TaskForumTagRunning, TaskForumTagPaused, TaskForumTagDone}
+
+func TaskForumTagEmoji(tag string) string {
+	switch tag {
+	case TaskForumTagWaiting:
+		return "🔴"
+	case TaskForumTagReview:
+		return "👀"
+	case TaskForumTagRelease:
+		return "📦"
+	case TaskForumTagRunning:
+		return "⚙️"
+	case TaskForumTagPaused:
+		return "⏸️"
+	case TaskForumTagDone:
+		return "✅"
+	}
+	return ""
+}
+
+// A nil setting preserves the first batch's enabled default.
+func (e *Engine) SetTaskForum(on bool) { e.taskForumOff.Store(!on) }
+func (e *Engine) taskForumEnabled() bool {
+	if e.team == nil || e.taskForumOff.Load() {
+		return false
+	}
+	// A worker returning a result obeys the same switch as the team lead.
+	for _, peer := range e.taskForumPeers() {
+		if peer.isTeamLead() {
+			return !peer.taskForumOff.Load()
+		}
+	}
+	return true
+}
 
 // PermSendMessages: opening a post in the forum and posting in it.
 const PermSendMessages = "发送消息 (Send Messages)"
 
-// TaskForum is one server's task forum: its channel and state tag name → tag ID.
+// TaskForum identifies a category's forum. Empty CategoryID is a legacy
+// server-wide mapping, retained only for already published posts.
 type TaskForum struct {
-	ID      string            `json:"id"`
-	GuildID string            `json:"guild"`
-	Tags    map[string]string `json:"tags"`
+	ID         string            `json:"id"`
+	GuildID    string            `json:"guild"`
+	CategoryID string            `json:"category,omitempty"`
+	Tags       map[string]string `json:"tags"`
+}
+
+var ErrTaskForumCategoryRequired = errors.New("task forum: source chat must belong to a category")
+
+func (f TaskForum) scopeKey(platform string) string {
+	key := platform + ":" + f.GuildID
+	if f.CategoryID != "" {
+		key += ":" + f.CategoryID
+	}
+	return key
 }
 
 // TaskForumPost is what one post shows. Marker starts the title and finds a post whose create
@@ -60,8 +107,12 @@ type TaskForumPost struct {
 
 // TaskForumPoster is a platform with forum channels (Discord).
 type TaskForumPoster interface {
+	// TaskForumScope resolves the source's current server and category, without creating anything.
+	TaskForumScope(context.Context, string) (TaskForum, error)
+	// TaskForumForPost resolves and reconciles an existing post's actual forum.
+	TaskForumForPost(context.Context, string, []string) (TaskForum, error)
 	// EnsureTaskForum finds (remembered first) or creates the 「任务」 forum of chatChannelID's
-	// server, with the state tags.
+	// category, with the state tags.
 	EnsureTaskForum(ctx context.Context, chatChannelID, remembered string, tags []string) (TaskForum, error)
 	// OpenTaskPost opens the post (or finds the one this bot already opened by Marker); returns its ID.
 	OpenTaskPost(ctx context.Context, forum TaskForum, post TaskForumPost) (string, error)
@@ -85,6 +136,8 @@ type taskForumPostState struct {
 	Owner    string `json:"owner"`
 	Platform string `json:"platform"`
 	Guild    string `json:"guild"`
+	Forum    string `json:"forum,omitempty"`
+	Chat     string `json:"chat,omitempty"`
 	Thread   string `json:"thread"`
 	Tag      string `json:"tag"`
 	Title    string `json:"title"`
@@ -102,17 +155,19 @@ type taskForumPostState struct {
 }
 
 type taskForumState struct {
-	Forums map[string]TaskForum           `json:"forums"` // "<platform>:<guild>" → forum
-	Chats  map[string]string              `json:"chats"`  // chat key → "<platform>:<guild>"
-	Posts  map[string]*taskForumPostState `json:"posts"`  // board item id → its post
+	Forums          map[string]TaskForum           `json:"forums"` // platform:server:category → forum; legacy keys retained
+	Chats           map[string]string              `json:"chats"`  // last resolved source chat → scope
+	Posts           map[string]*taskForumPostState `json:"posts"`  // board item id → its post
+	CategoryNotices map[string]bool                `json:"category_notices,omitempty"`
 }
 
 // taskForumRuntime is one team's post map. It is the team's, not an engine's: the board pass
 // moves with the lead (runTeamBoard), [report]/[ask] are posted by whichever engine delivers
 // them, and all of them must find the same post for the same item.
 type taskForumRuntime struct {
-	mu    sync.Mutex
-	state taskForumState
+	checkedForums map[string]bool // reconciled once per process, including forums remembered before this version
+	mu            sync.Mutex
+	state         taskForumState
 }
 
 // taskForumRuntimes: team dir → its runtime, shared by every engine of the team in this process.
@@ -260,80 +315,91 @@ func taskForumTitle(it teamTaskBoardItem) string {
 
 func taskForumMarker(id int) string { return fmt.Sprintf("#%d ", id) }
 
-// taskForumCard is the post's 现状卡: what the user needs first (state, what is asked of them, who
-// and where) at the top, the original words and goal below; links are clickable channel mentions.
-// limit is the platform's one-message limit (TaskPostLimit): the card plus its update-time line
-// fit in it. What gives way is the goal and the original words (they live in full in the
-// handoff); the state line, 要你做的 and the source line are kept, 要你做的 cut only when it alone
-// would not fit.
+// taskForumCard keeps status, current progress, goal and footer before allocating space
+// to the question and then the original words (handoff #783 layout decision).
 func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string {
-	var head strings.Builder
-	// The tag leads; the sentence only when it says more (a waiting item's question is the next line).
-	if sentence == "" || sentence == tag || tag == TaskForumTagWaiting || tag == TaskForumTagDone {
-		fmt.Fprintf(&head, "**%s**\n", tag)
-	} else {
-		fmt.Fprintf(&head, "**%s** · %s\n", tag, sentence)
-	}
-	ask := "没有"
-	if tag == TaskForumTagWaiting {
-		// the whole question, not the board's short reason: this is where the user reads it
-		ask = strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), ""))
-		if ask == "" {
-			ask = strings.TrimPrefix(sentence, "等你：")
-		}
-	}
-	who := teamTaskBoardOwner(it.Who)
-	if who == "" {
-		who = "还没人接"
-	}
-	where := ""
+	who := firstNonEmpty(teamTaskBoardOwner(it.Who), "还没人接")
 	if ws := firstNonEmpty(it.WS, it.WSWas); ws != "" && tag != TaskForumTagDone {
-		where = "（" + teamChatRef(ws, it.wsName) + "）"
+		who = teamChatRef(ws, firstNonEmpty(it.wsName, who))
 	}
-	whoLine := fmt.Sprintf("**谁在做**：%s%s\n", who, where)
-
-	var body strings.Builder
+	ownerLabel := "负责"
+	if tag == TaskForumTagDone {
+		ownerLabel = "负责人"
+	}
+	head := fmt.Sprintf("**%s %s** · %s：%s", TaskForumTagEmoji(tag), tag, ownerLabel, who)
+	if tag == TaskForumTagReview && it.Reviewer != "" {
+		head += " · 等 " + firstNonEmpty(it.reviewerName, it.Reviewer) + " 核对"
+	}
+	head += "\n"
+	now := firstNonEmpty(boardLabel(it.Status), sentence)
+	if it.ReviewRejected != "" {
+		now += " · 退回：" + boardLabel(it.ReviewRejected)
+	}
+	if strings.HasPrefix(it.Where, "https://") && !strings.Contains(now, it.Where) {
+		now += " · " + it.Where
+	}
 	notes := readNotes(it.Where)
-	goal := notesSection(notes, "总目标")
-	if goal == "" {
-		goal = boardLabel(it.What)
-	}
-	fmt.Fprintf(&body, "**目标**：%s\n", goal)
-	if words := notesSection(notes, "用户原话"); words != "" {
-		body.WriteString("**用户原话**：\n")
-		for _, line := range strings.Split(words, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				body.WriteString("> " + line + "\n")
-			}
-		}
-	}
+	goal := firstNonEmpty(notesSection(notes, "总目标"), boardLabel(it.What))
 	src := ""
 	if chat := taskForumChat(it); chat != "" {
 		src = "来源 " + teamChatRef(chat, "") + " · "
 	}
 	foot := fmt.Sprintf("-# %s任务板 #%d", src, it.ID)
-
 	budget := limit - taskForumStampRunes
-	askPrefix := "**要你做的**："
-	fixed := runeLen(head.String()) + runeLen(askPrefix) + 1 + runeLen(whoLine) + runeLen(foot)
-	if room := budget - fixed - taskForumBodyMinRunes; runeLen(ask) > room {
-		ask = cutRunes(ask, max(room, 1))
+	current := "**现在**：" + now + "\n"
+	target := "**目标**：" + goal + "\n"
+	// Only shorten the goal when the fixed text alone exceeds the platform limit.
+	// A long question never steals the goal's space.
+	fixed := runeLen(head + current + target + foot)
+	if fixed > budget {
+		current = "**现在**：" + cutRunes(now, max(1, runeLen(now)-(fixed-budget))) + "\n"
+		fixed = runeLen(head + current + target + foot)
+		if fixed > budget {
+			target = "**目标**：" + cutRunes(goal, max(1, runeLen(goal)-(fixed-budget))) + "\n"
+		}
 	}
-	head.WriteString(askPrefix + ask + "\n")
-	head.WriteString(whoLine)
-	// the newline before the foot stays outside the cut, so a cut body never glues onto it
-	rest := budget - runeLen(head.String()) - runeLen(foot) - 1
-	return head.String() + cutRunes(strings.TrimRight(body.String(), "\n"), max(rest, 1)) + "\n" + foot
+	ask := ""
+	if tag == TaskForumTagWaiting {
+		question := strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), ""))
+		question = firstNonEmpty(question, strings.TrimPrefix(sentence, "等你："))
+		prefix, suffix := "> 👉 **要你做的**：", "（完整问题见下方最新回复）"
+		room := budget - runeLen(head+current+target+foot) - runeLen(prefix) - 1
+		if room > 0 {
+			if runeLen(question) > room {
+				question = cutRunes(question, max(1, room-runeLen(suffix))) + suffix
+			}
+			if runeLen(question) <= room {
+				ask = prefix + question + "\n"
+			}
+		}
+	}
+	original := ""
+	if words := notesSection(notes, "用户原话"); words != "" {
+		original = "**原话**：\n> " + strings.ReplaceAll(strings.TrimSpace(words), "\n", "\n> ") + "\n"
+		room := budget - runeLen(head+ask+current+target+foot)
+		if room > runeLen("**原话**：\n> …\n") {
+			original = cutRunes(strings.TrimRight(original, "\n"), room-1) + "\n"
+		} else {
+			original = ""
+		}
+	}
+	return head + ask + current + target + original + foot
 }
 
-// taskForumBodyMinRunes: room kept for the goal line when a long question is cut. Source: 沿用
-// the pinned team board's reason length (a goal shown in short there).
-const taskForumBodyMinRunes = teamTaskBoardReasonRunes
+// Resolve names using the configured project → display-name mapping used by task cards.
+func (e *Engine) taskForumDisplayItem(it teamTaskBoardItem) teamTaskBoardItem {
+	who := whoInWorkspace(it)
+	if name := e.projectDisplayName(who); name != "" {
+		it.Who = strings.TrimSuffix(it.Who, who) + name
+	}
+	it.reviewerName = e.projectDisplayName(it.Reviewer)
+	return it
+}
 
 func runeLen(s string) int { return len([]rune(s)) }
 
 // taskForumStampRunes: room kept for the update-time line added after comparing.
-const taskForumStampRunes = 32 // source: 「\n-# 更新于 MM-DD HH:MM」 is 18 runes; rounded up
+var taskForumStampRunes = runeLen("\n-# 更新于 01-02 15:04") // source: taskForumStamped output format
 
 func cutRunes(s string, n int) string {
 	r := []rune(s)
@@ -353,11 +419,16 @@ func taskForumStamped(card string, now time.Time) string {
 // taskForumNode is what is posted for this pass's move from prev: one line per new board fact
 // (退回, 合并, 上线, each seen once through prev's Rejected/Merged/Deployed) and one for a tag
 // move, or "" when nothing is a key moment ([report]/[ask] text is posted where it is delivered;
-// a first look is not a move). 「已合并」 is said only on a merge fact (pr_merge or await_deploy,
+// an initial waiting card also keeps its full question below). 「已合并」 is said only on a merge fact (pr_merge or await_deploy,
 // the board's 「已合并，等上线」), never because the item waits on a release: a release hold is
 // 「为发布暂停」 with nothing merged.
 func taskForumNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence string) string {
 	if prev == nil {
+		// A first card may abbreviate a long pending question. Keep the full
+		// question below it even when the task was already waiting at startup.
+		if tag == TaskForumTagWaiting {
+			return taskForumTagNode(&taskForumPostState{}, it, tag, sentence, false)
+		}
 		return ""
 	}
 	var lines []string
@@ -386,12 +457,17 @@ func taskForumMerged(it teamTaskBoardItem) bool { return it.PRMerge != nil || it
 
 func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence string, merged bool) string {
 	switch tag {
+	case TaskForumTagWaiting:
+		return "❓ " + firstNonEmpty(strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), "")), sentence)
 	case TaskForumTagPaused:
 		return "⏸️ " + sentence
 	case TaskForumTagRelease:
 		why := firstNonEmpty(sentence, "等发布")
-		if merged && !strings.HasPrefix(why, "已合并") {
-			return "🔀 已合并，" + why
+		if merged {
+			if !strings.HasPrefix(why, "已合并") {
+				why = "已合并，" + why
+			}
+			return "🔀 " + why
 		}
 		return "📦 " + why
 	case TaskForumTagDone:
@@ -417,7 +493,7 @@ func taskForumWant(it teamTaskBoardItem) bool {
 // 现状卡/tag when the item changed, posts key moves, and marks finished items 完成 (archived after
 // the task-thread archive wait). Runs in runTeamBoard after the team boards.
 func (e *Engine) syncTaskForum() {
-	if e.team == nil {
+	if !e.taskForumEnabled() {
 		return
 	}
 	now := time.Now()
@@ -439,7 +515,7 @@ func (e *Engine) syncTaskForum() {
 		key := strconv.Itoa(it.ID)
 		seen[key] = true
 		tag, sentence := taskForumTagOf(it, now)
-		if e.taskForumApplyLocked(s, it, tag, sentence, now) {
+		if updated, _ := e.taskForumApplyLocked(s, it, tag, sentence, now); updated {
 			changed = true
 		}
 	}
@@ -456,7 +532,7 @@ func (e *Engine) syncTaskForum() {
 		}
 		if ps.Tag != TaskForumTagDone {
 			ps.DoneAt = now
-			if e.taskForumApplyLocked(s, it, TaskForumTagDone, "已完成", now) {
+			if updated, _ := e.taskForumApplyLocked(s, it, TaskForumTagDone, "已完成", now); updated {
 				changed = true
 			}
 			continue
@@ -481,25 +557,65 @@ func (e *Engine) taskForumArchiveAfter() time.Duration {
 	return defaultTaskThreadArchiveAfter
 }
 
-// taskForumForumLocked: the forum for chat, ensured once per server and remembered.
+// Resolve current category before using a cached forum; a source channel may
+// have moved since the previous pass. Forum reconciliation stays once per process.
 func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, poster TaskForumPoster, plat, chat string, again bool) (TaskForum, error) {
-	if g := s.Chats[chat]; g != "" && !again {
-		if f, ok := s.Forums[g]; ok && f.ID != "" {
+	_, id, _ := strings.Cut(chat, ":")
+	scope, err := poster.TaskForumScope(ctx, id)
+	if err != nil {
+		return TaskForum{}, err
+	}
+	g := scope.scopeKey(plat)
+	if s.Chats[chat] != g || s.CategoryNotices[chat] {
+		s.Chats[chat] = g
+		delete(s.CategoryNotices, chat)
+		e.taskForumSaveLocked()
+	}
+	if !again {
+		if f, ok := s.Forums[g]; ok && f.ID != "" && e.taskForumRT().checkedForums[f.ID] {
 			return f, nil
 		}
 	}
-	_, id, _ := strings.Cut(chat, ":")
-	remembered := ""
-	if g := s.Chats[chat]; g != "" {
-		remembered = s.Forums[g].ID
-	}
+	remembered := s.Forums[g].ID
 	f, err := poster.EnsureTaskForum(ctx, id, remembered, taskForumTags)
 	if err != nil {
 		return TaskForum{}, err
 	}
-	g := plat + ":" + f.GuildID
+	g = f.scopeKey(plat)
 	s.Forums[g] = f
+	if e.taskForumRT().checkedForums == nil {
+		e.taskForumRT().checkedForums = map[string]bool{}
+	}
+	e.taskForumRT().checkedForums[f.ID] = true
 	s.Chats[chat] = g
+	// Tag reconciliation can change IDs without changing any task card.
+	e.taskForumSaveLocked()
+	return f, nil
+}
+
+// Existing posts keep their own forum, even when their chat changes category
+// or loses its category. Legacy state is resolved from the post ID, never its title.
+func (e *Engine) taskForumPostForumLocked(ctx context.Context, s *taskForumState, poster TaskForumPoster, ps *taskForumPostState) (TaskForum, error) {
+	if ps.Forum == "" {
+		ps.Forum = s.Forums[ps.Platform+":"+ps.Guild].ID
+		e.taskForumSaveLocked()
+	}
+	for _, f := range s.Forums {
+		if f.ID == ps.Forum && f.GuildID == ps.Guild && e.taskForumRT().checkedForums[f.ID] {
+			return f, nil
+		}
+	}
+	f, err := poster.TaskForumForPost(ctx, ps.Thread, taskForumTags)
+	if err != nil {
+		return TaskForum{}, err
+	}
+	ps.Forum = f.ID
+	s.Forums[f.scopeKey(ps.Platform)] = f
+	if e.taskForumRT().checkedForums == nil {
+		e.taskForumRT().checkedForums = map[string]bool{}
+	}
+	e.taskForumRT().checkedForums[f.ID] = true
+	e.taskForumSaveLocked()
 	return f, nil
 }
 
@@ -585,8 +701,8 @@ func (e *Engine) taskForumAdoptLocked(ctx context.Context, it teamTaskBoardItem)
 }
 
 // taskForumApplyLocked opens or updates it's post to show tag/sentence and posts a key move.
-// Reports whether the remembered state changed.
-func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, tag, sentence string, now time.Time) bool {
+// Reports whether remembered state changed and whether the post is usable.
+func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, tag, sentence string, now time.Time) (changed, usable bool) {
 	key := strconv.Itoa(it.ID)
 	ps := s.Posts[key]
 	chat := taskForumChat(it)
@@ -596,7 +712,7 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if ps == nil && it.Post != "" {
 		found, ok := e.taskForumAdoptLocked(ctx, it)
 		if !ok {
-			return false
+			return false, false
 		}
 		if found != nil {
 			ps, adopted = found, true
@@ -617,26 +733,45 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		p, poster, ok = e.taskForumPoster(plat)
 	}
 	if !ok {
-		return adopted
+		return adopted, false
 	}
-	card := taskForumCard(it, tag, sentence, poster.TaskPostLimit())
+	if ps != nil && ps.Chat != "" {
+		chat, it.Chat = ps.Chat, ps.Chat
+	}
+	card := taskForumCard(e.taskForumDisplayItem(it), tag, sentence, poster.TaskPostLimit())
 	title := taskForumTitle(it)
-	node := taskForumNode(ps, it, tag, sentence)
+	node := taskForumNode(ps, e.taskForumDisplayItem(it), tag, sentence)
 	edit := ps == nil || ps.Card != card || ps.Tag != tag || ps.Title != title || ps.Archived
-	if !edit && node == "" && !taskForumFactsMoved(ps, it) {
-		return e.taskForumLinkLocked(ps, it) || adopted
+	var forum TaskForum
+	var err error
+	if ps != nil && ps.Thread != "" {
+		if ps.Chat == "" {
+			ps.Chat, adopted = chat, true
+		}
+		chat = ps.Chat
+		forum, err = e.taskForumPostForumLocked(ctx, s, poster, ps)
+		if err != nil && poster.TaskPostGone(err) {
+			// Parent lookup can observe deletion before UpdateTaskPost does.
+			// Preserve the existing explicit-deletion recovery on the next sync.
+			delete(s.Posts, key)
+			return true, false
+		}
+	} else {
+		forum, err = e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
 	}
-	forum, err := e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
 	if err != nil {
 		e.taskForumFailed(ctx, p, chat, it, err)
-		return adopted
+		return adopted, false
+	}
+	if !edit && node == "" && !taskForumFactsMoved(ps, it) {
+		return e.taskForumLinkLocked(ps, it) || adopted, true
 	}
 	post := TaskForumPost{Marker: taskForumMarker(it.ID), Title: title, Card: taskForumStamped(card, now), Tag: tag}
 	if ps == nil || ps.Thread == "" {
 		id, err := poster.OpenTaskPost(ctx, forum, post)
 		if err != nil {
 			e.taskForumFailed(ctx, p, chat, it, err)
-			return false
+			return false, false
 		}
 		// The post was just opened with this card and tag; edit once to apply them on a found post.
 		if err := poster.UpdateTaskPost(ctx, forum, id, post); err != nil {
@@ -645,15 +780,21 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		e.clearPermissionNotice(chat, PermManageChannels)
 		e.clearPermissionNotice(chat, PermSendMessages)
 		s.Posts[key] = &taskForumPostState{
-			Owner: e.name, Platform: plat, Guild: forum.GuildID, Thread: id, Tag: tag, Title: title, Card: card,
+			Owner: e.name, Platform: plat, Guild: forum.GuildID, Forum: forum.ID, Chat: chat, Thread: id, Tag: tag, Title: title, Card: card,
 			Rejected: it.ReviewRejected, Deployed: it.Deployed != nil, Merged: taskForumMerged(it),
 		}
 		if tag == TaskForumTagDone {
 			s.Posts[key].DoneAt = now
 		}
+		if node != "" {
+			// Initial waiting is a question, not a new transition mentioning a user.
+			if err := poster.PostTaskNode(ctx, id, node); err != nil {
+				slog.Warn("task forum: initial question not posted", "board_item", it.ID, "error", err)
+			}
+		}
 		slog.Info("task forum: post opened", "board_item", it.ID, "thread", id, "tag", tag, "owner", e.name)
 		e.taskForumLinkLocked(s.Posts[key], it)
-		return true
+		return true, true
 	}
 	if edit {
 		if err := poster.UpdateTaskPost(ctx, forum, ps.Thread, post); err != nil {
@@ -661,14 +802,22 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 				// Deleted by hand: open it again next pass, like a deleted team board.
 				slog.Info("task forum: post gone; opening it again", "board_item", it.ID, "thread", ps.Thread)
 				delete(s.Posts, key)
-				return true
+				return true, false
 			}
 			e.taskForumFailed(ctx, p, chat, it, err)
-			return adopted
+			return adopted, false
 		}
 	}
 	if node != "" {
-		if err := poster.PostTaskNode(ctx, ps.Thread, node); err != nil {
+		var err error
+		notifier, canMention := poster.(TaskForumUserNotifier)
+		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		if tag != ps.Tag && tag == TaskForumTagWaiting && canMention && user != "" {
+			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, user)
+		} else {
+			err = poster.PostTaskNode(ctx, ps.Thread, node)
+		}
+		if err != nil {
 			slog.Warn("task forum: key move not posted", "board_item", it.ID, "thread", ps.Thread, "error", err)
 		}
 	}
@@ -678,7 +827,7 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	ps.Tag, ps.Title, ps.Card, ps.Archived = tag, title, card, false
 	ps.Rejected, ps.Deployed, ps.Merged = it.ReviewRejected, it.Deployed != nil, taskForumMerged(it)
 	e.taskForumLinkLocked(ps, it)
-	return true
+	return true, true
 }
 
 // taskForumFactsMoved: a board fact the post remembers changed (also one that posts no line, such
@@ -692,12 +841,13 @@ func (e *Engine) taskForumArchiveLocked(s *taskForumState, it teamTaskBoardItem,
 	if !ok {
 		return false
 	}
-	f, ok := s.Forums[ps.Platform+":"+ps.Guild]
-	if !ok {
-		return false
-	}
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second) // source: 沿用 taskForumApplyLocked
 	defer cancel()
+	f, err := e.taskForumPostForumLocked(ctx, s, poster, ps)
+	if err != nil {
+		slog.Warn("task forum: archive parent lookup failed", "thread", ps.Thread, "error", err)
+		return false
+	}
 	post := TaskForumPost{Marker: taskForumMarker(it.ID), Title: ps.Title, Card: taskForumStamped(ps.Card, now), Tag: TaskForumTagDone, Archived: true}
 	if err := poster.UpdateTaskPost(ctx, f, ps.Thread, post); err != nil && !poster.TaskPostGone(err) {
 		slog.Warn("task forum: archive failed", "board_item", it.ID, "thread", ps.Thread, "error", err)
@@ -730,6 +880,30 @@ func (e *Engine) taskForumLinkLocked(ps *taskForumPostState, it teamTaskBoardIte
 // taskForumFailed: a missing permission is told once in the item's chat channel (the rest of the
 // bridge works as before); other errors are logged and retried on the next pass.
 func (e *Engine) taskForumFailed(ctx context.Context, p Platform, chat string, it teamTaskBoardItem, err error) {
+	if errors.Is(err, ErrTaskForumCategoryRequired) {
+		s := &e.taskForumRT().state
+		if s.CategoryNotices[chat] {
+			return
+		}
+		rcr, ok := p.(ReplyContextReconstructor)
+		if !ok {
+			return
+		}
+		rc, sendErr := rcr.ReconstructReplyCtx(chat)
+		if sendErr == nil {
+			sendErr = p.Send(ctx, rc, e.i18n.T(MsgTaskForumCategoryRequired))
+		}
+		if sendErr != nil {
+			slog.Warn("task forum: category notice failed", "chat", chat, "error", sendErr)
+			return
+		}
+		if s.CategoryNotices == nil {
+			s.CategoryNotices = map[string]bool{}
+		}
+		s.CategoryNotices[chat] = true
+		e.taskForumSaveLocked()
+		return
+	}
 	if e.permissionNotice(ctx, p, chat, err) {
 		slog.Warn("task forum: missing permission told in the chat channel", "chat", chat, "board_item", it.ID, "error", err)
 		return
@@ -741,7 +915,7 @@ func (e *Engine) taskForumFailed(ctx context.Context, p Platform, chat string, i
 // board item hid's post (opening the post first when the board pass has not yet).
 func (e *Engine) postTaskForumNode(hid int, text string) {
 	text = strings.TrimSpace(text)
-	if hid <= 0 || text == "" || e.team == nil {
+	if hid <= 0 || text == "" || !e.taskForumEnabled() {
 		return
 	}
 	var item *teamTaskBoardItem
@@ -760,7 +934,7 @@ func (e *Engine) postTaskForumNode(hid int, text string) {
 	// The same team map the board pass uses: a non-lead delivering an [ask] finds the lead's post.
 	if s.Posts[key] == nil && item != nil && taskForumWant(*item) {
 		tag, sentence := taskForumTagOf(*item, time.Now())
-		if e.taskForumApplyLocked(s, *item, tag, sentence, time.Now()) {
+		if changed, _ := e.taskForumApplyLocked(s, *item, tag, sentence, time.Now()); changed {
 			e.taskForumSaveLocked()
 		}
 	}
@@ -783,4 +957,216 @@ func (e *Engine) postTaskForumNode(hid int, text string) {
 		return
 	}
 	slog.Info("task forum: report/ask posted", "board_item", hid, "thread", ps.Thread)
+}
+
+// resolveTaskThread is the single destination decision. An already running legacy
+// thread stays put; a new workspace task uses the board's post when it is available.
+func (e *Engine) resolveTaskThread(ctx context.Context, task *Task) {
+	if task.ThreadID != "" && !task.ForumPost {
+		return
+	}
+	if !e.taskForumEnabled() {
+		if task.ForumPost {
+			task.ForumPost = false
+			task.ThreadID, task.MessageID, task.CardURL = "", "", ""
+		}
+		return
+	}
+	if task.ForumPost {
+		return
+	}
+	it := e.workspaceBoardItem(task.cardSessionKey(), 0)
+	if it == nil || !taskForumWant(*it) {
+		return
+	}
+	if bound, err := time.Parse(time.RFC3339Nano, it.Bound); err == nil && bound.After(task.CreatedAt) {
+		return
+	}
+	ps := e.taskForumDestination(ctx, *it)
+	if ps == nil {
+		return
+	}
+	task.ForumPost, task.ThreadID = true, ps.Thread
+	task.CardURL = taskForumURL(ps)
+}
+
+func taskForumURL(ps *taskForumPostState) string {
+	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", ps.Guild, ps.Thread, ps.Thread)
+}
+
+// taskForumDestination opens through the same board-state transition used by sync,
+// so a result arriving ahead of the board tick uses the very same post.
+func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem) *taskForumPostState {
+	if !e.taskForumEnabled() || !taskForumWant(it) || ctx.Err() != nil {
+		return nil
+	}
+	it = placeTeamTaskBoard(e.teamTaskBoardPlacer(), []teamTaskBoardItem{it})[0]
+	rt := e.taskForumRT()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	s := e.taskForumLoadLocked()
+	tag, sentence := taskForumTagOf(it, time.Now())
+	changed, usable := e.taskForumApplyLocked(s, it, tag, sentence, time.Now())
+	if changed {
+		e.taskForumSaveLocked()
+	}
+	if !usable {
+		return nil
+	}
+	ps := s.Posts[strconv.Itoa(it.ID)]
+	if ps == nil || ps.Thread == "" {
+		return nil
+	}
+	// The owner must be available; the result path also checks the actual send.
+	if _, _, ok := e.taskForumPosterOf(ps); !ok {
+		return nil
+	}
+	copy := *ps
+	return &copy
+}
+
+// taskForumExitText delivers into the chosen post before replacing the chat
+// headline with a link. A failed forum send retains the legacy delivery path.
+// The returned reply context sends attachments to the same post as the text.
+func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session string, hid int, headline, detail string) (string, any) {
+	if !e.taskForumEnabled() {
+		return headline, nil
+	}
+	it := e.boardItemByID(hid)
+	if it == nil {
+		return headline, nil
+	}
+	task := e.outputThreadTask(ctx, session)
+	if task == nil && e.publicProgress != nil {
+		// Held reports may be released after the workspace conversation reset.
+		// Its board binding, rather than the new conversation, identifies the run.
+		since, _ := time.Parse(time.RFC3339Nano, it.Bound)
+		task = e.publicProgress.threadTask(session, since)
+	}
+	if task != nil && !task.ForumPost {
+		return headline, nil // An existing task thread keeps its original destination.
+	}
+	ps := e.taskForumDestination(ctx, *it)
+	if ps == nil {
+		return headline, nil
+	}
+	rcr, ok := p.(ReplyContextReconstructor)
+	if !ok {
+		return headline, nil
+	}
+	rc, err := rcr.ReconstructReplyCtx(ps.Platform + ":" + ps.Thread)
+	if err != nil {
+		return headline, nil
+	}
+	_, poster, ok := e.taskForumPosterOf(ps)
+	if !ok {
+		return headline, nil
+	}
+	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, joinExitDetail(headline, detail)) }); err != nil {
+		e.taskForumFailed(ctx, p, taskForumChat(*it), *it, err)
+		return headline, nil
+	}
+	return fmt.Sprintf("📌 [%s](%s)", teamTaskBoardShort(*it), taskForumURL(ps)), rc
+}
+
+// TaskForumUserNotifier allows only the board's identified human dispatcher to be
+// mentioned. Ordinary forum cards and nodes continue suppressing all mentions.
+type TaskForumUserNotifier interface {
+	PostTaskUserNode(context.Context, string, string, string) error
+}
+
+// taskForumWaitingSummary reads the same explicit board state as the forum tags,
+// adding one line to the existing roundup rather than scheduling another report.
+func (e *Engine) taskForumWaitingSummary(session string, now time.Time) string {
+	if !e.taskForumEnabled() {
+		return ""
+	}
+	plat, chat, _ := strings.Cut(chatOf(session), ":")
+	_, poster, ok := e.taskForumPoster(plat)
+	if !ok {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second) // source: 沿用 taskForumApplyLocked
+	defer cancel()
+	scope, err := poster.TaskForumScope(ctx, chat)
+	if err != nil {
+		return ""
+	}
+	group := scope.scopeKey(plat)
+	rt := e.taskForumRT()
+	rt.mu.Lock()
+	s := e.taskForumLoadLocked()
+	forum := s.Forums[group]
+	// Category posts retain their actual destination. Legacy server-wide posts
+	// have no category destination, so resolve their saved source's current category.
+	posts := make(map[string]taskForumPostState, len(s.Posts))
+	legacy := make(map[string]bool)
+	for id, post := range s.Posts {
+		if post == nil || post.Platform != plat {
+			continue
+		}
+		posts[id] = *post
+		oldForum := s.Forums[plat+":"+post.Guild].ID
+		legacy[id] = oldForum != "" && (post.Forum == "" || post.Forum == oldForum)
+	}
+	rt.mu.Unlock()
+	count := 0
+	var links []string
+	if forum.ID != "" {
+		links = append(links, fmt.Sprintf("https://discord.com/channels/%s/%s", forum.GuildID, forum.ID))
+	}
+	for _, it := range readTeamTaskBoard(e.team.dir) {
+		if !taskForumWant(it) {
+			continue
+		}
+		if tag, _ := taskForumTagOf(it, now); tag != TaskForumTagWaiting {
+			continue
+		}
+		id := strconv.Itoa(it.ID)
+		post, hasPost := posts[id]
+		if hasPost && !legacy[id] {
+			if forum.ID == "" || post.Forum != forum.ID {
+				continue
+			}
+		} else {
+			source := taskForumChat(it)
+			if hasPost && post.Chat != "" {
+				source = post.Chat
+			}
+			sourcePlat, sourceChat, _ := strings.Cut(source, ":")
+			if sourcePlat != plat {
+				continue
+			}
+			itemScope, err := poster.TaskForumScope(ctx, sourceChat)
+			if err != nil || itemScope.scopeKey(plat) != group {
+				continue
+			}
+		}
+		count++
+		if legacy[id] {
+			links = append(links, taskForumURL(&post))
+		}
+	}
+	if count == 0 || len(links) == 0 {
+		return ""
+	}
+	return e.i18n.Tf(MsgTaskForumRoundupWaiting, count, strings.Join(links, " · "))
+}
+
+// taskForumWaitingUser is the person a waiting post mentions: the dispatcher when it is a person,
+// otherwise the bridge owner (first admin_from ID). Board rows record the dispatching bot's
+// project (board.py dispatcher = CC_PROJECT), so without the owner fallback nobody was mentioned.
+func (e *Engine) taskForumWaitingUser(plat, chat, dispatcher string) string {
+	if user := watchOwnerID(dispatcher); e.watchOwnerIsPerson(plat, chat, user) {
+		return user
+	}
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, a := range strings.Split(af, ",") {
+		if a = strings.TrimSpace(a); a != "" && a != "*" {
+			return a
+		}
+	}
+	return ""
 }

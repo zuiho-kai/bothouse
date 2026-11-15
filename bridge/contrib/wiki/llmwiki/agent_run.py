@@ -23,7 +23,8 @@ async def main():
         model=job["model"], cwd=job["cwd"], env=env, system_prompt=system,
         tools=["Read", "Edit", "Write", "Glob", "Grep", "Bash"], permission_mode="acceptEdits",
         settings=json.dumps(job["settings"]), strict_mcp_config=True, setting_sources=[],
-        extra_args={"no-session-persistence": None})
+        extra_args={"no-session-persistence": None},
+        max_buffer_size=64 * 1024 * 1024)  # the SDK's 1 MB default failed on one long tool result (CLIJSONDecodeError)
     prompt = job["instruction"] + ("\n\n" + job["stdin"] if job.get("stdin") else "")
     result = None
     async for message in query(prompt=prompt, options=opts):

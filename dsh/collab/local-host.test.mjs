@@ -109,7 +109,6 @@ test('older holders without discovery keep the busy diagnostic and do not start 
     resets: owner.db.prepare('SELECT * FROM room_resets ORDER BY room_id').all(),
     // apply() 启动时真会写 members（seedMember）和 bindings；只盖住房间与消息会让这些写入漏网
     // （审稿 2026-11-07 第四轮 (ii)）。
-    tasks: owner.db.prepare('SELECT * FROM tasks ORDER BY id').all(),
     members: owner.db.prepare('SELECT * FROM members ORDER BY id').all(),
     bindings: owner.db.prepare('SELECT * FROM bindings ORDER BY member_id').all(),
   });

@@ -5,7 +5,7 @@
  *
  * A bridge bot in a group only takes a message that @-mentions it
  * (bridge/platform/cloud-web/cloudweb.go), and collab strips that mention before
- * forwarding (dsh/collab/mentions.mjs forMember), so `@橘 /stop` reaches 橘 as `/stop`.
+ * forwarding (bridge/platform/cloud-web/mentions.go mentionsForMember), so `@橘 /stop` reaches 橘 as `/stop`.
  * `/stop all` is the one command every bot takes without a mention (core/stop_all.go).
  */
 

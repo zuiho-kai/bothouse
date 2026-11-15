@@ -1,6 +1,6 @@
 // #876 P 路：角色之间 @ 对方时的细光。
-// 两件事要一起对：回放接口把 @ 解析成成员 id（和 hub 路由同一套 mentions.mjs），
-// 页面拿到 id 直接画；实时事件没有这个字段时，页面从文本认的规则也不能比 hub 宽（代码块不算、最长名优先）。
+// 回放接口只给原文（#1662：@ 由桥解析，插件不再解析），
+// 页面画细光；实时事件没有这个字段时，页面从文本认的规则也不能比 hub 宽（代码块不算、最长名优先）。
 // 页面是单文件内联 JS，这里把 applyMessage 抽出来用桩跑，测的是随包发出的那份源码。
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,36 +28,11 @@ function replay(store, from, to, members = MEMBERS) {
   return deskReplay({ store, boardDir: undefined, from, to, members });
 }
 
-test('回放把 @ 解析成成员 id，页面不用再猜文本', () => {
+test('回放不再带 mentions：谁被叫到由桥判断（#1662），页面自己从文本认来画', () => {
   const { store, from, to } = roomWith('@C酱 这份发布说明你看下，另外 @阿柚 别改');
   const event = replay(store, from, to).events.find(e => e.type === 'message');
-  assert.deepEqual(event.message.mentions, ['cjiang', 'ayu']);
+  assert.equal('mentions' in event.message, false);
   assert.equal(event.message.text, '@C酱 这份发布说明你看下，另外 @阿柚 别改', '原文不动');
-});
-
-test('代码块里的 @ 不算，和 hub 的 mentions.mjs 一致', () => {
-  const { store, from, to } = roomWith('示例：\n```\n@C酱\n```\n这行才 @阿柚');
-  const event = replay(store, from, to).events.find(e => e.type === 'message');
-  assert.deepEqual(event.message.mentions, ['ayu']);
-});
-
-test('名字互相包含时最长优先：@阿柚子 不会顺手点亮阿柚', () => {
-  const { store, from, to } = roomWith('@阿柚子 你接这个');
-  const event = replay(store, from, to).events.find(e => e.type === 'message');
-  assert.deepEqual(event.message.mentions, ['ayuzi']);
-});
-
-test('没有 @ 的消息不带 mentions 字段，也不影响文本', () => {
-  const { store, from, to } = roomWith('今天的发布说明我写完了');
-  const event = replay(store, from, to).events.find(e => e.type === 'message');
-  assert.equal('mentions' in event.message, false);
-});
-
-test('不传成员表时回放照旧，只是没有 mentions（老调用方不受影响）', () => {
-  const { store, from, to } = roomWith('@C酱 看下');
-  const event = replay(store, from, to, []).events.find(e => e.type === 'message');
-  assert.equal('mentions' in event.message, false);
-  assert.equal(event.message.text, '@C酱 看下');
 });
 
 /** 从随包 index.html 抽出 applyMessage 源码，用桩执行；测的是真正发出去的那份。 */

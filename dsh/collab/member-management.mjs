@@ -1,6 +1,5 @@
 import { CollabError } from './store.mjs';
 import { rowToMember } from './roster.mjs';
-import { createCliMember } from './cli-member.mjs';
 
 const fields = new Set(['name', 'persona', 'cli', 'model', 'cliConfig']);
 function check(body, create = false) {
@@ -40,7 +39,6 @@ export async function managementUpdate(roster, id, body, probe) {
   if (!row || row.removed) throw new CollabError('member-missing', 'member not found');
   if (row.source !== 'ui') throw new CollabError('read-only', 'member is read-only');
   const old = rowToMember(row);
-  if (Object.hasOwn(body, 'cli') && body.cli !== (old.cli ?? null) && roster.store.openJobs().some(j => j.member_id === id && j.state === 'sent')) throw new CollabError('member-busy', 'member is busy');
   const merged = { ...old, ...body };
   if (Object.hasOwn(body, 'cliConfig') && body.cliConfig != null && merged.cli !== 'codex') throw new CollabError('invalid', 'cliConfig requires a Codex member');
   if (Object.hasOwn(body, 'cli') && body.cli !== old.cli) {
@@ -59,7 +57,6 @@ export function managementDelete(roster, id) {
   const row = roster.store.member(id);
   if (!row || row.removed) throw new CollabError('member-missing', 'member not found');
   if (row.source !== 'ui') throw new CollabError('read-only', 'member is read-only');
-  if (roster.store.openJobs().some(j => j.member_id === id && j.state === 'sent')) throw new CollabError('member-busy', 'member is busy');
   roster.remove(id);
 }
 export async function managementOptions(roster, body, cwd) {
@@ -69,8 +66,6 @@ export async function managementOptions(roster, body, cwd) {
     if (!row || row.removed) throw new CollabError('member-missing', 'member not found');
     if (row.source !== 'ui' || row.cli !== 'codex') throw new CollabError('read-only', 'member cannot be probed');
   }
-  const probe = createCliMember({ cli: 'codex', cwd });
-  try { return await probe.probeOptions(body.model); }
-  catch (error) { throw new CollabError(error.code === 'COLLAB_CONFIG_INVALID' ? 'invalid' : 'offline', error.code === 'COLLAB_CONFIG_INVALID' ? 'Codex model is unavailable' : 'Codex capability probe failed'); }
-  finally { probe.close(); }
+  // #1662: the member runs as a bothouse role; its model and effort list come from the bridge (role page).
+  throw new CollabError('offline', 'Codex 的模型和推理档位在 bothouse 面板的角色页里设置');
 }

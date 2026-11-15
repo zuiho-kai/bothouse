@@ -38,6 +38,7 @@ import lossless  # reject writes that forget existing facts
 import lint  # MAX_TOPICS and README topic counting: split_pass must count topics exactly as lint does
 import sessionlog  # the unified session record: every runtime's sessions, one format (sessionlog.py docstring)
 import invalidate  # write-time contradiction check (Graphiti): superseded lines → the page's 「## 历史」
+import restate  # nightly: one page's old and new statements of the same thing → one current line, old lines → 「## 历史」
 
 
 
@@ -497,19 +498,43 @@ A1 lint ok。A2 第 2–9 步每项都检查过。A3 没有新增事实、没有
 每处修改一行「<path>: <改了什么>」，最后一行列出 2–9 步各自 ok/fixed；无修改则输出 "lint clean"。"""
 SOP_LINT = persona(SOP_LINT)
 
-SOP_SPLIT = """SPLIT 任务（执行型：照 SOP 做）。下列页面已接近预算，按子主题拆分。不增删事实，只搬家。
+SOP_SPLIT = """SPLIT 任务（执行型：照 SOP 做）。下列页面已接近预算，同族切片已由脚本合并过，现在每页是一个超预算的单一主题，按小节拆进它自己的子目录。不增删事实，只搬家。
 
 ## 规则
-R1 先读 CLAUDE.md 并遵守（层级、预算、页面格式、一事一页、[[链接]]）。
-R2 只拆下列页面；不发明事实，不删仍然成立的事实。
-R3 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）；log.md 只追加；不运行 git，不改 CLAUDE.md、bin/、隐藏文件。
+R1 先读 CLAUDE.md 并遵守（层级、预算、页面格式、一事一页、[[链接]]、不遗忘）。
+R2 只拆下列页面；不发明事实，不删、不改写任何一行：每一行原样落在某一页上（脚本逐行核对，缺一行整次回滚）。
+R3 不在原页同目录新建平级页面（如 X-details.md、X-2.md）：新页只能放进 `<原页目录>/<原页名>/`；原页已是 `<d>/<X>/<X>.md`（子目录总览）时，新页直接放进 `<d>/<X>/`，不建 `<d>/<X>/<X>/`。分页按子主题命名，不用 `<X>-` 开头（会被脚本当成同族并回原页）。脚本核对。
+R4 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）；log.md 只追加；不运行 git，不改 CLAUDE.md、bin/、隐藏文件。
 
 ## SOP
 1. 读 CLAUDE.md、下列每个页面所在目录的 README、下列每个页面。
-2. 每页按子主题切成 2–3 页；原页留总览与 [[新页]] 链接；新页有完整 frontmatter（name、description、metadata.scope），scope 写清归属；各页都降到预算 @SPLIT_TARGET@ 以下。
-3. 新页放在原页同一目录，登记到该目录的 README（子域页登记在子域 README）；更新原页 description 与 README 行；grep 全库 `[[原页名]]`，指向已搬走内容的改成新页。
-4. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md，如 refs/papers/x>`，下面每页一行说明搬了什么。
-5. 运行 `python3 bin/lint.py` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出这些页面。
+2. 对页面 `<d>/<X>.md`：建子目录 `<d>/<X>/`，把 `<X>.md` 移进去成为 `<d>/<X>/<X>.md`（总览：保留现状要点，加一行指向各分页的 [[链接]]）；页面已是 `<d>/<X>/<X>.md` 时不再建子目录，就地当总览；
+   按原页的小节或子主题把其余行原样搬进同目录的分页（完整 frontmatter：name、description、metadata.scope），各页都降到预算 @SPLIT_TARGET@ 以下。
+3. 写 `<d>/<X>/README.md`（标题行 + 每页一行 `- [名](名.md) — 描述`）；父目录 README 里原来那一行改成目录行 `- [<X>](<X>/README.md) — <描述>`，不新增父目录条目（页面已是总览时只在 `<d>/<X>/README.md` 加分页行）。
+4. grep 全库 `[[<X>]]`，指向已搬到分页内容的改成分页名；相对路径链接 `](…<X>.md)` 改到新位置。
+5. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md，如 refs/papers/x>`，下面每页一行说明搬了什么。
+6. 运行 `python3 bin/lint.py --wrap` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出这些页面。
+
+## 交付
+每处修改一行「<path>: <改了什么>」。
+
+页面（lint --warn 输出）："""
+
+SOP_SPLIT_FULL = """SPLIT 任务（执行型：照 SOP 做）。下列页面已超预算，但它所在目录的 README 已满（条目到上限）、目录也到了最深层，
+不能再建新页、不能再拆子目录。改做法：把它的一部分行原样搬进同目录已有的、主题最近的页。不增删事实，只搬家。
+
+## 规则
+R1 先读 CLAUDE.md 并遵守（预算、页面格式、[[链接]]、不遗忘）。
+R2 不新建任何 .md 文件，不移动、不改名任何文件，不碰别的目录；README 条目数不变（脚本核对，违反整次回滚）。
+R3 每一行原样落在某一页上，不删、不改写（脚本逐行核对，缺一行整次回滚）；只搬整条 bullet，搬进目标页同名小节（没有就建这一节）。
+R4 只改下列页面、它同目录的已有页面和 log.md（只追加）；不运行 git，不改 CLAUDE.md、bin/、隐藏文件。
+
+## SOP
+1. 读 CLAUDE.md、页面所在目录的 README 和目录里每一页。
+2. 按子主题挑出原页里能归到某张同目录页的整段，原样搬过去；原页降到预算 @SPLIT_TARGET@ 以下，接收的页不超过预算 @WARN@（下面列了各页余量）。
+3. 原页「现状」里加一行，用 [[链接]] 指向接收了内容的页；接收页的 description 必要时补一句新主题（不改其他行）。
+4. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md>`，下面每页一行说明搬了什么去哪。
+5. 运行 `python3 bin/lint.py --wrap` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出原页。
 
 ## 交付
 每处修改一行「<path>: <改了什么>」。
@@ -2259,6 +2284,35 @@ def split_check(pages):
     return "\n".join(out)
 
 
+
+
+def no_new_pages():
+    """SPLIT_FULL acceptance: the directory is full and at MAX_DEPTH, so not one new or removed .md (2026-11-15: a
+    full-directory split moved the page into another directory three runs a day, each reverted, ~7M tokens)."""
+    st = git("-c", "core.quotepath=off", "status", "--porcelain", "--untracked-files=all").splitlines()
+    bad = [l[3:] for l in st if l[3:].endswith(".md") and (l.startswith("??") or "D" in l[:2] or "R" in l[:2])]
+    return f"SPLIT: directory is full — no new, removed or moved pages allowed: {', '.join(bad)}" if bad else ""
+
+
+def readme_room(home):
+    """How many more entries the README of a split's home directory takes (lint.MAX_TOPICS)."""
+    r = WIKI / home / "README.md"
+    return lint.MAX_TOPICS - (len(lint.entries(r)) if r.exists() else 0)
+
+
+def sibling_room(page):
+    """The lint --warn style budget line for every other page in `page`'s directory, for SOP_SPLIT_FULL."""
+    d = WIKI / posixpath.dirname(page)
+    out = []
+    for q in sorted(d.glob("*.md")):
+        if q.name == "README.md" or q.name == posixpath.basename(page):
+            continue
+        t = q.read_text()
+        n, c = len(t.splitlines()), len(t)  # as lint.py counts
+        out.append(f"  {posixpath.dirname(page)}/{q.name}: {n}/{lint.PAGE_LINES} lines, {c}/{lint.PAGE_CHARS} chars")
+    return "\n".join(out)
+
+
 def split_pass(db, at=SPLIT_AT):
     """Pages ≥ `at` of budget are restructured before a model writes more into them (Haiku skips facts rather
     than split). SOP v2 (2026-10-25): merge first, split last. family_pass merges every X-*.md family into X.md;
@@ -2280,6 +2334,10 @@ def split_pass(db, at=SPLIT_AT):
             break
         d = full[0]
         tried.add(d)
+        held = [p for p in consolidate.pinned(WIKI) if p.startswith(d + "/")]
+        if held:  # a domain split moves every page below d, and the bridge reads a life_page at its exact path (#1578)
+            log(f"split-domain: skip {d}, holds life_page {', '.join(sorted(held))}")
+            continue
         if done.get(f"{d}/README.md") == page_sha(f"{d}/README.md"):
             log(f"split-domain: skip {d}, README unchanged since its last split was rejected")
             continue
@@ -2287,17 +2345,25 @@ def split_pass(db, at=SPLIT_AT):
     if tried:
         sync_work()  # what the domain splits delivered
     r = subprocess.run([sys.executable, "-I", str(WIKI / "bin" / "lint.py"), "--warn"], capture_output=True, text=True)
-    split, skipped, deep = [], [], []
+    split, skipped, deep, held, full = [], [], [], [], []
+    life = consolidate.pinned(WIKI)  # #1578: the bridge injects these pages from their exact path every turn
     for line in r.stdout.splitlines():
         m = re.match(r"(.+?\.md): (\d+)/(\d+) lines, (\d+)/(\d+) chars", line)  # path at any depth; may hold ":" or "."
         if not (m and not m[1].endswith("README.md") and max(int(m[2]) / int(m[3]), int(m[4]) / int(m[5])) >= at):
             continue
-        if done.get(m[1]) == page_sha(m[1]):
+        if m[1] in life:
+            held.append(m[1])
+        elif done.get(m[1]) == page_sha(m[1]):
             skipped.append(m[1])
         elif depth(split_home(m[1])[:-1]) > MAX_DEPTH:  # an overview splits in place, any other page one level down
             deep.append(m[1])
+        elif (split_home(m[1]) == posixpath.dirname(m[1]) + "/" and readme_room(split_home(m[1])) < 2
+              and depth(split_home(m[1])[:-1]) >= MAX_DEPTH):  # an overview in a full README that can't split further
+            full.append((line, m[1]))
         else:
             split.append((line, m[1]))
+    if held:
+        log(f"split: skip {len(held)} life_page(s) the bridge reads at this path: {', '.join(held)}")
     if skipped:
         log(f"split: skip {len(skipped)} page(s) unchanged since last split: {', '.join(skipped)}")
     if deep:
@@ -2305,9 +2371,19 @@ def split_pass(db, at=SPLIT_AT):
     if split:
         log(f"split: {len(split)} page(s) ≥ {at:.0%} → {SPLIT_ENGINE}")
         pages = [p for _, p in split]  # the regex group, not split(":"): a name may hold ":"
-        res = model_pass("split", SOP_SPLIT + "\n" + "\n".join(l for l, _ in split), engine=SPLIT_ENGINE,
+        # #1263: the target directory is spelled out — codex split <d>/<X>/<X>.md into <d>/<X>/<X>/ three runs in a row
+        # (split_check rejected it each time); 「new pages go to split_home」 was only in the check, not in the prompt
+        res = model_pass("split", SOP_SPLIT + "\n" + "\n".join(
+            f"{l}  → 拆出的新页只放 {split_home(p)}（不要再建 {split_home(p)}{posixpath.basename(p[:-3])}/）"
+            for l, p in split), engine=SPLIT_ENGINE,
                          max_delete=MAX_NET_DELETE * 3, kind="restructure", check=lambda: split_check(pages))
         remember(db, pages, res)
+    for line, p in full:  # one page per pass: each moves lines into its own directory's pages
+        log(f"split: {p} sits in a full README at MAX_DEPTH {MAX_DEPTH} → move lines into its directory's pages ({SPLIT_ENGINE})")
+        sync_work()
+        res = model_pass("split-full", SOP_SPLIT_FULL + "\n" + line + "\n同目录各页余量：\n" + sibling_room(p),
+                         engine=SPLIT_ENGINE, max_delete=MAX_NET_DELETE * 3, kind="restructure", check=no_new_pages)
+        remember(db, [p], res)
 
 
 # 2–3: the dispatch of 2026-10-18 「自动把这个域拆成 2–3 个子域」, as SOP_SPLIT's 2–3 pages per split
@@ -2991,6 +3067,26 @@ def review(db, deadline):
             db.commit()
 
 
+def restate_pass():
+    """Nightly, last: restate.py merges each budget-report page's old/new statements of one thing into one current
+    line (Letta sleep-time compute / Mem0 UPDATE; old lines move verbatim to 「## 历史」), lossless- and lint-checked,
+    reverted otherwise; delivered like family_pass."""
+    label = "restate"
+    sync_work()
+    try:
+        ok, summary, _ = restate.restate(WIKI, commit=True, label=label, log=lambda m: log(f"{label}: {m}"))
+    except Exception as e:
+        log(f"{label} failed: {type(e).__name__}: {e}")
+        return
+    if not ok:
+        log(f"{label}: REVERTED: {summary[:500]}")
+    elif not summary.startswith("nothing to do"):
+        log(f"{label}: {summary}")
+        if WIKI == WORK and deliver(label) is not True:
+            log(f"{label}: not delivered, the next night tries again")
+    sync_work()
+
+
 def nightly(a):
     """03:00: luna ingests what the day left (quota, failures), dreams, then reviews the day's Haiku batches."""
     global WIKI
@@ -3015,6 +3111,7 @@ def nightly(a):
         manuals.ROLE = role
     manuals.run(deadline=deadline, ask_fn=profile_ask, transcripts=ROOT)
     review(state(), deadline)
+    restate_pass()  # last: whatever budget is left; a skipped night just runs it the next night
 
 
 def lint_pass(db):
@@ -3031,12 +3128,13 @@ def dialog(path, offset, after=0, before=0, citations=None):
     """What the user said from byte `offset` (and not before unix time `after`), each line after the assistant
     reply it answered (cut short). A bridged session (DISCORD_SOURCE) quotes nothing: its turn text, speaker labels
     included, is context only, and the user's words for the same time come from Discord (said_lines(), reviewed plans
-    ~/.claude/reviews/dream-quote-source.md and dream-quote-window.md)."""
+    ~/.claude/reviews/dream-quote-source.md and dream-quote-window.md). `pairs`: [(the session's own user turn, the
+    first reply after it, cut short)] — dream puts the reply under the Discord line of the same words (said_lines)."""
     evs, end = events(path, offset)
     out, prompts, reply, title, mine, days, heard = [], 0, "", None, [], [], []
     bridge = bridged(path)
     from_discord = bridge and DISCORD_SOURCE
-    quotable = []
+    quotable, pairs, pending = [], [], []  # pending: this session's own user turns still waiting for their reply
     for e in evs:
         if e[0] == "title":
             title = e[1]
@@ -3052,6 +3150,10 @@ def dialog(path, offset, after=0, before=0, citations=None):
             continue
         if e[0] == "out":
             reply = text
+            if pending:  # the first reply after a user turn is what that turn got, cut as below
+                cut = reply if len(reply) <= DREAM_REPLY_CHARS else reply[:DREAM_REPLY_CHARS] + "…"
+                pairs += [(piece, cut, ts) for piece, t0 in pending]
+                pending = []
         elif not (e[4] and cli_skip(text)):
             # the date each line was said (not the file's mtime: a session spans days)
             try:
@@ -3059,6 +3161,8 @@ def dialog(path, offset, after=0, before=0, citations=None):
             except (TypeError, ValueError):
                 day = "?"
             for label, piece in said_by(e[2], text) if e[2] else speakers(text, bridge):
+                if label == "USER":  # this session's own incoming message (频道 copies carry the 补漏 prefix)
+                    pending.append((piece, ts))
                 eligible = label == "USER" and not from_discord
                 if eligible:
                     quotable.append((day, piece))
@@ -3081,7 +3185,9 @@ def dialog(path, offset, after=0, before=0, citations=None):
     redact = lambda t: SECRET.sub(lambda m: (m.group(3) or "") + "[REDACTED]", t)
     return {"text": redact("\n\n".join(out)), "user": redact("\n\n".join(mine)),  # user: the USER lines alone (no USER→)
             "said": [redact(t) for t in heard],  # everything the user said (USER and USER→ lines), one per line
-            "days": days, "quotable": [(dd, redact(t)) for dd, t in quotable], "end": end, "prompts": prompts, "cwd": None, "title": title}
+            "days": days, "quotable": [(dd, redact(t)) for dd, t in quotable],
+            "pairs": [(redact(p), redact(r), daypack.ts_of(ts)) for p, r, ts in pairs],
+            "end": end, "prompts": prompts, "cwd": None, "title": title}
 
 
 def misquotes(said, base="HEAD", pages=(DREAM_PAGES,), citations=None):
@@ -3458,20 +3564,18 @@ def dream(db, deadline):
     lo = db.execute("select max(at) from dream_window").fetchone()[0] or since
     hi = time.time()
     citations = {}
+    msgs = []
     if DISCORD_SOURCE:
         try:
-            words = said_lines(discord_words(lo, hi), citations)
+            msgs = discord_words(lo, hi)
+            words = {}
         except discord_said.Unavailable as e:  # without the user's words, no dream tonight (reflect reports its own)
             log(f"dream: skipped, Discord history unavailable: {e}")
             words = None
     else:
         words = {}
     paths = list(transcripts(hosts=True).values())
-    items = []
-    for ch, (name, lines) in (words or {}).items():
-        items.append({"id": f"discord:{ch}", "head": name, "title": f"Discord {name}（用户本人发的消息，按发送者 id 取）",
-                      "cwd": None, "date": time.strftime("%Y-%m-%d", time.localtime(hi)), "text": "\n\n".join(lines),
-                      "user": "", "end": None, "prompts": len(lines)})
+    items, replies = [], []
     for p in paths if words is not None else ():
         st = p.stat()
         if st.st_mtime < since or done.get(p.stem, 0) >= st.st_size:
@@ -3485,13 +3589,24 @@ def dream(db, deadline):
             household_unreadable(f"dream {p.stem}", e)
             continue
         it.update(id=p.stem, date=time.strftime("%Y-%m-%d", time.localtime(st.st_mtime)))
+        replies += it.pop("pairs")  # the reply each user turn got, under that turn's Discord line below
         if it["prompts"] == 0:
             db.execute("insert or replace into dreamed values (?,?,?)", (p.stem, it["end"], time.time()))
             continue
         items.append(it)
+    if words is not None:
+        words = said_lines(msgs, citations, replies)
+        for ch, (name, lines) in words.items():
+            items.append({"id": f"discord:{ch}", "head": name,
+                          "title": f"Discord {name}（用户本人发的消息，按发送者 id 取；紧跟的 CLAUDE 行是它得到的回复）",
+                          "cwd": None, "date": time.strftime("%Y-%m-%d", time.localtime(hi)), "text": "\n\n".join(lines),
+                          "user": "", "end": None, "prompts": len(lines)})
     if words == {}:
         db.execute("insert into dream_window values (?)", (hi,))  # nothing said in the window: read, done
     db.commit()
+    # every dream op cites a U-numbered USER line: the items that have one are packed first, and a batch without any
+    # (bridged sessions, context only) is recorded as read without a model call
+    items.sort(key=lambda it: not U_LINE.search(it["text"]))
     # an oversized session is split over several batches: record it only once every piece passed
     pieces = {}
     for batch in batches_of(items):
@@ -3505,15 +3620,19 @@ def dream(db, deadline):
         ids = list(dict.fromkeys(it["id"] for it, _ in batch))
         text = "".join(piece for _, piece in batch)
         label = f"dream {len(ids)} sessions"
-        log(f"{label}: {len(text)} chars → {DREAM_ENGINE}")
         said = {it["id"][:8]: it["user"] for it in items if it["end"] is not None}
         known = countable(paths, said)
         verdicts = {}
         try:
-            ok = model_pass(label, SOP_DREAM_JSON, context=text, engine=DREAM_ENGINE, max_delete=MAX_NET_DELETE,
-                            kind="dreamed", apply=lambda out: dream_render(out, citations, known, verdicts, label),
-                            check=lambda: "\n".join(e for e in (misquotes(said, citations=citations), dream_counts(known)) if e),
-                            fix_context=text)
+            if not U_LINE.search(text):
+                log(f"{label}: {len(text)} chars, no U-numbered user line → read, no model call")
+                ok = True
+            else:
+                log(f"{label}: {len(text)} chars → {DREAM_ENGINE}")
+                ok = model_pass(label, SOP_DREAM_JSON, context=text, engine=DREAM_ENGINE, max_delete=MAX_NET_DELETE,
+                                kind="dreamed", apply=lambda out: dream_render(out, citations, known, verdicts, label),
+                                check=lambda: "\n".join(e for e in (misquotes(said, citations=citations), dream_counts(known)) if e),
+                                fix_context=text)
         except Exception as e:  # noqa: BLE001 — a script error fails this batch only; reflect and review still run (M1)
             log(f"{label} FAILED: {type(e).__name__}: {e}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
             discard()
@@ -3728,6 +3847,10 @@ def candidates_note(text):
 def citation_text(evidence):
     day, sid, text = evidence
     return f"{day} {sid}「{short_quote(text)}」"
+
+
+# a USER line that carries a citation ID (dialog(), said_lines()): the only lines a dream op can cite
+U_LINE = re.compile(r"^USER \[[^\]\n]*\] U\d+: ", re.M)
 
 
 def cite_user(citations, sid, day, text):
@@ -4507,9 +4630,13 @@ def run_lint(root=None):
     return (r.stdout.strip(), False) if r.stdout.strip() else (r.stderr.strip()[-500:] or f"lint exit {r.returncode}", True)
 
 
-def said_lines(msgs, citations):
+def said_lines(msgs, citations, replies=None):
     """{channel: (label, [USER lines])}: each message a USER line with its own citation ID, whose evidence names its
-    channel and time (review dream-quote-window.md「引用原话时带上频道和时间」)."""
+    channel and time (review dream-quote-window.md「引用原话时带上频道和时间」). `replies` (dialog()'s pairs of every
+    session read tonight, [(words, reply, ts)]): the line carries the reply it got under it, so the user's words and
+    what they answered reach the model in the same batch (11-15 「原话和它回应的助手回复配在一起送」)."""
+    norm = lambda t: "\n".join(re.sub(r"[ \t\r]", "", l) for l in t.strip().split("\n") if l.strip())
+    pairs = [(norm(p), r, ts) for p, r, ts in replies or ()]
     out = {}
     for m in msgs:
         day, hm = time.strftime("%m-%d", time.localtime(m.ts)), time.strftime("%H:%M", time.localtime(m.ts))
@@ -4519,7 +4646,17 @@ def said_lines(msgs, citations):
         if key is None:
             key = f"U{len(citations) + 1}"
             citations[key] = evidence
-        out.setdefault(m.channel, (m.name, []))[1].append(f"USER [{day} {hm}] {key}: {text}")
+        line = f"USER [{day} {hm}] {key}: {text}"
+        mine = norm(text)
+        # the words' own piece, else one the gate buffered them into (their lines stay contiguous); nearest in time wins
+        cand = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs if mine and p == mine]
+        if not cand:
+            cand = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs
+                    if mine and ("\n" + mine + "\n") in ("\n" + p + "\n")]
+        pick = min(cand) if cand else None
+        if pick:
+            line += "\nCLAUDE: " + pick[1]
+        out.setdefault(m.channel, (m.name, []))[1].append(line)
     return out
 
 

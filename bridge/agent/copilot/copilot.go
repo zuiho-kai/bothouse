@@ -50,7 +50,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	mode = normalizeMode(mode)
 
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("copilot: %q CLI not found in PATH, please install it first", cmd)
+		return nil, fmt.Errorf("copilot: %q %w, please install it first", cmd, core.ErrCLINotFound)
 	}
 
 	return &Agent{

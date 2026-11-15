@@ -75,3 +75,24 @@ func TestRetractFallsBackToSilentFooter(t *testing.T) {
 		t.Fatalf("last edit = %q, want the silent state", edits[len(edits)-1])
 	}
 }
+
+// #1656: a DM turn that used no tool drops its 「已完成 第 0 步」 card; one with steps keeps it.
+func TestDropEmptyDeletesZeroStepCardOnly(t *testing.T) {
+	p := newCleaningCardPlatform()
+	w := newCompactProgressWriter(context.Background(), p, "ctx", "cc", LangChinese, nil)
+	w.Append("💭 thinking")
+	w.Finalize(ProgressCardStateCompleted)
+	w.DropEmpty()
+	if len(p.deleted) != 1 {
+		t.Fatalf("deleted = %d, want the 0-step card taken down", len(p.deleted))
+	}
+
+	p2 := newCleaningCardPlatform()
+	w2 := newCompactProgressWriter(context.Background(), p2, "ctx", "cc", LangChinese, nil)
+	w2.AppendEvent(ProgressEntryToolUse, "Bash", "Bash", "🔧 Bash")
+	w2.Finalize(ProgressCardStateCompleted)
+	w2.DropEmpty()
+	if len(p2.deleted) != 0 {
+		t.Fatalf("deleted = %d, a card with steps must stay", len(p2.deleted))
+	}
+}

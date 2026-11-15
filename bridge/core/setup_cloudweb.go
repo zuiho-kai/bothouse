@@ -166,6 +166,18 @@ func sameCloudWebHub(a, b string) bool {
 	return err1 == nil && err2 == nil && x == y
 }
 
+// sameLocalHub: a and b are the same hub path on this machine, whatever the port. A DSH channel host
+// (dsh web) listens on a new random port each start, so its roles' ws_url keep the old one (#1662).
+func sameLocalHub(a, b string) bool {
+	x, err1 := url.Parse(stripQuery(strings.TrimSpace(a)))
+	y, err2 := url.Parse(stripQuery(strings.TrimSpace(b)))
+	if err1 != nil || err2 != nil || x.Path != y.Path {
+		return false
+	}
+	loop := func(h string) bool { return h == "127.0.0.1" || h == "localhost" || h == "::1" }
+	return loop(x.Hostname()) && loop(y.Hostname())
+}
+
 func stripQuery(s string) string {
 	if i := strings.IndexAny(s, "?#"); i >= 0 {
 		return s[:i]

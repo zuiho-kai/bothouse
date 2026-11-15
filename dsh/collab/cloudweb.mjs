@@ -1,23 +1,20 @@
-import { exitTarget } from './team-exit.mjs';
 // cc-connect cloud_web gateway (server side of bridge/platform/cloud-web, WS
 // transport). Ported from role-household/rh/cloudweb.py so a cc-connect
 // project configured for the role-household hub connects here unchanged:
 //   ws(s)://<host>/cloud-web/ws?bot=<member id>&name=<display>&mention_id=<digits>&avatar=<slug|http(s) URL>
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
-import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { checkAvatar } from './avatars.mjs';
 import { CollabError, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
 import { oversizedNote } from './attachments.mjs';
-import { ChannelApprovals, parseCard, textDecision } from './approvals.mjs';
+import { ChannelApprovals, parseCard } from './approvals.mjs';
 
-export { textDecision };
 
 export const WS_PATH = '/cloud-web/ws';
 // Declared to cc-connect. 'buttons' is declared so permission prompts arrive as
 // a `buttons` frame (bridge platform/cloud-web SendWithButtons) instead of plain
 // text (#120); cards are not declared, so cc-connect degrades them to text
 // (bridge docs/cloud-web.md "Handshake").
-export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'tasks', 'dispatch_mode', 'queue'];
+export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', 'update_message', 'delete_message', 'reply_in_place', 'buttons', 'dispatch_mode', 'queue'];
 // Permission decisions the Channel page and text replies may send. Values are the
 // button data cc-connect's sendPermissionPrompt uses (bridge core/engine.go).
 /**
@@ -51,7 +48,6 @@ const WS_REPLACED = 4003;
 export const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
 // "model · usage" footer cc-connect appends (discord.go botFooter).
 const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
-const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
 export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 // cancelled (#913): a card whose turn was cut without an outcome — a restarted bridge, a
 // cancelled DSH job. page.html styles it like any other card state.
@@ -185,10 +181,19 @@ function stepChips(steps, state) {
 }
 
 /** reply_to_* frame fields for a reply (store.quote result); {} for a plain message. */
-function replyToFields(quoted, store) {
-  if (quoted === undefined) return {};
-  if (quoted.deleted) return { reply_to_id: String(quoted.id) };
-  return { reply_to_id: String(quoted.id), reply_to_author: quoted.name, reply_to_text: store.message(quoted.id)?.text ?? quoted.text };
+function replyToFields(quoted, store, msg) {
+  if (msg.reply_to == null) return {};
+  const ref = store.message(msg.reply_to);
+  // A deleted original, or one from another room, names nobody (bridge hub_message.go reply rule).
+  if (ref === undefined || ref.deleted || ref.room_id !== msg.room_id) return { reply_to_id: String(msg.reply_to), reply_to_gone: true };
+  const fields = { reply_to_id: String(ref.id), reply_to_author: ref.name, reply_to_text: ref.text ?? quoted?.text ?? '' };
+  if (ref.author_kind === 'role') fields.reply_to_role_id = ref.author;
+  return fields;
+}
+
+/** The room's members as the bridge reads them (bridge/platform/cloud-web/mentions.go hubMember). */
+function wireMembers(members) {
+  return members.map(m => (m.mentionId ? { id: m.id, name: m.name, mention_id: m.mentionId } : { id: m.id, name: m.name }));
 }
 
 export class CloudWebGateway {
@@ -207,7 +212,6 @@ export class CloudWebGateway {
     /** #120: permission cards, shared with DSH members (approvals.mjs); meta = { gateway, bot, sessionKey } */
     this.approvals = ChannelApprovals.of(hub);
     /** Tasks (#139 B), set by the plugin; `task` frames act through it. */
-    this.tasks = undefined;
     hub.onMessage(message => this.onNew(message));
   }
 
@@ -254,7 +258,7 @@ export class CloudWebGateway {
     const project = typeof frame.project === 'string' ? frame.project : '';
     const id = clean(url.searchParams.get('bot') || project).slice(0, MAX_NAME);
     const existing = this.hub.members.get(id);
-    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot')) {
+    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot' && existing.kind !== 'dsh')) {
       send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
       ws.close(WS_BAD_REGISTER, 'bad register');
       return undefined;
@@ -279,7 +283,10 @@ export class CloudWebGateway {
     let avatar = '';
     try { avatar = checkAvatar(url.searchParams.get('avatar'), { allowUrl: true }); } catch { avatar = ''; }
     // voter: the bridge project, as which its agent cites memories (memvote.py CC_PROJECT; memory-sources.mjs).
-    const member = { id, name, rooms, kind: 'bot', mentionId: /^\d+$/.test(mentionId) ? mentionId : '', online: true, ...(avatar ? { avatar } : {}), voter: project || id };
+    const mention = /^\d+$/.test(mentionId) ? mentionId : '';
+    // #1662: a member stored here (kind 'dsh') is the bothouse role of that id: it keeps its entry and comes online.
+    const member = existing?.kind === 'dsh' ? { ...existing, mentionId: mention, online: true, voter: project || id }
+      : { id, name, rooms, kind: 'bot', mentionId: mention, online: true, ...(avatar ? { avatar } : {}), voter: project || id };
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -287,6 +294,8 @@ export class CloudWebGateway {
     const capabilities = [...CAPABILITIES, ...(this.files ? MEDIA_CAPABILITIES : []), ...(supportsWorkspaces(this.hub.store) ? [CAP_TEAM_WORKSPACE] : [])];
     send(ws, { type: 'register_ack', ok: true, capabilities, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
+    // #1662: who is who, so the bridge shows its bot's @ as names (bridge hub_message.go displayMentions).
+    send(ws, { type: 'roster', members: wireMembers(this.hub.routable()) });
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
     for (const room of this.hub.thinking.keys()) this.hub.setThinking(room, id, false);
     // ...and its half-streamed text previews (also those left by a hub restart) will never be committed.
@@ -337,8 +346,7 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0 || this.hub.teamExit?.answerFor(msg)) return;
-    const target = exitTarget(msg);
+    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
     const fromAgent = msg.author_kind === 'role';
     // The owner's text reply to a pending permission prompt goes the same way as a button click.
     const answered = this.approvals.answerByText(msg);
@@ -349,40 +357,30 @@ export class CloudWebGateway {
       if (!text) return;
     }
     const members = this.hub.routableIn(msg.room_id);
-    const mentioned = mentions(text, members);
     const room = this.hub.store.room(msg.room_id);
     const author = this.hub.members.get(msg.author);
-    const only = this.hub.replyRoute(msg);
     const metas = messageAttachments(msg);
     const attached = metas.length && this.files ? this.files.wire(metas) : {};
     // #197: a file too big for the frame travels as its path on this machine instead.
     const tooBig = metas.length && this.files ? oversizedNote(this.files.oversized(metas)) : '';
     const quoted = this.hub.store.quote(msg);
-    const quote = quotePrefix(quoted);
     // The replied-to row's id (same id space as a task card's preview_handle and a reply_ack),
     // so the bridge can find the work it belongs to (core.Message.Reference, reply_task.go).
-    const replyTo = replyToFields(quoted, this.hub.store);
+    const replyTo = replyToFields(quoted, this.hub.store, msg);
+    // #1662: the raw text and the room's members go to every bot in the room; the bridge decides who
+    // the message calls and how each bot reads it (bridge/platform/cloud-web/hub_message.go).
     for (const { ws, member } of this.bots.values()) {
       if (!members.some(m => m.id === member.id)) continue;
-      if ((target && target !== member.id) || (fromAgent && msg.author === member.id)) continue;
+      if (fromAgent && msg.author === member.id) continue;
       if (answered.has(member.id)) continue;
-      // A reply addressed to other bots is not this bot's to take (reply_routing.go accept=false).
-      if (only !== null && !only.has(member.id)) continue;
-      let content = forMember(text, member, members);
-      // #1023: an owner message in a private chat is addressed to its one agent.
-      const hit = target === member.id || only !== null || mentioned.has(member.id) || nameCalled(text, member.name)
-        || (!fromAgent && this.hub.store.dmMember?.(msg.room_id) === member.id);
-      if (fromAgent && !content) continue;
-      if (fromAgent) content = `【${msg.name}】${quote}${content}`;
-      else if (hit && !content) content = quote + BARE_MENTION;
-      else content = quote + content;
       const frame = {
         type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
-        // A bridge command (`@橘 /model x`) goes through bare: the bridge reads everything after the
-        // command word as its arguments (core/engine.go handleCommand), so no later instructions.
-        user_id: msg.author, user_name: msg.name, content: content + (tooBig ? `\n${tooBig}` : '') + (hit && !isCommand(content) ? (this.later?.instructions(member.id, msg.room_id, { cli: true }) ?? '') : ''), reply_ctx: roomKey(msg.room_id),
-        mentioned: hit, from_bot: fromAgent, ...attached, ...replyTo,
+        user_id: msg.author, user_name: msg.name, content: text, reply_ctx: roomKey(msg.room_id),
+        from_bot: fromAgent, members: wireMembers(members), ...attached, ...replyTo,
       };
+      const quote = quotePrefix(quoted);
+      if (quote) frame.quote = quote;
+      if (tooBig) frame.note = tooBig;
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
       send(ws, frame);
@@ -394,14 +392,12 @@ export class CloudWebGateway {
    * reminder); onNew never forwards system rows. False when the bot is offline.
    */
   nudge(memberId, msg) {
-    if (this.hub.quota?.cooling(memberId)) return false;
     const bot = this.bots.get(memberId);
     if (bot === undefined || !this.hub.routableIn(msg.room_id).some(m => m.id === memberId)) return false;
-    const members = this.hub.routableIn(msg.room_id);
     const room = this.hub.store.room(msg.room_id);
     const frame = {
       type: 'message', msg_id: `hub-${msg.id}`, chat_id: roomKey(msg.room_id), chat_type: chatType(this.hub.store, msg.room_id),
-      user_id: msg.author, user_name: msg.name, content: forMember(msg.text, bot.member, members) || msg.text,
+      user_id: msg.author, user_name: msg.name, content: msg.text,
       reply_ctx: roomKey(msg.room_id), mentioned: true, from_bot: false,
     };
     if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
@@ -421,15 +417,13 @@ export class CloudWebGateway {
       if (d.op === 'dispatch_mode') return { ok: true, ...store.dispatchSetting(id) };
       if (d.op === 'list') {
         // One shared pool per server: every workspace with its owner ("" = free, released after
-        // its last task) and active (tasks in progress, tasks.mjs countActive), so the bridge
+        // its last task); active and paused stay 0: the bridge keeps the tasks (#1662), so the bridge
         // adopts only a free one and never claims a workspace another chat channel owns.
         const rooms = store.rooms().filter(r => r.kind === 'workspace' && r.id !== id).map(r => {
           const owner = store.workspaceOwner(r.id);
           return {
             ...view(r), parent_id: r.parent_id == null ? '' : roomKey(r.parent_id),
             owner: owner == null ? '' : roomKey(owner),
-            active: this.tasks?.countActive(r.id) ?? 0,
-            paused: this.tasks?.countPaused?.(r.id) ?? 0,
           };
         });
         return { ok: true, self: view(self), rooms };
@@ -451,8 +445,7 @@ export class CloudWebGateway {
         if (self.kind !== 'workspace') return { ok: false, error: 'not-workspace' };
         const claim = d.claim == null || d.claim === '' ? null : String(d.claim);
         // park (core ParkTeamWorkspace): its tasks are paused, not finished; they stop counting first.
-        const released = !this.tasks ? store.releaseWorkspace(id, claim)
-          : d.park ? this.tasks.park(id, claim) : this.tasks.release(id, claim);
+        const released = store.releaseWorkspace(id, claim);
         if (released) this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
       }
@@ -493,28 +486,36 @@ export class CloudWebGateway {
     return told;
   }
 
+  /** The room's roles each start a fresh conversation: the bridge's /new, as an @ to every bot there. Returns their names. */
+  renew(roomId) {
+    const room = this.hub.store.room(roomId);
+    const told = [];
+    for (const { ws, member } of this.bots.values()) {
+      if (!this.hub.routableIn(roomId).some(m => m.id === member.id)) continue;
+      send(ws, { type: 'message', msg_id: `renew-${roomId}-${Date.now()}-${member.id}`, chat_id: roomKey(roomId), chat_type: chatType(this.hub.store, roomId),
+        user_id: 'owner', user_name: 'Owner', content: '/new', reply_ctx: roomKey(roomId), mentioned: true, from_bot: false, ...(room ? { chat_name: room.name } : {}) });
+      told.push(member.name);
+    }
+    return told;
+  }
+
   async fromBot(bot, d) {
     const { member } = bot;
     switch (d.type) {
       case 'ping': send(bot.ws, { type: 'pong' }); return;
-      case 'task': {
-        // #139 B: the socket says which bot this is, so the action is verified as it.
-        // The frame's `ref` is the ack correlation id, so its task field ref (#574) travels as task_ref.
-        const ack = r => send(bot.ws, { type: 'task_ack', ref: d.ref, ...r });
-        if (this.tasks === undefined) { ack({ ok: false, error: 'tasks are not enabled' }); return; }
-        try {
-          const task = this.tasks.perform(String(d.action ?? ''), { id: Number(d.task_id), roomId: roomOf(d, this.hub.store), body: { ...d, ref: d.task_ref } }, { actor: member.id, verified: true });
-          ack({ ok: true, task });
-        } catch (error) {
-          ack({ ok: false, error: error?.message ?? String(error), code: error?.code });
-        }
+      case 'permission_resolved': {
+        // #1662: the owner answered this bot's permission prompt in text and the bridge applied it
+        // (core/engine.go handlePendingPermission); close the card shown for it.
+        if (typeof d.session_key !== 'string' || !d.session_key) return;
+        this.approvals.settleWhere(p => p.meta?.gateway === this && p.meta.bot === member.id && p.meta.sessionKey === d.session_key && !p.meta.question,
+          String(d.decision ?? ''));
         return;
       }
       case 'reply': {
         const room = roomOf(d, this.hub.store);
         if (typeof d.content !== 'string' || room === undefined) return;
         const content = ['ask', 'report'].includes(d.kind) ? `[${d.kind}]\n${d.content}` : d.content;
-        const text = forDisplay(content, this.hub.routable()).trim();
+        const text = content.trim();
         if (!text || text.length > MAX_TEXT) return;
         // reply_in_place (#121): the streamed preview becomes this reply; fall back to a new row if it is gone.
         // A frame with ref_id asks for the posted row's id back (bridge SentMessageRecorder).
@@ -531,7 +532,7 @@ export class CloudWebGateway {
       case 'buttons': {
         const room = roomOf(d, this.hub.store);
         if (typeof d.content !== 'string' || room === undefined || typeof d.session_key !== 'string' || !d.session_key) return;
-        const text = forDisplay(d.content, this.hub.routable()).trim().slice(0, MAX_TEXT);
+        const text = d.content.trim().slice(0, MAX_TEXT);
         const buttons = (Array.isArray(d.buttons) ? d.buttons.flat() : [])
           .map(b => ({ label: String(b?.Text ?? b?.text ?? ''), data: String(b?.Data ?? b?.data ?? '') }))
           .filter(b => b.label && b.data);
@@ -628,7 +629,6 @@ export class CloudWebGateway {
           if (!created && fresh) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
           // A late older frame must not reopen tasks the newer card already handed back.
-          if (fresh && body.members) this.tasks?.fromCard(room, member.id, message.id, body.members);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });
@@ -650,7 +650,6 @@ export class CloudWebGateway {
         const body = withSeq(this.body(d.content), seq);
         if (!body.text) return;
         const row = this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
-        if (row !== undefined && body.members) this.tasks?.fromCard(row.room_id, member.id, row.id, body.members);
         return;
       }
       default:
@@ -666,7 +665,7 @@ export class CloudWebGateway {
     if (typeof content !== 'string') return { text: '', card: null };
     const card = progressCard(content);
     if (card !== undefined) return card;
-    return { text: forDisplay(content, this.hub.routable()).trim().slice(0, MAX_TEXT), card: null };
+    return { text: content.trim().slice(0, MAX_TEXT), card: null };
   }
 
   closeAll() {

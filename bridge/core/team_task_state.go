@@ -66,6 +66,9 @@ type teamTaskEvent struct {
 	Chat string
 	By   string
 	Why  string
+	// Reopen: a completed task taken back for rework (board resume of a done row) goes
+	// closed → paused; nothing else leaves closed.
+	Reopen bool
 	// Session to save with the transition (out of the workspace); empty keeps the saved one.
 	Session, SessionWS, SessionEngine, SessionAgent string
 }
@@ -117,6 +120,9 @@ func planTeamTaskTransition(tasks map[int]TeamTask, ev teamTaskEvent, now time.T
 			ok = true
 			break
 		}
+	}
+	if ev.Reopen {
+		ok = cur.State == TeamTaskClosed && ev.To == TeamTaskPaused
 	}
 	if !ok {
 		return cur, cur, fmt.Errorf("team task #%d: %s → %s: %w", ev.ID, cur.State, ev.To, ErrTeamTaskTransition)

@@ -9,15 +9,6 @@ const root = join(import.meta.dirname, '..')
 const collabSrc = join(root, '../collab')
 const uiSrc = join(root, '../packages/client-ui-discord')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-// #1653: the CLI members' ACP adapters must install with the package. Without them cli-member.mjs falls back to
-// `npx -y <adapter>`, which fails (spawn npx ENOENT) where PATH has no node — the DSH desktop app's own CLI.
-const collabPkg = JSON.parse(readFileSync(join(collabSrc, 'package.json'), 'utf8'))
-for (const kind of ['dependencies', 'optionalDependencies']) {
-  for (const [name, version] of Object.entries(collabPkg[kind] ?? {})) {
-    if (/-acp$/.test(name) && pkg[kind]?.[name] !== version) throw Error(`build: ${kind}.${name} must be ${version} (dsh/collab/package.json), package.json has ${pkg[kind]?.[name]}`)
-  }
-}
-
 for (const dir of ['collab', 'client', 'locale', 'node_modules']) rmSync(join(root, dir), { recursive: true, force: true })
 mkdirSync(join(root, 'collab/avatars'), { recursive: true })
 mkdirSync(join(root, 'client'))
@@ -29,14 +20,10 @@ for (const f of readdirSync(join(collabSrc, 'avatars'))) {
 }
 // Files the plugin reads next to its modules at run time (new URL('./…', import.meta.url)); a missing one
 // breaks the installed plugin (0.1.45 shipped without personas.json and failed to load at all).
-for (const f of ['personas.json', 'desk/index.html', 'devices.html', 'wiki-galaxy/index.html']) {
+for (const f of ['desk/index.html', 'devices.html', 'wiki-galaxy/index.html']) {
   mkdirSync(join(root, 'collab', dirname(f)), { recursive: true })
   cpSync(join(collabSrc, f), join(root, 'collab', f))
 }
-// The handoff rules and the team rules live in the bridge (contrib/lead, core/team_rules); a checkout reads them
-// from there, a package needs its own copy.
-for (const f of ['team-exit-rules.json', 'team-mode-rules.md']) cpSync(join(root, '../../bridge/core/team_rules', f), join(root, 'collab', f))
-cpSync(join(root, '../../bridge/contrib/lead/handoff-rules.json'), join(root, 'collab/handoff-rules.json'))
 
 const run = (cmd) => execSync(cmd, { cwd: uiSrc, stdio: 'inherit' })
 run('npx -y pnpm@10 install --ignore-workspace --config.confirmModulesPurge=false')

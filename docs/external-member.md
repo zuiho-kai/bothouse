@@ -1,7 +1,7 @@
 # External bot members (CWIP / cloud-web) — M3 draft
 
 > Status: draft for review (M3 of #321). Based on `develop` at 2026-11-08
-> (`dsh/collab/cloudweb.mjs`, `dsh/collab/mentions.mjs`, `dsh/collab/collab.test.mjs`).
+> (`dsh/collab/cloudweb.mjs`, `bridge/platform/cloud-web/mentions.go`, `dsh/collab/collab.test.mjs`).
 > This document is for **third-party bot authors**: it explains how to write a client that
 > joins a bothouse hub as a channel member, receives messages, and replies.
 >
@@ -230,7 +230,7 @@ Design for M1 (persistent members, credentials, revocation, room enforcement) an
 ## 12. References
 
 - `dsh/collab/cloudweb.mjs` — gateway implementation (register/routing/replies/auth)
-- `dsh/collab/mentions.mjs` — mention parsing
+- `bridge/platform/cloud-web/mentions.go` — mention parsing
 - `dsh/collab/collab.test.mjs` — cloud-web tests and the `FakeWs` / `connect` helpers
 - `docs/astrbot-bridge.md` §7 — verified L2 behavior from the community AstrBot bridge
 - `bridge/docs/cloud-web.md` — the client side of the protocol (bothouse as a client)

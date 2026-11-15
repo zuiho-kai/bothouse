@@ -45,17 +45,6 @@ test('invalid advertised choices cannot be saved', async () => {
  assert.deepEqual(JSON.parse(store.member(m.id).cli_config),{model:'good'});
 });
 
-test('busy member config edits stay pending; type changes and delete wait', async () => {
- const store=new Store(':memory:');const hub=new Hub(store,{warn(){},info(){}});hub.setMember({id:'owner',name:'owner',kind:'human'});
- const roster=new Roster(hub,{putMember(m){hub.setMember({...m,kind:'dsh'});},dropMember(id){hub.removeMember(id);}}, undefined);
- const m=await managementCreate(roster,{name:'Busy',cli:'codex'});
- store.openJobs=()=>[{member_id:m.id,state:'sent'}];
- const changed=await managementUpdate(roster,m.id,{cliConfig:{model:'next'}});
- assert.equal(changed.apply.status,'pending');
- await assert.rejects(managementUpdate(roster,m.id,{cli:'claude'}),/busy/);
- assert.throws(()=>managementDelete(roster,m.id),/busy/);
-});
-
 test('older SQLite members migrate without opting in to new config', async () => {
  const {mkdtempSync}=await import('node:fs'); const {tmpdir}=await import('node:os'); const {join}=await import('node:path');
  const path=join(mkdtempSync(join(tmpdir(),'member-migration-')),'collab.sqlite3');

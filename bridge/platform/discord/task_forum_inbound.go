@@ -1,0 +1,66 @@
+package discord
+
+import (
+	"log/slog"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/chenhg5/cc-connect/core"
+)
+
+// handleTaskForumReply runs after account/guild allowlists and before mention
+// and thread-isolation routing. Only the team's persisted post map identifies
+// a task; arbitrary threads with task-looking titles keep ordinary behavior.
+func (p *Platform) handleTaskForumReply(s *discordgo.Session, m *discordgo.MessageCreate) bool {
+	if m.GuildID == "" {
+		return false
+	}
+	p.mu.RLock()
+	h, ok := p.eventHandler.(core.TaskForumInboundHandler)
+	if !ok {
+		h, ok = p.lifecycleHandler.(core.TaskForumInboundHandler)
+	}
+	p.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	parent := channelParent(s, m.ChannelID)
+	r, known := h.ResolveTaskForumReply(p.Name(), m.GuildID, parent, m.ChannelID)
+	if !known {
+		return false
+	}
+	// Webhooks stay out unless test_webhook_people names them (asTestPerson already cleared
+	// Author.Bot for those, as on every other route): test servers have no second human account.
+	if r == nil || m.Author.Bot || (m.WebhookID != "" && !p.testWebhookPeople[m.WebhookID]) {
+		return true
+	}
+	if parent == "" {
+		// Threads restored after reconnect may not yet be in gateway state. Use
+		// the existing channel API, rather than guessing their parent from text.
+		if api := p.boardSession(); api != nil {
+			ch, err := api.Channel(m.ChannelID)
+			if err != nil {
+				slog.Warn("discord: task reply channel lookup failed", "channel", m.ChannelID, "error", err)
+				return true
+			}
+			parent = ch.ParentID
+		}
+		if parent == "" {
+			return true
+		}
+		if _, matched := h.ResolveTaskForumReply(p.Name(), m.GuildID, parent, m.ChannelID); !matched {
+			return true
+		}
+	}
+	images, files, audio := classifyAttachments(m.Attachments, downloadURL)
+	content := m.Content
+	if m.ReferencedMessage != nil {
+		content, images = applyReferencedMessage(m.ReferencedMessage, content, images, downloadURL)
+	}
+	p.dispatchMessage(&core.Message{
+		SessionKey: p.makeSessionKey(m.ChannelID, m.Author.ID), Platform: p.Name(),
+		ChannelID: m.ChannelID, MessageID: m.ID, UserID: m.Author.ID, UserName: m.Author.Username,
+		Content: content, Images: images, Files: files, Audio: audio, Mentioned: true, TaskForum: r,
+		ReplyCtx: replyContext{channelID: m.ChannelID, messageID: m.ID},
+	})
+	return true
+}

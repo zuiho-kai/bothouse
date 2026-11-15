@@ -155,6 +155,18 @@ type wireInboundMessage struct {
 	ReplyToID     string `json:"reply_to_id,omitempty"`
 	ReplyToAuthor string `json:"reply_to_author,omitempty"`
 	ReplyToText   string `json:"reply_to_text,omitempty"`
+	// Members (#1662): the room's members as the DSH collab gateway sends them with each message.
+	// With them the gateway forwards the raw text and this platform decides who the message calls
+	// and how this bot reads it (hub_message.go); Mentioned is then left to the platform.
+	Members []hubMember `json:"members,omitempty"`
+	// Quote is the replied-to excerpt the gateway puts before the text, Note a line it appends
+	// (a file too big for the frame); both stay outside the @ parse.
+	Quote string `json:"quote,omitempty"`
+	Note  string `json:"note,omitempty"`
+	// ReplyToRoleID: the member id of the bot that wrote the replied-to message (same room).
+	// ReplyToGone: the replied-to message is deleted or not in this room, so the reply names nobody.
+	ReplyToRoleID string `json:"reply_to_role_id,omitempty"`
+	ReplyToGone   bool   `json:"reply_to_gone,omitempty"`
 }
 
 type wireCardAction struct {

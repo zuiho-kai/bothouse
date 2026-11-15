@@ -5,8 +5,6 @@
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { CollabError, publicMessage } from './store.mjs';
-// #876 P: 回放消息的 @ 由这里解析，规则与 hub 路由同一套（mentions.mjs），页面不再自己猜文本。
-import { mentions as mentionsOf } from './mentions.mjs';
 
 export const BOARD_EVENTS_FILE = 'board-events.jsonl';
 // 验收要求派活后「几秒内」光柱出现；每秒 stat 一次这个只追加的小文件足够便宜。
@@ -97,10 +95,9 @@ export class DeskEvents {
 /**
  * 把该时段的板事件与房间消息按时间合并。
  * 消息的 created_at 是秒（store.append 默认 Date.now()/1000），板事件是 ISO 时间。
- * members 是 hub 的成员（{id,name,mentionId?}）：消息里的 @ 用 mentions.mjs 解析成
- * 成员 id 放进 `message.mentions`，页面直接照着画，不再从文本猜（#876 P）。
+ * 消息里的 @ 由页面自己认来画细光（#1662：谁被叫到由桥判断，插件不再解析 @）。
  */
-export function deskReplay({ store, boardDir, from, to, members = [] }) {
+export function deskReplay({ store, boardDir, from, to }) {
   const fromMs = Date.parse(String(from ?? ''));
   const toMs = Date.parse(String(to ?? ''));
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) throw new CollabError('invalid', 'from/to must be ISO timestamps');
@@ -116,8 +113,6 @@ export function deskReplay({ store, boardDir, from, to, members = [] }) {
     .all(fromMs / 1000, toMs / 1000, REPLAY_MAX);
   for (const row of rows.reverse()) {
     const message = publicMessage(row, store);
-    const mentioned = members.length ? [...mentionsOf(String(message.text ?? ''), members)] : [];
-    if (mentioned.length) message.mentions = mentioned;
     merged.push({ ts: row.created_at * 1000, event: { type: 'message', message } });
   }
   merged.sort((a, b) => a.ts - b.ts);
@@ -225,7 +220,7 @@ export function deskRoute(req, res, url, { store, boardDir, members = [], namesF
     return true;
   }
   try {
-    const body = deskReplay({ store, boardDir, members, from: url.searchParams.get('from'), to: url.searchParams.get('to') });
+    const body = deskReplay({ store, boardDir, from: url.searchParams.get('from'), to: url.searchParams.get('to') });
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify(body));
   } catch (error) {

@@ -5,20 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// maomao fork: the task forum (「任务」帖子区, #768). One forum channel per server, next to the
-// workspaces in their category; one post per task-board item. core/team_task_forum.go decides
+// maomao fork: one task forum per existing Discord category (user 2026-11-15),
+// one post per task-board item. core/team_task_forum.go decides
 // what each post says and which state tag it wears; this file only talks to Discord.
 
 var _ core.TaskForumPoster = (*Platform)(nil)
 
-// taskForumName is the forum channel's name (handoff #768 设计 1: 全服务器一个论坛频道「任务」).
+// taskForumName retains the existing forum name within each category.
 const taskForumName = "任务"
+const taskForumTopic = "本类别的任务，一件活一个帖子。点「等你拍板」筛选；进帖回话可答复、补充要求、暂停或重开。"
 
 // taskForumAPI is the part of discordgo the forum uses; tests inject a fake.
 type taskForumAPI interface {
@@ -34,6 +36,71 @@ func (p *Platform) taskForumSession() (taskForumAPI, error) {
 		return s, nil
 	}
 	return nil, errors.New("discord: task forum: not connected")
+}
+
+// TaskForumScope reads gateway state first, which follows channel moves. It
+// never creates categories or infers a category from a channel's name.
+func (p *Platform) TaskForumScope(ctx context.Context, chat string) (core.TaskForum, error) {
+	session := p.boardSession()
+	if session == nil {
+		return core.TaskForum{}, errors.New("discord: task forum: not connected")
+	}
+	ch, err := session.State.Channel(chat)
+	if err != nil {
+		ch, err = session.Channel(chat, discordgo.WithContext(ctx))
+	}
+	if err != nil {
+		return core.TaskForum{}, err
+	}
+	if ch.IsThread() {
+		parent := ch.ParentID
+		ch, err = session.State.Channel(parent)
+		if err != nil {
+			ch, err = session.Channel(parent, discordgo.WithContext(ctx))
+		}
+		if err != nil {
+			return core.TaskForum{}, err
+		}
+	}
+	return taskForumScope(ch)
+}
+
+func taskForumScope(ch *discordgo.Channel) (core.TaskForum, error) {
+	if ch.GuildID == "" {
+		return core.TaskForum{}, core.ErrNotTeamChannel
+	}
+	if ch.ParentID == "" {
+		return core.TaskForum{}, core.ErrTaskForumCategoryRequired
+	}
+	return core.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID}, nil
+}
+
+// TaskForumForPost recovers a persisted post's actual parent, independently of
+// where its source chat lives now. Old posts are never moved or recreated.
+func (p *Platform) TaskForumForPost(ctx context.Context, thread string, tags []string) (core.TaskForum, error) {
+	api, err := p.taskForumSession()
+	if err != nil {
+		return core.TaskForum{}, err
+	}
+	ch, err := api.Channel(thread, discordgo.WithContext(ctx))
+	if err != nil {
+		return core.TaskForum{}, err
+	}
+	if !ch.IsThread() {
+		return core.TaskForum{}, fmt.Errorf("discord: task post %s is not a thread", thread)
+	}
+	forum, err := api.Channel(ch.ParentID, discordgo.WithContext(ctx))
+	if err != nil {
+		return core.TaskForum{}, err
+	}
+	if forum.Type != discordgo.ChannelTypeGuildForum {
+		return core.TaskForum{}, fmt.Errorf("discord: post %s parent is not a forum", thread)
+	}
+	ids, err := ensureForumTags(api, forum, tags, discordgo.WithContext(ctx))
+	if err != nil {
+		return core.TaskForum{}, err
+	}
+	return core.TaskForum{ID: forum.ID, GuildID: forum.GuildID, CategoryID: forum.ParentID, Tags: ids}, nil
 }
 
 // EnsureTaskForum implements core.TaskForumPoster.
@@ -54,24 +121,25 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	if ch.GuildID == "" {
 		return core.TaskForum{}, fmt.Errorf("discord: channel %s: %w", chatChannelID, core.ErrNotTeamChannel)
 	}
+	if ch.IsThread() {
+		ch, err = api.Channel(ch.ParentID, options...)
+		if err != nil {
+			return core.TaskForum{}, err
+		}
+	}
+	scope, err := taskForumScope(ch)
+	if err != nil {
+		return core.TaskForum{}, err
+	}
 	list, err := api.GuildChannels(ch.GuildID, options...)
 	if err != nil {
 		return core.TaskForum{}, err
 	}
-	forum := findTaskForum(list, remembered)
+	forum := findTaskForum(list, scope.CategoryID, remembered)
 	if forum == nil {
-		store := p.workspaceShelfStore()
-		owned, err := store.guild(ch.GuildID)
-		if err != nil {
-			return core.TaskForum{}, err
-		}
-		category, err := p.ensureWorkspaceCategory(api, ch.GuildID, list, owned.Category, options...)
-		if err != nil {
-			return core.TaskForum{}, err
-		}
 		forum, err = api.GuildChannelCreateComplex(ch.GuildID, discordgo.GuildChannelCreateData{
-			Name: taskForumName, Type: discordgo.ChannelTypeGuildForum, ParentID: category,
-			Topic: "一件活一个帖子：标签是这件活现在的状态，点「等你拍板」看卡在你这里的活。",
+			Name: taskForumName, Type: discordgo.ChannelTypeGuildForum, ParentID: scope.CategoryID,
+			Topic: taskForumTopic,
 		}, options...)
 		if err != nil {
 			return core.TaskForum{}, err
@@ -81,54 +149,55 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	if err != nil {
 		return core.TaskForum{}, err
 	}
-	return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, Tags: ids}, nil
+	return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID, Tags: ids}, nil
 }
 
-// findTaskForum is the remembered forum while it is still a forum, else the server's first forum
-// named taskForumName (one the user made by hand is adopted, not duplicated).
-func findTaskForum(list []*discordgo.Channel, remembered string) *discordgo.Channel {
+// Only adopt forums in the source category, even if a legacy remembered ID
+// names a different category's forum.
+func findTaskForum(list []*discordgo.Channel, category, remembered string) *discordgo.Channel {
 	for _, c := range list {
-		if c != nil && c.Type == discordgo.ChannelTypeGuildForum && remembered != "" && c.ID == remembered {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildForum && c.ParentID == category && remembered != "" && c.ID == remembered {
 			return c
 		}
 	}
 	for _, c := range list {
-		if c != nil && c.Type == discordgo.ChannelTypeGuildForum && c.Name == taskForumName {
+		if c != nil && c.Type == discordgo.ChannelTypeGuildForum && c.ParentID == category && c.Name == taskForumName {
 			return c
 		}
 	}
 	return nil
 }
 
-// ensureForumTags adds the state tags the forum lacks (tags the user added are kept) and returns
-// tag name → tag ID.
+// ensureForumTags reconciles managed order and icons in place, retaining tag IDs
+// (posts already refer to them) and every custom tag after the managed ones.
 func ensureForumTags(api taskForumAPI, forum *discordgo.Channel, tags []string, options ...discordgo.RequestOption) (map[string]string, error) {
 	ids := map[string]string{}
-	for _, t := range forum.AvailableTags {
-		ids[t.Name] = t.ID
+	existing := map[string]discordgo.ForumTag{}
+	for _, tag := range forum.AvailableTags {
+		existing[tag.Name] = tag
+		ids[tag.Name] = tag.ID
 	}
-	missing := false
+	all := make([]discordgo.ForumTag, 0, len(forum.AvailableTags))
 	for _, name := range tags {
-		if ids[name] == "" {
-			missing = true
+		tag := existing[name]
+		tag.Name, tag.EmojiID, tag.EmojiName = name, "", core.TaskForumTagEmoji(name)
+		all = append(all, tag)
+	}
+	for _, tag := range forum.AvailableTags {
+		if !slices.Contains(tags, tag.Name) {
+			all = append(all, tag)
 		}
 	}
-	if !missing {
+	if slices.Equal(all, forum.AvailableTags) && forum.Topic == taskForumTopic {
 		return ids, nil
 	}
-	all := append([]discordgo.ForumTag{}, forum.AvailableTags...)
-	for _, name := range tags {
-		if ids[name] == "" {
-			all = append(all, discordgo.ForumTag{Name: name})
-		}
-	}
-	edited, err := api.ChannelEdit(forum.ID, &discordgo.ChannelEdit{AvailableTags: &all}, options...)
+	edited, err := api.ChannelEdit(forum.ID, &discordgo.ChannelEdit{AvailableTags: &all, Topic: taskForumTopic}, options...)
 	if err != nil {
 		return nil, err
 	}
 	ids = map[string]string{}
-	for _, t := range edited.AvailableTags {
-		ids[t.Name] = t.ID
+	for _, tag := range edited.AvailableTags {
+		ids[tag.Name] = tag.ID
 	}
 	for _, name := range tags {
 		if ids[name] == "" {
@@ -278,4 +347,25 @@ func (p *Platform) OwnsTaskPost(ctx context.Context, threadID string) (bool, err
 func (p *Platform) TaskPostGone(err error) bool {
 	var rest *discordgo.RESTError
 	return errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound
+}
+
+// PostTaskUserNode allows exactly the identified dispatcher, once on the state move.
+// Even if the text contains role/everyone/other-user mentions they remain disabled.
+func (p *Platform) PostTaskUserNode(ctx context.Context, threadID, text, user string) error {
+	api, err := p.taskForumSession()
+	if err != nil {
+		return err
+	}
+	parts := core.SplitMessageCodeFenceAware("<@"+user+"> "+text, maxDiscordLen)
+	for i, part := range parts {
+		mentions := noMentions()
+		if i == 0 {
+			mentions = &discordgo.MessageAllowedMentions{Users: []string{user}}
+		}
+		_, err := api.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{Content: part, AllowedMentions: mentions}, discordgo.WithContext(ctx))
+		if err != nil {
+			return unrecoverableErr(err)
+		}
+	}
+	return nil
 }

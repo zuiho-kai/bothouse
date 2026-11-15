@@ -53,7 +53,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	mode = normalizeMode(mode)
 	cmd, extraArgs := core.ParseCmdOpts(opts, "agent")
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("cursor: %q CLI not found in PATH, install with: npm i -g @anthropic-ai/cursor-agent (or from Cursor IDE settings)", cmd)
+		return nil, fmt.Errorf("cursor: %q %w, install with: npm i -g @anthropic-ai/cursor-agent (or from Cursor IDE settings)", cmd, core.ErrCLINotFound)
 	}
 
 	return &Agent{

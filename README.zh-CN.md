@@ -34,7 +34,7 @@
 **3 分钟看懂**：你交代一句话，它们自己分工、干完交回。点击封面在 B 站播放。
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：AI 角色组队干活，点击在 B 站播放"></a>
+  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：你在群里说一句，组长 Claude Code 拆活，Codex、Gemini CLI、DeepSeek、Grok 各接一块，点击在 B 站播放"></a>
 </p>
 
 ```sh
@@ -130,6 +130,7 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 | **一个账号也能组队** | 同一个模型建几个成员，各管一摊，在群里 @ 来 @ 去地派活。 |
 | **在常用的聊天软件里** | Discord、飞书、QQ 或 DSH；Discord 和飞书本来就有手机版，躺床上也能派活。 |
 | **长任务不跑偏** | 每次交接都带上你的原话；另一个 AI 用干净的上下文验收；说「修好了」要拿证据。 |
+| **按类别找任务** | Discord 每个现有类别一个「任务」论坛，类别内的聊天频道共用论坛；帖子仍连接原任务与原会话。见[任务论坛说明](bridge/docs/task-forum.md)。 |
 | **晚上自己复盘** | 夜里核对白天记下的东西，纠错去重；你反复纠正的地方整理成候选规则，你点头才生效。 |
 | **在手机上管** | 自带网页面板：看谁在忙、用了多少额度、改人设、给正在跑的活插话。 |
 
@@ -151,6 +152,14 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 </table>
 
 _上面两张是真实频道录屏，下面两张是作者自己在用的管理面板。_
+
+<a id="characters"></a>
+
+### 角色（可选）
+
+每个角色也可以换上人设和头像，想让团队有脸有性格就用上。下面是作者自己团队的样子；从[角色包和头像](docs/readme-details.md#角色和头像)里挑，不用也照样干活。
+
+<p align="center"><img src="docs/assets/readme/characters.png" width="600" alt="作者自己团队的五个二次元角色头像"></p>
 
 <a id="memory"></a>
 
