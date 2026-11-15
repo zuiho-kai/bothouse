@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func writeReleaseBoard(t *testing.T, e *Engine, items ...map[string]any) {
@@ -18,7 +20,7 @@ func writeReleaseBoard(t *testing.T, e *Engine, items ...map[string]any) {
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

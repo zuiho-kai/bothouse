@@ -9,7 +9,7 @@ import (
 func memberBoardFiles(at time.Time, feiyu string) []teamFile {
 	chat := "discord:111"
 	return []teamFile{
-		{Project: "gge", Name: "G哥", Updated: at, Tasks: []teamTaskLink{{
+		{Project: "gge", Name: "G哥", QuotaStatus: "available", Updated: at, Tasks: []teamTaskLink{{
 			ID: "task-2b8c023c8bb52dcf", SessionKey: chat, Title: "修 #116–#119", URL: "https://example.test/cards/1",
 			State: TaskStateInProgress, UpdatedAt: at,
 			Members: []teamTaskMember{
@@ -19,9 +19,9 @@ func memberBoardFiles(at time.Time, feiyu string) []teamFile {
 				{Name: "子任务", ParentID: "x", Title: "native child", Status: "running", UpdatedAt: at},
 			},
 		}}},
-		{Project: "doubao", Name: "大豆包", Updated: at},
-		{Project: "feiyu", Name: "肥鱼", Updated: at},
-		{Project: "cjiang", Name: "C酱", Updated: at},
+		{Project: "doubao", Name: "大豆包", QuotaStatus: "available", Updated: at},
+		{Project: "feiyu", Name: "肥鱼", QuotaStatus: "available", Updated: at},
+		{Project: "cjiang", Name: "C酱", QuotaStatus: "available", Updated: at},
 	}
 }
 

@@ -3,6 +3,8 @@ package core
 import (
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
@@ -51,10 +53,10 @@ func TestAskBounceWakeLimit(t *testing.T) {
 		defer e.teamExit.mu.Unlock()
 		return e.teamExit.bounces[exitWSKey]
 	}
-	for i := 0; i < exitRules.Bounce.WakeLimit; i++ {
+	for i := 0; i < team.ExitRules.Bounce.WakeLimit; i++ {
 		e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
 	}
-	if n := count(); n != exitRules.Bounce.WakeLimit {
+	if n := count(); n != team.ExitRules.Bounce.WakeLimit {
 		t.Fatalf("bounces = %d", n)
 	}
 	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")

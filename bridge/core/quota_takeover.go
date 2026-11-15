@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 var quotaHandoffRefRE = regexp.MustCompile("(?:[A-Za-z]:\\\\|/|~/|[[:alnum:]_.-]+/)[^\\s\"'<>`]+\\.(?:md|txt)(?::[0-9]+)?")
@@ -398,7 +400,7 @@ func (e *Engine) reassignQuotaBoard(id int, target *Engine) error {
 		}
 	}
 	to := target.DisplayName()
-	_, err := updateBoardRow(e.team.dir, id, func(row map[string]json.RawMessage) (bool, error) {
+	_, err := team.UpdateBoardRow(e.team.dir, id, func(row map[string]json.RawMessage) (bool, error) {
 		var who any // board.py compares the raw value: a row without who matches no owner
 		_ = json.Unmarshal(row["who"], &who)
 		name, isName := who.(string)
@@ -408,7 +410,7 @@ func (e *Engine) reassignQuotaBoard(id int, target *Engine) error {
 		if !isName || !owners[name] {
 			return false, errors.New("board owner changed")
 		}
-		row["who"] = rawJSON(to)
+		row["who"] = team.RawJSON(to)
 		return true, nil
 	})
 	if err != nil {

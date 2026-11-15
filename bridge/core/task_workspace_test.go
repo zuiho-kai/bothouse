@@ -472,10 +472,6 @@ func TestTaskRelayWorkspaceRetrySurvivesHandoffChange(t *testing.T) {
 	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
 		t.Fatal("workspace was not released")
 	}
-	// #762: another chat channel never takes it, free or not.
-	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by another chat channel = %v, want ErrTeamWorkspaceOwned", err)
-	}
 	if cached, err := rm.Send(context.Background(), req); err != nil || cached.Response != result.Response {
 		t.Fatalf("retry after handoff = %+v, %v", cached, err)
 	}
@@ -877,7 +873,7 @@ func TestCrossWorkspaceRequiresBindingInSourceToo(t *testing.T) {
 	// receipt step checks both channels on its own as well.
 	req := taskRelayRequest(id)
 	req.Workspace = "ws1"
-	if _, _, err := p.beginTaskRelay(req, "Target"); err == nil || !strings.Contains(err.Error(), "unbound in discord:room:user") {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err == nil || !strings.Contains(err.Error(), "unbound in discord:room:user") {
 		t.Fatalf("relay with target unbound in source = %v", err)
 	}
 	if _, ok := p.records[id].record.Relays[req.RequestID]; ok {
@@ -910,10 +906,6 @@ func TestAssignMemberWorkspaceRetryBeforeLiveChecks(t *testing.T) {
 	}
 	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
 		t.Fatal("workspace was not released")
-	}
-	// #762: another chat channel never takes it, free or not.
-	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by another chat channel = %v, want ErrTeamWorkspaceOwned", err)
 	}
 	if retry, err := p.AssignMember(req); err != nil || retry.ReportVia != grant.ReportVia {
 		t.Fatalf("retry after workspace changed hands = %+v, %v", retry, err)

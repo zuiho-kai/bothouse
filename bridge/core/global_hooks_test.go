@@ -3,10 +3,12 @@ package core
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // globalEnv: a throwaway HOME and Claude Code dir (the real ~/.claude is never touched); returns claude dir, data dir.
@@ -240,5 +242,42 @@ func TestGlobalHooksOffRemovesFilesItMade(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(claude, p)); !os.IsNotExist(err) {
 			t.Fatalf("%s left behind after off (%v)", p, err)
 		}
+	}
+}
+
+func TestSyncMainWikiPrograms(t *testing.T) {
+	_, data := globalEnv(t)
+	wiki := os.Getenv("WIKI_DIR")
+	old := RoleWikiFS
+	RoleWikiFS = fstest.MapFS{
+		"contrib/wiki/llmwiki/ingest.py":        {Data: []byte("# new\n")},
+		"contrib/wiki/llmwiki/profiles.py":      {Data: []byte("# new profiles\n")},
+		"contrib/wiki/llmwiki/test_profiles.py": {Data: []byte("# test\n")},
+		"contrib/hooks/dshlog.py":               {Data: []byte("# dshlog\n")},
+	}
+	t.Cleanup(func() { RoleWikiFS = old })
+	writeT(t, filepath.Join(wiki, "bin", "ingest.py"), "# old\n")
+	// the user's own wiki: never written
+	if up, err := SyncMainWikiPrograms(data); err != nil || up || readT(t, filepath.Join(wiki, "bin", "ingest.py")) != "# old\n" {
+		t.Fatalf("own wiki touched: %v %v", up, err)
+	}
+	writeT(t, filepath.Join(wiki, mainWikiMark), "lead\n")
+	if out, err := exec.Command("git", "-C", wiki, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git: %v: %s", err, out)
+	}
+	if up, err := SyncMainWikiPrograms(data); err != nil || !up {
+		t.Fatalf("not updated: %v %v", up, err)
+	}
+	if readT(t, filepath.Join(wiki, "bin", "ingest.py")) != "# new\n" || readT(t, filepath.Join(wiki, "bin", "profiles.py")) != "# new profiles\n" {
+		t.Fatal("bin not this build's")
+	}
+	if fileExists(filepath.Join(wiki, "bin", "test_profiles.py")) {
+		t.Fatal("test file copied")
+	}
+	if out, _ := exec.Command("git", "-C", wiki, "log", "--format=%s", "--", "bin").CombinedOutput(); !strings.Contains(string(out), "更新共享程序") {
+		t.Fatalf("not committed: %s", out)
+	}
+	if up, err := SyncMainWikiPrograms(data); err != nil || up {
+		t.Fatalf("second start updated again: %v %v", up, err)
 	}
 }

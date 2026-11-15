@@ -94,7 +94,9 @@ class WorkflowCLIs(unittest.TestCase):
         self.assertEqual(out["permissionDecision"], "deny")
         self.assertIn(str(self.map), out["permissionDecisionReason"])
         self.assertNotIn("updatedInput", out)
-        payload["tool_input"]["prompt"] += " " + str(self.map)
+        retry_args = json.loads(out["permissionDecisionReason"].split("input): ", 1)[1])
+        self.assertIn(f"## 地图要补的条目（{self.map}）", retry_args["prompt"])
+        payload["tool_input"] = retry_args
         self.assertEqual(self.call("codemap-inject", payload), {})
 
     def test_dsh_timeout_uses_native_units_on_retry(self):

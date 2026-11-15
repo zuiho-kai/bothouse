@@ -3,6 +3,8 @@ package core
 import (
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // agentm #26 (11-09): a workspace ran `board pause` on its own task inside its own turn. board.py
@@ -26,12 +28,12 @@ func TestWorkspaceSelfPauseOwesReport(t *testing.T) {
 	row := func(req string) string {
 		return `{"id":666,"what":"deliver draft","who":"工作区1橘","sk":"` + key + `","status":"在做","pause_req":"` + req + `"}` + "\n"
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, row(""))
+	writeTaskBoard(t, dir, team.TaskBoardFile, row(""))
 	e.ReceiveMessage(p, &Message{SessionKey: key, Platform: "discord", ChannelID: "ws1", UserID: "u", Content: "finish the draft", Mentioned: true, ReplyCtx: key})
 	inputPrompt(t, a)
 	old := e.sessions.ActiveSessionID(key)
 	// inside the turn: board pause 666 → board.py self_pause writes pause_req
-	writeTaskBoard(t, dir, teamTaskBoardFile, row("十分钟上限：传输没完成"))
+	writeTaskBoard(t, dir, team.TaskBoardFile, row("十分钟上限：传输没完成"))
 	inputDone(a, "遵照十分钟边界，本轮停在这里。")
 	prompt := inputPrompt(t, a)
 	if !strings.Contains(prompt, "记了停手") || !strings.Contains(prompt, "[report] #666") {

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"maps"
 	"bufio"
 	"bytes"
 	"context"
@@ -12,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -461,8 +461,8 @@ type Engine struct {
 	maxQueuedMessages            int
 	gate                         atomic.Pointer[gateState] // maomao fork: fast-brain gate (nil = off); config is swapped whole, see gateState
 	gateSetMu                    sync.Mutex                // serializes the gate config setters (copy, change, swap)
-	gateLocal                    bool        // built-in busy rules when gate is nil (gate_local.go)
-	tiers                        *modelTiers // maomao fork: gate-driven chat/task model switching (nil = off)
+	gateLocal                    bool                      // built-in busy rules when gate is nil (gate_local.go)
+	tiers                        *modelTiers               // maomao fork: gate-driven chat/task model switching (nil = off)
 	modelSwitchMu                sync.Mutex
 	pendingSwitch                map[string]pendingModelSwitch // maomao fork: switches agents asked for, applied before their next turn
 	pendingResetMu               sync.Mutex
@@ -840,9 +840,15 @@ type interactiveState struct {
 	turnStartedAt time.Time
 }
 
-// markTurnStartLocked records the start of the turn that owns currentMessageID. Caller
-// holds state.mu.
-func (s *interactiveState) markTurnStartLocked() { s.turnStartedAt = time.Now() }
+// markTurnStartLocked transfers the state to the turn owning currentMessageID.
+// Caller holds state.mu. A claimed timeout finishes before the transfer; whether
+// it was already done or we waited, its cancellation flag belongs to the old turn.
+func (s *interactiveState) markTurnStartLocked() {
+	s.awaitScheduledCancelLocked()
+	s.scheduledWatch = 0
+	s.turnCancelled = false
+	s.turnStartedAt = time.Now()
+}
 
 // latestUserMessageWatermarkLocked returns the highest UserMessageTimeMs among
 // completed turns, the in-flight turn, and queued messages for this session.
@@ -5122,7 +5128,6 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	e.stopUnsolicitedReader(state)
 	state.mu.Lock()
 	needResync := state.eventsNeedResync
-	state.turnCancelled = false
 	state.mu.Unlock()
 	if msg.inputTurn != nil {
 		strict, ok := agentSession.(StrictResumeSession)
@@ -6653,8 +6658,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}()
 	if turn.msgID != "" {
 		turn.state.mu.Lock()
+		// Foreground and drained turns already initialized this message before
+		// Send. Re-entering its event reader must preserve a cancel for this turn.
 		turn.state.currentMessageID = turn.msgID
-		turn.state.markTurnStartLocked()
 		turn.state.mu.Unlock()
 	}
 
@@ -11060,15 +11066,24 @@ func (e *Engine) cmdStatus(p Platform, msg *Message) {
 }
 
 func (e *Engine) cmdUsage(p Platform, msg *Message) {
+	started := time.Now()
+	logResponse := func(status, response string) {
+		slog.Info("usage: response", "project", e.name, "session", msg.SessionKey,
+			"status", status, "elapsed", time.Since(started), "response", response)
+	}
 	agent, _, _, err := e.commandContext(p, msg)
 	if err != nil {
-		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgWsResolutionError, err))
+		response := e.i18n.Tf(MsgWsResolutionError, err)
+		logResponse("context_error", response)
+		e.reply(p, msg.ReplyCtx, response)
 		return
 	}
 
 	reporter, ok := agent.(UsageReporter)
 	if !ok || !usageReporterAvailable(agent) {
-		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgUsageNotSupported))
+		response := e.i18n.T(MsgUsageNotSupported)
+		logResponse("unsupported", response)
+		e.reply(p, msg.ReplyCtx, response)
 		return
 	}
 
@@ -11077,16 +11092,24 @@ func (e *Engine) cmdUsage(p Platform, msg *Message) {
 
 	report, err := reporter.GetUsage(fetchCtx)
 	if err != nil {
-		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgUsageFetchFailed, err))
+		response := e.i18n.Tf(MsgUsageFetchFailed, err)
+		logResponse("fetch_error", response)
+		e.reply(p, msg.ReplyCtx, response)
 		return
 	}
 
+	response := formatUsageReport(report, e.i18n.CurrentLang())
+	status := "ok"
+	if report == nil {
+		status = "unavailable"
+	}
+	logResponse(status, response)
 	if supportsCards(p) {
 		e.replyWithCard(p, msg.ReplyCtx, e.renderUsageCard(report))
 		return
 	}
 
-	e.reply(p, msg.ReplyCtx, formatUsageReport(report, e.i18n.CurrentLang()))
+	e.reply(p, msg.ReplyCtx, response)
 }
 
 func formatUsageReport(report *UsageReport, lang Language) string {
@@ -11103,13 +11126,20 @@ func formatUsageReport(report *UsageReport, lang Language) string {
 }
 
 func formatUsageBlocks(report *UsageReport, lang Language) string {
-	primary, secondary := selectUsageWindows(report)
 	var sections []string
-	if primary != nil {
-		sections = append(sections, formatUsageBlock(lang, primary))
-	}
-	if secondary != nil {
-		sections = append(sections, formatUsageBlock(lang, secondary))
+	for _, bucket := range report.Buckets {
+		var blocks []string
+		for i := range bucket.Windows {
+			blocks = append(blocks, formatUsageBlock(lang, &bucket.Windows[i]))
+		}
+		if len(blocks) == 0 {
+			continue
+		}
+		section := strings.Join(blocks, "\n\n")
+		if len(report.Buckets) > 1 && bucket.Name != "" {
+			section = bucket.Name + "\n\n" + section
+		}
+		sections = append(sections, section)
 	}
 	if len(sections) == 0 {
 		return ""
@@ -11177,6 +11207,10 @@ func formatUsageBlock(lang Language, window *UsageWindow) string {
 	}
 	var sb strings.Builder
 	sb.WriteString(usageWindowLabel(lang, window.WindowSeconds))
+	if window.Name != "" {
+		sb.WriteString(" · ")
+		sb.WriteString(window.Name)
+	}
 	sb.WriteString("\n")
 	sb.WriteString(usageRemainingLabel(lang))
 	sb.WriteString(usageColon(lang))

@@ -75,6 +75,9 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 			return scope
 		}
 		for _, w := range b.Windows {
+			if !quotaWindowApplies(w, scope) {
+				continue
+			}
 			if w.UsedPercent >= 100 {
 				e.observeQuotaUsageFor(report, "", scope)
 				return scope
@@ -91,6 +94,7 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 		e.quotaState.Verified[key] = true
 		e.quotaVerifiedMu.Unlock()
 		e.updateQuotaState(e.saveQuotaLocked)
+		e.recordQuotaProbeFor(scope, "available")
 	}
 	return scope
 }
@@ -110,6 +114,17 @@ type quotaScope struct {
 	Provider string
 	Account  string
 	Group    string
+}
+
+func quotaWindowApplies(window UsageWindow, scope quotaScope) bool {
+	// An account-only scope has no proven model boundary (for example a
+	// provider default alias). It cannot discard a possibly applicable limit.
+	return scope.Group == "account" || window.QuotaGroup == "" || window.QuotaGroup == "account" || window.QuotaGroup == scope.Group
+}
+
+func (s quotaScope) accountScope() quotaScope {
+	s.Group = "account"
+	return s
 }
 
 func (s quotaScope) key() string {
@@ -245,6 +260,9 @@ func (e *Engine) quotaCoolingForAt(scope quotaScope, now time.Time) time.Time {
 func (e *Engine) quotaCoolingDeadlineFor(scope quotaScope) time.Time {
 	quotaDomainsMu.Lock()
 	until := e.domainUntilLocked(scope.key())
+	if account := e.domainUntilLocked(scope.accountScope().key()); account.After(until) {
+		until = account
+	}
 	if scope.Account == "unknown" {
 		// An identity lookup failure is not evidence of a different allowance.
 		// This persisted guard also covers a restart with no identity cache.
@@ -337,6 +355,7 @@ func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session
 		e.quotaState.NextProbeAt = time.Time{}
 		previous := e.quotaState.ProbeStatus
 		e.quotaState.ProbeStatus = "exhausted"
+		e.quotaState.ProbeScope = key
 		if session != "" {
 			e.quotaState.Session = session
 		}
@@ -361,8 +380,8 @@ func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session
 // answer. It clears the records admission reads, so the next message is not
 // turned away; quotaTick sees those records clear and finishes the recovery
 // (lead, notice). A later quota error writes them again, and that wins: there is
-// no separate "answered" flag that could outlive it. A scope that was not
-// cooling is left untouched.
+// no separate "answered" flag that could outlive it. The answer also supplies
+// positive availability evidence when the scope was not cooling.
 func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	now := time.Now()
 	key := scope.key()
@@ -370,6 +389,10 @@ func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	cooling := false
 	if e.domainUntilLocked(key).After(now) {
 		e.saveDomainLocked(key, time.Time{})
+		cooling = true
+	}
+	if account := scope.accountScope().key(); account != key && e.domainUntilLocked(account).After(now) {
+		e.saveDomainLocked(account, time.Time{})
 		cooling = true
 	}
 	if scope.Account == "unknown" {
@@ -399,6 +422,52 @@ func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	if cooling {
 		slog.Info("quota cooldown: provider answered, cooldown cleared", "project", e.name)
 	}
+	e.recordQuotaProbeFor(scope, "available")
+}
+
+// recordQuotaProbeFor keeps evidence in the existing quota record. ProbeScope
+// is separate from Scope: Scope owns a pending takeover, which an answer under
+// another model/account must not relabel. No deadline is invented for unknown
+// usage or exhaustion without a provider reset.
+func (e *Engine) recordQuotaProbeFor(scope quotaScope, status string) {
+	e.updateQuotaState(func() {
+		key := scope.key()
+		if status == "available" && (!e.quotaCoolingFor(scope).IsZero() ||
+			(e.quotaState.Scope == key && e.quotaState.Until.After(time.Now()))) {
+			// The takeover tick finishes a pending recovery. Until then its
+			// existing exhausted verdict must survive a peer extending the pool.
+			return
+		}
+		if e.quotaState.ProbeScope == key && e.quotaState.ProbeStatus == status {
+			return
+		}
+		e.quotaState.ProbeScope, e.quotaState.ProbeStatus = key, status
+		e.saveQuotaLocked()
+	})
+}
+
+// quotaAvailabilityFor is the shared dispatch predicate for team publication
+// and automatic selection. Passing a reset deadline does not prove recovery.
+func (e *Engine) quotaAvailabilityFor(scope quotaScope, now time.Time) (time.Time, string) {
+	until := e.quotaCoolingForAt(scope, now)
+	e.capMu.Lock()
+	if e.capUntil.After(now) && e.capUntil.After(until) {
+		until = e.capUntil
+	}
+	e.capMu.Unlock()
+	if !until.IsZero() {
+		return until, "exhausted"
+	}
+	e.quotaMu.Lock()
+	status, evidence := e.quotaState.ProbeStatus, e.quotaState.ProbeScope
+	if evidence == "" {
+		evidence = e.quotaState.Scope // legacy probe records already carried Scope
+	}
+	e.quotaMu.Unlock()
+	if evidence == scope.key() && (status == "available" || status == "exhausted") {
+		return time.Time{}, status
+	}
+	return time.Time{}, "unknown"
 }
 
 func (e *Engine) quotaVerified(key string) bool {

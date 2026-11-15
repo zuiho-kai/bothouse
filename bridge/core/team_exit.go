@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Team mode unified exit (#139 C). The user only talks in the chat channel
@@ -62,11 +64,7 @@ type teamExitState struct {
 	reportsLoaded bool
 }
 
-const (
-	exitKindAsk    = "ask"
-	exitKindReport = "report"
-	exitPrefix     = "📬"
-)
+const exitPrefix = "📬"
 
 // SetWorkspaceParentResolver installs the workspace -> chat channel lookup.
 func (e *Engine) SetWorkspaceParentResolver(r WorkspaceParentResolver) {
@@ -192,19 +190,19 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 	var doubt, check string
 	legacy, selfRoute := false, false
 	if ok {
-		v := judgeExit(kind, body, false, func(id int) bool {
+		v := team.JudgeExit(kind, body, false, func(id int) bool {
 			item = e.boardItemByID(id)
 			return item != nil
 		}, e.exitBounceCount(sessionKey))
 		problems, hid, hline, legacy = v.Problems, v.ID, v.Line, v.Legacy
-		if kind == exitKindReport && item != nil {
+		if kind == team.ExitKindReport && item != nil {
 			// image work goes back without its side-by-side image, like an [ask] without its self-check
 			notes := readNotes(item.Where)
-			if art := artReportProblems(notes, body, localFileExists); art != nil {
+			if art := team.ArtReportProblems(notes, body, team.LocalFileExists); art != nil {
 				problems, legacy = append(problems, art...), false
 			}
 			// every 「改」 item of the handoff's scope must show up in the report, done or why not
-			if sc := scopeReportProblems(notes, body); sc != nil {
+			if sc := team.ScopeReportProblems(notes, body); sc != nil {
 				problems, legacy = append(problems, sc...), false
 			}
 			// a report that says it produced a document carries it: a file or a link (team_exit_files.go)
@@ -212,32 +210,32 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 				problems, legacy = append(problems, dp...), false
 			}
 		}
-		if kind == exitKindReport {
+		if kind == team.ExitKindReport {
 			// a capability made for Claude Code only goes back unless it names why the others cannot have it
-			if g := genericReportProblems(body); g != nil {
+			if g := team.GenericReportProblems(body); g != nil {
 				problems, legacy = append(problems, g...), false
 			}
 			// walked through where the user uses it, with a screenshot, file, link or command output
-			if en := entryReportProblems(body, localFileExists); en != nil {
+			if en := team.EntryReportProblems(body, team.LocalFileExists); en != nil {
 				problems, legacy = append(problems, en...), false
 			}
 		}
 		// 「要你做的」hands the user a file to place, a command to run, a setting to change: it goes back
 		// for another route, a [report] too (user 11-10 「你自己搞」; team_exit_rules.go SelfRouteProblems)
-		if sr := SelfRouteProblems(body); sr != nil {
+		if sr := team.SelfRouteProblems(body); sr != nil {
 			problems, legacy, selfRoute = append(problems, sr...), false, true
 		}
-		_, _, waiting := waitExternalOf(body)
-		if kind == exitKindReport && item != nil && problems == nil && waiting {
+		_, _, waiting := team.WaitExternalOf(body)
+		if kind == team.ExitKindReport && item != nil && problems == nil && waiting {
 			// blocked outside (no free GPU, CI, the other side): it cannot test what it cannot get;
 			// the intent check would bounce it into a loop of repair turns (team_wait_external.go)
 			slog.Info("team exit: report waits on something outside; intent check skipped", "board_item", hid)
 		}
-		if kind == exitKindReport && item != nil && problems == nil && !waiting {
+		if kind == team.ExitKindReport && item != nil && problems == nil && !waiting {
 			// tested what the user named, not a look-alike (team_exit_intent.go); only once the form
 			// passes, so a format bounce costs no model call
 			var in []string
-			in, doubt = e.reportIntentCheck(sessionKey, item.Where, body, hid)
+			in, doubt = e.teamLayer().ReportIntentCheck(sessionKey, item.Where, body, hid)
 			if in != nil {
 				problems, legacy = in, false
 			}
@@ -283,7 +281,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		// waited hours for it. Only an [ask] still bounces, since it would wait on the user.
 		// A report hands the user work it could do itself: that one still goes back once for another
 		// route (bounceWorkspaceExit forwards it with the note past wake_limit or on a timer turn).
-		if (kind != exitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
+		if (kind != team.ExitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
 			noteExitOutcome(ctx, func(o *exitOutcome) { o.bounced = true })
 			return ""
 		}
@@ -295,10 +293,10 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		// log, never into the four parts. Joined into the headline, the lead's pass posted it to an
 		// outside user as written (agentm #33 11-10 「（系统核对：…）」).
 		note := ""
-		if rest := withoutIntent(problems); rest != nil {
-			note = exitBounceNote(rest)
+		if rest := team.WithoutIntent(problems); rest != nil {
+			note = team.ExitBounceNote(rest)
 		}
-		check = joinIntentLines(intentFailLine(problems), note)
+		check = team.JoinIntentLines(team.IntentFailLine(problems), note)
 		legacy = item == nil || strings.TrimSpace(hline) == ""
 		slog.Info("team exit: report goes on with what the check found; for the acceptor only", "board_item", hid, "check", check)
 		problems = nil
@@ -321,13 +319,13 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		return ""
 	}
 	bot := e.exitBotName()
-	if kind == exitKindReport && item != nil && (e.exitReportedSinceBound(hid, item.Bound) || e.reportHeldForLead(p.Name(), hid)) {
+	if kind == team.ExitKindReport && item != nil && (e.exitReportedSinceBound(hid, item.Bound) || e.reportHeldForLead(p.Name(), hid)) {
 		// Same rule as postExitHeadline, for the lead-rewrite and original-post paths below; a
 		// copy of a report still waiting for the lead's acceptance is not posted either.
 		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound, "legacy", legacy)
 		return ""
 	}
-	if !legacy && kind == exitKindReport && item != nil {
+	if !legacy && kind == team.ExitKindReport && item != nil {
 		if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); !bound {
 			// The lead accepts a text report before the user sees it (user 11-09, team_report_accept.go).
 			// A proactive task's turn keeps the old direct post: its authority cannot ride a lead timer.
@@ -371,7 +369,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	// The board's done mark alone does not mean the user saw the result: a workspace often runs
 	// `board update <id> 已完成` itself just before its [report] (#770 was dropped that way). Only
 	// a report already posted for this item makes a later one a late-nudge answer.
-	if kind == exitKindReport && item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedForHandoff(hid, item.Bound) {
+	if kind == team.ExitKindReport && item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedForHandoff(hid, item.Bound) {
 		slog.Info("team exit: report for a task already done; not posted again", "board_item", hid, "workspace", ws, "done_at", item.DoneAt)
 		return ""
 	}
@@ -379,7 +377,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	// another turn of the same workspace reports the item first, the repair's report is a second
 	// copy of the same answer (user 11-02「同一件回报贴了两条」). A new handoff (rework) re-binds
 	// the item, so its report is posted.
-	if kind == exitKindReport && e.exitReportedSinceBound(hid, item.Bound) {
+	if kind == team.ExitKindReport && e.exitReportedSinceBound(hid, item.Bound) {
 		slog.Info("team exit: report for this handoff already posted; not posted again", "board_item", hid, "workspace", ws, "bound", item.Bound)
 		return ""
 	}
@@ -404,12 +402,12 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		return ""
 	}
 	id := ""
-	if kind == exitKindAsk {
+	if kind == team.ExitKindAsk {
 		id = newAskID()
 	}
 	name := teamTaskBoardShort(*item)
 	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
-	_, detail := exitSplit(body)
+	_, detail := team.ExitSplit(body)
 	if err := e.postWithDetail(ctx, p, rc, name, text, detail); err != nil {
 		slog.Error("team exit: headline post failed; retaining fallback", "kind", kind, "error", err)
 		if _, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, ""); err != nil {
@@ -423,7 +421,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	// the images the workspace sent or the report names go right under the headline
 	e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 	e.exitMarkPosted(kind, hid, hline)
-	if kind == exitKindAsk && rec.Authorization == nil {
+	if kind == team.ExitKindAsk && rec.Authorization == nil {
 		e.rememberPostedAskWake(rec)
 	} else {
 		e.dropDeliveredReport(rec.Key)
@@ -432,7 +430,8 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		detail = ""
 	}
 	e.postToTaskThreadContext(ctx, p, sessionKey, joinExitDetail(text, detail))
-	if kind == exitKindReport {
+	e.postTaskForumNode(hid, text)
+	if kind == team.ExitKindReport {
 		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 		e.markExitReported(hid)
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
@@ -497,7 +496,7 @@ func (e *Engine) postExitOriginalErr(ctx context.Context, p Platform, rc any, pa
 	from := "来自工作区 " + channelLabel(p.Name(), ws) + " 的「" + bot + "」"
 	id := ""
 	var cont string
-	if kind == exitKindAsk {
+	if kind == team.ExitKindAsk {
 		id = newAskID()
 		if header == "" {
 			header = exitPrefix + " " + from + "的提问（直接回复这条就能答复，编号 " + id + "）：\n"
@@ -556,19 +555,19 @@ func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardIte
 		items = readTeamTaskBoard(dir)
 	}
 	namedID := 0
-	cands := make([]exitTaskCand, 0, len(items)+1)
+	cands := make([]team.ExitTaskCand, 0, len(items)+1)
 	if named != nil {
 		// named may already be among the finished items; it is judged all the same.
 		namedID = named.ID
-		cands = append(cands, exitTaskCand{ID: named.ID, Here: here(named), Bound: named.Bound})
+		cands = append(cands, team.ExitTaskCand{ID: named.ID, Here: here(named), Bound: named.Bound})
 	}
 	byID := map[int]*teamTaskBoardItem{}
 	for i := range items {
 		it := &items[i]
 		byID[it.ID] = it
-		cands = append(cands, exitTaskCand{ID: it.ID, Here: here(it), Bound: it.Bound})
+		cands = append(cands, team.ExitTaskCand{ID: it.ID, Here: here(it), Bound: it.Bound})
 	}
-	pick := exitTaskPick(namedID, cands)
+	pick := team.ExitTaskPick(namedID, cands)
 	if pick != 0 && pick == namedID {
 		if e.workspaceHasOpenHandoffFor(sessionKey, named.ID) {
 			return 0, false
@@ -743,22 +742,6 @@ func (e *Engine) takeAsk(id, platform, parent string) *teamAsk {
 	return a
 }
 
-// fillerLine matches a whole line a model writes when it believes no answer is wanted
-// (kimi 2026-10-29 「No response requested.」): it carries nothing for the user.
-var fillerLine = regexp.MustCompile(`(?i)^\s*(no response (is )?(requested|needed|required)|no reply (is )?(requested|needed|required)|不用回话|无需回复)[.。!！]?\s*$`)
-
-// stripFillerLines drops filler lines, so a reply made only of them counts as empty.
-func stripFillerLines(reply string) string {
-	lines := strings.Split(reply, "\n")
-	kept := lines[:0]
-	for _, l := range lines {
-		if !fillerLine.MatchString(l) {
-			kept = append(kept, l)
-		}
-	}
-	return strings.TrimSpace(strings.Join(kept, "\n"))
-}
-
 // exitPartLabels turns a part's leading 「名：」 into 【名】 (user 10-30 「【背景】，加那种符号」).
 var exitPartLabels = []struct{ from, to string }{
 	{"背景：", "【背景】"}, {"要你做的：", "【要你做的】"}, {"要你定的：", "【要你定的】"},
@@ -793,7 +776,7 @@ func spaceExitLines(s string) string {
 
 // readNotes reads a board item's handoff file (its Where); "" when it is not a readable file.
 func readNotes(where string) string {
-	path := expandHome(strings.TrimSpace(where))
+	path := team.ExpandHome(strings.TrimSpace(where))
 	if path == "" || !filepath.IsAbs(path) {
 		return ""
 	}
@@ -802,18 +785,4 @@ func readNotes(where string) string {
 		return ""
 	}
 	return string(b)
-}
-
-func localFileExists(path string) bool {
-	st, err := os.Stat(expandHome(path))
-	return err == nil && !st.IsDir()
-}
-
-func expandHome(path string) string {
-	if rest, ok := strings.CutPrefix(path, "~/"); ok {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, rest)
-		}
-	}
-	return path
 }

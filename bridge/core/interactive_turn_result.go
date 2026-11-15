@@ -106,9 +106,6 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	// Mark clean exit so unsolicited reader preserves buffered events.
 	turn.state.mu.Lock()
 	turn.state.eventsNeedResync = false
-	// maomao fork: a cancel that raced with a normal end of the turn must not
-	// silence the next turn's error (queued turns don't pass the reset at turn start).
-	turn.state.turnCancelled = false
 	injected := turn.state.injectedReplyCtxs // maomao fork: messages injected mid-turn (gate.go)
 	turn.state.injectedReplyCtxs = nil
 	turn.state.mu.Unlock()
@@ -704,9 +701,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 	turn.state.mu.Lock()
 	// A time limit that claimed the turn that just ended finishes first: a stop that
 	// closed the session dropped the queue, so no next turn starts on a dead session.
-	if turn.state.awaitScheduledCancelLocked() {
-		turn.state.turnCancelled = false // that cancel was for the ended turn, not the next one
-	}
+	turn.state.awaitScheduledCancelLocked()
 	if e.isStoppingForJournal() {
 		// #1368: shutdown owns the current journal entry. Leave even
 		// stale queued messages untouched for restart recovery.

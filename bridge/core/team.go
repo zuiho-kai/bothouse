@@ -156,6 +156,7 @@ type teamFile struct {
 	LegacyQuotaUntil time.Time `json:"legacy_quota_until,omitzero"`
 	QuotaScoped      bool      `json:"quota_scoped,omitempty"`
 	CoolingUntil     time.Time `json:"cooling_until,omitzero"`
+	QuotaStatus      string    `json:"quota_status,omitempty"`
 	// Mention (maomao fork): how teammates address this bot on its platform (SelfMentioner),
 	// so a voice-desk dispatch can hand work to it in the right channel.
 	Mention string `json:"mention,omitempty"`
@@ -337,14 +338,16 @@ func (e *Engine) runTeamWriter() {
 		e.capMu.Lock()
 		f.CapacityUntil, f.LegacyQuotaUntil = e.capUntil, e.quotaUntil
 		e.capMu.Unlock()
-		f.CoolingUntil = e.capacityCoolingUntil().Truncate(time.Second) // whole seconds: outing-tick parses it with Python fromisoformat
+		f.CoolingUntil, f.QuotaStatus = e.quotaAvailabilityFor(e.quotaScopeFor(e.agent, modelOf(e.agent)), now)
+		f.CoolingUntil = f.CoolingUntil.Truncate(time.Second) // whole seconds: outing-tick parses it with Python fromisoformat
 		body, _ := json.Marshal(struct {
 			S        []teamEntry
 			C        time.Time
 			Capacity time.Time
 			Legacy   time.Time
+			Quota    string
 			T        []teamTaskLink
-		}{f.Sessions, f.CoolingUntil, f.CapacityUntil, f.LegacyQuotaUntil, f.Tasks})
+		}{f.Sessions, f.CoolingUntil, f.CapacityUntil, f.LegacyQuotaUntil, f.QuotaStatus, f.Tasks})
 		if string(body) == string(last) && now.Sub(lastWrite) < teamHeartbeat {
 			continue
 		}
@@ -395,13 +398,10 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 		if json.Unmarshal(raw, &f) != nil || now.Sub(f.Updated) > teamStaleAfter {
 			continue
 		}
-		if f.CoolingUntil.After(now) {
-			// A cooling teammate is not free (#1592: 彩虹猫 cooled until 11-15 09:00 and the lead's
-			// status still said 空着，可以派活, so the lead @'d her). The bridge hands an @ to a free
-			// teammate anyway, but the lead should pick that teammate itself.
-			when := f.CoolingUntil.Local().Format("01-02 15:04")
-			lines = append(lines, f.Name+"：额度冷却到 "+when+"，先别派活，派给别人")
-			keys = append(keys, f.Name+"|cooling|"+when)
+		quotaNote := f.quotaDispatchNote(now)
+		if quotaNote != "" {
+			lines = append(lines, f.Name+"："+quotaNote)
+			keys = append(keys, f.Name+"|quota|"+quotaNote)
 			if len(f.Sessions) == 0 {
 				continue
 			}
@@ -435,7 +435,7 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 			}
 			if s.Busy {
 				line := fmt.Sprintf("%s：在%s忙了 %s %s", f.Name, where, roundDur(now.Sub(s.Since)), task)
-				if where != "本频道" {
+				if where != "本频道" && quotaNote == "" {
 					// Busy only counts in the channel the work goes to.
 					line = strings.TrimRight(line, " ") + teamElsewhereNote
 				}
@@ -465,6 +465,22 @@ func (e *Engine) teamSummary(sessionKey string) (string, string) {
 // teamElsewhereNote ends a status line for work in another channel or a DM: each channel is
 // its own session, so that work does not keep the teammate from taking work here.
 const teamElsewhereNote = "（别的频道，不影响在这里派活）"
+
+// Empty means there is positive evidence for dispatch. Old files without
+// quota_status are unknown, so mixed-version peers never advertise availability.
+func (f teamFile) quotaDispatchNote(now time.Time) string {
+	if f.CoolingUntil.After(now) {
+		return "额度冷却到 " + f.CoolingUntil.Local().Format("01-02 15:04") + "，先别派活，派给别人"
+	}
+	switch f.QuotaStatus {
+	case "available":
+		return ""
+	case "exhausted":
+		return "额度耗尽，恢复尚未确认，先别派活"
+	default:
+		return "额度未知，查不到用量，先别派活"
+	}
+}
 
 func roundDur(d time.Duration) string {
 	switch {

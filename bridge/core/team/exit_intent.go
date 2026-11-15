@@ -1,4 +1,4 @@
-package core
+package team
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ import (
 // whether it tested what the user's words named, whether a conclusion against the user's settled
 // direction rests on testing the user's version, and whether its remedy is one the user rejected.
 // A clear fail goes back like any other check (bounceWorkspaceExit, wake_limit); past the limit the
-// report is posted with intentFailLine first. A doubt never blocks: it goes with the report.
+// report is posted with IntentFailLine first. A doubt never blocks: it goes with the report.
 
 const (
 	intentFailPrefix  = "对题检查没过："
@@ -28,9 +28,9 @@ type intentVerdict struct {
 	Doubt    string   `json:"doubt"`
 }
 
-// reportIntentCheck runs the check for board item id with handoff where. Any failure (script
+// ReportIntentCheck runs the check for board item id with handoff where. Any failure (script
 // missing, model down, bad output) passes: the check never keeps a report from the user.
-func (e *Engine) reportIntentCheck(sessionKey, where, body string, id int) (problems []string, doubt string) {
+func (s *Service) ReportIntentCheck(sessionKey, where, body string, id int) (problems []string, doubt string) {
 	where = strings.TrimSpace(where)
 	if where == "" || strings.TrimSpace(body) == "" {
 		return nil, ""
@@ -45,7 +45,7 @@ func (e *Engine) reportIntentCheck(sessionKey, where, body string, id int) (prob
 	if werr != nil || cerr != nil {
 		return nil, ""
 	}
-	out, err := e.runLeadScript(sessionKey, "report-intent-check", "--notes", where, "--body", f.Name(), "--id", strconv.Itoa(id))
+	out, err := s.host.RunLeadScript(sessionKey, "report-intent-check", "--notes", where, "--body", f.Name(), "--id", strconv.Itoa(id))
 	if err != nil {
 		slog.Warn("team exit: report intent check did not run; report passes", "board_item", id, "error", err)
 		return nil, ""
@@ -85,8 +85,8 @@ func parseIntentVerdict(out []byte) (intentVerdict, bool) {
 	return intentVerdict{}, false
 }
 
-// intentFailLine is the line put before a report posted although the intent check still fails.
-func intentFailLine(problems []string) string {
+// IntentFailLine is the line put before a report posted although the intent check still fails.
+func IntentFailLine(problems []string) string {
 	var parts []string
 	for _, p := range problems {
 		if strings.HasPrefix(p, intentFailPrefix) {
@@ -99,8 +99,8 @@ func intentFailLine(problems []string) string {
 	return intentFailPrefix + strings.Join(parts, "；")
 }
 
-// withoutIntent drops the intent problems (they get their own line before the report).
-func withoutIntent(problems []string) []string {
+// WithoutIntent drops the intent problems (they get their own line before the report).
+func WithoutIntent(problems []string) []string {
 	var out []string
 	for _, p := range problems {
 		if !strings.HasPrefix(p, intentFailPrefix) {
@@ -110,8 +110,8 @@ func withoutIntent(problems []string) []string {
 	return out
 }
 
-// joinIntentLines joins the non-empty parts one per line.
-func joinIntentLines(parts ...string) string {
+// JoinIntentLines joins the non-empty parts one per line.
+func JoinIntentLines(parts ...string) string {
 	var out []string
 	for _, p := range parts {
 		if strings.TrimSpace(p) != "" {

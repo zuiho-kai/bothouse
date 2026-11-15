@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #72 shared-interface contract (2026-11-02): a dispatch freezes the board item
@@ -17,7 +19,7 @@ func boardRefsFixture(t *testing.T, lines string) (*PublicProgress, string, Rela
 	t.Helper()
 	teamDir := t.TempDir()
 	if lines != "" {
-		if err := os.WriteFile(filepath.Join(teamDir, teamTaskBoardFile), []byte(lines), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(teamDir, team.TaskBoardFile), []byte(lines), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -57,7 +59,7 @@ func equalBoardRefs(a, b []taskRelayBoardRef) bool {
 func TestRelayBoardRefsFreezeDispatchGeneration(t *testing.T) {
 	lines := `{"id":72,"what":"73 lifecycle","chat":"discord:room:user","bound":"gen-1","where":"/notes/73.handoff.prompt","dispatcher":"source"}` + "\n"
 	p, _, req := boardRefsFixture(t, lines)
-	if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err != nil {
 		t.Fatal(err)
 	}
 	want := []taskRelayBoardRef{{Board: 72, Bound: "gen-1", Revision: 1}}
@@ -82,7 +84,7 @@ func TestRelayBoardRefsRejectForeignBoardItem(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			p, _, req := boardRefsFixture(t, lines+"\n")
-			if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+			if _, _, err := p.beginTaskRelay(req, "Target", nil); err != nil {
 				t.Fatal(err)
 			}
 			if got := relayReceipt(t, p, req.TaskID, req.RequestID).BoardRefs; len(got) != 0 {
@@ -94,7 +96,7 @@ func TestRelayBoardRefsRejectForeignBoardItem(t *testing.T) {
 		lines := `{"id":72,"chat":"discord:room:user","bound":"gen-1","where":"/notes/73.handoff.prompt","dispatcher":"source"}` + "\n"
 		p, _, req := boardRefsFixture(t, lines)
 		req.Message = "full assignment for #73 without a handoff path"
-		if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+		if _, _, err := p.beginTaskRelay(req, "Target", nil); err != nil {
 			t.Fatal(err)
 		}
 		if got := relayReceipt(t, p, req.TaskID, req.RequestID).BoardRefs; len(got) != 0 {
@@ -108,14 +110,14 @@ func TestRelayBoardRefsRejectForeignBoardItem(t *testing.T) {
 func TestRelayBoardRefsSurviveRetryWithSameRequest(t *testing.T) {
 	lines := `{"id":72,"chat":"discord:room:user","bound":"gen-1","where":"/notes/73.handoff.prompt","dispatcher":"source"}` + "\n"
 	p, teamDir, req := boardRefsFixture(t, lines)
-	if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err != nil {
 		t.Fatal(err)
 	}
 	moved := strings.ReplaceAll(lines, "gen-1", "gen-2")
-	if err := os.WriteFile(filepath.Join(teamDir, teamTaskBoardFile), []byte(moved), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(teamDir, team.TaskBoardFile), []byte(moved), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := p.beginTaskRelay(req, "Target"); err == nil {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err == nil {
 		t.Fatal("retry of a running dispatch was accepted")
 	}
 	want := []taskRelayBoardRef{{Board: 72, Bound: "gen-1", Revision: 1}}
@@ -134,7 +136,7 @@ func TestRelayBoardRefsCommitFailureStopsDispatch(t *testing.T) {
 		t.Skipf("cannot make the run directory read-only here: %v", err)
 	}
 	t.Cleanup(func() { os.Chmod(p.dir, 0o700) }) // same as legacy_data_test.go:131
-	if _, _, err := p.beginTaskRelay(req, "Target"); err == nil {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err == nil {
 		t.Fatal("dispatch ran although the receipt could not be committed")
 	}
 	run := p.records[req.TaskID]

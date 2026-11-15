@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Per-turn board snapshots distinguish a new completion from an older item
@@ -39,7 +41,7 @@ func (e *Engine) workspaceReportBoard(key string) map[int]string {
 	}
 	parent, _ := e.workspaceParent(teamChatKey(key))
 	wsName := e.TeamWorkspaceName(key)
-	items := append(readTeamTaskBoard(e.team.dir), readTeamTaskBoardFile(e.team.dir, teamTaskBoardDoneFile)...)
+	items := append(readTeamTaskBoard(e.team.dir), readTeamTaskBoardFile(e.team.dir, team.TaskBoardDoneFile)...)
 	for _, it := range placeTeamTaskBoard(e.teamTaskBoardPlacer(), items) {
 		owner := it.WS
 		if owner == "" {
@@ -184,7 +186,7 @@ func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
 	}
 	plat, _, _ := strings.Cut(teamChatKey(key), ":")
 	p := e.platformForName(plat)
-	note := strings.TrimSpace(stripFillerLines(text))
+	note := strings.TrimSpace(team.StripFillerLines(text))
 	if note == "" {
 		note = "（这一轮最后没说话）"
 	}
@@ -195,7 +197,7 @@ func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
 	}
 	posted := false
 	if p != nil {
-		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), exitKindReport, body, key, id, false, "")
+		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), team.ExitKindReport, body, key, id, false, "")
 	}
 	slog.Warn("workspace self-pause: no report after the wakes; last words handed to the chat lead", "session", key, "board_item", id, "handed", posted)
 	chat := parent

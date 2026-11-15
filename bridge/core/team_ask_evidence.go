@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #574 B4: a workspace [ask] must show its own check before it waits on the
@@ -22,7 +24,7 @@ const askBounceWait = 2 * time.Minute
 // Both wait for the asking turn to end: the notice then follows the bot's own
 // reply, and the new turn needs no queue notice.
 func (e *Engine) bounceWorkspaceExit(ctx context.Context, sessionKey, kind string, problems []string) bool {
-	text := exitBounceText(kind, problems)
+	text := team.ExitBounceText(kind, problems)
 	e.teamExit.mu.Lock()
 	if e.teamExit.bounces == nil {
 		e.teamExit.bounces = map[string]int{}
@@ -35,7 +37,7 @@ func (e *Engine) bounceWorkspaceExit(ctx context.Context, sessionKey, kind strin
 	// caller forwards the answer with the check note instead of dropping it (user 11-02
 	// 「为什么老是没发回来」: first-turn reports bounced with no repair turn and were lost).
 	_, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution)
-	if bound || n > exitRules.Bounce.WakeLimit {
+	if bound || n > team.ExitRules.Bounce.WakeLimit {
 		slog.Warn("team exit: bounced but no repair turn can follow; forwarding with the check note",
 			"kind", kind, "session", sessionKey, "timer_turn", bound, "bounces", n, "problems", strings.Join(problems, " / "))
 		return false

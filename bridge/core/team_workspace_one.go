@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // One task per workspace (user 2026-10-28, approved points 1-3 and「完成一件活的时候，自动清理」):
@@ -161,8 +163,8 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 		}
 	}
 	switch kind {
-	case exitKindReport:
-		if why, after, ok := waitExternalOf(body); ok {
+	case team.ExitKindReport:
+		if why, after, ok := team.WaitExternalOf(body); ok {
 			// blocked outside: paused as 「等外部」 with a retry time instead of 「已交回待验收」; the
 			// workspace is freed and nothing wakes it before then (team_wait_external.go)
 			e.parkWaitingExternal(chat, hid, why, after)
@@ -188,7 +190,7 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 			slog.Warn("team workspace: reset after report failed", "session", sessionKey, "error", err)
 		}
 		e.releaseHandedBackWorkspace(sessionKey)
-	case exitKindAsk:
+	case team.ExitKindAsk:
 		// Off the turn's goroutine: freeing the workspace resets this very session (bridge API).
 		go func() {
 			if out, err := e.runLeadScript(chat, "board", "ask", strconv.Itoa(hid)); err != nil {
@@ -250,7 +252,7 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 	if e == nil || e.dataDir == "" || e.team == nil {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(e.team.dir, teamTaskBoardFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(e.team.dir, team.TaskBoardFile)); err != nil {
 		return nil // no board here: nothing to compare with
 	}
 	live := map[string]bool{}

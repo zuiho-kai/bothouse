@@ -95,6 +95,58 @@ import { progressCardOf } from './cloudweb.mjs';
 import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, oversizedNote, undeliveredReasonZh } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
+const BACKGROUND_LINE_LIMIT = 1500;
+
+/** A workspace result or ask the unified exit forwarded into its chat channel (team-exit.mjs forward). */
+function exitRelay(m) {
+  return /^team-exit(-detail)?:/.test(m.client_key ?? '');
+}
+
+/**
+ * #1648: a workspace conversation starts with nothing but the 【交接】 row, so "照刚才说的" pointed at
+ * nothing and a second job did not know the first one's result. Its first turn gets what was said in
+ * the chat channel the workspace belongs to: the latest rows before the turn's trigger, with the
+ * results earlier workspaces handed back. Once per (member, room, session), like MemoryIndex.
+ */
+export class ChatBackground {
+  constructor(store) {
+    this.store = store;
+    /** `${member}\0${room}` -> session the background was given in (undefined for a local CLI member). */
+    this.given = new Map();
+  }
+
+  /** @returns {{ block: string, commit: () => void }} */
+  turn({ member, room, session, before }) {
+    const none = { block: '', commit: () => {} };
+    if (room?.kind !== 'workspace' || room.parent_id == null) return none;
+    const key = `${member}\u0000${room.id}`;
+    if (this.given.has(key) && this.given.get(key) === session) return none;
+    const parent = this.store.room(room.parent_id);
+    if (parent === undefined) return none;
+    const lines = this.store.page(parent.id, before, CONTEXT_LIMIT * 4)
+      .filter(m => !m.draft && m.card === null && (m.author_kind !== 'system' || exitRelay(m)) && String(m.text ?? '').trim())
+      .slice(-CONTEXT_LIMIT)
+      .map(m => {
+        const text = String(m.text);
+        return `【${m.name}】${text.length > BACKGROUND_LINE_LIMIT ? `${text.slice(0, BACKGROUND_LINE_LIMIT)}…（已截断）` : text}`;
+      });
+    if (lines.length === 0) return none;
+    return {
+      block: `【聊天频道 #${parent.name} 交接前的对话】（这件活是从那里交过来的，系统自动附上作背景，不用逐条回应；「刚才说的」「上一件活」指的就是这里面的内容）\n${lines.join('\n')}`,
+      commit: () => { this.given.set(key, session); },
+    };
+  }
+
+  /** The conversation of (member, room) starts over or lost its context: give the background again. */
+  reset(member, room) {
+    this.given.delete(`${member}\u0000${room}`);
+  }
+
+  /** A released workspace starts its conversations over. */
+  resetRoom(room) {
+    for (const k of this.given.keys()) if (k.endsWith(`\u0000${room}`)) this.given.delete(k);
+  }
+}
 const CLOSE_TIMEOUT_MS = 5_000;
 const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_LOCAL_IMAGES = 10;
@@ -190,6 +242,23 @@ export function consumingTurn(events, inputId) {
   return undefined;
 }
 
+// dsh-system-prompt PERSONA_PREFIX_SECTION; dsh-time-context's source kind.
+const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix';
+const TIME_CONTEXT_SOURCE = 'time-context';
+
+/** The member's own system-prompt persona: its name in the channel, then its persona when it has one. */
+export function memberSystemPrompt(member) {
+  const persona = member?.persona?.trim() ?? '';
+  return [`你是 bothouse 频道里的成员「${member?.name ?? ''}」，和用户、其他成员在频道里协作。`, ...(persona ? ['你的人设：', persona] : [])].join('\n');
+}
+
+/** "现在是 …" for a channel turn, in this process's zone (what dsh-time-context fell back to). */
+export function clockLine(now = new Date()) {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const text = new Intl.DateTimeFormat('zh-CN', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(now);
+  return `现在是 ${text}（${zone}）。`;
+}
+
 /**
  * The prompt a member receives: who it is (name, model, persona), then the
  * unseen channel messages up to the trigger. Identity is restated every time
@@ -212,6 +281,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     // again, then stopped: nothing said this room is the workspace that 【接】 leads to.
     ...(room.kind === 'workspace' ? [`这里是 #${store?.room?.(room.parent_id)?.name ?? '聊天频道'} 的工作区，活已经交到你手上：不要再回【接】，直接动手做，做完回复首行写 [report] 交回；要用户拍板首行写 [ask]。几个人同做一件活时，你那一份做完就交回自己那份，不用等别人。`] : []),
     status,
+    clockLine(),
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
     ...lines,
@@ -505,6 +575,8 @@ export class DshMembers {
     this.gateContext = runtime.gateContext ?? new GateContext({ logger: runtime.logger });
     /** The member's own MEMORY.md on the first turn of each conversation (bridge memory_index). */
     this.memoryIndex = runtime.memoryIndex ?? new MemoryIndex();
+    /** #1648: what was said in the chat channel, on the first turn of each workspace conversation. */
+    this.chatBackground = new ChatBackground(this.store);
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -980,6 +1052,7 @@ export class DshMembers {
         if (lost) {
           // the CLI's new session has none of what this conversation was given: the next turn gives it again
           this.memoryIndex.forget(member.id, room.id);
+          this.chatBackground.reset(member.id, room.id);
           this.gateContext.forget(member.id, room.id);
           this.hub.post(job.room_id, {
             authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${job.id}-session-lost`,
@@ -989,7 +1062,7 @@ export class DshMembers {
       };
       // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1598: her
       // 【接】 moves a call into a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs settleCall).
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id) ?? '');
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id, { cli: true }) ?? '');
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
@@ -1045,9 +1118,20 @@ export class DshMembers {
     const trigger = unseen.at(-1);
     const memory = this.memoryIndex.turn({ member: member.id, room: room.id, session });
     const gate = await this.gateContext.turn({ member: member.id, room: room.id, session, text: trigger?.text ?? '' });
+    // #1643: without a gate (the plugin installed alone) the pages and the board used to vanish with only a
+    // log line nobody sees. The room is told once (the key is unique in the store), the turn goes on.
+    if (gate.missing !== undefined) {
+      this.rt.logger?.info?.('collab: room %s has no gate: %s', room.id, gate.missing);
+      this.hub.post(room.id, {
+        authorKind: 'system', author: 'system', name: 'system', clientKey: `gate-missing-room-${room.id}`,
+        text: 'ℹ️ 没连上 gate（记忆检索服务）：成员每轮只带自己的记忆目录，不带相关 wiki 页和任务板。和 bothouse 桥一起装会自动起 gate。',
+      });
+    }
+    const background = this.chatBackground.turn({ member: member.id, room, session, before: trigger?.id });
     return {
-      block: [memory.block, gate.block].filter(Boolean).join('\n\n'),
-      commit: () => { memory.commit(); gate.commit(); },
+      // #1651: a DSH-native member cannot write outside its working directory; tell it the way in with its index.
+      block: [memory.block && !member.cli ? memory.block + (this.rt.later?.memoryInstructions?.(member.id, room.id) ?? '') : memory.block, gate.block, background.block].filter(Boolean).join('\n\n'),
+      commit: () => { memory.commit(); gate.commit(); background.commit(); },
     };
   }
 
@@ -1055,6 +1139,7 @@ export class DshMembers {
   resetRoom(roomId) {
     this.gateContext.resetRoom(roomId);
     this.memoryIndex.resetRoom(roomId);
+    this.chatBackground.resetRoom(roomId);
     this.dropRoomCli(roomId);
   }
 
@@ -1220,7 +1305,15 @@ export class DshMembers {
     const binding = this.store.binding(member.id, room.id);
     if (binding === undefined) return this.createAgent(member, room);
     const agent = await this.boundAgent(binding.session_id, member);
-    return agent ?? this.createAgent(member, room);
+    if (agent !== undefined) return agent;
+    // #1648: the replacement used to be silent, the member just stopped knowing the conversation
+    // (a CLI member's lost session is already announced, runCli onSession).
+    const fresh = await this.createAgent(member, room);
+    this.hub.post(room.id, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-session-replaced-${binding.session_id}`,
+      text: `${member.name} 这轮起是新会话，之前的上下文没了：原会话已归档或找不到了。`,
+    });
+    return fresh;
   }
 
   sessionTitle(room, member) {
@@ -1324,6 +1417,7 @@ export class DshMembers {
       // the fresh ACP context gets its MEMORY.md, task board and wiki pages again.
       this.gateContext.reset(member.id, room.id);
       this.memoryIndex.reset(member.id, room.id);
+      this.chatBackground.reset(member.id, room.id);
     } else await this.createAgent(member, room);
     if (this.closed) return;
     this.store.advanceCursor(member.id, room.id, msg.id);
@@ -1402,6 +1496,23 @@ export class DshMembers {
     // Prepended so this listener is outermost: DSH's own model-selection listener
     // rewrites provider/model from the Session's selection, and the outermost
     // waterfall listener's result is the one the request uses.
+    // #1643: the member's system prompt was DSH's generic coding-agent one; who it is came only in each turn's
+    // text. Its name and persona go in as this agent's own persona prefix, the section DSH's dsh-persona row
+    // fills for one agent (it shadows the deployment's, '' by default), read again at each assembly.
+    agentCtx.systemPrompt?.section?.({
+      name: PERSONA_PREFIX_SECTION,
+      order: agentCtx.systemPrompt.getSectionOrder?.('DEPLOYMENT_PERSONA_PREFIX') ?? 0,
+      interpolate: false,
+      text: () => memberSystemPrompt(current()),
+    });
+    // #1643: DSH's time-context appends its clock reading as a user message of its own, between the channel's
+    // messages; the member read it as someone talking. The clock now rides in the channel turn (promptText).
+    agentCtx.on('agent/pre-step', async (_payload, next) => {
+      const decision = await next();
+      if (!Array.isArray(decision?.messages)) return decision;
+      const messages = decision.messages.filter(m => m?.source?.kind !== TIME_CONTEXT_SOURCE);
+      return messages.length === decision.messages.length ? decision : { ...decision, messages };
+    }, { prepend: true });
     agentCtx.on('agent/request', async ({ agent }, next) => {
       const resolved = await next();
       const member = current();
@@ -1481,9 +1592,11 @@ export class DshMembers {
 /**
  * A row a member's turn reads: unread, not its own, no draft; system rows and cards only as the
  * trigger itself (a task reminder or pause record carries a task card and must still reach the member).
+ * #1648: a result a workspace handed back (exitRelay) is read too, else the chat channel's member could
+ * not say what the job it gave away came to.
  */
 function turnSees(m, job, binding, member) {
   const trigger = m.id === job.trigger_id;
   return (m.id > binding.context_cursor || trigger) && m.author !== member.id
-    && (m.author_kind !== 'system' || trigger) && (m.card === null || trigger) && !m.draft;
+    && (m.author_kind !== 'system' || trigger || exitRelay(m)) && (m.card === null || trigger) && !m.draft;
 }

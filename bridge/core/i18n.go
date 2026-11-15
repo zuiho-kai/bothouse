@@ -726,16 +726,17 @@ const (
 )
 
 const (
-	MsgQuotaLeadRestored   MsgKey = "quota_lead_restored"
-	MsgQuotaLeadTakeover   MsgKey = "quota_lead_takeover"
-	MsgQuotaLeadPrompt     MsgKey = "quota_lead_prompt"
-	MsgQuotaWorkTakeover   MsgKey = "quota_work_takeover"
-	MsgQuotaWorkPrompt     MsgKey = "quota_work_prompt"
-	MsgQuotaCooling        MsgKey = "quota_cooling"
-	MsgQuotaReassigned     MsgKey = "quota_reassigned"
-	MsgQuotaReassignNone   MsgKey = "quota_reassign_none"
-	MsgQuotaReassignBusy   MsgKey = "quota_reassign_busy"
-	MsgQuotaReassignPrompt MsgKey = "quota_reassign_prompt"
+	MsgQuotaLeadRestored     MsgKey = "quota_lead_restored"
+	MsgQuotaLeadTakeover     MsgKey = "quota_lead_takeover"
+	MsgQuotaLeadPrompt       MsgKey = "quota_lead_prompt"
+	MsgQuotaWorkTakeover     MsgKey = "quota_work_takeover"
+	MsgQuotaWorkPrompt       MsgKey = "quota_work_prompt"
+	MsgQuotaCooling          MsgKey = "quota_cooling"
+	MsgQuotaDispatchRecovery MsgKey = "quota_dispatch_recovery"
+	MsgQuotaReassigned       MsgKey = "quota_reassigned"
+	MsgQuotaReassignNone     MsgKey = "quota_reassign_none"
+	MsgQuotaReassignBusy     MsgKey = "quota_reassign_busy"
+	MsgQuotaReassignPrompt   MsgKey = "quota_reassign_prompt"
 )
 
 const (
@@ -832,18 +833,18 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "%s espera su cuota hasta %s; esto pasa a %s.",
 	},
 	MsgQuotaReassignNone: {
-		LangEnglish:            "%s is cooling down until %s and every free teammate is cooling too; the earliest is back at %s.",
-		LangChinese:            "%s 额度冷却到 %s，能换的队友都在冷却，最早 %s 恢复。",
-		LangTraditionalChinese: "%s 額度冷卻到 %s，能換的隊友都在冷卻，最早 %s 恢復。",
-		LangJapanese:           "%s は %s まで待機中で、他のメンバーも全員待機中です。最も早い復帰は %s です。",
-		LangSpanish:            "%s espera su cuota hasta %s y el resto también; el primero vuelve a las %s.",
+		LangEnglish:            "%s is cooling down until %s; no teammate is confirmed available. The earliest known cooldown ends at %s.",
+		LangChinese:            "%s 额度冷却到 %s，暂无已确认可接手的队友；已知冷却最早到 %s，届时仍需确认恢复。",
+		LangTraditionalChinese: "%s 額度冷卻到 %s，暫無已確認可接手的隊友；已知冷卻最早到 %s，屆時仍需確認恢復。",
+		LangJapanese:           "%s は %s まで待機中です。引き継げるメンバーは確認できていません。既知の待機期限は最も早くて %s です。",
+		LangSpanish:            "%s espera su cuota hasta %s; no hay otro miembro con disponibilidad confirmada. La espera conocida más corta termina a las %s.",
 	},
 	MsgQuotaReassignBusy: {
-		LangEnglish:            "%s is cooling down until %s and no other teammate is free right now; nothing was handed over.",
-		LangChinese:            "%s 额度冷却到 %s，其他队友这会儿都在忙，没换成人。",
-		LangTraditionalChinese: "%s 額度冷卻到 %s，其他隊友這會兒都在忙，沒換成人。",
-		LangJapanese:           "%s は %s まで待機中で、手の空いているメンバーがいないため引き継げませんでした。",
-		LangSpanish:            "%s espera su cuota hasta %s y nadie más está libre; no se reasignó.",
+		LangEnglish:            "%s is cooling down until %s; no teammate is confirmed available, so nothing was handed over.",
+		LangChinese:            "%s 额度冷却到 %s，暂无已确认可接手的队友，没换成人。",
+		LangTraditionalChinese: "%s 額度冷卻到 %s，暫無已確認可接手的隊友，沒換成人。",
+		LangJapanese:           "%s は %s まで待機中です。引き継げるメンバーを確認できず、引き継ぎませんでした。",
+		LangSpanish:            "%s espera su cuota hasta %s; no hay otro miembro con disponibilidad confirmada, así que no se reasignó.",
 	},
 	MsgQuotaReassignPrompt: {
 		LangEnglish:            "%s assigned this to %s, who is cooling down until %s, so it is yours now. Do it as if it had been sent to you, and report in this channel.\nOriginal message:\n%s",
@@ -858,6 +859,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "本角色額度冷卻至 %s，大約還要 %s。",
 		LangJapanese:           "この担当は %s まで利用枠待機中です（残り約 %s）。",
 		LangSpanish:            "Este rol espera su cuota hasta %s, faltan unos %s.",
+	},
+	MsgQuotaDispatchRecovery: {
+		LangEnglish:            "A person must @mention or reply to the target role in its chat using the intended model. After a successful terminal answer, retry this same dispatch request. An error or an intermediate reply does not establish availability.",
+		LangChinese:            "请真人在目标角色的聊天频道，用要派活的模型 @点名或回复该角色；收到成功的最终答复后，重试同一派单请求。报错或中间回复不算可用证据。",
+		LangTraditionalChinese: "請真人在目標角色的聊天頻道，用要派工的模型 @點名或回覆該角色；收到成功的最終答覆後，重試同一派工請求。報錯或中間回覆不算可用證據。",
+		LangJapanese:           "本人が対象モデルを使う担当のチャットで @メンションまたは返信してください。正常な最終回答の後、同じ依頼を再試行してください。エラーや中間回答は利用可能の証拠になりません。",
+		LangSpanish:            "Una persona debe mencionar con @ o responder al rol en su chat usando el modelo previsto. Tras una respuesta final correcta, reintente la misma solicitud. Un error o respuesta intermedia no confirma disponibilidad.",
 	},
 	MsgTaskReporterMuted: {
 		LangEnglish: "%s cannot post in this thread; that update was not delivered", LangChinese: "%s 无法在线程发言，这条进展没有发出", LangTraditionalChinese: "%s 無法在討論串發言，這條進展沒有發出", LangJapanese: "%s はこのスレッドに投稿できません。この更新は届いていません", LangSpanish: "%s no puede publicar en este hilo; esa actualización no se entregó",

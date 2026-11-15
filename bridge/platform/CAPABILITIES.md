@@ -129,3 +129,11 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - discord: 已接
 - feishu: 不支持：飞书没接 DirectMessageOpener，用不到这个兜底
 - cloud-web: 不支持：网页聊天没有私聊，用不到这个兜底
+
+## TaskForumPoster
+
+任务帖子区（#768）：每个服务器一个论坛频道「任务」，任务板每条活一个帖子，首楼现状卡原地编辑、状态标签跟任务板变、关键节点发帖、完成归档（core/team_task_forum.go）。没实现的平台不开帖，其余流程照旧。
+
+- discord: 已接
+- feishu: 不支持：飞书群没有论坛频道和帖子标签，任务进度已由飞书任务卡展示；第一批只做 Discord（交接 #768「先只做 Discord」）
+- cloud-web: 不支持：网页频道没有论坛频道和帖子标签；第一批只做 Discord（交接 #768「先只做 Discord」）

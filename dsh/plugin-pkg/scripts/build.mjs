@@ -9,6 +9,14 @@ const root = join(import.meta.dirname, '..')
 const collabSrc = join(root, '../collab')
 const uiSrc = join(root, '../packages/client-ui-discord')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+// #1653: the CLI members' ACP adapters must install with the package. Without them cli-member.mjs falls back to
+// `npx -y <adapter>`, which fails (spawn npx ENOENT) where PATH has no node — the DSH desktop app's own CLI.
+const collabPkg = JSON.parse(readFileSync(join(collabSrc, 'package.json'), 'utf8'))
+for (const kind of ['dependencies', 'optionalDependencies']) {
+  for (const [name, version] of Object.entries(collabPkg[kind] ?? {})) {
+    if (/-acp$/.test(name) && pkg[kind]?.[name] !== version) throw Error(`build: ${kind}.${name} must be ${version} (dsh/collab/package.json), package.json has ${pkg[kind]?.[name]}`)
+  }
+}
 
 for (const dir of ['collab', 'client', 'locale', 'node_modules']) rmSync(join(root, dir), { recursive: true, force: true })
 mkdirSync(join(root, 'collab/avatars'), { recursive: true })

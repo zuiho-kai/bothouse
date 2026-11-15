@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func writeReviewBoard(t *testing.T, e *Engine, items ...teamTaskBoardItem) {
@@ -20,14 +22,16 @@ func writeReviewBoard(t *testing.T, e *Engine, items ...teamTaskBoardItem) {
 		data = append(data, b...)
 		data = append(data, '\n')
 	}
-	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestTaskReviewPersistenceAndRouting(t *testing.T) {
 	e := NewEngine("worker", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	lead := NewEngine("dispatcher", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	lead.recoverQuotaFor(lead.quotaScopeFor(lead.agent, modelOf(lead.agent)))
 	t.Cleanup(func() { e.cancel(); lead.cancel() })
 	dir := t.TempDir()
 	e.SetTeam(dir, "worker", false)
@@ -127,6 +131,7 @@ func TestRegression797ReleasedWorkspaceIsPaused(t *testing.T) {
 
 func TestTaskReviewRecoversDeliveredReceiptOnly(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -154,6 +159,7 @@ func TestTaskReviewRecoversDeliveredReceiptOnly(t *testing.T) {
 
 func TestTaskReviewRoundupFiltersAcceptedAndCoalescesRestart(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
 	store, _ := NewTimerStore(t.TempDir())
@@ -211,6 +217,7 @@ func TestTaskReviewRoundupFiltersAcceptedAndCoalescesRestart(t *testing.T) {
 
 func TestTaskReviewUnavailableEscalatesWithoutChangingOwner(t *testing.T) {
 	e := NewEngine("primary", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "primary", true)
 	store, _ := NewTimerStore(t.TempDir())
@@ -231,6 +238,7 @@ func TestTaskReviewUnavailableEscalatesWithoutChangingOwner(t *testing.T) {
 		t.Fatal("original owner lost")
 	}
 	recovered := NewEngine("missing", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	recovered.recoverQuotaFor(recovered.quotaScopeFor(recovered.agent, modelOf(recovered.agent)))
 	t.Cleanup(recovered.cancel)
 	recovered.SetTeam(e.team.dir, "missing", false)
 	recovered.SetTimerScheduler(ts)
@@ -263,6 +271,7 @@ func TestTaskReviewUsesBundledCommandsWithOldInstallation(t *testing.T) {
 	LeadToolFS = os.DirFS("..")
 	t.Cleanup(func() { LeadToolFS = old })
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -296,6 +305,7 @@ func TestTaskReviewUsesBundledCommandsWithOldInstallation(t *testing.T) {
 
 func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -307,7 +317,7 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 	writeReviewBoard(t, e, teamTaskBoardItem{ID: 46, What: "verify", Chat: "room:main", WS: "room:ws1", Dispatcher: "lead"})
 	e.markExitReported(46)
 	// No installed scripts: the delivered final report must still end the execution session.
-	e.endWorkspaceTask("room:main", "room:ws1", exitKindReport, 46, "")
+	e.endWorkspaceTask("room:main", "room:ws1", team.ExitKindReport, 46, "")
 	if e.sessions.ActiveSessionID("room:ws1") == old.ID {
 		t.Fatal("board write failure kept the old workspace session")
 	}
@@ -329,6 +339,7 @@ func TestTaskReviewWriteFailureReleasesWorkspaceAndReceiptRecovers(t *testing.T)
 
 func TestTaskReviewThresholdReloadWhileWatching(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	done := make(chan struct{})
 	go func() {
@@ -366,6 +377,7 @@ func TestTaskReviewTableUsesDispatcherThreshold(t *testing.T) {
 
 func TestTaskReviewPausedNoHourlyReminder(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
 	store, err := NewTimerStore(t.TempDir())
@@ -395,6 +407,7 @@ func TestTaskReviewPausedNoHourlyReminder(t *testing.T) {
 
 func TestTaskReviewNoReviewerUsesLeadAndWatchCycle(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "lead", true)
 	store, err := NewTimerStore(t.TempDir())
@@ -429,6 +442,7 @@ func TestTaskReviewNoReviewerUsesLeadAndWatchCycle(t *testing.T) {
 
 func TestTaskReviewWatchReconcilesBoundNoDeployPR(t *testing.T) {
 	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetDataDir(t.TempDir())
 	e.SetTeam(t.TempDir(), "lead", true)
@@ -446,7 +460,7 @@ func TestTaskReviewWatchReconcilesBoundNoDeployPR(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	data := []byte("{\"id\":72,\"what\":\"verify\",\"chat\":\"room:main\",\"dispatcher\":\"lead\",\"bound\":\"generation\",\"pr_binding\":{\"url\":\"https://github.com/example/project/pull/830\",\"repo\":\"example/project\",\"number\":830,\"no_deploy\":true,\"bound\":\"generation\"}}\n")
-	if err = os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), data, 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	w := newHandoffWatch(e)
@@ -470,6 +484,7 @@ func TestTaskReviewRelayTrustedBinding(t *testing.T) {
 	for _, scenario := range []string{"valid", "foreign-chat", "wrong-owner", "old-bound", "old-revision", "wrong-path", "failed", "running", "paused", "cancelled", "reassigned", "no-grant"} {
 		t.Run(scenario, func(t *testing.T) {
 			e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+			e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 			t.Cleanup(e.cancel)
 			e.SetDataDir(t.TempDir())
 			e.SetTeam(t.TempDir(), "lead", false)
@@ -553,6 +568,7 @@ func TestTaskReviewRelayTrustedBinding(t *testing.T) {
 // 来源：2026-11-10 agentm #15 #26 #27 #29 #35 一直「已交回待验收」。
 func TestTaskReviewOneRoleTeamAuthorReviewsInSideSession(t *testing.T) {
 	e := NewEngine("kimi", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(e.cancel)
 	e.SetTeam(t.TempDir(), "kimi", true)
 	store, err := NewTimerStore(t.TempDir())

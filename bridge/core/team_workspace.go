@@ -953,7 +953,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	}
 
 	path := teamWorkspacePath(e.dataDir)
-	list, name, changed, adopted, err := teamWorkspacePlan(path, chat, self, guild, next)
+	list, name, changed, adopted, err := teamWorkspacePlan(path, chat, self, guild, next, e.teamPausedBoardItems())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1078,9 +1078,15 @@ func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
 
 // teamWorkspaceHomeLocked returns the chat channel ("<platform>:<id>") workspace c of platform plat
 // belongs to, also while it is free (#762): the platform's record where it keeps one (Home,
-// cloud_web/DSH), else the chat of its latest handoff (Handoffs keep every one). "" = it was
-// never handed off. Caller holds teamWorkspaceStore.mu.
-func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel) string {
+// cloud_web/DSH), else the chat of its latest task paused there, so that task can still resume.
+// paused: the board items still paused or set aside (teamPausedBoardItems); a handoff parked for
+// an item no longer paused there (done, resumed elsewhere, deleted, or never on the board) does
+// not hold the workspace (#1640: 270 of 294 parked records were such leftovers). nil = board
+// unknown, every parked handoff counts.
+// "" = none: on Discord and Feishu a free workspace with no paused task is any chat channel's to
+// claim (#1640: homed by its latest handoff, a chat channel was refused eight free workspaces and
+// opened a ninth). Caller holds teamWorkspaceStore.mu.
+func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel, paused map[int]bool) string {
 	if c.OwnerKnown {
 		if c.Home == "" {
 			return ""
@@ -1089,6 +1095,9 @@ func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel)
 	}
 	hs := st.Handoffs[plat+":"+c.ID]
 	for i := len(hs) - 1; i >= 0; i-- { // a dirty record repaired to no chat channel names none
+		if hs[i].Parked.IsZero() || !hs[i].Closed.IsZero() || paused != nil && !paused[hs[i].Board] {
+			continue
+		}
 		if chat := teamChatKey(hs[i].Chat); teamChannelID(chat) != "" {
 			return chat
 		}
@@ -1100,7 +1109,7 @@ func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel)
 // teamWorkspaceStore.mu, no network) and returns the list, the name to create ("" = none)
 // and whether the list differs from the record.
 // adopted is the ID of an unclaimed pool workspace taken over by this call ("" = none).
-func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool) (list []TeamWorkspace, name string, changed bool, adopted string, err error) {
+func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool, paused map[int]bool) (list []TeamWorkspace, name string, changed bool, adopted string, err error) {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st, err := loadTeamWorkspacesLocked(path)
@@ -1169,7 +1178,7 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 				open, _ := teamWorkspaceCountsLocked(st, plat+":"+c.ID)
 				busy = busy || open >= teamWorkspaceBusy
 			}
-			home := teamWorkspaceHomeLocked(st, plat, c)
+			home := teamWorkspaceHomeLocked(st, plat, c, paused)
 			if inPool(guild[i], self) && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
 				(home == "" || home == chat) && (pick == nil || n < teamWorkspaceNum(pick.Name)) {
 				pick = &guild[i]
@@ -1481,7 +1490,7 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	}
 	home := ""
 	if err == nil {
-		home = teamWorkspaceHomeLocked(st1, plat, TeamChannel{ID: wsID})
+		home = teamWorkspaceHomeLocked(st1, plat, TeamChannel{ID: wsID}, e.teamPausedBoardItems())
 	}
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
@@ -1507,7 +1516,7 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 				if c.Owner != "" {
 					owner = plat + ":" + c.Owner
 				}
-				home = teamWorkspaceHomeLocked(nil, plat, c)
+				home = teamWorkspaceHomeLocked(nil, plat, c, nil)
 			}
 		}
 		if home != "" && home != chat {
@@ -2286,6 +2295,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	counts := map[string][2]int{}  // workspace id → open, parked handoffs
 	dues := map[string]time.Time{} // workspace id → watch check time (watch started only)
 	watched := e.handoffWatchOn.Load()
+	paused := e.teamPausedBoardItems()
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
 		st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
@@ -2310,7 +2320,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			}
 		}
 		for _, c := range guild {
-			homes[c.ID] = teamWorkspaceHomeLocked(st, pname, c)
+			homes[c.ID] = teamWorkspaceHomeLocked(st, pname, c, paused)
 		}
 		teamWorkspaceStore.mu.Unlock()
 	}
@@ -2326,7 +2336,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			}
 			home := homes[c.ID]
 			if c.OwnerKnown {
-				home = teamWorkspaceHomeLocked(nil, pname, c)
+				home = teamWorkspaceHomeLocked(nil, pname, c, nil)
 			}
 			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner, Home: home}
 			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
@@ -2342,4 +2352,23 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return order(out[i].Name) < order(out[j].Name) })
 	return out, nil
+}
+
+// teamPausedBoardItems: the IDs of the board items still paused or set aside, for
+// teamWorkspaceHomeLocked. nil when there is no team board to read.
+func (e *Engine) teamPausedBoardItems() map[int]bool {
+	if e.team == nil || e.team.dir == "" {
+		return nil
+	}
+	items := readTeamTaskBoard(e.team.dir)
+	if items == nil {
+		return nil
+	}
+	out := map[int]bool{}
+	for _, it := range items {
+		if it.Paused != "" || it.Backlog != "" {
+			out[it.ID] = true
+		}
+	}
+	return out
 }

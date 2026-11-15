@@ -23,6 +23,12 @@ import { ChannelApprovals } from './approvals.mjs';
 // not resolve the live gate port and hit the running instance.
 process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
 delete process.env.GATE_PORT;
+// #1643: a member's MEMORY.md is made on its first turn under the data dir (~/.bothouse by default): keep the
+// tests' members out of the live one. Tests that set their own put this back.
+const NO_LIVE_DATA = mkdtempSync(join(tmpdir(), 'collab-data-'));
+process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
+// #1643: with no gate the room gets one notice; it is not a failure card.
+const failureCard = m => m.author_kind === 'system' && !/^(gate-missing-room-|dsh-session-replaced-)/.test(String(m.client_key ?? ''));
 
 test('workspace approval shares one decision with its parent channel', async () => {
   const store = new Store(':memory:');
@@ -1309,7 +1315,9 @@ for (const [label, lose] of [
     assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
     assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
     assert.equal(hub.store.openJobs().length, 0);
-    assert.ok(!hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'no failure card');
+    assert.ok(!hub.store.page(1, undefined, 20).some(failureCard), 'no failure card');
+    // #1648: the replacement is no longer silent
+    assert.ok(hub.store.page(1, undefined, 20).some(m => m.client_key === `dsh-session-replaced-${old.session.id}` && /DeepSeek 这轮起是新会话/.test(m.text)), 'the room is told');
   });
 }
 
@@ -1889,7 +1897,7 @@ test('DSH member: a Session already loaded by the DSH Web UI still gets the mode
   hub.store.bind('relay', 1, 's-open');
   await members.liveAgent('s-open', members.config.get('relay'));
   await members.liveAgent('s-open', members.config.get('relay'));
-  assert.deepEqual(hooks, [['agent/request', { prepend: true }]]);
+  assert.deepEqual(hooks, [['agent/pre-step', { prepend: true }], ['agent/request', { prepend: true }]]);
 });
 
 function fakeLlm() {
@@ -2021,11 +2029,13 @@ test('team rules: a prompt carries only the room mode section (PR #138 review 4,
   assert.match(solo, /单模型多进程/);
   assert.doesNotMatch(solo, /先当面派给成员|完全团队|混合/);
   assert.match(team, /完全团队/);
-  assert.match(team, /成员空着时先当面派给成员/);
+  assert.match(team, /成员空着且额度已确认可用时先当面派给成员/);
+  assert.match(team, /额度未知、耗尽或冷却先别派/);
   assert.match(team, /reason 字段/);
   assert.doesNotMatch(team, /单模型多进程|混合/);
   assert.match(mixed, /混合。按这件活谁更合适选人/);
-  assert.match(mixed, /成员空着时先当面派给成员/);
+  assert.match(mixed, /成员空着且额度已确认可用时先当面派给成员/);
+  assert.match(mixed, /额度未知、耗尽或冷却先别派/);
   assert.match(mixed, /为什么选这个人/);
   assert.equal(teamModeRules('bogus'), teamModeRules('mixed'));
 });
@@ -2445,7 +2455,7 @@ test('#1606 CLI member: an adapter error reports the provider words, clears busy
   });
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 干活' });
   await settle();
-  const notice = hub.store.page(1, undefined, 10).filter(m => m.author_kind === 'system').map(m => m.text);
+  const notice = hub.store.page(1, undefined, 10).filter(failureCard).map(m => m.text);
   assert.equal(notice.length, 1);
   assert.match(notice[0], /额度用完了.*hit your usage limit/);
   assert.doesNotMatch(notice[0], /Internal error|检查配置/);
@@ -4436,7 +4446,7 @@ test('#148 owner withdraws own message: row hidden, bots get message_recall, DSH
   await settle();
   assert.equal(ds.prompts.length, 1, 'the queued job for the withdrawn message never runs');
   assert.equal(hub.store.openJobs().length, 0);
-  assert.equal(hub.store.page(1).filter(m => m.author_kind === 'system').length, 0, 'no failure card for a withdrawal');
+  assert.equal(hub.store.page(1).filter(failureCard).length, 0, 'no failure card for a withdrawal');
   assert.equal(hub.thinking.get(1).has('qw'), false);
 });
 
@@ -4460,7 +4470,7 @@ test('#148 withdrawing stops a DSH turn already running, keeps its queue, posts 
   dsh.emit(ds, 'assistant/message', { message: { content: [{ type: 'text', text: '半截' }] } });
   dsh.emit(ds, 'turn/end', { turn: 1, reason: { kind: 'cancelled' } });
   await settle();
-  assert.equal(hub.store.page(1).filter(r => r.author_kind !== 'user').length, 0);
+  assert.equal(hub.store.page(1).filter(r => r.author_kind !== 'user' && !String(r.client_key ?? '').startsWith('gate-missing-room-')).length, 0);
   assert.equal(hub.store.openJobs().length, 0);
   assert.equal(hub.thinking.get(1).has('ds'), false);
   const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '回复' });
@@ -5707,11 +5717,11 @@ test('DSH member: its own MEMORY.md goes into the first turn of a conversation o
     await until(() => agent.prompts.length === 2);
     assert.doesNotMatch(agent.prompts[1].content[0].text, /你的记忆/, 'the second turn does not carry it again');
   } finally {
-    delete process.env.BOTHOUSE_DATA_DIR;
+    process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
   }
 });
 
-test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', async () => {
+test('CLI member: its own MEMORY.md on the first turn only; no wiki yet, a starter page', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
@@ -5721,8 +5731,8 @@ test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', 
   writeFileSync(join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
   const idx = new MemoryIndex({ dataDir: data, home: data });
   const one = idx.turn({ member: 'm-ab12cd', room: 1 });
-  // Windows shows the full path (memory-index.mjs abbreviates only a '/'-separated home)
-  const shown = process.platform === 'win32' ? join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md') : '~/roles/m-ab12cd/wiki/MEMORY.md';
+  // #1651: always the full path, DSH's file tools do not expand ~
+  const shown = join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md');
   assert.equal(one.block, `（你的记忆 wiki 目录页 ${shown}，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲`);
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'not given until the prompt went out');
   one.commit();
@@ -5731,7 +5741,8 @@ test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', 
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1, session: 's2' }).block, '', 'a new session is a fresh context');
   idx.resetRoom(1);
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'a released workspace starts over');
-  assert.equal(idx.turn({ member: 'nobody', room: 1 }).block, '');
+  // #1643: a member without a wiki gets a starter MEMORY.md, so the plugin alone still gives a memory
+  assert.match(idx.turn({ member: 'nobody', room: 1 }).block, /记忆目录/);
   assert.equal(new MemoryIndex({ dataDir: '' }).turn({ member: 'm-ab12cd', room: 1 }).block, '');
 });
 
@@ -5775,7 +5786,7 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
     assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
   } finally {
-    delete process.env.BOTHOUSE_DATA_DIR;
+    process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
     delete process.env.GATE_PORT;
     await gate.close();
   }
@@ -5818,7 +5829,7 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
     assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
     assert.doesNotMatch(prompts[3], /你的记忆|【任务板/, 'given to the new session: not again');
   } finally {
-    delete process.env.BOTHOUSE_DATA_DIR;
+    process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
     delete process.env.GATE_PORT;
     await gate.close();
   }
@@ -6273,10 +6284,80 @@ test('G26: a ticket sent to /tasks gets a 403 pointing at /workspaces; /tasks au
   later.close();
 });
 
+test('#1651: on Windows the local commands are PowerShell calls, self is -, no curl line, JSON quotes survive', async () => {
+  const { localCommand, looseJson } = await import('./later.mjs');
+  assert.equal(localCommand(['C:\\Program Files\\nodejs\\node.exe', "it's", ''], 'win32', false), "& 'C:\\Program Files\\nodejs\\node.exe' 'it''s' ''");
+  assert.equal(localCommand(['/usr/bin/node', "it's"], 'linux', false), "'/usr/bin/node' 'it'\\''s'");
+  assert.deepEqual(looseJson('{"a":"b c"}'), { a: 'b c' });
+  assert.deepEqual(looseJson('{\\"a\\":\\"b c\\"}'), { a: 'b c' }, 'newer PowerShell hands the backslashes over');
+  assert.throws(() => looseJson('{a:b}'));
+  const hub = makeHub();
+  const win = new Later(hub, ':memory:', () => true, { start: false, platform: 'win32' });
+  win.origin = 'http://127.0.0.1:5140';
+  for (const hint of [win.instructions('ju', 1), win.workspaceInstructions('ju', 1), win.teamInstructions('ju', 1), win.memoryInstructions('ju', 1)]) {
+    const line = hint.split('\n').find(l => l.includes('later.mjs'));
+    assert.ok(line.startsWith("& '"), line);
+  }
+  assert.ok(win.workspaceInstructions('ju', 1).includes("'接活人id（-=你自己）'"));
+  assert.ok(!win.workspaceInstructions('ju', 1).includes('curl '));
+  assert.ok(win.teamInstructions('ju', 1).includes('{\\"channel\\":\\"小团队\\"'));
+  // #1653: a CLI member's shell on Windows is PowerShell (Codex) or Git Bash (Claude Code): one line for each.
+  const cliLines = win.instructions('ju', 1, { cli: true }).split('\n').filter(l => l.includes('later.mjs'));
+  assert.equal(cliLines.length, 2, cliLines.join('\n'));
+  assert.ok(cliLines[0].startsWith("PowerShell：& '"), cliLines[0]);
+  assert.ok(cliLines[1].startsWith("Git Bash：'"), cliLines[1]);
+  // #1653: inside DSH Desktop process.execPath is the Electron binary: the line itself makes it a node.
+  assert.equal(localCommand(['C:\\App\\DeepSeek Harness.exe', 'a'], 'win32', true), "$env:ELECTRON_RUN_AS_NODE='1'; & 'C:\\App\\DeepSeek Harness.exe' 'a'");
+  assert.equal(localCommand(['/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness', 'a'], 'darwin', true), "ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' 'a'");
+  win.close();
+  const posix = new Later(hub, ':memory:', () => true, { start: false, platform: 'darwin' });
+  posix.origin = 'http://127.0.0.1:5140';
+  assert.ok(posix.instructions('ju', 1).includes(` '${posix.origin}' '${posix.ticket('ju', 1)}' '10m' '事情' '到点要做什么'\n`));
+  assert.ok(posix.workspaceInstructions('ju', 1).includes("'接活人id（空串=你自己）'"));
+  assert.ok(posix.teamInstructions('ju', 1).includes(`'{"channel":"小团队"`));
+  posix.close();
+});
+
+test('#1651: the memory command hands a page to the plugin, which writes it in the member\'s wiki; owner - is self; team JSON with \\"', async () => {
+  const { memoryRoute } = await import('./plugin.mjs');
+  const { existsSync, readFileSync, writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'mem1651-'));
+  const hub = makeHub(); hub.setMember({ id: 'ju', name: 'Ju', kind: 'dsh', online: true });
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const dsh = { memoryIndex: { path: member => join(dir, 'roles', member, 'wiki', 'MEMORY.md') } };
+  const seen = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    if (/\/(workspaces|team)$/.test(url.pathname)) { let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => { seen.push(JSON.parse(raw)); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); }); return; }
+    return memoryRoute(req, res, url, { hub, later, dsh }) ?? (res.writeHead(404), res.end('{}'));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    later.origin = `http://127.0.0.1:${server.address().port}`;
+    const run = args => new Promise(resolve => { const child = spawn(process.execPath, [scriptPath(new URL('./later.mjs', import.meta.url)), ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+    const source = join(dir, 'note.md'); writeFileSync(source, '# 偏好\n用户喜欢 "蓝鲸"\n');
+    const done = await run(['memory', later.origin, later.ticket('ju', 1), '偏好.md', source]);
+    assert.equal(done.status, 0);
+    const page = join(dir, 'roles', 'ju', 'wiki', '偏好.md');
+    assert.equal(JSON.parse(done.out).path, page);
+    assert.equal(readFileSync(page, 'utf8'), '# 偏好\n用户喜欢 "蓝鲸"\n');
+    assert.equal(existsSync(source), false, 'the working copy is removed once the page is in');
+    writeFileSync(source, 'x');
+    assert.notEqual((await run(['memory', later.origin, later.ticket('ju', 1), '../逃.md', source])).status, 0, 'no folders in the page name');
+    assert.notEqual((await run(['memory', later.origin, 'forged.ticket', '偏好.md', source])).status, 0);
+    assert.equal(existsSync(source), true, 'a refused page keeps the working copy');
+    assert.equal((await run(['workspace', later.origin, later.ticket('ju', 1), '修登录页', '-', '交接'])).status, 0);
+    assert.deepEqual(seen.pop(), { title: '修登录页', reason: '交接' });
+    assert.equal((await run(['team', later.origin, later.ticket('ju', 1), '{\\"channel\\":\\"小团队\\"}'])).status, 0);
+    assert.deepEqual(seen.pop(), { channel: '小团队' });
+    assert.notEqual((await run(['team', later.origin, later.ticket('ju', 1), '{channel:小团队}'])).status, 0);
+  } finally { server.close(); later.close(); }
+});
+
 test('G26: the DSH workspace prompt spells out the full /workspaces call', async () => {
   const { dshTeamModeRules } = await import('./dsh-member.mjs');
   const hub = makeHub();
-  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const later = new Later(hub, ':memory:', () => true, { start: false, platform: 'darwin' });
   later.origin = 'http://127.0.0.1:5140';
   const ticket = later.ticket('ju', 1);
   const hint = later.workspaceInstructions('ju', 1);
@@ -7704,5 +7785,62 @@ test('walk 11-14: a turn in a workspace tells the member she is already there, s
   assert.match(inWs, /这里是 #general 的工作区，活已经交到你手上：不要再回【接】，直接动手做/);
   const inChat = promptText(hub.store.room(1), member, [], '', undefined, hub.store, { cli: true });
   assert.doesNotMatch(inChat, /活已经交到你手上/);
+  hub.store.close();
+});
+
+// #1648 (feedback from a plugin-only install: "大活" lost everything said before it): the workspace
+// conversation gets the chat channel's talk on its first turn, a second job gets the first one's
+// result, and the chat channel's member reads what the workspace handed back.
+test('#1648: a workspace turn carries the chat talk; handed-back results are read on both sides', async t => {
+  const { hub, fake, members, tasks, person, answer, workspaces } = mentionSetup();
+  t.after(async () => { await members.close(); tasks.close(); hub.store.close(); });
+  const textOf = agent => (agent.prompts.at(-1)?.content ?? []).find(p => p.type === 'text')?.text ?? '';
+  const chatAgent = () => fake.sessions.get(hub.store.binding('ds', 1).session_id);
+  person('@DeepSeek 记住：暗号是蓝鲸42，文件放 notes 目录');
+  await settle();
+  await answer(1, '记住了');
+  person('@DeepSeek 大活：照刚才说的，把暗号写进文件');
+  await settle();
+  await answer(1, '【接】');
+  const [ws] = workspaces();
+  const first = fake.sessions.get(hub.store.binding('ds', ws.id).session_id);
+  assert.match(textOf(first), /交接前的对话/);
+  assert.match(textOf(first), /暗号是蓝鲸42/, 'what was said before the job reaches the workspace');
+  // What the unified exit forwards (team-exit.mjs forward), and an ordinary system row beside it.
+  hub.post(1, { authorKind: 'system', author: 'system', name: 'system', clientKey: 'team-exit:9001', text: '📬 来自 工作区1 · DeepSeek · 阶段结果\n做了什么：写好了 secret-3.txt' });
+  hub.post(1, { authorKind: 'system', author: 'system', name: 'system', text: '普通系统行不该读到' });
+  fake.turn(first, ['[report] 写好了 secret-3.txt']);
+  await settle();
+  person('@DeepSeek 刚才那件活做得怎么样');
+  await settle();
+  assert.match(textOf(chatAgent()), /secret-3\.txt/, 'the chat member reads the handed-back result');
+  assert.doesNotMatch(textOf(chatAgent()), /普通系统行/, 'other system rows stay unread');
+  await answer(1, '做好了');
+  person('@DeepSeek 大活：刚才那个文件再加一行');
+  await settle();
+  await answer(1, '【接】');
+  const wsNow = hub.store.openJobs().find(j => j.member_id === 'ds').room_id;
+  const second = fake.sessions.get(hub.store.binding('ds', wsNow).session_id);
+  assert.notEqual(second, first, 'a new claim is a new conversation');
+  assert.match(textOf(second), /secret-3\.txt/, 'the second job knows the first one\'s result');
+  assert.match(textOf(second), /暗号是蓝鲸42/);
+  assert.doesNotMatch(textOf(second), /普通系统行/);
+});
+
+test('#1648: ChatBackground gives the parent chat once per conversation, only in a workspace', async () => {
+  const { ChatBackground } = await import('./dsh-member.mjs');
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '甲'.repeat(2000) });
+  const bg = new ChatBackground(hub.store);
+  assert.equal(bg.turn({ member: 'ds', room: hub.store.room(1), session: 's1' }).block, '', 'a chat channel has its own history');
+  const one = bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's1' });
+  assert.match(one.block, /【我】甲{1500}…（已截断）$/);
+  one.commit();
+  assert.equal(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's1' }).block, '');
+  assert.notEqual(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).block, '', 'a new session is a fresh context');
+  bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).commit();
+  bg.resetRoom(ws.id);
+  assert.notEqual(bg.turn({ member: 'ds', room: hub.store.room(ws.id), session: 's2' }).block, '', 'a released workspace starts over');
   hub.store.close();
 });

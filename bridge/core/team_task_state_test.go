@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #699: the state of a task changes only through transitionTeamTaskLocked, in the allowed steps,
@@ -140,7 +142,7 @@ func TestProgressOfNextTaskDoesNotLandOnPausedRow(t *testing.T) {
 	boardDir := e.teamStatusDir()
 	rows := `{"id":677,"what":"Win DSH","status":"在做：装 DSH","who":"工作区1橘","ws":"discord:ws1","chat":"discord:chatA","at":"11-11 15:00"}` + "\n" +
 		`{"id":679,"what":"下一件","status":"已交接","who":"工作区1橘","chat":"discord:chatA","at":"11-11 15:52"}` + "\n"
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(rows), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.ParkTeamWorkspaceWhy("discord:ws1", h.Chat, h.At, "watch: no progress", true); err != nil {
@@ -220,7 +222,7 @@ func TestTaskStateIsolatedInstanceWalk(t *testing.T) {
 	e.SetTeam(boardDir, "橘", true)
 	rows := `{"id":677,"what":"Win DSH","short":"WinDSH","status":"已交接","who":"工作区1橘","ws":"discord:ws1","sk":"discord:ws1","chat":"discord:chatA","at":"11-11 15:00"}` + "\n" +
 		`{"id":679,"what":"下一件","short":"下一件","status":"排队","who":"待接手","chat":"discord:chatA","at":"11-11 15:40"}` + "\n"
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(rows), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e.markPlatformReady(hp)
@@ -272,10 +274,10 @@ func TestTaskStateIsolatedInstanceWalk(t *testing.T) {
 	if out, err := e.runLeadScript("discord:chatA", "board", "update", "679", "已交接"); err != nil {
 		t.Fatalf("board update: %v %s", err, out)
 	}
-	raw, _ := os.ReadFile(filepath.Join(boardDir, teamTaskBoardFile))
+	raw, _ := os.ReadFile(filepath.Join(boardDir, team.TaskBoardFile))
 	bound := strings.Replace(string(raw), `"id": 679,`, `"id": 679, "ws": "discord:ws1", "sk": "discord:ws1",`, 1)
 	bound = strings.Replace(bound, `"id":679,`, `"id":679,"ws":"discord:ws1","sk":"discord:ws1",`, 1)
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(bound), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(bound), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h := handoffsOf(e, "discord:ws1")[1]

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // The lead's task board (contrib/gate/board.py, `board add/update/done/pause`) lives in
@@ -22,10 +24,6 @@ import (
 // shows on every platform with a BoardPoster and the script no longer posts its own pinned card
 // with a platform token (#597 K9). Only open items are shown (four states, renderTeamTaskBoard);
 // board-done.jsonl is read for lookups of finished items, not for the board.
-const (
-	teamTaskBoardFile     = "board.jsonl"
-	teamTaskBoardDoneFile = "board-done.jsonl"
-)
 
 type teamTaskBoardItem struct {
 	ID       int    `json:"id"`
@@ -83,6 +81,8 @@ type teamTaskBoardItem struct {
 	ProgressAt float64 `json:"progress_at"`
 	// Card: the item's task card link (board.py link), for an item with no workspace task card.
 	Card string `json:"card"`
+	// Post: the item's task-forum post link (board post, written by team_task_forum.go).
+	Post string `json:"post"`
 
 	ReviewRejected string `json:"review_rejected"`
 	Dispatcher     string `json:"dispatcher"`
@@ -143,7 +143,7 @@ func readTeamTaskBoardFile(dir, name string) []teamTaskBoardItem {
 
 // readTeamTaskBoard loads the open items of <dir>/board.jsonl.
 func readTeamTaskBoard(dir string) []teamTaskBoardItem {
-	return readTeamTaskBoardFile(dir, teamTaskBoardFile)
+	return readTeamTaskBoardFile(dir, team.TaskBoardFile)
 }
 
 // Wait kinds of a board row (teamTaskBoardItem.WaitKind). board.py is the one place that decides
@@ -163,7 +163,7 @@ func (it teamTaskBoardItem) waitsOn(kind string) bool {
 	}
 	switch kind {
 	case teamWaitExternal:
-		return it.Paused != "" && strings.HasPrefix(it.PauseWhy, waitExternalWhy)
+		return it.Paused != "" && strings.HasPrefix(it.PauseWhy, team.WaitExternalWhy)
 	case teamWaitUser:
 		if it.Paused != "" {
 			return teamTaskBoardLegacyWaitUser.MatchString(it.PauseWhy)
@@ -283,7 +283,7 @@ func (e *Engine) teamTaskBoardPlacer() teamTaskBoardPlacer {
 		idleWorkspaces: e.TeamIdleWorkspaceNames,
 		boardDoneIDs: func() map[int]bool {
 			ids := map[int]bool{}
-			for _, it := range readTeamTaskBoardFile(e.teamStatusDir(), teamTaskBoardDoneFile) {
+			for _, it := range readTeamTaskBoardFile(e.teamStatusDir(), team.TaskBoardDoneFile) {
 				ids[it.ID] = true
 			}
 			return ids

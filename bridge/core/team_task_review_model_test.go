@@ -105,6 +105,7 @@ func TestTimerSideTurnModel(t *testing.T) {
 	plat := &cujReplyCtxPlatform{stubPlatformEngine: &stubPlatformEngine{n: "test"}}
 	agent := &modelRecordingAgent{}
 	e := NewEngine("test", agent, []Platform{plat}, t.TempDir()+"/sessions.json", LangEnglish)
+	e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 	t.Cleanup(func() { _ = e.Stop() })
 	job := &TimerJob{ID: "review-x", Project: "test", SessionKey: "test:chat", Prompt: "verify", SessionMode: "new_per_run", Model: "cheap-model", CreatedAt: time.Now()}
 	if err := e.ExecuteTimerJob(job); err != nil {

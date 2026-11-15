@@ -43,19 +43,19 @@ func newDeskPlatform(mention string) *deskPlatform {
 
 func deskFiles(now time.Time) []teamFile {
 	return []teamFile{
-		{Project: "gge", Name: "G哥", Mention: "<@1>", Updated: now, Sessions: []teamEntry{
+		{Project: "gge", Name: "G哥", QuotaStatus: "available", Mention: "<@1>", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:fw:9", Chat: "固件", Task: "测帧率", Busy: true, Since: now.Add(-3 * time.Minute)},
 			{Key: "discord:old", Chat: "杂项", Task: "旧活", DoneAt: now.Add(-5 * time.Minute)},
 		}},
-		{Project: "deep", Name: "肥鱼", Mention: "<@2>", Updated: now, Sessions: []teamEntry{
+		{Project: "deep", Name: "肥鱼", QuotaStatus: "available", Mention: "<@2>", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:b", Chat: "桥接", Task: "看日志", DoneAt: now.Add(-2 * time.Minute)},
 			{Key: "discord:dm", Task: "私密的事", Busy: true, Since: now},
 		}},
-		{Project: "cursor", Name: "Cursor", Mention: "<@4>", Updated: now, Sessions: []teamEntry{
+		{Project: "cursor", Name: "Cursor", QuotaStatus: "available", Mention: "<@4>", Updated: now, Sessions: []teamEntry{
 			{Key: "discord:x", Chat: "甲", DoneAt: now.Add(-2 * time.Minute)},
 			{Key: "discord:y", Chat: "乙", DoneAt: now.Add(-4 * time.Minute)},
 		}},
-		{Project: "gjiang", Name: "大豆包", Updated: now},
+		{Project: "gjiang", Name: "大豆包", QuotaStatus: "available", Updated: now},
 	}
 }
 
