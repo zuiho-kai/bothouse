@@ -61,9 +61,9 @@ export class MemoryIndex {
       } catch { return none; }
     }
     if (!body) return none;
-    const shown = this.home && file.startsWith(this.home + '/') ? '~' + file.slice(this.home.length) : file;
+    // #1651: the full path. DSH's file tools do not expand ~ (a member wrote <cwd>/~/.bothouse/... instead).
     return {
-      block: `${MEMORY_INDEX_HEAD} ${shown}，新会话系统自动附上，不用回应）\n${body}`,
+      block: `${MEMORY_INDEX_HEAD} ${file}，新会话系统自动附上，不用回应）\n${body}`,
       commit: () => { this.given.set(key, session); },
     };
   }

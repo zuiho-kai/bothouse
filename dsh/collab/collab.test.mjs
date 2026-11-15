@@ -5731,8 +5731,8 @@ test('CLI member: its own MEMORY.md on the first turn only; no wiki yet, a start
   writeFileSync(join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
   const idx = new MemoryIndex({ dataDir: data, home: data });
   const one = idx.turn({ member: 'm-ab12cd', room: 1 });
-  // Windows shows the full path (memory-index.mjs abbreviates only a '/'-separated home)
-  const shown = process.platform === 'win32' ? join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md') : '~/roles/m-ab12cd/wiki/MEMORY.md';
+  // #1651: always the full path, DSH's file tools do not expand ~
+  const shown = join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md');
   assert.equal(one.block, `（你的记忆 wiki 目录页 ${shown}，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲`);
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'not given until the prompt went out');
   one.commit();
@@ -6284,10 +6284,73 @@ test('G26: a ticket sent to /tasks gets a 403 pointing at /workspaces; /tasks au
   later.close();
 });
 
+test('#1651: on Windows the local commands are PowerShell calls, self is -, no curl line, JSON quotes survive', async () => {
+  const { localCommand, looseJson } = await import('./later.mjs');
+  assert.equal(localCommand(['C:\\Program Files\\nodejs\\node.exe', "it's", ''], 'win32'), "& 'C:\\Program Files\\nodejs\\node.exe' 'it''s' ''");
+  assert.equal(localCommand(['/usr/bin/node', "it's"], 'linux'), "'/usr/bin/node' 'it'\\''s'");
+  assert.deepEqual(looseJson('{"a":"b c"}'), { a: 'b c' });
+  assert.deepEqual(looseJson('{\\"a\\":\\"b c\\"}'), { a: 'b c' }, 'newer PowerShell hands the backslashes over');
+  assert.throws(() => looseJson('{a:b}'));
+  const hub = makeHub();
+  const win = new Later(hub, ':memory:', () => true, { start: false, platform: 'win32' });
+  win.origin = 'http://127.0.0.1:5140';
+  for (const hint of [win.instructions('ju', 1), win.workspaceInstructions('ju', 1), win.teamInstructions('ju', 1), win.memoryInstructions('ju', 1)]) {
+    const line = hint.split('\n').find(l => l.includes('later.mjs'));
+    assert.ok(line.startsWith("& '"), line);
+  }
+  assert.ok(win.workspaceInstructions('ju', 1).includes("'接活人id（-=你自己）'"));
+  assert.ok(!win.workspaceInstructions('ju', 1).includes('curl '));
+  assert.ok(win.teamInstructions('ju', 1).includes('{\\"channel\\":\\"小团队\\"'));
+  assert.ok(!win.instructions('ju', 1, { cli: true }).includes("& '"), 'a CLI member or bridge bot keeps the POSIX form');
+  win.close();
+  const posix = new Later(hub, ':memory:', () => true, { start: false, platform: 'darwin' });
+  posix.origin = 'http://127.0.0.1:5140';
+  assert.ok(posix.instructions('ju', 1).includes(` '${posix.origin}' '${posix.ticket('ju', 1)}' '10m' '事情' '到点要做什么'\n`));
+  assert.ok(posix.workspaceInstructions('ju', 1).includes("'接活人id（空串=你自己）'"));
+  assert.ok(posix.teamInstructions('ju', 1).includes(`'{"channel":"小团队"`));
+  posix.close();
+});
+
+test('#1651: the memory command hands a page to the plugin, which writes it in the member\'s wiki; owner - is self; team JSON with \\"', async () => {
+  const { memoryRoute } = await import('./plugin.mjs');
+  const { existsSync, readFileSync, writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'mem1651-'));
+  const hub = makeHub(); hub.setMember({ id: 'ju', name: 'Ju', kind: 'dsh', online: true });
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const dsh = { memoryIndex: { path: member => join(dir, 'roles', member, 'wiki', 'MEMORY.md') } };
+  const seen = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    if (/\/(workspaces|team)$/.test(url.pathname)) { let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => { seen.push(JSON.parse(raw)); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); }); return; }
+    return memoryRoute(req, res, url, { hub, later, dsh }) ?? (res.writeHead(404), res.end('{}'));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    later.origin = `http://127.0.0.1:${server.address().port}`;
+    const run = args => new Promise(resolve => { const child = spawn(process.execPath, [scriptPath(new URL('./later.mjs', import.meta.url)), ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+    const source = join(dir, 'note.md'); writeFileSync(source, '# 偏好\n用户喜欢 "蓝鲸"\n');
+    const done = await run(['memory', later.origin, later.ticket('ju', 1), '偏好.md', source]);
+    assert.equal(done.status, 0);
+    const page = join(dir, 'roles', 'ju', 'wiki', '偏好.md');
+    assert.equal(JSON.parse(done.out).path, page);
+    assert.equal(readFileSync(page, 'utf8'), '# 偏好\n用户喜欢 "蓝鲸"\n');
+    assert.equal(existsSync(source), false, 'the working copy is removed once the page is in');
+    writeFileSync(source, 'x');
+    assert.notEqual((await run(['memory', later.origin, later.ticket('ju', 1), '../逃.md', source])).status, 0, 'no folders in the page name');
+    assert.notEqual((await run(['memory', later.origin, 'forged.ticket', '偏好.md', source])).status, 0);
+    assert.equal(existsSync(source), true, 'a refused page keeps the working copy');
+    assert.equal((await run(['workspace', later.origin, later.ticket('ju', 1), '修登录页', '-', '交接'])).status, 0);
+    assert.deepEqual(seen.pop(), { title: '修登录页', reason: '交接' });
+    assert.equal((await run(['team', later.origin, later.ticket('ju', 1), '{\\"channel\\":\\"小团队\\"}'])).status, 0);
+    assert.deepEqual(seen.pop(), { channel: '小团队' });
+    assert.notEqual((await run(['team', later.origin, later.ticket('ju', 1), '{channel:小团队}'])).status, 0);
+  } finally { server.close(); later.close(); }
+});
+
 test('G26: the DSH workspace prompt spells out the full /workspaces call', async () => {
   const { dshTeamModeRules } = await import('./dsh-member.mjs');
   const hub = makeHub();
-  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const later = new Later(hub, ':memory:', () => true, { start: false, platform: 'darwin' });
   later.origin = 'http://127.0.0.1:5140';
   const ticket = later.ticket('ju', 1);
   const hint = later.workspaceInstructions('ju', 1);
