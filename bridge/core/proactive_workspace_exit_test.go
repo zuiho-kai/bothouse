@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Regression from the independent PR808 review: both event readers forwarded
@@ -71,7 +73,7 @@ func TestProactiveWorkspaceExitSendScope(t *testing.T) {
 			e.interactiveMu.Lock()
 			e.interactiveStates[e.interactiveKeyForSessionKey(exitWSKey)] = state
 			e.interactiveMu.Unlock()
-			if _, err := e.WorkspaceExit(e.ctx, exitWSKey, exitKindReport, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无"); err != nil {
+			if _, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无"); err != nil {
 				t.Fatal(err)
 			}
 			posted := platform.sentTo("discord:chat1")
@@ -108,7 +110,7 @@ func TestProactiveLegacyExitRechecksEachChunk(t *testing.T) {
 	e, a, d, ctx := proactiveOutputFixture(t)
 	defer e.Stop()
 	p := &revokeAfterExitSendPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, revoke: func() error { return a.Revoke(d.ID, "human:stop") }}
-	e.postExitOriginal(ctx, p, "chat", "chat", "ws", "role", exitKindReport, strings.Repeat("x", maxPlatformMessageLen*3), "room", "")
+	e.postExitOriginal(ctx, p, "chat", "chat", "ws", "role", team.ExitKindReport, strings.Repeat("x", maxPlatformMessageLen*3), "room", "")
 	if p.calls != 1 {
 		t.Fatalf("revoked exit sent %d chunks, want only the first", p.calls)
 	}
@@ -117,7 +119,7 @@ func TestProactiveLegacyExitRechecksEachChunk(t *testing.T) {
 func TestProactiveExitCannotCreateUnboundLeadTurn(t *testing.T) {
 	e, _, _, ctx := proactiveOutputFixture(t)
 	defer e.Stop()
-	if e.wakeChatLeadContext(ctx, &stubPlatformEngine{n: "discord"}, "chat", "ws", "role", exitKindReport, "result", "room", 0, false, "") {
+	if e.wakeChatLeadContext(ctx, &stubPlatformEngine{n: "discord"}, "chat", "ws", "role", team.ExitKindReport, "result", "room", 0, false, "") {
 		t.Fatal("proactive handback created an unbound timer turn")
 	}
 }

@@ -13,13 +13,13 @@ func TestSendTargetForAttachmentsGoesToOwningChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := "discord:" + w.ID
-	if got := e.sendTargetForAttachments(ws, true); got != "discord:100" {
+	if got := e.teamLayer().SendTargetForAttachments(ws, true); got != "discord:100" {
 		t.Fatalf("attachments from the workspace went to %q, want the owning chat discord:100", got)
 	}
-	if got := e.sendTargetForAttachments(ws, false); got != ws {
+	if got := e.teamLayer().SendTargetForAttachments(ws, false); got != ws {
 		t.Fatalf("text only went to %q, want the workspace itself", got)
 	}
-	if got := e.sendTargetForAttachments("discord:100", true); got != "discord:100" {
+	if got := e.teamLayer().SendTargetForAttachments("discord:100", true); got != "discord:100" {
 		t.Fatalf("a chat channel's own send moved to %q", got)
 	}
 }

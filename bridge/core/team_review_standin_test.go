@@ -27,6 +27,7 @@ func (a *modelListAgent) AvailableModels(context.Context) []ModelOption {
 func standInRole(t *testing.T, name, team, dir string, ts *TimerScheduler, lead bool, agent Agent) *Engine {
 	t.Helper()
 	x := NewEngine(name, agent, reviewTestPlatforms(), "", LangChinese)
+	x.recoverQuotaFor(x.quotaScopeFor(agent, modelOf(agent)))
 	t.Cleanup(x.cancel)
 	x.dataDir = t.TempDir()
 	x.SetTeam(dir, team, lead)

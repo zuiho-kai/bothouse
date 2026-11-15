@@ -21,11 +21,13 @@ for (const f of readdirSync(join(collabSrc, 'avatars'))) {
 }
 // Files the plugin reads next to its modules at run time (new URL('./…', import.meta.url)); a missing one
 // breaks the installed plugin (0.1.45 shipped without personas.json and failed to load at all).
-for (const f of ['personas.json', 'team-exit-rules.json', 'team-mode-rules.md', 'desk/index.html', 'devices.html', 'wiki-galaxy/index.html']) {
+for (const f of ['personas.json', 'desk/index.html', 'devices.html', 'wiki-galaxy/index.html']) {
   mkdirSync(join(root, 'collab', dirname(f)), { recursive: true })
   cpSync(join(collabSrc, f), join(root, 'collab', f))
 }
-// The handoff rules live in the bridge (contrib/lead); a checkout reads them from there, a package needs its own copy.
+// The handoff rules and the team rules live in the bridge (contrib/lead, core/team_rules); a checkout reads them
+// from there, a package needs its own copy.
+for (const f of ['team-exit-rules.json', 'team-mode-rules.md']) cpSync(join(root, '../../bridge/core/team_rules', f), join(root, 'collab', f))
 cpSync(join(root, '../../bridge/contrib/lead/handoff-rules.json'), join(root, 'collab/handoff-rules.json'))
 
 const run = (cmd) => execSync(cmd, { cwd: uiSrc, stdio: 'inherit' })

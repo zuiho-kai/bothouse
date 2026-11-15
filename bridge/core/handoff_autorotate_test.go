@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // The context-size rule leaves workspace channels alone, yields to auto_compress, and clears the
@@ -95,7 +97,7 @@ func TestHandoffBlockListsChannelTasks(t *testing.T) {
 		`{"id":13,"what":"别的频道的活","sk":"discord:chat2","status":"在做"}`,
 		`{"id":14,"what":"已做完","sk":"discord:chat1","status":"完成 已合"}`,
 	}, "\n") + "\n"
-	writeTaskBoard(t, dir, teamTaskBoardFile, board)
+	writeTaskBoard(t, dir, team.TaskBoardFile, board)
 
 	a := &handoffStubAgent{handoffs: map[string]*SessionHandoff{
 		"old": {Path: "/x/old.jsonl", ContextTokens: 312000},

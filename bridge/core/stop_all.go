@@ -29,7 +29,8 @@ func IsBareStopWord(text string) bool {
 
 // isUnaddressedStop reports whether msg is a person's stop word that calls no
 // bot: no @, no reply, not a private chat, not addressed to a teammate by name.
-// It is handled like "/stop all": every bot stops its own work in the channel.
+// Every bot in the channel sees it and stops its own work there: all of it for an admin, the
+// turns the sender started for anyone else (cmdStopAll).
 // "@A 停" keeps the single-bot path (applyLocalGate on the called bot).
 // Only msg.StopAll counts: the platform sets it after its own "no @, no reply"
 // check. Platforms that do not set it (weixin, qq, line …) leave it false, so a
@@ -70,20 +71,25 @@ func sessionKeyChannel(key, platform string) (string, bool) {
 // A Discord thread has its own channel id, so a stop in a thread stops only that
 // thread, and a stop in the parent channel leaves its threads running (decided
 // 2026-10-25: a stop in a thread does not reach the parent channel).
-func (e *Engine) stopChannel(platform, sessionKey string) int {
+//
+// onlyBy != "" narrows it to the turns that person started (the running turn answers their
+// message); turns started by someone else or by the bridge itself keep running.
+func (e *Engine) stopChannel(platform, sessionKey, onlyBy string) int {
 	target, ok := sessionKeyChannel(sessionKey, platform)
 	if !ok {
 		return 0
 	}
 	e.interactiveMu.Lock()
 	var keys []string
-	for k := range e.interactiveStates {
+	states := map[string]*interactiveState{}
+	for k, st := range e.interactiveStates {
 		if ch, ok := sessionKeyChannel(k, platform); ok && ch == target {
 			keys = append(keys, k)
+			states[k] = st
 		}
 	}
 	for k := range e.nativeCompactions {
-		if _, dup := e.interactiveStates[k]; dup {
+		if _, dup := e.interactiveStates[k]; dup || onlyBy != "" {
 			continue
 		}
 		if ch, ok := sessionKeyChannel(k, platform); ok && ch == target {
@@ -94,6 +100,15 @@ func (e *Engine) stopChannel(platform, sessionKey string) int {
 
 	stopped := 0
 	for _, k := range keys {
+		if onlyBy != "" { // read outside interactiveMu: state.mu is never taken under it here
+			st := states[k]
+			st.mu.Lock()
+			starter := st.turnUserID
+			st.mu.Unlock()
+			if starter != onlyBy {
+				continue
+			}
+		}
 		e.revokeInteractiveAuthorization(k)
 		if e.stopInteractiveSessionWithOptions(k, true) {
 			stopped++
@@ -102,10 +117,20 @@ func (e *Engine) stopChannel(platform, sessionKey string) int {
 	return stopped
 }
 
-// cmdStopAll handles "/stop all" and an unaddressed stop word: stop this bot's
-// work in the whole channel.
+// cmdStopAll handles "/stop all" and an unaddressed stop word. "/stop all" stops this bot's work
+// in the whole channel, whoever sends it. A bare 「停」 that calls no bot does the same only for an
+// admin (admin_from); from anyone else it stops the turns that person started, so a passer-by's
+// one word does not cancel other people's work. A sender the platform gives no id for stops
+// nothing this way ("@bot 停" and "/stop all" still work).
 func (e *Engine) cmdStopAll(p Platform, msg *Message) {
-	if e.stopChannel(msg.Platform, msg.SessionKey) == 0 {
+	onlyBy := ""
+	if !IsStopAllCommand(msg.Content) && !e.isAdmin(msg.UserID) {
+		if msg.UserID == "" {
+			return
+		}
+		onlyBy = msg.UserID
+	}
+	if e.stopChannel(msg.Platform, msg.SessionKey, onlyBy) == 0 {
 		// Stay quiet when idle so a multi-bot channel is not flooded with
 		// "nothing running" replies from every bot.
 		return

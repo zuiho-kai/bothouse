@@ -752,6 +752,9 @@ type UsageBucket struct {
 
 // UsageWindow describes a single quota window.
 type UsageWindow struct {
+	// QuotaGroup is machine-readable provider attribution. Empty inherits the
+	// selected pool; account applies to every model. Name is display-only.
+	QuotaGroup string
 	// ObservedAt is the source time for this window in a sparse snapshot.
 	// Zero means the adapter uses UsageReport.ObservedAt for all windows.
 	ObservedAt        time.Time `json:"-"`

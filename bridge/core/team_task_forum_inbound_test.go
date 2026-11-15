@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 func writeForumReplyItem(t *testing.T, dir, file string, item teamTaskBoardItem) {
@@ -27,7 +29,7 @@ func TestTaskForumReplyLookup(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, taskForumFile), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	writeForumReplyItem(t, dir, teamTaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source"})
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source"})
 	for _, tc := range []struct {
 		name, guild, parent, thread string
 		known                       bool
@@ -51,8 +53,8 @@ func TestTaskForumReplyLookup(t *testing.T) {
 	if r, known := e.ResolveTaskForumReply("discord", "g", "forum", "post"); !known || r != nil {
 		t.Fatalf("secondary must consume without replying: %+v %v", r, known)
 	}
-	writeTaskBoard(t, dir, teamTaskBoardFile, "")
-	writeForumReplyItem(t, dir, teamTaskBoardDoneFile, teamTaskBoardItem{ID: 779, Chat: "discord:source", DoneAt: "11-14 23:00"})
+	writeTaskBoard(t, dir, team.TaskBoardFile, "")
+	writeForumReplyItem(t, dir, team.TaskBoardDoneFile, teamTaskBoardItem{ID: 779, Chat: "discord:source", DoneAt: "11-14 23:00"})
 	e.team.inject = true
 	if r, _ := e.ResolveTaskForumReply("discord", "g", "forum", "post"); r == nil || r.Chat != "discord:source" {
 		t.Fatalf("completed route=%+v", r)
@@ -105,10 +107,10 @@ func TestCUJ_TaskForum1_ReplyUsesSourceConversationAndPostReceipt(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			it := tc.item
 			it.ID, it.What, it.Who, it.Chat, it.Status = 779, "任务帖对接", "worker", inputTestKey, "在做"
-			file := teamTaskBoardFile
+			file := team.TaskBoardFile
 			if it.DoneAt != "" {
-				file = teamTaskBoardDoneFile
-				writeTaskBoard(t, dir, teamTaskBoardFile, "")
+				file = team.TaskBoardDoneFile
+				writeTaskBoard(t, dir, team.TaskBoardFile, "")
 			}
 			writeForumReplyItem(t, dir, file, it)
 			msg := &Message{SessionKey: "discord:post", ChannelID: "post", Platform: "discord", UserID: "human", Content: tc.text, ReplyCtx: "post-delivery", TaskForum: &TaskForumReply{Board: 779, Thread: "post"}}
@@ -143,7 +145,7 @@ func TestCUJ_TaskForum1_ReplyUsesSourceConversationAndPostReceipt(t *testing.T) 
 
 func TestTaskForumReplyFactsQuestionAndReentry(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
-	writeForumReplyItem(t, dir, teamTaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source", Paused: "yes", PauseWhy: "等待用户：choose"})
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source", Paused: "yes", PauseWhy: "等待用户：choose"})
 	e.teamExit.asks = map[string]*teamAsk{"ask": {Board: 779, At: time.Now(), Forwarded: []string{"原始完整问题", "两个选项"}}}
 	e.teamExit.loaded = true
 	msg := &Message{TaskForum: &TaskForumReply{Board: 779, Thread: "post"}, ReplyCtx: "post"}
@@ -161,7 +163,7 @@ func TestTaskForumReplyFactsQuestionAndReentry(t *testing.T) {
 	if e.prepareTaskForumReply(p, msg) {
 		t.Fatal("bot accepted")
 	}
-	writeForumReplyItem(t, dir, teamTaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "source"})
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "source"})
 	running := &Message{TaskForum: &TaskForumReply{Board: 779}, UserID: "human"}
 	if !e.prepareTaskForumReply(p, running) || running.SessionKey != "discord:source" || strings.Contains(running.ExtraContent, "原始完整问题") {
 		t.Fatalf("historical chat or stale question: %+v", running)
@@ -172,7 +174,7 @@ func TestTaskForumReplyPreservesUserSession(t *testing.T) {
 	_, e, _, base, _ := inputFixture(t)
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, inject: true}
-	writeForumReplyItem(t, dir, teamTaskBoardFile, teamTaskBoardItem{ID: 779, Ch: "source"})
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Ch: "source"})
 	p := &forumReplySink{inputTestPlatform: base, perUser: true}
 	msg := &Message{SessionKey: "discord:post:human", UserID: "human", TaskForum: &TaskForumReply{Board: 779}, ReplyCtx: "post"}
 	if !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:source:human" || msg.ChannelID != "source" || msg.ReplyCtx != "post" {

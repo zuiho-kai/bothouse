@@ -81,7 +81,7 @@ func isLocalRedirect(text string) bool {
 // set (SetGate with an empty url).
 func (e *Engine) SetGateLocal(on bool) {
 	e.gateLocal = on
-	if on && e.gate == nil {
+	if on && e.gate.Load() == nil {
 		slog.Info("gate: built-in busy rules enabled (stop words, mid-turn insert)")
 	}
 }

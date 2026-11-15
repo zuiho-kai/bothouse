@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #509: reconcileTeamWorkspaces used to free a workspace as soon as its bound board item
@@ -47,7 +49,7 @@ func reconcileGraceFixture(t *testing.T, status string, progress, boardAt time.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(e.team.dir, teamTaskBoardFile), append(line, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(e.team.dir, team.TaskBoardFile), append(line, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return e, newHandoffWatch(e), now

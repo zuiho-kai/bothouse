@@ -19,20 +19,20 @@ func TestRoleDutyLayerFollowsConfiguredPosition(t *testing.T) {
 
 	isLead := func(s string) bool { return strings.Contains(s, "你现在是这个团队的主角色") }
 	isSub := func(s string) bool { return strings.Contains(s, "你现在是这个团队的副手") }
-	if d := lead.roleDutyLayer(""); !isLead(d) || !strings.Contains(d, "照团队模式规矩") || !strings.Contains(d, "两者冲突时照这一层做") {
+	if d := lead.teamLayer().RoleDutyLayer(""); !isLead(d) || !strings.Contains(d, "照团队模式规矩") || !strings.Contains(d, "两者冲突时照这一层做") {
 		t.Fatalf("configured lead duty:\n%s", d)
 	}
-	if d := sub.roleDutyLayer(""); !isSub(d) || isLead(d) {
+	if d := sub.teamLayer().RoleDutyLayer(""); !isSub(d) || isLead(d) {
 		t.Fatalf("member duty:\n%s", d)
 	}
 
 	if err := os.WriteFile(filepath.Join(dataDir, "lead.json"), []byte(`{"lead":"sub"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := sub.roleDutyLayer(""); !isLead(d) {
+	if d := sub.teamLayer().RoleDutyLayer(""); !isLead(d) {
 		t.Fatalf("switched-in lead must get lead duties:\n%s", d)
 	}
-	if d := lead.roleDutyLayer(""); !isSub(d) {
+	if d := lead.teamLayer().RoleDutyLayer(""); !isSub(d) {
 		t.Fatalf("switched-out lead must get member duties:\n%s", d)
 	}
 
@@ -45,7 +45,7 @@ func TestRoleDutyLayerFollowsConfiguredPosition(t *testing.T) {
 		t.Fatalf("inject_team_rules off must drop the duty layer:\n%s", got)
 	}
 
-	if d := NewEngine("solo", nil, nil, "", LangChinese).roleDutyLayer(""); d != "" {
+	if d := NewEngine("solo", nil, nil, "", LangChinese).teamLayer().RoleDutyLayer(""); d != "" {
 		t.Fatalf("no team, no duty layer: %q", d)
 	}
 }

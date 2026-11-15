@@ -408,17 +408,12 @@ type Message struct {
 	SeenUpToID string // maomao fork: newest message folded into this one (gate burst), for channel backfill
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom
 	// ("" = the whole first window); freshContextImages adds the images from before it.
-	BackfillFrom  string
-	AmbientChat   string // Background merged once, excluded from the silent buffer.
-	contentMerged bool
-	BackfillRan   bool
-	peopleDone    bool // #1160: recordPersonSaid already ran (a held gate burst re-enters handleMessage)
-	mediaDone     bool // maomao fork: prepareMedia already ran (a held gate burst re-enters handleMessage)
-	// maomao fork: handleCommand already ran for this message. The gate's burst
-	// timer releases a held message by re-entering handleMessage with the same
-	// *Message, so without this flag a slash command ran (and an unknown command
-	// posted its notice) once per entry — issue #651 follow-up.
-	cmdDone     bool
+	BackfillFrom string
+	AmbientChat  string // Background merged once, excluded from the silent buffer.
+	BackfillRan  bool
+	// burstDone: the gate collected this message's burst and its window has passed; the next
+	// applyGate judges it instead of holding it again (set by the burst timer, cleared when read).
+	burstDone   bool
 	userText    string     // maomao fork: Content before media notes were appended — the gate's input
 	userTextSet bool       // maomao fork: userText is set (see userTextOf)
 	gateParts   []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
@@ -503,6 +498,15 @@ type UserQuestionOption struct {
 	Description string `json:"description"`
 }
 
+// ErrorKind is an adapter's own classification of an EventError; "" = the adapter cannot tell.
+type ErrorKind string
+
+const (
+	ErrorKindRateLimit ErrorKind = "rate_limit" // throttled; the same request passes after a wait
+	ErrorKindTransient ErrorKind = "transient"  // cut stream, overloaded or failing upstream; a re-send may pass
+	ErrorKindPermanent ErrorKind = "permanent"  // auth, bad request, spent balance: a re-send gets the same answer
+)
+
 // Event represents a single piece of agent output streamed back to the engine.
 type Event struct {
 	Type    EventType
@@ -512,19 +516,25 @@ type Event struct {
 	// emitted as EventText in this turn. EventResult adapters set it for cumulative
 	// summaries; the remaining suffix is new text. Zero keeps Content as a
 	// standalone final answer/rewrite/error, or uses EventText when Content is empty.
-	StreamedContentBytes     int
-	ToolName                 string         // populated for EventToolUse, EventPermissionRequest
-	ToolInput                string         // human-readable summary of tool input
-	ToolInputRaw             map[string]any // raw tool input (for EventPermissionRequest, used in allow response)
-	ToolResult               string         // populated for EventToolResult
-	ToolStatus               string         // optional status for EventToolResult (e.g. completed/failed)
-	ToolExitCode             *int           // optional exit code for EventToolResult
-	ToolSuccess              *bool          // optional success flag for EventToolResult
-	SessionID                string         // agent-managed session ID for conversation continuity
-	RequestID                string         // unique request ID for EventPermissionRequest
-	Questions                []UserQuestion // populated when ToolName == "AskUserQuestion"
-	Done                     bool
-	Error                    error
+	StreamedContentBytes int
+	ToolName             string         // populated for EventToolUse, EventPermissionRequest
+	ToolInput            string         // human-readable summary of tool input
+	ToolInputRaw         map[string]any // raw tool input (for EventPermissionRequest, used in allow response)
+	ToolResult           string         // populated for EventToolResult
+	ToolStatus           string         // optional status for EventToolResult (e.g. completed/failed)
+	ToolExitCode         *int           // optional exit code for EventToolResult
+	ToolSuccess          *bool          // optional success flag for EventToolResult
+	SessionID            string         // agent-managed session ID for conversation continuity
+	RequestID            string         // unique request ID for EventPermissionRequest
+	Questions            []UserQuestion // populated when ToolName == "AskUserQuestion"
+	Done                 bool
+	Error                error
+	// ErrorKind / ErrorStatus: what an EventError is, when the adapter knows it from the
+	// upstream's own structured error (an HTTP status, an error code). The retry logic reads
+	// these first and only falls back to matching the error text when both are empty
+	// (core/capacity_retry.go classifyError).
+	ErrorKind                ErrorKind
+	ErrorStatus              int  // upstream HTTP status; 0 = unknown
 	UsageKnown               bool // true when this result contains authoritative per-turn usage
 	InputTokens              int  // token usage from agent result events
 	OutputTokens             int

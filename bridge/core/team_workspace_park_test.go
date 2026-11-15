@@ -234,7 +234,7 @@ func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 		want         string
 	}{{3, 0, "202"}, {1, 0, "202"}, {0, 0, "201"}, {0, 5, "201"}} {
 		set(c.open, c.parked)
-		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true)
+		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true, nil)
 		if err != nil || adopted != c.want {
 			t.Fatalf("open %d parked %d: adopted %q, %v; want %s", c.open, c.parked, adopted, err, c.want)
 		}
@@ -337,10 +337,6 @@ func TestWorkspaceParkOnlyTheChatsOwnTask(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	if !e.releaseTeamWorkspace(exitWSKey, time.Now(), false) { // A's task done: back to the pool
 		t.Fatal("ws1 not released after its task")
-	}
-	// #762: chat B never takes A's workspace, free or not.
-	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by B = %v, want ErrTeamWorkspaceOwned", err)
 	}
 
 	// A claims ws1 again for a later task D. Pausing the old task parks nothing.

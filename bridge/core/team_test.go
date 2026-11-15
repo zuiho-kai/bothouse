@@ -32,14 +32,14 @@ func TestTeamSummary(t *testing.T) {
 	e.name = "maomao"
 	e.team = &teamState{dir: dir, name: "橘", inject: true, seen: map[string]*teamSession{}}
 	now := time.Now()
-	writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", Updated: now, Sessions: []teamEntry{
+	writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 		{Key: "discord:111", Chat: "general", Task: "修 bug", Busy: true, Since: now.Add(-3 * time.Minute)},
 		{Key: "discord:222", Chat: "dev", Task: "写测试", DoneAt: now.Add(-2 * time.Minute)},
 	}})
-	writeTeamFile(t, dir, teamFile{Project: "jingyu", Name: "鲸鱼娘", Updated: now.Add(-2 * time.Hour), Sessions: []teamEntry{
+	writeTeamFile(t, dir, teamFile{Project: "jingyu", Name: "鲸鱼娘", QuotaStatus: "available", Updated: now.Add(-2 * time.Hour), Sessions: []teamEntry{
 		{Key: "discord:111", Busy: true, Since: now},
 	}})
-	writeTeamFile(t, dir, teamFile{Project: "maomao", Name: "橘", Updated: now, Sessions: []teamEntry{
+	writeTeamFile(t, dir, teamFile{Project: "maomao", Name: "橘", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 		{Key: "discord:111:9", Busy: true, Since: now},
 	}})
 
@@ -72,7 +72,7 @@ func TestTeamSummaryListsIdleTeammate(t *testing.T) {
 	e := newTestEngine()
 	e.name = "tju"
 	e.team = &teamState{dir: dir, name: "小橘", inject: true, seen: map[string]*teamSession{}}
-	writeTeamFile(t, dir, teamFile{Project: "tlong", Name: "小龙", Updated: time.Now(), Mention: "<@42>"})
+	writeTeamFile(t, dir, teamFile{Project: "tlong", Name: "小龙", QuotaStatus: "available", Updated: time.Now(), Mention: "<@42>"})
 	got, _ := e.teamSummary("discord:111:727")
 	if !strings.Contains(got, "小龙：空着，可以派活（@ 用 <@42>）") {
 		t.Errorf("idle teammate missing:\n%s", got)
@@ -85,11 +85,11 @@ func TestTeamSummaryBusyElsewhereDoesNotBlock(t *testing.T) {
 	e.name = "maomao"
 	e.team = &teamState{dir: dir, name: "橘", inject: true, seen: map[string]*teamSession{}}
 	now := time.Now()
-	writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", Updated: now, Sessions: []teamEntry{
+	writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 		{Key: "discord:222", Chat: "外出", Task: "外出巡逻", Busy: true, Since: now.Add(-5 * time.Minute)},
 		{Key: "discord:333", Task: "定时任务", Busy: true, Since: now.Add(-4 * time.Minute)},
 	}})
-	writeTeamFile(t, dir, teamFile{Project: "jingyu", Name: "鲸鱼娘", Updated: now, Sessions: []teamEntry{
+	writeTeamFile(t, dir, teamFile{Project: "jingyu", Name: "鲸鱼娘", QuotaStatus: "available", Updated: now, Sessions: []teamEntry{
 		{Key: "discord:111", Chat: "general", Task: "润色", Busy: true, Since: now.Add(-3 * time.Minute)},
 	}})
 
@@ -292,21 +292,20 @@ func TestTurnCtxSurvivesSave(t *testing.T) {
 
 func TestApplyGateBotContextNeverStartsTurn(t *testing.T) {
 	e := newTestEngine()
-	e.gate = &gateState{url: "http://127.0.0.1:1/never", timeout: time.Millisecond, fallback: "reply",
-		buf: map[string][]string{}, held: map[string]*heldMsg{}, released: map[*Message]bool{}}
+	e.gate.Store(&gateState{url: "http://127.0.0.1:1/never", timeout: time.Millisecond, fallback: "reply", gateRuntime: newGateRuntime()})
 	s := &Session{}
 	msg := &Message{SessionKey: "discord:1", UserName: "龙娘", Content: "【龙娘】做完了", FromBot: true}
 	if !e.applyGate(nil, msg, s, "k") {
 		t.Fatal("bot context must be consumed")
 	}
-	if got := e.gate.buf["k"]; len(got) != 1 || !strings.HasPrefix(got[0], "[Quoted teammate message]\n") {
+	if got := e.gate.Load().buf["k"]; len(got) != 1 || !strings.HasPrefix(got[0], "[Quoted teammate message]\n") {
 		t.Fatalf("buffer = %v", got)
 	}
 	var quoted struct{ Author, Content string }
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(e.gate.buf["k"][0], "[Quoted teammate message]\n")), &quoted); err != nil || quoted.Author != msg.UserName || quoted.Content != msg.Content {
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(e.gate.Load().buf["k"][0], "[Quoted teammate message]\n")), &quoted); err != nil || quoted.Author != msg.UserName || quoted.Content != msg.Content {
 		t.Fatalf("quoted teammate = %+v, error = %v", quoted, err)
 	}
-	e.gate = nil
+	e.gate.Store(nil)
 	if !e.applyGate(nil, &Message{Content: "x", FromBot: true}, s, "k") {
 		t.Fatal("without a gate, bot context must still never start a turn")
 	}
@@ -519,7 +518,7 @@ func TestTeamSummaryShowsCoolingTeammate(t *testing.T) {
 	if strings.Contains(got, "小彩：空着") || !strings.Contains(got, "小彩：额度冷却到 "+until.Local().Format("01-02 15:04")) {
 		t.Errorf("cooling teammate shown as:\n%s", got)
 	}
-	if !strings.Contains(got, "小旧：空着") {
-		t.Errorf("expired cooldown should read as idle:\n%s", got)
+	if !strings.Contains(got, "小旧：额度未知") {
+		t.Errorf("expired cooldown must not claim recovery:\n%s", got)
 	}
 }

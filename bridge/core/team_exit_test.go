@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 type exitSent struct{ rc, text string }
@@ -71,7 +73,7 @@ func exitBoardItem(t *testing.T, e *Engine, id int, what string) {
 	if e.team == nil {
 		e.SetTeam(t.TempDir(), "橘", false)
 	}
-	f, err := os.OpenFile(filepath.Join(e.team.dir, teamTaskBoardFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(e.team.dir, team.TaskBoardFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,14 +98,6 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 		}
 	}
 	inputDone(a, "ok")
-	// One source: the embedded copy is the DSH member file.
-	src, err := os.ReadFile(filepath.Join("..", "..", "dsh", "collab", "team-mode-rules.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(src) != teamModeRulesText {
-		t.Fatal("dsh/collab/team-mode-rules.md and the embedded dsh_bundle copy differ")
-	}
 }
 
 func TestWorkspaceReportForwardsOnly(t *testing.T) {
@@ -203,7 +197,7 @@ func TestParseExitKindTurn(t *testing.T) {
 
 func TestParseExitKind(t *testing.T) {
 	for in, want := range map[string]string{"[ask]\nx": "ask", "  [REPORT] y": "report", "[ask]": "", "ask x": "", "x\n[ask]\ny": ""} {
-		k, _, _ := parseExitKind(in)
+		k, _, _ := team.ParseExitKind(in)
 		if k != want {
 			t.Errorf("parseExitKind(%q) = %q, want %q", in, k, want)
 		}
@@ -222,7 +216,7 @@ func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
 	}
 	for mode, want := range map[string]string{DispatchTeam: "派活方式：完全团队", DispatchMixed: "派活方式：混合", "bogus": "派活方式：混合"} {
 		r := teamModeRulesFor(mode)
-		if !strings.Contains(r, want) || !strings.Contains(r, "成员空着时先当面派给成员") || !strings.Contains(r, "reason 字段") || !strings.Contains(r, "同时带 ref（参照实现：文件:行") || !strings.Contains(r, "带 base（底分支名）") {
+		if !strings.Contains(r, want) || !strings.Contains(r, "成员空着且额度已确认可用时先当面派给成员") || !strings.Contains(r, "额度未知、耗尽或冷却先别派") || !strings.Contains(r, "reason 字段") || !strings.Contains(r, "同时带 ref（参照实现：文件:行") || !strings.Contains(r, "带 base（底分支名）") {
 			t.Fatalf("%s rules: %q", mode, r)
 		}
 	}

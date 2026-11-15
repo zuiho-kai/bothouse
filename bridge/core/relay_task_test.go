@@ -85,6 +85,7 @@ func taskRelayManagerWithAgent(t *testing.T, p *PublicProgress, platform *progre
 	source.publicProgress = p
 	dst := newProgressPlatform()
 	target := NewEngine("target", agent, []Platform{dst}, "", LangEnglish)
+	target.recoverQuotaFor(target.quotaScopeFor(agent, modelOf(agent)))
 	rm := NewRelayManager("")
 	rm.RegisterEngine("source", source)
 	rm.RegisterEngine("target", target)
@@ -268,7 +269,7 @@ func TestTaskRelayRunningAndFailedReceiptNeverReexecutes(t *testing.T) {
 		t.Run(map[bool]string{false: "running", true: "restart"}[restart], func(t *testing.T) {
 			p, platform, _, id := taskRelayFixture(t)
 			req := taskRelayRequest(id)
-			d, _, err := p.beginTaskRelay(req, "Target")
+			d, _, err := p.beginTaskRelay(req, "Target", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -300,7 +301,7 @@ func TestTaskRelayRunningAndFailedReceiptNeverReexecutes(t *testing.T) {
 
 func TestTaskRelayLateCompletionCannotReopenParent(t *testing.T) {
 	p, _, run, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +445,7 @@ func TestTaskRelayClosedCardNoLiveTurnDoesNotSuggestRun(t *testing.T) {
 	p, _, run, id := taskRelayFixture(t)
 	p.finish(run, "result")
 
-	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err == nil {
 		t.Fatal("closed card accepted without a live turn")
 	}
@@ -469,7 +470,7 @@ func TestTaskRelayClosedCardReclaimCommandIncludesCLIContext(t *testing.T) {
 	_ = p.begin(platform, "discord:room:user", LangChinese, nil)
 	_ = p.begin(platform, "discord:room:user", LangChinese, nil)
 
-	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err == nil {
 		t.Fatal("closed card accepted with an ambiguous turn")
 	}
@@ -551,7 +552,7 @@ func TestTaskRelayReclaimSafetyBoundaries(t *testing.T) {
 		p, platform, run, id := taskRelayFixture(t)
 		p.finish(run, "cancelled")
 		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
-		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 		if err == nil || !strings.Contains(err.Error(), "cancelled") {
 			t.Fatalf("cancelled card error = %v", err)
 		}
@@ -567,7 +568,7 @@ func TestTaskRelayReclaimSafetyBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
-		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 		if err == nil || !strings.Contains(err.Error(), "accepted") {
 			t.Fatalf("accepted card error = %v", err)
 		}
@@ -578,7 +579,7 @@ func TestTaskRelayReclaimSafetyBoundaries(t *testing.T) {
 		p.finish(run, "result")
 		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
 		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
-		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 		if err == nil || !strings.Contains(err.Error(), "more than one") {
 			t.Fatalf("ambiguous turn error = %v", err)
 		}
@@ -592,7 +593,7 @@ func TestTaskRelayReclaimSafetyBoundaries(t *testing.T) {
 		r.record.Task.UpdatedAt = time.Now().Add(-cardResumeWindow - time.Hour)
 		r.mu.Unlock()
 		_ = p.begin(platform, "discord:room:user", LangChinese, nil)
-		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+		_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 		if err == nil || !strings.Contains(err.Error(), "resume window") {
 			t.Fatalf("expired card error = %v", err)
 		}
@@ -609,7 +610,7 @@ func TestTaskRelayReclaimRollsBackOnReporterFailure(t *testing.T) {
 		return nil, errors.New("unbound test reporter")
 	}
 
-	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err == nil {
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil); err == nil {
 		t.Fatal("dispatch with unbound reporter accepted")
 	}
 	r := p.records[id]
@@ -649,7 +650,7 @@ func TestTaskRelayReclaimsFinishedAutomaticCard(t *testing.T) {
 
 	next := p.begin(platform, "room:one", LangChinese, nil)
 	req := RelayRequest{From: "fish", To: "target", SessionKey: "room:one", TaskID: id, RequestID: "auto-reclaim", Message: "assignment"}
-	if _, _, err := p.beginTaskRelay(req, "Target"); err != nil {
+	if _, _, err := p.beginTaskRelay(req, "Target", nil); err != nil {
 		t.Fatalf("automatic card not re-claimed: %v", err)
 	}
 	p.finish(next, "result")
@@ -681,7 +682,7 @@ func TestTaskRelayResumeNoteAdvertisesExplicitTaskForReclaimedCard(t *testing.T)
 		t.Fatalf("delivered card advertised as in progress (%s): %q", state, instructions)
 	}
 	taskArg := id
-	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.Report(PublicProgressRequest{
@@ -709,7 +710,7 @@ func TestTaskRelayReclaimedCardContinuesWithoutTaskID(t *testing.T) {
 	if !ok {
 		t.Fatal("resume hint missing for the closed card")
 	}
-	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target"); err != nil {
+	if _, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.Report(PublicProgressRequest{
@@ -747,7 +748,7 @@ func TestTaskRelayReclaimStoppedTurnWaitsForNextTurn(t *testing.T) {
 	p.finish(run, "result")
 	_ = p.begin(platform, "discord:room:user", LangChinese, func() bool { return true })
 
-	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	_, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err == nil {
 		t.Fatal("closed card accepted while the current turn was stopping")
 	}
@@ -765,7 +766,7 @@ func TestTaskRelayReclaimStoppedTurnWaitsForNextTurn(t *testing.T) {
 // one card; the second dispatch must be refused until the first finishes.
 func TestTaskRelayReclaimRefusesRunningReceipt(t *testing.T) {
 	p, platform, run, id := taskRelayFixture(t)
-	first, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	first, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,7 +775,7 @@ func TestTaskRelayReclaimRefusesRunningReceipt(t *testing.T) {
 
 	secondReq := taskRelayRequest(id)
 	secondReq.RequestID = "dispatch-two"
-	if _, _, err := p.beginTaskRelay(secondReq, "Target"); err == nil || !strings.Contains(err.Error(), "running") {
+	if _, _, err := p.beginTaskRelay(secondReq, "Target", nil); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("running receipt was not refused: %v", err)
 	}
 	r := p.records[id]
@@ -788,7 +789,7 @@ func TestTaskRelayReclaimRefusesRunningReceipt(t *testing.T) {
 	if err := first.finish("old result", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := p.beginTaskRelay(secondReq, "Target"); err != nil {
+	if _, _, err := p.beginTaskRelay(secondReq, "Target", nil); err != nil {
 		t.Fatalf("re-claim after the running receipt finished: %v", err)
 	}
 	p.finish(next, "result")

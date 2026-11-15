@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Documents go back with a workspace's [report]/[ask], like its images (team_exit_images.go).
@@ -87,7 +89,7 @@ func namedDocPaths(text string) []string {
 		if m[0] > 0 && !strings.ContainsAny(text[m[0]-1:m[0]], " \t\n:：(（「`'\"*-—") {
 			continue // part of a URL or a longer word, not a local path
 		}
-		path := expandHome(text[m[0]:m[1]])
+		path := team.ExpandHome(text[m[0]:m[1]])
 		if seen[path] {
 			continue
 		}
@@ -120,7 +122,7 @@ func notesProducedDocs(where string, since time.Time) []string {
 	if notes == "" || since.IsZero() {
 		return nil
 	}
-	self := expandHome(strings.TrimSpace(where))
+	self := team.ExpandHome(strings.TrimSpace(where))
 	var out []string
 	for _, p := range namedDocPaths(notes) {
 		if p == self || strings.HasSuffix(p, ".原话.md") {
@@ -140,7 +142,7 @@ func notesProducedDocs(where string, since time.Time) []string {
 // A document is attached when it is the deliverable (agentm #36: 「完成中文审查报告」), not
 // when the report only mentions a page it touched.
 func exitDocPaths(body string, item *teamTaskBoardItem) []string {
-	head, _ := exitSplit(body)
+	head, _ := team.ExitSplit(body)
 	if !reportDocClaimRe.MatchString(head) {
 		return nil
 	}
@@ -228,7 +230,7 @@ var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写�
 // file (named, sent, or found through its handoff) or a link. Only when the bridge finds none
 // does the workspace get it back.
 func reportDeliverableProblems(sessionKey, body string, item *teamTaskBoardItem) []string {
-	head, _ := exitSplit(body)
+	head, _ := team.ExitSplit(body)
 	m := reportDocClaimRe.FindString(head)
 	if m == "" {
 		return nil

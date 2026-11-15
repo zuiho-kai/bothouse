@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #208: a renewal must leave 「最后活动 + 最近一步」 on the workspace's board row, or the table
@@ -26,7 +28,7 @@ func TestWatchProgressWritesBoardRow(t *testing.T) {
 	// The workspace row the handoff works on, still as the handoff left it.
 	boardDir := e.teamStatusDir()
 	row := `{"id":7,"what":"看门写回进度","short":"写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1","sk":"discord:ws1","chat":"discord:main","at":"11-05 12:00"}` + "\n"
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	now := h.Due // the handoff was claimed for #7 (#699: no guessing from the workspace)
@@ -71,7 +73,7 @@ func TestWatchProgressKeepsOwnStatus(t *testing.T) {
 	e, _, w, h := progressFixtureBoard(t, "<@"+k5aOwner+">", 9)
 	boardDir := e.teamStatusDir()
 	row := `{"id":9,"what":"自己写状态","status":"在做：写 208 的看门","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main","at":"11-05 12:00"}` + "\n"
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	testTurnEnded("discord:ws1", h.Due.Add(-time.Minute)) // #699 E: a turn that ended is progress, a post is not
@@ -89,7 +91,7 @@ func TestWatchProgressKeepsOwnStatus(t *testing.T) {
 // A paused or closed row is not touched; a board that is not there is not an error.
 func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, teamTaskBoardFile)
+	path := filepath.Join(dir, team.TaskBoardFile)
 	rows := `{"id":1,"status":"在做","ws":"discord:ws1","paused":"11-05 12:00"}` + "\n" +
 		`{"id":2,"status":"已验收","ws":"discord:ws1"}` + "\n" +
 		`{"id":3,"status":"在做","ws":""}` + "\n"
@@ -119,7 +121,7 @@ func TestWriteBoardProgressSkipsDeadRows(t *testing.T) {
 // stops a workspace's own running status from freezing. #1438 must not drop it while adding done.
 func TestBoardProgressStillRenewsDoingRows(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, teamTaskBoardFile)
+	path := filepath.Join(dir, team.TaskBoardFile)
 	row := `{"id":4,"what":"在跑的活","status":"在做：跑测试","who":"工作区1橘","ws":"discord:ws1",` +
 		`"chat":"discord:main","progress_at":1}` + "\n"
 	if err := os.WriteFile(path, []byte(row), 0o644); err != nil {
@@ -150,7 +152,7 @@ func boardItemOf(t *testing.T, dir string, id int) teamTaskBoardItem {
 // readBoardLine: the row's raw JSON (to check what is really on disk).
 func readBoardLine(t *testing.T, dir string, id int) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, teamTaskBoardFile))
+	data, err := os.ReadFile(filepath.Join(dir, team.TaskBoardFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +179,7 @@ func TestBoardProgressRowIsNoLongerStuck(t *testing.T) {
 	now := time.Date(2026, 11, 6, 3, 0, 0, 0, time.Local)
 	at := now.Add(-3 * time.Hour).Format("01-02 15:04")
 	row := `{"id":5,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main","at":"` + at + `"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	items := readTeamTaskBoard(dir)
@@ -212,7 +214,7 @@ func TestBoardProgressInterleavesWithBoardPy(t *testing.T) {
 	t.Cleanup(func() { e.cancel(); _ = e.Stop() })
 	rows := `{"id":1,"what":"看门写回","status":"已交接","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main"}` + "\n" +
 		`{"id":2,"what":"别人的活","status":"在做：工作区2 在写","who":"工作区2橘","ws":"discord:ws2","chat":"discord:main"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(rows), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
@@ -263,7 +265,7 @@ func TestBoardProgressIsolatedInstance(t *testing.T) {
 	e.productPyBin.Store(t.TempDir())
 	boardDir := t.TempDir()
 	e.SetTeam(boardDir, "橘", true)
-	if err := os.WriteFile(filepath.Join(boardDir, teamTaskBoardFile), []byte(
+	if err := os.WriteFile(filepath.Join(boardDir, team.TaskBoardFile), []byte(
 		`{"id":11,"what":"隔离实例里派一件活","short":"隔离实例","status":"已交接","who":"工作区1橘","ws":"discord:ws1","sk":"discord:ws1","chat":"discord:main","at":"11-06 04:00"}`+"\n",
 	), 0o644); err != nil {
 		t.Fatal(err)
@@ -312,7 +314,7 @@ func TestBoardProgressKeepsPreciseStepWhenNoToolRan(t *testing.T) {
 	row := `{"id":7,"what":"看门写回进度","status":"在做：Bash go test ./core","who":"工作区1橘",` +
 		`"ws":"discord:ws1","chat":"discord:main",` +
 		`"progress_at":` + strconv.FormatFloat(float64(now.Add(-20*time.Minute).UnixNano())/1e9, 'f', -1, 64) + `}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	before := boardItemOf(t, dir, 7)
@@ -340,7 +342,7 @@ func TestBoardProgressSurvivesStepThatReadsLikeClosing(t *testing.T) {
 	row := `{"id":9,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1",` +
 		`"chat":"discord:main","progress_at":` +
 		strconv.FormatFloat(float64(now.Add(-30*time.Minute).UnixNano())/1e9, 'f', -1, 64) + `}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if wrote, err := writeBoardProgress(dir, 9, "Bash rg 已验收 core/", true, "discord:ws1", now); err != nil || !wrote {
@@ -376,7 +378,7 @@ func TestBoardProgressWillNotWriteAnotherWorkspacesRow(t *testing.T) {
 	now := time.Now()
 	rows := `{"id":3,"what":"别人的活","status":"在做：工作区2 在写","who":"工作区2橘",` +
 		`"ws":"discord:ws2","chat":"discord:main"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(rows), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(rows), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if wrote, err := writeBoardProgress(dir, 3, "Bash go test ./core", true, "discord:ws1", now); err != nil || wrote {
@@ -417,7 +419,7 @@ func TestBoardProgressNeverLowersTheStamp(t *testing.T) {
 	future := float64(now.Add(time.Hour).UnixNano()) / 1e9
 	row := `{"id":4,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1",` +
 		`"chat":"discord:main","progress_at":` + strconv.FormatFloat(future, 'f', -1, 64) + `}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writeBoardProgress(dir, 4, "Bash go test ./core", true, "discord:ws1", now); err != nil {
@@ -433,10 +435,10 @@ func TestBoardProgressNeverLowersTheStamp(t *testing.T) {
 func TestBoardProgressWaitsForTheLockThenGivesUp(t *testing.T) {
 	dir := t.TempDir()
 	row := `{"id":1,"what":"看门写回进度","status":"已交接","who":"工作区1橘","ws":"discord:ws1","chat":"discord:main"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, teamTaskBoardFile), []byte(row), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, team.TaskBoardFile), []byte(row), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := lockBoardFile(filepath.Join(dir, "board.lock"))
+	unlock, err := team.LockBoardFile(filepath.Join(dir, "board.lock"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,8 +449,8 @@ func TestBoardProgressWaitsForTheLockThenGivesUp(t *testing.T) {
 	if err == nil || wrote {
 		t.Fatalf("wrote %v, err %v (a write must not go through while someone else holds the lock)", wrote, err)
 	}
-	if waited < boardProgressLockWait {
-		t.Fatalf("gave up after %v, want at least %v of waiting", waited, boardProgressLockWait)
+	if waited < team.BoardLockWait {
+		t.Fatalf("gave up after %v, want at least %v of waiting", waited, team.BoardLockWait)
 	}
 	if !strings.Contains(err.Error(), "locked by another process") {
 		t.Fatalf("error = %v, want it to say the board is locked", err)

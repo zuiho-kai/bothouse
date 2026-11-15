@@ -37,15 +37,16 @@ const REVIEWABLE = ['returned', 'declined', 'escalated'];
 /** The owner delivered: handed back, or the lead accepted it (fromChat reads the next call as an answer). */
 const DELIVERED = ['returned', 'done'];
 // #597 r12: how long a bare-name call after a delivery waits for the owner's stance (Tasks.pendingCalls).
-// Source: 聊天频道橘 10-26「超过 30 分钟没回也丢弃」.
 const PENDING_CALL_S = 30 * 60;
-// Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
-export const CHECK_AFTER_S = 10 * 60;
+// Check time after dispatch or rework. The bridge owns the value (config.toml
+// team_watch_check_mins) and passes it as BOTHOUSE_WATCH_CHECK_SECONDS; 600 only when run
+// without a bridge.
+export const CHECK_AFTER_S = Number(process.env.BOTHOUSE_WATCH_CHECK_SECONDS) > 0
+  ? Math.floor(Number(process.env.BOTHOUSE_WATCH_CHECK_SECONDS)) : 10 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW, 0 = no cap): at the
 // check time a workspace task with new role messages since its window opened gets another
 // CHECK_AFTER_S, renewing while there is progress; otherwise it is parked (paused queue).
-// Replaces the old one-hour park. Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429),
-// replacing 橘 10-25 15:19「最多续 2 次」; same as Go watchMaxRenew.
+// Replaces the old one-hour park (#429).
 export const MAX_RENEWALS = 0;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -1094,14 +1095,16 @@ export class Tasks {
   /**
    * #1620: walk 11-14, Codex ended its workspace turn with "已完成 fib.py…" and no [report]; the task
    * waited for a person to say "照规矩写一份 [report] 交回". Once per task the owner is told at once,
-   * on a record in the workspace, how to hand back or say what she is waiting for.
+   * on a record in the workspace, how to hand back or say what she is waiting for. #1620 rework: it
+   * said 「下面写做了什么、文件在哪」 and DSH wrote 「做了什么：」 twice and a 「文件在哪：」 part; it
+   * now points at the hand-back format.
    */
   nudgeReport(task) {
     if (this.nudged.has(task.id)) return;
     this.nudged.add(task.id);
     const name = this.nameOf(task.owner);
     const message = this.record(task, 'nudge', `@${name} #${task.id}「${task.title}」这一轮没有写 [report]，还挂着没交回。`
-      + `你那一份做完了就回复首行写 [report]，下面写做了什么、文件在哪；还在等队友或没做完，回复首行写【问】#${task.id}，说清在等什么、卡在哪。`, this.chatOf(task.room_id));
+      + `你那一份做完了就回复首行写 [report]，照交回格式写（「做了什么：」只写一段，文件位置放进细节）；还在等队友或没做完，回复首行写【问】#${task.id}，说清在等什么、卡在哪。`, this.chatOf(task.room_id));
     this.wake(task.owner, message);
   }
 

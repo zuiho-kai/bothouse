@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // #1549 用户 2026-11-13「如果你指定的那个角色没额度了，可以换别人，而不用你在这傻等」。
@@ -30,6 +32,8 @@ func quotaReassignFixture(t *testing.T) (map[string]*Engine, map[string]*inputTe
 		p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
 		e := NewEngine(name, &quotaTakeoverAgent{inputTestAgent: a, account: name}, []Platform{p}, "", LangChinese)
 		e.dataDir = dir
+		// Fixture teammates have a prior successful provider reply.
+		e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 		display := shown[name]
 		e.displayName.Store(&display)
 		e.team = &teamState{dir: filepath.Join(dir, "team"), name: name, inject: name == "orange", seen: map[string]*teamSession{}}
@@ -101,7 +105,7 @@ func TestQuotaReassignAllCoolingSaysEarliest(t *testing.T) {
 
 	sent := quotaReassignMention(t, engines["caihongmao"], platforms["caihongmao"], "帮看一下 CowAgent 这个项目")
 	t.Logf("频道里彩虹猫这一条：%s", sent)
-	if !strings.Contains(sent, "都在冷却") || !strings.Contains(sent, quotaCoolingWhen(early)) {
+	if !strings.Contains(sent, "已知冷却最早到") || !strings.Contains(sent, quotaCoolingWhen(early)) {
 		t.Fatalf("channel line = %q", sent)
 	}
 	for _, name := range []string{"caihongmao", "longniang", "jingyu", "orange"} {
@@ -153,7 +157,7 @@ func TestQuotaReassignStaleBoardTodoDoesNotBlock(t *testing.T) {
 	quotaReassignCool(engines["caihongmao"], until)
 	quotaReassignCool(engines["longniang"], until)
 	board := `{"id": 1243, "what": "纽约篇构思", "status": "待办：#1240 交完后开构思", "who": "鲸鱼娘", "ch": "chat", "sk": "discord:chat"}` + "\n"
-	if err := os.WriteFile(filepath.Join(engines["jingyu"].team.dir, teamTaskBoardFile), []byte(board), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(engines["jingyu"].team.dir, team.TaskBoardFile), []byte(board), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -184,7 +188,7 @@ func TestQuotaReassignOthersBusyIsNotAllCooling(t *testing.T) {
 
 	sent := quotaReassignMention(t, engines["caihongmao"], platforms["caihongmao"], "帮查 B 站 AI 视频 UP 主的做片流程")
 	t.Logf("频道里彩虹猫这一条：%s", sent)
-	if strings.Contains(sent, "都在冷却") || !strings.Contains(sent, "都在忙") {
+	if strings.Contains(sent, "都在冷却") || !strings.Contains(sent, "暂无已确认可接手的队友") {
 		t.Fatalf("channel line = %q", sent)
 	}
 }
