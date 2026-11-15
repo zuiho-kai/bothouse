@@ -23,10 +23,10 @@ func (p *Platform) humanReplyRoute(m *discordgo.MessageCreate, roleID string, me
 	}
 	ref := m.ReferencedMessage
 	if otherMentionRe.MatchString(body.Content) {
-		self := isDiscordBotMention(&discordgo.MessageCreate{Message: &body}, p.botID, roleID, p.respondToAtEveryoneAndHere)
+		self := isDiscordBotMention(&discordgo.MessageCreate{Message: &body}, p.selfID(), roleID, p.respondToAtEveryoneAndHere)
 		// The bot being replied to is addressed too: replying to 橘 while @-ing 彩虹猫 calls both
 		// (2026-10-22, user: 「好像我回你的时候同时艾特彩虹猫，你们都不理我」). Before, only the @-ed bot got it.
-		if ref != nil && ref.Author != nil && ref.Author.ID == p.botID {
+		if ref != nil && ref.Author != nil && ref.Author.ID == p.selfID() {
 			self = true
 		}
 		return self, self
@@ -38,7 +38,7 @@ func (p *Platform) humanReplyRoute(m *discordgo.MessageCreate, roleID string, me
 		return false, false
 	}
 	if ref.Author.Bot || ref.WebhookID != "" {
-		self := ref.Author.ID == p.botID
+		self := ref.Author.ID == p.selfID()
 		return self, self
 	}
 	// Replies between humans retain the existing channel/gate policy.

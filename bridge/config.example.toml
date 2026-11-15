@@ -1489,6 +1489,8 @@ app_secret = "your-feishu-app-secret"
 #                            # 列出的主频道：进度卡片、子进程表、♻️/⏰/⏳ 通知进日志频道，正文和结果留在主频道；没列的频道照旧
 # reply_hud = false  # If true, append final-reply HUD line (model/context/tokens) in Discord only
 #                    # 设为 true 时，仅在 Discord 最终回复末尾附加 HUD（模型/上下文/tokens）
+# ack_reaction = false  # If true: 👀 on a message once the bot takes it, swapped for ✅ (done) or ❌ (error) when its turn ends; stale 👀 cleared at startup
+#                       # 设为 true 时：bot 接下消息先贴 👀，这一轮结束换成 ✅（完成）或 ❌（出错），重启后清掉卡住的 👀（默认关）
 # respond_to_at_everyone_and_here = true  # Default true: @everyone/@here counts as a direct mention so every bot responds; set false to ignore it
 #                              # 设为 true 时，将 @everyone/@here 视为直接 @ 机器人，使机器人响应
 # proxy = "http://127.0.0.1:7890"  # Optional HTTP/SOCKS5 proxy for Discord API & Gateway / 可选代理

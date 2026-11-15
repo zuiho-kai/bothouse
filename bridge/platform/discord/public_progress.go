@@ -39,7 +39,7 @@ func (p *Platform) findPublicFact(ctx context.Context, channel, marker string, s
 			return "", err
 		}
 		for _, m := range messages {
-			if m.Author != nil && m.Author.ID == p.botID {
+			if m.Author != nil && m.Author.ID == p.selfID() {
 				for _, embed := range m.Embeds {
 					if embed.Footer != nil && embed.Footer.Text == marker {
 						return m.ID, nil
@@ -72,7 +72,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 
 // reposted is set on the second pass after the card was found deleted.
 func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang core.Language, reposted bool) error {
-	if p.session == nil || p.botID == "" {
+	if p.session == nil || p.selfID() == "" {
 		return errors.New("discord session is not ready")
 	}
 	marker := "cc-task:" + task.ID
@@ -186,7 +186,7 @@ func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
 // in it again. A thread the card merely lives in is the user's own and is left
 // alone.
 func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error {
-	if p.session == nil || p.botID == "" {
+	if p.session == nil || p.selfID() == "" {
 		return errors.New("discord session is not ready")
 	}
 	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
@@ -218,7 +218,7 @@ func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error
 // that is gone is treated as already handled here; posting the fact will
 // surface the missing destination through the normal unrecoverable path.
 func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error {
-	if p.session == nil || p.botID == "" {
+	if p.session == nil || p.selfID() == "" {
 		return errors.New("discord session is not ready")
 	}
 	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
@@ -240,7 +240,7 @@ func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error 
 // The archive sweep waits from the later of this and the card's UpdatedAt, so
 // a reply that reopened a thread is not hidden again by the same sweep.
 func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) (time.Time, error) {
-	if p.session == nil || p.botID == "" {
+	if p.session == nil || p.selfID() == "" {
 		return time.Time{}, errors.New("discord session is not ready")
 	}
 	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
@@ -277,7 +277,7 @@ func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) 
 }
 
 func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
-	if p.session == nil || p.botID == "" {
+	if p.session == nil || p.selfID() == "" {
 		return errors.New("discord session is not ready")
 	}
 	if task.ThreadID == "" {

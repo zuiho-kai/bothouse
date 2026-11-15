@@ -41,4 +41,5 @@
 - 再加 QQ、飞书等：管理面板「添加平台」，见[首页](../GETTING_STARTED.md#以后添加或停用平台)。
 - 再加一个 Discord 角色：管理面板「添加角色/模型」。
 - 暂时不用 Discord：`bothouse module disable discord`；`bothouse module add discord` 恢复。
+- 想一眼看出 bot 收没收到、是不是卡了：在这个 Discord 平台的配置里加 `ack_reaction = true`，重启后生效。bot 接下消息先贴 👀，干完换成 ✅，出错换成 ❌；重启时清掉上次卡住的 👀。默认关，删掉这行就关。
 - 手动写配置（不用向导）：[接入指南附录 A](../connect-discord-feishu.md#附录-a手动接-discord)。

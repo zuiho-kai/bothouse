@@ -54,6 +54,7 @@ type interactiveTurn struct {
 	toolStartAt         time.Time // last tool call's start, for the tool_done stream event (session_seal.go)
 	watchTurnFinished   bool
 	turnFailed          bool // an EventError ended this turn: it counts toward the idle watch's failure limit
+	promptSendFailed    bool // the prompt never reached the agent; only the TurnReactor reads it (turn_reaction.go)
 	waitStart           time.Time
 	firstEventLogged    bool
 	modelRetryShown     bool // #1536: the model-retry notice goes out once per turn

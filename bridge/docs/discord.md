@@ -126,10 +126,12 @@ type = "discord"
 token = "MTk4NjIyNDgzNDcOTY3NDUxMg.G8vKqh.xxx..."
 # thread_isolation = true  # Optional: isolate each agent session in its own Discord thread
 # progress_style = "card" # Optional: legacy | compact | card (default card)
+# ack_reaction = true     # Optional, default off: 👀 when a message is taken, ✅/❌ when its turn ends
 ```
 
 > bothouse automatically configures the required Intents (MESSAGE_CONTENT, GUILD_MESSAGES, DIRECT_MESSAGES).
 > With `thread_isolation = true`, bothouse creates or reuses a Discord thread for each session and routes follow-up messages by thread channel ID.
+> With `ack_reaction = true`, the bot puts 👀 on each message it takes on (started or queued) and swaps it for ✅ when the turn finishes or ❌ when it fails. A 👀 left by a restart is cleared when the bot reconnects. Off by default.
 > `progress_style = "compact"` merges thinking/tool updates into one editable message; `progress_style = "card"` (the default) renders a Discord-native embed progress card and still sends the final answer as a normal message. The card appears once the turn has a thinking or tool event; a turn that answers directly posts no card.
 
 ---

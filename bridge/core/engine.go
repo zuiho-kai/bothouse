@@ -4032,8 +4032,11 @@ func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
 		// Session is busy — try to queue the message for the running turn
 		// so the agent processes it immediately after the current turn ends.
 		if out := e.queueForBusySession(p, msg, session, sessions, interactiveKey, agent, resolvedWorkspace, nil); out != queueUnavailable {
-			if out == queueAccepted && msg.abortFront {
-				e.abortForQueuedFront(p, msg, interactiveKey) // maomao fork: queued first, now cancel (gate.go)
+			if out == queueAccepted {
+				e.reactReceived(p, msg)
+				if msg.abortFront {
+					e.abortForQueuedFront(p, msg, interactiveKey) // maomao fork: queued first, now cancel (gate.go)
+				}
 			}
 			return
 		}
@@ -4072,6 +4075,7 @@ sessionLocked:
 		"session", session.ID,
 	)
 
+	e.reactReceived(p, msg)
 	e.startInteractiveMessage(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, msg.SessionKey)
 }
 
@@ -6708,6 +6712,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if turn.doneReaction != nil {
 			turn.doneReaction()
 		}
+		e.reactTurnOutcome(turn)
 	}()
 
 	turn.state.mu.Lock()
@@ -6881,6 +6886,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if err != nil {
 				turn.input.finish(inputTurnResult{err: err})
 				slog.Error("failed to send prompt", "error", err, "session_key", turn.sessionKey)
+				turn.promptSendFailed = true
 				turn.sp.discard()
 				if turn.stopTyping != nil {
 					turn.stopTyping()
