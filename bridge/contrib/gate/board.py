@@ -107,6 +107,13 @@ def _locked():
 
 
 def _read(name="board.jsonl"):
+    # Readers share the writer lock: Windows cannot open a replace target mid-rename.
+    with _locked():
+        return _read_locked(name)
+
+
+def _read_locked(name="board.jsonl"):
+    """Read a snapshot while the caller holds board.lock."""
     try:
         lines = _path(name).read_text().splitlines()
     except FileNotFoundError:
@@ -376,8 +383,8 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None,
     """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。
     chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。"""
     with _locked():
-        cur = _read()
-        nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
+        cur = _read_locked()
+        nid = max([i["id"] for i in cur + _read_locked("board-done.jsonl")] + [0]) + 1
         it = {"id": nid, "what": what, "short": (short_name or "").strip()[:SHORT_RUNES] or short_of(what),
               "where": where, "status": status, "who": who, "at": _now(), "dispatcher": os.environ.get("CC_PROJECT", "")}
         if probe:
@@ -406,7 +413,7 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None,
 def unadd(nid):
     """撤掉刚 add 的条目（ws-handoff 叫醒失败时用）：不进 board-done，不算返工。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         tid = next((i.get("guard") for i in cur if i.get("id") == nid), None)
         _write([i for i in cur if i.get("id") != nid])
     _del_timer(tid)
@@ -428,7 +435,7 @@ def set_next(nid, nxt=None, restore=None):
     """later 用：只改条目的「下次看」。nxt 给几点就设上；restore 给改前的记录（{} = 原来没有）就原样放回。
     返回 (改前的 next 记录, 事情)；没这个编号返回 None。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return None
@@ -468,7 +475,7 @@ def _keeps_handoff(old, new):
 def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
     """same_ws：调用方已查明新「谁」指的就是条目眼下绑的工作区（main 里按桥的池子对过 id），不解绑。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
@@ -501,7 +508,7 @@ def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
 def progress(nid):
     """Record an explicit ws-up progress report for this bound workspace task."""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None or not hit.get("ws") or hit.get("paused") or hit.get("backlog"):
             return False
@@ -518,7 +525,7 @@ def link(nid, url, field="card"):
     if not CARD_RE.fullmatch(url):
         raise ValueError("card")
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
@@ -646,7 +653,7 @@ def handoff_of(it):
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
 def pause(nid, why=None):
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
@@ -683,7 +690,7 @@ def wait_external(nid, why, minutes):
         return hit
     until = int(time.time()) + minutes * 60
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         it = next((i for i in cur if i["id"] == nid), None)
         if it is not None:
             it["wait_until"] = until
@@ -706,7 +713,7 @@ def self_pause(nid, why=None):
     """工作区在自己那一轮里 board pause 自己：不暂停、不放回，只记 pause_req（停手原因）和时刻，返回条目；
     不是这种情况返回 None，照常 pause。桥看到 pause_req 就要这一轮交 [report]（core workspace_report.go）。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None or hit.get("paused") or not _in_own_workspace(hit):
             return None
@@ -833,7 +840,7 @@ def _del_timer(tid):
 def disarm_guard(nid):
     """撤掉 #nid 的兜底定时器（没有就什么都不做）。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         tid = hit.pop("guard", None) if hit else None
         if tid:
@@ -861,7 +868,7 @@ def arm_guard(nid, delay=None):
         print(f"board: #{nid} 兜底定时器没挂上（{(p.stderr.strip() or p.stdout.strip())[:200]}）", file=sys.stderr)
         return None
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:  # 挂的时候条目已经结束了
             stale = True
@@ -930,7 +937,7 @@ def bind_pr(nid, url, no_deploy):
     if not match:
         raise ValueError("需要完整 GitHub PR 链接")
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         actor = os.environ.get("CC_PROJECT", "")
         if hit is None or not actor or actor != hit.get("dispatcher"):
@@ -966,7 +973,7 @@ def reconcile_merged_prs():
         if pr.get("state") != "MERGED" or not pr.get("mergedAt"):
             continue
         with _locked():
-            cur = _read()
+            cur = _read_locked()
             hit = next((i for i in cur if i["id"] == item["id"]), None)
             if hit is None or hit.get("pr_binding") != binding or hit.get("bound", "") != binding["bound"] or hit.get("pr_merge") or hit.get("paused"):
                 continue
@@ -1050,7 +1057,7 @@ def mark_deployed(commit, nids=None):
         if not has:
             continue
         with _locked():
-            cur = _read()
+            cur = _read_locked()
             hit = next((i for i in cur if i["id"] == item["id"]), None)
             # Re-read under the lock: the generation and the PAUSE must be the ones queried
             # (#985 review 2.3: an item paused meanwhile must not be written silently).
@@ -1074,7 +1081,7 @@ REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "�
 def set_tier(nid, tier):
     """验收档位记在条目 review_tier 上，桥的复盘扫描（core/team_task_review.go）按它选审核人。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
@@ -1086,7 +1093,7 @@ def set_tier(nid, tier):
 def returned(nid, reviewer, at=None, bound=None, receipt=None):
     """Record a delivered report, not acceptance. Repeated reports keep the deadline."""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if bound is not None:
             if not bound or not receipt or hit is None or hit.get("bound") != bound:
@@ -1101,7 +1108,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
         if hit is None:
             # Legacy workers may say "done" before their final report (#770). That is
             # execution completion, not dispatcher acceptance of a delivered artifact.
-            archived = _read("board-done.jsonl")
+            archived = _read_locked("board-done.jsonl")
             hit = next((i for i in reversed(archived) if i["id"] == nid), None)
             if hit is None or not hit.get("chat"):
                 return False
@@ -1142,7 +1149,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
 def reject(nid, reason):
     """Keep feedback for ws-handoff --resume's occupancy-aware dispatch."""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None or not hit.get("returned_at"):
             return False
@@ -1231,7 +1238,7 @@ def unbind(nid, previous, why):
     previous：start() 开头读到的那条记录。"""
     keys = ("ws", "sk", "who", "returned_at", "review_rejected", "ws_was", "bound", "chat")
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
@@ -1250,7 +1257,7 @@ def rebind(nid, ws, chat=None):
     """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。
     chat：交活的聊天频道，同 add(ws=…, chat=…)；ws-handoff 先上板拿编号再 claim（#699）时由这里补上，pause 按它放工作区。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is not None:
             hit["ws"] = hit["sk"] = ws
@@ -1276,7 +1283,7 @@ def restore(snap):
     update + rebind 已把它记成「已交接」、绑上那个工作区，叫醒没成就得退回原样，不能停在「已交接」（#1492 L3）。
     返回 True 换回了 / False 板上已没有这条。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         k = next((n for n, i in enumerate(cur) if i["id"] == snap.get("id")), None)
         if k is None:
             return False
@@ -1298,7 +1305,7 @@ def hold(nids, why=None):
     """为集中发布暂停（用户 2026-11-04「可以」：发布前主动保存停点的活标「为发布暂停」，发布切完自动续，不计失败）。
     只打标记，不 park：会话和工作区留着，桥重启后原地续。返回标上的编号。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         picked = []
         for i in cur:
             if nids and i["id"] not in nids:
@@ -1320,7 +1327,7 @@ def hold(nids, why=None):
 def unhold(nids, at=None):
     """去掉「为发布暂停」。at：只去掉这一次打的标记（桥重启后续办时带上，免得撤掉重启后新打的）。返回去掉的编号。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         cleared = []
         for i in cur:
             mark = i.get("release_hold")
@@ -1337,7 +1344,7 @@ def unhold(nids, at=None):
 def resume(nid):
     """None：没有这条；False：它没在暂停也没在待办；True：已恢复。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None or not (hit.get("paused") or hit.get("backlog")):
             return None if hit is None else False
@@ -1360,7 +1367,7 @@ def backlog(nid, why=None):
     待办不参加自动收起（prune_candidates 只看 paused）：排下的事不能因为没人动就消失，只有 resume / update / done 才动它。
     返回 {**条目, "ws": 原工作区} / 条目 / None（没有这条）。"""
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return None
@@ -1390,7 +1397,7 @@ def backlog(nid, why=None):
 
 def done(nid, rework=None, why=None):
     with _locked():
-        cur = _read()
+        cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
@@ -1660,7 +1667,7 @@ def auto_prune(dry=False, now=None, check_pr=True, skip=()):
         return picks
     out = []
     with _locked():
-        cur = _read()  # 锁外查 gh 时可能有人改过（update、改暂停原因）：重读，用同一份 PR 结果重判，只收仍该收的
+        cur = _read_locked()  # 锁外查 gh 时可能有人改过（update、改暂停原因）：重读，用同一份 PR 结果重判，只收仍该收的
         ids = {i["id"] for i, _ in picks}
         why = {i["id"]: w for i in cur if i["id"] in ids for w in [prune_why(i, cur, now, prs)] if w}
         hits = [i for i in cur if i["id"] in why]
@@ -1678,9 +1685,9 @@ def unprune(nid):
     """resume 找回自动收起的条目：board-done.jsonl 里这个编号最后一条是 auto_pruned 的，拿回板上（照旧暂停着）。
     手动 done 的不找回。返回放回的条目，没有返回 None。"""
     with _locked():
-        if any(i.get("id") == nid for i in _read()):
+        if any(i.get("id") == nid for i in _read_locked()):
             return None
-        recs = _read("board-done.jsonl")
+        recs = _read_locked("board-done.jsonl")
         k = next((k for k in range(len(recs) - 1, -1, -1) if recs[k].get("id") == nid), None)
         if k is None or not recs[k].get("auto_pruned"):
             return None
@@ -1689,7 +1696,7 @@ def unprune(nid):
         rec["at"] = _now()
         rec["unpruned"] = True
         _write(recs, "board-done.jsonl")  # 同样的唯一临时名 + 重试（#257；原来所有进程共抢 .tmp）
-        _write(_read() + [rec])
+        _write(_read_locked() + [rec])
     return rec
 
 

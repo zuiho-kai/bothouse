@@ -69,6 +69,32 @@ class WindowsCompat(unittest.TestCase):
             release.write_text("1")
             p.wait(timeout=30)
 
+    def test_board_snapshot_waits_for_writer(self):
+        # PR1785: auto_prune read board.jsonl outside the writer's lock on Windows.
+        # A snapshot must wait for the writer instead of opening its replace target.
+        sys.path.insert(0, str(HERE))
+        import filelock
+        team = self.tmp / "team"
+        team.mkdir()
+        rows = [{"id": 1, "what": "并发快照"}]
+        (team / "board.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        code = ("import sys,json; sys.path.insert(0, sys.argv[1]); import board; "
+                "print('reading', flush=True); print(json.dumps(board.items()))")
+        with open(team / "board.lock", "w") as lock:
+            filelock.lock(lock)
+            p = subprocess.Popen([sys.executable, "-X", "utf8", "-I", "-c", code, str(HERE)],
+                                 env=_env(self.tmp), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, encoding="utf-8")
+            try:
+                self.assertEqual(p.stdout.readline().strip(), "reading")
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    p.communicate(timeout=0.3)
+            finally:
+                lock.close()
+                out, err = p.communicate(timeout=10)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertEqual(json.loads(out), rows)
+
     def test_board_concurrent_add(self):
         n = 8
         env = _env(self.tmp)
