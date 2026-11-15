@@ -413,12 +413,46 @@ def render(p, label):
     ok(f"{label}: panel renders ({len(text)} chars of text, screenshot {shot})")
 
 
+def bridge_settled(p, member_id):
+    """#1662: the plugin hands its members to the bridge (setup apply) after dsh web opens, and the bridge
+    restarts to take them; an @ sent in that second reaches no bot. Settled = the member's role in
+    config.toml dials this dsh web's port as the plugin wrote it (allow_from owner), and the bridge has
+    connected to it since its last restart."""
+    import glob
+    import tomllib
+    if not (p.dsh_log and os.path.exists(p.dsh_log)):
+        return False
+    with open(p.dsh_log, encoding="utf-8", errors="replace") as f:
+        ports = re.findall(r"dsh web: http://127\.0\.0\.1:(\d+)/", f.read())
+    if not ports:
+        return False
+    with open(os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml"), "rb") as f:
+        cfg = tomllib.load(f)
+    url = ""
+    for proj in cfg.get("projects", []):
+        for pl in proj.get("platforms", []):
+            o = pl.get("options", {})
+            if pl.get("type") == "cloud_web" and f"bot={member_id}&" in o.get("ws_url", "") + "&":
+                if o.get("allow_from") == "owner":
+                    url = o["ws_url"]
+    if f"127.0.0.1:{ports[-1]}/" not in url:
+        return False
+    logs = sorted(glob.glob(os.path.join(args.out, "bothouse-*.log")), key=os.path.getmtime)
+    with open(logs[-1], encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    since = text.rfind("source=restart_command")
+    return text.find("websocket connected", max(since, 0)) >= 0 and f"127.0.0.1:{ports[-1]}/cloud-web/ws?bot={member_id}" in text[max(since, 0):]
+
+
 def mention(p, s, label):
     rooms = s.get("rooms") or []
     if not rooms:
         fail(f"{label}: no channel in the collab state")
     room = rooms[0]
     fish = next(m for m in s["members"] if m.get("name") == ROLES[0]["name"])
+    wait(f"{label}: bridge took the plugin's members", lambda: bridge_settled(p, fish["id"]), T_OPEN, 2)
+    time.sleep(3)  # a restart the last apply asked for starts within a second
+    wait(f"{label}: bridge took the plugin's members (after 3 s)", lambda: bridge_settled(p, fish["id"]), T_OPEN, 2)
     code, r = p.collab("POST", f"/collab/api/rooms/{room['id']}/messages",
                        {"text": f"@{fish['name']} 回一句话就行", "client_key": f"ci-{label}-{time.time()}"})
     if code != HTTP_OK:
