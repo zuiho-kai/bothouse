@@ -82,7 +82,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("kimi: %q CLI not found in PATH, install with: pip install kimi-cli", cmd)
+		return nil, fmt.Errorf("kimi: %q %w, install with: pip install kimi-cli", cmd, core.ErrCLINotFound)
 	}
 
 	// Probe once so Send() can build args that match the installed CLI

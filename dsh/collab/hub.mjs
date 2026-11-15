@@ -1,7 +1,6 @@
 // Room hub: one place that appends a message and fans it out — to browser
 // event streams, to connected cc-connect bots, and to DSH member drivers.
 import { publicMessage } from './store.mjs';
-import { mentions } from './mentions.mjs';
 
 export class Hub {
   /**
@@ -158,24 +157,6 @@ export class Hub {
       ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
       ...(this.presence.get(id) ?? {}),
     }));
-  }
-
-  /**
-   * Who a human reply addresses, mirroring bridge/platform/discord/reply_routing.go:
-   * null = not a reply to settle (normal @ rules apply); otherwise the only
-   * member ids that may take it. With an explicit @, the @-ed members plus the
-   * replied-to agent; without one, only the replied-to agent; a deleted
-   * original names nobody (no guessing); a reply to a human keeps normal rules.
-   */
-  replyRoute(msg) {
-    if (msg.reply_to == null || msg.author_kind !== 'user') return null;
-    const ref = this.store.message(msg.reply_to);
-    const refAgent = ref !== undefined && ref.room_id === msg.room_id && ref.author_kind === 'role' ? ref.author : undefined;
-    const explicit = mentions(msg.text, this.routableIn(msg.room_id));
-    if (explicit.size > 0) return refAgent === undefined ? explicit : new Set([...explicit, refAgent]);
-    if (ref === undefined || ref.room_id !== msg.room_id) return new Set();
-    if (refAgent !== undefined) return new Set([refAgent]);
-    return null;
   }
 
   /** Register an async consumer of newly created messages. */

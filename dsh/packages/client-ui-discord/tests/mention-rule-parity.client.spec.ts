@@ -1,10 +1,10 @@
 // #237: the channel page must colour exactly the members the backend calls. Both sides carry this
-// same case table — this spec runs it against the page matcher and against dsh/collab/mentions.mjs
+// same case table — this spec runs it against the page matcher and against the bridge's rule (backend-mentions.ts)
 // and requires the two answers to be identical, so a rule change on one side alone turns red.
 import { describe, expect, it } from 'vitest'
 import type { ChannelMember } from '../src/client/channel-source.ts'
 import { splitMentions } from '../src/client/mention-highlight.tsx'
-import { mentions as backendMentions } from '../../../collab/mentions.mjs'
+import { backendMentions } from './backend-mentions.ts'
 
 const members: ChannelMember[] = [
   { id: 'dsh', name: '肥鱼', kind: 'bot', online: true, mentionId: '1001' },

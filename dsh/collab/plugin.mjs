@@ -1,4 +1,3 @@
-import { personaLibrary } from './personas.mjs';
 // CoNest collab: Discord-style channels inside a DSH Web host. Load it by
 // absolute path from a --patch overlay (see dsh/README.md):
 //   - insert:
@@ -191,10 +190,12 @@ export async function apply(ctx, rawConfig) {
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
-  // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh).
-  const seeded = await roster.seedDefaults(join(config.dataDir, 'default-members.json'), 'zh', ctx.logger);
-  if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', '));
   bridge.sync();
+  // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh): the bridge's, so on
+  // a machine without bothouse this waits for the install — in the background, the channels open meanwhile.
+  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => bridge.personas('zh'), ctx.logger)
+    .then(seeded => { if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', ')); })
+    .catch(error => ctx.logger.warn('conest-collab: default members not added: %s', error?.message ?? error));
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
   const desk = r.desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
   desk.start();
@@ -287,7 +288,7 @@ export async function apply(ctx, rawConfig) {
       if (remote !== undefined) return remote;
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);
-    if (path === '/collab/api/personas' && req.method === 'GET') return json(res, 200, personaLibrary(url.searchParams.get('lang') ?? 'zh'));
+    if (path === '/collab/api/personas' && req.method === 'GET') return r.bridge.personas(url.searchParams.get('lang') ?? 'zh').then(list => json(res, 200, list));
     if (path === '/collab/api/state' && req.method === 'GET') {
       return json(res, 200, { me: OWNER, lead_id: hub.selectedPrimaryMember()?.id ?? null,
         effective_lead_id: hub.primaryMember()?.id ?? null,

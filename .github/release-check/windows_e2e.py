@@ -240,8 +240,25 @@ def diagnose(p, room, member, after):
     print("member:", json.dumps(next((m for m in s.get("members", []) if m.get("id") == member["id"]), {}), ensure_ascii=False)[:800])
     c, page = p.collab("GET", f"/collab/api/rooms/{room['id']}/messages?after={after - 1}")
     for m in (page.get("messages", []) if isinstance(page, dict) else []):
-        print("  msg", m.get("author_kind"), m.get("name"), repr((m.get("text") or "")[:300]))
+        print("  msg", m.get("author_kind"), m.get("author"), m.get("name"), repr((m.get("text") or "")[:300]))
     print("stub model calls:", stub_calls[-10:])
+    cfg = os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml")
+    if os.path.exists(cfg):  # allow_from, ws_url, bot id of each role (a CI runner's config: no real keys)
+        with open(cfg, encoding="utf-8", errors="replace") as f:
+            print("config.toml cloud_web lines:")
+            for line in f:
+                if re.match(r"\s*(name|type|ws_url|allow_from|group_reply_all)\s*=", line):
+                    print("  |", re.sub(r"token=[^&\"]+", "token=…", line.rstrip()))
+    logs = os.path.join(os.path.expanduser("~"), ".bothouse", "logs")
+    if os.path.isdir(logs):  # gate.log, bothouse.log: where the @ stopped (kept with the artifact)
+        import shutil
+        shutil.copytree(logs, os.path.join(args.out, "bothouse-logs"), dirs_exist_ok=True)
+        gate = os.path.join(logs, "gate.log")
+        if os.path.exists(gate):
+            with open(gate, encoding="utf-8", errors="replace") as f:
+                print("gate log tail:")
+                for line in f.readlines()[-30:]:
+                    print("  |", line.rstrip())
     if p.dsh_log and os.path.exists(p.dsh_log):
         with open(p.dsh_log, encoding="utf-8", errors="replace") as f:
             tail = f.readlines()[-60:]
@@ -267,13 +284,27 @@ def wait(what, fn, timeout, every=1.0, on_fail=None):
     fail(f"{what}: not within {timeout}s (last: {str(last)[:300]})")
 
 
+RUNNING_RE = re.compile(r"bothouse is running")
+
+
+def configured_panel():
+    """Normal mode (roles configured) prints no sign-in link: read the panel's port and token from config.toml."""
+    import tomllib
+    with open(os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml"), "rb") as f:
+        mg = tomllib.load(f).get("management", {})
+    return str(mg.get("port", 9820)), mg.get("token", "")
+
+
 def start(n):
     bh = Bothouse(n)
-    m = bh.wait_line(LINK_RE, T_LINK)
+    # Setup mode prints the wizard link; since #1662 the DSH plugin's members are bridge roles, so a
+    # configured machine starts in normal mode and says "bothouse is running" instead.
+    m = bh.wait_line(re.compile(LINK_RE.pattern + "|" + RUNNING_RE.pattern), T_LINK)
     if not m:
         bh.stop()
         fail(f"start {n}: no panel/wizard link printed within {T_LINK}s (log {bh.log.name})")
-    p = Panel(m.group(2), m.group(3))
+    port, token = (m.group(2), m.group(3)) if m.group(1) else configured_panel()
+    p = Panel(port, token)
     wait("panel answers", lambda: p.req("GET", "/api/v1/setup/state")[0] == HTTP_OK, T_HTTP)
     ok(f"start {n}: bothouse up at {p.base}")
     return bh, p
@@ -382,12 +413,46 @@ def render(p, label):
     ok(f"{label}: panel renders ({len(text)} chars of text, screenshot {shot})")
 
 
+def bridge_settled(p, member_id):
+    """#1662: the plugin hands its members to the bridge (setup apply) after dsh web opens, and the bridge
+    restarts to take them; an @ sent in that second reaches no bot. Settled = the member's role in
+    config.toml dials this dsh web's port as the plugin wrote it (allow_from owner), and the bridge has
+    connected to it since its last restart."""
+    import glob
+    import tomllib
+    if not (p.dsh_log and os.path.exists(p.dsh_log)):
+        return False
+    with open(p.dsh_log, encoding="utf-8", errors="replace") as f:
+        ports = re.findall(r"dsh web: http://127\.0\.0\.1:(\d+)/", f.read())
+    if not ports:
+        return False
+    with open(os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml"), "rb") as f:
+        cfg = tomllib.load(f)
+    url = ""
+    for proj in cfg.get("projects", []):
+        for pl in proj.get("platforms", []):
+            o = pl.get("options", {})
+            if pl.get("type") == "cloud_web" and f"bot={member_id}&" in o.get("ws_url", "") + "&":
+                if o.get("allow_from") == "owner":
+                    url = o["ws_url"]
+    if f"127.0.0.1:{ports[-1]}/" not in url:
+        return False
+    logs = sorted(glob.glob(os.path.join(args.out, "bothouse-*.log")), key=os.path.getmtime)
+    with open(logs[-1], encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    since = text.rfind("source=restart_command")
+    return text.find("websocket connected", max(since, 0)) >= 0 and f"127.0.0.1:{ports[-1]}/cloud-web/ws?bot={member_id}" in text[max(since, 0):]
+
+
 def mention(p, s, label):
     rooms = s.get("rooms") or []
     if not rooms:
         fail(f"{label}: no channel in the collab state")
     room = rooms[0]
     fish = next(m for m in s["members"] if m.get("name") == ROLES[0]["name"])
+    wait(f"{label}: bridge took the plugin's members", lambda: bridge_settled(p, fish["id"]), T_OPEN, 2)
+    time.sleep(3)  # a restart the last apply asked for starts within a second
+    wait(f"{label}: bridge took the plugin's members (after 3 s)", lambda: bridge_settled(p, fish["id"]), T_OPEN, 2)
     code, r = p.collab("POST", f"/collab/api/rooms/{room['id']}/messages",
                        {"text": f"@{fish['name']} 回一句话就行", "client_key": f"ci-{label}-{time.time()}"})
     if code != HTTP_OK:

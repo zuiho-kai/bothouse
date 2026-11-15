@@ -72,7 +72,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("gemini: %q CLI not found in PATH, install with: npm i -g @google/gemini-cli", cmd)
+		return nil, fmt.Errorf("gemini: %q %w, install with: npm i -g @google/gemini-cli", cmd, core.ErrCLINotFound)
 	}
 
 	return &Agent{

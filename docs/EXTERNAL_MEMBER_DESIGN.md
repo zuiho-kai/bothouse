@@ -48,7 +48,7 @@ AstrBot / MaiBot 这类第三方聊天机器人已经在大量 QQ / 微信群中
 |---|---|
 | 外部 bot 以成员身份注册（id/name/mention id/avatar） | `dsh/collab/cloudweb.mjs` `register()`；`GET /cloud-web/ws?bot=&name=&mention_id=&avatar=` |
 | 注册确认与能力协商（`register_ack` + `capabilities`） | 同上；`CAPABILITIES` |
-| 被 @ 语义（`@名字` / `@id` / `<@mention_id>`） | `dsh/collab/mentions.mjs` |
+| 被 @ 语义（`@名字` / `@id` / `<@mention_id>`） | `bridge/platform/cloud-web/mentions.go` |
 | 消息帧含 `mentioned` / `from_bot` / `reply_ctx` / `reply_to_*` | `cloudweb.mjs` 消息下发 |
 | 回复帧（`reply`）以角色身份入库并广播 | `cloudweb.mjs` `case 'reply'` |
 | 断线/重连替换旧连接（4003）、重名/保留 id 拒绝（4002） | `cloudweb.mjs` `register()`；`collab.test.mjs` |
@@ -326,7 +326,7 @@ AstrBot / MaiBot 这类第三方聊天机器人已经在大量 QQ / 微信群中
 - #539：局域网多设备协作（已关闭；真机验证背景）
 - #882：共享会话长任务阻塞消息（真机测试发现，另行跟踪）
 - `dsh/collab/cloudweb.mjs`：cloud-web 网关（注册/路由/回复/鉴权）
-- `dsh/collab/mentions.mjs`：mention 解析
+- `bridge/platform/cloud-web/mentions.go`：mention 解析
 - `dsh/collab/collab.test.mjs`：collab 测试（FakeWs / makeHub / connect 辅助）
 - `docs/astrbot-bridge.md` §7：L2 成员身份已验证行为（社区文档）
 - `bridge/docs/cloud-web.md`：bothouse 作为客户端连接 cloud-web 的协议文档

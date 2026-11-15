@@ -154,3 +154,11 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：本批交接 #779 只做 Discord 论坛入站，飞书没有任务论坛帖，消息仍走原入口
 - cloud-web: 不支持：本批交接 #779 只做 Discord 论坛入站，网页频道没有任务论坛帖，消息仍走原入口
 - dsh: 不支持：同 cloud-web
+
+## PermissionTextAnswerNotifier
+
+主人用文字（「允许」「拒绝」）回了权限请求后，告诉平台关掉它自己画的权限卡（#1662，core/engine.go handlePendingPermission）。只有自己画卡的宿主需要。
+
+- cloud-web: 已接
+- discord: 不支持：权限请求是桥发的按钮消息，文字回复后桥照常回一句结果，没有宿主侧的卡要关
+- feishu: 不支持：权限请求是桥发的卡片消息，文字回复后桥照常回一句结果，没有宿主侧的卡要关

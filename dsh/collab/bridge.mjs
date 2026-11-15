@@ -96,6 +96,37 @@ export class Bridge {
     this.first = true;
     this.timer = undefined;
     this.running = Promise.resolve();
+    this.personaCache = new Map();
+  }
+
+  /** The bothouse binary, installing it once when the machine has none. */
+  binary() {
+    const bin = bridgeBinary(this.env);
+    if (bin !== undefined) return Promise.resolve(bin);
+    this.installing ??= this.install().finally(() => { this.installing = undefined; });
+    return this.installing;
+  }
+
+  /**
+   * The bridge's persona presets (`bothouse setup personas`, core/persona_presets.go) in the shape the
+   * add-member picker reads: { slug, name, intro, avatar, text }. #1662: the catalog is the bridge's,
+   * not a copy in the plugin.
+   */
+  async personas(lang = 'zh') {
+    const key = String(lang).toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    if (this.personaCache.has(key)) return this.personaCache.get(key);
+    const bin = await this.binary();
+    if (bin === undefined) return [];
+    const r = await run(bin, ['setup', 'personas', '--lang', key], { timeout: APPLY_TIMEOUT_MS, env: this.env });
+    let list;
+    try { list = JSON.parse(r.out.slice(r.out.indexOf('['))); } catch { list = undefined; }
+    if (!Array.isArray(list)) {
+      this.logger?.warn?.('conest-collab: bothouse setup personas failed: %s', r.out.slice(-300));
+      return [];
+    }
+    const out = list.map(({ id, ...rest }) => ({ slug: id, ...rest }));
+    this.personaCache.set(key, out);
+    return out;
   }
 
   /**
@@ -128,10 +159,13 @@ export class Bridge {
   async apply() {
     const url = this.origin();
     if (url === undefined) return;
-    const bin = bridgeBinary(this.env) ?? await this.install();
+    const bin = await this.binary();
     if (bin === undefined) return;
     const remove = [...this.removed];
-    const req = applyRequest(this.members(), { url, token: this.token, lead: this.lead(), remove });
+    const members = this.members();
+    // No member yet (the default one is still being added): nothing to hand over; setup apply refuses an empty list.
+    if (members.length === 0 && remove.length === 0) return;
+    const req = applyRequest(members, { url, token: this.token, lead: this.lead(), remove });
     const before = this.configText();
     const r = await run(bin, ['setup', 'apply', '--json', '-'], { input: JSON.stringify(req), timeout: APPLY_TIMEOUT_MS, log: join(this.dataDir, 'bothouse-apply.log'), env: this.env });
     let res;
