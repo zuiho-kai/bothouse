@@ -3492,6 +3492,9 @@ def dream(db, deadline):
     if words == {}:
         db.execute("insert into dream_window values (?)", (hi,))  # nothing said in the window: read, done
     db.commit()
+    # every dream op cites a U-numbered USER line: the items that have one are packed first, and a batch without any
+    # (bridged sessions, context only) is recorded as read without a model call
+    items.sort(key=lambda it: not U_LINE.search(it["text"]))
     # an oversized session is split over several batches: record it only once every piece passed
     pieces = {}
     for batch in batches_of(items):
@@ -3505,15 +3508,19 @@ def dream(db, deadline):
         ids = list(dict.fromkeys(it["id"] for it, _ in batch))
         text = "".join(piece for _, piece in batch)
         label = f"dream {len(ids)} sessions"
-        log(f"{label}: {len(text)} chars → {DREAM_ENGINE}")
         said = {it["id"][:8]: it["user"] for it in items if it["end"] is not None}
         known = countable(paths, said)
         verdicts = {}
         try:
-            ok = model_pass(label, SOP_DREAM_JSON, context=text, engine=DREAM_ENGINE, max_delete=MAX_NET_DELETE,
-                            kind="dreamed", apply=lambda out: dream_render(out, citations, known, verdicts, label),
-                            check=lambda: "\n".join(e for e in (misquotes(said, citations=citations), dream_counts(known)) if e),
-                            fix_context=text)
+            if not U_LINE.search(text):
+                log(f"{label}: {len(text)} chars, no U-numbered user line → read, no model call")
+                ok = True
+            else:
+                log(f"{label}: {len(text)} chars → {DREAM_ENGINE}")
+                ok = model_pass(label, SOP_DREAM_JSON, context=text, engine=DREAM_ENGINE, max_delete=MAX_NET_DELETE,
+                                kind="dreamed", apply=lambda out: dream_render(out, citations, known, verdicts, label),
+                                check=lambda: "\n".join(e for e in (misquotes(said, citations=citations), dream_counts(known)) if e),
+                                fix_context=text)
         except Exception as e:  # noqa: BLE001 — a script error fails this batch only; reflect and review still run (M1)
             log(f"{label} FAILED: {type(e).__name__}: {e}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
             discard()
@@ -3728,6 +3735,10 @@ def candidates_note(text):
 def citation_text(evidence):
     day, sid, text = evidence
     return f"{day} {sid}「{short_quote(text)}」"
+
+
+# a USER line that carries a citation ID (dialog(), said_lines()): the only lines a dream op can cite
+U_LINE = re.compile(r"^USER \[[^\]\n]*\] U\d+: ", re.M)
 
 
 def cite_user(citations, sid, day, text):

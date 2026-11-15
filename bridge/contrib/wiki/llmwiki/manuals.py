@@ -434,10 +434,19 @@ def tidy(f, day, ask_fn=None):
     return False
 
 
+ROW = re.compile(r"^- 手册 ([a-z0-9-]+)（", re.M)
+
+
+def index_pages():
+    """登记行现在所在的页，行多的在前。wiki 拆页会把 INDEX 的行搬进同目录下的子页，再照 INDEX 原路径写就每晚
+    新造一张没人列的同名页。"""
+    pages = [(len(ROW.findall(f.read_text())), f) for f in sorted((WIKI / INDEX).parent.rglob("*.md"))]
+    return [f for n, f in sorted(pages, key=lambda x: -x[0]) if n]
+
+
 def auto_names():
-    """夜里自动起草的手册名（INDEX 页每份一行）；人工收的（jlc-order、pebrel-runtime 等）不在里面，不碰。"""
-    page = WIKI / INDEX
-    return re.findall(r"^- 手册 ([a-z0-9-]+)（", page.read_text(), re.M) if page.exists() else []
+    """夜里自动起草的手册名（登记页每份一行）；人工收的（jlc-order、pebrel-runtime 等）不在里面，不碰。"""
+    return list(dict.fromkeys(n for f in index_pages() for n in ROW.findall(f.read_text())))
 
 
 def tidy_all(day, names=None, deadline=None, ask_fn=None):
@@ -469,8 +478,9 @@ def tidy_all(day, names=None, deadline=None, ask_fn=None):
 
 
 def register(rows, day):
-    """新手册在 INDEX 页各记一行（论坛的一帖）。页不存在就建；只追加，旧行不动。提交只带这一页。"""
-    page = WIKI / INDEX
+    """新手册在登记页（index_pages() 行最多的那页，没有就 INDEX）各记一行。页不存在就建；只追加，旧行不动。提交只带这一页。"""
+    page = (index_pages() or [WIKI / INDEX])[0]
+    index = page.relative_to(WIKI).as_posix()
     if not page.exists():
         page.parent.mkdir(parents=True, exist_ok=True)
         page.write_text("---\nname: auto-manuals\ndescription: 夜里自动起草的操作手册（skill）目录：一行一份，正文在 "
@@ -483,8 +493,8 @@ def register(rows, day):
         text += f"- 手册 {name}（{day} 夜里起草）：{desc}；正文 {shown}，用到才读\n"
     page.write_text(text)
     if (WIKI / ".git").exists() and not os.environ.get("MANUALS_NO_COMMIT"):
-        subprocess.run(["git", "-C", str(WIKI), "add", INDEX], capture_output=True)
-        r = subprocess.run(["git", "-C", str(WIKI), "commit", "-m", f"manuals: {day} 起草 {len(rows)} 份手册", "--", INDEX],
+        subprocess.run(["git", "-C", str(WIKI), "add", index], capture_output=True)
+        r = subprocess.run(["git", "-C", str(WIKI), "commit", "-m", f"manuals: {day} 起草 {len(rows)} 份手册", "--", index],
                            capture_output=True, text=True)
         log("index commit " + ("ok" if r.returncode == 0 else f"FAILED {(r.stderr or r.stdout)[-200:]}"))
 
