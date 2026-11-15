@@ -242,6 +242,16 @@ def diagnose(p, room, member, after):
     for m in (page.get("messages", []) if isinstance(page, dict) else []):
         print("  msg", m.get("author_kind"), m.get("name"), repr((m.get("text") or "")[:300]))
     print("stub model calls:", stub_calls[-10:])
+    logs = os.path.join(os.path.expanduser("~"), ".bothouse", "logs")
+    if os.path.isdir(logs):  # gate.log, bothouse.log: where the @ stopped (kept with the artifact)
+        import shutil
+        shutil.copytree(logs, os.path.join(args.out, "bothouse-logs"), dirs_exist_ok=True)
+        gate = os.path.join(logs, "gate.log")
+        if os.path.exists(gate):
+            with open(gate, encoding="utf-8", errors="replace") as f:
+                print("gate log tail:")
+                for line in f.readlines()[-30:]:
+                    print("  |", line.rstrip())
     if p.dsh_log and os.path.exists(p.dsh_log):
         with open(p.dsh_log, encoding="utf-8", errors="replace") as f:
             tail = f.readlines()[-60:]
@@ -267,13 +277,27 @@ def wait(what, fn, timeout, every=1.0, on_fail=None):
     fail(f"{what}: not within {timeout}s (last: {str(last)[:300]})")
 
 
+RUNNING_RE = re.compile(r"bothouse is running")
+
+
+def configured_panel():
+    """Normal mode (roles configured) prints no sign-in link: read the panel's port and token from config.toml."""
+    import tomllib
+    with open(os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml"), "rb") as f:
+        mg = tomllib.load(f).get("management", {})
+    return str(mg.get("port", 9820)), mg.get("token", "")
+
+
 def start(n):
     bh = Bothouse(n)
-    m = bh.wait_line(LINK_RE, T_LINK)
+    # Setup mode prints the wizard link; since #1662 the DSH plugin's members are bridge roles, so a
+    # configured machine starts in normal mode and says "bothouse is running" instead.
+    m = bh.wait_line(re.compile(LINK_RE.pattern + "|" + RUNNING_RE.pattern), T_LINK)
     if not m:
         bh.stop()
         fail(f"start {n}: no panel/wizard link printed within {T_LINK}s (log {bh.log.name})")
-    p = Panel(m.group(2), m.group(3))
+    port, token = (m.group(2), m.group(3)) if m.group(1) else configured_panel()
+    p = Panel(port, token)
     wait("panel answers", lambda: p.req("GET", "/api/v1/setup/state")[0] == HTTP_OK, T_HTTP)
     ok(f"start {n}: bothouse up at {p.base}")
     return bh, p
