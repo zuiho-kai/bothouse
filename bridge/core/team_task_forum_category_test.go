@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strconv"
@@ -204,5 +205,113 @@ func TestTaskForumLegacyMapKeepsOriginalForumAndArchive(t *testing.T) {
 	rt.mu.Unlock()
 	if !archived || !p.post(post.Thread).archived {
 		t.Fatal("legacy post did not archive")
+	}
+}
+
+type missingSourceForumPlatform struct {
+	*forumRoutingPlatform
+}
+
+func (p *missingSourceForumPlatform) TaskForumScope(ctx context.Context, chat string) (TaskForum, error) {
+	if chat == "111" {
+		return TaskForum{}, errForumGone
+	}
+	return p.forumRoutingPlatform.TaskForumScope(ctx, chat)
+}
+
+func TestTaskForumLegacyWaitingSummaryUsesSavedSourceCategory(t *testing.T) {
+	for _, savedForum := range []string{"", "legacy"} {
+		t.Run("savedForum="+savedForum, func(t *testing.T) {
+			e, p, dir := forumRoutingEngine(t)
+			p.scopes = map[string]TaskForum{
+				"111": {ID: "forumA", GuildID: "g1", CategoryID: "A"},
+				"112": {ID: "forumA", GuildID: "g1", CategoryID: "A"},
+				"222": {ID: "forumB", GuildID: "g1", CategoryID: "B"},
+			}
+			// The board's current placement differs from the legacy post's saved source.
+			writeTaskBoard(t, dir, team.TaskBoardFile, categoryTestRows("222", "112", "222"))
+			legacy := &taskForumPostState{Platform: "discord", Guild: "g1", Forum: savedForum, Chat: "discord:111", Thread: "old-post"}
+			state := taskForumState{
+				Chats: map[string]string{"discord:111": "discord:g1:A"},
+				Forums: map[string]TaskForum{
+					"discord:g1":   {ID: "legacy", GuildID: "g1"},
+					"discord:g1:A": p.scopes["111"],
+					"discord:g1:B": p.scopes["222"],
+				},
+				Posts: map[string]*taskForumPostState{
+					"1": legacy,
+					"2": {Platform: "discord", Guild: "g1", Forum: "forumA", Chat: "discord:112", Thread: "new-A"},
+					"3": {Platform: "discord", Guild: "g1", Forum: "forumB", Chat: "discord:222", Thread: "new-B"},
+				},
+			}
+			raw, err := json.Marshal(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(e.taskForumPath(), raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			oldURL := taskForumURL(legacy)
+			for _, chat := range []string{"111", "112"} {
+				summary := e.taskForumWaitingSummary("discord:"+chat, time.Now())
+				if !strings.Contains(summary, "等你拍板 2 件") || strings.Count(summary, oldURL) != 1 || !strings.Contains(summary, "/g1/forumA") {
+					t.Fatalf("legacy task missing or duplicated in source category: %s", summary)
+				}
+			}
+			summary := e.taskForumWaitingSummary("discord:222", time.Now())
+			if !strings.Contains(summary, "等你拍板 1 件") || strings.Contains(summary, oldURL) {
+				t.Fatalf("legacy task leaked to another category: %s", summary)
+			}
+			// Exercise the existing hourly-roundup entry, including its unrelated review item.
+			now := time.Now()
+			returned := now.Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+			writeTaskBoard(t, dir, team.TaskBoardFile, categoryTestRows("222", "112", "222")+`{"id":4,"what":"保留原收口事项","status":"已交回待验收","chat":"discord:112","reviewer":"lead","returned_at":"`+returned+`"}`+"\n")
+			at, _ := time.Parse(time.RFC3339Nano, returned)
+			job := &TimerJob{SessionKey: "discord:112", TaskReview: &taskReviewRef{Stage: "roundup", Hour: now, Items: []taskReviewRef{{Board: 4, ReturnedAt: at}}}}
+			prepared, err := e.prepareTaskReview(job, now)
+			if err != nil || prepared == nil {
+				t.Fatalf("prepare existing roundup: %v %v", prepared, err)
+			}
+			if !strings.Contains(prepared.Prompt, "保留原收口事项") || !strings.Contains(prepared.Prompt, "等你拍板 2 件") || strings.Count(prepared.Prompt, oldURL) != 1 {
+				t.Fatal(prepared.Prompt)
+			}
+			t.Logf("roundup source category: 2 waiting tasks, legacy original post linked exactly once; other category: 1 task, no legacy link")
+			// Gateway discovery, not the persisted scope cache, determines the legacy category.
+			p.scopes["111"] = p.scopes["222"]
+			summary = e.taskForumWaitingSummary("discord:112", time.Now())
+			if !strings.Contains(summary, "等你拍板 1 件") || strings.Contains(summary, oldURL) {
+				t.Fatalf("moved legacy source stayed in old category: %s", summary)
+			}
+			summary = e.taskForumWaitingSummary("discord:222", time.Now())
+			if !strings.Contains(summary, "等你拍板 2 件") || strings.Count(summary, oldURL) != 1 {
+				t.Fatalf("moved legacy source not counted once: %s", summary)
+			}
+			p.scopes["111"] = p.scopes["112"]
+			// An existing legacy post needs no newly created category forum to be counted.
+			delete(state.Forums, "discord:g1:A")
+			delete(state.Posts, "2")
+			writeTaskBoard(t, dir, team.TaskBoardFile, categoryTestRows("222"))
+			raw, _ = json.Marshal(state)
+			if err := os.WriteFile(e.taskForumPath(), raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			summary = e.taskForumWaitingSummary("discord:112", time.Now())
+			if !strings.Contains(summary, "等你拍板 1 件") || strings.Count(summary, oldURL) != 1 {
+				t.Fatalf("legacy-only summary missing: %s", summary)
+			}
+			// Current category discovery wins over a stale saved scope. No fallback category.
+			p.scopes["111"] = TaskForum{GuildID: "g1"}
+			if summary := e.taskForumWaitingSummary("discord:112", time.Now()); summary != "" {
+				t.Fatalf("uncategorized source counted: %s", summary)
+			}
+			e.platforms = []Platform{&missingSourceForumPlatform{p}}
+			if summary := e.taskForumWaitingSummary("discord:112", time.Now()); summary != "" {
+				t.Fatalf("deleted source counted: %s", summary)
+			}
+			after, err := os.ReadFile(e.taskForumPath())
+			if err != nil || string(after) != string(raw) || legacy.Chat != "discord:111" || taskForumURL(legacy) != oldURL || p.opens != 0 || p.ensures != 0 {
+				t.Fatal("summary changed legacy identity or created a forum/post")
+			}
+		})
 	}
 }

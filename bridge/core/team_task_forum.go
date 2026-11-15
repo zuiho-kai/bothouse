@@ -1096,33 +1096,44 @@ func (e *Engine) taskForumWaitingSummary(session string, now time.Time) string {
 	rt := e.taskForumRT()
 	rt.mu.Lock()
 	s := e.taskForumLoadLocked()
-	forum, ok := s.Forums[group]
-	// Count actual post destinations: moving a source chat does not move its old tasks.
-	posts := make(map[string]string, len(s.Posts))
+	forum := s.Forums[group]
+	// Category posts retain their actual destination. Legacy server-wide posts
+	// have no category destination, so resolve their saved source's current category.
+	posts := make(map[string]taskForumPostState, len(s.Posts))
+	legacy := make(map[string]bool)
 	for id, post := range s.Posts {
 		if post == nil || post.Platform != plat {
 			continue
 		}
-		posts[id] = post.Forum
-		if posts[id] == "" {
-			posts[id] = s.Forums[plat+":"+post.Guild].ID
-		}
+		posts[id] = *post
+		oldForum := s.Forums[plat+":"+post.Guild].ID
+		legacy[id] = oldForum != "" && (post.Forum == "" || post.Forum == oldForum)
 	}
 	rt.mu.Unlock()
-	if !ok || forum.ID == "" {
-		return ""
-	}
 	count := 0
+	var links []string
+	if forum.ID != "" {
+		links = append(links, fmt.Sprintf("https://discord.com/channels/%s/%s", forum.GuildID, forum.ID))
+	}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if !taskForumWant(it) {
 			continue
 		}
-		if dest, hasPost := posts[strconv.Itoa(it.ID)]; hasPost {
-			if dest != forum.ID {
+		if tag, _ := taskForumTagOf(it, now); tag != TaskForumTagWaiting {
+			continue
+		}
+		id := strconv.Itoa(it.ID)
+		post, hasPost := posts[id]
+		if hasPost && !legacy[id] {
+			if forum.ID == "" || post.Forum != forum.ID {
 				continue
 			}
 		} else {
-			sourcePlat, sourceChat, _ := strings.Cut(taskForumChat(it), ":")
+			source := taskForumChat(it)
+			if hasPost && post.Chat != "" {
+				source = post.Chat
+			}
+			sourcePlat, sourceChat, _ := strings.Cut(source, ":")
 			if sourcePlat != plat {
 				continue
 			}
@@ -1131,13 +1142,13 @@ func (e *Engine) taskForumWaitingSummary(session string, now time.Time) string {
 				continue
 			}
 		}
-		if tag, _ := taskForumTagOf(it, now); tag == TaskForumTagWaiting {
-			count++
+		count++
+		if legacy[id] {
+			links = append(links, taskForumURL(&post))
 		}
 	}
-	if count == 0 {
+	if count == 0 || len(links) == 0 {
 		return ""
 	}
-	url := fmt.Sprintf("https://discord.com/channels/%s/%s", forum.GuildID, forum.ID)
-	return e.i18n.Tf(MsgTaskForumRoundupWaiting, count, url)
+	return e.i18n.Tf(MsgTaskForumRoundupWaiting, count, strings.Join(links, " · "))
 }
