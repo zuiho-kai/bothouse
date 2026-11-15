@@ -32,6 +32,8 @@ func (s *APIServer) handleTeamTaskTransition(w http.ResponseWriter, r *http.Requ
 		To  string `json:"to"`
 		By  string `json:"by"`
 		Why string `json:"why"`
+		// Reopen: rework of a completed task (board resume of a done row), closed → paused.
+		Reopen bool `json:"reopen"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -75,7 +77,7 @@ func (s *APIServer) handleTeamTaskTransition(w http.ResponseWriter, r *http.Requ
 	if by == "" {
 		by = "board"
 	}
-	t, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: req.ID, To: to, By: by, Why: req.Why}, time.Now())
+	t, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: req.ID, To: to, By: by, Why: req.Why, Reopen: req.Reopen}, time.Now())
 	if errors.Is(err, ErrTeamTaskTransition) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return

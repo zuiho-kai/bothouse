@@ -264,6 +264,29 @@ func TestDSHOpenMovesOffTakenGatePort(t *testing.T) {
 	defer g.Stop()
 
 	m := &ManagementServer{wizardStore: store, wizardDataDir: dataDir}
+	// Run before g.Stop and TempDir cleanup: the CI timeout otherwise loses the
+	// child state and Python traceback needed to distinguish startup from ownership.
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		g.mu.Lock()
+		t.Logf("gate failure: addr=%s saved_port=%d want=%t external=%t failed_inputs=%q child_started=%s",
+			localGateAddr(), store.port, g.want, g.external, g.failedFP, g.started)
+		if g.cmd != nil {
+			childExited := false
+			select {
+			case <-g.exited:
+				childExited = true
+			default:
+			}
+			t.Logf("gate child: pid=%d exited=%t", g.cmd.Process.Pid, childExited)
+		}
+		g.mu.Unlock()
+		t.Logf("gate starts=%d whoami=%q expected=%q", gateStarts(dataDir), gateWhoami(), dataDir)
+		log, err := os.ReadFile(g.logPath())
+		t.Logf("gate.log (read error=%v):\n%s", err, log)
+	}()
 	rec := httptest.NewRecorder()
 	m.handleSetupDSHOpen(rec, httptest.NewRequest(http.MethodPost, "/setup/dsh/open", nil))
 	if rec.Code != http.StatusOK {

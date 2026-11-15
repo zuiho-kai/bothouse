@@ -193,6 +193,8 @@ const (
 	MsgBackendQuotaRemaining     MsgKey = "backend_quota_remaining"
 	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
 	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
+	MsgTaskForumSourceMissing    MsgKey = "task_forum_source_missing"
+	MsgTaskForumCategoryRequired MsgKey = "task_forum_category_required"
 	MsgSessionNotFound           MsgKey = "session_not_found"
 	MsgFailedToStartAgentSession MsgKey = "failed_to_start_agent_session"
 	MsgFailedToDeleteSession     MsgKey = "failed_to_delete_session"
@@ -705,6 +707,7 @@ const (
 	MsgTaskReviewPrompt         MsgKey = "task_review_prompt"
 	MsgTaskReviewEscalate       MsgKey = "task_review_escalate"
 	MsgTaskReviewUnavailable    MsgKey = "task_review_unavailable"
+	MsgTaskForumRoundupWaiting  MsgKey = "task_forum_roundup_waiting"
 	MsgTaskReviewRoundup        MsgKey = "task_review_roundup"
 	MsgTaskPausedSummary        MsgKey = "task_paused_summary"
 	MsgTaskPausedResumeQuestion MsgKey = "task_paused_resume_question"
@@ -1160,6 +1163,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "#%d：依頼担当 %s が不在です。主担当が検収または再割当してください",
 		LangSpanish:            "#%d: el coordinador %s no está disponible; el rol principal debe verificar o reasignar",
 	},
+	MsgTaskForumCategoryRequired: {
+		LangEnglish:            "This chat is not in a Discord category. Move it into an existing category in channel settings; task posts will then sync to that category's task forum. Your task board and ordinary chat remain available.",
+		LangChinese:            "这个聊天频道还没归类。请在 Discord 的频道设置中将它移入现有类别，任务帖随后会同步到该类别的任务论坛；任务板记录和普通聊天照常保留。",
+		LangTraditionalChinese: "這個聊天頻道還沒分類。請在 Discord 的頻道設定中將它移入現有類別，任務帖隨後會同步到該類別的任務論壇；任務板記錄和一般聊天照常保留。",
+		LangJapanese:           "このチャットはカテゴリ未設定です。Discord のチャンネル設定で既存カテゴリへ移動すると、そのカテゴリのタスクフォーラムに同期されます。タスクボードと通常の会話は引き続き利用できます。",
+		LangSpanish:            "Este chat no tiene categoría. Muévelo a una categoría existente en los ajustes de Discord; sus tareas se sincronizarán con el foro de esa categoría. El tablero y el chat siguen disponibles.",
+	},
+	MsgTaskForumRoundupWaiting: {
+		LangEnglish:            "Append this line to the hourly report: Waiting for you: %d tasks · %s",
+		LangChinese:            "在本次收口汇报中原样加一行：等你拍板 %d 件 · %s",
+		LangTraditionalChinese: "在本次收口彙報中原樣加一行：等你拍板 %d 件 · %s",
+		LangJapanese:           "毎時の報告に次の1行を含めてください：判断待ち %d 件 · %s",
+		LangSpanish:            "Añade esta línea al informe horario: Esperando tu decisión: %d tareas · %s",
+	},
 	MsgTaskReviewRoundup: {
 		LangEnglish:            "Hourly pending verification list",
 		LangChinese:            "整点待验收清单",
@@ -1530,6 +1547,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "嘗試停止一個已成功結束的命令任務，停止操作被拒絕。",
 		LangJapanese:           "正常終了済みのコマンドタスクを停止しようとしたため、停止操作が拒否されました。",
 		LangSpanish:            "Se intentó detener una tarea de comando ya completada correctamente; se rechazó la detención.",
+	},
+	MsgTaskForumSourceMissing: {
+		LangEnglish:            "Task post #%d has no task record or source channel, so it cannot be continued. Check the task board in the original chat.",
+		LangChinese:            "任务帖 #%d 的任务记录或来源频道缺失，暂时无法接续；请在来源聊天频道核对任务板记录。",
+		LangTraditionalChinese: "任務帖 #%d 的任務記錄或來源頻道缺失，暫時無法接續；請在來源聊天頻道核對任務板記錄。",
+		LangJapanese:           "タスク投稿 #%d のタスク記録または元のチャンネルがないため、続行できません。元のチャットでタスクボードを確認してください。",
+		LangSpanish:            "La publicación de tarea #%d no tiene registro de tarea o canal de origen y no se puede continuar. Revisa el tablero en el chat original.",
 	},
 	MsgBackgroundAutoDenied: {
 		LangEnglish:            "⚠️ Background task requested permission for `%s` but was auto-denied (no active user turn). Send a message or use `/yolo` to approve future requests.",

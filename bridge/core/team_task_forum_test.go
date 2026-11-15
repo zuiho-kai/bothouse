@@ -15,6 +15,7 @@ import (
 
 type fakeForumPost struct {
 	title, card, tag string
+	forum            TaskForum
 	archived         bool
 	nodes            []string
 }
@@ -29,13 +30,40 @@ type stubForumPlatform struct {
 	sendCtx   []string // permission notices posted (Send)
 	prefix    string   // thread id prefix: posts of different bots never share an id
 	limit     int
+	scopes    map[string]TaskForum
 }
 
 func newStubForumPlatform() *stubForumPlatform {
 	return &stubForumPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, posts: map[string]*fakeForumPost{}}
 }
 
-func (p *stubForumPlatform) EnsureTaskForum(_ context.Context, chat, remembered string, tags []string) (TaskForum, error) {
+func (p *stubForumPlatform) TaskForumScope(_ context.Context, chat string) (TaskForum, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if scope, ok := p.scopes[chat]; ok {
+		if scope.CategoryID == "" {
+			return TaskForum{}, ErrTaskForumCategoryRequired
+		}
+		return scope, nil
+	}
+	return TaskForum{ID: "forum1", GuildID: "g1", CategoryID: "cat1"}, nil
+}
+func (p *stubForumPlatform) TaskForumForPost(_ context.Context, thread string, _ []string) (TaskForum, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if post := p.posts[thread]; post != nil {
+		if post.forum.ID != "" {
+			return post.forum, nil
+		}
+		return TaskForum{ID: "forum1", GuildID: "g1", CategoryID: "cat1"}, nil
+	}
+	return TaskForum{}, errForumGone
+}
+func (p *stubForumPlatform) EnsureTaskForum(ctx context.Context, chat, remembered string, tags []string) (TaskForum, error) {
+	scope, err := p.TaskForumScope(ctx, chat)
+	if err != nil {
+		return TaskForum{}, err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ensures++
@@ -46,7 +74,8 @@ func (p *stubForumPlatform) EnsureTaskForum(_ context.Context, chat, remembered 
 	for i, t := range tags {
 		ids[t] = fmt.Sprintf("tag%d", i)
 	}
-	return TaskForum{ID: "forum1", GuildID: "g1", Tags: ids}, nil
+	scope.Tags = ids
+	return scope, nil
 }
 
 func (p *stubForumPlatform) OpenTaskPost(_ context.Context, f TaskForum, post TaskForumPost) (string, error) {
@@ -55,7 +84,7 @@ func (p *stubForumPlatform) OpenTaskPost(_ context.Context, f TaskForum, post Ta
 	p.opens++
 	id := fmt.Sprintf("%sth%d", p.prefix, p.opens)
 	p.edited(id, post)
-	p.posts[id] = &fakeForumPost{title: post.Title, card: post.Card, tag: post.Tag}
+	p.posts[id] = &fakeForumPost{title: post.Title, card: post.Card, tag: post.Tag, forum: f}
 	return id, nil
 }
 
@@ -137,7 +166,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	if fp.title != "#768 任务帖子区" || fp.tag != TaskForumTagRunning {
 		t.Fatalf("post = %+v", fp)
 	}
-	for _, want := range []string{"**在做**", "**要你做的**：没有", "派出去的活不再被忘", "> - 「帖子功能，派了老忘」", "来源 <#111>", "任务板 #768", "更新于"} {
+	for _, want := range []string{"**⚙️ 在做**", "派出去的活不再被忘", "> - 「帖子功能，派了老忘」", "来源 <#111>", "任务板 #768", "更新于"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("card lacks %q:\n%s", want, fp.card)
 		}
@@ -153,12 +182,12 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 		t.Fatalf("unchanged board edited/opened again: opens=%d", p.opens)
 	}
 
-	// [ask] pauses it waiting on the user: tag 等你拍板, the whole question in 要你做的, no node
+	// [ask] pauses it waiting on the user: whole question and one key state node.
 	// (the [ask] text itself is posted where it is delivered).
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 16:00","pause_why":"等待用户答复：帖子区放在哪个分类，A 工作区 B 新建"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagWaiting || !strings.Contains(fp.card, "**要你做的**：帖子区放在哪个分类，A 工作区 B 新建") || len(fp.nodes) != 0 {
+	if fp.tag != TaskForumTagWaiting || !strings.Contains(fp.card, "**要你做的**：帖子区放在哪个分类，A 工作区 B 新建") || len(fp.nodes) != 1 {
 		t.Fatalf("waiting post = %+v", fp)
 	}
 
@@ -166,7 +195,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"ws":"discord:222"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 1 || !strings.Contains(fp.nodes[0], "继续做") || !strings.Contains(fp.nodes[0], "<#222>") {
+	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "继续做") || !strings.Contains(fp.nodes[1], "<#222>") {
 		t.Fatalf("resumed post = %+v", fp)
 	}
 
@@ -174,7 +203,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"status":"已交回待验收","returned_at":"2026-11-14T08:00:00Z","reviewer":"cjiang"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagReview || len(fp.nodes) != 1 {
+	if fp.tag != TaskForumTagReview || len(fp.nodes) != 2 {
 		t.Fatalf("returned post = %+v", fp)
 	}
 
@@ -182,7 +211,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 17:00","pause_why":"验收退回：截图缺换标签","review_rejected":"截图缺换标签"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "验收退回返工：截图缺换标签") {
+	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 3 || !strings.Contains(fp.nodes[2], "验收退回返工：截图缺换标签") {
 		t.Fatalf("rejected post = %+v", fp)
 	}
 
@@ -191,7 +220,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardDoneFile, item(`,"done_at":"11-14 18:00"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagDone || fp.archived || len(fp.nodes) != 3 || fp.nodes[2] != "✅ 已完成" {
+	if fp.tag != TaskForumTagDone || fp.archived || len(fp.nodes) != 4 || fp.nodes[3] != "✅ 已完成" {
 		t.Fatalf("done post = %+v", fp)
 	}
 	// After the task-thread archive wait it is archived, once.
@@ -289,14 +318,14 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
 	notes := dir + "/h.handoff.md"
 	words := strings.Repeat("- 「很多任务我派了老忘，额外开帖子标注下任务，和工作区啥的也都打通联动」\n", 80)
-	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+strings.Repeat("派出去的活不再被忘。", 200)+"\n")
+	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+"派出去的活不再被忘，用户打开帖子就能知道当前进度和下一步。"+"\n")
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
 	e.syncTaskForum() // stub panics on an over-limit card
 	fp := p.post("th1")
 	if n := len([]rune(fp.card)); n > 1900 {
 		t.Fatalf("card %d runes", n)
 	}
-	for _, want := range []string{"**" + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "**谁在做**：", "\n-# 来源 <#111>", "任务板 #9", "更新于"} {
+	for _, want := range []string{"**🔴 " + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "负责：", "\n-# 来源 <#111>", "任务板 #9", "更新于"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
@@ -305,7 +334,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	fp = p.post("th1")
-	for _, want := range []string{"**在做**", "**要你做的**：没有", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
+	for _, want := range []string{"**⚙️ 在做**", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
@@ -374,7 +403,7 @@ func TestTaskForumNodeFacts(t *testing.T) {
 	}
 	await := teamTaskBoardItem{Status: "在做", AwaitDeploy: map[string]string{"pr": "1785"}}
 	tag, sentence = taskForumTagOf(await, now)
-	if got := taskForumNode(prev, await, tag, sentence); got != "📦 已合并，等上线" {
+	if got := taskForumNode(prev, await, tag, sentence); got != "🔀 已合并，等上线" {
 		t.Fatalf("await deploy node %q", got)
 	}
 

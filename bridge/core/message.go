@@ -373,6 +373,7 @@ type Message struct {
 	ChatName      string // human-readable chat/group name (optional)
 	Content       string
 	Reference     *MessageReference
+	TaskForum     *TaskForumReply        // authenticated task-post reply; conversation and delivery have different channels
 	Images        []ImageAttachment      // attached images (if any)
 	Files         []FileAttachment       // attached files (if any)
 	Audio         *AudioAttachment       // voice message (if any)

@@ -408,7 +408,13 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	name := teamTaskBoardShort(*item)
 	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
 	_, detail := team.ExitSplit(body)
-	if err := e.postWithDetail(ctx, p, rc, name, text, detail); err != nil {
+	chatText, forumRC := e.taskForumExitText(ctx, p, sessionKey, hid, text, detail)
+	inForum := forumRC != nil
+	chatDetail := detail
+	if inForum {
+		chatDetail = ""
+	}
+	if err := e.postWithDetail(ctx, p, rc, name, chatText, chatDetail); err != nil {
 		slog.Error("team exit: headline post failed; retaining fallback", "kind", kind, "error", err)
 		if _, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, ""); err != nil {
 			e.noteReportFailure(rec, err)
@@ -418,8 +424,12 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		}
 		return ""
 	}
-	// the images the workspace sent or the report names go right under the headline
-	e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
+	// Attachments accompany the result at its selected destination.
+	mediaRC := rc
+	if inForum {
+		mediaRC = forumRC
+	}
+	e.postExitImages(ctx, p, mediaRC, parent, sessionKey, body, item)
 	e.exitMarkPosted(kind, hid, hline)
 	if kind == team.ExitKindAsk && rec.Authorization == nil {
 		e.rememberPostedAskWake(rec)
@@ -429,8 +439,10 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	if !postReportDetail {
 		detail = ""
 	}
-	e.postToTaskThreadContext(ctx, p, sessionKey, joinExitDetail(text, detail))
-	e.postTaskForumNode(hid, text)
+	if !inForum {
+		e.postToTaskThreadContext(ctx, p, sessionKey, joinExitDetail(text, detail))
+		e.postTaskForumNode(hid, joinExitDetail(text, detail))
+	}
 	if kind == team.ExitKindReport {
 		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
 		e.markExitReported(hid)

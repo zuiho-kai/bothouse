@@ -834,6 +834,8 @@ name = "my-backend"
 #                                  # 最多 2000 字，超了截断并说明；附一句「有变化直接改这个文件，不要往下追加」。
 #                                  # 文件不存在时建一个四项空标题的模板。不填即关。
 # team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
+# task_forum = false             # Discord task forum: unset = on; false keeps the original task threads.
+#                                # 任务帖子区整体开关；不写即开，关闭后沿用原任务线程。
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。
 # Discord options for main + subs go under [projects.platforms.options]:

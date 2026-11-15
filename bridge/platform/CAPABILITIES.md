@@ -132,11 +132,28 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## TaskForumPoster
 
-任务帖子区（#768）：每个服务器一个论坛频道「任务」，任务板每条活一个帖子，首楼现状卡原地编辑、状态标签跟任务板变、关键节点发帖、完成归档（core/team_task_forum.go）。没实现的平台不开帖，其余流程照旧。
+任务帖子区（#768、#796）：每个现有 Discord 类别一个论坛频道「任务」，任务板每条活一个帖子，首楼现状卡原地编辑、状态标签跟任务板变、关键节点发帖、完成归档（core/team_task_forum.go）。来源类别决定新帖位置，旧帖按真实父论坛恢复；没实现的平台不开帖，其余流程照旧。
 
 - discord: 已接
 - feishu: 不支持：飞书群没有论坛频道和帖子标签，任务进度已由飞书任务卡展示；第一批只做 Discord（交接 #768「先只做 Discord」）
 - cloud-web: 不支持：网页频道没有论坛频道和帖子标签；第一批只做 Discord（交接 #768「先只做 Discord」）
+
+## TaskForumUserNotifier
+
+任务进入「等你拍板」时，在原帖子单次提醒任务板中已核为真人的派活人（core/team_task_forum.go）。
+
+- discord: 已接
+- feishu: 不支持：本批 #783 只做 Discord 任务论坛提醒，飞书没有该任务论坛入口
+- cloud-web: 不支持：本批 #783 只做 Discord 任务论坛提醒，网页频道没有该任务论坛入口
+
+## ChannelSessionKeyer
+
+任务帖回复回到来源聊天频道时，沿用平台已有的共享/按用户隔离会话策略（core/team_task_forum_inbound.go）。
+
+- discord: 已接
+- feishu: 不支持：本批交接 #779 只做 Discord 论坛入站，飞书没有任务论坛帖，消息仍走原入口
+- cloud-web: 不支持：本批交接 #779 只做 Discord 论坛入站，网页频道没有任务论坛帖，消息仍走原入口
+- dsh: 不支持：同 cloud-web
 
 ## PermissionTextAnswerNotifier
 
