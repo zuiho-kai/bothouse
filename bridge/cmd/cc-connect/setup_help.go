@@ -56,6 +56,7 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
     persona          text of the persona file (CLAUDE.md / AGENTS.md / GEMINI.md in work_dir).
                      Empty = no persona, only the reply-language line. Examples: "setup personas".
     edit_persona     true = also overwrite the persona of a reused bot (otherwise its file is left as is)
+    model            the agent's model (default: its own). dsh: its ACP value, ["<provider route>","<model>"]
     reply_language   this role's reply language (default: language). For a bot that is already set up it
                      changes only the reply-language line of its persona file
     provider         {"vendor", "api_key", "base_url", "model", "max_tokens"}: a third-party API instead of the
@@ -98,6 +99,8 @@ Request JSON (only the fields marked REQUIRED must be given; everything else has
                      off by default. Same as "setup hooks on|off --global memory".
   global_guards      optional true/false: the same for the guard hooks (plus their rules block in ~/.claude/CLAUDE.md
                      and the long-task subagent). Same as "setup hooks on|off --global guards".
+  remove_projects    project names to take out of config.toml (a channel host dropped those members);
+                     only cloud_web-only roles are removed, others are kept and named in the steps
   dry_run            true = same as --dry-run: check everything (token, server, intent), write nothing
 
 Minimal Discord request:

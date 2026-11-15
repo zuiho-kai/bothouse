@@ -4,6 +4,8 @@
 
 把 BotHouse 的「频道」装进 DeepSeek Harness（DSH）：Discord 式的频道页，DSH 里的模型和本机的 Claude Code、Codex、Gemini 都能当频道成员，@ 谁谁干活。
 
+插件只管频道这一层；每个成员由 BotHouse 来跑，派活、工作区、任务板、定时回查、记忆和团队规矩都用 BotHouse 那一份。本机没有 BotHouse 时，插件第一次启动会用官方安装脚本把它装进 `~/.local/bin` 并在后台拉起，不用另外装。
+
 ## 安装（三选一）
 
 1. **最省事**：在 DSH 里对它说「帮我装插件 bothouse-dsh，钉到 npm 上最新的版本」。
@@ -26,13 +28,13 @@ dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 - 用模型当成员：在 DSH 设置里先配好模型和 Key。
 - 用 CLI 当成员：本机装好并登录 Claude Code、Codex 或 Gemini CLI，命令在 PATH 里。
   Claude Code 成员的编辑窗可填写模型 ID 或别名，留空跟随 CLI 默认模型；保存后下一轮生效。
-  Claude Code、Codex 的接入适配器不随插件安装，第一次把它们加成成员时自动下载（Claude Code 约 125 MB），之后不再下。
-  派活：在频道里 @ 成员，或让一个成员 @ 另一个成员，被派的成员做完把结果发回频道。Codex 成员的命令在沙箱里连不上本机，所以不给它「一次性回查」的本机命令，派活照样靠 @。
+  派活：在频道里 @ 成员，或让一个成员 @ 另一个成员，被派的成员做完把结果发回频道。
+- 第一次启动要能连上 GitHub（下载 BotHouse，约 40 MB）。之后添加、修改、删除成员，插件都交给 BotHouse 更新它的角色；BotHouse 的日志在频道数据目录的 `bothouse.log`。
 - 频道消息存在 `~/.conest-collab/collab.sqlite3`；启动 DSH 前设置 `CONEST_COLLAB_DATA` 可换目录。
 
 ## 和完整版 BotHouse 的区别
 
-插件版以频道为主（团队工作台、面板、其他电脑可在插件页打开）。完整版 BotHouse 另外提供：
+插件版以频道为主（团队工作台、面板、其他电脑可在插件页打开），成员背后跑的就是 BotHouse。直接用 BotHouse 另外提供：
 
 - 安装向导：可以选角色、选每个角色用哪个本机 CLI。插件版第一次启动自动放进鲸鱼娘一个角色，其余要自己点「添加成员」。
 - 代存 Key：向导替你把 DeepSeek Key 写进 DSH。插件版在 DSH 设置里自己填。

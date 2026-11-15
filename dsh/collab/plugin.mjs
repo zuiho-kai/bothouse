@@ -6,30 +6,22 @@ import { personaLibrary } from './personas.mjs';
 //         name: /abs/path/dsh/collab/plugin.mjs
 //         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, botPort?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
 import { createRequire } from 'node:module';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { Store, CollabError, MAX_TEXT, publicMessage } from './store.mjs';
 import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock.mjs';
 import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
-import { TeamExit } from './team-exit.mjs';
 import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
-import { DshMembers } from './dsh-member.mjs';
-import { mountManagedSkills } from './managed-skills.mjs';
+import { Bridge, botToken } from './bridge.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
-import { Tasks, WORKING } from './tasks.mjs';
-import { createCliMember } from './cli-member.mjs';
-import { MemorySources } from './memory-sources.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, DEFAULT_MAX_UPLOAD_BYTES, INLINE_IMAGE, MAX_BOT_ATTACHMENT_BYTES, formatBytes } from './attachments.mjs';
-import { Later, registerLater, writeMemoryPage } from './later.mjs';
-import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, panelRoute } from './panel.mjs';
@@ -120,28 +112,13 @@ export function resolveConfig(config, env = process.env) {
   return { dataDir: c.dataDir, workspacePath: c.workspacePath, leadFile, fallbackLead, boardDir, teamStatusDir, wikiDir, bridgeConfig, rooms, dshMembers: members, maxRelay, maxUploadBytes, botTokenEnv, botToken, botPort, ownerName: c.ownerName ?? '我' };
 }
 
-/** Resolve a package from the running DSH installation, never a second copy. */
-function dshRequire() {
-  return createRequire(realpathSync(process.argv[1]));
-}
-
-/**
- * #557: a channel-started turn asks in its room. Prepended so a DSH Web UI tab
- * or another plugin's answerer (e.g. auto review) never takes a hidden Session's ask.
- */
-export function installApprovalAnswerer(ctx, dsh) {
-  ctx.on('approval/request', (request, next) => dsh.onApprovalRequest(request, next), { prepend: true });
-}
-
 export async function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
-  const require = dshRequire();
-  const { createUserMessage } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href);
   // ws is declared by this package and resolved from this file, so the server never borrows a
   // transitive copy from the surrounding DSH runtime. It is CommonJS; its WebSocketServer is
   // not a statically detectable named export.
   const { WebSocketServer } = createRequire(import.meta.url)('ws');
-  if (typeof createUserMessage !== 'function' || typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
+  if (typeof WebSocketServer !== 'function') throw Error('conest-collab: unsupported DSH runtime');
 
   // #1019: a second DSH on the same data directory refuses to start the plugin instead of
   // sharing collab.sqlite3 (the panel's 「打开 DSH」 used to start one beside a running host).
@@ -170,27 +147,19 @@ export async function apply(ctx, rawConfig) {
   ctx.effect(() => async () => {
     r.teamStatus?.stop();
     r.desk?.stop();
-    r.quota?.close();
-    r.later?.close();
-    r.tasks?.close();
+    r.bridge?.close();
     r.gateway?.closeAll();
     clearInterval(r.pairSweep);
     clearInterval(r.aliveSweep);
     await r.pairListener?.close();
     for (const end of r.streams ?? []) end();
     r.wss?.close();
-    // Drain DSH jobs first: a job still awaiting its Agent must not touch a closed store.
-    await r.dsh?.close();
     r.store?.close();
     lock.release();
     // #216: the record goes with the lock, so a DSH that opens later is not told about a
     // holder that already quit.
     clearLockOwner(lockPath);
   }, 'conest-collab: teardown');
-
-  // Only the owning host starts agents. A client sharing its host must not
-  // require the native skill provider; teardown also owns a failed import.
-  const skillFilesystem = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-skill-filesystem')).href);
 
   // #1044: an install from before had the desk, panel and other-computers pages; checked before Store creates the file.
   const collabExisted = existsSync(join(config.dataDir, 'collab.sqlite3'));
@@ -203,55 +172,35 @@ export async function apply(ctx, rawConfig) {
   store.migrateMemberRooms();
   const leadState = new LeadState(config.leadFile, ctx.logger);
   const hub = new Hub(store, ctx.logger, leadState, config.fallbackLead);
-  hub.memorySources = new MemorySources({ logger: ctx.logger }); // #1020 回复的记忆来源
   hub.workspacePath = config.workspacePath;
-  hub.teamExit = new TeamExit(hub);
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const files = new Attachments(join(config.dataDir, 'attachments'));
-  const gateway = r.gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
-  const later = r.later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
-  gateway.later = later;
-  const dsh = r.dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember,
-    mountManagedSkills: (agentCtx, member) => mountManagedSkills(agentCtx, member, skillFilesystem),
-    workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  // #1662: every member is a bothouse role dialling in here, so the gateway is always on.
+  const token = botToken(config.botToken, config.dataDir);
+  const gateway = r.gateway = new CloudWebGateway(hub, { token, logger: ctx.logger, files });
+  const bridge = r.bridge = new Bridge({ dataDir: config.dataDir, token, logger: ctx.logger,
+    origin: () => ctx.webServer.getOrigin(), members: () => store.members().map(rowToMember), lead: () => leadState.selected() });
   const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
-  const roster = new Roster(hub, dsh, ctx.llm, avatarUploads);
-  // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
-  // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
-  const tasks = r.tasks = new Tasks(hub, { start: false });
-  hub.tasks = tasks;
-  gateway.tasks = tasks;
-  const quota = r.quota = new QuotaCooling(hub, tasks, (id, msg) => dsh.nudge(id,msg) || gateway.nudge(id,msg), quotaDirectory(config.leadFile));
-  hub.quota = quota;
-  tasks.onWake((memberId, message) => dsh.nudge(memberId, message) || gateway.nudge(memberId, message));
-  // A workspace released after its last task shows up free in the room list. Its sessions are
-  // cleared when a new claim takes it (store.resetSessions: DSH members rebind from the store; local
-  // CLI members drop their ACP session), not on release, so a rework goes on in them (#597 G35).
-  tasks.onRelease(() => hub.emit({ type: 'rooms', rooms: hub.store.roomsView() }));
-  hub.store.onSessionsReset(roomId => dsh.resetRoom(roomId));
-  // Config members are seeds; UI-created members persist in the store. Both must be routable before recovery.
+  // A stored member (kind 'dsh': defined in this channel host) is shown at once, offline until its bothouse
+  // role connects, and handed to the bridge.
+  const members = {
+    putMember: (m) => { const edited = hub.members.has(m.id); hub.setMember({ ...m, kind: 'dsh', online: gateway.bots.has(m.id) }); bridge.sync(undefined, edited); },
+    dropMember: (id) => { hub.removeMember(id); bridge.sync(id); },
+  };
+  const roster = new Roster(hub, members, ctx.llm, avatarUploads);
   roster.load(config.dshMembers);
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
   // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh).
   const seeded = await roster.seedDefaults(join(config.dataDir, 'default-members.json'), 'zh', ctx.logger);
   if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', '));
-  ctx.on('session/event', (session, event) => dsh.onSessionEvent(session, event));
-  ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => dsh.onClaimed(agent.session.id, message.id, turn));
-  ctx.on('agent/inbox/discarded', ({ agent, message }) => dsh.onDiscarded(agent.session.id, message.id));
-  installApprovalAnswerer(ctx, dsh);
-  // Queue leftover jobs before any route can add new ones, so both share one order.
-  dsh.recover();
-  tasks.start();
-  later.start();
-  quota.start();
+  bridge.sync();
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
   const desk = r.desk = new DeskEvents(hub, { boardDir: config.boardDir, logger: ctx.logger });
   desk.start();
   // #876 K: read-only busy/idle from the shared team directory; no bridge change.
   const teamStatus = r.teamStatus = config.teamStatusDir === undefined ? undefined : new TeamStatus(hub, config.teamStatusDir, { logger: ctx.logger });
   teamStatus?.start();
-  if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   // #131: a request the tailnet pairing listener authenticated with a device credential acts as
   // the owner; everything else still needs this DSH's own sign-in.
@@ -287,7 +236,6 @@ export async function apply(ctx, rawConfig) {
   ctx.effect(() => () => clearTimeout(pagesTimer), 'conest-collab: keep pages');
   const botUpgrade = (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
-    later.origin ??= localOrigin(req);
     if (!gateway.authorized(req, url)) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
@@ -295,19 +243,18 @@ export async function apply(ctx, rawConfig) {
     wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
   };
   ctx.effect(() => ctx.webServer.registerUpgrade({ path: WS_PATH, handler: botUpgrade }), 'conest-collab: cloud-web upgrade');
-  if (config.botPort !== undefined && config.botToken) {
+  if (config.botPort !== undefined) {
     const listening = startBotPort({ port: config.botPort, path: WS_PATH, upgrade: botUpgrade, history: (req, res) => historyRoute(req, res), logger: ctx.logger })
       .then(l => { ctx.logger.info('conest-collab: bot port 127.0.0.1:%d', l.port); return l; },
         err => { ctx.logger.warn('conest-collab: bot port %d not opened: %s', config.botPort, err.message); return undefined; });
     ctx.effect(() => async () => { (await listening)?.close(); }, 'conest-collab: bot port');
   }
 
-  ctx.logger.info('conest-collab: %d room(s), %d DSH member(s), cloud-web %s', config.rooms.length, config.dshMembers.length, config.botToken ? 'on' : 'off');
+  ctx.logger.info('conest-collab: %d room(s), %d member(s)', config.rooms.length, store.members().length);
 
   /** cc-connect ChannelHistory: GET /api/rooms/{id}/messages?before=&limit= (bot token or owner). */
   function historyRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
-    later.origin ??= localOrigin(req);
     const m = /^\/api\/rooms\/(\d+)\/messages$/.exec(url.pathname);
     if (req.method !== 'GET' || m === null) return json(res, 404, { error: 'not found' });
     if (!gateway.authorized(req, url) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
@@ -320,18 +267,6 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
-    // A paired device reaches us on the tailnet listener; ticket URLs stay on this machine's own origin.
-    if (!req[REMOTE_OWNER] && !isLocalOwner(req, local)) later.origin ??= localOrigin(req);
-    const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
-    if (scheduled !== undefined) return scheduled;
-    const remembered = memoryRoute(req, res, url, { hub, later, dsh });
-    if (remembered !== undefined) return remembered;
-    const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
-    if (routed !== undefined) return routed;
-    const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
-    if (opened !== undefined) return opened;
-    const team = teamRoute(req, res, url, { store, hub, later, roster });
-    if (team !== undefined) return team;
     if (!owner(req)) {
       if ((path === '/collab' || path === '/collab/desk' || path === '/collab/wiki-galaxy') && req.method === 'GET') return text(res, 401, 'text/plain; charset=utf-8', '请先在同一个浏览器打开 DSH 网页登录，再回到 /collab。');
       return refuse(req, res);
@@ -376,6 +311,7 @@ export async function apply(ctx, rawConfig) {
         const member = hub.members.get(id);
         if (member === undefined || member.kind === 'human') throw new CollabError('member-missing', `member ${id} is not a routable role`);
         leadState.set(id, member.name);
+        bridge.sync();
         hub.emit({ type: 'lead', lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null });
         return { lead_id: id, effective_lead_id: hub.primaryMember()?.id ?? null };
       });
@@ -418,9 +354,9 @@ export async function apply(ctx, rawConfig) {
         : store.page(roomId, before === null ? undefined : Number(before), url.searchParams.get('limit'));
       return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
     }
-    const settings = roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath: config.workspacePath });
+    const settings = roomSettingsRoute(req, res, path, { store, hub, gateway, workspacePath: config.workspacePath });
     if (settings !== undefined) return settings;
-    const renamed = renameRoomRoute(req, res, path, { store, hub, dsh });
+    const renamed = renameRoomRoute(req, res, path, { store, hub });
     if (renamed !== undefined) return renamed;
     const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
     if (mode !== null && req.method === 'GET') {
@@ -449,7 +385,7 @@ export async function apply(ctx, rawConfig) {
         return { message: publicMessage(message, store) };
       }, true, MAX_MESSAGE_BODY);
     }
-    const edited = ownMessageRoute(req, res, path, { store, hub, gateway, dsh });
+    const edited = ownMessageRoute(req, res, path, { store, hub, gateway });
     if (edited !== undefined) return edited;
     // #120/#557: owner-only (checked above) decision on a permission card (cloud-web bot or DSH member).
     const pm = /^\/collab\/api\/messages\/(\d+)\/permission$/.exec(path);
@@ -499,7 +435,7 @@ export async function apply(ctx, rawConfig) {
         }
         hub.setError(memberId, undefined);
         hub.setThinking(message.room_id, memberId, true);
-        const retried = dsh.retry(memberId, trigger) || gateway.retry(memberId, trigger);
+        const retried = gateway.retry(memberId, trigger);
         if (!retried) {
           hub.setThinking(message.room_id, memberId, false);
           throw new CollabError('failed', 'failed to dispatch retry');
@@ -581,7 +517,7 @@ export async function apply(ctx, rawConfig) {
 }
 
 /** Owner-only channel settings; workspaces inherit their parent channel. */
-export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePath }) {
+export function roomSettingsRoute(req, res, path, { store, hub, gateway, workspacePath }) {
   const match = /^\/collab\/api\/rooms\/(\d+)\/(settings|renew)$/.exec(path);
   if (match === null) return undefined;
   const roomId = Number(match[1]);
@@ -589,7 +525,8 @@ export function roomSettingsRoute(req, res, path, { store, hub, dsh, workspacePa
   const view = () => ({ lead_id: store.leadId(roomId), effective_lead_id: hub.defaultReplyIn(roomId)?.id ?? null,
     workspace_path: store.workspacePath(roomId, workspacePath), max_relay: store.relaySetting(roomId).max_relay });
   if (match[2] === 'renew' && req.method === 'POST') {
-    return withBody(req, res, async () => ({ members: await dsh.renewRoom(roomId) }), false);
+    // Each role starts a fresh conversation: the bridge's own /new, sent to every bot in the room.
+    return withBody(req, res, () => ({ members: gateway.renew(roomId) }), false);
   }
   if (match[2] !== 'settings') return undefined;
   if (req.method === 'GET') return Promise.resolve(json(res, 200, view()));
@@ -656,7 +593,7 @@ export function streamUploadRoute(req, res, url, { files, maxBytes }) {
 }
 
 /** Owner authentication is checked by browserRoute before this handler, like ownMessageRoute. */
-export function renameRoomRoute(req, res, path, { store, hub, dsh }) {
+export function renameRoomRoute(req, res, path, { store, hub }) {
   const match = /^\/collab\/api\/rooms\/(\d+)$/.exec(path);
   if (match === null || req.method !== 'PATCH') return undefined;
   const roomId = Number(match[1]);
@@ -666,7 +603,6 @@ export function renameRoomRoute(req, res, path, { store, hub, dsh }) {
     // or '#general' gets past checkRoomName as a second "general".
     const room = store.renameRoom(roomId, typeof body?.name === 'string' ? body.name.trim().replace(/^#/, '') : body?.name);
     hub.emit({ type: 'rooms', rooms: store.roomsView() });
-    await dsh.refreshRoomTitles(roomId);
     return { room };
   });
 }
@@ -680,7 +616,7 @@ export function renameRoomRoute(req, res, path, { store, hub, dsh }) {
  *   PATCH  /collab/api/messages/{id}  { text }
  *   DELETE /collab/api/messages/{id}  -> { recalled: [bot ids], stopped: [names], still_running: [names] }
  */
-export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
+export function ownMessageRoute(req, res, path, { store, hub, gateway }) {
   const m = /^\/collab\/api\/messages\/(\d+)$/.exec(path);
   if (m === null) return undefined;
   const id = Number(m[1]);
@@ -697,189 +633,10 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway, dsh }) {
     return withBody(req, res, () => {
       const row = hub.remove(id, 'user', OWNER);
       if (row === undefined) throw new CollabError('forbidden', 'only your own messages can be withdrawn');
-      const recalled = gateway.recall(row.id);
-      const name = who => hub.members.get(who)?.name ?? who;
-      const { stopped, running } = dsh.recall(row.id);
-      return { ok: true, recalled, stopped: stopped.map(name), still_running: running.map(name) };
+      return { ok: true, recalled: gateway.recall(row.id), stopped: [], still_running: [] };
     }, false);
   }
   return undefined;
-}
-
-/**
- * #597 G26: a later ticket only opens workspaces (and later). Sent anywhere else, say where to go
- * instead of a bare 401, so a member does not give up; the route's own auth is unchanged.
- * #227: the split lives in local-host.mjs beside the routes that also use it; re-exported here
- * because the task API has always published the sentence.
- */
-export { TICKET_WRONG_ROUTE } from './local-host.mjs';
-
-/**
- * #139 B task API, for the owner's browser and for cloud-web bots. The browser
- * always acts as the owner. Under the shared bot token a bot names itself in
- * body.actor, which is unverified (Tasks.perform: no owner, no review); a bot
- * acts as itself verified with a `task` frame on its cloud-web socket.
- *   GET  /collab/api/rooms/{id}/tasks           board of the room's chat channel and its workspaces
- *   POST /collab/api/rooms/{id}/tasks           { title, owner, ref, base?, parent_task?, message_id?, reason?, force? } dispatch
- *     (ref: file:line or 无（新建）; base required when the title says 共改文件/多人改)
- *   GET  /collab/api/tasks/{id}
- *   POST /collab/api/tasks/{id}/stance          { stance: 接|问|退|升, note? }  (task owner)
- *   POST /collab/api/tasks/{id}/return          { message_id }                  (task owner)
- *   POST /collab/api/tasks/{id}/review          { verdict: done|rework, note } (the dispatcher; note required for rework)
- *   POST /collab/api/tasks/{id}/cancel          { reason } (verified dispatcher or human owner)
- *   POST /collab/api/tasks/{id}/supersede       { reason, superseded_by? } (same permission; optional replacement task ID)
- * Returns undefined when the request is not for this route, else a Promise of the reply.
- */
-export function tasksRoute(req, res, url, { tasks, gateway, owner }) {
-  const path = url.pathname.replace(/\/+$/, '');
-  const board = /^\/collab\/api\/rooms\/(\d+)\/tasks$/.exec(path);
-  const one = /^\/collab\/api\/tasks\/(\d+)(?:\/(stance|return|review|cancel|supersede))?$/.exec(path);
-  if (board === null && one === null) return undefined;
-  const human = owner(req);
-  if (!human && !gateway.authorized(req, url)) return Promise.resolve(refuse(req, res));
-  // The browser is the owner; the shared bot token says nothing about which bot, so body.actor is unverified.
-  const sender = body => (human ? { actor: OWNER, verified: true } : { actor: body?.actor, verified: false });
-  const id = Number((board ?? one)[1]);
-  if (req.method === 'GET' && board !== null) return withBody(req, res, () => ({ tasks: tasks.list(id), chat_id: tasks.chatOf(id) }), false);
-  if (req.method === 'GET' && one !== null && one[2] === undefined) {
-    return withBody(req, res, () => {
-      const t = tasks.task(id);
-      if (t === undefined) throw new CollabError('task-missing', `task ${id} does not exist`);
-      return { task: tasks.view(t) };
-    }, false);
-  }
-  if (req.method !== 'POST') return Promise.resolve(json(res, 404, { error: 'not found' }));
-  if (board !== null) return withBody(req, res, body => ({ task: tasks.perform('assign', { roomId: id, body }, sender(body)) }));
-  return withBody(req, res, body => ({ task: tasks.perform(one[2], { id, body }, sender(body)) }));
-}
-
-/**
- * POST /collab/api/rooms/{id}/workspaces: the owner or any cc-connect bot (shared bot
- * token; collab has no per-room membership, so every connected bot is in every room)
- * opens the next 工作区<n+1> under that chat channel. Anyone else gets 401.
- * Returns undefined when the request is not for this route, else a Promise of the reply.
- */
-export function workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh }) {
-  const m = /^\/collab\/api\/rooms\/(\d+)\/workspaces\/?$/.exec(url.pathname);
-  if (m === null || req.method !== 'POST') return undefined;
-  if (!owner(req) && !gateway.authorized(req, url)) {
-    if (req.headers['x-later-ticket'] === undefined || !later || !tasks) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
-    return ticketWorkspace(req, res, Number(m[1]), { store, hub, gateway, later, tasks, dsh });
-  }
-  return withBody(req, res, () => {
-    const workspace = store.createWorkspace(Number(m[1]));
-    hub.emit({ type: 'rooms', rooms: store.roomsView() });
-    return { workspace };
-  }, false);
-}
-
-/**
- * #597 G24: a DSH member's (member, room) later ticket opens a workspace and hands the job over in
- * one step. Only the primary role at request time may do it (tickets never expire, so a ticket of a
- * former primary is refused here). The task is opened directly (owner defaults to the primary itself),
- * the handoff line is a system message (no chat parsing, so an earlier @ dispatch is not opened twice)
- * and the owner is woken explicitly. A ticket pasted into the channel is useless to anyone but the
- * primary. An open chat-side task of the same owner from the primary is handed over and closed.
- */
-function ticketWorkspace(req, res, roomId, { store, hub, gateway, later, tasks, dsh }) {
-  const claims = later.verify(req.headers['x-later-ticket']);
-  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
-  if (claims.room !== roomId) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
-  if (hub.primaryIn(roomId)?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role opens workspaces' }));
-  return withBody(req, res, body => {
-    const lead = claims.member;
-    const taskOwner = body?.owner === undefined || body.owner === '' ? lead : String(body.owner);
-    if (!hub.routable().some(r => r.id === taskOwner)) throw new CollabError('member-missing', 'unknown owner');
-    const title = String(body?.title ?? '').trim();
-    if (!title) throw new CollabError('invalid', 'workspace handoff requires a title');
-    if (store.room(roomId) === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
-    const workspace = store.createWorkspace(roomId);
-    hub.emit({ type: 'rooms', rooms: store.roomsView() });
-    const name = hub.members.get(taskOwner)?.name ?? taskOwner;
-    const reason = typeof body?.reason === 'string' ? body.reason : undefined;
-    const { message } = hub.post(workspace.id, { authorKind: 'system', author: 'system', name: '交接',
-      text: `【交接】${name}：${title}${reason ? `\n${reason}` : ''}` });
-    const task = tasks.assign({ roomId: workspace.id, owner: taskOwner, actor: lead, title, reason, messageId: message.id, force: true });
-    tasks.q.setSource.run('workspace', task.id);
-    const chat = workspace.parent_id ?? roomId;
-    const open = tasks.q.openChat.get(chat, taskOwner, lead, ...WORKING);
-    if (open !== undefined) {
-      tasks.handBack(open.id, { actor: open.owner, messageId: message.id });
-      tasks.review(open.id, { actor: lead, verdict: 'done', note: `转到${workspace.name} #${task.id}` });
-    }
-    if (!dsh?.nudge(taskOwner, message)) gateway.nudge?.(taskOwner, message);
-    return { workspace, task: tasks.task(task.id) };
-  });
-}
-
-/**
- * 一句话拉团队 (user 11-04: DSH 用户一句话拉单模型多角色): the primary role of a channel, with its
- * (member, room) later ticket, creates a new chat channel and its roles in one call.
- *   POST /collab/api/rooms/{id}/team  { channel, members: [{ name, persona?, cli?, model? }], model? }
- * DSH model is an id or "provider/model"; Claude model is a CLI model id. Absent = backend default.
- * The new roles join only the new channel; the caller becomes its primary role and joins it too.
- */
-export function teamRoute(req, res, url, { store, hub, later, roster }) {
-  const m = /^\/collab\/api\/rooms\/(\d+)\/team\/?$/.exec(url.pathname);
-  if (m === null || req.method !== 'POST') return undefined;
-  const claims = req.headers['x-later-ticket'] === undefined ? undefined : later?.verify(req.headers['x-later-ticket']);
-  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
-  const roomId = Number(m[1]);
-  if (claims.room !== roomId) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
-  if (hub.primaryIn(roomId)?.id !== claims.member) return Promise.resolve(json(res, 403, { error: 'only the primary role builds teams' }));
-  return withBody(req, res, async body => buildTeam(body, claims.member, { store, hub, roster }));
-}
-
-const TEAM_AVATARS = ['orange', 'dragon', 'rainbow', 'lanxi', 'whale'];
-const MAX_TEAM = 8;
-
-/** Find a model by id or provider/id among DSH's routes; undefined input = DSH default (no model on the member). */
-export async function resolveTeamModel(roster, wanted) {
-  const want = String(wanted ?? '').trim();
-  if (!want) return undefined;
-  const routes = await roster.models();
-  const slash = want.indexOf('/');
-  for (const route of routes) {
-    for (const model of route.models) {
-      const exact = slash > 0 && route.provider === want.slice(0, slash) && model.id === want.slice(slash + 1);
-      if (exact || model.id.toLowerCase() === want.toLowerCase()) return { provider: route.provider, model: model.id };
-    }
-  }
-  const known = routes.flatMap(r => r.models.map(x => x.id)).slice(0, 20).join(', ') || '（DSH 没报出可用模型）';
-  throw new CollabError('invalid', `模型 ${want} 在 DSH 里找不到；可用：${known}`);
-}
-
-export async function buildTeam(body, leadId, { store, hub, roster }) {
-  const channel = String(body?.channel ?? '').trim().replace(/^#/, '');
-  if (!channel || channel.length > 32 || /\s/.test(channel)) throw new CollabError('invalid', 'channel must be 1-32 characters without spaces');
-  const wanted = Array.isArray(body?.members) ? body.members : [];
-  if (wanted.length === 0 || wanted.length > MAX_TEAM) throw new CollabError('invalid', `members must list 1-${MAX_TEAM} roles`);
-  const names = wanted.map(x => String(x?.name ?? '').trim());
-  if (names.some(n => !n) || new Set(names.map(n => n.toLowerCase())).size !== names.length) throw new CollabError('invalid', 'every role needs a distinct name');
-  const models = [];
-  for (const x of wanted) {
-    const wantedModel = x?.model === undefined || x?.model === '' ? body?.model : x.model;
-    models.push(x?.cli ? wantedModel : await resolveTeamModel(roster, wantedModel));
-  }
-  // Check every role before anything is written, so a bad name leaves no half-built channel behind.
-  for (const [i, x] of wanted.entries()) await roster.validate({ name: names[i], persona: String(x?.persona ?? ''), cli: x?.cli, model: models[i], avatar: TEAM_AVATARS[i % TEAM_AVATARS.length] });
-  const room = store.createRoom(channel);
-  const created = [];
-  for (const [i, x] of wanted.entries()) {
-    const model = models[i];
-    created.push(await roster.create({ name: names[i], persona: String(x?.persona ?? ''), cli: x?.cli, rooms: [room.id], avatar: TEAM_AVATARS[i % TEAM_AVATARS.length], ...(model ? { model } : {}) }));
-  }
-  const lead = store.member(leadId);
-  if (lead?.source === 'ui' && lead.rooms && lead.rooms !== '[]') {
-    await roster.update(leadId, { ...rowToMember(lead), rooms: [...JSON.parse(lead.rooms), room.id] });
-  }
-  store.setLead(room.id, leadId);
-  hub.emit({ type: 'rooms', rooms: store.roomsView() });
-  const label = (model, i) => (model ? typeof model === 'string' ? model : model.model : `${wanted[i]?.cli ?? 'DSH'} 默认模型`);
-  const leadName = hub.members.get(leadId)?.name ?? leadId;
-  hub.post(room.id, { authorKind: 'system', author: 'system', name: '建团队',
-    text: `【已建团队】${leadName} 拉好了 #${channel}：${created.map((c, i) => `${c.name}（${label(models[i], i)}）`).join('、')}。${leadName} 是本频道主角色，直接在这里说需求。` });
-  return { room, lead: leadId, members: created.map((c, i) => ({ id: c.id, name: c.name, model: label(models[i], i) })) };
 }
 
 const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
@@ -953,11 +710,6 @@ export async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   }
 }
 
-/** Loopback origin of the server that accepted req, for the local later command. */
-function localOrigin(req) {
-  const port = req.socket?.localPort;
-  return Number.isInteger(port) ? `http://127.0.0.1:${port}` : undefined;
-}
 function json(res, status, value) { text(res, status, 'application/json; charset=utf-8', JSON.stringify(value)); }
 
 function text(res, status, type, body) {
@@ -979,43 +731,4 @@ function readBody(req, limit = MAX_BODY) {
     req.on('end', () => (size > limit ? reject(new BodyTooLarge()) : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
-}
-
-/** Authenticated one-shot scheduling for local and external channel members. */
-/**
- * #1651 POST /collab/api/rooms/{id}/memory { page, content }: a member's (member, room) later ticket
- * writes one page of that member's own memory wiki (later.mjs writeMemoryPage). Ticket only.
- * Returns undefined when the request is not for this route, else a Promise of the reply.
- */
-export function memoryRoute(req, res, url, { hub, later, dsh }) {
-  const m = /^\/collab\/api\/rooms\/(\d+)\/memory$/.exec(url.pathname.replace(/\/+$/, ''));
-  if (!m || req.method !== 'POST') return undefined;
-  const claims = later?.verify(req.headers['x-later-ticket']);
-  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
-  if (claims.room !== Number(m[1])) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
-  return withBody(req, res, body => {
-    if (!hub.routable().some(member => member.id === claims.member)) throw new CollabError('member-missing', 'unknown member');
-    const index = dsh?.memoryIndex?.path(claims.member);
-    if (!index) throw new CollabError('invalid', 'this install has no memory directory');
-    return { path: writeMemoryPage(dirname(index), body?.page, body?.content) };
-  });
-}
-export function laterRoute(req, res, url, { hub, gateway, owner, later }) {
-  const path = url.pathname.replace(/\/+$/, '');
-  const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
-  if (laterMatch && req.method === 'POST') {
-    // Only a (member, room) ticket from later.instructions() registers; owner and the shared bot token do not.
-    const claims = later.verify(req.headers['x-later-ticket']);
-    if (!claims) return json(res, 401, { error: 'unauthorized' });
-    if (claims.room !== Number(laterMatch[1])) return json(res, 403, { error: 'ticket is for another room' });
-    return withBody(req, res, body => {
-      if (body?.member !== undefined && body.member !== claims.member) throw new CollabError('forbidden', 'ticket is for another member');
-      if (body?.room !== undefined && Number(body.room) !== claims.room) throw new CollabError('forbidden', 'ticket is for another room');
-      if (!hub.routable().some(m => m.id === claims.member)) throw new CollabError('member-missing', 'unknown member');
-      const reminder = registerLater(hub.store.db, { ...body, member: claims.member, room: claims.room });
-      later.tick();
-      return { reminder };
-    });
-  }
-  return undefined;
 }

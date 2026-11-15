@@ -65,7 +65,7 @@ export function managementSettings(text) {
 }
 
 /** Loopback address to dial for a configured listen host. */
-function dialHost(host) {
+export function dialHost(host) {
   if (host === '' || host === '0.0.0.0' || host === '::' || host === '[::]') return '127.0.0.1';
   return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
 }
