@@ -162,7 +162,10 @@ export class Bridge {
     const bin = await this.binary();
     if (bin === undefined) return;
     const remove = [...this.removed];
-    const req = applyRequest(this.members(), { url, token: this.token, lead: this.lead(), remove });
+    const members = this.members();
+    // No member yet (the default one is still being added): nothing to hand over; setup apply refuses an empty list.
+    if (members.length === 0 && remove.length === 0) return;
+    const req = applyRequest(members, { url, token: this.token, lead: this.lead(), remove });
     const before = this.configText();
     const r = await run(bin, ['setup', 'apply', '--json', '-'], { input: JSON.stringify(req), timeout: APPLY_TIMEOUT_MS, log: join(this.dataDir, 'bothouse-apply.log'), env: this.env });
     let res;
