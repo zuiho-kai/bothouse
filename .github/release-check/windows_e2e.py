@@ -240,8 +240,15 @@ def diagnose(p, room, member, after):
     print("member:", json.dumps(next((m for m in s.get("members", []) if m.get("id") == member["id"]), {}), ensure_ascii=False)[:800])
     c, page = p.collab("GET", f"/collab/api/rooms/{room['id']}/messages?after={after - 1}")
     for m in (page.get("messages", []) if isinstance(page, dict) else []):
-        print("  msg", m.get("author_kind"), m.get("name"), repr((m.get("text") or "")[:300]))
+        print("  msg", m.get("author_kind"), m.get("author"), m.get("name"), repr((m.get("text") or "")[:300]))
     print("stub model calls:", stub_calls[-10:])
+    cfg = os.path.join(os.path.expanduser("~"), ".bothouse", "config.toml")
+    if os.path.exists(cfg):  # allow_from, ws_url, bot id of each role (a CI runner's config: no real keys)
+        with open(cfg, encoding="utf-8", errors="replace") as f:
+            print("config.toml cloud_web lines:")
+            for line in f:
+                if re.match(r"\s*(name|type|ws_url|allow_from|group_reply_all)\s*=", line):
+                    print("  |", re.sub(r"token=[^&\"]+", "token=…", line.rstrip()))
     logs = os.path.join(os.path.expanduser("~"), ".bothouse", "logs")
     if os.path.isdir(logs):  # gate.log, bothouse.log: where the @ stopped (kept with the artifact)
         import shutil
