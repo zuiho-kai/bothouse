@@ -38,6 +38,7 @@ import lossless  # reject writes that forget existing facts
 import lint  # MAX_TOPICS and README topic counting: split_pass must count topics exactly as lint does
 import sessionlog  # the unified session record: every runtime's sessions, one format (sessionlog.py docstring)
 import invalidate  # write-time contradiction check (Graphiti): superseded lines → the page's 「## 历史」
+import block_contract  # immutable source blocks, program-owned moves and reviewed replacements
 
 
 
@@ -830,6 +831,7 @@ def state():
     db.execute("create table if not exists alerts(kind text primary key, day text)")  # alert(): once per kind a day
     # rejection reason (digits dropped) → batches in a row it rejected, sessions in those batches
     db.execute("create table if not exists reject_streak(reason text primary key, n int, sessions int)")
+    recover_ingested(db)
     return db
 
 
@@ -1039,6 +1041,95 @@ def git(*args, cwd=None):
     return subprocess.run(["git", *args], cwd=cwd or WIKI, capture_output=True, text=True).stdout.strip()
 
 
+PROGRESS_TRAILER = "Wiki-Ingest-Progress: "
+PENDING_TRAILER = "Wiki-Ingest-Pending: "
+BLOCK_PENDING = False
+
+
+def recover_ingested(db):
+    """Only delivered, contract-checked commits may recover SQLite progress after a crash."""
+    history = git("log", "--reverse", "--format=%H%x00%B%x00", "--grep=^" + PROGRESS_TRAILER, cwd=REPO).split("\0")
+    for sha, message in zip(history[::2], history[1::2]):
+        sha = sha.strip()
+        rows = [json.loads(line[len(PROGRESS_TRAILER):]) for line in message.splitlines()
+                if line.startswith(PROGRESS_TRAILER)]
+        if len(rows) != 1:
+            raise ValueError("delivered ingest commit must have exactly one progress record")
+        progress = rows[0]
+        if all((db.execute("select offset from ingested where id=?", (p["id"],)).fetchone() or [0])[0] >= p["end"]
+               for p in progress):
+            continue
+        coverage = block_contract.from_message(message)
+        if coverage is None or git("rev-parse", sha + "^", cwd=REPO) not in coverage["sources"]:
+            raise ValueError("delivered ingest progress has no contract for its parent")
+        errors = block_contract.check(REPO, coverage, block_contract.tree(REPO, sha), coverage.get("kind", "ingest"))
+        if errors:
+            raise ValueError("invalid delivered block coverage: " + "\n".join(errors))
+        for p in progress:
+            offset = (db.execute("select offset from ingested where id=?", (p["id"],)).fetchone() or [0])[0]
+            if offset >= p["end"]:
+                continue
+            if offset != p["start"]:
+                raise ValueError(f"noncontiguous ingest progress for {p['id']}: {offset} != {p['start']}")
+            if "chunk" in p:
+                previous = db.execute("select part from pending_parts where id=?", (p["id"],)).fetchone()
+                if previous is None or previous[0] < p["part"]:
+                    db.execute("insert or replace into pending_parts values (?,?,?,?)",
+                               (p["id"], p["end"], p["chunk"], p["part"]))
+            else:
+                db.execute("delete from pending_parts where id=?", (p["id"],))
+                db.execute("insert or replace into ingested values (?,?,?)", (p["id"], p["end"], time.time()))
+                db.execute("delete from fails where id=?", (p["id"],))
+                if p.get("engine", "").startswith("codex"):
+                    db.execute("insert or replace into reviewed values (?,?,?)", (p["id"], p["end"], time.time()))
+    db.commit()
+
+
+def save_block_candidate(label, coverage, key, stage, checkpoint):
+    """Keep candidate output separate from the immutable pre-plan sources."""
+    pending = dict(key=key, stage=stage, coverage=coverage, engine=LAST_ENGINE, checkpoint=checkpoint)
+    message = label + "\n\n" + block_contract.TRAILER + block_contract.canonical(coverage)
+    message += "\n\n" + PENDING_TRAILER + block_contract.canonical(pending)
+    if stage == "deliver" and checkpoint:
+        message += "\n\n" + PROGRESS_TRAILER + block_contract.canonical([
+            dict(p, engine=LAST_ENGINE) for p in checkpoint])
+    block_contract.git(WORK, "reset", "--soft", git("rev-parse", "HEAD", cwd=REPO))
+    block_contract.git(WORK, "add", "-A")
+    block_contract.git(WORK, "commit", "--allow-empty", "-qm", message)
+    sha = git("rev-parse", "HEAD", cwd=WORK)
+    block_contract.git(REPO, "update-ref", "refs/wiki-ingest/pending/" + key, sha)
+    return sha
+
+
+def activate_block_candidate(key):
+    """Rebase pending output; only original sources and new main enter the inventory.
+
+    A transformed candidate is never a fresh pre-plan source: that would count a
+    moved block twice. Conflicts remain saved for resolution, never discarded.
+    """
+    sha = git("rev-parse", "--verify", "refs/wiki-ingest/pending/" + key, cwd=REPO)
+    if not sha or sha == git("rev-parse", "--verify", "refs/wiki-ingest/completed/" + key, cwd=REPO):
+        return None
+    message = git("show", "-s", "--format=%B", sha, cwd=REPO)
+    pending = next(json.loads(line[len(PENDING_TRAILER):]) for line in message.splitlines()
+                   if line.startswith(PENDING_TRAILER))
+    head = git("rev-parse", "HEAD", cwd=REPO)
+    coverage = pending.get("coverage")
+    if coverage is None:
+        # Legacy candidates have no frozen plan: preserve both their original and saved sides.
+        coverage = block_contract.freeze(REPO, [git("rev-parse", sha + "^", cwd=REPO), sha, head])
+        pending["coverage"] = coverage
+    elif head not in coverage["sources"]:
+        coverage["sources"] = block_contract.freeze(REPO, coverage["sources"] + [head])["sources"]
+    merged = subprocess.run(["git", "merge-tree", "--write-tree", head, sha], cwd=REPO,
+                            capture_output=True, text=True)
+    if merged.returncode:
+        pending["conflict"] = merged.stdout
+        return pending
+    block_contract.git(WORK, "read-tree", "--reset", "-u", merged.stdout.splitlines()[0])
+    return pending
+
+
 def sync_work():
     """Create WORK if needed and reset it to REPO's HEAD: a clean sandbox for the next pass. Whatever a
     failed or killed pass left there is simply dropped; REPO's working tree is never touched."""
@@ -1069,6 +1160,16 @@ def deliver(label):
             f"{', '.join(busy) or 'no operation'}; unmerged files: {', '.join(unmerged) or 'none'}")
         return []
     sha = git("rev-parse", "HEAD", cwd=WORK)
+    coverage = block_contract.from_message(git("show", "-s", "--format=%B", sha, cwd=WORK))
+    if coverage is None:
+        log(f"{label} NOT DELIVERED: candidate has no frozen block contract")
+        return []
+    errors = block_contract.check(REPO, coverage, block_contract.tree(REPO, sha), coverage.get("kind", "ingest"))
+    if git("rev-parse", "HEAD", cwd=REPO) not in coverage["sources"]:
+        errors.append("block coverage: delivery target advanced; resume the saved candidate against the new source")
+    if errors:
+        log(f"{label} NOT DELIVERED: " + "\n".join(errors))
+        return []
     # uncommitted edits in REPO that are only what this commit (or lint's code wrap) would write anyway — a hand
     # `lint.py --wrap` left uncommitted while acceptance wrapped the same lines in WORK — are dropped, not blamed:
     # git refuses the pick over them even when identical (2026-11-03 reflect lost to schedule.md)
@@ -1709,7 +1810,7 @@ def lint_errors():
     return "" if r.returncode == 0 else (r.stdout.strip() or r.stderr.strip()[-500:] or f"lint exit {r.returncode}")
 
 
-def acceptance(sids=(), max_delete=None, kind="ingest"):
+def acceptance(sids=(), max_delete=None, kind="ingest", coverage=None):
     """Checks run() does itself, whatever the model claims: lint (A1), a log.md entry per session (A2),
     only wiki pages touched (R9), no old line lost (lossless), no mass deletion. Models never commit, so their work is exactly the
     uncommitted diff against HEAD (a commit landing mid-pass from another session isn't counted). Lint errors already
@@ -1729,9 +1830,12 @@ def acceptance(sids=(), max_delete=None, kind="ingest"):
     # no forgetting (SOP v2, 2026-10-25): every content line of HEAD must still be, word for word, on some page; a
     # line no longer true moves to its page's 「## 历史」. (The old 「never merge a subdomain back」 check is gone:
     # consolidate flattens subdomains deeper than lint.MAX_DEPTH; lossless keeps every line of a merge.)
-    miss = lossless.missing(lossless.corpus(base, WIKI), lossless.corpus(None, WIKI))
-    if miss:
-        errs.append(lossless.report(miss))
+    try:
+        contract = coverage or block_contract.freeze(WIKI, [base])
+        errs.extend(block_contract.check(REPO if coverage else WIKI, contract,
+                                         block_contract.working_tree(WIKI), kind))
+    except (ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
+        errs.append(f"block coverage: invalid contract: {exc}")
     log_diff = git("diff", base, "--", "log.md").splitlines()
     if any(l.startswith("-") and not l.startswith("---") for l in log_diff):
         errs.append("log.md is append-only: restore the lines you removed or changed")
@@ -1816,30 +1920,30 @@ def model_pass(label, *a, **k):
 
 
 def _model_pass(label, instruction, stdin="", context=None, engine=None, sids=(), max_delete=None, kind="ingest", check=None,
-                apply=None, extra_contexts=(), fix_context=None, merge=None):
+                apply=None, extra_contexts=(), fix_context=None, merge=None, checkpoint=None):
     """"first|rest": `first` (an api-* engine) unless today's API budget is spent; a failed call (not a rejected
     result) runs the same pass on `rest`, so the job never stops on the credits running out or the gateway being down."""
     first, bar, rest = (engine or ENGINE).partition("|")
     if not bar:
         return _one_pass(label, instruction, stdin, context, engine or ENGINE, sids, max_delete, kind, check, apply,
-                         extra_contexts, fix_context, merge)
+                         extra_contexts, fix_context, merge, checkpoint)
     spent = api_spent_today()
     if spent >= API_DAILY_USD:
         log(f"{label}: API budget spent today (${spent:.2f} ≥ ${API_DAILY_USD:.2f}) → {rest}")
     else:
         res = _one_pass(label, instruction, stdin, context, first, sids, max_delete, kind, check, apply, extra_contexts,
-                        fix_context, merge)
-        if res or LAST_REJECTED or CRASHED:
+                        fix_context, merge, checkpoint)
+        if res or LAST_REJECTED or CRASHED or BLOCK_PENDING:
             return res
         if REJECT_REASONS and REJECT_REASONS[-1] == "model failed":
             REJECT_REASONS.pop()  # the fallback below decides whether this pass failed
         log(f"{label}: {first} call failed → {rest}")
     return _model_pass(label, instruction, stdin, context, rest, sids, max_delete, kind, check, apply, extra_contexts,
-                       fix_context, merge)
+                       fix_context, merge, checkpoint)
 
 
 def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind, check, apply, extra_contexts,
-              fix_context, merge):
+              fix_context, merge, checkpoint=None):
     """One model pass + acceptance checks + one fix round. Commits on success, reverts on failure.
     Codex: a capacity error resumes the same session on the next CODEX_CHAIN model; any other failure starts
     that model fresh; when the chain fails, AFTER_CODEX engines run fresh, one try each.
@@ -1849,11 +1953,21 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
     answer; an error string from it fails the pass like acceptance does, and the fix round asks for a new answer,
     showing the previous one. `merge(answers)`: with apply and extra_contexts, the batches' answers are combined by the
     script, so a later batch that leaves out an earlier batch's finding does not lose it (review L1)."""
-    global WIKI, LAST_ENGINE, LAST_REJECTED
-    LAST_REJECTED = False
+    global WIKI, LAST_ENGINE, LAST_REJECTED, BLOCK_PENDING
+    LAST_REJECTED = BLOCK_PENDING = False
     name, _, effort = (engine or ENGINE).partition(":")
     WIKI = WORK  # whoever calls this, the model and every git call below work in the worktree
     sync_work()
+    key = block_contract.digest([label, kind, checkpoint])
+    pending = activate_block_candidate(key)
+    if pending and pending.get("conflict"):
+        BLOCK_PENDING = True
+        log(f"{label} PENDING: saved candidate conflicts with the new main; both sides retained")
+        return False
+    coverage = pending["coverage"] if pending else block_contract.freeze(REPO, ["HEAD"], context or stdin or "")
+    coverage["kind"] = kind
+    block_contract.catalog(REPO, WORK, coverage)
+    instruction += block_contract.INSTRUCTION
     instruction += (f"\nRead CLAUDE.md first. The wiki is {WIKI} (your working directory); edit files only there, "
                     "never in any other copy. Never run git: committing and reverting are done for you.")
     home_before = home_state()
@@ -1867,7 +1981,10 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             log(f"{label}: reply says the work was not done (「{why}」), treated as a failed call")
         return not why and ok
 
-    if name == "codex":
+    if pending:
+        LAST_ENGINE = pending["engine"]
+        ok, out = True, ""
+    elif name == "codex":
         tid, capacity, prev = None, False, ""
         for i, model in enumerate(CODEX_CHAIN):
             if i and capacity and tid:  # same session, next model: keep the worktree edits
@@ -1877,6 +1994,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
                 if i:  # fresh start on the next model
                     log(f"{label}: {prev} failed without capacity error, starting {model} fresh")
                     discard()
+                    block_contract.catalog(REPO, WORK, coverage)
                 ok, out, cost, tid = codex(instruction, stdin, label, context, effort=effort or None, model=model)
             ok = finished(ok, out, not extra_contexts)
             if ok:
@@ -1889,6 +2007,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: codex chain failed, trying {fallback}")
             discard()
+            block_contract.catalog(REPO, WORK, coverage)
             ok, out, cost = runner(fallback)(instruction, stdin, label, context)
             ok = finished(ok, out, not extra_contexts)
             if ok:
@@ -1913,7 +2032,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
     # only after every batch succeeds: a partial reflection must neither advance the date nor trigger its fixes.
     answers = [out]
     combined = lambda: merge(answers) if merge and apply else answers[-1]
-    for n, more in enumerate(extra_contexts, 2):
+    for n, more in enumerate(() if pending else extra_contexts, 2):
         if not ok:
             break
         later = ("\n这是后续资料批次。上一批你交的 JSON 如下：在它基础上增补纠正，保留仍有依据的结论和来源，输出合并后的完整 JSON。\n"
@@ -1934,28 +2053,54 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         return asked[prompt]
 
     def accept():
-        # 用户 11-03「做」：写入时过时检测（照 Graphiti，bin/invalidate.py），被这一轮新事实推翻的旧行原样挪进同页「## 历史」，
-        # 再走原来的验收（lossless 照样查得到这些行）
-        try:
-            invalidate.run(WIKI, ask=ask, log=lambda m: log(f"{label} {m}"))
-        except Exception as e:  # noqa: BLE001 — 过时检测出错不拦这一轮的写入，记日志
-            log(f"{label} invalidate failed: {type(e).__name__}: {e}")
-        return "\n".join(e for e in (acceptance(sids, max_delete, kind), check and check()) if e)
+        error = block_contract.materialize(REPO, WORK, coverage, kind)
+        if error:
+            return error
+        # Pure structure changes do not ask a model to reinterpret old facts.
+        if kind != "restructure" and not coverage["plan"]["updates"]:
+            try:
+                invalidate.run(WIKI, ask=ask, log=lambda m: log(f"{label} {m}"))
+            except Exception as e:  # noqa: BLE001 — preserve the product's existing diagnostic behavior
+                log(f"{label} invalidate failed: {type(e).__name__}: {e}")
+        return "\n".join(e for e in (acceptance(sids, max_delete, kind, coverage=coverage), check and check()) if e)
 
     def settle(answer):
-        if not apply:
+        if apply and not pending:
+            discard()
+            error = apply(answer)
+            if error:
+                return error
+            coverage["plan"] = block_contract.scripted_moves(REPO, coverage, block_contract.working_tree(WORK))
+        try:
+            if not apply and (not pending or answer):
+                proposed = block_contract.plan_output(answer)
+                if any(proposed.values()) or not any(coverage["plan"].values()):
+                    coverage["plan"] = proposed
             return accept()
-        discard()  # the script edits from the answer; whatever the model edited itself is not wanted
-        return apply(answer) or accept()
+        except (ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
+            return f"block coverage: invalid candidate: {exc}"
+
+    def held_for_review(errors):
+        global BLOCK_PENDING
+        if not errors.startswith("block review required"):
+            return False
+        sha = save_block_candidate(label, coverage, key, "review", checkpoint)
+        BLOCK_PENDING = True
+        log(f"{label} PENDING: {errors}; candidate {sha}; offsets unchanged")
+        return True
 
     errs = settle(out) if ok else ""
+    if ok and held_for_review(errs):
+        return False
     if ok and errs:
+        save_block_candidate(label, coverage, key, "fix", checkpoint)
+        block_contract.catalog(REPO, WORK, coverage)
         # logged before the fix round's call: a run killed during that call (t10 at 10 min, 2026-10-23 jingyu's
         # --reflect-day 2026-10-21) otherwise leaves no trace of why the first answer was not written
         log(f"{label} rejected, fix round: {errs[:500]}")
         REJECT_REASONS.append(errs)
         # apply: the previous answer goes with the errors (the fix is to that answer; review M6)
-        fix = (instruction + "\n\n" + REDO.format(errors=errs) + "\n\n上一次的输出：\n" + out) if apply else FIX.format(errors=errs)
+        fix = (instruction + "\n\n" + REDO.format(errors=errs) + "\n\n上一次的输出：\n" + out) if apply else FIX.format(errors=errs) + block_contract.INSTRUCTION
         ok, out, c2 = once(fix, label=label + " fix", context=fix_context)
         ok = finished(ok, out)
         log(f"{label} fix ${c2:.3f}: {out[-300:]}")
@@ -1963,18 +2108,28 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             answers[-1] = out
             out = combined()
         errs = settle(out) if ok else ""
+        if ok and held_for_review(errs):
+            return False
     if not ok or errs:
-        discard()
+        save_block_candidate(label, coverage, key, "fix", checkpoint)
         LAST_REJECTED = bool(ok and errs)
-        log(f"{label} REVERTED: {errs[:500] or 'model failed'}")
+        log(f"{label} RETAINED: {errs[:500] or 'model failed'}")
         REJECT_REASONS.append(errs or "model failed")
         return False
     git("add", "-A")
-    if not git("status", "--porcelain"):
+    if not checkpoint and not git("status", "--porcelain"):
+        if pending:
+            block_contract.git(REPO, "update-ref", "refs/wiki-ingest/completed/" + key,
+                               git("rev-parse", "refs/wiki-ingest/pending/" + key, cwd=REPO))
         return True
-    git("commit", "-qm", label)
+    sha = save_block_candidate(label, coverage, key, "deliver", checkpoint)
     res = deliver(label)
-    return "changed" if res is True or (res and merge_newer(label, res, accept, once)) else False
+    if res is True:
+        block_contract.git(REPO, "update-ref", "refs/wiki-ingest/completed/" + key, sha)
+        return "changed"
+    BLOCK_PENDING = True
+    log(f"{label} PENDING: delivery did not land; candidate {sha}; offsets unchanged")
+    return False
 
 
 def remote(*args):
@@ -2523,7 +2678,7 @@ def remember(db, pages, res):
 
 
 def ingest_batches(db, items, engines, pending=False):
-    global quota_hit, CRASHED
+    global quota_hit, CRASHED, BLOCK_PENDING
     batches = batches_of(items)
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
@@ -2536,17 +2691,24 @@ def ingest_batches(db, items, engines, pending=False):
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
         retained = 0
-        res, quota_hit, CRASHED = False, False, ""
+        res, quota_hit, CRASHED, BLOCK_PENDING = False, False, "", False
         REJECT_REASONS.clear()
         cands = candidates_note(text)
+        checkpoint = []
+        for it in {it["id"]: it for it, _ in batch}.values():
+            start = (db.execute("select offset from ingested where id=?", (it["id"],)).fetchone() or [0])[0]
+            progress = dict(id=it["id"], start=start, end=it["end"])
+            if remaining[it["id"]] > 1:
+                progress.update(chunk=session_chunk(it), part=it.get("_part", 0) + 1)
+            checkpoint.append(progress)
         for engine in dict.fromkeys(filter(None, engines)):
             if quota_hit and is_claude(engine):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: {len(text)} chars → {engine}")
             prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
             res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
-                             check=lambda: page_checks(label, sources))
-            if res or CRASHED:  # a script error recurs on any engine: don't pay the next one for it
+                             check=lambda: page_checks(label, sources), checkpoint=checkpoint)
+            if res or CRASHED or BLOCK_PENDING:
                 break
         crashed = CRASHED
         if res:
@@ -2562,6 +2724,8 @@ def ingest_batches(db, items, engines, pending=False):
                 db.execute("delete from fails where id=?", (it["id"],))
                 if LAST_ENGINE.startswith("codex"):  # luna/sol/astra wrote it: nothing for the nightly review to check
                     db.execute("insert or replace into reviewed values (?,?,?)", (it["id"], it["end"], time.time()))
+        elif BLOCK_PENDING:
+            log(f"{label}: candidate waiting for review or delivery; offsets and failure count unchanged")
         elif budget.exhausted():
             log(f"{label}: job deadline reached; checkpoint retained, not counted as a model failure")
             db.commit()
@@ -2582,7 +2746,7 @@ def ingest_batches(db, items, engines, pending=False):
             why = f"最近的拒绝原因：{REJECT_REASONS[-1].splitlines()[0][:150]}。" if REJECT_REASONS else ""
             alert(db, ["retained"], f"wiki 自动整理保留了 {retained} 个待办（各连续失败至少 {MAX_FAILS} 次，未推进已读位置，下轮续办）。{why}"
                                   f"日志看 {LOG}（RETAINED / REVERTED 行）。")
-        if res or not quota_hit:  # a quota refusal says nothing about the reasons: streaks neither grow nor reset
+        if res or (not quota_hit and not BLOCK_PENDING):
             if res:  # a rejection the fix round repaired lost nothing: only batches that end up failing grow a streak
                 REJECT_REASONS.clear()
             reject_streaks(db, len(ids))
@@ -3969,13 +4133,31 @@ def family_pass():
     """SOP v2: before any split, consolidate.py merges every X-*.md family back into X.md (mechanical, lossless- and
     lint-checked; reverted otherwise) and the result is delivered like a model pass's commit."""
     label = "consolidate families"
-    ok, summary = consolidate.consolidate(WIKI, ("families",), label=label, commit=True)
+    key = block_contract.digest([label, "restructure", None])
+    pending = activate_block_candidate(key)
+    if pending and pending.get("conflict"):
+        log(f"{label}: pending candidate conflicts with newer main; retained")
+        return
+    coverage = pending["coverage"] if pending else block_contract.freeze(REPO, ["HEAD"])
+    coverage["kind"] = "restructure"
+    ok, summary = (True, "resumed candidate") if pending else consolidate.consolidate(
+        WIKI, ("families",), label=label, commit=False)
     if not ok:
         log(f"{label}: REVERTED: {summary[:500]}")
     elif summary != "nothing to do":
+        if not pending:
+            coverage["plan"] = block_contract.scripted_moves(REPO, coverage, block_contract.working_tree(WIKI))
+        errors = block_contract.check(REPO, coverage, block_contract.working_tree(WIKI), "restructure")
+        if errors:
+            save_block_candidate(label, coverage, key, "fix", None)
+            log(f"{label}: retained candidate: " + "\n".join(errors))
+            return
         log(f"{label}: {summary}")
-        if WIKI == WORK and deliver(label) is not True:
-            log(f"{label}: not delivered, the next run merges again")
+        sha = save_block_candidate(label, coverage, key, "deliver", None)
+        if deliver(label) is True:
+            block_contract.git(REPO, "update-ref", "refs/wiki-ingest/completed/" + key, sha)
+        else:
+            log(f"{label}: not delivered, candidate retained")
         sync_work()
 
 
