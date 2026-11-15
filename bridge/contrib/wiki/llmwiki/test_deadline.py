@@ -149,12 +149,21 @@ while time.monotonic() < end:
 
     @unittest.skipIf(os.name == "nt", "the dsh stream uses a POSIX process group")
     def test_dsh_finishes_tree_cleanup_before_return_and_rollback(self):
-        """#648: EOF/parent exit must not let rollback race the timeout thread's SIGKILL."""
+        """#648: EOF/parent exit must not let candidate saving race timeout cleanup."""
         import json
         import signal
         import threading
 
         root = Path(tempfile.mkdtemp(prefix="dsh-rollback-", dir=ROOT))
+        # The product now freezes a real Git baseline before it invokes a model.
+        (root / "README.md").write_text("# Synthetic deadline fixture\n")
+        (root / ".gitignore").write_text("*\n!README.md\n")
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Synthetic Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "synthetic deadline baseline"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Synthetic Fixture"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "fixture@example.invalid"], cwd=root, check=True)
         helper = root / "model.py"
         helper.write_text('''import os, signal, subprocess, sys, time
 from pathlib import Path
@@ -164,6 +173,7 @@ root = Path(sys.argv[2])
 signal.alarm(15)  # bounded fake model even if the test fails
 if sys.argv[3:4] != ['child']:
     sys.stdin.read()
+    (root / 'README.md').write_text('# Interrupted synthetic output\\n')
     (root / 'parent.pid').write_text(str(os.getpid()))
     subprocess.Popen([sys.executable, __file__, sys.argv[1], sys.argv[2], 'child'],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -182,6 +192,7 @@ else:
             time.sleep(0.01)
 ''')
         real_stream, real_killpg, real_timer = I._dsh_stream, os.killpg, threading.Timer
+        real_save = I.save_block_candidate
         release_cleanup = threading.Event()
         timers, snapshots, thread_errors = [], {}, []
 
@@ -212,8 +223,9 @@ else:
             snapshot("stream_return")  # no wait after return before checking the lock
             return result
 
-        def rollback():
-            snapshot("rollback_start")  # actual _one_pass failure/rollback boundary
+        def retain(*args):
+            snapshot("candidate_save")  # actual _one_pass interrupted-output boundary
+            return real_save(*args)
 
         def run(args):
             self.assertFalse(I._model_pass("timeout-reap", "task", engine="dsh"))
@@ -222,7 +234,7 @@ else:
             with patch.multiple(I, WIKI=root, WORK=root, REPO=root, HOME=root, LOG=root / "ingest.log",
                                 USAGE=root / "usage.tsv", LOCK=root / ".ingest.lock", QUEUE=root / "queue",
                                 MIRROR_TO=None, pull=lambda: None, prepare=lambda: None, push=lambda: None,
-                                sync_work=lambda: None, discard=rollback, run=run, _dsh_stream=stream), \
+                                sync_work=lambda: None, save_block_candidate=retain, run=run, _dsh_stream=stream), \
                     patch.dict(I.CFG, dsh_cmd=[sys.executable, str(helper), str(Path(I.__file__).parent), str(root)],
                                dsh_patch=""), \
                     patch.object(I, "dsh_env", return_value={"PATH": os.defpath}), \
@@ -235,10 +247,10 @@ else:
                 with (root / ".ingest.lock").open("a") as lock:
                     I.filelock.lock(lock, False)
                 snapshots["ingest_lock_free"] = True
-            print("DSH return/rollback boundary: " + json.dumps(snapshots, sort_keys=True), flush=True)
+            print("DSH return/candidate boundary: " + json.dumps(snapshots, sort_keys=True), flush=True)
             self.assertEqual(thread_errors, [], "timeout callback crashed instead of completing cleanup")
             self.assertEqual(snapshots["rc"], 124)
-            for where in ("stream_return", "rollback_start", "ingest_return"):
+            for where in ("stream_return", "candidate_save", "ingest_return"):
                 self.assertTrue(snapshots[where]["cleanup_done"], where + ": timeout callback still running")
                 self.assertTrue(snapshots[where]["lock_free"], where + ": TERM-ignoring grandchild still holds lock")
             self.assertEqual(snapshots["stream_return"]["writes"], snapshots["ingest_return"]["writes"])
