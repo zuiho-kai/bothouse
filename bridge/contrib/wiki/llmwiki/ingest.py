@@ -17,7 +17,7 @@
 
 Progress is a byte offset per session (ingested, reviewed), so a resumed session only has its new tail done.
 Model passes edit a git worktree (.ingest-work), never the wiki's own working tree. Each pass is followed by
-acceptance checks (bin/lint.py and more); violations get one fix round, otherwise the worktree is reset and
+acceptance checks (bin/lint.py and more); violations get one fix round, otherwise the candidate is retained and
 the batch retried on a later run (MAX_FAILS triggers an alert, never a read offset). Accepted commits are cherry-picked onto the wiki (one that
 conflicts with commits made there meanwhile is merged by the model in the same pass, see merge_newer) and pushed.
 Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); the Mac's nightly review covers them.
@@ -1159,14 +1159,31 @@ def activate_block_candidate(key):
     return pending
 
 
+def replace_work(head):
+    """Retain the complete old worktree and create WORK at an explicit commit.
+
+    Moving through Git preserves its index, HEAD and ignored source evidence too.
+    Archives remain separate candidates, never additional block sources or delivered progress.
+    A failed move/add raises; no fallback erases the original evidence.
+    """
+    if (WORK / ".git").exists():
+        archives = REPO / ".ingest-archives"
+        archives.mkdir(exist_ok=True)
+        archived = Path(tempfile.mkdtemp(dir=archives)) / "worktree"
+        block_contract.git(REPO, "worktree", "move", str(WORK), str(archived))
+        log(f"retained worktree: {archived}")
+    block_contract.git(REPO, "worktree", "add", "--detach", str(WORK), head)
+
+
 def sync_work():
-    """Create WORK if needed and reset it to REPO's HEAD: a clean sandbox for the next pass. Whatever a
-    failed or killed pass left there is simply dropped; REPO's working tree is never touched."""
-    if not (WORK / ".git").exists():
-        git("worktree", "prune", cwd=REPO)
-        git("worktree", "add", "-f", "--detach", str(WORK), "HEAD", cwd=REPO)
-    git("reset", "-q", "--hard", git("rev-parse", "HEAD", cwd=REPO), cwd=WORK)
-    git("clean", "-fdq", cwd=WORK)
+    """Start at REPO's HEAD, retaining anything a failed or killed pass left behind."""
+    head = block_contract.git(REPO, "rev-parse", "HEAD").decode().strip()
+    if (WORK / ".git").exists():
+        old = block_contract.git(WORK, "rev-parse", "HEAD").decode().strip()
+        dirty = block_contract.git(WORK, "status", "--porcelain", "--untracked-files=all", "--ignored")
+        if old == head and not dirty.strip():
+            return
+    replace_work(head)
 
 
 def deliver(label):
@@ -1292,10 +1309,10 @@ def merge_newer(label, files, accept, once):
     HEAD in WORK, have the engine that did the pass merge only the conflicted files (the other commits' changes into
     this pass's result, e.g. into the pages a split moved the text to; only a model knows where it went), run the
     pass's own acceptance again and deliver, all in this pass (dispatch 2026-10-18 「在同一轮里当场合并后送达」).
-    Rejected or failed → dropped and logged NOT DELIVERED, as before: the batch is redone on a later run."""
+    Rejected or failed → retained and logged NOT DELIVERED: the batch is redone on a later run."""
     sha = git("rev-parse", "HEAD", cwd=WORK)
     base, head = git("rev-parse", sha + "^", cwd=WORK), git("rev-parse", "HEAD", cwd=REPO)
-    git("reset", "-q", "--hard", head, cwd=WORK)
+    replace_work(head)
     git("cherry-pick", "--no-commit", sha, cwd=WORK)
     names = ", ".join(files)
     files = git("-c", "core.quotepath=off", "diff", "--name-only", "--diff-filter=U", cwd=WORK).splitlines()
@@ -1893,10 +1910,10 @@ def home_state():
 
 
 def discard():
-    """Drop a rejected pass's edits. Only ever the worktree: the wiki's own tree holds other people's work."""
-    git("reset", "-q", cwd=WORK)  # unstage first (a domain split's `git mv`): checkout restores from the index
-    git("checkout", "--", ".", cwd=WORK)
-    git("clean", "-fdq", cwd=WORK)
+    """Retain a rejected attempt, then restore WORK's committed baseline for this pass."""
+    if (WORK / ".git").exists():
+        head = block_contract.git(WORK, "rev-parse", "HEAD").decode().strip()
+        replace_work(head)
 
 
 # A reply in which the model says it did not do the work at all, because it had no tools — a passing fault another engine
@@ -1925,7 +1942,7 @@ def runner(name):
 
 def model_pass(label, *a, **k):
     """_model_pass, but a script error anywhere in it (an acceptance check, apply, git) fails this pass like a
-    rejection — worktree reverted, the error in REJECT_REASONS, the traceback in the log, CRASHED set — instead of
+    rejection — worktree retained, the error in REJECT_REASONS, the traceback in the log, CRASHED set — instead of
     ending the process. 2026-10-28: page_checks → discord_said read a removed ~/.cc-connect/config.toml, the process
     died after the model was paid, nothing counted a failure, and launchd re-ran the same batch every 30 minutes."""
     global CRASHED, LAST_REJECTED
@@ -1940,7 +1957,7 @@ def model_pass(label, *a, **k):
         log(f"{label} CRASHED (script error, counted as a failed pass): {CRASHED}\n{traceback.format_exc().rstrip()}")
         try:
             discard()
-        except Exception as d:  # noqa: BLE001 — the next pass's sync_work resets the worktree anyway
+        except Exception as d:  # noqa: BLE001 — leave evidence in place; sync_work must retain it before reuse
             log(f"{label}: discard after crash failed: {type(d).__name__}: {d}")
         LAST_REJECTED = False
         REJECT_REASONS.append("验收脚本出错 " + CRASHED)
@@ -1972,7 +1989,7 @@ def _model_pass(label, instruction, stdin="", context=None, engine=None, sids=()
 
 def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind, check, apply, extra_contexts,
               fix_context, merge, checkpoint=None):
-    """One model pass + acceptance checks + one fix round. Commits on success, reverts on failure.
+    """One model pass + acceptance checks + one fix round. Delivers on success, retains candidates on failure.
     Codex: a capacity error resumes the same session on the next CODEX_CHAIN model; any other failure starts
     that model fresh; when the chain fails, AFTER_CODEX engines run fresh, one try each.
     Returns False on failure, "changed" if it committed, True if the pass changed nothing. After a False,

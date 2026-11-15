@@ -201,6 +201,114 @@ class BlockContract(unittest.TestCase):
         self.assertNotIn("incomplete new fact", (self.repo / "misc/source.md").read_text(encoding="utf-8"))
         db.close()
 
+    def preserve_only(self):
+        """Old destructive recovery must fail before it can erase test evidence."""
+        original = I.git
+        def guarded(*args, **kwargs):
+            if args[0] == "clean" or "--hard" in args or args[:2] == ("checkout", "--"):
+                raise AssertionError("destructive recovery: " + " ".join(args))
+            return original(*args, **kwargs)
+        return patch.object(I, "git", side_effect=guarded)
+
+    def test_discard_preserves_index_untracked_files_and_frozen_catalog(self):
+        self.git("worktree", "add", "--detach", str(I.WORK), "HEAD")
+        coverage = I.block_contract.freeze(self.repo, ["HEAD"], "USER: synthetic original input")
+        I.block_contract.catalog(self.repo, I.WORK, coverage)
+        catalog = (I.WORK / I.block_contract.CATALOG).read_bytes()
+        (I.WORK / "misc/source.md").write_text(PAGE + FACT + "- rejected edit\n")
+        self.git("add", "misc/source.md", cwd=I.WORK)
+        (I.WORK / "nested").mkdir()
+        (I.WORK / "nested/untracked.md").write_text("unaccepted candidate\n")
+        (I.WORK / ".ingest-ignored").write_bytes(b"retained ignored evidence")
+        old_head = self.git("rev-parse", "HEAD", cwd=I.WORK)
+        with self.preserve_only():
+            I.discard()
+        archives = list((self.repo / ".ingest-archives").glob("*/worktree"))
+        self.assertEqual(len(archives), 1)
+        archived = archives[0]
+        self.assertIn("rejected edit", (archived / "misc/source.md").read_text())
+        self.assertIn("misc/source.md", self.git("diff", "--cached", "--name-only", cwd=archived))
+        self.assertEqual((archived / "nested/untracked.md").read_text(), "unaccepted candidate\n")
+        self.assertEqual((archived / ".ingest-ignored").read_bytes(), b"retained ignored evidence")
+        self.assertEqual((archived / I.block_contract.CATALOG).read_bytes(), catalog)
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=archived), old_head)
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=I.WORK), old_head)
+        self.assertEqual(self.git("status", "--porcelain", cwd=I.WORK), "")
+        self.assertEqual((I.WORK / "misc/source.md").read_text(), PAGE + FACT + FACT)
+
+    def test_sync_work_preserves_killed_candidate_without_making_it_a_source(self):
+        self.git("worktree", "add", "--detach", str(I.WORK), "HEAD")
+        (I.WORK / "misc/source.md").write_text(PAGE + FACT + "- rejected candidate only\n")
+        self.git("add", "-A", cwd=I.WORK)
+        self.git("commit", "-qm", "unaccepted local candidate", cwd=I.WORK)
+        candidate = self.git("rev-parse", "HEAD", cwd=I.WORK)
+        (I.WORK / "partial.md").write_text("killed turn bytes\n")
+        (self.repo / "log.md").write_text("# Log\nindependent main advancement\n")
+        head = self.commit("main advanced")
+        with self.preserve_only():
+            I.sync_work()
+            with patch.object(I, "runner", return_value=self.move_model):
+                self.assertEqual(I.model_pass("after killed turn", "split", engine="fake", kind="restructure"), "changed")
+        archived = next((self.repo / ".ingest-archives").glob("*/worktree"))
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=archived), candidate)
+        self.assertEqual((archived / "partial.md").read_text(), "killed turn bytes\n")
+        delivered = I.block_contract.from_message(self.git("show", "-s", "--format=%B"))
+        self.assertEqual(delivered["sources"], [head])
+        self.assertNotIn(candidate, delivered["sources"])
+        self.assertNotIn("rejected candidate", (self.repo / "misc/source.md").read_text())
+        self.assertEqual((self.repo / "misc/source.md").read_text().count(FACT), 1)
+        self.assertEqual((self.repo / "misc/dest.md").read_text().count(FACT), 1)
+
+    def test_crashed_pass_retains_evidence_and_advances_offset_only_after_delivery(self):
+        checkpoint = [dict(id="crashed-session", start=0, end=123)]
+        original = "USER: preserve this exact frozen input"
+        def crash(*args, **kwargs):
+            (I.WORK / "partial").mkdir()
+            (I.WORK / "partial/unfinished.md").write_text("incomplete output\n")
+            (I.WORK / "misc/source.md").write_text(PAGE + FACT)
+            raise RuntimeError("synthetic interrupted script")
+        with self.preserve_only():
+            with patch.object(I, "runner", return_value=crash):
+                self.assertFalse(I.model_pass("crash and retry", "split", engine="fake", context=original,
+                                              kind="restructure", checkpoint=checkpoint))
+            archived = next((self.repo / ".ingest-archives").glob("*/worktree"))
+            catalog = json.loads((archived / I.block_contract.CATALOG).read_text())
+            self.assertEqual((archived / "partial/unfinished.md").read_text(), "incomplete output\n")
+            self.assertEqual(catalog["sources"], [self.git("rev-parse", "HEAD")])
+            blob = I.block_contract.git(self.repo, "hash-object", "--stdin", data=original.encode()).decode().strip()
+            self.assertEqual(self.git("rev-parse", "refs/wiki-ingest/source-inputs/" + blob), blob)
+            self.assertEqual(self.git("cat-file", "blob", blob), original)
+            db = I.state()
+            self.assertEqual(db.execute("select * from ingested").fetchall(), [])
+            db.close()
+            with patch.object(I, "runner", return_value=self.move_model):
+                self.assertEqual(I.model_pass("crash and retry", "split", engine="fake", context=original,
+                                              kind="restructure", checkpoint=checkpoint), "changed")
+        db = I.state()
+        self.assertEqual(db.execute("select offset from ingested where id='crashed-session'").fetchone(), (123,))
+        db.close()
+        self.assertEqual((self.repo / "misc/source.md").read_text().count(FACT), 1)
+        self.assertEqual((self.repo / "misc/dest.md").read_text().count(FACT), 1)
+
+    def test_replacement_failure_keeps_archived_candidate_and_next_sync_recovers(self):
+        self.git("worktree", "add", "--detach", str(I.WORK), "HEAD")
+        (I.WORK / "partial.md").write_text("not accepted\n")
+        original = I.block_contract.git
+        def fail_add(repo, *args, **kwargs):
+            if args[:2] == ("worktree", "add"):
+                raise subprocess.CalledProcessError(1, ["git", *args], stderr=b"synthetic add failure")
+            return original(repo, *args, **kwargs)
+        with patch.object(I.block_contract, "git", side_effect=fail_add):
+            with self.assertRaises(subprocess.CalledProcessError):
+                I.discard()
+        archived = next((self.repo / ".ingest-archives").glob("*/worktree"))
+        self.assertEqual((archived / "partial.md").read_text(), "not accepted\n")
+        self.assertFalse(I.WORK.exists())
+        with self.preserve_only():
+            I.sync_work()
+        self.assertEqual(self.git("status", "--porcelain", cwd=I.WORK), "")
+        self.assertEqual((archived / "partial.md").read_text(), "not accepted\n")
+
     def test_legacy_review_pending_resumes_automatically_without_model(self):
         c = I.block_contract
         original = "USER: replace synthetic allocation with 23 units"
