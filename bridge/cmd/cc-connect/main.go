@@ -987,7 +987,7 @@ func runMain() {
 	slog.Info("bye")
 }
 
-// errSkipProject: buildProject left the project out (all its platforms are disabled, or its multi-workspace base_dir could not be
+// errSkipProject: buildProject left the project out (all its platforms are disabled, its agent CLI is not installed, or its multi-workspace base_dir could not be
 // created). Startup goes on without it, as it always did.
 var errSkipProject = errors.New("project skipped")
 
@@ -1021,6 +1021,10 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		}
 	}
 	agent, err := core.CreateAgent(proj.Agent.Type, buildAgentOptions(cfg.DataDir, proj))
+	if errors.Is(err, core.ErrCLINotFound) { // #1662: the other roles still run; this one waits for its CLI
+		slog.Error("project not started: its agent CLI is not installed", "project", proj.Name, "error", err)
+		return b, errSkipProject
+	}
 	if err != nil {
 		slog.Error("failed to create agent", "project", proj.Name, "error", err)
 		return b, fmt.Errorf("create agent: %w", err)

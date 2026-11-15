@@ -230,7 +230,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		// Not on PATH: also try the common install dirs and start the absolute path found there.
 		resolved, err := core.ResolveCLI(cmd)
 		if err != nil {
-			return nil, fmt.Errorf("claudecode: %q CLI not found in PATH, please install it first", cmd)
+			return nil, fmt.Errorf("claudecode: %q %w, please install it first", cmd, core.ErrCLINotFound)
 		}
 		cmd = resolved
 	}

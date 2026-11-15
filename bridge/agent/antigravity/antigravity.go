@@ -73,7 +73,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	}
 
 	if _, err := exec.LookPath(cmd); err != nil {
-		return nil, fmt.Errorf("antigravity: %q CLI not found in PATH, install from: https://antigravity.google/docs/cli-overview", cmd)
+		return nil, fmt.Errorf("antigravity: %q %w, install from: https://antigravity.google/docs/cli-overview", cmd, core.ErrCLINotFound)
 	}
 
 	return &Agent{

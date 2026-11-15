@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,6 +150,11 @@ func extraBinDirs() []string {
 // ExtraBinDirs returns the install dirs searched after PATH (see extraBinDirs). The role session
 // env and the daemon's service PATH append them, so an npm-installed CLI also finds node.
 func ExtraBinDirs() []string { return extraBinDirs() }
+
+// ErrCLINotFound: an agent's CLI is not installed (not on PATH nor in extraBinDirs). Agents wrap it when
+// they are created, so startup can leave that one role out and run the rest (#1662: a DSH roster member
+// whose CLI the machine lacks must not stop the whole bridge).
+var ErrCLINotFound = errors.New("CLI not found in PATH")
 
 // ResolveCLI returns the command to start for a configured CLI cmd. A cmd found on PATH, or one
 // that is already a path, is returned as is. A bare name missing from PATH is looked up in
