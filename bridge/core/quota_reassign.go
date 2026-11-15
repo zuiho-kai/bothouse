@@ -16,7 +16,8 @@ import (
 
 // quotaReassignPick returns a free, non-cooling teammate bound in session's chat other than e
 // and the names in exclude. When there is none it returns the earliest time a bound teammate's
-// cooldown ends (zero when nobody is cooling, i.e. the others are only busy).
+// cooldown ends (zero when nobody has a known cooling deadline; other roles may
+// be busy or have unknown quota). A deadline is not a recovery confirmation.
 func (e *Engine) quotaReassignPick(session, title string, exclude ...string) (*Engine, time.Time) {
 	reserved := map[string]bool{}
 	for _, name := range exclude {
@@ -55,7 +56,7 @@ func (e *Engine) quotaReassignPick(session, title string, exclude ...string) (*E
 		}
 	}
 	// e's own deadline is not a teammate's: counting it made 「能换的队友都在冷却」 appear when the
-	// others were only busy or unavailable (#1592, 11-13 22:39). Zero here means 都在忙.
+	// others were only busy or unavailable (#1592, 11-13 22:39).
 	slog.Info("quota reassign: no free teammate", "from", e.name, "session", session, "earliest_teammate_back", earliest)
 	return nil, earliest
 }

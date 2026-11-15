@@ -186,9 +186,15 @@ func renderVoiceDeskBrief(files []teamFile, now time.Time) string {
 			}
 		}
 		state := "空闲"
+		quotaNote := f.quotaDispatchNote(now)
 		if len(lines) > 0 {
 			sort.Strings(lines)
 			state = strings.Join(lines, "；")
+			if quotaNote != "" {
+				state += "；" + quotaNote
+			}
+		} else if quotaNote != "" {
+			state = quotaNote
 		}
 		fmt.Fprintf(&b, "- %s（to=%s）：%s\n", f.Name, f.Project, strings.TrimSpace(state))
 	}

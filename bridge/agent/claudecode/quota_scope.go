@@ -155,8 +155,9 @@ func accountKey(st authStatus) string {
 }
 
 // QuotaScope follows the same credential environment and OS-user isolation as
-// StartSession. Model IDs have no proven separate allowance here.
-func (a *Agent) QuotaScope(string) (string, string) {
+// StartSession. Model windows use the provider's family key; account-wide
+// windows remain a parent hold on every family. API credentials still share.
+func (a *Agent) QuotaScope(model string) (string, string) {
 	a.mu.RLock()
 	runAs := a.spawnOpts.RunAsUser
 	env := core.MergeEnv(os.Environ(), a.runtimeEnvLocked())
@@ -186,8 +187,25 @@ func (a *Agent) QuotaScope(string) (string, string) {
 		}
 		// The directory only locates the credentials; it does not name the
 		// account stored in them.
-		return currentAccountIdentity(env, root), "account"
+		return currentAccountIdentity(env, root), claudeModelQuotaGroup(model)
 	}
 	b, _ := json.Marshal(identity)
 	return string(b), "account"
+}
+
+// Claude IDs/aliases carry the model family separately from version numbers.
+// This normalizes provider model identifiers, never a UsageWindow display name.
+func claudeModelQuotaGroup(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	model, _, _ = strings.Cut(model, "[")
+	model = strings.TrimPrefix(model, "claude-")
+	if model == "" || model == "default" {
+		return "account"
+	}
+	for _, part := range strings.Split(model, "-") {
+		if part != "" && part[0] >= 'a' && part[0] <= 'z' {
+			return "model:" + part
+		}
+	}
+	return "account"
 }
