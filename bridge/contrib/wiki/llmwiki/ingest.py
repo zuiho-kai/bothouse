@@ -497,19 +497,43 @@ A1 lint ok。A2 第 2–9 步每项都检查过。A3 没有新增事实、没有
 每处修改一行「<path>: <改了什么>」，最后一行列出 2–9 步各自 ok/fixed；无修改则输出 "lint clean"。"""
 SOP_LINT = persona(SOP_LINT)
 
-SOP_SPLIT = """SPLIT 任务（执行型：照 SOP 做）。下列页面已接近预算，按子主题拆分。不增删事实，只搬家。
+SOP_SPLIT = """SPLIT 任务（执行型：照 SOP 做）。下列页面已接近预算，同族切片已由脚本合并过，现在每页是一个超预算的单一主题，按小节拆进它自己的子目录。不增删事实，只搬家。
 
 ## 规则
-R1 先读 CLAUDE.md 并遵守（层级、预算、页面格式、一事一页、[[链接]]）。
-R2 只拆下列页面；不发明事实，不删仍然成立的事实。
-R3 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）；log.md 只追加；不运行 git，不改 CLAUDE.md、bin/、隐藏文件。
+R1 先读 CLAUDE.md 并遵守（层级、预算、页面格式、一事一页、[[链接]]、不遗忘）。
+R2 只拆下列页面；不发明事实，不删、不改写任何一行：每一行原样落在某一页上（脚本逐行核对，缺一行整次回滚）。
+R3 不在原页同目录新建平级页面（如 X-details.md、X-2.md）：新页只能放进 `<原页目录>/<原页名>/`；原页已是 `<d>/<X>/<X>.md`（子目录总览）时，新页直接放进 `<d>/<X>/`，不建 `<d>/<X>/<X>/`。分页按子主题命名，不用 `<X>-` 开头（会被脚本当成同族并回原页）。脚本核对。
+R4 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）；log.md 只追加；不运行 git，不改 CLAUDE.md、bin/、隐藏文件。
 
 ## SOP
 1. 读 CLAUDE.md、下列每个页面所在目录的 README、下列每个页面。
-2. 每页按子主题切成 2–3 页；原页留总览与 [[新页]] 链接；新页有完整 frontmatter（name、description、metadata.scope），scope 写清归属；各页都降到预算 @SPLIT_TARGET@ 以下。
-3. 新页放在原页同一目录，登记到该目录的 README（子域页登记在子域 README）；更新原页 description 与 README 行；grep 全库 `[[原页名]]`，指向已搬走内容的改成新页。
-4. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md，如 refs/papers/x>`，下面每页一行说明搬了什么。
-5. 运行 `python3 bin/lint.py` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出这些页面。
+2. 对页面 `<d>/<X>.md`：建子目录 `<d>/<X>/`，把 `<X>.md` 移进去成为 `<d>/<X>/<X>.md`（总览：保留现状要点，加一行指向各分页的 [[链接]]）；页面已是 `<d>/<X>/<X>.md` 时不再建子目录，就地当总览；
+   按原页的小节或子主题把其余行原样搬进同目录的分页（完整 frontmatter：name、description、metadata.scope），各页都降到预算 @SPLIT_TARGET@ 以下。
+3. 写 `<d>/<X>/README.md`（标题行 + 每页一行 `- [名](名.md) — 描述`）；父目录 README 里原来那一行改成目录行 `- [<X>](<X>/README.md) — <描述>`，不新增父目录条目（页面已是总览时只在 `<d>/<X>/README.md` 加分页行）。
+4. grep 全库 `[[<X>]]`，指向已搬到分页内容的改成分页名；相对路径链接 `](…<X>.md)` 改到新位置。
+5. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md，如 refs/papers/x>`，下面每页一行说明搬了什么。
+6. 运行 `python3 bin/lint.py --wrap` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出这些页面。
+
+## 交付
+每处修改一行「<path>: <改了什么>」。
+
+页面（lint --warn 输出）："""
+
+SOP_SPLIT_FULL = """SPLIT 任务（执行型：照 SOP 做）。下列页面已超预算，但它所在目录的 README 已满（条目到上限）、目录也到了最深层，
+不能再建新页、不能再拆子目录。改做法：把它的一部分行原样搬进同目录已有的、主题最近的页。不增删事实，只搬家。
+
+## 规则
+R1 先读 CLAUDE.md 并遵守（预算、页面格式、[[链接]]、不遗忘）。
+R2 不新建任何 .md 文件，不移动、不改名任何文件，不碰别的目录；README 条目数不变（脚本核对，违反整次回滚）。
+R3 每一行原样落在某一页上，不删、不改写（脚本逐行核对，缺一行整次回滚）；只搬整条 bullet，搬进目标页同名小节（没有就建这一节）。
+R4 只改下列页面、它同目录的已有页面和 log.md（只追加）；不运行 git，不改 CLAUDE.md、bin/、隐藏文件。
+
+## SOP
+1. 读 CLAUDE.md、页面所在目录的 README 和目录里每一页。
+2. 按子主题挑出原页里能归到某张同目录页的整段，原样搬过去；原页降到预算 @SPLIT_TARGET@ 以下，接收的页不超过预算 @WARN@（下面列了各页余量）。
+3. 原页「现状」里加一行，用 [[链接]] 指向接收了内容的页；接收页的 description 必要时补一句新主题（不改其他行）。
+4. log.md 末尾追加一条 `## [YYYY-MM-DD] restructure | split <页面路径去掉 .md>`，下面每页一行说明搬了什么去哪。
+5. 运行 `python3 bin/lint.py --wrap` 直到 lint ok，`python3 bin/lint.py --warn` 不再列出原页。
 
 ## 交付
 每处修改一行「<path>: <改了什么>」。
@@ -2259,6 +2283,35 @@ def split_check(pages):
     return "\n".join(out)
 
 
+
+
+def no_new_pages():
+    """SPLIT_FULL acceptance: the directory is full and at MAX_DEPTH, so not one new or removed .md (2026-11-15: a
+    full-directory split moved the page into another directory three runs a day, each reverted, ~7M tokens)."""
+    st = git("-c", "core.quotepath=off", "status", "--porcelain", "--untracked-files=all").splitlines()
+    bad = [l[3:] for l in st if l[3:].endswith(".md") and (l.startswith("??") or "D" in l[:2] or "R" in l[:2])]
+    return f"SPLIT: directory is full — no new, removed or moved pages allowed: {', '.join(bad)}" if bad else ""
+
+
+def readme_room(home):
+    """How many more entries the README of a split's home directory takes (lint.MAX_TOPICS)."""
+    r = WIKI / home / "README.md"
+    return lint.MAX_TOPICS - (len(lint.entries(r)) if r.exists() else 0)
+
+
+def sibling_room(page):
+    """The lint --warn style budget line for every other page in `page`'s directory, for SOP_SPLIT_FULL."""
+    d = WIKI / posixpath.dirname(page)
+    out = []
+    for q in sorted(d.glob("*.md")):
+        if q.name == "README.md" or q.name == posixpath.basename(page):
+            continue
+        t = q.read_text()
+        n, c = len(t.splitlines()), len(t)  # as lint.py counts
+        out.append(f"  {posixpath.dirname(page)}/{q.name}: {n}/{lint.PAGE_LINES} lines, {c}/{lint.PAGE_CHARS} chars")
+    return "\n".join(out)
+
+
 def split_pass(db, at=SPLIT_AT):
     """Pages ≥ `at` of budget are restructured before a model writes more into them (Haiku skips facts rather
     than split). SOP v2 (2026-10-25): merge first, split last. family_pass merges every X-*.md family into X.md;
@@ -2280,6 +2333,10 @@ def split_pass(db, at=SPLIT_AT):
             break
         d = full[0]
         tried.add(d)
+        held = [p for p in consolidate.pinned(WIKI) if p.startswith(d + "/")]
+        if held:  # a domain split moves every page below d, and the bridge reads a life_page at its exact path (#1578)
+            log(f"split-domain: skip {d}, holds life_page {', '.join(sorted(held))}")
+            continue
         if done.get(f"{d}/README.md") == page_sha(f"{d}/README.md"):
             log(f"split-domain: skip {d}, README unchanged since its last split was rejected")
             continue
@@ -2287,17 +2344,25 @@ def split_pass(db, at=SPLIT_AT):
     if tried:
         sync_work()  # what the domain splits delivered
     r = subprocess.run([sys.executable, "-I", str(WIKI / "bin" / "lint.py"), "--warn"], capture_output=True, text=True)
-    split, skipped, deep = [], [], []
+    split, skipped, deep, held, full = [], [], [], [], []
+    life = consolidate.pinned(WIKI)  # #1578: the bridge injects these pages from their exact path every turn
     for line in r.stdout.splitlines():
         m = re.match(r"(.+?\.md): (\d+)/(\d+) lines, (\d+)/(\d+) chars", line)  # path at any depth; may hold ":" or "."
         if not (m and not m[1].endswith("README.md") and max(int(m[2]) / int(m[3]), int(m[4]) / int(m[5])) >= at):
             continue
-        if done.get(m[1]) == page_sha(m[1]):
+        if m[1] in life:
+            held.append(m[1])
+        elif done.get(m[1]) == page_sha(m[1]):
             skipped.append(m[1])
         elif depth(split_home(m[1])[:-1]) > MAX_DEPTH:  # an overview splits in place, any other page one level down
             deep.append(m[1])
+        elif (split_home(m[1]) == posixpath.dirname(m[1]) + "/" and readme_room(split_home(m[1])) < 2
+              and depth(split_home(m[1])[:-1]) >= MAX_DEPTH):  # an overview in a full README that can't split further
+            full.append((line, m[1]))
         else:
             split.append((line, m[1]))
+    if held:
+        log(f"split: skip {len(held)} life_page(s) the bridge reads at this path: {', '.join(held)}")
     if skipped:
         log(f"split: skip {len(skipped)} page(s) unchanged since last split: {', '.join(skipped)}")
     if deep:
@@ -2305,9 +2370,19 @@ def split_pass(db, at=SPLIT_AT):
     if split:
         log(f"split: {len(split)} page(s) ≥ {at:.0%} → {SPLIT_ENGINE}")
         pages = [p for _, p in split]  # the regex group, not split(":"): a name may hold ":"
-        res = model_pass("split", SOP_SPLIT + "\n" + "\n".join(l for l, _ in split), engine=SPLIT_ENGINE,
+        # #1263: the target directory is spelled out — codex split <d>/<X>/<X>.md into <d>/<X>/<X>/ three runs in a row
+        # (split_check rejected it each time); 「new pages go to split_home」 was only in the check, not in the prompt
+        res = model_pass("split", SOP_SPLIT + "\n" + "\n".join(
+            f"{l}  → 拆出的新页只放 {split_home(p)}（不要再建 {split_home(p)}{posixpath.basename(p[:-3])}/）"
+            for l, p in split), engine=SPLIT_ENGINE,
                          max_delete=MAX_NET_DELETE * 3, kind="restructure", check=lambda: split_check(pages))
         remember(db, pages, res)
+    for line, p in full:  # one page per pass: each moves lines into its own directory's pages
+        log(f"split: {p} sits in a full README at MAX_DEPTH {MAX_DEPTH} → move lines into its directory's pages ({SPLIT_ENGINE})")
+        sync_work()
+        res = model_pass("split-full", SOP_SPLIT_FULL + "\n" + line + "\n同目录各页余量：\n" + sibling_room(p),
+                         engine=SPLIT_ENGINE, max_delete=MAX_NET_DELETE * 3, kind="restructure", check=no_new_pages)
+        remember(db, [p], res)
 
 
 # 2–3: the dispatch of 2026-10-18 「自动把这个域拆成 2–3 个子域」, as SOP_SPLIT's 2–3 pages per split
@@ -4538,7 +4613,7 @@ def said_lines(msgs, citations, replies=None):
     channel and time (review dream-quote-window.md「引用原话时带上频道和时间」). `replies` (dialog()'s pairs of every
     session read tonight, [(words, reply, ts)]): the line carries the reply it got under it, so the user's words and
     what they answered reach the model in the same batch (11-15 「原话和它回应的助手回复配在一起送」)."""
-    norm = lambda t: re.sub(r"\s+", "", t)
+    norm = lambda t: "\n".join(re.sub(r"[ \t\r]", "", l) for l in t.strip().split("\n") if l.strip())
     pairs = [(norm(p), r, ts) for p, r, ts in replies or ()]
     out = {}
     for m in msgs:
@@ -4551,10 +4626,12 @@ def said_lines(msgs, citations, replies=None):
             citations[key] = evidence
         line = f"USER [{day} {hm}] {key}: {text}"
         mine = norm(text)
-        # the words' own piece, else one the gate buffered them into; the reply nearest in time wins
-        cand = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs if mine and mine in p]
-        exact = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs if mine and p == mine]
-        pick = min(exact or cand) if exact or cand else None
+        # the words' own piece, else one the gate buffered them into (their lines stay contiguous); nearest in time wins
+        cand = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs if mine and p == mine]
+        if not cand:
+            cand = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs
+                    if mine and ("\n" + mine + "\n") in ("\n" + p + "\n")]
+        pick = min(cand) if cand else None
         if pick:
             line += "\nCLAUDE: " + pick[1]
         out.setdefault(m.channel, (m.name, []))[1].append(line)
