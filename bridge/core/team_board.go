@@ -595,7 +595,9 @@ func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMem
 func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (string, bool) {
 	lines := []string{"**谁在干啥**"}
 	live := false
+	now := time.Now()
 	for _, f := range files {
+		quotaNote := f.quotaDispatchNote(now)
 		var best *teamEntry
 		rank := 0
 		for i := range f.Sessions {
@@ -638,9 +640,12 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 				// 关联其他频道角色情况」). Not 🔧: that icon means busy here (TeamBoardActive).
 				// A DM: no task text (private) and no channel link (it would show as an unknown channel).
 				if teamEntryIsDM(best) {
-					line = fmt.Sprintf("↗️ 在私聊忙（%s 起）%s", best.Since.Local().Format("15:04"), teamElsewhereNote)
+					line = fmt.Sprintf("↗️ 在私聊忙（%s 起）", best.Since.Local().Format("15:04"))
 				} else {
-					line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）%s", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"), teamElsewhereNote)
+					line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"))
+				}
+				if quotaNote == "" {
+					line += teamElsewhereNote
 				}
 			case 2:
 				switch best.Outcome {
@@ -671,6 +676,13 @@ func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (
 				status = taskIndexLabel(m.Status, 12)
 			}
 			line = fmt.Sprintf("%s %s（%s · %s）", icon, boardTask(taskIndexLabel(m.Title, teamBoardTaskRunes*2)), status, m.UpdatedAt.Local().Format("15:04"))
+		}
+		if quotaNote != "" {
+			if line == "💤 空闲" {
+				line = quotaNote
+			} else {
+				line += "；" + quotaNote
+			}
 		}
 		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))
 		live = live || lineLive

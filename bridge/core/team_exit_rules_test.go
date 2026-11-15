@@ -161,7 +161,7 @@ func TestTeamExitRulesNotHardcoded(t *testing.T) {
 			}
 		}
 	}
-	files := []string{"team_exit.go", "team_exit_headline.go", "team_ask_evidence.go", "team_exit_rules.go",
+	files := []string{"team_exit.go", "team_exit_headline.go", "team_ask_evidence.go", filepath.Join("team", "exit_rules.go"),
 		filepath.Join("..", "..", "dsh", "collab", "team-exit.mjs")}
 	for _, f := range files {
 		src, err := os.ReadFile(f)

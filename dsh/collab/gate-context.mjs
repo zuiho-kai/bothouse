@@ -79,6 +79,7 @@ export class GateContext {
   constructor({ port, timeoutMs = GATE_CONTEXT_TIMEOUT_MS, fetch: fetchFn = globalThis.fetch, logger } = {}) {
     const from = port === undefined ? resolveGatePort() : { port: String(port ?? '').trim(), why: 'port 参数' };
     this.port = String(from.port ?? '').trim();
+    this.why = from.why;
     this.timeoutMs = timeoutMs;
     this.fetch = fetchFn;
     this.logger = logger;
@@ -98,11 +99,13 @@ export class GateContext {
    * The block of pages this (member, room) conversation has not been given yet. The gate keeps what
    * it pushed per (key, bot, epoch) and returns only new entries (ctxsvc.only_new, 11-03); here we only
    * name the context: a new `session`, reset, forget or resetRoom gives a new epoch (as core/gate.go turnEpoch).
-   * @returns {Promise<{ block: string, commit: () => void }>} block is '' when there is nothing new.
+   * @returns {Promise<{ block: string, commit: () => void, missing?: string }>} block is '' when there is
+   *   nothing new; missing says why there was no gate to ask (#1643: the room is told, not only the log).
    */
   async turn({ member, room, session, text }) {
     const none = { block: '', commit: () => {} };
-    if (!this.port || typeof this.fetch !== 'function') return none;
+    if (!this.port) return { ...none, missing: this.why };
+    if (typeof this.fetch !== 'function') return none;
     const key = `${member}\u0000${room}`;
     let entry = this.sent.get(key);
     if (entry === undefined || entry.session !== session) {
@@ -123,7 +126,7 @@ export class GateContext {
       out = await res.json();
     } catch (error) {
       this.logger?.debug?.('collab: gate context fetch failed: %s', error?.message ?? error);
-      return none;
+      return { ...none, missing: `端口 ${this.port} 上没有 gate 应答` };
     }
     const fresh = (Array.isArray(out?.wiki) ? out.wiki : []).filter(w => w && typeof w.path === 'string');
     if (fresh.length === 0) return none;

@@ -34,7 +34,7 @@ func TestTaskRelayOrdinaryFailureEndsAssignedMember(t *testing.T) {
 	if restoredTask.Members[memberIndex(restoredTask, "first")].Status != "failed" {
 		t.Fatal("restart lost failed member state")
 	}
-	if _, _, err := restored.beginTaskRelay(taskRelayRequest(id), "Target"); err == nil {
+	if _, _, err := restored.beginTaskRelay(taskRelayRequest(id), "Target", nil); err == nil {
 		t.Fatal("failed dispatch was allowed to replay")
 	}
 	if starts.Load() != 1 {
@@ -54,7 +54,7 @@ func TestTaskRelayFailurePreservesOtherAssignments(t *testing.T) {
 		{ID: "other-bot", ReporterProject: "other", Status: "running"},
 	}
 	r.mu.Unlock()
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

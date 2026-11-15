@@ -75,7 +75,7 @@ Extra usage not enabled
 	}
 
 	week := report.Buckets[0].Windows[1]
-	if week.Name != "Current week" {
+	if week.Name != "Current week (all models)" {
 		t.Fatalf("week.Name = %q", week.Name)
 	}
 	if week.WindowSeconds != 604800 {
@@ -86,6 +86,72 @@ Extra usage not enabled
 	}
 	if week.ResetAfterSeconds != 104340 {
 		t.Fatalf("week.ResetAfterSeconds = %d, want 104340", week.ResetAfterSeconds)
+	}
+}
+
+func TestParseClaudeUsageReport_PreservesAllModelWindows(t *testing.T) {
+	// Source: real Claude Code panel captured for task #780 on 2026-11-14.
+	text := "Current session\n18% used\nCurrent week (all models)\n75% used\nCurrent week (Fable)\n34% used\nCurrent week (another model)\n12% used\nExtra usage\nExtra usage not enabled"
+	report, err := parseClaudeUsageReport(text, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"Current session": 18, "Current week (all models)": 75, "Current week (Fable)": 34, "Current week (another model)": 12}
+	wantGroups := map[string]string{"Current session": "account", "Current week (all models)": "account", "Current week (Fable)": "model:fable", "Current week (another model)": "model:another model"}
+	if len(report.Buckets[0].Windows) != len(want) {
+		t.Fatalf("windows = %+v, want all %d panel blocks", report.Buckets[0].Windows, len(want))
+	}
+	for _, w := range report.Buckets[0].Windows {
+		used, ok := want[w.Name]
+		if !ok || used != w.UsedPercent {
+			t.Fatalf("unexpected window: %+v", w)
+		}
+		if w.QuotaGroup != wantGroups[w.Name] {
+			t.Fatalf("window %s has group %q, want %q", w.Name, w.QuotaGroup, wantGroups[w.Name])
+		}
+		delete(want, w.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing windows: %v", want)
+	}
+}
+
+func TestParseClaudeUsageReport_ModelWindowMustBeComplete(t *testing.T) {
+	_, err := parseClaudeUsageReport("Current session\n18% used\nCurrent week (all models)\n75% used\nCurrent week (Fable)\nLoading", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "Fable") {
+		t.Fatalf("err = %v, want incomplete model window error", err)
+	}
+}
+
+func TestParseClaudeUsageReport_ModelOnlyWindowQuotaGroup(t *testing.T) {
+	// Source: task #771 review found the provider selector Sonnet only was unmatched.
+	for _, tc := range []struct{ selector, wantGroup string }{
+		{"Sonnet only", "model:sonnet"},
+		{"SONNET ONLY", "model:sonnet"},
+		{"Fable only", "model:fable"},
+		{"Sonnet", "model:sonnet"},
+	} {
+		t.Run(tc.selector, func(t *testing.T) {
+			header := "Current week (" + tc.selector + ")"
+			text := strings.Join([]string{"Current session", "18% used", "Current week (all models)", "75% used", header, "100% used"}, "\n")
+			report, err := parseClaudeUsageReport(text, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			windows := report.Buckets[0].Windows
+			window := windows[len(windows)-1]
+			if window.QuotaGroup != tc.wantGroup {
+				t.Fatalf("%s: quota group = %q, want %q; full window would not match the active model", header, window.QuotaGroup, tc.wantGroup)
+			}
+			if window.Name != header || window.UsedPercent != 100 || window.WindowSeconds != claudeUsageWeekWindowSeconds {
+				t.Fatalf("model window lost its display, usage or duration: %+v", window)
+			}
+			for _, accountWindow := range windows[:len(windows)-1] {
+				if accountWindow.QuotaGroup != "account" {
+					t.Fatalf("account window changed ownership: %+v", accountWindow)
+				}
+			}
+		})
 	}
 }
 

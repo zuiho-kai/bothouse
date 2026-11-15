@@ -32,6 +32,8 @@ func quotaReassignFixture(t *testing.T) (map[string]*Engine, map[string]*inputTe
 		p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
 		e := NewEngine(name, &quotaTakeoverAgent{inputTestAgent: a, account: name}, []Platform{p}, "", LangChinese)
 		e.dataDir = dir
+		// Fixture teammates have a prior successful provider reply.
+		e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 		display := shown[name]
 		e.displayName.Store(&display)
 		e.team = &teamState{dir: filepath.Join(dir, "team"), name: name, inject: name == "orange", seen: map[string]*teamSession{}}
@@ -103,7 +105,7 @@ func TestQuotaReassignAllCoolingSaysEarliest(t *testing.T) {
 
 	sent := quotaReassignMention(t, engines["caihongmao"], platforms["caihongmao"], "帮看一下 CowAgent 这个项目")
 	t.Logf("频道里彩虹猫这一条：%s", sent)
-	if !strings.Contains(sent, "都在冷却") || !strings.Contains(sent, quotaCoolingWhen(early)) {
+	if !strings.Contains(sent, "已知冷却最早到") || !strings.Contains(sent, quotaCoolingWhen(early)) {
 		t.Fatalf("channel line = %q", sent)
 	}
 	for _, name := range []string{"caihongmao", "longniang", "jingyu", "orange"} {
@@ -186,7 +188,7 @@ func TestQuotaReassignOthersBusyIsNotAllCooling(t *testing.T) {
 
 	sent := quotaReassignMention(t, engines["caihongmao"], platforms["caihongmao"], "帮查 B 站 AI 视频 UP 主的做片流程")
 	t.Logf("频道里彩虹猫这一条：%s", sent)
-	if strings.Contains(sent, "都在冷却") || !strings.Contains(sent, "都在忙") {
+	if strings.Contains(sent, "都在冷却") || !strings.Contains(sent, "暂无已确认可接手的队友") {
 		t.Fatalf("channel line = %q", sent)
 	}
 }
