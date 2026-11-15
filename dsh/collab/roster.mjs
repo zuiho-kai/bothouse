@@ -5,7 +5,8 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
-import { PERMISSION_PRESETS } from './cli-member.mjs';
+// DSH's permission preset names (@deepseek-ai/dsh-base cordis.patch.yml presets), kept on the member for the panel.
+const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access'];
 import { personaLibrary } from './personas.mjs';
 
 const MAX_NAME = 32;

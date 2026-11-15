@@ -65,7 +65,7 @@ export function apply(ctx: ClientContext): void {
     uploadAttachment: channels.actions.uploadAttachment,
     reviewTask: channels.actions.reviewTask,
     terminateTask: channels.actions.terminateTask,
-    dispatchTask: channels.actions.dispatchTask,
+    // #1662: no 转任务 here: the task board is the bridge's now, the channel host has no task API.
     openDm: channels.actions.openDm,
     closeDm: channels.actions.closeDm,
     retrySend: channels.actions.retrySend,

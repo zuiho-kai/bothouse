@@ -9,7 +9,6 @@ const root = join(import.meta.dirname, '..')
 const collabSrc = join(root, '../collab')
 const uiSrc = join(root, '../packages/client-ui-discord')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-
 for (const dir of ['collab', 'client', 'locale', 'node_modules']) rmSync(join(root, dir), { recursive: true, force: true })
 mkdirSync(join(root, 'collab/avatars'), { recursive: true })
 mkdirSync(join(root, 'client'))
@@ -25,10 +24,6 @@ for (const f of ['personas.json', 'desk/index.html', 'devices.html', 'wiki-galax
   mkdirSync(join(root, 'collab', dirname(f)), { recursive: true })
   cpSync(join(collabSrc, f), join(root, 'collab', f))
 }
-// The handoff rules and the team rules live in the bridge (contrib/lead, core/team_rules); a checkout reads them
-// from there, a package needs its own copy.
-for (const f of ['team-exit-rules.json', 'team-mode-rules.md']) cpSync(join(root, '../../bridge/core/team_rules', f), join(root, 'collab', f))
-cpSync(join(root, '../../bridge/contrib/lead/handoff-rules.json'), join(root, 'collab/handoff-rules.json'))
 
 const run = (cmd) => execSync(cmd, { cwd: uiSrc, stdio: 'inherit' })
 run('npx -y pnpm@10 install --ignore-workspace --config.confirmModulesPurge=false')

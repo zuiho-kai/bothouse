@@ -263,6 +263,9 @@ func (e *Engine) composeTurnResult(turn *interactiveTurn, r *interactiveResult) 
 	if isSilent {
 		// A turn that says nothing leaves nothing: take its progress card (and the thread copy) down.
 		turn.cp.Retract()
+	} else if meta := turn.sessions.GetUserMeta(turn.sessionKey); meta != nil && meta.Direct {
+		// A DM turn that used no tool: the reply is the only message (#1656).
+		turn.cp.DropEmpty()
 	}
 
 	// #699 C: a reply is not a handback (WorkspaceExit is), nothing is forwarded from it.

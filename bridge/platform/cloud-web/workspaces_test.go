@@ -77,8 +77,8 @@ func TestCloudWebTeamWorkspaceListAndCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if self.ID != "room-2" || self.Name != "主频道" || len(all) != 2 || all[1].ID != "room-1000000" || all[1].ParentID != "" || all[1].Active != 2 {
-		t.Fatalf("self=%+v all=%+v (want the room and only its own workspaces)", self, all)
+	if self.ID != "room-2" || self.Name != "主频道" || len(all) != 2 || all[1].ID != "room-1000000" || all[1].ParentID != "" || all[1].ActiveKnown {
+		t.Fatalf("self=%+v all=%+v (want the room and only its own workspaces; busy is the bridge's own count, #1662)", self, all)
 	}
 	c, err := p.CreateTeamWorkspaceChannel(context.Background(), "room-2", "工作区2")
 	if err != nil || c.ID != "room-1000001" || c.Name != "工作区2" {

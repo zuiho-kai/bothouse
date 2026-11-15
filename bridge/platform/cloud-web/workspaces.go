@@ -109,7 +109,8 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 	all := []core.TeamChannel{self}
 	for _, r := range ack.Rooms {
 		if r.ID != "" && r.ID != self.ID {
-			c := core.TeamChannel{ID: r.ID, Name: r.Name, Active: r.Active, ActiveKnown: true}
+			// The channel host keeps no tasks (DSH since #1662): busy comes from the bridge's own count, as on Discord.
+			c := core.TeamChannel{ID: r.ID, Name: r.Name}
 			if r.Owner != nil {
 				c.Owner, c.OwnerKnown, c.Home = *r.Owner, true, r.ParentID
 			}

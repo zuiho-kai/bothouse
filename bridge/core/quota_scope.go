@@ -467,6 +467,11 @@ func (e *Engine) quotaAvailabilityFor(scope quotaScope, now time.Time) (time.Tim
 	if evidence == scope.key() && (status == "available" || status == "exhausted") {
 		return time.Time{}, status
 	}
+	// A backend that says it cannot report usage (DSH and other ACP agents) never gets a probe, so "unknown"
+	// would stay forever and no lead would hand it work (#1662). Only a real failure (cooling above) says otherwise.
+	if c, ok := e.agent.(UsageCapability); ok && !c.SupportsUsageReporting() {
+		return time.Time{}, "available"
+	}
 	return time.Time{}, "unknown"
 }
 

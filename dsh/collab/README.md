@@ -1,18 +1,13 @@
 # collab：DSH 里的频道与多成员协作
 
-## 取消或替代任务
+## 插件只是适配层（#1662）
 
-用户在任务板上打开未结束的任务，点「取消任务」或「标为被替代」，填写原因并提交；替代操作可填写另一条任务的编号。成功后显示「已取消」或「已替代」，归入「全部」，停止催办和忙碌计数；工作区没有其他进行中任务且本次交接已结束时回到池子。原派工原因、进展说明和交回消息保留，取消不算验收通过。
-
-API：`POST /collab/api/tasks/{id}/cancel` 接受 `{ "reason": "不再执行" }`；`POST /collab/api/tasks/{id}/supersede` 接受 `{ "reason": "改由后续任务承接", "superseded_by": 123 }`（`superseded_by` 可省，填写时须是另一条已有任务的编号）。指定全局任务编号即可定位工作区任务。同一操作、原因和替代编号重试返回原结果，不重复发记录；已结束任务不能通过改写原因变更终态。
-
-浏览器须以用户身份登录。成员只允许原派活人通过自己的已验证 cloud-web 连接发送 `task` 帧（`action: "cancel"` / `"supersede"`，`task_id`、`reason`、可选 `superseded_by`）；共享 bot token 的 `actor` 和回查票据不能授权关闭任务。权限不足时交回原派活人，或请用户在任务板操作。普通聊天里写“已取消”不会转换状态，以 API 成功返回及任务板终态为准。成员仍不能自行验收自己的工作。
+频道成员都由 bothouse 来跑：插件把成员名单交给 `bothouse setup apply`，每个成员成为一个 bothouse 角色，用 cloud_web 接进这里的频道。派活、接问退升、工作区、任务板、十分钟看门、一次性回查、记忆、额度和团队规矩都只在桥里实现一份，插件不再有自己的那一套。本机没有 bothouse 时，插件第一次启动用官方安装脚本装到 `~/.local/bin` 并在后台拉起（日志在数据目录的 `bothouse.log`、`bothouse-apply.log`）。新加成员热加载；改或删成员会重启桥。插件这边只管：频道和消息、附件、成员名单、cloud_web 网关（把消息、@ 和权限卡转给桥的角色）、协作页和面板这些页面。
 
 上游 DSH 项目（未公开）的 Issue #229。一个以绝对路径加载的 DSH Host 插件（纯 ESM，无需构建），在 DSH Web 进程里提供：
 
 - **频道**：消息存在 `dataDir/collab.sqlite3`，重启不丢；数字消息 ID 与 role-household hub 一致。
-- **DSH 原生成员**：每个「成员 × 频道」绑定独立 DSH Session，由插件作为内部会话管理，不出现在普通 DSH 对话列表中，标题为 `#频道 · 成员名`。被 @ 时把频道里它没看过的消息作为一条用户消息投递，取对应轮次的回复写回频道。多个成员可以选择同一个模型，各自保留会话和人设。
-- **本机 CLI 成员**：在原生频道页选择 Claude Code、Codex 或 Gemini；同一种 CLI 可以添加成多个不同成员，按成员创建运行实例、按成员和频道维护 ACP 会话。
+- **成员**：DSH 模型成员和本机 CLI 成员（Claude Code、Codex、Gemini）都存在这里的成员表里，各自作为一个 bothouse 角色运行（见上节）。
 - **外部 Agent（cc-connect）**：实现 cloud_web WebSocket 服务端（`/cloud-web/ws`）与离线补历史接口（`GET /api/rooms/{id}/messages`），协议行为照搬 `role-household/rh/cloudweb.py`，cc-connect 无需改代码。
 - **最简消息页**：`/collab`，Discord 式三栏，SSE 实时更新。用 DSH 网页的登录 cookie 鉴权，跨源请求被 DSH 的 Host/Origin 校验拒绝。
 
@@ -213,7 +208,7 @@ corepack pnpm run build:check
 ## 已知限制
 
 - 单人：浏览器端只有 DSH owner 一个真人身份（多人见阶段 6）。
-- 会话：DSH 原生成员是插件管理的内部会话，普通对话列表没有独立私聊入口。非频道轮次不会自动当作频道任务回复发布，这不保证模型以后不会在公开回答里引用已知内容。
+- 会话：每个成员的会话在它的 bothouse 角色里（DSH 成员是 `dsh --profile acp` 会话），不在 DSH 网页的对话列表里。
 - 配置来源：原生频道页可以新建频道、添加/编辑成员；来自配置文件的种子成员在网页只读，要到原配置中修改。
 - 共享边界：成员共用配置的工作目录；启用的 wiki、工具和宿主机权限仍需单独管理，不能把独立 session 当作强隐私边界。
 - 原生页面首次加载最近 100 条，重连补齐当前窗口；尚无向上翻历史控件。
@@ -230,6 +225,3 @@ corepack pnpm run build:check
 - 嵌套脚注定义（定义行比外层正文的内容列多缩进四格或更多）：页面把它嵌在外层脚注里、只在它自己的标号被引用时显示；后端只收 0-3 格的定义，那一行从来不算定义，它的标号也不算标号。于是两边给的答案一致却不是页面的答案，两个方向都反：`[^1]: a` 换行四空格 `[^2]: 注 @名字` 再空行 `见 [^1]`，后端会叫醒，页面外层脚注只显示 `a`、一个徽章都没有；同样内容末尾改成 `见 [^2]`，后端谁都不叫，页面却有这个徽章。`bdd67b4` 上也是这个结果，不是 #271 引入的；#323 只更正了说明，没有扩大实现范围。
 - 开括号落在块行上（`# ` 加反引号加名字）：段落在那行之前就结束了，页面不会把它当代码片段、两个名字都着色；`endsParagraph` 只看两个反引号**之间**的行，所以后端仍当成一段、谁都不叫醒。
 
-### One-shot member follow-ups
-
-All three member types can register a one-shot wake with `POST /collab/api/rooms/{id}/later` (owner session or bot bearer token): `{ "member": "role-id", "delay": "10m", "title": "Check build", "todo": "Read the build log and report failures" }`. Native and local CLI prompts also contain the local `node later.mjs <database> <member> <room> <delay> <title> <todo>` command. The SQLite queue survives restart; offline members retain their pending wake. Attachment inputs share the existing `wire()` MIME/5 MB image policy; larger or unsupported images are files.

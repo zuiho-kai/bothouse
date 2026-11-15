@@ -731,6 +731,28 @@ func (w *compactProgressWriter) Retract() {
 	w.Finalize(ProgressCardStateSilent)
 }
 
+// DropEmpty takes down a card that ended at 0 steps: the turn used no tool, so the card says
+// nothing the reply does not (user 11-15「怎么感觉还是回两遍呢」, DSH DM: a 「已完成 第 0 步」
+// card before every reply). A platform that cannot delete keeps it.
+func (w *compactProgressWriter) DropEmpty() {
+	if w.steps > 0 || w.moved || w.handle == nil {
+		return
+	}
+	cleaner, ok := w.platform.(PreviewCleaner)
+	if !ok {
+		return
+	}
+	callCtx, cancel := w.withAPITimeout()
+	err := authorizedOutput(callCtx, func() error { return cleaner.DeletePreviewMessage(callCtx, w.handle) })
+	cancel()
+	if err != nil {
+		slog.Debug("progress writer: dropping the 0-step card failed, keeping it", "platform", w.platform.Name(), "error", err)
+		return
+	}
+	w.handle = nil
+	w.moved = true
+}
+
 func (w *compactProgressWriter) withAPITimeout() (context.Context, context.CancelFunc) {
 	if _, hasDeadline := w.ctx.Deadline(); hasDeadline {
 		return w.ctx, func() {}
