@@ -3248,17 +3248,35 @@ def restate_pass():
     reverted otherwise; delivered like family_pass."""
     label = "restate"
     sync_work()
+    key = block_contract.digest([label, "restate", None])
+    pending = activate_block_candidate(key)
+    if pending and pending.get("conflict"):
+        log(f"{label}: pending candidate conflicts with newer main; retained")
+        return
+    coverage = pending["coverage"] if pending else block_contract.freeze(REPO, ["HEAD"])
+    coverage["kind"] = "restate"
     try:
-        ok, summary, _ = restate.restate(WIKI, commit=True, label=label, log=lambda m: log(f"{label}: {m}"))
+        ok, summary, _ = ((True, "resumed candidate", []) if pending else
+                          restate.restate(WIKI, commit=True, label=label, log=lambda m: log(f"{label}: {m}")))
     except Exception as e:
         log(f"{label} failed: {type(e).__name__}: {e}")
         return
     if not ok:
         log(f"{label}: REVERTED: {summary[:500]}")
     elif not summary.startswith("nothing to do"):
+        if not pending:
+            coverage["plan"] = block_contract.scripted_moves(REPO, coverage, block_contract.working_tree(WIKI))
+        errors = block_contract.check(REPO, coverage, block_contract.working_tree(WIKI), "restate")
+        if errors:
+            save_block_candidate(label, coverage, key, "fix", None)
+            log(f"{label}: retained candidate: " + "\n".join(errors))
+            return
         log(f"{label}: {summary}")
-        if WIKI == WORK and deliver(label) is not True:
-            log(f"{label}: not delivered, the next night tries again")
+        sha = save_block_candidate(label, coverage, key, "deliver", None)
+        if deliver(label) is True:
+            block_contract.git(REPO, "update-ref", "refs/wiki-ingest/completed/" + key, sha)
+        else:
+            log(f"{label}: not delivered, candidate retained")
     sync_work()
 
 

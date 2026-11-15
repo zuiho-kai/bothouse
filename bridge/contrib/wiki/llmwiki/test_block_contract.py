@@ -201,6 +201,57 @@ class BlockContract(unittest.TestCase):
         self.assertNotIn("incomplete new fact", (self.repo / "misc/source.md").read_text(encoding="utf-8"))
         db.close()
 
+    def test_legacy_review_pending_resumes_automatically_without_model(self):
+        c = I.block_contract
+        original = "USER: replace synthetic allocation with 23 units"
+        (self.repo / "misc/source.md").write_text(PAGE + FACT, encoding="utf-8")
+        self.commit("single original")
+        I.sync_work()
+        coverage = c.freeze(self.repo, ["HEAD"], original)
+        row = next(iter(c.inventory(self.repo, coverage["sources"])[0].values()))
+        coverage["plan"]["updates"] = [dict(block=row["id"], to=row["path"], section=row["section"],
+                                                   text="- synthetic allocation: 23 units",
+                                                   source=dict(line=1, quote=original), reason="explicit user update")]
+        with (I.WORK / "misc/source.md").open("a", encoding="utf-8") as f:
+            f.write("- new fact in legacy candidate\n")
+        checkpoint = [dict(id="legacy-session", start=0, end=123)]
+        key = c.digest(["legacy update", "ingest", checkpoint])
+        I.save_block_candidate("legacy update", coverage, key, "review", checkpoint)
+        with patch.object(I, "runner", side_effect=AssertionError("reuse legacy candidate")):
+            self.assertEqual(I.model_pass("legacy update", "update", context=original, engine="fake",
+                                          checkpoint=checkpoint), "changed")
+        self.assertIn("new fact in legacy candidate", (self.repo / "misc/source.md").read_text())
+        # Changing the live setting cannot retroactively require a receipt for a delivered auto update.
+        with patch.dict(I.CFG, fact_update_review=True):
+            db = I.state()
+            self.assertEqual(db.execute("select offset from ingested where id='legacy-session'").fetchone(), (123,))
+            db.close()
+
+    def test_auto_update_still_rejects_forged_provenance_and_pure_split_updates(self):
+        c = I.block_contract
+        coverage = c.freeze(self.repo, ["HEAD"], "USER: exact replacement")
+        coverage["review_required"] = False
+        row = next(iter(c.inventory(self.repo, coverage["sources"])[0].values()))
+        intent = dict(block=row["id"], to=row["path"], section=row["section"], text="- new value",
+                      source=dict(line=1, quote="fabricated source"), reason="explicit update")
+        coverage["plan"]["updates"] = [intent]
+        with self.assertRaisesRegex(ValueError, "exact frozen transcript"):
+            c.render(self.repo, coverage, c.working_tree(self.repo), "ingest")
+        intent["source"]["quote"] = "USER: exact replacement"
+        with self.assertRaisesRegex(ValueError, "pure split"):
+            c.render(self.repo, coverage, c.working_tree(self.repo), "restructure")
+
+    def test_upstream_restate_delivers_with_original_blocks_in_history(self):
+        def restate(root, **kwargs):
+            (root / "misc/source.md").write_text(PAGE + "- synthetic current summary\n## 历史\n" + FACT + FACT)
+            self.git("add", "-A", cwd=root)
+            self.git("commit", "-qm", "synthetic restate", cwd=root)
+            return True, "synthetic restated page", {}
+        with patch.object(I, "WIKI", I.WORK), patch.object(I.restate, "restate", side_effect=restate):
+            I.restate_pass()
+        self.assertIn("synthetic current summary", (self.repo / "misc/source.md").read_text())
+        self.assertEqual((self.repo / "misc/source.md").read_text().count(FACT), 2)
+
     def test_program_callback_can_relocate_exact_blocks_but_not_rewrite_them(self):
         def apply(answer):
             (I.WORK / "misc/dest.md").write_text(PAGE + FACT + FACT, encoding="utf-8")
