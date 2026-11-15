@@ -100,14 +100,8 @@ func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger,
 	if state == nil {
 		return
 	}
-	state.mu.Lock()
-	// The turn boundary: a limit already decided for the previous turn finishes cancelling
-	// before this turn takes the state, so the cancel never reaches this turn.
-	if state.awaitScheduledCancelLocked() {
-		state.turnCancelled = false // set by that cancel for the previous turn, not this one
-	}
-	state.scheduledWatch = 0
-	state.mu.Unlock()
+	// markTurnStartLocked already transferred cancellation ownership and retired
+	// the previous token. Arming a timer must not reset a cancel of this new turn.
 	if !scheduledTurnUser(userID) || userID == "heartbeat" || (!queued && e.scheduledTurnCovered(iKey)) {
 		return
 	}
@@ -131,7 +125,7 @@ func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger,
 // replaced when it ended, the old token stayed, and at 12:31 the stop by iKey cancelled the
 // 12:30 cron turn running on the new state (empty response).
 // The token check and the claim of the cancel are one step under state.mu: from the claim until
-// the cancel is done, the next turn on this state waits at its start (armScheduledTurnTimeout),
+// the cancel is done, the next turn on this state waits at its start (markTurnStartLocked),
 // so a turn that starts there after the check is never the one cancelled.
 func (e *Engine) fireScheduledTurnTimeout(state *interactiveState, iKey string, tok uint64, trigger, timerJobID, cronJobID string, limit time.Duration) bool {
 	state.mu.Lock()
@@ -158,15 +152,12 @@ func (e *Engine) fireScheduledTurnTimeout(state *interactiveState, iKey string, 
 }
 
 // awaitScheduledCancelLocked waits, with state.mu held on entry and on return, until no
-// scheduled-limit cancel claimed for the running turn is in flight; true when it waited.
-func (s *interactiveState) awaitScheduledCancelLocked() bool {
-	waited := false
+// scheduled-limit cancel claimed for the running turn is in flight.
+func (s *interactiveState) awaitScheduledCancelLocked() {
 	for s.scheduledCancel != nil {
 		ch := s.scheduledCancel
 		s.mu.Unlock()
 		<-ch
 		s.mu.Lock()
-		waited = true
 	}
-	return waited
 }

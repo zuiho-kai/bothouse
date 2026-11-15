@@ -840,9 +840,15 @@ type interactiveState struct {
 	turnStartedAt time.Time
 }
 
-// markTurnStartLocked records the start of the turn that owns currentMessageID. Caller
-// holds state.mu.
-func (s *interactiveState) markTurnStartLocked() { s.turnStartedAt = time.Now() }
+// markTurnStartLocked transfers the state to the turn owning currentMessageID.
+// Caller holds state.mu. A claimed timeout finishes before the transfer; whether
+// it was already done or we waited, its cancellation flag belongs to the old turn.
+func (s *interactiveState) markTurnStartLocked() {
+	s.awaitScheduledCancelLocked()
+	s.scheduledWatch = 0
+	s.turnCancelled = false
+	s.turnStartedAt = time.Now()
+}
 
 // latestUserMessageWatermarkLocked returns the highest UserMessageTimeMs among
 // completed turns, the in-flight turn, and queued messages for this session.
@@ -5122,7 +5128,6 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	e.stopUnsolicitedReader(state)
 	state.mu.Lock()
 	needResync := state.eventsNeedResync
-	state.turnCancelled = false
 	state.mu.Unlock()
 	if msg.inputTurn != nil {
 		strict, ok := agentSession.(StrictResumeSession)
@@ -6653,8 +6658,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}()
 	if turn.msgID != "" {
 		turn.state.mu.Lock()
+		// Foreground and drained turns already initialized this message before
+		// Send. Re-entering its event reader must preserve a cancel for this turn.
 		turn.state.currentMessageID = turn.msgID
-		turn.state.markTurnStartLocked()
 		turn.state.mu.Unlock()
 	}
 
