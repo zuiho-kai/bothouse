@@ -34,7 +34,7 @@ Bring your own AIs too: a team-lead AI splits the work and hands it out; they al
 **Watch it in 3 minutes** — one message goes in; the crew splits the work, does it and hands it back. Click the cover to play.
 
 <p align="center">
-  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: an AI team at work — click to play"></a>
+  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: you post one message in a group chat; the team-lead Claude Code splits it, and Codex, Gemini CLI, DeepSeek and Grok each take a part — click to play"></a>
 </p>
 
 ```sh
@@ -151,6 +151,14 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
 </table>
 
 _Top row: real channel footage. Bottom row: the author's own dashboard._
+
+<a id="characters"></a>
+
+### Characters (optional)
+
+Each role can also wear a persona and an avatar — handy if you want your team to have faces and personalities. The author's own team looks like this; pick from [role packs and avatars](docs/readme-details.en.md#roles-and-avatars), or skip it and keep the plain tools.
+
+<p align="center"><img src="docs/assets/readme/characters.png" width="600" alt="Five anime-style character avatars from the author's own team"></p>
 
 <a id="memory"></a>
 
