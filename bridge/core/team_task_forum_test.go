@@ -15,6 +15,7 @@ import (
 
 type fakeForumPost struct {
 	title, card, tag string
+	forum            TaskForum
 	archived         bool
 	nodes            []string
 }
@@ -29,13 +30,40 @@ type stubForumPlatform struct {
 	sendCtx   []string // permission notices posted (Send)
 	prefix    string   // thread id prefix: posts of different bots never share an id
 	limit     int
+	scopes    map[string]TaskForum
 }
 
 func newStubForumPlatform() *stubForumPlatform {
 	return &stubForumPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}, posts: map[string]*fakeForumPost{}}
 }
 
-func (p *stubForumPlatform) EnsureTaskForum(_ context.Context, chat, remembered string, tags []string) (TaskForum, error) {
+func (p *stubForumPlatform) TaskForumScope(_ context.Context, chat string) (TaskForum, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if scope, ok := p.scopes[chat]; ok {
+		if scope.CategoryID == "" {
+			return TaskForum{}, ErrTaskForumCategoryRequired
+		}
+		return scope, nil
+	}
+	return TaskForum{ID: "forum1", GuildID: "g1", CategoryID: "cat1"}, nil
+}
+func (p *stubForumPlatform) TaskForumForPost(_ context.Context, thread string, _ []string) (TaskForum, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if post := p.posts[thread]; post != nil {
+		if post.forum.ID != "" {
+			return post.forum, nil
+		}
+		return TaskForum{ID: "forum1", GuildID: "g1", CategoryID: "cat1"}, nil
+	}
+	return TaskForum{}, errForumGone
+}
+func (p *stubForumPlatform) EnsureTaskForum(ctx context.Context, chat, remembered string, tags []string) (TaskForum, error) {
+	scope, err := p.TaskForumScope(ctx, chat)
+	if err != nil {
+		return TaskForum{}, err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ensures++
@@ -46,7 +74,8 @@ func (p *stubForumPlatform) EnsureTaskForum(_ context.Context, chat, remembered 
 	for i, t := range tags {
 		ids[t] = fmt.Sprintf("tag%d", i)
 	}
-	return TaskForum{ID: "forum1", GuildID: "g1", Tags: ids}, nil
+	scope.Tags = ids
+	return scope, nil
 }
 
 func (p *stubForumPlatform) OpenTaskPost(_ context.Context, f TaskForum, post TaskForumPost) (string, error) {
@@ -55,7 +84,7 @@ func (p *stubForumPlatform) OpenTaskPost(_ context.Context, f TaskForum, post Ta
 	p.opens++
 	id := fmt.Sprintf("%sth%d", p.prefix, p.opens)
 	p.edited(id, post)
-	p.posts[id] = &fakeForumPost{title: post.Title, card: post.Card, tag: post.Tag}
+	p.posts[id] = &fakeForumPost{title: post.Title, card: post.Card, tag: post.Tag, forum: f}
 	return id, nil
 }
 

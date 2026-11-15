@@ -50,6 +50,7 @@ func TestTaskForumTagsUpgradeInPlace(t *testing.T) {
 		t.Fatal("custom/moderation lost")
 	}
 	forum.AvailableTags = api.tags
+	forum.Topic = taskForumTopic
 	if _, err = ensureForumTags(api, forum, tags); err != nil || api.edits != 1 {
 		t.Fatalf("unchanged tags edited: %d %v", api.edits, err)
 	}

@@ -194,6 +194,7 @@ const (
 	MsgAnswerWithFailure         MsgKey = "answer_with_failure"
 	MsgTaskAlreadyCompleted      MsgKey = "task_already_completed"
 	MsgTaskForumSourceMissing    MsgKey = "task_forum_source_missing"
+	MsgTaskForumCategoryRequired MsgKey = "task_forum_category_required"
 	MsgSessionNotFound           MsgKey = "session_not_found"
 	MsgFailedToStartAgentSession MsgKey = "failed_to_start_agent_session"
 	MsgFailedToDeleteSession     MsgKey = "failed_to_delete_session"
@@ -1161,6 +1162,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "#%d：派活人 %s 不在線，請主角色核對或接手",
 		LangJapanese:           "#%d：依頼担当 %s が不在です。主担当が検収または再割当してください",
 		LangSpanish:            "#%d: el coordinador %s no está disponible; el rol principal debe verificar o reasignar",
+	},
+	MsgTaskForumCategoryRequired: {
+		LangEnglish:            "This chat is not in a Discord category. Move it into an existing category in channel settings; task posts will then sync to that category's task forum. Your task board and ordinary chat remain available.",
+		LangChinese:            "这个聊天频道还没归类。请在 Discord 的频道设置中将它移入现有类别，任务帖随后会同步到该类别的任务论坛；任务板记录和普通聊天照常保留。",
+		LangTraditionalChinese: "這個聊天頻道還沒分類。請在 Discord 的頻道設定中將它移入現有類別，任務帖隨後會同步到該類別的任務論壇；任務板記錄和一般聊天照常保留。",
+		LangJapanese:           "このチャットはカテゴリ未設定です。Discord のチャンネル設定で既存カテゴリへ移動すると、そのカテゴリのタスクフォーラムに同期されます。タスクボードと通常の会話は引き続き利用できます。",
+		LangSpanish:            "Este chat no tiene categoría. Muévelo a una categoría existente en los ajustes de Discord; sus tareas se sincronizarán con el foro de esa categoría. El tablero y el chat siguen disponibles.",
 	},
 	MsgTaskForumRoundupWaiting: {
 		LangEnglish:            "Append this line to the hourly report: Waiting for you: %d tasks · %s",

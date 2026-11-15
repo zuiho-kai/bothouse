@@ -232,7 +232,8 @@ func TestTaskForumMentionOnlyOnWaitingTransition(t *testing.T) {
 	}
 }
 func TestTaskForumWaitingSummaryUsesExplicitBoardState(t *testing.T) {
-	e, _, dir := forumRoutingEngine(t)
+	e, p, dir := forumRoutingEngine(t)
+	p.scopes = map[string]TaskForum{"other": {ID: "forum2", GuildID: "g1", CategoryID: "cat2"}}
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"任务并帖","status":"在做","chat":"discord:111","paused":"11-15 00:00","pause_why":"等待用户答复：选择 A"}`+"\n")
 	e.syncTaskForum()
 	summary := e.taskForumWaitingSummary("discord:111", time.Now())

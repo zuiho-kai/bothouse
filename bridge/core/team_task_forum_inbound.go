@@ -43,15 +43,20 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	rt := e.taskForumRT()
 	rt.mu.Lock()
 	s := e.taskForumLoadLocked()
-	forum, ok := s.Forums[platform+":"+guild]
-	if !ok || (parent != "" && forum.ID != parent) {
-		rt.mu.Unlock()
-		return nil, false
-	}
 	board := 0
+	chat := ""
 	for id, post := range s.Posts {
 		if post != nil && post.Platform == platform && post.Guild == guild && post.Thread == thread {
+			forum := post.Forum
+			if forum == "" {
+				forum = s.Forums[platform+":"+guild].ID
+			}
+			if forum == "" || (parent != "" && parent != forum) {
+				rt.mu.Unlock()
+				return nil, false
+			}
 			board, _ = strconv.Atoi(id)
+			chat = post.Chat
 			break
 		}
 	}
@@ -66,7 +71,7 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	if it == nil {
 		return &TaskForumReply{Board: board, Thread: thread}, true
 	}
-	return &TaskForumReply{Board: board, Thread: thread, Chat: taskForumChat(*it)}, true
+	return &TaskForumReply{Board: board, Thread: thread, Chat: firstNonEmpty(chat, taskForumChat(*it))}, true
 }
 
 // Use the same placement as the post card, including historical board rows
@@ -98,7 +103,8 @@ func (e *Engine) prepareTaskForumReply(p Platform, msg *Message) bool {
 		e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgTaskForumSourceMissing, r.Board))
 		return false
 	}
-	r.Chat = taskForumChat(*it)
+	r.Chat = firstNonEmpty(r.Chat, taskForumChat(*it))
+	it.Chat = r.Chat
 	msg.SessionKey = r.Chat
 	if keys, ok := p.(ChannelSessionKeyer); ok {
 		msg.SessionKey = keys.SessionKeyFor(teamChannelID(r.Chat), msg.UserID)
