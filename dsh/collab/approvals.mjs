@@ -15,7 +15,6 @@
 //                                   // e.g. a text 'allow_all' becomes 'allow' when the asker has no allow-all
 //   });
 //   await decision;                 // 'allow' | 'deny' | 'allow_all' | 'expired'
-import { forMember, mentions } from './mentions.mjs';
 import { CollabError, publicMessage } from './store.mjs';
 
 const STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
@@ -26,14 +25,6 @@ export const DEFAULT_ACTIONS = [
   { decision: 'deny', label: '拒绝' },
   { decision: 'allow_all', label: '允许所有 (本次会话)' },
 ];
-// Same vocabularies and order as bridge core/engine.go approveAllPhrases /
-// approveAllSingleTokens / allowKeywords / denyKeywords, so a text reply and a
-// button click resolve to the same decision.
-const APPROVE_ALL_PHRASES = ['allow all', 'approve all', 'yes all'];
-const APPROVE_ALL_TOKENS = ['allowall', '允许所有', '允许全部', '全部允许', '所有允许', '都允许', '全部同意'];
-const ALLOW_TOKENS = ['allow', 'yes', 'y', 'ok', 'approve', '允许', '同意', '可以', '好', '好的', '是', '确认'];
-const DENY_TOKENS = ['deny', 'no', 'n', 'reject', 'cancel', '拒绝', '不允许', '不行', '不', '否', '取消'];
-
 export class ChannelApprovals {
   constructor(hub) {
     this.hub = hub;
@@ -127,6 +118,19 @@ export class ChannelApprovals {
     for (const [msgId, p] of [...this.pending]) if (pred(p)) this.expire(msgId);
   }
 
+  /**
+   * The asker already applied `decision` (the owner answered its prompt in text, #1662): close every
+   * pending card matching pred as decided by text, without calling onDecide back.
+   */
+  settleWhere(pred, decision) {
+    if (!Object.hasOwn(STATES, decision)) return;
+    for (const [msgId, p] of [...this.pending]) {
+      if (!pred(p)) continue;
+      this.close(msgId, STATES[decision], undefined, 'text');
+      p.resolve(decision);
+    }
+  }
+
   /** Mark a card decided/expired and update it for browsers. */
   close(msgId, state, row = this.hub.store.message(msgId), by) {
     this.pending.delete(msgId);
@@ -141,17 +145,11 @@ export class ChannelApprovals {
   }
 
   /**
-   * Owner text reply → decision on the room's pending cards; returns the ids of
-   * the members that must not also get the text as a message (card answered,
-   * or withheld from them). Idempotent per message row.
-   *
-   * cc-connect checks a pending permission before its gate and before any
-   * mention rule (bridge core/engine.go handleMessage → handlePendingPermission,
-   * ahead of applyGate), and hub bots run with group_reply_all
-   * (core/setup_wizard.go), so every bot with a pending prompt that receives an
-   * allow/deny word acts on it. Hence: no @ → the decision applies to every
-   * pending card in the room; an @ → only the @'d members', and the other
-   * pending members are not sent the text so their cards stay open.
+   * Owner text reply to a pending question card → its answer; returns the ids of the members that
+   * must not also get the text as a message. Idempotent per message row. A text "允许"/"拒绝" to a
+   * permission prompt goes to the bots like any message: the bridge applies it (core/engine.go
+   * handlePendingPermission; an @ of other members leaves this bot's prompt alone) and sends
+   * permission_resolved, which closes the card (settleWhere, #1662).
    */
   answerByText(msg) {
     const memo = this.answers.get(msg);
@@ -175,21 +173,6 @@ export class ChannelApprovals {
         answered.add(question.author);
       }
     }
-    const inRoom = [...this.pending].filter(([, p]) => !p.meta?.question && (p.room === msg.room_id || this.hub.store.room(p.room)?.parent_id === msg.room_id));
-    if (inRoom.length === 0) return answered;
-    const members = this.hub.routable();
-    const mentioned = mentions(msg.text, members);
-    for (const [msgId, p] of inRoom) {
-      const to = this.hub.members.get(p.author) ?? { id: p.author, name: '' };
-      const decision = textDecision(forMember(msg.text, to, members));
-      if (decision === undefined) continue;
-      if (mentioned.size > 0 && !mentioned.has(p.author)) {
-        answered.add(p.author); // addressed to someone else: withhold it so this member doesn't approve
-        continue;
-      }
-      try { this.decide(msgId, decision, 'text'); } catch { continue; }
-      answered.add(p.author);
-    }
     return answered;
   }
 }
@@ -197,19 +180,4 @@ export class ChannelApprovals {
 export function parseCard(raw) {
   if (typeof raw !== 'string') return undefined;
   try { return JSON.parse(raw); } catch { return undefined; }
-}
-
-// Same rune set as bridge core/engine.go permissionTokenSeparator (whitespace plus these).
-const PERM_TOKEN_SEPARATORS = /[\s@＠,，.。!！?？:：;；()（）[\]【】"'“”‘’、·]+/u;
-
-/** Port of bridge core/engine.go isApproveAllResponse / isAllowResponse / isDenyResponse (checked in that order). */
-export function textDecision(text) {
-  const tokens = String(text).toLowerCase().trim().split(PERM_TOKEN_SEPARATORS).filter(Boolean);
-  if (tokens.length === 0) return undefined;
-  const joined = tokens.join(' ');
-  if (APPROVE_ALL_PHRASES.some(ph => joined === ph || ` ${joined} `.includes(` ${ph} `))) return 'allow_all';
-  if (tokens.some(t => APPROVE_ALL_TOKENS.includes(t))) return 'allow_all';
-  if (tokens.some(t => ALLOW_TOKENS.includes(t))) return 'allow';
-  if (tokens.some(t => DENY_TOKENS.includes(t))) return 'deny';
-  return undefined;
 }

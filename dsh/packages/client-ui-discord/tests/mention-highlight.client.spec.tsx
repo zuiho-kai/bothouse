@@ -13,7 +13,7 @@ import {
   splitMentions,
 } from '../src/client/mention-highlight.tsx'
 import { fromMarkdown } from 'mdast-util-from-markdown'
-import { mentions as backendMentions } from '../../../collab/mentions.mjs'
+import { backendMentions } from './backend-mentions.ts'
 import css from '../src/client/ChannelsPage.module.css'
 
 afterEach(cleanup)
@@ -93,7 +93,7 @@ describe('mention-highlight logic', () => {
     expect(segments.filter(s => s.member).map(s => s.text)).toEqual(['@大豆包'])
     expect(segments.map(s => s.text).join('')).toBe(mixed)
 
-    // fencedRanges: an opening fence without its closing one covers the rest, as in mentions.mjs
+    // fencedRanges: an opening fence without its closing one covers the rest, as in the bridge rule
     expect(fencedRanges('a ```\n@肥鱼')).toEqual([[5, 9]])
     expect(fencedRanges('```x``` tail ```y```')).toEqual([[3, 4], [16, 17]])
     expect(fencedRanges('no fence @肥鱼')).toEqual([])
@@ -109,7 +109,7 @@ describe('mention-highlight logic', () => {
   })
 
   // #237 rework: the renderer turns `…` into <code> and never colours it, so an @ inside an
-  // inline code span must not count on the backend either. Ranges follow mentions.mjs.
+  // inline code span must not count on the backend either. Ranges follow the bridge rule (mentions.go).
   it('does not colour an @ inside an inline code span, and colours the rest (#237 rework)', () => {
     expect(splitMentions('看 `@肥鱼` 这个', testMembers)).toEqual([{ text: '看 `@肥鱼` 这个' }])
 

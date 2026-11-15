@@ -48,6 +48,8 @@ type Platform struct {
 	// maomao fork: channel backfill reads the hub over HTTP (history.go).
 	historyBase string // hub http(s) origin
 	selfID      string // this bot's id on the hub
+	rosterMu    sync.Mutex
+	roster      map[string]hubMember // hub members seen (hub_message.go)
 
 	replyCtxMu sync.RWMutex
 	replyCtxs  map[string]string // sessionKey -> reply_ctx
@@ -366,6 +368,8 @@ func (p *Platform) handleWire(raw []byte) {
 		p.handleRecall(raw)
 	case "ping":
 		_ = p.tp.Send(context.Background(), map[string]any{"type": "pong", "ts": time.Now().UnixMilli()})
+	case "roster":
+		p.handleRoster(raw)
 	case typeTeamWorkspaceAck:
 		p.handleTeamWorkspaceAck(raw)
 	default:
@@ -390,9 +394,17 @@ func (p *Platform) handleMessage(raw []byte) {
 	}
 	// "/stop all" from a user reaches every bot in the chat, mentioned or not.
 	stopAll := !m.FromBot && core.IsStopAllCommand(m.Content)
+	// #1662: a gateway that sends the room's members leaves the @ rule to this platform.
+	addressedElsewhere := false
+	if len(m.Members) > 0 {
+		var ok bool
+		if addressedElsewhere, ok = p.readHubMessage(&m); !ok {
+			return
+		}
+	}
 	// maomao fork: a line opening with this bot's name counts as an @ (name_call.go).
 	explicit := m.Mentioned != nil && *m.Mentioned
-	calledByName := !explicit && p.calledByName(m)
+	calledByName := !explicit && len(m.Members) == 0 && p.calledByName(m)
 	mentioned := explicit || calledByName
 	if isGroupChat(m.ChatType) && !p.replyAll() && !stopAll {
 		// Require explicit mention in group chats unless group_reply_all is enabled.
@@ -440,8 +452,9 @@ func (p *Platform) handleMessage(raw []byte) {
 		Audio:      decodeAudio(m.Audio),
 		ReplyCtx:   rc,
 		// maomao fork: the gate decides who answers from these (core/gate.go).
-		Mentioned: mentioned,
-		FromBot:   m.FromBot,
+		Mentioned:          mentioned,
+		FromBot:            m.FromBot,
+		AddressedElsewhere: addressedElsewhere,
 		// A private chat calls the bot (core/gate_local.go built-in busy rules). Only the documented
 		// chat_type "direct" (docs/cloud-web.md); a missing chat_type is not taken as a DM.
 		Direct: strings.EqualFold(strings.TrimSpace(m.ChatType), "direct") && !m.FromBot,
@@ -925,6 +938,7 @@ func (p *Platform) sendWire(ctx context.Context, msg map[string]any) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	p.displayMentions(msg)
 	return p.tp.Send(ctx, msg)
 }
 

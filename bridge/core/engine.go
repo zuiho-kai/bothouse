@@ -4507,6 +4507,11 @@ func (e *Engine) handlePendingPermission(p Platform, msg *Message, content strin
 		return e.handleDelegatedPermission(p, msg, state, pending, content)
 	}
 
+	// A person's "@别人 允许" answers their prompt, not this bot's (cloud_web marks it, #1662).
+	if msg.AddressedElsewhere && !msg.IsPermissionResponse {
+		return false
+	}
+
 	state, pending := e.lookupPending(iKey)
 
 	if state == nil || pending == nil {
@@ -4653,6 +4658,16 @@ found:
 			slog.Error("failed to send deny response", "error", err)
 		}
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPermissionDenied))
+	}
+	// A text answer: the host that shows its own card for the prompt closes it (cloud_web, #1662).
+	if n, ok := p.(PermissionTextAnswerNotifier); ok && !msg.IsPermissionResponse {
+		decision := "deny"
+		if isApproveAllResponse(lower) {
+			decision = "allow_all"
+		} else if isAllowResponse(lower) {
+			decision = "allow"
+		}
+		n.PermissionAnsweredByText(context.Background(), msg.SessionKey, decision)
 	}
 
 	state.mu.Lock()

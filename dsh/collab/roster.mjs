@@ -7,7 +7,6 @@ import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
 // DSH's permission preset names (@deepseek-ai/dsh-base cordis.patch.yml presets), kept on the member for the panel.
 const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access'];
-import { personaLibrary } from './personas.mjs';
 
 const MAX_NAME = 32;
 /** The preset a plugin-only install starts with: 鲸鱼娘, the DeepSeek character, matching DSH's own model. */
@@ -140,13 +139,14 @@ export class Roster {
    * the channel can be used right away; it becomes the primary role. Runs once (marker file); a channel that ever
    * had members, or the wizard's roles, is left alone. Returns the names added.
    */
-  async seedDefaults(markerPath, lang, logger) {
+  async seedDefaults(markerPath, library, logger) {
     if (existsSync(markerPath)) return [];
     const added = [];
     if (this.store.db.prepare('SELECT COUNT(*) AS n FROM members').get().n === 0) {
       let lead;
       // One role on DSH's one model is the default (user 11-03: 单模型单角色开箱就用); more are added from the UI.
-      for (const p of personaLibrary(lang).filter(x => x.slug === DEFAULT_ROLE)) {
+      // library: the bridge's persona presets (Bridge.personas, #1662).
+      for (const p of (await library()).filter(x => x.slug === DEFAULT_ROLE)) {
         try {
           const member = await this.create({ name: p.name, persona: p.text, avatar: p.avatar });
           lead ??= member;

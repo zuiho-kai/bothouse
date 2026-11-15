@@ -4,7 +4,6 @@ import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { Store, publicMessage, MAX_TEXT } from './store.mjs';
 import { Hub } from './hub.mjs';
-import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { resolveConfig } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
@@ -57,10 +56,11 @@ test('workspace approval shares one decision with its parent channel', async () 
       assert.throws(() => approvals.decide(copy.id, choice), /已经处理/);
     }
     assert.equal(executions, 3);
+    // #1662: a text answer is applied by the bridge, which reports it (permission_resolved → settleWhere).
     const open = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'text response' });
-    const response = hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '拒绝' }).message;
-    approvals.answerByText(response);
+    approvals.settleWhere(p => p.room === ws.id, 'deny');
     assert.equal(await open.decision, 'deny');
+    assert.equal(JSON.parse(store.message(open.messageId).card).decided_by, 'text');
     const expired = approvals.open({ room: ws.id, author: { id: 'ds', name: 'Astra' }, text: 'cancelled' });
     const expiredCopy = store.page(1).find(m => JSON.parse(m.card ?? 'null')?.request_id === expired.messageId);
     approvals.expire(expired.messageId);
@@ -95,7 +95,7 @@ function connect(gateway, query) {
   return ws;
 }
 
-test('store: client keys dedupe, pages are oldest-first, jobs are created and finished once', () => {
+test('store: client keys dedupe, pages are oldest-first', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   const a = s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: 'hi', clientKey: 'k1' });
@@ -110,13 +110,6 @@ test('store: client keys dedupe, pages are oldest-first, jobs are created and fi
   assert.throws(() => s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '  ' }), /empty/);
   assert.throws(() => s.append(9, { authorKind: 'user', author: 'owner', name: '我', text: 'x' }), /room 9/);
 
-  const job = s.addJob('ds', 1, a.message.id);
-  assert.equal(s.addJob('ds', 1, a.message.id), undefined);
-  assert.equal(s.markSent(job.id, 'sess', 5), true);
-  assert.equal(s.markSent(job.id, 'sess', 5), false);
-  assert.equal(s.finishJob(job.id, 'done', 1), true);
-  assert.equal(s.finishJob(job.id, 'failed'), false);
-  assert.deepEqual(s.openJobs(), []);
   assert.equal(s.dispatchMode(1), 'mixed');
   assert.equal(s.setDispatchMode(1, 'team'), 'team');
   assert.equal(s.dispatchMode(1), 'team');
@@ -159,21 +152,18 @@ test('channel rename API: emits fresh rooms and returns HTTP 400 for invalid nam
   hub.store.close();
 });
 
-test('channel rename: preserves ids, messages, bindings, members, dispatch settings and workspace paths', () => {
+test('channel rename: preserves ids, messages, members, dispatch settings and workspace paths', () => {
   const hub = makeHub();
   const s = hub.store;
   s.ensureRoom(1, 'general', '/channel-project');
   const ws = s.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true, rooms: [1] });
   const message = s.append(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek hello' }).message;
-  s.bind('ds', 1, 'session-1');
   s.setDispatchMode(1, 'team');
-  const binding = s.binding('ds', 1);
   const members = hub.memberView();
   assert.equal(s.renameRoom(1, '新频道').id, 1);
   assert.equal(s.room(1).name, '新频道');
   assert.deepEqual(s.message(message.id), message);
-  assert.deepEqual(s.binding('ds', 1), binding);
   assert.deepEqual(hub.memberView(), members);
   assert.equal(s.dispatchMode(1), 'team');
   assert.equal(s.workspacePath(1, '/fallback'), '/channel-project');
@@ -392,61 +382,16 @@ test('channel settings API: GET returns and PATCH accepts the relay cap, invalid
   hub.store.close();
 });
 
-test('mentions: own mention removed, others rewritten, fences ignored, bare name calls', () => {
-  const members = [{ id: 'ju', name: '橘', mentionId: '111' }, { id: 'ds', name: 'DeepSeek' }];
-  const ju = members[0];
-  assert.deepEqual([...mentions('@橘 看下 @DeepSeek', members)].sort(), ['ds', 'ju']);
-  assert.deepEqual([...mentions('```\n@橘\n```', members)], []);
-  assert.equal(forMember('@橘 看下这个', ju, members), '看下这个');
-  assert.equal(forMember('@橘 和 @DeepSeek 一起看', ju, members), '@橘(你) 和 @DeepSeek 一起看');
-  assert.equal(forMember('@DeepSeek 叫 <@111>', members[1], members), '@DeepSeek(你) 叫 <@111>');
-  assert.equal(forMember('@DeepSeek 你好', members[1], members), '你好');
-  assert.equal(forDisplay('<@111> 你好', members), '@橘 你好');
-  // Same cases as bridge/platform/discord/mentions_test.go TestNameCalled; the team list is
-  // passed the way cloudweb.mjs does, so name lists and "和/、/跟/与" behave like Go.
-  const team = ['龙娘', '鲸鱼娘', '彩虹猫'];
-  const cases = [
-    // a line opening with her name: a call
-    ['橘，你看这个', true],
-    ['橘 你看这个', true],
-    ['橘？', true],
-    ['橘', true],
-    ['橘你来定', true],
-    ['Claude橘：你来', true],
-    ['龙娘、橘，你们看看', true],
-    ['龙娘和橘 你们俩对一下', true],
-    ['我算完了\n橘，你核对一下', true], // a later line opening with her name
-    // the name inside a sentence: talk about her
-    ['行了橘，别贫了', false],
-    ['好的，我先等橘回复，这个你怎么看', false],
-    ['收到！橘你先忙', false],
-    ['那橘你呢', false],
-    ['橘说得对', false],
-    ['橘在忙，等她', false],
-    ['跟橘的审美一样圆', false],
-    ['橘子很好吃', false],
-    ['```\n橘，\n```', false], // code block
-    ['龙娘，你来', false],
-    // PR #162 review 2: 和/、 followed by a non-name is not a call
-    ['橘和他说过了', false],
-    ['橘、龙娘说得对', false],
-  ];
-  for (const [text, want] of cases) {
-    assert.equal(nameCalled(text, 'Claude橘', team), want, JSON.stringify(text));
-  }
-});
-
-test('cloud-web: a mentioned message goes to the bot as written; the host adds no instructions of its own (#1016, #1662)', async () => {
+test('cloud-web: a message goes to the bot as written with the room members; the bridge reads the @ (#1016, #1662)', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const ju = connect(gw, 'bot=ju&name=橘');
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 /model deepseek-v4' });
   await tick();
-  assert.equal(ju.of('message').at(-1).content, '/model deepseek-v4');
-  assert.equal(ju.of('message').at(-1).mentioned, true);
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 看看日志' });
-  await tick();
-  assert.equal(ju.of('message').at(-1).content, '看看日志');
+  const frame = ju.of('message').at(-1);
+  assert.equal(frame.content, '@橘 /model deepseek-v4');
+  assert.equal('mentioned' in frame, false, 'who is called is the bridge\'s call (bridge/platform/cloud-web/hub_message.go)');
+  assert.ok(frame.members.some(m => m.id === 'ju' && m.name === '橘'));
 });
 
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
@@ -461,15 +406,16 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(bad.of('register_ack')[0].ok, false);
   assert.equal(bad.closed.code, 4002);
 
+  assert.ok(ju.of('roster')[0].members.some(m => m.id === 'ju' && m.mention_id === '111'), 'who is who, for the bridge to show names');
+
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 看看日志' });
   await tick();
   const toJu = ju.of('message').at(-1);
-  assert.equal(toJu.content, '看看日志');
-  assert.equal(toJu.mentioned, true);
+  assert.equal(toJu.content, '@橘 看看日志');
   assert.equal(toJu.chat_id, 'room-1');
   assert.equal(toJu.msg_id.startsWith('hub-'), true);
-  assert.equal(whale.of('message').at(-1).content, '<@111> 看看日志');
-  assert.equal(whale.of('message').at(-1).mentioned, false);
+  assert.equal(whale.of('message').at(-1).content, '@橘 看看日志', 'every bot in the room gets the same raw text');
+  assert.deepEqual(whale.of('message').at(-1).members, toJu.members);
 
   ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '看完了 @鲸鱼娘 你接着\n\n*claude · 1k tok*', agent: true });
   await tick(); await tick();
@@ -478,15 +424,10 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(stored.from_turn, 1);
   const toWhale = whale.of('message').at(-1);
   assert.equal(toWhale.from_bot, true);
-  assert.equal(toWhale.mentioned, true);
-  assert.equal(toWhale.content, '【橘】看完了 你接着');
+  assert.equal(toWhale.content, '看完了 @鲸鱼娘 你接着', 'the footer is dropped; the 【橘】 label and the @ are the bridge\'s');
+  assert.equal(toWhale.user_name, '橘');
   assert.equal(toWhale.user_mention_id, '111');
   assert.equal(ju.of('message').length, 1, 'author never receives its own reply');
-
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '橘，你看看这个' });
-  await tick();
-  assert.equal(ju.of('message').at(-1).mentioned, true, 'a bare name at line start calls the role');
-  assert.equal(whale.of('message').at(-1).mentioned, false);
 
   const before = whale.of('message').length;
   ju.frame({ type: 'reply', reply_ctx: 'room-1', content: '✅ 已完成' });
@@ -592,23 +533,18 @@ test('cloud-web external member: name collision, reserved ids and unknown rooms 
   hub.store.close();
 });
 
-test('cloud-web external member: mentioned follows @name and <@mention_id>, chatter stays silent', async () => {
+test('cloud-web external member: its <@mention_id> travels with the members for the bridge to read', async () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const ext = connect(gw, 'bot=ext-qq&name=ExternalBot&mention_id=999&room=1');
 
-  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@ExternalBot hello' });
-  await tick();
-  assert.equal(ext.of('message').at(-1).mentioned, true);
-
-  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'no mention in this message' });
-  await tick();
-  assert.equal(ext.of('message').at(-1).mentioned, false);
-
+  // #1662: the bridge decides the call from the raw text and these members (mentions.go: @name, <@mention_id>).
   hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '<@999> hello again' });
   await tick();
-  assert.equal(ext.of('message').at(-1).mentioned, true, 'the numeric <@mention_id> form calls the member');
+  const frame = ext.of('message').at(-1);
+  assert.equal(frame.content, '<@999> hello again');
+  assert.ok(frame.members.some(m => m.id === 'ext-qq' && m.name === 'ExternalBot' && m.mention_id === '999'));
 
   gw.closeAll();
   hub.store.close();
@@ -619,28 +555,6 @@ test('cloud-web external member: mentioned follows @name and <@mention_id>, chat
 //   persistent member registry + revocation (M1);
 // - "offline member mention feedback" needs M2.
 // Add those after M1/M2 land, and mark them with the same test names for traceability.
-
-test('cloud-web: a line-start name calls a non-primary role', async () => {
-  const { mkdtempSync, writeFileSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const leadPath = join(mkdtempSync(join(tmpdir(), 'cloudweb-line-name-')), 'lead.json');
-  writeFileSync(leadPath, JSON.stringify({ lead: 'whale', name: '鲸鱼娘' }));
-  const store = new Store(':memory:');
-  store.ensureRoom(1, 'general');
-  const hub = new Hub(store, quiet, new LeadState(leadPath, quiet), 'whale');
-  hub.setMember({ id: 'owner', name: '我', kind: 'human', online: true });
-  hub.setMember({ id: 'whale', name: '鲸鱼娘', kind: 'bot', online: true });
-  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
-  const ju = connect(gw, 'bot=ju&name=橘');
-  const whale = connect(gw, 'bot=whale&name=鲸鱼娘');
-
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '橘，你看看这个', clientKey: 'line-name-sub' });
-  await tick();
-  assert.equal(ju.of('message').at(-1).mentioned, true, 'the named non-primary role is addressed');
-  assert.equal(whale.of('message').at(-1).mentioned, false, 'the selected primary is not addressed by another role name');
-});
 
 test('cloud-web: token check accepts bearer, header, or query', () => {
   const gw = new CloudWebGateway(makeHub(), { token: 'secret', logger: quiet });
@@ -744,9 +658,6 @@ test('store: a v1 database migrates to the current schema and keeps its rows', a
   raw.close();
   const reopened = new Store(path);
   assert.equal(reopened.page(1, undefined, 1)[0].text, 'kept');
-  const job = reopened.addJob('ds', 1, 1);
-  assert.equal(reopened.markSent(job.id, 's', 0, 'in-1'), true);
-  assert.equal(reopened.job(job.id).input_id, 'in-1');
   assert.deepEqual(reopened.members(), [], 'v3 members table exists after migration');
   assert.equal(reopened.page(1, undefined, 1)[0].draft, 0, 'v6 old rows are not drafts');
   reopened.close();
@@ -944,7 +855,7 @@ test('cloud-web reply_in_place: a text preview is a draft; the reply with its ha
   assert.equal(rows[0].id, Number(handle));
   assert.equal(rows[0].text, '先看日志，查完了 @鲸鱼娘 你接着');
   assert.equal(whale.of('message').length, 1);
-  assert.equal(whale.of('message')[0].content, '【橘】先看日志，查完了 你接着');
+  assert.equal(whale.of('message')[0].content, '先看日志，查完了 @鲸鱼娘 你接着');
   ju.frame({ type: 'reply', reply_ctx: 'room-1', preview_handle: handle, content: '先看日志，查完了 @鲸鱼娘 你接着', agent: true });
   await tick(); await tick();
   assert.equal(whale.of('message').length, 1, 'a repeated commit is not forwarded again');
@@ -1091,7 +1002,7 @@ test('cloud-web: bridge question buttons and a text reply reach the bot exactly 
   assert.equal(bot.of('card_action').length, 1);
 });
 
-test('cloud-web #120: owner text reply takes the same decision path; bot text does not approve', async () => {
+test('cloud-web #120: an owner text answer is the bridge\'s; its permission_resolved closes the card (#1662)', async () => {
   const hub = makeHub();
   const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
   const bot = connect(gw, 'bot=dou&name=大豆包');
@@ -1101,78 +1012,25 @@ test('cloud-web #120: owner text reply takes the same decision path; bot text do
   const promptRow = hub.store.page(1).at(-1);
   // The prompt itself is not forwarded to other bots as chat.
   assert.equal(other.of('message').length, 0);
-  // Another bot saying "允许" does not decide anything.
-  other.frame({ type: 'reply', reply_ctx: 'room-1', content: '允许' });
+  // The owner's "@大豆包 拒绝" goes to every bot as it is: the bridge reads who it is for and applies it
+  // (core/engine.go handlePendingPermission; an @ of another bot leaves a prompt alone).
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@大豆包 拒绝' });
   await tick(); await tick();
+  assert.equal(bot.of('message').at(-1).content, '@大豆包 拒绝');
+  assert.equal(other.of('message').at(-1).content, '@大豆包 拒绝');
+  assert.equal(JSON.parse(hub.store.message(promptRow.id).card).state, 'pending', 'the plugin decides nothing from text');
+  // Another bot's report does not close this bot's card.
+  other.frame({ type: 'permission_resolved', session_key: 'cloud_web:room-1', decision: 'allow' });
+  await tick();
   assert.equal(JSON.parse(hub.store.message(promptRow.id).card).state, 'pending');
-  const before = bot.of('message').length;
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '拒绝' });
-  await tick(); await tick();
+  bot.frame({ type: 'permission_resolved', session_key: 'cloud_web:room-1', decision: 'deny' });
+  await tick();
   const card = JSON.parse(hub.store.message(promptRow.id).card);
   assert.equal(card.state, 'denied');
   assert.equal(card.decided_by, 'text');
-  assert.equal(bot.of('card_action').at(-1).action, 'perm:deny');
-  // The answered bot gets the decision once (card_action), not the text too.
-  assert.equal(bot.of('message').length, before);
+  assert.equal(bot.of('card_action').length, 0, 'the bridge already applied it: no card_action back');
 });
 
-test('cloud-web #120: textDecision mirrors the bridge vocabularies', async () => {
-  const { textDecision } = await import('./cloudweb.mjs');
-  assert.equal(textDecision('允许所有'), 'allow_all');
-  assert.equal(textDecision('allow all please'), 'allow_all');
-  assert.equal(textDecision('好的，允许'), 'allow');
-  assert.equal(textDecision('拒绝'), 'deny');
-  assert.equal(textDecision('禁止允许这种'), undefined);
-  assert.equal(textDecision('看看日志'), undefined);
-  // Same separators as bridge permissionTokenSeparator: quotes, brackets, @, ·.
-  assert.equal(textDecision('“允许”'), 'allow');
-  assert.equal(textDecision('【允许】'), 'allow');
-  assert.equal(textDecision('(拒绝)'), 'deny');
-  assert.equal(textDecision('「允许」'), undefined); // not a bridge separator either
-  assert.equal(textDecision("'allow'"), 'allow');
-  assert.equal(textDecision('＠橘·允许所有'), 'allow_all');
-});
-
-test('cloud-web #120: owner text with several bots pending — no @ answers all, @ answers only that bot', async () => {
-  const hub = makeHub();
-  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
-  const dou = connect(gw, 'bot=dou&name=大豆包');
-  const ju = connect(gw, 'bot=ju&name=橘');
-  const ask = async b => {
-    b.frame({ type: 'buttons', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', content: '权限请求', buttons: [[{ Text: '允许', Data: 'perm:allow' }, { Text: '拒绝', Data: 'perm:deny' }]] });
-    await tick();
-    return hub.store.page(1).at(-1).id;
-  };
-  const state = id => JSON.parse(hub.store.message(id).card).state;
-  // No @: every bot's cc-connect would act on the word, so every card takes the decision.
-  let a = await ask(dou), b = await ask(ju);
-  const msgsBefore = [dou.of('message').length, ju.of('message').length];
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '“允许”' });
-  await tick(); await tick();
-  assert.equal(state(a), 'allowed');
-  assert.equal(state(b), 'allowed');
-  assert.equal(dou.of('card_action').at(-1).action, 'perm:allow');
-  assert.equal(ju.of('card_action').at(-1).action, 'perm:allow');
-  assert.deepEqual([dou.of('message').length, ju.of('message').length], msgsBefore);
-  // @ one bot: only its card is decided; the other is not sent the text and stays pending.
-  a = await ask(dou); b = await ask(ju);
-  const douActs = dou.of('card_action').length, juMsgs = ju.of('message').length;
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 拒绝' });
-  await tick(); await tick();
-  assert.equal(state(b), 'denied');
-  assert.equal(ju.of('card_action').at(-1).action, 'perm:deny');
-  assert.equal(state(a), 'pending');
-  assert.equal(dou.of('card_action').length, douActs);
-  assert.equal(dou.of('message').filter(m => /拒绝/.test(m.content)).length, 0);
-  assert.equal(ju.of('message').length, juMsgs);
-  // Text that is not a decision still reaches everyone.
-  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '等一下' });
-  await tick(); await tick();
-  assert.equal(dou.of('message').at(-1).content, '等一下');
-  assert.equal(state(a), 'pending');
-});
-
-// Issue #122: a channel message may reply to one earlier message.
 test('reply: the quote is stored and served; a deleted original degrades without leaking it', async () => {
   const hub = makeHub();
   hub.store.ensureRoom(2, 'other');
@@ -1216,25 +1074,6 @@ test('reply: a v6 database gains reply_to and keeps its messages', async () => {
 
 const records = hub => hub.store.page(1, undefined, 200).filter(m => m.author_kind === 'system');
 
-test('tasks: the tasks table is ensured idempotently and survives reopen', async () => {
-  const { mkdtempSync } = await import('node:fs');
-  const { join } = await import('node:path');
-  const { tmpdir } = await import('node:os');
-  const path = join(mkdtempSync(join(tmpdir(), 'collab-')), 'tasks.sqlite3');
-  const s = new Store(path);
-  s.ensureRoom(1, 'general');
-  s.db.exec("INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (1, 'kept', 'ds', 'owner', 'assigned', 1, 1)");
-  s.db.exec('ALTER TABLE tasks DROP COLUMN note; PRAGMA user_version = 8');
-  s.close();
-  const again = new Store(path);
-  again.ensureTasks();
-  const cols = again.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
-  assert.equal(cols.includes('note'), true, 'a missing column is added back');
-  assert.equal(again.db.prepare('SELECT title FROM tasks').get().title, 'kept');
-  assert.equal(again.db.prepare('PRAGMA user_version').get().user_version, 11);
-  again.close();
-});
-
 const plain = v => JSON.parse(JSON.stringify(v));
 test('store: a v6 database gains kind/parent_id; opening it creates no workspace', async () => {
   const { mkdtempSync } = await import('node:fs');
@@ -1268,11 +1107,9 @@ test('store: a configured chat channel gets no workspace until the first createW
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general');
   assert.deepEqual(s.rooms().map(r => r.kind), ['chat'], 'startup creates no workspace');
-  s.db.prepare("INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (1, 'active task', 'ds', 'lead', 'assigned', 1, 1)").run();
-  assert.deepEqual(s.roomsView().map(r => r.active), [1]);
   assert.deepEqual(plain(s.createWorkspace(1)), { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 });
   assert.equal(s.createWorkspace(1).name, '工作区2');
-  assert.deepEqual(s.roomsView().map(r => r.active), [1, 0, 0]);
+  assert.equal(s.roomsView().length, 3);
 });
 
 test('store: default config, then {id:2} added — starts, workspace ids stay out of the config range', async () => {
@@ -1292,16 +1129,12 @@ test('store: default config, then {id:2} added — starts, workspace ids stay ou
   assert.ok(ws.id >= 1000000, 'workspace ids start at 1000000');
   const key = roomKey(ws.id);
   const msg = first.append(ws.id, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
-  first.bind('m1', ws.id, 'sess-ws');
-  first.addJob('m1', ws.id, msg.id);
   first.close();
   // A chat channel added to the config later takes its own small id; the workspace keeps its id.
   const second = start({ rooms: [{ id: 1, name: 'general' }, { id: 2, name: 'dev' }] });
   assert.deepEqual(plain(second.room(2)), { id: 2, name: 'dev', kind: 'chat', parent_id: null });
   assert.deepEqual(plain(second.room(ws.id)), { id: ws.id, name: '工作区1', kind: 'workspace', parent_id: 1 });
   assert.equal(second.message(msg.id).room_id, ws.id, 'the workspace keeps its messages');
-  assert.equal(second.binding('m1', ws.id).session_id, 'sess-ws');
-  assert.equal(second.job(1).room_id, ws.id);
   assert.equal(roomKey(second.rooms().find(r => r.kind === 'workspace').id), key, 'bot session key room-<id> is unchanged');
   assert.equal(second.page(2, undefined, 10).length, 0, 'the configured channel starts empty');
   // A config id that is inside the workspace range is refused instead of moving the workspace.
@@ -1319,8 +1152,6 @@ test('store: an unreleased dev database moves old small-id workspaces into the w
   // Shape written by the previous PR revision: 工作区1 shares the config sequence at id 2.
   old.db.exec("INSERT INTO rooms (id, name, kind, parent_id) VALUES (2, '工作区1', 'workspace', 1)");
   const msg = old.append(2, { authorKind: 'user', author: 'owner', name: '我', text: '在工作区' }).message;
-  old.bind('m1', 2, 'sess-ws');
-  old.addJob('m1', 2, msg.id);
   old.close();
   const s = new Store(path);
   assert.deepEqual(plain(s.rooms()), [
@@ -1328,8 +1159,6 @@ test('store: an unreleased dev database moves old small-id workspaces into the w
     { id: 1000000, name: '工作区1', kind: 'workspace', parent_id: 1 },
   ]);
   assert.equal(s.message(msg.id).room_id, 1000000);
-  assert.equal(s.binding('m1', 1000000).session_id, 'sess-ws');
-  assert.equal(s.job(1).room_id, 1000000);
   s.close();
 });
 
@@ -1448,45 +1277,6 @@ test('store #762: createWorkspace reuses only its own chat channel\'s lowest fre
   assert.equal(s.createWorkspace(1).name, '工作区5');
 });
 
-test('store: a released workspace keeps its sessions until a new claim clears them; fresh ones start after its last message', () => {
-  const s = new Store(':memory:');
-  s.ensureRoom(1, 'general');
-  const resets = [];
-  s.onSessionsReset(id => resets.push(id));
-  const w = s.createWorkspace(1);
-  s.append(w.id, { authorKind: 'user', author: 'owner', name: 'owner', text: '旧活' });
-  s.bind('ds', w.id, 'collab-old');
-  const last = s.append(w.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[report]\n旧活做完了' }).message;
-  assert.equal(s.releaseWorkspace(w.id), true);
-  assert.equal(s.binding('ds', w.id).session_id, 'collab-old', 'release alone keeps the session (#597 G35)');
-  assert.equal(s.createWorkspace(1).id, w.id, 'a new handoff takes the free workspace');
-  assert.equal(s.binding('ds', w.id), undefined, 'and the old session is unbound');
-  assert.deepEqual(resets, [w.id], 'the listeners drop their per-conversation state');
-  s.bind('ds', w.id, 'collab-new');
-  assert.equal(s.binding('ds', w.id).context_cursor, last.id, 'the fresh session never reads the old task');
-});
-
-test('store G35: claimed back for a task of its last claim a workspace keeps its sessions; a claim by another chat channel in between clears them', () => {
-  const s = new Store(':memory:');
-  s.ensureRoom(1, 'general');
-  s.ensureRoom(2, 'dev');
-  const w = s.createWorkspace(1);
-  s.db.prepare(`INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at) VALUES (?, '活', 'ds', 'lead', 'returned', 1, 1)`).run(w.id);
-  const taskId = s.db.prepare('SELECT MAX(id) AS id FROM tasks').get().id;
-  s.bind('ds', w.id, 'collab-old');
-  s.releaseWorkspace(w.id);
-  s.claimWorkspace(1, w.id, { handoff: taskId });
-  assert.equal(s.binding('ds', w.id).session_id, 'collab-old', 'rework goes on in the same session');
-  s.releaseWorkspace(w.id);
-  assert.throws(() => s.claimWorkspace(2, w.id), e => e.code === 'workspace-owned', 'another chat channel never takes it (#762)');
-  s.createWorkspace(1); // general's next handoff, a new claim
-  s.releaseWorkspace(w.id);
-  assert.equal(s.binding('ds', w.id), undefined, 'another claim started fresh');
-  s.bind('ds', w.id, 'collab-next');
-  s.claimWorkspace(1, w.id, { handoff: taskId });
-  assert.equal(s.binding('ds', w.id), undefined, 'and the old task claimed back after it does not get the later task\'s session');
-});
-
 test('cloud-web: team_workspace frames (team mode E)', async () => {
   // A store without team mode A's createWorkspace: no capability, frames answered "unsupported".
   const hub = makeHub();
@@ -1558,7 +1348,7 @@ test('dispatch settings: migration distinguishes generated mixed rows and persis
   s.close();
 });
 
-test('store: upgrading to single owner puts old workspaces with no task in work in the pool', async () => {
+test('store: upgrading to single owner puts old workspaces in the pool (#1662: the plugin keeps no tasks)', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
@@ -1568,19 +1358,14 @@ test('store: upgrading to single owner puts old workspaces with no task in work 
   old.ensureRoom(2, 'dev');
   const idle = old.createWorkspace(1);
   const busy = old.createWorkspace(1);
-  old.db.prepare(`INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at)
-    VALUES (?, '旧活', 'ds', 'lead', ?, 1, 1)`).run(idle.id, 'done');
-  old.db.prepare(`INSERT INTO tasks (room_id, title, owner, created_by, status, created_at, updated_at)
-    VALUES (?, '还在做', 'ds', 'lead', ?, 1, 1)`).run(busy.id, 'accepted');
   // Shape before single owner: no free / claim_task / claim_bridge columns.
   for (const c of ['free', 'claim_task', 'claim_bridge']) old.db.exec(`ALTER TABLE rooms DROP COLUMN ${c}`);
   old.close();
   const s = new Store(path);
-  assert.equal(s.workspaceOwner(idle.id), null, 'done before the upgrade: free');
+  assert.equal(s.workspaceOwner(idle.id), null, 'free after the upgrade');
   assert.throws(() => s.claimWorkspace(2, idle.id), e => e.code === 'workspace-owned', 'still general\'s (#762)');
   assert.equal(s.claimWorkspace(1, idle.id).parent_id, 1, 'general claims it again');
-  assert.equal(s.workspaceOwner(busy.id), 1, 'a task still in work keeps its owner');
-  assert.throws(() => s.claimWorkspace(2, busy.id), e => e.code === 'workspace-owned');
+  assert.equal(s.workspaceOwner(busy.id), null, 'every old workspace goes to the pool');
   s.close();
   const again = new Store(path); // the migration runs once: the claim stays
   assert.equal(again.workspaceOwner(idle.id), 1);
