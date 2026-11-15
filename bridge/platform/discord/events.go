@@ -28,7 +28,7 @@ func (p *Platform) addEventHandlers(s *discordgo.Session) {
 
 // emitEvent fills server / channel names from the state cache and hands the event to core.
 func (p *Platform) emitEvent(s *discordgo.Session, ev core.PlatformEvent) {
-	if (ev.UserID != "" && ev.UserID == p.botID) || !p.guildAllowed(ev.GuildID) {
+	if (ev.UserID != "" && ev.UserID == p.selfID()) || !p.guildAllowed(ev.GuildID) {
 		return
 	}
 	p.mu.RLock()
@@ -53,7 +53,7 @@ func (p *Platform) emitEvent(s *discordgo.Session, ev core.PlatformEvent) {
 		}
 	}
 	if ev.SessionKey == "" && ev.ChannelID != "" {
-		ev.SessionKey = p.makeSessionKey(ev.ChannelID, p.botID)
+		ev.SessionKey = p.makeSessionKey(ev.ChannelID, p.selfID())
 	}
 	h.OnPlatformEvent(p.selfPlatform(), ev)
 }

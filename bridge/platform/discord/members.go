@@ -30,10 +30,10 @@ const (
 
 // membersIntentFixURL: the developer-portal page with the SERVER MEMBERS INTENT toggle.
 func (p *Platform) membersIntentFixURL() string {
-	if p.appID == "" {
+	if p.selfAppID() == "" {
 		return "https://discord.com/developers/applications"
 	}
-	return "https://discord.com/developers/applications/" + p.appID + "/bot"
+	return "https://discord.com/developers/applications/" + p.selfAppID() + "/bot"
 }
 
 // wantMembersIntent: request GuildMembers on this connect. Only when the portal toggle is on
@@ -50,7 +50,7 @@ func (p *Platform) wantMembersIntent(s *discordgo.Session) bool {
 		return false
 	}
 	if app.ID != "" {
-		p.appID = app.ID
+		p.setAppID(app.ID)
 	}
 	if app.Flags&(appFlagGatewayGuildMembers|appFlagGatewayGuildMembersLimited) != 0 {
 		p.membersIntent.Store(membersOn)
@@ -77,9 +77,9 @@ func (p *Platform) reportMembersIntent() {
 	switch p.membersIntent.Load() {
 	case membersOn:
 		slog.Info("discord: member join events on (Server Members Intent)", "bot", p.botName)
-		h.OnMemberIntent(p.selfPlatform(), true, core.MemberIntentNotice{BotID: p.botID, BotName: p.botName})
+		h.OnMemberIntent(p.selfPlatform(), true, core.MemberIntentNotice{BotID: p.selfID(), BotName: p.botName})
 	case membersOff:
-		h.OnMemberIntent(p.selfPlatform(), false, core.MemberIntentNotice{BotID: p.botID, BotName: p.botName, FixURL: p.membersIntentFixURL()})
+		h.OnMemberIntent(p.selfPlatform(), false, core.MemberIntentNotice{BotID: p.selfID(), BotName: p.botName, FixURL: p.membersIntentFixURL()})
 	}
 }
 

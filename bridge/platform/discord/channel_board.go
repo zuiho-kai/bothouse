@@ -134,7 +134,7 @@ func (p *Platform) FindChannelBoard(ctx context.Context, channelID string) (stri
 
 func (p *Platform) findBoardIn(msgs []*discordgo.Message) string {
 	for _, m := range msgs {
-		if m == nil || m.Author == nil || m.Author.ID != p.botID {
+		if m == nil || m.Author == nil || m.Author.ID != p.selfID() {
 			continue
 		}
 		for _, e := range m.Embeds {
