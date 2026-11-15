@@ -142,6 +142,6 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 主人用文字（「允许」「拒绝」）回了权限请求后，告诉平台关掉它自己画的权限卡（#1662，core/engine.go handlePendingPermission）。只有自己画卡的宿主需要。
 
-- cloud-web: 已接（发 permission_resolved，DSH 插件关卡）
+- cloud-web: 已接
 - discord: 不支持：权限请求是桥发的按钮消息，文字回复后桥照常回一句结果，没有宿主侧的卡要关
 - feishu: 不支持：权限请求是桥发的卡片消息，文字回复后桥照常回一句结果，没有宿主侧的卡要关
