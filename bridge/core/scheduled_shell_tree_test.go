@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // This helper keeps stdout and a socket open in a grandchild, as ingest keeps its
@@ -32,7 +34,7 @@ func TestScheduledShellTreeHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	unlock, err := lockBoardFile(os.Getenv("BOTHOUSE_SHELL_TREE_FILE") + ".lock")
+	unlock, err := team.LockBoardFile(os.Getenv("BOTHOUSE_SHELL_TREE_FILE") + ".lock")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestScheduledShellTimeoutStopsDescendants(t *testing.T) {
 			if before.Size() != after.Size() {
 				t.Error("descendant keeps writing after timeout")
 			}
-			unlock, err := lockBoardFile(path + ".lock")
+			unlock, err := team.LockBoardFile(path + ".lock")
 			if err != nil {
 				t.Fatalf("next round cannot acquire the descendant's file lock: %v", err)
 			}

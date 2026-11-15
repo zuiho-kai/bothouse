@@ -164,6 +164,9 @@ def _write(items, name="board.jsonl"):
     """整份原子替换：临时文件每条用一个唯一名（原来所有进程共抢 board.jsonl.tmp，会互相覆盖/删掉对方
     正在 rename 的文件），os.replace 对 Windows 的瞬时占用错误有界重试；失败时删掉临时文件再抛，原文件不变。"""
     target = _path(name)
+    if name == "board.jsonl":
+        for i in items:  # 等什么只在这里定一次，桥只读这个字段（wait_kind_of）
+            i["wait_kind"] = wait_kind_of(i)
     text = "".join(json.dumps(i, ensure_ascii=False) + "\n" for i in items)
     try:
         mode = target.stat().st_mode & 0o777
@@ -222,13 +225,12 @@ _SHORT_TAG = re.compile(r"[（(]用户点名[)）]")
 _SHORT_PREFIX = re.compile(r"^\s*(?:用户点名(?:「[^」]*」|（[^）]*）|\s*#\d+\s*\S{0,3})?[：:]|用户点名\s*|事故\s*#\d+[^：:]{0,8}[：:]|#\d+[^：:]{0,10}[：:])\s*")
 
 
-# 测试活：标题以测试标记加分隔符开头（「测试：」「验收探针：」「【自检】」「probe:」），交回、提问、上报都不进用户的聊天频道
-# （用户 2026-10-28「这个傻逼提问探针是什么东西啊？来了三个」）。与 core/test_noise.go 的 testWorkTitle 同一条规则。
-TEST_TITLE = re.compile(r"^\s*[\[【(（]?\s*(验收探针|提问探针|探针|测试|自检|自验|test|probe|self-?check)\s*[\]】)）:：]", re.I)
-
-
-def is_test(title):
-    return bool(TEST_TITLE.match(title or ""))
+# 探针：ws-handoff --probe 建的条目带 probe=true，交回、提问、上报都不进用户的聊天频道
+# （用户 2026-10-28「这个傻逼提问探针是什么东西啊？来了三个」）。只看这个字段，不看标题：用户自己派的「测试：…」是正常活。
+def is_probe(ids):
+    """ids 里有一条是探针（板上和已完成记录都查）。"""
+    want = {int(x) for x in (ids or []) if str(x).lstrip("#").isdigit()}
+    return bool(want) and any(i.get("probe") for i in _read() + _read("board-done.jsonl") if i.get("id") in want)
 
 
 def short_of(what):
@@ -245,14 +247,37 @@ def short_of(what):
     return s if len(s) <= SHORT_RUNES else s[:SHORT_RUNES].rstrip() + "…"
 
 
-WAIT_STATUS_RE = re.compile(r"等待?用户|待用户")  # 状态写着在等用户（等用户[看片]、待用户定），同 core teamOtherQuiet
+WAIT_STATUS_RE = re.compile(r"等待?用户|待用户")  # 状态写着在等用户（等用户[看片]、待用户定）
+_RELEASE_LEAD = re.compile(r"^(?:等待?|待)(?:\s*(?:下次|这次|本次|下个|下轮))?\s*(?:集中|批量|统一)?\s*(?:发布|部署)")
+_RELEASE_ANY = re.compile(r"(?:集中|批量|统一)(?:发布|部署)")
+
+
+def _status_awaits_release(status):
+    """状态写着这条自己在等集中发布（「等发布：…」「随 #133 集中发布上线」）；「等发布会」「发布后…」不算。"""
+    s = (status or "").replace("\u3000", " ").strip()
+    for text in (s, s.replace(" ", "")):
+        m = _RELEASE_LEAD.match(text)
+        if m:
+            return not text[m.end():].lstrip("：:，,、 ").startswith(("会", "后"))
+    return any(_RELEASE_ANY.search(c) and "发布会" not in c for c in re.split(r"[，,；;。]", s))
+
+
+def wait_kind_of(it):
+    """这条在等什么：user（等用户）、external（等外部）、release（等发布）、""（不在等）。
+    唯一的判定处：_write 每次存 board.jsonl 都按它写 wait_kind，桥（core/team_task_board.go waitsOn）只读字段。"""
+    if it.get("paused"):
+        why = it.get("pause_why") or ""
+        if why.startswith(WAIT_EXT):
+            return "external"
+        return "user" if WAIT_USER_RE.search(why) else ""
+    if it.get("await_deploy") or _status_awaits_release(it.get("status")):
+        return "release"
+    return "user" if WAIT_STATUS_RE.search(it.get("status") or "") else ""
 
 
 def waits_user(it):
     """等用户拍板/看片的条目：暂停原因或状态写着等用户。"""
-    if it.get("paused"):
-        return bool(WAIT_USER_RE.search(it.get("pause_why") or ""))
-    return bool(WAIT_STATUS_RE.search(it.get("status") or ""))
+    return wait_kind_of(it) == "user"
 
 
 def in_chat(it, key):
@@ -345,7 +370,7 @@ def _back_to_chat(it):
         it["ch"] = chat.split(":", 1)[1]
 
 
-def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None):
+def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None, probe=False):
     """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。
     chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。"""
     with _locked():
@@ -353,6 +378,8 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None)
         nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
         it = {"id": nid, "what": what, "short": (short_name or "").strip()[:SHORT_RUNES] or short_of(what),
               "where": where, "status": status, "who": who, "at": _now(), "dispatcher": os.environ.get("CC_PROJECT", "")}
+        if probe:
+            it["probe"] = True
         if nxt:
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
@@ -644,7 +671,7 @@ def pause(nid, why=None):
     return {**hit, "ws": ws} if ws else hit
 
 
-WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀（core/team_wait_external.go waitExternalWhy，两边改要一起改）
+WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀；wait_kind_of 按它记 external
 
 
 def wait_external(nid, why, minutes):
@@ -1426,7 +1453,7 @@ PRUNE_PR_AFTER = 2 * 3600  # 秒：规则「PR 已合或已关，且超过 2 小
 PRUNE_IDLE_DEFAULT_H = 24
 PR_FINAL_RECHECK = 30 * 60  # 秒：沿用本机 board.py PR_FINAL_RECHECK；开着/查不到的 PR 半小时内不再问 gh，终态缓存后不再问
 ASK_WHY = "等待用户答复"  # ws-up --ask 暂停时写的原因（contrib/lead/ws-up）
-# 等用户：和 core/team_task_board.go teamTaskBoardWaitUser 是同一条，两边改要一起改（方案二审第 D 条）
+# 等用户：wait_kind_of 按它记 user
 WAIT_USER_RE = re.compile(r"等待?用户")
 _MERGED_INTO = re.compile(r"并入(?:主线)?\s*#(\d+)")
 

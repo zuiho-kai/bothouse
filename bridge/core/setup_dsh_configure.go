@@ -553,7 +553,7 @@ func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 		// (dsh/collab/gate-context.mjs), the port bothouse runs the gate on (gate_proc.go startLocked).
 		// Resolve before injecting BOTHOUSE_DATA_DIR: an unset parent must keep
 		// using ~/.conest-collab even though the child receives the bridge data dir.
-		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_COLLAB_DATA=" + collabDataDir(), "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort()}
+		env := []string{"BOTHOUSE_DATA_DIR=" + dataDir, "CONEST_COLLAB_DATA=" + collabDataDir(), "CONEST_LEAD_FILE=" + filepath.Join(dataDir, "lead.json"), "GATE_PORT=" + gatePort(), watchCheckSecondsEnv()}
 		if fallback := dshFallbackLead(dataDir); fallback != "" {
 			env = append(env, "CONEST_FALLBACK_LEAD="+fallback)
 		}

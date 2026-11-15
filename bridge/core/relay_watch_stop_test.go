@@ -188,7 +188,7 @@ func TestRelayWatchStopAfterResultCountsAsDone(t *testing.T) {
 // An update on the worker's own member row in this window is progress too.
 func TestRelayWatchMemberRowCountsAsProgress(t *testing.T) {
 	p, _, _, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestRelayWatchMemberRowCountsAsProgress(t *testing.T) {
 
 func TestRelayWatchPromptNamesTheWatch(t *testing.T) {
 	p, _, _, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

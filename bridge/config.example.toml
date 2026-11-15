@@ -157,6 +157,10 @@ level = "info" # debug, info, warn, error
 # 推荐值：30–60。默认 0（禁用）。
 # max_turn_time_mins = 0  # default: disabled / 默认禁用
 
+# Team watch: minutes after a handoff before the bridge checks the workspace for progress.
+# 团队看门：交活后多少分钟检查工作区有没有进展。
+# team_watch_check_mins = 10  # default: 10 / 默认 10
+
 # Auto-reset the active session after the user has been inactive for a while.
 # Unlike idle_timeout_mins, this does not detect stuck agent execution. It
 # rotates to a fresh bothouse session when the user comes back after being idle.

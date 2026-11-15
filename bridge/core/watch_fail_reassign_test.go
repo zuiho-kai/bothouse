@@ -27,6 +27,8 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 		p := &exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
 		e := NewEngine(name, &quotaTakeoverAgent{inputTestAgent: a, account: name}, []Platform{p}, "", LangChinese)
 		e.dataDir = dir
+		// Available candidates have evidence from a prior successful terminal reply.
+		e.recoverQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 		e.team = &teamState{dir: filepath.Join(dir, "team"), name: name, inject: name == "orange", seen: map[string]*teamSession{}}
 		os.MkdirAll(e.team.dir, 0700)
 		e.SetRelayManager(rm)
@@ -58,20 +60,21 @@ func TestWatchFailReassignsToFreeTeammate(t *testing.T) {
 	for range watchFailLimit {
 		source.watchTurnEnded(platforms["orange"], ws, "", false, true, false, false, time.Time{})
 	}
-	if items := readTeamTaskBoard(source.team.dir); len(items) != 1 || items[0].Who != "longniang" {
+	// #1805/#1828: bound, free, confirmed available, first by name (jingyu < longniang).
+	if items := readTeamTaskBoard(source.team.dir); len(items) != 1 || items[0].Who != "jingyu" {
 		t.Fatalf("board owner after two failures: %+v", items)
 	}
 	teamWorkspaceStore.mu.Lock()
 	h := testLoadTeamWorkspacesLocked(teamWorkspacePath(dir)).Handoffs[ws][0]
 	teamWorkspaceStore.mu.Unlock()
-	if h.Owner != "longniang" || h.Idle.Fails != 0 || h.Idle.Reported {
+	if h.Owner != "jingyu" || h.Idle.Fails != 0 || h.Idle.Reported {
 		t.Fatalf("handoff must move with a fresh watch: %+v", h)
 	}
-	prompt := inputPrompt(t, agents["longniang"])
+	prompt := inputPrompt(t, agents["jingyu"])
 	if !strings.Contains(prompt, "/notes/original-handoff.md") || !strings.Contains(prompt, "从停点接着做") {
 		t.Fatalf("new owner must get the original handoff: %s", prompt)
 	}
-	inputDone(agents["longniang"], "已接手")
+	inputDone(agents["jingyu"], "已接手")
 	sent := strings.Join(platforms["orange"].sentTo(chat), "\n")
 	if !strings.Contains(sent, "已自动改派给") || strings.Contains(sent, "请主角色换人") {
 		t.Fatalf("channel notice: %q", sent)

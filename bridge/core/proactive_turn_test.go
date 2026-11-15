@@ -172,6 +172,7 @@ func TestProactiveExplicitStopPersistsAcrossRestart(t *testing.T) {
 			case "stop":
 				e.cmdStop(platform, msg)
 			case "all":
+				msg.Content = "/stop all" // #1809: a bare stop word from a non-admin stops only their own turns
 				e.cmdStopAll(platform, msg)
 			case "recall":
 				e.handleMessageRecall(platform, msg)

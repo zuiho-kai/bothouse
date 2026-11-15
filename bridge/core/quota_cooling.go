@@ -21,6 +21,7 @@ import (
 type quotaCoolingState struct {
 	NextProbeAt time.Time                `json:"next_probe_at,omitempty"`
 	ProbeStatus string                   `json:"probe_status,omitempty"`
+	ProbeScope  string                   `json:"probe_scope,omitempty"`
 	LegacyUntil time.Time                `json:"legacy_until,omitempty"`
 	Scope       string                   `json:"scope,omitempty"`
 	Verified    map[string]bool          `json:"verified,omitempty"`
@@ -166,6 +167,9 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 	if report != nil && report.QuotaGroup != "" {
 		scope.Group = report.QuotaGroup
 	}
+	if quotaError {
+		e.recordQuotaProbeFor(scope, "exhausted")
+	}
 	if failed, _ := ev.Metadata[MetaResultIsError].(bool); ev.Type == EventResult && ev.Done && ev.Error == nil && !failed && !quotaError {
 		// Only a successful terminal result proves recovery. A context
 		// compaction result is intermediate, even without an error. A usage
@@ -187,7 +191,9 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 			}
 		}
 	}
-	e.observeQuotaUsageFor(report, session, scope)
+	// Cached usage can predate this result. It may extend an exhausted
+	// window, but cannot contradict the provider's current quota error.
+	e.observeQuotaUsageAfterResult(report, session, scope, !quotaError)
 }
 
 func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
@@ -195,6 +201,10 @@ func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
 }
 
 func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope quotaScope) {
+	e.observeQuotaUsageAfterResult(report, session, scope, true)
+}
+
+func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session string, scope quotaScope, allowRecovery bool) {
 	if report == nil {
 		return
 	}
@@ -202,11 +212,16 @@ func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope
 	if report.QuotaGroup != "" {
 		scope.Group = report.QuotaGroup
 	}
+	measured, exhausted := false, false
 	for _, bucket := range report.Buckets {
 		if report.QuotaGroup != "" && bucket.QuotaGroup != report.QuotaGroup {
 			continue
 		}
 		for _, window := range bucket.Windows {
+			if !quotaWindowApplies(window, scope) {
+				continue
+			}
+			measured = true
 			// Cool down only when the provider says the quota is gone: a limit-reached
 			// bucket, a window at 100%, or a reported reset time. A window merely close to
 			// its limit still has usable quota, and switching early throws it away.
@@ -214,14 +229,27 @@ func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope
 			if !(bucket.LimitReached || window.UsedPercent >= 100) {
 				continue
 			}
+			exhausted = true
 			until := time.Unix(window.ResetAtUnix, 0)
 			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
 				until = now.Add(time.Duration(window.ResetAfterSeconds) * time.Second)
 			}
 			if until.After(now) {
-				e.recordQuotaWindowFor(scope, until, session, quotaWindowLabel(window))
+				windowScope := scope
+				if window.QuotaGroup == "account" {
+					windowScope = scope.accountScope()
+				}
+				e.recordQuotaWindowFor(windowScope, until, session, quotaWindowLabel(window))
 			}
 		}
+		if bucket.LimitReached {
+			exhausted = true
+		}
+	}
+	if exhausted {
+		e.recordQuotaProbeFor(scope, "exhausted")
+	} else if measured && allowRecovery {
+		e.recordQuotaProbeFor(scope, "available")
 	}
 }
 
@@ -266,8 +294,10 @@ func (e *Engine) startQuotaCooling() {
 }
 
 // Candidates come from the existing same-channel team binding. No provider or
-// model substitution is performed, and a busy/cooling role is never selected.
-func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool) *Engine {
+// model substitution is performed, and a busy/cooling role is never selected. One rule only: a
+// free teammate bound to the same channel, first by name. What the task is about does not pick
+// the person (the title keywords and role names that used to rank candidates are gone).
+func (e *Engine) quotaCandidate(session string, reserved map[string]bool) *Engine {
 	rm := e.relayManager
 	if rm == nil {
 		return nil
@@ -290,35 +320,20 @@ func (e *Engine) quotaCandidate(session, title string, reserved map[string]bool)
 	}
 	var candidates []*Engine
 	for _, peer := range e.watchEngines() {
-		if peer == e || reserved[peer.name] || peer.IsPaused() || peer.ctx.Err() != nil ||
-			!peer.quotaCoolingFor(peer.admissionQuotaScope(peer.agent, session)).IsZero() || peer.quotaBusyLive(session) {
+		if peer == e || reserved[peer.name] || peer.IsPaused() || peer.ctx.Err() != nil || peer.quotaBusyLive(session) {
 			continue
 		}
 		if _, ok := bound[peer.name]; !ok {
+			continue
+		}
+		if _, status := peer.quotaAvailabilityFor(peer.admissionQuotaScope(peer.agent, session), time.Now()); status != "available" {
 			continue
 		}
 		if peer.lookupReadyPlatform(plat) != nil {
 			candidates = append(candidates, peer)
 		}
 	}
-	code := strings.Contains(strings.ToLower(title), "code") || strings.Contains(title, "代码") ||
-		strings.Contains(title, "编译") || strings.Contains(title, "修复") || strings.Contains(title, "PR")
-	score := func(peer *Engine) int {
-		name := peer.name + " " + peer.DisplayName()
-		if code && (strings.Contains(name, "longniang") || strings.Contains(name, "龙娘")) {
-			return 0
-		}
-		if !code && (strings.Contains(name, "jingyu") || strings.Contains(name, "鲸鱼")) {
-			return 0
-		}
-		return 1
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if a, b := score(candidates[i]), score(candidates[j]); a != b {
-			return a < b
-		}
-		return candidates[i].name < candidates[j].name
-	})
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].name < candidates[j].name })
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -406,7 +421,7 @@ func (e *Engine) quotaSwitchLead(target *Engine, now time.Time) (string, error) 
 	if !ok || sel.Lead != target.name {
 		return "", fmt.Errorf("quota switch: shared lead selection did not change")
 	}
-	if e.gate != nil {
+	if e.gate.Load() != nil {
 		if err := e.notifyGateLead(target.name); err != nil {
 			slog.Warn("quota switch: lead.json written, gate not told", "to", target.name, "error", err)
 		}
@@ -489,7 +504,11 @@ func (e *Engine) quotaUnwindLeadLocked(now time.Time) (restored, ok bool) {
 // notifyGateLead tells the gate (POST /lead set) who leads now, for a gate that keeps its own
 // copy. The bundled gate reads lead.json itself; telling it again is harmless.
 func (e *Engine) notifyGateLead(who string) error {
-	u, err := url.Parse(e.gate.liveURL())
+	g := e.gate.Load()
+	if g == nil {
+		return nil
+	}
+	u, err := url.Parse(g.liveURL())
 	if err != nil {
 		return err
 	}
@@ -558,6 +577,9 @@ func (e *Engine) probeQuota(ctx context.Context) (bool, time.Duration, error) {
 			return false, 0, nil
 		}
 		for _, window := range bucket.Windows {
+			if !quotaWindowApplies(window, scope) {
+				continue
+			}
 			measured = true
 			if bucket.LimitReached || window.UsedPercent >= 100 {
 				until := time.Unix(window.ResetAtUnix, 0)
@@ -589,7 +611,12 @@ func (e *Engine) quotaTick(now time.Time) {
 	defer e.quotaMu.Unlock()
 	st := &e.quotaState
 	scope := e.quotaScopeFor(e.agent, modelOf(e.agent))
+	targetScope := scope
 	// A new target cannot recover or take over work for an old quota pool.
+	if st.Scope == scope.accountScope().key() {
+		// A provider-wide window is also a hold on the selected model.
+		scope = scope.accountScope()
+	}
 	if st.Scope != "" && st.Scope != scope.key() {
 		if currentUntil.IsZero() && st.Lead != nil {
 			sel, ok := readLeadSelectionFull(e.dataDir)
@@ -706,6 +733,7 @@ func (e *Engine) quotaTick(now time.Time) {
 			if err != nil {
 				quotaDomainsMu.Unlock()
 				st.ProbeStatus = "unknown"
+				st.ProbeScope = targetScope.key()
 				e.saveQuotaLocked()
 				slog.Warn("quota auto-probe: usage unknown, probe backed off",
 					"project", e.name, "probe_status", st.ProbeStatus, "next_probe_at", st.NextProbeAt, "err", err)
@@ -723,6 +751,7 @@ func (e *Engine) quotaTick(now time.Time) {
 				return
 			}
 			st.ProbeStatus = "exhausted"
+			st.ProbeScope = targetScope.key()
 			// Preserve the existing bounded fallback only for confirmed exhaustion
 			// with no provider reset. An actual reset must not be rounded up.
 			st.Until = now.Add(backoff)
@@ -764,7 +793,7 @@ func (e *Engine) quotaTick(now time.Time) {
 		}
 	}
 	if e.isTeamLead() && st.Lead == nil && session != "" {
-		if target := e.quotaCandidate(session, "", nil); target != nil {
+		if target := e.quotaCandidate(session, nil); target != nil {
 			at, err := e.quotaSwitchLead(target, now)
 			if err != nil {
 				slog.Warn("quota takeover: lead switch failed", "project", e.name, "error", err)
@@ -799,6 +828,7 @@ func (e *Engine) quotaRestoredLocked(now time.Time, event string) bool {
 	st.ProbeRound = 0
 	st.NextProbeAt = time.Time{}
 	st.ProbeStatus = "available"
+	st.ProbeScope = e.quotaScopeFor(e.agent, modelOf(e.agent)).key()
 	if restored, ok := e.quotaUnwindLeadLocked(now); !ok {
 		return false
 	} else if restored {

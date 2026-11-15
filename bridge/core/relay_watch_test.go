@@ -20,7 +20,7 @@ func relayWatchStopped(d *taskRelay) int {
 func relayWatchFixture(t *testing.T) (*PublicProgress, *taskRelay, *time.Time) {
 	t.Helper()
 	p, _, _, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRelayWatchSurvivesLeadTurnEnd(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _, run, id := taskRelayFixture(t)
-			d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+			d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -242,7 +242,7 @@ func TestRelayWatchSurvivesLeadTurnEnd(t *testing.T) {
 // Handed back after the turn ended: nothing left to watch, the loop may exit.
 func TestRelayWatchStopsWhenDoneAfterTurnEnd(t *testing.T) {
 	p, _, run, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestRelayWatchKeepsRunningRelayOnEndedCard(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _, run, id := taskRelayFixture(t)
-			d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+			d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -318,7 +318,7 @@ func TestRelayWatchKeepsRunningRelayOnEndedCard(t *testing.T) {
 // not move the card's summary (same rule as the relay's final result).
 func TestRelayProgressKeepsClosedCardSummary(t *testing.T) {
 	p, _, run, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestRelayWatchResumesAfterRestartWithoutDispatch(t *testing.T) {
 	watchCheckAfterNs.Store(int64(50 * time.Millisecond))
 	t.Cleanup(func() { watchCheckAfterNs.Store(int64(old)) })
 	p, platform, _, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestRelayWatchResumesAfterRestartWithoutDispatch(t *testing.T) {
 // No running receipt on disk: engine start does not start the watch loop.
 func TestRelayWatchNotResumedWithoutRunningReceipt(t *testing.T) {
 	p, platform, _, id := taskRelayFixture(t)
-	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target")
+	d, _, err := p.beginTaskRelay(taskRelayRequest(id), "Target", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

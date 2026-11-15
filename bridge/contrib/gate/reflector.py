@@ -13,7 +13,7 @@
   后一轮覆盖前一轮），by=reflector；角色自己当场投过的那条不碰（当场票优先）。
 
 一轮 = push.jsonl 的一条记录（gate 给某角色某频道推了一次）→ 这个角色在这个频道、从推送到下一次推送之间的回复
-（桥存的 <data>/sessions/<项目>_*.json history；chanlog 也读它）。这轮还在跑（turn-journal 里有这个频道）就等下次。
+（桥存的 <data>/sessions/<项目>_*.history/<会话 id>.jsonl；chanlog 也读它）。这轮还在跑（turn-journal 里有这个频道）就等下次。
 
   reflector.py            处理新结束的轮（bothouse 静音 cron 每分钟跑一次，加锁不重入）
   reflector.py --dry      只打印将要投的票和地图条目，不写
@@ -92,6 +92,25 @@ def resolve(ref):
 _hist = {}
 
 
+def session_history(store, sid, sess):
+    """一个会话的 history 条目。桥把它存在会话文件旁边的 <会话文件去掉 .json>.history/<会话 id>.jsonl，
+    一行一条、只追加（core/session_history.go）；旧桥写的会话文件里还内嵌着 history，没迁移前照旧读它。"""
+    out = list(sess.get("history") or [])
+    name = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in sid) or "_"
+    try:
+        with open(store.parent / (store.name.removesuffix(".json") + ".history") / (name + ".jsonl"), encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    m = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(m, dict):
+                    out.append(m)
+    except OSError:
+        pass
+    return out
+
+
 def history(proj):
     """项目的会话记录：{频道 key: [(epoch, 回复原文)]}（只取 assistant）。"""
     if proj in _hist:
@@ -107,7 +126,7 @@ def history(proj):
             key = chan.get(sid)
             if not key:
                 continue
-            for m in s.get("history") or []:
+            for m in session_history(f, sid, s):
                 if m.get("role") == "assistant" and m.get("timestamp"):
                     try:
                         out.setdefault(key, []).append((_ts(m["timestamp"]), m.get("content") or ""))

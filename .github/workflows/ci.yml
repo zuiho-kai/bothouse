@@ -139,6 +139,12 @@ jobs:
       - run: npx -y pnpm@10 install --frozen-lockfile
         if: ${{ !cancelled() }}
         working-directory: dsh/collab
+      # bridge/core/dsh_bundle/{collab,packages} are not in git: generated from dsh/ (same script as
+      # `make dshbundle`). The bothouse-embeds test below and the Go bundle tests read the result.
+      - name: Generate the embedded DSH bundle
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - run: node --test ../dsh/collab/*.test.mjs ../dsh/packages/bothouse-embeds/*.test.mjs
         if: ${{ !cancelled() }}
       - run: python3 -I contrib/hooks/test_hooks.py
@@ -151,15 +157,11 @@ jobs:
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_bash_guard_testpipe.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/hooks/test_ask_only_guard_edits.py
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_dispatch_review_guard.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_subagent_ctx_hook.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_workflow_clis.py
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/hooks/test_eta_guard.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/hooks/test_codemap_inject.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
@@ -195,8 +197,6 @@ jobs:
       - run: python3 -I contrib/gate/test_ctxsvc.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_ctxsvc_kickoff.py
-        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
-      - run: python3 -I contrib/hooks/test_check_first_guard.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_gate_context.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
@@ -238,10 +238,9 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: .
         run: '"$CONEST_VITEST" run --config dsh/vitest.config.mjs'
-      # A PR that edits dsh/packages/client-ui-discord without rebuilding the embedded bundle skipped bridge-go
-      # (go=false) and only failed on develop (runs 41836087833, 41838005851, 41846409429). Run the bundle
-      # checks here whenever bridge-go is skipped; when it runs, its core shards already cover them.
-      - name: Embedded DSH bundle matches source
+      # A dsh-only PR skips bridge-go (go=false), but it changes what the bridge embeds: run the bundle
+      # install tests here whenever bridge-go is skipped; when it runs, its core shards already cover them.
+      - name: Embedded DSH bundle installs
         if: ${{ !cancelled() && env.RUN_GO != 'true' }}
         run: go test -tags no_web -count=1 -run '^(TestDSHBundle|TestExtractEmbeddedDSH)' ./core
       # go mod verify, go build and go vet (linux, windows and darwin) run as the build-* shards of bridge-go, in
@@ -271,6 +270,16 @@ jobs:
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
+      # The test shards run code that unpacks the embedded DSH plugin; it is generated, not in git.
+      # The build-* shards compile without it on purpose: a plain `go build` must keep working.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: ${{ !startsWith(matrix.shard, 'build-') }}
+        with:
+          node-version: '24'
+      - name: Generate the embedded DSH bundle
+        if: ${{ !startsWith(matrix.shard, 'build-') }}
+        working-directory: .
+        run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - name: go test (${{ matrix.shard }})
         env:
           SHARD: ${{ matrix.shard }}
@@ -356,6 +365,12 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Generate the embedded DSH bundle
+        working-directory: .
+        run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - name: Windows Go tests
         run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebParentPIDWindows|TestDSHWebCommandLineNativeWindows|TestDSHWebOwnedWhenTheRecordedPIDLaunchedTheListener|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
       - name: QQ package and candidate CLI (ACP media and receipts)
@@ -412,6 +427,8 @@ jobs:
         run: |
           set -euo pipefail
           (cd web && npx -y pnpm@10.34.7 install --frozen-lockfile --ignore-scripts && npx -y pnpm@10.34.7 run build)
+          # the DSH plugin this binary installs is generated, not in git (same script as `make dshbundle`)
+          (cd .. && PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs)
           go build -trimpath -tags goolm -o "$RUNNER_TEMP/bothouse-new.exe" ./cmd/cc-connect
       - name: Install bothouse with install.ps1 (latest release)
         shell: pwsh
@@ -503,8 +520,43 @@ jobs:
       - run: node --test ../dsh/collab/*.test.mjs
         working-directory: bridge
 
+  # The DSH plugin installed alone, as an outside user does (no bridge: no BOTHOUSE_DATA_DIR, no gate):
+  # npm pack the plugin, dsh plugin add it into a scratch HOME, @ a member (stub model). Retro #1644: every
+  # other check started dsh web through the bridge, so #1643 (no memory, silent gate, no persona) stayed green.
+  dsh-plugin-solo:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      # what plugin-pkg/README.md tells users: DSH from npm, pnpm on PATH for `dsh plugin add`
+      - name: Install DSH and pnpm (npm i -g, as the README tells users)
+        run: npm i -g @deepseek-ai/dsh pnpm && dsh --version
+      - name: Pack the plugin (npm run pack, the tarball npm publishes)
+        working-directory: dsh/plugin-pkg
+        run: npm run pack
+      - name: Plugin alone in a scratch HOME, @ a member
+        run: python3 -I .github/release-check/dsh_plugin_solo.py --tgz dsh/plugin-pkg/bothouse-dsh-*.tgz --out "$RUNNER_TEMP/solo"
+      - name: Keep logs and model requests
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dsh-plugin-solo
+          path: |
+            ${{ runner.temp }}/solo/*.log
+            ${{ runner.temp }}/solo/model-requests.json
+          if-no-files-found: ignore
+
   bridge:
-    needs: [changes, bridge-checks, bridge-go, bridge-windows, windows-e2e, dsh-collab-windows]
+    needs: [changes, bridge-checks, bridge-go, bridge-windows, windows-e2e, dsh-collab-windows, dsh-plugin-solo]
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.result != 'success' || needs.changes.outputs.go == 'true' || needs.changes.outputs.dsh == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -516,10 +568,11 @@ jobs:
           WIN: ${{ needs.bridge-windows.result }}
           WIN_E2E: ${{ needs.windows-e2e.result }}
           WIN_COLLAB: ${{ needs.dsh-collab-windows.result }}
+          SOLO: ${{ needs.dsh-plugin-solo.result }}
         run: |
-          echo "bridge-checks=$CHECKS bridge-go=$GO bridge-windows=$WIN windows-e2e=$WIN_E2E dsh-collab-windows=$WIN_COLLAB"
+          echo "bridge-checks=$CHECKS bridge-go=$GO bridge-windows=$WIN windows-e2e=$WIN_E2E dsh-collab-windows=$WIN_COLLAB dsh-plugin-solo=$SOLO"
           okish() { [ "$1" = success ] || [ "$1" = skipped ]; }
-          [ "$CHECKS" = success ] && okish "$GO" && okish "$WIN" && okish "$WIN_E2E" && okish "$WIN_COLLAB"
+          [ "$CHECKS" = success ] && okish "$GO" && okish "$WIN" && okish "$WIN_E2E" && okish "$WIN_COLLAB" && okish "$SOLO"
 
   # Fork PRs get the same companion steps under their own required check name.
   companion-fork:

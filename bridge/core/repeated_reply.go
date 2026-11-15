@@ -82,32 +82,6 @@ func unsentFinalReplyText(p Platform, content string, sent []string) string {
 	return remaining
 }
 
-// unsentFinalReplyTextAfterNonText is unsentFinalReplyText for the turn shape
-// measured for #181: the turn already pushed a non-text message (sticker,
-// image, file) to the channel, and the final reply narrates that send step
-// instead of answering. Such a clause is dropped; the rest is still delivered,
-// and a reply that never mentions sending goes out unchanged. The non-text fact
-// comes from the caller because image/file sends do not append to `sent` (only
-// text does), which is exactly why the prefix peel above misses this case.
-func unsentFinalReplyTextAfterNonText(p Platform, content string, sent []string) string {
-	if !suppressesRepeatedReply(p) {
-		return content
-	}
-	remaining := unsentFinalReplyText(p, content, sent)
-	if strings.TrimSpace(remaining) == "" {
-		return ""
-	}
-	if stripped, ok := stripSendProcessNarration(remaining); ok {
-		// In the measured turn the model glued its narration straight onto the
-		// line the script had already sent ("手滑了 别笑不好意思，…"), with no
-		// space or punctuation for the prefix peel above to key on. Once the
-		// narration is gone the remainder is that same delivered line, so run
-		// the whole-text comparison again and let it suppress the repeat.
-		return unsentReplyText(p, stripped, sent)
-	}
-	return remaining
-}
-
 // metaNoteHints are the phrases a self-directed receipt note is built from:
 // the agent reporting to itself that something was already posted or saved.
 var metaNoteHints = []string{

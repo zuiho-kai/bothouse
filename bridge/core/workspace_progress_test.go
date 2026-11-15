@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // A timer's end is not the handoff's end. Exercise the real timer/engine path,
@@ -20,7 +22,7 @@ func TestWorkspaceTimerProgressKeepsTaskAndSession(t *testing.T) {
 				t.Fatal(err)
 			}
 			row := fmt.Sprintf("{\"id\":1131,\"what\":\"verify live messages\",\"who\":\"工作区1橘\",\"ws\":%q,\"chat\":%q,\"status\":\"已部署，待真实样本验收\"}\n", key, parent)
-			writeTaskBoard(t, e.team.dir, teamTaskBoardFile, row)
+			writeTaskBoard(t, e.team.dir, team.TaskBoardFile, row)
 			old := e.sessions.GetOrCreateActive(key).ID
 
 			for i, reply := range []string{

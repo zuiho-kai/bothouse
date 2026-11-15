@@ -9,7 +9,7 @@ sys.path.insert(0, str(HERE))
 import _handoff_rules as R  # noqa: E402
 
 REPO = HERE.parent.parent.parent
-COPIES = [REPO / "dsh" / "collab", REPO / "bridge" / "core" / "dsh_bundle" / "collab"]  # 源与 bundle 副本
+COPIES = [REPO / "dsh" / "collab"]  # 只有源这一份；bundle 构建时由它生成（dsh/scripts/bundle.mjs）
 NODE = shutil.which("node")
 # 下面多数 fixture 按严格档写（产品默认只查通用必填项，严格档由本机 local 文件打开）：合并好的规则写一份临时文件给 Node。
 _TMP = tempfile.mkdtemp()

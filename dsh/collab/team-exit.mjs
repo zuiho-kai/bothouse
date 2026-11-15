@@ -1,17 +1,17 @@
 // Durable workspace questions; system forwards never enter agent routing.
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { mentions, withoutLeadingMentions } from './mentions.mjs';
+import { readTeamRulesFile } from './team-rules-file.mjs';
 
 export function exitTarget(msg) {
   return /^team-answer:([^:]+):/.exec(msg.client_key ?? '')?.[1];
 }
 
 // The workspace [ask]/[report] rules (first-line mark and #id format, the [ask] self-check, bounce
-// texts) are one file, team-exit-rules.json next to this one; the Go bridge reads the same file
-// (bridge/core/team_exit_rules.go, from its dsh_bundle copy) and both sides run the shared cases in
+// texts) are one file, bridge/core/team_rules/team-exit-rules.json (team-rules-file.mjs finds it); the Go
+// bridge embeds the same file (bridge/core/team_exit_rules.go) and both sides run the shared cases in
 // test/team-exit-cases.json. No formats or texts live here. Regexes are written for both RE2 and JS.
-export const RULES = JSON.parse(readFileSync(new URL('./team-exit-rules.json', import.meta.url), 'utf8'));
+export const RULES = JSON.parse(readTeamRulesFile('team-exit-rules.json'));
 const HEADLINE = new RegExp(RULES.headline_re);
 const SELF_CHECK = new RegExp(RULES.ask.self_check_re);
 const CATEGORY = new RegExp(RULES.ask.category_re);

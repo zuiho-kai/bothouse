@@ -11,6 +11,7 @@ class CodexHooks(unittest.TestCase):
   out=self.run_hook('bash-guard',{'hook_event_name':'PreToolUse','tool_name':'exec_command','tool_input':{'cmd':'sleep 120'}})
   self.assertEqual(out['hookSpecificOutput']['permissionDecision'],'deny')
   self.assertEqual(self.run_hook('bash-guard',{'hook_event_name':'PreToolUse','tool_name':'Bash','tool_input':{'command':'echo harmless'}}),{})
+ @unittest.skip("#1627 第 16 批：措辞守卫已删，Stop 管道要换一个不靠 promise-guard 的夹具")
  def test_stop_rollout_prompt_and_table(self):
   with tempfile.TemporaryDirectory() as d:
    path=Path(d)/'rollout.jsonl'

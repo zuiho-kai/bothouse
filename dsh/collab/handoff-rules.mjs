@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = new URL('./', import.meta.url);
 // Installed: next to this file. The repo paths are for running from a checkout (dsh/collab and the
-// bundle copy bridge/core/dsh_bundle/collab); an installed plugin has no checkout around it.
+// generated bundle bridge/core/dsh_bundle/collab); an installed plugin has no checkout around it.
 const CANDIDATES = ['handoff-rules.json', '../../bridge/contrib/lead/handoff-rules.json', '../../../contrib/lead/handoff-rules.json']
   .map(p => fileURLToPath(new URL(p, HERE)));
 

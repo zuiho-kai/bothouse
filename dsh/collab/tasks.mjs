@@ -37,15 +37,16 @@ const REVIEWABLE = ['returned', 'declined', 'escalated'];
 /** The owner delivered: handed back, or the lead accepted it (fromChat reads the next call as an answer). */
 const DELIVERED = ['returned', 'done'];
 // #597 r12: how long a bare-name call after a delivery waits for the owner's stance (Tasks.pendingCalls).
-// Source: 聊天频道橘 10-26「超过 30 分钟没回也丢弃」.
 const PENDING_CALL_S = 30 * 60;
-// Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
-export const CHECK_AFTER_S = 10 * 60;
+// Check time after dispatch or rework. The bridge owns the value (config.toml
+// team_watch_check_mins) and passes it as BOTHOUSE_WATCH_CHECK_SECONDS; 600 only when run
+// without a bridge.
+export const CHECK_AFTER_S = Number(process.env.BOTHOUSE_WATCH_CHECK_SECONDS) > 0
+  ? Math.floor(Number(process.env.BOTHOUSE_WATCH_CHECK_SECONDS)) : 10 * 60;
 // Workspace watch (#574 B2, same rule as contrib/lead/d10-fire MAX_RENEW, 0 = no cap): at the
 // check time a workspace task with new role messages since its window opened gets another
 // CHECK_AFTER_S, renewing while there is progress; otherwise it is parked (paused queue).
-// Replaces the old one-hour park. Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429),
-// replacing 橘 10-25 15:19「最多续 2 次」; same as Go watchMaxRenew.
+// Replaces the old one-hour park (#429).
 export const MAX_RENEWALS = 0;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;

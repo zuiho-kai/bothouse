@@ -16,11 +16,12 @@ import { ChannelApprovals, DEFAULT_ACTIONS } from './approvals.mjs';
 import { DEFAULT_PERMISSION_PRESET, presetDecision } from './cli-member.mjs';
 import { GateContext } from './gate-context.mjs';
 import { MemoryIndex } from './memory-index.mjs';
-// Shared with the bridge (bridge/core/team_mode.go): a common part, then one
+import { readTeamRulesFile } from './team-rules-file.mjs';
+// Shared with the bridge (bridge/core/team_rules/team-mode-rules.md, team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 // A Windows checkout (git core.autocrlf) turns the file to CRLF: "## solo\r\n" then misses the
 // `${mode}\n` match below and every member turn failed with "reading 'slice'". Read it as LF.
-const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+const TEAM_MODE_FILE = readTeamRulesFile('team-mode-rules.md').replace(/\r\n?/g, '\n');
 export function teamModeRules(mode = DEFAULT_DISPATCH_MODE) {
   const [common, ...parts] = TEAM_MODE_FILE.split(/^## /m);
   const section = parts.find(p => p.startsWith(`${mode}\n`)) ?? parts.find(p => p.startsWith(`${DEFAULT_DISPATCH_MODE}\n`));
@@ -189,6 +190,23 @@ export function consumingTurn(events, inputId) {
   return undefined;
 }
 
+// dsh-system-prompt PERSONA_PREFIX_SECTION; dsh-time-context's source kind.
+const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix';
+const TIME_CONTEXT_SOURCE = 'time-context';
+
+/** The member's own system-prompt persona: its name in the channel, then its persona when it has one. */
+export function memberSystemPrompt(member) {
+  const persona = member?.persona?.trim() ?? '';
+  return [`你是 bothouse 频道里的成员「${member?.name ?? ''}」，和用户、其他成员在频道里协作。`, ...(persona ? ['你的人设：', persona] : [])].join('\n');
+}
+
+/** "现在是 …" for a channel turn, in this process's zone (what dsh-time-context fell back to). */
+export function clockLine(now = new Date()) {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const text = new Intl.DateTimeFormat('zh-CN', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(now);
+  return `现在是 ${text}（${zone}）。`;
+}
+
 /**
  * The prompt a member receives: who it is (name, model, persona), then the
  * unseen channel messages up to the trigger. Identity is restated every time
@@ -211,6 +229,7 @@ export function promptText(room, member, messages, status = '', mode = DEFAULT_D
     // again, then stopped: nothing said this room is the workspace that 【接】 leads to.
     ...(room.kind === 'workspace' ? [`这里是 #${store?.room?.(room.parent_id)?.name ?? '聊天频道'} 的工作区，活已经交到你手上：不要再回【接】，直接动手做，做完回复首行写 [report] 交回；要用户拍板首行写 [ask]。几个人同做一件活时，你那一份做完就交回自己那份，不用等别人。`] : []),
     status,
+    clockLine(),
     '下面是频道里你还没看过的消息，最后一条 @ 了你。直接写出你要在频道里说的话；你这一轮最后一条回复会原样发到频道。',
     '',
     ...lines,
@@ -1044,6 +1063,15 @@ export class DshMembers {
     const trigger = unseen.at(-1);
     const memory = this.memoryIndex.turn({ member: member.id, room: room.id, session });
     const gate = await this.gateContext.turn({ member: member.id, room: room.id, session, text: trigger?.text ?? '' });
+    // #1643: without a gate (the plugin installed alone) the pages and the board used to vanish with only a
+    // log line nobody sees. The room is told once (the key is unique in the store), the turn goes on.
+    if (gate.missing !== undefined) {
+      this.rt.logger?.info?.('collab: room %s has no gate: %s', room.id, gate.missing);
+      this.hub.post(room.id, {
+        authorKind: 'system', author: 'system', name: 'system', clientKey: `gate-missing-room-${room.id}`,
+        text: 'ℹ️ 没连上 gate（记忆检索服务）：成员每轮只带自己的记忆目录，不带相关 wiki 页和任务板。和 bothouse 桥一起装会自动起 gate。',
+      });
+    }
     return {
       block: [memory.block, gate.block].filter(Boolean).join('\n\n'),
       commit: () => { memory.commit(); gate.commit(); },
@@ -1401,6 +1429,23 @@ export class DshMembers {
     // Prepended so this listener is outermost: DSH's own model-selection listener
     // rewrites provider/model from the Session's selection, and the outermost
     // waterfall listener's result is the one the request uses.
+    // #1643: the member's system prompt was DSH's generic coding-agent one; who it is came only in each turn's
+    // text. Its name and persona go in as this agent's own persona prefix, the section DSH's dsh-persona row
+    // fills for one agent (it shadows the deployment's, '' by default), read again at each assembly.
+    agentCtx.systemPrompt?.section?.({
+      name: PERSONA_PREFIX_SECTION,
+      order: agentCtx.systemPrompt.getSectionOrder?.('DEPLOYMENT_PERSONA_PREFIX') ?? 0,
+      interpolate: false,
+      text: () => memberSystemPrompt(current()),
+    });
+    // #1643: DSH's time-context appends its clock reading as a user message of its own, between the channel's
+    // messages; the member read it as someone talking. The clock now rides in the channel turn (promptText).
+    agentCtx.on('agent/pre-step', async (_payload, next) => {
+      const decision = await next();
+      if (!Array.isArray(decision?.messages)) return decision;
+      const messages = decision.messages.filter(m => m?.source?.kind !== TIME_CONTEXT_SOURCE);
+      return messages.length === decision.messages.length ? decision : { ...decision, messages };
+    }, { prepend: true });
     agentCtx.on('agent/request', async ({ agent }, next) => {
       const resolved = await next();
       const member = current();

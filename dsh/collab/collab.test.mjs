@@ -23,6 +23,12 @@ import { ChannelApprovals } from './approvals.mjs';
 // not resolve the live gate port and hit the running instance.
 process.env.BOTHOUSE_CONFIG = `${(process.env.TMPDIR ?? '/tmp').replace(/\/+$/, '')}/collab-no-bridge-config.toml`;
 delete process.env.GATE_PORT;
+// #1643: a member's MEMORY.md is made on its first turn under the data dir (~/.bothouse by default): keep the
+// tests' members out of the live one. Tests that set their own put this back.
+const NO_LIVE_DATA = mkdtempSync(join(tmpdir(), 'collab-data-'));
+process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
+// #1643: with no gate the room gets one notice; it is not a failure card.
+const failureCard = m => m.author_kind === 'system' && !String(m.client_key ?? '').startsWith('gate-missing-room-');
 
 test('workspace approval shares one decision with its parent channel', async () => {
   const store = new Store(':memory:');
@@ -1309,7 +1315,7 @@ for (const [label, lose] of [
     assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
     assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
     assert.equal(hub.store.openJobs().length, 0);
-    assert.ok(!hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'no failure card');
+    assert.ok(!hub.store.page(1, undefined, 20).some(failureCard), 'no failure card');
   });
 }
 
@@ -1889,7 +1895,7 @@ test('DSH member: a Session already loaded by the DSH Web UI still gets the mode
   hub.store.bind('relay', 1, 's-open');
   await members.liveAgent('s-open', members.config.get('relay'));
   await members.liveAgent('s-open', members.config.get('relay'));
-  assert.deepEqual(hooks, [['agent/request', { prepend: true }]]);
+  assert.deepEqual(hooks, [['agent/pre-step', { prepend: true }], ['agent/request', { prepend: true }]]);
 });
 
 function fakeLlm() {
@@ -2021,11 +2027,13 @@ test('team rules: a prompt carries only the room mode section (PR #138 review 4,
   assert.match(solo, /单模型多进程/);
   assert.doesNotMatch(solo, /先当面派给成员|完全团队|混合/);
   assert.match(team, /完全团队/);
-  assert.match(team, /成员空着时先当面派给成员/);
+  assert.match(team, /成员空着且额度已确认可用时先当面派给成员/);
+  assert.match(team, /额度未知、耗尽或冷却先别派/);
   assert.match(team, /reason 字段/);
   assert.doesNotMatch(team, /单模型多进程|混合/);
   assert.match(mixed, /混合。按这件活谁更合适选人/);
-  assert.match(mixed, /成员空着时先当面派给成员/);
+  assert.match(mixed, /成员空着且额度已确认可用时先当面派给成员/);
+  assert.match(mixed, /额度未知、耗尽或冷却先别派/);
   assert.match(mixed, /为什么选这个人/);
   assert.equal(teamModeRules('bogus'), teamModeRules('mixed'));
 });
@@ -2445,7 +2453,7 @@ test('#1606 CLI member: an adapter error reports the provider words, clears busy
   });
   hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 干活' });
   await settle();
-  const notice = hub.store.page(1, undefined, 10).filter(m => m.author_kind === 'system').map(m => m.text);
+  const notice = hub.store.page(1, undefined, 10).filter(failureCard).map(m => m.text);
   assert.equal(notice.length, 1);
   assert.match(notice[0], /额度用完了.*hit your usage limit/);
   assert.doesNotMatch(notice[0], /Internal error|检查配置/);
@@ -4436,7 +4444,7 @@ test('#148 owner withdraws own message: row hidden, bots get message_recall, DSH
   await settle();
   assert.equal(ds.prompts.length, 1, 'the queued job for the withdrawn message never runs');
   assert.equal(hub.store.openJobs().length, 0);
-  assert.equal(hub.store.page(1).filter(m => m.author_kind === 'system').length, 0, 'no failure card for a withdrawal');
+  assert.equal(hub.store.page(1).filter(failureCard).length, 0, 'no failure card for a withdrawal');
   assert.equal(hub.thinking.get(1).has('qw'), false);
 });
 
@@ -4460,7 +4468,7 @@ test('#148 withdrawing stops a DSH turn already running, keeps its queue, posts 
   dsh.emit(ds, 'assistant/message', { message: { content: [{ type: 'text', text: '半截' }] } });
   dsh.emit(ds, 'turn/end', { turn: 1, reason: { kind: 'cancelled' } });
   await settle();
-  assert.equal(hub.store.page(1).filter(r => r.author_kind !== 'user').length, 0);
+  assert.equal(hub.store.page(1).filter(r => r.author_kind !== 'user' && !String(r.client_key ?? '').startsWith('gate-missing-room-')).length, 0);
   assert.equal(hub.store.openJobs().length, 0);
   assert.equal(hub.thinking.get(1).has('ds'), false);
   const { message: bot } = hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '回复' });
@@ -5707,11 +5715,11 @@ test('DSH member: its own MEMORY.md goes into the first turn of a conversation o
     await until(() => agent.prompts.length === 2);
     assert.doesNotMatch(agent.prompts[1].content[0].text, /你的记忆/, 'the second turn does not carry it again');
   } finally {
-    delete process.env.BOTHOUSE_DATA_DIR;
+    process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
   }
 });
 
-test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', async () => {
+test('CLI member: its own MEMORY.md on the first turn only; no wiki yet, a starter page', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
@@ -5731,7 +5739,8 @@ test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', 
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1, session: 's2' }).block, '', 'a new session is a fresh context');
   idx.resetRoom(1);
   assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'a released workspace starts over');
-  assert.equal(idx.turn({ member: 'nobody', room: 1 }).block, '');
+  // #1643: a member without a wiki gets a starter MEMORY.md, so the plugin alone still gives a memory
+  assert.match(idx.turn({ member: 'nobody', room: 1 }).block, /记忆目录/);
   assert.equal(new MemoryIndex({ dataDir: '' }).turn({ member: 'm-ab12cd', room: 1 }).block, '');
 });
 
@@ -5775,7 +5784,7 @@ test('CLI member: after /new the fresh context gets its MEMORY.md and the task b
     assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
     assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
   } finally {
-    delete process.env.BOTHOUSE_DATA_DIR;
+    process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
     delete process.env.GATE_PORT;
     await gate.close();
   }
@@ -5818,7 +5827,7 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
     assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
     assert.doesNotMatch(prompts[3], /你的记忆|【任务板/, 'given to the new session: not again');
   } finally {
-    delete process.env.BOTHOUSE_DATA_DIR;
+    process.env.BOTHOUSE_DATA_DIR = NO_LIVE_DATA;
     delete process.env.GATE_PORT;
     await gate.close();
   }

@@ -51,7 +51,7 @@ func splitGate(t *testing.T) (*httptest.Server, func() []gateRequest) {
 // releaseHeld ends the burst held for key as its timer would, and returns the merged message.
 func releaseHeld(t *testing.T, e *Engine, key string) *Message {
 	t.Helper()
-	g := e.gate
+	g := e.gate.Load()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	h := g.held[key]
@@ -60,7 +60,7 @@ func releaseHeld(t *testing.T, e *Engine, key string) *Message {
 	}
 	h.timer.Stop()
 	delete(g.held, key)
-	g.released[h.msg] = true
+	h.msg.burstDone = true
 	return h.msg
 }
 
