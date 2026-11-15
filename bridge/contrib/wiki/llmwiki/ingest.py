@@ -3031,12 +3031,13 @@ def dialog(path, offset, after=0, before=0, citations=None):
     """What the user said from byte `offset` (and not before unix time `after`), each line after the assistant
     reply it answered (cut short). A bridged session (DISCORD_SOURCE) quotes nothing: its turn text, speaker labels
     included, is context only, and the user's words for the same time come from Discord (said_lines(), reviewed plans
-    ~/.claude/reviews/dream-quote-source.md and dream-quote-window.md)."""
+    ~/.claude/reviews/dream-quote-source.md and dream-quote-window.md). `pairs`: [(the session's own user turn, the
+    first reply after it, cut short)] — dream puts the reply under the Discord line of the same words (said_lines)."""
     evs, end = events(path, offset)
     out, prompts, reply, title, mine, days, heard = [], 0, "", None, [], [], []
     bridge = bridged(path)
     from_discord = bridge and DISCORD_SOURCE
-    quotable = []
+    quotable, pairs, pending = [], [], []  # pending: this session's own user turns still waiting for their reply
     for e in evs:
         if e[0] == "title":
             title = e[1]
@@ -3052,6 +3053,10 @@ def dialog(path, offset, after=0, before=0, citations=None):
             continue
         if e[0] == "out":
             reply = text
+            if pending:  # the first reply after a user turn is what that turn got, cut as below
+                cut = reply if len(reply) <= DREAM_REPLY_CHARS else reply[:DREAM_REPLY_CHARS] + "…"
+                pairs += [(piece, cut, ts) for piece, t0 in pending]
+                pending = []
         elif not (e[4] and cli_skip(text)):
             # the date each line was said (not the file's mtime: a session spans days)
             try:
@@ -3059,6 +3064,8 @@ def dialog(path, offset, after=0, before=0, citations=None):
             except (TypeError, ValueError):
                 day = "?"
             for label, piece in said_by(e[2], text) if e[2] else speakers(text, bridge):
+                if label == "USER":  # this session's own incoming message (频道 copies carry the 补漏 prefix)
+                    pending.append((piece, ts))
                 eligible = label == "USER" and not from_discord
                 if eligible:
                     quotable.append((day, piece))
@@ -3081,7 +3088,9 @@ def dialog(path, offset, after=0, before=0, citations=None):
     redact = lambda t: SECRET.sub(lambda m: (m.group(3) or "") + "[REDACTED]", t)
     return {"text": redact("\n\n".join(out)), "user": redact("\n\n".join(mine)),  # user: the USER lines alone (no USER→)
             "said": [redact(t) for t in heard],  # everything the user said (USER and USER→ lines), one per line
-            "days": days, "quotable": [(dd, redact(t)) for dd, t in quotable], "end": end, "prompts": prompts, "cwd": None, "title": title}
+            "days": days, "quotable": [(dd, redact(t)) for dd, t in quotable],
+            "pairs": [(redact(p), redact(r), daypack.ts_of(ts)) for p, r, ts in pairs],
+            "end": end, "prompts": prompts, "cwd": None, "title": title}
 
 
 def misquotes(said, base="HEAD", pages=(DREAM_PAGES,), citations=None):
@@ -3458,20 +3467,18 @@ def dream(db, deadline):
     lo = db.execute("select max(at) from dream_window").fetchone()[0] or since
     hi = time.time()
     citations = {}
+    msgs = []
     if DISCORD_SOURCE:
         try:
-            words = said_lines(discord_words(lo, hi), citations)
+            msgs = discord_words(lo, hi)
+            words = {}
         except discord_said.Unavailable as e:  # without the user's words, no dream tonight (reflect reports its own)
             log(f"dream: skipped, Discord history unavailable: {e}")
             words = None
     else:
         words = {}
     paths = list(transcripts(hosts=True).values())
-    items = []
-    for ch, (name, lines) in (words or {}).items():
-        items.append({"id": f"discord:{ch}", "head": name, "title": f"Discord {name}（用户本人发的消息，按发送者 id 取）",
-                      "cwd": None, "date": time.strftime("%Y-%m-%d", time.localtime(hi)), "text": "\n\n".join(lines),
-                      "user": "", "end": None, "prompts": len(lines)})
+    items, replies = [], []
     for p in paths if words is not None else ():
         st = p.stat()
         if st.st_mtime < since or done.get(p.stem, 0) >= st.st_size:
@@ -3485,10 +3492,18 @@ def dream(db, deadline):
             household_unreadable(f"dream {p.stem}", e)
             continue
         it.update(id=p.stem, date=time.strftime("%Y-%m-%d", time.localtime(st.st_mtime)))
+        replies += it.pop("pairs")  # the reply each user turn got, under that turn's Discord line below
         if it["prompts"] == 0:
             db.execute("insert or replace into dreamed values (?,?,?)", (p.stem, it["end"], time.time()))
             continue
         items.append(it)
+    if words is not None:
+        words = said_lines(msgs, citations, replies)
+        for ch, (name, lines) in words.items():
+            items.append({"id": f"discord:{ch}", "head": name,
+                          "title": f"Discord {name}（用户本人发的消息，按发送者 id 取；紧跟的 CLAUDE 行是它得到的回复）",
+                          "cwd": None, "date": time.strftime("%Y-%m-%d", time.localtime(hi)), "text": "\n\n".join(lines),
+                          "user": "", "end": None, "prompts": len(lines)})
     if words == {}:
         db.execute("insert into dream_window values (?)", (hi,))  # nothing said in the window: read, done
     db.commit()
@@ -4518,9 +4533,13 @@ def run_lint(root=None):
     return (r.stdout.strip(), False) if r.stdout.strip() else (r.stderr.strip()[-500:] or f"lint exit {r.returncode}", True)
 
 
-def said_lines(msgs, citations):
+def said_lines(msgs, citations, replies=None):
     """{channel: (label, [USER lines])}: each message a USER line with its own citation ID, whose evidence names its
-    channel and time (review dream-quote-window.md「引用原话时带上频道和时间」)."""
+    channel and time (review dream-quote-window.md「引用原话时带上频道和时间」). `replies` (dialog()'s pairs of every
+    session read tonight, [(words, reply, ts)]): the line carries the reply it got under it, so the user's words and
+    what they answered reach the model in the same batch (11-15 「原话和它回应的助手回复配在一起送」)."""
+    norm = lambda t: re.sub(r"\s+", "", t)
+    pairs = [(norm(p), r, ts) for p, r, ts in replies or ()]
     out = {}
     for m in msgs:
         day, hm = time.strftime("%m-%d", time.localtime(m.ts)), time.strftime("%H:%M", time.localtime(m.ts))
@@ -4530,7 +4549,15 @@ def said_lines(msgs, citations):
         if key is None:
             key = f"U{len(citations) + 1}"
             citations[key] = evidence
-        out.setdefault(m.channel, (m.name, []))[1].append(f"USER [{day} {hm}] {key}: {text}")
+        line = f"USER [{day} {hm}] {key}: {text}"
+        mine = norm(text)
+        # the words' own piece, else one the gate buffered them into; the reply nearest in time wins
+        cand = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs if mine and mine in p]
+        exact = [(abs((ts or 0) - m.ts), r) for p, r, ts in pairs if mine and p == mine]
+        pick = min(exact or cand) if exact or cand else None
+        if pick:
+            line += "\nCLAUDE: " + pick[1]
+        out.setdefault(m.channel, (m.name, []))[1].append(line)
     return out
 
 
