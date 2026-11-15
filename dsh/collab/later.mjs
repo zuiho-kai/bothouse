@@ -2,7 +2,7 @@
 // plugin's HTTP route and is bound to (member, room) by an HMAC ticket the plugin
 // hands each member with its prompt; the plugin owns delivery through the member routers.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CollabError } from './store.mjs';
@@ -53,9 +53,44 @@ const b64 = value => Buffer.from(value).toString('base64url');
 export function ticketClaims(ticket) {
   try { const [payload] = String(ticket).split('.'); const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); return claims && typeof claims === 'object' ? claims : undefined; } catch { return undefined; }
 }
+/**
+ * #1651: one local command line a member's shell tool can run as is. DSH's shell tool on Windows is
+ * PowerShell, where a quoted program path is a string, not a command: it needs the call operator `&`,
+ * and a quote inside a single-quoted word is doubled. Elsewhere the POSIX single-quote form.
+ */
+export function localCommand(words, platform = process.platform) {
+  if (platform === 'win32') return '& ' + words.map(word => "'" + String(word).replaceAll("'", "''") + "'").join(' ');
+  return words.map(word => "'" + String(word).replaceAll("'", "'\\''") + "'").join(' ');
+}
+/**
+ * #1651: JSON as a command-line word. Windows PowerShell 5.1 drops bare double quotes on the way to a
+ * program, so the Windows prompt writes them as \" and newer PowerShell hands that over literally:
+ * parse the text as is, else with \" read as ".
+ */
+export function looseJson(text) {
+  try { return JSON.parse(text); } catch (error) {
+    try { return JSON.parse(String(text).replaceAll('\\"', '"')); } catch { throw error; }
+  }
+}
+/** #1651: a memory page name: one .md file beside MEMORY.md, no folders, no hidden files. */
+const MEMORY_PAGE = /^[^\\/:*?"<>|\u0000-\u001f.][^\\/:*?"<>|\u0000-\u001f]*\.md$/;
+/**
+ * #1651: write one page of a member's memory wiki (dir = the folder of its MEMORY.md). DSH's file
+ * sandbox lets a member write only inside its working directory, so the page comes in through the
+ * plugin (plugin.mjs memoryRoute) instead of the member's own write tool.
+ */
+export function writeMemoryPage(dir, page, content) {
+  if (!dir || typeof page !== 'string' || !MEMORY_PAGE.test(page) || typeof content !== 'string' || !content.trim()) {
+    throw new CollabError('invalid', 'memory requires page (a .md file name, no folders) and content');
+  }
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, page);
+  writeFileSync(file, content);
+  return file;
+}
 export class Later {
-  constructor(hub, filename, wake, { now = Date.now, start = true, keyFile = filename === ':memory:' ? undefined : join(dirname(filename), 'later.key') } = {}) {
-    this.hub = hub; this.db = hub.store.db; this.filename = filename; this.wake = wake; this.now = now;
+  constructor(hub, filename, wake, { now = Date.now, start = true, platform = process.platform, keyFile = filename === ':memory:' ? undefined : join(dirname(filename), 'later.key') } = {}) {
+    this.hub = hub; this.platform = platform; this.db = hub.store.db; this.filename = filename; this.wake = wake; this.now = now;
     this.key = loadKey(keyFile);
     /** Local origin of the DSH web server, learned from the first request the plugin serves. */
     this.origin = undefined;
@@ -84,10 +119,12 @@ export class Later {
     if (typeof claims?.m !== 'string' || !Number.isSafeInteger(claims.r)) return undefined;
     return { member: claims.m, room: claims.r };
   }
-  instructions(member, room) {
-    const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+  /** The shell the command lines are written for: PowerShell for a DSH-native member on Windows (#1651). */
+  shell(cli) { return this.platform === 'win32' && !cli ? 'win32' : 'posix'; }
+  /** cli: the reader is a local CLI member or a bridge bot, whose shell is not DSH's (POSIX form as before). */
+  instructions(member, room, { cli = false } = {}) {
     const ticket = this.ticket(member, room);
-    const local = this.origin ? `用本机命令登记（重启后仍触发）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} ${quote(this.origin)} ${quote(ticket)} 10m '事情' '到点要做什么'\n` : '';
+    const local = this.origin ? `用本机命令登记（重启后仍触发）：\n${localCommand([process.execPath, fileURLToPath(import.meta.url), this.origin, ticket, '10m', '事情', '到点要做什么'], this.shell(cli))}\n` : '';
     return `\n【一次性回查】要过会儿回来，${local}或 POST /collab/api/rooms/${room}/later（头 X-Later-Ticket: ${ticket}，JSON: delay, title, todo）。凭据只对你和本房间有效。登记成功才说已挂；到点在原房间唤醒你。\n`;
   }
   /**
@@ -98,10 +135,13 @@ export class Later {
   workspaceInstructions(member, room) {
     const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
     const ticket = this.ticket(member, room);
-    const local = this.origin ? `首选本机命令（直接复制，改后三个参数）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} workspace ${quote(this.origin)} ${quote(ticket)} '任务标题' '接活人id（空串=你自己）' '交接说明'\n` : '';
+    const win = this.shell(false) === 'win32';
+    // PowerShell 5.1 drops an empty word, which would shift 交接说明 into the owner: Windows names self as '-'.
+    const local = this.origin ? `首选本机命令（直接复制，改后三个参数）：\n${localCommand([process.execPath, fileURLToPath(import.meta.url), 'workspace', this.origin, ticket, '任务标题', win ? '接活人id（-=你自己）' : '接活人id（空串=你自己）', '交接说明'], this.shell(false))}\n` : '';
     // #597 G26: a member once sent the ticket to /tasks and gave up on the 401; spell out the one call.
     const url = `${this.origin ?? 'http://<本机 DSH 地址>'}/collab/api/rooms/${room}/workspaces`;
-    const curl = `curl -sS -X POST ${quote(url)} -H 'content-type: application/json' -H ${quote(`X-Later-Ticket: ${ticket}`)} -d '{"title":"任务标题","owner":"接活人id（省略=你自己）","reason":"交接说明"}'`;
+    // In Windows PowerShell `curl` is Invoke-WebRequest and takes none of these flags: Windows gets the plain description.
+    const curl = win ? `${url}（头 X-Later-Ticket: ${ticket}，JSON: title, owner（省略=你自己）, reason）` : `curl -sS -X POST ${quote(url)} -H 'content-type: application/json' -H ${quote(`X-Later-Ticket: ${ticket}`)} -d '{"title":"任务标题","owner":"接活人id（省略=你自己）","reason":"交接说明"}'`;
     return `\n【开工作区】整块活要交出去时，建工作区=这一条，任务和十分钟看门会自动开，不要另调 /tasks（它不认票据）。${local}或等价的接口 POST /collab/api/rooms/${room}/workspaces：\n${curl}\n一步建好工作区、开任务、挂十分钟看门并叫醒接活人；不要再在频道里 @ 同一件活。返回不是 200 就把返回原样告诉用户，不要悄悄自己做。工作区里的接活人是新会话，只看得到交接说明：里面要写清用户原话、参照的现成实现、以哪个分支为底、验收标准。\n`;
   }
   /**
@@ -109,12 +149,22 @@ export class Later {
    * Primary-only like workspaceInstructions (dsh-member.mjs workspaceHint).
    */
   teamInstructions(member, room) {
-    const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
     const ticket = this.ticket(member, room);
+    const win = this.shell(false) === 'win32';
     const json = '{"channel":"小团队","model":"模型id（用户没说就省略=DSH默认模型）","members":[{"name":"写手","persona":"你是写手，负责写和改博客文章。"},{"name":"程序员","persona":"你是程序员，负责写代码和审代码。"}]}';
-    const local = this.origin ? `本机命令（改 JSON 里的内容）：\n${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))} team ${quote(this.origin)} ${quote(ticket)} ${quote(json)}\n` : '';
+    const local = this.origin ? `本机命令（改 JSON 里的内容）：\n${localCommand([process.execPath, fileURLToPath(import.meta.url), 'team', this.origin, ticket, win ? json.replaceAll('"', '\\"') : json], this.shell(false))}\n` : '';
     const url = `${this.origin ?? 'http://<本机 DSH 地址>'}/collab/api/rooms/${room}/team`;
-    return `\n【建团队】用户要你建几个角色、拉个群/频道时，一条就建好：新频道、每个角色（名字、人设、模型），你是新频道的主角色。${local}或 POST ${url}（头 X-Later-Ticket: ${ticket}，JSON 同上）。名字不带空格和 @；人设一两句写清分工；用户说了模型就填 model（如 deepseek-v4.1-flash），没说就省略。返回不是 200 就把返回原样告诉用户。建好后告诉用户频道名、每个角色和模型，问要不要丢个题目试跑。\n`;
+    return `\n【建团队】用户要你建几个角色、拉个群/频道时，一条就建好：新频道、每个角色（名字、人设、模型），你是新频道的主角色。${local}或 POST ${url}（头 X-Later-Ticket: ${ticket}，JSON 同上${win ? '，去掉反斜杠' : ''}）。名字不带空格和 @；人设一两句写清分工；用户说了模型就填 model（如 deepseek-v4.1-flash），没说就省略。返回不是 200 就把返回原样告诉用户。建好后告诉用户频道名、每个角色和模型，问要不要丢个题目试跑。\n`;
+  }
+  /**
+   * #1651: how a DSH-native member adds to its memory wiki. Its write tool is fenced to the working
+   * directory (DSH workspace-write), and the wiki is one per member across rooms, so it lives outside:
+   * the member writes the page in its working directory and this command hands it to the plugin.
+   */
+  memoryInstructions(member, room) {
+    if (!this.origin) return '';
+    const command = localCommand([process.execPath, fileURLToPath(import.meta.url), 'memory', this.origin, this.ticket(member, room), '页面.md', '工作目录里写好的那个文件'], this.shell(false));
+    return `\n【写记忆】记忆 wiki 在工作目录外，写文件工具写不进去（读可以）。要记一页：先把内容写成工作目录里的一个文件，再用本机命令收进记忆 wiki（收完会删掉那个文件）：\n${command}\n改目录页同法，页面名写 MEMORY.md。`;
   }
   tick() {
     for (const row of this.db.prepare('SELECT * FROM member_later WHERE announced = 0').all()) {
@@ -140,20 +190,34 @@ export class Later {
 if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'workspace') {
   const [origin, ticket, title, owner, reason] = process.argv.slice(3);
   const room = ticketClaims(ticket)?.r;
-  if (!origin || !Number.isSafeInteger(room) || !title) { console.error('usage: later.mjs workspace <origin> <ticket> <title> [owner] [reason] (ticket from your prompt; owner \'\' = yourself)'); process.exit(2); }
+  if (!origin || !Number.isSafeInteger(room) || !title) { console.error('usage: later.mjs workspace <origin> <ticket> <title> [owner] [reason] (ticket from your prompt; owner \'\' or - = yourself)'); process.exit(2); }
   const res = await fetch(new URL(`/collab/api/rooms/${room}/workspaces`, origin), { method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ title, ...(owner ? { owner } : {}), ...(reason ? { reason } : {}) }) });
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ title, ...(owner && owner !== '-' ? { owner } : {}), ...(reason ? { reason } : {}) }) });
   const body = await res.text();
   if (!res.ok) { console.error(`workspace: ${res.status} ${body}`); process.exit(1); }
   console.log(body);
 } else if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'team') {
   const [origin, ticket, spec] = process.argv.slice(3);
   const room = ticketClaims(ticket)?.r;
+  let parsed;
+  try { parsed = spec ? looseJson(spec) : undefined; } catch (error) { console.error(`team: JSON 解析失败：${error.message}`); process.exit(2); }
   if (!origin || !Number.isSafeInteger(room) || !spec) { console.error('usage: later.mjs team <origin> <ticket> \'{"channel":"…","model":"…","members":[{"name":"…","persona":"…"}]}\''); process.exit(2); }
   const res = await fetch(new URL(`/collab/api/rooms/${room}/team`, origin), { method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: spec });
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify(parsed) });
   const body = await res.text();
   if (!res.ok) { console.error(`team: ${res.status} ${body}`); process.exit(1); }
+  console.log(body);
+} else if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv[2] === 'memory') {
+  const [origin, ticket, page, source] = process.argv.slice(3);
+  const room = ticketClaims(ticket)?.r;
+  if (!origin || !Number.isSafeInteger(room) || !page || !source) { console.error('usage: later.mjs memory <origin> <ticket> <page.md> <file with the page content> (ticket from your prompt)'); process.exit(2); }
+  let content;
+  try { content = readFileSync(source, 'utf8'); } catch (error) { console.error(`memory: 读不到 ${source}：${error.message}`); process.exit(2); }
+  const res = await fetch(new URL(`/collab/api/rooms/${room}/memory`, origin), { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-later-ticket': ticket }, body: JSON.stringify({ page, content }) });
+  const body = await res.text();
+  if (!res.ok) { console.error(`memory: ${res.status} ${body}`); process.exit(1); }
+  try { unlinkSync(source); } catch {}
   console.log(body);
 } else if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [origin, ticket, delay, title, todo] = process.argv.slice(2);

@@ -1062,7 +1062,7 @@ export class DshMembers {
       };
       // #1539: no workspace/team command for a CLI member, its sandbox cannot reach this host; #1598: her
       // 【接】 moves a call into a workspace by itself (DSH_CLI_DISPATCH_RULE, tasks.mjs settleCall).
-      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id) ?? '');
+      const prompt = promptText(room, member, unseen, withBlock(memberStatus(this.hub, undefined, room.id), wiki.block), this.store.dispatchMode(room.id), this.store, { cli: true }) + (this.rt.later?.instructions(member.id, room.id, { cli: true }) ?? '');
       // #197 合 develop: 这里不能再提前 wiki.commit()。develop 的 af2d1afe 把「记忆已送达」
       // 挪进 onSession 回调，因为 cli-member.mjs 先建会话、再应用 CLI 配置，才触发 onSession；
       // 这两步失败时提前标记会让重试跳过 MEMORY.md。记忆目录是否真的送达由 onSession 里的调用决定。
@@ -1129,7 +1129,8 @@ export class DshMembers {
     }
     const background = this.chatBackground.turn({ member: member.id, room, session, before: trigger?.id });
     return {
-      block: [memory.block, gate.block, background.block].filter(Boolean).join('\n\n'),
+      // #1651: a DSH-native member cannot write outside its working directory; tell it the way in with its index.
+      block: [memory.block && !member.cli ? memory.block + (this.rt.later?.memoryInstructions?.(member.id, room.id) ?? '') : memory.block, gate.block, background.block].filter(Boolean).join('\n\n'),
       commit: () => { memory.commit(); gate.commit(); background.commit(); },
     };
   }

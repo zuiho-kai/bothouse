@@ -7,7 +7,7 @@ import { personaLibrary } from './personas.mjs';
 //         config: { dataDir, workspacePath, leadFile?, fallbackLead?, botTokenEnv?, botPort?, ownerName?, rooms?, dshMembers?, maxRelay?, boardDir?, teamStatusDir?, wikiDir?, bridgeConfig? }
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, CollabError, MAX_TEXT, publicMessage } from './store.mjs';
 import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock.mjs';
@@ -28,7 +28,7 @@ import { AvatarUploads } from './avatar-uploads.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, DEFAULT_MAX_UPLOAD_BYTES, INLINE_IMAGE, MAX_BOT_ATTACHMENT_BYTES, formatBytes } from './attachments.mjs';
-import { Later, registerLater } from './later.mjs';
+import { Later, registerLater, writeMemoryPage } from './later.mjs';
 import { QuotaCooling, quotaDirectory } from './quota-cooling.mjs';
 import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
 import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
@@ -112,7 +112,7 @@ export function resolveConfig(config, env = process.env) {
   const teamStatusDir = teamStatusRaw == null ? undefined : String(teamStatusRaw).trim() || undefined;
   if (teamStatusDir !== undefined && !isAbsolute(teamStatusDir)) throw Error('conest-collab: teamStatusDir must be an absolute path');
   // Wiki 星河读的 wiki 目录：配置或 CONEST_WIKI_DIR，都没给就是 ~/wiki（只读）。
-  const wikiDir = String(c.wikiDir ?? env.CONEST_WIKI_DIR ?? '').trim() || (env.HOME ? join(env.HOME, 'wiki') : undefined);
+  const wikiDir = String(c.wikiDir ?? env.CONEST_WIKI_DIR ?? '').trim() || join(env.HOME || homedir(), 'wiki');
   if (wikiDir !== undefined && !isAbsolute(wikiDir)) throw Error('conest-collab: wikiDir must be an absolute path');
   // #105 侧栏「bothouse」：读这份主桥配置的 [management] 段，在服务端转发管理面板（令牌不进浏览器）。
   const bridgeConfig = String(c.bridgeConfig ?? '').trim() || defaultBridgeConfig(env);
@@ -324,6 +324,8 @@ export async function apply(ctx, rawConfig) {
     if (!req[REMOTE_OWNER] && !isLocalOwner(req, local)) later.origin ??= localOrigin(req);
     const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
     if (scheduled !== undefined) return scheduled;
+    const remembered = memoryRoute(req, res, url, { hub, later, dsh });
+    if (remembered !== undefined) return remembered;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner, later, tasks, dsh });
@@ -980,6 +982,24 @@ function readBody(req, limit = MAX_BODY) {
 }
 
 /** Authenticated one-shot scheduling for local and external channel members. */
+/**
+ * #1651 POST /collab/api/rooms/{id}/memory { page, content }: a member's (member, room) later ticket
+ * writes one page of that member's own memory wiki (later.mjs writeMemoryPage). Ticket only.
+ * Returns undefined when the request is not for this route, else a Promise of the reply.
+ */
+export function memoryRoute(req, res, url, { hub, later, dsh }) {
+  const m = /^\/collab\/api\/rooms\/(\d+)\/memory$/.exec(url.pathname.replace(/\/+$/, ''));
+  if (!m || req.method !== 'POST') return undefined;
+  const claims = later?.verify(req.headers['x-later-ticket']);
+  if (!claims) return Promise.resolve(json(res, 401, { error: 'unauthorized' }));
+  if (claims.room !== Number(m[1])) return Promise.resolve(json(res, 403, { error: 'ticket is for another room' }));
+  return withBody(req, res, body => {
+    if (!hub.routable().some(member => member.id === claims.member)) throw new CollabError('member-missing', 'unknown member');
+    const index = dsh?.memoryIndex?.path(claims.member);
+    if (!index) throw new CollabError('invalid', 'this install has no memory directory');
+    return { path: writeMemoryPage(dirname(index), body?.page, body?.content) };
+  });
+}
 export function laterRoute(req, res, url, { hub, gateway, owner, later }) {
   const path = url.pathname.replace(/\/+$/, '');
   const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
