@@ -228,7 +228,7 @@ func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
 // The three collaboration conventions must reach every bot in every dispatch mode: a
 // teammate has to know the four stances, how to call another member, and that task
 // dispatch already reminds the owner. Sources: task stances dsh/collab/tasks.mjs
-// (STANCE_LINE), mention forms dsh/collab/mentions.mjs (CALL_PUNCT), auto reminder
+// (STANCE_LINE), mention forms bridge/platform/cloud-web/mentions.go (CALL_PUNCT), auto reminder
 // tasks.mjs CHECK_AFTER_S in assign().
 func TestTeamModeRulesCarryCollaborationConventions(t *testing.T) {
 	for _, mode := range []string{DispatchSolo, DispatchTeam, DispatchMixed} {

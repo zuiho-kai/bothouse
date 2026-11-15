@@ -5,8 +5,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-/** Every task status the tasks table accepts (tasks.mjs STATUS); #1540 added 'failed'. */
-const TASK_STATUSES = ['assigned', 'accepted', 'asked', 'declined', 'escalated', 'returned', 'done', 'rework', 'cancelled', 'superseded', 'failed'];
 
 export const MAX_TEXT = 128 * 1024;
 // Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
@@ -93,16 +91,11 @@ export class Store {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.closed = false;
-    /** fn(roomId) when a workspace's sessions are dropped for a new claim (resetSessions). */
-    this.sessionResets = [];
-    /** fn(roomId) when a workspace returns to the pool; bindings remain resumable. */
-    this.workspaceReleases = [];
     /** transaction() nesting depth; > 0 means the outermost BEGIN IMMEDIATE is open. */
     this.depth = 0;
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     let version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
-    this.migrateTaskStatuses();
     this.ensureSchema(version);
     this.q = {
       room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
@@ -133,31 +126,13 @@ export class Store {
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
-      relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role' AND card IS NULL
-        AND id > COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0)`),
-      binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
-      // A fresh session starts reading after the room's last release (room_resets), not from its start.
-      bind: this.db.prepare(`INSERT INTO bindings (member_id, room_id, session_id, context_cursor)
-        VALUES (?, ?, ?, COALESCE((SELECT message_id FROM room_resets WHERE room_id = ?), 0))`),
-      rebind: this.db.prepare('UPDATE bindings SET session_id = ? WHERE member_id = ? AND room_id = ?'),
-      cursor: this.db.prepare('UPDATE bindings SET context_cursor = MAX(context_cursor, ?) WHERE member_id = ? AND room_id = ?'),
-      firstDraft: this.db.prepare(`SELECT MIN(id) AS id FROM messages WHERE room_id = ? AND id <= ? AND author <> ?
-        AND draft = 1 AND deleted = 0 AND card IS NULL`),
       authorDrafts: this.db.prepare(`SELECT * FROM messages WHERE author_kind = ? AND author = ?
         AND draft = 1 AND deleted = 0 AND card IS NULL ORDER BY id`),
       // #913: every live card row one author posted, in every room. A restarted bridge
       // holds no handle on them, so they must be found without a message window.
       authorCards: this.db.prepare(`SELECT * FROM messages WHERE author_kind = ? AND author = ?
         AND card IS NOT NULL AND deleted = 0 ORDER BY id`),
-      addJob: this.db.prepare(`INSERT INTO jobs (member_id, room_id, trigger_id, state, created_at)
-        VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(member_id, trigger_id) DO NOTHING RETURNING *`),
-      job: this.db.prepare('SELECT * FROM jobs WHERE id = ?'),
-      jobByTrigger: this.db.prepare('SELECT * FROM jobs WHERE member_id = ? AND trigger_id = ?'),
-      resetJob: this.db.prepare("UPDATE jobs SET state = ?, created_at = ?, reply_id = NULL, session_id = NULL, seq_before = NULL, input_id = NULL WHERE id = ? RETURNING *"),
       lastUserMessage: this.db.prepare("SELECT * FROM messages WHERE room_id = ? AND id < ? AND author_kind = 'user' AND deleted = 0 ORDER BY id DESC LIMIT 1"),
-      openJobs: this.db.prepare("SELECT * FROM jobs WHERE state IN ('pending', 'sent') ORDER BY id"),
-      sent: this.db.prepare("UPDATE jobs SET state = 'sent', session_id = ?, seq_before = ?, input_id = ? WHERE id = ? AND state = 'pending' RETURNING *"),
-      finish: this.db.prepare("UPDATE jobs SET state = ?, reply_id = ? WHERE id = ? AND state IN ('pending', 'sent') RETURNING *"),
       createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
       members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
@@ -202,15 +177,10 @@ export class Store {
       }
       this.migrateWorkspaceIds();
       this.dedupeWorkspaceNames();
-      // v9: the tasks table (#139 team mode B), ensured idempotently like the columns above.
-      this.ensureTasks();
       // Team mode C upgrade: before it a workspace's parent_id only named the last chat channel
-      // that handed off, never cleared. A workspace with no task in work then is done: put it in
-      // the pool, else it would belong to that channel forever (no task left to release it).
-      if (added.has('rooms.free')) {
-        this.db.exec(`UPDATE rooms SET free = 1 WHERE kind = 'workspace' AND NOT EXISTS (SELECT 1 FROM tasks
-          WHERE tasks.room_id = rooms.id AND status IN ('assigned', 'accepted', 'asked', 'rework'))`);
-      }
+      // that handed off, never cleared; put such workspaces in the pool. (#1662: the task board is the
+      // bridge's; the plugin keeps no tasks table.)
+      if (added.has('rooms.free')) this.db.exec("UPDATE rooms SET free = 1 WHERE kind = 'workspace'");
       // Team mode C: where a released workspace's fresh sessions start reading (releaseWorkspace).
       this.db.exec(`CREATE TABLE IF NOT EXISTS room_resets (
         room_id INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
@@ -232,81 +202,6 @@ export class Store {
       this.db.exec('DROP TABLE IF EXISTS collab_settings');
       if (version < SCHEMA_VERSION) this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     });
-  }
-
-  /**
-   * v9 (#139 team mode B): one row per dispatched task. Idempotent: creates the
-   * table if missing and adds any column an older copy lacks, so it is safe to run
-   * on every open regardless of user_version.
-   */
-  /** SQLite CHECK constraints require a table rebuild; keep rows, self-references and IDs. */
-  migrateTaskStatuses() {
-    const schema = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get()?.sql;
-    // #1540 adds 'failed' (tasks.mjs STATUS 出错); an older table has the list without it, or without
-    // 'cancelled'/'superseded' too. The status list is rewritten whole, the other columns stay as they are.
-    if (!schema || schema.includes("'failed'")) return;
-    const next = schema.replace(/CREATE TABLE\s+"?tasks"?/i, 'CREATE TABLE tasks_terminal')
-      .replace(/status IN \([^)]*\)/, `status IN (${TASK_STATUSES.map(s => `'${s}'`).join(', ')})`);
-    // foreign_keys must be changed outside a transaction (parent_task references this table).
-    this.db.exec('PRAGMA foreign_keys = OFF');
-    try {
-      this.transaction(() => {
-        const sequence = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'tasks'").get()?.seq;
-        this.db.exec(next);
-        this.db.exec('INSERT INTO tasks_terminal SELECT * FROM tasks; DROP TABLE tasks; ALTER TABLE tasks_terminal RENAME TO tasks');
-        if (sequence != null) this.db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = 'tasks'").run(sequence);
-        this.db.exec('CREATE INDEX tasks_room ON tasks (room_id, id)');
-        if (this.db.prepare('PRAGMA foreign_key_check(tasks)').all().length) throw Error('collab: task status migration broke a foreign key');
-      });
-    } finally {
-      this.db.exec('PRAGMA foreign_keys = ON');
-    }
-  }
-
-  ensureTasks() {
-    const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get() !== undefined;
-    if (!exists) {
-      this.db.exec(`CREATE TABLE tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        room_id INTEGER NOT NULL REFERENCES rooms(id),
-        parent_task INTEGER REFERENCES tasks(id),
-        title TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        created_by TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN (${TASK_STATUSES.map(s => `'${s}'`).join(', ')})),
-        next_check_at REAL,
-        result_msg_id INTEGER,
-        assign_msg_id INTEGER,
-        note TEXT,
-        created_at REAL NOT NULL,
-        updated_at REAL NOT NULL,
-        returned_at REAL,
-        remind_msg_id INTEGER,
-        reason TEXT,
-        termination_reason TEXT,
-        superseded_by INTEGER REFERENCES tasks(id),
-        paused_at REAL,
-        paused_chat INTEGER,
-        source TEXT,
-        ref TEXT,
-        base TEXT,
-        card_member_id TEXT,
-        renewals INTEGER NOT NULL DEFAULT 0)`);
-    } else {
-      const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
-      for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['termination_reason', 'TEXT'], ['superseded_by', 'INTEGER REFERENCES tasks(id)'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT'], ['ref', 'TEXT'], ['base', 'TEXT'], ['renewals', 'INTEGER NOT NULL DEFAULT 0'], ['card_member_id', 'TEXT']]) {
-        if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
-      }
-      // #574 B2 upgrade: workspace tasks in work with no check time start their 10-minute watch
-      // now (tasks.mjs CHECK_AFTER_S), not from their last change, so an upgrade parks none at once.
-      if (!cols.has('renewals')) {
-        this.db.prepare(`UPDATE tasks SET next_check_at = ? WHERE next_check_at IS NULL AND paused_at IS NULL
-          AND status IN ('assigned', 'accepted', 'asked', 'rework') AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace')`)
-          .run(Date.now() / 1000 + 10 * 60);
-      }
-    }
-    this.db.exec('CREATE INDEX IF NOT EXISTS tasks_room ON tasks (room_id, id)');
   }
 
   /**
@@ -517,12 +412,11 @@ export class Store {
       // Numbers are unique across every chat channel's workspaces; reuse stays within this one.
       const all = this.db.prepare("SELECT id, name, free, parent_id FROM rooms WHERE kind = 'workspace'").all();
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
-      const free = all.filter(w => w.free && w.parent_id === parent && num(w) > 0 && this.activeTasks(w.id) === 0).sort((a, b) => num(a) - num(b))[0];
+      const free = all.filter(w => w.free && w.parent_id === parent && num(w) > 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
-        this.resetSessions(free.id);
         return this.db.prepare(`UPDATE rooms SET free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-          claim_task = (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
-          .get(bridge ? 1 : 0, free.id, free.id);
+          claim_task = 0, claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
+          .get(bridge ? 1 : 0, free.id);
       }
       const n = Math.max(0, ...all.map(num));
       return this.q.createWorkspace.get(`${WORKSPACE_PREFIX}${n + 1}`, parent, bridge ? 1 : 0);
@@ -546,18 +440,12 @@ export class Store {
       if (chat === undefined || ws === undefined) throw new CollabError('room-missing', `room ${chat === undefined ? chatId : workspaceId} does not exist`);
       if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${workspaceId} is not a workspace`);
       const parent = chat.kind === 'workspace' ? chat.parent_id : chat.id;
-      const owner = this.workspaceOwner(ws.id);
       if (ws.parent_id != null && ws.parent_id !== parent) {
         throw new CollabError('workspace-owned', `workspace ${ws.name} belongs to room ${ws.parent_id}`);
       }
-      // #597 G35: a released workspace keeps its sessions until a new claim. Claimed back for a task of
-      // its last claim (rework, a paused task resumed: Tasks.reworkClaim/resumeClaim; claim_task stays
-      // after the release), the members go on in the same sessions; any other claim starts fresh.
-      const last = this.db.prepare('SELECT claim_task FROM rooms WHERE id = ?').get(ws.id).claim_task;
-      if (owner == null && !(handoff != null && last != null && Number(handoff) > last)) this.resetSessions(ws.id);
       return this.db.prepare(`UPDATE rooms SET parent_id = ?, free = 0, claim_bridge = ?, claim_seq = claim_seq + 1,
-        claim_task = COALESCE(?, (SELECT COALESCE(MAX(id), 0) FROM tasks WHERE room_id = ?)), claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
-        .get(parent, bridge ? 1 : 0, handoff == null ? null : Number(handoff) - 1, ws.id, ws.id);
+        claim_task = ?, claim_at = unixepoch() WHERE id = ? RETURNING id, name, kind, parent_id`)
+        .get(parent, bridge ? 1 : 0, handoff == null ? 0 : Number(handoff) - 1, ws.id);
     });
   }
 
@@ -573,38 +461,8 @@ export class Store {
   }
 
   /**
-   * True once the handoff of the current claim of workspace roomId is finished: the first task
-   * dispatched there after the claim (the work the chat channel handed off; later ones are its
-   * subtasks) is handed back or done. False while no task followed the claim yet, and for a
-   * bridge claim (its handoff is the bridge lead's work, no task here). A claim from before
-   * claim_task existed has no recorded handoff: true.
-   */
-  handoffDone(roomId) {
-    const r = this.db.prepare('SELECT claim_task, claim_bridge FROM rooms WHERE id = ?').get(roomId);
-    if (r === undefined || r.claim_bridge) return false;
-    if (r.claim_task == null) return true;
-    const handoff = this.db.prepare('SELECT status FROM tasks WHERE room_id = ? AND id > ? ORDER BY id LIMIT 1').get(roomId, r.claim_task);
-    return handoff !== undefined && ['returned', 'done', 'cancelled', 'superseded'].includes(handoff.status);
-  }
-
-  /**
-   * True while workspace roomId is held by a bridge claim: the bridge's handoff watch checks it
-   * (core/team_watch.go), so the task watch here leaves it alone (one watcher per handoff).
-   */
-  bridgeClaimed(roomId) {
-    return Boolean(this.db.prepare('SELECT claim_bridge FROM rooms WHERE id = ?').get(roomId)?.claim_bridge);
-  }
-
-  /** Tasks in work in roomId (same statuses as tasks.mjs WORKING; paused ones do not count). */
-  activeTasks(roomId) {
-    return this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ?
-      AND status IN ('assigned', 'accepted', 'asked', 'rework') AND paused_at IS NULL`).get(roomId).n;
-  }
-
-  /**
    * Release workspace roomId after its last task: it goes back to the pool (free) for any chat
-   * channel. Its sessions stay until a new claim takes it (resetSessions), so a rework or a resumed
-   * task goes on in them (#597 G35). Refused with 'busy' while tasks are in work there.
+   * channel (the bridge's op release; the bridge knows when its work there is done).
    * Returns false if roomId is no owned workspace (already free, or a chat channel). claim (from
    * the bridge's op release): the claim being ended; refused with 'stale-claim' once the
    * workspace was claimed again, so a late release never frees the new claim. null = any claim.
@@ -617,33 +475,11 @@ export class Store {
       if (claim != null && String(claim) !== this.claimId(ws.id)) {
         throw new CollabError('stale-claim', `workspace ${ws.name} was claimed again since claim ${claim}`);
       }
-      if (this.activeTasks(ws.id) > 0) throw new CollabError('busy', `workspace ${ws.name} has tasks in work`);
       // claim_task stays: it tells a claim back for this claim's own task from a new one (claimWorkspace).
       this.db.prepare('UPDATE rooms SET free = 1, claim_bridge = 0 WHERE id = ?').run(ws.id);
       return true;
     });
-    if (released) {
-      for (const fn of this.workspaceReleases) fn(roomId);
-    }
     return released;
-  }
-
-  onWorkspaceRelease(fn) { this.workspaceReleases.push(fn); }
-
-  /** Register fn(roomId), called when a workspace's sessions are dropped (resetSessions). */
-  onSessionsReset(fn) { this.sessionResets.push(fn); }
-
-  /**
-   * A free workspace taken by a new claim starts over: its sessions are cleared (bindings dropped;
-   * fresh ones start reading after the room's last message, room_resets) and the listeners drop
-   * what they keep per conversation (dsh-member resetRoom).
-   */
-  resetSessions(roomId) {
-    this.db.prepare('DELETE FROM bindings WHERE room_id = ?').run(roomId);
-    const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE room_id = ?').get(roomId).id ?? 0;
-    this.db.prepare(`INSERT INTO room_resets (room_id, message_id) VALUES (?, ?)
-      ON CONFLICT (room_id) DO UPDATE SET message_id = excluded.message_id`).run(roomId, last);
-    for (const fn of this.sessionResets) { try { fn(roomId); } catch { /* in-memory only: the store is already reset */ } }
   }
 
   ensureRoomSettings(roomId) {
@@ -737,12 +573,6 @@ export class Store {
   clearLeadOf(id) {
     return this.db.prepare('UPDATE room_settings SET lead_id = NULL WHERE lead_id = ? RETURNING room_id').all(id).map(row => row.room_id);
   }
-  bindingWorkspacePath(memberId, roomId, fallback) {
-    return this.db.prepare('SELECT workspace_path FROM bindings WHERE member_id = ? AND room_id = ?').get(memberId, roomId)?.workspace_path || fallback;
-  }
-  setBindingWorkspacePath(memberId, roomId, path) {
-    this.db.prepare('UPDATE bindings SET workspace_path = ? WHERE member_id = ? AND room_id = ?').run(path, memberId, roomId);
-  }
   setWorkspacePath(roomId, path, fallback) {
     roomId = this.settingsRoom(roomId);
     const previous = this.workspacePath(roomId, fallback);
@@ -762,29 +592,11 @@ export class Store {
     const dms = new Map(this.q.dms.all().map(r => [r.id, r.dm_member]));
     return this.q.rooms.all().map(r => (dms.has(r.id) ? { ...r, dm_member: dms.get(r.id) } : r));
   }
-  /** Return stale, empty claims to the pool without taking bridge or paused work. */
-  releaseIdleWorkspaces() {
-    const idle = this.db.prepare(`SELECT id FROM rooms WHERE kind = 'workspace' AND free = 0
-      AND claim_bridge = 0 AND claim_task > 0
-      AND (claim_at IS NULL OR claim_at < unixepoch() - 1800)
-      AND NOT EXISTS (SELECT 1 FROM tasks WHERE room_id = rooms.id
-        AND status IN ('assigned', 'accepted', 'asked', 'rework'))`).all();
-    for (const room of idle) this.releaseWorkspace(room.id);
-    return idle.length;
-  }
-
-  /**
-   * Rooms for clients: each carries kind, parent_id and its open task count. A paused task is
-   * not in work (activeTasks, team_workspace list): counting it kept the sidebar's 进行中 badge
-   * on for tasks the watch had already parked (#1606).
-   */
+  /** Rooms for clients: each carries kind, parent_id and its channel settings. */
   roomsView() {
-    this.releaseIdleWorkspaces();
-    const counts = new Map(this.db.prepare(`SELECT room_id, COUNT(*) AS n FROM tasks
-      WHERE status IN ('assigned', 'accepted', 'asked', 'rework') AND paused_at IS NULL GROUP BY room_id`).all().map(t => [t.room_id, t.n]));
     const hidden = new Set(this.q.hiddenDms.all().map(r => r.id));
     return this.rooms().filter(r => !hidden.has(r.id))
-      .map(r => ({ ...r, active: counts.get(r.id) ?? 0, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
+      .map(r => ({ ...r, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 
   /**
@@ -881,45 +693,9 @@ export class Store {
   /** Up to `limit` messages after `afterId` (exclusive), oldest first. */
   since(roomId, afterId, limit) { return this.q.after.all(roomId, afterId ?? 0, clampLimit(limit)); }
 
-  /** Agent messages posted since the last human message, up to and including messageId. */
-  relayDepth(roomId, messageId) { return this.q.relay.get(roomId, messageId, roomId, messageId).n; }
-
-  binding(memberId, roomId) { return this.q.binding.get(memberId, roomId); }
-  bind(memberId, roomId, sessionId) { this.q.bind.run(memberId, roomId, sessionId, roomId); }
-  /** Point an existing binding at a new Session; the context cursor stays. */
-  rebind(memberId, roomId, sessionId) { this.q.rebind.run(sessionId, memberId, roomId); }
-  /**
-   * Move a member's context cursor up to messageId, but never past a
-   * teammate's uncommitted text draft (#121): it keeps its old id when it
-   * commits, so a cursor beyond it would hide the final reply for good.
-   */
-  advanceCursor(memberId, roomId, messageId) {
-    const draft = this.q.firstDraft.get(roomId, messageId, memberId).id;
-    this.q.cursor.run(draft == null ? messageId : Math.min(messageId, draft - 1), memberId, roomId);
-  }
-
-  /** Create the job for (member, trigger) once; a repeat returns undefined. */
-  addJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
-    return this.q.addJob.get(memberId, roomId, triggerId, now);
-  }
-  jobByTrigger(memberId, triggerId) {
-    return this.q.jobByTrigger.get(memberId, triggerId);
-  }
-  retryJob(memberId, roomId, triggerId, now = Date.now() / 1000) {
-    const existing = this.jobByTrigger(memberId, triggerId);
-    if (existing !== undefined) {
-      return this.q.resetJob.get('pending', now, existing.id);
-    }
-    return this.addJob(memberId, roomId, triggerId, now);
-  }
   lastUserMessage(roomId, beforeId) {
     return this.q.lastUserMessage.get(roomId, beforeId);
   }
-  job(id) { return this.q.job.get(id); }
-  openJobs() { return this.q.openJobs.all(); }
-  /** Record admission before the prompt reaches the Agent; false if already moved on. */
-  markSent(jobId, sessionId, seqBefore, inputId) { return this.q.sent.get(sessionId, seqBefore, inputId ?? null, jobId) !== undefined; }
-  finishJob(jobId, state, replyId = null) { return this.q.finish.get(state, replyId, jobId) !== undefined; }
 }
 
 export class CollabError extends Error {

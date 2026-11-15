@@ -372,6 +372,13 @@ type TypingIndicatorDone interface {
 	AddDoneReaction(replyCtx any)
 }
 
+// PermissionTextAnswerNotifier is a platform whose host shows its own permission card (cloud_web: the
+// DSH channel card): when the owner answers the prompt in text instead of a button, the engine tells
+// the platform so the host closes the card. decision is "allow", "allow_all" or "deny".
+type PermissionTextAnswerNotifier interface {
+	PermissionAnsweredByText(ctx context.Context, sessionKey, decision string)
+}
+
 // AtMentionSender is an optional interface for platforms that support @mention in
 // reply messages (e.g. DingTalk). Platforms that implement this interface can
 // include @user notifications when replying in group chats.

@@ -15,8 +15,13 @@
 | gate-context.mjs、memory-index.mjs、memory-sources.mjs | core/gate.go、memoryindex.go、contrib/gate | 删 |
 | managed-skills.mjs、model-errors.mjs、approvals 里 DSH 成员那半 | 桥的技能管理、capacity_retry.go、权限卡（buttons 帧） | 删；网关保留 bot 的权限卡转发 |
 | plugin.mjs 的 /later、/memory、/tasks、/workspaces、/team 路由 | bothouse timer、ws-handoff、bothouse workspace、setup apply | 删 |
-| mentions.mjs（751）@ 解析 | platform/cloud-web name_call.go、discord/mentions.go | 本批保留网关那半：CWIP 协议里「这条点了谁」由平台标（同 Discord 自己标 @），桥只认行首点名；desk 回放也用。纯 DSH 成员用的部分随成员删了 |
+| mentions.mjs（751）@ 解析，hub.replyRoute（回复给谁），approvals 的文字批准词表 | 第二批挪进桥：platform/cloud-web/mentions.go（逐函数移植，原 JS 测试录下的 986 条输入输出对照全一致）、hub_message.go（点名、回复路由、各 bot 读到的文字、发出时换成 @名字）；文字批准走桥 core/engine.go handlePendingPermission | 删。网关只转原文 + 房间成员名单（members）+ 引用（quote），桥判断谁被叫；桥用 permission_resolved 帧告诉插件关权限卡；页面画 @ 高亮/细光照旧（界面），对照表 client-ui-discord/tests/backend-mentions.json 由桥的 Go 测试核 |
 | lead-state.mjs（30） | core/team.go 的 lead.json | 保留：它就是读写桥那份 lead.json（只剩转发） |
+| team-status.mjs（179） | core/team.go 写的 team_status_dir/<project>.json | 留：只读桥写的忙闲文件给页面显示（转发） |
+| store.mjs（975） | 无（频道房间、消息、工作区房间是 DSH 频道自己的数据） | 留，删掉残留：任务表（建表/迁移/进行中计数）、DSH 成员的会话绑定、投递任务（jobs）、读到哪的游标、会话重置和闲置工作区回收——这些是桥的任务板和桥自己的会话管的 |
+| roster.mjs（335） | setup apply 的角色名单 | 留：频道成员名单的界面数据，经 bridge.mjs 交给 `bothouse setup apply`（转发） |
+| member-management.mjs（71） | 同上 | 留：成员面板的 HTTP 接口（界面）；Codex 模型探测已在第一批改成指向桥的角色页 |
+| personas.mjs + personas.json（桥 core/persona_presets.go 的拷贝） | `bothouse setup personas`（core/persona_presets.go） | 删；改调桥：bridge.mjs personas()，默认成员和加成员的人设库都从桥取 |
 
 桥缺的接口（本批在桥里补）：
 1. `setup apply` 角色带模型（role.model，DSH 写成 provider/model）。

@@ -20,7 +20,7 @@ for (const f of readdirSync(join(collabSrc, 'avatars'))) {
 }
 // Files the plugin reads next to its modules at run time (new URL('./…', import.meta.url)); a missing one
 // breaks the installed plugin (0.1.45 shipped without personas.json and failed to load at all).
-for (const f of ['personas.json', 'desk/index.html', 'devices.html', 'wiki-galaxy/index.html']) {
+for (const f of ['desk/index.html', 'devices.html', 'wiki-galaxy/index.html']) {
   mkdirSync(join(root, 'collab', dirname(f)), { recursive: true })
   cpSync(join(collabSrc, f), join(root, 'collab', f))
 }

@@ -13,7 +13,7 @@ export interface MentionSegment {
   member?: ChannelMember
 }
 
-// A ``` fence, read the way dsh/collab/mentions.mjs does: alternating outside/inside parts of
+// A ``` fence, read the way bridge/platform/cloud-web/mentions.go does: alternating outside/inside parts of
 // text.split(FENCE), so an odd part is code. The backend calls nobody inside a fence.
 const FENCE = '```'
 
@@ -275,7 +275,7 @@ function endsParagraph(text: string, from: number, to: number, index: LineIndex)
 
 /**
  * Offsets of Markdown inline code spans, [start, end) each, matching what the markdown renderer
- * turns into <code> and the backend skips (dsh/collab/mentions.mjs codeSpanRanges — keep them in
+ * turns into <code> and the backend skips (bridge/platform/cloud-web/mentions.go codeSpanRanges — keep them in
  * step). A span is a run of backticks closed by a run of the same length inside the same
  * paragraph; it may hold single line breaks but nothing that ends the paragraph (a blank line
  * #245, or a block-level structure #259). A lone backtick stays literal text, and runs of three
@@ -362,7 +362,7 @@ export function buildMentionMatcher(members: readonly ChannelMember[]): {
 
 /**
  * Offsets of ``` fenced blocks, [start, end) each, the way the backend reads them
- * (dsh/collab/mentions.mjs split(): text.split('```') and odd parts are inside a fence).
+ * (bridge/platform/cloud-web/mentions.go split(): text.split('```') and odd parts are inside a fence).
  * An unterminated fence runs to the end of the text, as it does there.
  */
 export function fencedRanges(text: string): Array<[number, number]> {
@@ -388,7 +388,7 @@ export function fencedRanges(text: string): Array<[number, number]> {
 // promises a call that never happens — the same bug as colouring inside a fence. A body is hidden
 // when no visible text refers to its label, which is a fixed point: a reference inside a hidden
 // body counts for nothing, and a definition referring to itself stays hidden.
-// Keep this in step with dsh/collab/mentions.mjs footnoteRanges().
+// Keep this in step with bridge/platform/cloud-web/mentions.go footnoteRanges().
 
 /** A definition line: `[^label]:` at 0-3 columns, the label holding no space or bracket. */
 const FOOTNOTE_DEF = /^ {0,3}\[\^([^\]\s]+)\]:/
@@ -704,7 +704,7 @@ export function footnoteRanges(
  *
  * Splits plain text into non-mention and mention segments. An @ inside a ``` fence, an inline
  * code span or a hidden footnote definition is left as text: the backend does not call anyone
- * there (dsh/collab/mentions.mjs), so colouring it would promise a call that never happens (#237,
+ * there (bridge/platform/cloud-web/mentions.go), so colouring it would promise a call that never happens (#237,
  * #271).
  */
 export function splitMentions(text: string, members: readonly ChannelMember[]): MentionSegment[] {
