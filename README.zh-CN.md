@@ -34,7 +34,7 @@
 **3 分钟看懂**：你交代一句话，它们自己分工、干完交回。点击封面在 B 站播放。
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：AI 角色组队干活，点击在 B 站播放"></a>
+  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：你在群里说一句，组长 Claude Code 拆活，Codex、Gemini CLI、DeepSeek、Grok 各接一块，点击在 B 站播放"></a>
 </p>
 
 ```sh
@@ -151,6 +151,14 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 </table>
 
 _上面两张是真实频道录屏，下面两张是作者自己在用的管理面板。_
+
+<a id="characters"></a>
+
+### 角色（可选）
+
+每个角色也可以换上人设和头像，想让团队有脸有性格就用上。下面是作者自己团队的样子；从[角色包和头像](docs/readme-details.md#角色和头像)里挑，不用也照样干活。
+
+<p align="center"><img src="docs/assets/readme/characters.png" width="600" alt="作者自己团队的五个二次元角色头像"></p>
 
 <a id="memory"></a>
 
