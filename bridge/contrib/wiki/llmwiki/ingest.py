@@ -38,6 +38,7 @@ import lossless  # reject writes that forget existing facts
 import lint  # MAX_TOPICS and README topic counting: split_pass must count topics exactly as lint does
 import sessionlog  # the unified session record: every runtime's sessions, one format (sessionlog.py docstring)
 import invalidate  # write-time contradiction check (Graphiti): superseded lines → the page's 「## 历史」
+import restate  # nightly: one page's old and new statements of the same thing → one current line, old lines → 「## 历史」
 
 
 
@@ -3066,6 +3067,26 @@ def review(db, deadline):
             db.commit()
 
 
+def restate_pass():
+    """Nightly, last: restate.py merges each budget-report page's old/new statements of one thing into one current
+    line (Letta sleep-time compute / Mem0 UPDATE; old lines move verbatim to 「## 历史」), lossless- and lint-checked,
+    reverted otherwise; delivered like family_pass."""
+    label = "restate"
+    sync_work()
+    try:
+        ok, summary, _ = restate.restate(WIKI, commit=True, label=label, log=lambda m: log(f"{label}: {m}"))
+    except Exception as e:
+        log(f"{label} failed: {type(e).__name__}: {e}")
+        return
+    if not ok:
+        log(f"{label}: REVERTED: {summary[:500]}")
+    elif not summary.startswith("nothing to do"):
+        log(f"{label}: {summary}")
+        if WIKI == WORK and deliver(label) is not True:
+            log(f"{label}: not delivered, the next night tries again")
+    sync_work()
+
+
 def nightly(a):
     """03:00: luna ingests what the day left (quota, failures), dreams, then reviews the day's Haiku batches."""
     global WIKI
@@ -3090,6 +3111,7 @@ def nightly(a):
         manuals.ROLE = role
     manuals.run(deadline=deadline, ask_fn=profile_ask, transcripts=ROOT)
     review(state(), deadline)
+    restate_pass()  # last: whatever budget is left; a skipped night just runs it the next night
 
 
 def lint_pass(db):

@@ -66,7 +66,7 @@ class ManualsPending(unittest.TestCase):
         noop = lambda *args, **kwargs: None
         env = dict(os=os, Path=Path, time=time, WORK=repo, REPO=repo, NIGHT_BUDGET=1,
                    NIGHT_ENGINE='dsh', ROOT=transcripts, CFG={'assistant': '显示名'},
-                   run=noop, split_pass=noop, state=noop, dream=noop, review=noop, profile_ask=ask_fn)
+                   run=noop, split_pass=noop, state=noop, dream=noop, review=noop, restate_pass=noop, profile_ask=ask_fn)
         exec(compile(ast.Module(body=[entry], type_ignores=[]), str(HERE / 'ingest.py'), 'exec'), env)
         with patch.dict(os.environ, BOTHOUSE_DATA_DIR=str(self.root / 'data'), MANUALS_ROLE='writer'), \
              patch.dict(sys.modules, manuals=manuals), \

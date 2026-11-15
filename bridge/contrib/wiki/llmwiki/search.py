@@ -11,8 +11,16 @@ Skipped: MEMORY.md / log.md / CLAUDE.md at the root, README.md, hidden dirs, bin
 dirs without README.md (e.g. refs/media/, written by a script).
 Tokenizer and scoring are the same as /tmp/wiki-retrieval-eval/bm25.py (report.md, 2026-10-18).
 """
-import collections, importlib.util, math, os, re, sys
+import collections, hashlib, importlib.util, math, os, re, sys
 from pathlib import Path
+
+_FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 楼层帖标注（#1177，同 forum_scores.TAG）：算编号、显示时去掉
+
+
+def _bare(s):
+    return _FLOOR_TAG.sub("", s).strip()
+
+
 
 def _load_scores():
     """Load the one shared forum ranker in a source checkout or a bothouse data directory."""
@@ -144,6 +152,15 @@ def main():
     if not q.strip():
         sys.exit("usage: python3 ~/wiki/bin/search.py [--root DIR] <query>")
     idx = Index(root, scored=True)
+    m = re.fullmatch(r"\s*\[?#?([0-9a-f]{10})\]?\s*", q)  # 推送行尾的 [#编号]（gate ctxsvc.exp_id = 这行内容 sha1 前 10 位）
+    if m:
+        shown = "~/" + str(root.relative_to(Path.home())) if root.is_relative_to(Path.home()) else str(root)
+        found = [(rel, ln, t) for rel, ln, t, _ in idx.lines if hashlib.sha1(_bare(t).encode()).hexdigest()[:10] == m.group(1)]
+        for rel, ln, t in found:
+            print(f"{shown}/{rel}:{ln}  {_bare(t)}")
+        if not found:
+            print("(no hits)")
+        return
     hits = idx.search_pages(q)
     if not hits:
         print("(no hits)")
@@ -151,7 +168,7 @@ def main():
     for rel, ln, text, count, family in hits:
         tag = forum_scores.label(forum_scores.entry_id(rel, text, root)) if idx.scored else ""
         more = f"；同族另有 {', '.join(Path(page).name for page in family)}" if family else ""
-        print(f"{shown}/{rel}:{ln}  {tag}{text.strip()}\n    — {idx.desc[rel]}（本页命中 {count} 行{more}）")
+        print(f"{shown}/{rel}:{ln}  {tag}{_bare(text)}\n    — {idx.desc[rel]}（本页命中 {count} 行{more}）")
 
 if __name__ == "__main__":
     main()
