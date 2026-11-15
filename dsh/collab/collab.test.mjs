@@ -6286,8 +6286,8 @@ test('G26: a ticket sent to /tasks gets a 403 pointing at /workspaces; /tasks au
 
 test('#1651: on Windows the local commands are PowerShell calls, self is -, no curl line, JSON quotes survive', async () => {
   const { localCommand, looseJson } = await import('./later.mjs');
-  assert.equal(localCommand(['C:\\Program Files\\nodejs\\node.exe', "it's", ''], 'win32'), "& 'C:\\Program Files\\nodejs\\node.exe' 'it''s' ''");
-  assert.equal(localCommand(['/usr/bin/node', "it's"], 'linux'), "'/usr/bin/node' 'it'\\''s'");
+  assert.equal(localCommand(['C:\\Program Files\\nodejs\\node.exe', "it's", ''], 'win32', false), "& 'C:\\Program Files\\nodejs\\node.exe' 'it''s' ''");
+  assert.equal(localCommand(['/usr/bin/node', "it's"], 'linux', false), "'/usr/bin/node' 'it'\\''s'");
   assert.deepEqual(looseJson('{"a":"b c"}'), { a: 'b c' });
   assert.deepEqual(looseJson('{\\"a\\":\\"b c\\"}'), { a: 'b c' }, 'newer PowerShell hands the backslashes over');
   assert.throws(() => looseJson('{a:b}'));
@@ -6301,7 +6301,14 @@ test('#1651: on Windows the local commands are PowerShell calls, self is -, no c
   assert.ok(win.workspaceInstructions('ju', 1).includes("'接活人id（-=你自己）'"));
   assert.ok(!win.workspaceInstructions('ju', 1).includes('curl '));
   assert.ok(win.teamInstructions('ju', 1).includes('{\\"channel\\":\\"小团队\\"'));
-  assert.ok(!win.instructions('ju', 1, { cli: true }).includes("& '"), 'a CLI member or bridge bot keeps the POSIX form');
+  // #1653: a CLI member's shell on Windows is PowerShell (Codex) or Git Bash (Claude Code): one line for each.
+  const cliLines = win.instructions('ju', 1, { cli: true }).split('\n').filter(l => l.includes('later.mjs'));
+  assert.equal(cliLines.length, 2, cliLines.join('\n'));
+  assert.ok(cliLines[0].startsWith("PowerShell：& '"), cliLines[0]);
+  assert.ok(cliLines[1].startsWith("Git Bash：'"), cliLines[1]);
+  // #1653: inside DSH Desktop process.execPath is the Electron binary: the line itself makes it a node.
+  assert.equal(localCommand(['C:\\App\\DeepSeek Harness.exe', 'a'], 'win32', true), "$env:ELECTRON_RUN_AS_NODE='1'; & 'C:\\App\\DeepSeek Harness.exe' 'a'");
+  assert.equal(localCommand(['/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness', 'a'], 'darwin', true), "ELECTRON_RUN_AS_NODE=1 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' 'a'");
   win.close();
   const posix = new Later(hub, ':memory:', () => true, { start: false, platform: 'darwin' });
   posix.origin = 'http://127.0.0.1:5140';
