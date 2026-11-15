@@ -49,19 +49,19 @@ func (p *Platform) CanApprovePermission(userID string) bool {
 	return false
 }
 
-func (p *Platform) IsPermissionDelegate() bool { return p.CanApprovePermission(p.botID) }
+func (p *Platform) IsPermissionDelegate() bool { return p.CanApprovePermission(p.selfID()) }
 
 func (p *Platform) PermissionDelegationTargets() (string, string) {
 	var targets []string
 	for _, id := range p.permissionApprovers {
-		if id != p.botID {
+		if id != p.selfID() {
 			targets = append(targets, "<@"+id+">")
 		}
 	}
-	if len(targets) == 0 || p.botID == "" {
+	if len(targets) == 0 || p.selfID() == "" {
 		return "", ""
 	}
-	return strings.Join(targets, " "), "<@" + p.botID + ">"
+	return strings.Join(targets, " "), "<@" + p.selfID() + ">"
 }
 
 func parsePermissionDecision(text string) (string, string, bool) {

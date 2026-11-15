@@ -147,7 +147,7 @@ func (p *Platform) missingPermissionErrIn(err error, perm, channelID string) err
 	// blocks, where to tick it.
 	return &core.MissingPermissionError{Perm: perm, Err: err, Hint: fmt.Sprintf(
 		"Discord bot 缺「%s」权限%s。%s频道单独设了权限的，还要去该频道设置 → 权限里给 bot 放开这项。bot 还没进服务器的，打开这个链接邀请：%s",
-		perm, permBlocks[perm], roleSettingsHint, core.DiscordInviteURL(p.appID, p.guildOfChannel(channelID)))}
+		perm, permBlocks[perm], roleSettingsHint, core.DiscordInviteURL(p.selfAppID(), p.guildOfChannel(channelID)))}
 }
 
 // guildOfChannel is the server channelID is in (session state, then one REST lookup), else the

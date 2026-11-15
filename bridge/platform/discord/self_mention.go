@@ -18,10 +18,10 @@ var (
 
 // SelfMention is how teammates @ this bot; empty until the gateway reported our user ID.
 func (p *Platform) SelfMention() string {
-	if p.botID == "" {
+	if p.selfID() == "" {
 		return ""
 	}
-	return "<@" + p.botID + ">"
+	return "<@" + p.selfID() + ">"
 }
 
 // PostToChat sends content as is into the session's channel, pinging only mentionUser. Unlike

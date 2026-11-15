@@ -59,7 +59,7 @@ func (p *Platform) lookupChannel(s *discordgo.Session, id string) *discordgo.Cha
 }
 
 func (p *Platform) isBotUser(s *discordgo.Session, guildID, id string) bool {
-	if id == p.botID {
+	if id == p.selfID() {
 		return true
 	}
 	if _, ok := teamPlatforms.Load(id); ok {

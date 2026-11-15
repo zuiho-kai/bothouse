@@ -35,6 +35,7 @@ type replyContext struct {
 	recordSent       func(string) // maomao fork: every message id this context posts (core.SentMessageRecorder)
 	channelID        string
 	messageID        string
+	msgChannelID     string // channel holding messageID itself; set for inbound messages (ack_reaction.go)
 	threadID         string
 	agent            bool   // maomao fork: this send carries the agent's own text (core.AgentReplyMarker)
 	lead             string // maomao fork: the primary role @-ed this sub to start the turn; the reply goes back to it
@@ -80,6 +81,7 @@ type Platform struct {
 	workspaceShelves           *workspaceShelfStore
 	legacyGathered             sync.Map                          // guild ID → its 「空闲工作区」 channels were moved once this run (workspaces.go)
 	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
+	acks                       *ackReactions                     // ack_reaction: nil = off (ack_reaction.go)
 	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
 	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
 	cardViews                  cardViews                         // maomao fork: 细节/简略 view per card message (card_view.go)
@@ -108,6 +110,7 @@ type Platform struct {
 	respondToAtEveryoneAndHere bool
 	proxyURL                   *url.URL
 	handler                    core.MessageHandler
+	identityMu                 sync.RWMutex // guards botID/appID (identity.go)
 	botID                      string
 	appID                      string
 	channelNameCache           sync.Map // channelID -> name
@@ -244,6 +247,9 @@ func New(opts map[string]any) (core.Platform, error) {
 		threadIsolation:            threadIsolation,
 		respondToAtEveryoneAndHere: respondToAtEveryoneAndHere,
 		proxyURL:                   proxyU,
+	}
+	if on, _ := opts["ack_reaction"].(bool); on {
+		base.acks = newAckReactions(opts)
 	}
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
 		base.workspaceShelves = workspaceShelfStoreFor(dir)
@@ -697,11 +703,11 @@ func (p *Platform) RegisterCommands(commands []core.BotCommandInfo) error {
 				cmd.Contexts = &contexts
 			}
 		}
-		registered, err := p.session.ApplicationCommandBulkOverwrite(p.appID, guildID, cmds)
+		registered, err := p.session.ApplicationCommandBulkOverwrite(p.selfAppID(), guildID, cmds)
 		if err != nil {
 			slog.Error("discord: failed to register slash commands — "+
 				"make sure the bot was invited with BOTH 'bot' AND 'applications.commands' OAuth2 scopes. "+
-				"Re-invite URL: "+core.DiscordInviteURL(p.appID, p.guildID),
+				"Re-invite URL: "+core.DiscordInviteURL(p.selfAppID(), p.guildID),
 				"error", err, "guild_id", guildID)
 			return fmt.Errorf("discord: register slash commands (guild_id=%q): %w", guildID, err)
 		}
@@ -772,10 +778,10 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 	}
 
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		p.botID = r.User.ID
-		p.appID = r.User.ID
+		p.setIdentity(r.User.ID, r.User.ID)
 		p.botName = r.User.Username
 		teamPlatforms.Store(r.User.ID, p) // maomao fork: lets linkTeamMentions find teammates
+		go p.acks.clearStale(s)
 		slog.Info("discord: connected", "bot", r.User.Username+"#"+r.User.Discriminator)
 		// Signal readiness before guild role lookups so RegisterCommands
 		// is not blocked by slow API calls when there are many guilds.
@@ -816,7 +822,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		return
 	}
 
-	if m.Author.ID == p.botID {
+	if m.Author.ID == p.selfID() {
 		return
 	}
 	if !p.guildAllowed(m.GuildID) {
@@ -858,7 +864,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		p.cacheBotRoleIDForGuild(s, m.GuildID, nil)
 		botRoleID = p.botRoleIDForGuild(m.GuildID)
 	}
-	mentioned := isDiscordBotMention(m, p.botID, botRoleID, p.respondToAtEveryoneAndHere)
+	mentioned := isDiscordBotMention(m, p.selfID(), botRoleID, p.respondToAtEveryoneAndHere)
 	if !fromBot {
 		var accept bool
 		mentioned, accept = p.humanReplyRoute(m, botRoleID, mentioned)
@@ -873,19 +879,19 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		// Bot messages must be addressed by an explicit mention in their body. Discord may
 		// include the replied-to author in m.Mentions, which would turn ordinary bot replies
 		// into a relay loop. A teammate can address this bot by user or managed-role mention.
-		mentioned = hasExplicitDiscordBotMention(m.Content, p.botID, botRoleID)
+		mentioned = hasExplicitDiscordBotMention(m.Content, p.selfID(), botRoleID)
 		if isBotNotice(m.Content) {
 			return
 		}
 		m.ReferencedMessage = nil // its quote is already in the channel history
 	}
-	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.botID))
+	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.selfID()))
 	// bodySelf: the text itself @-s this bot (user, nickname or managed-role mention), as opposed to
 	// being addressed only as the reply target or by @everyone.
-	bodySelf := strings.Contains(m.Content, "<@"+p.botID+">") || strings.Contains(m.Content, "<@!"+p.botID+">") ||
+	bodySelf := strings.Contains(m.Content, "<@"+p.selfID()+">") || strings.Contains(m.Content, "<@!"+p.selfID()+">") ||
 		(botRoleID != "" && strings.Contains(m.Content, "<@&"+botRoleID+">"))
 	humanReply := !fromBot && m.GuildID != "" && m.Type == discordgo.MessageTypeReply
-	m.Content = teamRoleMentions(m.Content, m.GuildID, p.botID) // maomao fork: <@&teammate role> → <@teammate>
+	m.Content = teamRoleMentions(m.Content, m.GuildID, p.selfID()) // maomao fork: <@&teammate role> → <@teammate>
 	replyAll := false
 	if m.GuildID != "" && p.isGroupReplyAllGuild(m.GuildID) {
 		parent := ""
@@ -896,13 +902,13 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 	if mentioned && replyAll {
 		if humanReply {
-			m.Content = labelSelfMention(m.Content, p.botID, botRoleID, p.botName)
+			m.Content = labelSelfMention(m.Content, p.selfID(), botRoleID, p.botName)
 		} else {
-			m.Content = markSelfMention(m.Content, p.botID, botRoleID, p.botName)
+			m.Content = markSelfMention(m.Content, p.selfID(), botRoleID, p.botName)
 		}
 	}
 	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
-	bareStop := !fromBot && isBareStop(m, mentioned, p.botID)
+	bareStop := !fromBot && isBareStop(m, mentioned, p.selfID())
 	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || bareStop)
 	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
@@ -912,9 +918,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		if humanReply {
 			// Keep "@name(你)" in a reply: stripped, the quote looked like the whole message and
 			// the bot did not see it was called (2026-10-22, 彩虹猫 stayed silent).
-			m.Content = labelSelfMention(m.Content, p.botID, botRoleID, p.botName)
+			m.Content = labelSelfMention(m.Content, p.selfID(), botRoleID, p.botName)
 		} else {
-			m.Content = stripDiscordMentionWithRole(m.Content, p.botID, botRoleID)
+			m.Content = stripDiscordMentionWithRole(m.Content, p.selfID(), botRoleID)
 		}
 		if m.MentionEveryone {
 			m.Content = stripEveryoneHere(m.Content)
@@ -937,7 +943,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		// resolution would open a new thread titled after the stop word and stop nothing.
 		channelKey = m.ChannelID
 	} else if p.threadIsolation && m.GuildID != "" {
-		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, p.threadOpsOrSession())
+		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.selfID(), p.threadOpsOrSession())
 		if err != nil {
 			slog.Warn("discord: thread isolation setup failed, falling back", "message", m.ID, "channel", m.ChannelID, "error", err)
 		} else {
@@ -947,10 +953,12 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 	}
 
+	rctx.msgChannelID = m.ChannelID // the person's message stays here even when replies go to a new thread (ack_reaction.go)
+
 	// A bot may hand work to this bot by opening its message with our name instead of
 	// a Discord mention. Classify that before recording the lead return context; the
 	// later bot-message branch also marks it Mentioned, but by then this context is set.
-	calledByName := fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)
+	calledByName := fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.selfID())...)
 	rctx.lead = p.dispatchedBy(fromBot, mentioned || calledByName, m.Author.ID, m.Content)
 	// A person's message hands this sub's answer back to the lead only when the text @-s this sub
 	// itself and does not reply to the lead. Being only the reply target is not "@lead and @sub
@@ -972,7 +980,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	// Capture the human's addressee before adding quoted content (core addresseeOf decides).
-	otherCalled := !fromBot && callsOther(m, p.botID, botRoleID)
+	otherCalled := !fromBot && callsOther(m, p.selfID(), botRoleID)
 
 	// Prepend the replied-to message's content and images so the agent has context.
 	if m.ReferencedMessage != nil {
@@ -986,7 +994,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		MessageID: m.ID,
 		UserID:    m.Author.ID, UserName: m.Author.Username,
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
-		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
+		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.selfID())...)), FromBot: fromBot, Direct: direct,
 	}
 	msg.PrivateRoom = !fromBot && p.privateRoom(s, m.GuildID, m.ChannelID, m.Author.ID)
 	msg.AddressedOther = !msg.Mentioned && otherCalled
@@ -1010,7 +1018,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		// maomao fork: a teammate opening a line with this bot's name ("橘，…") counts like an @, so
 		// chat between bots can go on. No hop/round cap (user 2026-10-18「去掉模型聊天限制，
 		// 模型可以持续对话，没有限制」). A name mid-sentence does not (mentions.go nameCalled).
-		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName, teamBotNames(p.botID)...)
+		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName, teamBotNames(p.selfID())...)
 		msg.Content = "【" + discordDisplayName(m) + "】" + text
 		p.holdBotMessage(s, m, msg, downloadURL)
 		return
@@ -1347,7 +1355,7 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 // mechanism. The first call edits the deferred "thinking" response; subsequent
 // calls create followup messages.
 func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) error {
-	content = linkTeamMentions(content, p.botID)
+	content = linkTeamMentions(content, p.selfID())
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
 	for _, chunk := range chunks {
 		first := ictx.takeFirst()
@@ -1375,7 +1383,7 @@ func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) er
 
 func (p *Platform) sendChannelReply(rc replyContext, content string) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
-	content = linkTeamMentions(content, p.botID)
+	content = linkTeamMentions(content, p.selfID())
 	content = p.returnToLead(rc, content)
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
 	for _, chunk := range chunks {
@@ -1397,7 +1405,7 @@ func (p *Platform) sendChannelReply(rc replyContext, content string) error {
 
 func (p *Platform) sendChannel(rc replyContext, content string) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
-	content = linkTeamMentions(content, p.botID)
+	content = linkTeamMentions(content, p.selfID())
 	content = p.returnToLead(rc, content)
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
 	for _, chunk := range chunks {
@@ -1556,7 +1564,7 @@ func (p *Platform) SendWithButtons(ctx context.Context, rctx any, content string
 	if len(components) == 0 {
 		return fmt.Errorf("discord: no buttons provided")
 	}
-	content = linkTeamMentions(content, p.botID)
+	content = linkTeamMentions(content, p.selfID())
 
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
@@ -1935,7 +1943,7 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 		}
 		out = append(out, core.ChannelHistoryMessage{
 			ID: m.ID, Author: m.Author.Username, AuthorID: m.Author.ID, IsBot: m.Author.Bot,
-			IsSelf: m.Author.ID == p.botID, FromTurn: p.turnSent.has(m.ID), Content: text, Time: m.Timestamp,
+			IsSelf: m.Author.ID == p.selfID(), FromTurn: p.turnSent.has(m.ID), Content: text, Time: m.Timestamp,
 			Attachments: historyAttachments(m.Attachments), MentionIDs: mentionIDs(m.Content, m.Mentions),
 		})
 	}
@@ -2069,7 +2077,7 @@ func (p *Platform) botRoleIDForGuild(guildID string) string {
 }
 
 func (p *Platform) cacheBotRoleIDForGuild(s *discordgo.Session, guildID string, guildRoles []*discordgo.Role) {
-	if s == nil || guildID == "" || p.botID == "" {
+	if s == nil || guildID == "" || p.selfID() == "" {
 		return
 	}
 	roleID, err := p.resolveBotRoleIDForGuild(s, guildID, guildRoles)
@@ -2084,7 +2092,7 @@ func (p *Platform) cacheBotRoleIDForGuild(s *discordgo.Session, guildID string, 
 }
 
 func (p *Platform) resolveBotRoleIDForGuild(s *discordgo.Session, guildID string, guildRoles []*discordgo.Role) (string, error) {
-	member, err := s.GuildMember(guildID, p.botID)
+	member, err := s.GuildMember(guildID, p.selfID())
 	if err != nil {
 		return "", fmt.Errorf("fetch bot member: %w", err)
 	}
@@ -2359,7 +2367,7 @@ func (p *Platform) messageReference(ref *discordgo.Message) *core.MessageReferen
 		Text:   ref.Content,
 		SentAt: ref.Timestamp,
 	}
-	if ref.Author == nil || p.botID == "" || ref.Author.ID != p.botID || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
+	if ref.Author == nil || p.selfID() == "" || ref.Author.ID != p.selfID() || !p.turnSent.has(ref.ID) || ref.Timestamp.IsZero() {
 		return out
 	}
 	text := []rune(ref.Content)

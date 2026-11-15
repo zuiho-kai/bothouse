@@ -25,7 +25,7 @@ const leadReturnTTL = 24 * time.Hour
 // answer @-s the lead, and the lead (whose gate keeps it quiet on that message) checks the answer then.
 // content is the text after this bot's own @ was removed or marked.
 func (p *Platform) dispatchedBy(fromBot, mentioned bool, authorID, content string) string {
-	if !mentioned || p.lead() == "" || p.lead() == p.botID {
+	if !mentioned || p.lead() == "" || p.lead() == p.selfID() {
 		return ""
 	}
 	if fromBot {
@@ -85,7 +85,7 @@ var _ core.InjectedReplyMerger = (*Platform)(nil)
 func (p *Platform) HasConfiguredTeamLead() bool { return p.lead() != "" }
 
 // IsConfiguredTeamLead reports whether team_lead_bot names this bot (core.ConfiguredTeamLeadSelf).
-func (p *Platform) IsConfiguredTeamLead() bool { return p.lead() != "" && p.lead() == p.botID }
+func (p *Platform) IsConfiguredTeamLead() bool { return p.lead() != "" && p.lead() == p.selfID() }
 
 // addressedOther reports whether a person's message @-s or names (at a line start) another
 // team bot rather than this one, so a no-gate lead leaves it to that teammate.

@@ -221,7 +221,7 @@ func (p *Platform) OpenTaskPost(ctx context.Context, forum core.TaskForum, post 
 func (p *Platform) openTaskPost(api taskForumAPI, forum core.TaskForum, post core.TaskForumPost, options ...discordgo.RequestOption) (string, error) {
 	if active, err := api.GuildThreadsActive(forum.GuildID, options...); err == nil && active != nil {
 		for _, th := range active.Threads {
-			if th != nil && th.ParentID == forum.ID && th.OwnerID == p.botID && strings.HasPrefix(th.Name, post.Marker) {
+			if th != nil && th.ParentID == forum.ID && th.OwnerID == p.selfID() && strings.HasPrefix(th.Name, post.Marker) {
 				return th.ID, nil
 			}
 		}
@@ -340,7 +340,7 @@ func (p *Platform) OwnsTaskPost(ctx context.Context, threadID string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	return th != nil && th.OwnerID != "" && th.OwnerID == p.botID, nil
+	return th != nil && th.OwnerID != "" && th.OwnerID == p.selfID(), nil
 }
 
 // TaskPostGone implements core.TaskForumPoster: Discord answers 404 for a deleted post or forum.

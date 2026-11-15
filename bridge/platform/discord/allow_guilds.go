@@ -46,8 +46,8 @@ func (p *Platform) guildAllowed(guildID string) bool {
 			return false
 		}
 		// Same token twice in one process: only the instance registered for the bot id answers.
-		if p.botID != "" {
-			if v, ok := teamPlatforms.Load(p.botID); ok && v != p {
+		if p.selfID() != "" {
+			if v, ok := teamPlatforms.Load(p.selfID()); ok && v != p {
 				return false
 			}
 		}
