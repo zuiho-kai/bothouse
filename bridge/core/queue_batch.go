@@ -145,7 +145,7 @@ func sameQueuedChat(a, b *queuedMessage) bool {
 
 func sameChatAnyVoice(a, b *queuedMessage) bool {
 	return a.msgSessionKey == b.msgSessionKey && a.channelKey == b.channelKey &&
-		a.msgPlatform == b.msgPlatform && a.platform == b.platform
+		a.msgPlatform == b.msgPlatform && a.platform == b.platform && sameTaskForumPost(a.taskForum, b.taskForum)
 }
 
 // mergeQueuedChat is mergeQueued for several senders of one group chat: each part names its
@@ -295,8 +295,7 @@ func batchableQueued(q *queuedMessage) bool {
 }
 
 func sameQueuedThread(a, b *queuedMessage) bool {
-	return a.userID == b.userID && a.msgSessionKey == b.msgSessionKey && a.channelKey == b.channelKey &&
-		a.msgPlatform == b.msgPlatform && a.platform == b.platform && a.fromVoice == b.fromVoice
+	return a.userID == b.userID && sameQueuedChat(a, b)
 }
 
 func batchReference(parts []queuedMessage) *MessageReference {

@@ -614,6 +614,9 @@ func (e *Engine) prepareTaskReview(job *TimerJob, now time.Time) (*TimerJob, err
 	}
 	if ref.Stage == "roundup" {
 		title = e.i18n.T(MsgTaskReviewRoundup)
+		if summary := e.taskForumWaitingSummary(job.SessionKey, now); summary != "" {
+			prompts = append(prompts, summary)
+		}
 	}
 	prompt := strings.Join(prompts, "\n\n")
 	root, err := e.leadRuntimeDir()

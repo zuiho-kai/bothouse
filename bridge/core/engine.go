@@ -380,6 +380,7 @@ type RateLimitCfg struct {
 
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
+	taskForumOff           atomic.Bool
 	proactiveMu            sync.Mutex
 	proactiveAuthorization *ProactiveAuthorization
 	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
@@ -663,7 +664,8 @@ type workspaceInitFlow struct {
 // sends it after the current turn completes to avoid mid-turn interference.
 type queuedMessage struct {
 	authorization *AuthorizationTurn
-	turnTrigger   string // #618 K1: Message.turnTrigger, kept across the queue
+	taskForum     *TaskForumReply // keep post delivery separate within the source conversation
+	turnTrigger   string          // #618 K1: Message.turnTrigger, kept across the queue
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom      string
 	timerJobID       string
@@ -3675,6 +3677,9 @@ func (e *Engine) SetPaused(v bool) {
 // same *Message, and each step that must not run twice carried its own "done" flag on Message; the
 // steps without a flag — rate limit, the MessageReceived hook — ran twice.)
 func (e *Engine) handleMessage(p Platform, msg *Message) {
+	if msg.TaskForum != nil && !e.prepareTaskForumReply(p, msg) {
+		return
+	}
 	if !e.enterMessageWork(msg) {
 		return
 	}
@@ -3694,7 +3699,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		// lead-only board/workspace services before handling the next message.
 		e.setDynamicTeamLead(e.isTeamLead())
 	}
-	if msg.authorization == nil {
+	if msg.authorization == nil && msg.TaskForum == nil {
 		// #139 C: a user reply to a forwarded workspace [ask] goes back to that workspace.
 		if e.routeWorkspaceAnswer(p, msg) {
 			return
@@ -3712,7 +3717,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
 	// A stop word that calls no bot (no @, no reply) means the same.
-	if !msg.FromBot && len(msg.Images) == 0 && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg)) {
+	if msg.TaskForum == nil && !msg.FromBot && len(msg.Images) == 0 && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg)) {
 		e.cmdStopAll(p, msg)
 		return
 	}
@@ -4004,7 +4009,7 @@ func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
 	if msg.Direct {
 		sessions.MarkDirect(msg.SessionKey)
 	}
-	if e.applyGate(p, msg, session, interactiveKey) {
+	if msg.TaskForum == nil && e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
 	if e.nativeCompactRejectsUser(interactiveKey) {
@@ -4208,6 +4213,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	}
 	q := queuedMessage{
 		authorization:       msg.authorization,
+		taskForum:           msg.TaskForum,
 		messageID:           msg.MessageID,
 		platform:            p,
 		replyCtx:            msg.ReplyCtx,

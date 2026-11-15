@@ -115,8 +115,8 @@ class Replay(unittest.TestCase):
         self.assertEqual(len(recs), 6)
         self.assertTrue(all(r["auto_pruned"] and r["paused"] and r["done_at"] for r in recs))
         self.assertIn("最近 14 天结束 0 件", board.rework_report())  # 自动收起不进返工统计
-        board.done(591, 0)  # 手动 done 的不能用 resume 找回
-        self.assertIsNone(board.unprune(591))
+        board.done(591, 0)  # #779：完成的也沿 resume 找回原条目
+        self.assertIsNotNone(board.unprune(591))
         # resume：从完成记录拿回板上再恢复；原来的状态、在哪原样
         board.main(["resume", "467"])
         it = next(i for i in board._read() if i["id"] == 467)

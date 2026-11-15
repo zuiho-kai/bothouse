@@ -1,8 +1,8 @@
 """Lossless structure operations over immutable Git sources (product pipeline).
 
 The model proposes addresses, never bytes of moved facts. Exact source quotes
-establish provenance, not natural-language truth. Supersession requires an
-independent review receipt bound to the complete proposed final tree.
+establish provenance, not natural-language truth. Optional human review binds
+supersession to the complete proposed final tree.
 """
 import argparse
 from collections import Counter
@@ -169,10 +169,19 @@ On correction/resume, keep all still-applicable operations from the catalog's sa
 For a factual update, use an updates entry with block, to, section, text (one complete replacement
 block), source {line: exact line number in the original TRANSCRIPT, quote: that exact line},
 and reason (the explicit supersession relation). Updates cannot be hidden in a move.
-The program validates source quotes; a separate content reviewer must approve the exact proposed
-final tree before an update is delivered. Unapproved updates remain pending, with offset unchanged.
+The program validates exact source quotes, supersession reasons and the complete final tree.
+Valid updates are delivered automatically together with new facts and checkpoint progress.
 Preserve both sides of a conflict; a newer-looking value alone never proves supersession.
 '''
+
+
+def instruction(review_required=False):
+    if not review_required:
+        return INSTRUCTION
+    return INSTRUCTION.replace(
+        'Valid updates are delivered automatically together with new facts and checkpoint progress.',
+        'An independent reviewer must approve the exact final tree before delivery. '
+        'Unapproved updates remain pending with offsets unchanged.')
 
 
 def plan_output(output):
@@ -295,7 +304,8 @@ def review_path(repo, key):
 
 
 def reviewed(repo, coverage, files, kind):
-    if not coverage['plan']['updates']:
+    # Source: legacy contracts required a receipt; delivered commits keep their recorded policy.
+    if not coverage['plan']['updates'] or not coverage.get('review_required', True):
         return True
     key = review_key(coverage, files, kind)
     path = review_path(repo, key)

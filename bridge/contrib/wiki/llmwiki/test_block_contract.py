@@ -126,6 +126,9 @@ class BlockContract(unittest.TestCase):
         db.close()
 
     def test_update_waits_for_exact_tree_review_and_resumes_without_model(self):
+        policy = patch.dict(I.CFG, fact_update_review=True)
+        policy.start()
+        self.addCleanup(policy.stop)
         # One old occurrence, so explicit replacement removes the old current state.
         (self.repo / "misc/source.md").write_text(PAGE + FACT, encoding="utf-8")
         self.commit("single update source")
@@ -157,6 +160,32 @@ class BlockContract(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertNotIn(FACT, (self.repo / "misc/source.md").read_text(encoding="utf-8"))
         self.assertIn("23 units", (self.repo / "misc/source.md").read_text(encoding="utf-8"))
+
+    def test_default_update_delivers_same_batch_new_fact_and_recovers_offset(self):
+        (self.repo / "misc/source.md").write_text(PAGE + FACT, encoding="utf-8")
+        self.commit("one current allocation")
+        original = "USER: replace synthetic allocation with 23 units; synthetic color is blue"
+        checkpoint = [dict(id="update-session", start=0, end=123)]
+        def update(instruction, stdin="", label="?", context=None):
+            c = I.block_contract
+            catalog = json.loads((I.WORK / c.CATALOG).read_text(encoding="utf-8"))
+            row = next(row for row in catalog["blocks"] if row["text"] == FACT.strip())
+            with (I.WORK / "misc/source.md").open("a", encoding="utf-8") as f:
+                f.write("- synthetic color is blue\n")
+            intent = dict(block=row["id"], to=row["path"], section=row["section"],
+                          text="- synthetic allocation: 23 units", source=dict(line=1, quote=original),
+                          reason="Synthetic user explicitly replaces allocation.")
+            return True, c.PLAN_PREFIX + json.dumps(dict(moves=[], updates=[intent])), 0
+        with patch.object(I, "runner", return_value=update):
+            self.assertEqual(I.model_pass("automatic update", "update", context=original,
+                                          engine="fake", checkpoint=checkpoint), "changed")
+        text = (self.repo / "misc/source.md").read_text(encoding="utf-8")
+        self.assertNotIn(FACT, text)
+        self.assertIn("23 units", text)
+        self.assertIn("synthetic color is blue", text)
+        db = I.state()
+        self.assertEqual(db.execute("select offset from ingested where id='update-session'").fetchone(), (123,))
+        db.close()
 
     def test_uncompleted_turn_does_not_turn_into_an_accepted_checkpoint(self):
         checkpoint = [dict(id="failed-session", start=0, end=123)]

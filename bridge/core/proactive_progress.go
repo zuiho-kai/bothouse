@@ -35,7 +35,7 @@ func (p *PublicProgress) authorizedTaskView(task *Task, lang Language) *Task {
 	i := NewI18n(lang)
 	view := &Task{ID: task.ID, Agent: task.Agent, Origin: task.Origin, SessionKey: task.SessionKey,
 		State: task.State, Seq: task.Seq, Revision: task.Revision, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
-		ChannelID: task.ChannelID, MessageID: task.MessageID, ThreadID: task.ThreadID, CardURL: task.CardURL, CardSession: task.CardSession,
+		ChannelID: task.ChannelID, MessageID: task.MessageID, ThreadID: task.ThreadID, CardURL: task.CardURL, CardSession: task.CardSession, ForumPost: task.ForumPost,
 		Title: i.T(MsgPublicAutoTitle), LatestProgress: i.T(MsgAuthorizationRecheck),
 		AuthorizationDecisionID: task.AuthorizationDecisionID, AuthorizationWithdrawn: task.AuthorizationWithdrawn,
 		AuthorizationNoticeVersion: task.AuthorizationNoticeVersion}

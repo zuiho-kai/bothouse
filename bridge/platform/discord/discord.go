@@ -847,6 +847,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
+	if p.handleTaskForumReply(s, m) {
+		return
+	}
+
 	// Check both user mentions and role mentions (Discord auto-creates a managed role
 	// for each bot; users may @ the role instead of the user).
 	botRoleID := p.botRoleIDForGuild(m.GuildID)
