@@ -811,8 +811,8 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if node != "" {
 		var err error
 		notifier, canMention := poster.(TaskForumUserNotifier)
-		user := watchOwnerID(it.Dispatcher)
-		if tag != ps.Tag && tag == TaskForumTagWaiting && canMention && e.watchOwnerIsPerson(plat, chat, user) {
+		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		if tag != ps.Tag && tag == TaskForumTagWaiting && canMention && user != "" {
 			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, user)
 		} else {
 			err = poster.PostTaskNode(ctx, ps.Thread, node)
@@ -1151,4 +1151,22 @@ func (e *Engine) taskForumWaitingSummary(session string, now time.Time) string {
 		return ""
 	}
 	return e.i18n.Tf(MsgTaskForumRoundupWaiting, count, strings.Join(links, " · "))
+}
+
+// taskForumWaitingUser is the person a waiting post mentions: the dispatcher when it is a person,
+// otherwise the bridge owner (first admin_from ID). Board rows record the dispatching bot's
+// project (board.py dispatcher = CC_PROJECT), so without the owner fallback nobody was mentioned.
+func (e *Engine) taskForumWaitingUser(plat, chat, dispatcher string) string {
+	if user := watchOwnerID(dispatcher); e.watchOwnerIsPerson(plat, chat, user) {
+		return user
+	}
+	e.userRolesMu.RLock()
+	af := e.adminFrom
+	e.userRolesMu.RUnlock()
+	for _, a := range strings.Split(af, ",") {
+		if a = strings.TrimSpace(a); a != "" && a != "*" {
+			return a
+		}
+	}
+	return ""
 }

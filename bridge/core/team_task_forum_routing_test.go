@@ -215,10 +215,8 @@ func TestTaskForumMentionOnlyOnWaitingTransition(t *testing.T) {
 			board(true)
 			e.syncTaskForum()
 			e.syncTaskForum()
-			want := 0
-			if dispatcher == "123" {
-				want = 1
-			}
+			// A bot (or unknown) dispatcher falls back to the owner: the user is who waits.
+			want := 1
 			if len(p.mentions) != want {
 				t.Fatalf("mentions=%v", p.mentions)
 			}

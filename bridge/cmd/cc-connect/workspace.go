@@ -35,6 +35,7 @@ func runWorkspace(args []string) {
 	kind := fs.String("kind", "report", "exit: report (done, for acceptance) or failed")
 	to := fs.String("to", "", "transition: closed, paused, returned or failed")
 	why := fs.String("why", "", "transition: the reason recorded with it")
+	reopen := fs.Bool("reopen", false, "transition: take a closed task back for rework (closed → paused)")
 	file := fs.String("file", "", "exit: the report draft (its first line 「[report] #id 背景：…」); - reads stdin")
 	_ = parseWorkspaceFlags(fs, rest)
 	if *session == "" && sub != "transition" {
@@ -140,7 +141,7 @@ func runWorkspace(args []string) {
 		if *boardID <= 0 || *to == "" {
 			workspaceFail(fmt.Errorf("usage: bothouse workspace transition --board <id> --to closed|paused|returned|failed [--why <reason>]"))
 		}
-		body, _ := json.Marshal(map[string]any{"id": *boardID, "to": *to, "why": *why, "by": "board:" + os.Getenv("CC_PROJECT")})
+		body, _ := json.Marshal(map[string]any{"id": *boardID, "to": *to, "why": *why, "reopen": *reopen, "by": "board:" + os.Getenv("CC_PROJECT")})
 		resp, err := apiPost(sock, "/team/task/transition", body)
 		if err != nil {
 			workspaceFail(err)

@@ -28,8 +28,9 @@ func (p *Platform) handleTaskForumReply(s *discordgo.Session, m *discordgo.Messa
 	if !known {
 		return false
 	}
-	// Check WebhookID even when asTestPerson has rewritten Author.Bot.
-	if r == nil || m.Author.Bot || m.WebhookID != "" {
+	// Webhooks stay out unless test_webhook_people names them (asTestPerson already cleared
+	// Author.Bot for those, as on every other route): test servers have no second human account.
+	if r == nil || m.Author.Bot || (m.WebhookID != "" && !p.testWebhookPeople[m.WebhookID]) {
 		return true
 	}
 	if parent == "" {
