@@ -2499,3 +2499,11 @@ app_secret = "your-feishu-app-secret"
 # output = 4.0
 # cache_read = 0.2
 # cache_write = 2.5
+
+# Optional per-turn spend cap, USD. A cron turn, a timer turn or a turn in a
+# workspace channel that costs more is stopped and its chat is told. Spend is
+# read from the CLI's session log with the rates above. Restart to reload.
+# [turn_spend_cap]
+# cron = 1
+# timer = 5
+# workspace = 20

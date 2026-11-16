@@ -88,9 +88,11 @@ var configMu configLock
 var ConfigPath string
 
 type Config struct {
-	UsagePrices    map[string]core.TokenPrice `toml:"usage_prices"`
-	DataDir        string                     `toml:"data_dir"` // session store directory, default ~/.cc-connect
-	AttachmentSend string                     `toml:"attachment_send"`
+	UsagePrices map[string]core.TokenPrice `toml:"usage_prices"`
+	// TurnSpendCap: USD one cron / timer / workspace turn may cost before it is stopped; unset = built-in (1 / 5 / 20).
+	TurnSpendCap   core.TurnSpendCaps `toml:"turn_spend_cap"`
+	DataDir        string             `toml:"data_dir"` // session store directory, default ~/.cc-connect
+	AttachmentSend string             `toml:"attachment_send"`
 	// Quiet is legacy: when true and [display] does not set thinking_messages / tool_messages,
 	// engines behave as if those flags were false. Per-project quiet overrides when set.
 	Quiet              *bool                   `toml:"quiet,omitempty"`

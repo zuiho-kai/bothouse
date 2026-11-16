@@ -819,6 +819,9 @@ type interactiveState struct {
 	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
 	// (fireScheduledTurnTimeout); the next turn start waits for it. Guarded by mu.
 	scheduledCancel chan struct{}
+	// spendWatch: the token of the spend cap armed for this turn (armTurnSpendCap); 0 none.
+	// Guarded by mu.
+	spendWatch uint64
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -848,6 +851,7 @@ type interactiveState struct {
 func (s *interactiveState) markTurnStartLocked() {
 	s.awaitScheduledCancelLocked()
 	s.scheduledWatch = 0
+	s.spendWatch = 0
 	s.turnCancelled = false
 	s.turnStartedAt = time.Now()
 }
@@ -5242,6 +5246,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.currentJobID = msg.timerJobID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID, false)
+		e.armTurnSpendCap(state, session, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.SessionKey)
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
 		// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
@@ -8358,6 +8363,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentJobID = queued.timerJobID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
+		e.armTurnSpendCap(state, session, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
