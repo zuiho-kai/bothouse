@@ -162,3 +162,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - cloud-web: 已接
 - discord: 不支持：权限请求是桥发的按钮消息，文字回复后桥照常回一句结果，没有宿主侧的卡要关
 - feishu: 不支持：权限请求是桥发的卡片消息，文字回复后桥照常回一句结果，没有宿主侧的卡要关
+
+## TurnReactor
+
+收到消息先在这条消息上贴「已收到」反应，这一轮结束换成完成或出错（11-16 用户「第二个做成可选」，core/turn_reaction.go）。平台自己决定开没开，关着就什么都不做。
+
+- discord: 已接
+- feishu: 不支持：飞书已有 reaction_emoji（收到时贴、结束撤）和 done_emoji，再接一套会重复
+- cloud-web: 不支持：网页聊天没有消息反应
+- dsh: 不支持：同 cloud-web

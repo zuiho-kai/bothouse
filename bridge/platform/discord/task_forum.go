@@ -62,15 +62,26 @@ func (p *Platform) TaskForumScope(ctx context.Context, chat string) (core.TaskFo
 			return core.TaskForum{}, err
 		}
 	}
-	return taskForumScope(ch)
+	var cat *discordgo.Channel
+	if ch.ParentID != "" {
+		if cat, err = session.State.Channel(ch.ParentID); err != nil {
+			cat, _ = session.Channel(ch.ParentID, discordgo.WithContext(ctx))
+		}
+	}
+	return taskForumScope(ch, cat)
 }
 
-func taskForumScope(ch *discordgo.Channel) (core.TaskForum, error) {
+// The workspace category never gets a task forum (user 2026-11-16「工作区不应该开任务论坛，聊天区按分类开」):
+// a source resolving there is reported as ErrTaskForumWorkspaceCategory so core uses a chat channel instead.
+func taskForumScope(ch, cat *discordgo.Channel) (core.TaskForum, error) {
 	if ch.GuildID == "" {
 		return core.TaskForum{}, core.ErrNotTeamChannel
 	}
 	if ch.ParentID == "" {
 		return core.TaskForum{}, core.ErrTaskForumCategoryRequired
+	}
+	if cat != nil && cat.Name == workspaceCategoryName {
+		return core.TaskForum{}, core.ErrTaskForumWorkspaceCategory
 	}
 	return core.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID}, nil
 }
@@ -127,11 +138,17 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 			return core.TaskForum{}, err
 		}
 	}
-	scope, err := taskForumScope(ch)
+	list, err := api.GuildChannels(ch.GuildID, options...)
 	if err != nil {
 		return core.TaskForum{}, err
 	}
-	list, err := api.GuildChannels(ch.GuildID, options...)
+	var cat *discordgo.Channel
+	for _, c := range list {
+		if c != nil && c.ID == ch.ParentID {
+			cat = c
+		}
+	}
+	scope, err := taskForumScope(ch, cat)
 	if err != nil {
 		return core.TaskForum{}, err
 	}
@@ -221,7 +238,7 @@ func (p *Platform) OpenTaskPost(ctx context.Context, forum core.TaskForum, post 
 func (p *Platform) openTaskPost(api taskForumAPI, forum core.TaskForum, post core.TaskForumPost, options ...discordgo.RequestOption) (string, error) {
 	if active, err := api.GuildThreadsActive(forum.GuildID, options...); err == nil && active != nil {
 		for _, th := range active.Threads {
-			if th != nil && th.ParentID == forum.ID && th.OwnerID == p.botID && strings.HasPrefix(th.Name, post.Marker) {
+			if th != nil && th.ParentID == forum.ID && th.OwnerID == p.selfID() && strings.HasPrefix(th.Name, post.Marker) {
 				return th.ID, nil
 			}
 		}
@@ -340,7 +357,7 @@ func (p *Platform) OwnsTaskPost(ctx context.Context, threadID string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	return th != nil && th.OwnerID != "" && th.OwnerID == p.botID, nil
+	return th != nil && th.OwnerID != "" && th.OwnerID == p.selfID(), nil
 }
 
 // TaskPostGone implements core.TaskForumPoster: Discord answers 404 for a deleted post or forum.

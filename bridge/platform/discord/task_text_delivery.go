@@ -10,7 +10,7 @@ import (
 )
 
 func (p *Platform) PrepareTaskText(text string) []string {
-	return core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(linkTeamMentions(text, p.botID)), maxDiscordLen)
+	return core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(linkTeamMentions(text, p.selfID())), maxDiscordLen)
 }
 
 func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text string) (string, error) {

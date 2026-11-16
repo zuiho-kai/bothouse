@@ -20,21 +20,18 @@
 
 Bring your own AIs too: a team-lead AI splits the work and hands it out; they all share one memory.
 
-[Video](#video) · [Why](#why) · [Three ways in](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md) · [Discord task forum](bridge/docs/task-forum.md)
+[Video](#video) · [Why](#why) · [Where to start](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md) · [Discord task forum](bridge/docs/task-forum.md)
 
 </div>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/overview-en-night.jpg" />
-  <img src="docs/assets/readme/info/overview-en-day.jpg" width="960" alt="bothouse at a glance: the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, the DeepSeek desktop app, OpenCode, Antigravity, Grok and more) join one group chat on Discord, Feishu, QQ or the DeepSeek desktop app; a team-lead AI splits the work; big jobs get their own channel (Codex writes the code, Gemini digs up references); results are handed back and checked by an AI that did not do the work; everyone shares one memory, a folder of Markdown notes checked every night and saved with Git to your private repo" />
-</picture>
+<p align="center"><img src="docs/assets/readme/shot-handoff.en.png" width="720" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></p>
 
 <a id="video"></a>
 
 **Watch it in 3 minutes** — one message goes in; the crew splits the work, does it and hands it back. Click the cover to play.
 
 <p align="center">
-  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: you post one message in a group chat; the team-lead Claude Code splits it, and Codex, Gemini CLI, DeepSeek and Grok each take a part — click to play"></a>
+  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video cover: a real frame from the video, where you ask the group for a token dashboard and the lead Claude splits it into three jobs for Codex, Gemini and DSH; caption: A friend's Claude Code joins your group chat. One @mention and it starts. Click to play"></a>
 </p>
 
 ```sh
@@ -49,14 +46,11 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 **The most common way people use it now: borrowing someone else's agents.** zzzx0757 in our group works this way every day with the author's (zuiho-kai) agents: he @mentions the lead AI in Discord, and the work goes out — the Codex role writes the code, the DeepSeek role polishes the copy — and the results come back to him. Your friend's Claude and Codex become staff on loan: no extra subscription just to generate images, no six people sharing one login. One computer stays on, and the whole group can hand out work.
 
+This repo is built the same way: I hand out work in the group, the agents each take a piece, one that wasn't involved reviews it, and then it gets merged.
+
 <a id="usage"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-en-night.svg" />
-  <img src="docs/assets/readme/banner/usage-en-day.svg" width="960" alt="" />
-</picture>
-
-## Three ways in
+## Where to start
 
 <a id="dsh"></a>
 
@@ -69,11 +63,6 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 
 <a id="install"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-en-night.svg" />
-  <img src="docs/assets/readme/banner/install-en-day.svg" width="960" alt="" />
-</picture>
 
 ## Install
 
@@ -109,19 +98,14 @@ Only three ideas to learn:
 
 More detail — who replies when nobody is named, the nightly review, guardrails, switching the lead by hand — is in [How the team works](docs/readme-details.en.md#how-the-team-works).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: on the left, where you chat (Discord, Feishu, QQ, DSH desktop or web); in the middle, bothouse on your own computer: platform adapters, the engine with one session per channel, the team lead and the task board with workspaces, CLI adapters and the memory gate; below, the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, OpenCode, DSH, Antigravity); on the right, shared memory as a Markdown folder with the memory forum, pushed with Git to your private GitHub repo" />
+</picture>
+
 <a id="features"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/features-en-night.svg" />
-  <img src="docs/assets/readme/banner/features-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Features
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/features-en-night.jpg" />
-  <img src="docs/assets/readme/info/features-en-day.jpg" width="960" alt="What you get: bring your own AIs; one account, many roles; works in Discord, Feishu, QQ or the DeepSeek desktop app; big jobs never block chat; everyone remembers the same thing; a nightly review; long jobs stay on track; manage it from your phone; see the team at work on the team desk" />
-</picture>
 
 | You want | How bothouse helps |
 | --- | --- |
@@ -141,8 +125,8 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.en.png"><img src="docs/assets/readme/shot-handoff.en.png" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></a><br><b>One message, handed to a workspace</b>: the team-lead AI sends big work out and chat carries on.</td>
     <td width="50%"><a href="docs/assets/readme/shot-workspace.en.png"><img src="docs/assets/readme/shot-workspace.en.png" alt="Workspace 1 task board listing running and finished tasks by role"></a><br><b>Task board</b>: what each workspace is doing and what landed today, at a glance.</td>
+    <td width="50%"><a href="docs/assets/readme/shot-desk.png"><img src="docs/assets/readme/shot-desk.png" alt="Team desk in DSH: a pixel office where each role sits at a desk with its current task, next to a live feed of handoffs, returns and send-backs"></a><br><b>Team desk</b>: who is working on what, live; every light is a real event.</td>
   </tr>
   <tr>
     <td width="50%"><a href="docs/assets/readme/shot-roles.en.jpg"><img src="docs/assets/readme/shot-roles.en.jpg" alt="Dashboard Roles page: five roles on different CLIs with status, current work and model"></a><br><b>Roles</b>: which CLI each role runs, what it is busy with, which model — pause or restart in one click.</td>
@@ -150,7 +134,7 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
   </tr>
 </table>
 
-_Top row: real channel footage. Bottom row: the author's own dashboard._
+_Top left: real channel footage. The rest: the author's own team desk and dashboard._
 
 <a id="characters"></a>
 
@@ -162,11 +146,6 @@ Each role can also wear a persona and an avatar — handy if you want your team 
 
 <a id="memory"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/memory-en-night.svg" />
-  <img src="docs/assets/readme/banner/memory-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Memory you can see
 
 The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer.
@@ -177,10 +156,6 @@ The team's memory is a plain folder of Markdown files. Each incoming message fir
 
 See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese) and the [Wiki galaxy](docs/readme-details.en.md#wiki-galaxy).
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
-</picture>
 
 <a id="platforms"></a>
 
@@ -273,11 +248,6 @@ Most guides are currently in Chinese; the self-hosted web protocol is in English
 
 <a id="community"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/community-en-night.svg" />
-  <img src="docs/assets/readme/banner/community-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Community
 
 Questions, ideas and the teams you build are all welcome.
@@ -288,31 +258,6 @@ Questions, ideas and the teams you build are all welcome.
 | [GitHub Issues](https://github.com/zuiho-kai/bothouse/issues) | bugs and ideas |
 | [Pull requests](https://github.com/zuiho-kai/bothouse/pulls) | build it with us |
 | [linux.do](https://linux.do) | Chinese community forum |
-
-<a id="repository-status"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-en-night.svg" />
-  <img src="docs/assets/readme/banner/status-en-day.svg" width="960" alt="" />
-</picture>
-
-## Repository status
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-en-night.svg" />
-  <img src="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-en-day.svg" width="960" alt="GitHub repository status: stars, forks, open issues and PRs, PRs closed and commits in the last 30 days, latest release; text data at the links below." />
-</picture>
-
-**Last 30 days**: closed PRs include merged PRs; commits count all history reachable from the default branch, including merge and bot commits. Updated every six hours; the time on the card is the last successful update.
-
-[Text data and definitions](https://github.com/zuiho-kai/bothouse/tree/readme-status#readme) · [JSON](https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats.json) · [Update workflow](https://github.com/zuiho-kai/bothouse/actions/workflows/readme-status.yml)
-
-<a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/star-en-night.svg" />
-  <img src="docs/assets/readme/banner/star-en-day.svg" width="960" alt="Star bothouse and come back to see the team grow." />
-</picture>
-</a>
 
 ## License and thanks
 
