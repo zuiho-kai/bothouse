@@ -51,10 +51,10 @@ def timer_cmd(ws: str, path: str, summary: str, interrupt: bool = False, project
     # 身份跑、跳过注入（core/engine.go inject_if_busy 判定），紧急转交的 --interrupt 会失效。
     if not project:
         raise ValueError("ws-forward: 接收项目未知，不能用调用者 CC_PROJECT 代替工作区执行者")
-    cmd = [_team.cc_bin() or "cc-connect", "timer", "add", "-p", project, "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1m", "--timeout-mins", "0",
+    cmd = [_team.cc_bin() or "cc-connect", "timer", "add", "-p", project, "-s", ws if ":" in ws else f"discord:{ws}", "--delay", "1s", "--timeout-mins", "0",
            "--forward", "--desc", "工作区转交", "--prompt", wake_prompt(path, summary, interrupt)]
+    # 延迟一律 1 秒（timer 只收正数）：转过去的话不用等，原先不打断的转话写死等一分钟（#1732）
     if interrupt:  # 工作区正在跑就插进当前这一轮，不排到它跑完之后
-        cmd[cmd.index("--delay") + 1] = "1s"
         cmd.insert(cmd.index("--timeout-mins"), "--inject-if-busy")
     return cmd
 
@@ -230,7 +230,7 @@ def ask_user(last: dict, nid: int, kind: str):
     if r.returncode != 0:
         sys.exit(f"ws-forward: 提问没发到聊天频道 {chat}：{(r.stderr or r.stdout).strip()[:300]}；任务板没改")
     board.ask_to_user(it["id"], kind)
-    print(f"ws-forward: #{it['id']} 的提问已整份发到聊天频道 {chat}，任务帖会标「等你」并叫用户；"
+    print(f"ws-forward: #{it['id']} 的提问已整份发到聊天频道 {chat}，任务帖会标「等你」，桥在聊天频道叫用户；"
           f"用户答了用 ws-forward --id {it['id']} \"<用户的答复，附原话>\" 转回", file=sys.stderr)
 
 

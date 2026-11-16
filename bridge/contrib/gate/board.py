@@ -16,7 +16,7 @@
   board                                  # 列出进行中的事：在聊天频道里跑只列本频道的（别的频道只计数），工作区列它绑的
   board list --all                       # 全表，每行标来源频道；别的频道的活只看，改要到派活的频道（#836）
   board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
-                                         #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
+                                         #   活名（≤20 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
                                          #   状态只是展示文字，写什么都不结束这件；结束用 board done / accepted
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
@@ -235,8 +235,21 @@ def _now():
     return time.strftime("%m-%d %H:%M")
 
 
-# 团队板只显示短名（用户 2026-10-28「工作区的任务板又长又臭」）。同 core/team_task_board.go teamTaskBoardShort，改要一起改。
-SHORT_RUNES = 10
+# 团队板只显示活名（用户 2026-10-28「工作区的任务板又长又臭」）。同 core/team_task_board.go teamTaskBoardShort，改要一起改。
+# 活名是这件活在任务帖标题、置顶任务表、汇报里的同一个名字。原先限 10 字，写出来的是「issue1541」「at-spam」这类
+# 派活人自己才懂的代号（用户 2026-11-17「那个标题我根本看不懂啊」）；放到 20 字，够写一句「要做成什么」（#1732）。
+SHORT_RUNES = 20
+_SHORT_CODE = re.compile(r"#\d|(?<![A-Za-z])(?i:issue|pr|bug)[\s\-_#]*\d+")
+
+
+def short_problem(name):
+    """派活人写的活名哪里不像人话，没问题返回 ""。只挡程序认得出的两种：拿编号当名字、单个英文代号。"""
+    s = str(name or "").strip()
+    if _SHORT_CODE.search(s):
+        return "拿编号当了名字"
+    if re.fullmatch(r"[\x21-\x7e]+", s):
+        return "只是一个英文代号"
+    return ""
 _SHORT_TAG = re.compile(r"[（(]用户点名[)）]")
 _SHORT_PREFIX = re.compile(r"^\s*(?:用户点名(?:「[^」]*」|（[^）]*）|\s*#\d+\s*\S{0,3})?[：:]|用户点名\s*|事故\s*#\d+[^：:]{0,8}[：:]|#\d+[^：:]{0,10}[：:])\s*")
 
@@ -250,7 +263,7 @@ def is_probe(ids):
 
 
 def short_of(what):
-    """事情的短名：去掉「用户点名：」「#N 续：」「事故 #N 跟进：」这类前缀，冒号前够短就取冒号前，否则截 10 字。"""
+    """事情的短名：去掉「用户点名：」「#N 续：」「事故 #N 跟进：」这类前缀，冒号前够短就取冒号前，否则截到 SHORT_RUNES 字。"""
     s = _SHORT_TAG.sub("", str(what or "")).strip()
     while True:
         t = _SHORT_PREFIX.sub("", s, count=1)
@@ -1901,7 +1914,7 @@ def _split_short(argv):
     if "--short" in argv:
         k = argv.index("--short")
         if k + 1 >= len(argv):
-            sys.exit("--short 后面要写短名（≤10 字），比如 --short 任务板整理")
+            sys.exit("--short 后面要写活名（≤20 字），比如 --short 任务板整理")
         return argv[:k] + argv[k + 2:], argv[k + 1]
     return argv, None
 
@@ -1954,7 +1967,7 @@ def main(argv):
             print("\n".join(lines(argv[1:] == ["--all"])) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
             if not (short_name or "").strip() or len(short_name.strip()) > SHORT_RUNES:
-                sys.exit(f"不加：要写 --short 短名（≤{SHORT_RUNES} 字，置顶任务表上显示的名字），不再从任务句截前十字")
+                sys.exit(f"不加：要写 --short 活名（≤{SHORT_RUNES} 字，任务帖标题和置顶任务表上显示的名字，写用户一眼认得出的一句话），不再从任务句截字")
             why = _lookback_reason(*argv[1:4])
             if why:
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")

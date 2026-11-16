@@ -112,6 +112,8 @@ type teamTaskBoardItem struct {
 	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
+	// forumResult: the passed report the item's post remembers (taskForumPostState.Result).
+	forumResult string
 	// quoteWho/speakerNames: who said each 原话 line on the forum card (team_task_forum_quote.go).
 	quoteWho     func(text string) string
 	speakerNames map[string]string
@@ -633,8 +635,11 @@ const (
 	teamTaskBoardStuckAfter = time.Hour
 	// teamTaskBoardReasonRunes: the reason after 等你/卡住. Source: the approved plan, 「短理由（≤20 字）」.
 	teamTaskBoardReasonRunes = 20
-	// teamTaskBoardShortRunes: an item's name. Source: the approved plan, 「短名（≤10 字）」 (board.py SHORT_RUNES).
+	// teamTaskBoardShortRunes: a short label (who holds an item). Source: the approved plan, 「短名（≤10 字）」.
 	teamTaskBoardShortRunes = 10
+	// teamTaskBoardNameRunes: an item's name where the dispatcher wrote none and it is cut from
+	// the task sentence. Source: board.py SHORT_RUNES (#1732: 10 runes held only a code name).
+	teamTaskBoardNameRunes = 20
 )
 
 var (
@@ -661,15 +666,15 @@ func teamTaskBoardShort(it teamTaskBoardItem) string {
 		s = s[loc[1]:]
 	}
 	if loc := teamTaskBoardShortCut.FindStringIndex(s); loc != nil {
-		if n := len([]rune(s[:loc[0]])); n >= 2 && n <= teamTaskBoardShortRunes {
+		if n := len([]rune(s[:loc[0]])); n >= 2 && n <= teamTaskBoardNameRunes {
 			return strings.TrimSpace(s[:loc[0]])
 		}
 	}
 	r := []rune(s)
-	if len(r) <= teamTaskBoardShortRunes {
+	if len(r) <= teamTaskBoardNameRunes {
 		return s
 	}
-	return strings.TrimSpace(string(r[:teamTaskBoardShortRunes])) + "…"
+	return strings.TrimSpace(string(r[:teamTaskBoardNameRunes])) + "…"
 }
 
 // teamTaskBoardLocal parses a board.py "MM-DD HH:MM" local time without a year: this year, or last
