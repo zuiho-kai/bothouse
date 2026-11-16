@@ -328,3 +328,43 @@ func TestTaskForumInitiallyWaitingKeepsFullQuestion(t *testing.T) {
 		t.Fatalf("initial pending question missing or mentioned: nodes=%d mentions=%v", len(post.nodes), p.mentions)
 	}
 }
+
+// #1712: a workspace that asked while running a command leaves the board row paused with the
+// bare 「等待用户答复」 and the bridge's own step as status. The step is not the question: the
+// post says so in neither the card nor the line, and nobody is mentioned. The same ask with its
+// question written after the head mentions the user with that question.
+func TestTaskForumRunningStepIsNotAQuestion(t *testing.T) {
+	for _, tc := range []struct {
+		name, why, wantLine string
+		mentions            int
+	}{
+		{"bare ask", "等待用户答复", "❓ 等你：拍板", 0},
+		{"ask with its question", "等待用户答复：样片做完了，选 A 还是 B", "❓ 样片做完了，选 A 还是 B", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, p, dir := forumRoutingEngine(t)
+			e.SetAdminFrom("123")
+			row := func(extra string) {
+				writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1711,"what":"出样片","status":"在做：Bash sed -n '1,20...","chat":"discord:111","dispatcher":"lead"`+extra+"}\n")
+			}
+			row(`,"ws":"discord:222"`)
+			e.syncTaskForum()
+			if len(p.mentions) != 0 {
+				t.Fatalf("a workspace running a command mentioned %v", p.mentions)
+			}
+			row(`,"wait_kind":"user","paused":"11-16 19:44","pause_why":"` + tc.why + `"`)
+			e.syncTaskForum()
+			if len(p.mentions) != tc.mentions {
+				t.Fatalf("mentions=%v, want %d", p.mentions, tc.mentions)
+			}
+			said := strings.Join(p.posts["th1"].nodes, "\n") + "\n" + p.posts["th1"].card
+			if strings.Contains(said, "Bash") || !strings.Contains(said, tc.wantLine) {
+				t.Fatalf("post says:\n%s\nwant line %q and no tool step", said, tc.wantLine)
+			}
+			it := readTeamTaskBoard(dir)[0]
+			if state, why := teamTaskBoardStateOf(it, time.Now()); state != teamTaskWaiting || strings.Contains(why, "Bash") {
+				t.Fatalf("board state %v reason %q", state, why)
+			}
+		})
+	}
+}

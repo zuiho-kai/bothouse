@@ -472,8 +472,8 @@ func taskForumNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence
 // bridge's auto-filled step (「在做：Bash …」, team_board_progress.go) or only
 // repeats the tag's sentence (「已完成」).
 func taskForumHumanStatus(it teamTaskBoardItem, sentence string) string {
-	st := strings.TrimSpace(boardLabel(it.Status))
-	if st == "" || st == boardHandedOff || st == sentence || strings.HasPrefix(st, boardStartedNoStep[:len("在做：")]) {
+	st := teamTaskBoardHumanStatus(it.Status)
+	if st == sentence {
 		return ""
 	}
 	return st
@@ -482,8 +482,13 @@ func taskForumHumanStatus(it teamTaskBoardItem, sentence string) string {
 // taskForumQuestion: the pause reason, else a status a person wrote, else
 // fallback; an auto-filled tool step is never shown as the question.
 func taskForumQuestion(it teamTaskBoardItem, fallback string) string {
-	q := firstNonEmpty(boardLabel(it.PauseWhy), taskForumHumanStatus(it, ""))
-	return firstNonEmpty(strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(q, "")), fallback)
+	for _, q := range []string{it.PauseWhy, taskForumHumanStatus(it, "")} {
+		// The 「等待用户答复」 head alone is no question (ws-up --ask writes the question after it).
+		if q = strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(q), "")); q != "" && q != "-" {
+			return q
+		}
+	}
+	return fallback
 }
 
 func taskForumMerged(it teamTaskBoardItem) bool { return it.PRMerge != nil || it.AwaitDeploy != nil }
@@ -844,7 +849,9 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		var err error
 		notifier, canMention := poster.(TaskForumUserNotifier)
 		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
-		if tag != ps.Tag && tag == TaskForumTagWaiting && canMention && user != "" {
+		// Only a question the item itself carries mentions the user; a waiting move without one
+		// (an old ws-up --ask wrote no question) posts its line unmentioned.
+		if tag != ps.Tag && tag == TaskForumTagWaiting && canMention && user != "" && taskForumQuestion(it, "") != "" {
 			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, user)
 		} else {
 			err = poster.PostTaskNode(ctx, ps.Thread, node)

@@ -702,6 +702,17 @@ func teamTaskBoardReason(texts ...string) string {
 	return ""
 }
 
+// teamTaskBoardHumanStatus: the status a person wrote; "" for what the bridge fills in itself
+// (「已交接」, 「在做：<工具步骤>」, team_board_progress.go). The step a workspace was on when it
+// asked is not why the item waits (11-16: five posts said 「等你：在做：Bash …」).
+func teamTaskBoardHumanStatus(status string) string {
+	st := strings.TrimSpace(boardLabel(status))
+	if st == "-" || st == boardHandedOff || strings.HasPrefix(st, boardStartedNoStep[:len("在做：")]) {
+		return ""
+	}
+	return st
+}
+
 // teamTaskBoardOwnerPlaceholder: 「谁」 words that name nobody (board.py writes 待接手 for an unowned item).
 var teamTaskBoardOwnerPlaceholder = regexp.MustCompile(`^(?:待接手|待安排|待定|没人|无人|无|-|—)$`)
 
@@ -729,7 +740,7 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	// after its return showed 没人验收 for three days).
 	case it.Paused != "":
 		if it.waitsUser() {
-			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
+			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, teamTaskBoardHumanStatus(it.Status))
 		}
 		return teamTaskPaused, ""
 	case !it.ReturnedAt.IsZero():

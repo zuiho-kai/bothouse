@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -99,5 +100,34 @@ func TestExitCommandInTurnIsNotNagged(t *testing.T) {
 	case got := <-a.session.prompts:
 		t.Fatalf("woken after a handback by command: %q", got)
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// #1712: a report that names another known task is not the handback of the task in work here.
+// 11-16 19:41 a workspace doing #1711 sent a report of #1705 (a task it held before); the bridge
+// returned #1711, and #1711's own report was then refused as already returned.
+func TestExitCommandNamingAnotherTaskLeavesTheTaskInWork(t *testing.T) {
+	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.platformReady = map[Platform]bool{p: true}
+	exitBoardItem(t, e, 1705, "换活起点")
+	exitBoardItem(t, e, 1711, "出样片")
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#1705", 1705); err != nil {
+		t.Fatal(err)
+	}
+	exitByCommand(t, e, exitWSKey, "[report] #1705 背景：你让我查换活起点。\n查完了\n要你做的：没有。\n我加的：无\n入口自验：看了日志\n```\nok\n```")
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#1711", 1711); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #1705 背景：你让我查换活起点。\n又看了一遍\n要你做的：没有。\n我加的：无")
+	if !errors.Is(err, ErrTeamTaskTransition) {
+		t.Fatalf("a report of #1705 from the workspace doing #1711: err = %v, want refused", err)
+	}
+	if task, _, _ := e.TeamTask(1711); !teamTaskInWork(task.State) {
+		t.Fatalf("#1711 = %+v, want still in work", task)
+	}
+	res := exitByCommand(t, e, exitWSKey, "[report] #1711 背景：你让我出样片。\n样片出了\n要你做的：没有。\n我加的：无\n入口自验：看了成片\n```\nok\n```")
+	if res.Board != 1711 || res.State != string(TeamTaskReturned) {
+		t.Fatalf("#1711's own report = %+v, want returned", res)
 	}
 }
