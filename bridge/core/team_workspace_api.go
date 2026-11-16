@@ -234,15 +234,6 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
-	if req.Name == "" {
-		if pool, err := e.TeamWorkspacePool(req.SessionKey); err == nil {
-			for _, x := range pool {
-				if x.ID == req.WorkspaceID {
-					req.Name = x.Name
-				}
-			}
-		}
-	}
 	if err := e.ClaimTeamWorkspaceTask(req.SessionKey, req.WorkspaceID, req.Name, req.Owner, req.Title, req.Board); err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrTeamWorkspaceOwned) || errors.Is(err, ErrTeamTaskTransition) {

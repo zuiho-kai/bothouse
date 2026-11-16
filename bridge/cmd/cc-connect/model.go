@@ -123,7 +123,7 @@ func runModel(args []string) {
 
 func modelAPIGet(sock, path string, out any) error {
 	client := &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{
-		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) { return net.Dial("unix", sock) },
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dialBridge(ctx, sock) },
 	}}
 	resp, err := client.Get("http://unix" + path)
 	if err != nil {

@@ -252,8 +252,8 @@ func runCronList(args []string) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}
@@ -435,8 +435,8 @@ func runCronInfo(args []string) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}
@@ -606,8 +606,8 @@ func parseCronEditValue(field, valueStr string) (any, error) {
 func apiPost(sockPath, path string, payload []byte) (*http.Response, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}
