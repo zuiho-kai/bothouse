@@ -1057,8 +1057,10 @@ func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem)
 	return &copy
 }
 
-// taskForumExitText delivers into the chosen post before replacing the chat
-// headline with a link. A failed forum send retains the legacy delivery path.
+// taskForumExitText delivers into the chosen post and returns the chat channel's
+// text: a report keeps its four parts there with the post link after them (user
+// 11-16 「现在为什么做完的任务不报一下了」: a bare link reads as no report); an [ask]
+// is the link alone. A failed forum send retains the legacy delivery path.
 // The returned reply context sends attachments to the same post as the text.
 // Only an [ask] posts its detail: a report's detail stays out of the post like
 // the chat channel's (方案甲, user 11-16).
@@ -1104,7 +1106,11 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 		e.taskForumFailed(ctx, p, taskForumChat(*it), *it, err)
 		return headline, nil
 	}
-	return fmt.Sprintf("📌 [%s](%s)", teamTaskBoardShort(*it), taskForumURL(ps)), rc
+	link := fmt.Sprintf("📌 [%s](%s)", teamTaskBoardShort(*it), taskForumURL(ps))
+	if ask {
+		return link, rc
+	}
+	return headline + "\n\n" + link, rc
 }
 
 // TaskForumUserNotifier allows only the board's identified human dispatcher to be
