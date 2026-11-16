@@ -178,12 +178,17 @@ func mapToolCallUpdate(sessionID string, update json.RawMessage) []core.Event {
 		if st == "failed" && body == "" {
 			body = "(failed)"
 		}
-		return []core.Event{{
+		ev := core.Event{
 			Type:      core.EventToolResult,
 			ToolName:  toolLabel,
 			Content:   body,
 			SessionID: sessionID,
-		}}
+		}
+		if st == "failed" {
+			// #1884: a failed call says so, or the progress card shows it as a step that succeeded.
+			ev.ToolStatus = st
+		}
+		return []core.Event{ev}
 	case st == "in_progress" || st == "pending":
 		// Stream intermediate tool output to IM (ACP allows content while not terminal).
 		if body == "" {
