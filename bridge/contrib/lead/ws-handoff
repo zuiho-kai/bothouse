@@ -3,6 +3,7 @@
 # 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force] [--probe]
 #   --probe：内部探针（自检、验收探针）。条目带 probe=true，交回和提问只进工作区和日志，不进用户的聊天频道。
 #   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
+#   任务句或交接标题以「接回 #N」「续 #N」「续做 #N」「接着做 #N」开头、#N 还在工作区做着：不新开任务，内容转进那个工作区（见 join）。
 #   --confirmed：交接标了「类别：出图/改用户文档/定方向」时，用户看过「派活人自己定的」清单后才带（见 own_gate）。
 #   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
 #   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
@@ -271,6 +272,49 @@ def dup_error(it) -> str:
     where = it.get("who") or it.get("ws") or "工作区"
     return (f"这份交接已有进行中的活 #{it['id']}（{where}，状态：{it.get('status') or '—'}），没再交。"
             f"要接着做用 ws-forward 转话；确实要再开一件，加 --force 重跑。")
+
+
+# 续做交接点名的旧任务还在做：并进它的工作区，不新开任务、不另派会话。任务句或交接标题以「接回 #N」「续 #N」「续做 #N」
+# 「接着做 #N」开头才算（正文里顺带提到旧编号的不算）；不设绕过，--force 只管同文件、同名两道。同一份交接文件再交、
+# 那件还在做的，也并进去，不再让交活的人自己转话。
+# 来源：11-17 #1727 在工作区6 做着，任务句和标题都写「接回 #1727」的新交接（新文件、新短名，两道防重复都对不上）
+# 被开成 #1730、认领了工作区7，同一个用量面板做了两份（PR #1906 / #1908，返工 #1733）。
+RESUME_REF = re.compile(r"\s*(?:接回|续做|接着做|续)\s*#(\d+)")
+
+
+def resume_ref(task: str, notes: str):
+    """任务句或交接标题开头点名的旧任务（任务板上的条目）；没点名或板上没有返回 None。"""
+    title = next((l[2:] for l in notes.splitlines() if l.startswith("# ")), "")
+    m = RESUME_REF.match(task) or RESUME_REF.match(title)
+    return next((i for i in board.items() if i.get("id") == int(m.group(1))), None) if m else None
+
+
+def in_progress(it) -> bool:
+    """条目真有工作区在做：板上绑着工作区、没暂停、没进待办、没交回，而且桥里那个工作区眼下认领着的就是它。
+    板上还挂着「在做」、工作区已经归了别的活的不算（11-17 #1727 交回后板上没收，工作区6 已在做 #1736）。"""
+    if not it or not it.get("ws") or it.get("paused") or it.get("backlog") or it.get("returned_at"):
+        return False
+    rows = (_ws_state().get("handoffs") or {}).get(it["ws"]) or []
+    return any(h.get("board") == it["id"] and not h.get("closed") and not h.get("parked") for h in rows)
+
+
+def join(old, path: str, task: str) -> int:
+    """这次交的内容用 ws-forward 转进正在做 old 的工作区；转成返回 0，没转成退出并说明。两种都不上板、不认领。"""
+    who = old.get("who") or "工作区"
+    same = _real(old.get("where") or "") == _real(path)
+    what = (f"同一份交接又交了一次，没新开任务，并进这件：{task}" if same else
+            f"续做交接并进这件（没新开任务、没另派工作区）：{task}。新交接文件 {path}，先读它再接着做")
+    env = dict(os.environ)
+    if board.foreign_why(old):  # 转话命令不碰别的频道派的活（#836）；交接点了名要进这件，按它的聊天频道转
+        env["CC_SESSION_KEY"] = board.channel_of(old)
+    r = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "ws-forward"), "--id", str(old["id"]), what],
+                       capture_output=True, text=True, env=env)
+    if r.returncode != 0:
+        sys.exit(f"ws-handoff: #{old['id']} 还在{who}做着，没新开任务；内容没转进去：{(r.stderr or r.stdout).strip()[:300]}")
+    print(f"ws-handoff: 任务板 #{old['id']}（{who}正在做）：这次交的已并进去，没新开任务、没另派工作区", file=sys.stderr)
+    print((r.stdout.strip().splitlines() or [""])[0])
+    print(f"没新开任务：#{old['id']} 还在{who}做着，这次交的内容已转给它。本轮到此结束：不要再交一次，也不要在本轮等待；结果随 #{old['id']} 交回。")
+    return 0
 
 
 # 撞活：短名相同的进行中条目拒绝再交，--force 放行。同目录那条 11-11 删了：近 7 天拦 4 次，对上的都是 notes/、lead/、~/work 这类公共目录，没有一次是同一件活。
@@ -999,7 +1043,12 @@ def main(argv):
     gate = own_gate(notes, confirmed)
     if gate:
         sys.exit(f"ws-handoff: {gate}")
+    ref = resume_ref(task, notes)
+    if in_progress(ref):
+        return join(ref, path, task)
     dup = None if force else live_dup(path)
+    if in_progress(dup):
+        return join(dup, path, task)
     if dup:
         sys.exit(f"ws-handoff: {dup_error(dup)}")
     hits = [] if force else live_overlap(path, given_short, notes)
