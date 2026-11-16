@@ -376,6 +376,14 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 		question := taskForumQuestion(it, strings.TrimPrefix(sentence, "等你："))
 		prefix, suffix := "> 👉 **要你做的**：", "（完整问题见下方最新回复）"
 		room := budget - runeLen(head+current+target+foot) - runeLen(prefix) - 1
+		if it.askText != "" {
+			// A stored question: the card names it by its title and the reply below carries the
+			// whole text; the card never shows a cut of the text itself.
+			question = it.askTitle() + suffix
+			if runeLen(question) > room {
+				question = "有个问题要你定" + suffix
+			}
+		}
 		if room > 0 {
 			if runeLen(question) > room {
 				question = cutRunes(question, max(1, room-runeLen(suffix))) + suffix
@@ -482,6 +490,9 @@ func taskForumHumanStatus(it teamTaskBoardItem, sentence string) string {
 // taskForumQuestion: the pause reason, else a status a person wrote, else
 // fallback; an auto-filled tool step is never shown as the question.
 func taskForumQuestion(it teamTaskBoardItem, fallback string) string {
+	if it.askText != "" {
+		return it.askText // the one stored copy, whole (board.py ask_save)
+	}
 	for _, q := range []string{it.PauseWhy, taskForumHumanStatus(it, "")} {
 		// The 「等待用户答复」 head alone is no question (ws-up --ask writes the question after it).
 		if q = strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(q), "")); q != "" && q != "-" {
@@ -496,8 +507,20 @@ func taskForumMerged(it teamTaskBoardItem) bool { return it.PRMerge != nil || it
 func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence string, merged bool) string {
 	switch tag {
 	case TaskForumTagWaiting:
+		if it.askText != "" {
+			kind := ""
+			if it.Ask != nil && it.Ask.Kind != "" {
+				kind = "（" + it.Ask.Kind + "）"
+			}
+			return "❓ 要你定" + kind + "：\n" + it.askText
+		}
 		return "❓ " + taskForumQuestion(it, sentence)
 	case TaskForumTagPaused:
+		if it.askText != "" && it.waitsOn(teamWaitLead) {
+			// The lead decides first: the whole question is shown, nobody is mentioned and the
+			// post is not 等你 (team rule: only 方向/花钱/成品/权限 wait on the user).
+			return "⏸️ 工作区提了个问题，主角色先定（没叫你，不用回）：\n" + it.askText
+		}
 		return "⏸️ " + sentence
 	case TaskForumTagRelease:
 		why := firstNonEmpty(sentence, "等发布")
