@@ -54,6 +54,30 @@ class WsUpTest(unittest.TestCase):
         self.assertIn("ws-forward --notes /n/a.md", prompt)
         self.assertIn("别写成「你要求」", prompt)
 
+    def test_report_sends_its_files_before_the_handback(self):
+        """#1729：--report 带的 --file/--image 以前被丢掉，成品只剩草稿里一条本机路径。现在先发到工作区（桥随交回
+        贴到聊天频道），再交回；草稿里有链接时文档不发、图照发（同提问那条路）。"""
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        draft, doc, shot = self.tmp / "d.md", self.tmp / "审查报告.pdf", self.tmp / "s.png"
+        draft.write_text("[report] #1 背景：审查做完了\n", encoding="utf-8")
+        doc.write_bytes(b"%PDF"); shot.write_bytes(b"png")
+        r = self.run_tool("ws-up", "--notes", "/n/a.md", "--report", str(draft), "--file", str(doc), "--image", str(shot), key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sent, exit_ = self.timers()[:2]
+        self.assertEqual(sent[0], "send")
+        self.assertEqual(sent[sent.index("-s") + 1], "test:900")
+        self.assertIn(str(doc), sent)
+        self.assertIn(str(shot), sent)
+        self.assertEqual(exit_[:2], ["workspace", "exit"])
+        self.calls.unlink()
+        draft.write_text("[report] #1 背景：审查做完了，全文 https://example.com/r\n", encoding="utf-8")
+        r = self.run_tool("ws-up", "--notes", "/n/a.md", "--report", str(draft), "--file", str(doc), "--image", str(shot), key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sent = self.timers()[0]
+        self.assertNotIn(str(doc), sent)
+        self.assertIn(str(shot), sent)
+        self.assertIn("文档附件不发", r.stderr)
+
     def test_ask_writes_its_question_as_the_pause_reason(self):
         """#1712：问题跟在「等待用户答复」后面记进任务板，帖子和团队板的「等你」显示它；只写前半句时
         帖子拿工作区的工具步骤（在做：Bash …）当问题 @ 了用户。"""

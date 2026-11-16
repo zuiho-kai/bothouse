@@ -957,7 +957,7 @@ func (e *Engine) teamWorkspaceOp(chat string, next bool) ([]TeamWorkspace, *Team
 	}
 
 	path := teamWorkspacePath(e.dataDir)
-	list, name, changed, adopted, err := teamWorkspacePlan(path, chat, self, guild, next, e.teamPausedBoardItems())
+	list, name, changed, adopted, err := teamWorkspacePlan(path, chat, self, guild, next)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1080,31 +1080,19 @@ func teamWorkspaceStoreList(path, chat string, list []TeamWorkspace) error {
 	return saveTeamWorkspacesLocked(path, st)
 }
 
-// teamWorkspaceHomeLocked returns the chat channel ("<platform>:<id>") workspace c of platform plat
-// belongs to, also while it is free (#762): the platform's record where it keeps one (Home,
-// cloud_web/DSH), else the chat of its latest task paused there, so that task can still resume.
-// paused: the board items still paused or set aside (teamPausedBoardItems); a handoff parked for
-// an item no longer paused there (done, resumed elsewhere, deleted, or never on the board) does
-// not hold the workspace (#1640: 270 of 294 parked records were such leftovers). nil = board
-// unknown, every parked handoff counts.
-// "" = none: on Discord and Feishu a free workspace with no paused task is any chat channel's to
-// claim (#1640: homed by its latest handoff, a chat channel was refused eight free workspaces and
-// opened a ninth). Caller holds teamWorkspaceStore.mu.
-func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel, paused map[int]bool) string {
-	if c.OwnerKnown {
-		if c.Home == "" {
-			return ""
-		}
+// teamWorkspaceHome returns the chat channel ("<platform>:<id>") workspace c of platform plat
+// belongs to also while it is free: only the record of a platform that keeps one itself (Home,
+// cloud_web/DSH). "" = none: on Discord and Feishu a free workspace is any chat channel's to claim.
+//
+// #1729: until 11-17 a free workspace here also stayed with the chat of the latest task paused in
+// it, 「so that task can still resume」 (#762, narrowed by #1640 and #1639). A paused task has not
+// needed its old workspace since #699: it resumes in whichever workspace is free, with the session
+// its state record saved. What the rule still did was keep every free workspace for some chat's
+// paused task — 11-17 01:12 工作区2/3/4/5 were all free and all refused (「belongs to another chat
+// channel …, also while free」), and the task waited in the queue.
+func teamWorkspaceHome(plat string, c TeamChannel) string {
+	if c.OwnerKnown && c.Home != "" {
 		return plat + ":" + c.Home
-	}
-	hs := st.Handoffs[plat+":"+c.ID]
-	for i := len(hs) - 1; i >= 0; i-- { // a dirty record repaired to no chat channel names none
-		if hs[i].Parked.IsZero() || !hs[i].Closed.IsZero() || paused != nil && !paused[hs[i].Board] {
-			continue
-		}
-		if chat := teamChatKey(hs[i].Chat); teamChannelID(chat) != "" {
-			return chat
-		}
 	}
 	return ""
 }
@@ -1113,7 +1101,7 @@ func teamWorkspaceHomeLocked(st *teamWorkspaceState, plat string, c TeamChannel,
 // teamWorkspaceStore.mu, no network) and returns the list, the name to create ("" = none)
 // and whether the list differs from the record.
 // adopted is the ID of an unclaimed pool workspace taken over by this call ("" = none).
-func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool, paused map[int]bool) (list []TeamWorkspace, name string, changed bool, adopted string, err error) {
+func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel, next bool) (list []TeamWorkspace, name string, changed bool, adopted string, err error) {
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
 	st, err := loadTeamWorkspacesLocked(path)
@@ -1165,10 +1153,8 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 	}
 	// Take the lowest free 「工作区n」 of this chat channel (released by it after its last task,
 	// or never handed off yet, e.g. made by ws-handoff) before creating one: when this chat has
-	// none, or when it asks for the next one. A workspace of another chat channel is skipped,
-	// owned or free (#762: taking it moved the room with its history to this chat channel, and
-	// left a task paused there unable to resume), and so is one the platform lists with tasks
-	// in progress.
+	// none, or when it asks for the next one. A workspace another chat channel owns is skipped,
+	// and so is one the platform keeps for another chat or lists with tasks in progress.
 	if len(list) == 0 || next {
 		mine := map[string]bool{}
 		for _, w := range list {
@@ -1182,7 +1168,7 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 				open, _ := teamWorkspaceCountsLocked(st, plat+":"+c.ID)
 				busy = busy || open >= teamWorkspaceBusy
 			}
-			home := teamWorkspaceHomeLocked(st, plat, c, paused)
+			home := teamWorkspaceHome(plat, c)
 			if inPool(guild[i], self) && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
 				(home == "" || home == chat) && (pick == nil || n < teamWorkspaceNum(pick.Name)) {
 				pick = &guild[i]
@@ -1492,10 +1478,7 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	if err == nil {
 		owner, w = teamWorkspaceOwnerLocked(st1, plat, wsID)
 	}
-	home := ""
-	if err == nil {
-		home = teamWorkspaceHomeLocked(st1, plat, TeamChannel{ID: wsID}, e.teamPausedBoardItems())
-	}
+	home := "" // the platform's own record of whose it is while free (cloud_web/DSH)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("team workspace claim: %w", err)
@@ -1506,6 +1489,17 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 	w.ReleasePending, w.Park = false, false
 	if w.Name == "" {
 		w.Name = name
+	}
+	if w.Name == "" {
+		// Not recorded and not given (ws-handoff passes only the id): the listing fetched above
+		// names it. #1729: the claim API used to build the whole pool for this one name — a second
+		// guild listing with its migrations under the workspace lock on every claim, and a claim
+		// refused as 「"" is not a 工作区n channel」 whenever that listing failed.
+		for _, c := range guild {
+			if c.ID == wsID {
+				w.Name = c.Name
+			}
+		}
 	}
 	if !isTeamWorkspaceName(w.Name) {
 		return fmt.Errorf("team workspace claim: %q is not a 「%sn」 channel", w.Name, teamWorkspacePrefix)
@@ -1520,7 +1514,7 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 				if c.Owner != "" {
 					owner = plat + ":" + c.Owner
 				}
-				home = teamWorkspaceHomeLocked(nil, plat, c, nil)
+				home = teamWorkspaceHome(plat, c)
 			}
 		}
 		if home != "" && home != chat {
@@ -1555,8 +1549,6 @@ func (e *Engine) ClaimTeamWorkspaceTask(channel, wsID, name, taskOwner, title st
 		}
 	} else if owner != "" && owner != chat {
 		return fmt.Errorf("team workspace claim: %s → %s: %w (%s, until it finishes its last task)", chat, wsID, ErrTeamWorkspaceOwned, owner)
-	} else if home != "" && home != chat {
-		return fmt.Errorf("team workspace claim: %s → %s: %w (%s's, also while free)", chat, wsID, ErrTeamWorkspaceOwned, home)
 	}
 
 	// A workspace still beside the chat channels (from before the workspace category) moves
@@ -2394,11 +2386,9 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	}
 	pname, _, _ := strings.Cut(chat, ":")
 	owners := map[string]string{}
-	homes := map[string]string{}   // workspace id → its chat channel, also while free
 	counts := map[string][2]int{}  // workspace id → open, parked handoffs
 	dues := map[string]time.Time{} // workspace id → watch check time (watch started only)
 	watched := e.handoffWatchOn.Load()
-	paused := e.teamPausedBoardItems()
 	if e.dataDir != "" {
 		teamWorkspaceStore.mu.Lock()
 		st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
@@ -2422,9 +2412,6 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 				}
 			}
 		}
-		for _, c := range guild {
-			homes[c.ID] = teamWorkspaceHomeLocked(st, pname, c, paused)
-		}
 		teamWorkspaceStore.mu.Unlock()
 	}
 	var out []TeamWorkspace
@@ -2437,11 +2424,7 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 					owner = pname + ":" + c.Owner
 				}
 			}
-			home := homes[c.ID]
-			if c.OwnerKnown {
-				home = teamWorkspaceHomeLocked(nil, pname, c, nil)
-			}
-			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner, Home: home}
+			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner, Home: teamWorkspaceHome(pname, c)}
 			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
 			w.WatchDue = dues[c.ID]
 			out = append(out, w)
@@ -2457,21 +2440,3 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	return out, nil
 }
 
-// teamPausedBoardItems: the IDs of the board items still paused or set aside, for
-// teamWorkspaceHomeLocked. nil when there is no team board to read.
-func (e *Engine) teamPausedBoardItems() map[int]bool {
-	if e.team == nil || e.team.dir == "" {
-		return nil
-	}
-	items := readTeamTaskBoard(e.team.dir)
-	if items == nil {
-		return nil
-	}
-	out := map[int]bool{}
-	for _, it := range items {
-		if it.Paused != "" || it.Backlog != "" {
-			out[it.ID] = true
-		}
-	}
-	return out
-}

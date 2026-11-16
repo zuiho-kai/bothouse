@@ -18,7 +18,7 @@ import _team  # noqa: E402
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
-USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...  |  ws-up [--notes <交接文件>] --report <草稿文件|-> [--failed]（- 从标准输入读草稿，存到 <交接>.report.md）'
+USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...  |  ws-up [--notes <交接文件>] --report <草稿文件|-> [--failed] [--image <图>]... [--file <成品>]...（- 从标准输入读草稿，存到 <交接>.report.md；--file/--image 是随交回发给用户的成品）'
 
 
 def bare(key: str) -> str:
@@ -154,6 +154,19 @@ def say(session_key: str, text: str, proj: str):
         print(f"ws-up: 工作区发消息失败（timer 已建，不影响）：{e}", file=sys.stderr)
 
 
+def without_linked_docs(files, text):
+    """用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
+    （桥贴交回时是同一条规则，core/team_exit_files.go exitFilesFor）。files 是 [旗标, 路径, …]，返回留下的。"""
+    if not files or not re.search(r"https?://", text):
+        return files
+    media = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
+    pairs = [files[i:i + 2] for i in range(0, len(files), 2)]
+    dropped = [p for _, p in pairs if not p.lower().endswith(media)]
+    if dropped:
+        print("ws-up: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in dropped), file=sys.stderr)
+    return [x for f, p in pairs if p.lower().endswith(media) for x in (f, p)]
+
+
 def fill_map(draft, key):
     """#1639：交回只认命令后，Stop 钩子读回复正文补地图那条腿断了；交回收下后对草稿跑 codemap-fill，
     补「## 地图要补的条目（地图路径）」一节，结果打一行。出错只少这一步，不挡交回。"""
@@ -172,7 +185,7 @@ def fill_map(draft, key):
         print(f"ws-up: 补地图出错（不影响交回）：{e}", file=sys.stderr)
 
 
-def hand_back(draft, notes, failed: bool, text=None):
+def hand_back(draft, notes, failed: bool, text=None, files=()):
     """#699 C：交回只认这条命令。先跑 report check（交接的交回骨架），过了才调桥
     （bothouse workspace exit → POST /team/workspace/exit）：桥把这件活的状态改成交回待验收（--failed 为失败），
     草稿照旧经主角色验收后贴到聊天频道。回复里写的 [report] 桥不再读（用户 11-12 定 A：只认命令，不做双认）。"""
@@ -190,6 +203,19 @@ def hand_back(draft, notes, failed: bool, text=None):
     if c.returncode != 0:
         sys.exit(f"ws-up: 草稿没过检查，没有交回（草稿在 {draft}，改它后跑 ws-up --notes {path} --report {draft}）：\n"
                  f"{(c.stdout + c.stderr).strip()}")
+    try:
+        files = without_linked_docs(list(files), Path(draft).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        files = list(files)
+    if files:
+        # #1729：--report 带的 --image/--file 以前被直接丢掉（main 只把它们交给提问和进度那两条路），成品只剩草稿里
+        # 一条本机路径，用户打不开（11-17 用户转来的复盘：「交回频道时只发了一条服务器路径，既不是附件，也不好点开」）。
+        # 先发到本工作区：桥把工作区这件活期间发过的文件和图随交回一起贴到聊天频道（core/team_exit_files.go
+        # takeWorkspaceFiles、team_exit_images.go）。发不出就不交回。
+        a = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", key, *files, "--message", "📎 随交回带上的成品"],
+                           capture_output=True, text=True, timeout=300)
+        if a.returncode != 0:
+            sys.exit(f"ws-up: 成品没发出去，没有交回（草稿在 {draft}）：{a.stderr.strip() or a.stdout.strip()}")
     cmd = [cc_bin(), "workspace", "exit", "--file", draft] + (["--kind", "failed"] if failed else [])
     if key:
         cmd += ["--session-key", key]
@@ -231,9 +257,9 @@ def main(argv):
         else:
             rest.append(a)
     if stdin_report:
-        return hand_back(None, notes, failed, sys.stdin.read())
+        return hand_back(None, notes, failed, sys.stdin.read(), files)
     if report:
-        return hand_back(os.path.abspath(os.path.expanduser(report)), notes, failed)
+        return hand_back(os.path.abspath(os.path.expanduser(report)), notes, failed, files=files)
     if len(rest) != 1 or not rest[0].strip() or rest[0].startswith("-"):
         sys.exit(f"用法：{USAGE}（正文不能为空或以 - 开头）")
     if ask:
@@ -257,14 +283,7 @@ def main(argv):
         say(key, f"🧪 探针，未报回聊天频道：{rest[0][:300]}", _team.project())
         print(f"ws-up: 探针（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
-    if files and re.search(r"https?://", rest[0]):
-        # 用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
-        media = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
-        pairs = [files[i:i + 2] for i in range(0, len(files), 2)]
-        dropped = [p for _, p in pairs if not p.lower().endswith(media)]
-        files = [x for f, p in pairs if p.lower().endswith(media) for x in (f, p)]
-        if dropped:
-            print("ws-up: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in dropped), file=sys.stderr)
+    files = without_linked_docs(files, rest[0])
     if files:
         # 附件直接发到这件活的来源聊天频道（pick_chat 按交接记录定，不按工作区眼下挂着的频道），发不出就不上报
         a = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", chat, *files, "--message", rest[0][:300]],
