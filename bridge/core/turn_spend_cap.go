@@ -308,7 +308,7 @@ func (e *Engine) fireTurnSpendCap(w *turnSpendWatch, spent float64) bool {
 func (e *Engine) sendTurnSpendNotice(p Platform, replyCtx any, w *turnSpendWatch, spent float64) {
 	key := map[string]MsgKey{turnSpendCron: MsgTurnSpendCapCron, turnSpendTimer: MsgTurnSpendCapTimer,
 		turnSpendWorkspace: MsgTurnSpendCapWorkspace}[w.kind]
-	text := e.i18n.Tf(key, w.name, w.id, fmt.Sprintf("%.2f", spent), fmt.Sprintf("%.2f", w.limit))
+	text := e.i18n.Tf(key, w.name, w.id, spendUSD(spent), spendUSD(w.limit))
 	if p == nil {
 		slog.Error("turn spend cap: no chat to notify", "project", e.name, "session", w.iKey, "notice", text)
 		return
@@ -324,4 +324,12 @@ func (e *Engine) sendTurnSpendNotice(p Platform, replyCtx any, w *turnSpendWatch
 		return
 	}
 	e.send(p, replyCtx, text)
+}
+
+// spendUSD prints dollars with two decimals, or more when the amount is under a cent.
+func spendUSD(v float64) string {
+	if v < 0.01 {
+		return fmt.Sprintf("%.4f", v)
+	}
+	return fmt.Sprintf("%.2f", v)
 }
