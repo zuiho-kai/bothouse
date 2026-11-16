@@ -143,11 +143,16 @@ func (e *Engine) taskForumReplyFacts(it teamTaskBoardItem) string {
 		}
 	}
 	if question == "" && tag == TaskForumTagWaiting {
-		question = firstNonEmpty(it.PauseWhy, it.Status)
+		question = firstNonEmpty(it.askText, it.PauseWhy, it.Status)
+	}
+	if question == "" {
+		question = it.askText // waiting on the lead: the same stored copy
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "[任务帖事实，由桥提供]\n这是任务帖 #%d 里的真人回话，只针对这件活。\n任务：%s\n当前状态：%s（%s）\n谁在做：%s\n工作区：%s\n来源聊天频道：%s\n", it.ID, it.What, tag, state, it.Who, firstNonEmpty(it.WS, it.WSWas, "没有在用的工作区"), taskForumChat(it))
-	if question != "" {
+	if question != "" && tag != TaskForumTagWaiting {
+		fmt.Fprintf(&b, "工作区的提问原文（主角色先定，没转给用户）：\n%s\n", question)
+	} else if question != "" {
 		fmt.Fprintf(&b, "等用户的问题原文：\n%s\n", question)
 	}
 	fmt.Fprintf(&b, "按用户这句话的意思，用现成命令处理，不从关键词机械判断：\n等用户答复：ws-handoff --resume %d \"<答复>\"，找空工作区接续。\n在做时补要求：ws-forward --id %d \"<补充要求>\"；需要立即打断再用 --interrupt。\n暂停/继续/关掉：board pause %d / board resume %d / board done %d <返工次数>（没返工写 0，大于 0 再加原因）。\n已完成又回话：视为这件活返工，用 board resume %d 恢复，再用 ws-handoff --resume %d \"<返工要求>\" 接续；帖子重开由状态同步处理。\n执行后在本帖子回一句实际结果；命令失败说清原始原因和下一步，不声称已经办成。\n[/任务帖事实]", it.ID, it.ID, it.ID, it.ID, it.ID, it.ID, it.ID)

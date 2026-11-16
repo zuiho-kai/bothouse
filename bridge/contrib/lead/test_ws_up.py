@@ -43,43 +43,59 @@ class WsUpTest(unittest.TestCase):
 
     def test_reports_to_source_chat_with_lead_identity(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "选哪个", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "timer-1")
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
         self.assertEqual(argv[argv.index("-p") + 1], "lead-proj")
         prompt = argv[argv.index("--prompt") + 1]
-        self.assertIn("【工作区要问用户】选哪个", prompt)
+        self.assertIn("【工作区提问，先由你定】\n问题：选哪个？\n选项与推荐：A 或 B，推荐 A", prompt)
         self.assertIn("ws-forward --notes /n/a.md", prompt)
-        self.assertIn("别写成「你要求」", prompt)
+        self.assertIn("ws-forward --notes /n/a.md --ask-user <方向|花钱|成品|权限>", prompt)
+        self.assertIn("不是用户说的", prompt)
 
-    def test_ask_writes_its_question_as_the_pause_reason(self):
-        """#1712：问题跟在「等待用户答复」后面记进任务板，帖子和团队板的「等你」显示它；只写前半句时
-        帖子拿工作区的工具步骤（在做：Bash …）当问题 @ 了用户。"""
+    def test_ask_is_stored_once_and_goes_to_the_lead_first(self):
+        """提问原文按任务编号只存一份（asks/<编号>.md），任务板行只留短标题和去向；暂停原因只写「等主角色定」，
+        不算等用户（11-17 #1727：原文塞进暂停原因被截成半句，帖子还直接标了「等你」）。"""
         team = self.setup / "team"
         team.mkdir()
         (team / "board.jsonl").write_text(json.dumps(
             {"id": 7, "what": "出样片", "status": "在做：Bash sed -n '1,20...", "ws": "test:900", "chat": "test:100"},
             ensure_ascii=False) + "\n", encoding="utf-8")
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A", "board": [7]}})
-        r = self.run_tool("ws-up", "样片做完了，\n选 A 还是 B？", "--ask", key="test:900")
+        ask = "自验：" + "跑过了。" * 100 + "\n背景：样片做完了\n问题：选 A 还是 B？\n选项：\n- A 快\n- B 稳\n推荐：A，交期近"
+        r = self.run_tool("ws-up", ask, "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         row = json.loads((team / "board.jsonl").read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(row["pause_why"], "等待用户答复：样片做完了， 选 A 还是 B？")
-        self.assertEqual(row["wait_kind"], "user")
+        self.assertEqual(row["pause_why"], "等主角色定")
+        self.assertEqual(row["wait_kind"], "lead")
+        self.assertEqual((row["ask"]["title"], row["ask"]["to"]), ("选 A 还是 B？", "lead"))
+        stored = (team / "asks" / "7.md").read_text(encoding="utf-8").strip()
+        # 固定顺序、自验放最后、一个字不少
+        self.assertEqual(stored, "问题：选 A 还是 B？\n背景：样片做完了\n选项与推荐：\n- A 快\n- B 稳\n推荐：A，交期近\n自验：" + "跑过了。" * 100)
+        argv = next(t for t in self.timers() if "--prompt" in t)
+        self.assertIn(stored, argv[argv.index("--prompt") + 1])
         # 提问挂起的活照旧能再报（不算用户叫停）
-        r = self.run_tool("ws-up", "补一句", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "问题：补一句？\n推荐：补", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_ask_without_question_or_recommendation_goes_back(self):
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        for text, miss in (("选哪个？", "缺「问题：」"), ("问题：选哪个？\n选项：A 或 B", "缺「推荐」")):
+            r = self.run_tool("ws-up", text, "--ask", key="test:900")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn(miss, r.stderr)
+        self.assertEqual(self.timers(), [])
 
     def test_ask_says_queued_not_delivered(self):
         # #1492 L4：timer 刚排上、主角色那一轮还没跑，不能说「已报回」「已交给」
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "选哪个", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         said = " ".join(t[t.index("--message") + 1] for t in self.timers() if t[:1] == ["send"])
         for text in (said, r.stderr):
-            self.assertIn("已排队转给聊天频道", text)
+            self.assertIn("提问已排队", text)
             self.assertNotIn("已报回聊天频道", text)
             self.assertNotIn("已交给聊天频道", text)
 
@@ -96,7 +112,7 @@ class WsUpTest(unittest.TestCase):
     def test_falls_back_to_cc_session_under_dsh(self):
         """DSH 删掉 CC_SESSION_KEY，只剩 CC_SESSION 时也要认出当前工作区。"""
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "进度？", "--ask", key="test:900", var="CC_SESSION")
+        r = self.run_tool("ws-up", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900", var="CC_SESSION")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
@@ -115,16 +131,16 @@ class WsUpTest(unittest.TestCase):
 
     def test_ask_mode(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "选哪个？", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.timers()[0]
-        self.assertIn("【工作区要问用户】选哪个？", argv[argv.index("--prompt") + 1])
+        self.assertIn("【工作区提问，先由你定】\n问题：选哪个？", argv[argv.index("--prompt") + 1])
         self.assertEqual(argv[argv.index("--desc") + 1], "工作区提问")
 
     def test_ask_does_not_claim_it_reached_the_chat(self):
         # #1492：timer 只是排给主角色那一轮，转出去之前不能在工作区说「已报回聊天频道」
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "选哪个？", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         said = " ".join(" ".join(t) for t in self.timers() if t[:1] == ["send"])
         self.assertNotIn("已报回聊天频道", said)
@@ -138,7 +154,7 @@ class WsUpTest(unittest.TestCase):
                         "    sys.stdin.read(); print('不通过，桥会退回：'); print('- 「要你做的」让用户自己动手（终端），先换路'); sys.exit(1)\n"
                         f"open({str(self.calls)!r},'a').write(json.dumps(sys.argv[1:])+'\\n')\nprint('timer-1')\n")
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "要你做的：在本机终端跑一次 sudo zsh x.sh", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "问题：要你做的：在本机终端跑一次 sudo zsh x.sh\n推荐：跑", "--ask", key="test:900")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("换路", r.stderr)
         self.assertEqual(self.timers(), [])
@@ -150,7 +166,7 @@ class WsUpTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--notes /n/a.md", r.stderr)
         self.assertEqual(self.timers(), [])
-        r = self.run_tool("ws-up", "--notes", "/n/b.md", "x", "--ask", key="test:900")
+        r = self.run_tool("ws-up", "--notes", "/n/b.md", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:200")
@@ -337,7 +353,7 @@ class WsPoolTest(unittest.TestCase):
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0}])
         note = self.note("question")
         self.handoff(note, "A")
-        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-up"), "--notes", note, "Choose A/B", "--ask"],
+        r = subprocess.run([sys.executable, "-I", str(HERE / "ws-up"), "--notes", note, "问题：Choose A/B\n推荐：A", "--ask"],
                            capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": "test:1"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(self.items()[0].get("paused"))

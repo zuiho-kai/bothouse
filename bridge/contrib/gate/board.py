@@ -203,7 +203,7 @@ def items():
 
 def fmt(i):
     nxt = f"｜下次看 {i['next']}" if i.get("next") else ""
-    pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}）" if i.get("paused") else ""
+    pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}{ask_note(i)}）" if i.get("paused") else ""
     bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     card += f"｜帖 {i['post']}" if i.get("post") else ""
@@ -285,6 +285,8 @@ def wait_kind_of(it):
         why = it.get("pause_why") or ""
         if why.startswith(WAIT_EXT):
             return "external"
+        if why.startswith(ASK_LEAD_WHY):
+            return "lead"  # 提问先到主角色：不算等用户，帖子不标「等你」、不 @ 用户
         return "user" if WAIT_USER_RE.search(why) else ""
     if it.get("await_deploy") or _status_awaits_release(it.get("status")):
         return "release"
@@ -727,6 +729,65 @@ def pause(nid, why=None):
 
 
 WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀；wait_kind_of 按它记 external
+
+
+# ---- 工作区提问只存一份 ----
+# ws-up --ask 的整份原文存 <BOARD_DIR>/asks/<编号>.md，条目只留 ask = {title 短标题, to 去向 lead/user, at}；
+# 暂停原因只写去向（ASK_LEAD_WHY / ASK_WHY），不再塞问题原文。任务帖、团队板（桥 core/team_task_board.go 读同一个文件）、
+# 给主角色的提示、转给用户的话都读这一份。来源：11-17 #1727 的提问在任务板原因里被截成半句，四条推荐全丢。
+ASK_LEAD_WHY = "等主角色定"  # 提问先到主角色；wait_kind_of 按它记 lead
+
+
+def ask_file(nid):
+    return _path("asks") / f"{int(nid)}.md"
+
+
+def ask_text(nid):
+    """#nid 提问的整份原文；没有返回空串。"""
+    try:
+        return ask_file(nid).read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def ask_note(it):
+    """board 列表里暂停原因后面跟的短标题。"""
+    a = it.get("ask") if isinstance(it.get("ask"), dict) else None
+    return f"：{a['title']}（整份见 {ask_file(it['id'])}）" if a and a.get("title") else ""
+
+
+def ask_save(nid, text, title):
+    """存 #nid 的提问原文，条目记短标题和去向（先到主角色）。没有这条返回 False。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        f = ask_file(nid)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(text.strip() + "\n", encoding="utf-8")
+        os.replace(tmp, f)
+        hit["ask"] = {"title": title, "to": "lead", "at": _bound_now()}
+        _write(cur)
+    return True
+
+
+def ask_to_user(nid, kind):
+    """主角色把 #nid 的提问转给用户：去向改 user、暂停原因改「等待用户答复」（wait_kind 变 user，帖子才标「等你」并 @ 用户）。
+    返回改后的条目；没有这条、没在提问暂停返回 None。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or not hit.get("paused") or not asking(hit) or not isinstance(hit.get("ask"), dict):
+            return None
+        hit["ask"].update({"to": "user", "kind": kind})
+        hit["pause_why"] = ASK_WHY
+        hit["paused"] = hit["at"] = _now()  # 「等了多久」从转给用户这一刻算
+        hit["paused_at"] = _bound_now()
+        _write(cur)
+        event(nid, "paused", hit, f"{ASK_WHY}（{kind}）")
+    return hit
 
 
 def wait_external(nid, why, minutes):
@@ -1408,6 +1469,7 @@ def resume(nid):
             return None if hit is None else False
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        hit.pop("ask", None)  # 答复到了：这次提问结束（原文文件留着，下次提问覆盖）
         hit.pop("backlog", None)
         hit.pop("backlog_why", None)
         # Resuming continues work, not the deployment that was already verified (#985 review 2.2).
@@ -1593,8 +1655,12 @@ def _ts(s, now):
     return ts
 
 
-def _asking(i):
-    return (i.get("pause_why") or "").startswith(ASK_WHY)
+def asking(i):
+    """提问后让出的条目：等主角色定，或已转给用户等答复。"""
+    return (i.get("pause_why") or "").startswith((ASK_WHY, ASK_LEAD_WHY))
+
+
+_asking = asking
 
 
 def _waiting_user(i):

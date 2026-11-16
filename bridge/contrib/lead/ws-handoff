@@ -746,7 +746,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}（任务板 #{nid}）。{answer}\n"
             f"{read}（之前的进度都在里面）。"
             if answer is not None and answer.startswith("到点重试") else
-            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。用户答复了：{answer}\n"
+            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。答复：{answer}\n"
             f"{read}（之前的进度都在里面）。"
             if answer is not None else
             f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}（任务板 #{nid}）。{read}。")
@@ -757,8 +757,9 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
             f"先跑 {cc_bin()} report skeleton --id {nid} --notes {path} 出骨架再填空")
     prompt = (head + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
               f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，怎么做你定。拿不准用户意思先读交接「{SOURCE}」里的原话，"
-              f"还不清楚问聊天频道的主角色：ws-up --notes <交接> \"<问题>\"；要用户拍板、或会改变用户原话范围的用 "
-              f"ws-up --notes <交接> \"<问题+选项+推荐>\" --ask，等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
+              f"还不清楚、要拍板、或会改变用户原话范围的，用 ws-up --notes <交接> \"<提问>\" --ask 提给聊天频道的主角色"
+              f"（她能定的直接定，方向、花钱、成品、权限四类她才转给用户）；提问分四段各起一行：「问题：」「背景：」"
+              f"「选项与推荐：」「自验：」，缺问题或推荐会被退回。等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
               + plan + f"只做交接里写成「改」的部分，做到验收标准为止：用户原话和验收标准里没有的设定、防御分支、额外用例都不加。\n"
               f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
               f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
@@ -893,11 +894,18 @@ def resume_answered(nid, answer):
         # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
         sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
                  "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
+    # 提问还在主角色手里（没转给用户）时到的答复是主角色定的，不写成用户说的
+    by_lead = (it.get("pause_why") or "").startswith(board.ASK_LEAD_WHY)
     source = ("验收退回" if it.get("review_rejected") else
-              "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else "用户答复")
+              "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else
+              "主角色定案" if by_lead else "用户答复")
+    if by_lead:
+        answer = f"（主角色定的，不是用户说的）{answer}"
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
-    project = os.environ.get("CC_PROJECT", "")
+    # 接着做的是这件活原来的负责人（派它的那个项目，交活时工作区会话就是以它的身份跑的），不是眼下转话的人：
+    # 11-17 #1727 龙娘派的活，主角色转定案后落进了主角色自己在工作区的会话，那个会话不替她做、又去问用户谁来接。
+    project = it.get("dispatcher") or os.environ.get("CC_PROJECT", "")
     in_queue = False
     with _queue() as q:
         for entry in q:

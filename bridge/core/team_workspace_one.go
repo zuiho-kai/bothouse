@@ -210,7 +210,7 @@ func (e *Engine) resumeAskedTask(chat string, hid int, answer string) bool {
 	waiting := false
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.ID == hid {
-			waiting = it.WS == "" && it.waitsUser()
+			waiting = it.WS == "" && it.waitsAnswer()
 		}
 	}
 	if !waiting {
