@@ -195,6 +195,10 @@ type TeamWorkspace struct {
 	// stays, so asks and reports still go to this chat; the release is retried on the next reset
 	// and before every claim, create or pool listing on the platform (retryTeamWorkspaceReleases).
 	ReleasePending bool `json:"release_pending,omitempty"`
+	// FreeAtTurnEnd: its last task in work was paused by a park that left the turn running there
+	// (ws-up --ask from that turn); the workspace is given back when the turn ends
+	// (freeParkedWorkspace), or by the hourly reconcile when a restart ended the turn first.
+	FreeAtTurnEnd bool `json:"free_at_turn_end,omitempty"`
 	// Park: the pending release comes from ParkTeamWorkspace (its tasks were paused, not
 	// finished). A platform that keeps its own task count (TeamWorkspaceParker: cloud_web/DSH)
 	// is asked to pause them and release; without it the plain release is tried and retried.
@@ -1936,17 +1940,23 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 			open++
 		}
 	}
-	if open == 0 {
-		if platformReleases {
-			for i, x := range st.Parents[owner] {
-				if x.ID == wsID {
-					st.Parents[owner][i].ReleasePending = true
-					st.Parents[owner][i].Park = true
-				}
+	// #1729: a park that does not stop the turn (ws-up --ask run by the workspace's own turn) while
+	// a turn still runs there only pauses the task now; the workspace is given back when that turn
+	// ends (freeParkedWorkspace, the same moment a handback frees it). Freeing it here reset the
+	// session of the turn that was running the command: the close waited two minutes for that turn
+	// under teamWorkspaceOpMu, so every workspace list, claim and park on the bridge waited too
+	// (11-17 00:40 and 00:52: 「slow agent session close elapsed=2m0s」, ws-forward and ws-handoff
+	// failed with 「workspace list … context deadline exceeded」), the work the turn went on doing
+	// was cut off, and the workspace was in the pool with a turn still running in it.
+	later := open == 0 && !stop && teamTurnRunning(key)
+	if later {
+		for i, x := range st.Parents[owner] {
+			if x.ID == wsID {
+				st.Parents[owner][i].FreeAtTurnEnd = true
 			}
-		} else {
-			teamWorkspaceDropLocked(st, owner, wsID)
 		}
+	} else if open == 0 {
+		teamWorkspaceGiveBackLocked(st, owner, wsID, platformReleases, true)
 	}
 	err = commitTeamTaskAndWorkspacesLocked(e.dataDir, path, st, ev, now)
 	teamWorkspaceStore.mu.Unlock()
@@ -1957,6 +1967,10 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 		slog.Info("team workspace: task paused; other tasks keep the workspace", "workspace", key, "owner", owner, "open", open)
 		return false, nil
 	}
+	if later {
+		slog.Info("team workspace: task paused; the workspace is given back when the turn running there ends", "workspace", key, "owner", owner, "why", why)
+		return false, nil
+	}
 	stopped := 0
 	if stop {
 		for _, x := range e.watchEngines() {
@@ -1965,6 +1979,87 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	}
 	e.ResetTeamWorkspaceSessions(key)
 	slog.Info("team workspace: released, its tasks are paused", "workspace", key, "owner", owner, "stopped_turns", stopped, "why", why)
+	e.afterWorkspaceGivenBack(key, owner, platformReleases)
+	return true, nil
+}
+
+// teamWorkspaceGiveBackLocked takes workspace wsID from its owner chat in st: dropped at once, or
+// marked ReleasePending where the platform records the owner itself (park: it pauses its own
+// tasks too). Caller holds teamWorkspaceStore.mu and saves st.
+func teamWorkspaceGiveBackLocked(st *teamWorkspaceState, owner, wsID string, platformReleases, park bool) {
+	if !platformReleases {
+		teamWorkspaceDropLocked(st, owner, wsID)
+		return
+	}
+	for i, x := range st.Parents[owner] {
+		if x.ID == wsID {
+			st.Parents[owner][i].ReleasePending = true
+			st.Parents[owner][i].Park = park
+			st.Parents[owner][i].FreeAtTurnEnd = false
+		}
+	}
+}
+
+// freeParkedWorkspace gives workspace key back to the pool when the turn that paused its last task
+// has ended (FreeAtTurnEnd): the owner record goes, every engine's sessions there are reset. A
+// workspace that was handed a task again in the meantime (the answer came before the turn ended)
+// is kept and only loses the mark. Reports whether the workspace was given back.
+func (e *Engine) freeParkedWorkspace(key string) bool {
+	if e == nil || e.dataDir == "" {
+		return false
+	}
+	key = teamChatKey(key)
+	plat, _, _ := strings.Cut(key, ":")
+	wsID := teamChannelID(key)
+	path := teamWorkspacePath(e.dataDir)
+	_, platformReleases := e.platformForName(plat).(TeamWorkspaceReleaser)
+	teamWorkspaceOpMu.Lock()
+	defer teamWorkspaceOpMu.Unlock()
+	teamWorkspaceStore.mu.Lock()
+	st, err := loadTeamWorkspacesLocked(path)
+	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
+		slog.Error("team workspace: state unreadable; paused workspace not given back", "workspace", key, "error", err)
+		return false
+	}
+	owner, w := teamWorkspaceOwnerLocked(st, plat, wsID)
+	if owner == "" || !w.FreeAtTurnEnd {
+		teamWorkspaceStore.mu.Unlock()
+		return false
+	}
+	open, _ := teamWorkspaceCountsLocked(st, key)
+	if open > 0 {
+		for i, x := range st.Parents[owner] {
+			if x.ID == wsID {
+				st.Parents[owner][i].FreeAtTurnEnd = false
+			}
+		}
+	} else {
+		teamWorkspaceGiveBackLocked(st, owner, wsID, platformReleases, true)
+	}
+	err = saveTeamWorkspacesLocked(path, st)
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		slog.Error("team workspace: save state failed; paused workspace not given back", "workspace", key, "error", err)
+		return false
+	}
+	if open > 0 {
+		return false
+	}
+	for _, x := range e.watchEngines() {
+		x.ResetTeamWorkspaceSessions(key)
+	}
+	slog.Info("team workspace: released, its tasks are paused", "workspace", key, "owner", owner, "stopped_turns", 0, "why", "the turn that paused them ended")
+	e.afterWorkspaceGivenBack(key, owner, platformReleases)
+	return true
+}
+
+// afterWorkspaceGivenBack runs once workspace key has left its owner chat with its sessions
+// reset: the chat's queued handoffs may take a workspace, and the platform is told (release where
+// it records the owner, else the move into the workspace category). Caller holds teamWorkspaceOpMu.
+func (e *Engine) afterWorkspaceGivenBack(key, owner string, platformReleases bool) {
+	plat, _, _ := strings.Cut(key, ":")
+	wsID := teamChannelID(key)
 	e.drainTeamWorkspaceQueue(owner)
 	if platformReleases {
 		go func() {
@@ -1979,7 +2074,6 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 			e.shelveTeamWorkspace(plat, wsID)
 		}()
 	}
-	return true, nil
 }
 
 // TeamHandoffOf returns chat's newest handoff to workspace at or before bound (bound zero: chat's

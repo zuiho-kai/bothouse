@@ -261,8 +261,8 @@ func runTimerList(args []string) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}
@@ -393,8 +393,8 @@ func runTimerInfo(args []string) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}
