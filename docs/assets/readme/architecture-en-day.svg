@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="660" viewBox="0 0 1000 660" role="img" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',-apple-system,'Segoe UI',sans-serif">
 <title>bothouse architecture</title><defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5a3317"/></marker></defs>
 <rect width="1000" height="660" rx="20" fill="#fffaf3"/>
-<rect x="18" y="124" width="176" height="250" rx="14" fill="#5a3317"/><rect x="14" y="120" width="176" height="250" rx="14" fill="#ffffff" stroke="#5a3317" stroke-width="2"/>
+<rect x="14" y="120" width="176" height="250" rx="12" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/>
 <text x="30" y="150" font-size="16" font-weight="800" fill="#3b2414" text-anchor="start">Where you chat</text>
 <rect x="28" y="168" width="148" height="30" rx="7" fill="#fbefe0"/>
 <text x="38" y="188" font-size="13" font-weight="600" fill="#3b2414" text-anchor="start" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace">Discord</text>
@@ -12,8 +12,7 @@
 <rect x="28" y="288" width="148" height="30" rx="7" fill="#fbefe0"/>
 <text x="38" y="308" font-size="13" font-weight="600" fill="#3b2414" text-anchor="start" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace">DSH desktop / web</text>
 <text x="30" y="354" font-size="12.5" font-weight="400" fill="#8a6f5a" text-anchor="start">PC, phone or browser</text>
-<rect x="261" y="33" width="424" height="440" rx="18" fill="#5a3317"/>
-<rect x="256" y="28" width="424" height="440" rx="18" fill="#fff4e6" stroke="#e8833a" stroke-width="3"/>
+<rect x="256" y="28" width="424" height="440" rx="16" fill="#fff4e6" stroke="#e8833a" stroke-width="2"/>
 <text x="276" y="66" font-size="26" font-weight="800" fill="#e8833a" text-anchor="start">bothouse</text>
 <text x="276" y="88" font-size="13" font-weight="400" fill="#6b5240" text-anchor="start">one small program on your own computer</text>
 <rect x="276" y="106" width="384" height="56" rx="10" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/><text x="290" y="130" font-size="15" font-weight="800" fill="#3b2414" text-anchor="start">Platform adapters</text><text x="290" y="150" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start">messages in and out, per platform</text>
@@ -21,12 +20,16 @@
 <rect x="276" y="254" width="185" height="72" rx="10" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/><text x="290" y="278" font-size="15" font-weight="800" fill="#3b2414" text-anchor="start">Team lead</text><text x="290" y="298" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start">splits the job, picks who</text>
 <rect x="475" y="254" width="185" height="72" rx="10" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/><text x="489" y="278" font-size="15" font-weight="800" fill="#3b2414" text-anchor="start">Workspaces + board</text><text x="489" y="298" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start">big jobs get own channel</text>
 <rect x="276" y="344" width="384" height="56" rx="10" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/><text x="290" y="368" font-size="15" font-weight="800" fill="#3b2414" text-anchor="start">CLI adapters</text><text x="290" y="388" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start">native or ACP, one per tool</text>
-<line x1="468" y1="162" x2="468" y2="180" stroke="#5a3317" stroke-width="2"/>
-<line x1="468" y1="236" x2="468" y2="254" stroke="#5a3317" stroke-width="2"/>
-<line x1="468" y1="326" x2="468" y2="344" stroke="#5a3317" stroke-width="2"/>
+<line x1="408" y1="165" x2="408" y2="177" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="528" y1="177" x2="528" y2="165" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="408" y1="239" x2="408" y2="251" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="528" y1="251" x2="528" y2="239" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="408" y1="329" x2="408" y2="341" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="528" y1="341" x2="528" y2="329" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="464" y1="290" x2="472" y2="290" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
 <rect x="276" y="416" width="384" height="40" rx="10" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/><text x="290" y="440" font-size="15" font-weight="800" fill="#3b2414" text-anchor="start"></text><text x="290" y="460" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start"></text>
 <text x="290" y="441" font-size="14" font-weight="800" fill="#3b2414" text-anchor="start">Memory gate</text><text x="394" y="441" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start">each turn: relevant page titles only</text>
-<rect x="204" y="524" width="580" height="112" rx="14" fill="#5a3317"/><rect x="200" y="520" width="580" height="112" rx="14" fill="#ffffff" stroke="#5a3317" stroke-width="2"/>
+<rect x="200" y="520" width="580" height="112" rx="12" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/>
 <text x="218" y="550" font-size="16" font-weight="800" fill="#3b2414" text-anchor="start">The AI command-line tools you already signed in to</text>
 <rect x="218" y="570" width="114" height="30" rx="7" fill="#fbefe0"/>
 <text x="229" y="590" font-size="13.5" font-weight="600" fill="#3b2414" text-anchor="start" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace">Claude Code</text>
@@ -48,9 +51,9 @@
 <text x="222" y="216" font-size="12" font-weight="500" fill="#8a6f5a" text-anchor="middle">message</text>
 <line x1="250" y1="262" x2="198" y2="262" stroke="#5a3317" stroke-width="2" marker-end="url(#ah)"/>
 <text x="222" y="282" font-size="12" font-weight="500" fill="#8a6f5a" text-anchor="middle">reply</text>
-<rect x="752" y="154" width="230" height="72" rx="14" fill="#5a3317"/><rect x="748" y="150" width="230" height="72" rx="14" fill="#ffffff" stroke="#5a3317" stroke-width="2" stroke-dasharray="6 5"/>
+<rect x="748" y="150" width="230" height="72" rx="12" fill="#ffffff" stroke="#5a3317" stroke-width="1.5" stroke-dasharray="6 5"/>
 <text x="764" y="180" font-size="15" font-weight="800" fill="#3b2414" text-anchor="start">Your private GitHub repo</text><text x="764" y="202" font-size="12.5" font-weight="400" fill="#6b5240" text-anchor="start">every change saved with Git</text>
-<rect x="752" y="294" width="230" height="184" rx="14" fill="#5a3317"/><rect x="748" y="290" width="230" height="184" rx="14" fill="#ffffff" stroke="#5a3317" stroke-width="2"/>
+<rect x="748" y="290" width="230" height="184" rx="12" fill="#ffffff" stroke="#5a3317" stroke-width="1.5"/>
 <text x="764" y="320" font-size="16" font-weight="800" fill="#3b2414" text-anchor="start">Shared memory</text>
 <text x="764" y="346" font-size="13" font-weight="400" fill="#6b5240" text-anchor="start">– a plain folder of Markdown</text>
 <text x="764" y="368" font-size="13" font-weight="400" fill="#6b5240" text-anchor="start">– you can open and edit it</text>
