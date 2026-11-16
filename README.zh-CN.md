@@ -51,11 +51,6 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 <a id="usage"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-zh-night.svg" />
-  <img src="docs/assets/readme/banner/usage-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 从哪开始
 
 <a id="dsh"></a>
@@ -69,11 +64,6 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 
 <a id="install"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-zh-night.svg" />
-  <img src="docs/assets/readme/banner/install-zh-day.svg" width="960" alt="" />
-</picture>
 
 ## 安装
 
@@ -115,11 +105,6 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 </picture>
 
 <a id="features"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/features-zh-night.svg" />
-  <img src="docs/assets/readme/banner/features-zh-day.svg" width="960" alt="" />
-</picture>
 
 ## 能用它做什么
 
@@ -167,11 +152,6 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 <p align="center"><img src="docs/assets/readme/characters.png" width="600" alt="作者自己团队的五个二次元角色头像"></p>
 
 <a id="memory"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/memory-zh-night.svg" />
-  <img src="docs/assets/readme/banner/memory-zh-day.svg" width="960" alt="" />
-</picture>
 
 ## 看得见的记忆
 
@@ -270,11 +250,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 
 <a id="community"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/community-zh-night.svg" />
-  <img src="docs/assets/readme/banner/community-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 社区
 
 问题、想法，还有你搭起来的团队，都欢迎带来。
@@ -288,11 +263,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 
 <a id="repository-status"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-zh-night.svg" />
-  <img src="docs/assets/readme/banner/status-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 仓库状态
 
 <picture>
@@ -303,13 +273,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 **最近 30 天**：关闭的 PR 包括已合并的 PR；提交按默认分支的全部历史统计，包括合并提交和机器人提交。每六小时更新一次，图里的时间是最后一次成功更新的时间。
 
 [文字数据与统计口径](https://github.com/zuiho-kai/bothouse/tree/readme-status#readme) · [JSON](https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats.json) · [更新任务](https://github.com/zuiho-kai/bothouse/actions/workflows/readme-status.yml)
-
-<a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/star-zh-night.svg" />
-  <img src="docs/assets/readme/banner/star-zh-day.svg" width="960" alt="收藏 bothouse，下次回来看团队长大。" />
-</picture>
-</a>
 
 
 ## 许可与致谢

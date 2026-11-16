@@ -51,11 +51,6 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 <a id="usage"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-en-night.svg" />
-  <img src="docs/assets/readme/banner/usage-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Where to start
 
 <a id="dsh"></a>
@@ -69,11 +64,6 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 
 <a id="install"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-en-night.svg" />
-  <img src="docs/assets/readme/banner/install-en-day.svg" width="960" alt="" />
-</picture>
 
 ## Install
 
@@ -115,11 +105,6 @@ More detail — who replies when nobody is named, the nightly review, guardrails
 </picture>
 
 <a id="features"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/features-en-night.svg" />
-  <img src="docs/assets/readme/banner/features-en-day.svg" width="960" alt="" />
-</picture>
 
 ## Features
 
@@ -166,11 +151,6 @@ Each role can also wear a persona and an avatar — handy if you want your team 
 <p align="center"><img src="docs/assets/readme/characters.png" width="600" alt="Five anime-style character avatars from the author's own team"></p>
 
 <a id="memory"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/memory-en-night.svg" />
-  <img src="docs/assets/readme/banner/memory-en-day.svg" width="960" alt="" />
-</picture>
 
 ## Memory you can see
 
@@ -274,11 +254,6 @@ Most guides are currently in Chinese; the self-hosted web protocol is in English
 
 <a id="community"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/community-en-night.svg" />
-  <img src="docs/assets/readme/banner/community-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Community
 
 Questions, ideas and the teams you build are all welcome.
@@ -292,11 +267,6 @@ Questions, ideas and the teams you build are all welcome.
 
 <a id="repository-status"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-en-night.svg" />
-  <img src="docs/assets/readme/banner/status-en-day.svg" width="960" alt="" />
-</picture>
-
 ## Repository status
 
 <picture>
@@ -307,13 +277,6 @@ Questions, ideas and the teams you build are all welcome.
 **Last 30 days**: closed PRs include merged PRs; commits count all history reachable from the default branch, including merge and bot commits. Updated every six hours; the time on the card is the last successful update.
 
 [Text data and definitions](https://github.com/zuiho-kai/bothouse/tree/readme-status#readme) · [JSON](https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats.json) · [Update workflow](https://github.com/zuiho-kai/bothouse/actions/workflows/readme-status.yml)
-
-<a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/star-en-night.svg" />
-  <img src="docs/assets/readme/banner/star-en-day.svg" width="960" alt="Star bothouse and come back to see the team grow." />
-</picture>
-</a>
 
 ## License and thanks
 
