@@ -77,7 +77,7 @@ func quotaResetTime(raw string, now time.Time) (time.Time, bool) {
 		raw = raw[:i]
 	}
 	local := now.In(loc)
-	for _, layout := range []string{"Jan 2, 3pm", "Jan 2, 3:04pm", "3pm", "3:04pm", "15:04"} {
+	for _, layout := range []string{"Jan 2, 3pm", "Jan 2, 3:04pm", "Jan 2 at 3pm", "Jan 2 at 3:04pm", "3pm", "3:04pm", "15:04"} {
 		at, err := time.ParseInLocation(layout, raw, loc)
 		if err != nil {
 			continue
@@ -168,12 +168,16 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 		scope.Group = report.QuotaGroup
 	}
 	if quotaError {
+		// The provider itself refused: an earlier answer no longer vouches for
+		// this scope, so the cooldown below and the usage panel count again.
+		e.setQuotaAnswered(scope, false)
 		e.recordQuotaProbeFor(scope, "exhausted")
 	}
 	if failed, _ := ev.Metadata[MetaResultIsError].(bool); ev.Type == EventResult && ev.Done && ev.Error == nil && !failed && !quotaError {
 		// Only a successful terminal result proves recovery. A context
 		// compaction result is intermediate, even without an error. A usage
-		// report still at 100% below records the cooldown again.
+		// report still at 100% below does not record the cooldown again: the
+		// answer outranks the panel until the provider reports a quota error.
 		e.recoverQuotaFor(scope)
 	}
 	if marked {
@@ -212,6 +216,10 @@ func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session strin
 	if report.QuotaGroup != "" {
 		scope.Group = report.QuotaGroup
 	}
+	// A real answer under this scope (or its account) outranks the panel: the
+	// provider is serving turns, whatever percentage the panel shows.
+	answered := e.quotaAnsweredFor(scope)
+	var ignored *UsageWindow
 	measured, exhausted := false, false
 	for _, bucket := range report.Buckets {
 		if report.QuotaGroup != "" && bucket.QuotaGroup != report.QuotaGroup {
@@ -229,6 +237,13 @@ func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session strin
 			if !(bucket.LimitReached || window.UsedPercent >= 100) {
 				continue
 			}
+			if answered {
+				if ignored == nil {
+					w := window
+					ignored = &w
+				}
+				continue
+			}
 			exhausted = true
 			until := time.Unix(window.ResetAtUnix, 0)
 			if window.ResetAtUnix == 0 && window.ResetAfterSeconds > 0 {
@@ -242,9 +257,14 @@ func (e *Engine) observeQuotaUsageAfterResult(report *UsageReport, session strin
 				e.recordQuotaWindowFor(windowScope, until, session, quotaWindowLabel(window))
 			}
 		}
-		if bucket.LimitReached {
+		if bucket.LimitReached && !answered {
 			exhausted = true
 		}
+	}
+	if ignored != nil {
+		slog.Info("quota cooldown: usage panel reports exhaustion, provider is answering, not cooling",
+			"project", e.name, "provider", scope.Provider, "account", scope.Account, "group", scope.Group,
+			"window", quotaWindowLabel(*ignored), "used_percent", ignored.UsedPercent)
 	}
 	if exhausted {
 		e.recordQuotaProbeFor(scope, "exhausted")
