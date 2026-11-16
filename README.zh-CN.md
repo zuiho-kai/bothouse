@@ -253,20 +253,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 | [Pull requests](https://github.com/zuiho-kai/bothouse/pulls) | 一起改代码 |
 | [linux.do](https://linux.do) | 中文社区讨论 |
 
-<a id="repository-status"></a>
-
-## 仓库状态
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-zh-night.svg" />
-  <img src="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-zh-day.svg" width="960" alt="GitHub 仓库状态：Stars、Forks、未关闭 Issues 和 PR、最近 30 天关闭的 PR 和提交数、最新版本；文字数据见下方链接。" />
-</picture>
-
-**最近 30 天**：关闭的 PR 包括已合并的 PR；提交按默认分支的全部历史统计，包括合并提交和机器人提交。每六小时更新一次，图里的时间是最后一次成功更新的时间。
-
-[文字数据与统计口径](https://github.com/zuiho-kai/bothouse/tree/readme-status#readme) · [JSON](https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats.json) · [更新任务](https://github.com/zuiho-kai/bothouse/actions/workflows/readme-status.yml)
-
-
 ## 许可与致谢
 
 - **许可**：[Apache-2.0](LICENSE)，详见 [LICENSING.md](LICENSING.md)。第三方依赖见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
