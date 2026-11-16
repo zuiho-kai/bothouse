@@ -50,7 +50,7 @@ export default function UsageMembers({ from, to, role, model, revision }: {
     <div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap">
       <thead><tr><th className="p-2">{t('usage.membersRank')}</th><th className="p-2 text-left">{t('usage.membersMember')}</th>{cols.map(c => <th className="p-2 text-right" key={c}>{t(`usage.${c}`)}</th>)}<th className="p-2">{t('usage.membersShare')}</th></tr></thead>
       <tbody>{sorted.map((r, i) => <tr key={r.member} className="border-t border-hairline">
-        <td className="p-2 text-center">{i + 1}</td><td className="p-2"><button className="text-accent underline whitespace-normal break-all text-left max-w-32 sm:max-w-48" onClick={() => setMember(member === r.member ? '' : r.member!)}>{name(r.member)}</button></td>
+        <td className="p-2 text-center">{i + 1}</td><td className="p-2"><button className="text-accent underline whitespace-normal break-all text-left w-32 sm:w-56" onClick={() => setMember(member === r.member ? '' : r.member!)}>{name(r.member)}</button></td>
         {cells(r)}<td className="p-2 text-right">{total ? (100 * r.total_tokens / total).toFixed(1) : '0.0'}%</td>
       </tr>)}</tbody>
     </table></div>
