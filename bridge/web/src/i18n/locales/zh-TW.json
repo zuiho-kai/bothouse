@@ -657,7 +657,20 @@
     "presetLast7Days": "近7天",
     "presetPastYear": "近一年",
     "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
-    "tokenBreakdown": "消耗結構"
+    "tokenBreakdown": "消耗結構",
+    "members": "成員排行榜",
+    "membersSort": "成員排序方式",
+    "membersPerson": "成員",
+    "membersRank": "名次",
+    "membersShare": "佔比",
+    "membersCacheRead": "快取讀取",
+    "membersCacheWrite": "快取寫入",
+    "membersUnattributed": "系統 / 未歸屬",
+    "membersDetail": "成員明細",
+    "membersClose": "關閉明細",
+    "membersDaily": "按天趨勢",
+    "presetLast30Days": "近30天",
+    "membersNote": "僅本機實例；不同平台帳號分開統計。歷史紀錄、定時任務、角色互派、背景回覆和進行中的輪次歸未歸屬；輪次結束後重新整理顯示歸屬。花費為估算，* 表示部分請求未定價。"
   },
   "navGroup": {
     "main": "常用",

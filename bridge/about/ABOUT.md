@@ -62,3 +62,5 @@ Claim before starting, specialists on demand, role packs and a plugin marketplac
 
 - Repository: https://github.com/zuiho-kai/bothouse (README, docs/GETTING_STARTED.md, docs/GOALS.md)
 - License: Apache-2.0
+
+The administrator usage page includes per-member token/cost ranking and daily, role and model details for this instance. Accounts are separate per platform; historical and automated usage remains unattributed.

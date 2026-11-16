@@ -458,7 +458,7 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		return ""
 	}
 	en := TurnJournalEntry{
-		UsageMember:     usageMemberOf(msg),
+		UsageMember:     usageMemberOf(*msg),
 		Authorization:   msg.authorization,
 		Project:         e.name,
 		SessionKey:      msg.SessionKey,

@@ -145,3 +145,7 @@ The bridge entry point creates one `core.UsageLedger` per configured data direct
 ### 外部任务输入
 
 core/external_task_events.go 是私有受理日志；cron_poll.go、webhook.go 只负责入口，external_task_delivery.go 通过已有任务归属和工作区 claim 路由，复用 public-progress 循环。源游标只确认连续持久前缀；消费回执绑定执行代次，公开摘要流不充当受理权威。授权复查接口供独立准入层接线，具体契约与恢复限制见 [实现记录](implementation/750-external-task-events.md)。
+
+### Member usage attribution
+
+`usage-turns/<project>/` retains only completed turn identity and CLI session/time intervals from the recovery journal. The usage importer still reads token counts exclusively from native CLI logs; the intervals attach platform/account identity without parsing prompts. Queries resolve records imported before completion, retain legacy and automated usage as unattributed, and expose `/api/v1/usage/members` plus a `member` filter on the existing groups. All endpoints use the management authentication wrapper. No cross-instance or cross-platform account merging is performed.

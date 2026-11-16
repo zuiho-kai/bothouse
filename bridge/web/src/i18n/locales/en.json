@@ -664,7 +664,20 @@
     "presetLast7Days": "Last 7 days",
     "tokenBreakdown": "Breakdown",
     "presetPastYear": "Past year",
-    "presetPastYearHint": "Default range: the year up to today (a query covers at most one year)"
+    "presetPastYearHint": "Default range: the year up to today (a query covers at most one year)",
+    "members": "Member ranking",
+    "membersSort": "Sort members by",
+    "membersPerson": "Member",
+    "membersRank": "Rank",
+    "membersShare": "Share",
+    "membersCacheRead": "Cache read",
+    "membersCacheWrite": "Cache write",
+    "membersUnattributed": "System / Unattributed",
+    "membersDetail": "Member details",
+    "membersClose": "Close details",
+    "membersDaily": "Daily trend",
+    "presetLast30Days": "Last 30 days",
+    "membersNote": "This instance only. Accounts on different platforms are separate members. Historical records, scheduled tasks, role handoffs, background output and in-flight turns are unattributed; completed turns are attributed on refresh. Costs are estimates; * marks partially unpriced usage."
   },
   "wikiGalaxy": {
     "title": "Wiki galaxy",

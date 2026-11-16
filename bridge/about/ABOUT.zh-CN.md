@@ -62,3 +62,5 @@ bothouse 是跑在你自己电脑上的团队协作层：把你已经登录好�
 
 - 仓库：https://github.com/zuiho-kai/bothouse （首页 README、docs/GETTING_STARTED.md、docs/GOALS.md）
 - 许可：Apache-2.0
+
+管理员用量页提供本机实例的成员用量与预估花销排名，以及按天、角色、模型的明细；不同平台账号分别计数，历史和自动任务用量归未归属。

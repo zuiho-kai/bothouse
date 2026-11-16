@@ -640,7 +640,20 @@
     "presetLast7Days": "최근 7일",
     "presetPastYear": "최근 1년",
     "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
-    "tokenBreakdown": "구성"
+    "tokenBreakdown": "구성",
+    "members": "멤버 순위",
+    "membersSort": "멤버 정렬 기준",
+    "membersPerson": "멤버",
+    "membersRank": "순위",
+    "membersShare": "비율",
+    "membersCacheRead": "캐시 읽기",
+    "membersCacheWrite": "캐시 쓰기",
+    "membersUnattributed": "시스템 / 미배정",
+    "membersDetail": "멤버 상세",
+    "membersClose": "상세 닫기",
+    "membersDaily": "일별 추이",
+    "presetLast30Days": "최근 30일",
+    "membersNote": "이 인스턴스만 집계합니다. 플랫폼별 계정은 별도 멤버입니다. 과거 기록, 예약 작업, 역할 간 전달, 백그라운드 응답과 진행 중인 턴은 미배정입니다. 턴 완료 후 새로고침하면 귀속됩니다. 비용은 추정치이며 *는 일부 요청의 가격이 없음을 뜻합니다."
   },
   "navGroup": {
     "main": "주요",

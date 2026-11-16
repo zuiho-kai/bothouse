@@ -640,7 +640,20 @@
     "presetLast7Days": "Últimos 7 días",
     "presetPastYear": "Último año",
     "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
-    "tokenBreakdown": "Desglose"
+    "tokenBreakdown": "Desglose",
+    "members": "Clasificación de miembros",
+    "membersSort": "Ordenar miembros por",
+    "membersPerson": "Miembro",
+    "membersRank": "Puesto",
+    "membersShare": "Porcentaje",
+    "membersCacheRead": "Lectura de caché",
+    "membersCacheWrite": "Escritura de caché",
+    "membersUnattributed": "Sistema / Sin asignar",
+    "membersDetail": "Detalles del miembro",
+    "membersClose": "Cerrar detalles",
+    "membersDaily": "Tendencia diaria",
+    "presetLast30Days": "Últimos 30 días",
+    "membersNote": "Solo esta instancia. Las cuentas se distinguen por plataforma. El historial, las tareas programadas, los encargos entre roles, las respuestas en segundo plano y los turnos en curso quedan sin asignar. Actualiza tras finalizar el turno. Los costes son estimaciones; * indica solicitudes sin precio."
   },
   "navGroup": {
     "main": "Principal",

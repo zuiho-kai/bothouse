@@ -273,3 +273,5 @@ Questions, ideas and the teams you build are all welcome.
     <img alt="Star history of zuiho-kai/bothouse" src="https://api.star-history.com/svg?repos=zuiho-kai/bothouse&type=Date" />
   </picture>
 </a>
+
+The management usage page also ranks members of this local instance by tokens or estimated cost. Member identity is the platform plus account ID; select a member for daily, role and model breakdowns. Historical usage, scheduled tasks, role handoffs and background replies remain **System / Unattributed**. In-flight usage resolves after the turn completes and the page refreshes. This page uses the existing administrator authentication and does not aggregate other machines.

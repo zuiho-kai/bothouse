@@ -11,8 +11,8 @@ import (
 
 // Identity comes from the platform envelope, never from prompt text. Automated
 // turns and role handoffs deliberately have no member attribution.
-func usageMemberOf(msg *Message) *UsageMember {
-	if msg == nil || msg.FromBot || msg.UserID == "" || msg.Platform == "" || scheduledTurnUser(msg.UserID) || turnTriggerOf(msg) != TurnTriggerUser || msg.resumedFrom != "" {
+func usageMemberOf(msg Message) *UsageMember {
+	if msg.FromBot || msg.UserID == "" || msg.Platform == "" || (scheduledTurnUser(msg.UserID) || msg.UserID == "handoff") || turnTriggerOf(&msg) != TurnTriggerUser || msg.resumedFrom != "" {
 		return nil
 	}
 	return &UsageMember{Platform: msg.Platform, Account: msg.UserID, Name: msg.UserName}
@@ -33,6 +33,9 @@ type usageTurn struct {
 func (j *TurnJournal) saveUsageTurn(en TurnJournalEntry, end time.Time) {
 	if en.AgentSessionID == "" || en.AgentSessionID == ContinueSession {
 		return
+	}
+	if en.Interrupted && !en.InterruptedAt.IsZero() {
+		end = en.InterruptedAt
 	}
 	dir := filepath.Join(filepath.Dir(filepath.Dir(j.path)), "usage-turns", sanitizeJournalName(en.Project))
 	turn := usageTurn{Role: en.Project, SessionID: en.AgentSessionID, Start: en.StartedAt, End: end, Member: en.UsageMember}
