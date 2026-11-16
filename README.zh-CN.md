@@ -24,17 +24,14 @@
 
 </div>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/overview-zh-night.jpg" />
-  <img src="docs/assets/readme/info/overview-zh-day.jpg" width="960" alt="一张图看懂 bothouse：你已经登录的 AI 命令行（Claude Code、Codex、Gemini CLI、DeepSeek 桌面版、OpenCode、Antigravity、Grok 等）进到一个聊天群（Discord、飞书、QQ 或 DeepSeek 桌面版）；组长 AI 拆活、派活；大活开单独的工作频道（Codex 写代码、Gemini 查资料）；做完交回，换一个没参与的 AI 检查；大家共用一份记忆：一个 Markdown 文件夹，每晚复盘纠错，用 Git 存进你自己的私有仓库" />
-</picture>
+<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
 
 <a id="video"></a>
 
 **3 分钟看懂**：你交代一句话，它们自己分工、干完交回。点击封面在 B 站播放。
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：你在群里说一句，组长 Claude Code 拆活，Codex、Gemini CLI、DeepSeek、Grok 各接一块，点击在 B 站播放"></a>
+  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片封面：视频里的一帧，你在群里要一个 token 面板，组长 Claude 拆成三块交给 Codex、Gemini、DSH；标题：朋友的 Claude Code 拉进群，@ 一下就开工。点击在 B 站播放"></a>
 </p>
 
 ```sh
@@ -49,12 +46,9 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 **现在最常见的用法是借别人的 agent**。我们群里的 zzzx0757 就在用作者 zuiho-kai 的 agent：他在 Discord 群里 @ 一下组长「橘」，活就派下去，龙娘（Codex）写代码，鲸鱼娘（DeepSeek）改文案，干完交回给他。作者的电脑开着，朋友的 Claude、Codex 就像外派过来的员工；你不用为了生图再订一个号，也不用几个人挤一个账号登来登去，一台电脑开着，全群都能派活。
 
-<a id="usage"></a>
+这个仓库自己也是这么写出来的：我在群里派活，几个 agent 各接一块，写完换一个没参与的检查，再合进来。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/usage-zh-night.svg" />
-  <img src="docs/assets/readme/banner/usage-zh-day.svg" width="960" alt="" />
-</picture>
+<a id="usage"></a>
 
 ## 从哪开始
 
@@ -69,11 +63,6 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 
 <a id="install"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/install-zh-night.svg" />
-  <img src="docs/assets/readme/banner/install-zh-day.svg" width="960" alt="" />
-</picture>
 
 ## 安装
 
@@ -116,17 +105,7 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 
 <a id="features"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/features-zh-night.svg" />
-  <img src="docs/assets/readme/banner/features-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 能用它做什么
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/features-zh-night.jpg" />
-  <img src="docs/assets/readme/info/features-zh-day.jpg" width="960" alt="能做什么：自带 AI 组队；一个账号也能分角色；在 Discord、飞书、QQ、DeepSeek 桌面版里用；大活不堵聊天；大家记得同一件事；每晚自动复盘；长活不跑偏；手机上也能管；团队工作台看得见团队在干活" />
-</picture>
 
 | 你想要 | bothouse 怎么帮你 |
 | --- | --- |
@@ -147,8 +126,8 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.zh.png"><img src="docs/assets/readme/shot-handoff.zh.png" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></a><br><b>一句话交给工作区</b>：组长 AI 把大活派出去，聊天频道照常说话。</td>
     <td width="50%"><a href="docs/assets/readme/shot-workspace.zh.png"><img src="docs/assets/readme/shot-workspace.zh.png" alt="工作区1的任务板：进行中和今天做完的活，按角色列出"></a><br><b>任务板</b>：哪个工作区在做什么、今天交了什么，一眼看完。</td>
+    <td width="50%"><a href="docs/assets/readme/shot-desk.png"><img src="docs/assets/readme/shot-desk.png" alt="DSH 里的团队工作台：像素办公室里每个角色坐在工位上，头顶是手上的活，右边实时列出派活、交回、打回"></a><br><b>团队工作台</b>：谁在做哪件活，实时看；每道光都是一条真实事件。</td>
   </tr>
   <tr>
     <td width="50%"><a href="docs/assets/readme/shot-roles.zh.jpg"><img src="docs/assets/readme/shot-roles.zh.jpg" alt="管理面板的角色页：五个角色分别接不同的 CLI，显示在线状态、当前在忙和模型"></a><br><b>角色管理</b>：每个角色接哪个 CLI、在忙什么、用什么模型，一键暂停或重启。</td>
@@ -156,7 +135,7 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
   </tr>
 </table>
 
-_上面两张是真实频道录屏，下面两张是作者自己在用的管理面板。_
+_左上是真实频道录屏，其余是作者自己在用的团队工作台和管理面板。_
 
 <a id="characters"></a>
 
@@ -167,11 +146,6 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 <p align="center"><img src="docs/assets/readme/characters.png" width="600" alt="作者自己团队的五个二次元角色头像"></p>
 
 <a id="memory"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/memory-zh-night.svg" />
-  <img src="docs/assets/readme/banner/memory-zh-day.svg" width="960" alt="" />
-</picture>
 
 ## 看得见的记忆
 
@@ -270,11 +244,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 
 <a id="community"></a>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/community-zh-night.svg" />
-  <img src="docs/assets/readme/banner/community-zh-day.svg" width="960" alt="" />
-</picture>
-
 ## 社区
 
 问题、想法，还有你搭起来的团队，都欢迎带来。
@@ -285,32 +254,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 | [GitHub Issues](https://github.com/zuiho-kai/bothouse/issues) | 报 bug、提想法 |
 | [Pull requests](https://github.com/zuiho-kai/bothouse/pulls) | 一起改代码 |
 | [linux.do](https://linux.do) | 中文社区讨论 |
-
-<a id="repository-status"></a>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/status-zh-night.svg" />
-  <img src="docs/assets/readme/banner/status-zh-day.svg" width="960" alt="" />
-</picture>
-
-## 仓库状态
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-zh-night.svg" />
-  <img src="https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats-zh-day.svg" width="960" alt="GitHub 仓库状态：Stars、Forks、未关闭 Issues 和 PR、最近 30 天关闭的 PR 和提交数、最新版本；文字数据见下方链接。" />
-</picture>
-
-**最近 30 天**：关闭的 PR 包括已合并的 PR；提交按默认分支的全部历史统计，包括合并提交和机器人提交。每六小时更新一次，图里的时间是最后一次成功更新的时间。
-
-[文字数据与统计口径](https://github.com/zuiho-kai/bothouse/tree/readme-status#readme) · [JSON](https://raw.githubusercontent.com/zuiho-kai/bothouse/readme-status/stats.json) · [更新任务](https://github.com/zuiho-kai/bothouse/actions/workflows/readme-status.yml)
-
-<a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/star-zh-night.svg" />
-  <img src="docs/assets/readme/banner/star-zh-day.svg" width="960" alt="收藏 bothouse，下次回来看团队长大。" />
-</picture>
-</a>
-
 
 ## 许可与致谢
 
