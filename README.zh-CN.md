@@ -31,7 +31,7 @@
 **3 分钟看懂**：你交代一句话，它们自己分工、干完交回。点击封面在 B 站播放。
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片：你在群里说一句，组长 Claude Code 拆活，Codex、Gemini CLI、DeepSeek、Grok 各接一块，点击在 B 站播放"></a>
+  <a href="https://www.bilibili.com/video/BV15msZ6XEYq"><img src="docs/assets/readme/promo-cover.zh.jpg" width="760" alt="bothouse 宣传片封面：视频里的一帧，你在群里要一个 token 面板，组长 Claude 拆成三块交给 Codex、Gemini、DSH；标题：朋友的 Claude Code 拉进群，@ 一下就开工。点击在 B 站播放"></a>
 </p>
 
 ```sh

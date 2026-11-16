@@ -31,7 +31,7 @@ Bring your own AIs too: a team-lead AI splits the work and hands it out; they al
 **Watch it in 3 minutes** — one message goes in; the crew splits the work, does it and hands it back. Click the cover to play.
 
 <p align="center">
-  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video: you post one message in a group chat; the team-lead Claude Code splits it, and Codex, Gemini CLI, DeepSeek and Grok each take a part — click to play"></a>
+  <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video cover: a real frame from the video, where you ask the group for a token dashboard and the lead Claude splits it into three jobs for Codex, Gemini and DSH; caption: A friend's Claude Code joins your group chat. One @mention and it starts. Click to play"></a>
 </p>
 
 ```sh
