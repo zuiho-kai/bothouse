@@ -95,3 +95,63 @@ func TestUsageMemberAutomaticTurns(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageMembersEngineCapturesHuman(t *testing.T) {
+	as := newResultAgentSession("done")
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("role", &resultAgent{session: as}, []Platform{p}, t.TempDir()+"/sessions.json", LangEnglish)
+	t.Cleanup(func() { _ = e.Stop() })
+	dir := t.TempDir()
+	e.SetDataDir(dir)
+	s := e.sessions.GetOrCreateActive("test:channel")
+	if !s.TryLock() {
+		t.Fatal("busy")
+	}
+	e.processInteractiveMessage(p, &Message{SessionKey: "test:channel", Platform: "test", UserID: "person", Content: "hello", ReplyCtx: "rc"}, s)
+	turns, err := readUsageTurns(filepath.Join(dir, "usage", "turns"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for sid, entries := range turns {
+		for _, entry := range entries {
+			count++
+			if sid == "" || entry.Member != "test:person" || !entry.End.After(entry.Start) {
+				t.Fatalf("capture: %+v", entry)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("captured %d turns", count)
+	}
+}
+
+func TestUsageMembersImportBeforeTurnFinishes(t *testing.T) {
+	dir, logs := t.TempDir(), t.TempDir()
+	writeSessionStore(t, dir, "role_123.json", claudeSID)
+	writeLines(t, filepath.Join(logs, "project", claudeSID+".jsonl"), claudeUser, claudeLine1)
+	ledger := NewUsageLedger(dir, nil)
+	importer := NewUsageImporter(dir, ledger, ClaudeCodeUsageSource{Dir: logs})
+	if err := importer.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	before := usageRows(t, ledger, "members")
+	if len(before) != 1 || before[0].Member != usageUnassigned {
+		t.Fatalf("before: %+v", before)
+	}
+	day := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	if err := writeUsageTurn(filepath.Join(dir, "usage", "turns"), usageTurn{Role: "role", SessionID: claudeSID, Member: "discord:1", Start: day, End: day.Add(24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	after := usageRows(t, ledger, "members")
+	if len(after) != 1 || after[0].Member != "discord:1" || after[0].Total != before[0].Total {
+		t.Fatalf("after: %+v", after)
+	}
+	if err := importer.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	again := usageRows(t, ledger, "members")
+	if again[0].Responses != 1 || again[0].Total != after[0].Total {
+		t.Fatalf("duplicate import: %+v", again)
+	}
+}
