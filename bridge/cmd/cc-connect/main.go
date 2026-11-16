@@ -646,6 +646,13 @@ func runMain() {
 		}
 		webhookSrv = core.NewWebhookServer(port, cfg.Webhook.Token, path)
 		rt.webhookSrv = webhookSrv
+		if gh := cfg.Webhook.GitHub; gh.Secret != "" || len(gh.Repos) > 0 {
+			if err := webhookSrv.EnableGitHub(coreGitHubEvents(gh), cfg.DataDir); err != nil {
+				slog.Error("webhook: github events are off", "error", err)
+			} else {
+				slog.Info("webhook: github events on", "path", path+"/github", "repos", len(gh.Repos))
+			}
+		}
 		for i, e := range engines {
 			rt.registerWebhook(builtProjs[i].Name, e)
 		}
@@ -2451,4 +2458,25 @@ func dshUsageHomes(home string, projects []config.ProjectConfig) []string {
 		}
 	}
 	return homes
+}
+
+// coreGitHubEvents maps [webhook.github] onto the core settings.
+func coreGitHubEvents(c config.GitHubEventsConfig) core.GitHubEventsConfig {
+	out := core.GitHubEventsConfig{
+		Secret: c.Secret, BotLogin: c.BotLogin,
+		BatchIntervalMins: c.BatchIntervalMins, BatchMax: c.BatchMax,
+		ImmediatePerHour: c.ImmediatePerHour, ImmediateMergeSecs: c.ImmediateMergeSecs,
+	}
+	for _, r := range c.Repos {
+		repo := core.GitHubRepoConfig{Repo: r.Repo, Project: r.Project, SessionKey: r.SessionKey}
+		for _, rule := range r.Rules {
+			repo.Rules = append(repo.Rules, core.GitHubRule{
+				Event: rule.Event, Bot: rule.Bot, Branch: rule.Branch, Label: rule.Label,
+				Mention: rule.Mention, Keyword: rule.Keyword, Tier: rule.Tier,
+				Project: rule.Project, SessionKey: rule.SessionKey,
+			})
+		}
+		out.Repos = append(out.Repos, repo)
+	}
+	return out
 }

@@ -394,6 +394,54 @@ level = "info" # debug, info, warn, error
 #   #   -H "Authorization: Bearer your-secret-token" \
 #   #   -H "Content-Type: application/json" \
 #   #   -d "{\"session_key\":\"telegram:123:123\",\"event\":\"git:commit\",\"prompt\":\"New commit: $MSG. Review it briefly.\"}"
+#
+# --- GitHub repository events / GitHub 仓库事件（立即 / 攒批 / 忽略三档）---
+# GitHub's own webhooks arrive on <path>/github (default /hook/github). Each event is sorted
+# into a tier: immediate wakes the role now, batch is queued on disk and merged into one digest,
+# ignore is only logged. Only requests signed with `secret` (X-Hub-Signature-256) and only the
+# listed repositories are accepted; a repeated X-GitHub-Delivery is handled once.
+# GitHub 原生 webhook 打到 <path>/github（默认 /hook/github）。每条事件分一档：立即=马上叫醒角色；
+# 攒批=落盘排队，合并成一份摘要再叫醒一次；忽略=只记日志。只接受用 secret 签名的请求和列出的仓库，
+# 同一个 X-GitHub-Delivery 只处理一次。
+#
+# On GitHub: repository → Settings → Webhooks → Add webhook; Payload URL = https://<your host>/hook/github,
+# Content type = application/json, Secret = the value below. The bridge needs an address GitHub can
+# reach (a public address, or a tunnel such as Cloudflare Tunnel).
+# GitHub 侧：仓库 → Settings → Webhooks → Add webhook；Payload URL 填 https://<你的地址>/hook/github，
+# Content type 选 application/json，Secret 填下面的值。桥要有 GitHub 能访问到的地址（公网，或 Cloudflare Tunnel 等转发）。
+#
+# [webhook.github]
+# secret = "${GITHUB_WEBHOOK_SECRET}"  # required / 必填
+# bot_login = "my-bot"                 # the bot's GitHub login: its own events are ignored, "@my-bot" in a comment wakes at once
+#                                      # 机器人自己的 GitHub 账号：它自己的事件忽略，评论里 @它 立即叫醒
+# batch_interval_mins = 60             # a batched event waits at most this long (default 60) / 攒批最多等多久（默认 60 分钟）
+# batch_max = 20                       # merge early at this many batched events (default 20) / 攒满多少条提前合并（默认 20）
+# immediate_merge_secs = 30            # immediate events of one issue/PR in this window are one wake (default 30)
+#                                      # 同一 issue/PR 的立即事件在这段时间内合成一次叫醒（默认 30 秒）
+# immediate_per_hour = 10              # immediate wakes per repository per hour; more are batched (default 10)
+#                                      # 每个仓库每小时最多立即叫醒几次，超出转攒批（默认 10）
+#
+# [[webhook.github.repos]]
+# repo = "owner/name"
+# project = "my-project"               # role to wake; optional with one project / 叫醒哪个角色；只有一个项目时可省
+# session_key = "discord:123:123"      # channel the role is woken in / 在哪个频道叫醒
+#
+# Built-in defaults / 自带默认规则:
+#   immediate / 立即: issues.opened, pull_request.opened, pull_request.ready_for_review,
+#                     a comment or review that @s bot_login, failed CI on the default branch
+#   ignore / 忽略:    star, watch, fork, events sent by bot_login
+#   batch / 攒批:     everything else (push, comments, reviews, labels, new PR commits…)
+#
+# Own rules are matched top-down before the defaults / 自己的规则先于默认规则，自上而下匹配:
+# [[webhook.github.repos.rules]]
+# event = "push"                       # "push", "issues.opened" or "*"
+# branch = "main"                      # optional conditions / 可选条件: bot, branch, label, mention, keyword
+# tier = "immediate"                   # immediate | batch | ignore
+# # project = "other-project"          # optional: another role / 可选：交给别的角色
+# # session_key = "discord:456:456"    # optional: another channel / 可选：发到别的频道
+#
+# Files / 落盘位置: <data_dir>/github-events/ — queue.json (the queue, kept across restarts / 队列，重启不丢),
+# events.jsonl (every event and its tier / 每条事件及分档), payloads/ (raw payloads / 原始 payload).
 
 # =============================================================================
 # Bridge Platform (External Adapters via WebSocket)
