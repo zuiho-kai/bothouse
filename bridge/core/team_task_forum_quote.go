@@ -132,6 +132,11 @@ func (e *Engine) taskForumQuoteWho(chat string) func(string) string {
 	if !ok {
 		return nil
 	}
+	return taskForumQuoteWhoFrom(reader, chat)
+}
+
+func taskForumQuoteWhoFrom(reader ChannelHistoryReader, chat string) func(string) string {
+	_, channel, _ := strings.Cut(chat, ":")
 	return func(text string) string {
 		key := []rune(forumQuoteNoise.ReplaceAllString(text, ""))
 		if len(key) < 4 {
@@ -149,7 +154,12 @@ func (e *Engine) taskForumQuoteWho(chat string) func(string) string {
 		found, before := "", ""
 		for page := 0; page < taskForumQuoteHistoryPages; page++ {
 			msgs, err := reader.ChannelHistory(channel, before, backfillFetchLimit)
-			if err != nil || len(msgs) == 0 {
+			if err != nil {
+				// Not remembered: the first sync after a restart runs before Discord is connected,
+				// and a remembered miss would hide the name until the next restart.
+				return found
+			}
+			if len(msgs) == 0 {
 				break
 			}
 			for _, m := range msgs { // oldest first
