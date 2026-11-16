@@ -694,6 +694,9 @@ const (
 	MsgWatchChatHandoff         MsgKey = "watch_chat_handoff"
 	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
 	MsgTimerMissedNotice        MsgKey = "timer_missed_notice"
+	MsgTurnSpendCapCron         MsgKey = "turn_spend_cap_cron"
+	MsgTurnSpendCapTimer        MsgKey = "turn_spend_cap_timer"
+	MsgTurnSpendCapWorkspace    MsgKey = "turn_spend_cap_workspace"
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
 	MsgWatchUntitledAccept      MsgKey = "watch_untitled_accept"
@@ -1127,6 +1130,27 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "⏰ 定時「%s」原定 %s，那時橋沒在運行，錯過了，這次沒有執行。要補做請再說一聲。",
 		LangJapanese:           "⏰ タイマー「%s」は %s 予定でしたが、その時ブリッジが止まっていたため実行されませんでした。必要ならもう一度お知らせください。",
 		LangSpanish:            "⏰ El temporizador «%s» tocaba a las %s, pero el puente no estaba en marcha: se perdió y no se ejecutó. Dilo si quieres hacerlo ahora.",
+	},
+	MsgTurnSpendCapCron: {
+		LangEnglish:            "💸 Cron job \"%s\" (%s) has cost about $%s this turn, over the per-turn cap of $%s; the turn was stopped.",
+		LangChinese:            "💸 定时任务「%s」（%s）这一轮已花约 $%s，超过每轮上限 $%s，已停掉这一轮。",
+		LangTraditionalChinese: "💸 定時任務「%s」（%s）這一輪已花約 $%s，超過每輪上限 $%s，已停掉這一輪。",
+		LangJapanese:           "💸 定期ジョブ「%s」（%s）：このターンは約 $%s かかり、1ターンの上限 $%s を超えたため停止しました。",
+		LangSpanish:            "💸 La tarea cron «%s» (%s) lleva gastados unos $%s en este turno, por encima del límite de $%s por turno; el turno se detuvo.",
+	},
+	MsgTurnSpendCapTimer: {
+		LangEnglish:            "💸 Timer \"%s\" (%s) has cost about $%s this turn, over the per-turn cap of $%s; the turn was stopped.",
+		LangChinese:            "💸 定时「%s」（%s）这一轮已花约 $%s，超过每轮上限 $%s，已停掉这一轮。",
+		LangTraditionalChinese: "💸 定時「%s」（%s）這一輪已花約 $%s，超過每輪上限 $%s，已停掉這一輪。",
+		LangJapanese:           "💸 タイマー「%s」（%s）：このターンは約 $%s かかり、1ターンの上限 $%s を超えたため停止しました。",
+		LangSpanish:            "💸 El temporizador «%s» (%s) lleva gastados unos $%s en este turno, por encima del límite de $%s por turno; el turno se detuvo.",
+	},
+	MsgTurnSpendCapWorkspace: {
+		LangEnglish:            "💸 Workspace turn \"%s\" (%s) has cost about $%s this turn, over the per-turn cap of $%s; the turn was stopped.",
+		LangChinese:            "💸 工作区这一轮「%s」（%s）这一轮已花约 $%s，超过每轮上限 $%s，已停掉这一轮。",
+		LangTraditionalChinese: "💸 工作區這一輪「%s」（%s）這一輪已花約 $%s，超過每輪上限 $%s，已停掉這一輪。",
+		LangJapanese:           "💸 ワークスペースのターン「%s」（%s）：このターンは約 $%s かかり、1ターンの上限 $%s を超えたため停止しました。",
+		LangSpanish:            "💸 El turno del espacio de trabajo «%s» (%s) lleva gastados unos $%s en este turno, por encima del límite de $%s por turno; el turno se detuvo.",
 	},
 	MsgWatchAutoResumed: {
 		LangEnglish:            "Watch: %s showed no progress on %s; stopped its stuck turn and asked it to continue (once; parked if still no progress)",

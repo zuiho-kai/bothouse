@@ -376,15 +376,72 @@ func (e *Engine) recordQuotaWindowFor(scope quotaScope, until time.Time, session
 	})
 }
 
+// quotaAnswered holds the scopes a real turn has answered under since their last
+// quota error. The usage panel can show a window at 100% while the provider keeps
+// answering; the answer is the truth, the panel reading is not (11-16: every
+// reply cleared the cooldown and the footer's panel read recorded it again one
+// second later, six times, each one moving the lead and the work away).
+// Entries follow the cooldown domains: shared by every engine on one data
+// directory, per engine without one.
+var (
+	quotaAnsweredMu sync.Mutex
+	quotaAnswered   = map[quotaAnsweredKey]bool{}
+)
+
+type quotaAnsweredKey struct {
+	dir    string
+	engine *Engine
+	scope  string
+}
+
+func (e *Engine) quotaAnsweredKeys(scope quotaScope) [2]quotaAnsweredKey {
+	k := quotaAnsweredKey{dir: e.dataDir}
+	if e.dataDir == "" {
+		k.engine = e
+	}
+	own, account := k, k
+	own.scope, account.scope = scope.key(), scope.accountScope().key()
+	return [2]quotaAnsweredKey{own, account}
+}
+
+// setQuotaAnswered records (true) or forgets (false) that scope and its account
+// were answered by a real turn.
+func (e *Engine) setQuotaAnswered(scope quotaScope, answered bool) {
+	quotaAnsweredMu.Lock()
+	defer quotaAnsweredMu.Unlock()
+	for _, k := range e.quotaAnsweredKeys(scope) {
+		if answered {
+			quotaAnswered[k] = true
+		} else {
+			delete(quotaAnswered, k)
+		}
+	}
+}
+
+// quotaAnsweredFor reports whether a real turn answered under scope or its
+// account and no quota error has come since.
+func (e *Engine) quotaAnsweredFor(scope quotaScope) bool {
+	quotaAnsweredMu.Lock()
+	defer quotaAnsweredMu.Unlock()
+	for _, k := range e.quotaAnsweredKeys(scope) {
+		if quotaAnswered[k] {
+			return true
+		}
+	}
+	return false
+}
+
 // recoverQuotaFor ends scope's cooldown because a real turn under it just got an
 // answer. It clears the records admission reads, so the next message is not
 // turned away; quotaTick sees those records clear and finishes the recovery
-// (lead, notice). A later quota error writes them again, and that wins: there is
-// no separate "answered" flag that could outlive it. The answer also supplies
-// positive availability evidence when the scope was not cooling.
+// (lead, notice). The answer is also remembered (quotaAnswered), so a usage
+// panel still reading 100% does not record the cooldown again; only a quota
+// error from the provider does, and it forgets the answer first. The answer
+// also supplies positive availability evidence when the scope was not cooling.
 func (e *Engine) recoverQuotaFor(scope quotaScope) {
 	now := time.Now()
 	key := scope.key()
+	e.setQuotaAnswered(scope, true)
 	quotaDomainsMu.Lock()
 	cooling := false
 	if e.domainUntilLocked(key).After(now) {

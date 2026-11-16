@@ -113,7 +113,7 @@ func TestCUJ_TaskForum1_ReplyUsesSourceConversationAndPostReceipt(t *testing.T) 
 				writeTaskBoard(t, dir, team.TaskBoardFile, "")
 			}
 			writeForumReplyItem(t, dir, file, it)
-			msg := &Message{SessionKey: "discord:post", ChannelID: "post", Platform: "discord", UserID: "human", Content: tc.text, ReplyCtx: "post-delivery", TaskForum: &TaskForumReply{Board: 779, Thread: "post"}}
+			msg := &Message{SessionKey: "discord:post", ChannelID: "post", Platform: "discord", UserID: "human", Content: tc.text, Mentioned: true, ReplyCtx: "post-delivery", TaskForum: &TaskForumReply{Board: 779, Thread: "post"}}
 			e.ReceiveMessage(p, msg)
 			prompt := inputPrompt(t, a)
 			for _, want := range []string{tc.text, tc.want, "这是任务帖 #779", "命令失败说清原始原因"} {
@@ -148,7 +148,7 @@ func TestTaskForumReplyFactsQuestionAndReentry(t *testing.T) {
 	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source", Paused: "yes", PauseWhy: "等待用户：choose"})
 	e.teamExit.asks = map[string]*teamAsk{"ask": {Board: 779, At: time.Now(), Forwarded: []string{"原始完整问题", "两个选项"}}}
 	e.teamExit.loaded = true
-	msg := &Message{TaskForum: &TaskForumReply{Board: 779, Thread: "post"}, ReplyCtx: "post"}
+	msg := &Message{TaskForum: &TaskForumReply{Board: 779, Thread: "post"}, ReplyCtx: "post", Mentioned: true}
 	if !e.prepareTaskForumReply(p, msg) {
 		t.Fatal("not prepared")
 	}
@@ -163,8 +163,13 @@ func TestTaskForumReplyFactsQuestionAndReentry(t *testing.T) {
 	if e.prepareTaskForumReply(p, msg) {
 		t.Fatal("bot accepted")
 	}
+	// #1714: a person talking to another person in the post starts no turn and is not rewritten.
+	aside := &Message{TaskForum: &TaskForumReply{Board: 779, Thread: "post"}, SessionKey: "discord:post", UserID: "human", Content: "他不是有名字吗", ReplyCtx: "post"}
+	if e.prepareTaskForumReply(p, aside) || aside.Mentioned || aside.SessionKey != "discord:post" || aside.ExtraContent != "" {
+		t.Fatalf("unaddressed post message accepted: %+v", aside)
+	}
 	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "source"})
-	running := &Message{TaskForum: &TaskForumReply{Board: 779}, UserID: "human"}
+	running := &Message{TaskForum: &TaskForumReply{Board: 779}, UserID: "human", Mentioned: true}
 	if !e.prepareTaskForumReply(p, running) || running.SessionKey != "discord:source" || strings.Contains(running.ExtraContent, "原始完整问题") {
 		t.Fatalf("historical chat or stale question: %+v", running)
 	}
@@ -176,7 +181,7 @@ func TestTaskForumReplyPreservesUserSession(t *testing.T) {
 	e.team = &teamState{dir: dir, inject: true}
 	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Ch: "source"})
 	p := &forumReplySink{inputTestPlatform: base, perUser: true}
-	msg := &Message{SessionKey: "discord:post:human", UserID: "human", TaskForum: &TaskForumReply{Board: 779}, ReplyCtx: "post"}
+	msg := &Message{SessionKey: "discord:post:human", UserID: "human", Mentioned: true, TaskForum: &TaskForumReply{Board: 779}, ReplyCtx: "post"}
 	if !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:source:human" || msg.ChannelID != "source" || msg.ReplyCtx != "post" {
 		t.Fatalf("user isolation or delivery changed: %+v", msg)
 	}

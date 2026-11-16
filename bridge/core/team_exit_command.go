@@ -85,6 +85,17 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 				res.Board = id
 			}
 		}
+		// The report names its task (first line 「#id」). One that is known and not in work here is
+		// not this workspace's to hand back: taking the task in work instead returned #1711 for a
+		// report of #1705 (11-16 19:41), and #1711's own report was then refused as already returned.
+		if named, _, _ := team.ExitHeadline(body); named > 0 && named != res.Board && res.Board > 0 {
+			if t, known := st.Tasks[named]; known && teamTaskInWork(t.State) && t.WS == res.Workspace {
+				res.Board = named
+			} else if known {
+				teamWorkspaceStore.mu.Unlock()
+				return res, fmt.Errorf("workspace exit: the report names #%d, which is not in work in this workspace (#%d is); nothing handed back: %w", named, res.Board, ErrTeamTaskTransition)
+			}
+		}
 		if res.Board > 0 {
 			var t TeamTask
 			t, err = transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: res.Board, To: to, By: "exit command"}, time.Now())

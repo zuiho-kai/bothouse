@@ -246,7 +246,7 @@ def main(argv):
     chat, path = pick_chat(last, bare(key), notes)
     # 用户叫停的活（board pause，不是 --ask 自己挂起的等答复）不再往聊天频道报（用户 2026-10-28「我都说不做了，你还问我」）
     ids = set(handoffs(last)[path].get("board") or [])
-    stopped = [i for i in board.items() if i["id"] in ids and (i.get("backlog") or i.get("paused") and i.get("pause_why") != board.ASK_WHY)]
+    stopped = [i for i in board.items() if i["id"] in ids and (i.get("backlog") or i.get("paused") and not str(i.get("pause_why") or "").startswith(board.ASK_WHY))]
     if stopped:
         if stopped[0].get("backlog"):  # 待办：小事排在 bug 后面，不必报回聊天频道
             sys.exit(f"ws-up: #{stopped[0]['id']} 已挪进待办，不上报；停手，等聊天频道重新交活（board backlog 看）")
@@ -285,8 +285,11 @@ def main(argv):
     if r.returncode != 0:
         sys.exit(f"ws-up: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
     if ask:
+        # #1712：问题跟在「等待用户答复」后面记进暂停原因，任务帖和团队板的「等你」显示的就是这句；
+        # 只写前半句时帖子拿工作区当时的工具步骤（在做：Bash …）当问题 @ 了用户（11-16 四个帖子五次）
+        why = f"{board.ASK_WHY}：{' '.join(rest[0].split())[:300]}"
         for nid in handoffs(last)[path].get("board") or []:
-            hit = board.pause(nid, "等待用户答复")
+            hit = board.pause(nid, why)
             if hit:
                 board.park_workspace(hit)
     else:

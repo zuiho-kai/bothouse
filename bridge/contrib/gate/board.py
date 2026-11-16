@@ -709,6 +709,18 @@ def _in_own_workspace(it):
     return bool(here) and bool(it.get("ws")) and here == it["ws"].split(":")[1:2]
 
 
+def unreturned_in_workspace(it):
+    """#1695：工作区自己标完成却没交回——这一轮跑在条目的工作区（ws 或已放回的 ws_was）里，又没有 returned_at。
+    这样收口原聊天频道收不到结果（用户 11-16「工作区把任务卡标成了完成，但没有执行 ws-up --report」）。"""
+    here = os.environ.get("CC_SESSION_KEY", "").split(":")[1:2]
+    bound = [k.split(":")[1:2] for k in (it.get("ws"), it.get("ws_was")) if k]
+    return bool(here) and here in bound and here != (it.get("chat") or "").split(":")[1:2] and not it.get("returned_at")
+
+
+NO_SILENT_DONE = ("board: #{nid} 还没交回，工作区里不能直接标完成——标了原聊天频道看不到结果。"
+                  "用 ws-up --notes <交接文件> --report - 交回（照交接「交回骨架」写），交回后系统自动标完成。")
+
+
 def self_pause(nid, why=None):
     """工作区在自己那一轮里 board pause 自己：不暂停、不放回，只记 pause_req（停手原因）和时刻，返回条目；
     不是这种情况返回 None，照常 pause。桥看到 pause_req 就要这一轮交 [report]（core workspace_report.go）。"""
@@ -1909,6 +1921,8 @@ def main(argv):
             hit = next((i for i in _read() if i["id"] == nid), None)
             if hit is None:
                 print("不在板上（已收口），不用再收")
+            elif unreturned_in_workspace(hit):
+                sys.exit(NO_SILENT_DONE.format(nid=nid))
             else:
                 rounds = hit.get("reject_reasons") or []
                 task_state(nid, "closed", "accepted")
@@ -1927,8 +1941,11 @@ def main(argv):
             why = argv[3].strip() if len(argv) > 3 else ""
             if rework > 0 and not why:
                 sys.exit(f"返工 {rework} 次要写原因，比如 board done {nid} {rework} \"没先读现有实现\"")
-            if not any(i["id"] == nid for i in _read()):
+            hit = next((i for i in _read() if i["id"] == nid), None)
+            if hit is None:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
+            if unreturned_in_workspace(hit):
+                sys.exit(NO_SILENT_DONE.format(nid=nid))
             task_state(nid, "closed", why)
             ended = done(nid, rework, why or None)
             if not ended:

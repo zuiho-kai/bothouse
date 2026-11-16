@@ -819,6 +819,9 @@ type interactiveState struct {
 	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
 	// (fireScheduledTurnTimeout); the next turn start waits for it. Guarded by mu.
 	scheduledCancel chan struct{}
+	// spendWatch: the token of the spend cap armed for this turn (armTurnSpendCap); 0 none.
+	// Guarded by mu.
+	spendWatch uint64
 	// queuedBehindCompact: messages queued here while a native /compact held the
 	// session (enqueueForBusySession). Only then may a placeholder state with no
 	// agent session start a turn from its queue (drainOrphanedQueue). Guarded by mu.
@@ -848,6 +851,7 @@ type interactiveState struct {
 func (s *interactiveState) markTurnStartLocked() {
 	s.awaitScheduledCancelLocked()
 	s.scheduledWatch = 0
+	s.spendWatch = 0
 	s.turnCancelled = false
 	s.turnStartedAt = time.Now()
 }
@@ -2301,6 +2305,13 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		effectivePlatform = &mutePlatform{targetPlatform}
 	}
 
+	// #1705: the newest channel post before this handoff's start notice; a workspace session that
+	// starts a task fresh reads back from there, not the previous task's last 3 hours.
+	handoffSeenMark := ""
+	if job.Handoff && job.resume == nil {
+		handoffSeenMark = newestChannelMsgID(targetPlatform, extractChannelID(sessionKey))
+	}
+
 	// Notify user unless muted or silent; a check job posts no start notice (core/test_noise.go)
 	if !job.Mute && job.resume == nil && !check { // #624 K4: a resume posts its own notice
 		silent := false
@@ -2349,16 +2360,17 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	msg := &Message{
-		turnTrigger:  timerTurnTrigger(job),
-		SessionKey:   sessionKey,
-		Platform:     platformName,
-		UserID:       timerTurnUser(job),
-		UserName:     timerTurnUser(job),
-		Content:      content,
-		ReplyCtx:     replyCtx,
-		ModeOverride: job.Mode,
-		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
-		timerJobID:   job.ID,
+		turnTrigger:     timerTurnTrigger(job),
+		SessionKey:      sessionKey,
+		Platform:        platformName,
+		UserID:          timerTurnUser(job),
+		UserName:        timerTurnUser(job),
+		Content:         content,
+		ReplyCtx:        replyCtx,
+		ModeOverride:    job.Mode,
+		boardLabel:      "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
+		timerJobID:      job.ID,
+		handoffSeenMark: handoffSeenMark,
 	}
 	// A handoff wake-up (ws-handoff, report bounce, ws-forward) starts or resumes a whole task in a workspace
 	// session: give it the same wiki recall, standing practices and decisions a chat turn gets (cron does the
@@ -2525,6 +2537,9 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 		return
 	}
 	e.teamNoteTurn(msg, session)
+	if msg.handoffSeenMark != "" && session.GetLastSeenMsgID() == "" { // #1705
+		markSeen(session, &Message{MessageID: msg.handoffSeenMark})
+	}
 	if !msg.scheduledBackfilled {
 		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)
 		msg.scheduledBackfilled = true
@@ -4012,6 +4027,21 @@ func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
 	if msg.TaskForum == nil && e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
+	// 任务帖里的回话不过 gate。会话正忙、agent 又收得下中途输入时，
+	// 直接插进当前这一轮，回执发回帖子；插不进（不支持、这一轮卡住、
+	// 发送失败）就照旧往下走排队。写法同 injectLocal（gate_local.go）。
+	if msg.TaskForum != nil && msg.Mentioned && session.Busy() && e.canInjectInto(agent, interactiveKey) {
+		content := msg.Content
+		if strings.TrimSpace(content) == "" {
+			content = "（补充附件，和刚才的消息是一起发的）"
+		}
+		content = e.buildSenderPrompt(withVoiceNote(content, msg.FromVoice && !msg.voiceMarked),
+			msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
+		if e.injectIntoRunningTurn(interactiveKey, content, msg.ReplyCtx, msg.Images, msg.Files) {
+			e.insertNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
+			return
+		}
+	}
 	if e.nativeCompactRejectsUser(interactiveKey) {
 		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgPreviousProcessing))
 		return
@@ -5242,6 +5272,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.currentJobID = msg.timerJobID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID, false)
+		e.armTurnSpendCap(state, session, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.SessionKey)
 
 		// Run Send concurrently with processInteractiveEvents. Some agents block inside
 		// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
@@ -8358,6 +8389,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		state.currentJobID = queued.timerJobID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
+		e.armTurnSpendCap(state, session, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
 		var attemptPrompt string
 		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run

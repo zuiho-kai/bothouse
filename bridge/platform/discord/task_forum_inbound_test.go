@@ -24,9 +24,17 @@ func TestTaskForumInboundGateway(t *testing.T) {
 	for _, tc := range []struct {
 		name                                      string
 		bot, webhook, secondary, denied, ordinary bool
+		content                                   string
+		mentions, replyTo                         string
 		want                                      int
 	}{
-		{name: "human without mention", want: 1},
+		// #1714: people talk to each other in a post; only an @ or a reply to the bot wakes it.
+		{name: "human without mention"},
+		{name: "human mentions another person", content: "<@colleague> 你直接艾特就好了", mentions: "colleague"},
+		{name: "human replies to another person", content: "好的", replyTo: "colleague", mentions: "colleague"},
+		{name: "human mentions bot", content: "<@bot> 暂停", mentions: "bot", want: 1},
+		{name: "human mentions bot role", content: "<@&role-bot> 暂停", want: 1},
+		{name: "human replies to bot", content: "选A继续", replyTo: "bot", want: 1},
 		{name: "bot explicitly mentioned", bot: true},
 		{name: "webhook masquerading as human", webhook: true},
 		{name: "secondary engine", secondary: true},
@@ -63,6 +71,16 @@ func TestTaskForumInboundGateway(t *testing.T) {
 			}
 			if tc.webhook {
 				m.WebhookID = "hook"
+			}
+			if tc.content != "" {
+				m.Content = tc.content
+			}
+			if tc.mentions != "" {
+				m.Mentions = []*discordgo.User{{ID: tc.mentions}}
+			}
+			if tc.replyTo != "" {
+				m.Type = discordgo.MessageTypeReply
+				m.ReferencedMessage = &discordgo.Message{ID: "earlier", ChannelID: id, Author: &discordgo.User{ID: tc.replyTo, Bot: tc.replyTo == "bot"}, Content: "上一条"}
 			}
 			p.handleMessageCreate(s, m)
 			if len(delivered) != tc.want {

@@ -408,7 +408,7 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	name := teamTaskBoardShort(*item)
 	text := spaceExitLines(exitHeadlineText(kind, name, hline, id))
 	_, detail := team.ExitSplit(body)
-	chatText, forumRC := e.taskForumExitText(ctx, p, sessionKey, hid, text, detail)
+	chatText, forumRC := e.taskForumExitText(ctx, p, sessionKey, hid, text, detail, kind == team.ExitKindAsk)
 	inForum := forumRC != nil
 	chatDetail := detail
 	if inForum {

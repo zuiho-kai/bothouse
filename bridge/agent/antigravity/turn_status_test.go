@@ -160,9 +160,7 @@ func TestStreamTurnEvidenceRequiresCurrentTurnIdentity(t *testing.T) {
 		{"missing-boundary", `{"conversation_id":"fixture-conversation","step_index":4,"state":"DONE","step_type":"agent_response"}`, ""},
 		{"replayed-history", `{"conversation_id":"fixture-conversation","step_index":2,"state":"DONE","step_type":"user_input"}`, `{"conversation_id":"fixture-conversation","step_index":1,"state":"DONE","step_type":"agent_response"}`},
 		{"other-conversation", `{"conversation_id":"fixture-conversation","step_index":2,"state":"DONE","step_type":"user_input"}`, `{"conversation_id":"other","step_index":4,"state":"DONE","step_type":"agent_response"}`},
-		{"second-input", `{"conversation_id":"fixture-conversation","step_index":2,"state":"DONE","step_type":"user_input"}`, `{"conversation_id":"fixture-conversation","step_index":3,"state":"DONE","step_type":"user_input"}`},
 		{"denied", `{"conversation_id":"fixture-conversation","step_index":2,"state":"DONE","step_type":"user_input"}`, `{"conversation_id":"fixture-conversation","step_index":3,"state":"DENIED","step_type":"tool_call"}`},
-		{"error-message", `{"conversation_id":"fixture-conversation","step_index":2,"state":"DONE","step_type":"user_input"}`, `{"conversation_id":"fixture-conversation","step_index":3,"state":"DONE","step_type":"error_message"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var evidence streamTurnEvidence

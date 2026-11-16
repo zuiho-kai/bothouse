@@ -176,13 +176,19 @@ func TestTaskForumExitRequiresDeliveredPost(t *testing.T) {
 	e, p, dir := forumRoutingEngine(t)
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"任务并帖","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
 	headline, detail := "📬 结果", "完整报告"
-	body := joinExitDetail(headline, detail)
-	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail)
+	body := headline // 方案甲: a report's detail stays out of the post
+	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail, false)
 	if rc != "discord:th1" || !strings.Contains(text, "https://discord.com/channels/g1/th1/th1") || len(p.post("th1").nodes) != 1 || p.post("th1").nodes[0] != body {
 		t.Fatalf("text=%s rc=%v post=%+v", text, rc, p.post("th1"))
 	}
+	if !strings.HasPrefix(text, headline+"\n\n📌 ") {
+		t.Fatalf("the chat channel lost the report's four parts: %q", text)
+	}
+	if ask, _ := e.taskForumExitText(context.Background(), p, "discord:222", 783, "❓ 问题", detail, true); !strings.HasPrefix(ask, "📌 ") {
+		t.Fatalf("ask in the chat channel is no longer the link alone: %q", ask)
+	}
 	p.failSend = true
-	text, rc = e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail)
+	text, rc = e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail, false)
 	if rc != nil || text != headline {
 		t.Fatal("failed send hid the report behind a link")
 	}
@@ -193,7 +199,7 @@ func TestTaskForumHeldLegacyReportKeepsThreadAfterSessionReset(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"旧任务","status":"在做","chat":"discord:111","ws":"discord:222","bound":"2026-11-14T00:00:00Z"}`+"\n")
 	old := &Task{ID: "old", SessionKey: "discord:222", ThreadID: "legacy", CreatedAt: time.Now()}
 	e.publicProgress = &PublicProgress{records: map[string]*publicRun{"old": {record: progressRecord{Task: old}}}}
-	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, "原报告", "")
+	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, "原报告", "", false)
 	if text != "原报告" || rc != nil || p.opens != 0 {
 		t.Fatalf("old report migrated: %s %v %d", text, rc, p.opens)
 	}
@@ -320,5 +326,45 @@ func TestTaskForumInitiallyWaitingKeepsFullQuestion(t *testing.T) {
 	post := p.post("th1")
 	if !strings.Contains(post.card, "完整问题见下方最新回复") || len(post.nodes) != 1 || !strings.Contains(post.nodes[0], question) || len(p.mentions) != 0 {
 		t.Fatalf("initial pending question missing or mentioned: nodes=%d mentions=%v", len(post.nodes), p.mentions)
+	}
+}
+
+// #1712: a workspace that asked while running a command leaves the board row paused with the
+// bare 「等待用户答复」 and the bridge's own step as status. The step is not the question: the
+// post says so in neither the card nor the line, and nobody is mentioned. The same ask with its
+// question written after the head mentions the user with that question.
+func TestTaskForumRunningStepIsNotAQuestion(t *testing.T) {
+	for _, tc := range []struct {
+		name, why, wantLine string
+		mentions            int
+	}{
+		{"bare ask", "等待用户答复", "❓ 等你：拍板", 0},
+		{"ask with its question", "等待用户答复：样片做完了，选 A 还是 B", "❓ 样片做完了，选 A 还是 B", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, p, dir := forumRoutingEngine(t)
+			e.SetAdminFrom("123")
+			row := func(extra string) {
+				writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1711,"what":"出样片","status":"在做：Bash sed -n '1,20...","chat":"discord:111","dispatcher":"lead"`+extra+"}\n")
+			}
+			row(`,"ws":"discord:222"`)
+			e.syncTaskForum()
+			if len(p.mentions) != 0 {
+				t.Fatalf("a workspace running a command mentioned %v", p.mentions)
+			}
+			row(`,"wait_kind":"user","paused":"11-16 19:44","pause_why":"` + tc.why + `"`)
+			e.syncTaskForum()
+			if len(p.mentions) != tc.mentions {
+				t.Fatalf("mentions=%v, want %d", p.mentions, tc.mentions)
+			}
+			said := strings.Join(p.posts["th1"].nodes, "\n") + "\n" + p.posts["th1"].card
+			if strings.Contains(said, "Bash") || !strings.Contains(said, tc.wantLine) {
+				t.Fatalf("post says:\n%s\nwant line %q and no tool step", said, tc.wantLine)
+			}
+			it := readTeamTaskBoard(dir)[0]
+			if state, why := teamTaskBoardStateOf(it, time.Now()); state != teamTaskWaiting || strings.Contains(why, "Bash") {
+				t.Fatalf("board state %v reason %q", state, why)
+			}
+		})
 	}
 }

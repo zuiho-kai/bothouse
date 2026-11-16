@@ -54,6 +54,24 @@ class WsUpTest(unittest.TestCase):
         self.assertIn("ws-forward --notes /n/a.md", prompt)
         self.assertIn("别写成「你要求」", prompt)
 
+    def test_ask_writes_its_question_as_the_pause_reason(self):
+        """#1712：问题跟在「等待用户答复」后面记进任务板，帖子和团队板的「等你」显示它；只写前半句时
+        帖子拿工作区的工具步骤（在做：Bash …）当问题 @ 了用户。"""
+        team = self.setup / "team"
+        team.mkdir()
+        (team / "board.jsonl").write_text(json.dumps(
+            {"id": 7, "what": "出样片", "status": "在做：Bash sed -n '1,20...", "ws": "test:900", "chat": "test:100"},
+            ensure_ascii=False) + "\n", encoding="utf-8")
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A", "board": [7]}})
+        r = self.run_tool("ws-up", "样片做完了，\n选 A 还是 B？", "--ask", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        row = json.loads((team / "board.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["pause_why"], "等待用户答复：样片做完了， 选 A 还是 B？")
+        self.assertEqual(row["wait_kind"], "user")
+        # 提问挂起的活照旧能再报（不算用户叫停）
+        r = self.run_tool("ws-up", "补一句", "--ask", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_ask_says_queued_not_delivered(self):
         # #1492 L4：timer 刚排上、主角色那一轮还没跑，不能说「已报回」「已交给」
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
