@@ -179,7 +179,7 @@ See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese) and the [Wiki g
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: on the left, where you chat (Discord, Feishu, QQ, DSH desktop or web); in the middle, bothouse on your own computer: platform adapters, the engine with one session per channel, the team lead and the task board with workspaces, CLI adapters and the memory gate; below, the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, OpenCode, DSH, Antigravity); on the right, shared memory as a Markdown folder with the memory forum, pushed with Git to your private GitHub repo" />
 </picture>
 
 <a id="platforms"></a>

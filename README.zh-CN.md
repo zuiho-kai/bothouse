@@ -180,7 +180,7 @@ _上面两张是真实频道录屏，下面两张是作者自己在用的管理�
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-zh-night.svg" />
-  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是入口（Discord、飞书、QQ、DSH web）；中间是跑在你自己电脑上的 bothouse，负责派活、调度和任务板；下面是你已经装好的 CLI（Claude Code、Codex、Gemini CLI、DSH、OpenCode 等）；右边是共享记忆（Markdown Wiki，每晚自己复盘）和记忆论坛；最右边是同步记忆的 GitHub 私有仓库" />
+  <img src="docs/assets/readme/architecture-zh-day.svg" width="960" alt="bothouse 架构图：左边是你聊天的地方（Discord、飞书、QQ、DSH 桌面版或网页）；中间是跑在你电脑上的 bothouse：平台适配、每个频道一个会话的引擎、组长 AI 和任务板加工作区、CLI 适配、记忆门；下面是你已经登录好的 AI 命令行（Claude Code、Codex、Gemini CLI、OpenCode、DSH、Antigravity）；右边是共享记忆（Markdown 文件夹和记忆论坛），用 Git 推到你的 GitHub 私人仓库" />
 </picture>
 
 <a id="platforms"></a>
