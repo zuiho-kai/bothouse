@@ -482,6 +482,8 @@ func runMain() {
 
 	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
 	core.SetTeamReviewPrices(core.UsagePricesWithDefaults(cfg.UsagePrices)) // stand-in reviewers ranked by the same rates
+	usageSources := usageLogSources(cfg.Projects)
+	core.SetTurnSpendCap(usageSources, core.UsagePricesWithDefaults(cfg.UsagePrices), cfg.TurnSpendCap) // #1701
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
@@ -660,7 +662,7 @@ func runMain() {
 		mgmtSrv = core.NewManagementServer(port, cfg.Management.Token, cfg.Management.CORSOrigins)
 		mgmtSrv.SetHost(cfg.Management.Host)
 		mgmtSrv.SetUsageLedger(usageLedger)
-		mgmtSrv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
+		mgmtSrv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageSources...))
 		rt.mgmtSrv = mgmtSrv
 		for i, e := range engines {
 			rt.registerManagement(builtProjs[i].Name, e)
