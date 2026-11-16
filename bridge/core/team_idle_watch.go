@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -459,6 +461,33 @@ func watchHandoffLeft(it teamTaskBoardItem, key string) bool {
 	return it.WS == "" || teamChatKey(it.WS) != key
 }
 
+// watchBackgroundRun: the id of a bgrun command started from workspace key that is still running
+// and wakes the session itself when it ends ("" = none). contrib/lead/bgrun writes
+// <data>/runs/<id>/session when that wake is armed, pid at the start and exit at the end; a run
+// whose process is gone without an exit file (killed) wakes nobody and does not count.
+func (e *Engine) watchBackgroundRun(key string) string {
+	dir := filepath.Join(e.dataDir, "runs")
+	runs, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, r := range runs {
+		d := filepath.Join(dir, r.Name())
+		session, err := os.ReadFile(filepath.Join(d, "session"))
+		if err != nil || teamChatKey(strings.TrimSpace(string(session))) != key {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(d, "exit")); err == nil {
+			continue
+		}
+		raw, _ := os.ReadFile(filepath.Join(d, "pid"))
+		if pid, _ := strconv.Atoi(strings.TrimSpace(string(raw))); pid > 0 && processAlive(pid) {
+			return r.Name()
+		}
+	}
+	return ""
+}
+
 func (e *Engine) armIdleWake(a idleAssignment) {
 	time.AfterFunc(watchTurnEndDelay, func() { e.fireIdleWake(a) })
 }
@@ -521,6 +550,11 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
 		return // native background completion supplies the next terminal event
 	}
+	if id := e.watchBackgroundRun(a.key); id != "" {
+		// Its end wakes the session; a wake that fails is picked up by the next ten-minute check.
+		slog.Info("idle watch: a background command of the workspace will wake it; not waking now", "workspace", a.key, "run", id)
+		return
+	}
 	escalate, wake := false, false
 	h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 		// Ignore timers belonging to a prior turn or a task already handed back.
@@ -566,10 +600,21 @@ func (e *Engine) sendIdleWake(a idleAssignment, h TeamHandoff) bool {
 	if _, inWorkspace := e.WorkspaceParent(a.key); !inWorkspace {
 		msg = MsgWatchChatHandoff // a chat channel's work goes to a workspace, not finished in the chat
 	}
+	body := sender.i18n.Tf(msg, h.Title)
+	if msg == MsgWatchResume {
+		notes := e.watchTaskNotes(h)
+		if notes == "" {
+			notes = sender.watchTaskNotes(h)
+		}
+		if notes != "" {
+			body += "\n" + sender.i18n.Tf(MsgWatchResumeNotes, notes)
+		}
+	}
+	slog.Info("idle watch: turn ended without a handback; waking the owner to continue", "workspace", a.key, "board", h.Board, "wake", h.Idle.Wakes, "ended", h.Idle.Ended.Format(time.RFC3339))
 	if sender == e {
-		e.wakeWatchRole(a.key, sender.i18n.Tf(msg, h.Title), h.Title)
+		e.wakeWatchRole(a.key, body, h.Title)
 	} else {
-		text := strings.TrimSpace(watchMention(plat, owner) + " " + sender.i18n.Tf(msg, h.Title))
+		text := strings.TrimSpace(watchMention(plat, owner) + " " + body)
 		if err := w.send(p, a.key, text); err != nil {
 			slog.Warn("idle watch: wake post failed", "error", err)
 		}
