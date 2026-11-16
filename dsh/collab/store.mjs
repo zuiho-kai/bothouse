@@ -35,6 +35,10 @@ const COLUMNS = [
   ['members', 'avatar', 'TEXT'], // v5: a member may show an avatar (built-in slug); NULL means the initial badge.
   // A local CLI member's DSH permission preset (cli-member.mjs PERMISSION_PRESETS); NULL means DSH's default.
   ['members', 'permission_preset', 'TEXT'],
+  // #321: an external chat bot (AstrBot, MaiBot…) kept as a member. kind NULL = a bothouse role, 'external' = such a bot.
+  ['members', 'kind', 'TEXT'],
+  ['members', 'mention_id', 'TEXT'],
+  ['members', 'credential_hash', 'TEXT'], // sha256 of the member's own credential; the credential itself is not stored
   // v6 (#121): a streamed reply is stored as a draft (shown, not fanned out) until commit
   // clears the flag. Durable, so a restart between commit and finishJob never fans it out twice.
   ['messages', 'draft', 'INTEGER NOT NULL DEFAULT 0'],
@@ -134,7 +138,12 @@ export class Store {
         AND card IS NOT NULL AND deleted = 0 ORDER BY id`),
       lastUserMessage: this.db.prepare("SELECT * FROM messages WHERE room_id = ? AND id < ? AND author_kind = 'user' AND deleted = 0 ORDER BY id DESC LIMIT 1"),
       createRoom: this.db.prepare("INSERT INTO rooms (name, kind) VALUES (?, 'chat') RETURNING id, name, kind, parent_id"),
-      members: this.db.prepare('SELECT * FROM members WHERE removed = 0 ORDER BY created_at, id'),
+      members: this.db.prepare('SELECT * FROM members WHERE removed = 0 AND kind IS NULL ORDER BY created_at, id'),
+      externalMembers: this.db.prepare("SELECT * FROM members WHERE removed = 0 AND kind = 'external' ORDER BY created_at, id"),
+      memberByCredential: this.db.prepare("SELECT * FROM members WHERE removed = 0 AND kind = 'external' AND credential_hash = ?"),
+      addExternalMember: this.db.prepare(`INSERT INTO members (id, name, persona, rooms, source, kind, mention_id, credential_hash, created_at, removed)
+        VALUES (?, ?, '', ?, 'ui', 'external', ?, ?, ?, 0) RETURNING *`),
+      setCredential: this.db.prepare("UPDATE members SET credential_hash = ? WHERE id = ? AND kind = 'external' AND removed = 0 RETURNING *"),
       member: this.db.prepare('SELECT * FROM members WHERE id = ?'),
       seedMember: this.db.prepare(`INSERT INTO members (id, name, provider, model, cli, persona, avatar, permission_preset, rooms, source, created_at, removed)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'config', ?, 0)
@@ -542,8 +551,16 @@ export class Store {
     return this.db.prepare("UPDATE members SET rooms = '[]' WHERE rooms IS NULL").run().changes > 0;
   }
 
-  /** Active DSH members, config seeds and UI-created alike. */
+  /** Active DSH members, config seeds and UI-created alike. External members (#321) are not in this list. */
   members() { return this.q.members.all(); }
+  /** #321: external chat bots stored as members. */
+  externalMembers() { return this.q.externalMembers.all(); }
+  /** #321: the external member a credential hash belongs to, or undefined. */
+  memberByCredential(hash) { return this.q.memberByCredential.get(hash); }
+  addExternalMember(m, now = Date.now() / 1000) {
+    return this.q.addExternalMember.get(m.id, m.name, JSON.stringify(m.rooms), m.mentionId || null, m.credentialHash, now);
+  }
+  setCredential(id, hash) { return this.q.setCredential.get(hash, id); }
   member(id) { return this.q.member.get(id); }
   /** Upsert a config member; config always wins for its own ids. */
   seedMember(m, now = Date.now() / 1000) {
