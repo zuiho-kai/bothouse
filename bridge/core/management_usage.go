@@ -23,7 +23,7 @@ func (m *ManagementServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	group := strings.TrimPrefix(r.URL.Path, "/api/v1/usage/")
 	switch group {
-	case "daily", "hourly", "roles", "models":
+	case "daily", "hourly", "roles", "models", "members":
 	default:
 		http.NotFound(w, r)
 		return
@@ -53,12 +53,12 @@ func (m *ManagementServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if err := m.usageImporter.Sync(); err != nil {
 		slog.Warn("usage import", "error", err) // serve what was imported
 	}
-	rows, err := m.usageLedger.Query(from, to, group, r.URL.Query().Get("role"), r.URL.Query().Get("model"))
+	rows, err := m.usageLedger.Query(from, to, group, r.URL.Query().Get("role"), r.URL.Query().Get("model"), r.URL.Query().Get("member"))
 	if err != nil {
 		http.Error(w, "cannot read usage ledger", 500)
 		return
 	}
-	if model := r.URL.Query().Get("model"); model == "" && group != "models" {
+	if model := r.URL.Query().Get("model"); model == "" && (group == "daily" || group == "hourly" || group == "roles") && r.URL.Query().Get("member") == "" {
 		rows = addReplies(rows, m.replyTimes(r.URL.Query().Get("role")), from, to, group)
 	}
 	mgmtJSON(w, 200, map[string]any{"from": from.Format("2006-01-02"), "to": to.Format("2006-01-02"), "timezone": time.Local.String(), "group_by": group, "items": rows})

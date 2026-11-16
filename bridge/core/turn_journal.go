@@ -65,6 +65,7 @@ func truncateKeepEnds(s string, max int) string {
 
 // TurnJournalEntry is the on-disk record of one running turn.
 type TurnJournalEntry struct {
+	UsageMember     *UsageMember       `json:"usage_member,omitempty"`
 	Authorization   *AuthorizationTurn `json:"authorization,omitempty"`
 	TurnID          string             `json:"turn_id"`
 	Kind            string             `json:"kind,omitempty"` // TurnKind*; "" reads as TurnKindTurn
@@ -250,7 +251,11 @@ func (j *TurnJournal) Update(turnID string, fn func(*TurnJournalEntry)) (bool, e
 	if !ok {
 		return false, nil
 	}
+	previous := *en
 	fn(en)
+	if !previous.StartedAt.Equal(en.StartedAt) {
+		j.saveUsageTurn(previous, en.StartedAt)
+	}
 	en.TurnID = turnID
 	en.LastUserMessage = truncateKeepEnds(en.LastUserMessage, turnJournalMaxUserMessage)
 	return true, j.saveLocked()
@@ -265,6 +270,7 @@ func (j *TurnJournal) Mark(turnID string) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	j.saveUsageTurn(*en, time.Now())
 	en.Interrupted = true
 	en.InterruptedAt = time.Now()
 	j.clearActiveLocked(en.InteractiveKey, turnID)
@@ -279,6 +285,7 @@ func (j *TurnJournal) Delete(turnID string) error {
 	if !ok {
 		return nil
 	}
+	j.saveUsageTurn(*en, time.Now())
 	delete(j.entries, turnID)
 	delete(j.progressSaved, turnID)
 	j.clearActiveLocked(en.InteractiveKey, turnID)
@@ -451,6 +458,7 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		return ""
 	}
 	en := TurnJournalEntry{
+		UsageMember:     usageMemberOf(msg),
 		Authorization:   msg.authorization,
 		Project:         e.name,
 		SessionKey:      msg.SessionKey,
@@ -525,6 +533,7 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 	if id := j.Active(interactiveKey); id != "" {
 		ok, err := j.Update(id, func(en *TurnJournalEntry) {
 			en.LastUserMessage = withVoiceNote(q.content, q.fromVoice && !q.voiceMarked)
+			en.UsageMember = usageMemberOf(queuedToMessage(*q))
 			en.Authorization = q.authorization
 			en.StartedAt = now
 			en.Trigger = queuedTurnTrigger(q)
@@ -553,6 +562,7 @@ func (e *Engine) journalQueuedTurn(q *queuedMessage, interactiveKey, workspaceDi
 		}
 	}
 	en := TurnJournalEntry{
+		UsageMember:     usageMemberOf(queuedToMessage(*q)),
 		Authorization:   q.authorization,
 		Project:         e.name,
 		SessionKey:      q.msgSessionKey,

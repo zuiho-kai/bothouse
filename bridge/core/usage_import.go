@@ -141,6 +141,10 @@ func (im *UsageImporter) Sync() error {
 	}
 	im.mu.Lock()
 	defer im.mu.Unlock()
+	turns, err := readUsageTurns(im.dataDir)
+	if err != nil {
+		return err
+	}
 	roles := SessionRoles(im.dataDir)
 	st := im.loadState()
 	var firstErr error
@@ -176,6 +180,8 @@ func (im *UsageImporter) Sync() error {
 			}
 			for i := range records {
 				records[i].Role = role
+				records[i].SessionID = sid
+				attributeUsage(&records[i], turns)
 			}
 			if len(records) > 0 {
 				if err := im.ledger.Upsert(records); err != nil {

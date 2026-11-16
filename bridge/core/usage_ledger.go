@@ -1,13 +1,13 @@
 package core
 
 import (
-	"strings"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,31 +31,42 @@ func (p TokenPrice) Validate() error {
 	return nil
 }
 
+type UsageMember struct {
+	Platform string `json:"platform"`
+	Account  string `json:"account"`
+	Name     string `json:"name,omitempty"`
+}
+
+func (m UsageMember) Key() string { return m.Platform + ":" + m.Account }
+
 type UsageRecord struct {
-	Time       time.Time `json:"time"`
-	Role       string    `json:"role"`
-	Model      string    `json:"model"`
-	Input      int64     `json:"input_tokens"`
-	Output     int64     `json:"output_tokens"`
-	CacheRead  int64     `json:"cache_read_tokens"`
-	CacheWrite int64     `json:"cache_write_tokens"`
-	Known      bool      `json:"usage_known"`
+	SessionID  string       `json:"session_id,omitempty"`
+	Member     *UsageMember `json:"member,omitempty"`
+	Time       time.Time    `json:"time"`
+	Role       string       `json:"role"`
+	Model      string       `json:"model"`
+	Input      int64        `json:"input_tokens"`
+	Output     int64        `json:"output_tokens"`
+	CacheRead  int64        `json:"cache_read_tokens"`
+	CacheWrite int64        `json:"cache_write_tokens"`
+	Known      bool         `json:"usage_known"`
 	// Key identifies one model response in its source log (for example
 	// "claudecode:<message.id>"). Upsert replaces a record with the same key,
 	// so re-reading a log never counts a response twice.
 	Key string `json:"key,omitempty"`
 }
 type UsageAggregate struct {
-	Date       string `json:"date,omitempty"`
-	Hour       int    `json:"hour"`
-	Role       string `json:"role,omitempty"`
-	Model      string `json:"model,omitempty"`
-	Input      int64  `json:"input_tokens"`
-	Output     int64  `json:"output_tokens"`
-	CacheRead  int64  `json:"cache_read_tokens"`
-	CacheWrite int64  `json:"cache_write_tokens"`
-	Total      int64  `json:"total_tokens"`
-	Responses  int64  `json:"responses"` // model requests in the CLI logs
+	Member     *UsageMember `json:"member,omitempty"`
+	Date       string       `json:"date,omitempty"`
+	Hour       int          `json:"hour"`
+	Role       string       `json:"role,omitempty"`
+	Model      string       `json:"model,omitempty"`
+	Input      int64        `json:"input_tokens"`
+	Output     int64        `json:"output_tokens"`
+	CacheRead  int64        `json:"cache_read_tokens"`
+	CacheWrite int64        `json:"cache_write_tokens"`
+	Total      int64        `json:"total_tokens"`
+	Responses  int64        `json:"responses"` // model requests in the CLI logs
 	// Replies counts the role's replies posted to chat (bridge session
 	// history); filled by the usage API for daily, hourly and roles rows.
 	Replies       int64    `json:"replies"`
@@ -248,6 +259,12 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 			b.Hour = r.Time.Hour()
 		case "roles":
 			b.Role = r.Role
+		case "members":
+			if r.Member != nil {
+				m := *r.Member
+				m.Name = "" // names may change; group only by platform/account
+				b.Member = &m
+			}
 		case "models":
 			b.Model = r.Model
 		default:
@@ -262,6 +279,9 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 		if dst == nil {
 			dst = &b
 			buckets[key] = dst
+		}
+		if group == "members" && dst.Member != nil {
+			dst.Member.Name = r.Member.Name
 		}
 		dst.Input += r.Input
 		dst.Output += r.Output
@@ -310,14 +330,28 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 // Query uses local calendar dates, inclusively. Missing dates have no buckets.
 // It takes no lock: Record replaces day files by rename, so a read sees either
 // the old or the new file, and queries never hold up writes.
-func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]UsageAggregate, error) {
+func (l *UsageLedger) Query(from, to time.Time, group, role, model string, member ...string) ([]UsageAggregate, error) {
 	records := []UsageRecord{}
+	turns, err := readUsageTurns(filepath.Dir(l.dir))
+	if err != nil {
+		return nil, err
+	}
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		day, err := l.readDay(d.Format("2006-01-02"))
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range day.Records {
+			attributeUsage(&r, turns)
+			if len(member) > 0 && member[0] != "" {
+				key := "unattributed"
+				if r.Member != nil {
+					key = r.Member.Key()
+				}
+				if key != member[0] {
+					continue
+				}
+			}
 			if r.Model != syntheticModel && (role == "" || role == r.Role) && (model == "" || model == r.Model) {
 				records = append(records, r)
 			}
