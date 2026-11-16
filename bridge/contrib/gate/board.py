@@ -13,7 +13,8 @@
   建议设成 cc-connect 的 team_status_dir，和队友状态放一起。
 
 用法：
-  board                                  # 列出进行中的事
+  board                                  # 列出进行中的事：在聊天频道里跑只列本频道的（别的频道只计数），工作区列它绑的
+  board list --all                       # 全表，每行标来源频道；别的频道的活只看，改要到派活的频道（#836）
   board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
                                          #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
@@ -210,13 +211,19 @@ def fmt(i):
     return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
 
 
-def lines():
-    """进行中的事。待办（backlog）不在这里列，见 backlog_lines（用户 2026-11-05「任务板怎么还有一堆任务」）。"""
-    return [fmt(i) for i in items() if not i.get("backlog")]
+def lines(all_chats=False):
+    """进行中的事，只列当前频道的（visible_here，#836）；all_chats 列全表，每行标来源频道。
+    待办（backlog）不在这里列，见 backlog_lines（用户 2026-11-05「任务板怎么还有一堆任务」）。"""
+    its = [i for i in items() if not i.get("backlog")]
+    if all_chats:
+        return [fmt(i) + f"｜来自 {_channel_name(channel_of(i)) if channel_of(i) else '-'}" for i in its]
+    shown = [i for i in its if visible_here(i)]
+    rest = len(its) - len(shown)
+    return [fmt(i) for i in shown] + ([f"别的频道还有 {rest} 件，到派活的频道处理（board list --all 看全表）"] if rest else [])
 
 
 def backlog_lines():
-    return [fmt(i) for i in items() if i.get("backlog")]
+    return [fmt(i) for i in items() if i.get("backlog") and visible_here(i)]
 
 
 def backlog_count():
@@ -298,6 +305,45 @@ def in_chat(it, key):
     c = it.get("chat") or ""
     c = c if ":" in c else (f"discord:{c}" if c else "")
     return chat in (it.get("ws"), it.get("sk"), c) or (chat.startswith("discord:") and it.get("ch") == cid)
+
+
+def channel_of(it):
+    """条目是哪个聊天频道派的（<平台>:<id>）：chat，没有用 sk、卡片频道 ch；都没记返回空串。"""
+    c = it.get("chat") or it.get("sk") or ""
+    c = c if ":" in c else (f"discord:{c}" if c else "")
+    return ":".join(c.split(":", 2)[:2]) or (f"discord:{it['ch']}" if it.get("ch") else "")
+
+
+def _channel_name(chat):
+    cid = chat.split(":", 1)[1] if ":" in chat else chat
+    return f"<#{cid}>" if chat.startswith("discord:") else (chat or "别的频道")
+
+
+def visible_here(it, key=None):
+    """条目在会话 key（默认 CC_SESSION_KEY）里看得到、能操作（#836）：建在、绑在或从这里交出（in_chat），
+    或这一轮跑在它绑过的工作区里（ws / ws_was，同 unreturned_in_workspace）。不在聊天频道里跑（key 没有频道）
+    或条目没记任何频道的照旧都算。board list 和每轮注入的任务板（ctxsvc.board_items）共用这一个判断。"""
+    key = os.environ.get("CC_SESSION_KEY", "") if key is None else str(key or "")
+    if ":" not in key or not (channel_of(it) or it.get("ws") or it.get("ws_was")):
+        return True
+    here = key.split(":")[1:2]
+    return in_chat(it, key) or here in [k.split(":")[1:2] for k in (it.get("ws"), it.get("ws_was")) if k]
+
+
+def foreign_why(it, key=None):
+    """条目不是当前频道的：返回拒绝的话（「这件是 <#频道> 派的，到那边处理」）；是本频道的或查不到条目返回 None。"""
+    if not it or visible_here(it, key):
+        return None
+    return f"#{it['id']} 这件是 {_channel_name(channel_of(it))} 派的，到那边处理"
+
+
+def refuse_foreign(nids, tool="board"):
+    """nids 里有别的频道派的条目就退出（板上和已完成记录都查）；ws-handoff --resume / ws-pass / ws-forward 和
+    board 的写操作开头调（#836：在主频道续办、讨论了别的频道的 #834）。"""
+    for n in nids or []:
+        why = foreign_why(item_by_id(int(str(n).lstrip("#")))) if str(n).lstrip("#").isdigit() else None
+        if why:
+            sys.exit(f"{tool}: {why}；本频道没动它")
 
 
 def short(it):
@@ -1824,6 +1870,9 @@ def open_pr_hint():
     return f"还有 {len(prs)} 个 PR 没合：" + " ".join(f"#{x['number']}" for x in prs)
 
 
+WRITE_CMDS = ("update", "done", "pause", "backlog", "resume", "reject", "hold", "unhold", "next")  # 只能在派活频道改的命令
+
+
 def main(argv):
     argv, nxt = _split_next(argv)
     argv, short_name = _split_short(argv)
@@ -1832,9 +1881,11 @@ def main(argv):
         # 这次点到的编号全都不收：board backlog 1 2 3 一次挪几条时，别把后面那几条先收进完成记录
         ids = {int(x.lstrip("#")) for x in argv[1:] if x.lstrip("#").isdigit()}
         _say_pruned(auto_prune(check_pr=False, skip=ids))
+    if cmd in WRITE_CMDS:  # 别的频道派的活，这里不改（#836）
+        refuse_foreign([x for x in argv[1:] if x.lstrip("#").isdigit()][:None if cmd in ("backlog", "hold") else 1])
     try:
-        if cmd in ("list", "ls"):
-            print("\n".join(lines()) or "（任务板是空的）")
+        if cmd in ("list", "ls") and argv[1:] in ([], ["--all"]):
+            print("\n".join(lines(argv[1:] == ["--all"])) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
             if not (short_name or "").strip() or len(short_name.strip()) > SHORT_RUNES:
                 sys.exit(f"不加：要写 --short 短名（≤{SHORT_RUNES} 字，置顶任务表上显示的名字），不再从任务句截前十字")
