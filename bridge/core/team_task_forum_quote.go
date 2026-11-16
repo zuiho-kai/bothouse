@@ -23,8 +23,8 @@ var (
 	// 「[11-16 16:0x] zzzx0757：…」: optional time, then a name before the first colon, before any quote mark.
 	forumQuoteHead = regexp.MustCompile(`^(\[[^\]\n]*\]\s*)?([^：:「」『』（）()\[\]\n]{1,24}?)\s*((?:[（(][^）)\n]*[）)])?)\s*[：:]\s*`)
 	forumQuoteTime = regexp.MustCompile(`^\[[^\]\n]*\]\s*`)
-	// 「（2026-11-16 15:08，zuiho_kai）」: a by-line naming who said the lines under it.
-	forumQuoteByline = regexp.MustCompile(`^[（(][^）)\n]*[，,、\s]([^，,、\s（）()]{1,24})\s*[）)]$`)
+	// 「（2026-11-16 15:08，zuiho_kai）」: a by-line (a clock time, then the name last) naming who said the lines under it.
+	forumQuoteByline = regexp.MustCompile(`^[（(][^）)\n]*\d{1,2}:\d{2}[^）)\n]*[，,、\s]([^，,、\s（）()]{1,24})\s*[）)]$`)
 	forumQuoteNoise  = regexp.MustCompile(`[\s「」『』"“”'‘’]+`)
 )
 
