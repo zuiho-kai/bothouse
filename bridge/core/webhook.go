@@ -22,6 +22,7 @@ type WebhookServer struct {
 	server  *http.Server
 	engines map[string]*Engine
 	mu      sync.RWMutex
+	github  *githubEvents // nil unless [webhook.github] is configured
 }
 
 // WebhookRequest is the JSON body for POST /hook.
@@ -64,6 +65,10 @@ func (ws *WebhookServer) RegisterEngine(name string, e *Engine) {
 func (ws *WebhookServer) Start() {
 	mux := http.NewServeMux()
 	mux.HandleFunc(ws.path, ws.handleHook)
+	if ws.github != nil {
+		mux.HandleFunc(ws.path+"/github", ws.handleGitHub)
+		ws.github.start()
+	}
 
 	addr := fmt.Sprintf(":%d", ws.port)
 	ws.server = &http.Server{Addr: addr, Handler: mux}
@@ -77,6 +82,9 @@ func (ws *WebhookServer) Start() {
 }
 
 func (ws *WebhookServer) Stop() {
+	if ws.github != nil {
+		ws.github.stop()
+	}
 	if ws.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -233,9 +241,16 @@ func (ws *WebhookServer) resolveEngine(project string) (*Engine, error) {
 }
 
 func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string, silent bool, event string) {
+	ws.deliverPrompt(engine, sessionKey, prompt, silent, event, nil)
+}
+
+// deliverPrompt hands a prompt to the session and reports whether it was taken: it runs now, or
+// it is queued behind the running turn. accepted (optional) is called as soon as that is known,
+// before the turn runs; a dropped prompt returns false without calling it.
+func (ws *WebhookServer) deliverPrompt(engine *Engine, sessionKey, prompt string, silent bool, event string, accepted func()) bool {
 	if engine.IsPaused() {
 		slog.Warn("webhook: engine is paused, prompt dropped", "project", engine.name, "event", event)
-		return
+		return false
 	}
 	platformName := ""
 	if idx := strings.Index(sessionKey, ":"); idx > 0 {
@@ -251,19 +266,19 @@ func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string
 	}
 	if targetPlatform == nil {
 		slog.Error("webhook: platform not found", "event", event, "platform", platformName)
-		return
+		return false
 	}
 
 	rc, ok := targetPlatform.(ReplyContextReconstructor)
 	if !ok {
 		slog.Error("webhook: platform does not support proactive messaging", "event", event, "platform", platformName)
-		return
+		return false
 	}
 
 	replyCtx, err := rc.ReconstructReplyCtx(sessionKey)
 	if err != nil {
 		slog.Error("webhook: reconstruct reply context failed", "event", event, "error", err)
-		return
+		return false
 	}
 
 	if !silent {
@@ -286,20 +301,27 @@ func (ws *WebhookServer) executePrompt(engine *Engine, sessionKey, prompt string
 		switch engine.queueScheduledTurn(targetPlatform, nil, msg, session, engine.sessions, sessionKey, engine.agent, "") {
 		case queueAccepted:
 			slog.Info("webhook: session busy, prompt queued after current turn", "event", event, "session_key", sessionKey)
-			return
+			if accepted != nil {
+				accepted()
+			}
+			return true
 		case queueRejected:
 			slog.Warn("webhook: session busy and queue full, prompt dropped", "event", event, "session_key", sessionKey)
-			return
+			return false
 		}
 		slog.Warn("webhook: session busy, queued prompt dropped", "event", event, "session_key", sessionKey)
 		if !silent {
 			engine.send(targetPlatform, replyCtx, fmt.Sprintf("🪝 ⚠️ session busy, skipped: %s", event))
 		}
-		return
+		return false
 	}
 
+	if accepted != nil {
+		accepted()
+	}
 	engine.processInteractiveMessage(targetPlatform, msg, session)
 	slog.Info("webhook: prompt executed", "event", event, "session_key", sessionKey)
+	return true
 }
 
 const webhookShellTimeout = 5 * time.Minute
