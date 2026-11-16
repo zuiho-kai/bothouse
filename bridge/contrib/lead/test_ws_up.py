@@ -428,7 +428,7 @@ class WsPoolTest(unittest.TestCase):
                 if c[:2] == ["timer", "add"] and "工作区转交" in c][-1]
         self.assertIn("--forward", argv)
         self.assertNotIn("--handoff", argv)
-        self.assertEqual(argv[argv.index("--delay") + 1], "1m")
+        self.assertEqual(argv[argv.index("--delay") + 1], "1s")
         self.assertEqual(argv[argv.index("-s") + 1], "test:1")  # 还是叫醒原来那个工作区：归属没变
 
         r = subprocess.run([sys.executable, "-I", str(HERE / "ws-forward"), "--interrupt", "--notes", notes, "验收改成别的"],

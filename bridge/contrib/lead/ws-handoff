@@ -8,7 +8,7 @@
 #   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
 #       ws-handoff --drain                        排队的活按先后接到空出来的工作区（桥放回工作区后调）
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
-#   --short 短名（≤10 字），上置顶任务表（board add --short）；不写就从任务句截（本机 local 规则 flags.require_short 时不写就退回）。
+#   --short 活名（≤20 字，用户一眼认得出的一句话），上任务帖标题和置顶任务表（board add --short）；不写就从任务句截（本机 local 规则 flags.require_short 时不写就退回）。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件要过 handoff-rules.json（同目录，唯一一份交接规则，DSH collab 建工作区与派活也读它）：必需小节、
 #   参照实现、已查过什么（文件:行或文档路径）、范围的改/不改行（改最多 3 行）、相关改动的冲突行、多人改时的底分支；不合格就报缺什么并给示例（_handoff_rules.py）。
@@ -35,7 +35,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 短名（≤10 字）\n'
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字）\n'
          '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
@@ -728,6 +728,11 @@ def append_skeleton(path, nid):
         return False
 
 
+# 交出去到工作区开工之间的延迟：只留给交活脚本记完「这份交接交给了谁」（record_last、兜底定时，一两秒）。
+# 原先写死一分钟，工作区空着也干等（#1732，用户 11-17「整个调度流程特别慢」）。
+KICKOFF_DELAY = "5s"
+
+
 def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None, project=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
@@ -767,7 +772,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"到点会另交工作区接着做。"
               + (f"\n\n【交接全文 {path}】\n{note.rstrip()}" if inline else ""))
     key = ws if ":" in ws else f"discord:{ws}"
-    return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
+    return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", KICKOFF_DELAY, "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
 
 
@@ -931,6 +936,11 @@ def resume_answered(nid, answer):
             print(f"ws-handoff: #{nid} 工作区都占着，排队", file=sys.stderr)
 
 
+# 活名：这件活在任务帖标题、置顶任务表、汇报里的同一个名字（#1732，用户 11-17「那个标题我根本看不懂啊」）。
+SHORT_HOW = ("活名是任务帖标题、置顶任务表和汇报里这件活的名字，写成用户一眼认得出的一句话：要做成什么，用用户自己的词，"
+             "比如 --short 帖子标题改成人话；不写编号、代号和只有你懂的叫法")
+
+
 def main(argv):
     if argv[:1] == ["--drain"]:
         return 0
@@ -954,13 +964,16 @@ def main(argv):
         argv = argv[:k] + argv[k + 2:]
     if len(argv) != 2 or not argv[1].strip():
         sys.exit(USAGE)
-    # 短名由交活人写，不再从任务句截前十字（用户 10-30 认可的置顶表方案：没写就退回让写）。
+    # 活名由交活人写，不再从任务句截字（用户 10-30 认可的置顶表方案：没写就退回让写）。
     short_name = (short_name or "").strip()
     given_short = short_name  # 交活人自己写的短名才查同名撞活；从任务句截的不算（截出来同名的多）
     if not short_name and not _handoff_rules.load()["flags"].get("require_short"):
         short_name = board.short_of(argv[1])[:board.SHORT_RUNES]
     if not short_name or len(short_name) > board.SHORT_RUNES:
-        sys.exit(f"ws-handoff: 要写 --short 短名（≤{board.SHORT_RUNES} 字，置顶任务表上显示的名字，比如 --short 任务表改版）")
+        sys.exit(f"ws-handoff: 要写 --short 活名（≤{board.SHORT_RUNES} 字）：{SHORT_HOW}")
+    bad = board.short_problem(given_short)
+    if bad:
+        sys.exit(f"ws-handoff: --short「{given_short}」{bad}，用户认不出是哪件事。{SHORT_HOW}")
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
@@ -997,12 +1010,7 @@ def main(argv):
         print(f"ws-handoff: 有一处两种读法不是方向也不是花钱，按交接写的放行，已附「{OWN}」", file=sys.stderr)
     # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，小模型没调成写「没搜成（原因）」
     # 并照实打印（接回时重搜），都不拦交活
-    block = _recall.append_to(path)
-    if block and _recall.FAIL_LINE in block:
-        why = block.split(_recall.FAIL_LINE, 1)[1].strip().splitlines()[0]
-        print(f"ws-handoff: {_recall.FAIL_LINE}{why}，交接里照实写了，接回时重搜", file=sys.stderr)
-    elif block:
-        print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
+    recall = _recall.start(path)  # 和下面挑工作区、上任务板同时跑，叫醒工作区前收（#1732）
     chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
     if append_source(path, chat):
         print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
@@ -1035,6 +1043,12 @@ def main(argv):
     else:
         board.update(nid, "已交接", who=f"{name}{lead_name}")
         board.rebind(nid, key, chat=chat)
+    block = _recall.finish(recall, path)
+    if block and _recall.FAIL_LINE in block:
+        why = block.split(_recall.FAIL_LINE, 1)[1].strip().splitlines()[0]
+        print(f"ws-handoff: {_recall.FAIL_LINE}{why}，交接里照实写了，接回时重搜", file=sys.stderr)
+    elif block:
+        print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
     append_skeleton(path, nid)
     r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
     if r.returncode != 0:
