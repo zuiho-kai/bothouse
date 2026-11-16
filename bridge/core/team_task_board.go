@@ -900,17 +900,20 @@ func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) 
 // 我只想知道有哪些工作在干，干了多久 什么工作区之类的」; A+B workspace alignment 2026-11-01:
 // 「其实还是不太好 看不出哪个工作区在干啥」「ab结合下 在a也显示 忙的亮绿点、刚交回待核对的亮黄点」):
 //
-//	📋 任务表（12:20 更新）
+//	📋 任务表（11-01 12:20 更新）
 //	**等你看 1**
-//	  · 全双工权限卡回复稿 · 等了 2小时  [→点进去](thread)
-//	**工作区 2**（空闲：工作区3、5、6）
-//	  🟢 工作区1 · 任务板重构PR · 已做 25分钟  [→点进去](thread)
-//	  🟡 工作区2 · QQ断线修复 · 已交回待核对
-//	  🟢 工作区4 · 搁置盘点 · 已做 15分钟  [→点进去](thread)
+//	  · [全双工权限卡回复稿](post) · 等了 2小时
+//	**工作区 2**（空闲 3 个）
+//	  🟢 工作区1 · [任务板重构PR](post) · 已做 25分钟
+//	  🟡 工作区2 · [QQ断线修复](post) · 已交回待核对
+//	  🟢 工作区4 · [搁置盘点](post) · 已做 15分钟
 //	**待安排 1**
-//	  · 强制汇报
+//	  · [强制汇报](post)
 //	（另有 4 件搁置，超过一天没动或已暂停）
 //
+// The table is the directory, each item's forum post is the page: the item's name on every row
+// links to its post (user, 2026-11-16: 「置顶的那个设计 直接让fable拍板」; the old 「→点进去」 used the
+// workspace's newest task card, which for an older item is another item's card).
 // Workspace rows put the workspace name and status dot (🟢 busy, 🟡 handed back awaiting check)
 // at the start of the line, sorted by workspace number; progress words stay in the workspace.
 // An open item no workspace is working on is 待安排. 搁置 (paused for another reason, or no
@@ -921,9 +924,10 @@ const (
 	teamTaskTableShelveAfter = 24 * time.Hour
 )
 
-// teamTaskTableHeader: the table's first line with the time it last changed.
+// teamTaskTableHeader: the table's first line with the day and time it last changed (an unchanged
+// table keeps its header for days, so the time alone read as today's).
 func teamTaskTableHeader(at time.Time) string {
-	return teamTaskTableHead + "（" + at.Format("15:04") + " 更新）"
+	return teamTaskTableHead + "（" + at.Format("01-02 15:04") + " 更新）"
 }
 
 // teamTaskTableBody: the table without its first line.
@@ -1002,52 +1006,68 @@ func teamTaskTableAsked(it teamTaskBoardItem, now time.Time) (time.Time, bool) {
 	return teamTaskBoardLocal(it.Paused, now)
 }
 
-// teamTaskTableRowURL returns the safe URL to link on a pinned table row, or "".
+// teamTaskTableRowURL returns the safe URL a pinned table row links to, or "": the item's forum
+// post, else the card recorded on the item itself (board link), else card — the workspace task
+// card, which the caller passes only when it is this item's own (teamTaskTableOwnCard).
 func teamTaskTableRowURL(it teamTaskBoardItem, card *teamTaskLink) string {
-	url := it.Card
+	urls := []string{it.Post, it.Card}
 	if card != nil {
-		url = card.ThreadURL
-		if url == "" {
-			url = card.URL
-		}
+		urls = append(urls, card.ThreadURL, card.URL)
 	}
-	if url != "" && safeTaskURL(url) {
-		return url
+	for _, url := range urls {
+		if url != "" && safeTaskURL(url) {
+			return url
+		}
 	}
 	return ""
 }
 
-// teamTaskTableIdleSuffix formats idle workspace names into 「（空闲：工作区3、5、6）」,
-// dropping workspaces already shown in the table's workspace rows.
+// teamTaskTableOwnCard: card when it is the item's own task card, else nil. A workspace's newest
+// card belongs to the item bound there last and still worked on there; for any other item it is a
+// later item's card (2026-11-16: 「五PR复验」 and 「外壳需求清单」 both linked to a third item).
+func teamTaskTableOwnCard(it teamTaskBoardItem, card *teamTaskLink, newestBound map[string]time.Time) *teamTaskLink {
+	bound, err := time.Parse(time.RFC3339Nano, it.Bound)
+	if card == nil || err != nil || it.wsEnded || !bound.Equal(newestBound[it.WS]) {
+		return nil
+	}
+	return card
+}
+
+// teamTaskTableLinked: the row's item name, as a link to url when there is one.
+func teamTaskTableLinked(short, url string) string {
+	if url == "" {
+		return short
+	}
+	return "[" + strings.NewReplacer("[", "［", "]", "］").Replace(short) + "](" + url + ")"
+}
+
+// teamTaskTableIdleSuffix: 「（空闲 3 个）」 — how many idle workspaces the chat has, not counting
+// those shown in the table's workspace rows; "" for none. Their names are not listed: the heading
+// is about the busy ones (2026-11-16: eight names took most of the line).
 func teamTaskTableIdleSuffix(idle []string, used map[string]bool) string {
-	var parts []string
-	hasPrefixed := false
+	n := 0
 	for _, name := range idle {
-		name = boardLabel(name)
-		if name == "" || name == "-" || used[name] {
-			continue
-		}
-		if len(parts) == 0 {
-			hasPrefixed = strings.HasPrefix(name, teamWorkspacePrefix)
-			parts = append(parts, name)
-			continue
-		}
-		if hasPrefixed && strings.HasPrefix(name, teamWorkspacePrefix) && len(name) > len(teamWorkspacePrefix) {
-			parts = append(parts, strings.TrimPrefix(name, teamWorkspacePrefix))
-		} else {
-			parts = append(parts, name)
+		if name = boardLabel(name); name != "" && name != "-" && !used[name] {
+			n++
 		}
 	}
-	if len(parts) == 0 {
+	if n == 0 {
 		return ""
 	}
-	return "（空闲：" + strings.Join(parts, "、") + "）"
+	return fmt.Sprintf("（空闲 %d 个）", n)
 }
 
 // renderTeamTaskTable renders the table body (no header line) for chat, "" when the chat has no
-// open item. links: the task cards (readTeamFiles' Tasks), for each row's thread.
+// open item. links: the task cards (readTeamFiles' Tasks), for a row's activity time and, when the
+// item has no forum post, its link.
 func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time) string {
 	backlog := teamTaskBoardBacklogLine(items, chat)
+	newestBound := map[string]time.Time{} // workspace → its newest binding, over every chat's items
+	for _, it := range items {
+		if b, err := time.Parse(time.RFC3339Nano, it.Bound); err == nil && it.WS != "" && b.After(newestBound[it.WS]) {
+			newestBound[it.WS] = b
+		}
+	}
 	items = teamTaskBoardDisplayItems(items, chat, now)
 	type wsRow struct {
 		where string
@@ -1055,9 +1075,9 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		line  string
 	}
 	type runRow struct {
-		where, short, span, url string
-		last, bound             time.Time
-		stuck                   bool
+		where, short, span string
+		last, bound        time.Time
+		stuck              bool
 	}
 	var waiting, idle, release []string
 	var wsRows []wsRow
@@ -1091,7 +1111,8 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 		if (it.parent == chat && it.own != chat || it.wsEnded || state == teamTaskReview) && it.wsName != "" {
 			where = boardLabel(it.wsName)
 		}
-		short := teamTaskBoardShort(it)
+		url := teamTaskTableRowURL(it, teamTaskTableOwnCard(it, card, newestBound))
+		short := teamTaskTableLinked(teamTaskBoardShort(it), url)
 		span := teamTaskTableSpan(teamTaskTableSince(it, now), now)
 		switch {
 		case state == teamTaskRelease:
@@ -1117,8 +1138,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			}
 			wsRows = append(wsRows, wsRow{where: where, ended: true, line: "  ⏸ " + strings.Join(parts, " · ")})
 		case state == teamTaskReview:
-			// The workspace handed it back; the lead still has to check it (not acceptance). Its
-			// workspace's newest card belongs to later work, so no link.
+			// The workspace handed it back; the lead still has to check it (not acceptance).
 			note := taskReviewNote(it, now)
 			mark := "🟡 "
 			if taskReviewOverdue(it, now) {
@@ -1137,11 +1157,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			if span != "" {
 				parts = append(parts, "等了 "+span)
 			}
-			row := "  · " + strings.Join(parts, " · ")
-			if url := teamTaskTableRowURL(it, card); url != "" {
-				row += "  [→点进去](" + url + ")"
-			}
-			waiting = append(waiting, row)
+			waiting = append(waiting, "  · "+strings.Join(parts, " · "))
 		case where == "" && teamTaskBoardOwner(it.Who) != "":
 			// Named owner outside a bound workspace (「肥鱼（409续办）」): someone is on it, so it is
 			// not 待安排 (same report as above, 「找bug一路」 listed as 待安排).
@@ -1149,11 +1165,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			if span != "" {
 				parts = append(parts, "已做 "+span)
 			}
-			row := "  ▶ " + strings.Join(parts, " · ")
-			if url := teamTaskTableRowURL(it, card); url != "" {
-				row += "  [→点进去](" + url + ")"
-			}
-			wsRows = append(wsRows, wsRow{line: row})
+			wsRows = append(wsRows, wsRow{line: "  ▶ " + strings.Join(parts, " · ")})
 		case where == "":
 			row := "  · " + short
 			if strings.TrimSpace(it.Who) != "" {
@@ -1171,7 +1183,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			if card != nil && card.UpdatedAt.After(wsLast) {
 				wsLast = card.UpdatedAt
 			}
-			running = append(running, runRow{where: where, short: short, span: span, url: teamTaskTableRowURL(it, card),
+			running = append(running, runRow{where: where, short: short, span: span,
 				last: wsLast, bound: bound, stuck: state == teamTaskStuck || !wsLast.IsZero() && now.Sub(wsLast) >= teamTaskBoardStuckAfter})
 		}
 	}
@@ -1202,11 +1214,7 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 				parts = append(parts, "已做 "+r.span)
 			}
 		}
-		row := mark + strings.Join(parts, " · ")
-		if r.url != "" {
-			row += "  [→点进去](" + r.url + ")"
-		}
-		wsRows = append(wsRows, wsRow{where: r.where, ended: ended, line: row})
+		wsRows = append(wsRows, wsRow{where: r.where, ended: ended, line: mark + strings.Join(parts, " · ")})
 	}
 	sort.SliceStable(wsRows, func(i, j int) bool {
 		ni, nj := teamWorkspaceNum(wsRows[i].where), teamWorkspaceNum(wsRows[j].where)

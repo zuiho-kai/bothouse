@@ -181,6 +181,12 @@ func TestTaskForumExitRequiresDeliveredPost(t *testing.T) {
 	if rc != "discord:th1" || !strings.Contains(text, "https://discord.com/channels/g1/th1/th1") || len(p.post("th1").nodes) != 1 || p.post("th1").nodes[0] != body {
 		t.Fatalf("text=%s rc=%v post=%+v", text, rc, p.post("th1"))
 	}
+	if !strings.HasPrefix(text, headline+"\n\n📌 ") {
+		t.Fatalf("the chat channel lost the report's four parts: %q", text)
+	}
+	if ask, _ := e.taskForumExitText(context.Background(), p, "discord:222", 783, "❓ 问题", detail, true); !strings.HasPrefix(ask, "📌 ") {
+		t.Fatalf("ask in the chat channel is no longer the link alone: %q", ask)
+	}
 	p.failSend = true
 	text, rc = e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail, false)
 	if rc != nil || text != headline {
