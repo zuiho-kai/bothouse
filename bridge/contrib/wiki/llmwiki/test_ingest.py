@@ -2031,9 +2031,9 @@ class GaveUp(Fake):
         self.assertEqual([c[2] for c in self.cmds], ["-m", "resume", "-m"])  # m1 fresh, m2 resumed, m3 fresh
         self.assertEqual([c[c.index("-m") + 1] for c in self.cmds], ["m1", "m2", "m3"])
         log = I.LOG.read_text()
-        self.assertIn("m1 at capacity, resuming on m2", log)
+        self.assertIn("resuming thread t1", log)
         self.assertIn("reply says the work was not done (「没有完成原任务」)", log)
-        self.assertIn("m2 failed without capacity error, starting m3 fresh", log)
+        self.assertIn("m2 failed; starting m3 fresh", log)
         self.assertNotIn("REVERTED", log)
 
     def test_gave_up_reply_is_a_failed_call_on_any_engine(self):
