@@ -87,6 +87,10 @@ type TaskForum struct {
 
 var ErrTaskForumCategoryRequired = errors.New("task forum: source chat must belong to a category")
 
+// ErrTaskForumWorkspaceCategory: the source is in the workspace category, which has no task forum;
+// the post goes to the main chat's category forum instead.
+var ErrTaskForumWorkspaceCategory = errors.New("task forum: workspace category has no task forum")
+
 func (f TaskForum) scopeKey(platform string) string {
 	key := platform + ":" + f.GuildID
 	if f.CategoryID != "" {
@@ -758,6 +762,11 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		}
 	} else {
 		forum, err = e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
+		if main := chatOf(teamMainChat(e.dataDir)); errors.Is(err, ErrTaskForumWorkspaceCategory) && main != "" && main != chat {
+			// No source chat recorded, only its workspace: post in the main chat's category forum.
+			chat = main
+			forum, err = e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
+		}
 	}
 	if err != nil {
 		e.taskForumFailed(ctx, p, chat, it, err)
