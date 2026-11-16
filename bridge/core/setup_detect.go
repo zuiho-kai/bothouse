@@ -196,7 +196,8 @@ func AppendPathDirs(path string, dirs ...string) string {
 	return strings.Join(parts, sep)
 }
 
-// lookPath finds bin on PATH (inPath = true), then in extraBinDirs. Replaceable in tests.
+// lookPath finds bin on PATH (inPath = true), then in the saved Windows PATH (savedPathDirs) and
+// in extraBinDirs. Replaceable in tests.
 var lookPath = func(bin string) (path string, inPath bool, err error) {
 	if p, err := exec.LookPath(bin); err == nil {
 		if abs, err := filepath.Abs(p); err == nil { // PATH may hold relative dirs; cmd must be absolute
@@ -204,7 +205,10 @@ var lookPath = func(bin string) (path string, inPath bool, err error) {
 		}
 		return p, true, nil
 	}
-	for _, d := range extraBinDirs() {
+	for _, d := range append(savedPathDirs(), extraBinDirs()...) {
+		if d == "" {
+			continue
+		}
 		// LookPath on a full path checks the exec bit on Unix and tries PATHEXT (.exe, .cmd …) on Windows.
 		if p, err := exec.LookPath(filepath.Join(d, bin)); err == nil {
 			return p, false, nil

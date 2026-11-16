@@ -51,6 +51,16 @@ interface RoleDraft {
   editPersona?: boolean;
 }
 
+// #1881: the CLIs a role can run on, with each one's own install and sign-in command (the agent types
+// core/setup_detect.go lists with a login check). 来源：各 CLI 官方安装说明的 npm 包名；DSH 沿用 core.DSHInstallHint。
+const PREREQ_CLIS = [
+  { agent_type: 'claudecode', label: 'Claude Code', install: 'npm i -g @anthropic-ai/claude-code', login: 'claude' },
+  { agent_type: 'codex', label: 'Codex', install: 'npm i -g @openai/codex', login: 'codex login' },
+  { agent_type: 'gemini', label: 'Gemini CLI', install: 'npm i -g @google/gemini-cli', login: 'gemini' },
+  { agent_type: 'opencode', label: 'OpenCode', install: 'npm i -g opencode-ai', login: 'opencode auth login' },
+  { agent_type: 'dsh', label: 'DSH (DeepSeek Harness)', install: 'npm i -g @deepseek-ai/dsh@latest @deepseek-ai/dsh-hooks-claude-code', login: 'dsh' },
+] as const;
+
 // Same as core memoryFileOfAgent: the instruction file each CLI reads from its work_dir.
 const MEMORY_FILE: Record<string, string> = {
   claudecode: 'CLAUDE.md', codex: 'AGENTS.md', gemini: 'GEMINI.md', antigravity: 'GEMINI.md',
@@ -114,6 +124,15 @@ export default function SetupWizard() {
     [state],
   );
   const [clis, setClis] = useState<LocalCLI[] | null>(null);
+  // #1881: the first page says which CLI is needed and can look again without losing what was typed
+  const [cliError, setCliError] = useState(false);
+  const [cliChecking, setCliChecking] = useState(false);
+  const recheckCLIs = useCallback(() => {
+    setCliChecking(true);
+    return getCLIs().then((r) => { setClis(r.clis); setCliError(false); })
+      .catch(() => { setCliError(true); }) // a failed check is not "nothing installed": keep the last list
+      .finally(() => { setCliChecking(false); });
+  }, []);
   const [vendors, setVendors] = useState<WizardVendor[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
   const LT = libraryTexts(lang);
@@ -160,10 +179,10 @@ export default function SetupWizard() {
   useEffect(() => {
     // the routing checkbox starts from the saved choice (off stays off); no value = on
     getSetupState(lang).then((s) => { setState(s); }).catch(() => {});
-    getCLIs().then((r) => setClis(r.clis)).catch(() => setClis([]));
+    recheckCLIs();
     getMatrix().then((r) => { setVendors(r.vendors); setMatrix(r.matrix); }).catch(() => {});
     getExistingBots().then((r) => setExisting(r.bots)).catch(() => {});
-  }, [lang]);
+  }, [lang, recheckCLIs]);
   const restoredGatePlatform = useRef('');
   useEffect(() => {
     if (!state || restoredGatePlatform.current === platform) return;
@@ -579,6 +598,31 @@ export default function SetupWizard() {
         {/* 0 platform */}
         {step === 0 && (
           <div className="space-y-3">
+            {/* #1881: what the machine needs, before any bot is set up */}
+            <div className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2" data-testid="cli-prereq">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.prereqTitle}</p>
+                <Button size="sm" variant="secondary" disabled={cliChecking} onClick={() => { recheckCLIs(); }} data-testid="cli-recheck">
+                  {cliChecking ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}{T.prereqRecheck}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500">{picked === 'dsh' ? T.prereqDSH : T.prereqOne}</p>
+              {cliError && <p role="alert" className="text-sm text-red-500" data-testid="cli-recheck-error">{T.prereqError}</p>}
+              {clis && PREREQ_CLIS.filter((o) => picked !== 'dsh' || o.agent_type === 'dsh').map((o) => {
+                const found = clis.find((c) => c.agent_type === o.agent_type && c.supported);
+                const status = !found ? 'missing' : found.login === 'not_logged_in' ? 'login' : 'ready';
+                return (
+                  <div key={o.agent_type} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid={`cli-prereq-${o.agent_type}`} data-status={status}>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{o.label}</span>
+                    {status === 'missing' ? <Badge>{T.prereqMissing}</Badge> : status === 'login' ? <Badge variant="warning">{T.prereqLogin}</Badge>
+                      : found?.login === 'logged_in' ? <Badge variant="success">{T.prereqReady}</Badge> : <Badge>{T.unknownLogin}</Badge>}
+                    {status === 'missing' && <span className="text-xs text-gray-500">{T.prereqInstall} <code>{o.install}</code></span>}
+                    {status === 'login' && <span className="text-xs text-gray-500">{T.prereqLoginHow} <code>{o.login}</code></span>}
+                    {found && <span className="text-[11px] text-gray-400 truncate">{found.version || found.path}</span>}
+                  </div>
+                );
+              })}
+            </div>
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{T.platformQ}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([['qq', 'QQ', T.qqDesc, MessageCircle], ['discord', 'Discord', T.discordDesc, MessageSquare], ['feishu', zh ? '飞书 / Lark' : 'Feishu / Lark', T.feishuDesc, Smartphone],
