@@ -2893,7 +2893,8 @@ def ingest_batches(db, items, engines, pending=False):
         else:
             for it in {it["id"]: it for it, _ in batch}.values():
                 n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
-                db.execute("insert or replace into fails values (?,?)", (it["id"], n))
+                # named columns: an installation's fails table may carry extra columns (#806 nightly crashed here)
+                db.execute("insert or replace into fails (id, n) values (?,?)", (it["id"], n))
                 if n >= MAX_FAILS:
                     log(f"RETAINED {it['id'][:8]} after {n} failed runs")
                     retained += 1
