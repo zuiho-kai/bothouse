@@ -20,7 +20,7 @@
 
 Bring your own AIs too: a team-lead AI splits the work and hands it out; they all share one memory.
 
-[Video](#video) · [Why](#why) · [Three ways in](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md) · [Discord task forum](bridge/docs/task-forum.md)
+[Video](#video) · [Why](#why) · [Where to start](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md) · [Discord task forum](bridge/docs/task-forum.md)
 
 </div>
 
@@ -56,7 +56,7 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
   <img src="docs/assets/readme/banner/usage-en-day.svg" width="960" alt="" />
 </picture>
 
-## Three ways in
+## Where to start
 
 <a id="dsh"></a>
 
@@ -108,6 +108,11 @@ Only three ideas to learn:
 - **Shared memory** — every role reads and writes the same Markdown notes, so whoever picks up a job already knows the background. See [Memory](#memory).
 
 More detail — who replies when nobody is named, the nightly review, guardrails, switching the lead by hand — is in [How the team works](docs/readme-details.en.md#how-the-team-works).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: on the left, where you chat (Discord, Feishu, QQ, DSH desktop or web); in the middle, bothouse on your own computer: platform adapters, the engine with one session per channel, the team lead and the task board with workspaces, CLI adapters and the memory gate; below, the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, OpenCode, DSH, Antigravity); on the right, shared memory as a Markdown folder with the memory forum, pushed with Git to your private GitHub repo" />
+</picture>
 
 <a id="features"></a>
 
@@ -177,10 +182,6 @@ The team's memory is a plain folder of Markdown files. Each incoming message fir
 
 See [dispatcher and team memory](docs/ccm-and-wiki.md) (Chinese) and the [Wiki galaxy](docs/readme-details.en.md#wiki-galaxy).
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: where you chat on the left (Discord, Feishu, QQ, DSH web); bothouse in the middle, running on your own computer and handling assignment, routing and the task board; the CLIs you already have below (Claude Code, Codex, Gemini CLI, DSH, OpenCode and more); shared memory (Markdown wiki, reviewed nightly) and the memory forum on the right; a private GitHub repo that syncs the memory on the far right" />
-</picture>
 
 <a id="platforms"></a>
 
