@@ -2439,4 +2439,3 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	sort.SliceStable(out, func(i, j int) bool { return order(out[i].Name) < order(out[j].Name) })
 	return out, nil
 }
-
