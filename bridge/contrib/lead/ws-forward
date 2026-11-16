@@ -248,6 +248,7 @@ def main(argv):
             sys.exit(f"ws-forward: {path} 没有 ws-handoff 记录")
         last = {"file": rec.get("file") or path, "channel": rec.get("ws_key") or rec["channel"], "chat": rec.get("chat") or "",
                 "project": rec.get("project") or "", "board": rec.get("board") or []}
+    board.refuse_foreign([nid] if nid else last.get("board") or [], "ws-forward")  # 别的频道派的活不在这里转、不打回（#836）
     for i in reject_first(nid, last.get("file"), [last]):
         reject_held_report(last.get("file") or "", argv[0], i)
     done = find_done(last)

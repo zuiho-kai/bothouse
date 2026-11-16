@@ -885,6 +885,7 @@ def drain():
 
 def resume_answered(nid, answer):
     """等你的活收到答复：恢复条目、答复写进交接，找空工作区接着做；没有就排队（core resumeAskedTask 调）。"""
+    board.refuse_foreign([nid], "ws-handoff")  # 别的频道派的活不在这里续（#836）；桥续办时以条目的 chat 调，照常过
     it = next((i for i in board.items() if i["id"] == nid), None)
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
