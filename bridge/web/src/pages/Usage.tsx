@@ -48,7 +48,7 @@ export function getPresetRange(preset: DatePreset, serverToday: string): { from:
 // 取第一个范围完全相同的预设。点击预设时不走这里，直接保留所点的那一个。
 export function matchPreset(start: string, end: string, serverToday: string): DatePreset | null {
   if (!start && !end) return 'pastYear';
-  const order: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days'];
+  const order: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days', 'last30Days'];
   for (const p of order) {
     const range = getPresetRange(p, serverToday);
     if (range.from === start && range.to === end) return p;
