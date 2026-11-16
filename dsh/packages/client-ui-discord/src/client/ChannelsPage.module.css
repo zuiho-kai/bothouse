@@ -1783,6 +1783,9 @@
 .runHead { display: flex; gap: 8px; align-items: center; min-width: 0; color: var(--dsw-alias-label-secondary); }
 .runTitle { flex: none; color: var(--dsw-alias-label-primary); font-weight: 600; }
 .runFailed { flex: none; color: var(--dsw-alias-state-error-primary); font-size: 11px; }
+/* #1884: the same failure, repeated under the run's newest reply. */
+.runFailedNote { display: block; max-width: 100%; margin-top: 4px; padding: 0; overflow: hidden; border: 0; background: none; color: var(--dsw-alias-state-error-primary); font: inherit; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.runFailedNote:hover { text-decoration: underline; }
 .runSummary { overflow: hidden; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .runHead .cardViews { margin-left: 8px; }
 .runHead .cardViewButton { border-radius: 999px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
