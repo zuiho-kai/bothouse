@@ -106,6 +106,9 @@ type teamTaskBoardItem struct {
 	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
+	// quoteWho/speakerNames: who said each 原话 line on the forum card (team_task_forum_quote.go).
+	quoteWho     func(text string) string
+	speakerNames map[string]string
 	// Resolved by placeTeamTaskBoard, not stored.
 	own    string // the chat the item is in
 	parent string // for an item in a workspace: the chat the workspace belongs to

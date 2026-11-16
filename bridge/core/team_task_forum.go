@@ -387,6 +387,7 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	}
 	original := ""
 	if words := notesSection(notes, "用户原话"); words != "" {
+		words = taskForumQuotes(words, it.speakerNames, it.quoteWho)
 		original = "**原话**：\n> " + strings.ReplaceAll(strings.TrimSpace(words), "\n", "\n> ") + "\n"
 		room := budget - runeLen(head+ask+current+target+foot)
 		if room > runeLen("**原话**：\n> …\n") {
@@ -405,6 +406,8 @@ func (e *Engine) taskForumDisplayItem(it teamTaskBoardItem) teamTaskBoardItem {
 		it.Who = strings.TrimSuffix(it.Who, who) + name
 	}
 	it.reviewerName = e.projectDisplayName(it.Reviewer)
+	it.speakerNames = e.taskForumSpeakerNames()
+	it.quoteWho = e.taskForumQuoteWho(taskForumChat(it))
 	return it
 }
 
