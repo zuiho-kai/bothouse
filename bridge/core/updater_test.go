@@ -26,6 +26,16 @@ func TestSemverCompare(t *testing.T) {
 		{"v1.0.0-rc.1", "v1.0.0-beta.1", 1},  // "rc" > "beta" lexicographically
 		{"v1.0.0-alpha.1", "v1.0.0-beta.1", -1},
 
+		// pre-release without a dot
+		{"v1.0.0-rc2", "v1.0.0-rc1", 1},
+
+		// git describe build: after its tag, before the next release, not a pre-release
+		{"v0.1.79", "v0.1.79-6-g9cb26c763", -1},
+		{"v0.1.80", "v0.1.79-6-g9cb26c763", 1},
+		{"v0.1.79-7-g0123abcd", "v0.1.79-6-g9cb26c763", 1},
+		{"v0.1.80-rc.1-2-g0123abcd", "v0.1.80-rc.1", 1},
+		{"v0.1.80-rc.1-2-g0123abcd", "v0.1.80", -1},
+
 		// without 'v' prefix
 		{"1.0.0", "1.0.0", 0},
 		{"1.0.1", "1.0.0", 1},
@@ -46,9 +56,6 @@ func TestParseSemver(t *testing.T) {
 	}
 	if s.pre != "beta.4" {
 		t.Errorf("pre = %q, want beta.4", s.pre)
-	}
-	if s.preNum != 4 {
-		t.Errorf("preNum = %d, want 4", s.preNum)
 	}
 }
 

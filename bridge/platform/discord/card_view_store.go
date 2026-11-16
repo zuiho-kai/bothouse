@@ -66,8 +66,91 @@ func (s cardSource) render() (cardRender, bool) {
 }
 
 type cardSourceStore struct {
-	mu  sync.Mutex
-	dir string // "" keeps nothing
+	mu    sync.Mutex
+	dir   string    // "" keeps nothing
+	swept time.Time // last sweep
+}
+
+// cardSourceKeep is how long a card's source stays on disk. A press on an older card only
+// changes the buttons and the channel's remembered choice, as for a card with no source.
+// The directory used to keep every card for good (about 20 MB a day on a busy server).
+const cardSourceKeep = 7 * 24 * time.Hour
+
+// cardIndexedMark: the directory's cards saved before the per-turn members files existed
+// have been filed (sweep does it once).
+const cardIndexedMark = ".indexed"
+
+// membersPath is the list of the cards filed under a progress card, one message id a line.
+func (s *cardSourceStore) membersPath(leader string) string {
+	return filepath.Join(s.dir, leader+".members")
+}
+
+// fileMember notes a card under its turn's progress card, so turn reads that turn's files
+// instead of every file in the directory. Caller holds mu.
+func (s *cardSourceStore) fileMember(leader, member string) {
+	if leader == "" || leader == member || cardSourceFileName(leader) == "" {
+		return
+	}
+	path := s.membersPath(leader)
+	raw, _ := os.ReadFile(path)
+	for _, id := range strings.Fields(string(raw)) {
+		if id == member {
+			return
+		}
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		slog.Warn("discord: file card under its turn", "path", path, "error", err)
+		return
+	}
+	_, _ = f.WriteString(member + "\n")
+	_ = f.Close()
+}
+
+// sweepIfDue, once an hour, removes sources older than cardSourceKeep. Its first run in a
+// directory also files the cards saved before the members files existed.
+func (s *cardSourceStore) sweepIfDue() {
+	s.mu.Lock()
+	due := time.Since(s.swept) > time.Hour
+	if due {
+		s.swept = time.Now()
+	}
+	s.mu.Unlock()
+	if !due {
+		return
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return
+	}
+	mark := filepath.Join(s.dir, cardIndexedMark)
+	_, statErr := os.Stat(mark)
+	indexed := statErr == nil
+	old := time.Now().Add(-cardSourceKeep)
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(old) {
+			_ = os.Remove(filepath.Join(s.dir, name))
+			continue
+		}
+		if id, ok := strings.CutSuffix(name, ".json"); ok && !indexed {
+			if src, ok := s.load(id); ok {
+				s.mu.Lock()
+				s.fileMember(src.Leader, id)
+				s.mu.Unlock()
+			}
+		}
+	}
+	if !indexed {
+		_ = os.WriteFile(mark, nil, 0o600)
+	}
 }
 
 var (
@@ -108,16 +191,20 @@ func (s *cardSourceStore) save(messageID string, src cardSource) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	path := filepath.Join(s.dir, name)
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		s.mu.Unlock()
 		slog.Warn("discord: card source dir", "dir", s.dir, "error", err)
 		return
 	}
 	if err := core.AtomicWriteFile(path, raw, 0o600); err != nil {
+		s.mu.Unlock()
 		slog.Warn("discord: save card source", "path", path, "error", err)
 		return
 	}
+	s.fileMember(src.Leader, messageID)
+	s.mu.Unlock()
+	s.sweepIfDue()
 }
 
 // setMode records a turn's chosen view on its progress card's file.
@@ -157,12 +244,14 @@ func (s *cardSourceStore) turn(leader string) map[string]cardSource {
 	if s == nil || s.dir == "" || leader == "" {
 		return out
 	}
+	if cardSourceFileName(leader) == "" {
+		return out
+	}
 	s.mu.Lock()
-	entries, _ := os.ReadDir(s.dir)
+	raw, _ := os.ReadFile(s.membersPath(leader))
 	s.mu.Unlock()
-	for _, e := range entries {
-		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if !ok || id == leader {
+	for _, id := range strings.Fields(string(raw)) {
+		if id == leader {
 			continue
 		}
 		if src, ok := s.load(id); ok && src.Leader == leader {

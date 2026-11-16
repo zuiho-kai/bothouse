@@ -676,8 +676,8 @@ func summarizeToolInput(tool string, input map[string]any) string {
 		return ""
 	}
 	s := string(b)
-	if len(s) > 200 {
-		s = s[:200] + "..."
+	if r := []rune(s); len(r) > 200 {
+		s = string(r[:200]) + "..."
 	}
 	return s
 }

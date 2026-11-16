@@ -305,9 +305,7 @@ func runTimerList(args []string) {
 			} else {
 				display = prompt
 			}
-			if len(display) > 60 {
-				display = display[:60] + "..."
-			}
+			display = truncate(display, 63)
 		}
 		muteStr := ""
 		if m, ok := j["mute"].(bool); ok && m {

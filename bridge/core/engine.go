@@ -5278,7 +5278,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// Send until the prompt turn finishes (e.g. ACP session/prompt); they may emit
 		// EventPermissionRequest while blocked — the event loop must run in parallel.
 		// The agent session is captured under lock per attempt inside runTurnWithCapacityRetry.
-		e.runTurnWithCapacityRetry(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, msg.ReplyCtx, msg.inputTurn,
+		e.runTurnWithCapacityRetry(state, session, sessions, interactiveKey, msg.MessageID, turnStart, stopTyping, msg.ReplyCtx, msg.inputTurn, msg,
 			func() {
 				state.mu.Lock()
 				state.currentJobID = msg.timerJobID // re-armed for a capacity retry
@@ -8391,7 +8391,8 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 		e.armTurnSpendCap(state, session, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
 		var attemptPrompt string
-		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil,
+		usageMessage := queuedToMessage(queued)
+		e.runTurnWithCapacityRetry(state, session, sessions, sessionKey, queued.messageID, time.Now(), stopTyping, queued.replyCtx, nil, &usageMessage,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
 				state.mu.Lock()
 				state.currentJobID = queued.timerJobID // re-armed for a capacity retry

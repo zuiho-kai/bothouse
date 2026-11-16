@@ -2,6 +2,7 @@
 // in the UI), UI members are created, edited and removed here. Names must be
 // unique across every channel member (DSH members and cc-connect bots alike)
 // because @-mentions are matched by name.
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { CollabError } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
@@ -36,6 +37,20 @@ export function rowToMember(row) {
   };
 }
 
+/** #321: only this hash of an external member's credential is stored. */
+export function credentialHash(credential) { return createHash('sha256').update(credential).digest('hex'); }
+
+// Same size and form as the shared bot token (bridge.mjs botToken).
+function newCredential() { return randomBytes(24).toString('hex'); }
+
+/**
+ * #321: store row → the hub member of an external chat bot (AstrBot, MaiBot…). It shows as an agent
+ * (kind 'bot') in one channel; `external` keeps it out of the roles a channel falls back to.
+ */
+export function rowToExternal(row) {
+  return { id: row.id, name: row.name, kind: 'bot', external: true, rooms: JSON.parse(row.rooms), mentionId: row.mention_id ?? '' };
+}
+
 export class Roster {
   /**
    * @param hub - Hub instance (member registry for uniqueness).
@@ -60,6 +75,39 @@ export class Roster {
       ...(m.permissionPreset === undefined ? {} : { permissionPreset: m.permissionPreset }),
     }]));
     for (const row of this.store.members()) this.dsh.putMember({ ...rowToMember(row), ...(row.source === 'ui' ? {} : presets.get(row.id)) });
+    // #321: external members are back after a restart, offline until their bot connects.
+    for (const row of this.store.externalMembers()) this.dsh.putExternal(rowToExternal(row));
+  }
+
+  /**
+   * #321: add an external chat bot as a member of one channel. Returns the member and its own
+   * credential; the credential is given this once, only its hash is kept.
+   */
+  createExternal(input) {
+    const name = String(input?.name ?? '').trim();
+    if (!name || name.length > MAX_NAME || /[@<>\s]/.test(name)) throw new CollabError('invalid', `name must be 1-${MAX_NAME} characters without spaces, @ or <>`);
+    const rooms = input?.rooms;
+    if (!Array.isArray(rooms) || rooms.length !== 1 || !Number.isSafeInteger(rooms[0]) || this.store.room(rooms[0])?.kind !== 'chat' || this.store.dmMember(rooms[0]) !== undefined) {
+      throw new CollabError('invalid', 'rooms must contain exactly one existing chat channel id');
+    }
+    const mentionId = String(input?.mentionId ?? '');
+    if (mentionId !== '' && !/^\d+$/.test(mentionId)) throw new CollabError('invalid', 'mentionId must be digits');
+    const clash = this.hub.memberList().find(m => (!m.rooms?.length || m.rooms.includes(rooms[0])) && (m.name.toLowerCase() === name.toLowerCase() || m.id.toLowerCase() === name.toLowerCase()));
+    if (clash !== undefined) throw new CollabError('conflict', `名字 ${name} 已被 ${clash.name} 使用`);
+    const credential = newCredential();
+    const row = this.store.addExternalMember({ id: this.newId(name), name, rooms, mentionId, credentialHash: credentialHash(credential) });
+    const member = rowToExternal(row);
+    this.dsh.putExternal(member);
+    return { member, credential };
+  }
+
+  /** #321: give an external member a new credential; the old one stops working and its connection is closed. */
+  rotateExternal(id) {
+    const credential = newCredential();
+    const row = this.store.setCredential(id, credentialHash(credential));
+    if (row === undefined) throw new CollabError('member-missing', `external member ${id} does not exist`);
+    this.dsh.dropConnection(id);
+    return { member: rowToExternal(row), credential };
   }
 
   /**
@@ -191,6 +239,7 @@ export class Roster {
     const existing = this.store.member(id);
     if (existing === undefined || existing.removed) throw new CollabError('member-missing', `member ${id} does not exist`);
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
+    if (existing.kind === 'external') throw new CollabError('read-only', `external member ${id} is changed by removing it and adding it again`);
     // Both PATCH endpoints preserve omitted fields. A backend change drops the old backend's model/config.
     const old = rowToMember(existing);
     const changedCli = Object.hasOwn(input, 'cli') && (input.cli ?? undefined) !== old.cli;
@@ -219,7 +268,8 @@ export class Roster {
     this.store.removeMember(id);
     // #176: a dead id must not linger as a channel's primary role.
     for (const roomId of this.store.clearLeadOf(id)) this.hub.emit({ type: 'room-settings', room_id: this.store.settingsRoom(roomId), lead_id: null, effective_lead_id: this.hub.defaultReplyIn(roomId)?.id ?? null });
-    this.dsh.dropMember(id);
+    // #321: removing an external member is its revocation: the credential goes with the row and the bot is disconnected.
+    if (existing.kind === 'external') this.dsh.dropExternal(id); else this.dsh.dropMember(id);
   }
 
   setAvatar(id, png) {

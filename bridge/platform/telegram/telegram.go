@@ -454,12 +454,25 @@ func (p *Platform) handleMessage(ctx context.Context, msg *models.Message) {
 		go p.reactToMessage(ctx, msg.Chat.ID, msg.ID, "⚡")
 	}
 	botName := p.botUsername()
+	// missed hands on a message whose attachment could not be fetched: the agent still gets the
+	// caption and is told what is missing, instead of the whole message being dropped.
+	missed := func(what string) {
+		p.dispatchMessage(&core.Message{
+			SessionKey: sessionKey, Platform: "telegram",
+			UserID: userID, UserName: userName, ChatName: chatName,
+			Content:    core.WithMissedAttachments(stripBotMention(msg.Caption, botName), what),
+			MessageID:  strconv.Itoa(msg.ID),
+			ChannelKey: channelKey,
+			ReplyCtx:   rctx,
+		}, msg)
+	}
 
 	if len(msg.Photo) > 0 {
 		best := msg.Photo[len(msg.Photo)-1]
 		imgData, err := p.downloadFile(best.FileID)
 		if err != nil {
 			slog.Error("telegram: download photo failed", "error", err)
+			missed("图片")
 			return
 		}
 		caption := stripBotMention(msg.Caption, botName)
@@ -480,6 +493,7 @@ func (p *Platform) handleMessage(ctx context.Context, msg *models.Message) {
 		audioData, err := p.downloadFile(msg.Voice.FileID)
 		if err != nil {
 			slog.Error("telegram: download voice failed", "error", err)
+			missed("语音")
 			return
 		}
 		p.dispatchMessage(&core.Message{
@@ -503,6 +517,7 @@ func (p *Platform) handleMessage(ctx context.Context, msg *models.Message) {
 		audioData, err := p.downloadFile(msg.Audio.FileID)
 		if err != nil {
 			slog.Error("telegram: download audio failed", "error", err)
+			missed("音频")
 			return
 		}
 		format := "mp3"
@@ -533,6 +548,7 @@ func (p *Platform) handleMessage(ctx context.Context, msg *models.Message) {
 		fileData, err := p.downloadFile(msg.Document.FileID)
 		if err != nil {
 			slog.Error("telegram: download document failed", "error", err)
+			missed(msg.Document.FileName)
 			return
 		}
 		caption := stripBotMention(msg.Caption, botName)

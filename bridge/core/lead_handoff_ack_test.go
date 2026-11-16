@@ -38,7 +38,7 @@ func runHandoffTurn(t *testing.T, e *Engine, session *Session, key, content stri
 	e.interactiveMu.Lock()
 	e.interactiveStates[key] = state
 	e.interactiveMu.Unlock()
-	e.runTurnWithCapacityRetry(state, session, e.sessions, key, "m1", time.Now(), nil, "rctx", nil, nil,
+	e.runTurnWithCapacityRetry(state, session, e.sessions, key, "m1", time.Now(), nil, "rctx", nil, nil, nil,
 		func(as AgentSession) error { return as.Send(built, "m1", nil, nil) },
 		false,
 		func(time.Duration) {})

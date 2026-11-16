@@ -640,7 +640,19 @@
     "presetLast7Days": "Últimos 7 días",
     "presetPastYear": "Último año",
     "presetPastYearHint": "Rango predeterminado: el año hasta hoy (cada consulta abarca como máximo un año)",
-    "tokenBreakdown": "Desglose"
+    "tokenBreakdown": "Desglose",
+    "membersTitle": "Uso por miembro",
+    "membersSystem": "Sistema / sin asignar",
+    "membersSort": "Ordenar miembros",
+    "membersCacheRead": "Lectura de caché",
+    "membersCacheWrite": "Escritura de caché",
+    "membersRank": "Puesto",
+    "membersMember": "Miembro",
+    "membersShare": "Proporción",
+    "membersDetail": "Desglose del miembro",
+    "membersDaily": "Por día",
+    "presetLast30Days": "Últimos 30 días",
+    "membersNote": "Solo esta instancia. Las cuentas se separan por plataforma. La atribución aparece al terminar el turno; los registros antiguos, el trabajo en segundo plano y las delegaciones quedan sin asignar. * Algunas solicitudes no tienen precio."
   },
   "navGroup": {
     "main": "Principal",

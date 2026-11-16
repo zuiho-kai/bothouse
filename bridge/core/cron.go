@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -283,8 +282,7 @@ func (s *CronStore) Get(id string) *CronJob {
 // Update modifies a specific field of a cron job. Returns false if job not found.
 // readOnlyFields contains fields that cannot be modified: id, created_at.
 func (s *CronStore) Update(id string, field string, value any) bool {
-	readOnlyFields := map[string]bool{"id": true, "created_at": true, "last_run": true, "last_error": true}
-	if readOnlyFields[field] {
+	if cronReadOnlyFields[field] {
 		return false
 	}
 
@@ -304,7 +302,39 @@ func (s *CronStore) Update(id string, field string, value any) bool {
 	return false
 }
 
-// updateJobField sets a field on a CronJob by reflection. Returns error for unknown fields.
+var cronReadOnlyFields = map[string]bool{"id": true, "created_at": true, "last_run": true, "last_error": true}
+
+// EditedCronJob returns a copy of job with one field changed, checked the way a new job is
+// (validateCronJob, cron expression). Every edit entry decides on this copy, so an edit cannot
+// leave a job that add would have refused.
+func EditedCronJob(job *CronJob, field string, value any) (*CronJob, error) {
+	edited := *job
+	if cronReadOnlyFields[field] {
+		return nil, fmt.Errorf("failed to update field %q (may be read-only or invalid type)", field)
+	}
+	switch field {
+	case "cron_expr":
+		if _, ok := value.(string); !ok {
+			return nil, fmt.Errorf("cron_expr must be a string")
+		}
+	case "enabled":
+		if _, ok := value.(bool); !ok {
+			return nil, fmt.Errorf("enabled must be a boolean")
+		}
+	}
+	if err := updateJobField(&edited, field, value); err != nil {
+		return nil, fmt.Errorf("failed to update field %q (may be read-only or invalid type)", field)
+	}
+	if err := validateCronJob(&edited); err != nil {
+		return nil, err
+	}
+	if _, err := cron.ParseStandard(edited.CronExpr); err != nil {
+		return nil, fmt.Errorf("invalid cron expression %q: %w", edited.CronExpr, err)
+	}
+	return &edited, nil
+}
+
+// updateJobField sets one named field on a CronJob. Returns error for unknown fields.
 func updateJobField(job *CronJob, field string, value any) error {
 	switch field {
 	case "project":
@@ -378,37 +408,7 @@ func updateJobField(job *CronJob, field string, value any) error {
 			return nil
 		}
 	}
-	// Fallback: try to set string field via reflection
-	if v, ok := value.(string); ok {
-		rv := reflect.ValueOf(job).Elem()
-		f := rv.FieldByName(toExportedFieldName(field))
-		if f.IsValid() && f.Kind() == reflect.String && f.CanSet() {
-			f.SetString(v)
-			return nil
-		}
-	}
 	return fmt.Errorf("unknown or invalid field: %s", field)
-}
-
-// toExportedFieldName converts snake_case to Go exported field name (e.g., "session_key" -> "SessionKey")
-func toExportedFieldName(s string) string {
-	result := make([]byte, 0, len(s))
-	upperNext := true
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '_' {
-			upperNext = true
-			continue
-		}
-		if upperNext {
-			if c >= 'a' && c <= 'z' {
-				c -= 32
-			}
-			upperNext = false
-		}
-		result = append(result, c)
-	}
-	return string(result)
 }
 
 // CronScheduler runs cron jobs by injecting synthetic messages into engines.
@@ -575,47 +575,10 @@ func (cs *CronScheduler) UpdateJob(id string, field string, value any) error {
 	}
 	defer cs.boardTouch(job) // maomao fork: channel task board
 
-	// Validate cron expression if updating cron_expr
-	if field == "cron_expr" {
-		expr, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("cron_expr must be a string")
-		}
-		if _, err := cron.ParseStandard(expr); err != nil {
-			return fmt.Errorf("invalid cron expression %q: %w", expr, err)
-		}
-	}
-
-	// Validate mode if updating mode field
-	if field == "mode" {
-		if v, ok := value.(string); ok && v != "" {
-			switch v {
-			case "default", "bypassPermissions", "acceptEdits", "plan", "auto", "dontAsk":
-			default:
-				return fmt.Errorf("invalid mode %q (want default, bypassPermissions, acceptEdits, plan, auto, or dontAsk)", v)
-			}
-		}
-	}
-
-	// Validate session_mode if updating session_mode field
-	if field == "session_mode" {
-		if v, ok := value.(string); ok && v != "" {
-			mode := NormalizeCronSessionMode(v)
-			if mode != "" && mode != "new_per_run" {
-				return fmt.Errorf("invalid session_mode %q (want reuse, new_per_run, or new-per-run)", v)
-			}
-		}
-	}
-
-	// Validate enabled type up-front. Without this, a non-bool value (e.g. a
-	// JSON string "true" from a misbehaving API client) reaches updateJobField
-	// only after we've already removed the cron entry below, and store.Update
-	// then fails on the type mismatch — leaving the job marked Enabled in the
-	// store but never firing again until the daemon restarts.
-	if field == "enabled" {
-		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("enabled must be a boolean")
-		}
+	// One check for every field: the edited job must be one AddJob would accept. Checked before
+	// the schedule entry is touched, so a refused edit leaves the job running as it was.
+	if _, err := EditedCronJob(job, field, value); err != nil {
+		return err
 	}
 
 	// Check if reschedule is needed
