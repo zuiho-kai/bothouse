@@ -47,7 +47,8 @@ class PendingExecution(unittest.TestCase):
             self.assertEqual(I.model_pass("codex resume", "move", engine="codex:low",
                                           checkpoint=checkpoint), "changed")
         self.assertEqual(call.call_count, 1)
-        self.assertEqual(call.call_args.kwargs["model"], "fixture-model")
+        self.assertEqual(call.call_args.kwargs["model"], "different-model")
+        self.assertIsNone(call.call_args.kwargs.get("resume"))
         db = I.state()
         self.assertEqual(db.execute("select offset from ingested where id='codex-session'").fetchone(), (123,))
         db.close()
@@ -55,18 +56,32 @@ class PendingExecution(unittest.TestCase):
         self.assertEqual((self.repo / "misc/dest.md").read_text().count(fixture.FACT), 1)
         return call.call_args.kwargs
 
-    def test_codex_new_pending_resumes_original_model_and_effort_across_batches(self):
+    def test_codex_new_pending_uses_current_model_and_effort_across_batches(self):
         checkpoint, _, saved, _ = self.interrupted_candidate()
         self.assertEqual(saved["execution"], dict(engine="codex", model="fixture-model", effort="high"))
         self.assertEqual(saved["checkpoint"], checkpoint)
-        self.assertEqual(self.resume(checkpoint)["effort"], "high")
+        self.assertEqual(self.resume(checkpoint)["effort"], "low")
 
     def test_codex_legacy_model_is_never_parsed_as_effort(self):
         checkpoint, ref, saved, message = self.interrupted_candidate()
         saved.pop("execution")
         self.replace_record(ref, saved, message)
-        self.assertEqual(self.resume(checkpoint)["effort"], "max")
-        self.assertIn("no saved effort", I.LOG.read_text())
+        self.assertEqual(self.resume(checkpoint)["effort"], "low")
+
+    def test_legacy_deepseek_fix_uses_current_codex_and_retains_source(self):
+        checkpoint, ref, saved, message = self.interrupted_candidate()
+        saved.pop("execution")
+        saved["engine"] = "deepseek"
+        saved["session"] = "old-provider-session"
+        self.replace_record(ref, saved, message)
+        with patch.object(I, "runner", side_effect=AssertionError("must use current Codex")):
+            self.resume(checkpoint)
+        message = self.git("show", "-s", "--format=%B", ref)
+        delivered = next(json.loads(line[len(I.PENDING_TRAILER):]) for line in message.splitlines()
+                         if line.startswith(I.PENDING_TRAILER))
+        self.assertEqual(delivered["source"]["engine"], "deepseek")
+        self.assertEqual(delivered["source"]["session"], "old-provider-session")
+        self.assertEqual(delivered["execution"], dict(engine="codex", model="different-model", effort="low"))
 
     def test_malformed_execution_retains_candidate_and_offset_without_calling_model(self):
         checkpoint, ref, saved, message = self.interrupted_candidate()

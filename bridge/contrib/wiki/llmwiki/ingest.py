@@ -1138,11 +1138,13 @@ def pending_execution(pending):
     return dict(engine=pending["engine"], model=None, effort=None)
 
 
-def save_block_candidate(label, coverage, key, stage, checkpoint, execution=None):
+def save_block_candidate(label, coverage, key, stage, checkpoint, execution=None, source=None):
     """Keep candidate output separate from the immutable pre-plan sources."""
     pending = dict(key=key, stage=stage, coverage=coverage, engine=LAST_ENGINE, checkpoint=checkpoint)
     if execution is not None:
         pending["execution"] = execution
+    if source is not None:
+        pending["source"] = source
     message = label + "\n\n" + block_contract.TRAILER + block_contract.canonical(coverage)
     message += "\n\n" + PENDING_TRAILER + block_contract.canonical(pending)
     if stage == "deliver" and checkpoint:
@@ -2036,13 +2038,18 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         log(f"{label} PENDING: saved candidate conflicts with the new main; both sides retained")
         return False
     execution = dict(engine=name, model=None, effort=(effort or EFFORT) if name == "codex" else None)
+    source = None
     if pending:
         try:
-            execution = pending_execution(pending)
+            pending_execution(pending)  # validate stored identity; it is provenance, not execution configuration
         except ValueError as exc:
             BLOCK_PENDING = True
             log(f"{label} PENDING: {exc}; candidate and offsets retained")
             return False
+        source = pending.get("source") or {k: pending[k] for k in
+                    ("engine", "execution", "session", "receipt", "attempt") if k in pending}
+        if name == "codex":
+            execution["model"] = CODEX_CHAIN[0]
     coverage = pending["coverage"] if pending else block_contract.freeze(REPO, ["HEAD"], context or stdin or "")
     coverage["kind"] = kind
     # 来源：用户要求旧 pending 也按当前可选审批模式恢复；交付后契约固定用于断点恢复。
@@ -2053,6 +2060,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
                     "never in any other copy. Never run git: committing and reverting are done for you.")
     home_before = home_state()
     ok, out, cost = False, "", 0
+    called = not pending
 
     def finished(ok, out, last=True):
         """A reply that says the work was not done is a failed call, not a result to accept (gave_up). Not checked on
@@ -2109,7 +2117,11 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         log(f"{label} note: {HOME} changed during a trial on {WIKI} — check it wasn't this model")
     log(f"{label} ${cost:.3f}: {out[-400:]}")
 
-    def once(*a, **k):  # a fresh call of the engine that produced the accepted result
+    def once(*a, **k):  # a fresh call under this run's configuration; never reuse another provider's session
+        global LAST_ENGINE
+        nonlocal called
+        called = True
+        LAST_ENGINE = f"codex:{execution['model']}" if execution["engine"] == "codex" else execution["engine"]
         if execution["engine"] == "codex":
             return codex(*a, **k, effort=execution["effort"], model=execution["model"])[:3]
         return runner(execution["engine"])(*a, **k)
@@ -2170,7 +2182,8 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         global BLOCK_PENDING
         if not errors.startswith("block review required"):
             return False
-        sha = save_block_candidate(label, coverage, key, "review", checkpoint, execution)
+        sha = save_block_candidate(label, coverage, key, "review", checkpoint,
+                                   execution if called else pending.get("execution"), source)
         BLOCK_PENDING = True
         log(f"{label} PENDING: {errors}; candidate {sha}; offsets unchanged")
         return True
@@ -2181,7 +2194,8 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
     if ok and held_for_review(errs):
         return False
     if ok and errs:
-        save_block_candidate(label, coverage, key, "fix", checkpoint, execution)
+        save_block_candidate(label, coverage, key, "fix", checkpoint,
+                             execution if called else pending.get("execution"), source)
         block_contract.catalog(REPO, WORK, coverage)
         # logged before the fix round's call: a run killed during that call (t10 at 10 min, 2026-10-23 jingyu's
         # --reflect-day 2026-10-21) otherwise leaves no trace of why the first answer was not written
@@ -2203,7 +2217,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         # Failed calls with no output edits have no candidate to resume. In particular,
         # an empty failed turn must never become an accepted checkpoint on restart.
         if ok or pending or git("status", "--porcelain"):
-            save_block_candidate(label, coverage, key, "fix", checkpoint, execution)
+            save_block_candidate(label, coverage, key, "fix", checkpoint, execution, source)
         LAST_REJECTED = bool(ok and errs)
         log(f"{label} RETAINED: {errs[:500] or 'model failed'}")
         REJECT_REASONS.append(errs or "model failed")
@@ -2214,7 +2228,8 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             block_contract.git(REPO, "update-ref", "refs/wiki-ingest/completed/" + key,
                                git("rev-parse", "refs/wiki-ingest/pending/" + key, cwd=REPO))
         return True
-    sha = save_block_candidate(label, coverage, key, "deliver", checkpoint, execution)
+    sha = save_block_candidate(label, coverage, key, "deliver", checkpoint,
+                               execution if called else pending.get("execution"), source)
     res = deliver(label)
     if res is True:
         block_contract.git(REPO, "update-ref", "refs/wiki-ingest/completed/" + key, sha)
