@@ -454,6 +454,8 @@ type Message struct {
 	// maomao fork: the channel task board's text for this turn when it is not
 	// what the sender wrote (cron/timer: "⏰ <描述>"); see boardDescOf.
 	boardLabel string
+	// #1705: a workspace handoff's last-seen mark for a session that has none (ExecuteTimerJob).
+	handoffSeenMark string
 	// maomao fork: this is the one re-run of a turn the provider refused as too long, on a
 	// fresh session (retryFreshOnPromptTooLong); its user entry is already in the history.
 	freshRetried bool
