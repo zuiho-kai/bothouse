@@ -215,19 +215,26 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 		t.Fatalf("rejected post = %+v", fp)
 	}
 
-	// Done: off the board into board-done.jsonl → 完成, one node, not archived before the wait.
+	// Done: off the board into board-done.jsonl → 完成, one node, archived in the same pass.
 	writeTaskBoard(t, dir, team.TaskBoardFile, "")
 	writeTaskBoard(t, dir, team.TaskBoardDoneFile, item(`,"done_at":"11-14 18:00"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagDone || fp.archived || len(fp.nodes) != 4 || fp.nodes[3] != "✅ 已完成" {
+	if fp.tag != TaskForumTagDone || !fp.archived || len(fp.nodes) != 4 || fp.nodes[3] != "✅ 已完成" {
 		t.Fatalf("done post = %+v", fp)
 	}
-	// After the task-thread archive wait it is archived, once.
-	setForumDoneAt(t, e, "768", time.Now().Add(-e.taskForumArchiveAfter()-time.Minute))
+
+	// Reopened for rework (board resume puts it back): unarchived, tag back to 在做.
+	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"ws":"discord:222"`))
+	e.syncTaskForum()
+	if fp = p.post("th1"); fp.archived || fp.tag != TaskForumTagRunning {
+		t.Fatalf("reopened post = %+v", fp)
+	}
+	// Done again: archived again.
+	writeTaskBoard(t, dir, team.TaskBoardFile, "")
 	e.syncTaskForum()
 	if fp = p.post("th1"); !fp.archived || fp.tag != TaskForumTagDone {
-		t.Fatalf("archived post = %+v", fp)
+		t.Fatalf("done again post = %+v", fp)
 	}
 
 	// A new engine reads the state back: no second post for the same item.
@@ -300,16 +307,6 @@ func readForumState(t *testing.T, e *Engine) taskForumState {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return *e.taskForumLoadLocked()
-}
-
-func setForumDoneAt(t *testing.T, e *Engine, key string, at time.Time) {
-	t.Helper()
-	rt := e.taskForumRT()
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	s := e.taskForumLoadLocked()
-	s.Posts[key].DoneAt = at
-	e.taskForumSaveLocked()
 }
 
 // A long 用户原话/目标 still fits one Discord message, and the cut is in them: the state line,

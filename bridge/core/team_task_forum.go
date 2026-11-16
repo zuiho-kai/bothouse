@@ -494,8 +494,7 @@ func taskForumWant(it teamTaskBoardItem) bool {
 }
 
 // syncTaskForum brings every post in line with the board: opens posts for new items, edits the
-// 现状卡/tag when the item changed, posts key moves, and marks finished items 完成 (archived after
-// the task-thread archive wait). Runs in runTeamBoard after the team boards.
+// 现状卡/tag when the item changed, posts key moves, and marks finished items 完成 and archives them. Runs in runTeamBoard after the team boards.
 func (e *Engine) syncTaskForum() {
 	if !e.taskForumEnabled() {
 		return
@@ -523,7 +522,6 @@ func (e *Engine) syncTaskForum() {
 			changed = true
 		}
 	}
-	wait := e.taskForumArchiveAfter()
 	for key, ps := range s.Posts {
 		if seen[key] {
 			continue
@@ -536,12 +534,17 @@ func (e *Engine) syncTaskForum() {
 		}
 		if ps.Tag != TaskForumTagDone {
 			ps.DoneAt = now
-			if updated, _ := e.taskForumApplyLocked(s, it, TaskForumTagDone, "已完成", now); updated {
+			updated, ok := e.taskForumApplyLocked(s, it, TaskForumTagDone, "已完成", now)
+			if updated {
 				changed = true
 			}
-			continue
+			if ps = s.Posts[key]; !ok || ps == nil || ps.Tag != TaskForumTagDone {
+				continue
+			}
 		}
-		if !ps.Archived && wait > 0 && !ps.DoneAt.IsZero() && now.Sub(ps.DoneAt) >= wait {
+		// Archived as soon as it is done (用户「完成就归档」); a reopened item is unarchived by
+		// taskForumApplyLocked when it is back on the board.
+		if !ps.Archived {
 			if e.taskForumArchiveLocked(s, it, ps, now) {
 				changed = true
 			}
@@ -550,15 +553,6 @@ func (e *Engine) syncTaskForum() {
 	if changed {
 		e.taskForumSaveLocked()
 	}
-}
-
-// taskForumArchiveAfter: how long a finished post stays open. Source: 沿用 the task-thread archive
-// wait (PublicProgress.archiveAfter, 「沿用现有任务线程的归档等待设置，不另定数字」).
-func (e *Engine) taskForumArchiveAfter() time.Duration {
-	if e.publicProgress != nil {
-		return e.publicProgress.archiveAfter
-	}
-	return defaultTaskThreadArchiveAfter
 }
 
 // Resolve current category before using a cached forum; a source channel may
