@@ -1,5 +1,7 @@
 """Codex candidate resume must retain producer identity and the undelivered offset."""
 import json
+from contextlib import contextmanager
+import subprocess
 import unittest
 from unittest.mock import patch
 import test_block_contract as fixture
@@ -85,6 +87,24 @@ class PendingExecution(unittest.TestCase):
                 self.assertEqual(I.pending_execution(dict(engine=identity)),
                                  dict(engine="codex", model=None, effort="high"))
         self.assertEqual(I.pending_execution(dict(engine="dsh")), dict(engine="dsh", model=None, effort=None))
+
+    def test_codex_fresh_and_resume_cli_keep_model_separate_from_effort(self):
+        @contextmanager
+        def output_file(*args, **kwargs):
+            with (self.root / "codex-output.txt").open("w+") as stream:
+                yield stream
+        def run(cmd, **kwargs):
+            (self.root / "codex-output.txt").write_text("completed")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        with patch.object(I.tempfile, "NamedTemporaryFile", output_file), \
+                patch.object(I, "USAGE", self.root / "usage.tsv"), \
+                patch.object(I, "engine_run", side_effect=run) as invoke:
+            for resume in (None, "synthetic-thread"):
+                self.assertTrue(I.codex("synthetic", model="fixture-model", effort="high", resume=resume)[0])
+                cmd = invoke.call_args.args[0]
+                self.assertEqual(cmd[cmd.index("-m") + 1], "fixture-model")
+                self.assertIn("model_reasoning_effort=high", cmd)
+                self.assertNotIn("model_reasoning_effort=fixture-model", cmd)
 
 
 if __name__ == "__main__":
