@@ -138,3 +138,15 @@ func TestTaskForumCategoryUsesGatewayMoveAndRecoversOldPost(t *testing.T) {
 		t.Fatalf("old post=%+v %v", f, err)
 	}
 }
+
+// User 2026-11-16「工作区不应该开任务论坛，聊天区按分类开」: a workspace source never creates a forum.
+func TestTaskForumWorkspaceCategoryOpensNoForum(t *testing.T) {
+	api := &categoryForumAPI{channels: map[string]*discordgo.Channel{
+		"WS": {ID: "WS", GuildID: "g", Type: discordgo.ChannelTypeGuildCategory, Name: workspaceCategoryName},
+		"ws": {ID: "ws", GuildID: "g", ParentID: "WS"},
+	}}
+	_, err := (&Platform{}).ensureTaskForum(api, "ws", "", []string{core.TaskForumTagRunning})
+	if !errors.Is(err, core.ErrTaskForumWorkspaceCategory) || len(api.created) != 0 {
+		t.Fatalf("workspace category got a forum: %v created=%v", err, api.created)
+	}
+}
