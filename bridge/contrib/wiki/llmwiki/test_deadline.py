@@ -378,7 +378,7 @@ else:
     def test_expired_batch_retains_checkpoint_and_does_not_count_failure(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         db.execute("INSERT INTO pending_parts VALUES ('resume', 100, 'accepted-prefix pending-tail', 1)")
@@ -398,11 +398,11 @@ else:
     def test_budget_expires_during_batch_without_advancing_or_counting_failure(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         db.execute("INSERT INTO pending_parts VALUES ('resume', 100, 'accepted-prefix pending-tail', 1)")
-        db.execute("INSERT INTO fails VALUES ('resume', 1)")
+        db.execute("INSERT INTO fails (id, n) VALUES ('resume', 1)")
         item = dict(id="resume", end=100, _chunk="accepted-prefix pending-tail", _part=1,
                     path=ROOT / "resume.jsonl", title="t", cwd="/test", date="2026-11-10", text="pending-tail")
         def timeout(*args, **kwargs):

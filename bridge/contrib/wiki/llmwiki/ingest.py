@@ -843,6 +843,18 @@ for _name in [n for n in globals() if n.startswith("SOP_") and isinstance(global
     globals()[_name] = manual(globals()[_name])
 
 
+def failures(db, sid):
+    """Failed runs counted for this session's unread content.
+
+    A count belongs to the read position it was counted at. Versions before #1467 marked a given-up
+    delta read and kept its row, so a count whose position the session has since moved past describes
+    content that is no longer waiting; it must not shrink or flag what arrived after it.
+    """
+    row = db.execute("select n from fails where id=? and coalesce(offset, 0) = "
+                     "coalesce((select offset from ingested where id=?), 0)", (sid, sid)).fetchone()
+    return row[0] if row else 0
+
+
 def log(msg):
     with open(LOG, "a") as f:
         f.write(f"{time.strftime('%F %T')} {msg}\n")
@@ -851,7 +863,10 @@ def log(msg):
 def state():
     db = sqlite3.connect(STATE)
     db.execute("create table if not exists ingested(id text primary key, offset int, at real)")
-    db.execute("create table if not exists fails(id text primary key, n int)")
+    # offset: the read position the failures were counted at; the count is about the content after it
+    db.execute("create table if not exists fails(id text primary key, n int, offset int)")
+    if "offset" not in {row[1] for row in db.execute("pragma table_info(fails)")}:
+        db.execute("alter table fails add column offset int")  # rows from before positions were stored keep null
     db.execute("create table if not exists reviewed(id text primary key, offset int, at real)")
     db.execute("create table if not exists pending_parts(id text primary key, end int, chunk text, part int)")
     db.execute("create table if not exists dreamed(id text primary key, offset int, at real)")
@@ -2379,7 +2394,7 @@ def run(a, engines=None):
                 it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
             else:
                 # a session whose batches failed n times retries 1/2^n as much (#619): halving, not the whole batch again
-                n = (db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0] if pending else 0
+                n = failures(db, p.stem) if pending else 0
                 it = pending_extract(p, start, MAX_CHARS >> n if n else None) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
@@ -2400,7 +2415,7 @@ def run(a, engines=None):
         # One existing batch per cron round; SQLite offsets leave the rest ready.
         # Oversized single records resume from their accepted-piece checkpoint.
         batch = batches_of(items)[0]
-        n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
+        n = max(failures(db, it["id"]) for it, _ in batch)
         if n and len(batch) > 1:  # failed before as a whole: retry 1/2^n of its sessions (#619)
             batch = batch[:max(1, len(batch) >> n)]
         first = {it["id"] for it, _ in batch}
@@ -2892,9 +2907,9 @@ def ingest_batches(db, items, engines, pending=False):
             log(f"{label}: Claude quota refused — left for tonight, not counted as a failure")
         else:
             for it in {it["id"]: it for it, _ in batch}.values():
-                n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
-                # named columns: an installation's fails table may carry extra columns (#806 nightly crashed here)
-                db.execute("insert or replace into fails (id, n) values (?,?)", (it["id"], n))
+                n = failures(db, it["id"]) + 1
+                db.execute("insert or replace into fails (id, n, offset) values (?,?,"
+                           "coalesce((select offset from ingested where id=?), 0))", (it["id"], n, it["id"]))
                 if n >= MAX_FAILS:
                     log(f"RETAINED {it['id'][:8]} after {n} failed runs")
                     retained += 1
