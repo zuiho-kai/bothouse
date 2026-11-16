@@ -4027,6 +4027,21 @@ func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
 	if msg.TaskForum == nil && e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
+	// 任务帖里的回话不过 gate。会话正忙、agent 又收得下中途输入时，
+	// 直接插进当前这一轮，回执发回帖子；插不进（不支持、这一轮卡住、
+	// 发送失败）就照旧往下走排队。写法同 injectLocal（gate_local.go）。
+	if msg.TaskForum != nil && msg.Mentioned && session.Busy() && e.canInjectInto(agent, interactiveKey) {
+		content := msg.Content
+		if strings.TrimSpace(content) == "" {
+			content = "（补充附件，和刚才的消息是一起发的）"
+		}
+		content = e.buildSenderPrompt(withVoiceNote(content, msg.FromVoice && !msg.voiceMarked),
+			msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
+		if e.injectIntoRunningTurn(interactiveKey, content, msg.ReplyCtx, msg.Images, msg.Files) {
+			e.insertNotice(p, msg.ReplyCtx, e.i18n.T(MsgLocalGateInserted))
+			return
+		}
+	}
 	if e.nativeCompactRejectsUser(interactiveKey) {
 		e.replyToAuthorizedMessage(p, msg, e.i18n.T(MsgPreviousProcessing))
 		return
