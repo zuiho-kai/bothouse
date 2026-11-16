@@ -852,11 +852,6 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		return
 	}
 
-	// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
-	if p.handleTaskForumReply(s, m) {
-		return
-	}
-
 	// Check both user mentions and role mentions (Discord auto-creates a managed role
 	// for each bot; users may @ the role instead of the user).
 	botRoleID := p.botRoleIDForGuild(m.GuildID)
@@ -864,6 +859,12 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		p.cacheBotRoleIDForGuild(s, m.GuildID, nil)
 		botRoleID = p.botRoleIDForGuild(m.GuildID)
 	}
+
+	// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
+	if p.handleTaskForumReply(s, m, botRoleID) {
+		return
+	}
+
 	mentioned := isDiscordBotMention(m, p.selfID(), botRoleID, p.respondToAtEveryoneAndHere)
 	if !fromBot {
 		var accept bool

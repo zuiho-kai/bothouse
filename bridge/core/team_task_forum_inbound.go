@@ -90,9 +90,14 @@ func (e *Engine) taskForumReplyItem(board int) *teamTaskBoardItem {
 
 // prepareTaskForumReply keeps conversation identity (the originating chat)
 // separate from delivery identity (ReplyCtx remains the forum post).
+//
+// A post is a place where people also talk to each other. Only a message the
+// platform reports as addressed to this bot (an @ or a reply to its message)
+// starts a turn; until #1714 every human message in a post was marked Mentioned
+// here and woke the lead.
 func (e *Engine) prepareTaskForumReply(p Platform, msg *Message) bool {
 	r := msg.TaskForum
-	if msg.FromBot || msg.Recalled || msg.scheduledFrom != nil || !e.isTeamLead() {
+	if msg.FromBot || msg.Recalled || msg.scheduledFrom != nil || !msg.Mentioned || !e.isTeamLead() {
 		return false
 	}
 	if r.prepared {
@@ -111,7 +116,6 @@ func (e *Engine) prepareTaskForumReply(p Platform, msg *Message) bool {
 	}
 	msg.ChannelKey = teamChannelID(r.Chat)
 	msg.ChannelID = msg.ChannelKey
-	msg.Mentioned = true
 	msg.AddressedOther = false
 	msg.StopAll = false
 	msg.ExtraContent = strings.TrimSpace(msg.ExtraContent + "\n" + e.taskForumReplyFacts(*it))

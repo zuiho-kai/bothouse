@@ -131,14 +131,14 @@ func TestTaskForumMovedChatPreservesOldPostAndSource(t *testing.T) {
 	if !known || r == nil || r.Chat != "discord:111" {
 		t.Fatalf("source drift: %+v", r)
 	}
-	msg := &Message{TaskForum: r, ReplyCtx: "forumA-receipt"}
+	msg := &Message{TaskForum: r, ReplyCtx: "forumA-receipt", Mentioned: true}
 	if !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:111" || msg.ReplyCtx != "forumA-receipt" {
 		t.Fatalf("prepared route: %+v", msg)
 	}
 	// The stable saved source also survives a board row with no current placement.
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1,"what":"类别任务","status":"在做"}`+"\n")
 	r, _ = e.ResolveTaskForumReply("discord", "g1", "forumA", old.Thread)
-	msg = &Message{TaskForum: r, ReplyCtx: "forumA-receipt"}
+	msg = &Message{TaskForum: r, ReplyCtx: "forumA-receipt", Mentioned: true}
 	if r == nil || !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:111" {
 		t.Fatalf("saved source rejected after placement cleared: %+v", msg)
 	}
