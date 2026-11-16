@@ -133,6 +133,10 @@ type handoffWatch struct {
 	resume func(p Platform, key string, h TeamHandoff)
 	// beat: when the main loop last started an iteration (UnixNano; stallLoop reports a stall).
 	beat atomic.Int64
+	// started: when this process's watch began (run sets it; zero = never re-arm). rearmed: the
+	// watches whose turn-end wake was armed again after the restart (rearmIdleWakes).
+	started time.Time
+	rearmed map[string]bool
 }
 
 func newHandoffWatch(e *Engine) *handoffWatch {
@@ -232,6 +236,7 @@ func (s *APIServer) rewatchIfServing() {
 }
 
 func (w *handoffWatch) run(ctx context.Context) {
+	w.started = w.now()
 	go w.sweepLoop(ctx)
 	go w.stallLoop(ctx)
 	go w.autostartLoop(ctx)
@@ -378,13 +383,76 @@ func (w *handoffWatch) tick(now time.Time) time.Time {
 			}
 		}
 	}
+	var idle []idleAssignment
+	if !w.started.IsZero() {
+		for key, list := range st.Handoffs {
+			for _, h := range list {
+				if teamHandoffOpen(h) && !h.Due.IsZero() && !h.Idle.Ended.IsZero() && h.Idle.Ended.Before(w.started) &&
+					!h.Idle.Returned && !h.Idle.Reported && !w.rearmed[key+"|"+h.At.String()] {
+					idle = append(idle, idleAssignment{key, h, false})
+				}
+			}
+		}
+	}
 	teamWorkspaceStore.mu.Unlock()
+	if w.rearmIdleWakes(idle) {
+		next = now.Add(watchRearmRetry) // a platform is not connected yet: look again soon
+	}
 	for _, d := range due {
 		if n := w.check(d, now); !n.IsZero() && (next.IsZero() || n.Before(next)) {
 			next = n
 		}
 	}
 	return next
+}
+
+// watchRearmRetry: how soon tick looks again while a platform a pending wake needs is not
+// connected yet after a restart. Source: watchTurnEndDelay, the wake's own delay.
+const watchRearmRetry = watchTurnEndDelay
+
+// rearmIdleWakes arms the turn-end wake again for workspace handoffs whose last turn ended before
+// this process started without a handback (#1724). armIdleWake's timer lives in memory: a restart
+// between a turn's end and its wake dropped it, and the workspace waited for the next ten-minute
+// check. A turn the restart interrupted is not touched here: turn resume delivers it
+// (ResumeInterruptedTurns), and fireIdleWake does nothing while a turn runs. Returns true while
+// some watch still waits for its platform.
+func (w *handoffWatch) rearmIdleWakes(idle []idleAssignment) (waiting bool) {
+	for _, a := range idle {
+		plat, _, _ := strings.Cut(a.key, ":")
+		if w.e.lookupReadyPlatform(plat) == nil {
+			waiting = true
+			continue
+		}
+		if w.rearmed == nil {
+			w.rearmed = map[string]bool{}
+		}
+		w.rearmed[a.key+"|"+a.h.At.String()] = true
+		target := w.e.watchTarget(a.key, a.h.Owner)
+		if target == nil || w.turnResumePending(a.key) {
+			continue
+		}
+		slog.Info("idle watch: turn-end wake armed again after the restart", "workspace", a.key, "board", a.h.Board, "ended", a.h.Idle.Ended.Format(time.RFC3339))
+		target.armIdleWake(a)
+	}
+	return waiting
+}
+
+// turnResumePending: a turn in workspace key was running when the last process stopped and is
+// still in a journal, i.e. turn resume owns its continuation.
+func (w *handoffWatch) turnResumePending(key string) bool {
+	for _, x := range w.engines() {
+		if x == nil {
+			continue
+		}
+		if j := x.turnJournalStore(); j != nil {
+			for _, en := range j.Inherited() {
+				if teamChatKey(en.SessionKey) == key {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // updateHandoff changes the recorded handoff (key, chat, at) under the store lock and saves.

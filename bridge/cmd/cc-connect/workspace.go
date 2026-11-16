@@ -65,7 +65,7 @@ func runWorkspace(args []string) {
 		if fs.NArg() < 1 {
 			workspaceFail(fmt.Errorf("usage: bothouse workspace claim <workspace channel id>"))
 		}
-		body, _ := json.Marshal(map[string]any{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title, "board": *boardID})
+		body, _ := json.Marshal(map[string]any{"session_key": *session, "workspace_id": fs.Arg(0), "owner": *owner, "title": *title, "board": *boardID, "project": os.Getenv("CC_PROJECT")})
 		resp, err := apiPost(sock, "/team/workspace/claim", body)
 		if err != nil {
 			workspaceFail(err)
