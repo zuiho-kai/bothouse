@@ -50,13 +50,13 @@ export default function UsageMembers({ from, to, role, model, revision }: {
     <div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap">
       <thead><tr><th className="p-2">{t('usage.membersRank')}</th><th className="p-2 text-left">{t('usage.membersMember')}</th>{cols.map(c => <th className="p-2 text-right" key={c}>{t(`usage.${c}`)}</th>)}<th className="p-2">{t('usage.membersShare')}</th></tr></thead>
       <tbody>{sorted.map((r, i) => <tr key={r.member} className="border-t border-hairline">
-        <td className="p-2 text-center">{i + 1}</td><td className="p-2"><button className="text-accent underline" onClick={() => setMember(member === r.member ? '' : r.member!)}>{name(r.member)}</button></td>
+        <td className="p-2 text-center">{i + 1}</td><td className="p-2"><button className="text-accent underline whitespace-normal break-all text-left max-w-32 sm:max-w-48" onClick={() => setMember(member === r.member ? '' : r.member!)}>{name(r.member)}</button></td>
         {cells(r)}<td className="p-2 text-right">{total ? (100 * r.total_tokens / total).toFixed(1) : '0.0'}%</td>
       </tr>)}</tbody>
     </table></div>
     {!rows.length && !error && <p className="text-xs text-ink-mute mt-3">{t('usage.empty')}</p>}
     {member && <div className="mt-5 border-t border-hairline pt-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h3>{name(member)}</h3><select aria-label={t('usage.membersDetail')} value={group} onChange={e => setGroup(e.target.value as typeof group)} className="bg-surface-sunken rounded p-2">
+      <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="min-w-0 break-all">{name(member)}</h3><select aria-label={t('usage.membersDetail')} value={group} onChange={e => setGroup(e.target.value as typeof group)} className="bg-surface-sunken rounded p-2">
         <option value="daily">{t('usage.membersDaily')}</option><option value="roles">{t('usage.roles')}</option><option value="models">{t('usage.models')}</option>
       </select></div>
       <div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap"><thead><tr><th className="p-2 text-left">{t('usage.name')}</th>{cols.map(c => <th className="p-2 text-right" key={c}>{t(`usage.${c}`)}</th>)}</tr></thead><tbody>{detail.map((r, i) => <tr key={i} className="border-t border-hairline"><td className="p-2">{r.date || r.role || r.model}</td>{cells(r)}</tr>)}</tbody></table></div>

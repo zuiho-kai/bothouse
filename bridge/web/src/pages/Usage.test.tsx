@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Usage, { getPresetRange } from './Usage';
+import Usage, { getPresetRange, matchPreset } from './Usage';
 import { getUsage, type UsageResult } from '@/api/usage';
 import { listProjects } from '@/api/projects';
 import { useUsageSettingsStore, DEFAULT_TOKEN_UNIT } from '@/store/usageSettings';
@@ -450,3 +450,7 @@ describe('Usage page - token unit switching and custom date range', () => {
     expect(thEmerald).not.toBeNull();
   });
 });
+
+ it('matches a manually selected thirty-day range across a month boundary', () => {
+  expect(matchPreset('2026-10-19', '2026-11-17', '2026-11-17')).toBe('last30Days');
+ });
