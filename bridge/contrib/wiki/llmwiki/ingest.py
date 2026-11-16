@@ -3153,7 +3153,10 @@ def page_additions(base):
                 structural.add(n)
             elif (re.match(r" {0,3}#{1,6}(?:[ \t]+|$)", line)
                   or re.fullmatch(r" {0,3}(?:-[ \t]*){3,}", line)
-                  or index and re.fullmatch(r" {0,3}[-*+] +\[[^\]]+\]\([^()]+\.md\)[ \t]*", line)):
+                  # Source: template/CLAUDE.md L0/L1 navigation and the shipped `link — description` indexes.
+                  # Only index entries are structural; user-attributed quotes still pass through bad_quotes.
+                  or index and re.fullmatch(r" {0,3}[-*+] +\[[^\]]+\]\([^()]+\.md\)"
+                                           r"(?:[ \t]+—[ \t]+[^\n]*)?[ \t]*", line)):
                 structural.add(n)
         at = None
         for line in git("diff", "--no-renames", "--unified=0", base, "--", f).splitlines():
