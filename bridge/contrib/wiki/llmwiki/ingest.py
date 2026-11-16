@@ -2019,16 +2019,9 @@ def _model_pass(label, instruction, stdin="", context=None, engine=None, sids=()
 
 
 def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind, check, apply, extra_contexts,
-<<<<<<< HEAD
               fix_context, merge, checkpoint=None):
     """One model pass + acceptance checks + one fix round. Delivers on success, retains candidates on failure.
-    Codex: a capacity error resumes the same session on the next CODEX_CHAIN model; any other failure starts
-    that model fresh; when the chain fails, AFTER_CODEX engines run fresh, one try each.
-=======
-              fix_context, merge):
-    """One model pass + acceptance checks + one fix round. Commits on success, reverts on failure.
     Codex: continue safe interruptions within the shared deadline; quota/refused or unfinished-tool calls stop.
->>>>>>> origin/develop
     Returns False on failure, "changed" if it committed, True if the pass changed nothing. After a False,
     LAST_REJECTED tells a result that failed acceptance from a call that failed (error, quota, timeout).
     `apply(answer)`: the model only answers (its own edits are dropped) and the script makes the edits from the
@@ -2079,44 +2072,29 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             log(f"{label}: reply says the work was not done (「{why}」), treated as a failed call")
         return not why and ok
 
-<<<<<<< HEAD
     if pending:
         LAST_ENGINE = pending["engine"]
         ok, out = True, ""
     elif name == "codex":
-        tid, capacity, prev = None, False, ""
-        for i, model in enumerate(CODEX_CHAIN):
+        def invoke(model, tid):
+            global LAST_ENGINE
+            nonlocal execution
             execution = dict(engine="codex", model=model, effort=effort or EFFORT)
             LAST_ENGINE = f"codex:{model}"
-            if i and capacity and tid:  # same session, next model: keep the worktree edits
-                log(f"{label}: {prev} at capacity, resuming on {model}")
-                ok, out, cost, _ = codex("", RESUME_PROMPT, label, effort=effort or None, model=model, resume=tid)
-            else:
-                if i:  # fresh start on the next model
-                    log(f"{label}: {prev} failed without capacity error, starting {model} fresh")
-                    discard()
-                    block_contract.catalog(REPO, WORK, coverage)
-                ok, out, cost, tid = codex(instruction, stdin, label, context, effort=effort or None, model=model)
-            ok = finished(ok, out, not extra_contexts)
-            if ok:
-                LAST_ENGINE = f"codex:{model}"
-                break
-            log(f"{label}: {model} failed: {out[-200:]}")
-            capacity, prev = any(t in out for t in CAPACITY_TEXT), model
-=======
-    if name == "codex":
-        def invoke(model, tid):
             if tid:
                 ok, out, cost, thread = codex("", RESUME_PROMPT, label, effort=effort or None, model=model, resume=tid)
             else:
                 ok, out, cost, thread = codex(instruction, stdin, label, context, effort=effort or None, model=model)
             return finished(ok, out, not extra_contexts), out, cost, thread
+        def restart():
+            discard()
+            block_contract.catalog(REPO, WORK, coverage)
+
         # Source: #848 uses the same measured 511-second admission slot as main wiki #791/#846.
         ok, out, cost, tid, model = codex_retry.run(invoke, CODEX_CHAIN, budget.remaining, 511,
-                                                   lambda msg: log(f"{label}: {msg}"), reset=discard)
+                                                   lambda msg: log(f"{label}: {msg}"), reset=restart)
         if ok:
             LAST_ENGINE = f"codex:{model}"
->>>>>>> origin/develop
         for fallback in ([] if ok else filter(None, AFTER_CODEX)):
             if getattr(out, "retryable", False) or getattr(out, "reason", None) in (
                     "request_rejected", "ambiguous_transport", "budget_exhausted", "cancelled"):
@@ -2144,27 +2122,20 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         log(f"{label} note: {HOME} changed during a trial on {WIKI} — check it wasn't this model")
     log(f"{label} ${cost:.3f}: {out[-400:]}")
 
-<<<<<<< HEAD
     def once(*a, **k):  # a fresh call under this run's configuration; never reuse another provider's session
         global LAST_ENGINE
         nonlocal called
         called = True
         LAST_ENGINE = f"codex:{execution['model']}" if execution["engine"] == "codex" else execution["engine"]
         if execution["engine"] == "codex":
-            return codex(*a, **k, effort=execution["effort"], model=execution["model"])[:3]
-        return runner(execution["engine"])(*a, **k)
-=======
-    def once(*a, **k):  # a fresh call of the engine that produced the accepted result
-        if LAST_ENGINE.startswith("codex"):
             def invoke(model, tid):
                 if tid:
-                    return codex("", RESUME_PROMPT, k.get("label", label), effort=effort or None, model=model, resume=tid)
-                return codex(*a, **k, effort=effort or None, model=model)
-            # Source: same measured allocation as the main Codex call above; corrections share its deadline.
-            return codex_retry.run(invoke, [LAST_ENGINE.split(":")[1]], budget.remaining, 511,
+                    return codex("", RESUME_PROMPT, k.get("label", label), effort=execution["effort"], model=model, resume=tid)
+                return codex(*a, **k, effort=execution["effort"], model=model)
+            # Source: #848 corrections share the measured 511-second main-call allocation.
+            return codex_retry.run(invoke, [execution["model"]], budget.remaining, 511,
                                    lambda msg: log(f"{k.get('label', label)}: {msg}"))[:3]
-        return runner(LAST_ENGINE)(*a, **k)
->>>>>>> origin/develop
+        return runner(execution["engine"])(*a, **k)
 
     # Large daily evidence is read in bounded batches, accumulating edits in the same worktree. Accept and deliver
     # only after every batch succeeds: a partial reflection must neither advance the date nor trigger its fixes.
