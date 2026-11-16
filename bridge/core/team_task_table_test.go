@@ -58,8 +58,8 @@ func TestTeamTaskTableWorkspaceFirstDotsSortedAndIdleSummary(t *testing.T) {
 	}
 	got := renderTeamTaskTable(items, links, "feishu:oc_a", now)
 	want := strings.Join([]string{
-		"**工作区 2**（空闲：工作区2、3、5、6）",
-		"  🟢 工作区1 · 任务板重构PR · 已做 25分钟  [→点进去](https://example.test/t1)",
+		"**工作区 2**（空闲 4 个）",
+		"  🟢 工作区1 · [任务板重构PR](https://example.test/t1) · 已做 25分钟",
 		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 		"  🟢 工作区4 · 搁置盘点 · 已做 15分钟",
 	}, "\n")
@@ -99,7 +99,7 @@ func TestTeamTaskTableEngineIdlePoolAndWSWasEnded(t *testing.T) {
 	})
 	got := renderTeamTaskTable(items, nil, "discord:main", now)
 	want := strings.Join([]string{
-		"**工作区 1**（空闲：工作区2、3）",
+		"**工作区 1**（空闲 2 个）",
 		"  ⚠ 工作区1 · 任务板重构PR · 上次进展 2小时前 · 卡住",
 		"  🟡 工作区2 · QQ断线修复 · 已交回待核对 · 等派活人",
 	}, "\n")
@@ -192,5 +192,51 @@ func TestTeamTaskTablePausedAfterReturnAndNamedOwner(t *testing.T) {
 	}
 	if !strings.Contains(got, "**待安排 1**\n  · 强制汇报") {
 		t.Fatalf("placeholder owner should stay 待安排:\n%s", got)
+	}
+}
+
+// User, 2026-11-16: 「置顶的那个设计 直接让fable拍板」. The item's name links to its forum post on every
+// kind of row; with no post, the workspace's task card is linked only on the item bound there last
+// (an older item in the same workspace got the newer item's card before), else the row has no link.
+func TestTeamTaskTableRowLinksToTheItemsOwnPost(t *testing.T) {
+	now := time.Date(2026, 11, 16, 17, 0, 0, 0, time.Local)
+	p := testTaskBoardPlacer()
+	p.wsName = func(ws string) string { return "工作区" + strings.TrimPrefix(ws, "feishu:oc_ws") }
+	p.handoffEnded = func(ws, _ string, _ time.Time) bool { return ws == "feishu:oc_ws2" }
+	user := teamWaitUser
+	at := func(d time.Duration) string { return now.Add(-d).Format(time.RFC3339) }
+	items := placeTeamTaskBoard(p, []teamTaskBoardItem{
+		{ID: 1, Short: "有帖子", Status: "进行中", WS: "feishu:oc_ws1", Chat: "feishu:oc_a", Bound: at(10 * time.Minute),
+			ProgressAt: float64(now.Add(-time.Minute).Unix()), Post: "https://example.test/post1"},
+		{ID: 2, Short: "老活没帖子", Status: "进行中", WS: "feishu:oc_ws3", Chat: "feishu:oc_a", Bound: at(3 * time.Hour),
+			ProgressAt: float64(now.Add(-2 * time.Hour).Unix())},
+		{ID: 3, Short: "新活没帖子", Status: "进行中", WS: "feishu:oc_ws3", Chat: "feishu:oc_a", Bound: at(20 * time.Minute),
+			ProgressAt: float64(now.Add(-time.Minute).Unix())},
+		{ID: 4, Short: "交回了", Status: "已交接", WS: "feishu:oc_ws2", Chat: "feishu:oc_a", Bound: at(50 * time.Minute),
+			ReturnedAt: now.Add(-5 * time.Minute), Post: "https://example.test/post4"},
+		{ID: 5, Short: "等你", Status: "等用户拍板", Paused: now.Add(-time.Hour).Format("01-02 15:04"), WaitKind: &user,
+			SK: "feishu:oc_a", Post: "https://example.test/post5"},
+	})
+	links := []teamTaskLink{
+		{ID: "t1", SessionKey: "feishu:oc_ws1", ThreadURL: "https://example.test/card1", UpdatedAt: now.Add(-time.Minute)},
+		{ID: "t3", SessionKey: "feishu:oc_ws3", ThreadURL: "https://example.test/card3", UpdatedAt: now.Add(-time.Minute)},
+	}
+	got := renderTeamTaskTable(items, links, "feishu:oc_a", now)
+	for _, want := range []string{
+		"[有帖子](https://example.test/post1) · 已做 10分钟",
+		"工作区3 · 老活没帖子 · ",
+		"[新活没帖子](https://example.test/card3)",
+		"[交回了](https://example.test/post4)",
+		"· [等你](https://example.test/post5) · 等了",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("table lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "card1") || strings.Count(got, "card3") != 1 || strings.Contains(got, "点进去") {
+		t.Errorf("a row links to a card that is not its own:\n%s", got)
+	}
+	if h := teamTaskTableHeader(now); h != "📋 任务表（11-16 17:00 更新）" {
+		t.Errorf("header = %q", h)
 	}
 }
