@@ -1378,10 +1378,13 @@ func (e *Engine) startPublicProgress() {
 
 // forumQuietFact: the automatic 「已开始处理」/「本轮已结束」 facts. A forum post
 // already shows the state in its starter card, so they stay out of it (方案甲, user 11-16).
+// So do 「本轮中断」 and 「执行已停止」: they tell of one turn (a bridge restart, a stop), and
+// the post is the record of the task (#1732: three of them in one post within ten minutes).
 func forumQuietFact(ev TaskEvent, lang Language) bool {
 	i := NewI18n(lang)
 	switch ev.Summary {
-	case i.T(MsgPublicAutoStartedTools), i.T(MsgPublicAutoStartedTime), i.T(MsgPublicEnded):
+	case i.T(MsgPublicAutoStartedTools), i.T(MsgPublicAutoStartedTime), i.T(MsgPublicEnded),
+		i.T(MsgPublicInterrupted), i.T(MsgExecutionStopped):
 		return true
 	}
 	return false

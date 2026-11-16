@@ -168,6 +168,41 @@ type WebhookConfig struct {
 	Port    int    `toml:"port,omitempty"`  // listen port; default 9111
 	Token   string `toml:"token,omitempty"` // shared secret for authentication; empty = no auth
 	Path    string `toml:"path,omitempty"`  // URL path prefix; default "/hook"
+	// GitHub: native GitHub webhooks on <path>/github, sorted into immediate / batch / ignore (#1541).
+	GitHub GitHubEventsConfig `toml:"github"`
+}
+
+// GitHubEventsConfig is [webhook.github]: which repositories' events are taken and how they are
+// sorted. See core/github_events.go for the behavior and the defaults.
+type GitHubEventsConfig struct {
+	Secret             string             `toml:"secret,omitempty"`               // webhook secret set on the GitHub side; required
+	BotLogin           string             `toml:"bot_login,omitempty"`            // the bot's GitHub login: own events ignored, "@login" is a mention
+	BatchIntervalMins  int                `toml:"batch_interval_mins,omitempty"`  // minutes a batched event waits at most
+	BatchMax           int                `toml:"batch_max,omitempty"`            // batched events of one repository that are merged early
+	ImmediatePerHour   int                `toml:"immediate_per_hour,omitempty"`   // immediate wakes per repository per hour
+	ImmediateMergeSecs int                `toml:"immediate_merge_secs,omitempty"` // window in which immediate events of one issue/PR are one wake
+	Repos              []GitHubRepoConfig `toml:"repos"`
+}
+
+// GitHubRepoConfig is one [[webhook.github.repos]].
+type GitHubRepoConfig struct {
+	Repo       string             `toml:"repo"`              // "owner/name"
+	Project    string             `toml:"project,omitempty"` // role that is woken; optional with a single project
+	SessionKey string             `toml:"session_key"`       // channel the role is woken in
+	Rules      []GitHubRuleConfig `toml:"rules"`
+}
+
+// GitHubRuleConfig is one [[webhook.github.repos.rules]], matched top-down before the defaults.
+type GitHubRuleConfig struct {
+	Event      string `toml:"event,omitempty"`       // "issues", "issues.opened" or "*"
+	Bot        *bool  `toml:"bot,omitempty"`         // the sender is (not) a bot
+	Branch     string `toml:"branch,omitempty"`      // push branch, PR base branch or the branch a check ran on
+	Label      string `toml:"label,omitempty"`       // the issue/PR carries this label
+	Mention    *bool  `toml:"mention,omitempty"`     // the comment/review does (not) @ the bot
+	Keyword    string `toml:"keyword,omitempty"`     // title or text contains this
+	Tier       string `toml:"tier"`                  // immediate / batch / ignore
+	Project    string `toml:"project,omitempty"`     // overrides the repository's project
+	SessionKey string `toml:"session_key,omitempty"` // overrides the repository's session_key
 }
 
 // BridgeConfig controls the WebSocket bridge for external platform adapters.

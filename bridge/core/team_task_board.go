@@ -37,6 +37,12 @@ type teamTaskBoardItem struct {
 	NextTS   int64  `json:"next_ts"` // epoch of Next, written by board.py when set
 	Paused   string `json:"paused"`
 	PauseWhy string `json:"pause_why"`
+	// Ask: the workspace's open question (ws-up --ask). The row keeps only its title and where it
+	// went; the whole text is one file, <dir>/asks/<id>.md (board.py ask_save), loaded into
+	// askText. The task post, the team board and the reply facts all show that one copy and none
+	// cuts it (11-17 #1727: the question lived in pause_why cut to 300 runes, its options lost).
+	Ask     *teamTaskAsk `json:"ask"`
+	askText string
 	// WaitKind: what the item waits on, written by board.py on every save of board.jsonl
 	// (board.py wait_kind_of): "user", "release", "external", or "" for nothing. Flow decisions
 	// read this field. nil = a row saved before the field existed; only those fall back to
@@ -106,6 +112,8 @@ type teamTaskBoardItem struct {
 	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
+	// forumResult: the passed report the item's post remembers (taskForumPostState.Result).
+	forumResult string
 	// quoteWho/speakerNames: who said each 原话 line on the forum card (team_task_forum_quote.go).
 	quoteWho     func(text string) string
 	speakerNames map[string]string
@@ -120,6 +128,32 @@ type teamTaskBoardItem struct {
 	wsStuckWhy string
 	// idleByChat: chat key → sorted idle workspace names in that chat's pool.
 	idleByChat map[string][]string
+}
+
+// teamTaskAsk is a board row's reference to its stored question. To: "lead" while the chat
+// channel's lead decides it (the post is not 等你 and mentions nobody), "user" once the lead
+// passed it on (ws-forward --ask-user, with Kind one of 方向/花钱/成品/权限).
+type teamTaskAsk struct {
+	Title string `json:"title"`
+	To    string `json:"to"`
+	Kind  string `json:"kind"`
+}
+
+// askTitle: the question's one-line title, "" without a stored question.
+func (it teamTaskBoardItem) askTitle() string {
+	if it.Ask == nil {
+		return ""
+	}
+	return strings.TrimSpace(it.Ask.Title)
+}
+
+// readTeamTaskAsk reads the stored question of board item id, "" when there is none.
+func readTeamTaskAsk(dir string, id int) string {
+	b, err := os.ReadFile(filepath.Join(dir, "asks", strconv.Itoa(id)+".md"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // readTeamTaskBoardFile loads <dir>/<name>; a missing file or bad lines are skipped.
@@ -138,6 +172,9 @@ func readTeamTaskBoardFile(dir, name string) []teamTaskBoardItem {
 	for sc.Scan() {
 		var it teamTaskBoardItem
 		if json.Unmarshal(sc.Bytes(), &it) == nil && it.ID > 0 {
+			if it.Ask != nil {
+				it.askText = readTeamTaskAsk(dir, it.ID)
+			}
 			items = append(items, it)
 		}
 	}
@@ -155,6 +192,9 @@ const (
 	teamWaitUser     = "user"     // waits on the user's answer or decision
 	teamWaitRelease  = "release"  // merged, waits on the central release
 	teamWaitExternal = "external" // waits on something outside (board.py wait)
+	// teamWaitLead: a workspace question the chat channel's lead decides first (ws-up --ask).
+	// Not 等你: nobody is mentioned until the lead passes it on (then the row waits on the user).
+	teamWaitLead = "lead"
 )
 
 // waitsOn: the row waits on kind. A row without the field (saved by a board.py older than the
@@ -184,6 +224,12 @@ func (it teamTaskBoardItem) waitsOn(kind string) bool {
 
 // waitsUser: the row is paused and waits on the user (ws-up --ask, 「等用户定」).
 func (it teamTaskBoardItem) waitsUser() bool { return it.Paused != "" && it.waitsOn(teamWaitUser) }
+
+// waitsAnswer: the row gave up its workspace on its own question and waits for the answer, from
+// the lead or from the user. It was not stopped: the answer resumes it.
+func (it teamTaskBoardItem) waitsAnswer() bool {
+	return it.Paused != "" && (it.waitsOn(teamWaitUser) || it.waitsOn(teamWaitLead))
+}
 
 // statusClosed: only a row without wait_kind is still hidden by a status that starts 「完成」.
 // A row saved by the current board.py is open until board done / accepted moves it to
@@ -589,8 +635,11 @@ const (
 	teamTaskBoardStuckAfter = time.Hour
 	// teamTaskBoardReasonRunes: the reason after 等你/卡住. Source: the approved plan, 「短理由（≤20 字）」.
 	teamTaskBoardReasonRunes = 20
-	// teamTaskBoardShortRunes: an item's name. Source: the approved plan, 「短名（≤10 字）」 (board.py SHORT_RUNES).
+	// teamTaskBoardShortRunes: a short label (who holds an item). Source: the approved plan, 「短名（≤10 字）」.
 	teamTaskBoardShortRunes = 10
+	// teamTaskBoardNameRunes: an item's name where the dispatcher wrote none and it is cut from
+	// the task sentence. Source: board.py SHORT_RUNES (#1732: 10 runes held only a code name).
+	teamTaskBoardNameRunes = 20
 )
 
 var (
@@ -617,15 +666,15 @@ func teamTaskBoardShort(it teamTaskBoardItem) string {
 		s = s[loc[1]:]
 	}
 	if loc := teamTaskBoardShortCut.FindStringIndex(s); loc != nil {
-		if n := len([]rune(s[:loc[0]])); n >= 2 && n <= teamTaskBoardShortRunes {
+		if n := len([]rune(s[:loc[0]])); n >= 2 && n <= teamTaskBoardNameRunes {
 			return strings.TrimSpace(s[:loc[0]])
 		}
 	}
 	r := []rune(s)
-	if len(r) <= teamTaskBoardShortRunes {
+	if len(r) <= teamTaskBoardNameRunes {
 		return s
 	}
-	return strings.TrimSpace(string(r[:teamTaskBoardShortRunes])) + "…"
+	return strings.TrimSpace(string(r[:teamTaskBoardNameRunes])) + "…"
 }
 
 // teamTaskBoardLocal parses a board.py "MM-DD HH:MM" local time without a year: this year, or last
@@ -702,6 +751,17 @@ func teamTaskBoardReason(texts ...string) string {
 	return ""
 }
 
+// teamTaskBoardHumanStatus: the status a person wrote; "" for what the bridge fills in itself
+// (「已交接」, 「在做：<工具步骤>」, team_board_progress.go). The step a workspace was on when it
+// asked is not why the item waits (11-16: five posts said 「等你：在做：Bash …」).
+func teamTaskBoardHumanStatus(status string) string {
+	st := strings.TrimSpace(boardLabel(status))
+	if st == "-" || st == boardHandedOff || strings.HasPrefix(st, boardStartedNoStep[:len("在做：")]) {
+		return ""
+	}
+	return st
+}
+
 // teamTaskBoardOwnerPlaceholder: 「谁」 words that name nobody (board.py writes 待接手 for an unowned item).
 var teamTaskBoardOwnerPlaceholder = regexp.MustCompile(`^(?:待接手|待安排|待定|没人|无人|无|-|—)$`)
 
@@ -729,7 +789,10 @@ func teamTaskBoardStateOf(it teamTaskBoardItem, now time.Time) (teamTaskBoardSta
 	// after its return showed 没人验收 for three days).
 	case it.Paused != "":
 		if it.waitsUser() {
-			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, it.Status)
+			if title := it.askTitle(); title != "" {
+				return teamTaskWaiting, title // the stored question's own title, not a cut of its text
+			}
+			return teamTaskWaiting, teamTaskBoardReason(it.PauseWhy, teamTaskBoardHumanStatus(it.Status))
 		}
 		return teamTaskPaused, ""
 	case !it.ReturnedAt.IsZero():
@@ -789,7 +852,7 @@ func teamTaskBoardDisplayItems(items []teamTaskBoardItem, chat string, now time.
 		current := it
 		seen := map[int]bool{it.ID: true}
 		merged := false
-		for current.Paused != "" && !current.waitsUser() && !teamOtherQuiet.MatchString(current.Status) {
+		for current.Paused != "" && !current.waitsAnswer() && !teamOtherQuiet.MatchString(current.Status) {
 			ref := teamTaskBoardMergeRef.FindStringSubmatch(current.PauseWhy + " " + current.Status)
 			if ref == nil {
 				break
@@ -1061,6 +1124,13 @@ func teamTaskTableIdleSuffix(idle []string, used map[string]bool) string {
 // open item. links: the task cards (readTeamFiles' Tasks), for a row's activity time and, when the
 // item has no forum post, its link.
 func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time) string {
+	return renderTeamTaskTableAsks(items, links, chat, now, true)
+}
+
+// renderTeamTaskTableAsks: the table with each 等你看 row's stored question below it in full
+// (fullAsks), or with only its title on the row. The caller falls back to titles when the whole
+// table does not fit one post: a question is shown whole or named with its post link, never cut.
+func renderTeamTaskTableAsks(items []teamTaskBoardItem, links []teamTaskLink, chat string, now time.Time, fullAsks bool) string {
 	backlog := teamTaskBoardBacklogLine(items, chat)
 	newestBound := map[string]time.Time{} // workspace → its newest binding, over every chat's items
 	for _, it := range items {
@@ -1154,10 +1224,17 @@ func renderTeamTaskTable(items []teamTaskBoardItem, links []teamTaskLink, chat s
 			if at, ok := teamTaskTableAsked(it, now); ok {
 				span = teamTaskTableSpan(at, now) // 等了 X: since the question, not since the handoff
 			}
+			if it.askText != "" && !fullAsks && it.askTitle() != "" {
+				parts = append(parts, it.askTitle())
+			}
 			if span != "" {
 				parts = append(parts, "等了 "+span)
 			}
-			waiting = append(waiting, "  · "+strings.Join(parts, " · "))
+			row := "  · " + strings.Join(parts, " · ")
+			if it.askText != "" && fullAsks {
+				row += "\n> " + strings.ReplaceAll(it.askText, "\n", "\n> ")
+			}
+			waiting = append(waiting, row)
 		case where == "" && teamTaskBoardOwner(it.Who) != "":
 			// Named owner outside a bound workspace (「肥鱼（409续办）」): someone is on it, so it is
 			// not 待安排 (same report as above, 「找bug一路」 listed as 待安排).

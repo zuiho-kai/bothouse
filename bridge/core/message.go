@@ -361,6 +361,20 @@ type LocationAttachment struct {
 }
 
 // Message represents a unified incoming message from any platform.
+// WithMissedAttachments appends, for the agent, which attachments of a message did not arrive
+// (name, and why when known). A platform that cannot fetch an attachment hands the message on
+// with this note: the attachment, or the whole message, used to vanish with only a log line.
+func WithMissedAttachments(content string, missed ...string) string {
+	if len(missed) == 0 {
+		return content
+	}
+	note := "（这条消息的附件没取到：" + strings.Join(missed, "、") + "。告诉对方没收到、请对方重发，不要当成没有附件）"
+	if strings.TrimSpace(content) == "" {
+		return note
+	}
+	return content + "\n" + note
+}
+
 type Message struct {
 	authorization *AuthorizationTurn
 	SessionKey    string // unique key for user context, e.g. "feishu:{chatID}:{userID}"

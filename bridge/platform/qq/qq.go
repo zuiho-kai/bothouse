@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -95,6 +97,14 @@ type Platform struct {
 	// it is newer than this process. (review: the
 	// entry point bypassed the measured boundary.)
 	catchUpFrom atomic.Int64
+
+	// heartbeatInterval is the interval OneBot announces in its heartbeat
+	// meta_event (nanoseconds; 0 until the first heartbeat arrives, or when the
+	// server sends none). readLoop uses it as the connection's liveness
+	// contract: NapCat writes every event and every heartbeat through the same
+	// per-client send, so a socket that stays silent past two intervals is no
+	// longer being written to, however ESTABLISHED the TCP looks.
+	heartbeatInterval atomic.Int64
 
 	// watermark remembers the newest handled message per chat across restarts.
 	// nil when no data dir is configured, which leaves the guards in-memory.
@@ -264,6 +274,10 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 }
 
 func (p *Platform) readLoop(ctx context.Context) {
+	// lastFrame is when the current connection last delivered anything; a
+	// fresh connection starts its own silence count.
+	var cur *websocket.Conn
+	var lastFrame, lastFrameClock time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -278,20 +292,47 @@ func (p *Platform) readLoop(ctx context.Context) {
 			p.reconnect(ctx)
 			continue
 		}
+		if conn != cur {
+			cur, lastFrame, lastFrameClock = conn, time.Now(), p.clock()
+		}
+		// Liveness comes from the protocol, not from TCP: OneBot announces its
+		// heartbeat interval, and NapCat sends heartbeats and events through
+		// the same per-client write (napcat-onebot network/websocket-server.ts
+		// onEvent / startHeartbeat). Without a deadline, a socket NapCat has
+		// stopped writing to kept this read blocked for hours while
+		// NapCat logged incoming messages (2026-11-16, napcat.log 18:42–19:34).
+		// Two intervals tolerate one late or lost heartbeat; NapCat's measured
+		// spacing is exactly one interval (30s apart on 2026-11-16 22:43–22:44).
+		deadline := time.Time{}
+		if hb := time.Duration(p.heartbeatInterval.Load()); hb > 0 {
+			deadline = time.Now().Add(2 * hb) // 来源：上面实测心跳间隔，容忍丢一次
+		}
+		_ = conn.SetReadDeadline(deadline)
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			_ = p.closeConnection(conn)
 			if ctx.Err() != nil {
 				return
 			}
-			slog.Error("qq: ws read error, reconnecting...", "error", err)
 			// Record when the socket died, but only the first failure of a
 			// continuous outage: after a failed reconnect round readLoop reads
 			// the same dead socket again and would otherwise push the start
 			// forward, hiding the early part of the outage.
-			p.markDisconnected()
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() && !deadline.IsZero() {
+				// Silence means the outage began at the last frame, not now:
+				// messages NapCat received meanwhile must stay inside the
+				// catch-up boundary.
+				slog.Error("qq: no heartbeat from OneBot, connection is dead; reconnecting...",
+					"silent_for", time.Since(lastFrame).Round(time.Millisecond), "heartbeat_interval", time.Duration(p.heartbeatInterval.Load()))
+				p.markDisconnectedAt(lastFrameClock)
+			} else {
+				slog.Error("qq: ws read error, reconnecting...", "error", err)
+				p.markDisconnected()
+			}
 			continue
 		}
+		lastFrame, lastFrameClock = time.Now(), p.clock()
 
 		var payload map[string]any
 		if json.Unmarshal(raw, &payload) != nil {
@@ -310,7 +351,11 @@ func (p *Platform) readLoop(ctx context.Context) {
 
 		// Otherwise it's an event
 		postType, _ := payload["post_type"].(string)
-		if postType == "message" {
+		if postType == "meta_event" {
+			if ms, ok := payload["interval"].(float64); ok && ms > 0 {
+				p.heartbeatInterval.Store(int64(time.Duration(ms) * time.Millisecond))
+			}
+		} else if postType == "message" {
 			// Dispatch in its own goroutine: callAPI resolves responses through
 			// this loop, so running the handler here would make every send from
 			// a turn wait for that turn to finish (same as platform/wecom).
@@ -442,7 +487,10 @@ func (p *Platform) clock() time.Time {
 // Called from readLoop for every read error, including the reads that fail on
 // the same dead socket after a reconnect round gave up; only the first call
 // wins, so a long outage keeps the instant it actually began.
-func (p *Platform) markDisconnected() {
+func (p *Platform) markDisconnected() { p.markDisconnectedAt(p.clock()) }
+
+// markDisconnectedAt records at as the start of the current outage, once.
+func (p *Platform) markDisconnectedAt(at time.Time) {
 	// Truncated to the second on purpose: OneBot reports a message time as
 	// whole seconds (time.Unix(int64(ts), 0) below), so a nanosecond-precision
 	// boundary would reject a message that merely shares the disconnect's
@@ -450,7 +498,7 @@ func (p *Platform) markDisconnected() {
 	// sub-second part was rounded away. Same precision on both sides of the
 	// comparison, and the wider side is the safe one here: admitting a message
 	// from that second cannot resurrect anything older.
-	start := p.clock().Truncate(time.Second).UnixNano()
+	start := at.Truncate(time.Second).UnixNano()
 	if p.outageStart.Load() == 0 {
 		p.outageStart.CompareAndSwap(0, start)
 	}
@@ -734,7 +782,7 @@ type parsedMessage struct {
 
 func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID int64) parsedMessage {
 	var out parsedMessage
-	var textParts []string
+	var textParts, missed []string
 
 	// Normalize both OneBot wire formats before interpreting media or mentions.
 	msg, ok := payload["message"].([]any)
@@ -766,6 +814,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				imgData, mime, err := downloadFile(url)
 				if err != nil {
 					slog.Warn("qq: download image failed", "error", err)
+					missed = append(missed, "图片")
 					continue
 				}
 				out.images = append(out.images, core.ImageAttachment{
@@ -917,7 +966,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 		}
 	}
 
-	out.text = strings.TrimSpace(strings.Join(textParts, ""))
+	out.text = core.WithMissedAttachments(strings.TrimSpace(strings.Join(textParts, "")), missed...)
 	return out
 }
 

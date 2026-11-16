@@ -322,7 +322,7 @@ func (hs *HeartbeatScheduler) persistLocked() {
 		slog.Error("heartbeat: persist state failed", "error", err)
 		return
 	}
-	if err := os.WriteFile(hs.stateFile, data, 0o644); err != nil {
+	if err := AtomicWriteFile(hs.stateFile, data, 0o644); err != nil {
 		slog.Error("heartbeat: write state file failed", "error", err)
 	}
 }

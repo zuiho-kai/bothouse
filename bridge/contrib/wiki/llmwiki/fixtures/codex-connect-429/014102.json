@@ -1,0 +1,6 @@
+{
+  "source": "production .ingest.log:18797 (2026-11-17 01:41:02); retained stderr diagnostic",
+  "stderr": "2026-11-16T14:33:37.798210Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown\n",
+  "error": "exceeded retry limit, last status: 429 Too Many Requests",
+  "usage": {}
+}

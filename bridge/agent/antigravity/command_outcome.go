@@ -26,9 +26,6 @@ func (n *nativeTrajectory) commandOutcomes(t streamTurnEvidence, response string
 	}
 	steps := n.Trajectory.Steps
 	for i := t.start; i <= t.last; i++ {
-		if i > t.start && steps[i].Type == "CORTEX_STEP_TYPE_USER_INPUT" {
-			return turnCommandOutcomes{}
-		}
 		step := steps[i]
 		cmd := step.RunCommand
 		if step.Type != "CORTEX_STEP_TYPE_RUN_COMMAND" || cmd.ExitCode == nil || *cmd.ExitCode == 0 {

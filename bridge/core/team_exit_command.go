@@ -61,6 +61,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	if k, b, ok := team.ParseExitKind(text); ok && k == team.ExitKindReport {
 		body = b // the command names the kind; a leading marker is only the skeleton's
 	}
+	res.Board, _, _ = team.ExitHeadline(body)
 	plat, _, _ := strings.Cut(res.Workspace, ":")
 	p := e.lookupReadyPlatform(plat)
 	if p == nil {
@@ -75,20 +76,18 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		return res, fmt.Errorf("workspace exit: %s: %w", res.Workspace, ErrWorkspaceExitNoTask)
 	}
 
-	// The state first: once the command ran, the task is handed back whatever the chat post does
-	// (a refused or failed post is logged and the lead's acceptance still finds it returned).
+	// The draft's headline is also the forwarding path's task identity. Never select
+	// a newer task from the workspace: an older report must not return that task.
 	teamWorkspaceStore.mu.Lock()
 	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	if err == nil {
-		for id, t := range st.Tasks {
-			if teamTaskInWork(t.State) && t.WS == res.Workspace && (res.Board == 0 || t.Since.After(st.Tasks[res.Board].Since)) {
-				res.Board = id
+		if t, tracked := st.Tasks[res.Board]; tracked {
+			if teamTaskInWork(t.State) && t.WS != res.Workspace {
+				err = fmt.Errorf("workspace exit: task #%d belongs to %s: %w", res.Board, t.WS, ErrWorkspaceExitNoTask)
+			} else {
+				t, err = transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: res.Board, To: to, By: "exit command"}, time.Now())
+				res.State = string(t.State)
 			}
-		}
-		if res.Board > 0 {
-			var t TeamTask
-			t, err = transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: res.Board, To: to, By: "exit command"}, time.Now())
-			res.State = string(t.State)
 		}
 	}
 	teamWorkspaceStore.mu.Unlock()
@@ -118,7 +117,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	}
 	out := &exitOutcome{}
 	res.Posted = e.forwardWorkspaceExitKind(context.WithValue(ctx, exitOutcomeKey{}, out), p, sessionKey, team.ExitKindReport, body)
-	if res.Board > 0 && (out.bounced || out.dropped != "") {
+	if res.State != "" && (out.bounced || out.dropped != "") {
 		// #1492 常识：没交到的不算交回。A report sent back for a repair turn, or one that found no
 		// chat to go to, did not hand the task back: the task stays in this workspace, so the
 		// repaired report is accepted (it got 409 「already returned」) and the turn's end does not
@@ -142,7 +141,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	if !out.bounced && out.dropped == "" {
 		// The handback is done: the turn's end must not ask for the report again, and the reset
 		// ws-up queued may run (#1500: 11-12 工作区6 was nagged 13–30 s after each command).
-		// A workspace without a task record (Board 0) counts too: since #1802 the reply text no
+		// A workspace without a task record counts too: since #1802 the reply text no
 		// longer stands in for the command, so without this its turn end asked for the report again.
 		e.markWorkspaceReportDelivered(sessionKey)
 	}

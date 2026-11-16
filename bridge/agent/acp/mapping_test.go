@@ -171,6 +171,18 @@ func TestMapSessionUpdate_toolCallUpdate_inProgress(t *testing.T) {
 	}
 }
 
+// #1884: a failed call keeps its outcome, so the progress card marks the step as failed; a completed
+// one carries no status, as before.
+func TestMapSessionUpdate_FailedToolCallKeepsItsStatus(t *testing.T) {
+	for status, want := range map[string]string{"failed": "failed", "completed": ""} {
+		params := json.RawMessage(`{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","title":"subagent","status":"` + status + `","content":[{"type":"content","content":{"type":"text","text":"SubagentError"}}]}}`)
+		evs := mapSessionUpdate("", params)
+		if len(evs) != 1 || evs[0].Type != core.EventToolResult || evs[0].ToolStatus != want {
+			t.Fatalf("status %q: got %+v, want ToolStatus %q", status, evs, want)
+		}
+	}
+}
+
 func TestMapSessionUpdate_AgentThoughtChunkDoesNotBecomeAnswer(t *testing.T) {
 	var answer string
 	for _, chunk := range []struct{ kind, text string }{

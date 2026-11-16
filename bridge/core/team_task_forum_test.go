@@ -191,11 +191,12 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 		t.Fatalf("waiting post = %+v", fp)
 	}
 
-	// Resumed in a workspace: tag back to 在做 with one key-move line.
+	// Resumed in a workspace: tag back to 在做 and the card's footer names the workspace; no floor
+	// for it (#1732: the post keeps questions and results, not every state move).
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"ws":"discord:222"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "继续做") || !strings.Contains(fp.nodes[1], "<#222>") {
+	if fp.tag != TaskForumTagRunning || len(fp.nodes) != 1 || !strings.Contains(fp.card, "负责 <#222>") {
 		t.Fatalf("resumed post = %+v", fp)
 	}
 
@@ -203,7 +204,7 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"status":"已交回待验收","returned_at":"2026-11-14T08:00:00Z","reviewer":"cjiang"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagReview || len(fp.nodes) != 2 {
+	if fp.tag != TaskForumTagReview || len(fp.nodes) != 1 {
 		t.Fatalf("returned post = %+v", fp)
 	}
 
@@ -211,16 +212,16 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(`,"paused":"11-14 17:00","pause_why":"验收退回：截图缺换标签","review_rejected":"截图缺换标签"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 3 || !strings.Contains(fp.nodes[2], "验收退回返工：截图缺换标签") {
+	if fp.tag != TaskForumTagPaused || len(fp.nodes) != 2 || !strings.Contains(fp.nodes[1], "验收退回返工：截图缺换标签") {
 		t.Fatalf("rejected post = %+v", fp)
 	}
 
-	// Done: off the board into board-done.jsonl → 完成, one node, archived in the same pass.
+	// Done: off the board into board-done.jsonl → 完成 on the tag and card, archived in the same pass.
 	writeTaskBoard(t, dir, team.TaskBoardFile, "")
 	writeTaskBoard(t, dir, team.TaskBoardDoneFile, item(`,"done_at":"11-14 18:00"`))
 	e.syncTaskForum()
 	fp = p.post("th1")
-	if fp.tag != TaskForumTagDone || !fp.archived || len(fp.nodes) != 4 || fp.nodes[3] != "✅ 已完成" {
+	if fp.tag != TaskForumTagDone || !fp.archived || len(fp.nodes) != 2 {
 		t.Fatalf("done post = %+v", fp)
 	}
 
@@ -322,7 +323,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	if n := len([]rune(fp.card)); n > 1900 {
 		t.Fatalf("card %d runes", n)
 	}
-	for _, want := range []string{"**🔴 " + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "负责：", "\n-# 来源 <#111>", "任务板 #9", "更新于"} {
+	for _, want := range []string{"**🔴 " + TaskForumTagWaiting + "**", "**要你做的**：帖子区放在哪个分类", "\n-# 来源 <#111> · 负责 ", "任务板 #9", "更新于"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}
@@ -331,7 +332,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	fp = p.post("th1")
-	for _, want := range []string{"**⚙️ 在做**", "**目标**：派出去的活", "…\n-# 来源 <#111>", "任务板 #9"} {
+	for _, want := range []string{"**⚙️ 在做**", "…\n**目标**：派出去的活", "\n-# 来源 <#111>", "任务板 #9"} {
 		if !strings.Contains(fp.card, want) {
 			t.Fatalf("long card lacks %q:\n%s", want, fp.card)
 		}

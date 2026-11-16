@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
 import filelock  # exclusive file lock on Mac/Linux/Windows
+import codex_retry
 import budget  # the scheduler's deadline; WIKI_STOP_AT stays a between-batch stop
 import discord_said  # bridge-authoritative user words
 import daypack  # the day's objective record (cost, slow commands, promises) dream's 今日反思 reads
@@ -292,8 +293,7 @@ MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "ge
           "codex": os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna")}
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
-CAPACITY_TEXT = ("at capacity", "503 Service Unavailable", "high demand")
-RESUME_PROMPT = "上一轮被服务端容量错误打断。接着完成原任务（含 log.md 条目与 lint），不要重做已完成的部分；最后按原任务的「交付」格式输出。"
+RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
 EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "max")  # codex only
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
@@ -1725,27 +1725,15 @@ def codex(instruction, stdin="", label="?", context=None, effort=None, model=Non
         r = engine_run(cmd, input=prompt, cwd=WIKI, capture_output=True, text=True, timeout=3600,
                            env={**os.environ, "WIKI_INGEST": "1"})
         result = out.read().strip()
-    u, turns, errors, tid = {}, 0, [], None
-    for line in r.stdout.splitlines():
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        if ev.get("type") == "thread.started":  # session id: resume target if the model hits capacity
-            tid = ev.get("thread_id")
-        if ev.get("type") in ("error", "turn.failed"):  # codex reports failures here, not on stderr
-            errors.append(json.dumps(ev.get("error") or ev.get("message") or ev, ensure_ascii=False)[:300])
-        if ev.get("type") == "turn.completed":
-            turns += 1
-            for k, v in (ev.get("usage") or {}).items():
-                u[k] = u.get(k, 0) + v
+    u, turns, errors, tid, terminal, active, progress = codex_retry.events(r.stdout, resume)
     with open(USAGE, "a") as f:
         f.write("\t".join(map(str, [time.strftime("%F %T"), label, f"{model}/{effort or EFFORT}{'/' + TIER if TIER else ''}", turns,
                 u.get("input_tokens", 0) - u.get("cached_input_tokens", 0), u.get("cached_input_tokens", 0), 0,
                 u.get("output_tokens", 0), u.get("reasoning_output_tokens", 0), 0])) + "\n")
     log(f"{label} tokens: {u}")
-    return (r.returncode == 0 and bool(result), result or f"rc={r.returncode} {' | '.join(errors)} {r.stderr[-300:]}", 0,
-            tid)
+    if r.returncode == 0 and result and terminal != "turn.failed":
+        return True, result, 0, tid
+    return False, codex_retry.failure(errors, tid, terminal, active, progress, result, r.stderr, u), 0, tid
 
 
 def dsh_env():
@@ -2031,10 +2019,16 @@ def _model_pass(label, instruction, stdin="", context=None, engine=None, sids=()
 
 
 def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind, check, apply, extra_contexts,
+<<<<<<< HEAD
               fix_context, merge, checkpoint=None):
     """One model pass + acceptance checks + one fix round. Delivers on success, retains candidates on failure.
     Codex: a capacity error resumes the same session on the next CODEX_CHAIN model; any other failure starts
     that model fresh; when the chain fails, AFTER_CODEX engines run fresh, one try each.
+=======
+              fix_context, merge):
+    """One model pass + acceptance checks + one fix round. Commits on success, reverts on failure.
+    Codex: continue safe interruptions within the shared deadline; quota/refused or unfinished-tool calls stop.
+>>>>>>> origin/develop
     Returns False on failure, "changed" if it committed, True if the pass changed nothing. After a False,
     LAST_REJECTED tells a result that failed acceptance from a call that failed (error, quota, timeout).
     `apply(answer)`: the model only answers (its own edits are dropped) and the script makes the edits from the
@@ -2085,6 +2079,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             log(f"{label}: reply says the work was not done (「{why}」), treated as a failed call")
         return not why and ok
 
+<<<<<<< HEAD
     if pending:
         LAST_ENGINE = pending["engine"]
         ok, out = True, ""
@@ -2108,7 +2103,24 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
                 break
             log(f"{label}: {model} failed: {out[-200:]}")
             capacity, prev = any(t in out for t in CAPACITY_TEXT), model
+=======
+    if name == "codex":
+        def invoke(model, tid):
+            if tid:
+                ok, out, cost, thread = codex("", RESUME_PROMPT, label, effort=effort or None, model=model, resume=tid)
+            else:
+                ok, out, cost, thread = codex(instruction, stdin, label, context, effort=effort or None, model=model)
+            return finished(ok, out, not extra_contexts), out, cost, thread
+        # Source: #848 uses the same measured 511-second admission slot as main wiki #791/#846.
+        ok, out, cost, tid, model = codex_retry.run(invoke, CODEX_CHAIN, budget.remaining, 511,
+                                                   lambda msg: log(f"{label}: {msg}"), reset=discard)
+        if ok:
+            LAST_ENGINE = f"codex:{model}"
+>>>>>>> origin/develop
         for fallback in ([] if ok else filter(None, AFTER_CODEX)):
+            if getattr(out, "retryable", False) or getattr(out, "reason", None) in (
+                    "request_rejected", "ambiguous_transport", "budget_exhausted", "cancelled"):
+                break
             if quota_hit and is_claude(fallback):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: codex chain failed, trying {fallback}")
@@ -2132,6 +2144,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         log(f"{label} note: {HOME} changed during a trial on {WIKI} — check it wasn't this model")
     log(f"{label} ${cost:.3f}: {out[-400:]}")
 
+<<<<<<< HEAD
     def once(*a, **k):  # a fresh call under this run's configuration; never reuse another provider's session
         global LAST_ENGINE
         nonlocal called
@@ -2140,6 +2153,18 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
         if execution["engine"] == "codex":
             return codex(*a, **k, effort=execution["effort"], model=execution["model"])[:3]
         return runner(execution["engine"])(*a, **k)
+=======
+    def once(*a, **k):  # a fresh call of the engine that produced the accepted result
+        if LAST_ENGINE.startswith("codex"):
+            def invoke(model, tid):
+                if tid:
+                    return codex("", RESUME_PROMPT, k.get("label", label), effort=effort or None, model=model, resume=tid)
+                return codex(*a, **k, effort=effort or None, model=model)
+            # Source: same measured allocation as the main Codex call above; corrections share its deadline.
+            return codex_retry.run(invoke, [LAST_ENGINE.split(":")[1]], budget.remaining, 511,
+                                   lambda msg: log(f"{k.get('label', label)}: {msg}"))[:3]
+        return runner(LAST_ENGINE)(*a, **k)
+>>>>>>> origin/develop
 
     # Large daily evidence is read in bounded batches, accumulating edits in the same worktree. Accept and deliver
     # only after every batch succeeds: a partial reflection must neither advance the date nor trigger its fixes.

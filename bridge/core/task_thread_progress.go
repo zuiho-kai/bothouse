@@ -100,6 +100,12 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 // time order (user 10-30 「我点开这个任务子频道可以看到他具体在干什么东西」). Best effort: a
 // failure is only logged.
 func (e *Engine) postToTaskThread(p Platform, session, text string) {
+	// A forum post is the task's record: its questions and results arrive through
+	// taskForumExitText. A workspace's own notices (「进度已记在任务板」「已报回聊天频道」)
+	// stay in the workspace (#1732, user 11-17 「帖子那边也是一坨屎」).
+	if t := e.outputThreadTask(e.ctx, session); t != nil && t.ForumPost {
+		return
+	}
 	e.postToTaskThreadContext(e.ctx, p, session, text)
 }
 

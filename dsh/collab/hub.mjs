@@ -12,7 +12,7 @@ export class Hub {
     this.logger = logger;
     this.leadState = leadState;
     this.fallbackLead = fallbackLead;
-    /** id -> { id, name, kind: 'dsh' | 'bot' | 'human', mentionId?, online } */
+    /** id -> { id, name, kind: 'dsh' | 'bot' | 'human', mentionId?, online, external? }; external (#321): a stored third-party chat bot. */
     this.members = new Map();
     /** roomId -> Set<memberId> currently working */
     this.thinking = new Map();
@@ -44,7 +44,7 @@ export class Hub {
   selectedPrimaryMember() {
     const selected = this.leadState?.selected();
     const member = selected === undefined ? undefined : this.members.get(selected);
-    return member !== undefined && member.kind !== 'human' ? member : undefined;
+    return member !== undefined && member.kind !== 'human' && !member.external ? member : undefined;
   }
 
   /** Channel primary for delegation; unset channels retain the selected global role. */
@@ -53,7 +53,7 @@ export class Hub {
     if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
     const id = this.store.leadId(roomId);
     const member = id === null ? this.selectedPrimaryMember() : this.members.get(id);
-    return member && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
+    return member && !member.external && this.routableIn(roomId).some(m => m.id === member.id) ? member : undefined;
   }
 
   /** Default replies are channel-local and do not change delegation authority. */
@@ -62,7 +62,8 @@ export class Hub {
     const dm = this.store.dmMember?.(roomId);
     if (dm !== undefined) return this.routableIn(roomId).find(m => m.id === dm);
     const id = this.store.leadId(roomId);
-    const members = this.routableIn(roomId);
+    // #321: an external chat bot never takes a channel's default messages.
+    const members = this.routableIn(roomId).filter(m => !m.external);
     if (id === null) return members.length === 1 ? members[0] : undefined;
     return members.find(member => member.id === id);
   }
@@ -152,8 +153,8 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms }) => ({
-      id, name, kind, ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
+    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms, external }) => ({
+      id, name, kind, ...(external ? { external: true } : {}), ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
       ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
       ...(this.presence.get(id) ?? {}),
     }));

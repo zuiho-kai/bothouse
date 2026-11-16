@@ -185,6 +185,10 @@ export async function apply(ctx, rawConfig) {
   const members = {
     putMember: (m) => { const edited = hub.members.has(m.id); hub.setMember({ ...m, kind: 'dsh', online: gateway.bots.has(m.id) }); bridge.sync(undefined, edited); },
     dropMember: (id) => { hub.removeMember(id); bridge.sync(id); },
+    // #321: an external chat bot is a member of the channel only; no bothouse role stands behind it, so the bridge is not told.
+    putExternal: (m) => hub.setMember({ ...m, online: gateway.bots.has(m.id) }),
+    dropConnection: (id) => gateway.disconnect(id, 'credential replaced'),
+    dropExternal: (id) => { gateway.disconnect(id, 'member removed'); hub.removeMember(id); },
   };
   const roster = new Roster(hub, members, ctx.llm, avatarUploads);
   roster.load(config.dshMembers);
@@ -237,11 +241,12 @@ export async function apply(ctx, rawConfig) {
   ctx.effect(() => () => clearTimeout(pagesTimer), 'conest-collab: keep pages');
   const botUpgrade = (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
-    if (!gateway.authorized(req, url)) {
+    const auth = gateway.authorize(req, url);
+    if (auth === undefined) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
-    wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url));
+    wss.handleUpgrade(req, socket, head, ws => gateway.accept(ws, url, auth));
   };
   ctx.effect(() => ctx.webServer.registerUpgrade({ path: WS_PATH, handler: botUpgrade }), 'conest-collab: cloud-web upgrade');
   if (config.botPort !== undefined) {
@@ -258,8 +263,11 @@ export async function apply(ctx, rawConfig) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const m = /^\/api\/rooms\/(\d+)\/messages$/.exec(url.pathname);
     if (req.method !== 'GET' || m === null) return json(res, 404, { error: 'not found' });
-    if (!gateway.authorized(req, url) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
+    const auth = gateway.authorize(req, url);
+    if (auth === undefined && !owner(req)) return json(res, 401, { error: 'unauthorized' });
     if (store.room(Number(m[1])) === undefined) return json(res, 404, { error: 'room not found' });
+    // #321: an external member reads only its own channel.
+    if (auth?.member !== undefined && !JSON.parse(auth.member.rooms).includes(store.settingsRoom(Number(m[1])))) return json(res, 404, { error: 'room not found' });
     const before = url.searchParams.get('before');
     const rows = store.page(Number(m[1]), before === null ? undefined : Number(before), url.searchParams.get('limit'));
     return json(res, 200, { messages: rows.map(r => publicMessage(r, store)) });
@@ -488,7 +496,12 @@ export async function apply(ctx, rawConfig) {
       }, false);
     }
     if (path === '/collab/api/members' && req.method === 'POST') {
-      return withBody(req, res, async body => ({ member: await roster.create(body) }));
+      // #321: { type: 'external', name, rooms: [channel id], mentionId? } adds an external chat bot and answers { member, credential }.
+      return withBody(req, res, async body => (body?.type === 'external' ? roster.createExternal(body) : { member: await roster.create(body) }));
+    }
+    const credentialOf = /^\/collab\/api\/members\/([^/]+)\/credential$/.exec(path);
+    if (credentialOf !== null && req.method === 'POST') {
+      return withBody(req, res, () => roster.rotateExternal(decodeURIComponent(credentialOf[1])), false);
     }
     const avatarResult = memberAvatarRoute(req, res, path, { roster, owner });
     if (avatarResult !== undefined) return avatarResult;
@@ -536,7 +549,7 @@ export function roomSettingsRoute(req, res, path, { store, hub, gateway, workspa
     // The settings dialog's「未选择（按原配置）」option sends the select's empty value: clear the
     // channel's own choice so the primary falls back to the instance-wide one, exactly like null.
     const leadId = body?.lead_id === '' ? null : body?.lead_id;
-    if (leadId !== undefined && leadId !== null && !hub.routableIn(roomId).some(m => m.id === leadId)) {
+    if (leadId !== undefined && leadId !== null && !hub.routableIn(roomId).some(m => m.id === leadId && !m.external)) {
       throw new CollabError('invalid', '请选择本频道的主角色');
     }
     if (body?.workspace_path !== undefined) {

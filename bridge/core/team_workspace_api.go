@@ -205,6 +205,9 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 		// Board (optional): the task-board item handed off. The handoff and the task's state
 		// record name it, so the watch and a later park act on exactly this task (#699).
 		Board int `json:"board"`
+		// Project (optional): the project whose turn runs the claim (CC_PROJECT). ws-handoff wakes
+		// the workspace under that same project, so it is who works the task.
+		Project string `json:"project"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -215,12 +218,19 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no primary role)", http.StatusServiceUnavailable)
 		return
 	}
-	if req.Name == "" {
-		if pool, err := e.TeamWorkspacePool(req.SessionKey); err == nil {
-			for _, x := range pool {
-				if x.ID == req.WorkspaceID {
-					req.Name = x.Name
-				}
+	// #1724 (11-16 23:59): 鲸鱼娘 handed #1721 off herself and worked it in the workspace, but the
+	// claim named no owner, which reads as "the primary role". Her turn's end matched no watch,
+	// so the 15-second wake was never armed and the workspace sat idle until the watch's resume
+	// twenty minutes later (which then woke the primary role instead of her).
+	if req.Owner == "" && req.Project != "" && req.Project != e.name {
+		s.mu.RLock()
+		worker := s.engines[req.Project]
+		s.mu.RUnlock()
+		plat, _, _ := strings.Cut(teamChatKey(req.SessionKey), ":")
+		if worker != nil {
+			// The claim records the owner by its platform identity; a role without one stays unnamed.
+			if m, ok := worker.lookupReadyPlatform(plat).(SelfMentioner); ok && watchOwnerID(m.SelfMention()) != "" {
+				req.Owner = req.Project
 			}
 		}
 	}

@@ -1456,7 +1456,7 @@ func TestClassifyAttachments_RoutesPDFAndOtherFilesToFiles(t *testing.T) {
 		{URL: "https://cdn.discord/blank", ContentType: "", Filename: "legacy.jpg", Width: 640, Height: 480},
 	}
 
-	images, files, audio := classifyAttachments(atts, download)
+	images, files, audio, _ := classifyAttachments(atts, download)
 
 	if len(images) != 2 {
 		t.Fatalf("images = %d, want 2 (png + empty-ct fallback)", len(images))
@@ -1497,7 +1497,10 @@ func TestClassifyAttachments_SkipsFailedDownloadsButKeepsSiblings(t *testing.T) 
 		{URL: "https://cdn.discord/good", ContentType: "application/pdf", Filename: "good.pdf"},
 	}
 
-	_, files, _ := classifyAttachments(atts, download)
+	_, files, _, missed := classifyAttachments(atts, download)
+	if len(missed) != 1 || missed[0] != "bad.pdf" {
+		t.Fatalf("missed = %v, want bad.pdf", missed)
+	}
 	if len(files) != 1 || files[0].FileName != "good.pdf" {
 		t.Fatalf("files = %+v, want only good.pdf", files)
 	}

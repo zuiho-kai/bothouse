@@ -645,6 +645,9 @@ func (e *Engine) finishTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	// The adapters may terminate quota exhaustion with EventResult as well
 	// as EventError. It must not erase previous real work failures.
 	_, quotaResult := QuotaExhaustedReset(event)
+	if turn.toolCount == 0 {
+		noteTeamTurnTextOnly(sessionOfInteractiveKey(turn.sessionKey))
+	}
 	if !turn.state.isStopped() && !quotaResult {
 		e.watchTurnEnded(p, turn.sessionKey, baseResponse, turn.toolCount > 0, false, false, e.watchCardResult(turn.state), turn.turnStart)
 	}

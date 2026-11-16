@@ -1,6 +1,8 @@
 #!/usr/bin/env -S python3 -I
-# 工作区里的主角色往「交这件活进来的聊天频道」上报阶段结果，或 --ask 提问；那边的主角色转述给用户，
-# 用户答了再用 ws-forward 转回本工作区。工作区不直接问用户，统一出口在聊天频道。
+# 工作区里的主角色往「交这件活进来的聊天频道」上报阶段结果，或 --ask 提问。
+# 提问先到聊天频道的主角色：她能定的直接定（ws-forward 转回），只有方向、花钱、成品、权限四类才由她转给用户
+# （ws-forward --ask-user，程序带整份原文）。提问格式固定「问题 / 背景 / 选项与推荐 / 自验」（_ask.py），
+# 原文按任务编号只存一份（board.ask_save），任务板、任务帖、团队板、转话都读它。工作区不直接问用户。
 # 用法：ws-up [--notes <交接文件>] "<内容>" [--ask]
 #   报给谁：按 <GATE_SETUP_DIR>/ws-handoff-last.json 的 tasks（ws-handoff 按交接文件记的来源聊天频道）找。
 #   --notes 指定是哪件活（交接文件），报给交它进来的聊天频道。
@@ -15,10 +17,11 @@ from pathlib import Path
 here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here))
 import _team  # noqa: E402
+import _ask  # noqa: E402
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
-USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...  |  ws-up [--notes <交接文件>] --report <草稿文件|-> [--failed]（- 从标准输入读草稿，存到 <交接>.report.md）'
+USAGE = 'ws-up [--notes <交接文件>] "<内容>" [--ask] [--image <图>]... [--file <文件>]...  |  ws-up [--notes <交接文件>] --report <草稿文件|-> [--failed] [--image <图>]... [--file <成品>]...（- 从标准输入读草稿，存到 <交接>.report.md；--file/--image 是随交回发给用户的成品）'
 
 
 def bare(key: str) -> str:
@@ -121,11 +124,17 @@ def timer_cmd(chat: str, text: str, ask: bool, notes: str, proj: str, task: str 
     if words:
         bg += f"\n交接里记的用户原话：\n{words}"
     if ask:
-        prompt = (f"【工作区要问用户】{text}\n\n{bg}\n\n"
-                  f"——这是工作区的主角色交上来的问题，原文只给你看；它不是用户说的，转述时别写成「你要求」。{SECRETARY}"
-                  f"先对照上面的用户原话和本频道最近的用户消息：用户已经答过或意图已经明确，就不问用户，"
-                  f"直接用 {fwd} \"<答案，附用户原话>\" 转回工作区，再跟用户说一句你怎么定的；"
-                  f"真没答过才问用户，只问一句要定什么、为什么，用户答了用 {fwd} \"<用户的答复，附原话>\" 转回")
+        # 提问先到主角色（团队规矩：只有方向、花钱、需要用户看的成品、权限确认四类可直接等用户）。
+        # 这一步任务帖不标「等你」、不 @ 用户；要转给用户由 ws-forward --ask-user 发整份原文，不靠主角色转述
+        # （11-17 #1727：主角色只说了「去帖子回它」，背景和选项都没带）。
+        prompt = (f"【工作区提问，先由你定】\n{text}\n\n{bg}\n\n"
+                  f"——这是工作区的主角色交上来的问题，不是用户说的；用户这时还没被叫到，任务帖也没标「等你」。\n"
+                  f"先对照上面的用户原话和本频道最近的用户消息。你能定的（用户已经答过或意图明确、已选路线内的设计、"
+                  f"技术细节、谁来接这类派活问题）就直接定：{fwd} \"<定案，附依据或用户原话>\" 转回工作区，"
+                  f"再跟用户说一两句你怎么定的，不用用户回。\n"
+                  f"只有方向、花钱、需要用户看的成品、权限确认这四类才转给用户：跑 {fwd} --ask-user <方向|花钱|成品|权限>，"
+                  f"程序把上面整份问题、背景、选项和推荐原样发到本频道，并在任务帖里叫用户；你不用转述，也不要另写摘要。"
+                  f"用户答了用 {fwd} \"<用户的答复，附原话>\" 转回。")
     else:
         prompt = (f"【工作区上报】{text}\n\n{bg}\n\n"
                   f"——这是工作区的主角色交上来的进展，原文只给你看。{SECRETARY}"
@@ -154,6 +163,19 @@ def say(session_key: str, text: str, proj: str):
         print(f"ws-up: 工作区发消息失败（timer 已建，不影响）：{e}", file=sys.stderr)
 
 
+def without_linked_docs(files, text):
+    """用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
+    （桥贴交回时是同一条规则，core/team_exit_files.go exitFilesFor）。files 是 [旗标, 路径, …]，返回留下的。"""
+    if not files or not re.search(r"https?://", text):
+        return files
+    media = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
+    pairs = [files[i:i + 2] for i in range(0, len(files), 2)]
+    dropped = [p for _, p in pairs if not p.lower().endswith(media)]
+    if dropped:
+        print("ws-up: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in dropped), file=sys.stderr)
+    return [x for f, p in pairs if p.lower().endswith(media) for x in (f, p)]
+
+
 def fill_map(draft, key):
     """#1639：交回只认命令后，Stop 钩子读回复正文补地图那条腿断了；交回收下后对草稿跑 codemap-fill，
     补「## 地图要补的条目（地图路径）」一节，结果打一行。出错只少这一步，不挡交回。"""
@@ -172,7 +194,7 @@ def fill_map(draft, key):
         print(f"ws-up: 补地图出错（不影响交回）：{e}", file=sys.stderr)
 
 
-def hand_back(draft, notes, failed: bool, text=None):
+def hand_back(draft, notes, failed: bool, text=None, files=()):
     """#699 C：交回只认这条命令。先跑 report check（交接的交回骨架），过了才调桥
     （bothouse workspace exit → POST /team/workspace/exit）：桥把这件活的状态改成交回待验收（--failed 为失败），
     草稿照旧经主角色验收后贴到聊天频道。回复里写的 [report] 桥不再读（用户 11-12 定 A：只认命令，不做双认）。"""
@@ -190,6 +212,19 @@ def hand_back(draft, notes, failed: bool, text=None):
     if c.returncode != 0:
         sys.exit(f"ws-up: 草稿没过检查，没有交回（草稿在 {draft}，改它后跑 ws-up --notes {path} --report {draft}）：\n"
                  f"{(c.stdout + c.stderr).strip()}")
+    try:
+        files = without_linked_docs(list(files), Path(draft).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        files = list(files)
+    if files:
+        # #1729：--report 带的 --image/--file 以前被直接丢掉（main 只把它们交给提问和进度那两条路），成品只剩草稿里
+        # 一条本机路径，用户打不开（11-17 用户转来的复盘：「交回频道时只发了一条服务器路径，既不是附件，也不好点开」）。
+        # 先发到本工作区：桥把工作区这件活期间发过的文件和图随交回一起贴到聊天频道（core/team_exit_files.go
+        # takeWorkspaceFiles、team_exit_images.go）。发不出就不交回。
+        a = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", key, *files, "--message", "📎 随交回带上的成品"],
+                           capture_output=True, text=True, timeout=300)
+        if a.returncode != 0:
+            sys.exit(f"ws-up: 成品没发出去，没有交回（草稿在 {draft}）：{a.stderr.strip() or a.stdout.strip()}")
     cmd = [cc_bin(), "workspace", "exit", "--file", draft] + (["--kind", "failed"] if failed else [])
     if key:
         cmd += ["--session-key", key]
@@ -231,12 +266,15 @@ def main(argv):
         else:
             rest.append(a)
     if stdin_report:
-        return hand_back(None, notes, failed, sys.stdin.read())
+        return hand_back(None, notes, failed, sys.stdin.read(), files)
     if report:
-        return hand_back(os.path.abspath(os.path.expanduser(report)), notes, failed)
+        return hand_back(os.path.abspath(os.path.expanduser(report)), notes, failed, files=files)
     if len(rest) != 1 or not rest[0].strip() or rest[0].startswith("-"):
         sys.exit(f"用法：{USAGE}（正文不能为空或以 - 开头）")
     if ask:
+        sec, problems = _ask.parse(rest[0])
+        if problems:
+            sys.exit("ws-up: 这条提问没有交出去。" + "；".join(problems) + f"。照这个格式重写（自验放最后）：\n{_ask.EXAMPLE}")
         why = self_route(rest[0])
         if why:
             sys.exit(f"ws-up: 这条提问没有交出去。{why}")
@@ -246,7 +284,7 @@ def main(argv):
     chat, path = pick_chat(last, bare(key), notes)
     # 用户叫停的活（board pause，不是 --ask 自己挂起的等答复）不再往聊天频道报（用户 2026-10-28「我都说不做了，你还问我」）
     ids = set(handoffs(last)[path].get("board") or [])
-    stopped = [i for i in board.items() if i["id"] in ids and (i.get("backlog") or i.get("paused") and i.get("pause_why") != board.ASK_WHY)]
+    stopped = [i for i in board.items() if i["id"] in ids and (i.get("backlog") or i.get("paused") and not board.asking(i))]
     if stopped:
         if stopped[0].get("backlog"):  # 待办：小事排在 bug 后面，不必报回聊天频道
             sys.exit(f"ws-up: #{stopped[0]['id']} 已挪进待办，不上报；停手，等聊天频道重新交活（board backlog 看）")
@@ -257,14 +295,7 @@ def main(argv):
         say(key, f"🧪 探针，未报回聊天频道：{rest[0][:300]}", _team.project())
         print(f"ws-up: 探针（{rec.get('task')}），没有交给聊天频道 {chat}", file=sys.stderr)
         return
-    if files and re.search(r"https?://", rest[0]):
-        # 用户 11-10「附件除非是没有对应的链接才给我，否则不用给我」：话里有链接时文档类附件不发，图/音/视频照发
-        media = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
-        pairs = [files[i:i + 2] for i in range(0, len(files), 2)]
-        dropped = [p for _, p in pairs if not p.lower().endswith(media)]
-        files = [x for f, p in pairs if p.lower().endswith(media) for x in (f, p)]
-        if dropped:
-            print("ws-up: 话里已有链接，文档附件不发：" + "、".join(os.path.basename(p) for p in dropped), file=sys.stderr)
+    files = without_linked_docs(files, rest[0])
     if files:
         # 附件直接发到这件活的来源聊天频道（pick_chat 按交接记录定，不按工作区眼下挂着的频道），发不出就不上报
         a = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", chat, *files, "--message", rest[0][:300]],
@@ -279,22 +310,25 @@ def main(argv):
         say(key, f"📝 进度已记在任务板，没报到聊天频道（只有 [report] 和 --ask 才转）：{rest[0][:300]}", _team.project())
         print(f"ws-up: 进度只记在任务板，没叫醒聊天频道 {chat}" + ("（附件已直接发过去）" if files else ""), file=sys.stderr)
         return
-    r = subprocess.run(timer_cmd(chat, rest[0], ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path,
-                                 next(iter(rec.get("board") or []), 0)),
+    # 提问原文只存一份（board.ask_save）：排成固定顺序后按任务编号存，给主角色的提示读回的也是这一份
+    ids = rec.get("board") or []
+    text, name = _ask.render(sec), _ask.title(sec)
+    for nid in ids:
+        board.ask_save(nid, text, name)
+    text = next((t for t in (board.ask_text(n) for n in ids) if t), text)
+    r = subprocess.run(timer_cmd(chat, text, ask, path, _team.project(), rec.get("task") or "", rec.get("file") or path,
+                                 next(iter(ids), 0)),
                        capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"ws-up: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
-    if ask:
-        for nid in handoffs(last)[path].get("board") or []:
-            hit = board.pause(nid, "等待用户答复")
-            if hit:
-                board.park_workspace(hit)
-    else:
-        for nid in handoffs(last)[path].get("board") or []:
-            board.progress(nid)
+    # 暂停原因只写去向「等主角色定」：问题原文不再塞进这里（#1712 塞了并截 300 字，11-17 #1727 的四条推荐全丢）
+    for nid in ids:
+        hit = board.pause(nid, board.ASK_LEAD_WHY)
+        if hit:
+            board.park_workspace(hit)
     # 定时器刚排上，主角色那一轮还没跑：只说排队了，不说已报回（#1492 L4）
-    say(key, f"📤 已排队转给聊天频道的主角色：{rest[0][:300]}", _team.project())
-    print(f"ws-up: 已排队转给聊天频道 {chat} 的主角色（{'提问' if ask else '上报'}）", file=sys.stderr)
+    say(key, f"📤 提问已排队，先由聊天频道的主角色定：{name}", _team.project())
+    print(f"ws-up: 提问已排队转给聊天频道 {chat} 的主角色（她能定的直接定，四类才转用户）", file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

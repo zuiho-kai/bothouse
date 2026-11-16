@@ -52,12 +52,13 @@ func TestWorkspaceParkFreesAndResetsSession(t *testing.T) {
 	if from, _ := fresh.TakeHandoffFrom(); from != "" {
 		t.Fatalf("fresh session inherits the paused task's transcript %q", from)
 	}
-	// #762: free, ws1 is still A's; B is refused and makes its own.
-	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by B after park = %v, want ErrTeamWorkspaceOwned", err)
+	// #1729: free means free. A's paused task does not keep ws1 for A (it resumes in whichever
+	// workspace is free, with its saved session); B takes it.
+	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
+		t.Fatalf("claim by B of a free workspace = %v", err)
 	}
-	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
-		t.Fatalf("claim by A after park = %v", err)
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim by A while B has it = %v, want ErrTeamWorkspaceOwned", err)
 	}
 	if _, err := e.ParkTeamWorkspace("discord:ws9"); !errors.Is(err, ErrTeamWorkspaceNotOwned) {
 		t.Fatalf("park of an unowned workspace = %v, want ErrTeamWorkspaceNotOwned", err)
@@ -97,8 +98,8 @@ func TestWorkspaceParkKeepsWhileOtherTaskInWork(t *testing.T) {
 }
 
 // A paused task resumes through claim (no separate command): the owner comes back and the new
-// handoff is appended next to the parked one. Another chat channel never takes the parked
-// task's workspace (#762), so the task can always resume there.
+// handoff is appended next to the parked one. A workspace left free by a paused task is any chat
+// channel's to take (#1729); the paused task then resumes in another free one.
 func TestWorkspaceParkResumeByClaim(t *testing.T) {
 	e, _, _ := exitFixture(t, nil)
 	e.SetTeam(t.TempDir(), "橘", true)
@@ -121,11 +122,11 @@ func TestWorkspaceParkResumeByClaim(t *testing.T) {
 	if _, err := e.ParkTeamWorkspace("discord:ws1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); !errors.Is(err, ErrTeamWorkspaceOwned) {
-		t.Fatalf("claim by B of the parked task's workspace = %v, want ErrTeamWorkspaceOwned", err)
+	if err := e.ClaimTeamWorkspace("discord:chatB", "ws1", "工作区1"); err != nil {
+		t.Fatalf("claim by B of the workspace the paused task left free = %v", err)
 	}
-	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
-		t.Fatalf("resume after B's handoff = %v", err)
+	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatB" {
+		t.Fatalf("parent after B's claim = %q,%v", p, ok)
 	}
 }
 
@@ -234,7 +235,7 @@ func TestWorkspacePlanSkipsBusyByOwnCount(t *testing.T) {
 		want         string
 	}{{3, 0, "202"}, {1, 0, "202"}, {0, 0, "201"}, {0, 5, "201"}} {
 		set(c.open, c.parked)
-		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true, nil)
+		_, _, _, adopted, err := teamWorkspacePlan(path, "discord:100", self, guild, true)
 		if err != nil || adopted != c.want {
 			t.Fatalf("open %d parked %d: adopted %q, %v; want %s", c.open, c.parked, adopted, err, c.want)
 		}
@@ -354,5 +355,79 @@ func TestWorkspaceParkOnlyTheChatsOwnTask(t *testing.T) {
 	// Pausing D itself (bound after its claim) parks it and frees the workspace.
 	if freed, err := e.ParkTeamWorkspaceFor("discord:ws1", "discord:chatA", boundD); err != nil || !freed {
 		t.Fatalf("A pausing D = %v, %v; want freed", freed, err)
+	}
+}
+
+// #1729: ws-up --ask runs inside the workspace's own turn. Its park pauses the task at once but
+// leaves the workspace and the session alone until that turn ends (11-17 00:52: the reset closed
+// the session of the turn that was running the command, waited two minutes for it under the
+// workspace lock, and every workspace list and claim on the bridge timed out meanwhile).
+func TestWorkspaceParkFromItsOwnTurnFreesAtTurnEnd(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "", "t", 7); err != nil {
+		t.Fatal(err)
+	}
+	s := e.sessions.GetOrCreateActive(exitWSKey)
+	s.SetAgentSessionID("a1", "test")
+	sid := s.ID
+	end := beginTeamTurn(teamTurnFact{Chat: exitWSKey, Session: exitWSKey, Engine: e.name, TaskID: 7})
+
+	freed, err := e.ParkTeamWorkspaceWhy(exitWSKey, "", time.Time{}, "workspace park", false)
+	if err != nil || freed {
+		t.Fatalf("park under its own turn = %v, %v; want paused, not freed yet", freed, err)
+	}
+	if task, _, _ := e.TeamTask(7); task.State != TeamTaskPaused {
+		t.Fatalf("task state = %q, want paused at once", task.State)
+	}
+	if _, ok := e.WorkspaceParent("ws1"); !ok {
+		t.Fatal("ws1 given back while the turn that asked still runs in it")
+	}
+	if cur := e.sessions.GetOrCreateActive(exitWSKey); cur.ID != sid || cur.GetAgentSessionID() != "a1" {
+		t.Fatal("session reset under the running turn")
+	}
+	// Another task is kept out while that turn runs; the same task may come back into it.
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "", "u", 8); !errors.Is(err, ErrTeamWorkspaceOwned) {
+		t.Fatalf("claim of another task during the turn = %v, want ErrTeamWorkspaceOwned", err)
+	}
+
+	end()
+	e.releaseReturnedWorkspace(exitWSKey)
+	if _, ok := e.WorkspaceParent("ws1"); ok {
+		t.Fatal("ws1 still owned after the turn that paused its task ended")
+	}
+	if cur := e.sessions.GetOrCreateActive(exitWSKey); cur.ID == sid || cur.GetAgentSessionID() != "" {
+		t.Fatal("session not reset when the workspace was given back")
+	}
+}
+
+// The answer arrives before the asking turn ends: the task is claimed back into the same
+// workspace, and the turn's end neither frees it nor resets the session it continues in.
+func TestWorkspaceParkFromItsOwnTurnKeptWhenResumed(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "", "t", 7); err != nil {
+		t.Fatal(err)
+	}
+	s := e.sessions.GetOrCreateActive(exitWSKey)
+	s.SetAgentSessionID("a1", "test")
+	sid := s.ID
+	end := beginTeamTurn(teamTurnFact{Chat: exitWSKey, Session: exitWSKey, Engine: e.name, TaskID: 7})
+	if _, err := e.ParkTeamWorkspaceWhy(exitWSKey, "", time.Time{}, "workspace park", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "", "t", 7); err != nil {
+		t.Fatalf("resume into its own running turn = %v", err)
+	}
+	end()
+	e.releaseReturnedWorkspace(exitWSKey)
+	if _, ok := e.WorkspaceParent("ws1"); !ok {
+		t.Fatal("ws1 given back although its task was resumed into it")
+	}
+	if cur := e.sessions.GetOrCreateActive(exitWSKey); cur.ID != sid {
+		t.Fatal("session reset although the task was resumed into it")
+	}
+	if task, _, _ := e.TeamTask(7); !teamTaskInWork(task.State) {
+		t.Fatalf("task state = %q, want in work", task.State)
 	}
 }

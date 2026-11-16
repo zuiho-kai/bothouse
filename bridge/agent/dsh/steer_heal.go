@@ -23,6 +23,15 @@ import (
 
 const steerHealMarker = `"dsh/steer"`
 
+// The steer's admission call. The model route is read the way the installed dsh-acp reads it for
+// an ordinary prompt: 0.2.1 has modelControl.snapshot(), 0.2.2 dropped it for agent.model.current().
+// steerAdmitOld is what the patch wrote until #882; on 0.2.2 it threw "this.modelControl.snapshot is
+// not a function", the steer was refused and every busy message queued behind the running turn.
+const (
+	steerAdmitOld = "admitAcpPrompt(this.ctx, this.modelControl.snapshot(), params.prompt, imageEnabled, controller.signal)"
+	steerAdmit    = "admitAcpPrompt(this.ctx, this.modelControl.snapshot?.() ?? this.agent.model.current(), params.prompt, imageEnabled, controller.signal)"
+)
+
 // steerEdit is one hunk of dsh-acp-steer.patch: anchor (found exactly once) is replaced by text,
 // or, with before, text goes in front of it.
 type steerEdit struct {
@@ -60,7 +69,7 @@ var steerEdits = []steerEdit{
 			"\t\tconst onAbort = () => controller.abort(new Error(\"ACP steer request cancelled\"));\n" +
 			"\t\trequestSignal?.addEventListener(\"abort\", onAbort, { once: true });\n" +
 			"\t\ttry {\n" +
-			"\t\t\tconst content = await admitAcpPrompt(this.ctx, this.modelControl.snapshot(), params.prompt, imageEnabled, controller.signal);\n" +
+			"\t\t\tconst content = await " + steerAdmit + ";\n" +
 			"\t\t\tcontroller.signal.throwIfAborted();\n" +
 			"\t\t\tif (!steerable()) throw invalidParams$1(\"no running prompt to steer\");\n" +
 			"\t\t\tthis.agent.steer(createUserMessage({\n" +
@@ -124,6 +133,16 @@ func healSteer(cmd string, args []string) {
 			return
 		}
 		if strings.Contains(string(b), steerHealMarker) {
+			// Patched by an earlier bridge: its admission call only fits dsh-acp 0.2.1 (#882).
+			if strings.Contains(string(b), steerAdmitOld) {
+				out := strings.ReplaceAll(string(b), steerAdmitOld, steerAdmit)
+				if err := writeHealed(js, b, out, fi.Mode()); err != nil {
+					slog.Warn("dsh: the steer patch in dsh-acp does not fit this DSH version and the bridge cannot rewrite it; busy messages will queue", "file", js, "err", err)
+					return
+				}
+				steerHealed.Store(js+"|"+statTime(js), true)
+				slog.Warn("dsh: updated the steer patch in dsh-acp so it reads the model route on this DSH version", "file", js)
+			}
 			return
 		}
 		out, ok := applySteerEdits(string(b))
