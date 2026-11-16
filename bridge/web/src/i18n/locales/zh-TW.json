@@ -657,7 +657,19 @@
     "presetLast7Days": "近7天",
     "presetPastYear": "近一年",
     "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
-    "tokenBreakdown": "消耗結構"
+    "tokenBreakdown": "消耗結構",
+    "membersTitle": "成员用量排行",
+    "membersSystem": "系统／未归属",
+    "membersSort": "排名排序",
+    "membersCacheRead": "缓存读",
+    "membersCacheWrite": "缓存写",
+    "membersRank": "名次",
+    "membersMember": "成员",
+    "membersShare": "占比",
+    "membersDetail": "成员明细",
+    "membersDaily": "按天趋势",
+    "presetLast30Days": "近30天",
+    "membersNote": "仅统计本机，账号按平台分开。调用结束后显示归属；旧记录、后台及转派用量归未归属。* 部分请求未配置价格。"
   },
   "navGroup": {
     "main": "常用",

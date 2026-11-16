@@ -1,13 +1,13 @@
 package core
 
 import (
-	"strings"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,6 +32,8 @@ func (p TokenPrice) Validate() error {
 }
 
 type UsageRecord struct {
+	SessionID  string    `json:"session_id,omitempty"`
+	Member     string    `json:"member,omitempty"`
 	Time       time.Time `json:"time"`
 	Role       string    `json:"role"`
 	Model      string    `json:"model"`
@@ -46,6 +48,7 @@ type UsageRecord struct {
 	Key string `json:"key,omitempty"`
 }
 type UsageAggregate struct {
+	Member     string `json:"member,omitempty"`
 	Date       string `json:"date,omitempty"`
 	Hour       int    `json:"hour"`
 	Role       string `json:"role,omitempty"`
@@ -250,6 +253,8 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 			b.Role = r.Role
 		case "models":
 			b.Model = r.Model
+		case "members":
+			b.Member = r.Member
 		default:
 			b.Date = r.Time.Format("2006-01-02")
 			b.Hour = r.Time.Hour()
@@ -311,6 +316,14 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 // It takes no lock: Record replaces day files by rename, so a read sees either
 // the old or the new file, and queries never hold up writes.
 func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]UsageAggregate, error) {
+	return l.QueryMember(from, to, group, role, model, "")
+}
+
+func (l *UsageLedger) QueryMember(from, to time.Time, group, role, model, member string) ([]UsageAggregate, error) {
+	turns, err := readUsageTurns(filepath.Join(l.dir, "turns"))
+	if err != nil {
+		return nil, err
+	}
 	records := []UsageRecord{}
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		day, err := l.readDay(d.Format("2006-01-02"))
@@ -319,9 +332,21 @@ func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]Us
 		}
 		for _, r := range day.Records {
 			if r.Model != syntheticModel && (role == "" || role == r.Role) && (model == "" || model == r.Model) {
-				records = append(records, r)
+				r.Member = usageMember(r, turns)
+				if member == "" || member == r.Member {
+					records = append(records, r)
+				}
 			}
 		}
 	}
-	return l.aggregate(records, group), nil
+	rows := l.aggregate(records, group)
+	if group == "members" {
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i].Total == rows[j].Total {
+				return rows[i].Member < rows[j].Member
+			}
+			return rows[i].Total > rows[j].Total
+		})
+	}
+	return rows, nil
 }

@@ -640,7 +640,19 @@
     "presetLast7Days": "최근 7일",
     "presetPastYear": "최근 1년",
     "presetPastYearHint": "기본 범위: 오늘까지 1년 (한 번에 최대 1년 조회)",
-    "tokenBreakdown": "구성"
+    "tokenBreakdown": "구성",
+    "membersTitle": "Member usage ranking",
+    "membersSystem": "System / unassigned",
+    "membersSort": "Sort members",
+    "membersCacheRead": "Cache read",
+    "membersCacheWrite": "Cache write",
+    "membersRank": "Rank",
+    "membersMember": "Member",
+    "membersShare": "Share",
+    "membersDetail": "Member breakdown",
+    "membersDaily": "By day",
+    "presetLast30Days": "Last 30 days",
+    "membersNote": "Local instance only. Accounts are separate per platform. Attribution appears after a turn finishes; old, interrupted, background and delegated usage stays unassigned. * Some requests have no configured price."
   },
   "navGroup": {
     "main": "주요",

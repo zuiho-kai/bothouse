@@ -176,6 +176,7 @@ func (im *UsageImporter) Sync() error {
 			}
 			for i := range records {
 				records[i].Role = role
+				records[i].SessionID = sid
 			}
 			if len(records) > 0 {
 				if err := im.ledger.Upsert(records); err != nil {
