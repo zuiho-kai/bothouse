@@ -354,6 +354,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 	// maomao fork: the mode override set for this turn (setTurnMode) holds across its capacity
 	// retries and the queued turns chained into it, each of which sets its own; it ends here.
 	defer e.restoreTurnMode(state)
+	defer e.disarmTurnSpendCap(state) // #1701: the spend watch ends with the turn
 	attempts := capacityAttempts
 	if probe {
 		attempts = 1 // one question, not the usual three-in-a-row

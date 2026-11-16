@@ -74,7 +74,9 @@ def root_cause_errors(text: str, task: str = ""):
     scope = re.search(r"(?ms)^##[ \t]+范围[^\n]*\n(.*?)(?=^##[ \t]|\Z)", text)
     titles = re.findall(r"(?m)^#[ \t]+(.+)$", text)
     target = "\n".join([task, *titles, scope.group(1) if scope else ""])
-    if not re.search(r"修|fix|bug|#\d+|issue\s*[:：]?\s*\d+", target, re.I):
+    # 判断的是「这件活在修东西」：只认修理字眼。任务号、issue 号只是引用，「修改」「修订」是改写，都不算修 bug
+    # （#813：视频交接写了旧任务号 #803 被要求补根因，连退两次；本机 493 份交接里 192 份只因编号被判成修 bug）。
+    if not re.search(r"修(?![改订])|fix|bug", target, re.I):
         return []
     section = re.search(r"(?ms)^##[ \t]+根因[ \t]*\n(.*?)(?=^##[ \t]|\Z)", text)
     body = section.group(1) if section else ""

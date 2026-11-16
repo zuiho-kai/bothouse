@@ -746,6 +746,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		turn.state.currentJobID = queued.timerJobID
 		turn.state.mu.Unlock()
 		e.armScheduledTurnTimeout(turn.state, turn.sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
+		e.armTurnSpendCap(turn.state, turn.session, turn.sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
 		turn.unwatch()
 		turn.changed, turn.unwatch, turn.watchErr = e.watchTurnAuthorization(queued.authorization)
 		turn.outputCtx, turn.contextErr = e.turnOutputContext(queued.authorization)

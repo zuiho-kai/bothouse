@@ -70,7 +70,8 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 	}
 	return func() *compactProgressWriter {
 		t := e.outputThreadTask(ctx, session)
-		if t == nil {
+		if t == nil || t.ForumPost {
+			// 方案甲 (user 11-16): a forum post keeps conclusions; the steps stay in the workspace.
 			return nil
 		}
 		rc, ok := target.TaskThreadReplyCtx(t)
