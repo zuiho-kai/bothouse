@@ -2176,9 +2176,18 @@ func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
 		old.SetAgentSessionID("", "")
 		old.ClearHistory()
 		old.TakeHandoffFrom()
-		sessions.NewSession(k, "")
+		fresh := sessions.NewSession(k, "")
 		sessions.Save()
 		n++
+		// #1705: the next turn here (a handoff or a timer) reads the channel only from now on,
+		// not the last 3 hours of the task that just ended. Off the reset path: one network read.
+		go func(sessions *SessionManager, fresh *Session) {
+			plat, _, _ := strings.Cut(key, ":")
+			if id := newestChannelMsgID(e.platformForName(plat), teamChannelID(key)); id != "" {
+				markSeen(fresh, &Message{MessageID: id})
+				sessions.Save()
+			}
+		}(sessions, fresh)
 	}
 	return n
 }
