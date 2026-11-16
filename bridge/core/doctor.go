@@ -132,9 +132,7 @@ func checkCLIAuth(ctx context.Context, bin string, args []string, label string) 
 		if detail == "" {
 			detail = err.Error()
 		}
-		if len(detail) > 120 {
-			detail = detail[:120] + "..."
-		}
+		detail = truncateStr(detail, 120)
 		return []DoctorCheckResult{{
 			Name:    fmt.Sprintf("%s Auth", label),
 			Status:  DoctorWarn,

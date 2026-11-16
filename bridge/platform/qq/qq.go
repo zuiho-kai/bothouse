@@ -782,7 +782,7 @@ type parsedMessage struct {
 
 func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID int64) parsedMessage {
 	var out parsedMessage
-	var textParts []string
+	var textParts, missed []string
 
 	// Normalize both OneBot wire formats before interpreting media or mentions.
 	msg, ok := payload["message"].([]any)
@@ -814,6 +814,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 				imgData, mime, err := downloadFile(url)
 				if err != nil {
 					slog.Warn("qq: download image failed", "error", err)
+					missed = append(missed, "图片")
 					continue
 				}
 				out.images = append(out.images, core.ImageAttachment{
@@ -965,7 +966,7 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 		}
 	}
 
-	out.text = strings.TrimSpace(strings.Join(textParts, ""))
+	out.text = core.WithMissedAttachments(strings.TrimSpace(strings.Join(textParts, "")), missed...)
 	return out
 }
 
