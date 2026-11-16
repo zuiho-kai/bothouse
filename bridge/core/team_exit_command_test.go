@@ -73,7 +73,7 @@ func TestExitCommandDoesNotReturnAnotherWorkspaceTask(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", true)
 	e.markPlatformReady(p)
 	for id, ws := range map[int]string{765: "ws2", 771: "ws1"} {
-		if err := e.ClaimTeamWorkspaceTask("discord:chat1", ws, ws, "", "任务", id); err != nil {
+		if err := e.ClaimTeamWorkspaceTask("discord:chat1", ws, "工作区"+strings.TrimPrefix(ws, "ws"), "", "任务", id); err != nil {
 			t.Fatal(err)
 		}
 	}
