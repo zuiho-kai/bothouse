@@ -1784,7 +1784,7 @@ func (p *Platform) saveMessageCacheLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p.messageCachePath, data, 0o644)
+	return core.AtomicWriteFile(p.messageCachePath, data, 0o644)
 }
 
 func inlineQuotedText(ref *messageReference) string {

@@ -8,7 +8,7 @@
 #   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
 #       ws-handoff --drain                        排队的活按先后接到空出来的工作区（桥放回工作区后调）
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
-#   --short 短名（≤10 字），上置顶任务表（board add --short）；不写就从任务句截（本机 local 规则 flags.require_short 时不写就退回）。
+#   --short 活名（≤20 字，用户一眼认得出的一句话），上任务帖标题和置顶任务表（board add --short）；不写就从任务句截（本机 local 规则 flags.require_short 时不写就退回）。
 #   交接文件放当前目录（角色目录，在数据目录下）的 notes/<名>.md，同本机做法；不放 /tmp 这类公共目录（USAGE）。
 #   交接文件要过 handoff-rules.json（同目录，唯一一份交接规则，DSH collab 建工作区与派活也读它）：必需小节、
 #   参照实现、已查过什么（文件:行或文档路径）、范围的改/不改行（改最多 3 行）、相关改动的冲突行、多人改时的底分支；不合格就报缺什么并给示例（_handoff_rules.py）。
@@ -35,7 +35,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 短名（≤10 字）\n'
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字）\n'
          '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
@@ -728,6 +728,11 @@ def append_skeleton(path, nid):
         return False
 
 
+# 交出去到工作区开工之间的延迟：只留给交活脚本记完「这份交接交给了谁」（record_last、兜底定时，一两秒）。
+# 原先写死一分钟，工作区空着也干等（#1732，用户 11-17「整个调度流程特别慢」）。
+KICKOFF_DELAY = "5s"
+
+
 def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None, project=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
@@ -746,7 +751,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}（任务板 #{nid}）。{answer}\n"
             f"{read}（之前的进度都在里面）。"
             if answer is not None and answer.startswith("到点重试") else
-            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。用户答复了：{answer}\n"
+            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。答复：{answer}\n"
             f"{read}（之前的进度都在里面）。"
             if answer is not None else
             f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}（任务板 #{nid}）。{read}。")
@@ -757,8 +762,9 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
             f"先跑 {cc_bin()} report skeleton --id {nid} --notes {path} 出骨架再填空")
     prompt = (head + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
               f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，怎么做你定。拿不准用户意思先读交接「{SOURCE}」里的原话，"
-              f"还不清楚问聊天频道的主角色：ws-up --notes <交接> \"<问题>\"；要用户拍板、或会改变用户原话范围的用 "
-              f"ws-up --notes <交接> \"<问题+选项+推荐>\" --ask，等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
+              f"还不清楚、要拍板、或会改变用户原话范围的，用 ws-up --notes <交接> \"<提问>\" --ask 提给聊天频道的主角色"
+              f"（她能定的直接定，方向、花钱、成品、权限四类她才转给用户）；提问分四段各起一行：「问题：」「背景：」"
+              f"「选项与推荐：」「自验：」，缺问题或推荐会被退回。等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
               + plan + f"只做交接里写成「改」的部分，做到验收标准为止：用户原话和验收标准里没有的设定、防御分支、额外用例都不加。\n"
               f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
               f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
@@ -766,7 +772,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"到点会另交工作区接着做。"
               + (f"\n\n【交接全文 {path}】\n{note.rstrip()}" if inline else ""))
     key = ws if ":" in ws else f"discord:{ws}"
-    return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", "1m", "--timeout-mins", "0",
+    return [cc_bin(), "timer", "add", "-p", project or _team.project(), "-s", key, "--delay", KICKOFF_DELAY, "--timeout-mins", "0",
             "--handoff", "--desc", f"工作区{'接回' if answer is not None else '接手'}：{task}", "--prompt", prompt]
 
 
@@ -893,11 +899,18 @@ def resume_answered(nid, answer):
         # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
         sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
                  "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
+    # 提问还在主角色手里（没转给用户）时到的答复是主角色定的，不写成用户说的
+    by_lead = (it.get("pause_why") or "").startswith(board.ASK_LEAD_WHY)
     source = ("验收退回" if it.get("review_rejected") else
-              "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else "用户答复")
+              "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else
+              "主角色定案" if by_lead else "用户答复")
+    if by_lead:
+        answer = f"（主角色定的，不是用户说的）{answer}"
     board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
-    project = os.environ.get("CC_PROJECT", "")
+    # 接着做的是这件活原来的负责人（派它的那个项目，交活时工作区会话就是以它的身份跑的），不是眼下转话的人：
+    # 11-17 #1727 龙娘派的活，主角色转定案后落进了主角色自己在工作区的会话，那个会话不替她做、又去问用户谁来接。
+    project = it.get("dispatcher") or os.environ.get("CC_PROJECT", "")
     in_queue = False
     with _queue() as q:
         for entry in q:
@@ -923,6 +936,11 @@ def resume_answered(nid, answer):
             print(f"ws-handoff: #{nid} 工作区都占着，排队", file=sys.stderr)
 
 
+# 活名：这件活在任务帖标题、置顶任务表、汇报里的同一个名字（#1732，用户 11-17「那个标题我根本看不懂啊」）。
+SHORT_HOW = ("活名是任务帖标题、置顶任务表和汇报里这件活的名字，写成用户一眼认得出的一句话：要做成什么，用用户自己的词，"
+             "比如 --short 帖子标题改成人话；不写编号、代号和只有你懂的叫法")
+
+
 def main(argv):
     if argv[:1] == ["--drain"]:
         return 0
@@ -946,13 +964,16 @@ def main(argv):
         argv = argv[:k] + argv[k + 2:]
     if len(argv) != 2 or not argv[1].strip():
         sys.exit(USAGE)
-    # 短名由交活人写，不再从任务句截前十字（用户 10-30 认可的置顶表方案：没写就退回让写）。
+    # 活名由交活人写，不再从任务句截字（用户 10-30 认可的置顶表方案：没写就退回让写）。
     short_name = (short_name or "").strip()
     given_short = short_name  # 交活人自己写的短名才查同名撞活；从任务句截的不算（截出来同名的多）
     if not short_name and not _handoff_rules.load()["flags"].get("require_short"):
         short_name = board.short_of(argv[1])[:board.SHORT_RUNES]
     if not short_name or len(short_name) > board.SHORT_RUNES:
-        sys.exit(f"ws-handoff: 要写 --short 短名（≤{board.SHORT_RUNES} 字，置顶任务表上显示的名字，比如 --short 任务表改版）")
+        sys.exit(f"ws-handoff: 要写 --short 活名（≤{board.SHORT_RUNES} 字）：{SHORT_HOW}")
+    bad = board.short_problem(given_short)
+    if bad:
+        sys.exit(f"ws-handoff: --short「{given_short}」{bad}，用户认不出是哪件事。{SHORT_HOW}")
     path, task = os.path.abspath(os.path.expanduser(argv[0])), argv[1]
     if not os.path.isfile(path):
         sys.exit(f"ws-handoff: 交接文件不存在 {path}\n{USAGE}")
@@ -989,12 +1010,7 @@ def main(argv):
         print(f"ws-handoff: 有一处两种读法不是方向也不是花钱，按交接写的放行，已附「{OWN}」", file=sys.stderr)
     # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，小模型没调成写「没搜成（原因）」
     # 并照实打印（接回时重搜），都不拦交活
-    block = _recall.append_to(path)
-    if block and _recall.FAIL_LINE in block:
-        why = block.split(_recall.FAIL_LINE, 1)[1].strip().splitlines()[0]
-        print(f"ws-handoff: {_recall.FAIL_LINE}{why}，交接里照实写了，接回时重搜", file=sys.stderr)
-    elif block:
-        print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
+    recall = _recall.start(path)  # 和下面挑工作区、上任务板同时跑，叫醒工作区前收（#1732）
     chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
     if append_source(path, chat):
         print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
@@ -1027,6 +1043,12 @@ def main(argv):
     else:
         board.update(nid, "已交接", who=f"{name}{lead_name}")
         board.rebind(nid, key, chat=chat)
+    block = _recall.finish(recall, path)
+    if block and _recall.FAIL_LINE in block:
+        why = block.split(_recall.FAIL_LINE, 1)[1].strip().splitlines()[0]
+        print(f"ws-handoff: {_recall.FAIL_LINE}{why}，交接里照实写了，接回时重搜", file=sys.stderr)
+    elif block:
+        print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
     append_skeleton(path, nid)
     r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
     if r.returncode != 0:

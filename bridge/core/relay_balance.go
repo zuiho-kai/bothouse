@@ -263,7 +263,7 @@ func (g *relayBalanceGuard) markWarned(project, day string) {
 	}
 	m[project] = day
 	raw, _ := json.Marshal(m)
-	if err := os.WriteFile(g.statePath(), raw, 0o600); err != nil {
+	if err := AtomicWriteFile(g.statePath(), raw, 0o600); err != nil {
 		slog.Warn("relay balance: save state", "error", err)
 	}
 }

@@ -969,7 +969,8 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		rctx.lead = ""
 	}
 
-	images, files, audio := classifyAttachments(m.Attachments, downloadURL)
+	images, files, audio, missed := classifyAttachments(m.Attachments, downloadURL)
+	m.Content = core.WithMissedAttachments(m.Content, missed...)
 
 	if m.Content == "" && len(images) == 0 && len(files) == 0 && audio == nil && m.ReferencedMessage == nil {
 		if !mentioned || fromBot {
@@ -2134,7 +2135,15 @@ func (p *Platform) resolveBotRoleIDForGuild(s *discordgo.Session, guildID string
 // image detection; anything unrecognized is treated as a generic file so
 // PDFs, documents, archives, etc. are not silently dropped. If multiple
 // audio attachments appear only the last successful one is kept.
-func classifyAttachments(atts []*discordgo.MessageAttachment, download func(string) ([]byte, error)) (images []core.ImageAttachment, files []core.FileAttachment, audio *core.AudioAttachment) {
+// missed names the attachments that could not be fetched (core.WithMissedAttachments).
+func classifyAttachments(atts []*discordgo.MessageAttachment, download func(string) ([]byte, error)) (images []core.ImageAttachment, files []core.FileAttachment, audio *core.AudioAttachment, missed []string) {
+	miss := func(att *discordgo.MessageAttachment, err error) {
+		name := att.Filename
+		if errors.Is(err, errDownloadTooLarge) {
+			name += "（超过 50 MiB）"
+		}
+		missed = append(missed, name)
+	}
 	for _, att := range atts {
 		if att == nil {
 			continue
@@ -2145,6 +2154,7 @@ func classifyAttachments(atts []*discordgo.MessageAttachment, download func(stri
 			data, err := download(att.URL)
 			if err != nil {
 				slog.Error("discord: download audio failed", "url", att.URL, "error", err)
+				miss(att, err)
 				continue
 			}
 			format := "ogg"
@@ -2156,6 +2166,7 @@ func classifyAttachments(atts []*discordgo.MessageAttachment, download func(stri
 			data, err := download(att.URL)
 			if err != nil {
 				slog.Error("discord: download image failed", "url", att.URL, "file_name", att.Filename, "error", err)
+				miss(att, err)
 				continue
 			}
 			images = append(images, core.ImageAttachment{MimeType: att.ContentType, Data: data, FileName: att.Filename})
@@ -2163,15 +2174,18 @@ func classifyAttachments(atts []*discordgo.MessageAttachment, download func(stri
 			data, err := download(att.URL)
 			if err != nil {
 				slog.Error("discord: download file failed", "url", att.URL, "file_name", att.Filename, "error", err)
+				miss(att, err)
 				continue
 			}
 			files = append(files, core.FileAttachment{MimeType: att.ContentType, Data: data, FileName: att.Filename})
 		}
 	}
-	return images, files, audio
+	return images, files, audio, missed
 }
 
 const maxDownloadBytes = 50 << 20 // 50 MiB
+
+var errDownloadTooLarge = errors.New("larger than the 50 MiB download limit")
 
 func downloadURL(u string) ([]byte, error) {
 	resp, err := core.HTTPClient.Get(u)
@@ -2182,7 +2196,15 @@ func downloadURL(u string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: status %d", u, resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDownloadBytes {
+		// A cut-off file is not the file: refuse it instead of handing on the first 50 MiB.
+		return nil, fmt.Errorf("download %s: %w", u, errDownloadTooLarge)
+	}
+	return data, nil
 }
 
 // applyReferencedMessage prepends the replied-to message's author and content
@@ -2223,7 +2245,7 @@ func recentHumanImages(s *discordgo.Session, m *discordgo.MessageCreate, downloa
 		if old.Author == nil || old.Author.Bot || time.Since(old.Timestamp) > 10*time.Minute {
 			continue
 		}
-		imgs, _, _ := classifyAttachments(old.Attachments, download)
+		imgs, _, _, _ := classifyAttachments(old.Attachments, download)
 		images = append(imgs, images...)
 		if len(images) >= 4 {
 			break

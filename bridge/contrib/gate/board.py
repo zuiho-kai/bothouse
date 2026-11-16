@@ -16,7 +16,7 @@
   board                                  # 列出进行中的事：在聊天频道里跑只列本频道的（别的频道只计数），工作区列它绑的
   board list --all                       # 全表，每行标来源频道；别的频道的活只看，改要到派活的频道（#836）
   board add <事情> <分支/PR/路径> <状态> <谁> --short 短名 [--next 几点看]   # 新加一条，打印编号
-                                         #   短名（≤10 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
+                                         #   活名（≤20 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
                                          #   状态只是展示文字，写什么都不结束这件；结束用 board done / accepted
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
@@ -203,7 +203,7 @@ def items():
 
 def fmt(i):
     nxt = f"｜下次看 {i['next']}" if i.get("next") else ""
-    pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}）" if i.get("paused") else ""
+    pz = f"｜暂停（{i['paused']}{'：' + i['pause_why'] if i.get('pause_why') else ''}{ask_note(i)}）" if i.get("paused") else ""
     bl = f"｜待办（{i['backlog']}{'：' + i['backlog_why'] if i.get('backlog_why') else ''}）" if i.get("backlog") else ""
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     card += f"｜帖 {i['post']}" if i.get("post") else ""
@@ -235,8 +235,21 @@ def _now():
     return time.strftime("%m-%d %H:%M")
 
 
-# 团队板只显示短名（用户 2026-10-28「工作区的任务板又长又臭」）。同 core/team_task_board.go teamTaskBoardShort，改要一起改。
-SHORT_RUNES = 10
+# 团队板只显示活名（用户 2026-10-28「工作区的任务板又长又臭」）。同 core/team_task_board.go teamTaskBoardShort，改要一起改。
+# 活名是这件活在任务帖标题、置顶任务表、汇报里的同一个名字。原先限 10 字，写出来的是「issue1541」「at-spam」这类
+# 派活人自己才懂的代号（用户 2026-11-17「那个标题我根本看不懂啊」）；放到 20 字，够写一句「要做成什么」（#1732）。
+SHORT_RUNES = 20
+_SHORT_CODE = re.compile(r"#\d|(?<![A-Za-z])(?i:issue|pr|bug)[\s\-_#]*\d+")
+
+
+def short_problem(name):
+    """派活人写的活名哪里不像人话，没问题返回 ""。只挡程序认得出的两种：拿编号当名字、单个英文代号。"""
+    s = str(name or "").strip()
+    if _SHORT_CODE.search(s):
+        return "拿编号当了名字"
+    if re.fullmatch(r"[\x21-\x7e]+", s):
+        return "只是一个英文代号"
+    return ""
 _SHORT_TAG = re.compile(r"[（(]用户点名[)）]")
 _SHORT_PREFIX = re.compile(r"^\s*(?:用户点名(?:「[^」]*」|（[^）]*）|\s*#\d+\s*\S{0,3})?[：:]|用户点名\s*|事故\s*#\d+[^：:]{0,8}[：:]|#\d+[^：:]{0,10}[：:])\s*")
 
@@ -250,7 +263,7 @@ def is_probe(ids):
 
 
 def short_of(what):
-    """事情的短名：去掉「用户点名：」「#N 续：」「事故 #N 跟进：」这类前缀，冒号前够短就取冒号前，否则截 10 字。"""
+    """事情的短名：去掉「用户点名：」「#N 续：」「事故 #N 跟进：」这类前缀，冒号前够短就取冒号前，否则截到 SHORT_RUNES 字。"""
     s = _SHORT_TAG.sub("", str(what or "")).strip()
     while True:
         t = _SHORT_PREFIX.sub("", s, count=1)
@@ -285,6 +298,8 @@ def wait_kind_of(it):
         why = it.get("pause_why") or ""
         if why.startswith(WAIT_EXT):
             return "external"
+        if why.startswith(ASK_LEAD_WHY):
+            return "lead"  # 提问先到主角色：不算等用户，帖子不标「等你」、不 @ 用户
         return "user" if WAIT_USER_RE.search(why) else ""
     if it.get("await_deploy") or _status_awaits_release(it.get("status")):
         return "release"
@@ -727,6 +742,65 @@ def pause(nid, why=None):
 
 
 WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀；wait_kind_of 按它记 external
+
+
+# ---- 工作区提问只存一份 ----
+# ws-up --ask 的整份原文存 <BOARD_DIR>/asks/<编号>.md，条目只留 ask = {title 短标题, to 去向 lead/user, at}；
+# 暂停原因只写去向（ASK_LEAD_WHY / ASK_WHY），不再塞问题原文。任务帖、团队板（桥 core/team_task_board.go 读同一个文件）、
+# 给主角色的提示、转给用户的话都读这一份。来源：11-17 #1727 的提问在任务板原因里被截成半句，四条推荐全丢。
+ASK_LEAD_WHY = "等主角色定"  # 提问先到主角色；wait_kind_of 按它记 lead
+
+
+def ask_file(nid):
+    return _path("asks") / f"{int(nid)}.md"
+
+
+def ask_text(nid):
+    """#nid 提问的整份原文；没有返回空串。"""
+    try:
+        return ask_file(nid).read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def ask_note(it):
+    """board 列表里暂停原因后面跟的短标题。"""
+    a = it.get("ask") if isinstance(it.get("ask"), dict) else None
+    return f"：{a['title']}（整份见 {ask_file(it['id'])}）" if a and a.get("title") else ""
+
+
+def ask_save(nid, text, title):
+    """存 #nid 的提问原文，条目记短标题和去向（先到主角色）。没有这条返回 False。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        f = ask_file(nid)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(text.strip() + "\n", encoding="utf-8")
+        os.replace(tmp, f)
+        hit["ask"] = {"title": title, "to": "lead", "at": _bound_now()}
+        _write(cur)
+    return True
+
+
+def ask_to_user(nid, kind):
+    """主角色把 #nid 的提问转给用户：去向改 user、暂停原因改「等待用户答复」（wait_kind 变 user，帖子才标「等你」并 @ 用户）。
+    返回改后的条目；没有这条、没在提问暂停返回 None。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or not hit.get("paused") or not asking(hit) or not isinstance(hit.get("ask"), dict):
+            return None
+        hit["ask"].update({"to": "user", "kind": kind})
+        hit["pause_why"] = ASK_WHY
+        hit["paused"] = hit["at"] = _now()  # 「等了多久」从转给用户这一刻算
+        hit["paused_at"] = _bound_now()
+        _write(cur)
+        event(nid, "paused", hit, f"{ASK_WHY}（{kind}）")
+    return hit
 
 
 def wait_external(nid, why, minutes):
@@ -1408,6 +1482,7 @@ def resume(nid):
             return None if hit is None else False
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        hit.pop("ask", None)  # 答复到了：这次提问结束（原文文件留着，下次提问覆盖）
         hit.pop("backlog", None)
         hit.pop("backlog_why", None)
         # Resuming continues work, not the deployment that was already verified (#985 review 2.2).
@@ -1593,8 +1668,12 @@ def _ts(s, now):
     return ts
 
 
-def _asking(i):
-    return (i.get("pause_why") or "").startswith(ASK_WHY)
+def asking(i):
+    """提问后让出的条目：等主角色定，或已转给用户等答复。"""
+    return (i.get("pause_why") or "").startswith((ASK_WHY, ASK_LEAD_WHY))
+
+
+_asking = asking
 
 
 def _waiting_user(i):
@@ -1835,7 +1914,7 @@ def _split_short(argv):
     if "--short" in argv:
         k = argv.index("--short")
         if k + 1 >= len(argv):
-            sys.exit("--short 后面要写短名（≤10 字），比如 --short 任务板整理")
+            sys.exit("--short 后面要写活名（≤20 字），比如 --short 任务板整理")
         return argv[:k] + argv[k + 2:], argv[k + 1]
     return argv, None
 
@@ -1888,7 +1967,7 @@ def main(argv):
             print("\n".join(lines(argv[1:] == ["--all"])) or "（任务板是空的）")
         elif cmd == "add" and len(argv) == 5:
             if not (short_name or "").strip() or len(short_name.strip()) > SHORT_RUNES:
-                sys.exit(f"不加：要写 --short 短名（≤{SHORT_RUNES} 字，置顶任务表上显示的名字），不再从任务句截前十字")
+                sys.exit(f"不加：要写 --short 活名（≤{SHORT_RUNES} 字，任务帖标题和置顶任务表上显示的名字，写用户一眼认得出的一句话），不再从任务句截字")
             why = _lookback_reason(*argv[1:4])
             if why:
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")

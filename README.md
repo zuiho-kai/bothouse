@@ -273,3 +273,5 @@ Questions, ideas and the teams you build are all welcome.
     <img alt="Star history of zuiho-kai/bothouse" src="https://api.star-history.com/svg?repos=zuiho-kai/bothouse&type=Date" />
   </picture>
 </a>
+
+The administrator [usage page](docs/api/usage.md) includes local member token rankings and per-member daily, role and model breakdowns.

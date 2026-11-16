@@ -32,7 +32,7 @@
 +		const onAbort = () => controller.abort(new Error("ACP steer request cancelled"));
 +		requestSignal?.addEventListener("abort", onAbort, { once: true });
 +		try {
-+			const content = await admitAcpPrompt(this.ctx, this.modelControl.snapshot(), params.prompt, imageEnabled, controller.signal);
++			const content = await admitAcpPrompt(this.ctx, this.modelControl.snapshot?.() ?? this.agent.model.current(), params.prompt, imageEnabled, controller.signal);
 +			controller.signal.throwIfAborted();
 +			if (!steerable()) throw invalidParams$1("no running prompt to steer");
 +			this.agent.steer(createUserMessage({

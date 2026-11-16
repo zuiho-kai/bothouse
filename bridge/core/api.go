@@ -750,6 +750,15 @@ func (s *APIServer) handleCronEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The same anti-spin check as /cron/add: an edit must not turn a job into one add refuses.
+	if job := s.cron.Store().Get(req.ID); job != nil {
+		if edited, err := EditedCronJob(job, req.Field, req.Value); err == nil {
+			if err := CheckAntiSpinCron(edited); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+	}
 	if err := s.cron.UpdateJob(req.ID, req.Field, req.Value); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

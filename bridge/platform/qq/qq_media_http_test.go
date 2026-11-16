@@ -2,6 +2,7 @@ package qq
 
 import (
 	"fmt"
+	"github.com/chenhg5/cc-connect/core"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +34,11 @@ func TestReceiveMediaRejectsHTTPErrorBodies(t *testing.T) {
 					event["message"] = fmt.Sprintf("look[CQ:%s,file=sample.mp3,url=%s/failed][CQ:image,url=%s/valid]", kind, media.URL, media.URL)
 					f.push(event)
 					m := awaitMessage(t, msgs)
-					if m.Content != "look" || m.Audio != nil || len(m.Images) != 1 || string(m.Images[0].Data) != "valid-image" || m.Images[0].MimeType != "image/png" {
+					want := "look"
+					if kind == "image" {
+						want = core.WithMissedAttachments("look", "图片") // the failed image is named, not dropped silently
+					}
+					if m.Content != want || m.Audio != nil || len(m.Images) != 1 || string(m.Images[0].Data) != "valid-image" || m.Images[0].MimeType != "image/png" {
 						t.Fatalf("failed media leaked or valid sibling lost: content=%q images=%+v audio=%+v", m.Content, m.Images, m.Audio)
 					}
 				})

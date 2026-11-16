@@ -141,6 +141,27 @@ func (s *TimerStore) load() {
 	if err := json.Unmarshal(data, &s.jobs); err != nil {
 		slog.Error("timer: failed to load jobs", "path", s.path, "error", err)
 	}
+	s.pruneFiredLocked(time.Now())
+}
+
+// firedTimerKeep is how long a fired job stays in the store. A fired job is only read as a
+// receipt (the same wake is not queued twice: handback, quota takeover) and by the anti-spin
+// guard (antiSpinWindow), both within hours; a week also leaves last week's errors to look at.
+// The store used to keep every fired job for good and rewrote the whole file on each change.
+const firedTimerKeep = 7 * 24 * time.Hour
+
+// pruneFiredLocked drops fired jobs older than firedTimerKeep. A task-review receipt stays:
+// its id is the task's handback, and a task can wait for its verdict longer than a week.
+func (s *TimerStore) pruneFiredLocked(now time.Time) {
+	kept := s.jobs[:0]
+	for _, j := range s.jobs {
+		if j != nil && j.Fired && j.TaskReview == nil && !j.FiredAt.IsZero() && now.Sub(j.FiredAt) > firedTimerKeep {
+			continue
+		}
+		kept = append(kept, j)
+	}
+	clear(s.jobs[len(kept):])
+	s.jobs = kept
 }
 
 func (s *TimerStore) save() error {
@@ -218,6 +239,7 @@ func (s *TimerStore) MarkFired(id string, err error) {
 			} else {
 				j.LastError = ""
 			}
+			s.pruneFiredLocked(j.FiredAt)
 			if saveErr := s.save(); saveErr != nil {
 				slog.Warn("timer: failed to save after mark fired", "error", saveErr)
 			}

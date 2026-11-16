@@ -300,9 +300,7 @@ func runCronList(args []string) {
 			} else {
 				display = prompt
 			}
-			if len(display) > 60 {
-				display = display[:60] + "..."
-			}
+			display = truncate(display, 63)
 		}
 		fmt.Printf("  %s %s  %s  %s\n", enabled, id, expr, display)
 	}

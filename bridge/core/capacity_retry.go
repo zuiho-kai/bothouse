@@ -350,7 +350,7 @@ func (e *Engine) capacityRecover(reason string) {
 // probe asks the model once while a cooldown is already running (a real
 // person sent a new message): success ends the cooldown, failure leaves it
 // exactly as it was, without adding a round or doubling it.
-func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Session, sessions *SessionManager, key, msgID string, turnStart time.Time, stopTyping func(), replyCtx any, input *inputTurn, beginAttempt func(), send func(as AgentSession) error, probe bool, giveUp func(wait time.Duration)) {
+func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Session, sessions *SessionManager, key, msgID string, turnStart time.Time, stopTyping func(), replyCtx any, input *inputTurn, caller *Message, beginAttempt func(), send func(as AgentSession) error, probe bool, giveUp func(wait time.Duration)) {
 	// maomao fork: the mode override set for this turn (setTurnMode) holds across its capacity
 	// retries and the queued turns chained into it, each of which sets its own; it ends here.
 	defer e.restoreTurnMode(state)
@@ -382,6 +382,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 		if beginAttempt != nil {
 			beginAttempt()
 		}
+		usageStart := time.Now()
 		sendDone := make(chan error, 1)
 		e.messageWorkers.Add(1) // child of the registered foreground turn / queue drain
 		go func() {
@@ -389,6 +390,7 @@ func (e *Engine) runTurnWithCapacityRetry(state *interactiveState, session *Sess
 			sendDone <- send(as)
 		}()
 		e.processInteractiveEvents(state, session, sessions, key, msgID, turnStart, stopTyping, sendDone, replyCtx, input)
+		e.recordUsageTurn(caller, session.GetAgentSessionID(), usageStart, time.Now())
 		stopTyping = nil // owned (and stopped) by the first event loop
 
 		state.mu.Lock()

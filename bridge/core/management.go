@@ -1298,8 +1298,8 @@ func (m *ManagementServer) handleProjectSessions(w http.ResponseWriter, r *http.
 			if histCount > 0 {
 				last := s.History[histCount-1]
 				preview := last.Content
-				if len(preview) > 200 {
-					preview = preview[:200]
+				if r := []rune(preview); len(r) > 200 {
+					preview = string(r[:200])
 				}
 				lastMsg = map[string]any{
 					"role":      last.Role,
@@ -1958,6 +1958,17 @@ func (m *ManagementServer) handleCronByID(w http.ResponseWriter, r *http.Request
 		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
+		}
+		// Check the whole edit on a copy first: a refused field must not leave the others applied.
+		if job := m.cronScheduler.Store().Get(id); job != nil {
+			for field, value := range updates {
+				edited, err := EditedCronJob(job, field, value)
+				if err != nil {
+					mgmtError(w, http.StatusBadRequest, fmt.Sprintf("update %s: %s", field, err.Error()))
+					return
+				}
+				job = edited
+			}
 		}
 		for field, value := range updates {
 			if err := m.cronScheduler.UpdateJob(id, field, value); err != nil {

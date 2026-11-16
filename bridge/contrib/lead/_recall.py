@@ -292,9 +292,10 @@ def _drop_failed(text):
     return "".join(out).rstrip("\n") + "\n"
 
 
-def append_to(path):
-    """给交接文件追加「旧定案（程序搜出）」节（已有就不再加；上次写的是「没搜成」就删掉重搜），返回追加的文字。
-    出任何错都只返回 None，不拦交活。"""
+def start(path):
+    """开始搜旧定案（后台线程），返回给 finish() 的句柄；交接里已有这一节就返回 None。
+    交活时和挑工作区、上任务板同时跑，开工不用先等它（#1732：搜一次 30–40 秒，原先排在挑工作区前面）。"""
+    import threading
     try:
         text = Path(path).read_text(encoding="utf-8")
         if SECTION in text:
@@ -302,16 +303,45 @@ def append_to(path):
                 return None
             text = _drop_failed(text)
             Path(path).write_text(text, encoding="utf-8")
-        try:
-            block = render(old_decisions(text))
-        except Failed as e:
-            block = render([], failed=str(e))
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(("" if text.endswith("\n") else "\n") + "\n" + block)
-        return block
     except Exception as e:  # noqa: BLE001  搜旧定案只是附加，不能让交活失败
         print(f"ws-handoff: 搜旧定案出错，跳过（{type(e).__name__}: {e}）", file=sys.stderr)
         return None
+    box = {}
+
+    def run():
+        try:
+            box["block"] = render(old_decisions(text))
+        except Failed as e:
+            box["block"] = render([], failed=str(e))
+        except Exception as e:  # noqa: BLE001
+            box["error"] = e
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t, box
+
+
+def finish(handle, path):
+    """等 start() 搜完，把「旧定案（程序搜出）」节追加进交接，返回追加的文字；出任何错都只返回 None，不拦交活。"""
+    if handle is None:
+        return None
+    t, box = handle
+    t.join()
+    try:
+        if "error" in box:
+            raise box["error"]
+        text = Path(path).read_text(encoding="utf-8")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(("" if text.endswith("\n") else "\n") + "\n" + box["block"])
+        return box["block"]
+    except Exception as e:  # noqa: BLE001
+        print(f"ws-handoff: 搜旧定案出错，跳过（{type(e).__name__}: {e}）", file=sys.stderr)
+        return None
+
+
+def append_to(path):
+    """给交接文件追加「旧定案（程序搜出）」节（已有就不再加；上次写的是「没搜成」就删掉重搜），返回追加的文字。
+    出任何错都只返回 None，不拦交活。"""
+    return finish(start(path), path)
 
 
 if __name__ == "__main__":
