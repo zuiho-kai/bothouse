@@ -24,10 +24,7 @@
 
 </div>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/overview-zh-night.jpg" />
-  <img src="docs/assets/readme/info/overview-zh-day.jpg" width="960" alt="一张图看懂 bothouse：你已经登录的 AI 命令行（Claude Code、Codex、Gemini CLI、DeepSeek 桌面版、OpenCode、Antigravity、Grok 等）进到一个聊天群（Discord、飞书、QQ 或 DeepSeek 桌面版）；组长 AI 拆活、派活；大活开单独的工作频道（Codex 写代码、Gemini 查资料）；做完交回，换一个没参与的 AI 检查；大家共用一份记忆：一个 Markdown 文件夹，每晚复盘纠错，用 Git 存进你自己的私有仓库" />
-</picture>
+<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
 
 <a id="video"></a>
 
@@ -108,11 +105,6 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 
 ## 能用它做什么
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/features-zh-night.jpg" />
-  <img src="docs/assets/readme/info/features-zh-day.jpg" width="960" alt="能做什么：自带 AI 组队；一个账号也能分角色；在 Discord、飞书、QQ、DeepSeek 桌面版里用；大活不堵聊天；大家记得同一件事；每晚自动复盘；长活不跑偏；手机上也能管；团队工作台看得见团队在干活" />
-</picture>
-
 | 你想要 | bothouse 怎么帮你 |
 | --- | --- |
 | **用别人的 agent 给你干活** | 朋友把他的 Claude Code、Codex、Gemini 等拉进你的群，你在群里 @ 一下就派活，干完交回给你；只要他那台电脑开着，你手机上也能用。 |
@@ -132,8 +124,8 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.zh.png"><img src="docs/assets/readme/shot-handoff.zh.png" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></a><br><b>一句话交给工作区</b>：组长 AI 把大活派出去，聊天频道照常说话。</td>
     <td width="50%"><a href="docs/assets/readme/shot-workspace.zh.png"><img src="docs/assets/readme/shot-workspace.zh.png" alt="工作区1的任务板：进行中和今天做完的活，按角色列出"></a><br><b>任务板</b>：哪个工作区在做什么、今天交了什么，一眼看完。</td>
+    <td width="50%"><a href="docs/assets/readme/shot-desk.png"><img src="docs/assets/readme/shot-desk.png" alt="DSH 里的团队工作台：像素办公室里每个角色坐在工位上，头顶是手上的活，右边实时列出派活、交回、打回"></a><br><b>团队工作台</b>：谁在做哪件活，实时看；每道光都是一条真实事件。</td>
   </tr>
   <tr>
     <td width="50%"><a href="docs/assets/readme/shot-roles.zh.jpg"><img src="docs/assets/readme/shot-roles.zh.jpg" alt="管理面板的角色页：五个角色分别接不同的 CLI，显示在线状态、当前在忙和模型"></a><br><b>角色管理</b>：每个角色接哪个 CLI、在忙什么、用什么模型，一键暂停或重启。</td>
@@ -141,7 +133,7 @@ macOS 的后台服务安装和重启会在 30 秒窗口内等待 launchd 卸载�
   </tr>
 </table>
 
-_上面两张是真实频道录屏，下面两张是作者自己在用的管理面板。_
+_左上是真实频道录屏，其余是作者自己在用的团队工作台和管理面板。_
 
 <a id="characters"></a>
 

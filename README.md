@@ -24,10 +24,7 @@ Bring your own AIs too: a team-lead AI splits the work and hands it out; they al
 
 </div>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/overview-en-night.jpg" />
-  <img src="docs/assets/readme/info/overview-en-day.jpg" width="960" alt="bothouse at a glance: the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, the DeepSeek desktop app, OpenCode, Antigravity, Grok and more) join one group chat on Discord, Feishu, QQ or the DeepSeek desktop app; a team-lead AI splits the work; big jobs get their own channel (Codex writes the code, Gemini digs up references); results are handed back and checked by an AI that did not do the work; everyone shares one memory, a folder of Markdown notes checked every night and saved with Git to your private repo" />
-</picture>
+<p align="center"><img src="docs/assets/readme/shot-handoff.en.png" width="720" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></p>
 
 <a id="video"></a>
 
@@ -108,11 +105,6 @@ More detail — who replies when nobody is named, the nightly review, guardrails
 
 ## Features
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/features-en-night.jpg" />
-  <img src="docs/assets/readme/info/features-en-day.jpg" width="960" alt="What you get: bring your own AIs; one account, many roles; works in Discord, Feishu, QQ or the DeepSeek desktop app; big jobs never block chat; everyone remembers the same thing; a nightly review; long jobs stay on track; manage it from your phone; see the team at work on the team desk" />
-</picture>
-
 | You want | How bothouse helps |
 | --- | --- |
 | **Someone else's agent working for you** | A friend adds their Claude Code, Codex, Gemini and others to your group; you @mention one to hand it a job and the result comes back to you. As long as their computer is on, you can do it from your phone. |
@@ -131,8 +123,8 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-handoff.en.png"><img src="docs/assets/readme/shot-handoff.en.png" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></a><br><b>One message, handed to a workspace</b>: the team-lead AI sends big work out and chat carries on.</td>
     <td width="50%"><a href="docs/assets/readme/shot-workspace.en.png"><img src="docs/assets/readme/shot-workspace.en.png" alt="Workspace 1 task board listing running and finished tasks by role"></a><br><b>Task board</b>: what each workspace is doing and what landed today, at a glance.</td>
+    <td width="50%"><a href="docs/assets/readme/shot-desk.png"><img src="docs/assets/readme/shot-desk.png" alt="Team desk in DSH: a pixel office where each role sits at a desk with its current task, next to a live feed of handoffs, returns and send-backs"></a><br><b>Team desk</b>: who is working on what, live; every light is a real event.</td>
   </tr>
   <tr>
     <td width="50%"><a href="docs/assets/readme/shot-roles.en.jpg"><img src="docs/assets/readme/shot-roles.en.jpg" alt="Dashboard Roles page: five roles on different CLIs with status, current work and model"></a><br><b>Roles</b>: which CLI each role runs, what it is busy with, which model — pause or restart in one click.</td>
@@ -140,7 +132,7 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
   </tr>
 </table>
 
-_Top row: real channel footage. Bottom row: the author's own dashboard._
+_Top left: real channel footage. The rest: the author's own team desk and dashboard._
 
 <a id="characters"></a>
 
