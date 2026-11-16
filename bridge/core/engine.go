@@ -2305,6 +2305,13 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		effectivePlatform = &mutePlatform{targetPlatform}
 	}
 
+	// #1705: the newest channel post before this handoff's start notice; a workspace session that
+	// starts a task fresh reads back from there, not the previous task's last 3 hours.
+	handoffSeenMark := ""
+	if job.Handoff && job.resume == nil {
+		handoffSeenMark = newestChannelMsgID(targetPlatform, extractChannelID(sessionKey))
+	}
+
 	// Notify user unless muted or silent; a check job posts no start notice (core/test_noise.go)
 	if !job.Mute && job.resume == nil && !check { // #624 K4: a resume posts its own notice
 		silent := false
@@ -2353,16 +2360,17 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	}
 
 	msg := &Message{
-		turnTrigger:  timerTurnTrigger(job),
-		SessionKey:   sessionKey,
-		Platform:     platformName,
-		UserID:       timerTurnUser(job),
-		UserName:     timerTurnUser(job),
-		Content:      content,
-		ReplyCtx:     replyCtx,
-		ModeOverride: job.Mode,
-		boardLabel:   "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
-		timerJobID:   job.ID,
+		turnTrigger:     timerTurnTrigger(job),
+		SessionKey:      sessionKey,
+		Platform:        platformName,
+		UserID:          timerTurnUser(job),
+		UserName:        timerTurnUser(job),
+		Content:         content,
+		ReplyCtx:        replyCtx,
+		ModeOverride:    job.Mode,
+		boardLabel:      "⏰ " + boardJobDesc(job.Description, job.Prompt, job.Exec), // maomao fork: channel task board
+		timerJobID:      job.ID,
+		handoffSeenMark: handoffSeenMark,
 	}
 	// A handoff wake-up (ws-handoff, report bounce, ws-forward) starts or resumes a whole task in a workspace
 	// session: give it the same wiki recall, standing practices and decisions a chat turn gets (cron does the
@@ -2529,6 +2537,9 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 		return
 	}
 	e.teamNoteTurn(msg, session)
+	if msg.handoffSeenMark != "" && session.GetLastSeenMsgID() == "" { // #1705
+		markSeen(session, &Message{MessageID: msg.handoffSeenMark})
+	}
 	if !msg.scheduledBackfilled {
 		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)
 		msg.scheduledBackfilled = true

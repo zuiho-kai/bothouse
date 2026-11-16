@@ -209,6 +209,21 @@ func (e *Engine) cronChannelBackfill(p Platform, sessionKey string, session *Ses
 	msg.Images = append(images, msg.Images...)
 }
 
+// newestChannelMsgID is the ID of the newest post in channelID, "" when it cannot be read.
+// It reads a page, not one message: the reader drops embeds-only posts (progress cards), and a
+// workspace is often cleared right after one, which left the mark unset (#1705, 11-16 17:46).
+func newestChannelMsgID(p Platform, channelID string) string {
+	r, ok := p.(ChannelHistoryReader)
+	if !ok || channelID == "" {
+		return ""
+	}
+	msgs, err := r.ChannelHistory(channelID, "", backfillFetchLimit)
+	if err != nil || len(msgs) == 0 {
+		return ""
+	}
+	return msgs[len(msgs)-1].ID
+}
+
 // withScheduledMark puts the scheduled-turn mark before a cron/timer prompt, so the agent can tell
 // it from a message the user just sent (backfill above, and a timer injected into a running turn).
 func withScheduledMark(content string) string {
