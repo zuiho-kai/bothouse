@@ -8,7 +8,7 @@ import (
 func TestParseClaudeUsageResetTimeWithAt(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Tokyo")
 	now := time.Date(2026, 11, 6, 11, 50, 0, 0, loc)
-	got, err := parseClaudeUsageResetTime("Nov 6 at 2pm (Asia/Tokyo)", now)
+	got, err := parseClaudeUsageResetTime("Nov 6 at 2pm (Asia/Tokyo)", now, claudeUsageWeekWindowSeconds)
 	if err != nil {
 		t.Fatal(err)
 	}

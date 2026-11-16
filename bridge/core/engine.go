@@ -126,15 +126,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	report      *UsageReport // immutable snapshot for the role card
-	reportScope string       // attribution captured when the existing footer fetched it
-	reportAt    time.Time
-	text        string    // last successful quota text
-	okAt        time.Time // when text was fetched; zero if never
-	failText    string    // set when the latest attempt failed
-	attemptAt   time.Time // when the latest attempt finished
-	done        chan struct{}
-	waited      bool // a footer already spent the first-probe wait
+	report       *UsageReport // immutable snapshot for the role card
+	reportScope  string       // attribution captured when the existing footer fetched it
+	reportAt     time.Time
+	footerReport *UsageReport // last successful footer measurement, rendered at read time
+	okAt         time.Time    // when the footer measurement was fetched; zero if never
+	failText     string       // set when the latest attempt failed
+	attemptAt    time.Time    // when the latest attempt finished
+	done         chan struct{}
+	waited       bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -9725,7 +9725,11 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	defer e.replyFooterMu.Unlock()
 	switch {
 	case !ent.okAt.IsZero() && time.Since(ent.okAt) < replyFooterUsageMaxAge:
-		return ent.text, true
+		// Render the retained measurement so its reset still expires between probes.
+		if text := formatReplyFooterUsage(ent.footerReport, e.i18n); text != "" {
+			return text, true
+		}
+		return e.i18n.T(MsgQuotaNoData), false
 	case ent.done != nil || (ent.attemptAt.IsZero() && e.replyFooterInflight[agentID]):
 		return e.i18n.T(MsgQuotaPending), false
 	case ent.failText != "":
@@ -9775,7 +9779,7 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 	defer e.replyFooterMu.Unlock()
 	ent.attemptAt = time.Now()
 	if text != "" {
-		ent.text, ent.okAt, ent.failText = text, ent.attemptAt, ""
+		ent.footerReport, ent.okAt, ent.failText = report, ent.attemptAt, ""
 	} else {
 		ent.failText = failText
 	}
@@ -11178,9 +11182,14 @@ func formatUsageReport(report *UsageReport, lang Language) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(usageAccountLabel(lang))
-	sb.WriteString(accountDisplay(report))
+	if report.Email != "" || report.AccountID != "" || report.UserID != "" {
+		sb.WriteString(usageAccountLabel(lang))
+		sb.WriteString(accountDisplay(report))
+	}
 	sb.WriteString(formatUsageBlocks(report, lang))
+	if sb.Len() == 0 {
+		return usageUnavailableText(lang)
+	}
 
 	return strings.TrimSpace(sb.String())
 }
@@ -11190,6 +11199,9 @@ func formatUsageBlocks(report *UsageReport, lang Language) string {
 	for _, bucket := range report.Buckets {
 		var blocks []string
 		for i := range bucket.Windows {
+			if usageWindowExpired(&bucket.Windows[i]) {
+				continue
+			}
 			blocks = append(blocks, formatUsageBlock(lang, &bucket.Windows[i]))
 		}
 		if len(blocks) == 0 {
@@ -11230,8 +11242,17 @@ func selectUsageWindows(report *UsageReport) (*UsageWindow, *UsageWindow) {
 			continue
 		}
 		var primary, secondary *UsageWindow
+		var first, second *UsageWindow
 		for i := range bucket.Windows {
 			window := &bucket.Windows[i]
+			if usageWindowExpired(window) {
+				continue
+			}
+			if first == nil {
+				first = window
+			} else if second == nil {
+				second = window
+			}
 			switch window.WindowSeconds {
 			case 18000:
 				primary = window
@@ -11241,23 +11262,27 @@ func selectUsageWindows(report *UsageReport) (*UsageWindow, *UsageWindow) {
 				}
 			}
 		}
-		if primary == nil && len(bucket.Windows) > 0 {
+		if primary == nil && first != nil {
 			// Fall back to the first window when no 5-hour quota is reported
 			// (e.g. Codex accounts whose first bucket only exposes a 7-day
 			// window). Skip it if the slot is already occupied by the 7-day
 			// window so the same block is not rendered twice.
-			if secondary != &bucket.Windows[0] {
-				primary = &bucket.Windows[0]
+			if secondary != first {
+				primary = first
 			}
 		}
-		if secondary == nil && len(bucket.Windows) > 1 && &bucket.Windows[1] != primary {
-			secondary = &bucket.Windows[1]
+		if secondary == nil && second != nil && second != primary {
+			secondary = second
 		}
 		if primary != nil || secondary != nil {
 			return primary, secondary
 		}
 	}
 	return nil, nil
+}
+
+func usageWindowExpired(window *UsageWindow) bool {
+	return window.ResetAtUnix > 0 && window.ResetAtUnix <= time.Now().Unix()
 }
 
 func formatUsageBlock(lang Language, window *UsageWindow) string {
