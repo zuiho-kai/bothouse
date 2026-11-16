@@ -5,8 +5,8 @@ receives messages, and replies only when it is mentioned by a non-bot sender.
 
 This is the M3 reference example for [#321](https://github.com/zuiho-kai/bothouse/issues/321).
 It implements the rules in [`docs/external-member.md`](../../../../docs/external-member.md)
-(CWIP / cloud-web gateway) but deliberately **does not** implement M1/M2 features
-(pre-provisioned members, per-member credentials, offline state) — those do not exist yet.
+(CWIP / cloud-web gateway). The hub operator adds the member first and hands you its
+credential (`external-member.mjs add`, see the document's §0).
 
 ## Files
 
@@ -27,13 +27,13 @@ Set the connection values in environment variables; never commit the auth value.
 
 ```bash
 export CWIP_URL='ws://127.0.0.1:3000/cloud-web/ws'
-export CWIP_AUTH='<bot-auth-value>'     # from the hub operator
-export CWIP_BOT_ID='my-bot'
-export CWIP_NAME='MyBot'
-export CWIP_MENTION_ID='123'           # numeric mention id, if your platform has one
-export CWIP_ROOM='1'                   # recommended: scope to one room
+export CWIP_AUTH='<the member credential>'   # from the hub operator (external-member.mjs add)
 python cwip_bot.py
 ```
+
+With a member credential the hub takes the member's id, name, mention id and channel from
+what the operator stored; `CWIP_BOT_ID`, `CWIP_NAME`, `CWIP_MENTION_ID` and `CWIP_ROOM` are
+ignored.
 
 The same values can be passed as flags: `--url`, `--auth`, `--bot`, `--name`,
 `--mention-id`, `--room`. Flags are visible in the process list, so prefer environment
