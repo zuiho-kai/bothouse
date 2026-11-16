@@ -402,7 +402,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	}
 	text := spaceExitLines(heldHeadlineText(name, cp.Headline, unchecked))
 	_, detail := team.ExitSplit(cp.Body)
-	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail)
+	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail, false)
 	inForum := forumRC != nil
 	if err := e.sendRenderedWithContext(ctx, p, rc, chatText); err != nil {
 		e.teamExit.mu.Lock()

@@ -335,13 +335,19 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 		head += " · 等 " + firstNonEmpty(it.reviewerName, it.Reviewer) + " 核对"
 	}
 	head += "\n"
-	now := firstNonEmpty(boardLabel(it.Status), sentence)
+	// 方案甲 (user 11-16 「让帖子显示的更精华一些」): 「现在」 shows only progress a person wrote,
+	// never the state sentence again or the bridge's auto-filled tool step.
+	var nowParts []string
+	if st := taskForumHumanStatus(it, sentence); st != "" {
+		nowParts = append(nowParts, st)
+	}
 	if it.ReviewRejected != "" {
-		now += " · 退回：" + boardLabel(it.ReviewRejected)
+		nowParts = append(nowParts, "退回："+boardLabel(it.ReviewRejected))
 	}
-	if strings.HasPrefix(it.Where, "https://") && !strings.Contains(now, it.Where) {
-		now += " · " + it.Where
+	if strings.HasPrefix(it.Where, "https://") && !strings.Contains(strings.Join(nowParts, ""), it.Where) {
+		nowParts = append(nowParts, it.Where)
 	}
+	now := strings.Join(nowParts, " · ")
 	notes := readNotes(it.Where)
 	goal := firstNonEmpty(notesSection(notes, "总目标"), boardLabel(it.What))
 	src := ""
@@ -350,12 +356,15 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	}
 	foot := fmt.Sprintf("-# %s任务板 #%d", src, it.ID)
 	budget := limit - taskForumStampRunes
-	current := "**现在**：" + now + "\n"
+	current := ""
+	if now != "" {
+		current = "**现在**：" + now + "\n"
+	}
 	target := "**目标**：" + goal + "\n"
 	// Only shorten the goal when the fixed text alone exceeds the platform limit.
 	// A long question never steals the goal's space.
 	fixed := runeLen(head + current + target + foot)
-	if fixed > budget {
+	if fixed > budget && now != "" {
 		current = "**现在**：" + cutRunes(now, max(1, runeLen(now)-(fixed-budget))) + "\n"
 		fixed = runeLen(head + current + target + foot)
 		if fixed > budget {
@@ -364,8 +373,7 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	}
 	ask := ""
 	if tag == TaskForumTagWaiting {
-		question := strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), ""))
-		question = firstNonEmpty(question, strings.TrimPrefix(sentence, "等你："))
+		question := taskForumQuestion(it, strings.TrimPrefix(sentence, "等你："))
 		prefix, suffix := "> 👉 **要你做的**：", "（完整问题见下方最新回复）"
 		room := budget - runeLen(head+current+target+foot) - runeLen(prefix) - 1
 		if room > 0 {
@@ -457,12 +465,30 @@ func taskForumNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence
 	return strings.Join(lines, "\n")
 }
 
+// taskForumHumanStatus is the board status a person wrote: "" when it is the
+// bridge's auto-filled step (「在做：Bash …」, team_board_progress.go) or only
+// repeats the tag's sentence (「已完成」).
+func taskForumHumanStatus(it teamTaskBoardItem, sentence string) string {
+	st := strings.TrimSpace(boardLabel(it.Status))
+	if st == "" || st == boardHandedOff || st == sentence || strings.HasPrefix(st, boardStartedNoStep[:len("在做：")]) {
+		return ""
+	}
+	return st
+}
+
+// taskForumQuestion: the pause reason, else a status a person wrote, else
+// fallback; an auto-filled tool step is never shown as the question.
+func taskForumQuestion(it teamTaskBoardItem, fallback string) string {
+	q := firstNonEmpty(boardLabel(it.PauseWhy), taskForumHumanStatus(it, ""))
+	return firstNonEmpty(strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(q, "")), fallback)
+}
+
 func taskForumMerged(it teamTaskBoardItem) bool { return it.PRMerge != nil || it.AwaitDeploy != nil }
 
 func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence string, merged bool) string {
 	switch tag {
 	case TaskForumTagWaiting:
-		return "❓ " + firstNonEmpty(strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(firstNonEmpty(it.PauseWhy, it.Status)), "")), sentence)
+		return "❓ " + taskForumQuestion(it, sentence)
 	case TaskForumTagPaused:
 		return "⏸️ " + sentence
 	case TaskForumTagRelease:
@@ -1031,7 +1057,9 @@ func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem)
 // taskForumExitText delivers into the chosen post before replacing the chat
 // headline with a link. A failed forum send retains the legacy delivery path.
 // The returned reply context sends attachments to the same post as the text.
-func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session string, hid int, headline, detail string) (string, any) {
+// Only an [ask] posts its detail: a report's detail stays out of the post like
+// the chat channel's (方案甲, user 11-16).
+func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session string, hid int, headline, detail string, ask bool) (string, any) {
 	if !e.taskForumEnabled() {
 		return headline, nil
 	}
@@ -1065,7 +1093,11 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 	if !ok {
 		return headline, nil
 	}
-	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, joinExitDetail(headline, detail)) }); err != nil {
+	node := headline
+	if ask {
+		node = joinExitDetail(headline, detail)
+	}
+	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, node) }); err != nil {
 		e.taskForumFailed(ctx, p, taskForumChat(*it), *it, err)
 		return headline, nil
 	}

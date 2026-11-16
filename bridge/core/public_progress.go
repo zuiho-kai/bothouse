@@ -981,7 +981,7 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempt
 		if ev.Seq <= factSeq {
 			continue
 		}
-		if ev.IsKeyFact {
+		if ev.IsKeyFact && !(task.ForumPost && forumQuietFact(ev, lang)) {
 			creator := ev.ReporterProject == "" || ev.ReporterProject == p.project
 			// Facts go to the channel that holds the card: the execution
 			// workspace for a chat-channel source, else the source session.
@@ -1374,4 +1374,15 @@ func (e *Engine) startPublicProgress() {
 			}
 		}
 	}()
+}
+
+// forumQuietFact: the automatic 「已开始处理」/「本轮已结束」 facts. A forum post
+// already shows the state in its starter card, so they stay out of it (方案甲, user 11-16).
+func forumQuietFact(ev TaskEvent, lang Language) bool {
+	i := NewI18n(lang)
+	switch ev.Summary {
+	case i.T(MsgPublicAutoStartedTools), i.T(MsgPublicAutoStartedTime), i.T(MsgPublicEnded):
+		return true
+	}
+	return false
 }
