@@ -27,7 +27,6 @@ $ git log -S 'mention' --oneline -- path
 class RootCauseTest(unittest.TestCase):
     def test_title_scope_and_task_trigger(self):
         for text, task in [('# 修派活\n', ''), ('# Fix routing\n', ''), ('# BUG routing\n', ''),
-                           ('# issue 1745\n', ''), ('# #1745\n', ''),
                            ('## 范围\n- 改：修派活\n', ''), ('# 新任务\n', 'fix routing')]:
             with self.subTest(text=text, task=task):
                 self.assertEqual(len(ws.root_cause_errors(text, task)), 4)
@@ -35,6 +34,13 @@ class RootCauseTest(unittest.TestCase):
 
     def test_unrelated_mentions_do_not_trigger(self):
         self.assertEqual(ws.root_cause_errors('# 新功能\n## 范围\n- 改：卡片\n## 原话\n修 #1745 bug\n'), [])
+
+    def test_references_and_edit_words_are_not_repairs(self):
+        video = '# 霍去病短片续 #803\n## 范围\n- 改：按 #803 的成片修改开头字幕，issue 1745 的做法沿用\n'
+        for text in (video, '# 修订交接文案\n'):
+            with self.subTest(text=text):
+                self.assertEqual(ws.root_cause_errors(text, '续 #803 短片'), [])
+        self.assertEqual(len(ws.root_cause_errors('# 修复 #803 字幕错位\n', '续 #803')), 4)
 
     def test_each_missing_item_reported(self):
         self.assertEqual(len(ws.root_cause_errors('# fix\n## 根因\n')), 3)
