@@ -1298,8 +1298,8 @@ func (m *ManagementServer) handleProjectSessions(w http.ResponseWriter, r *http.
 			if histCount > 0 {
 				last := s.History[histCount-1]
 				preview := last.Content
-				if len(preview) > 200 {
-					preview = preview[:200]
+				if r := []rune(preview); len(r) > 200 {
+					preview = string(r[:200])
 				}
 				lastMsg = map[string]any{
 					"role":      last.Role,

@@ -352,8 +352,9 @@ func buildHookStdin(hctx hookContext) map[string]any {
 
 // truncateStr truncates s to maxLen characters, appending "..." if truncated.
 func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	r := []rune(s)
+	if len(r) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(r[:maxLen]) + "..."
 }
