@@ -174,6 +174,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
 
 function useServerToday(day: string) {
   vi.mocked(getUsage).mockImplementation(async (group, filter) => {
+    if (group === 'members') return { ...mockDaily, items: [] };
     if (group === 'roles' && !filter) return { ...mockRoles, to: day };
     return group === 'daily' ? mockDaily : group === 'hourly' ? mockHourly : group === 'models' ? mockModels : mockRoles;
   });
@@ -313,6 +314,7 @@ describe('Usage page - token unit switching and custom date range', () => {
     let release: () => void = () => {};
     const gate = new Promise<void>(r => { release = r; });
     vi.mocked(getUsage).mockImplementation(async (group, filter) => {
+    if (group === 'members') return { ...mockDaily, items: [] };
       if (group === 'roles' && !filter) { await gate; return { ...mockRoles, to: '2026-11-03' }; }
       return group === 'daily' ? mockDaily : group === 'hourly' ? mockHourly : group === 'models' ? mockModels : mockRoles;
     });
@@ -337,6 +339,7 @@ describe('Usage page - token unit switching and custom date range', () => {
     let release: () => void = () => {};
     const gate = new Promise<void>(r => { release = r; });
     vi.mocked(getUsage).mockImplementation(async (group, filter) => {
+    if (group === 'members') return { ...mockDaily, items: [] };
       if (group === 'roles' && !filter) { await gate; return { ...mockRoles, to: '2026-11-03' }; }
       return group === 'daily' ? mockDaily : group === 'hourly' ? mockHourly : group === 'models' ? mockModels : mockRoles;
     });
