@@ -3422,8 +3422,11 @@ def nightly(a):
     if left is not None:
         deadline = min(deadline, time.time() + left)
     log(f"nightly: shared stop_at={os.environ['WIKI_STOP_AT']} scheduler={os.environ.get('CC_JOB_DEADLINE', '')}")
+    log("nightly: stage=ingest")
     run(a, engines=[NIGHT_ENGINE])
+    log(f"nightly: stage=split stopped={budget.stopped()}")
     split_pass(state())
+    log(f"nightly: stage=dream stopped={budget.stopped()}")
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
     data_dir = (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
                 os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
@@ -3439,9 +3442,13 @@ def nightly(a):
         manuals.LINKS = []
         manuals.PENDING = data_dir / "skills" / "pending" / role
         manuals.ROLE = role
+    log(f"nightly: stage=manuals stopped={budget.stopped()}")
     manuals.run(deadline=deadline, ask_fn=profile_ask, transcripts=ROOT)
+    log(f"nightly: stage=review stopped={budget.stopped()}")
     review(state(), deadline)
+    log(f"nightly: stage=restate stopped={budget.stopped()}")
     restate_pass()  # last: whatever budget is left; a skipped night just runs it the next night
+    log(f"nightly: ended stopped={budget.stopped()}")
 
 
 def lint_pass(db):
