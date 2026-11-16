@@ -29,14 +29,19 @@ class RoleCodexRetry(unittest.TestCase):
         self.m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.m)
         m = self.m
-        m.REPO = m.WORK = m.WIKI = self.root
+        m.REPO = m.WIKI = self.root
+        m.WORK = self.root / '.ingest-work'
         m.LOG, m.USAGE = self.root / 'log', self.root / 'usage.tsv'
+        # Frozen candidates need a real accepted baseline, including the correction-round snapshot.
+        (self.root / '.gitignore').write_text('.ingest*\nlog\nusage.tsv\n')
+        (self.root / 'log.md').write_text('# Log\n')
+        for args in [('init', '-q'), ('config', 'user.name', 'Synthetic Fixture'),
+                     ('config', 'user.email', 'fixture@example.invalid'), ('add', '-A'),
+                     ('commit', '-qm', 'synthetic baseline')]:
+            subprocess.run(['git', *args], cwd=self.root, check=True, capture_output=True)
         m.CODEX_CHAIN, m.AFTER_CODEX = ['fixture-model'], ['forbidden-fallback']
         self.stack.enter_context(patch.object(m.budget, 'remaining', return_value=1500))
-        for name in ('sync_work', 'discard'):
-            self.stack.enter_context(patch.object(m, name))
         self.stack.enter_context(patch.object(m, 'home_state', return_value='unchanged'))
-        self.stack.enter_context(patch.object(m, 'git', return_value=''))
         self.stack.enter_context(patch.object(m.invalidate, 'run'))
         self.acceptance = self.stack.enter_context(patch.object(m, 'acceptance', return_value=''))
         self.stack.enter_context(patch.object(m, 'runner', side_effect=AssertionError('must not fall back')))

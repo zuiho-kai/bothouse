@@ -1165,11 +1165,16 @@ def save_block_candidate(label, coverage, key, stage, checkpoint, execution=None
     if stage == "deliver" and checkpoint:
         message += "\n\n" + PROGRESS_TRAILER + block_contract.canonical([
             dict(p, engine=LAST_ENGINE) for p in checkpoint])
-    block_contract.git(WORK, "reset", "--soft", git("rev-parse", "HEAD", cwd=REPO))
+    base = git("rev-parse", "HEAD", cwd=REPO)
+    block_contract.git(WORK, "reset", "--soft", base)
     block_contract.git(WORK, "add", "-A")
-    block_contract.git(WORK, "commit", "--allow-empty", "-qm", message)
-    sha = git("rev-parse", "HEAD", cwd=WORK)
+    tree = block_contract.git(WORK, "write-tree").decode().strip()
+    # A saved repair is evidence, not an accepted baseline: A2 must still see its first-round log additions.
+    sha = block_contract.git(WORK, "commit-tree", tree, "-p", base,
+                             data=(message + "\n").encode()).decode().strip()
     block_contract.git(REPO, "update-ref", "refs/wiki-ingest/pending/" + key, sha)
+    if stage == "deliver":
+        block_contract.git(WORK, "reset", "--soft", sha)
     return sha
 
 
@@ -1632,6 +1637,30 @@ decisions on its own; write one from it only if later lines of this session act 
 === END TRANSCRIPT ==="""
 
 
+# Source: main wiki #791/#846 measured one successful round at 511 seconds; #848 uses the same slot.
+ROUND_SECONDS = 511
+# Source: main wiki #846's existing SPLIT_BATCH, shared by every engine.
+SPLIT_BATCH = 3
+
+
+def round_remaining():
+    """Admission time; soft stops do not interrupt a call already running."""
+    left = budget.remaining()
+    stop_at = os.environ.get("WIKI_STOP_AT")
+    if stop_at:
+        soft = float(stop_at) - time.time()
+        left = soft if left is None else min(left, soft)
+    return left
+
+
+def round_ready(label):
+    left = round_remaining()
+    if left is None or left >= ROUND_SECONDS:
+        return True
+    log(f"{label}: {max(0, left):.0f} s left, less than one round ({ROUND_SECONDS} s); the rest waits")
+    return False
+
+
 def engine_run(cmd, **kw):
     """subprocess.run for a model CLI. A timeout is a failed call like any other (the engine chain moves on, the pass
     is reverted and not fingerprinted, the next run retries): code review 2026-10-18 found TimeoutExpired from codex()
@@ -1978,7 +2007,7 @@ def model_pass(label, *a, **k):
     died after the model was paid, nothing counted a failure, and launchd re-ran the same batch every 30 minutes."""
     global CRASHED, LAST_REJECTED
     CRASHED = ""
-    if budget.exhausted():
+    if not round_ready(label):
         LAST_REJECTED = False
         return False
     try:
@@ -2091,7 +2120,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             block_contract.catalog(REPO, WORK, coverage)
 
         # Source: #848 uses the same measured 511-second admission slot as main wiki #791/#846.
-        ok, out, cost, tid, model = codex_retry.run(invoke, CODEX_CHAIN, budget.remaining, 511,
+        ok, out, cost, tid, model = codex_retry.run(invoke, CODEX_CHAIN, round_remaining, ROUND_SECONDS,
                                                    lambda msg: log(f"{label}: {msg}"), reset=restart)
         if ok:
             LAST_ENGINE = f"codex:{model}"
@@ -2133,8 +2162,10 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
                     return codex("", RESUME_PROMPT, k.get("label", label), effort=execution["effort"], model=model, resume=tid)
                 return codex(*a, **k, effort=execution["effort"], model=model)
             # Source: #848 corrections share the measured 511-second main-call allocation.
-            return codex_retry.run(invoke, [execution["model"]], budget.remaining, 511,
+            return codex_retry.run(invoke, [execution["model"]], round_remaining, ROUND_SECONDS,
                                    lambda msg: log(f"{k.get('label', label)}: {msg}"))[:3]
+        if not round_ready(k.get("label", label)):
+            return False, codex_retry.Failure("not enough time for a round", "budget_exhausted", started=False), 0
         return runner(execution["engine"])(*a, **k)
 
     # Large daily evidence is read in bounded batches, accumulating edits in the same worktree. Accept and deliver
@@ -2370,6 +2401,8 @@ def pending_extract(path, offset, limit=None):
 
 def run(a, engines=None):
     global WIKI
+    if not round_ready("ingest"):
+        return
     db = state()
     WIKI = WORK  # every model pass, git call and prompt below works in the worktree
     if a.lint:
@@ -2570,6 +2603,8 @@ def split_pass(db, at=SPLIT_AT):
     whose content hasn't changed since its last split pass is skipped (same input, same result). Before that, every
     full README (lint.MAX_TOPICS entries) not already at MAX_DEPTH is split into subdomains (domain_split), unless it
     is unchanged since a rejected split."""
+    if not round_ready("split"):
+        return
     sync_work()
     family_pass()
     done = dict(db.execute("select page, sha from restructured"))
@@ -2577,6 +2612,8 @@ def split_pass(db, at=SPLIT_AT):
     # recomputed after every split: a full child README a parent's split moved is split at its new path, this run
     tried = set()
     while True:
+        if not round_ready("split-domain"):
+            return
         full = [d for d in lint.tree(WIKI) if d not in tried and len(lint.entries(WIKI / d / "README.md")) >= lint.MAX_TOPICS]
         if not full:
             break
@@ -2618,15 +2655,21 @@ def split_pass(db, at=SPLIT_AT):
         log(f"split: {len(deep)} page(s) at MAX_DEPTH {MAX_DEPTH}, not split (no deeper directory): {', '.join(deep)}")
     if split:
         log(f"split: {len(split)} page(s) ≥ {at:.0%} → {SPLIT_ENGINE}")
-        pages = [p for _, p in split]  # the regex group, not split(":"): a name may hold ":"
         # #1263: the target directory is spelled out — codex split <d>/<X>/<X>.md into <d>/<X>/<X>/ three runs in a row
         # (split_check rejected it each time); 「new pages go to split_home」 was only in the check, not in the prompt
-        res = model_pass("split", SOP_SPLIT + "\n" + "\n".join(
-            f"{l}  → 拆出的新页只放 {split_home(p)}（不要再建 {split_home(p)}{posixpath.basename(p[:-3])}/）"
-            for l, p in split), engine=SPLIT_ENGINE,
-                         max_delete=MAX_NET_DELETE * 3, kind="restructure", check=lambda: split_check(pages))
-        remember(db, pages, res)
+        for start in range(0, len(split), SPLIT_BATCH):
+            if not round_ready("split"):
+                return
+            part = split[start:start + SPLIT_BATCH]
+            pages = [p for _, p in part]
+            res = model_pass("split " + ", ".join(pages), SOP_SPLIT + "\n" + "\n".join(
+                f"{l}  → 拆出的新页只放 {split_home(p)}（不要再建 {split_home(p)}{posixpath.basename(p[:-3])}/）"
+                for l, p in part), engine=SPLIT_ENGINE,
+                             max_delete=MAX_NET_DELETE * 3, kind="restructure", check=lambda: split_check(pages))
+            remember(db, pages, res)
     for line, p in full:  # one page per pass: each moves lines into its own directory's pages
+        if not round_ready("split-full"):
+            return
         log(f"split: {p} sits in a full README at MAX_DEPTH {MAX_DEPTH} → move lines into its directory's pages ({SPLIT_ENGINE})")
         sync_work()
         res = model_pass("split-full", SOP_SPLIT_FULL + "\n" + line + "\n同目录各页余量：\n" + sibling_room(p),
@@ -2851,7 +2894,7 @@ def ingest_batches(db, items, engines, pending=False):
     batches = batches_of(items)
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
-        if budget.stopped():
+        if not round_ready("ingest"):
             log("wiki deadline reached between batches; unread offsets and partial checkpoints retained")
             break
         ids = list(dict.fromkeys(it["id"] for it, _ in batch))
@@ -2895,7 +2938,7 @@ def ingest_batches(db, items, engines, pending=False):
                     db.execute("insert or replace into reviewed values (?,?,?)", (it["id"], it["end"], time.time()))
         elif BLOCK_PENDING:
             log(f"{label}: candidate waiting for review or delivery; offsets and failure count unchanged")
-        elif budget.exhausted():
+        elif not round_ready(label):
             log(f"{label}: job deadline reached; checkpoint retained, not counted as a model failure")
             db.commit()
             break
@@ -3370,6 +3413,15 @@ def nightly(a):
     global WIKI
     WIKI = WORK
     deadline = time.time() + NIGHT_BUDGET
+    stop_at = os.environ.get("WIKI_STOP_AT")
+    if stop_at and float(stop_at) <= deadline:
+        deadline = min(deadline, float(stop_at))
+    else:
+        os.environ["WIKI_STOP_AT"] = str(deadline)
+    left = budget.remaining()
+    if left is not None:
+        deadline = min(deadline, time.time() + left)
+    log(f"nightly: shared stop_at={os.environ['WIKI_STOP_AT']} scheduler={os.environ.get('CC_JOB_DEADLINE', '')}")
     run(a, engines=[NIGHT_ENGINE])
     split_pass(state())
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
@@ -3942,6 +3994,8 @@ def dream(db, deadline):
 def profile_ask(prompt):
     """One answer-only call on the dream engine → its JSON (profiles.rewrite). Same engines as rule_correction-style
     single calls: codex, else the engine's runner."""
+    if not round_ready("dream profile"):
+        raise RuntimeError("night budget used up; profile waits for the next run")
     name = DREAM_ENGINE.split("|")[-1].split(":")[0]
     if name == "codex":
         ok, out, *_ = codex(prompt, label="dream profile", model=MODELS["codex"])

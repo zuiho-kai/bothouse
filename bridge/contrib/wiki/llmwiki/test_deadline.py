@@ -20,6 +20,62 @@ import ingest as I
 
 
 class Deadline(unittest.TestCase):
+    def test_nightly_shares_its_budget_with_ingest_and_later_stages(self):
+        import argparse
+        import manuals
+        from contextlib import ExitStack
+        clock = [1000.0]
+        seen = []
+
+        def ingest(*args, **kwargs):
+            self.assertEqual(float(os.environ["WIKI_STOP_AT"]), 1060.0)
+            clock[0] = 1061.0
+            seen.append("ingest")
+
+        def stage(name):
+            def check(*args, **kwargs):
+                seen.append(name)
+                self.assertTrue(I.budget.stopped(), name)
+                with patch.object(I, "_model_pass", side_effect=AssertionError("no new model after soft stop")):
+                    self.assertFalse(I.model_pass(name, "no work"))
+            return check
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, CC_JOB_DEADLINE="", WIKI_STOP_AT=""))
+            stack.enter_context(patch.object(I, "log"))
+            stack.enter_context(patch.object(I.time, "time", side_effect=lambda: clock[0]))
+            stack.enter_context(patch.object(I, "NIGHT_BUDGET", 60))
+            stack.enter_context(patch.object(I, "WIKI", I.WIKI))
+            stack.enter_context(patch.object(I, "state"))
+            stack.enter_context(patch.object(I, "run", side_effect=ingest))
+            for name in ("split_pass", "dream", "review", "restate_pass"):
+                stack.enter_context(patch.object(I, name, side_effect=stage(name)))
+            stack.enter_context(patch.object(manuals, "role_project", return_value=""))
+            stack.enter_context(patch.object(manuals, "WIKI", manuals.WIKI))
+            stack.enter_context(patch.object(manuals, "run", side_effect=stage("manuals")))
+            I.nightly(argparse.Namespace())
+        self.assertEqual(seen, ["ingest", "split_pass", "dream", "manuals", "review", "restate_pass"])
+
+    def test_nightly_preserves_earlier_soft_and_scheduler_deadlines(self):
+        import argparse
+        import manuals
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, CC_JOB_DEADLINE="1030", WIKI_STOP_AT="1020"))
+            stack.enter_context(patch.object(I, "log"))
+            stack.enter_context(patch.object(I.time, "time", return_value=1000))
+            stack.enter_context(patch.object(I, "NIGHT_BUDGET", 60))
+            stack.enter_context(patch.object(I, "WIKI", I.WIKI))
+            for name in ("state", "run", "split_pass", "dream", "review", "restate_pass"):
+                stack.enter_context(patch.object(I, name))
+            stack.enter_context(patch.object(manuals, "role_project", return_value=""))
+            stack.enter_context(patch.object(manuals, "WIKI", manuals.WIKI))
+            call = stack.enter_context(patch.object(manuals, "run"))
+            I.nightly(argparse.Namespace())
+            self.assertEqual(os.environ["WIKI_STOP_AT"], "1020")
+            self.assertEqual(os.environ["CC_JOB_DEADLINE"], "1030")
+            self.assertEqual(call.call_args.kwargs["deadline"], 1020)
+
     def test_real_sub_wiki_entry_yields_then_resumes_other_roles(self):
         root = Path(tempfile.mkdtemp(prefix="entry-", dir=ROOT))
         (root / "llmwiki").mkdir()

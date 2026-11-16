@@ -71,6 +71,75 @@ class BlockContract(unittest.TestCase):
         (self.repo / "misc/source.md").write_text(PAGE + FACT, encoding="utf-8")
         self.assertIn("block coverage", I.acceptance())
 
+    def test_acceptance_still_rejects_a_genuinely_missing_session_log(self):
+        self.assertIn("A2: no new log.md entry", I.acceptance(sids=["missing1"]))
+
+    def test_fix_round_keeps_first_round_log_new_against_accepted_baseline(self):
+        sid = "fixture1"
+        calls = []
+        checkpoint = [dict(id=sid, start=0, end=123)]
+
+        def model(*args, **kwargs):
+            calls.append(kwargs.get("label", args[2] if len(args) > 2 else "?"))
+            if len(calls) == 1:
+                with (I.WORK / "log.md").open("a") as stream:
+                    stream.write("\n## [2026-11-17] ingest | fixture1 synthetic entry\n- new fact\n")
+            return True, I.block_contract.PLAN_PREFIX + json.dumps(dict(moves=[], updates=[])), 0
+
+        checked = []
+
+        def check():
+            checked.append(True)
+            return "synthetic repair required" if len(checked) == 1 else ""
+
+        with patch.object(I, "runner", return_value=model):
+            self.assertEqual(I.model_pass("log repair", "retain entry", engine="fake", sids=[sid],
+                                          checkpoint=checkpoint, check=check), "changed")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual((self.repo / "log.md").read_text().count("ingest | fixture1"), 1)
+        db = I.state()
+        self.assertEqual(db.execute("select offset from ingested where id=?", (sid,)).fetchone(), (123,))
+        db.close()
+
+    def test_split_batches_keep_accepted_commits_after_a_later_batch_fails(self):
+        pages = [f"misc/p{n}.md" for n in range(7)]
+        for page in pages:
+            (self.repo / page).write_text(PAGE + FACT)
+        with (self.repo / "misc/README.md").open("a") as stream:
+            for page in pages:
+                stream.write(f"- [{Path(page).stem}]({Path(page).name}) — synthetic page\n")
+        self.commit("split fixtures")
+        seen = []
+        real_run = subprocess.run
+
+        def commands(cmd, **kwargs):
+            if "--warn" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(
+                    f"{page}: 100/100 lines, 100/100 chars" for page in pages), "")
+            return real_run(cmd, **kwargs)
+
+        def model(instruction, *args, **kwargs):
+            seen.append([page for page in pages if page + ": 100/100" in instruction])
+            if len(seen) == 2:
+                return False, "synthetic upstream failure", 0
+            with (I.WORK / "log.md").open("a") as stream:
+                stream.write(f"\naccepted split batch {len(seen)}\n")
+            return True, I.block_contract.PLAN_PREFIX + json.dumps(dict(moves=[], updates=[])), 0
+
+        with patch.object(I, "family_pass"), patch.object(I.lint, "tree", return_value=[]), \
+                patch.object(I.consolidate, "pinned", return_value=[]), \
+                patch.object(I, "split_check", return_value=""), \
+                patch.object(I, "SPLIT_ENGINE", "fake"), patch.object(I, "runner", return_value=model), \
+                patch.object(I.subprocess, "run", side_effect=commands):
+            db = I.state()
+            I.split_pass(db)
+            db.close()
+        self.assertEqual(seen, [pages[:3], pages[3:6], pages[6:]])
+        text = (self.repo / "log.md").read_text()
+        self.assertIn("accepted split batch 1", text)
+        self.assertIn("accepted split batch 3", text)
+        self.assertNotIn("accepted split batch 2", text)
+
     def test_program_moves_one_occurrence_and_delivery_has_contract(self):
         with patch.object(I, "runner", return_value=self.move_model):
             self.assertEqual(I.model_pass("synthetic split", "split", engine="fake", kind="restructure"), "changed")
