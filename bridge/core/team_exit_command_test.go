@@ -1,12 +1,92 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core/team"
 )
+
+// #775: the exit API must move the task named in the draft, never the newer task
+// occupying the same workspace. Old board-only tasks still have no state record.
+func TestWorkspaceExitAPIKeepsDraftTaskIdentity(t *testing.T) {
+	for _, tracked := range []bool{true, false} {
+		t.Run(fmt.Sprintf("old_task_tracked=%t", tracked), func(t *testing.T) {
+			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+			e.SetTeam(t.TempDir(), "橘", true)
+			e.markPlatformReady(p)
+			exitBoardItem(t, e, 765, "旧任务")
+			exitBoardItem(t, e, 771, "新任务")
+			if tracked {
+				if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "旧任务", 765); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "新任务", 771); err != nil {
+				t.Fatal(err)
+			}
+			current, _, _ := e.TeamTask(771)
+			s := &APIServer{engines: map[string]*Engine{"lead": e}}
+			call := func(id int) WorkspaceExitResult {
+				t.Helper()
+				report := fmt.Sprintf("[report] #%d 背景：你让我做这件事。\n已经完成。\n要你做的：没有。\n我加的：无\n入口自验：\n```\nsent ok\n```", id)
+				body, err := json.Marshal(map[string]string{"session_key": exitWSKey, "project": "lead", "kind": team.ExitKindReport, "text": report})
+				if err != nil {
+					t.Fatal(err)
+				}
+				rec := httptest.NewRecorder()
+				s.handleTeamWorkspaceExit(rec, httptest.NewRequest(http.MethodPost, "/team/workspace/exit", strings.NewReader(string(body))))
+				if rec.Code != http.StatusOK {
+					t.Fatalf("exit #%d: HTTP %d: %s", id, rec.Code, rec.Body.String())
+				}
+				var res WorkspaceExitResult
+				if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+					t.Fatal(err)
+				}
+				return res
+			}
+			res := call(765)
+			if res.Board != 765 {
+				t.Fatalf("exit board = %d, want draft #765", res.Board)
+			}
+			if got, _, err := e.TeamTask(771); err != nil || got != current {
+				t.Fatalf("new task changed: before=%+v after=%+v err=%v", current, got, err)
+			}
+			if old, known, err := e.TeamTask(765); err != nil || known != tracked || (tracked && old.State != TeamTaskReturned) {
+				t.Fatalf("old task: %+v known=%t err=%v", old, known, err)
+			}
+			if res := call(771); res.Board != 771 || res.State != string(TeamTaskReturned) {
+				t.Fatalf("new task could not hand back: %+v", res)
+			}
+		})
+	}
+}
+
+func TestExitCommandDoesNotReturnAnotherWorkspaceTask(t *testing.T) {
+	e, _, p := exitFixture(t, mapParent{"ws1": "chat1", "ws2": "chat1"})
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.markPlatformReady(p)
+	for id, ws := range map[int]string{765: "ws2", 771: "ws1"} {
+		if err := e.ClaimTeamWorkspaceTask("discord:chat1", ws, ws, "", "任务", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #765 背景：另一工作区的任务。\n已经完成。\n要你做的：没有。\n我加的：无")
+	if !errors.Is(err, ErrWorkspaceExitNoTask) {
+		t.Fatalf("another workspace's task accepted: %v", err)
+	}
+	for id, ws := range map[int]string{765: "discord:ws2", 771: "discord:ws1"} {
+		if task, _, err := e.TeamTask(id); err != nil || task.State != TeamTaskDispatched || task.WS != ws {
+			t.Fatalf("task #%d changed: %+v err=%v", id, task, err)
+		}
+	}
+}
 
 // exitByCommand hands the workspace's task back the only way there is since #699 C: the command
 // (ws-up --report → POST /team/workspace/exit → WorkspaceExit).
