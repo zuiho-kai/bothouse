@@ -1959,6 +1959,17 @@ func (m *ManagementServer) handleCronByID(w http.ResponseWriter, r *http.Request
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
 		}
+		// Check the whole edit on a copy first: a refused field must not leave the others applied.
+		if job := m.cronScheduler.Store().Get(id); job != nil {
+			for field, value := range updates {
+				edited, err := EditedCronJob(job, field, value)
+				if err != nil {
+					mgmtError(w, http.StatusBadRequest, fmt.Sprintf("update %s: %s", field, err.Error()))
+					return
+				}
+				job = edited
+			}
+		}
 		for field, value := range updates {
 			if err := m.cronScheduler.UpdateJob(id, field, value); err != nil {
 				mgmtError(w, http.StatusBadRequest, fmt.Sprintf("update %s: %s", field, err.Error()))

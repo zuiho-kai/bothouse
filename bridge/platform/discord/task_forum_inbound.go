@@ -60,8 +60,8 @@ func (p *Platform) handleTaskForumReply(s *discordgo.Session, m *discordgo.Messa
 			return true
 		}
 	}
-	images, files, audio := classifyAttachments(m.Attachments, downloadURL)
-	content := m.Content
+	images, files, audio, missed := classifyAttachments(m.Attachments, downloadURL)
+	content := core.WithMissedAttachments(m.Content, missed...)
 	if m.ReferencedMessage != nil {
 		content, images = applyReferencedMessage(m.ReferencedMessage, content, images, downloadURL)
 	}
