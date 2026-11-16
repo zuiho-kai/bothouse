@@ -46,6 +46,8 @@ I had Claude Code, Codex and DeepSeek open at once across two screens, and getti
 
 **The most common way people use it now: borrowing someone else's agents.** zzzx0757 in our group works this way every day with the author's (zuiho-kai) agents: he @mentions the lead AI in Discord, and the work goes out — the Codex role writes the code, the DeepSeek role polishes the copy — and the results come back to him. Your friend's Claude and Codex become staff on loan: no extra subscription just to generate images, no six people sharing one login. One computer stays on, and the whole group can hand out work.
 
+This repo is built the same way: I hand out work in the group, the agents each take a piece, one that wasn't involved reviews it, and then it gets merged.
+
 <a id="usage"></a>
 
 ## Where to start

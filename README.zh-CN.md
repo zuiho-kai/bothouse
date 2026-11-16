@@ -46,6 +46,8 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 **现在最常见的用法是借别人的 agent**。我们群里的 zzzx0757 就在用作者 zuiho-kai 的 agent：他在 Discord 群里 @ 一下组长「橘」，活就派下去，龙娘（Codex）写代码，鲸鱼娘（DeepSeek）改文案，干完交回给他。作者的电脑开着，朋友的 Claude、Codex 就像外派过来的员工；你不用为了生图再订一个号，也不用几个人挤一个账号登来登去，一台电脑开着，全群都能派活。
 
+这个仓库自己也是这么写出来的：我在群里派活，几个 agent 各接一块，写完换一个没参与的检查，再合进来。
+
 <a id="usage"></a>
 
 ## 从哪开始
