@@ -57,7 +57,7 @@ export default function UsageMembers({ from, to, role, model, revision }: {
     {!rows.length && !error && <p className="text-xs text-ink-mute mt-3">{t('usage.empty')}</p>}
     {member && <div className="mt-5 border-t border-hairline pt-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="min-w-0 break-all">{name(member)}</h3><select aria-label={t('usage.membersDetail')} value={group} onChange={e => setGroup(e.target.value as typeof group)} className="bg-surface-sunken rounded p-2">
-        <option value="daily">{t('usage.membersDaily')}</option><option value="roles">{t('usage.roles')}</option><option value="models">{t('usage.models')}</option>
+        <option value="daily">{t('usage.membersDaily')}</option><option value="roles">{t('usage.customRoles')}</option><option value="models">{t('usage.customModels')}</option>
       </select></div>
       <div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap"><thead><tr><th className="p-2 text-left">{t('usage.name')}</th>{cols.map(c => <th className="p-2 text-right" key={c}>{t(`usage.${c}`)}</th>)}</tr></thead><tbody>{detail.map((r, i) => <tr key={i} className="border-t border-hairline"><td className="p-2">{r.date || r.role || r.model}</td>{cells(r)}</tr>)}</tbody></table></div>
       {!detail.length && <p className="text-xs text-ink-mute mt-3">{t('usage.empty')}</p>}
