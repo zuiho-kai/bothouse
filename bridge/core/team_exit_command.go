@@ -38,8 +38,8 @@ type WorkspaceExitResult struct {
 	Posted    string `json:"posted,omitempty"`
 }
 
-// WorkspaceExit hands back the task of workspace sessionKey: kind report (done, for acceptance) or
-// failed (handed back as failed; forwarded like a report). text is the report as the skeleton has
+// WorkspaceExit hands back the task of workspace sessionKey: kind report (final, for acceptance),
+// batch (one delivery, task/workspace retained), or failed. text is the report as the skeleton has
 // it, its first line 「[report] #id 背景：…」 (the marker may be left out). The task's state moves to
 // returned/failed; the report itself goes through the same checks and the lead's acceptance as
 // before (forwardWorkspaceExitKind).

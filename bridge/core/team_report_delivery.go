@@ -69,7 +69,8 @@ type pendingReport struct {
 	// closing the item, and no verdict in time drops it instead of posting it unchecked (#1378).
 	Waiting bool `json:"waiting,omitempty"`
 	// Batch publishes one delivery without ending the task or releasing its workspace.
-	Batch bool `json:"batch,omitempty"`
+	Batch    bool `json:"batch,omitempty"`
+	Rejected bool `json:"rejected,omitempty"` // Lead rejected this delivery; identical rework can be submitted again.
 	// HeldBound / HeldDone: the board item's bind time and whether it was already closed when the report
 	// was held. A later rebind, a newer handoff of the same notes or a close ends the hold (#1378).
 	HeldBound   string    `json:"held_bound,omitempty"`
@@ -177,7 +178,7 @@ func (e *Engine) rememberReportErr(rec *pendingReport) (bool, error) {
 	e.teamExit.mu.Lock()
 	defer e.teamExit.mu.Unlock()
 	if old := e.loadReportsLocked()[rec.Key]; old != nil {
-		if !old.delivered() || (time.Since(old.DeliveredAt) <= teamReportDedupe && !strings.HasPrefix(old.Verdict, "打回：")) {
+		if !old.delivered() || (time.Since(old.DeliveredAt) <= teamReportDedupe && !old.Rejected) {
 			return false, nil
 		}
 		delete(e.teamExit.reports, rec.Key)

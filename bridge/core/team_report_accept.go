@@ -38,7 +38,7 @@ var heldReportImages = struct {
 
 // holdReportForLead takes the place of postExitHeadline for a [report]: the record is kept
 // pending (Held) on the lead engine and the lead is woken to accept it. The board records the
-// handback and the workspace is freed as before. false: nothing was held (a duplicate, or no
+// final handback and frees its workspace; a batch retains both. false: nothing was held (a duplicate, or no
 // lead could be asked and the unchecked copy went out instead) — the caller does nothing more.
 func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, bot, body, sessionKey string, hid int, hline, doubt, check string, item *teamTaskBoardItem) bool {
 	if item.DoneAt != "" && item.AutoPruned == "" && e.exitReportedForHandoff(hid, item.Bound) {
@@ -263,7 +263,7 @@ func (e *Engine) heldReportFor(hid int) *pendingReport {
 
 // rejectHeldReport ends a held report without posting it (the lead sent the work back).
 func (e *Engine) rejectHeldReport(key, why string) bool {
-	return e.endHeldReport(key, "打回："+why)
+	return e.endHeldReportAs(key, "打回："+why, true)
 }
 
 // heldWaitExpired: the verdict of a progress report (等外部) the lead did not judge in time.
@@ -350,6 +350,10 @@ func returnedThisBind(item *teamTaskBoardItem) bool {
 
 // endHeldReport ends a held report unposted with verdict.
 func (e *Engine) endHeldReport(key, verdict string) bool {
+	return e.endHeldReportAs(key, verdict, false)
+}
+
+func (e *Engine) endHeldReportAs(key, verdict string, rejected bool) bool {
 	e.teamExit.mu.Lock()
 	rec := e.loadReportsLocked()[key]
 	if rec == nil || !rec.Held || rec.delivered() || rec.sending {
@@ -357,6 +361,7 @@ func (e *Engine) endHeldReport(key, verdict string) bool {
 		return false
 	}
 	rec.Verdict = verdict
+	rec.Rejected = rejected
 	rec.DeliveredAt = time.Now()
 	e.saveReportsLocked()
 	e.teamExit.mu.Unlock()

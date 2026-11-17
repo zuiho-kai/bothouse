@@ -308,25 +308,17 @@ def main(argv):
             reject_held_report(last["file"], argv[0], hit.get("id"))
         sys.exit(r.returncode)
     live = find_live(last)
-    if live is not None and live.get("returned_at"):
-        # Final handback needs a fresh claim even when the board still names the old workspace.
+    if live is not None and (live.get("returned_at") or not live.get("ws")):
+        # A returned/unbound task needs a new claim, even if a stale board row still
+        # names the old workspace. Its terminal state cannot run another report.
         if reject_on_board(live, argv[0]):
             sys.exit(0)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
+        if r.returncode == 0:
+            reject_held_report(last["file"], argv[0], live.get("id"))
         sys.exit(r.returncode)
     if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
-        if live.get("ws"):
-            last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个
-        else:
-            # 这件活已交回、让出了原工作区（交回待验收、排队等），原工作区可能已归别的聊天频道：不发去旧工作区，
-            # 交 ws-handoff --resume 找空着的接着做（都占着就新建或排队）。来源 #1154：11-06 23:02 记忆论坛的转话
-            # 发进了已在做小剧场的工作区2，截图落到小剧场频道，用户「为什么会推到这边来」。
-            if reject_on_board(live, argv[0]):  # 第二次退回：任务板已停下等用户，不再续做
-                sys.exit(0)
-            r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
-            if r.returncode == 0:  # 交回待验收的活转话＝打回：桥扣着的文字汇报不再贴
-                reject_held_report(last["file"], argv[0], live.get("id"))
-            sys.exit(r.returncode)
+        last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个
     if live is None:
         other = other_chat_work(last)
         if other is not None:

@@ -47,7 +47,7 @@ func TestWorkspaceBatchReportLifecycle(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("reject: %d %s", w.Code, w.Body)
 	}
-	report("batch", "第二批返工做完")
+	report("batch", "第二批做完") // Same text can be resubmitted after rejection.
 	pass()
 	report("report", "全部做完，最终交回")
 	if task, _, _ := e.TeamTask(46); task.State != TeamTaskReturned {
