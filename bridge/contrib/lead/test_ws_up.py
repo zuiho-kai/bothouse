@@ -41,6 +41,32 @@ class WsUpTest(unittest.TestCase):
     def write_last(self, tasks, **top):
         self.last.write_text(json.dumps({**top, "tasks": tasks}, ensure_ascii=False), encoding="utf-8")
 
+    def test_report_uses_active_board_task_when_notes_cache_is_missing_or_reused(self):
+        notes, draft = self.tmp / "notes.md", self.tmp / "report.md"
+        notes.write_text("# task\n")
+        draft.write_text("[report] #830 背景：分批交回。\n")
+        team = self.setup / "team"
+        team.mkdir()
+        (team / "board.jsonl").write_text(json.dumps(dict(
+            id=830, where=str(notes), ws="test:900", chat="test:100")) + "\n")
+        for tasks in ({}, {str(notes): dict(channel="900", chat="test:100", board=[810]),
+                              str(notes) + "@ws900@task830": dict(file=str(notes), channel="900", chat="test:100", board=[830])}):
+            with self.subTest(tasks=tasks):
+                self.write_last(tasks)
+                r = self.run_tool("ws-up", "--notes", str(notes), "--report", str(draft), key="test:900")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                exit_ = next(c for c in reversed(self.timers()) if c[:2] == ["workspace", "exit"])
+                self.assertIn(str(draft), exit_)
+
+    def test_batch_report_names_nonterminal_exit_kind(self):
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "board": [830]}})
+        draft = self.tmp / "report.md"
+        draft.write_text("[report] #830 背景：交第一批。\n")
+        r = self.run_tool("ws-up", "--notes", "/n/a.md", "--report", str(draft), "--batch", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        exit_ = next(c for c in self.timers() if c[:2] == ["workspace", "exit"])
+        self.assertEqual(exit_[exit_.index("--kind") + 1], "batch")
+
     def test_reports_to_source_chat_with_lead_identity(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
         r = self.run_tool("ws-up", "问题：选哪个？\n选项与推荐：A 或 B，推荐 A", "--ask", key="test:900")
