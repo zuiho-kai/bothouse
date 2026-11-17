@@ -107,6 +107,7 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 夜间等其他阶段各自使用对应的 `*_engine` 键，安装时也可通过 `WIKI_ENGINES` JSON 写入。
 `WIKI_AGY_MODEL` 可临时覆盖模型；命令不在 PATH 时用 `agy_cmd` 或 `WIKI_AGY_CMD`
 指定可执行文件的绝对路径，默认仍为 `agy`。模型和可执行程序须由本机安装提供。
+向导创建的角色库默认仅在本机保存；未配置远端时无需拉取，仍照常整理并提交到本地 Git。
 论坛任务可用 `GATE_DEFAULT_BOT`、`GATE_WIKI`、`CODEMAP_DIR` 指定默认角色、Wiki 和地图目录；
 `WIKI_CODEX_MODEL` / `REFLECTOR_MODEL` 可分别指定夜间结算和反思任务的模型，未设置时使用 Codex CLI 的配置模型；
 `CODEX_SESSIONS_DIR` / `CLAUDE_PROJECTS_DIR`

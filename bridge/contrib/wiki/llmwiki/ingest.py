@@ -2297,6 +2297,8 @@ def remote(*args):
 def pull():
     """Several machines ingest into the same repo: rebase onto origin before a pass and before pushing.
     A conflict is aborted and left for the next run (log.md appends merge via .gitattributes merge=union)."""
+    if not git("remote", cwd=REPO):
+        return True  # setup_wiki.py creates local role repositories without a remote to synchronize.
     if not remote("pull", "-q", "--rebase", "--autostash"):
         git("rebase", "--abort", cwd=REPO)
         return False

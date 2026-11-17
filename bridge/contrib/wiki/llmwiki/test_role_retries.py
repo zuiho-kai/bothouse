@@ -14,6 +14,10 @@ class RoleFailurePolicy(unittest.TestCase):
     invoke = fixtures.RoleCodexRetry.invoke
     run_pass = fixtures.RoleCodexRetry.run_pass
 
+    def test_local_role_repository_needs_no_remote_pull(self):
+        with patch.object(self.m, 'remote', side_effect=AssertionError('local wiki has no remote')):
+            self.assertTrue(self.m.pull())
+
     def test_429_retries_three_times_then_sol_from_clean_head(self):
         self.m.CODEX_CHAIN = ['gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-astra']
         self.m.AFTER_CODEX = []
