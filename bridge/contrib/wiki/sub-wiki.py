@@ -61,6 +61,8 @@ def run_one(rows, b, *args):
         env = dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=project,
                    BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
                                       os.environ.get("CC_DATA_DIR") or str(HERE.parent)))
+        # Wiki jobs use the user's CLI login, like hook_env(); an invoking agent's private home is unrelated.
+        env.pop("CODEX_HOME", None)
         if "--nightly" in args:
             env.pop("WIKI_NEWEST_FIRST", None)  # Source: user #852: nightly drains older backlog first.
         cmd = [PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args]

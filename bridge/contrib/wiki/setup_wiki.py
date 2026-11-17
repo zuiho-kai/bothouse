@@ -181,6 +181,8 @@ def main(bot):
     cfg = {
         "transcripts": f"{TRANSCRIPTS}/{bot}",
         "assistant": name, "bots": {n: [n] for n in [LEAD, *NAMES.values()]}, "user_names": [USER] if USER else [],
+        # Source: role MEMORY.md and CLAUDE.md above place dream candidates in the registered misc domain.
+        "dream_dir": "misc",
         # every pass on codex (ChatGPT subscription), none on Claude: user 「额度花太快」; models and efforts as
         # ~/wiki's private pipeline (~/wiki/bin/ingest.py:55-77: night/review/dream/split codex:high, lint codex:max,
         # chain gpt-6-luna → gpt-6.1-sol → gpt-6-astra)
