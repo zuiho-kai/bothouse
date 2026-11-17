@@ -5,8 +5,9 @@ export interface LocalCLI {
   agent_type: string; label: string; binary: string; path: string; version?: string;
   login: 'logged_in' | 'not_logged_in' | 'unknown'; protocol: string; supported: boolean; note?: string;
 }
-/** an ACP agent CLI the wizard offers as a card (core/acp_presets.json); found = its command runs on this machine as it stands */
-export interface ACPPreset { id: string; label: string; cmd: string; note_zh?: string; note_en?: string; found: boolean }
+/** an ACP agent CLI the wizard offers as a card (core/acp_presets.json). found = its executable is on this machine;
+ * cmd = the launch command with the executable's full path, '' when not found; running = JiuwenSwarm's main process is up */
+export interface ACPPreset { id: string; label: string; cmd: string; bin: string; note_zh?: string; note_en?: string; install_url?: string; found: boolean; path?: string; version?: string; running?: boolean }
 export interface WizardVendor {
   id: string; label: string; openai_base: string; endpoints: Record<string, string>;
   model?: string; signup_url?: string; source: string;

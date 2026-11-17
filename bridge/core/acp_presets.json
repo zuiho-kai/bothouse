@@ -4,7 +4,8 @@
     "label": "JiuwenSwarm",
     "cmd": "jiuwenswarm-acp",
     "note_zh": "openJiuwen 的 Agent 系统；先把 JiuwenSwarm 主进程跑起来",
-    "note_en": "openJiuwen's agent system; start the JiuwenSwarm app first"
+    "note_en": "openJiuwen's agent system; start the JiuwenSwarm app first",
+    "install_url": "https://gitcode.com/openJiuwen/jiuwenswarm"
   },
   {
     "id": "openclaw",
