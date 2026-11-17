@@ -815,14 +815,21 @@ R4 描述一行，说出子域里所有主题族；父 README 里那一行「- [
 
 条目（README 原文）："""
 
-REDO = """上一次的输出没通过脚本验收，问题如下。按原任务重新输出（只输出原任务「交付」要的内容）：
-{errors}"""
+REPAIR_RULES = """Fix only the reported errors under the original task and CLAUDE.md; leave unrelated content unchanged.
+Match each correction to its actual error: restore changed old log bytes for append-only errors, append a new
+session heading for A2, and restore missing still-true facts for preservation errors. Split or compress pages
+only when a reported structural error requires it, never as a default repair. Lint warnings alone are not
+errors and do not justify changing old facts. Preserve code error messages, commands and configuration
+literals verbatim, including brackets and escaping; do not rewrite them as HTML entities to silence warnings.
+"""
 
-FIX = """The structural linter rejected the wiki after your last pass. Fix these violations per CLAUDE.md
-(split or compress — don't drop still-true facts; keep READMEs/MEMORY.md in sync; never merge a subdomain
-<dir>/README.md back into its parent):
+REDO = """上一次的输出没通过脚本验收，问题如下。按原任务重新输出（只输出原任务「交付」要的内容）：
 {errors}
-Finish with one line per change."""
+""" + REPAIR_RULES
+
+FIX = """The wiki failed the script's acceptance checks after your last pass:
+{errors}
+""" + REPAIR_RULES + "Finish with one line per change."
 
 
 # The manuals name program settings as @NAME@; the numbers live only in lint.py and the constants above.
@@ -1745,11 +1752,21 @@ def acceptance(sids=(), max_delete=None, kind="ingest"):
     miss = lossless.missing(lossless.corpus(base, WIKI), lossless.corpus(None, WIKI))
     if miss:
         errs.append(lossless.report(miss))
-    log_diff = git("diff", base, "--", "log.md").splitlines()
-    if any(l.startswith("-") and not l.startswith("---") for l in log_diff):
+    # Git shows the last old line as removed/re-added when it had no final newline.
+    # The contract is byte preservation, not the presentation of a textual diff.
+    old_log = subprocess.run(["git", "show", f"{base}:log.md"], cwd=WIKI,
+                             capture_output=True, check=True).stdout
+    log_path = WIKI / "log.md"
+    new_log = log_path.read_bytes() if log_path.exists() else b""
+    appended = b""
+    if not new_log.startswith(old_log):
         errs.append("log.md is append-only: restore the lines you removed or changed")
-    heads = [l for l in log_diff if re.match(rf"\+## \[\d{{4}}-\d\d-\d\d\] {kind} \| ", l)]
-    missing = [s for s in sids if not any(s in h for h in heads)]
+    else:
+        appended = new_log[len(old_log):]
+        if old_log and not old_log.endswith(b"\n"):
+            appended = appended.partition(b"\n")[2]  # skip the continuation of the old final line
+    heads = [l for l in appended.splitlines() if re.match(rf"## \[\d{{4}}-\d\d-\d\d\] {kind} \| ".encode(), l)]
+    missing = [s for s in sids if not any(s.encode() in h for h in heads)]
     if missing:
         errs.append(f"A2: no new log.md entry '## [YYYY-MM-DD] {kind} | <sid8> <title>' for session(s) "
                     f"{', '.join(missing)} — append one per session in exactly that format")
