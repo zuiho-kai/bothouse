@@ -194,6 +194,45 @@ class BlockContract(unittest.TestCase):
         self.assertEqual(db.execute("select count(*) from ingested").fetchone(), (1,))
         db.close()
 
+    def test_pending_resume_uses_new_accepted_locations_after_an_unrelated_move(self):
+        (self.repo / "other").mkdir()
+        (self.repo / "other/source.md").write_text(PAGE + "- independent original fact\n")
+        (self.repo / "other/README.md").write_text("# Other\n- [source](source.md) — independent page\n")
+        with (self.repo / "MEMORY.md").open("a") as stream:
+            stream.write("- [other](other/README.md) — independent domain\n")
+        self.commit("independent relocation source")
+        with patch.object(I, "runner", return_value=self.move_model), patch.object(I, "deliver", return_value=[]):
+            self.assertFalse(I.model_pass("pending before relocation", "split", engine="fake", kind="restructure"))
+        accepted = I.block_contract.freeze(self.repo, ["HEAD"])
+        (self.repo / "other/nested").mkdir()
+        self.git("mv", "other/source.md", "other/nested/source.md")
+        p = self.repo / "other/README.md"
+        p.write_text(p.read_text().replace("- [source](source.md) — independent page\n",
+                                           "- [nested](nested/README.md) — independent page\n"))
+        (self.repo / "other/nested/README.md").write_text("# Nested\n- [source](source.md) — independent page\n")
+        accepted["plan"] = I.block_contract.scripted_moves(
+            self.repo, accepted, I.block_contract.working_tree(self.repo))
+        accepted["kind"] = "restructure"
+        self.assertEqual(I.block_contract.check(
+            self.repo, accepted, I.block_contract.working_tree(self.repo), "restructure"), [])
+        self.commit("accepted independent page relocation\n\n" + I.block_contract.TRAILER
+                    + I.block_contract.canonical(accepted))
+        with patch.object(I, "runner", side_effect=AssertionError("saved move requires no new model")):
+            self.assertEqual(I.model_pass("pending before relocation", "split", engine="fake",
+                                          kind="restructure"), "changed")
+        self.assertEqual((self.repo / "misc/source.md").read_text().count(FACT), 1)
+        self.assertEqual((self.repo / "misc/dest.md").read_text().count(FACT), 1)
+        self.assertIn("independent original fact", (self.repo / "other/nested/source.md").read_text())
+
+    def test_historical_paths_require_a_declared_accepted_relocation(self):
+        before = self.git("rev-parse", "HEAD")
+        self.git("mv", "misc/source.md", "misc/renamed.md")
+        (self.repo / "misc/README.md").write_text("# Misc\n- [renamed](renamed.md) — renamed page\n")
+        after = self.commit("unrecorded relocation")
+        coverage = I.block_contract.freeze(self.repo, [before, after])
+        errors = I.block_contract.check(self.repo, coverage, I.block_contract.working_tree(self.repo), "restructure")
+        self.assertTrue(any("no declared searchable destination" in error for error in errors))
+
     def test_update_waits_for_exact_tree_review_and_resumes_without_model(self):
         policy = patch.dict(I.CFG, fact_update_review=True)
         policy.start()

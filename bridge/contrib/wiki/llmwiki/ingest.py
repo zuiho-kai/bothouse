@@ -2804,7 +2804,20 @@ def domain_check(d, st):
     """The script's own acceptance of a domain split: every moved file byte for byte as at HEAD, every moved entry
     listed exactly once in the READMEs under `d` and its old README line verbatim in exactly one of them, no [[link]]
     that resolved before left without a page, nothing else changed. (lint ok is acceptance()'s A1.)"""
-    errs, moved = [], st["moved"]
+    # A resumed candidate has no in-memory apply_groups state. Its exact Git
+    # renames are durable move evidence, including every file of a moved subdomain.
+    moved = dict(st["moved"])
+    git("add", "-AN")
+    fields = iter(git("diff", "--name-status", "-z", "--find-renames=100%", "HEAD").split("\0"))
+    for status in fields:
+        if not status:
+            continue
+        old = next(fields)
+        if status.startswith(("R", "C")):
+            new = next(fields)
+            if status == "R100" and old.startswith(d + "/") and new.startswith(d + "/"):
+                moved[old] = new
+    errs = []
     for old, new in moved.items():
         for f in git("-c", "core.quotepath=off", "ls-tree", "-r", "--name-only", "HEAD", "--", old).splitlines():
             nf = new + f[len(old):]

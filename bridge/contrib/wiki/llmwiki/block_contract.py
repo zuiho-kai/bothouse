@@ -334,6 +334,23 @@ def check(repo, coverage, files, kind='ingest'):
     counts = Counter(row['text'] for row in rows)
     updates = {intent['block']: intent for intent in coverage['plan']['updates']}
     moves = {intent['block']: intent for intent in coverage['plan']['moves']}
+    # Old pending sources keep immutable provenance, but an accepted intervening
+    # delivery may already have relocated them. Follow its declared operations,
+    # rather than requiring every historical source path to exist again.
+    relocated = {}
+    if len(coverage['sources']) > 1:
+        commits = git(repo, 'rev-list', '--reverse', '--ancestry-path',
+                      coverage['sources'][0] + '..' + coverage['sources'][-1]).decode().splitlines()
+        for commit in commits:
+            delivered = from_message(git(repo, 'show', '-s', '--format=%B', commit).decode())
+            if not delivered or not delivered['plan']['moves']:
+                continue
+            original, _ = inventory(repo, delivered['sources'])
+            for intent in delivered['plan']['moves']:
+                row = original[intent['block']]
+                origin = (row['path'], row['section'], row['text'])
+                destination = (intent['to'], intent['section'], row['text'])
+                relocated.setdefault(origin, set()).add(destination)
     errors, required = [], Counter()
     # Direct acceptance/deliver/recovery may not bypass the program-owned writer.
     if render(repo, coverage, files, kind) != files:
@@ -346,7 +363,15 @@ def check(repo, coverage, files, kind='ingest'):
         for old in snapshot:
             if old['id'] in updates:
                 continue
-            at_source = any(row['text'] == old['text'] and row['path'] == old['path'] for row in rows)
+            locations = {(old['path'], old['section'], old['text'])}
+            todo = list(locations)
+            for origin in todo:
+                for destination in relocated.get(origin, ()):
+                    if destination not in locations:
+                        locations.add(destination)
+                        todo.append(destination)
+            at_source = any(row['text'] == old['text'] and row['path'] == old['path'] for row in rows) or any(
+                (row['path'], row['section'], row['text']) in locations for row in rows)
             intent = moves.get(old['id'])
             if not at_source and not (intent and any(row['text'] == old['text'] and row['path'] == intent['to']
                                                      and row['section'] == intent['section'] for row in rows)):

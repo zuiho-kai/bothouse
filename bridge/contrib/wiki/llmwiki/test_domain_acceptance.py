@@ -77,6 +77,23 @@ class DomainAcceptance(unittest.TestCase):
         self.assertEqual((self.repo / "misc/alpha/source.md").read_text().count("未答复提议"), 1)
         self.assertEqual((self.repo / "log.md").read_text().count("restructure | split-domain misc"), 1)
 
+    def test_saved_domain_candidate_reconstructs_move_state_without_a_model(self):
+        self.prepare()
+        def model(*args, **kwargs):
+            return True, json.dumps(GROUPS), 0
+
+        def run():
+            state = dict(lines=I.lint.entries(self.repo / "misc/README.md"), moved={},
+                         before=I.unresolved())
+            return I.model_pass("saved split-domain misc", "group synthetic topics", engine="fake",
+                                kind="restructure", apply=lambda out: I.apply_groups("misc", out, state),
+                                check=lambda: I.domain_check("misc", state))
+
+        with patch.object(I, "runner", return_value=model), patch.object(I, "deliver", return_value=[]):
+            self.assertFalse(run())
+        with patch.object(I, "runner", side_effect=AssertionError("saved split invokes no model")):
+            self.assertEqual(run(), "changed")
+
 
 if __name__ == "__main__":
     unittest.main()
