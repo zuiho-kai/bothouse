@@ -286,6 +286,9 @@ LAST_REJECTED = False  # last model_pass: the model finished but its result fail
 MAX_NET_DELETE = 40  # ingest removing this many more lines than it adds is rejected (lint: 3×)
 MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "gemini-3.1-pro", "agy": "gemini-3.8-flash-high",
           "codex": os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna")}
+# Source: github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/types/model.py, checked 2026-11-18.
+# Pin wiki shorthand here: Claude's user settings may map the same shorthand to a different family.
+CLAUDE_MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
 RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
@@ -1677,17 +1680,25 @@ def dsh(instruction, stdin="", label="?", context=None):
     return r["rc"] == 0 and bool(out), out or f"rc={r['rc']} {r['stderr']}", 0
 
 
+class ClaudeModelError(SystemExit):
+    """Stop the run: a model identity violation must bypass ordinary failure/fallback handlers."""
+
+
 def claude(instruction, stdin="", label="?", context=None, model=None, api=False):
     """`context` (the transcript) goes at the end of the system prompt: that is cached and sits before the
     git status and the user message, so the INGEST and VERIFY passes share it. --strict-mcp-config keeps
     claude.ai connectors out, which otherwise make every prefix unique. Keep --tools identical across passes."""
+    requested = model or MODELS["claude"]
+    model = CLAUDE_MODELS.get(requested, requested)
+    if not re.fullmatch(r"claude-[a-z0-9-]+-\d+", model):
+        raise ClaudeModelError(f"{label}: Claude requires an exact model ID, got {requested!r}")
     # autoMemoryDirectory points at this wiki: the memory dir is writable without permission, so with the
     # global ~/wiki setting a trial on a clone would edit the real wiki.
     # Full tools like luna: Bash runs auto-approved inside Claude Code's sandbox, which (like codex
     # workspace-write) confines writes to the wiki directory.
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
-    cmd = ["claude", "-p", instruction, "--model", model or MODELS["claude"], "--no-session-persistence", "--strict-mcp-config",
+    cmd = ["claude", "-p", instruction, "--model", model, "--no-session-persistence", "--strict-mcp-config",
            "--settings", json.dumps(settings), "--tools", "Read,Edit,Write,Glob,Grep,Bash",
            "--permission-mode", "acceptEdits", "--output-format", "json"]
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="wiki-ctx-") as f:  # outside WIKI: not committed
@@ -1705,14 +1716,29 @@ def claude(instruction, stdin="", label="?", context=None, model=None, api=False
                            env={**os.environ, "WIKI_INGEST": "1"})
     try:
         res = json.loads(r.stdout)
-        out, cost = res.get("result", ""), res.get("total_cost_usd", 0)
-        log(f"{label} tokens: {record_usage(label, res, 'api:' if api else '')}")
     except ValueError:
+        if r.returncode == 0:
+            raise ClaudeModelError(f"{label}: Claude expected {model}, reported no JSON model identity")
+        res = None
+    if res is None and r.returncode == 0:
+        raise ClaudeModelError(f"{label}: Claude expected {model}, reported no model identity")
+    if res is not None:
+        if not isinstance(res, dict) or not isinstance(res.get("modelUsage") or {}, dict):
+            raise ClaudeModelError(f"{label}: Claude expected {model}, reported invalid model usage")
+        out, cost = res.get("result", ""), res.get("total_cost_usd", 0)
+        # Keep every reported model's usage, including failed calls, before rejecting a mismatched result.
+        log(f"{label} tokens: {record_usage(label, res, 'api:' if api else '')}")
+        actual = set(res.get("modelUsage") or {})
+        if (actual or r.returncode == 0) and actual != {model}:
+            error = f"{label}: Claude expected {model}, reported {', '.join(sorted(actual)) or 'no model'}; batch not delivered"
+            log(error)
+            raise ClaudeModelError(error)
+    else:
         out, cost = (r.stdout or r.stderr)[-500:], 0
     if r.returncode and not api and any(q in out.lower() for q in QUOTA_TEXT):
         global quota_hit
         quota_hit = True
-    return r.returncode == 0, out.strip(), cost
+    return r.returncode == 0 and not res.get("is_error"), out.strip(), cost
 
 
 def lint_errors():
@@ -1816,6 +1842,9 @@ def model_pass(label, *a, **k):
         return False
     try:
         return _model_pass(label, *a, **k)
+    except ClaudeModelError:
+        discard()
+        raise
     except Exception as e:  # noqa: BLE001 — Ctrl-C / SystemExit still end the run
         CRASHED = f"{type(e).__name__}: {e}"[:300]
         log(f"{label} CRASHED (script error, counted as a failed pass): {CRASHED}\n{traceback.format_exc().rstrip()}")
