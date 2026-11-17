@@ -1854,6 +1854,14 @@ def unprune(nid):
     return rec
 
 
+def take_back(nid):
+    """已完成或自动收起的条目拿回板上暂停着，board resume 和 ws-handoff --resume 共用。完成后返工先让桥把这件从「已关」
+    拿回暂停，桥拒绝就退出、板不动。返回放回的条目；本来就在板上、或没有它的记录返回 None。"""
+    if _done_completed(nid):
+        task_state(nid, "paused", "rework", reopen=True)
+    return unprune(nid)
+
+
 def schedule_prune_check(it):
     """暂停时挂两个定时跑 board refresh：PR 合/关满 PRUNE_PR_AFTER、闲置满门槛（③）各一个，没人动板也会收（方案二审第 C 条）。
     不要求条目绑工作区（schedule_stale_check 要 ws，暂停时 ws 已解绑）；只要有桥和条目所在频道的会话 key（sk），
@@ -2170,9 +2178,7 @@ def main(argv):
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
-            if _done_completed(nid):  # 完成后返工：先让桥把这件从「已关」拿回暂停，桥拒绝就不动板
-                task_state(nid, "paused", "rework", reopen=True)
-            restored = unprune(nid)  # 自动收起或已完成的：先拿回暂停态，再照常恢复
+            restored = take_back(nid)  # 自动收起或已完成的：先拿回暂停态，再照常恢复
             if restored:
                 print(f"#{nid} 已从{'完成记录' if restored.get('status') == '待接续' else '自动收起'}里找回")
             cur = next((i for i in items() if i["id"] == nid), None)

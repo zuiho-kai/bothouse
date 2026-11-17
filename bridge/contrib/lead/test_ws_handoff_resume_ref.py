@@ -111,6 +111,52 @@ class ResumeRefTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(self.items()), 2)
 
+    # 已完成的活返工只占一个工作区。来源：11-17 #1748 完成后返工，board resume 按旧工作区向桥收回一次，随后
+    # ws-handoff --resume 又挑空工作区认领一次：一件活占两个工作区，没人叫醒的那个被看门报「到点没有进展」。
+    def finish_old(self):
+        old = self.start_old()
+        back = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import board; "
+                               "sys.exit(0 if board.returned(int(sys.argv[2]), 'lead-proj') else 1)",
+                               str(HERE.parent / "gate"), str(old["id"])], capture_output=True, text=True, env=self.env)
+        self.assertEqual(back.returncode, 0, back.stderr)  # 工作区交回（ws-up --report 记的那一笔）
+        self.assertEqual(self.board("done", str(old["id"]), "0").returncode, 0)
+        self.assertEqual(self.items(), [])
+        # 真桥在交回时放回工作区、收掉认领记录；假桥不管这些，这里照做
+        Path(str(self.fake) + ".json").write_text(json.dumps({"ws": [
+            {"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0},
+            {"id": "2", "name": "工作区2", "owner": "", "open": 0, "parked": 0}]}))
+        self.claims(old["ws"], [{"chat": "test:100", "board": old["id"], "closed": "2026-11-17T10:45:49+09:00"}])
+        Path(str(self.fake) + ".calls").write_text("")
+        return old
+
+    def resume(self, nid, text):
+        return subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), "--resume", str(nid), text],
+                              capture_output=True, text=True, env=self.env)
+
+    def claimed(self):
+        calls = [json.loads(l) for l in Path(str(self.fake) + ".calls").read_text().splitlines()]
+        return [c[-1] for c in calls if c[:2] == ["workspace", "claim"]]
+
+    def test_one_command_takes_the_done_task_back_and_claims_one_workspace(self):
+        old = self.finish_old()
+        r = self.resume(old["id"], "第二段换个出处")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.claimed()), 1)
+        it = self.items()[0]
+        self.assertEqual((it["id"], bool(it.get("paused"))), (old["id"], False))
+        self.assertEqual(len(self.timers("工作区接回")), 1)
+
+    def test_after_board_resume_it_continues_in_the_workspace_already_held(self):
+        old = self.finish_old()
+        self.assertEqual(self.board("resume", str(old["id"])).returncode, 0)
+        self.assertEqual(self.claimed(), [old["ws"].split(":")[1]])  # board resume 向桥收回了旧工作区
+        self.claims(old["ws"], [{"chat": "test:100", "board": old["id"]}])
+        r = self.resume(old["id"], "第二段换个出处")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.claimed()), 1)  # 没有再认领第二个
+        woke = self.timers("工作区接回")
+        self.assertEqual([c[c.index("-s") + 1] for c in woke], [old["ws"]])
+
 
 if __name__ == "__main__":
     unittest.main()

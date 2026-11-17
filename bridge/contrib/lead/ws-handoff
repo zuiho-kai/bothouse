@@ -37,7 +37,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
 USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字）\n'
-         '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部）接着交给工作区\n'
+         '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部、已完成要返工）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
 # 来源：agentm 11-10 15:15 那轮为了把暂停的旧活接着交，sed 读了本脚本 500-890 行和 board.py（用法里没写 --resume）。
@@ -296,6 +296,18 @@ def in_progress(it) -> bool:
         return False
     rows = (_ws_state().get("handoffs") or {}).get(it["ws"]) or []
     return any(h.get("board") == it["id"] and not h.get("closed") and not h.get("parked") for h in rows)
+
+
+def held(it, chat: str):
+    """这件活眼下已经占着的工作区（见 in_progress）：续做就在那里接着做，不再挑一个空的另认领。返回同 pick_pool，没占着返回 None。
+    来源：11-17 #1748 完成后返工，board resume 先按旧工作区向桥收回了一次，随后 ws-handoff --resume 又挑空工作区认领一次：
+    10:46 同时占了工作区4 和工作区1，11:08 占了工作区1 和工作区2；没人叫醒的那个 20 分钟后被看门报「到点没有进展」。"""
+    if not in_progress(it):
+        return None
+    r = ws_cmd(lead_chat(chat), "list")
+    wid = it["ws"].split(":", 1)[-1]
+    name = next((str(w["name"]) for w in r.get("pool") or [] if isinstance(w, dict) and str(w.get("id")) == wid and w.get("name")), wid)
+    return it["ws"], name, str(r.get("parent") or lead_chat(chat))
 
 
 def join(old, path: str, task: str) -> int:
@@ -886,7 +898,7 @@ GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
 def start(path, task, chat, nid, project, answer=None):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
-    picked = pick_pool(chat, task, nid, previous.get("ws_was", "") if previous.get("review_rejected") else "")
+    picked = held(previous, chat) or pick_pool(chat, task, nid, previous.get("ws_was", "") if previous.get("review_rejected") else "")
     if picked is None:
         return False
     ws, name, parent = picked
@@ -937,9 +949,16 @@ def resume_answered(nid, answer):
     """等你的活收到答复：恢复条目、答复写进交接，找空工作区接着做；没有就排队（core resumeAskedTask 调）。"""
     board.refuse_foreign([nid], "ws-handoff")  # 别的频道派的活不在这里续（#836）；桥续办时以条目的 chat 调，照常过
     it = next((i for i in board.items() if i["id"] == nid), None)
+    back = None
+    if it is None:
+        # 已完成又要返工的活这一步自己拿回板上（暂停着），下面照常恢复、认领一个工作区：不用先 board resume（见 held）。
+        done = board.item_by_id(nid)
+        if done and done.get("chat") and os.path.isfile(done.get("where") or ""):
+            back = board.take_back(nid)
+            it = next((i for i in board.items() if i["id"] == nid), None)
     if it is None or not it.get("chat") or not os.path.isfile(it.get("where") or ""):
         sys.exit(f"ws-handoff: #{nid} 不是 ws-handoff 交的活，没法接回")
-    if it.get("rework_cap") and it.get("paused"):
+    if not back and it.get("rework_cap") and it.get("paused"):
         # 返工上限（board.reject 第二次退回）：不再续做，等用户定；用户定了接着改，按用户的标准另交一次。
         sys.exit(f"ws-handoff: #{nid} {board.REWORK_CAP_WHY}，不再续做。先问用户（聊天频道已发 [ask]）；"
                  "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
