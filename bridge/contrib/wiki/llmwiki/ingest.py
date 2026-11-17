@@ -2112,7 +2112,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
     coverage["kind"] = kind
     # 来源：用户要求旧 pending 也按当前可选审批模式恢复；交付后契约固定用于断点恢复。
     coverage["review_required"] = CFG["fact_update_review"]
-    block_contract.catalog(REPO, WORK, coverage)
+    block_refs = block_contract.catalog(REPO, WORK, coverage)
     instruction += block_contract.instruction(coverage["review_required"])
     instruction += (f"\nRead CLAUDE.md first. The wiki is {WIKI} (your working directory); edit files only there, "
                     "never in any other copy. Never run git: committing and reverting are done for you.")
@@ -2228,7 +2228,7 @@ def _one_pass(label, instruction, stdin, context, engine, sids, max_delete, kind
             coverage["plan"] = block_contract.scripted_moves(REPO, coverage, block_contract.working_tree(WORK))
         try:
             if not apply and (not pending or answer):
-                proposed = block_contract.plan_output(answer)
+                proposed = block_contract.plan_output(answer, block_refs)
                 if any(proposed.values()) or not any(coverage["plan"].values()):
                     coverage["plan"] = proposed
             return accept()
