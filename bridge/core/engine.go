@@ -5651,10 +5651,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
-	handoffID := ""
+	env := e.roleSessionEnv(ccKey)
+	handoffID := roleEnvValue(env, "CC_HANDOFF") // kept for an agent that takes no env too, so it is not restarted every turn (staleHandoffEnv)
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		env := e.roleSessionEnv(ccKey)
-		handoffID = roleEnvValue(env, "CC_HANDOFF")
 		inj.SetSessionEnv(append(env, "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, ccKey)
