@@ -9,10 +9,10 @@ import { softBreaksToHard } from './softBreaks.ts'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ChannelActions, ChannelMember, ChannelMemory, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, ErrorPlace, LockHolder, OutgoingAttachment } from './channel-source.ts'
+import type { ChannelActions, ChannelMember, ChannelMemory, ChannelRoom, ChannelMessage, ChannelQuote, ChannelSnapshot, ChannelTask, ErrorPlace, LockHolder, OutgoingAttachment } from './channel-source.ts'
 import { DEFAULT_MAX_TEXT_CHARS, DEFAULT_MAX_UPLOAD_BYTES, MAX_MESSAGE_BODY, MAX_ROWS, UploadTooLarge, errorText, formatBytes, messageTooLarge, textTooLarge } from './channel-source.ts'
 import { AttachmentList, PendingAttachments, useComposerAttachments, type PendingFile } from './Attachments.tsx'
-import { dmRooms, groupRooms } from './channel-source.ts'
+import { dmRooms, groupRooms, workspaceDeleteText } from './channel-source.ts'
 import { DeliveryPreview, deliverableOf, deliveredTasks } from './DeliveryPreview.tsx'
 import { useCollabUrl } from './collab-url.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
@@ -51,6 +51,8 @@ export type ChannelsPageProps = PropsRuntime<'main'> & InjectFace<ChannelsInject
   readonly dispatchTask?: ChannelActions['dispatchTask']
   readonly openDm?: ChannelActions['openDm']
   readonly closeDm?: ChannelActions['closeDm']
+  /** #1904: delete an idle workspace from the channel list; absent hides the button. */
+  readonly deleteWorkspace?: ChannelActions['deleteWorkspace']
 }
 
 type T = TranslateNS<typeof NS>
@@ -788,7 +790,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
  * @param props - framework, injected, and locale shares.
  * @returns the three-column channel view.
  */
-export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, terminateTask, dispatchTask, openDm, closeDm, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
+export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, reviewTask, terminateTask, dispatchTask, openDm, closeDm, deleteWorkspace, createRoom, renameRoom, listModels, listClis, listPersonas, addMember, updateMember, removeMember, setLead, setWorkspacePath, renewRoom, setDispatchMode, setMaxRelay, decidePermission, retryMessage, editMessage, withdrawMessage, loadOlder, loadNewer, keepLatest, showLatest, openModelSettings, answerTask, t }: ChannelsPageProps) {
   const scheme = useScheme()
   const state = useChannels(snapshot => snapshot)
   // #148: the own message being edited, and the last edit/withdraw outcome to show.
@@ -1395,6 +1397,13 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
       setRoomError(t('dmCloseFailed', { message: error instanceof Error ? error.message : String(error) }))
     })
   }
+  // #1904: delete an idle workspace from the list, after a confirmation; one with work says why not.
+  const endWorkspace = deleteWorkspace === undefined ? undefined : (r: ChannelRoom, busy: boolean): void => {
+    if (busy) { setRoomError(t('workspaceDeleteBusy', { name: r.name })); return }
+    if (!window.confirm(t('workspaceDeleteConfirm', { name: r.name }))) return
+    setRoomError(undefined)
+    deleteWorkspace(r.id).catch((error: unknown) => { setRoomError(workspaceDeleteText(error, t, r.name)) })
+  }
   const mentionFromAvatar = (member: ChannelMember): void => {
     setAvatarMenu(undefined)
     pickFromList(member)
@@ -1722,7 +1731,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
           const fresh = r.id === state.roomId ? 0 : state.unread?.[String(r.id)] ?? 0
           // 体检 #7: who is at work here, in words, instead of an unlabelled dot.
           const working = workers.length === 0 ? undefined : workers.length === 1 ? t('roomWorking', { name: workers[0]!.name }) : t('roomWorkingMany', { count: String(workers.length) })
-          return (
+          const row = (
             <button
               key={r.id}
               type="button"
@@ -1736,6 +1745,17 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
               {fresh > 0 && <span className={css.unreadBadge} aria-label={t('roomUnread', { count: String(fresh) })}>{fresh > 99 ? '99+' : fresh}</span>}
               {showActive && <span className={active > 0 ? `${css.activeCount} ${css.activeBusy}` : css.activeCount}>{t('activeTasks', { count: active })}</span>}
             </button>
+          )
+          if (r.kind !== 'workspace' || endWorkspace === undefined) return row
+          // #1904: an idle workspace can be deleted here; one with work keeps the button and says why not.
+          const busy = r.free === false || active > 0 || workers.length > 0
+          return (
+            <div key={r.id} className={css.dmRow}>
+              {row}
+              <button type="button" className={css.dmClose} data-ws-delete={r.id} aria-disabled={busy || undefined}
+                title={busy ? t('workspaceDeleteBusy', { name: r.name }) : t('workspaceDelete')} aria-label={t('workspaceDeleteNamed', { name: r.name })}
+                onClick={() => { endWorkspace(r, busy) }}>×</button>
+            </div>
           )
         })}
         <div className={`${css.groupHead} ${css.dmHead}`}>

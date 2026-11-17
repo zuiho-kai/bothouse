@@ -12,7 +12,7 @@ import { LOCK_FILE, acquireLockWithOwner, clearLockOwner } from './instance-lock
 import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-host.mjs';
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
-import { CloudWebGateway, WS_PATH } from './cloudweb.mjs';
+import { CloudWebGateway, WS_PATH, roomKey } from './cloudweb.mjs';
 import { Bridge, botToken } from './bridge.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
@@ -367,6 +367,8 @@ export async function apply(ctx, rawConfig) {
     if (settings !== undefined) return settings;
     const renamed = renameRoomRoute(req, res, path, { store, hub });
     if (renamed !== undefined) return renamed;
+    const deleted = deleteWorkspaceRoute(req, res, path, { store, bridge: r.bridge });
+    if (deleted !== undefined) return deleted;
     const mode = /^\/collab\/api\/rooms\/(\d+)\/mode$/.exec(path);
     if (mode !== null && req.method === 'GET') {
       const roomId = Number(mode[1]);
@@ -606,6 +608,28 @@ export function streamUploadRoute(req, res, url, { files, maxBytes }) {
     });
 }
 
+/**
+ * #1904: the owner deletes an idle workspace (DELETE /collab/api/rooms/{id}). The bridge keeps the tasks, so
+ * it is asked (bridge.deleteWorkspace): it refuses a workspace with a task in work or a paused task waiting
+ * there, and removes the room itself (cloudweb.mjs op delete). Owner authentication is checked by browserRoute.
+ */
+export function deleteWorkspaceRoute(req, res, path, { store, bridge }) {
+  const match = /^\/collab\/api\/rooms\/(\d+)$/.exec(path);
+  if (match === null || req.method !== 'DELETE') return undefined;
+  const roomId = Number(match[1]);
+  return withBody(req, res, async () => {
+    const room = store.room(roomId);
+    if (room === undefined) throw new CollabError('room-missing', `频道 ${roomId} 不存在`);
+    if (room.kind !== 'workspace') throw new CollabError('not-workspace', '只有工作区可以删除');
+    if (store.workspaceOwner(roomId) != null) throw new CollabError('workspace-busy', `${room.name} 还有活在做，做完才能删`);
+    const r = await bridge.deleteWorkspace(roomKey(roomId));
+    if (r.deleted === true) return { ok: true };
+    if (r.reason === 'working') throw new CollabError('workspace-busy', `${room.name} 还有活在做，做完才能删`);
+    if (r.reason === 'paused') throw new CollabError('workspace-paused', `${room.name} 里有暂停的活，继续或结束它之后才能删`);
+    throw new CollabError('bridge-unreachable', `没有删除：问不到 bothouse（${String(r.error ?? '').slice(0, 200)}）`);
+  }, false);
+}
+
 /** Owner authentication is checked by browserRoute before this handler, like ownMessageRoute. */
 export function renameRoomRoute(req, res, path, { store, hub }) {
   const match = /^\/collab\/api\/rooms\/(\d+)$/.exec(path);
@@ -653,7 +677,8 @@ export function ownMessageRoute(req, res, path, { store, hub, gateway }) {
   return undefined;
 }
 
-const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409 };
+const ERROR_STATUS = { 'room-missing': 404, 'member-missing': 404, 'task-missing': 404, conflict: 409, 'read-only': 403, forbidden: 403, offline: 503, 'member-busy': 409,
+  'workspace-busy': 409, 'workspace-paused': 409, 'bridge-unreachable': 503 };
 
 /** Parse a JSON body (unless `parse` is false), run fn, and map CollabError codes to HTTP statuses. */
 class BodyTooLarge extends Error {}

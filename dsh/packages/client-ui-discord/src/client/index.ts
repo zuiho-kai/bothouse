@@ -68,6 +68,7 @@ export function apply(ctx: ClientContext): void {
     // #1662: no 转任务 here: the task board is the bridge's now, the channel host has no task API.
     openDm: channels.actions.openDm,
     closeDm: channels.actions.closeDm,
+    deleteWorkspace: channels.actions.deleteWorkspace,
     retrySend: channels.actions.retrySend,
     dismissSend: channels.actions.dismissSend,
     loadOlder: channels.actions.loadOlder,

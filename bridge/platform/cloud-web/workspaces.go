@@ -19,6 +19,7 @@ var (
 	_ core.TeamWorkspaceChannels = (*Platform)(nil)
 	_ core.TeamWorkspaceClaimer  = (*Platform)(nil)
 	_ core.TeamWorkspaceReleaser = (*Platform)(nil)
+	_ core.TeamWorkspaceDeleter  = (*Platform)(nil)
 )
 
 // teamWorkspaceAckTimeout: 沿用已有配置, the 10 s SendPreviewStart waits for preview_ack.
@@ -86,6 +87,8 @@ func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name st
 		return ack, fmt.Errorf("%w: %w", core.ErrTeamWorkspaceOwned, err)
 	case "stale-claim":
 		return ack, fmt.Errorf("%w: %w", core.ErrTeamWorkspaceStaleClaim, err)
+	case "workspace-busy":
+		return ack, fmt.Errorf("%w: %w", core.ErrTeamWorkspaceInUse, err)
 	case "unsupported", "room-missing", "forbidden":
 		// The gateway cannot do it (collab without team mode A) or the room is gone: retrying
 		// will not help until restart.
@@ -161,6 +164,14 @@ func (p *Platform) ReleaseTeamWorkspaceChannel(ctx context.Context, workspaceID,
 		extra["claim"] = claim
 	}
 	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", extra)
+	return err
+}
+
+// DeleteTeamWorkspaceChannel asks the gateway to take workspaceID out of its channel list for
+// good (#1904). The gateway refuses one it records as owned (workspace-busy); a gateway from
+// before the op answers bad-op.
+func (p *Platform) DeleteTeamWorkspaceChannel(ctx context.Context, workspaceID string) error {
+	_, err := p.teamWorkspaceRequest(ctx, "delete", workspaceID, "", map[string]any{"workspace_id": workspaceID})
 	return err
 }
 
