@@ -5616,12 +5616,13 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 				wantID, needRecycle = "", true
 			}
 		}
+		restartForTask := false
 		if input == nil && !needRecycle && e.staleHandoffEnv(ccKey, state.handoffID) {
 			// The process was started outside the task now in work in this workspace; its
 			// CC_HANDOFF is fixed. Start it again (same agent session) for that task.
 			slog.Info("interactive session: started outside the workspace's task in work, restarting it for that task",
 				"session_key", sessionKey, "had_handoff", state.handoffID)
-			needRecycle = true
+			needRecycle, restartForTask = true, true
 		}
 		if !needRecycle {
 			state.mu.Lock()
@@ -5639,7 +5640,13 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		state.markStopped()
 		// Close synchronously to prevent race condition where old agent
 		// continues outputting while new agent starts (issue #327).
-		e.closeAgentSessionWithTimeout(sessionKey, state.agentSession)
+		if rc, isRestartCloser := state.agentSession.(AgentSessionRestartCloser); restartForTask && isRestartCloser {
+			// A process alive here was kept for its background work and does not
+			// leave on stdin close; the task's first turn must not wait that out.
+			e.closeAgentSessionBy(sessionKey, state.agentSession, nil, rc.CloseForRestart)
+		} else {
+			e.closeAgentSessionWithTimeout(sessionKey, state.agentSession)
+		}
 		delete(e.interactiveStates, sessionKey)
 		ok = false // prevent reading stale settings below
 	}
@@ -6216,7 +6223,12 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 		}
 		return
 	}
+	e.closeAgentSessionBy(sessionKey, agentSession, closed, agentSession.Close)
+}
 
+// closeAgentSessionBy is closeAgentSessionAndSignal with the close call given:
+// Close, or CloseForRestart of an AgentSessionRestartCloser.
+func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSession, closed chan struct{}, closeFn func() error) {
 	// Allow enough time for the agent's own graceful shutdown sequence:
 	// stdin close → Stop hooks (claude-mem summary etc.) → SIGTERM → SIGKILL.
 	// Claude Code's Stop hooks can take up to 120s (claude-mem uses a
@@ -6238,7 +6250,7 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 		done = make(chan struct{})
 	}
 	go func() {
-		agentSession.Close()
+		closeFn()
 		close(done)
 	}()
 
