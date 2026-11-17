@@ -1926,8 +1926,8 @@ def acceptance(sids=(), max_delete=None, kind="ingest", coverage=None):
     # Frozen blocks include their original line breaks. Wrapping them here would
     # invalidate exact coverage even on an otherwise unchanged accepted page.
     # New formatting errors still fail new_lint_errors; existing ones stay baseline.
-    errs = [new_lint_errors(base)]
     git("add", "-AN")  # intent-to-add so new files show in the diff
+    errs = [new_lint_errors(base)]
     files = git("diff", "--name-only", base).split()
     bad = [f for f in files if f.startswith(("bin/", ".")) or f == "CLAUDE.md" or not f.endswith(".md")]
     if bad:
@@ -4540,10 +4540,24 @@ def new_lint_errors(base="HEAD"):
         old, old_died = run_lint(root=d) if t else ("", True)
     if old_died:
         return now  # no baseline: judge everything, as before
+    # A byte-identical Git rename carries the source page's existing diagnostics.
+    # Edited pages get no exemption: their new errors must still be judged.
+    changes = git("diff", "--name-status", "-z", "--find-renames=100%", base, "--").split("\0")
+    renamed = {}
+    fields = iter(changes)
+    for status in fields:
+        if not status:
+            continue
+        old_path = next(fields)
+        if status.startswith(("R", "C")):
+            new_path = next(fields)
+            if status == "R100":
+                renamed[new_path] = old_path
     left = collections.Counter(lint_key(l) for l in old.splitlines())
     new = []
     for l in lines:
-        k = lint_key(l)
+        path, sep, diagnostic = l.partition(": ")
+        k = lint_key(renamed.get(path, path) + sep + diagnostic)
         if left[k] > 0:
             left[k] -= 1
         else:
