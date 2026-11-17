@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// heldFixture: a lead engine with a (not started) timer scheduler, board item 46 handed to ws1.
+// heldFixture: a lead engine with a timer scheduler, board item 46 handed to ws1.
 func heldFixture(t *testing.T) (*Engine, *reportTestPlatform, *TimerStore, *teamTaskBoardItem) {
 	t.Helper()
 	e, p := reportFixture(t)
@@ -23,6 +23,9 @@ func heldFixture(t *testing.T) (*Engine, *reportTestPlatform, *TimerStore, *team
 		t.Fatal(err)
 	}
 	e.timerScheduler = NewTimerScheduler(store)
+	// AddJob schedules due wakes immediately, even without Start. Join the
+	// fixture's callbacks before TempDir cleanup releases their timer store.
+	t.Cleanup(e.timerScheduler.Stop)
 	item := teamTaskBoardItem{ID: 46, What: "验证报告", Chat: "discord:chat1", WS: exitWSKey, Where: "/tmp/notes-46.md"}
 	writeReviewBoard(t, e, item)
 	return e, p, store, &item
