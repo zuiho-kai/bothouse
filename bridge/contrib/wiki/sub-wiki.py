@@ -9,10 +9,12 @@ Python 写的，Mac / Linux / Windows 同一份（用户 2026-10-22「那mac和w
   sub-wiki.py hook      cc-connect 的 agent.closed 钩子（对应主角色的 SessionEnd hook）：
                         环境变量 CC_HOOK_PROJECT / CC_HOOK_AGENT_SESSION_ID，立刻返回，后台导出并整理那一个会话
 
-各位串行跑（串行是为了同一时间只占一份 Codex 额度）。锁和主角色一样：白天（pending、hook）不等锁，夜里（nightly、lint）等锁。
+夜间各角色并行跑，各用自己的目录、Git 和断点；白天仍按各角色的整理入口运行。
+锁和主角色一样：白天（pending、hook）不等锁，夜里（nightly、lint）等锁。
 日志：本目录 sub-wiki.log（本脚本）+ 各 wiki 的 .ingest.log（ingest 自己的）。
 """
 import glob, os, subprocess, sys, time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -54,12 +56,15 @@ def run_one(rows, b, *args):
         # default is ~/wiki (wrong when the main wiki is at $WIKI_DIR; the hook's env has no WIKI_DIR at all)
         # Ingest owns model cleanup/checkpoints. Do not race it with another
         # timeout at this parent; the shell's hard cancellation remains the guard.
+        env = dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=project,
+                   BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
+                                      os.environ.get("CC_DATA_DIR") or str(HERE.parent)))
+        if "--nightly" in args:
+            env.pop("WIKI_NEWEST_FIRST", None)  # Source: user #852: nightly drains older backlog first.
         rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err,
                             # rolewiki.go installs this scheduler at <data_dir>/wiki.
                             # Shell cron jobs need that root even without an agent turn environment.
-                            env=dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=project,
-                                     BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
-                                                        os.environ.get("CC_DATA_DIR") or str(HERE.parent)))).returncode
+                            env=env).returncode
     if rc:
         say(f"{b} ingest {' '.join(args)} exited {rc}")
 
@@ -125,12 +130,18 @@ def main(argv):
         say(f"start {mode}")
         if export(*(["--no-wait"] if mode == "pending" else [])):
             say("export failed (ingest still runs on what is there)")
-        for b, _p, d in rows:
-            if budget and budget.stopped():
-                break
-            if (Path(d) / MAIN_MARK).exists():
-                continue  # the lead's main wiki: the same cron job runs it already (setup_wiki.go wikiExec)
-            run_one(rows, b, "--" + mode)
+        roles = [b for b, _p, d in rows if not (Path(d) / MAIN_MARK).exists()]
+        if mode == "nightly" and roles and not (budget and budget.stopped()):
+            # Source: user #852 requests all roles concurrently; worker count follows configured role count.
+            with ThreadPoolExecutor(max_workers=len(roles)) as pool:
+                futures = [pool.submit(run_one, rows, b, "--nightly") for b in roles]
+                for future in futures:
+                    future.result()
+        else:
+            for b in roles:
+                if budget and budget.stopped():
+                    break
+                run_one(rows, b, "--" + mode)
         say(f"done {mode}")
         return 0
     if mode == "hook":

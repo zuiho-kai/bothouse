@@ -22,7 +22,8 @@ class PendingExecution(unittest.TestCase):
                 return False, "interrupted correction", 0, None
             kwargs = {key: value for key, value in kwargs.items() if key not in ("effort", "model", "resume")}
             return (*self.move_model(*args, **kwargs), "synthetic-thread")
-        with patch.object(I, "codex", side_effect=call), patch.object(I, "CODEX_CHAIN", ["fixture-model"]):
+        with patch.object(I, "codex", side_effect=call), patch.object(I, "CODEX_CHAIN", ["fixture-model"]), \
+                patch.object(I, "AFTER_CODEX", []):
             self.assertFalse(I.model_pass("codex resume", "move", engine="codex:high",
                                           checkpoint=checkpoint, check=lambda: "unfinished correction"))
         key = I.block_contract.digest(["codex resume", "ingest", checkpoint])
@@ -38,8 +39,10 @@ class PendingExecution(unittest.TestCase):
     def replace_record(self, ref, saved, message):
         lines = [I.PENDING_TRAILER + I.block_contract.canonical(saved)
                  if line.startswith(I.PENDING_TRAILER) else line for line in message.splitlines()]
-        self.git("commit", "--amend", "--allow-empty", "-qm", "\n".join(lines), cwd=I.WORK)
-        self.git("update-ref", ref, self.git("rev-parse", "HEAD", cwd=I.WORK))
+        tree = self.git("rev-parse", ref + "^{tree}")
+        parent = self.git("rev-parse", ref + "^")
+        candidate = self.git("commit-tree", tree, "-p", parent, "-m", "\n".join(lines))
+        self.git("update-ref", ref, candidate)
 
     def resume(self, checkpoint):
         with patch.object(I, "codex", return_value=(True, "correction complete", 0, None)) as call, \

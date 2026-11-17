@@ -78,7 +78,8 @@ class RoleWiki(unittest.TestCase):
         self.assertIs(json.loads((self.home / "roles" / "whale" / "wiki" / "config.json").read_text())["dream"], False)
 
     def test_setup_from_template(self):
-        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "haiku", "night_engine": "sonnet", "bogus": 1})
+        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "haiku", "night_engine": "agy",
+                                             "agy_model": "gemini-4-hydrogen-medium", "bogus": 1})
         self.run_py("setup_wiki.py", "--main", str(self.home / "wiki"), "主管")
         self.assertTrue((self.home / "wiki" / "bin" / "ingest.py").exists())
         self.assertIn("exists", self.run_py("setup_wiki.py", "--main", str(self.home / "wiki"), "主管"))
@@ -86,7 +87,8 @@ class RoleWiki(unittest.TestCase):
         self.run_py("setup_wiki.py", "whale")
         w = self.home / "roles" / "whale" / "wiki"
         cfg = json.loads((w / "config.json").read_text())
-        self.assertEqual((cfg["ingest_engine"], cfg["night_engine"]), ("haiku", "sonnet"))
+        self.assertEqual((cfg["ingest_engine"], cfg["night_engine"]), ("haiku", "agy"))
+        self.assertEqual(cfg['agy_model'], 'gemini-4-hydrogen-medium')
         self.assertNotIn("bogus", cfg)
         self.assertTrue((w / ".gitignore").exists() and (w / "experiences" / "README.md").exists())
         self.assertIn("exists", self.run_py("setup_wiki.py", "whale"))
