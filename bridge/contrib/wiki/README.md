@@ -95,6 +95,19 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。
 模型引擎（haiku / sonnet / codex …）在向导里选，或在 config.json 的 `*_engine` 键改。
+角色夜间入口同时运行各本 wiki，使用独立 Git、锁和断点；夜间优先处理较旧会话，
+白天仍可用 `WIKI_NEWEST_FIRST=1` 优先最近会话。每个模型初次调用失败后最多再重试三次，
+每次先恢复本轮开始的文件状态，再发起新会话；三次仍失败才换下一个模型。
+默认 Codex 顺序为 Luna、Sol、Astra，再走 `after_codex` 的 Antigravity、Haiku；
+429、额度拒绝、连接中断和模型报错采用同一规则，剩余时间不足时保留待办。
+修正轮和后续材料轮重试保留此前成功轮次的输出，失败会话不被复用。
+
+各角色可分别选不同主引擎以分担额度，例如一份使用 `ingest_engine: "codex:high"`，
+另一份使用 `ingest_engine: "agy"` 和 `agy_model: "gemini-4-hydrogen-medium"`。
+夜间等其他阶段各自使用对应的 `*_engine` 键，安装时也可通过 `WIKI_ENGINES` JSON 写入。
+`WIKI_AGY_MODEL` 可临时覆盖模型；命令不在 PATH 时用 `agy_cmd` 或 `WIKI_AGY_CMD`
+指定可执行文件的绝对路径，默认仍为 `agy`。模型和可执行程序须由本机安装提供。
+向导创建的角色库默认仅在本机保存；未配置远端时无需拉取，仍照常整理并提交到本地 Git。
 论坛任务可用 `GATE_DEFAULT_BOT`、`GATE_WIKI`、`CODEMAP_DIR` 指定默认角色、Wiki 和地图目录；
 `WIKI_CODEX_MODEL` / `REFLECTOR_MODEL` 可分别指定夜间结算和反思任务的模型，未设置时使用 Codex CLI 的配置模型；
 `CODEX_SESSIONS_DIR` / `CLAUDE_PROJECTS_DIR`

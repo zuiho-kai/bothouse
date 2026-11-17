@@ -529,12 +529,14 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 	var err error
 	timeout := job.ExecutionTimeout()
 	if timeout > 0 {
+		warn := engine.armScheduledTurnWarning(job.ID, timeout)
 		select {
 		case err = <-done:
 		case <-time.After(timeout):
 			err = fmt.Errorf("job timed out after %v", timeout)
 			engine.StopScheduledTurn(job.ID)
 		}
+		warn.Stop()
 	} else {
 		err = <-done
 	}

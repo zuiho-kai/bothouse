@@ -213,3 +213,74 @@ func TestScheduledTurnTimeoutCancelDoesNotReachNextTurnOnSameState(t *testing.T)
 		t.Fatal("a spent token stopped the next turn")
 	}
 }
+
+func toldTo(f *stopAllFixture, id string) []string {
+	s := f.sess[id]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.prompts...)
+}
+
+// #1744: a scheduled run is told to hand in at 80% of its time limit, before the stop. Only the
+// turn the run started is told, and a run that ended (its timer stopped) tells nobody.
+func TestScheduledTurnWarnedBeforeTimeout(t *testing.T) {
+	e := NewEngine("p", &abortTurnAgent{}, []Platform{&stubPlatformEngine{n: "discord"}}, "", LangEnglish)
+	f := &stopAllFixture{sess: map[string]*abortTurnSession{}, pending: map[string]*pendingPermission{}}
+	addBusyState(e, f, "discord:c1")
+	addBusyState(e, f, "discord:c2")
+
+	if e.warnScheduledTurn("queued-job", 30*time.Minute) || len(toldTo(f, "p|discord:c2")) != 0 {
+		t.Fatal("a run that never started a turn had another turn told")
+	}
+	e.noteScheduledTurn("job1", "discord:c1")
+	warn := e.armScheduledTurnWarning("job1", 100*time.Millisecond)
+	defer warn.Stop()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(toldTo(f, "p|discord:c1")) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if told := toldTo(f, "p|discord:c1"); len(told) != 1 || !strings.Contains(told[0], "time limit") {
+		t.Fatalf("want one hand-in reminder before the time limit, got %v", told)
+	}
+	if f.stopped(t, "p|discord:c1") {
+		t.Fatal("the reminder stopped the turn")
+	}
+	if !e.StopScheduledTurn("job1") || !f.stopped(t, "p|discord:c1") {
+		t.Fatal("timed-out scheduled turn was not stopped after its reminder")
+	}
+
+	e.noteScheduledTurn("job2", "discord:c2")
+	if e.armScheduledTurnWarning("job2", time.Hour).Stop(); len(toldTo(f, "p|discord:c2")) != 0 {
+		t.Fatal("a run that ended before 80% of its limit was told")
+	}
+	if got := e.scheduledWarnText(30 * time.Minute); !strings.Contains(got, "30min") || !strings.Contains(got, "6min") {
+		t.Fatalf("reminder lacks the limit and the time left: %q", got)
+	}
+}
+
+// The reminder of a queued scheduled turn reaches only the turn its limit was armed for, once
+// per limit, and the limit still stops that turn afterwards.
+func TestQueuedScheduledTurnWarnedBeforeTimeout(t *testing.T) {
+	e := NewEngine("p", &abortTurnAgent{}, []Platform{&stubPlatformEngine{n: "discord"}}, "", LangEnglish)
+	f := &stopAllFixture{sess: map[string]*abortTurnSession{}, pending: map[string]*pendingPermission{}}
+	const key = "discord:c1"
+
+	addBusyState(e, f, key)
+	old := e.interactiveStates[key]
+	old.scheduledWatch = 7
+	addBusyState(e, f, key) // the queued turn ended; the next turn runs on a new state
+	if e.warnQueuedScheduledTurn(old, key, 7, time.Minute) || len(toldTo(f, "p|"+key)) != 0 {
+		t.Fatal("an ended turn's reminder reached the next turn on the session")
+	}
+	cur := e.interactiveStates[key]
+	cur.scheduledWatch = 8
+	if e.warnQueuedScheduledTurn(cur, key, 7, time.Minute) {
+		t.Fatal("a stale token on the live state had its turn told")
+	}
+	if !e.warnQueuedScheduledTurn(cur, key, 8, time.Minute) || len(toldTo(f, "p|"+key)) != 1 || f.stopped(t, "p|"+key) {
+		t.Fatalf("the turn near its limit was not told, or was stopped: %v", toldTo(f, "p|"+key))
+	}
+	if !e.fireScheduledTurnTimeout(cur, key, 8, TurnTriggerCron, "", "job", 0) || !f.stopped(t, "p|"+key) {
+		t.Fatal("the turn was not stopped at its limit after the reminder")
+	}
+}

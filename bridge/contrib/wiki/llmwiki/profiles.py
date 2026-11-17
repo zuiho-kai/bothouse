@@ -68,8 +68,14 @@ def store():
     return Path(os.path.expanduser(os.environ.get("AGENT_SESSIONS_DIR") or "~/.local/share/agent-sessions"))
 
 
-def page_rel(key):
-    return f"{PROFILE_DIR}/{PAGE.format(key=key)}"
+def page_rel(key, repo=None):
+    directory = PROFILE_DIR
+    if repo is not None and (Path(repo) / ".bothouse-role").exists():
+        # Source: setup_wiki.py registers misc for role dream pages; the main wiki's tooling tree is private.
+        config = Path(repo) / "config.json"
+        cfg = json.loads(config.read_text()) if config.exists() else {}
+        directory = cfg.get("dream_dir", "misc")
+    return f"{directory}/{PAGE.format(key=key)}"
 
 
 def _ts(iso):
@@ -159,7 +165,7 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
             head_lines=None):
     """One person's page from `transcript` (his USER lines). `ask(prompt)` answers JSON. Returns (说明, 写了的文件)
     (说明 "" = not written). A rewrite keeps the old page unless at least half its lines (≥ 1) come back good."""
-    rel = rel or page_rel(key)
+    rel = rel or page_rel(key, repo)
     page = Path(repo) / rel
     old_text = page.read_text(encoding="utf-8") if page.exists() else ""
     cur, hist = read_page(old_text)
