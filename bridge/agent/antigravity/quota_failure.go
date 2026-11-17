@@ -18,11 +18,11 @@ import (
 // or tool output and is never read, logged or relayed.
 
 // quotaFailure is a failed turn that the provider's own record proves ran out of
-// quota. It keeps the content-free text of the generic failure and adds only the
-// reset time the provider gave, so the caller can mark the event
+// quota. It keeps the safe turn diagnostic and adds only the validated reset
+// time the provider gave, so the caller can mark the event
 // (core.WithQuotaExhausted) without any provider text.
 type quotaFailure struct {
-	base  error  // the generic "antigravity: stream turn failed (...)" it stands for
+	base  error  // safe generic, command or stream diagnostic
 	reset string // countdown or reset timestamp the provider published; "" = none
 }
 
@@ -115,7 +115,7 @@ func (r nativeErrorRecord) errorInfos() []nativeErrorInfo {
 // reset renders the reset time as the provider published it. The countdown comes
 // first: it is a duration, so the chat text and the cooldown window read it the
 // same way (core.quotaResetTime). The absolute timestamp is the fallback when the
-// API names only the cycle end.
+// API names only the cycle end; parse it here so raw provider text stays out.
 func (i nativeErrorInfo) reset() string {
 	if d, err := time.ParseDuration(strings.TrimSpace(i.Metadata["quotaResetDelay"])); err == nil && d > 0 {
 		if d >= time.Second {
@@ -126,7 +126,10 @@ func (i nativeErrorInfo) reset() string {
 		}
 		return d.String()
 	}
-	return strings.TrimSpace(i.Metadata["quotaResetTimeStamp"])
+	if stamp, err := time.Parse(time.RFC3339, strings.TrimSpace(i.Metadata["quotaResetTimeStamp"])); err == nil {
+		return stamp.UTC().Format(time.RFC3339Nano)
+	}
+	return ""
 }
 
 // The refusal probe reads the native record a few times before giving up. The

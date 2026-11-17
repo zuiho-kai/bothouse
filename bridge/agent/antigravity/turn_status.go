@@ -154,10 +154,8 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 		return true, nil
 	}
 	if outcomes := trajectory.commandOutcomes(t, r.Response); outcomes.count > 0 {
-		// A failed command is the reported cause; the provider's refusal is not
-		// what this turn failed on, so the quota mark does not apply to it.
+		// A command diagnostic and a proven quota refusal are independent facts.
 		failure = outcomes.failure(status)
-		quotaRefused = false
 		outcomes.log(t)
 		return reject(reason)
 	}
@@ -168,7 +166,6 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 				// Native enum only: never expose provider text or infer recovery
 				// from a later answer. This is still a failed turn.
 				failure = fmt.Errorf("antigravity: stream turn failed (%s; stream_step=%d kind=upstream-stream-interrupted)", status, i)
-				quotaRefused = false
 				return reject(reason)
 			}
 		}

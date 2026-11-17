@@ -175,9 +175,63 @@ func TestStreamSession_QuotaRefusalReplay(t *testing.T) {
 
 // A refusal that names only the cycle end still gives the chat a reset time.
 func TestStreamSession_QuotaRefusalTimestampFallback(t *testing.T) {
-	info := quotaErrorInfo("QUOTA_EXHAUSTED", "gemini-3.8-flash-high", "", "2026-11-17T08:18:06Z")
-	terminal, _ := quotaResultFeed(t, liveQuotaTrajectory("fixture-conversation", liveQuotaRecord(429, info)), quotaSurveyProse)
-	assertQuotaNotice(t, terminal, "2026-11-17T08:18:06Z")
+	for _, tc := range []struct{ name, delay, stamp, want string }{
+		{"valid", "", "2026-11-17T08:18:06Z", "2026-11-17T08:18:06Z"},
+		{"normalize-offset", "", " 2026-11-17T09:18:06.123+01:00 ", "2026-11-17T08:18:06.123Z"},
+		{"invalid-delay-valid-stamp", "invalid", "2026-11-17T08:18:06Z", "2026-11-17T08:18:06Z"},
+		{"invalid-stamp", "", "private upstream error text", ""},
+		{"invalid-delay-and-stamp", "invalid", "private upstream error text", ""},
+		{"missing-reset", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := quotaErrorInfo("QUOTA_EXHAUSTED", "gemini-3.8-flash-high", tc.delay, tc.stamp)
+			terminal, _ := quotaResultFeed(t, liveQuotaTrajectory("fixture-conversation", liveQuotaRecord(429, info)), quotaSurveyProse)
+			assertQuotaNotice(t, terminal, tc.want)
+		})
+	}
+}
+
+// A command failure or interrupted stream is a diagnostic, not evidence that
+// the provider's quota refusal did not happen. Both facts must reach core.
+func TestStreamSession_QuotaRefusalWithAnswerKeepsDiagnostic(t *testing.T) {
+	for _, tc := range []struct{ name, step, diagnostic string }{
+		{"answer", `{"type":"CORTEX_STEP_TYPE_SYSTEM_MESSAGE","status":"CORTEX_STEP_STATUS_DONE"}`, "antigravity: stream turn failed (ERROR)"},
+		{"command-failed", `{"type":"CORTEX_STEP_TYPE_RUN_COMMAND","status":"CORTEX_STEP_STATUS_DONE","runCommand":{"exitCode":128}}`, "command_step=3 exit_code=128"},
+		{"stream-interrupted", `{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","status":"CORTEX_STEP_STATUS_DONE","plannerResponse":{"stopReason":"STOP_REASON_CLIENT_STREAM_ERROR"}}`, "stream_step=3 kind=upstream-stream-interrupted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var trajectory nativeTrajectory
+			if err := json.Unmarshal([]byte(hookInputTrajectory), &trajectory); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(tc.step), &trajectory.Trajectory.Steps[3]); err != nil {
+				t.Fatal(err)
+			}
+			info := quotaErrorInfo("QUOTA_EXHAUSTED", "gemini-3.8-flash-high", "1h24m30s", "")
+			errorStep := fmt.Sprintf(`{"type":"CORTEX_STEP_TYPE_ERROR_MESSAGE","status":"CORTEX_STEP_STATUS_DONE","errorMessage":{"error":%s}}`, liveQuotaRecord(429, info))
+			if err := json.Unmarshal([]byte(errorStep), &trajectory.Trajectory.Steps[6]); err != nil {
+				t.Fatal(err)
+			}
+			trajectory.Trajectory.Steps[6].RunCommand.ExitCode = nil
+			s := review71Session(t, func(w http.ResponseWriter, r *http.Request) { _ = json.NewEncoder(w).Encode(trajectory) })
+			s.turn.last = len(trajectory.Trajectory.Steps) - 1
+			s.busy = true
+			ev := review71ErrorEvent()
+			ev.Event, ev.Result.Response = "result", "fixture answer"
+			s.handleStreamEvent(ev)
+			terminal := <-s.events
+			if terminal.Type != core.EventError || terminal.Error == nil || terminal.Content != ev.Result.Response || s.busy {
+				t.Fatalf("lost failed-turn answer or release: %+v", terminal)
+			}
+			reset, marked := core.QuotaExhaustedReset(terminal)
+			if !marked || reset != "1h24m30s" || terminal.ErrorKind != core.ErrorKindPermanent || terminal.ErrorStatus != 429 {
+				t.Fatalf("quota fact lost beside diagnostic: %+v", terminal)
+			}
+			if !strings.Contains(terminal.Error.Error(), tc.diagnostic) || strings.Contains(terminal.Error.Error(), quotaSurveyProse) {
+				t.Fatalf("diagnostic = %q, want safe %q", terminal.Error, tc.diagnostic)
+			}
+		})
+	}
 }
 
 // Everything below must stay a generic failure: guessing a quota from a 429 or
