@@ -520,6 +520,14 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 // workspace's handoff and the task's state are untouched.
 func TestWatchHandoffWhoseTaskLeftEndsWithoutANotice(t *testing.T) {
 	e, p, w, h := progressFixtureBoard(t, k5aOwner, 7)
+	// Leave the original handoff open to exercise cleanup of an old assignment;
+	// a live task must now explicitly leave its workspace before being reassigned.
+	teamWorkspaceStore.mu.Lock()
+	_, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: 7, To: TeamTaskPaused, By: "yield"}, time.Now())
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws2", "工作区2", k5aOwner, "K5a", 7); err != nil {
 		t.Fatal(err)
 	}
