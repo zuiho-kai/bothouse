@@ -308,6 +308,12 @@ def main(argv):
             reject_held_report(last["file"], argv[0], hit.get("id"))
         sys.exit(r.returncode)
     live = find_live(last)
+    if live is not None and live.get("returned_at"):
+        # Final handback needs a fresh claim even when the board still names the old workspace.
+        if reject_on_board(live, argv[0]):
+            sys.exit(0)
+        r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
+        sys.exit(r.returncode)
     if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
         if live.get("ws"):
             last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个

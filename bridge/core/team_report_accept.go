@@ -59,12 +59,17 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		return false
 	}
 	_, after, waiting := team.WaitExternalOf(body)
+	batch := workspaceBatchReport(ctx)
+	keyKind := team.ExitKindReport
+	if batch {
+		keyKind = exitKindBatch
+	}
 	rec := &pendingReport{
-		Key:      reportKey(p.Name(), parent, ws, team.ExitKindReport, hid, body),
+		Key:      reportKey(p.Name(), parent, ws, keyKind, hid, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: team.ExitKindReport, Body: body, Headline: hline, Board: hid,
 		Session: sessionKey, CreatedAt: time.Now(), Held: true, Doubt: doubt,
-		Waiting: waiting, HeldBound: item.Bound, HeldDone: item.DoneAt != "" && item.AutoPruned == "",
+		Waiting: waiting && !batch, Batch: batch, HeldBound: item.Bound, HeldDone: item.DoneAt != "" && item.AutoPruned == "",
 	}
 	if ok, err := owner.rememberReportErr(rec); err != nil || !ok {
 		if err != nil {
@@ -86,6 +91,9 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid), waitAfter(waiting, after)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
+		if batch {
+			job.Prompt += "\n这是分批交回：只验本批交付，放行不会关卡；任务和工作区保留，最终交回后才结束整件活。\n"
+		}
 		if err := lead.timerScheduler.AddJob(job); err != nil {
 			slog.Error("report accept: waking the lead failed", "board_item", hid, "error", err)
 		} else {
@@ -98,7 +106,9 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			owner.teamExit.mu.Unlock()
 		}
 	}
-	e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, team.ExitKindReport, hid, body)
+	if !batch {
+		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, team.ExitKindReport, hid, body)
+	}
 	if !queued {
 		// No lead can look at it: the user still gets it, marked unchecked.
 		slog.Warn("report accept: no lead to accept the report; posting it unchecked", "board_item", hid, "workspace", ws)
@@ -129,9 +139,11 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 		return
 	}
 	e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
-	e.exitMarkPosted(team.ExitKindReport, rec.Board, rec.Headline)
-	e.markExitReported(rec.Board)
-	e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, team.ExitKindReport, rec.Board, rec.Body)
+	if !rec.Batch {
+		e.exitMarkPosted(team.ExitKindReport, rec.Board, rec.Headline)
+		e.markExitReported(rec.Board)
+		e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, team.ExitKindReport, rec.Board, rec.Body)
+	}
 }
 
 func boundTime(item *teamTaskBoardItem) time.Time {
@@ -424,9 +436,11 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	}
 	e.postHeldImages(ctx, p, mediaRC, cp.Chat, imgs, cp.Body)
 	e.postExitFiles(ctx, p, mediaRC, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
-	e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)
-	if cp.Board > 0 {
-		e.markExitReported(cp.Board) // posted: only now does this handoff count as reported
+	if !cp.Batch {
+		e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)
+		if cp.Board > 0 {
+			e.markExitReported(cp.Board) // posted: only a final report completes the handoff
+		}
 	}
 	e.teamExit.mu.Lock()
 	if unchecked {
