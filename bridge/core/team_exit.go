@@ -314,7 +314,9 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		slog.Info("team exit: test item; nothing posted in the chat channel",
 			"kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "headline", truncateStr(hline, 120))
 		takeWorkspaceImages(sessionKey, time.Time{})
-		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
+		if !workspaceBatchReport(ctx) {
+			e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
+		}
 		return ""
 	}
 	rc, err := rec.ReconstructReplyCtx(p.Name() + ":" + parent)
@@ -395,6 +397,10 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: kind, Body: body, Headline: hline, Board: hid,
 		Session: sessionKey, CreatedAt: time.Now(),
+		Batch: workspaceBatchReport(ctx),
+	}
+	if rec.Batch {
+		rec.Key = reportKey(p.Name(), parent, ws, exitKindBatch, hid, body)
 	}
 	if execution, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
 		rec.Authorization = &AuthorizationTurn{
@@ -435,7 +441,9 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		mediaRC = forumRC
 	}
 	e.postExitImages(ctx, p, mediaRC, parent, sessionKey, body, item)
-	e.exitMarkPosted(kind, hid, hline)
+	if !rec.Batch {
+		e.exitMarkPosted(kind, hid, hline)
+	}
 	if kind == team.ExitKindAsk && rec.Authorization == nil {
 		e.rememberPostedAskWake(rec)
 	} else {
@@ -450,8 +458,10 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 	}
 	if kind == team.ExitKindReport {
 		slog.Info("team exit: report posted", "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")
-		e.markExitReported(hid)
-		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
+		if !rec.Batch {
+			e.markExitReported(hid)
+			e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, kind, hid, body)
+		}
 		return ""
 	}
 	slog.Info("team exit: headline posted", "kind", kind, "board_item", hid, "workspace", ws, "parent", parent, "detail", detail != "")

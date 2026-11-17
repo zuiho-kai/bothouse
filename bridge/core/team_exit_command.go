@@ -22,7 +22,10 @@ import (
 //
 // Asking the user stays ws-up --ask (its own command, unchanged).
 
-const exitKindFailed = "failed"
+const (
+	exitKindFailed = "failed"
+	exitKindBatch  = "batch"
+)
 
 // ErrWorkspaceExitNoTask: the session is not a workspace with a task in work.
 var ErrWorkspaceExitNoTask = errors.New("no task in work in this workspace")
@@ -35,8 +38,8 @@ type WorkspaceExitResult struct {
 	Posted    string `json:"posted,omitempty"`
 }
 
-// WorkspaceExit hands back the task of workspace sessionKey: kind report (done, for acceptance) or
-// failed (handed back as failed; forwarded like a report). text is the report as the skeleton has
+// WorkspaceExit hands back the task of workspace sessionKey: kind report (final, for acceptance),
+// batch (one delivery, task/workspace retained), or failed. text is the report as the skeleton has
 // it, its first line 「[report] #id 背景：…」 (the marker may be left out). The task's state moves to
 // returned/failed; the report itself goes through the same checks and the lead's acceptance as
 // before (forwardWorkspaceExitKind).
@@ -48,10 +51,11 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	to := TeamTaskReturned
 	switch kind {
 	case team.ExitKindReport:
+	case exitKindBatch:
 	case exitKindFailed:
 		to = TeamTaskFailed
 	default:
-		return res, fmt.Errorf("workspace exit: kind %q (want report or failed)", kind)
+		return res, fmt.Errorf("workspace exit: kind %q (want report, batch or failed)", kind)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -84,10 +88,17 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		if t, tracked := st.Tasks[res.Board]; tracked {
 			if teamTaskInWork(t.State) && t.WS != res.Workspace {
 				err = fmt.Errorf("workspace exit: task #%d belongs to %s: %w", res.Board, t.WS, ErrWorkspaceExitNoTask)
+			} else if kind == exitKindBatch {
+				if !teamTaskInWork(t.State) {
+					err = fmt.Errorf("workspace exit: task #%d is %s: %w", res.Board, t.State, ErrTeamTaskTransition)
+				}
+				res.State = string(t.State)
 			} else {
 				t, err = transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: res.Board, To: to, By: "exit command"}, time.Now())
 				res.State = string(t.State)
 			}
+		} else if kind == exitKindBatch {
+			err = fmt.Errorf("workspace exit: a batch needs a task in work: %w", ErrWorkspaceExitNoTask)
 		}
 	}
 	teamWorkspaceStore.mu.Unlock()
@@ -115,9 +126,9 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		slog.Warn("team exit: task authorization refused the send; nothing forwarded", "session", sessionKey, "error", err)
 		return res, nil
 	}
-	out := &exitOutcome{}
+	out := &exitOutcome{batch: kind == exitKindBatch}
 	res.Posted = e.forwardWorkspaceExitKind(context.WithValue(ctx, exitOutcomeKey{}, out), p, sessionKey, team.ExitKindReport, body)
-	if res.State != "" && (out.bounced || out.dropped != "") {
+	if !out.batch && res.State != "" && (out.bounced || out.dropped != "") {
 		// #1492 常识：没交到的不算交回。A report sent back for a repair turn, or one that found no
 		// chat to go to, did not hand the task back: the task stays in this workspace, so the
 		// repaired report is accepted (it got 409 「already returned」) and the turn's end does not
@@ -134,9 +145,9 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 		} else {
 			res.State = string(t.State)
 		}
-		if out.dropped != "" {
-			return res, fmt.Errorf("workspace exit: %s", out.dropped)
-		}
+	}
+	if out.dropped != "" {
+		return res, fmt.Errorf("workspace exit: %s", out.dropped)
 	}
 	if !out.bounced && out.dropped == "" {
 		// The handback is done: the turn's end must not ask for the report again, and the reset
@@ -152,11 +163,17 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 // exitOutcome tells WorkspaceExit what forwardWorkspaceExitKind did with the report besides
 // posting or holding it: sent back for a repair turn, or dropped with nowhere to go.
 type exitOutcome struct {
+	batch   bool // A report batch retains the task and its workspace until final handback.
 	bounced bool
 	dropped string
 }
 
 type exitOutcomeKey struct{}
+
+func workspaceBatchReport(ctx context.Context) bool {
+	o, _ := ctx.Value(exitOutcomeKey{}).(*exitOutcome)
+	return o != nil && o.batch
+}
 
 func noteExitOutcome(ctx context.Context, f func(*exitOutcome)) {
 	if o, ok := ctx.Value(exitOutcomeKey{}).(*exitOutcome); ok && o != nil {

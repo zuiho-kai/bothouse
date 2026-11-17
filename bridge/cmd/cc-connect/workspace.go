@@ -32,7 +32,7 @@ func runWorkspace(args []string) {
 	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
 	boardID := fs.Int("board", 0, "claim: the task-board item handed off; the bridge records the task's state against it")
-	kind := fs.String("kind", "report", "exit: report (done, for acceptance) or failed")
+	kind := fs.String("kind", "report", "exit: report (final), batch (keep working), or failed")
 	to := fs.String("to", "", "transition: closed, paused, returned or failed")
 	why := fs.String("why", "", "transition: the reason recorded with it")
 	reopen := fs.Bool("reopen", false, "transition: take a closed task back for rework (closed → paused)")
@@ -109,7 +109,7 @@ func runWorkspace(args []string) {
 		var err error
 		switch *file {
 		case "":
-			workspaceFail(fmt.Errorf("usage: bothouse workspace exit --file <report draft> [--kind report|failed]"))
+			workspaceFail(fmt.Errorf("usage: bothouse workspace exit --file <report draft> [--kind report|batch|failed]"))
 		case "-":
 			raw, err = io.ReadAll(os.Stdin)
 		default:

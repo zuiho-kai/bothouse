@@ -139,8 +139,18 @@ func windowsLeadArgv(bin, py string) ([]string, error) {
 // posted in chat: a report records pending verification and resets the session after this turn (the reset
 // frees the workspace); an ask pauses the item as waiting for the user and frees the workspace now.
 func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body string) {
-	if hid <= 0 || !e.isTeamLead() {
+	if hid <= 0 {
 		return
+	}
+	// The reporting engine owns its session; the current lead owns board writes.
+	// A deputy's final report must update the board before ws-forward can resume it.
+	runner := e
+	if !e.isTeamLead() {
+		platform, _, _ := strings.Cut(chat, ":")
+		runner = e.reportLead(platform)
+		if runner == nil {
+			return
+		}
 	}
 	// A late exit may refer to a previous task after this workspace was reused.
 	// Its delivery receipt can reconcile that task; it cannot reset or park the
@@ -167,22 +177,22 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 		if why, after, ok := team.WaitExternalOf(body); ok {
 			// blocked outside: paused as 「等外部」 with a retry time instead of 「已交回待验收」; the
 			// workspace is freed and nothing wakes it before then (team_wait_external.go)
-			e.parkWaitingExternal(chat, hid, why, after)
+			runner.parkWaitingExternal(chat, hid, why, after)
 			return
 		}
-		reviewer := e.name
+		reviewer := runner.name
 		if it := e.boardItemByID(hid); it != nil {
 			bound, _ := time.Parse(time.RFC3339Nano, it.Bound)
 			if h, ok := e.TeamHandoffOf(sessionKey, chat, bound); ok && h.Sender != "" {
 				reviewer = h.Sender
 			}
 		}
-		if out, err := e.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), reviewer); err != nil {
+		if out, err := runner.runLeadScript(chat, "board", "returned", strconv.Itoa(hid), reviewer); err != nil {
 			slog.Warn("team workspace: record handback failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
 			// Delivery already succeeded. The persisted exit receipt lets the watcher
 			// retry the board write; a script error must not keep this workspace occupied.
 		} else {
-			w := newHandoffWatch(e)
+			w := newHandoffWatch(runner)
 			w.engines = e.watchEngines
 			w.reconcileTaskReviews(time.Now(), false)
 		}
@@ -193,7 +203,7 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 	case team.ExitKindAsk:
 		// Off the turn's goroutine: freeing the workspace resets this very session (bridge API).
 		go func() {
-			if out, err := e.runLeadScript(chat, "board", "ask", strconv.Itoa(hid)); err != nil {
+			if out, err := runner.runLeadScript(chat, "board", "ask", strconv.Itoa(hid)); err != nil {
 				slog.Warn("team workspace: yield on ask failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
 			}
 		}()
