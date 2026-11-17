@@ -1,0 +1,30 @@
+[
+  {
+    "id": "jiuwenswarm",
+    "label": "JiuwenSwarm",
+    "cmd": "jiuwenswarm-acp",
+    "note_zh": "openJiuwen 的 Agent 系统；先把 JiuwenSwarm 主进程跑起来",
+    "note_en": "openJiuwen's agent system; start the JiuwenSwarm app first"
+  },
+  {
+    "id": "openclaw",
+    "label": "OpenClaw",
+    "cmd": "openclaw acp",
+    "note_zh": "先起 OpenClaw 网关；远程网关要先完成配对",
+    "note_en": "Run an OpenClaw gateway first; a remote gateway needs pairing"
+  },
+  {
+    "id": "trae",
+    "label": "Trae CLI",
+    "cmd": "traecli acp serve",
+    "note_zh": "Trae 命令行",
+    "note_en": "Trae command line"
+  },
+  {
+    "id": "coco",
+    "label": "COCO",
+    "cmd": "coco acp serve",
+    "note_zh": "COCO 命令行",
+    "note_en": "COCO command line"
+  }
+]
