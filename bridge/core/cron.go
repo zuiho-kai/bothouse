@@ -727,6 +727,7 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		timeoutC = timer.C
+		defer engine.armScheduledTurnWarning(job.ID, timeout).Stop()
 	}
 	select {
 	case err = <-done:

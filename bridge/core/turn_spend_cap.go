@@ -30,6 +30,12 @@ type TurnSpendCaps struct {
 // 数据：11-16 线上日志统计，一轮花费 p75 为 cron 0.23、timer 1.04、工作区 4.16 美元，取 5 倍取整。
 var defaultTurnSpendCaps = TurnSpendCaps{Cron: 1, Timer: 5, Workspace: 20} // 数据：同上一行，5 倍 p75 取整
 
+// turnWarnAt is the share of a turn's spend cap, and of a scheduled turn's time limit, at which
+// the turn is told to hand in what it has (#1744). Before, a turn over its limit was only
+// stopped: 11-16 23:02 a cron turn at 1.016 USD of 1 was cut and left nothing.
+// 数据：上限是一轮正常花费（p75）的 5 倍（见 defaultTurnSpendCaps），八成处提醒，留下的两成正好是一轮正常花费，够写完答复。
+const turnWarnAt = 0.8
+
 // turnSpendCheckEvery is how often a capped turn's spend is read from the logs.
 // 沿用已有配置：和 boardAutostartEvery 一样的 15 秒轮询。
 const turnSpendCheckEvery = boardAutostartEvery
@@ -151,6 +157,8 @@ type turnSpendWatch struct {
 	name    string // the job's description, or the workspace turn's task line
 	id      string // the job id, or the workspace channel
 	meter   *turnSpendMeter
+	warned  bool    // the hand-in reminder went out, or could not be delivered; it is tried once
+	stopAt  float64 // the spend the turn is stopped over: limit, or more for a late reminder
 }
 
 // turnSpendKind is the cap a turn runs under: the workspace one for any turn in a workspace
@@ -202,6 +210,7 @@ func (e *Engine) newTurnSpendWatch(state *interactiveState, session *Session, iK
 	default:
 		return nil
 	}
+	w.stopAt = w.limit
 	w.tok = scheduledWatchSeq.Add(1)
 	w.meter = newTurnSpendMeter(cfg, time.Now())
 	state.mu.Lock()
@@ -257,7 +266,11 @@ func (e *Engine) watchTurnSpend(w *turnSpendWatch, every time.Duration) {
 	}
 }
 
-// checkTurnSpend reads the turn's spend once and stops the turn when it is over the cap.
+// checkTurnSpend reads the turn's spend once. At turnWarnAt of the cap the turn is told, once,
+// to hand in what it has; over the cap it is stopped. Spend is read every turnSpendCheckEvery,
+// so one reading can jump from under turnWarnAt to over the cap: that turn is told then, and
+// stopped only after the room an on-time reminder leaves (the cap's last 1-turnWarnAt). A turn
+// that cannot be told (the agent takes no mid-turn input) is stopped at the cap as before.
 // It returns false when the watch is over (the turn ended, or was stopped here).
 func (e *Engine) checkTurnSpend(w *turnSpendWatch) bool {
 	w.state.mu.Lock()
@@ -267,11 +280,36 @@ func (e *Engine) checkTurnSpend(w *turnSpendWatch) bool {
 		return false
 	}
 	spent := w.meter.read(w.sessionIDs(), false)
-	if spent <= w.limit {
+	if !w.warned && spent >= w.limit*turnWarnAt {
+		w.warned = true
+		told := e.tellTurnToHandIn(w.state, w.iKey, e.i18n.Tf(MsgTurnSpendWarn, spendUSD(spent), spendUSD(w.limit)))
+		if told && spent > w.limit {
+			w.stopAt = w.limit * (2 - turnWarnAt)
+		}
+		slog.Info("turn near its spend cap; told it to hand in", "project", e.name, "session", w.iKey, "kind", w.kind,
+			"id", w.id, "spent_usd", spent, "cap_usd", w.limit, "told", told)
+	}
+	if spent <= w.stopAt {
 		return true
 	}
 	e.fireTurnSpendCap(w, spent)
 	return false
+}
+
+// tellTurnToHandIn puts note into the turn running under iKey, the way a message sent during a
+// turn joins it (injectIntoRunningTurn). state, when given, must still be the one under iKey:
+// a reminder armed for a turn never reaches a later turn's agent. It returns false when the
+// agent takes no mid-turn input or the turn is gone; the caller then keeps its hard stop only.
+func (e *Engine) tellTurnToHandIn(state *interactiveState, iKey, note string) bool {
+	if state != nil {
+		e.interactiveMu.Lock()
+		cur := e.interactiveStates[iKey]
+		e.interactiveMu.Unlock()
+		if cur != state {
+			return false
+		}
+	}
+	return e.canInjectInto(e.agent, iKey) && e.injectIntoRunningTurn(iKey, note, nil, nil, nil)
 }
 
 // fireTurnSpendCap stops the turn the cap was armed for, and only that turn, then tells its

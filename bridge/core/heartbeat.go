@@ -379,6 +379,7 @@ func (hs *HeartbeatScheduler) execute(entry *heartbeatEntry) {
 	}()
 
 	var err error
+	defer entry.engine.armScheduledTurnWarning(heartbeatRunID(cfg.SessionKey), timeout).Stop()
 	select {
 	case err = <-done:
 	case <-time.After(timeout):
