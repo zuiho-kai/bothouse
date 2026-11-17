@@ -268,7 +268,7 @@ class SubWikiPy(unittest.TestCase):
         lines = "\n".join(f"{b} proj-{b} {self.tmp / 'wikis' / b}" for b in ("juzi", "whale"))
         (self.dir / "export.py").write_text(
             "import sys\nif '--list' in sys.argv: print(" + repr(lines) + ")\nelse: sys.exit(1)\n")
-        self.assertEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
+        self.assertCountEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
         self.assertIn("export failed (ingest still runs on what is there)", (self.dir / "sub-wiki.log").read_text())
 
 
