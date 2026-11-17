@@ -27,8 +27,9 @@ class HandbackReview(unittest.TestCase):
             p = subprocess.run([sys.executable, "-I", str(HERE / "board.py"), *args], env=env, text=True, capture_output=True, timeout=10)
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         # #1695：工作区里不能直接标完成，#46 在自己的工作区（room:work）里 done 会被拒；
-        # 旧式 done-before-report 从工作区外的会话（老 CLI/中转）走到，迟到交回仍要主角色验收。
-        env["CC_SESSION_KEY"] = "room:legacy"
+        # 旧式 done-before-report 从工作区外、不在聊天频道里的会话（老 CLI/中转）走到，迟到交回仍要主角色验收；
+        # 别的频道的会话改不了它（#836），所以这里不带 CC_SESSION_KEY。
+        env.pop("CC_SESSION_KEY")
         cli("done", "46", "0")  # #699 D：收尾词不再结束一件活，done 只算执行完成
         env["CC_SESSION_KEY"] = "room:work"
         self.assertEqual(path.read_text(), "")

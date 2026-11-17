@@ -62,8 +62,8 @@ func runWake(args []string) {
 	}
 	sockPath := resolveSocketPath(dataDir)
 	payload, _ := json.Marshal(map[string]string{"project": project, "session_key": session, "text": text})
-	client := &http.Client{Transport: &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-		return net.Dial("unix", sockPath)
+	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return dialBridge(ctx, sockPath)
 	}}}
 	resp, err := client.Post("http://unix/wake", "application/json", bytes.NewReader(payload))
 	if err != nil {

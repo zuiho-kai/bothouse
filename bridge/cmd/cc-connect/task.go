@@ -33,7 +33,7 @@ func runTask(args []string) {
 func taskClient(dataDir string) *http.Client {
 	socket := resolveSocketPath(dataDir)
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		return dialBridge(ctx, socket)
 	}}
 	return &http.Client{Transport: transport, Timeout: 15 * time.Second}
 }

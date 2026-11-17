@@ -7,6 +7,7 @@ import { checkAvatar } from './avatars.mjs';
 import { CollabError, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
 import { oversizedNote } from './attachments.mjs';
 import { ChannelApprovals, parseCard } from './approvals.mjs';
+import { credentialHash, rowToExternal } from './roster.mjs';
 
 
 export const WS_PATH = '/cloud-web/ws';
@@ -215,16 +216,24 @@ export class CloudWebGateway {
     hub.onMessage(message => this.onNew(message));
   }
 
-  authorized(req, url) {
-    if (!this.token) return false;
+  /**
+   * Who a request comes from: { shared: true } with the shared bot token (bothouse roles),
+   * { member: row } with an external member's own credential (#321), undefined with neither.
+   */
+  authorize(req, url) {
     const header = req.headers.authorization ?? '';
     const bearer = header.startsWith('Bearer ') ? header.slice(7) : undefined;
     const presented = bearer ?? req.headers['x-cloud-web-token'] ?? url.searchParams.get('token');
-    return typeof presented === 'string' && timingSafeEqualString(presented, this.token);
+    if (typeof presented !== 'string' || presented === '') return undefined;
+    if (this.token && timingSafeEqualString(presented, this.token)) return { shared: true };
+    const member = this.hub.store.memberByCredential(credentialHash(presented));
+    return member === undefined ? undefined : { member };
   }
 
-  /** Own one upgraded socket: register handshake, then frames until close. */
-  accept(ws, url) {
+  authorized(req, url) { return this.authorize(req, url) !== undefined; }
+
+  /** Own one upgraded socket: register handshake, then frames until close. auth: what authorize() returned. */
+  accept(ws, url, auth) {
     let bot;
     const timer = setTimeout(() => ws.close(WS_BAD_REGISTER, 'register timeout'), REGISTER_TIMEOUT_MS);
     ws.on('message', (data, isBinary) => {
@@ -234,7 +243,7 @@ export class CloudWebGateway {
       if (frame === null || typeof frame !== 'object') return;
       if (bot === undefined) {
         clearTimeout(timer);
-        bot = this.register(ws, url, frame);
+        bot = this.register(ws, url, frame, auth);
         return;
       }
       if (this.bots.get(bot.member.id) !== bot) return;
@@ -254,11 +263,22 @@ export class CloudWebGateway {
     ws.on('error', (error) => { this.logger.warn('collab: cloud-web socket error: %s', error?.message ?? error); });
   }
 
-  register(ws, url, frame) {
+  register(ws, url, frame, auth) {
+    // #321: an external member's own credential names the member; its name, channel and mention id
+    // are the ones in the roster, whatever the URL says.
+    if (auth?.member !== undefined) {
+      if (frame.type !== 'register') {
+        send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
+        ws.close(WS_BAD_REGISTER, 'bad register');
+        return undefined;
+      }
+      return this.admit(ws, { ...rowToExternal(auth.member), online: true });
+    }
     const project = typeof frame.project === 'string' ? frame.project : '';
     const id = clean(url.searchParams.get('bot') || project).slice(0, MAX_NAME);
     const existing = this.hub.members.get(id);
-    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || (existing !== undefined && existing.kind !== 'bot' && existing.kind !== 'dsh')) {
+    // #321: the shared token cannot take the place of a stored external member.
+    if (frame.type !== 'register' || !id || RESERVED_IDS.has(id) || existing?.external || (existing !== undefined && existing.kind !== 'bot' && existing.kind !== 'dsh')) {
       send(ws, { type: 'register_ack', ok: false, error: 'bad register' });
       ws.close(WS_BAD_REGISTER, 'bad register');
       return undefined;
@@ -287,6 +307,12 @@ export class CloudWebGateway {
     // #1662: a member stored here (kind 'dsh') is the bothouse role of that id: it keeps its entry and comes online.
     const member = existing?.kind === 'dsh' ? { ...existing, mentionId: mention, online: true, voter: project || id }
       : { id, name, rooms, kind: 'bot', mentionId: mention, online: true, ...(avatar ? { avatar } : {}), voter: project || id };
+    return this.admit(ws, member);
+  }
+
+  /** The member is who it says: take its socket (replacing an older one) and bring it online. */
+  admit(ws, member) {
+    const { id } = member;
     const bot = { ws, member };
     const old = this.bots.get(id);
     this.bots.set(id, bot);
@@ -346,7 +372,15 @@ export class CloudWebGateway {
 
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
-    if (msg.author_kind === 'system' || msg.card !== null || this.bots.size === 0) return;
+    if (msg.author_kind === 'system' || msg.card !== null) return;
+    // #321: a person calls an external member that is not connected: say so in the channel.
+    if (msg.author_kind === 'user') {
+      for (const m of this.hub.routableIn(msg.room_id)) {
+        if (!m.external || this.bots.has(m.id) || !mentionsMember(msg.text, m)) continue;
+        this.hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text: `${m.name} 现在不在线，这条消息它没有收到。` });
+      }
+    }
+    if (this.bots.size === 0) return;
     const fromAgent = msg.author_kind === 'role';
     // The owner's text reply to a pending permission prompt goes the same way as a button click.
     const answered = this.approvals.answerByText(msg);
@@ -378,6 +412,8 @@ export class CloudWebGateway {
         user_id: msg.author, user_name: msg.name, content: text, reply_ctx: roomKey(msg.room_id),
         from_bot: fromAgent, members: wireMembers(members), ...attached, ...replyTo,
       };
+      // #321: a bothouse role's bridge works out who is called; an external bot is told (docs/external-member.md).
+      if (member.external) frame.mentioned = mentionsMember(text, member);
       const quote = quotePrefix(quoted);
       if (quote) frame.quote = quote;
       if (tooBig) frame.note = tooBig;
@@ -668,6 +704,16 @@ export class CloudWebGateway {
     return { text: content.trim().slice(0, MAX_TEXT), card: null };
   }
 
+  /** #321: an external member was removed or got a new credential: its connection ends now. */
+  disconnect(id, reason) {
+    const bot = this.bots.get(id);
+    if (bot === undefined) return;
+    this.bots.delete(id);
+    this.hub.setOnline(id, false);
+    this.hub.dropDrafts('role', id);
+    bot.ws.close(WS_BAD_REGISTER, reason);
+  }
+
   closeAll() {
     for (const { ws } of this.bots.values()) ws.close(1001, 'server shutdown');
   }
@@ -700,6 +746,20 @@ function send(ws, frame) {
 export function isCommand(content) { return /^\/[a-z]/i.test(content); }
 
 function clean(s) { return String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').trim(); }
+
+const WORD = 'a-zA-Z0-9_';
+/**
+ * #321: whether text calls member m — @name, @id, <@id> or <@mention_id> — with the word boundaries
+ * the bridge uses for its own roles (bridge/platform/cloud-web/mentions.go): no word character
+ * before the @-form, and none right after one that ends in a word character.
+ */
+export function mentionsMember(text, m) {
+  const forms = ['@' + m.name, '@' + m.id, `<@${m.id}>`, ...(m.mentionId ? [`<@${m.mentionId}>`, `<@!${m.mentionId}>`] : [])];
+  return forms.some((form) => {
+    const tail = new RegExp(`[${WORD}]$`).test(form) ? `(?![${WORD}])` : '';
+    return new RegExp(`(?<![${WORD}])${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${tail}`, 'i').test(text);
+  });
+}
 
 function timingSafeEqualString(a, b) {
   if (a.length !== b.length) return false;

@@ -44,8 +44,9 @@ var teamTurns = struct {
 	by   map[string]map[uint64]teamTurnFact
 	// lastEnd: when the last turn in a chat ended (the watch's "a turn ended in this window").
 	lastEnd map[string]time.Time
-	// failNext: the running turn in a chat ended with an API error (#1562, noteTeamTurnFailed);
-	// its end is not recorded in lastEnd, so a failed turn is not the watch's progress.
+	// failNext: the running turn in a chat ended with an API error (#1562, noteTeamTurnFailed) or
+	// only wrote text (#1724, noteTeamTurnTextOnly); its end is not recorded in lastEnd, so such
+	// a turn is not the watch's progress.
 	failNext map[string]bool
 }{by: map[string]map[uint64]teamTurnFact{}, lastEnd: map[string]time.Time{}, failNext: map[string]bool{}}
 
@@ -53,6 +54,15 @@ var teamTurns = struct {
 // Qwen workspace's turn that ended on "API Error: 500 Context size has been exceeded" counted
 // as a turn that ended in the window, i.e. progress, and the watch renewed it.
 func noteTeamTurnFailed(chat string) {
+	teamTurns.mu.Lock()
+	teamTurns.failNext[teamChatKey(chat)] = true
+	teamTurns.mu.Unlock()
+}
+
+// noteTeamTurnTextOnly marks the turn running in chat as one that only wrote text (no tool ran,
+// so no handback either): its end is not recorded in lastEnd and is not the watch's progress
+// (#1724; user 11-17, on a workspace that stopped at 23:59 and was renewed as 「有进展」).
+func noteTeamTurnTextOnly(chat string) {
 	teamTurns.mu.Lock()
 	teamTurns.failNext[teamChatKey(chat)] = true
 	teamTurns.mu.Unlock()

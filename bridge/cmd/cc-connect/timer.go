@@ -261,8 +261,8 @@ func runTimerList(args []string) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}
@@ -305,9 +305,7 @@ func runTimerList(args []string) {
 			} else {
 				display = prompt
 			}
-			if len(display) > 60 {
-				display = display[:60] + "..."
-			}
+			display = truncate(display, 63)
 		}
 		muteStr := ""
 		if m, ok := j["mute"].(bool); ok && m {
@@ -393,8 +391,8 @@ func runTimerInfo(args []string) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialBridge(ctx, sockPath)
 			},
 		},
 	}

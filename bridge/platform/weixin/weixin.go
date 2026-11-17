@@ -260,7 +260,7 @@ func (p *Platform) persistSyncBuf(buf string) {
 	if p.syncBufPath == "" {
 		return
 	}
-	if err := os.WriteFile(p.syncBufPath, []byte(buf), 0o600); err != nil {
+	if err := core.AtomicWriteFile(p.syncBufPath, []byte(buf), 0o600); err != nil {
 		slog.Warn("weixin: save sync buf failed", "path", p.syncBufPath, "error", err)
 	}
 }
@@ -292,7 +292,7 @@ func (p *Platform) persistTokens() {
 	if err != nil {
 		return
 	}
-	if err := os.WriteFile(p.tokensPath, out, 0o600); err != nil {
+	if err := core.AtomicWriteFile(p.tokensPath, out, 0o600); err != nil {
 		slog.Warn("weixin: save context tokens failed", "path", p.tokensPath, "error", err)
 	}
 }

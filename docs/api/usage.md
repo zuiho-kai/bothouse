@@ -104,3 +104,24 @@ still count toward reply totals; their displayed token count is not evidence of
 zero consumption. Cost estimates use the configured currency and only include
 priced replies; an asterisk marks an incomplete estimate. Empty dates show no
 records. Tracking begins when the ledger is enabled; no history is reconstructed.
+
+## Member ranking (local instance)
+
+`GET /api/v1/usage/members` uses the same management administrator token and
+`from`, `to`, `role`, `model` filters as the existing endpoints. It returns the
+same token categories, request counts and price estimates, plus `member`, sorted
+by total tokens descending. A member key is `platform:account-id`; `system`
+means unassigned. Pass `member` to daily, roles or models to see that member's
+breakdown. The `/usage` page adds this ranking, cost sorting, shares and details,
+with today, 7-day, 30-day and custom ranges.
+
+The scope is this instance's existing CLI log sources, not other computers.
+The bridge stores the initiating platform account and the backend session/time
+interval for each completed attempt. The importer keeps the backend session ID
+on new records, and queries join the two. A running attempt's records remain
+unassigned until its interval is saved. Old records without an identity, bot
+handoffs, scheduled work, local input and output outside a recorded attempt
+remain system/unassigned. There is no historical identity backfill and no
+cross-platform account linking. All member rows, including system, sum to the
+same date range's existing token total; pricing and token normalization do not
+change.

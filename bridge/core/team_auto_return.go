@@ -248,14 +248,18 @@ func (e *Engine) releaseHandedBackWorkspace(key string) {
 // there and the task was handed back during it (releaseHandedBackWorkspace) or its state says
 // handed back (returned, failed or closed by its transition), the handoffs are closed; when none
 // is left open the workspace is released (DSH/cloud_web: through the platform,
-// releaseTeamWorkspace) and every engine's sessions there are reset. Asking/paused tasks are
-// parked by their own transition.
+// releaseTeamWorkspace) and every engine's sessions there are reset. An asking/paused task was
+// parked by its own transition; when that park left this turn running, the workspace is given
+// back here (freeParkedWorkspace).
 func (e *Engine) releaseReturnedWorkspace(key string) {
 	if e == nil || e.dataDir == "" {
 		return
 	}
 	key = teamChatKey(key)
 	if teamTurnRunning(key) {
+		return
+	}
+	if e.freeParkedWorkspace(key) { // its last task was paused by the turn that just ended (ws-up --ask)
 		return
 	}
 	if _, pending := teamReleaseAtTurnEnd.LoadAndDelete(key); pending {

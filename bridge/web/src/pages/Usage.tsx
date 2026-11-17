@@ -1,3 +1,4 @@
+import UsageMembers from './UsageMembers';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, RefreshCw, X, Calendar } from 'lucide-react';
@@ -16,7 +17,7 @@ const panel = 'rounded-card bg-surface p-5 ring-1 ring-hairline';
 // 热力五档：0/1/2/3/4 全部走同一个 accent 的透明度梯度，亮暗两套色自动跟随令牌。
 const colors = ['bg-surface-sunken', 'bg-accent/15', 'bg-accent/35', 'bg-accent/60', 'bg-accent/90'];
 
-export type DatePreset = 'today' | 'thisWeek' | 'thisMonth' | 'last7Days' | 'pastYear';
+export type DatePreset = 'today' | 'thisWeek' | 'thisMonth' | 'last7Days' | 'last30Days' | 'pastYear';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -37,6 +38,7 @@ export function getPresetRange(preset: DatePreset, serverToday: string): { from:
     return { from: shiftDay(serverToday, weekday === 0 ? -6 : 1 - weekday), to: serverToday };
   }
   if (preset === 'thisMonth') return { from: `${serverToday.slice(0, 8)}01`, to: serverToday };
+  if (preset === 'last30Days') return { from: shiftDay(serverToday, -29), to: serverToday };
   if (preset === 'last7Days') return { from: shiftDay(serverToday, -6), to: serverToday };
   // 近一年：不传起止，由后端返回默认范围（今天往前一年），见 management_usage.go。
   return { from: '', to: '' };
@@ -46,7 +48,7 @@ export function getPresetRange(preset: DatePreset, serverToday: string): { from:
 // 取第一个范围完全相同的预设。点击预设时不走这里，直接保留所点的那一个。
 export function matchPreset(start: string, end: string, serverToday: string): DatePreset | null {
   if (!start && !end) return 'pastYear';
-  const order: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days'];
+  const order: DatePreset[] = ['today', 'thisWeek', 'thisMonth', 'last7Days', 'last30Days'];
   for (const p of order) {
     const range = getPresetRange(p, serverToday);
     if (range.from === start && range.to === end) return p;
@@ -378,13 +380,14 @@ export default function Usage() {
             className="flex rounded-lg border border-hairline bg-surface p-0.5 text-xs shadow-sm"
             data-testid="usage-date-presets"
           >
-            {(['today', 'thisWeek', 'thisMonth', 'last7Days', 'pastYear'] as const).map(p => {
+            {(['today', 'thisWeek', 'thisMonth', 'last7Days', 'last30Days', 'pastYear'] as const).map(p => {
               const isActive = selectedPreset === p;
               const labelMap: Record<DatePreset, string> = {
                 today: t('usage.presetToday', '今日'),
                 thisWeek: t('usage.presetThisWeek', '本周'),
                 thisMonth: t('usage.presetThisMonth', '本月'),
                 last7Days: t('usage.presetLast7Days', '近7天'),
+                last30Days: t('usage.presetLast30Days'),
                 pastYear: t('usage.presetPastYear', '近一年'),
               };
               return (
@@ -642,6 +645,8 @@ export default function Usage() {
         <h2 className="font-semibold">{t('usage.todayRoles')}</h2>
         {table(todayRoles, 'role')}
       </section>
+
+      {daily && <UsageMembers from={daily.from} to={daily.to} role={role} model={model} revision={revision} />}
 
       <div className="grid grid-cols-1 gap-5">
         <section className={panel}>

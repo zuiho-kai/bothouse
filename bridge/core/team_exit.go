@@ -598,7 +598,7 @@ func (e *Engine) workspaceTaskStopped(sessionKey string, named *teamTaskBoardIte
 
 // boardItemStopped: it is paused for a reason other than waiting on the user's answer.
 func boardItemStopped(it *teamTaskBoardItem) bool {
-	return it != nil && it.Paused != "" && !it.waitsUser()
+	return it != nil && it.Paused != "" && !it.waitsAnswer()
 }
 
 var askRef = regexp.MustCompile(`\bask-[0-9a-f]{8}\b`)

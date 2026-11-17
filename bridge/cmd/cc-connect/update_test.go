@@ -39,6 +39,10 @@ func TestIsNewer(t *testing.T) {
 		// rc > beta lexicographically
 		{"v1.2.3-rc.1", "v1.2.3-beta.9", true},
 
+		// A build made after a tag (git describe) is past that tag, not a pre-release of it
+		{"v0.1.79", "v0.1.79-6-g9cb26c763", false},
+		{"v0.1.80", "v0.1.79-6-g9cb26c763", true},
+
 		// Dev builds always upgradeable
 		{"v1.0.0", "dev", true},
 

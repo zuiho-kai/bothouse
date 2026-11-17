@@ -31,6 +31,36 @@ func TestApplySteerEdits(t *testing.T) {
 	}
 }
 
+// #882: a dsh-acp patched by an earlier bridge keeps the 0.2.1-only route call; the next session
+// start rewrites that one call and leaves the rest of the file alone.
+func TestHealSteerRewritesOldAdmission(t *testing.T) {
+	pkg := filepath.Join(t.TempDir(), "lib", "node_modules", "@deepseek-ai", "dsh")
+	js := filepath.Join(pkg, "node_modules", "@deepseek-ai", "dsh-acp", "lib", "index.js")
+	if err := os.MkdirAll(filepath.Dir(js), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(pkg, "lib"), 0o755)
+	os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name": "@deepseek-ai/dsh"}`), 0o644)
+	os.WriteFile(filepath.Join(pkg, "lib", "bin.js"), nil, 0o644)
+	stockCall := "const content = await admitAcpPrompt(this.ctx, promptSelection, params.prompt, imageEnabled, admissionController.signal);\n"
+	old := "_meta: { \"dsh/steer\": true }\n" + stockCall + "\t\t\tconst content = await " + steerAdmitOld + ";\n"
+	os.WriteFile(js, []byte(old), 0o644)
+	healSteer("/usr/local/bin/node", []string{filepath.Join(pkg, "lib", "bin.js"), "--profile", "acp"})
+	b, _ := os.ReadFile(js)
+	if strings.Contains(string(b), steerAdmitOld) || !strings.Contains(string(b), steerAdmit) {
+		t.Fatalf("old admission call not rewritten:\n%s", b)
+	}
+	if !strings.Contains(string(b), stockCall) {
+		t.Fatal("the stock prompt's own admission call must stay as it is")
+	}
+	// a fresh patch writes the same call
+	if out, ok := applySteerEdits("\t\tthis.assertActive();\n\t\tif (this.inflight !== void 0) throw invalidParams$1(\"a prompt is already in flight for this session\");\n" +
+		"\t/** Cancel the active prompt, or autonomous work when no ACP prompt exists. */\n\tcancel() {\n\t}\n" +
+		"\t\t\t\t\t\tresume: {}\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tauthMethods: []\n"); !ok || !strings.Contains(out, steerAdmit) || strings.Contains(out, steerAdmitOld) {
+		t.Fatal("a fresh patch must use the version-independent admission call")
+	}
+}
+
 // healSteer finds dsh-acp from `node <pkg>/lib/bin.js` and writes the patch back with a backup.
 func TestHealSteerFromNodeArgs(t *testing.T) {
 	src := os.Getenv("DSH_ACP_STOCK") // optional: a real stock index.js to check against

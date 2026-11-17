@@ -52,11 +52,13 @@ func CheckForUpdate(currentVersion string, preferGitee bool) (*ReleaseInfo, erro
 		return nil, nil
 	}
 
-	// Find the newest release by semver comparison
+	// Find the newest release by semver comparison. A stable build is not offered a
+	// pre-release; a pre-release build follows them (same rule as `bothouse update`).
+	followPre := IsPrereleaseVersion(currentVersion)
 	var best *ReleaseInfo
 	for i := range releases {
 		r := &releases[i]
-		if r.TagName == "" {
+		if r.TagName == "" || (r.Prerelease && !followPre) {
 			continue
 		}
 		if best == nil || semverCompare(r.TagName, best.TagName) > 0 {
@@ -386,30 +388,38 @@ func replaceBinary(newBinary []byte) error {
 	return nil
 }
 
-// --- semver comparison ---
+// --- version comparison ---
+//
+// The only place versions are ordered: the chat /update, the admin page, the plugin specs and
+// the CLI (CompareVersions, IsPrereleaseVersion) all read it.
 
 var semverRe = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(?:-(.+))?$`)
+
+// describeSuffixRe: the tail `git describe` adds to a build made after a tag
+// ("v0.1.79-6-g9cb26c763" = 6 commits after v0.1.79). It is not a pre-release of that tag.
+var describeSuffixRe = regexp.MustCompile(`-(\d+)-g[0-9a-f]{4,}$`)
 
 type semver struct {
 	major, minor, patch int
 	pre                 string
-	preNum              int
+	ahead               int // commits after the tag (git describe build)
 }
 
 func parseSemver(v string) semver {
-	m := semverRe.FindStringSubmatch(strings.TrimSpace(v))
+	v = strings.TrimSpace(v)
+	ahead := 0
+	if loc := describeSuffixRe.FindStringSubmatchIndex(v); loc != nil {
+		ahead, _ = strconv.Atoi(v[loc[2]:loc[3]])
+		v = v[:loc[0]]
+	}
+	m := semverRe.FindStringSubmatch(v)
 	if m == nil {
 		return semver{}
 	}
 	major, _ := strconv.Atoi(m[1])
 	minor, _ := strconv.Atoi(m[2])
 	patch, _ := strconv.Atoi(m[3])
-	pre := m[4]
-	preNum := 0
-	if idx := strings.LastIndex(pre, "."); idx >= 0 {
-		preNum, _ = strconv.Atoi(pre[idx+1:])
-	}
-	return semver{major: major, minor: minor, patch: patch, pre: pre, preNum: preNum}
+	return semver{major: major, minor: minor, patch: patch, pre: m[4], ahead: ahead}
 }
 
 func normalizeVersion(v string) string {
@@ -419,6 +429,14 @@ func normalizeVersion(v string) string {
 	}
 	return v
 }
+
+// IsPrereleaseVersion: v0.1.0-rc1 style. A git describe build of a stable tag is not one.
+func IsPrereleaseVersion(v string) bool {
+	return parseSemver(v).pre != ""
+}
+
+// CompareVersions returns >0 if a > b, <0 if a < b, 0 if equal.
+func CompareVersions(a, b string) int { return semverCompare(a, b) }
 
 // semverCompare returns >0 if a > b, <0 if a < b, 0 if equal.
 func semverCompare(a, b string) int {
@@ -441,15 +459,35 @@ func semverCompare(a, b string) int {
 	if sa.pre != "" && sb.pre == "" {
 		return -1
 	}
-	// Both have pre-release: compare lexicographically, then by number
-	if sa.pre != sb.pre {
-		if d := strings.Compare(sa.pre, sb.pre); d != 0 {
-			// "beta" prefix comparison; if same prefix, compare numbers
-			aPre := strings.TrimRight(sa.pre, "0123456789.")
-			bPre := strings.TrimRight(sb.pre, "0123456789.")
-			if aPre == bPre {
-				return sa.preNum - sb.preNum
+	if d := comparePreRelease(sa.pre, sb.pre); d != 0 {
+		return d
+	}
+	return sa.ahead - sb.ahead
+}
+
+// comparePreRelease compares two pre-release strings segment by segment.
+// Numeric segments are compared as integers (beta.10 > beta.2); non-numeric
+// segments lexicographically. Returns >0 if a is greater, <0 if b is, 0 if equal.
+func comparePreRelease(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	for i := 0; i < len(aParts) || i < len(bParts); i++ {
+		var ap, bp string
+		if i < len(aParts) {
+			ap = aParts[i]
+		}
+		if i < len(bParts) {
+			bp = bParts[i]
+		}
+		an, aErr := strconv.Atoi(ap)
+		bn, bErr := strconv.Atoi(bp)
+		if aErr == nil && bErr == nil {
+			if an != bn {
+				return an - bn
 			}
+			continue
+		}
+		if d := strings.Compare(ap, bp); d != 0 {
 			return d
 		}
 	}

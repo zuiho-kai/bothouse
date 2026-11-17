@@ -1102,11 +1102,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Turno interrumpido; revise los resultados antes de reintentar.",
 	},
 	MsgWatchResume: {
-		LangEnglish:            "Continue %s and finish it; when done, start the reply with [report]",
-		LangChinese:            "接着做 %s，做完跑 ws-up --report <草稿文件> 交回",
-		LangTraditionalChinese: "接著做 %s，做完跑 ws-up --report <草稿檔> 交回",
-		LangJapanese:           "%s を続けて完了させてください。完了したら返信の1行目を [report] にしてください",
-		LangSpanish:            "Continúa %s hasta terminarlo; al terminar, empieza la respuesta con [report]",
+		LangEnglish:            "Continue %s. You have not handed it back yet: either carry on and run ws-up --report <draft file> when it is done, or, if you are blocked or need a decision, run ws-up --ask",
+		LangChinese:            "接着做 %s。你还没交回：要么接着做，做完跑 ws-up --report <草稿文件> 交回；要么卡住了或要人拍板，跑 ws-up --ask",
+		LangTraditionalChinese: "接著做 %s。你還沒交回：要麼接著做，做完跑 ws-up --report <草稿檔> 交回；要麼卡住了或要人拍板，跑 ws-up --ask",
+		LangJapanese:           "%s を続けてください。まだ引き渡されていません。続けて完了したら ws-up --report <下書きファイル> で引き渡すか、行き詰まった・判断が必要な場合は ws-up --ask を実行してください",
+		LangSpanish:            "Continúa %s. Aún no lo has entregado: sigue y, al terminar, ejecuta ws-up --report <borrador>; si estás bloqueado o necesitas una decisión, ejecuta ws-up --ask",
 	},
 	// Wake for work accepted in a chat channel: hand it to a workspace, do not finish it there.
 	// 来源：2026-11-10 agentm 子区、私聊交不出去后，看门发「接着做…做完再结束本轮」，GPT 就在聊天频道里做完整件审查。

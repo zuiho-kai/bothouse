@@ -657,7 +657,19 @@
     "presetLast7Days": "近7天",
     "presetPastYear": "近一年",
     "presetPastYearHint": "預設範圍：今天往前一年（後端單次最多查一年）",
-    "tokenBreakdown": "消耗結構"
+    "tokenBreakdown": "消耗結構",
+    "membersTitle": "成員用量排行",
+    "membersSystem": "系統／未歸屬",
+    "membersSort": "排名排序",
+    "membersCacheRead": "快取讀取",
+    "membersCacheWrite": "快取寫入",
+    "membersRank": "名次",
+    "membersMember": "成員",
+    "membersShare": "占比",
+    "membersDetail": "成員明細",
+    "membersDaily": "每日趨勢",
+    "presetLast30Days": "近30天",
+    "membersNote": "僅統計本機，帳號按平台分開。呼叫結束後顯示歸屬；舊記錄、背景及轉派用量歸未歸屬。* 部分請求未設定價格。"
   },
   "navGroup": {
     "main": "常用",

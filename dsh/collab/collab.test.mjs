@@ -550,11 +550,131 @@ test('cloud-web external member: its <@mention_id> travels with the members for 
   hub.store.close();
 });
 
-// Intentionally not asserted here (M1/M2):
-// - "unknown member id is refused" and "removed member cannot re-register" need a
-//   persistent member registry + revocation (M1);
-// - "offline member mention feedback" needs M2.
-// Add those after M1/M2 land, and mark them with the same test names for traceability.
+// #321: stored external members — own credential, one channel, told when they are called, offline notice.
+function externalSetup(store = (() => { const s = new Store(':memory:'); s.ensureRoom(1, 'general'); s.ensureRoom(2, 'office'); return s; })()) {
+  const hub = makeHubFrom(store);
+  const gw = new CloudWebGateway(hub, { token: 'shared', logger: quiet });
+  // The same wiring as plugin.mjs.
+  const roster = new Roster(hub, {
+    putMember(m) { hub.setMember({ ...m, kind: 'dsh', online: gw.bots.has(m.id) }); },
+    dropMember(id) { hub.removeMember(id); },
+    putExternal(m) { hub.setMember({ ...m, online: gw.bots.has(m.id) }); },
+    dropConnection(id) { gw.disconnect(id, 'credential replaced'); },
+    dropExternal(id) { gw.disconnect(id, 'member removed'); hub.removeMember(id); },
+  }, undefined);
+  roster.load([]);
+  /** Connect the way plugin.mjs does: authorize the upgrade request, then accept. undefined = 401. */
+  const dial = (credential, query = '') => {
+    const url = new URL(`http://x/cloud-web/ws?${query}`);
+    const auth = gw.authorize({ headers: { authorization: `Bearer ${credential}` } }, url);
+    if (auth === undefined) return undefined;
+    const ws = new FakeWs();
+    gw.accept(ws, url, auth);
+    ws.frame({ type: 'register', platform: 'cloud_web', client: 'astrbot', transport: 'ws' });
+    return ws;
+  };
+  return { hub, gw, roster, dial, store };
+}
+
+test('external member: added with its own credential, connects as itself and is told when it is called', async () => {
+  const { hub, gw, roster, dial } = externalSetup();
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const { member, credential } = roster.createExternal({ name: '小A', rooms: [1], mentionId: '999' });
+  assert.deepEqual({ kind: member.kind, external: member.external, rooms: member.rooms }, { kind: 'bot', external: true, rooms: [1] });
+  assert.equal(hub.members.get(member.id).online, false, 'in the member list before its bot connects');
+  assert.equal(hub.store.member(member.id).credential_hash.includes(credential), false, 'only a hash is stored');
+
+  // The URL cannot make it somebody else or put it in another channel.
+  const bot = dial(credential, 'bot=ds&name=DeepSeek&room=2');
+  assert.equal(bot.of('register_ack')[0].ok, true);
+  assert.equal(hub.members.get(member.id).online, true);
+  assert.deepEqual(hub.members.get(member.id).rooms, [1]);
+  assert.equal(hub.members.get('ds').kind, 'dsh');
+  assert.ok(hub.memberView().some(m => m.id === member.id && m.external === true && m.online === true));
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@小A 你怎么看？' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@DeepSeek 做一下 X' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '<@999> 在吗' });
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '@小A 我做完了' });
+  hub.post(2, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@小A 另一个频道' });
+  await tick();
+  assert.deepEqual(bot.of('message').map(f => [f.content, f.mentioned, f.from_bot]), [
+    ['@小A 你怎么看？', true, false],
+    ['@DeepSeek 做一下 X', false, false],
+    ['<@999> 在吗', true, false],
+    ['@小A 我做完了', true, true],
+  ], 'called or not, bot or person; nothing from the other channel');
+
+  // Its reply is in the channel under its own name.
+  bot.frame({ type: 'reply', reply_ctx: 'room-1', content: '我觉得可以' });
+  const last = hub.store.page(1).at(-1);
+  assert.deepEqual([last.author_kind, last.author, last.name, last.text], ['role', member.id, '小A', '我觉得可以']);
+
+  // A bothouse role's connection is not told `mentioned`: its bridge works that out.
+  const role = connect(gw, 'token=shared&bot=ju&name=橘');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@橘 hi' });
+  await tick();
+  assert.equal('mentioned' in role.of('message').at(-1), false);
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('external member: wrong credential, the shared token and a removed member are all refused', () => {
+  const { hub, gw, roster, dial } = externalSetup();
+  const { member, credential } = roster.createExternal({ name: 'ExtBot', rooms: [1] });
+  assert.equal(dial('not-a-credential'), undefined, 'unknown credential: 401 before the upgrade');
+
+  // The shared token cannot register as the stored external member.
+  const imposter = connect(gw, `bot=${member.id}&name=ExtBot`);
+  assert.equal(imposter.of('register_ack')[0].ok, false);
+  assert.equal(imposter.closed.code, 4002);
+
+  // A new credential ends the old connection and the old credential.
+  const first = dial(credential);
+  const rotated = roster.rotateExternal(member.id);
+  assert.equal(first.closed.code, 4002);
+  assert.equal(dial(credential), undefined);
+  const second = dial(rotated.credential);
+  assert.equal(second.of('register_ack')[0].ok, true);
+
+  // Removing the member revokes it: disconnected, out of the list, credential dead.
+  roster.remove(member.id);
+  assert.equal(second.closed.code, 4002);
+  assert.equal(hub.members.has(member.id), false);
+  assert.equal(dial(rotated.credential), undefined);
+
+  assert.throws(() => roster.createExternal({ name: 'NoRoom', rooms: [] }), /exactly one/);
+  assert.throws(() => roster.createExternal({ name: 'TwoRooms', rooms: [1, 2] }), /exactly one/);
+  gw.closeAll();
+  hub.store.close();
+});
+
+test('external member: back after a restart, a call while it is offline is answered in the channel, never the default role', async () => {
+  const first = externalSetup();
+  const { member, credential } = first.roster.createExternal({ name: 'ExtBot', rooms: [1] });
+  first.gw.closeAll();
+
+  // A restart: a new hub, gateway and roster on the same store.
+  const { hub, gw, dial, store } = externalSetup(first.store);
+  assert.deepEqual([hub.members.get(member.id).name, hub.members.get(member.id).online], ['ExtBot', false]);
+  assert.equal(hub.defaultReplyIn(1), undefined, 'the only agent in the channel, still not its default role');
+
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@ExtBot 在吗' });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '没叫任何人' });
+  await tick();
+  await tick();
+  const notices = store.page(1).filter(m => m.author_kind === 'system');
+  assert.deepEqual(notices.map(m => m.text), ['ExtBot 现在不在线，这条消息它没有收到。']);
+
+  const bot = dial(credential);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@ExtBot 现在呢' });
+  await tick();
+  await tick();
+  assert.equal(bot.of('message').at(-1).mentioned, true);
+  assert.equal(store.page(1).filter(m => m.author_kind === 'system').length, 1, 'online: no notice');
+  gw.closeAll();
+  store.close();
+});
 
 test('cloud-web: token check accepts bearer, header, or query', () => {
   const gw = new CloudWebGateway(makeHub(), { token: 'secret', logger: quiet });

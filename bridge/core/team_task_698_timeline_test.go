@@ -42,10 +42,10 @@ func TestTimeline698WorkspaceThree(t *testing.T) {
 		t.Fatal("watchBusy missed the running turn")
 	}
 
-	// 15:42:19 #677 leaves the workspace while its turn still runs (a park from inside the turn,
-	// which is not stopped): the records free it, the running turn does not.
-	if freed, err := e.ParkTeamWorkspace(ws); err != nil || !freed {
-		t.Fatalf("park #677 = %v, %v", freed, err)
+	// 15:42:19 #677 is paused while its turn still runs (a park from inside the turn, which is
+	// not stopped): the task is paused at once, the workspace stays until that turn ends (#1729).
+	if freed, err := e.ParkTeamWorkspace(ws); err != nil || freed {
+		t.Fatalf("park #677 = %v, %v; want paused, the workspace kept until the turn ends", freed, err)
 	}
 	if slices.Contains(e.TeamIdleWorkspaceNames("discord:chatA"), "工作区1") {
 		t.Fatal("15:42:19 the workspace was listed idle with #677's turn still running (item 3)")
@@ -59,6 +59,7 @@ func TestTimeline698WorkspaceThree(t *testing.T) {
 
 	// … and taken once the turn ended; its own turn then carries #679, and #677 stays paused.
 	endTurn()
+	e.releaseReturnedWorkspace(ws) // the engine's turn end
 	if !slices.Contains(e.TeamIdleWorkspaceNames("discord:chatA"), "工作区1") {
 		t.Fatal("the workspace is not idle after #677's turn ended")
 	}

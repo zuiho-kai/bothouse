@@ -215,7 +215,8 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了（能自己查的去查：日志、提交、线上）。二选一：\n"+
 		"- 合格：ws-pass%s --verdict \"逐条：哪条做到、证据是什么\"（不带附件就是只放行文字；带附件放行时这份文字一并放行，不用再跑一次），系统照原文贴给用户。\n"+
 		"- 不合格：ws-forward%s \"打回：哪条没做到、要补什么\"，汇报不贴，活回到工作区返工。\n"+
-		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。不要自己转述或重贴这份汇报；验收完回 NO_REPLY 或一句你怎么定的。\n",
+		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。放行后用户在聊天频道看到的就是这份汇报原文，你再讲一遍，他同一件事要读两遍：放行后回 NO_REPLY。"+
+		"只有你查到汇报里没写的事（和汇报对不上、还没上线、要用户动手）才说，最多两句，只说对不上的那一点。\n",
 		notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
 	return b.String()
 }

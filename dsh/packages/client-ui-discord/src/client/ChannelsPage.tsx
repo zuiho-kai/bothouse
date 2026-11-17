@@ -18,7 +18,7 @@ import { useCollabUrl } from './collab-url.ts'
 import { boardGroupOf, isLiveTask } from './task-board.ts'
 import { TaskBoard, TaskCard } from './TaskBoard.tsx'
 import { ProgressCard, channelProgress, loadProgressFolded, saveProgressFolded } from './ProgressCard.tsx'
-import { CHAT_RUN_STEPS, StepChips, chipsOf, compactBrief } from './StepChips.tsx'
+import { CHAT_RUN_STEPS, StepChips, chipsOf, compactBrief, stepKind, stepLine, type StepChip } from './StepChips.tsx'
 import { hasExitMark, tidyNotice, withoutExitMark } from './notice-tidy.ts'
 import { CapabilityList } from './CapabilityList.tsx'
 import { SlashMenu } from './SlashMenu.tsx'
@@ -120,7 +120,7 @@ function saveCardView(roomId: number, view: CardView): void {
 }
 
 /** Card metadata stored in `ChannelMessage.card` (progress, permission, task, failure, …). */
-interface CardMeta { title?: string; state?: string; action?: string; detail?: string; kind?: string; task_id?: number; brief?: string; steps?: number; chips?: unknown }
+interface CardMeta { title?: string; state?: string; action?: string; detail?: string; kind?: string; task_id?: number; brief?: string; steps?: number; elapsed_sec?: number; chips?: unknown }
 
 export function parseCard(message: ChannelMessage): CardMeta | undefined {
   if (message.card === null) return undefined
@@ -184,6 +184,52 @@ function trivialProgress(message: ChannelMessage): boolean {
     && typeof card.steps === 'number' && Number.isInteger(card.steps) && card.steps >= 0 && card.steps <= 1
     && !chipsOf(card)?.some(chip => chip.state === 'failed')
     && !(card.brief ?? message.text).split('\n').some(line => line.startsWith('❌ '))
+}
+
+/** #1884: a finished run's failed steps, shown again on the newest reply of that run. */
+export interface RunFailure { readonly cardId: number; readonly steps: readonly StepChip[] }
+
+/**
+ * #1884: the run strip sits on the first row of a turn, and a long turn ends many rows below it, so
+ * its 「N 步出错」 is out of sight when the turn ends. Keyed by the id of the last reply the author
+ * posted in that run: that row repeats which step failed. A reply belongs to the run when it comes
+ * after the strip, before the author's next strip, and no later than the run ended (the strip's
+ * created_at + elapsed_sec, plus the second elapsed_sec rounds down; the strip is posted after the turn
+ * starts, so this never cuts a reply off).
+ */
+export function runFailures(messages: readonly ChannelMessage[]): Map<number, RunFailure> {
+  const out = new Map<number, RunFailure>()
+  const runs = new Map<string, { failure: RunFailure; until: number; last?: number }>()
+  const close = (author: string): void => {
+    const run = runs.get(author)
+    if (run?.last !== undefined) out.set(run.last, run.failure)
+    runs.delete(author)
+  }
+  for (const m of messages) {
+    if (m.author_kind !== 'role') continue
+    const card = parseCard(m)
+    if (card === undefined) {
+      const run = runs.get(m.author)
+      if (run !== undefined && m.from_turn !== 0 && m.created_at <= run.until) run.last = m.id
+      continue
+    }
+    if (cardRole(card) !== 'progress') continue
+    close(m.author)
+    const steps = card.state === 'running' ? [] : (chipsOf(card) ?? []).filter(chip => chip.state === 'failed')
+    if (steps.length > 0 && typeof card.elapsed_sec === 'number') runs.set(m.author, { failure: { cardId: m.id, steps }, until: m.created_at + card.elapsed_sec + 1 })
+  }
+  for (const author of [...runs.keys()]) close(author)
+  return out
+}
+
+/** #1884: one failed step in a line: its kind, its call, and the first line of what it answered. */
+export function failedStepLine(chip: StepChip, t: T): string {
+  const { kind, input } = stepKind(chip, t)
+  // a call given as JSON starts with a bare bracket: that line says nothing, so the kind stands alone
+  const first = stepLine(input)
+  const call = /^[[{(]$/.test(first) ? '' : first
+  const error = (chip.output ?? '').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
+  return [call === '' ? kind : `${kind} ${call}`, error].filter(part => part !== '').join(' — ')
 }
 
 // 来源：沿用 #98 规范「连续消息合在一起显示」；5 分钟窗口沿用 Slack/Discord 连续消息合并的惯例。
@@ -259,8 +305,11 @@ interface OwnActions {
 // 体检 #9: a touch press this long opens the message tools (common long-press length on phones).
 const LONG_PRESS_MS = 450
 
-function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress, chatRoom = false }: {
+function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvatar, onCloseMenu, onMention, onDm, onReview, onDecide, onReply, onTask, onRetry, retrying, tasks, focused, cardView, onCardView, own, grouped, enter, queuedFor, taskCardShown = true, toolsOpen = false, onLongPress, chatRoom = false, runFailure, onShowRun }: {
   message: ChannelMessage
+  /** #1884: this row is the newest reply of a run that had failed steps. */
+  runFailure?: RunFailure
+  onShowRun?: (cardId: number) => void
   /** #1588: a chat channel (not a workspace, not a DM): a running card there shows only its latest steps. */
   chatRoom?: boolean
   /** 体检 #8: a task record shows its card only when no earlier row of this task already does. */
@@ -560,7 +609,12 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
                 ? <div className={css.bubbleLine}><HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />{toolsBesideBubble && tools}</div>
                 : toolsBesideBubble && <div className={css.bubbleLine}><AttachmentList attachments={message.attachments} t={t} />{tools}</div>}
               {(message.text !== '' || !toolsBesideBubble) && <AttachmentList attachments={message.attachments} t={t} />}
-              {delivered !== undefined && <DeliveryPreview page={delivered.page} task={delivered.task} t={t} onReview={onReview} onRevise={() => { onReply(message) }} />}</>
+              {delivered !== undefined && <DeliveryPreview page={delivered.page} task={delivered.task} t={t} onReview={onReview} onRevise={() => { onReply(message) }} />}
+              {runFailure !== undefined && (
+                <button type="button" className={css.runFailedNote} title={t('runFailedOpen')} onClick={() => { onShowRun?.(runFailure.cardId) }}>
+                  {t('runFailedHere', { count: String(runFailure.steps.length), step: failedStepLine(runFailure.steps[0]!, t) })}
+                </button>
+              )}</>
           : role === 'progress'
           ? (
               // #113: the run is a slim strip under the reply — spinner, step and time — that folds
@@ -1043,6 +1097,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
   // Filter before grouping and reading-position tracking; keep raw history for paging.
   // Task cards anchored to a progress message must remain reachable.
   const visibleMessages = useMemo(() => state.messages.filter(m => !trivialProgress(m) || state.tasks?.some(task => task.assign_msg_id === m.id)), [state.messages, state.tasks])
+  const failures = useMemo(() => runFailures(visibleMessages), [visibleMessages])
 
   // Rows that arrived live animate in once; the first fill, a room switch and older pages do not.
   const fresh = useMemo(() => trackLive(live.current, state.roomId, state.messages), [state.messages, state.roomId])
@@ -1163,6 +1218,10 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
     setFocusedId(jump.messageId)
     setJump(undefined)
   }, [jump, state.messages, state.roomId])
+  // #1884: from the note under a run's newest reply to the run strip that lists the failed step.
+  const showRun = (cardId: number): void => {
+    if (state.roomId !== undefined) setJump({ roomId: state.roomId, messageId: cardId })
+  }
   // #125: the title-bar teammates open the activity column (a drawer on narrow screens).
   const openActivity = (): void => {
     const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px)').matches // 沿用 ChannelsPage.module.css 抽屉断点
@@ -1817,6 +1876,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
                   toolsOpen={toolsFor === m.id}
                   onLongPress={() => { setToolsFor(m.id) }}
                   chatRoom={room?.kind !== 'workspace' && room?.dm_member == null}
+                  runFailure={failures.get(m.id)}
+                  onShowRun={showRun}
                 />,
               ])}
         </div>

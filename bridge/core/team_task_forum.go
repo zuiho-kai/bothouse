@@ -156,6 +156,9 @@ type taskForumPostState struct {
 	Deployed bool      `json:"deployed,omitempty"`
 	Merged   bool      `json:"merged,omitempty"`
 	DoneAt   time.Time `json:"done_at,omitzero"`
+	// Result: the passed report as the chat channel got it (taskForumExitText); the card shows
+	// its 【做了什么】 and 【要你做的】 so the first floor answers what came of it (#1732).
+	Result string `json:"result,omitempty"`
 }
 
 type taskForumState struct {
@@ -319,18 +322,38 @@ func taskForumTitle(it teamTaskBoardItem) string {
 
 func taskForumMarker(id int) string { return fmt.Sprintf("#%d ", id) }
 
-// taskForumCard keeps status, current progress, goal and footer before allocating space
-// to the question and then the original words (handoff #783 layout decision).
+// taskForumExitPart: the body of one labelled part (【做了什么】) of a posted report, "" when absent.
+func taskForumExitPart(text, label string) string {
+	_, rest, ok := strings.Cut(text, label)
+	if !ok {
+		return ""
+	}
+	for _, next := range []string{"\n【", "\n📌"} {
+		if i := strings.Index(rest, next); i >= 0 {
+			rest = rest[:i]
+		}
+	}
+	return strings.TrimSpace(rest)
+}
+
+// taskForumResultRunes: room one part of the result takes on the card. Source: a report part is
+// two sentences (report skeleton check, 「每段最多两句」); 400 runes holds the longest posted so far.
+const taskForumResultRunes = 400
+
+// taskForumNothingToDo: a report's 【要你做的】 that asks nothing (「没有」「没有。」「无」).
+var taskForumNothingToDo = regexp.MustCompile(`^(没有|无|暂无|不用)[。.！!]?$`)
+
+// taskForumCard is the post's first floor, read top to bottom by the person who asked (#1732,
+// user 11-17 「标题我根本看不懂啊，内容我也看不懂，出来的结果我更加看不懂」): the state, what is
+// asked of them, their own words, the goal, where it stands and what came of it. Who works it is
+// in the footer. State, progress, goal, result and footer keep their room before the question
+// and then the original words (handoff #783 layout decision).
 func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string {
 	who := firstNonEmpty(teamTaskBoardOwner(it.Who), "还没人接")
 	if ws := firstNonEmpty(it.WS, it.WSWas); ws != "" && tag != TaskForumTagDone {
 		who = teamChatRef(ws, firstNonEmpty(it.wsName, who))
 	}
-	ownerLabel := "负责"
-	if tag == TaskForumTagDone {
-		ownerLabel = "负责人"
-	}
-	head := fmt.Sprintf("**%s %s** · %s：%s", TaskForumTagEmoji(tag), tag, ownerLabel, who)
+	head := fmt.Sprintf("**%s %s**", TaskForumTagEmoji(tag), tag)
 	if tag == TaskForumTagReview && it.Reviewer != "" {
 		head += " · 等 " + firstNonEmpty(it.reviewerName, it.Reviewer) + " 核对"
 	}
@@ -354,28 +377,43 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	if chat := taskForumChat(it); chat != "" {
 		src = "来源 " + teamChatRef(chat, "") + " · "
 	}
-	foot := fmt.Sprintf("-# %s任务板 #%d", src, it.ID)
+	foot := fmt.Sprintf("-# %s负责 %s · 任务板 #%d", src, who, it.ID)
 	budget := limit - taskForumStampRunes
 	current := ""
 	if now != "" {
 		current = "**现在**：" + now + "\n"
 	}
+	result := ""
+	if did := taskForumExitPart(it.forumResult, "【做了什么】"); did != "" {
+		result = "**结果**：" + cutRunes(did, taskForumResultRunes) + "\n"
+		if todo := taskForumExitPart(it.forumResult, "【要你做的】"); todo != "" && !taskForumNothingToDo.MatchString(todo) {
+			result += "**要你做的**：" + cutRunes(todo, taskForumResultRunes) + "\n"
+		}
+	}
 	target := "**目标**：" + goal + "\n"
 	// Only shorten the goal when the fixed text alone exceeds the platform limit.
 	// A long question never steals the goal's space.
-	fixed := runeLen(head + current + target + foot)
+	fixed := runeLen(head + current + result + target + foot)
 	if fixed > budget && now != "" {
 		current = "**现在**：" + cutRunes(now, max(1, runeLen(now)-(fixed-budget))) + "\n"
-		fixed = runeLen(head + current + target + foot)
-		if fixed > budget {
-			target = "**目标**：" + cutRunes(goal, max(1, runeLen(goal)-(fixed-budget))) + "\n"
-		}
+		fixed = runeLen(head + current + result + target + foot)
+	}
+	if fixed > budget {
+		target = "**目标**：" + cutRunes(goal, max(1, runeLen(goal)-(fixed-budget))) + "\n"
 	}
 	ask := ""
 	if tag == TaskForumTagWaiting {
 		question := taskForumQuestion(it, strings.TrimPrefix(sentence, "等你："))
 		prefix, suffix := "> 👉 **要你做的**：", "（完整问题见下方最新回复）"
-		room := budget - runeLen(head+current+target+foot) - runeLen(prefix) - 1
+		room := budget - runeLen(head+current+result+target+foot) - runeLen(prefix) - 1
+		if it.askText != "" {
+			// A stored question: the card names it by its title and the reply below carries the
+			// whole text; the card never shows a cut of the text itself.
+			question = it.askTitle() + suffix
+			if runeLen(question) > room {
+				question = "有个问题要你定" + suffix
+			}
+		}
 		if room > 0 {
 			if runeLen(question) > room {
 				question = cutRunes(question, max(1, room-runeLen(suffix))) + suffix
@@ -389,14 +427,14 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	if words := notesSection(notes, "用户原话"); words != "" {
 		words = taskForumQuotes(words, it.speakerNames, it.quoteWho)
 		original = "**原话**：\n> " + strings.ReplaceAll(strings.TrimSpace(words), "\n", "\n> ") + "\n"
-		room := budget - runeLen(head+ask+current+target+foot)
+		room := budget - runeLen(head+ask+current+result+target+foot)
 		if room > runeLen("**原话**：\n> …\n") {
 			original = cutRunes(strings.TrimRight(original, "\n"), room-1) + "\n"
 		} else {
 			original = ""
 		}
 	}
-	return head + ask + current + target + original + foot
+	return head + ask + original + target + current + result + foot
 }
 
 // Resolve names using the configured project → display-name mapping used by task cards.
@@ -482,6 +520,9 @@ func taskForumHumanStatus(it teamTaskBoardItem, sentence string) string {
 // taskForumQuestion: the pause reason, else a status a person wrote, else
 // fallback; an auto-filled tool step is never shown as the question.
 func taskForumQuestion(it teamTaskBoardItem, fallback string) string {
+	if it.askText != "" {
+		return it.askText // the one stored copy, whole (board.py ask_save)
+	}
 	for _, q := range []string{it.PauseWhy, taskForumHumanStatus(it, "")} {
 		// The 「等待用户答复」 head alone is no question (ws-up --ask writes the question after it).
 		if q = strings.TrimSpace(teamTaskBoardWaitTag.ReplaceAllString(boardLabel(q), "")); q != "" && q != "-" {
@@ -496,8 +537,20 @@ func taskForumMerged(it teamTaskBoardItem) bool { return it.PRMerge != nil || it
 func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sentence string, merged bool) string {
 	switch tag {
 	case TaskForumTagWaiting:
+		if it.askText != "" {
+			kind := ""
+			if it.Ask != nil && it.Ask.Kind != "" {
+				kind = "（" + it.Ask.Kind + "）"
+			}
+			return "❓ 要你定" + kind + "：\n" + it.askText
+		}
 		return "❓ " + taskForumQuestion(it, sentence)
 	case TaskForumTagPaused:
+		if it.askText != "" && it.waitsOn(teamWaitLead) {
+			// The lead decides first: the whole question is shown, nobody is mentioned and the
+			// post is not 等你 (team rule: only 方向/花钱/成品/权限 wait on the user).
+			return "⏸️ 工作区提了个问题，主角色先定（没叫你，不用回）：\n" + it.askText
+		}
 		return "⏸️ " + sentence
 	case TaskForumTagRelease:
 		why := firstNonEmpty(sentence, "等发布")
@@ -508,17 +561,9 @@ func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sente
 			return "🔀 " + why
 		}
 		return "📦 " + why
-	case TaskForumTagDone:
-		return "✅ 已完成"
-	case TaskForumTagRunning:
-		if prev.Tag == TaskForumTagPaused || prev.Tag == TaskForumTagWaiting || prev.Tag == TaskForumTagDone || prev.Tag == TaskForumTagRelease {
-			who := teamTaskBoardOwner(it.Who)
-			if ws := it.WS; ws != "" {
-				return "▶️ 继续做：" + firstNonEmpty(who, "工作区") + "（" + teamChatRef(ws, it.wsName) + "）"
-			}
-			return "▶️ 继续做"
-		}
 	}
+	// Back to work, or done: the card's state line and the post's tag already say it; a floor
+	// for it only buries the questions and results the post keeps (#1732).
 	return ""
 }
 
@@ -770,6 +815,9 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if ps != nil && ps.Chat != "" {
 		chat, it.Chat = ps.Chat, ps.Chat
 	}
+	if ps != nil {
+		it.forumResult = ps.Result
+	}
 	card := taskForumCard(e.taskForumDisplayItem(it), tag, sentence, poster.TaskPostLimit())
 	title := taskForumTitle(it)
 	node := taskForumNode(ps, e.taskForumDisplayItem(it), tag, sentence)
@@ -851,7 +899,13 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
 		// Only a question the item itself carries mentions the user; a waiting move without one
 		// (an old ws-up --ask wrote no question) posts its line unmentioned.
-		if tag != ps.Tag && tag == TaskForumTagWaiting && canMention && user != "" && taskForumQuestion(it, "") != "" {
+		waitingNow := tag != ps.Tag && tag == TaskForumTagWaiting && user != "" && taskForumQuestion(it, "") != ""
+		if waitingNow && it.askText != "" && e.taskForumCallInChat(ctx, p, chat, user, it) {
+			// The whole question is already in the chat channel (ws-forward --ask-user) and the
+			// user answers it there, so that is where they are called; the post only records it
+			// (#1732, user 11-17 「我不想在帖子那边回，我想聊天这边统一处理」).
+			err = poster.PostTaskNode(ctx, ps.Thread, node)
+		} else if waitingNow && canMention {
 			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, user)
 		} else {
 			err = poster.PostTaskNode(ctx, ps.Thread, node)
@@ -867,6 +921,24 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	ps.Rejected, ps.Deployed, ps.Merged = it.ReviewRejected, it.Deployed != nil, taskForumMerged(it)
 	e.taskForumLinkLocked(ps, it)
 	return true, true
+}
+
+// taskForumCallInChat mentions user in the chat channel the question was posted in; false when
+// it could not be sent (the caller then mentions them in the post as before).
+func (e *Engine) taskForumCallInChat(ctx context.Context, p Platform, chat, user string, it teamTaskBoardItem) bool {
+	rcr, ok := p.(ReplyContextReconstructor)
+	if !ok || !strings.HasPrefix(chat, "discord:") {
+		return false
+	}
+	rc, err := rcr.ReconstructReplyCtx(chat)
+	if err == nil {
+		err = p.Send(ctx, rc, fmt.Sprintf("<@%s> 「%s」有件事要你定，问题就是上面那条，直接回它就行。", user, teamTaskBoardShort(it)))
+	}
+	if err != nil {
+		slog.Warn("task forum: user not called in the chat channel", "chat", chat, "board_item", it.ID, "error", err)
+		return false
+	}
+	return true
 }
 
 // taskForumFactsMoved: a board fact the post remembers changed (also one that posts no line, such
@@ -1117,7 +1189,21 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 	if ask {
 		return link, rc
 	}
+	e.taskForumRememberResult(hid, headline)
 	return headline + "\n\n" + link, rc
+}
+
+// taskForumRememberResult keeps the delivered report on the post's state; the next board pass
+// puts its result on the card.
+func (e *Engine) taskForumRememberResult(hid int, report string) {
+	rt := e.taskForumRT()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	s := e.taskForumLoadLocked()
+	if ps := s.Posts[strconv.Itoa(hid)]; ps != nil && ps.Result != report {
+		ps.Result = report
+		e.taskForumSaveLocked()
+	}
 }
 
 // TaskForumUserNotifier allows only the board's identified human dispatcher to be

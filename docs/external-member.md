@@ -1,14 +1,35 @@
-# External bot members (CWIP / cloud-web) — M3 draft
+# External bot members (CWIP / cloud-web)
 
-> Status: draft for review (M3 of #321). Based on `develop` at 2026-11-08
-> (`dsh/collab/cloudweb.mjs`, `bridge/platform/cloud-web/mentions.go`, `dsh/collab/collab.test.mjs`).
-> This document is for **third-party bot authors**: it explains how to write a client that
-> joins a bothouse hub as a channel member, receives messages, and replies.
+> This document is for **third-party bot authors** and the people who run the hub: it
+> explains how an external chat bot (AstrBot, MaiBot, your own) is added to a bothouse
+> channel as a member, how its client connects, receives messages and replies.
 >
-> **Current limitations (read this first)**: external members are **connection-scoped** —
-> they exist while connected and are not pre-provisioned, not revocable per member, and
-> have no offline state. A single shared bot token is used by the gateway. These are M1/M2
-> items; see [Current limitations](#current-limitations) below. Do not assume they exist.
+> Since 2026-11-17 (#321) an external member is **stored**: the hub operator adds it to one
+> channel and gets a credential that belongs to that member only. It stays in the member
+> list across restarts, shows as online or offline, and is removed (revoked) by the
+> operator. What is still missing is listed under [Current limitations](#11-current-limitations).
+
+## 0. Add the member (hub operator)
+
+On the machine that runs DSH with the bothouse plugin, with DSH running:
+
+```bash
+# the script is part of the installed plugin: <DSH profile>/node_modules/bothouse-dsh/collab/
+node external-member.mjs list                                   # channel ids, and the external members
+node external-member.mjs add MyBot --room 1 --mention-id 123    # --mention-id is optional
+```
+
+`add` prints the WebSocket address and the member's **credential**. The credential is
+shown only this once (the hub keeps a hash); hand it to the bot's owner over a private
+channel.
+
+```bash
+node external-member.mjs rotate <member id>    # a new credential; the old one stops working at once
+node external-member.mjs remove <member id>    # the member is gone, its connection is closed, its credential is dead
+```
+
+An external member belongs to exactly one channel and is never the role a channel falls
+back to for messages that mention nobody.
 
 ## 1. What this is
 
@@ -36,6 +57,9 @@ ws(s)://<host>:<port>/cloud-web/ws
 
 - Use `wss://` (or a protected tunnel) for remote hosts; `ws://` is acceptable only on
   loopback.
+- With a member's own credential (§0) the query string is not needed: the member's id,
+  name, mention id and channel are the ones the operator stored, and `bot`, `name`,
+  `mention_id` and `room` in the URL are ignored.
 - `bot` is the member id. It must not be `user` or `system`.
 - `room` scopes the member to one channel. **If omitted, the member is routable in all
   rooms** — prefer passing `room` and treat least privilege as the default.
@@ -53,8 +77,12 @@ The gateway accepts the bot token in one of these forms (prefer the first):
 | Query parameter | `?token=<token>` (avoid: leaks into logs/proxies) |
 
 **Security**: the token is a secret. Read it from an environment variable or a local
-credential store; never commit it, log it, or paste it into an issue/chat. The current
-gateway uses one shared bot token; see the limitation note.
+credential store; never commit it, log it, or paste it into an issue/chat.
+
+Use the credential the operator got from `external-member.mjs add` (§0). The hub's shared
+bot token is what bothouse's own roles connect with; it cannot register as a stored
+external member, and a connection made with it is not told `mentioned` (a bothouse role
+works that out itself from the text and the member list).
 
 ## 4. Register
 
@@ -203,29 +231,25 @@ See [`bridge/contrib/cwip-example/`](../../../bridge/contrib/cwip-example/README
 zero-dependency Python client that implements exactly the rules above, plus a local
 self-check with a fake hub (no real hub/token required).
 
-The example deliberately does **not** implement M1/M2 features (pre-provisioning,
-per-member credentials, offline state); those do not exist yet.
+Run it with the member's own credential as `CWIP_AUTH`.
 
 ## 11. Current limitations
 
 These are known and tracked, not bugs in your client:
 
-1. **No pre-provisioning**: an external member is created by connecting; it cannot be
-   registered ahead of time or given a room scope by an admin yet.
-2. **No per-member credentials**: the gateway currently uses one shared bot token; a token
-   holder can claim any member id. Use least-privilege networks/TLS and rotate the token
-   when needed.
-3. **No persistence**: after the hub restarts, members are gone until they reconnect.
-4. **No offline state / @offline feedback**: a disconnected member is simply offline; the
-   channel gets no special notice when an offline member is mentioned.
-5. **No revocation**: removing a member means stopping its client + rotating the shared
-   token.
-6. **Room scope is optional**: `?room=` limits routing, but omitting it makes the member
-   routable in all rooms.
+Done in #321: stored members, one credential per member, rotation, removal as revocation,
+one channel per member, online/offline in the member list, and a notice in the channel
+when a person mentions a member that is not connected.
 
-Design for M1 (persistent members, credentials, revocation, room enforcement) and M2
-(online state, approval cards) is being discussed in
-[#321](https://github.com/zuiho-kai/bothouse/issues/321).
+Not there yet:
+
+1. **No entry in the add-member dialog**: members are added with `external-member.mjs` (§0).
+2. **No rename or move**: remove the member and add it again.
+3. **One channel per member.**
+4. **No suspended state, no coordinator role, no human approval cards, no audit page**
+   (design: [`EXTERNAL_MEMBER_DESIGN.md`](EXTERNAL_MEMBER_DESIGN.md) §8, §10).
+5. **Mention matching is simpler than for bothouse roles**: `@name`, `@id`, `<@id>` and
+   `<@mention_id>` with word boundaries; an @-form inside a code block still counts.
 
 ## 12. References
 

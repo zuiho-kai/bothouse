@@ -226,6 +226,7 @@ def main(argv):
             rest.append(a)
     key = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
     path, rec, nid = find_task(key, notes, nid)
+    board.refuse_foreign([nid] if nid else rec.get("board") or [], "ws-pass")  # 别的频道派的活不在这里放行（#836）
     links, have = refs_of(rec.get("file") or path)
     if do_stitch:
         shots = [os.path.abspath(os.path.expanduser(p)) for p in rest]

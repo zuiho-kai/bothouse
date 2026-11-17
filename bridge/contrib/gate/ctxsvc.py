@@ -931,7 +931,7 @@ def ws_task(key=""):
 
 
 def board_items(key=""):
-    """任务板附上（board.py）：只列本会话频道的条目和等用户的条目，别处的只计数（用户 2026-10-28「工作区的任务板
+    """任务板附上（board.py）：只列本会话频道的条目（board.visible_here，同 board list，#836），别处的只计数（用户 2026-10-28「工作区的任务板
     又长又臭」，方案第 4 条）；全表用 board 命令看。path 带内容指纹：cc-connect 同一 path 每个会话只推一次
     （gate.go turnContext），所以板子不变不重复推，一变每个 bot 下一轮各收到一次新板（用户 2026-10-22「他应该能看到为什么从开始找」）。"""
     if board is None or not board._path("board.jsonl").exists():  # 没用过任务板就不附（板子清空后文件还在，照推「没有进行中的事」）
@@ -940,12 +940,12 @@ def board_items(key=""):
         its = board.items()
     except Exception:  # 板子读坏了不挡推页
         return []
-    shown = [i for i in its if (board.in_chat(i, key) or board.waits_user(i)) and not i.get("backlog")]
+    shown = [i for i in its if board.visible_here(i, key) and not i.get("backlog")]  # 同 board list（#836）
     rest = [i for i in its if i not in shown and not i.get("backlog")]
     ls = [board.fmt(i) for i in shown]
     run = sum(1 for i in rest if not i.get("paused"))
     if rest:
-        ls.append(f"别处还有 {run} 件在做、{len(rest) - run} 件暂停（全表跑 board）")
+        ls.append(f"别的频道还有 {run} 件在做、{len(rest) - run} 件暂停，到派活的频道处理（board list --all 看全表）")
     back = sum(1 for i in its if i.get("backlog"))
     if back:  # 待办不占每轮上下文，只报个数（用户 2026-11-05「任务板怎么还有一堆任务」）
         ls.append(f"另有 {back} 件待办（board backlog 看，不着急）")

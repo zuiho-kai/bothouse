@@ -151,7 +151,7 @@ class Board(unittest.TestCase):
         self.assertNotEqual(empty[0]["path"], one[0]["path"])  # 板子变了 path 就变，cc-connect 会重推
         self.assertIn("#1 x｜y｜z｜橘", one[0]["desc"])
         self.assertEqual(one, ctxsvc.board_items("discord:1"))  # 不变就不重推
-        self.assertIn("别处还有 1 件在做", ctxsvc.board_items("discord:2")[0]["desc"])  # 别的频道只计数（#611）
+        self.assertIn("别的频道还有 1 件在做", ctxsvc.board_items("discord:2")[0]["desc"])  # 别的频道只计数（#611、#836）
         self.assertIn(one[0], ctxsvc.context({"key": "discord:1", "text": "hi", "bot": "jingyu"})["wiki"])
 
     def test_context_counts_backlog_without_listing_it(self):

@@ -210,7 +210,7 @@ func (e *Engine) resumeAskedTask(chat string, hid int, answer string) bool {
 	waiting := false
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.ID == hid {
-			waiting = it.WS == "" && it.waitsUser()
+			waiting = it.WS == "" && it.waitsAnswer()
 		}
 	}
 	if !waiting {
@@ -280,7 +280,7 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 			inWork[t.WS] = true
 		}
 	}
-	var stale []string
+	var stale, parked []string
 	for key, list := range st.Handoffs {
 		if inWork[key] || teamTurnRunning(key) {
 			continue
@@ -303,12 +303,22 @@ func (w *handoffWatch) reconcileTeamWorkspaces(now time.Time) []string {
 				young = young || now.Sub(h.At) < teamWorkspaceReconcileGrace
 			}
 		}
+		// FreeAtTurnEnd with no turn running (checked above): the bridge restarted before the turn
+		// that paused its last task ended, so nothing gave the workspace back.
+		if _, w := teamWorkspaceOwnerLocked(st, plat, teamChannelID(key)); !open && w.FreeAtTurnEnd {
+			parked = append(parked, key)
+		}
 		if open && !young {
 			stale = append(stale, key)
 		}
 	}
 	teamWorkspaceStore.mu.Unlock()
 	var freed []string
+	for _, key := range parked {
+		if e.freeParkedWorkspace(key) {
+			freed = append(freed, key)
+		}
+	}
 	for _, key := range stale {
 		if !e.releaseTeamWorkspace(key, now, false) {
 			continue

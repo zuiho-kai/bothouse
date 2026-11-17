@@ -389,6 +389,11 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			live = live || indexLive
 		} else {
 			body := renderTeamTaskTable(items, links, chat, now)
+			if runeLen(teamTaskTableHeader(now)+"\n"+body) > backfillMaxMsgRunes {
+				// A waiting question too long for one post: name it on its row and leave the whole
+				// text to its post (the row links there) instead of cutting it by lines below.
+				body = renderTeamTaskTableAsks(items, links, chat, now, false)
+			}
 			if body == "" {
 				body = "现在没有在做或等你看的"
 			}
