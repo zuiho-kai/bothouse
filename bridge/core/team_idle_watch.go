@@ -207,6 +207,7 @@ func (e *Engine) updateIdle(a idleAssignment, f func(*TeamHandoff)) (TeamHandoff
 }
 
 var watchTaskNumberRE = regexp.MustCompile(`(?:^|\s)#([0-9]+)`)
+
 func watchTaskNumber(text string) int {
 	m := watchTaskNumberRE.FindStringSubmatch(strings.TrimPrefix(text, "【接】"))
 	if m == nil {
@@ -506,6 +507,11 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	if e.ctx.Err() != nil || !e.quotaCoolingFor(e.admissionQuotaScope(e.agent, a.key)).IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
 		return
 	}
+	w := newHandoffWatch(e)
+	if w.taskLeftWorkspace(a.key, a.h) {
+		e.updateIdle(a, func(h *TeamHandoff) { h.Idle.Returned = true })
+		return
+	}
 	if e.team != nil {
 		items := placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir))
 		if id := handoffBoardID(a.key, a.h, items); id != 0 {
@@ -550,14 +556,8 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 			return
 		}
 	}
-	w := newHandoffWatch(e)
 	if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
-		return // native background completion supplies the next terminal event
-	}
-	if id := e.watchBackgroundRun(a.key); id != "" {
-		// Its end wakes the session; a wake that fails is picked up by the next ten-minute check.
-		slog.Info("idle watch: a background command of the workspace will wake it; not waking now", "workspace", a.key, "run", id)
-		return
+		return // background completion supplies the next terminal event
 	}
 	escalate, wake := false, false
 	h, ok := e.updateIdle(a, func(h *TeamHandoff) {

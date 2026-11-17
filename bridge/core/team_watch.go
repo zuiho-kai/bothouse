@@ -722,6 +722,11 @@ func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) 
 		if e == nil {
 			continue
 		}
+		// bgrun is tracked outside the agent process. Both periodic progress and
+		// idle wake decisions must read that same running/completion record.
+		if e.watchBackgroundRun(key) != "" {
+			return true, false
+		}
 		e.interactiveMu.Lock()
 		var states []*interactiveState
 		for k, state := range e.interactiveStates {
