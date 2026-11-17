@@ -3086,8 +3086,7 @@ def nightly(a):
     run(a, engines=[NIGHT_ENGINE])
     split_pass(state())
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
-    data_dir = (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
-                os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
+    data_dir = bridge_data_dir()
     import manuals
     role = manuals.role_project(REPO, data_dir)
     manuals.WIKI = REPO
@@ -3667,6 +3666,30 @@ def profile_ask(prompt):
     return json.JSONDecoder().raw_decode(res[i:])[0]
 
 
+def bridge_data_dir():
+    return (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
+            os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
+
+
+def owner_to_roles(done):
+    """今晚重写了主人（桥配置里的 admin_from）那页 → 写进各角色的说明文件（profiles.to_roles，#1757：每个会话本来就读
+    说明文件，不靠每轮推送）。角色和说明文件照 bots.json。只在主 wiki 做（gate 推的是主 wiki 那页）：角色自己的 wiki
+    （.bothouse-role）、试跑副本（WIKI_DIR、PROFILE_NO_COMMIT）不写。"""
+    import profiles
+    try:
+        key = f"discord-{discord_said.user_id()}"
+    except discord_said.Unavailable:  # 桥配置里没有主人
+        return
+    bots = Path(os.environ.get("WIKI_BOTS") or Path(bridge_data_dir()) / "wiki/bots.json").expanduser()
+    if key not in done or not bots.is_file() or (REPO / ".bothouse-role").exists() \
+            or REPO.resolve() != HOME.resolve() or os.environ.get("PROFILE_NO_COMMIT"):
+        return
+    personas = {k: v["persona"] for k, v in json.loads(bots.read_text(encoding="utf-8")).items()
+                if isinstance(v, dict) and v.get("persona")}
+    roles = profiles.to_roles(REPO / profiles.page_rel(key), key, personas, bots.parent / profiles.ROLE_STATE)
+    log(f"profile: owner's page written into role instructions: {', '.join(roles) or 'no role asks for it'}")
+
+
 def profiles_pass(db, deadline):
     """懂你画像，每人一页（profiles.py，#1160）：每个说过话的人，按他自己 [上次到现在) 的原话重写他那页，只提交这些页。
     The window starts where the last pass ended (0 the first time: all the person's recorded words) and moves only
@@ -3696,6 +3719,7 @@ def profiles_pass(db, deadline):
     if not files:
         log("profile: nothing rewritten")
         return
+    owner_to_roles(done)
     with open(REPO / "log.md", "a") as f:
         f.write(f"\n## [{time.strftime('%Y-%m-%d')}] dream | 画像\n" + "".join(f"- {k}: {v}\n" for k, v in done.items()))
     if (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):

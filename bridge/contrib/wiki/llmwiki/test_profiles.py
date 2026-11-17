@@ -105,6 +105,44 @@ class Profiles(unittest.TestCase):
         finally:
             ctxsvc.PROFILE = old
 
+    def test_owner_page_goes_into_role_files(self):
+        """主人那页的「现状」写进要它的角色说明文件（引用行 → 旁边的小文件；标记 → 标记之间），gate 对这些角色不再推
+        他那页，别的角色、别人的页照推（#1757）。"""
+        import ctxsvc
+        self.prompts = []
+        profiles.run(self.wiki, 0, time.time(), self.ask, lambda m: None, root=self.store)
+        page = self.wiki / profiles.page_rel("discord-1")
+        page.write_text(page.read_text(encoding="utf-8").replace("我要根因」）", "我要根因」） <!-- 帖 t1·2楼 -->"), encoding="utf-8")
+        roles = self.wiki.parent / "roles"
+        for name in ("lead", "coder", "plain"):
+            (roles / name).mkdir(parents=True)
+        (roles / "lead" / "CLAUDE.md").write_text("# 角色\n\n@owner-profile.md\n", encoding="utf-8")
+        start, end = profiles.ROLE_MARKS
+        (roles / "coder" / "AGENTS.md").write_text(f"# 角色\n{start}\n旧的\n{end}\n## 后面\n", encoding="utf-8")
+        (roles / "plain" / "AGENTS.md").write_text("# 角色\n", encoding="utf-8")
+        bots = self.wiki.parent / "bots.json"
+        personas = {"lead": roles / "lead" / "CLAUDE.md", "coder": roles / "coder" / "AGENTS.md",
+                    "plain": roles / "plain" / "AGENTS.md", "gone": roles / "gone" / "AGENTS.md"}
+        got = profiles.to_roles(page, "discord-1", personas, bots.parent / profiles.ROLE_STATE)
+        self.assertEqual(got, ["lead", "coder"])
+        small = (roles / "lead" / profiles.ROLE_FILE).read_text(encoding="utf-8")
+        self.assertIn("我要根因", small)
+        self.assertNotIn("<!--", small)  # 论坛标注不带进说明
+        coder = (roles / "coder" / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("我要根因", coder.split(start)[1].split(end)[0])
+        self.assertNotIn("旧的", coder)
+        self.assertTrue(coder.startswith("# 角色\n") and coder.endswith(end + "\n## 后面\n"))
+        self.assertEqual((roles / "plain" / "AGENTS.md").read_text(encoding="utf-8"), "# 角色\n")
+        old = ctxsvc.PROFILE, ctxsvc.BOTS
+        ctxsvc.PROFILE, ctxsvc.BOTS = profiles.PROFILE_DIR, bots
+        try:
+            self.assertEqual(ctxsvc.profile_items([self.wiki], "discord-1", "lead"), [])
+            self.assertEqual(ctxsvc.profile_items([self.wiki], "discord-1", "dsh:coder"), [])
+            self.assertIn("我要根因", ctxsvc.profile_items([self.wiki], "discord-1", "plain")[0]["desc"])
+            self.assertIn("声音不是很自然", ctxsvc.profile_items([self.wiki], "discord-2", "lead")[0]["desc"])
+        finally:
+            ctxsvc.PROFILE, ctxsvc.BOTS = old
+
 
 if __name__ == "__main__":
     unittest.main()
