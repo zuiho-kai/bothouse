@@ -2575,7 +2575,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (m *ManagementServer) handleSetupCLIs(w http.ResponseWriter, r *http.Request) {
-	mgmtJSON(w, http.StatusOK, map[string]any{"clis": DetectLocalCLIs(r.Context()), "acp_presets": ACPPresets()})
+	mgmtJSON(w, http.StatusOK, map[string]any{"clis": DetectLocalCLIs(r.Context()), "acp_presets": ACPPresets(r.Context())})
 }
 
 func (m *ManagementServer) handleSetupMatrix(w http.ResponseWriter, r *http.Request) {

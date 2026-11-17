@@ -225,6 +225,10 @@ var defaultUsagePrices = map[string]TokenPrice{
 	"o3-mini":                             {Input: 1.1, Output: 4.4, CacheRead: 0.55, CacheWrite: 0.0},
 	"o3-pro":                              {Input: 20.0, Output: 80.0, CacheRead: 0.0, CacheWrite: 0.0},
 	"o4-mini":                             {Input: 1.1, Output: 4.4, CacheRead: 0.275, CacheWrite: 0.0},
+// qwen27b is the local LM Studio model split workspaces run on (workspace_model in
+// config.toml); it runs on this machine, so its tokens cost nothing. An explicit zero
+// row keeps the spend cap from charging it at the no-price fallback rate.
+	"qwen27b":                             {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0},
 	"qwen3-235b-a22b":                     {Input: 0.7, Output: 8.4, CacheRead: 0.0, CacheWrite: 0.0},
 	"qwen3-32b":                           {Input: 0.16, Output: 0.64, CacheRead: 0.0, CacheWrite: 0.0},
 	"qwen3-coder-480b":                    {Input: 0.65, Output: 3.25, CacheRead: 0.0, CacheWrite: 0.0},

@@ -207,6 +207,7 @@ func (e *Engine) updateIdle(a idleAssignment, f func(*TeamHandoff)) (TeamHandoff
 }
 
 var watchTaskNumberRE = regexp.MustCompile(`(?:^|\s)#([0-9]+)`)
+
 func watchTaskNumber(text string) int {
 	m := watchTaskNumberRE.FindStringSubmatch(strings.TrimPrefix(text, "【接】"))
 	if m == nil {
@@ -465,8 +466,12 @@ func watchHandoffLeft(it teamTaskBoardItem, key string) bool {
 // and wakes the session itself when it ends ("" = none). contrib/lead/bgrun writes
 // <data>/runs/<id>/session when that wake is armed, pid at the start and exit at the end; a run
 // whose process is gone without an exit file (killed) wakes nobody and does not count.
+func (e *Engine) backgroundRunsDir() string {
+	return filepath.Join(e.dataDir, "runs")
+}
+
 func (e *Engine) watchBackgroundRun(key string) string {
-	dir := filepath.Join(e.dataDir, "runs")
+	dir := e.backgroundRunsDir()
 	runs, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -500,6 +505,11 @@ func (e *Engine) armReleaseHoldRecheck(a idleAssignment) {
 
 func (e *Engine) fireIdleWake(a idleAssignment) {
 	if e.ctx.Err() != nil || !e.quotaCoolingFor(e.admissionQuotaScope(e.agent, a.key)).IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
+		return
+	}
+	w := newHandoffWatch(e)
+	if w.taskLeftWorkspace(a.key, a.h) {
+		e.updateIdle(a, func(h *TeamHandoff) { h.Idle.Returned = true })
 		return
 	}
 	if e.team != nil {
@@ -546,14 +556,8 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 			return
 		}
 	}
-	w := newHandoffWatch(e)
 	if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
-		return // native background completion supplies the next terminal event
-	}
-	if id := e.watchBackgroundRun(a.key); id != "" {
-		// Its end wakes the session; a wake that fails is picked up by the next ten-minute check.
-		slog.Info("idle watch: a background command of the workspace will wake it; not waking now", "workspace", a.key, "run", id)
-		return
+		return // background completion supplies the next terminal event
 	}
 	escalate, wake := false, false
 	h, ok := e.updateIdle(a, func(h *TeamHandoff) {

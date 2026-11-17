@@ -38,6 +38,7 @@ class ForwardRecipientTest(unittest.TestCase):
         self.board = types.SimpleNamespace(
             done_item=lambda p: None, paused_item=lambda p: None, done_records=lambda: [],
             items=lambda: [self.live], append_forward=Mock(), arm_guard=Mock(),
+            refuse_foreign=Mock(),
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
         self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",
@@ -47,6 +48,7 @@ class ForwardRecipientTest(unittest.TestCase):
             sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),
             time=types.SimpleNamespace(strftime=lambda fmt: "2026-11-08"),
             PROMPT_MAX=1500, Path=Path,
+            forward_forbid=lambda text: "",
         ))
 
     def forward(self, *args):
@@ -113,9 +115,11 @@ class ForwardRecipientTest(unittest.TestCase):
         self.assertEqual(cmds[0][:5], ["bothouse", "report", "reject", "--id", "1376"])
         self.assertTrue(cmds[1][0].endswith("ws-handoff") and cmds[1][1:3] == ["--resume", "1376"], cmds[1])
 
-    def returned_forward(self, board_rc=0, board_out="已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办"):
+    def returned_forward(self, board_rc=0, board_out="已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办", same_workspace=False):
         # 交回待验收的活（工作区已让出，returned_at 有值）被主角色转话
         done = dict(id=1500, where=self.notes, chat="discord:chat", returned_at="2026-11-12T10:00:00+09:00")
+        if same_workspace:
+            done["ws"] = self.record["channel"]
         self.record["board"] = [1500]
         self.board.items = lambda: [done]
         self.board.__file__ = "/gate/board.py"
@@ -128,6 +132,12 @@ class ForwardRecipientTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
             self.ns["main"](["打回：截图没对上"])
         return cm.exception.code, [c.args[0] for c in self.run.call_args_list]
+
+    def test_returned_item_same_workspace_must_claim_again(self):
+        code, cmds = self.returned_forward(same_workspace=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(cmds[1][:4], ["py", "/gate/board.py", "reject", "1500"])
+        self.assertEqual(cmds[2][1:3], ["--resume", "1500"])
 
     def test_returned_item_forward_records_reject_on_board(self):
         # #1492 L2：桥的 report reject 只丢扣着的汇报不改任务板；走 --resume 前要先 board reject，
