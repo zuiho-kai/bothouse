@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 
 
 class RoleWikiHookLaunch(unittest.TestCase):
-    def test_windows_worker_reads_saved_terminal_setting_each_time(self):
+    def test_windows_worker_never_opens_a_terminal_window(self):
         spec = importlib.util.spec_from_file_location("role_wiki_scheduler", HERE / "sub-wiki.py")
         scheduler = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(scheduler)
@@ -22,25 +22,14 @@ class RoleWikiHookLaunch(unittest.TestCase):
             "CREATE_NEW_PROCESS_GROUP": 0x00000200,
             "CREATE_NO_WINDOW": 0x08000000,
         }
-        with tempfile.TemporaryDirectory() as tmp:
-            config = Path(tmp) / "custom config.toml"
-            hook_os = SimpleNamespace(name="nt", environ={"CC_CONFIG_PATH": str(config)})
-            with (
-                patch.object(scheduler, "os", hook_os),
-                patch.multiple(subprocess, create=True, **windows_flags),
-                patch.object(subprocess, "Popen") as popen,
-            ):
-                for value, flag in (
-                    ("", "DETACHED_PROCESS"),
-                    ("true", "CREATE_NO_WINDOW"),
-                    ("false", "DETACHED_PROCESS"),
-                ):
-                    with self.subTest(value=value):
-                        setting = f"hide_wiki_terminal_windows = {value}\n" if value else ""
-                        config.write_text(f'{setting}\n[log]\nlevel = "info"\n', encoding="utf-8")
-                        scheduler.detach(["wiki-worker"], {})
-                        flags = popen.call_args.kwargs["creationflags"]
-                        self.assertEqual(flags, windows_flags[flag] | windows_flags["CREATE_NEW_PROCESS_GROUP"])
+        with (
+            patch.object(scheduler, "os", SimpleNamespace(name="nt", environ={})),
+            patch.multiple(subprocess, create=True, **windows_flags),
+            patch.object(subprocess, "Popen") as popen,
+        ):
+            scheduler.detach(["wiki-worker"], {})
+            flags = popen.call_args.kwargs["creationflags"]
+            self.assertEqual(flags, windows_flags["CREATE_NO_WINDOW"] | windows_flags["CREATE_NEW_PROCESS_GROUP"])
 
 
 class RoleWiki(unittest.TestCase):

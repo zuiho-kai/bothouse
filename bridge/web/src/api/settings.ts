@@ -4,7 +4,6 @@ export interface GlobalSettings {
   language: string;
   attachment_send: string;
   log_level: string;
-  hide_wiki_terminal_windows?: boolean;
   idle_timeout_mins: number;
   thinking_messages: boolean;
   thinking_max_len: number;

@@ -74,8 +74,6 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 The Windows command, package downloads and the background service are in [Getting started](docs/GETTING_STARTED.md).
 
-On Windows, use **System → Global Settings → Hide wiki terminal pop-ups**, then save. The switch defaults to off and takes effect on the next background wiki update. If your configured hook uses an older copy of `sub-wiki.py`, update that copy from the bundled script once to enable the switch.
-
 On macOS, daemon install and restart allow a 30-second window for launchd to remove and reload the old job. If loading still fails, follow the error's recovery command; `bothouse daemon start` loads the saved service definition.
 
 **Let an AI agent install it for you:** give Claude Code, Codex or any agent CLI this repo link and say "install bothouse and connect it to Discord". The agent-side steps are in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord).

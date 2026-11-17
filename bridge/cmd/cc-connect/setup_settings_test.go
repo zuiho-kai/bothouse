@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -173,15 +172,6 @@ func TestSetupModeGlobalSettings(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte(`language = "ja"`)) {
 		t.Fatalf("config.toml has no language = \"ja\":\n%s", raw)
-	}
-	if runtime.GOOS == "windows" {
-		for _, hide := range []bool{true, false} {
-			code, body := do(http.MethodPatch, fmt.Sprintf(`{"hide_wiki_terminal_windows":%t}`, hide))
-			data, _ := body["data"].(map[string]any)
-			if code != http.StatusOK || data["hide_wiki_terminal_windows"] != hide {
-				t.Fatalf("save wiki terminal switch %t: %d %v", hide, code, body)
-			}
-		}
 	}
 }
 

@@ -47,10 +47,6 @@
 # 不带附件的 `bothouse send --message` 不受影响。
 # attachment_send = "on"
 
-# Hide background wiki terminal pop-ups on Windows. Defaults to false.
-# 隐藏 Windows 后台 Wiki 更新时的终端弹窗。默认为 false。
-# hide_wiki_terminal_windows = true
-
 # Maximum size of a single attachment (in MiB) for `bothouse send
 # --file/--image/--audio/--video` and the /send API. Default: 50 (i.e. 50 MiB).
 # Set 0 to keep the default. Raise it to send larger files; the /send request

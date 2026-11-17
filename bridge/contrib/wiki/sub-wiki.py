@@ -107,17 +107,9 @@ def detach(argv, env):
     """Start argv in the background, detached from the hook (its timeout is 10 s by default), and return."""
     kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, close_fds=True)
     if os.name == "nt":
-        flag = subprocess.DETACHED_PROCESS
-        if config_path := os.environ.get("CC_CONFIG_PATH"):
-            import tomllib
-
-            try:
-                with open(config_path, "rb") as config:
-                    if tomllib.load(config).get("hide_wiki_terminal_windows") is True:
-                        flag = subprocess.CREATE_NO_WINDOW
-            except (OSError, ValueError) as err:
-                say(f"could not read wiki terminal setting ({type(err).__name__})")
-        kw["creationflags"] = flag | subprocess.CREATE_NEW_PROCESS_GROUP
+        # CREATE_NO_WINDOW, not DETACHED_PROCESS (#1943): a worker with no console makes Windows open a visible
+        # one for every console program it starts; a hidden console is inherited by them instead.
+        kw["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True  # nohup: not killed with the hook's process group
     subprocess.Popen(argv, **kw)
