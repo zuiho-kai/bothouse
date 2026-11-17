@@ -2364,6 +2364,9 @@
 .dmClose:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .dmClose[aria-disabled='true'], .dmClose[aria-disabled='true']:hover { color: var(--dsw-alias-label-tertiary, #888); background: transparent; cursor: not-allowed; }
 @media (hover: none) { .dmClose { opacity: 1; } }
+/* #1904: a workspace with work keeps its delete button, dimmed; the click says why it cannot go. */
+.dmRow:hover .dmClose[aria-disabled='true'], .dmClose[aria-disabled='true']:focus-visible { opacity: 0.4; }
+@media (hover: none) { .dmClose[aria-disabled='true'] { opacity: 0.4; } }
 
 /* ───────────── 11-05 体检修复 ───────────── */
 /* #1 私聊 is always in the channel list, with 发私信. */
