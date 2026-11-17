@@ -19,6 +19,22 @@ def module(name, filename):
 
 
 class RoleRuntime(unittest.TestCase):
+    def test_role_profile_uses_registered_dream_domain(self):
+        profiles = module('role_profiles', 'llmwiki/profiles.py')
+        root = Path(tempfile.mkdtemp(prefix='role-profile-'))
+        (root / '.bothouse-role').write_text('helper\n')
+        (root / 'config.json').write_text(json.dumps({'dream_dir': 'misc'}))
+        (root / 'misc').mkdir()
+        (root / 'misc/README.md').write_text('# misc\n')
+        answer = {'lines': [{'section': '判断标准', 'text': '他要根因，所以追到源头',
+                             'id': 'U1', 'quote': '我要根因'}]}
+        profiles.rewrite(root, 'discord-1', 'Helper', 'USER: 我要根因',
+                         {'U1': ('11-17', 'discord:1', '我要根因')},
+                         lambda _: answer, lambda _: None)
+        self.assertTrue((root / 'misc/profile-discord-1.md').is_file())
+        self.assertFalse((root / 'tooling').exists())
+        self.assertIn('(profile-discord-1.md)', (root / 'misc/README.md').read_text())
+
     def test_launcher_uses_wiki_login_instead_of_calling_agents_codex_home(self):
         scheduler = module('role_scheduler', 'sub-wiki.py')
         root = Path(tempfile.mkdtemp(prefix='role-runtime-'))
