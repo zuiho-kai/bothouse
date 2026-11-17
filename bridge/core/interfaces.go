@@ -920,6 +920,15 @@ type BackgroundTaskReporter interface {
 	BackgroundTasks() (running int, lastEndedAt time.Time)
 }
 
+// AgentSessionRestartCloser is an optional interface for agent sessions that
+// are closed only to start the same agent session again right away (maomao
+// fork #1773). CloseForRestart skips Close's wait for a process that is known
+// not to leave on its own, e.g. one that still runs background tasks; the
+// engine starts the replacement as soon as it returns.
+type AgentSessionRestartCloser interface {
+	CloseForRestart() error
+}
+
 // LiveModeSwitcher is an optional interface for running agent sessions that can
 // apply a mode change immediately without restarting the process.
 type LiveModeSwitcher interface {
