@@ -357,6 +357,17 @@ func versionName(line string) string {
 	return f[0]
 }
 
+// lookSpecBin finds the first of bins that is installed (PATH, then the common install dirs) and
+// really is that CLI. The CLI list and the ACP agent cards (acp_presets.go) both look this way.
+func lookSpecBin(ctx context.Context, bins []string) (bin, path string, inPath bool) {
+	for _, b := range bins {
+		if p, in, err := lookPath(b); err == nil && isGenuine(ctx, b, p) {
+			return b, p, in
+		}
+	}
+	return "", "", false
+}
+
 // DetectLocalCLIs lists the agent CLIs installed on this machine (PATH and common
 // install dirs, identity check for generic names, `--version`, local login state).
 // Each CLI is probed in parallel, every command with a timeout. Not installed = omitted.
@@ -368,13 +379,7 @@ func DetectLocalCLIs(ctx context.Context) []LocalCLI {
 		wg.Add(1)
 		go func(i int, s cliSpec) {
 			defer wg.Done()
-			bin, path, inPath := "", "", false
-			for _, b := range s.bins {
-				if p, in, err := lookPath(b); err == nil && isGenuine(ctx, b, p) {
-					bin, path, inPath = b, p, in
-					break
-				}
-			}
+			bin, path, inPath := lookSpecBin(ctx, s.bins)
 			if path == "" && s.agentType == "dsh" {
 				// a Mac that only installed the desktop app has no dsh on PATH; use the one
 				// inside the app bundle, the same lookup the DSH module and hooks use (#192)

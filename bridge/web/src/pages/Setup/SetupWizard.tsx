@@ -945,8 +945,11 @@ export default function SetupWizard() {
                           data-testid={`cli-${idx}-acp-${p.id}`}
                           className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${on ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
                           <div className="flex items-center justify-between gap-2"><span className="font-medium">{p.label}</span>
-                            <Badge variant={p.found ? 'success' : 'warning'}>{p.found ? (zh ? '已找到' : 'Found') : (zh ? '没找到命令' : 'Not found')}</Badge></div>
-                          <div className="text-[11px] text-gray-400 truncate">{zh ? p.note_zh : p.note_en}</div>
+                            {!p.found ? <Badge variant="warning">{zh ? '没找到' : 'Not found'}</Badge>
+                              : p.running === false ? <Badge variant="warning">{zh ? '未启动' : 'Not running'}</Badge>
+                              : <Badge variant="success">{p.running ? (zh ? '已启动' : 'Running') : (zh ? '已找到' : 'Found')}</Badge>}</div>
+                          {p.found && <div className="text-[11px] text-gray-400 truncate">{p.version || p.path}</div>}
+                          {!p.running && <div className="text-[11px] text-gray-400 truncate">{zh ? p.note_zh : p.note_en}</div>}
                         </button>
                       );
                     })}
@@ -961,6 +964,17 @@ export default function SetupWizard() {
                   </div>
                   {r.agent_type === 'acp' && !r.reuse_project && (
                     <div className="space-y-2" data-testid={`acp-form-${idx}`}>
+                      {(() => {
+                        const p = acpPresets.find((x) => x.id === r.acp_preset);
+                        if (!p || p.found) return null;
+                        return (
+                          <p className="text-xs text-amber-600" data-testid={`acp-missing-${idx}`}>
+                            {zh ? `这台机器上没找到 ${p.label}。` : `${p.label} was not found on this machine. `}
+                            {p.install_url && <>{zh ? '装法见 ' : 'Install steps: '}<a className="underline" href={p.install_url} target="_blank" rel="noreferrer">{p.install_url}</a>{zh ? '。' : '. '}</>}
+                            {zh ? `装好后回到这页，这张卡变成「已找到」再点它；也可以直接在下面填 ${p.bin} 的完整路径。` : `After installing, come back to this page and pick the card again once it says Found, or type the full path of ${p.bin} below.`}
+                          </p>
+                        );
+                      })()}
                       <Input label={zh ? '启动命令（含参数）' : 'Launch command (with arguments)'} data-testid={`acp-cmd-${idx}`} value={r.agent_cmd || ''}
                         placeholder={zh ? '例如 jiuwenswarm-acp，或 /完整路径/agent acp' : 'e.g. jiuwenswarm-acp, or /full/path/agent acp'}
                         onChange={(e) => patchRole(r.key, { agent_cmd: e.target.value })} />
