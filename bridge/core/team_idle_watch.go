@@ -462,14 +462,13 @@ func watchHandoffLeft(it teamTaskBoardItem, key string) bool {
 	return it.WS == "" || teamChatKey(it.WS) != key
 }
 
-// watchBackgroundRun: the id of a bgrun command started from workspace key that is still running
-// and wakes the session itself when it ends ("" = none). contrib/lead/bgrun writes
-// <data>/runs/<id>/session when that wake is armed, pid at the start and exit at the end; a run
-// whose process is gone without an exit file (killed) wakes nobody and does not count.
 func (e *Engine) backgroundRunsDir() string {
 	return filepath.Join(e.dataDir, "runs")
 }
 
+// watchBackgroundRun returns a live, self-waking run with recent output. The log
+// is created at launch, giving a silent command one existing watch window to
+// start producing output. A live supervisor alone is never progress.
 func (e *Engine) watchBackgroundRun(key string) string {
 	dir := e.backgroundRunsDir()
 	runs, err := os.ReadDir(dir)
@@ -483,6 +482,11 @@ func (e *Engine) watchBackgroundRun(key string) string {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(d, "exit")); err == nil {
+			continue
+		}
+		// Source: use the configured handoff progress window, not a separate timeout.
+		log, err := os.Stat(filepath.Join(d, "log"))
+		if err != nil || time.Since(log.ModTime()) >= watchCheckAfter() {
 			continue
 		}
 		raw, _ := os.ReadFile(filepath.Join(d, "pid"))

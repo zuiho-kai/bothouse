@@ -81,7 +81,7 @@ func TestWorkspaceTrackedBackgroundCountsAsProgress(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, value := range map[string]string{"pid": strconv.Itoa(os.Getpid()), "session": "discord:ws1"} {
+	for name, value := range map[string]string{"pid": strconv.Itoa(os.Getpid()), "session": "discord:ws1", "log": ""} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
 			t.Fatal(err)
 		}
