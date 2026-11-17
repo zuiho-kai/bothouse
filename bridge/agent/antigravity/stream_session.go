@@ -334,7 +334,17 @@ func (s *streamSession) handleStreamEvent(ev agyStreamEvent) {
 		}
 		s.finishTurnLocked()
 		if !succeeded {
-			s.emit(core.Event{Type: core.EventError, Error: failure, Content: ev.Result.Response, SessionID: s.CurrentSessionID()})
+			event := core.Event{Type: core.EventError, Error: failure, Content: ev.Result.Response, SessionID: s.CurrentSessionID()}
+			if reset, ok := quotaFailureOf(failure); ok {
+				// The provider's own record says this turn was refused for a spent
+				// quota: hand the engine the typed fact (reset time, upstream
+				// status) instead of leaving it to guess from the error text.
+				// Permanent: a re-send of the same turn gets the same refusal.
+				event.Metadata = core.WithQuotaExhausted(nil, reset)
+				event.ErrorKind = core.ErrorKindPermanent
+				event.ErrorStatus = providerStatusTooManyRequests
+			}
+			s.emit(event)
 			return
 		}
 		if !s.streamed && strings.TrimSpace(content) == "" {

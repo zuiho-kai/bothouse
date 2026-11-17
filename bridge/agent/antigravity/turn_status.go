@@ -74,9 +74,7 @@ type nativeTrajectory struct {
 				ExitCode    *int   `json:"exitCode"`
 			} `json:"runCommand"`
 			ErrorMessage *struct {
-				Error struct {
-					ShortError string `json:"shortError"`
-				} `json:"error"`
+				Error nativeErrorRecord `json:"error"`
 			} `json:"errorMessage"`
 			PlannerResponse struct {
 				Response         string `json:"response"`
@@ -98,15 +96,29 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 		status = "UNKNOWN"
 	}
 	failure := fmt.Errorf("antigravity: stream turn failed (%s)", status)
+	var reset string
+	var quotaRefused bool
 	reject := func(reason string) (bool, error) {
 		// Reason codes only: no provider error, response, trajectory or credentials.
 		slog.Info("antigravity: retaining CLI failure", "reason", reason, "turn_start", t.start, "turn_end", t.last)
+		if quotaRefused {
+			// The text stays exactly as before; the typed fact (reset time) is
+			// what lets the engine word the notice and cool the provider down.
+			return false, &quotaFailure{base: failure, reset: reset}
+		}
 		return false, failure
 	}
 	switch {
 	case r.Status != "ERROR":
 		return reject("status-" + strings.ToLower(status))
 	case strings.TrimSpace(r.Response) == "":
+		// A provider refusal reaches the CLI as "run ended with error and no
+		// response" and agy's result line carries no reason: the three quota
+		// failures of 2026-11-17 17:53-17:56 all ended that way. The native
+		// record is the only place the typed refusal exists, so read it before
+		// settling for the generic text. A short bounded probe: this runs beside
+		// a failure that is already known, not a verification that may wait.
+		reset, quotaRefused = s.quotaRefusal(t, r.ConversationID)
 		return reject("empty-response")
 	case s.quota == nil:
 		return reject("no-native-session")
@@ -128,6 +140,9 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 		slog.Warn("antigravity: cannot verify current turn; retaining CLI failure", "error", err)
 		return false, failure
 	}
+	// A refusal can also arrive with an answer attached; the same typed record
+	// still proves why the turn ended.
+	reset, quotaRefused = trajectory.quotaReset(t)
 	// agy can report ERROR for a turn whose every native step completed (it
 	// copies an older errorMessage, or fails after the final answer). The
 	// trajectory, not the CLI status, decides: a clean turn is a success.
@@ -139,7 +154,10 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 		return true, nil
 	}
 	if outcomes := trajectory.commandOutcomes(t, r.Response); outcomes.count > 0 {
+		// A failed command is the reported cause; the provider's refusal is not
+		// what this turn failed on, so the quota mark does not apply to it.
 		failure = outcomes.failure(status)
+		quotaRefused = false
 		outcomes.log(t)
 		return reject(reason)
 	}
@@ -150,6 +168,7 @@ func (s *streamSession) verifyFailedTurn(ev agyStreamEvent) (bool, error) {
 				// Native enum only: never expose provider text or infer recovery
 				// from a later answer. This is still a failed turn.
 				failure = fmt.Errorf("antigravity: stream turn failed (%s; stream_step=%d kind=upstream-stream-interrupted)", status, i)
+				quotaRefused = false
 				return reject(reason)
 			}
 		}
