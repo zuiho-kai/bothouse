@@ -697,6 +697,8 @@ const (
 	MsgTurnSpendCapCron         MsgKey = "turn_spend_cap_cron"
 	MsgTurnSpendCapTimer        MsgKey = "turn_spend_cap_timer"
 	MsgTurnSpendCapWorkspace    MsgKey = "turn_spend_cap_workspace"
+	MsgTurnSpendWarn            MsgKey = "turn_spend_warn" // told to the running turn, not to the chat
+	MsgTurnTimeWarn             MsgKey = "turn_time_warn"  // told to the running turn, not to the chat
 	MsgWatchParkedNotice        MsgKey = "watch_parked_notice"
 	MsgWatchIdleEscalate        MsgKey = "watch_idle_escalate"
 	MsgWatchUntitledAccept      MsgKey = "watch_untitled_accept"
@@ -1151,6 +1153,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "💸 工作區這一輪「%s」（%s）這一輪已花約 $%s，超過每輪上限 $%s，已停掉這一輪。",
 		LangJapanese:           "💸 ワークスペースのターン「%s」（%s）：このターンは約 $%s かかり、1ターンの上限 $%s を超えたため停止しました。",
 		LangSpanish:            "💸 El turno del espacio de trabajo «%s» (%s) lleva gastados unos $%s en este turno, por encima del límite de $%s por turno; el turno se detuvo.",
+	},
+	MsgTurnSpendWarn: {
+		LangEnglish:            "[System] This turn has cost about $%s; the per-turn cap is $%s and the turn will be stopped at once when it is passed, losing whatever was not handed in. Wrap up now: start nothing new, and write out the results you already have and what is left undone as this turn's answer.",
+		LangChinese:            "【系统】这一轮已花约 $%s，每轮上限 $%s，过了上限会被直接停掉，没交出去的结果会丢。现在收尾：不再开新的活，把已经拿到的结果和没做完的部分写出来交掉。",
+		LangTraditionalChinese: "【系統】這一輪已花約 $%s，每輪上限 $%s，過了上限會被直接停掉，沒交出去的結果會丟。現在收尾：不再開新的活，把已經拿到的結果和沒做完的部分寫出來交掉。",
+		LangJapanese:           "【システム】このターンは約 $%s かかっています。1ターンの上限は $%s で、超えるとその場で停止され、提出していない結果は失われます。今すぐまとめに入ってください：新しい作業は始めず、すでに得た結果と未完了の部分をこのターンの回答として書き出してください。",
+		LangSpanish:            "[Sistema] Este turno lleva gastados unos $%s; el límite por turno es de $%s y al superarlo el turno se detendrá de inmediato y se perderá lo que no se haya entregado. Cierra ya: no empieces nada nuevo y escribe como respuesta de este turno los resultados que ya tienes y lo que queda sin hacer.",
+	},
+	MsgTurnTimeWarn: {
+		LangEnglish:            "[System] This turn has a time limit of %s and about %s left; when the time is up the turn will be stopped at once, losing whatever was not handed in. Wrap up now: start nothing new, and write out the results you already have and what is left undone as this turn's answer.",
+		LangChinese:            "【系统】这一轮时限 %s，还剩约 %s，到点会被直接停掉，没交出去的结果会丢。现在收尾：不再开新的活，把已经拿到的结果和没做完的部分写出来交掉。",
+		LangTraditionalChinese: "【系統】這一輪時限 %s，還剩約 %s，到點會被直接停掉，沒交出去的結果會丟。現在收尾：不再開新的活，把已經拿到的結果和沒做完的部分寫出來交掉。",
+		LangJapanese:           "【システム】このターンの制限時間は %s で、残りは約 %s です。時間になるとその場で停止され、提出していない結果は失われます。今すぐまとめに入ってください：新しい作業は始めず、すでに得た結果と未完了の部分をこのターンの回答として書き出してください。",
+		LangSpanish:            "[Sistema] Este turno tiene un límite de tiempo de %s y quedan unos %s; al cumplirse el turno se detendrá de inmediato y se perderá lo que no se haya entregado. Cierra ya: no empieces nada nuevo y escribe como respuesta de este turno los resultados que ya tienes y lo que queda sin hacer.",
 	},
 	MsgWatchAutoResumed: {
 		LangEnglish:            "Watch: %s showed no progress on %s; stopped its stuck turn and asked it to continue (once; parked if still no progress)",
