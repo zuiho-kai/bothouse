@@ -127,6 +127,11 @@ func planTeamTaskTransition(tasks map[int]TeamTask, ev teamTaskEvent, now time.T
 	if !ok {
 		return cur, cur, fmt.Errorf("team task #%d: %s → %s: %w", ev.ID, cur.State, ev.To, ErrTeamTaskTransition)
 	}
+	// An active assignment must leave its workspace before another can take it.
+	// Overwriting WS here leaves the original handoff and execution running (#1937).
+	if ev.To == TeamTaskDispatched && teamTaskInWork(cur.State) && cur.WS != teamChatKey(ev.WS) {
+		return cur, cur, fmt.Errorf("team task #%d is still assigned to %s: %w", ev.ID, cur.WS, ErrTeamTaskTransition)
+	}
 	next = cur
 	next.ID, next.State, next.Since, next.By, next.Why = ev.ID, ev.To, now, ev.By, ev.Why
 	if ev.Chat != "" {
