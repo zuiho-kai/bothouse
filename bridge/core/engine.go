@@ -716,6 +716,7 @@ type queuedMessage struct {
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
 	modelSettings SessionSettings // immutable startup selection; effort-only changes also recycle
+	handoffID     string          // immutable: the workspace task the process was started for (CC_HANDOFF), "" when none
 	quotaScope    quotaScope      // immutable attribution captured at session creation
 	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
@@ -5615,6 +5616,13 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 				wantID, needRecycle = "", true
 			}
 		}
+		if input == nil && !needRecycle && e.staleHandoffEnv(ccKey, state.handoffID) {
+			// The process was started outside the task now in work in this workspace; its
+			// CC_HANDOFF is fixed. Start it again (same agent session) for that task.
+			slog.Info("interactive session: started outside the workspace's task in work, restarting it for that task",
+				"session_key", sessionKey, "had_handoff", state.handoffID)
+			needRecycle = true
+		}
 		if !needRecycle {
 			state.mu.Lock()
 			state.processClaimed = true
@@ -5643,8 +5651,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
+	handoffID := ""
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		inj.SetSessionEnv(append(e.roleSessionEnv(ccKey), "CC_AGENT="+agent.Name()))
+		env := e.roleSessionEnv(ccKey)
+		handoffID = roleEnvValue(env, "CC_HANDOFF")
+		inj.SetSessionEnv(append(env, "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, ccKey)
 	if m := e.turnModelFor(sessionKey); m != "" {
@@ -5826,6 +5837,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	newState := &interactiveState{
 		modelSettings:    settings,
+		handoffID:        handoffID,
 		agentSession:     agentSession,
 		processClaimed:   true,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),

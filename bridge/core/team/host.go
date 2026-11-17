@@ -17,9 +17,10 @@ type Host interface {
 	IsWorkspaceChat(sessionKey string) bool
 	// WorkspaceParent returns the chat channel that owns the workspace channelID.
 	WorkspaceParent(channelID string) (parentID string, ok bool)
-	// WorksWorkspaceTask reports whether this engine is the role working the task that gave chat
-	// channel parent the workspace channelID.
-	WorksWorkspaceTask(channelID, parent string) bool
+	// WorksWorkspaceTask reports whether a sender in workspace channelID that carries handoff id
+	// handoff (CC_HANDOFF) is this engine's role working a task chat channel parent has there now.
+	// origin is the chat channel of the task the sender was started for, "" when not on record.
+	WorksWorkspaceTask(channelID, parent, handoff string) (works bool, origin string)
 	// RunLeadScript runs the collaboration script name (contrib/lead) for chat and returns its output.
 	RunLeadScript(chat, name string, args ...string) ([]byte, error)
 }
