@@ -1706,8 +1706,17 @@ func (m *ManagementServer) handleProjectModels(w http.ResponseWriter, r *http.Re
 }
 
 func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Request, e *Engine) {
+	if r.Method == http.MethodGet {
+		key := strings.TrimSpace(r.URL.Query().Get("session_key"))
+		if key == "" {
+			mgmtError(w, http.StatusBadRequest, "session_key is required")
+			return
+		}
+		mgmtJSON(w, http.StatusOK, map[string]string{"model": displayModelName(e.sessionModelFor(key))})
+		return
+	}
 	if r.Method != http.MethodPost {
-		mgmtError(w, http.StatusMethodNotAllowed, "POST only")
+		mgmtError(w, http.StatusMethodNotAllowed, "GET or POST only")
 		return
 	}
 	if _, ok := e.agent.(ModelSwitcher); !ok {

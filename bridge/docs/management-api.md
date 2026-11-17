@@ -969,6 +969,10 @@ Lists available models for the project's agent type.
 
 ---
 
+#### GET /api/v1/projects/{name}/model?session_key=...
+
+Returns the saved or configured model for the given session key in `model`. An empty value means the session inherits the agent's model. This lookup works while the session has no running worker.
+
 #### POST /api/v1/projects/{name}/model
 
 Sets the model for the project.

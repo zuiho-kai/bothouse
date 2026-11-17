@@ -234,7 +234,7 @@ export default function Dashboard() {
                             {r.state === 'busy' ? (r.task || t('dashboard.working', '正在处理')) : r.state === 'idle' ? t('dashboard.waiting', '待命中') : r.state === 'paused' ? t('dashboard.pausedNote', '已暂停，不接新消息') : t('dashboard.offlineNote', '连不上')}
                           </p>
                         </div>
-                        {r.model && <span className="hidden max-w-[180px] truncate rounded-control bg-surface-sunken px-2 py-1 font-mono text-[11px] text-ink-soft xl:inline">{r.model}</span>}
+                        {r.model && <span className="max-w-[40%] shrink-0 truncate rounded-control bg-surface-sunken px-2 py-1 font-mono text-[11px] text-ink-soft sm:max-w-[180px]" title={r.model}>{r.model}</span>}
                         <StatePill state={r.state} />
                       </>
                     );

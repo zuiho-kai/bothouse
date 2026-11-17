@@ -3,6 +3,7 @@
 ## English
 
 Model and reasoning selections are scoped to the current channel/session key.
+The web chat header shows the selected conversation's saved or configured model when one is set. The Roles page shows each bot's default model.
 Use `/model` and `/reasoning` in that channel, or let the agent use
 `bothouse model list --json` followed by `model set <exact-id> --effort <level>`.
 CLI changes are queued until the next turn; the conversation is preserved.

@@ -1,8 +1,10 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 )
@@ -129,7 +131,7 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles := m.bridgeRoles()
+	roles := m.bridgeRoles(r.Context())
 	// DSH members are fetched outside m.mu: it is an HTTP call to the running `dsh web`.
 	dshRoles, status := m.dshRoles(r.Context())
 	roles = append(roles, dshRoles...)
@@ -137,12 +139,13 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 }
 
 // bridgeRoles lists the panel's engines (bridge roles).
-func (m *ManagementServer) bridgeRoles() []RoleInfo {
+func (m *ManagementServer) bridgeRoles(ctx context.Context) []RoleInfo {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	engines := maps.Clone(m.engines)
+	m.mu.RUnlock()
 
-	roles := make([]RoleInfo, 0, len(m.engines))
-	for name, e := range m.engines {
+	roles := make([]RoleInfo, 0, len(engines))
+	for name, e := range engines {
 		// 1. Online status and per-platform readiness
 		online := false
 		var platforms []PlatformStatus
@@ -163,25 +166,13 @@ func (m *ManagementServer) bridgeRoles() []RoleInfo {
 			platforms = []PlatformStatus{}
 		}
 
-		// 2. Active model resolution via replyFooterModel
-		var activeSession AgentSession
-		e.interactiveMu.Lock()
-		for _, state := range e.interactiveStates {
-			if state == nil {
-				continue
-			}
-			state.mu.Lock()
-			sess := state.agentSession
-			state.mu.Unlock()
-			if sess != nil {
-				activeSession = sess
-				break
+		// 2. The role label shows the role's default model across conversations.
+		model := replyFooterModel(nil, e.agent)
+		if model == "" {
+			if defaults, ok := e.agent.(interface{ DefaultModel(context.Context) string }); ok {
+				model = displayModelName(defaults.DefaultModel(ctx))
 			}
 		}
-		e.interactiveMu.Unlock()
-
-		// Empty when neither the running session nor the config names a model; the page then shows none.
-		model := replyFooterModel(activeSession, e.agent)
 
 		// 3. Busy status & current task from Session.Busy()
 		busy := false
@@ -232,8 +223,27 @@ func (m *ManagementServer) bridgeRoles() []RoleInfo {
 
 		paused := e.IsPaused()
 
+		// The live session can select a cached quota snapshot without changing the role label.
+		var activeSession AgentSession
+		e.interactiveMu.Lock()
+		for _, state := range e.interactiveStates {
+			if state == nil {
+				continue
+			}
+			state.mu.Lock()
+			activeSession = state.agentSession
+			state.mu.Unlock()
+			if activeSession != nil {
+				break
+			}
+		}
+		e.interactiveMu.Unlock()
+		quotaModel := replyFooterModel(activeSession, e.agent)
+		if quotaModel == "" {
+			quotaModel = model
+		}
 		var quota *RoleQuota
-		if report := e.CachedQuotaReport(activeSession, model); report != nil {
+		if report := e.CachedQuotaReport(activeSession, quotaModel); report != nil {
 			quota = roleQuotaFromReport(report)
 		}
 

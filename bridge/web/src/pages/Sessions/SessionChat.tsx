@@ -8,6 +8,7 @@ import {
 import { Badge, Button } from '@/components/ui';
 import { getSession, type SessionDetail } from '@/api/sessions';
 import { getProject, shownName } from '@/api/projects';
+import { useSessionModel } from '@/hooks/useSessionModel';
 import { useBridgeSocket, fetchBridgeConfig, type BridgeConfig, type BridgeIncoming, type BridgeStatus } from '@/hooks/useBridgeSocket';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -278,6 +279,7 @@ export default function SessionChat() {
   const previewHandleCounter = useRef(0);
 
   const sessionKey = session?.session_key || '';
+  const sessionModel = useSessionModel(project, sessionKey);
 
   // Load session data + bridge config
   const fetchSession = useCallback(async () => {
@@ -464,6 +466,7 @@ export default function SessionChat() {
             <div className="flex items-center gap-2 mt-0.5">
               <Badge>{shown || project}</Badge>
               {session?.platform && <Badge variant="info">{session.platform}</Badge>}
+              {sessionModel && <Badge className="min-w-0 max-w-40"><span className="truncate" title={`${t('providers.model')} · ${sessionModel}`}>{sessionModel}</span></Badge>}
               <span className="text-xs text-gray-500">{session?.session_key}</span>
             </div>
           </div>

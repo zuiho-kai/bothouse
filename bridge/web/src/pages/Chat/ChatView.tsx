@@ -9,6 +9,7 @@ import {
 import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
 import { getProject, shownName } from '@/api/projects';
+import { useSessionModel } from '@/hooks/useSessionModel';
 import {
   useBridgeSocket, fetchBridgeConfig,
   type BridgeConfig, type BridgeIncoming, type BridgeStatus,
@@ -340,6 +341,7 @@ export default function ChatView() {
   const sessionKey = userPickedSession && currentSession?.session_key
     ? currentSession.session_key
     : webSessionKey;
+  const sessionModel = useSessionModel(projectName, sessionKey);
   sessionKeyRef.current = sessionKey;
 
   // Load project sessions and auto-select latest
@@ -601,6 +603,7 @@ export default function ChatView() {
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-semibold tracking-tight text-ink">{shown || projectName}</h2>
               <StatusBadge status={bridgeStatus} />
+              {sessionModel && <Badge className="min-w-0 max-w-40"><span className="truncate" title={`${t('providers.model')} · ${sessionModel}`}>{sessionModel}</span></Badge>}
             </div>
             <button
               type="button"

@@ -11,20 +11,28 @@ import (
 	"time"
 )
 
+type stubRoleDefaultModelAgent struct{ stubAgent }
+
+func (*stubRoleDefaultModelAgent) DefaultModel(context.Context) string { return "gpt-6.1-sol" }
+
 func TestManagementRolesAndDevices(t *testing.T) {
 	mgmt := NewManagementServer(0, "test-token", nil)
 
 	plat1 := &stubPlatform{n: "discord"}
 	plat2 := &stubPlatform{n: "telegram"}
+	worker := newControllableSession("work-thread")
+	worker.model = "gpt-6-luna"
 
 	// Create a dummy engine
 	e := &Engine{
-		name:              "caihongmao",
-		agent:             &stubAgent{},
-		sessions:          NewSessionManager(""),
-		interactiveStates: make(map[string]*interactiveState),
-		platforms:         []Platform{plat1, plat2},
-		platformReady:     map[Platform]bool{plat1: true, plat2: false},
+		name:     "caihongmao",
+		agent:    &stubRoleDefaultModelAgent{},
+		sessions: NewSessionManager(""),
+		interactiveStates: map[string]*interactiveState{
+			"discord:work": {agentSession: worker},
+		},
+		platforms:     []Platform{plat1, plat2},
+		platformReady: map[Platform]bool{plat1: true, plat2: false},
 	}
 	mgmt.RegisterEngine("caihongmao", e)
 
@@ -53,6 +61,9 @@ func TestManagementRolesAndDevices(t *testing.T) {
 		t.Fatalf("expected 1 role, got %d", len(rolesResp.Data.Roles))
 	}
 	role := rolesResp.Data.Roles[0]
+	if role.Model != "gpt-6.1-sol" {
+		t.Fatalf("role model = %q, want the CLI default even with a different live model", role.Model)
+	}
 	if role.Name != "caihongmao" || role.CurrentTask != "空闲" || role.Paused || !role.Online {
 		t.Fatalf("unexpected role data: %+v", role)
 	}
@@ -499,17 +510,17 @@ func TestManagementRoles_QuotaReadOnlyScopeAndExpiry(t *testing.T) {
 	m.RegisterEngine("fixture", e)
 	scope := e.quotaScopeFor(agent, "same-model")
 	e.cacheRoleQuotaReport(agent, "same-model", scope, roleQuotaTestReport())
-	if got := m.bridgeRoles()[0].Quota; got == nil {
+	if got := m.bridgeRoles(context.Background())[0].Quota; got == nil {
 		t.Fatal("normal cached report was hidden")
 	}
 	agent.active = "b"
-	if got := m.bridgeRoles()[0].Quota; got != nil {
+	if got := m.bridgeRoles(context.Background())[0].Quota; got != nil {
 		t.Fatal("provider B inherited provider A snapshot")
 	}
 	agent.active = "a"
 	key := replyFooterUsageKey{agent: replyFooterAgentID(agent), model: "same-model"}
 	e.replyFooterUsage[key].reportAt = time.Now().Add(-replyFooterUsageMaxAge)
-	if got := m.bridgeRoles()[0].Quota; got != nil {
+	if got := m.bridgeRoles(context.Background())[0].Quota; got != nil {
 		t.Fatal("expired snapshot was revived from session")
 	}
 	if session.called {
@@ -519,7 +530,7 @@ func TestManagementRoles_QuotaReadOnlyScopeAndExpiry(t *testing.T) {
 	// A late result from A must not be attributed to B, even on the same model.
 	agent.active = "b"
 	e.cacheRoleQuotaReport(agent, "same-model", scope, roleQuotaTestReport())
-	if got := m.bridgeRoles()[0].Quota; got != nil {
+	if got := m.bridgeRoles(context.Background())[0].Quota; got != nil {
 		t.Fatal("late provider A report appeared on B")
 	}
 
@@ -527,7 +538,7 @@ func TestManagementRoles_QuotaReadOnlyScopeAndExpiry(t *testing.T) {
 	report := roleQuotaTestReport()
 	report.Buckets[0].Windows[0].ResetAtUnix = time.Now().Add(-time.Second).Unix()
 	e.cacheRoleQuotaReport(agent, "same-model", scope, report)
-	if got := m.bridgeRoles()[0].Quota; got != nil {
+	if got := m.bridgeRoles(context.Background())[0].Quota; got != nil {
 		t.Fatal("snapshot remained visible after provider reset")
 	}
 }
