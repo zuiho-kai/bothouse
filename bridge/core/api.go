@@ -159,6 +159,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)
 	s.mux.HandleFunc("/team/workspace/park", s.handleTeamWorkspacePark)
+	s.mux.HandleFunc("/team/workspace/delete", s.handleTeamWorkspaceDelete)
 	s.mux.HandleFunc("/team/workspace/exit", s.handleTeamWorkspaceExit)
 	s.mux.HandleFunc("/team/task/transition", s.handleTeamTaskTransition)
 	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
