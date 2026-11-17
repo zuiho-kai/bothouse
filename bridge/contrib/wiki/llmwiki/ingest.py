@@ -318,6 +318,21 @@ SECRET = re.compile(
     r"|(?<![\w.-])[MNO][A-Za-z\d_-]{23,27}\.[\w-]{6}\.[\w-]{27,40}(?![\w.-])"
     r"|((?:password|passwd|pwd|密码|token|secret|api[_-]?key)\s*[:=：]\s*)\S+)", re.I)
 
+# 来源：检索实验第五批要求在生成和复核处保留稳定 PR 引用，状态使用时再查。
+PR_REFERENCES = """
+## PR 引用与会变状态（适用于本轮读写的页面、description 和目录行）
+PR 的开放/草稿/未合并/已合并、任务在做/待验、检查数量和部署进度是会变的状态，不是长期知识；
+即使带日期，也不把它们写成主题页的现状、关键事实、待办、description 或 README 描述。
+保留有来源的症状、根因、修法和仓库名及 PR 编号/链接；不从编号猜状态，也不因旧会话写过状态就重新写回。
+需要当前状态时再查权威入口，例如 gh pr view <编号> --repo <owner/repo> --json state,mergedAt,url；
+整理本身无需查 GitHub，也不把查询失败或没有查询写成「未合并」。PR 合并也不证明已经部署。
+处理相关已有页时，把上述状态从正文、description 和对应目录行改成稳定引用，三处保持一致；
+改写旧事实块时遵守无损契约，用 updates 声明表示变更、引用支持 PR 编号的原始会话行；
+原文留在契约的冻结来源和 git 历史，不断言当时的报告错误，也不删除仍有用的事实或原始引文。
+复核旧会话时沿用这一表示规则：旧会话只能证明当时说过什么，不能恢复成当前状态。
+复核仍只改 DAY WRITES 范围；不借此扩到无关页面。没有明确仓库或 PR 来源时不编造引用。
+"""
+
 INGEST = """INGEST pass. Follow the schema in CLAUDE.md exactly (layers, budgets, page format, placement, log format).
 The TRANSCRIPT at the end of your system prompt holds new content from one or more Claude Code sessions,
 each starting with a `=== SESSION` header.
@@ -334,7 +349,7 @@ each starting with a `=== SESSION` header.
    line in 决策与踩坑 (曾以为 X → 因 Y 改为 Z, date). Date facts that can go stale (YYYY-MM-DD).
 3. Keep every README line and page `description:` in sync with the page body, and MEMORY.md with the READMEs
    (a MEMORY.md line must name every topic family in its domain; update it when you add one). Append one log.md entry per session (trivial sessions: one line saying so).
-Skip chit-chat and transient debugging noise. Finish with one line per page you changed."""
+Skip chit-chat and transient debugging noise. Finish with one line per page you changed.""" + PR_REFERENCES
 
 LINT = """LINT pass. Follow the schema in CLAUDE.md. Read MEMORY.md, every domain README and topic page.
 Fix, in place: content outside its page's scope (move it), duplicated facts across pages, facts contradicted by
@@ -346,7 +361,7 @@ page body, volatile facts (status, versions, pending items) without a date (take
 a domain (≥2 related), thin top-level domains to merge (never merge a subdomain back into its parent: a full
 domain is split into subdomains by the script), vague descriptions. Don't invent facts, don't delete still-true ones.
 If nothing needs fixing, change nothing. Append a `## [date] lint` entry to log.md only if you changed something.
-Finish with one line per change."""
+Finish with one line per change.""" + PR_REFERENCES
 
 # SOP prompts for executor models (GPT/luna): requirements, rules, steps and acceptance spelled out,
 # because they follow procedures well but shouldn't be left to design one. run() checks A1/A2/R9 itself.
@@ -363,7 +378,7 @@ R2 只记长期有用的：配置/路径/命令/版本/运行状态、决定及�
 R3 一个事实只住一页：写之前 grep；已有页面拥有它 → 改那一页，别处只放 [[name]] 链接，不复述。
    论文/外部项目：先 grep 它的 arXiv id 或仓库 owner/name；refs/ 已有 → 只补缺的，不另写一条。
 R4 现状写当前事实：被推翻的旧事实直接删；被推翻的决定在 决策与踩坑 留一行「曾以为/曾选 X → 因 Y 改为 Z (YYYY-MM-DD)」。
-R5 会过时的事实（运行状态、版本、外部状态、待办）带日期 (YYYY-MM-DD)，取自 SESSION header。
+R5 会过时的环境事实（运行状态、版本、外部状态、待办）带日期 (YYYY-MM-DD)，取自 SESSION header；PR/任务进度不入长期知识，见 PR 引用规则。
 R6 只写 transcript 有依据的；用户的话优先于助手的话；助手的推测不写，或标「推测」。transcript 里后面的更正覆盖前面的说法。
    谁说的看每行开头的标签（不看内容猜）：
    - USER = 用户本人。USER→<名字> = 用户在对<名字>说话（比如回{ex_a}），不是对助手说。
@@ -413,7 +428,7 @@ A7 每条新事实/记忆都带一句从 TRANSCRIPT 的 USER 或 USER→ 行逐�
 
 ## 交付
 最后输出：每个改过的文件一行「<path>: <改了什么>」；每条因已存在而跳过的事实一行「跳过: <事实> → <文件:行>」；然后 A1–A7 各一行 pass/fail。"""
-SOP_INGEST = persona(SOP_INGEST)
+SOP_INGEST = persona(SOP_INGEST + PR_REFERENCES)
 
 SOP_REVIEW = """REVIEW 任务（执行型：照 SOP 做）。TRANSCRIPT 里的会话白天已由另一个模型写进 wiki（log.md 里有这些
 sid8 的 ingest 条目），当时没有核对。你负责夜间复核：改错、补漏、去重。
@@ -473,7 +488,7 @@ A7 DAY DELETIONS 每行都处理过（恢复，或 TRANSCRIPT 写明它已不成
 
 ## 交付
 每处修改一行「<path>: 改错/补漏/去重 — <内容>」，然后 A1–A7 各一行 pass/fail。"""
-SOP_REVIEW = persona(SOP_REVIEW)
+SOP_REVIEW = persona(SOP_REVIEW + PR_REFERENCES)
 
 SOP_LINT = """LINT 任务（执行型：照 SOP 做）。整理整个 wiki，不引入新事实。
 
@@ -504,7 +519,7 @@ A1 lint ok。A2 第 2–9 步每项都检查过。A3 没有新增事实、没有
 
 ## 交付
 每处修改一行「<path>: <改了什么>」，最后一行列出 2–9 步各自 ok/fixed；无修改则输出 "lint clean"。"""
-SOP_LINT = persona(SOP_LINT)
+SOP_LINT = persona(SOP_LINT + PR_REFERENCES)
 
 SOP_SPLIT = """SPLIT 任务（执行型：照 SOP 做）。下列页面已接近预算，同族切片已由脚本合并过，现在每页是一个超预算的单一主题，按小节拆进它自己的子目录。不增删事实，只搬家。
 
