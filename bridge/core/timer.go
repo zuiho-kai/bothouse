@@ -311,6 +311,9 @@ type TimerScheduler struct {
 	engines            map[string]*Engine
 	mu                 sync.RWMutex
 	timers             map[string]*time.Timer // job ID → active timer
+	callbacks          sync.WaitGroup         // scheduled callbacks, including in-flight store writers
+	stopped            bool
+	stopCh             chan struct{}
 	defaultSilent      bool
 	defaultSessionMode string
 }
@@ -324,6 +327,7 @@ func NewTimerScheduler(store *TimerStore) *TimerScheduler {
 		store:   store,
 		engines: make(map[string]*Engine),
 		timers:  make(map[string]*time.Timer),
+		stopCh:  make(chan struct{}),
 	}
 }
 
@@ -405,11 +409,20 @@ func (ts *TimerScheduler) Start() error {
 
 func (ts *TimerScheduler) Stop() {
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	for id, t := range ts.timers {
-		t.Stop()
-		delete(ts.timers, id)
+	if !ts.stopped {
+		ts.stopped = true
+		close(ts.stopCh)
+		for id, t := range ts.timers {
+			if t.Stop() {
+				ts.callbacks.Done() // the cancelled callback will never run its defer
+			}
+			delete(ts.timers, id)
+		}
 	}
+	ts.mu.Unlock()
+	// time.Timer.Stop does not join AfterFunc callbacks. The store may be
+	// released only after all callbacks that can still write to it have exited.
+	ts.callbacks.Wait()
 }
 
 func (ts *TimerScheduler) AddJob(job *TimerJob) error {
@@ -421,22 +434,30 @@ func (ts *TimerScheduler) addJob(job *TimerJob, once bool) error {
 		return err
 	}
 	job.SessionMode = NormalizeCronSessionMode(job.SessionMode)
+	ts.mu.Lock()
+	if ts.stopped {
+		ts.mu.Unlock()
+		return fmt.Errorf("timer scheduler is stopped")
+	}
 	added, err := ts.store.add(job, once)
 	if err != nil {
+		ts.mu.Unlock()
 		return err
 	}
 	if !added {
+		ts.mu.Unlock()
 		return nil
 	}
-	defer ts.boardTouch(job) // maomao fork: channel task board
 	delay := time.Until(job.ScheduledAt)
 	if delay <= 0 {
 		// Already due — fire immediately
 		slog.Info("timer: new job already due, firing immediately", "id", job.ID)
-		ts.scheduleAt(job, 0)
+		ts.scheduleAtLocked(job, 0)
 	} else {
-		ts.scheduleAt(job, delay)
+		ts.scheduleAtLocked(job, delay)
 	}
+	ts.mu.Unlock()
+	ts.boardTouch(job) // maomao fork: channel task board
 	return nil
 }
 
@@ -444,7 +465,9 @@ func (ts *TimerScheduler) RemoveJob(id string) bool {
 	defer ts.boardTouch(ts.store.Get(id)) // maomao fork: channel task board
 	ts.mu.Lock()
 	if t, ok := ts.timers[id]; ok {
-		t.Stop()
+		if t.Stop() {
+			ts.callbacks.Done()
+		}
 		delete(ts.timers, id)
 	}
 	// Remove from store while still holding ts.mu to prevent executeJob
@@ -475,21 +498,40 @@ func (ts *TimerScheduler) Store() *TimerStore {
 }
 
 func (ts *TimerScheduler) scheduleAt(job *TimerJob, delay time.Duration) {
-	jobID := job.ID
 	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.scheduleAtLocked(job, delay)
+}
+
+// scheduleAtLocked keeps callback admission and cancellation under the same lock
+// as Stop, so a cooldown/quiet-period callback cannot re-arm after shutdown.
+func (ts *TimerScheduler) scheduleAtLocked(job *TimerJob, delay time.Duration) {
+	if ts.stopped {
+		return
+	}
+	jobID := job.ID
 	// Stop any existing timer for this job
 	if old, ok := ts.timers[jobID]; ok {
-		old.Stop()
+		if old.Stop() {
+			ts.callbacks.Done()
+		}
 	}
 	// Register timer in map before it can fire, so RemoveJob can always cancel it.
-	t := time.AfterFunc(delay, func() {
+	ts.callbacks.Add(1)
+	var t *time.Timer
+	t = time.AfterFunc(delay, func() {
+		defer ts.callbacks.Done()
 		ts.mu.Lock()
-		delete(ts.timers, jobID)
+		if ts.timers[jobID] == t {
+			delete(ts.timers, jobID)
+		}
+		stopped := ts.stopped
 		ts.mu.Unlock()
-		ts.executeJob(jobID)
+		if !stopped {
+			ts.executeJob(jobID)
+		}
 	})
 	ts.timers[jobID] = t
-	ts.mu.Unlock()
 }
 
 func (ts *TimerScheduler) executeJob(jobID string) {
@@ -530,15 +572,21 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 	timeout := job.ExecutionTimeout()
 	if timeout > 0 {
 		warn := engine.armScheduledTurnWarning(job.ID, timeout)
+		defer warn.Stop()
 		select {
 		case err = <-done:
+		case <-ts.stopCh:
+			return // leave the interrupted job pending; Engine.Stop owns its turn
 		case <-time.After(timeout):
 			err = fmt.Errorf("job timed out after %v", timeout)
 			engine.StopScheduledTurn(job.ID)
 		}
-		warn.Stop()
 	} else {
-		err = <-done
+		select {
+		case err = <-done:
+		case <-ts.stopCh:
+			return
+		}
 	}
 
 	if errors.Is(err, errTimerQuotaCooling) {
