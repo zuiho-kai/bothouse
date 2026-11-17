@@ -221,12 +221,53 @@ func dshPackageDir(cmd string, args []string) string {
 	if r, err := filepath.EvalSymlinks(start); err == nil {
 		start = r
 	}
+	if ext := strings.ToLower(filepath.Ext(start)); ext == ".cmd" || ext == ".bat" {
+		if script := dshShimScript(start); script != "" {
+			start = script
+		}
+	}
 	dir := filepath.Dir(start)
 	for i := 0; i < 4 && dir != filepath.Dir(dir); i++ {
 		if b, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil && strings.Contains(string(b), `"name": "@deepseek-ai/dsh"`) {
 			return dir
 		}
 		dir = filepath.Dir(dir)
+	}
+	return ""
+}
+
+func dshShimScript(shim string) string {
+	b, err := os.ReadFile(shim)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		for rest := line; ; {
+			start := strings.IndexByte(rest, '"')
+			if start < 0 {
+				break
+			}
+			rest = rest[start+1:]
+			end := strings.IndexByte(rest, '"')
+			if end < 0 {
+				break
+			}
+			arg, tail := rest[:end], rest[end+1:]
+			rest = tail
+			lower := strings.ToLower(strings.ReplaceAll(arg, "\\", "/"))
+			if !strings.Contains(lower, "@deepseek-ai/dsh/") || !strings.HasSuffix(lower, ".js") {
+				continue
+			}
+			if len(arg) >= len("%dp0%") && strings.EqualFold(arg[:len("%dp0%")], "%dp0%") {
+				rel := strings.ReplaceAll(arg[len("%dp0%"):], "\\", string(os.PathSeparator))
+				return filepath.Clean(filepath.Join(filepath.Dir(shim), strings.TrimLeft(rel, `/\\`)))
+			}
+			arg = strings.ReplaceAll(arg, "\\", string(os.PathSeparator))
+			if !filepath.IsAbs(arg) {
+				arg = filepath.Join(filepath.Dir(shim), arg)
+			}
+			return filepath.Clean(arg)
+		}
 	}
 	return ""
 }
