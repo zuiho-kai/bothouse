@@ -149,24 +149,35 @@ def freeze(repo, sources, source=''):
 
 def catalog(repo, root, coverage):
     by_id, _ = inventory(repo, coverage['sources'])
+    # Source: each exact frozen block already has a program-owned identity.
+    # Number only this call's catalog; persist full IDs so resumed sources may grow.
+    refs = dict(enumerate(sorted(by_id), 1))
+    numbers = {identity: ref for ref, identity in refs.items()}
+    plan = {kind: [dict(intent, block=numbers.get(intent['block'], intent['block']))
+                   for intent in intents] for kind, intents in coverage['plan'].items()}
     path = root / CATALOG
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical(dict(sources=coverage['sources'], blocks=list(by_id.values()),
-                                  plan=coverage['plan'])) + '\n', encoding='utf-8')
+    path.write_text(canonical(dict(sources=coverage['sources'],
+                                  blocks=[dict(by_id[identity], ref=ref) for ref, identity in refs.items()],
+                                  plan=plan)) + '\n', encoding='utf-8')
+    return refs
 
 
 INSTRUCTION = '''
 LOSSLESS BLOCK CONTRACT (overrides instructions to rewrite old facts):
-Read .ingest-work/block-sources.json for immutable old block IDs, locations and original text.
+Read .ingest-work/block-sources.json for immutable old blocks, locations and original text.
+Select a block using its integer ref from this catalog; never retype or shorten its hash ID.
+The program resolves that exact ref to the original ID before saving or validating the plan.
+Refs belong only to the current catalog. On resume, read it again; do not reuse earlier refs.
 Leave existing fact blocks intact. You may append new facts and prepare page frontmatter,
 H1/H2 headings, domain indexes and log entries. To split/move, do NOT rewrite or copy old facts.
 Return exactly one line before the final Wiki-Capacity line:
-Wiki-Blocks: {"moves":[{"block":"catalog ID","to":"domain/topic.md","section":"## Key facts"}],"updates":[]}
+Wiki-Blocks: {"moves":[{"block":1,"to":"domain/topic.md","section":"## Key facts"}],"updates":[]}
 Use the actual language/schema section heading. The program reads original bytes and executes moves.
 Use empty lists when no moves/updates are needed. Old blocks absent from a searchable topic/archive
 are rejected regardless of additions or net line count. Pure splitting may not add or change facts.
 On correction/resume, keep all still-applicable operations from the catalog's saved plan.
-For a factual update, use an updates entry with block, to, section, text (one complete replacement
+For a factual update, use an updates entry with block (the integer ref), to, section, text (one complete replacement
 block), source {line: exact line number in the original TRANSCRIPT, quote: that exact line},
 and reason (the explicit supersession relation). Updates cannot be hidden in a move.
 The program validates exact source quotes, supersession reasons and the complete final tree.
@@ -184,7 +195,7 @@ def instruction(review_required=False):
         'Unapproved updates remain pending with offsets unchanged.')
 
 
-def plan_output(output):
+def plan_output(output, refs=None):
     lines = [line for line in output.splitlines() if line.startswith(PLAN_PREFIX)]
     if not lines:
         return dict(moves=[], updates=[])  # legacy appends still undergo complete coverage
@@ -195,6 +206,14 @@ def plan_output(output):
         raise ValueError('block plan: expected moves and updates lists')
     if not all(isinstance(plan[k], list) for k in plan):
         raise ValueError('block plan: moves and updates must be lists')
+    for intents in plan.values():
+        for intent in intents:
+            block = intent.get('block') if isinstance(intent, dict) else None
+            if isinstance(block, str):
+                continue  # Legacy full IDs still face exact frozen-inventory validation.
+            if type(block) is not int or refs is None or block not in refs:
+                raise ValueError('block plan: unknown or invalid catalog reference')
+            intent['block'] = refs[block]
     return plan
 
 
