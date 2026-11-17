@@ -194,6 +194,49 @@ class BlockContract(unittest.TestCase):
         self.assertEqual(db.execute("select count(*) from ingested").fetchone(), (1,))
         db.close()
 
+    def test_conflicting_pending_index_enters_repair_and_keeps_both_sides(self):
+        with patch.object(I, 'runner', return_value=self.move_model), patch.object(I, 'deliver', return_value=[]):
+            self.assertFalse(I.model_pass('pending index', 'move', engine='fake', kind='restructure'))
+        (self.repo / 'misc/README.md').write_text('# Misc\n- [source](source.md) — updated description\n')
+        self.commit('new main changes the same index line')
+        calls = []
+
+        def repair(*args, **kwargs):
+            calls.append(kwargs.get('label'))
+            (I.WORK / 'misc/README.md').write_text(
+                '# Misc\n- [source](source.md) — updated description\n- [dest](dest.md) — destination\n')
+            return True, '', 0
+
+        with patch.object(I, 'runner', return_value=repair):
+            self.assertEqual(I.model_pass('pending index', 'move', engine='fake', kind='restructure'), 'changed')
+        self.assertEqual(calls, ['pending index fix'])
+        self.assertIn('updated description', (self.repo / 'misc/README.md').read_text())
+        self.assertEqual((self.repo / 'misc/source.md').read_text().count(FACT), 1)
+        self.assertEqual((self.repo / 'misc/dest.md').read_text().count(FACT), 1)
+
+    def test_unresolved_pending_conflict_keeps_candidate_and_offsets(self):
+        with patch.object(I, 'runner', return_value=self.move_model), patch.object(I, 'deliver', return_value=[]):
+            self.assertFalse(I.model_pass('pending conflict', 'move', engine='fake', kind='restructure'))
+        (self.repo / 'misc/README.md').write_text('# Misc\n- [source](source.md) — newer description\n')
+        head = self.commit('overlapping main edit')
+        calls = []
+
+        def unresolved(*args, **kwargs):
+            calls.append(True)
+            return True, '', 0
+
+        with patch.object(I, 'runner', return_value=unresolved):
+            self.assertFalse(I.model_pass('pending conflict', 'move', engine='fake', kind='restructure'))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), head)
+        self.assertIn('conflict markers', I.LOG.read_text())
+
+    def test_rule_classifier_uses_callers_effort_instead_of_global_max(self):
+        with patch.object(I, 'DREAM_ENGINE', 'codex:high'), patch.object(I, 'EFFORT', 'max'), \
+                patch.object(I, 'codex', return_value=(True, '不是', 0, None)) as run:
+            self.assertFalse(I.rule_correction('synthetic rule', 'ordinary request'))
+        self.assertEqual(run.call_args.kwargs['effort'], 'high')
+
     def test_pending_resume_uses_new_accepted_locations_after_an_unrelated_move(self):
         (self.repo / "other").mkdir()
         (self.repo / "other/source.md").write_text(PAGE + "- independent original fact\n")

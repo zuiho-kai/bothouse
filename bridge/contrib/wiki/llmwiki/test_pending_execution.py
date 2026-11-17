@@ -38,8 +38,10 @@ class PendingExecution(unittest.TestCase):
     def replace_record(self, ref, saved, message):
         lines = [I.PENDING_TRAILER + I.block_contract.canonical(saved)
                  if line.startswith(I.PENDING_TRAILER) else line for line in message.splitlines()]
-        self.git("commit", "--amend", "--allow-empty", "-qm", "\n".join(lines), cwd=I.WORK)
-        self.git("update-ref", ref, self.git("rev-parse", "HEAD", cwd=I.WORK))
+        # Candidate commits are separate from WORK's accepted HEAD (save_block_candidate).
+        sha = self.git('commit-tree', self.git('rev-parse', ref + '^{tree}'),
+                       '-p', self.git('rev-parse', ref + '^'), '-m', '\n'.join(lines))
+        self.git('update-ref', ref, sha)
 
     def resume(self, checkpoint):
         with patch.object(I, "codex", return_value=(True, "correction complete", 0, None)) as call, \
