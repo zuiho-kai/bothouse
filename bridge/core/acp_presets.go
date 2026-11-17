@@ -40,9 +40,23 @@ type ACPPreset struct {
 	Running *bool `json:"running,omitempty"`
 }
 
-// ACPPresets returns the entries of acp_presets.json, each looked for the same way as the CLI
-// list (lookSpecBin: PATH, then the common install dirs), with its version.
+// ACPPresets returns the entries of acp_presets.json that are on this machine, each looked for
+// the same way as the CLI list (lookSpecBin: PATH, then the common install dirs), with its
+// version. The wizard's CLI step says it lists what is installed, so an entry that was not found
+// is left out. JiuwenSwarm is the one supported by default: it stays, as "not found" with its
+// install link.
 func ACPPresets(ctx context.Context) []ACPPreset {
+	all := lookACPPresets(ctx)
+	ps := all[:0]
+	for _, p := range all {
+		if p.Found || p.ID == "jiuwenswarm" {
+			ps = append(ps, p)
+		}
+	}
+	return ps
+}
+
+func lookACPPresets(ctx context.Context) []ACPPreset {
 	var ps []ACPPreset
 	if err := json.Unmarshal(acpPresetsJSON, &ps); err != nil {
 		return nil
