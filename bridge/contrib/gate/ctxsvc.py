@@ -8,7 +8,7 @@ wiki 在哪：环境变量 GATE_WIKI（默认 ~/wiki，即 llm-wiki 装在 ~/wik
 bothouse 起的 gate 由 core/gate_proc.go 传 GATE_WIKI（FindWiki 的主 wiki）和 GATE_WIKI_BOTS（向导写的 bots.json）。
 
 角色 wiki（req 的 bot = gate_url 的 ?bot=<project> = bots.json 的键）：主 wiki 和她自己的角色 wiki 各查前 3 页，
-主 wiki 排前，别的角色的不查（同作者本机 ctxsvc.py：两个索引分开查，不合成一个排序，免得主 wiki 的页被挤掉）。
+两个索引分开查，去重后逐条轮流分配总额度，别的角色的不查。
 lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查主 wiki。
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
@@ -529,7 +529,7 @@ def context(req):
            + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text)), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
-    out = only_new(out, req)  # 推过的条不再推（同一会话代号内）
+    out = only_new(out, req, own_paths={w["path"] for w in mine})  # 去重后再在两库间分配额度
     try:
         exp_log(key, bot, text, out["wiki"], tq, ep=str(req.get("epoch") or ""))
     except Exception:
@@ -1176,26 +1176,31 @@ def _hit_page(w):
     return "rows" in w and not str(w.get("path", "")).startswith("【")
 
 
-def _cap(w, rows, left):
-    """命中页的新条按 TURN_ROWS 剩余额度截断（hits 按相关度排，丢后面的）。"""
-    return rows[:max(left, 0)] if _hit_page(w) else rows
+def _cap_pages(items, own_paths):
+    """两库的新条按各自已有排名轮流取；只有一个库时独占剩余额度。"""
+    groups = [collections.deque(), collections.deque()]
+    for i, w in enumerate(items):
+        if _hit_page(w):
+            groups[w["path"] in own_paths].extend((i, r) for r in w["rows"])
+    selected = collections.defaultdict(list)
+    left = TURN_ROWS
+    while left and any(groups):
+        for group in groups:
+            if left and group:
+                i, row = group.popleft()
+                selected[i].append(row)
+                left -= 1
+    return [_render(dict(w, rows=selected[i])) if _hit_page(w) else w
+            for i, w in enumerate(items) if not _hit_page(w) or selected[i]]
 
 
-def only_new(out, req):
+def only_new(out, req, own_paths=()):
     items = [as_doc(w) for w in out.get("wiki", [])]
     if any("cid" in w for w in items):  # 有折成目录的块才说怎么取（wiki 命中行带页路径和行号，照旧能按行号读）
         items.insert(0, HOWTO)
     epoch = str(req.get("epoch") or "")
     if not epoch:
-        plain, left = [], TURN_ROWS
-        for w in items:
-            if _hit_page(w):
-                rows = _cap(w, w["rows"], left)
-                left -= len(rows)
-                if not rows:
-                    continue
-                w = _render(dict(w, rows=rows)) if rows != w["rows"] else w
-            plain.append(_plain(w))
+        plain = [_plain(w) for w in _cap_pages(items, own_paths)]
         return dict(out, wiki=plain)
     k = (req.get("key") or "", req.get("bot") or "", epoch)
     keep = []
@@ -1207,7 +1212,7 @@ def only_new(out, req):
                 _pushed.popitem(last=False)
         _pushed.move_to_end(k)
         n = seen["#"] = seen.get("#", 0) + 1
-        left = TURN_ROWS
+        pending = set()
         for w in items:
             if "doc" in w:
                 dk, ck = "doc:" + w["name"], "cat:" + w["name"]
@@ -1221,15 +1226,18 @@ def only_new(out, req):
                     seen[ck] = n
                     keep.append(d)
                 continue
-            hit, w = _hit_page(w), _rows_of(w)
-            rows = [r for r in w["rows"] if seen.get(r["id"]) is None or n - seen[r["id"]] >= PUSH_GAP]
-            if hit:
-                rows = rows[:max(left, 0)]  # 超额的不记推过，下一轮还能推
-                left -= len(rows)
-            for r in rows:
-                seen[r["id"]] = n
+            w = _rows_of(w)
+            rows = []
+            for r in w["rows"]:
+                if r["id"] not in pending and (seen.get(r["id"]) is None or n - seen[r["id"]] >= PUSH_GAP):
+                    rows.append(r)
+                    pending.add(r["id"])
             if rows:
                 keep.append(_render(dict(w, rows=rows)) if rows != w["rows"] else w)
+        keep = _cap_pages(keep, own_paths)
+        for w in keep:
+            for r in w.get("rows", []):
+                seen[r["id"]] = n  # 超额的不记推过，下一轮还能推
     if [w.get("path") for w in keep] == [HOWTO["path"]]:  # 只剩怎么取：这轮没有要推的
         keep = []
     return dict(out, wiki=keep)
