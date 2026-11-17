@@ -275,6 +275,21 @@ class T(unittest.TestCase):
             self.assertEqual(len(second), ctxsvc.TURN_ROWS, "超额候选没有被记为已推")
             self.assertFalse(first & second, "先去重，再分配两库额度")
 
+    def test_unrelated_rows_hold_their_slot_but_are_not_pushed(self):
+        """相关度下限：前一轮的话带出来、和这一句一个词都不共享的行不推；角色库里相关的照推。"""
+        with tempfile.TemporaryDirectory() as d:
+            main, own, _ = self._team(d)
+            (own / "notes/gpu.md").write_text("- 显卡驱动装 550 版\n", encoding="utf-8")
+            req = {"bot": "proj-a", "key": "k:floor"}
+            for epoch in ("", "floor"):
+                with self.subTest(epoch=epoch):
+                    ctxsvc._prev.clear()
+                    ctxsvc.context(dict(req, text="代理端口多少", epoch=epoch and epoch + "-1"))
+                    out = ctxsvc.context(dict(req, text="显卡驱动怎么装", epoch=epoch and epoch + "-2"))["wiki"]
+                    texts = [r["text"] for w in out for r in w["rows"]]
+                    self.assertTrue(any("显卡驱动" in t for t in texts), texts)
+                    self.assertFalse(any("代理端口" in t for t in texts), texts)
+
     def test_no_role_wiki_main_only(self):
         with tempfile.TemporaryDirectory() as d:
             main, _, _ = self._team(d)
