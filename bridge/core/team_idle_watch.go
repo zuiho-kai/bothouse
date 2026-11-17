@@ -465,8 +465,12 @@ func watchHandoffLeft(it teamTaskBoardItem, key string) bool {
 // and wakes the session itself when it ends ("" = none). contrib/lead/bgrun writes
 // <data>/runs/<id>/session when that wake is armed, pid at the start and exit at the end; a run
 // whose process is gone without an exit file (killed) wakes nobody and does not count.
+func (e *Engine) backgroundRunsDir() string {
+	return filepath.Join(e.dataDir, "runs")
+}
+
 func (e *Engine) watchBackgroundRun(key string) string {
-	dir := filepath.Join(e.dataDir, "runs")
+	dir := e.backgroundRunsDir()
 	runs, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
