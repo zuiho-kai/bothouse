@@ -45,6 +45,38 @@ def load_gate(team=None, wiki=None, model="fake"):
 
 
 class T(unittest.TestCase):
+    def test_context_http_preserves_role_rows_under_shared_cap(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            main, own = root / "main", root / "role"
+            for wiki in (main, own):
+                (wiki / "notes").mkdir(parents=True)
+                (wiki / "notes/README.md").write_text("pages", encoding="utf-8")
+                (wiki / "notes/port.md").write_text("".join(
+                    f"- 代理端口 {wiki.name} 第{i}条说明\n" for i in range(6)), encoding="utf-8")
+            g = load_gate(wiki=str(main), model=None)
+            ctx = sys.modules["ctxsvc"]
+            ctx.BOTS = root / "bots.json"
+            ctx.BOTS.write_text(json.dumps({"a": {"wiki": str(own)}}), encoding="utf-8")
+            srv = ThreadingHTTPServer(("127.0.0.1", 0), g.H)
+            worker = threading.Thread(target=srv.serve_forever, daemon=True)
+            worker.start()
+            try:
+                for epoch in ("", "fresh-session"):
+                    req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/context?bot=a",
+                        json.dumps({"key": "test:cap", "text": "代理端口多少", "epoch": epoch}).encode(),
+                        {"Content-Type": "application/json"})
+                    out = json.loads(urllib.request.urlopen(req, timeout=5).read())
+                    counts = {w["path"]: len(w["rows"]) for w in out["wiki"] if ctx._hit_page(w)}
+                    self.assertEqual(counts, {(main / "notes/port.md").as_posix(): 3,
+                                              (own / "notes/port.md").as_posix(): 2})
+                    print("isolated HTTP /context", "epoch=" + (epoch or "none"), "main=3 own=2 total=5")
+            finally:
+                srv.shutdown()
+                srv.server_close()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+
     def test_default_team_is_example(self):
         g = load_gate()
         ex = json.loads((HERE / "team.example.json").read_text(encoding="utf-8"))

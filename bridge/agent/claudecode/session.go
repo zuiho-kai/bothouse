@@ -1604,6 +1604,22 @@ func (cs *claudeSession) Alive() bool {
 }
 
 func (cs *claudeSession) Close() error {
+	return cs.stop(true)
+}
+
+var _ core.AgentSessionRestartCloser = (*claudeSession)(nil)
+
+// CloseForRestart implements core.AgentSessionRestartCloser (maomao fork
+// #1773). While a background task runs the CLI does not exit on stdin close,
+// it waits for the task: Close would spend the whole graceful timeout and end
+// in SIGTERM anyway, so the wait is skipped. Without one it is Close.
+func (cs *claudeSession) CloseForRestart() error {
+	return cs.stop(cs.bgTasks.Load() == 0)
+}
+
+// stop ends the process: stdin close, then (waitForExit) the graceful wait for
+// it to leave on its own, then SIGTERM, then SIGKILL.
+func (cs *claudeSession) stop(waitForExit bool) error {
 	// Best-effort cleanup of the --append-system-prompt-file temp file on
 	// every exit path. The file is small (~9KB) and OS temp cleanup also
 	// eventually claims it, but explicit removal keeps workdirs tidy.
@@ -1621,18 +1637,22 @@ func (cs *claudeSession) Close() error {
 	}
 	cs.stdinMu.Unlock()
 
-	graceful := cs.gracefulStopTimeout
-	if graceful <= 0 {
-		graceful = 8 * time.Second // legacy fallback
-	}
+	if waitForExit {
+		graceful := cs.gracefulStopTimeout
+		if graceful <= 0 {
+			graceful = 8 * time.Second // legacy fallback
+		}
 
-	select {
-	case <-cs.done:
-		slog.Info("claudeSession: exited cleanly after stdin close")
-		return nil
-	case <-time.After(graceful):
-		slog.Warn("claudeSession: graceful stop timed out, sending SIGTERM",
-			"timeout", graceful)
+		select {
+		case <-cs.done:
+			slog.Info("claudeSession: exited cleanly after stdin close")
+			return nil
+		case <-time.After(graceful):
+			slog.Warn("claudeSession: graceful stop timed out, sending SIGTERM",
+				"timeout", graceful)
+		}
+	} else {
+		slog.Info("claudeSession: background tasks still running, it does not exit on stdin close; sending SIGTERM")
 	}
 
 	// Phase 2: SIGTERM the whole process group — gives the process and its

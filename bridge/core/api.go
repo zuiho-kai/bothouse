@@ -88,6 +88,9 @@ type SendRequest struct {
 	// SessionFromEnv: the CLI filled SessionKey from its own session (no -s). A workspace's
 	// images/files then go to the chat channel that owns the workspace (sendTargetForAttachments).
 	SessionFromEnv bool `json:"session_from_env,omitempty"`
+	// Handoff (with SessionFromEnv): the workspace task the calling process was started for
+	// (CC_HANDOFF). Its attachments move to the chat channel only while that task is in work.
+	Handoff string `json:"handoff,omitempty"`
 	// Experience: append the related team lessons and the hand-back rule (team_experience.go).
 	Experience bool `json:"experience,omitempty"`
 	// Channel: send to the channel with this name in the server of FromSession instead of
@@ -156,6 +159,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/workspace/list", s.handleTeamWorkspaceList)
 	s.mux.HandleFunc("/team/workspace/claim", s.handleTeamWorkspaceClaim)
 	s.mux.HandleFunc("/team/workspace/park", s.handleTeamWorkspacePark)
+	s.mux.HandleFunc("/team/workspace/delete", s.handleTeamWorkspaceDelete)
 	s.mux.HandleFunc("/team/workspace/exit", s.handleTeamWorkspaceExit)
 	s.mux.HandleFunc("/team/task/transition", s.handleTeamTaskTransition)
 	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
@@ -387,8 +391,9 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Message = msg
 	}
+	keptNote := "" // the attachments stayed in the workspace: tell the sender (SendTargetForAttachments)
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
-		req.SessionKey = engine.teamLayer().SendTargetForAttachments(req.SessionKey, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
+		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {
@@ -451,6 +456,10 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	if dmNote != "" {
 		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "note": dmNote})
+		return
+	}
+	if keptNote != "" {
+		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "note": keptNote})
 		return
 	}
 	if explicitTarget {

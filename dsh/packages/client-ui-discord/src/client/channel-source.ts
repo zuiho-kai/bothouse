@@ -203,6 +203,8 @@ export interface ChannelRoom {
   readonly active?: number
   /** #1023: set on a private chat — the one agent member it is with. */
   readonly dm_member?: string | null
+  /** #1904: on a workspace — no chat channel owns it now, so it may be deleted. Absent from older services. */
+  readonly free?: boolean
 }
 
 /** One row of the channel list: a chat channel at depth 0, its workspaces at depth 1. */
@@ -386,6 +388,8 @@ export interface ChannelActions {
   openDm?(memberId: string): Promise<void>
   /** #155: close one private chat: it leaves the list (history kept); openDm brings it back. */
   closeDm?(roomId: number): Promise<void>
+  /** #1904: delete an idle workspace for good; refused with a reason while it has work or a paused task. */
+  deleteWorkspace?(roomId: number): Promise<void>
   /** Rename a chat channel while preserving its identity and history. */
   renameRoom(roomId: number, name: string): Promise<void>
   /** Provider routes and their models for the member picker. */
@@ -611,6 +615,15 @@ export function errorText(error: unknown, t: TranslateNS<typeof NS>, place: Erro
   if (code === 'invalid' && place === 'member' && memberNameRefused(name)) return t('memberNameInvalid')
   // A send failure keeps its own verb; anything else keeps the generic line.
   return place === 'send' ? t('sendFailed', { message }) : t('actionFailed', { message })
+}
+
+/** #1904: why a workspace was not deleted, in the reader's words (the service answers a code). */
+export function workspaceDeleteText(error: unknown, t: TranslateNS<typeof NS>, name: string): string {
+  const code = error instanceof ServiceError ? error.code : undefined
+  if (code === 'workspace-busy') return t('workspaceDeleteBusy', { name })
+  if (code === 'workspace-paused') return t('workspaceDeletePaused', { name })
+  if (code === 'bridge-unreachable') return t('workspaceDeleteUnreachable')
+  return t('workspaceDeleteFailed', { message: error instanceof Error ? error.message : String(error) })
 }
 
 function json(method: string, body: unknown): RequestInit {
@@ -1198,6 +1211,15 @@ export function createChannelSource(transport: ChannelTransport): {
       set({ rooms })
       // Closing the chat on screen moves to the first chat channel instead of an empty pane.
       const next = rooms.find(r => r.kind !== 'workspace' && r.dm_member == null)
+      if (snapshot.roomId === roomId && next !== undefined) await selectRoom(next.id)
+    },
+    async deleteWorkspace(roomId) {
+      await request(`collab/api/rooms/${roomId}`, { method: 'DELETE' })
+      const gone = snapshot.rooms.find(r => r.id === roomId)
+      const rooms = snapshot.rooms.filter(r => r.id !== roomId)
+      set({ rooms })
+      // Deleting the workspace on screen moves to its chat channel instead of an empty pane.
+      const next = rooms.find(r => r.id === gone?.parent_id) ?? rooms.find(r => r.kind !== 'workspace' && r.dm_member == null)
       if (snapshot.roomId === roomId && next !== undefined) await selectRoom(next.id)
     },
     async renameRoom(roomId, name) {

@@ -441,7 +441,7 @@ export class CloudWebGateway {
     return true;
   }
 
-  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create | claim | release. */
+  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create | claim | release | delete. */
   teamWorkspace(d) {
     const { store } = this.hub;
     if (!supportsWorkspaces(store)) return { ok: false, error: 'unsupported' };
@@ -483,6 +483,14 @@ export class CloudWebGateway {
         // park (core ParkTeamWorkspace): its tasks are paused, not finished; they stop counting first.
         const released = store.releaseWorkspace(id, claim);
         if (released) this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
+        return { ok: true, room: view(self) };
+      }
+      if (d.op === 'delete') {
+        // #1904: the bridge found the workspace idle (no task in work, none paused there): it leaves
+        // the list for good. Refused (error workspace-busy) when a chat channel owns it here.
+        if (self.kind !== 'workspace') return { ok: false, error: 'not-workspace' };
+        store.removeWorkspace(id);
+        this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
       }
       if (d.op === 'create') {

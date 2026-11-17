@@ -764,7 +764,7 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 		session.Dialer = &websocket.Dialer{Proxy: http.ProxyURL(p.proxyURL)}
 		slog.Info("discord: using proxy", "proxy", p.proxyURL.Host)
 	}
-	session.Client = &http.Client{Transport: &silentTransport{base: base, isSilent: p.isSilentChannel}, Timeout: 60 * time.Second}
+	session.Client = &http.Client{Transport: &silentTransport{base: base, isSilent: p.isSilentChannel, mentionUsers: p.workspaceMentionUsers}, Timeout: 60 * time.Second}
 
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
 	// maomao fork (#1061): platform events (events.go) — reactions and voice need two more
@@ -1366,9 +1366,9 @@ func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) er
 		var err error
 		if first {
 			c := chunk
-			sent, err = p.session.InteractionResponseEdit(ictx.interaction, &discordgo.WebhookEdit{Content: &c})
+			sent, err = p.session.InteractionResponseEdit(ictx.interaction, &discordgo.WebhookEdit{Content: &c, AllowedMentions: p.interactionAllowedMentions(ictx.channelID)})
 		} else {
-			sent, err = p.session.FollowupMessageCreate(ictx.interaction, true, &discordgo.WebhookParams{Content: chunk})
+			sent, err = p.session.FollowupMessageCreate(ictx.interaction, true, &discordgo.WebhookParams{Content: chunk, AllowedMentions: p.interactionAllowedMentions(ictx.channelID)})
 		}
 
 		if err != nil {
@@ -1574,8 +1574,9 @@ func (p *Platform) SendWithButtons(ctx context.Context, rctx any, content string
 			return err
 		}
 		sent, err := p.session.FollowupMessageCreate(rc.interaction, true, &discordgo.WebhookParams{
-			Content:    content,
-			Components: components,
+			Content:         content,
+			Components:      components,
+			AllowedMentions: p.interactionAllowedMentions(rc.channelID),
 		})
 		if err != nil {
 			return fmt.Errorf("discord: send button followup: %w", err)

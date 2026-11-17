@@ -32,7 +32,7 @@ func runWorkspace(args []string) {
 	owner := fs.String("owner", "", "claim: who the task goes to (platform user/bot id), mentioned if the ten-minute check finds no progress")
 	title := fs.String("title", "", "claim: the task's short name, shown in that nudge")
 	boardID := fs.Int("board", 0, "claim: the task-board item handed off; the bridge records the task's state against it")
-	kind := fs.String("kind", "report", "exit: report (done, for acceptance) or failed")
+	kind := fs.String("kind", "report", "exit: report (final), batch (keep working), or failed")
 	to := fs.String("to", "", "transition: closed, paused, returned or failed")
 	why := fs.String("why", "", "transition: the reason recorded with it")
 	reopen := fs.Bool("reopen", false, "transition: take a closed task back for rework (closed → paused)")
@@ -103,13 +103,41 @@ func runWorkspace(args []string) {
 		} else {
 			fmt.Printf("%s\tkept (other tasks in work)\n", r.Workspace)
 		}
+	case "delete":
+		// #1904: take an idle workspace out for good. Optional <workspace id>; without it the
+		// session is the workspace. In use: exit 1 with the reason (--json: the API's answer).
+		req := map[string]any{"session_key": *session}
+		if fs.NArg() > 0 {
+			req["workspace_id"] = fs.Arg(0)
+		}
+		body, _ := json.Marshal(req)
+		resp, err := apiPost(sock, "/team/workspace/delete", body)
+		if err != nil {
+			workspaceFail(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		var r core.TeamWorkspaceDeleteResult
+		if json.Unmarshal(data, &r) != nil || (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusConflict) {
+			workspaceFail(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+		}
+		if *jsonOut {
+			printModelJSON(r)
+		} else if r.Deleted {
+			fmt.Printf("%s\tdeleted\n", r.Workspace)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %s (%s)\n", r.Error, r.Reason)
+		}
+		if !r.Deleted {
+			os.Exit(1)
+		}
 	case "exit":
 		// #699 C: the only handback. ws-up --report runs it after `report check` passes.
 		var raw []byte
 		var err error
 		switch *file {
 		case "":
-			workspaceFail(fmt.Errorf("usage: bothouse workspace exit --file <report draft> [--kind report|failed]"))
+			workspaceFail(fmt.Errorf("usage: bothouse workspace exit --file <report draft> [--kind report|batch|failed]"))
 		case "-":
 			raw, err = io.ReadAll(os.Stdin)
 		default:
@@ -202,7 +230,7 @@ func parseWorkspaceFlags(fs *flag.FlagSet, args []string) error {
 }
 
 func printWorkspaceUsage() {
-	fmt.Println(`Usage: bothouse workspace <new|list|claim|park|exit|transition> [<workspace id>] [--session-key discord:<channel id>] [--json]
+	fmt.Println(`Usage: bothouse workspace <new|list|claim|park|delete|exit|transition> [<workspace id>] [--session-key discord:<channel id>] [--json]
 
   new    create 「工作区(max+1)」 in the category's shared pool for this chat channel
   list   list this chat channel's workspaces and the category's shared pool
@@ -218,6 +246,9 @@ func printWorkspaceUsage() {
          before the workspace is given back;
          --chat <chat key> [--before <RFC 3339>]: only that chat channel's task, refused
          when the workspace belongs to another chat channel now
+  delete take an idle <workspace id> out for good (platforms whose channels the bridge removes:
+         the web channels of DSH); refused with the reason while a task is in work there or a
+         paused task waits to continue there
   exit   hand this workspace's task back: --file <report draft> (- = stdin), [--kind failed];
          the task's state moves to returned (or failed) and the report goes to the chat channel.
          The only handback: a [report] written in a reply is not read (ws-up --report runs this)

@@ -3,22 +3,29 @@ package discord
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 // maomao fork: messages the bot posts in a team workspace channel are sent with
 // SUPPRESS_NOTIFICATIONS (the @silent flag), so busy workspaces in a shared server
-// do not push a notification to every member. Chat channels are unchanged.
+// do not push a notification to every member. Human mentions must also be
+// excluded: SUPPRESS_NOTIFICATIONS alone still allows mentions (#1951).
+// Chat channels are unchanged.
 
 const messageFlagSuppressNotifications = 1 << 12
 
-var channelMessagesPath = regexp.MustCompile(`/channels/(\d+)/messages$`)
+var channelMessagesPath = regexp.MustCompile(`/channels/(\d+)/messages(?:/\d+)?$`)
 
 // SetSilentChannel implements core.SilentChannelAware.
 func (p *Platform) SetSilentChannel(isSilent func(channelID string) bool) {
@@ -34,25 +41,33 @@ func (p *Platform) isSilentChannel(channelID string) bool {
 	return f != nil && (*f)(channelID)
 }
 
-// silentTransport adds the suppress-notifications flag to new messages posted in a
-// silent channel. It covers every send path, since they all go through the session client.
+// silentTransport applies the workspace channel policy to channel message
+// creates and edits, including multipart uploads. Interaction webhooks carry
+// the same mention policy at their call site, where their channel ID is known.
 type silentTransport struct {
-	base     http.RoundTripper
-	isSilent func(channelID string) bool
+	base         http.RoundTripper
+	isSilent     func(channelID string) bool
+	mentionUsers func() []string
 }
 
 func (t *silentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Method == http.MethodPost && req.Body != nil {
+	if (req.Method == http.MethodPost || req.Method == http.MethodPatch) && req.Body != nil {
 		if m := channelMessagesPath.FindStringSubmatch(req.URL.Path); m != nil && t.isSilent(m[1]) {
-			if r, err := withSilentFlag(req); err == nil {
-				req = r
+			var users []string
+			if t.mentionUsers != nil {
+				users = t.mentionUsers()
 			}
+			r, err := withSilentFlag(req, users)
+			if err != nil {
+				return nil, fmt.Errorf("discord: workspace message policy: %w", err)
+			}
+			req = r
 		}
 	}
 	return t.base.RoundTrip(req)
 }
 
-func withSilentFlag(req *http.Request) (*http.Request, error) {
+func withSilentFlag(req *http.Request, users []string) (*http.Request, error) {
 	body, err := io.ReadAll(req.Body)
 	req.Body.Close()
 	if err != nil {
@@ -62,13 +77,19 @@ func withSilentFlag(req *http.Request) (*http.Request, error) {
 	mediaType, params, _ := mime.ParseMediaType(req.Header.Get("Content-Type"))
 	switch {
 	case mediaType == "application/json":
-		if b, ok := addFlag(body); ok {
+		if b, ok := addFlag(body, users, req.Method == http.MethodPost); ok {
 			out = b
+		} else {
+			return nil, fmt.Errorf("invalid message JSON")
 		}
 	case strings.HasPrefix(mediaType, "multipart/") && params["boundary"] != "":
-		if b, ok := addFlagMultipart(body, params["boundary"]); ok {
+		if b, ok := addFlagMultipart(body, params["boundary"], users, req.Method == http.MethodPost); ok {
 			out = b
+		} else {
+			return nil, fmt.Errorf("invalid message multipart payload")
 		}
+	default:
+		return nil, fmt.Errorf("unsupported message content type %q", mediaType)
 	}
 	r := req.Clone(req.Context())
 	r.Body = io.NopCloser(bytes.NewReader(out))
@@ -78,22 +99,35 @@ func withSilentFlag(req *http.Request) (*http.Request, error) {
 	return r, nil
 }
 
-func addFlag(body []byte) ([]byte, bool) {
+func addFlag(body []byte, users []string, suppress bool) ([]byte, bool) {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(body, &obj) != nil || obj == nil {
 		return nil, false
 	}
-	var flags int
-	if raw, ok := obj["flags"]; ok {
-		_ = json.Unmarshal(raw, &flags)
+	if suppress {
+		var flags int
+		if raw, ok := obj["flags"]; ok {
+			_ = json.Unmarshal(raw, &flags)
+		}
+		obj["flags"] = json.RawMessage(strconv.Itoa(flags | messageFlagSuppressNotifications))
 	}
-	obj["flags"] = json.RawMessage(strconv.Itoa(flags | messageFlagSuppressNotifications))
+	var original *discordgo.MessageAllowedMentions
+	if raw := obj["allowed_mentions"]; raw != nil {
+		if json.Unmarshal(raw, &original) != nil {
+			return nil, false
+		}
+	}
+	mentions, err := json.Marshal(workspaceAllowedMentions(users, original))
+	if err != nil {
+		return nil, false
+	}
+	obj["allowed_mentions"] = mentions
 	b, err := json.Marshal(obj)
 	return b, err == nil
 }
 
 // addFlagMultipart rewrites the payload_json part of a file upload.
-func addFlagMultipart(body []byte, boundary string) ([]byte, bool) {
+func addFlagMultipart(body []byte, boundary string, users []string, suppress bool) ([]byte, bool) {
 	mr := multipart.NewReader(bytes.NewReader(body), boundary)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
@@ -114,7 +148,7 @@ func addFlagMultipart(body []byte, boundary string) ([]byte, bool) {
 			return nil, false
 		}
 		if part.FormName() == "payload_json" {
-			if b, ok := addFlag(data); ok {
+			if b, ok := addFlag(data, users, suppress); ok {
 				data, changed = b, true
 			}
 		}
@@ -128,4 +162,35 @@ func addFlagMultipart(body []byte, boundary string) ([]byte, bool) {
 		return nil, false
 	}
 	return buf.Bytes(), true
+}
+
+// Use only registered bot identities, never allow_from or allow_bots (which may
+// contain wildcards or webhook authors). Preserve an explicitly narrower policy.
+func workspaceAllowedMentions(users []string, original *discordgo.MessageAllowedMentions) *discordgo.MessageAllowedMentions {
+	allowed := &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
+	for _, id := range users {
+		if original == nil || slices.Contains(original.Parse, discordgo.AllowedMentionTypeUsers) || slices.Contains(original.Users, id) {
+			allowed.Users = append(allowed.Users, id)
+		}
+	}
+	return allowed
+}
+
+func (p *Platform) workspaceMentionUsers() []string {
+	var users []string
+	teamPlatforms.Range(func(key, _ any) bool {
+		users = append(users, key.(string))
+		return true
+	})
+	sort.Strings(users)
+	return users
+}
+
+// Interaction webhook URLs do not contain their channel ID. Apply the same
+// channel policy where the interaction still carries its structured channel.
+func (p *Platform) interactionAllowedMentions(channelID string) *discordgo.MessageAllowedMentions {
+	if !p.isSilentChannel(channelID) {
+		return nil
+	}
+	return workspaceAllowedMentions(p.workspaceMentionUsers(), nil)
 }

@@ -88,6 +88,10 @@
 
 ## Install from the published binary
 
+`bgrun <name> <timeout-seconds> <command...>` acknowledges a detached supervisor and the actual command startup before returning a run ID. A command that fails during the 0.1-second startup observation returns nonzero with its log; later failures and timeouts write `exit` and schedule the existing session wake. A zero timeout retains the previous unlimited behavior. Closing the launching terminal or process group does not stop the supervisor. Run artifacts live in the bridge-injected `CC_RUNS_DIR`, computed by the same method used by its idle watcher; standalone calls use the existing collaboration data-directory resolver. `bgrun status [id]` reads that same directory. Timeout terminates the task process group and records exit 142 before waking the session.
+
+The workspace watch counts a tracked run as progress only while its supervisor is alive, its exit receipt is absent, and its log was updated within the configured watch interval (ten minutes by default). Creating the log gives a new command one interval to begin output. A silent command, including one with zero timeout, stops suppressing the periodic and idle watches after that interval; the watch does not terminate it. Continuing output renews progress without the native background-task renewal cap. The command timeout remains independent and still supplies the existing exit and completion wake.
+
 Run `bothouse setup lead install --work-dir /path/to/role --agent codex`
 (optionally `--config /path/to/config.toml`). This extracts the embedded `lead/`
 and sibling `gate/` files into `<data_dir>/collaboration` and adds absolute paths

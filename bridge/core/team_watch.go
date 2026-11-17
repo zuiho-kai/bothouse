@@ -689,8 +689,8 @@ var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 // since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history request failed (check
 // retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
-	running, pushed := w.workspaceBackgroundProgress(key, since)
-	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
+	running, observed := w.workspaceBackgroundProgress(key, since)
+	if observed || running && h.Renewed < watchMaxBackgroundRenew {
 		return watchProgressReal, nil
 	}
 	if !running && w.workspaceBusy(key) {
@@ -713,14 +713,20 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 	return watchProgressNone, nil
 }
 
-// workspaceBackgroundProgress reads the same native task state used by idle
-// cleanup and the child table. Inspect active agent processes even after the
-// parent turn unlocks; Session.Busy alone cannot describe their lifetime.
-func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, pushed bool) {
+// workspaceBackgroundProgress reads tracked commands and the native task state
+// used by idle cleanup and the child table. Inspect active agent processes even
+// after the parent turn unlocks; Session.Busy alone cannot describe their lifetime.
+func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, observed bool) {
 	dirs := make(map[string]bool)
 	for _, e := range w.engines() {
 		if e == nil {
 			continue
+		}
+		// bgrun is tracked outside the agent process. Both periodic progress and
+		// idle wake decisions use its output window and completion record. Recent
+		// output is measured progress, independent of the native-task renewal cap.
+		if e.watchBackgroundRun(key) != "" {
+			return true, true
 		}
 		e.interactiveMu.Lock()
 		var states []*interactiveState

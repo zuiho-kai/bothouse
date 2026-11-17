@@ -255,6 +255,41 @@ class T(unittest.TestCase):
             again = ctxsvc.context(req)["wiki"]  # 第一轮超额没推的，下一轮接着推
             self.assertTrue(again and all(r["text"] not in texts for w in again for r in w.get("rows", [])))
 
+    def test_main_rows_do_not_starve_role_after_dedup(self):
+        with tempfile.TemporaryDirectory() as d:
+            main, own, _ = self._team(d)
+            for root in (main, own):
+                with (root / "notes/port.md").open("a", encoding="utf-8") as f:
+                    f.writelines(f"- 代理端口 {root.name} 第{i}条说明\n" for i in range(ctxsvc.TURN_ROWS))
+            req = {"text": "代理端口多少", "bot": "proj-a", "key": "k:fair-cap"}
+            for epoch in ("", "fair-cap"):
+                with self.subTest(epoch=epoch):
+                    out = ctxsvc.context(dict(req, epoch=epoch))["wiki"]
+                    counts = {w["path"]: len(w["rows"]) for w in out}
+                    self.assertEqual(counts[(main / "notes/port.md").as_posix()], 3)
+                    self.assertEqual(counts[(own / "notes/port.md").as_posix()], 2,
+                                     "主库不能在角色库之前耗尽五条额度")
+            first = {r["id"] for w in out for r in w["rows"]}
+            again = ctxsvc.context(dict(req, epoch="fair-cap"))["wiki"]
+            second = {r["id"] for w in again for r in w["rows"]}
+            self.assertEqual(len(second), ctxsvc.TURN_ROWS, "超额候选没有被记为已推")
+            self.assertFalse(first & second, "先去重，再分配两库额度")
+
+    def test_unrelated_rows_hold_their_slot_but_are_not_pushed(self):
+        """相关度下限：前一轮的话带出来、和这一句一个词都不共享的行不推；角色库里相关的照推。"""
+        with tempfile.TemporaryDirectory() as d:
+            main, own, _ = self._team(d)
+            (own / "notes/gpu.md").write_text("- 显卡驱动装 550 版\n", encoding="utf-8")
+            req = {"bot": "proj-a", "key": "k:floor"}
+            for epoch in ("", "floor"):
+                with self.subTest(epoch=epoch):
+                    ctxsvc._prev.clear()
+                    ctxsvc.context(dict(req, text="代理端口多少", epoch=epoch and epoch + "-1"))
+                    out = ctxsvc.context(dict(req, text="显卡驱动怎么装", epoch=epoch and epoch + "-2"))["wiki"]
+                    texts = [r["text"] for w in out for r in w["rows"]]
+                    self.assertTrue(any("显卡驱动" in t for t in texts), texts)
+                    self.assertFalse(any("代理端口" in t for t in texts), texts)
+
     def test_no_role_wiki_main_only(self):
         with tempfile.TemporaryDirectory() as d:
             main, _, _ = self._team(d)

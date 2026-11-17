@@ -1,40 +1,155 @@
-#!/bin/zsh
-# bgrun <名字> <超时秒> <命令…>：后台启动长命令/下载，立刻返回。出处：反思 11-02、11-03 a 类
-#（11-02 前台串行下载 gerber/bom/pnp 10 分钟；11-03 超过 5 分钟的命令 13 条 84 分钟）。
-# 每次一个运行号，目录 ~/.bothouse/runs/<运行号>/：cmd、pid、log（实时写）、exit（结束后写；超时为 142）。
-# 多个文件分开下：每个文件各起一个 bgrun，并行跑。查：bgrun status [运行号]；结果看 exit 和 log，不前台 sleep 轮询。
-# 结束自动叫醒（#1628）：在桥会话里起的（有 CC_PROJECT，和 CC_SESSION_KEY 或 CC_SESSION），命令结束时（成功、失败、超时都算）给发起它的会话
-# 挂一条 1 秒后的通知，带退出码和日志末尾 15 行；叫不通重试 3 次，结果记在 <运行目录>/wake。BGRUN_NO_WAKE=1 关掉。
-# 出处：会话 2a26542e（11-11）墙钟 13334 秒里 11263 秒在等「下一次有人碰巧叫醒」，后台命令早就结束了。
-# 会话先读 CC_SESSION_KEY，没有再读 CC_SESSION（#1724）：DSH 会把名字里带 KEY 的变量从命令环境里洗掉，只剩 CC_SESSION；
-# 11-16 23:58 鲸鱼娘工作区起的 gh pr checks --watch 因此没挂叫醒，00:07 跑完没人知道。挂了叫醒就把会话写进
-# <运行目录>/session，桥据此知道这个会话有后台命令在等，回合结束先不催。没挂叫醒时当场说明，不静默。
-R=$HOME/.bothouse/runs
-if [[ $1 == status ]]; then
-  for d in ${2:+$R/$2}(N) ${2:-$R/*(N/om[1,15])}; do
-    [[ -d $d ]] || continue; id=${d:t}; p=$(cat $d/pid 2>/dev/null)
-    if [[ -f $d/exit ]]; then st="结束 exit=$(cat $d/exit)"; elif kill -0 $p 2>/dev/null; then st="在跑 pid=$p"; else st="已死（没写 exit）"; fi
-    echo "$id  $st  log=$d/log  $(head -c 80 $d/cmd)"
-  done; exit 0
-fi
-(( $# >= 3 )) || { echo "用法：bgrun <名字> <超时秒> <命令…>；bgrun status [运行号]" >&2; exit 2; }
-name=${1//[^A-Za-z0-9._-]/_}; secs=$2; shift 2
-[[ $secs == <-> ]] || { echo "超时秒要是整数" >&2; exit 2; }
-id=$(date +%m%d-%H%M%S)-$name-$$; d=$R/$id; mkdir -p $d
-print -r -- "${(q)@}" > $d/cmd
-wake=''; sk=${CC_SESSION_KEY:-$CC_SESSION}
-[[ -n $CC_PROJECT && -n $sk && $BGRUN_NO_WAKE != 1 ]] && wake=${CC_BIN:-${commands[bothouse]:-/Applications/Bothouse.app/Contents/MacOS/bothouse}}
-[[ -n $wake ]] && print -r -- "$sk" > $d/session
-BGRUN_WAKE=$wake BGRUN_ID=$id BGRUN_SESSION=$sk nohup zsh -c 'perl -e "alarm shift; exec @ARGV" "$1" "${@:3}" > "$2/log" 2>&1; rc=$?; echo $rc > "$2/exit"
-[[ -n $BGRUN_WAKE ]] || exit 0
-msg="后台命令结束：运行号 $BGRUN_ID，退出码 $rc（142 是超时）。日志 $2/log 末尾：
-$(tail -n 15 "$2/log")
-接着做依赖它的下一步；没有要做的就不用回复。"
-for i in 1 2 3; do
-  "$BGRUN_WAKE" timer add -p "$CC_PROJECT" -s "$BGRUN_SESSION" --delay 1s --inject-if-busy --forward --desc "bgrun 结束：$BGRUN_ID exit=$rc" --prompt "$msg" >> "$2/wake" 2>&1 && { echo "叫醒成功（第 $i 次）" >> "$2/wake"; exit 0; }
-  sleep 5
-done
-echo "叫醒失败 3 次" >> "$2/wake"' bgrun $secs $d "$@" < /dev/null > /dev/null 2>&1 &
-echo $! > $d/pid
-echo "运行号 $id  pid $(cat $d/pid)  日志 $d/log  结束后看 $d/exit（超时 ${secs}s）${wake:+；结束会自动叫醒本会话，不用等}"
-[[ -n $wake || $BGRUN_NO_WAKE == 1 ]] || echo "bgrun：没拿到会话（CC_PROJECT=${CC_PROJECT:-空}，CC_SESSION_KEY 和 CC_SESSION 都空），这条命令结束不会叫醒你：别结束本轮干等，自己回来看 $d/exit。" >&2
+#!/usr/bin/env python3
+"""Detached, acknowledged command runner; artifacts/wake contract from #1628/#1724."""
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "gate"))
+from datadir import data_dir
+
+
+def wake_session(run, rc):
+    session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION")
+    if not (os.environ.get("CC_PROJECT") and session) or os.environ.get("BGRUN_NO_WAKE") == "1":
+        return
+    bridge = os.environ.get("CC_BIN") or shutil.which("bothouse") or "/Applications/Bothouse.app/Contents/MacOS/bothouse"
+    # 来源：原 bgrun 叫醒接口保留末尾 15 行。
+    tail = subprocess.check_output(["tail", "-n", "15", str(run / "log")], text=True, errors="replace")
+    message = (f"后台命令结束：运行号 {run.name}，退出码 {rc}（142 是超时）。日志 {run}/log 末尾：\n"
+               f"{tail}\n接着做依赖它的下一步；没有要做的就不用回复。")
+    with (run / "wake").open("a") as output:
+        for attempt in range(1, 4):  # 来源：原 bgrun 叫醒最多 3 次。
+            try:
+                result = subprocess.run([bridge, "timer", "add", "-p", os.environ["CC_PROJECT"],
+                                         "-s", session, "--delay", "1s", "--inject-if-busy", "--forward",
+                                         "--desc", f"bgrun 结束：{run.name} exit={rc}", "--prompt", message],
+                                        stdout=output, stderr=output)
+                if result.returncode == 0:
+                    output.write(f"叫醒成功（第 {attempt} 次）\n")
+                    return
+            except OSError as error:
+                output.write(f"叫醒失败：{error}\n")
+            time.sleep(5)  # 来源：沿用原 bgrun 叫醒重试间隔。
+        output.write("叫醒失败 3 次\n")
+
+
+def supervise(run, seconds, ready_fd, command):
+    with os.fdopen(ready_fd, "w") as ready, (run / "log").open("a") as output:
+        (run / "pid").write_text(f"{os.getpid()}\n")
+        started = time.monotonic()
+        try:
+            # A task group lets timeout reclaim descendants without killing the
+            # supervisor responsible for the exit and wake receipts.
+            task = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=output, start_new_session=True)
+        except OSError as error:
+            rc = 127
+            reason = f"启动失败：{error}"
+            output.write(reason + "\n")
+            output.flush()
+            (run / "exit").write_text(f"{rc}\n")
+            ready.write(json.dumps({"error": reason, "rc": rc}) + "\n")
+            ready.flush()
+        else:
+            try:
+                # Startup observation timeout catches immediate shell failures;
+                # failures after acknowledgment use the normal exit/wake contract.
+                rc = task.wait(timeout=min(seconds, 0.1) if seconds else 0.1)
+            except subprocess.TimeoutExpired:
+                rc = None
+            if rc is not None:
+                rc = rc if rc >= 0 else 128 - rc
+                (run / "exit").write_text(f"{rc}\n")
+            ready.write(json.dumps({"error": f"命令启动即退出，exit={rc}" if rc else "",
+                                    "rc": rc or 0}) + "\n")
+            ready.flush()
+            if rc is None:
+                try:
+                    rc = task.wait(timeout=max(0, seconds - (time.monotonic() - started)) if seconds else None)
+                    rc = rc if rc >= 0 else 128 - rc
+                except subprocess.TimeoutExpired:
+                    os.killpg(task.pid, signal.SIGKILL)
+                    task.wait()
+                    rc = 142
+                (run / "exit").write_text(f"{rc}\n")
+    wake_session(run, rc)
+
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] == "--supervise":
+        supervise(Path(args[1]), int(args[2]), int(args[3]), args[4:])
+        return 0
+    # The bridge resolves this once for both the runner and the idle watcher.
+    # Outside a bridge session, use the collaboration tools' existing resolver.
+    root = Path(os.environ["CC_RUNS_DIR"]) if os.environ.get("CC_RUNS_DIR") else data_dir() / "runs"
+    if args and args[0] == "status":
+        # 来源：原 status 最多显示 15 项。
+        runs = [root / args[1]] if len(args) > 1 else sorted(
+            root.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)[:15]
+        for run in runs:
+            if not run.is_dir():
+                continue
+            pid = (run / "pid").read_text().strip() if (run / "pid").exists() else ""
+            if (run / "exit").exists():
+                state = "结束 exit=" + (run / "exit").read_text().strip()
+            else:
+                try:
+                    os.kill(int(pid), 0)
+                    state = f"在跑 pid={pid}"
+                except (ValueError, ProcessLookupError):
+                    state = "已死（没写 exit）"
+            print(f"{run.name}  {state}  log={run}/log  {(run / 'cmd').read_text()[:80].strip()}")
+        return 0
+    if len(args) < 3 or not args[1].isascii() or not args[1].isdigit():
+        print("用法：bgrun <名字> <超时秒> <命令…>；bgrun status [运行号]", file=sys.stderr)
+        return 2
+    name = "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in args[0])
+    seconds = int(args[1])
+    command = args[2:]
+    run = root / f"{time.strftime('%m%d-%H%M%S')}-{name}-{os.getpid()}"
+    run.mkdir(parents=True)
+    (run / "cmd").write_text(shlex.join(command) + "\n")
+    session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION")
+    wake = bool(os.environ.get("CC_PROJECT") and session and os.environ.get("BGRUN_NO_WAKE") != "1")
+    if wake:
+        (run / "session").write_text(session + "\n")
+    reader, writer = os.pipe()
+    try:
+        # setsid happens before exec: no controlling terminal or caller group.
+        # Success comes from the supervisor's pipe, never from a background PID.
+        with (run / "log").open("a") as output:
+            supervisor = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--supervise",
+                                           str(run), str(seconds), str(writer), *command],
+                                          stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                                          start_new_session=True, pass_fds=(writer,))
+    finally:
+        os.close(writer)
+    with os.fdopen(reader) as ready:
+        receipt = ready.readline()
+    if not receipt:
+        supervisor.wait()
+        print(f"bgrun：监督进程启动失败，exit={supervisor.returncode}；{run}/log\n"
+              + (run / "log").read_text(errors="replace"), file=sys.stderr)
+        return 1
+    receipt = json.loads(receipt)
+    if receipt["error"]:
+        print(f"bgrun：{receipt['error']}；{run}/log\n" + (run / "log").read_text(errors="replace"),
+              file=sys.stderr)
+        return receipt["rc"]
+    print(f"运行号 {run.name}  pid {supervisor.pid}  日志 {run}/log  结束后看 {run}/exit（超时 {seconds}s）"
+          + ("；结束会自动叫醒本会话，不用等" if wake else ""))
+    if not wake and os.environ.get("BGRUN_NO_WAKE") != "1":
+        print(f"bgrun：没拿到会话（CC_PROJECT={os.environ.get('CC_PROJECT', '空')}，CC_SESSION_KEY 和 CC_SESSION 都空），"
+              f"这条命令结束不会叫醒你：别结束本轮干等，自己回来看 {run}/exit。", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -331,6 +331,70 @@ func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Reque
 	apiJSON(w, http.StatusOK, TeamWorkspaceParkResult{Workspace: key, Freed: freed})
 }
 
+// TeamWorkspaceDeleteResult is the answer of POST /team/workspace/delete. Deleted false: Reason
+// says why (TeamWorkspaceInUseWorking, TeamWorkspaceInUsePaused) and Error has the detail.
+type TeamWorkspaceDeleteResult struct {
+	Workspace string `json:"workspace"`
+	Deleted   bool   `json:"deleted"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// handleTeamWorkspaceDelete: POST /team/workspace/delete {session_key, workspace_id}. Takes an idle
+// workspace out for good (DeleteTeamWorkspace); one in use is answered 409 with the reason.
+// session_key names the platform (any channel of it); without workspace_id it is the workspace.
+func (s *APIServer) handleTeamWorkspaceDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SessionKey  string `json:"session_key"`
+		WorkspaceID string `json:"workspace_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.SessionKey == "" {
+		http.Error(w, "session_key is required (a channel of the workspace's platform)", http.StatusBadRequest)
+		return
+	}
+	e := s.teamWorkspaceEngine()
+	if e == nil {
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no primary role)", http.StatusServiceUnavailable)
+		return
+	}
+	key := teamChatKey(req.SessionKey)
+	if req.WorkspaceID != "" {
+		plat, _, _ := strings.Cut(key, ":")
+		key = plat + ":" + req.WorkspaceID
+	}
+	err := e.DeleteTeamWorkspace(key)
+	var inUse *TeamWorkspaceInUseError
+	if errors.As(err, &inUse) {
+		apiJSON(w, http.StatusConflict, TeamWorkspaceDeleteResult{Workspace: key, Reason: inUse.Reason, Error: inUse.Error()})
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// e reset the lead's sessions there; the teammates' go too, as after a release.
+	s.mu.RLock()
+	others := make([]*Engine, 0, len(s.engines))
+	for _, x := range s.engines {
+		if x != e {
+			others = append(others, x)
+		}
+	}
+	s.mu.RUnlock()
+	for _, x := range others {
+		x.ResetTeamWorkspaceSessions(key)
+	}
+	apiJSON(w, http.StatusOK, TeamWorkspaceDeleteResult{Workspace: key, Deleted: true})
+}
+
 // parkAndReset parks a task of workspace key on the team workspace engine e
 // (ParkTeamWorkspaceWhy, which with stop also stops the turns running there before the workspace
 // is given back) and, when that freed the workspace, also resets the teammates' sessions there (e

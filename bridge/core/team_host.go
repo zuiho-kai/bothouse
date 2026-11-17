@@ -18,6 +18,10 @@ func (h teamHost) WorkspaceParent(channelID string) (string, bool) {
 	return h.e.WorkspaceParent(channelID)
 }
 
+func (h teamHost) WorksWorkspaceTask(channelID, parent, handoff string) (bool, string) {
+	return h.e.worksWorkspaceTask(channelID, parent, handoff)
+}
+
 func (h teamHost) RunLeadScript(chat, name string, args ...string) ([]byte, error) {
 	return h.e.runLeadScript(chat, name, args...)
 }

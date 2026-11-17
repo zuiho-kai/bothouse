@@ -608,6 +608,122 @@ func workspaceChannelKeysLocked(st *teamWorkspaceState) map[string]bool {
 	return out
 }
 
+// teamHandoffID names one handoff of a workspace: its claim time. A role process started while the
+// handoff is in work carries it as CC_HANDOFF (roleSessionEnv) and `bothouse send` passes it on.
+func teamHandoffID(h TeamHandoff) string {
+	if h.At.IsZero() {
+		return ""
+	}
+	return strconv.FormatInt(h.At.UnixNano(), 10)
+}
+
+// workspaceOpenHandoffIDs returns the ids of the handoffs in work (not paused, not closed) in the
+// workspace of sessionKey, oldest first; nil for a channel with none.
+func (e *Engine) workspaceOpenHandoffIDs(sessionKey string) []string {
+	if e == nil || e.dataDir == "" || sessionKey == "" {
+		return nil
+	}
+	key := teamChatKey(sessionKey)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, h := range st.Handoffs[key] {
+		if id := teamHandoffID(h); id != "" && teamHandoffOpen(h) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// workspaceHandoffID is the task a role process started now in sessionKey belongs to: the newest
+// handoff in work in that workspace, "" when there is none (or sessionKey is not a workspace).
+func (e *Engine) workspaceHandoffID(sessionKey string) string {
+	ids := e.workspaceOpenHandoffIDs(sessionKey)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[len(ids)-1]
+}
+
+// staleHandoffEnv: a live role process of sessionKey that carries handoff id (CC_HANDOFF, fixed
+// when it started) was started outside every task now in work in its workspace: before the
+// claim (someone talked to the role in the free workspace, a timer of an ended task woke it), or
+// for a task that has since ended. The turn that starts now is on the task in work, so the
+// process is started again with that task's id; otherwise the task's own attachments would be
+// held back as an older task's.
+func (e *Engine) staleHandoffEnv(sessionKey, id string) bool {
+	ids := e.workspaceOpenHandoffIDs(sessionKey)
+	if len(ids) == 0 {
+		return false
+	}
+	for _, x := range ids {
+		if x == id {
+			return false
+		}
+	}
+	return true
+}
+
+// worksWorkspaceTask: the sender of a `bothouse send` in workspace channelID, a process of this
+// engine's role carrying handoff id handoff (CC_HANDOFF), is working a task that chat channel
+// parent has in the workspace now. origin is the chat channel of the task the sender was started
+// for, when it is on record.
+//
+// The task is the one the sender names: it must be in work (not paused, not closed) and from
+// parent. A sender that names an ended task is that task's leftover (a background job that
+// outlived it), whoever works the workspace now, the same role included: #1959, a job of the
+// role's earlier task posted its image after the workspace went to the role's next task, and the
+// image went to the next task's chat. Who works the named task is the watch's answer (watchOwns:
+// the role its Owner names, the primary role when it names none; an owner who is a person leaves
+// it with the role that handed it off). A workspace owned with no handoff from parent on record
+// has no task to tell apart and is the primary role's, as an unnamed owner is.
+func (e *Engine) worksWorkspaceTask(channelID, parent, handoff string) (works bool, origin string) {
+	if e == nil || e.dataDir == "" || channelID == "" || parent == "" {
+		return false, ""
+	}
+	key, chat := teamChatKey(channelID), teamChatKey(parent)
+	var h TeamHandoff
+	named, fromParent := false, false
+	teamWorkspaceStore.mu.Lock()
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err == nil {
+		for _, x := range st.Handoffs[key] {
+			if teamChatKey(x.Chat) == chat {
+				fromParent = true
+			}
+			if handoff != "" && teamHandoffID(x) == handoff {
+				h, named = x, true
+			}
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "channel", key, "error", err)
+		return false, ""
+	}
+	plat, _, _ := strings.Cut(key, ":")
+	if !named {
+		if fromParent {
+			slog.Info("send: the sender names no task of the workspace", "workspace", key, "handoff", handoff)
+			return false, ""
+		}
+		return e.watchOwns(e.lookupReadyPlatform(plat), ""), ""
+	}
+	if !teamHandoffOpen(h) || teamChatKey(h.Chat) != chat {
+		slog.Info("send: the sender's task is no longer in work in the workspace", "workspace", key, "task_chat", h.Chat,
+			"owner", chat, "closed", !h.Closed.IsZero(), "parked", !h.Parked.IsZero())
+		return false, h.Chat
+	}
+	if e.watchOwns(e.lookupReadyPlatform(plat), h.Owner) {
+		return true, h.Chat
+	}
+	return e.watchOwnerIsPerson(plat, h.Chat, h.Owner) && e.watchSender(h) == e, h.Chat
+}
+
 // WorkspaceLastChat returns the chat channel of the latest handoff to workspace channelID
 // (same id form as WorkspaceParent). It covers a workspace that is no longer owned because
 // its task was parked or closed while a turn there was still running: that turn's late

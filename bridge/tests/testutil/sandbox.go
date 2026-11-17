@@ -54,7 +54,7 @@ var sandboxFolderVars = []string{
 // 都有值，不清掉的话 send/relay/cron 类代码会找到真实会话的 socket。
 var SandboxClearedVars = []string{
 	// 运行中的 cc-connect 会话与配置位置
-	"CC_PROJECT", "CC_SESSION_KEY", "CC_AGENT", "CC_DATA_DIR",
+	"CC_PROJECT", "CC_SESSION_KEY", "CC_AGENT", "CC_DATA_DIR", "CC_RUNS_DIR",
 	"CC_CONFIG_PATH", "CC_CONNECT_CONFIG", "CC_LOG_FILE", "CC_TEST_CONFIG",
 	"BOTHOUSE_TRAY", "BOTHOUSE_NO_TRAY", "CC_SUPERVISED",
 	// agent 目录与二进制位置
