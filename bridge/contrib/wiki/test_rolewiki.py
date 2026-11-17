@@ -87,6 +87,7 @@ class RoleWiki(unittest.TestCase):
         self.run_py("setup_wiki.py", "whale")
         w = self.home / "roles" / "whale" / "wiki"
         cfg = json.loads((w / "config.json").read_text())
+        self.assertEqual(cfg["codex_models"], ["gpt-6-luna", "gpt-6.1-sol"])
         self.assertEqual((cfg["ingest_engine"], cfg["night_engine"]), ("haiku", "agy"))
         self.assertEqual(cfg['agy_model'], 'gemini-4-hydrogen-medium')
         self.assertNotIn("bogus", cfg)

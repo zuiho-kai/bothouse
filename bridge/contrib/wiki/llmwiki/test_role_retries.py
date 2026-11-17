@@ -19,7 +19,7 @@ class RoleFailurePolicy(unittest.TestCase):
             self.assertTrue(self.m.pull())
 
     def test_429_retries_three_times_then_sol_from_clean_head(self):
-        self.m.CODEX_CHAIN = ['gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-astra']
+        self.m.CODEX_CHAIN = self.m.DEFAULTS['codex_models']
         self.m.AFTER_CODEX = []
         self.m.budget.remaining.return_value = None
         attempts, clean = [], []
@@ -40,6 +40,25 @@ class RoleFailurePolicy(unittest.TestCase):
         self.assertTrue(all(clean), clean)
         self.assertTrue(all('resume' not in cmd for cmd in self.calls))
         self.assertIn('gpt-6.1-sol', self.m.LOG.read_text())
+
+    def test_default_chain_skips_astra_before_non_codex_fallback(self):
+        self.m.CODEX_CHAIN = self.m.DEFAULTS['codex_models']
+        self.m.AFTER_CODEX = self.m.DEFAULTS['after_codex']
+        self.m.budget.remaining.return_value = None
+        original = self.invoke
+        def fail_codex(cmd, **kwargs):
+            self.fail_at = len(self.calls) + 1
+            return original(cmd, **kwargs)
+        providers = []
+        def runner(name):
+            providers.append(name)
+            return lambda *args, **kwargs: (name == 'haiku', 'completed', 0)
+        with patch.object(self.m, 'engine_run', side_effect=fail_codex), \
+                patch.object(self.m, 'runner', side_effect=runner):
+            self.assertTrue(self.run_pass())
+        self.assertEqual([cmd[cmd.index('-m') + 1] for cmd in self.calls],
+                         ['gpt-6-luna'] * 4 + ['gpt-6.1-sol'] * 4)
+        self.assertEqual(providers, ['agy'] * 4 + ['haiku'])
 
     def test_any_failure_retries_instead_of_stopping(self):
         self.m.AFTER_CODEX = []

@@ -185,11 +185,11 @@ def main(bot):
         "dream_dir": "misc",
         # every pass on codex (ChatGPT subscription), none on Claude: user 「额度花太快」; models and efforts as
         # ~/wiki's private pipeline (~/wiki/bin/ingest.py:55-77: night/review/dream/split codex:high, lint codex:max,
-        # chain gpt-6-luna → gpt-6.1-sol → gpt-6-astra)
+        # chain gpt-6-luna → gpt-6.1-sol; user 2026-11-18: no Astra)
         "ingest_engine": "codex:high", "fallback_engine": "codex:high", "night_engine": "codex:high",
         "review_engine": "codex:high", "lint_engine": "codex:max", "dream_engine": "codex:high",
         "split_engine": "codex:high",
-        "codex_models": ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"],
+        "codex_models": ["gpt-6-luna", "gpt-6.1-sol"],
         "after_codex": [],  # no Claude fallback: a failed batch waits for the next night
         "rule_files": [PERSONA[bot]],
     }

@@ -98,7 +98,7 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 角色夜间入口同时运行各本 wiki，使用独立 Git、锁和断点；夜间优先处理较旧会话，
 白天仍可用 `WIKI_NEWEST_FIRST=1` 优先最近会话。每个模型初次调用失败后最多再重试三次，
 每次先恢复本轮开始的文件状态，再发起新会话；三次仍失败才换下一个模型。
-默认 Codex 顺序为 Luna、Sol、Astra，再走 `after_codex` 的 Antigravity、Haiku；
+默认 Codex 顺序为 Luna、Sol，再走 `after_codex` 的 Antigravity、Haiku；
 429、额度拒绝、连接中断和模型报错采用同一规则，剩余时间不足时保留待办。
 修正轮和后续材料轮重试保留此前成功轮次的输出，失败会话不被复用。
 

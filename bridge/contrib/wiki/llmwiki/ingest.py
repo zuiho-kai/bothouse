@@ -140,7 +140,7 @@ DEFAULTS = {
     # engines: the env vars below still override these (trials); a key left out keeps 橘's value
     "ingest_engine": "haiku", "fallback_engine": "sonnet", "night_engine": "codex:high", "review_engine": "codex:high",
     "lint_engine": "codex:max", "dream_engine": "codex:high", "split_engine": "codex:high",
-    "codex_models": ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"], "after_codex": ["agy", "haiku"],
+    "codex_models": ["gpt-6-luna", "gpt-6.1-sol"], "after_codex": ["agy", "haiku"],
     "agy_model": "gemini-3.8-flash-high",  # Existing default; each wiki can choose its own Antigravity model.
     "agy_cmd": "agy",  # Existing CLI name; installations outside PATH can supply an absolute executable.
     # the nightly reflection (dream) on or off: the role turns it off when its user asks in chat (export.py --switch;

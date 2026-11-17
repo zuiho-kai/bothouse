@@ -2141,7 +2141,7 @@ class PersonaDefaults(unittest.TestCase):
                                             "I.DREAM_NOTIFY, str(I.ROOT), str(I.HOSTS), I.ENGINE, I.AFTER_CODEX, I.CODEX_CHAIN]))"))
         self.assertEqual(out, [["assistant"], [], "tooling/rule-candidates.md",
                                "", "None", "/nonexistent-wiki-hosts", "haiku", ["agy", "haiku"],
-                               ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"]])
+                               ["gpt-6-luna", "gpt-6.1-sol"]])
 
     def test_prompts_render_without_personal_identity(self):
         for name in ("SOP_INGEST", "SOP_REVIEW", "SOP_LINT", "SOP_DREAM"):
