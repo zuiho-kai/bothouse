@@ -2362,6 +2362,7 @@
 .dmClose { position: absolute; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--dsw-radius-sm, 4px); color: var(--dsw-alias-label-tertiary, #888); background: transparent; font: inherit; font-size: 15px; line-height: 20px; cursor: pointer; opacity: 0; }
 .dmRow:hover .dmClose, .dmClose:focus-visible { opacity: 1; }
 .dmClose:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.dmClose[aria-disabled='true'], .dmClose[aria-disabled='true']:hover { color: var(--dsw-alias-label-tertiary, #888); background: transparent; cursor: not-allowed; }
 @media (hover: none) { .dmClose { opacity: 1; } }
 
 /* ───────────── 11-05 体检修复 ───────────── */
