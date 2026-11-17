@@ -333,11 +333,17 @@ def check(repo, coverage, files, kind='ingest'):
     rows = [row for path, text in final.items() for row in blocks(path, text)]
     counts = Counter(row['text'] for row in rows)
     updates = {intent['block']: intent for intent in coverage['plan']['updates']}
-    moves = {intent['block']: intent for intent in coverage['plan']['moves']}
     # Old pending sources keep immutable provenance, but an accepted intervening
     # delivery may already have relocated them. Follow its declared operations,
     # rather than requiring every historical source path to exist again.
     relocated = {}
+    # Source sections may differ across frozen versions of the same page.
+    # Like at_source below, identify the unchanged source by path + exact bytes;
+    # the declared destination still includes its section and counts stay exact.
+    for intent in coverage['plan']['moves']:
+        row = by_id[intent['block']]
+        relocated.setdefault((row['path'], row['text']), set()).add(
+            (intent['to'], intent['section'], row['text']))
     if len(coverage['sources']) > 1:
         commits = git(repo, 'rev-list', '--reverse', '--ancestry-path',
                       coverage['sources'][0] + '..' + coverage['sources'][-1]).decode().splitlines()
@@ -348,7 +354,7 @@ def check(repo, coverage, files, kind='ingest'):
             original, _ = inventory(repo, delivered['sources'])
             for intent in delivered['plan']['moves']:
                 row = original[intent['block']]
-                origin = (row['path'], row['section'], row['text'])
+                origin = (row['path'], row['text'])
                 destination = (intent['to'], intent['section'], row['text'])
                 relocated.setdefault(origin, set()).add(destination)
     errors, required = [], Counter()
@@ -366,15 +372,13 @@ def check(repo, coverage, files, kind='ingest'):
             locations = {(old['path'], old['section'], old['text'])}
             todo = list(locations)
             for origin in todo:
-                for destination in relocated.get(origin, ()):
+                for destination in relocated.get((origin[0], origin[2]), ()):
                     if destination not in locations:
                         locations.add(destination)
                         todo.append(destination)
             at_source = any(row['text'] == old['text'] and row['path'] == old['path'] for row in rows) or any(
                 (row['path'], row['section'], row['text']) in locations for row in rows)
-            intent = moves.get(old['id'])
-            if not at_source and not (intent and any(row['text'] == old['text'] and row['path'] == intent['to']
-                                                     and row['section'] == intent['section'] for row in rows)):
+            if not at_source:
                 errors.append(f"block coverage: {old['path']}:{old['line']} ({old['id']}) has no declared searchable destination")
     for text, count in (required - counts).items():
         errors.append(f'block coverage: {count} original block occurrence(s) missing: {text}')

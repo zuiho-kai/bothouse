@@ -267,6 +267,23 @@ class BlockContract(unittest.TestCase):
         self.assertEqual((self.repo / "misc/dest.md").read_text().count(FACT), 1)
         self.assertIn("independent original fact", (self.repo / "other/nested/source.md").read_text())
 
+    def test_pending_split_tracks_same_path_block_after_section_change(self):
+        c = I.block_contract
+        (self.repo / 'misc/source.md').write_text(PAGE + FACT)
+        before = self.commit('original section')
+        (self.repo / 'misc/source.md').write_text(PAGE.replace('## 关键事实', '## 历史') + FACT)
+        after = self.commit('same fact moved to history before pending split resumes')
+        coverage = c.freeze(self.repo, [before, after])
+        self.git('mv', 'misc/source.md', 'misc/renamed.md')
+        (self.repo / 'misc/README.md').write_text('# Misc\n- [renamed](renamed.md) — renamed page\n')
+        files = c.working_tree(self.repo)
+        coverage['plan'] = c.scripted_moves(self.repo, coverage, files)
+        self.assertEqual(c.check(self.repo, coverage, files, 'restructure'), [])
+        # Identical content at another path remains insufficient without a declared move.
+        coverage['plan'] = dict(moves=[], updates=[])
+        self.assertTrue(any('no declared searchable destination' in error
+                            for error in c.check(self.repo, coverage, files, 'restructure')))
+
     def test_historical_paths_require_a_declared_accepted_relocation(self):
         before = self.git("rev-parse", "HEAD")
         self.git("mv", "misc/source.md", "misc/renamed.md")
