@@ -318,6 +318,12 @@ SECRET = re.compile(
     r"|(?<![\w.-])[MNO][A-Za-z\d_-]{23,27}\.[\w-]{6}\.[\w-]{27,40}(?![\w.-])"
     r"|((?:password|passwd|pwd|密码|token|secret|api[_-]?key)\s*[:=：]\s*)\S+)", re.I)
 
+# 来源：PTR/claim_msgs 只豁免整行转引原话；生成、复核与保存候选的修正轮共用此定义。
+POINTER_QUOTES = """只有整行转引原话的指针（如「- 原话见 [[user-requests]]。」）可免引，不能夹带事实。
+裸 PR/任务链接、[[team-board]] 等普通链接不豁免：新写或改写时仍须在同一正文行保留 USER/USER→ 的逐字引文。
+updates.source 不能代替正文引文：前者证明旧块改写的来源，后者独立满足正文来源校验；两者都要满足。
+"""
+
 # 来源：检索实验第五批要求在生成和复核处保留稳定 PR 引用，状态使用时再查。
 PR_REFERENCES = """
 ## PR 引用与会变状态（适用于本轮读写的页面、description 和目录行）
@@ -423,7 +429,8 @@ A5 每个改过页面的 description: 和 README 行与正文一致。
 A6 没删掉仍然成立的事实。
 A7 每条新事实/记忆都带一句从 TRANSCRIPT 的 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
    抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据，只记来源和时间不够。
-   没有原话依据就不写进正文（未答复的提议只进 log.md「- 未答复提议：X」）。只有整行纯指针可免引，事实后接链接不豁免。
+   没有原话依据就不写进正文（未答复的提议只进 log.md「- 未答复提议：X」）。
+   """ + POINTER_QUOTES + """
    脚本会核对引文和归属，不符整次打回。
 
 ## 交付
@@ -483,7 +490,8 @@ A4 DAY WRITES 里的 + 行没有无依据的说法留下；改动只落在 DAY P
 A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样移到 log.md 的除外；脚本核对）。
 A6 本次每条新事实/记忆都带一句从 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
    抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据。找不到原话就不写进正文。
-   只有整行纯指针可免引，事实后接链接不豁免；沿用或搬动的旧行不重查，归给用户的引文仍须逐字匹配（脚本核对）。
+   """ + POINTER_QUOTES + """
+   沿用或搬动的旧行不重查，归给用户的引文仍须逐字匹配（脚本核对）。
 A7 DAY DELETIONS 每行都处理过（恢复，或 TRANSCRIPT 写明它已不成立）。
 
 ## 交付
@@ -845,7 +853,7 @@ FIX = """The structural linter rejected the wiki after your last pass. Fix these
 (split or compress — don't drop still-true facts; keep READMEs/MEMORY.md in sync; never merge a subdomain
 <dir>/README.md back into its parent):
 {errors}
-Finish with one line per change."""
+Finish with one line per change.""" + POINTER_QUOTES
 
 
 # The manuals name program settings as @NAME@; the numbers live only in lint.py and the constants above.
