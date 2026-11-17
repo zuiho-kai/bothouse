@@ -36,6 +36,7 @@ interface RoleDraft {
   checking?: boolean;
   error?: string;
   agent_type: string;
+  agent_cmd?: string; // acp: the launch command (JiuwenSwarm's scripts/run_gateway_acp.sh)
   agentTouched?: boolean; // QQ: only an explicit CLI selection may replace an existing role's agent
   useProvider: boolean;
   provider: { vendor: string; base_url: string; api_key: string; model: string; max_tokens: string };
@@ -426,6 +427,7 @@ export default function SetupWizard() {
         // configured, so it stays quiet about the CLI for every role; a real submit omits it only
         // for a reused role, and a new role sends the CLI the review step shows (#552)
         agent_type: platform === 'qq' && (connectionTest || (r.reuse_project && !r.agentTouched)) ? undefined : r.agent_type,
+        ...(r.agent_type === 'acp' && !r.reuse_project ? { agent_cmd: (r.agent_cmd || '').trim() } : {}),
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
@@ -516,6 +518,8 @@ export default function SetupWizard() {
       : platform === 'qq' ? !qqTest.running && qqTest.key === qqKey && !!qqTest.ok : !!feishu,
     roles.every((r) => {
       if (!r.agent_type) return false;
+      // acp has no CLI to detect: without its launch command the bridge cannot start the role
+      if (r.agent_type === 'acp' && !r.reuse_project && !(r.agent_cmd || '').trim()) return false;
       // DSH with no key anywhere fails every turn (core dshModelSetup): its own login, or a provider with a key
       if (r.agent_type === 'dsh' && !r.reuse_project && !r.useProvider && dshNoLogin) return false;
       if (!r.useProvider) return true;
@@ -914,7 +918,20 @@ export default function SetupWizard() {
                         {c.note && <div className="text-[11px] text-amber-600">{c.note}</div>}
                       </button>
                     ))}
+                    {!r.reuse_project && (
+                      <button onClick={() => patchRole(r.key, { agent_type: 'acp', agentTouched: true, useProvider: false })}
+                        data-testid={`cli-${idx}-acp`}
+                        className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${r.agent_type === 'acp' ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
+                        <div className="font-medium">JiuwenSwarm / ACP</div>
+                        <div className="text-[11px] text-gray-400">{zh ? '自带 ACP 接口的 agent，填启动脚本就能当队员' : 'Any agent that speaks ACP: give its launch script'}</div>
+                      </button>
+                    )}
                   </div>
+                  {r.agent_type === 'acp' && !r.reuse_project && (
+                    <Input label={zh ? '启动脚本路径' : 'Launch script path'} data-testid={`acp-cmd-${idx}`} value={r.agent_cmd || ''}
+                      placeholder="/path/to/jiuwenswarm/scripts/run_gateway_acp.sh"
+                      onChange={(e) => patchRole(r.key, { agent_cmd: e.target.value })} />
+                  )}
                   {attachable && (
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.useProvider} data-testid={`use-provider-${idx}`}
                       onChange={(e) => patchRole(r.key, { useProvider: e.target.checked })} />{T.thirdParty}</label>

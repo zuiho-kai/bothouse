@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -468,6 +469,9 @@ func (m *ManagementServer) handleSetupWeixinSave(w http.ResponseWriter, r *http.
 
 // ── Generic platform add (manual config) ─────────────────────
 
+// ErrACPCommandRequired: a new project of type acp was asked for with no launch command.
+var ErrACPCommandRequired = errors.New(`an ACP project needs its launch command (agent_type "acp:<command>")`)
+
 type AddPlatformRequest struct {
 	Type      string         `json:"type"`
 	Options   map[string]any `json:"options"`
@@ -500,6 +504,10 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		return
 	}
 	if err := m.addPlatformToProject(projectName, req.Type, req.Options, req.WorkDir, req.AgentType); err != nil {
+		if errors.Is(err, ErrACPCommandRequired) {
+			mgmtError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		// #710 件 5: a config write error carries the config path, a temp-file name
 		// or a rename target. The caller gets a fixed sentence; the detail goes to
 		// the log, where an operator can read it without it reaching the browser.

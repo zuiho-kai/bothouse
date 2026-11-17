@@ -11,7 +11,7 @@
 
 ## In one sentence
 
-bothouse is a team coordination layer that runs on your own computer: it puts the AI CLIs you are already signed into (Claude Code, Codex, Antigravity, DSH, Gemini CLI, OpenCode, and ACP agents such as Grok) into one group chat; the lead role splits and hands out work, big jobs go to separate workspaces, and every role shares one Markdown memory that reviews itself each night. One account and one model can still form a team of several roles.
+bothouse is a team coordination layer that runs on your own computer: it puts the AI CLIs you are already signed into (Claude Code, Codex, Antigravity, DSH, Gemini CLI, OpenCode, and ACP agents such as Grok or JiuwenSwarm) into one group chat; the lead role splits and hands out work, big jobs go to separate workspaces, and every role shares one Markdown memory that reviews itself each night. One account and one model can still form a team of several roles.
 
 ## What it does
 
@@ -23,7 +23,7 @@ bothouse is a team coordination layer that runs on your own computer: it puts th
 - **Everyone remembers the same thing**: all roles read and write one Markdown wiki (built on the open-source llm-wiki), with Git history; each turn only gets titles and line numbers of relevant pages; the panel's "memory forum" scores and ranks memories.
 - **Nightly review**: progress is recorded when a session ends or idles; at night it is checked against the original messages; corrections that keep coming back become candidate rules that take effect only after a person approves.
 - **Role skills**: repeated tool exploration can become nightly skill drafts. The panel lets you inspect, edit, approve and enable each role's managed skills; DSH loads that role's enabled view natively, while other backends use the bridge's skill commands. Existing global skills keep their original scope.
-- **Long jobs stay on track**: hand-offs carry the user's own words; a fresh-context AI accepts the work; a workspace hands back by command, and a long command wakes its session when it ends; cron, timer and workspace turns stop mid-turn above their spend cap; guards block dangerous commands.
+- **Long jobs stay on track**: hand-offs carry the user's own words; a fresh-context AI accepts the work; a workspace hands back by command, and a long command wakes its session when it ends; cron, timer and workspace turns are told to hand in at 80% of their spend cap and stop mid-turn above it; guards block dangerous commands.
 - **Each member's own directory and GitHub login**: once on, everyone who joins gets a directory and authorizes GitHub with their own device code; GitHub work done for them uses only their authorization; when the role runs as another OS user, the system stops one member's job reading another member's directory or credentials. Recommended when you build a team, on only after the owner agrees.
 - **Personal agents join the team**: a teammate can run their own bothouse with their own CLI and quota; the lead sends them related team lessons with a job, and the lessons they send back go into the shared memory.
 - **Manage from your phone**: a built-in web panel shows who is busy and quota use, edits personas, switches models and lets you add to a running job; model and reasoning level are kept per channel. A phone without DSH can join over Tailscale by entering a 6-digit pairing code in its browser.
@@ -36,7 +36,7 @@ bothouse is a team coordination layer that runs on your own computer: it puts th
 
 | | What it is | Which AIs | How several AIs work together | Memory | Where you chat |
 | --- | --- | --- | --- | --- | --- |
-| **bothouse** | **A coordination layer on your own computer + web panel** | **Claude Code, Codex, Antigravity, Gemini CLI, OpenCode, DSH; Grok and others over ACP; OpenAI-compatible APIs** | **The lead role hands work to separate workspaces; task board; one thread per job** | **One shared Markdown wiki, reviewed nightly** | Discord, Feishu, QQ, DSH web (experimental) |
+| **bothouse** | **A coordination layer on your own computer + web panel** | **Claude Code, Codex, Antigravity, Gemini CLI, OpenCode, DSH; Grok, JiuwenSwarm and others over ACP; OpenAI-compatible APIs** | **The lead role hands work to separate workspaces; task board; one thread per job** | **One shared Markdown wiki, reviewed nightly** | Discord, Feishu, QQ, DSH web (experimental) |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek's official agent framework (developer preview) | DeepSeek by default; other providers can be added | Subagents; agent teams are experimental | No built-in long-term memory; memory plugins can be added | Its own desktop app and web UI |
 | [Tobs](https://github.com/BotHarness/DeepSeekBot) | Bot plugin built on DSH | Models configured in DSH | @ whoever you need; assignments | One Git repo per bot | Feishu, Slack, Discord, QQ, WeChat |
 | [DS Bot](https://github.com/Fei2411/DS-Bot) | Desktop app / plugin / Docker built on DSH | Models configured in DSH | A chief bot runs the team; group admins coordinate | Memory per bot and per group | In the app |

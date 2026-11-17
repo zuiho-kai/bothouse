@@ -848,6 +848,7 @@ func (e *Engine) runTurnResumeTimed(en TurnJournalEntry, job *TimerJob, deliver 
 	go func() { done <- deliver(en, job) }()
 	t := time.NewTimer(limit)
 	defer t.Stop()
+	defer e.armScheduledTurnWarning(job.ID, limit).Stop()
 	select {
 	case err := <-done:
 		return err

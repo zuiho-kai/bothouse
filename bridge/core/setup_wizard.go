@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -118,6 +119,7 @@ type WizardRole struct {
 	Token           string          `json:"token,omitempty"`         // discord bot token (new bot)
 	ReuseProject    string          `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
 	AgentType       string          `json:"agent_type,omitempty"`
+	AgentCmd        string          `json:"agent_cmd,omitempty"` // a new acp role's launch command, e.g. JiuwenSwarm's scripts/run_gateway_acp.sh (written as cmd)
 	WorkDir         string          `json:"work_dir,omitempty"`
 	Persona         string          `json:"persona,omitempty"`
 	EditPersona     bool            `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
@@ -700,6 +702,20 @@ func jevFailCause(lang string, t JevTestResult) string {
 		return "这个模型不给概率，存了也不会被用上。"
 	}
 	return "This model returns no probabilities, so it would never be used."
+}
+
+func acpCmdMissingText(lang, project string) string {
+	if strings.HasPrefix(lang, "zh") {
+		return fmt.Sprintf("角色 %s 走 ACP 接入，要填启动脚本路径（例如 JiuwenSwarm 仓库里的 scripts/run_gateway_acp.sh）。", project)
+	}
+	return fmt.Sprintf("role %s connects over ACP and needs its launch command (e.g. JiuwenSwarm's scripts/run_gateway_acp.sh)", project)
+}
+
+func acpCmdNotFoundText(lang, project, cmd string) string {
+	if strings.HasPrefix(lang, "zh") {
+		return fmt.Sprintf("角色 %s 的启动脚本 %s 找不到或不能执行，请填本机上能运行的完整路径。", project, cmd)
+	}
+	return fmt.Sprintf("role %s: launch command %s was not found or is not executable; give the full path of a command this machine can run", project, cmd)
 }
 
 // ── persona file ───────────────────────────────────────────────
@@ -1756,6 +1772,18 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			if c.AgentType == r.AgentType && c.Supported && c.Path != "" && (!c.InPath || alwaysCmd) {
 				r.agentCmd = c.Path // found outside PATH: tell the service where it is (L2)
 			}
+		}
+		if r.AgentType == "acp" && !r.reused {
+			// acp.New fails without a command it can find, and one failing agent stops the whole
+			// bridge at start: refuse it here, before anything is written
+			cmd, _ := ParseCmdOpts(map[string]any{"cmd": r.AgentCmd}, "")
+			if cmd == "" {
+				return nil, fmt.Errorf("%s", acpCmdMissingText(req.Language, r.project))
+			}
+			if _, err := exec.LookPath(cmd); err != nil {
+				return nil, fmt.Errorf("%s", acpCmdNotFoundText(req.Language, r.project, cmd))
+			}
+			r.agentCmd = strings.TrimSpace(r.AgentCmd)
 		}
 		if r.AgentType == "dsh" && !r.reused {
 			// a DSH role with no model key fails every turn: refuse it here, before anything is written
