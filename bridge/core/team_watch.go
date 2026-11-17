@@ -713,9 +713,9 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 	return watchProgressNone, nil
 }
 
-// workspaceBackgroundProgress reads the same native task state used by idle
-// cleanup and the child table. Inspect active agent processes even after the
-// parent turn unlocks; Session.Busy alone cannot describe their lifetime.
+// workspaceBackgroundProgress reads tracked commands and the native task state
+// used by idle cleanup and the child table. Inspect active agent processes even
+// after the parent turn unlocks; Session.Busy alone cannot describe their lifetime.
 func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, pushed bool) {
 	dirs := make(map[string]bool)
 	for _, e := range w.engines() {

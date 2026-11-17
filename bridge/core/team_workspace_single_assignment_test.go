@@ -18,6 +18,7 @@ func TestWorkspaceActiveTaskCannotClaimAnotherWorkspace(t *testing.T) {
 	for _, working := range []bool{false, true} {
 		e, _, _ := exitFixture(t, nil)
 		e.SetTeam(t.TempDir(), "橘", true)
+		e.teamWS = newTeamWorkspaces()
 		if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws1", "工作区1", "", "#823", 823); err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +77,7 @@ func TestWorkspaceIdleWakeStopsAfterTaskRelinquished(t *testing.T) {
 
 func TestWorkspaceTrackedBackgroundCountsAsProgress(t *testing.T) {
 	e, _, w, h := progressFixture(t, "")
-	dir := filepath.Join(e.dataDir, "runs", "waiting")
+	dir := filepath.Join(e.backgroundRunsDir(), "waiting")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
