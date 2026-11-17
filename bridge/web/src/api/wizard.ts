@@ -37,7 +37,7 @@ export interface WikiEngine { id: string; label: string; agent_type: string }
 export interface WizardWiki { daily?: string; night?: string; split?: string }
 
 export interface WizardRole {
-  name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string;
+  name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string; agent_cmd?: string;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
   // #1498: DSH only — the output cap written into llm-deepseek (omitted = the server's own default)
   provider?: { vendor: string; base_url?: string; api_key?: string; model?: string; max_tokens?: number };

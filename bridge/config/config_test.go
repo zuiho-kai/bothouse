@@ -2577,7 +2577,7 @@ func TestPickAgentTemplateForNewProject(t *testing.T) {
 	t.Run("clone from existing project", func(t *testing.T) {
 		cfg := &Config{Projects: []ProjectConfig{baseProj}}
 		opts := EnsureProjectWithFeishuOptions{CloneFromProject: "base"}
-		got := pickAgentTemplateForNewProject(cfg, opts)
+		got, _ := pickAgentTemplateForNewProject(cfg, opts)
 		if got.Type != "claudecode" {
 			t.Errorf("Type = %q, want claudecode", got.Type)
 		}
@@ -2589,7 +2589,7 @@ func TestPickAgentTemplateForNewProject(t *testing.T) {
 	t.Run("no clone but has projects", func(t *testing.T) {
 		cfg := &Config{Projects: []ProjectConfig{baseProj}}
 		opts := EnsureProjectWithFeishuOptions{}
-		got := pickAgentTemplateForNewProject(cfg, opts)
+		got, _ := pickAgentTemplateForNewProject(cfg, opts)
 		if got.Type != "claudecode" {
 			t.Errorf("Type = %q, want claudecode", got.Type)
 		}
@@ -2598,7 +2598,7 @@ func TestPickAgentTemplateForNewProject(t *testing.T) {
 	t.Run("no projects uses default codex", func(t *testing.T) {
 		cfg := &Config{Projects: []ProjectConfig{}}
 		opts := EnsureProjectWithFeishuOptions{}
-		got := pickAgentTemplateForNewProject(cfg, opts)
+		got, _ := pickAgentTemplateForNewProject(cfg, opts)
 		if got.Type != "codex" {
 			t.Errorf("Type = %q, want codex", got.Type)
 		}
@@ -2610,7 +2610,7 @@ func TestPickAgentTemplateForNewProject(t *testing.T) {
 	t.Run("no projects with explicit agent type", func(t *testing.T) {
 		cfg := &Config{Projects: []ProjectConfig{}}
 		opts := EnsureProjectWithFeishuOptions{AgentType: "gemini"}
-		got := pickAgentTemplateForNewProject(cfg, opts)
+		got, _ := pickAgentTemplateForNewProject(cfg, opts)
 		if got.Type != "gemini" {
 			t.Errorf("Type = %q, want gemini", got.Type)
 		}
@@ -2619,7 +2619,7 @@ func TestPickAgentTemplateForNewProject(t *testing.T) {
 	t.Run("explicit agent type overrides clone from first project", func(t *testing.T) {
 		cfg := &Config{Projects: []ProjectConfig{baseProj}}
 		opts := EnsureProjectWithFeishuOptions{AgentType: "cursor"}
-		got := pickAgentTemplateForNewProject(cfg, opts)
+		got, _ := pickAgentTemplateForNewProject(cfg, opts)
 		if got.Type != "cursor" {
 			t.Errorf("Type = %q, want cursor (explicit AgentType should take priority over cloning first project)", got.Type)
 		}
