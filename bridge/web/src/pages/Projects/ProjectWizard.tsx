@@ -56,6 +56,9 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
   const [name, setName] = useState('');
   const [workDir, setWorkDir] = useState('');
   const [agentType, setAgentType] = useState('claudecode');
+  // acp has no CLI of its own: the launch command goes to the server as "acp:<command>"
+  const [acpCmd, setAcpCmd] = useState('');
+  const agentTypeToSend = agentType === 'acp' ? `acp:${acpCmd.trim()}` : agentType;
   const [platform, setPlatform] = useState('');
 
   const reset = () => {
@@ -63,6 +66,7 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
     setName('');
     setWorkDir('');
     setAgentType('claudecode');
+    setAcpCmd('');
     setPlatform('');
   };
 
@@ -111,11 +115,19 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
               ))}
             </select>
           </div>
+          {agentType === 'acp' && (
+            <Input
+              label={t('setup.acpCommand', 'ACP 启动命令')}
+              value={acpCmd}
+              onChange={(e) => setAcpCmd(e.target.value)}
+              placeholder="/path/to/jiuwenswarm/scripts/run_gateway_acp.sh"
+            />
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={close}>
               {t('common.cancel')}
             </Button>
-            <Button disabled={!name.trim() || !workDir.trim()} onClick={() => setStep('platform')}>
+            <Button disabled={!name.trim() || !workDir.trim() || (agentType === 'acp' && !acpCmd.trim())} onClick={() => setStep('platform')}>
               {t('setup.next', '下一步')}
             </Button>
           </div>
@@ -159,7 +171,7 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
           platformType={platform as 'feishu' | 'weixin'}
           projectName={name}
           workDir={workDir}
-          agentType={agentType}
+          agentType={agentTypeToSend}
           onComplete={() => {
             reset();
             onCreated();
@@ -173,7 +185,7 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
           platformType={platform}
           projectName={name}
           workDir={workDir}
-          agentType={agentType}
+          agentType={agentTypeToSend}
           onComplete={() => {
             reset();
             onCreated();

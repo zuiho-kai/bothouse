@@ -2404,9 +2404,13 @@ func EnsureProjectWithFeishuPlatform(opts EnsureProjectWithFeishuOptions) (*Ensu
 		}, nil
 	}
 
+	newAgent, err := pickAgentTemplateForNewProject(cfg, opts)
+	if err != nil {
+		return nil, err
+	}
 	proj := ProjectConfig{
 		Name:      projectName,
-		Agent:     pickAgentTemplateForNewProject(cfg, opts),
+		Agent:     newAgent,
 		Platforms: []PlatformConfig{{Type: platformType, Options: map[string]any{}}},
 	}
 	if proj.Agent.Type == "" {
@@ -2773,9 +2777,13 @@ func EnsureProjectWithWeixinPlatform(opts EnsureProjectWithWeixinOptions) (*Ensu
 		}, nil
 	}
 
+	newAgent, err := pickAgentTemplateForNewProject(cfg, EnsureProjectWithFeishuOptions{CloneFromProject: opts.CloneFromProject, WorkDir: opts.WorkDir, AgentType: opts.AgentType})
+	if err != nil {
+		return nil, err
+	}
 	proj := ProjectConfig{
 		Name:      projectName,
-		Agent:     pickAgentTemplateForNewProject(cfg, EnsureProjectWithFeishuOptions{CloneFromProject: opts.CloneFromProject, WorkDir: opts.WorkDir, AgentType: opts.AgentType}),
+		Agent:     newAgent,
 		Platforms: []PlatformConfig{{Type: "weixin", Options: map[string]any{}}},
 	}
 	if proj.Agent.Type == "" {
@@ -3061,9 +3069,13 @@ func EnsureProjectWithYuanbaoPlatform(opts EnsureProjectWithYuanbaoOptions) (*En
 		}, nil
 	}
 
+	newAgent, err := pickAgentTemplateForNewProject(cfg, EnsureProjectWithFeishuOptions{CloneFromProject: opts.CloneFromProject, WorkDir: opts.WorkDir, AgentType: opts.AgentType})
+	if err != nil {
+		return nil, err
+	}
 	proj := ProjectConfig{
 		Name:      projectName,
-		Agent:     pickAgentTemplateForNewProject(cfg, EnsureProjectWithFeishuOptions{CloneFromProject: opts.CloneFromProject, WorkDir: opts.WorkDir, AgentType: opts.AgentType}),
+		Agent:     newAgent,
 		Platforms: []PlatformConfig{{Type: "yuanbao", Options: map[string]any{}}},
 	}
 	if proj.Agent.Type == "" {
@@ -3270,34 +3282,42 @@ func SaveYuanbaoPlatformCredentials(opts YuanbaoCredentialUpdateOptions) (*Yuanb
 	}, nil
 }
 
-func pickAgentTemplateForNewProject(cfg *Config, opts EnsureProjectWithFeishuOptions) AgentConfig {
+// agentForNewProject builds a new project's agent table from the agent type the panel sends:
+// a plain type, or "acp:<command>". A bare "acp" is refused (core.ErrACPCommandRequired):
+// acp.New fails without a command, and one failing agent stops the whole bridge at start.
+func agentForNewProject(agentType string) (AgentConfig, error) {
+	realType, preset, _ := strings.Cut(strings.TrimSpace(agentType), ":")
+	preset = strings.TrimSpace(preset)
+	agentOpts := map[string]any{}
+	if realType == "acp" {
+		if preset == "" {
+			return AgentConfig{}, core.ErrACPCommandRequired
+		}
+		agentOpts["command"] = preset
+		agentOpts["display_name"] = preset
+	}
+	return AgentConfig{Type: realType, Options: agentOpts}, nil
+}
+
+func pickAgentTemplateForNewProject(cfg *Config, opts EnsureProjectWithFeishuOptions) (AgentConfig, error) {
 	cloneName := strings.TrimSpace(opts.CloneFromProject)
 	if cloneName != "" {
 		for i := range cfg.Projects {
 			if cfg.Projects[i].Name == cloneName {
-				return cloneAgentConfig(cfg.Projects[i].Agent)
+				return cloneAgentConfig(cfg.Projects[i].Agent), nil
 			}
 		}
 	}
 	if agentType := strings.TrimSpace(opts.AgentType); agentType != "" {
-		realType, preset, _ := strings.Cut(agentType, ":")
-		agentOpts := map[string]any{}
-		if realType == "acp" && preset != "" {
-			agentOpts["command"] = preset
-			agentOpts["display_name"] = preset
-		}
-		return AgentConfig{
-			Type:    realType,
-			Options: agentOpts,
-		}
+		return agentForNewProject(agentType)
 	}
 	if len(cfg.Projects) > 0 {
-		return cloneAgentConfig(cfg.Projects[0].Agent)
+		return cloneAgentConfig(cfg.Projects[0].Agent), nil
 	}
 	return AgentConfig{
 		Type:    "codex",
 		Options: map[string]any{},
-	}
+	}, nil
 }
 
 func cloneAgentConfig(in AgentConfig) AgentConfig {
@@ -4201,7 +4221,9 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	agentCfg := AgentConfig{Type: "codex", Options: map[string]any{}}
 	at := strings.TrimSpace(agentType)
 	if at != "" {
-		agentCfg.Type = at
+		if agentCfg, err = agentForNewProject(at); err != nil {
+			return err
+		}
 	}
 	if len(cfg.Projects) > 0 && at == "" {
 		agentCfg = cloneAgentConfig(cfg.Projects[0].Agent)
