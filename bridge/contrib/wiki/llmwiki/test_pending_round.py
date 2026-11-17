@@ -31,7 +31,7 @@ class PendingRound(unittest.TestCase):
         path.write_text("".join(json.dumps(r) + "\n" for r in records))
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         args = argparse.Namespace(lint=False, nightly=False, pending=True, session=None)
@@ -67,7 +67,7 @@ class PendingRound(unittest.TestCase):
             with self.subTest(pending=pending):
                 db = sqlite3.connect(":memory:")
                 db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                                 "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                                 "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                                  "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                                  "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
                 item = dict(id="retry001", end=1, path=ROOT / "retry.jsonl", title="t",
@@ -119,7 +119,7 @@ class PendingRound(unittest.TestCase):
     def test_pending_yields_and_resumes_without_repeating_accepted_sessions(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         paths = [ROOT / f"sess{n:04d}-tail.jsonl" for n in range(3)]
@@ -183,7 +183,7 @@ class PendingRound(unittest.TestCase):
         end = path.stat().st_size
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         args = argparse.Namespace(lint=False, nightly=False, pending=True, session=None)
