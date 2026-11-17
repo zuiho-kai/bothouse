@@ -98,6 +98,15 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书的群组接口没有分类这个概念（platform/feishu/workspaces.go:76「Feishu has no categories: ParentID is empty」），工作区本身就是一个群，没有可挪的频道容器
 - cloud-web: 不支持：网页频道的工作区是 gateway 的房间，整个共享池只有一个平铺的「分类」（platform/cloud-web/workspaces.go:98-99，ParentID 为空），没有可挪的频道容器
 
+## TeamWorkspaceDeleter
+
+删除空闲工作区：只删除平台上的频道，不删除桥的工作区记录；支持的平台由 `core/team_workspace_delete.go` 调用。
+
+- cloud-web: 已接
+- discord: 不支持：按 #1904 的设计，在 Discord 上删除频道；桥不提供删除实现
+- feishu: 不支持：按 #1904 的设计，在飞书上删除频道；桥不提供删除实现
+- dsh: 不支持：DSH 工作区由 cloud-web 提供，此能力目前未接
+
 ## TeamChannelGoneChecker
 
 任务板收起「所在频道已删」的条目时用（core/team_task_board.go dropGoneTeamTaskBoard）：列频道只拿得到服务器的文字频道，子区、论坛帖、私聊当聊天频道派的活不在列表里；实现了它的平台，core 对不在列表里的频道单独问一次，确认删了才收起，拿不准就保留。没实现的平台沿用原规则（不在列表里就收起）。
